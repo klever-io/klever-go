@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;bootstrapStorage";
+
+//BootstrapHeaderInfo is used to store information about a header
+message BootstrapHeaderInfo {
+	uint32 Epoch   = 1 [json_name = "epoch,omitempty"];
+	uint64 Nonce   = 2 [json_name = "nonce,omitempty"];
+	bytes  Hash    = 3 [json_name = "hash,omitempty"];
+}
+
+// BootstrapData is used to store information that are needed for bootstrap
+message BootstrapData {
+	BootstrapHeaderInfo            LastHeader                 = 1  [json_name = "lastHeader,omitempty"];
+	int64                          LastSlot                   = 2  [json_name = "lastSlot,omitempty"];
+	uint64                         HighestFinalBlockNonce     = 3  [json_name = "highestFinalBlockNonce,omitempty"];
+	bytes                          NodesCoordinatorConfigKey  = 10 [json_name = "nodesCoordinatorConfigKey,omitempty"];
+	bytes                          EpochStartTriggerConfigKey = 11 [json_name = "epochStartTriggerConfigKey,omitempty"];
+}
+
+message SlotNum {
+	int64          Num = 1;
+}

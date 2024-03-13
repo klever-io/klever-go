@@ -1,0 +1,574 @@
+package interceptors_test
+
+import (
+	"bytes"
+	"errors"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/core/process/interceptors"
+	"github.com/klever-io/klever-go/data/batch"
+	"github.com/klever-io/klever-go/tools/check"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+var fromConnectedPeerID = core.PeerID("from connected peer ID")
+
+func createMockArgMultiDataInterceptor() interceptors.ArgMultiDataInterceptor {
+	return interceptors.ArgMultiDataInterceptor{
+		Topic:            "test topic",
+		Marshalizer:      &mock.MarshalizerMock{},
+		DataFactory:      &mock.InterceptedDataFactoryStub{},
+		Processor:        &mock.InterceptorProcessorStub{},
+		Throttler:        createMockThrottler(),
+		AntifloodHandler: &mock.P2PAntifloodHandlerStub{},
+		WhiteListRequest: &mock.WhiteListHandlerStub{},
+		CurrentPeerID:    "pid",
+	}
+}
+
+func TestNewMultiDataInterceptor_EmptyTopicShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.Topic = ""
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+
+	assert.Nil(t, mdi)
+	assert.Equal(t, process.ErrEmptyTopic, err)
+}
+
+func TestNewMultiDataInterceptor_NilMarshalizerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.Marshalizer = nil
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+
+	assert.Nil(t, mdi)
+	assert.Equal(t, process.ErrNilMarshalizer, err)
+}
+
+func TestNewMultiDataInterceptor_NilInterceptedDataFactoryShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.DataFactory = nil
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+
+	assert.Nil(t, mdi)
+	assert.Equal(t, process.ErrNilInterceptedDataFactory, err)
+}
+
+func TestNewMultiDataInterceptor_NilInterceptedDataProcessorShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.Processor = nil
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+
+	assert.Nil(t, mdi)
+	assert.Equal(t, process.ErrNilInterceptedDataProcessor, err)
+}
+
+func TestNewMultiDataInterceptor_NilInterceptorThrottlerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.Throttler = nil
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+
+	assert.Nil(t, mdi)
+	assert.Equal(t, process.ErrNilInterceptorThrottler, err)
+}
+
+func TestNewMultiDataInterceptor_NilAntifloodHandlerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.AntifloodHandler = nil
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+
+	assert.Nil(t, mdi)
+	assert.Equal(t, process.ErrNilAntifloodHandler, err)
+}
+
+func TestNewMultiDataInterceptor_NilWhiteListHandlerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.WhiteListRequest = nil
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+
+	assert.Nil(t, mdi)
+	assert.Equal(t, process.ErrNilWhiteListHandler, err)
+}
+
+func TestNewMultiDataInterceptor_EmptyPeerIDShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.CurrentPeerID = ""
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+
+	assert.Nil(t, mdi)
+	assert.Equal(t, process.ErrEmptyPeerID, err)
+}
+
+func TestNewMultiDataInterceptor(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgMultiDataInterceptor()
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+
+	require.False(t, check.IfNil(mdi))
+	require.Nil(t, err)
+	assert.Equal(t, arg.Topic, mdi.Topic())
+}
+
+//------- ProcessReceivedMessage
+
+func TestMultiDataInterceptor_ProcessReceivedMessageNilMessageShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgMultiDataInterceptor()
+	mdi, _ := interceptors.NewMultiDataInterceptor(arg)
+
+	err := mdi.ProcessReceivedMessage(nil, fromConnectedPeerID)
+
+	assert.Equal(t, common.ErrNilMessage, err)
+}
+
+func TestMultiDataInterceptor_ProcessReceivedMessageUnmarshalFailsShouldErr(t *testing.T) {
+	t.Parallel()
+
+	errExpeced := errors.New("expected error")
+	originatorPid := core.PeerID("originator")
+	originatorBlackListed := false
+	fromConnectedPeerBlackListed := false
+	arg := createMockArgMultiDataInterceptor()
+	arg.Marshalizer = &mock.MarshalizerStub{
+		UnmarshalCalled: func(obj interface{}, buff []byte) error {
+			return errExpeced
+		},
+	}
+	arg.AntifloodHandler = &mock.P2PAntifloodHandlerStub{
+		BlacklistPeerCalled: func(peer core.PeerID, reason string, duration time.Duration) {
+			if peer == originatorPid {
+				originatorBlackListed = true
+			}
+			if peer == fromConnectedPeerID {
+				fromConnectedPeerBlackListed = true
+			}
+		},
+	}
+
+	mdi, _ := interceptors.NewMultiDataInterceptor(arg)
+
+	msg := &mock.P2PMessageMock{
+		DataField: []byte("data to be processed"),
+		PeerField: originatorPid,
+	}
+	err := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+
+	assert.Equal(t, errExpeced, err)
+	assert.True(t, originatorBlackListed)
+	assert.True(t, fromConnectedPeerBlackListed)
+}
+
+func TestMultiDataInterceptor_ProcessReceivedMessageUnmarshalReturnsEmptySliceShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.Marshalizer = &mock.MarshalizerStub{
+		UnmarshalCalled: func(obj interface{}, buff []byte) error {
+			return nil
+		},
+	}
+	mdi, _ := interceptors.NewMultiDataInterceptor(arg)
+
+	msg := &mock.P2PMessageMock{
+		DataField: []byte("data to be processed"),
+	}
+	err := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+
+	assert.Equal(t, process.ErrNoDataInMessage, err)
+}
+
+func TestMultiDataInterceptor_ProcessReceivedCreateFailsShouldErr(t *testing.T) {
+	t.Parallel()
+
+	buffData := [][]byte{[]byte("buff1"), []byte("buff2")}
+
+	checkCalledNum := int32(0)
+	processCalledNum := int32(0)
+	throttler := createMockThrottler()
+	errExpected := errors.New("expected err")
+	originatorPid := core.PeerID("originator")
+	originatorBlackListed := false
+	fromConnectedPeerBlackListed := false
+	arg := createMockArgMultiDataInterceptor()
+	arg.DataFactory = &mock.InterceptedDataFactoryStub{
+		CreateCalled: func(buff []byte) (data process.InterceptedData, e error) {
+			return nil, errExpected
+		},
+	}
+	arg.Throttler = throttler
+	arg.Processor = createMockInterceptorStub(&checkCalledNum, &processCalledNum)
+	arg.AntifloodHandler = &mock.P2PAntifloodHandlerStub{
+		BlacklistPeerCalled: func(peer core.PeerID, reason string, duration time.Duration) {
+			if peer == originatorPid {
+				originatorBlackListed = true
+			}
+			if peer == fromConnectedPeerID {
+				fromConnectedPeerBlackListed = true
+			}
+		},
+	}
+	mdi, _ := interceptors.NewMultiDataInterceptor(arg)
+
+	dataField, _ := arg.Marshalizer.Marshal(&batch.Batch{Data: buffData})
+	msg := &mock.P2PMessageMock{
+		DataField: dataField,
+		PeerField: originatorPid,
+	}
+	err := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+
+	time.Sleep(time.Second)
+
+	assert.Equal(t, errExpected, err)
+	assert.Equal(t, int32(0), atomic.LoadInt32(&checkCalledNum))
+	assert.Equal(t, int32(0), atomic.LoadInt32(&processCalledNum))
+	assert.Equal(t, int32(1), throttler.StartProcessingCount())
+	assert.Equal(t, int32(1), throttler.EndProcessingCount())
+	assert.True(t, originatorBlackListed)
+	assert.True(t, fromConnectedPeerBlackListed)
+}
+
+func TestMultiDataInterceptor_ProcessReceivedPartiallyCorrectDataShouldErr(t *testing.T) {
+	t.Parallel()
+
+	correctData := []byte("buff1")
+	incorrectData := []byte("buff2")
+	buffData := [][]byte{incorrectData, correctData}
+
+	checkCalledNum := int32(0)
+	processCalledNum := int32(0)
+	throttler := createMockThrottler()
+	errExpected := errors.New("expected err")
+	interceptedData := &mock.InterceptedDataStub{
+		CheckValidityCalled: func() error {
+			return nil
+		},
+	}
+	arg := createMockArgMultiDataInterceptor()
+	arg.DataFactory = &mock.InterceptedDataFactoryStub{
+		CreateCalled: func(buff []byte) (data process.InterceptedData, e error) {
+			if bytes.Equal(buff, incorrectData) {
+				return nil, errExpected
+			}
+
+			return interceptedData, nil
+		},
+	}
+	arg.Processor = createMockInterceptorStub(&checkCalledNum, &processCalledNum)
+	arg.Throttler = throttler
+	mdi, _ := interceptors.NewMultiDataInterceptor(arg)
+
+	dataField, _ := arg.Marshalizer.Marshal(&batch.Batch{Data: buffData})
+	msg := &mock.P2PMessageMock{
+		DataField: dataField,
+	}
+	err := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+
+	time.Sleep(time.Second)
+
+	assert.Equal(t, errExpected, err)
+	assert.Equal(t, int32(0), atomic.LoadInt32(&checkCalledNum))
+	assert.Equal(t, int32(0), atomic.LoadInt32(&processCalledNum))
+	assert.Equal(t, int32(1), throttler.StartProcessingCount())
+	assert.Equal(t, int32(1), throttler.EndProcessingCount())
+}
+
+func TestMultiDataInterceptor_ProcessReceivedMessageNotValidShouldErrAndNotProcess(t *testing.T) {
+	t.Parallel()
+
+	errExpected := errors.New("expected err")
+	testProcessReceiveMessageMultiData(t, errExpected, 0)
+}
+
+func TestMultiDataInterceptor_ProcessReceivedMessageIsAddressedToOtherShardShouldRetNilAndNotProcess(t *testing.T) {
+	t.Parallel()
+
+	testProcessReceiveMessageMultiData(t, process.ErrInterceptedDataNotForCurrentShard, 0)
+}
+
+func TestMultiDataInterceptor_ProcessReceivedMessageOkMessageShouldRetNil(t *testing.T) {
+	t.Parallel()
+
+	testProcessReceiveMessageMultiData(t, nil, 2)
+}
+
+func testProcessReceiveMessageMultiData(t *testing.T, expectedErr error, calledNum int) {
+	buffData := [][]byte{[]byte("buff1"), []byte("buff2")}
+
+	marshalizer := &mock.MarshalizerMock{}
+	checkCalledNum := int32(0)
+	processCalledNum := int32(0)
+	throttler := createMockThrottler()
+	interceptedData := &mock.InterceptedDataStub{
+		CheckValidityCalled: func() error {
+			return expectedErr
+		},
+	}
+	arg := createMockArgMultiDataInterceptor()
+	arg.DataFactory = &mock.InterceptedDataFactoryStub{
+		CreateCalled: func(buff []byte) (data process.InterceptedData, e error) {
+			return interceptedData, nil
+		},
+	}
+	arg.Processor = createMockInterceptorStub(&checkCalledNum, &processCalledNum)
+	arg.Throttler = throttler
+	mdi, _ := interceptors.NewMultiDataInterceptor(arg)
+
+	dataField, _ := marshalizer.Marshal(&batch.Batch{Data: buffData})
+	msg := &mock.P2PMessageMock{
+		DataField: dataField,
+	}
+	err := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+
+	time.Sleep(time.Second)
+
+	assert.Equal(t, expectedErr, err)
+	assert.Equal(t, int32(calledNum), atomic.LoadInt32(&checkCalledNum))
+	assert.Equal(t, int32(calledNum), atomic.LoadInt32(&processCalledNum))
+	assert.Equal(t, int32(1), throttler.StartProcessingCount())
+	assert.Equal(t, int32(1), throttler.EndProcessingCount())
+}
+
+func TestMultiDataInterceptor_ProcessReceivedMessageWhitelistedShouldRetNil(t *testing.T) {
+	t.Parallel()
+
+	buffData := [][]byte{[]byte("buff1"), []byte("buff2")}
+
+	checkCalledNum := int32(0)
+	processCalledNum := int32(0)
+	throttler := createMockThrottler()
+	interceptedData := &mock.InterceptedDataStub{
+		CheckValidityCalled: func() error {
+			return nil
+		},
+	}
+	arg := createMockArgMultiDataInterceptor()
+	arg.DataFactory = &mock.InterceptedDataFactoryStub{
+		CreateCalled: func(buff []byte) (data process.InterceptedData, e error) {
+			return interceptedData, nil
+		},
+	}
+	arg.Processor = createMockInterceptorStub(&checkCalledNum, &processCalledNum)
+	arg.Throttler = throttler
+	arg.WhiteListRequest = &mock.WhiteListHandlerStub{
+		IsWhiteListedCalled: func(interceptedData process.InterceptedData) bool {
+			return true
+		},
+	}
+	mdi, _ := interceptors.NewMultiDataInterceptor(arg)
+
+	dataField, _ := arg.Marshalizer.Marshal(&batch.Batch{Data: buffData})
+	msg := &mock.P2PMessageMock{
+		DataField: dataField,
+	}
+	err := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+
+	time.Sleep(time.Second)
+
+	assert.Nil(t, err)
+	assert.Equal(t, int32(2), atomic.LoadInt32(&checkCalledNum))
+	assert.Equal(t, int32(2), atomic.LoadInt32(&processCalledNum))
+	assert.Equal(t, int32(1), throttler.StartProcessingCount())
+	assert.Equal(t, int32(1), throttler.EndProcessingCount())
+}
+
+func TestMultiDataInterceptor_InvalidTxVersionShouldBackList(t *testing.T) {
+	t.Parallel()
+
+	processReceivedMessageMultiDataInvalidVersion(t, process.ErrInvalidTransactionVersion)
+}
+
+func TestMultiDataInterceptor_InvalidTxChainIDShouldBackList(t *testing.T) {
+	t.Parallel()
+
+	processReceivedMessageMultiDataInvalidVersion(t, process.ErrInvalidChainID)
+}
+
+func processReceivedMessageMultiDataInvalidVersion(t *testing.T, expectedErr error) {
+	buffData := [][]byte{[]byte("buff1"), []byte("buff2")}
+	marshalizer := &mock.MarshalizerMock{}
+	checkCalledNum := int32(0)
+	processCalledNum := int32(0)
+	interceptedData := &mock.InterceptedDataStub{
+		CheckValidityCalled: func() error {
+			return expectedErr
+		},
+	}
+
+	isOriginatorBlackListed := false
+	isFromConnectedPeerBlackListed := false
+	originator := core.PeerID("originator")
+	arg := createMockArgMultiDataInterceptor()
+	arg.DataFactory = &mock.InterceptedDataFactoryStub{
+		CreateCalled: func(buff []byte) (data process.InterceptedData, e error) {
+			return interceptedData, nil
+		},
+	}
+	arg.Processor = createMockInterceptorStub(&checkCalledNum, &processCalledNum)
+	arg.AntifloodHandler = &mock.P2PAntifloodHandlerStub{
+		BlacklistPeerCalled: func(peer core.PeerID, reason string, duration time.Duration) {
+			switch string(peer) {
+			case string(originator):
+				isOriginatorBlackListed = true
+			case string(fromConnectedPeerID):
+				isFromConnectedPeerBlackListed = true
+			}
+		},
+	}
+	arg.WhiteListRequest = &mock.WhiteListHandlerStub{
+		IsWhiteListedCalled: func(interceptedData process.InterceptedData) bool {
+			return true
+		},
+	}
+	mdi, _ := interceptors.NewMultiDataInterceptor(arg)
+
+	dataField, _ := marshalizer.Marshal(&batch.Batch{Data: buffData})
+	msg := &mock.P2PMessageMock{
+		DataField: dataField,
+		PeerField: originator,
+	}
+
+	err := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+	assert.Equal(t, expectedErr, err)
+	assert.True(t, isFromConnectedPeerBlackListed)
+	assert.True(t, isOriginatorBlackListed)
+}
+
+//------- debug
+
+func TestMultiDataInterceptor_SetInterceptedDebugHandlerNilShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgMultiDataInterceptor()
+	mdi, _ := interceptors.NewMultiDataInterceptor(arg)
+
+	err := mdi.SetInterceptedDebugHandler(nil)
+
+	assert.Equal(t, process.ErrNilDebugger, err)
+}
+
+func TestMultiDataInterceptor_SetInterceptedDebugHandlerShouldWork(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgMultiDataInterceptor()
+	mdi, _ := interceptors.NewMultiDataInterceptor(arg)
+
+	debugger := &mock.InterceptedDebugHandlerStub{}
+	err := mdi.SetInterceptedDebugHandler(debugger)
+
+	assert.Nil(t, err)
+	assert.True(t, debugger == mdi.InterceptedDebugHandler()) //pointer testing
+}
+
+func TestMultiDataInterceptor_ProcessReceivedMessageIsOriginatorNotOkButWhiteListed(t *testing.T) {
+	t.Parallel()
+
+	buffData := [][]byte{[]byte("buff1"), []byte("buff2")}
+
+	checkCalledNum := int32(0)
+	processCalledNum := int32(0)
+	throttler := createMockThrottler()
+	interceptedData := &mock.InterceptedDataStub{
+		CheckValidityCalled: func() error {
+			return nil
+		},
+	}
+
+	whiteListHandler := &mock.WhiteListHandlerStub{
+		IsWhiteListedCalled: func(interceptedData process.InterceptedData) bool {
+			return true
+		},
+	}
+	errOriginator := process.ErrOnlyValidatorsCanUseThisTopic
+	arg := createMockArgMultiDataInterceptor()
+	arg.DataFactory = &mock.InterceptedDataFactoryStub{
+		CreateCalled: func(buff []byte) (data process.InterceptedData, e error) {
+			return interceptedData, nil
+		},
+	}
+	arg.Processor = createMockInterceptorStub(&checkCalledNum, &processCalledNum)
+	arg.Throttler = throttler
+	arg.AntifloodHandler = &mock.P2PAntifloodHandlerStub{
+		IsOriginatorElectedForTopicCalled: func(pid core.PeerID, topic string) error {
+			return errOriginator
+		},
+	}
+	arg.WhiteListRequest = whiteListHandler
+	mdi, _ := interceptors.NewMultiDataInterceptor(arg)
+
+	dataField, _ := arg.Marshalizer.Marshal(&batch.Batch{Data: buffData})
+	msg := &mock.P2PMessageMock{
+		DataField: dataField,
+	}
+	err := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+
+	time.Sleep(time.Second)
+
+	assert.Nil(t, err)
+	assert.Equal(t, int32(2), atomic.LoadInt32(&checkCalledNum))
+	assert.Equal(t, int32(2), atomic.LoadInt32(&processCalledNum))
+	assert.Equal(t, int32(1), throttler.StartProcessingCount())
+	assert.Equal(t, int32(1), throttler.EndProcessingCount())
+
+	whiteListHandler.IsWhiteListedCalled = func(interceptedData process.InterceptedData) bool {
+		return false
+	}
+	err = mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+	time.Sleep(time.Second)
+
+	assert.Equal(t, err, errOriginator)
+	assert.Equal(t, int32(2), atomic.LoadInt32(&checkCalledNum))
+	assert.Equal(t, int32(2), atomic.LoadInt32(&processCalledNum))
+	assert.Equal(t, int32(2), throttler.StartProcessingCount())
+	assert.Equal(t, int32(2), throttler.EndProcessingCount())
+}
+
+func TestMultiDataInterceptor_RegisterHandler(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgMultiDataInterceptor()
+	wasCalled := false
+	arg.Processor = &mock.InterceptorProcessorStub{
+		RegisterHandlerCalled: func(handler func(topic string, hash []byte, data interface{})) {
+			wasCalled = true
+		},
+	}
+
+	mdi, _ := interceptors.NewMultiDataInterceptor(arg)
+	mdi.RegisterHandler(nil)
+
+	assert.True(t, wasCalled)
+}
+
+//------- IsInterfaceNil
+
+func TestMultiDataInterceptor_IsInterfaceNil(t *testing.T) {
+	t.Parallel()
+
+	var mdi *interceptors.MultiDataInterceptor
+
+	assert.True(t, check.IfNil(mdi))
+}

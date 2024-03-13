@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;block";
+
+enum Type {
+    TxBlock   = 0;
+    PeerBlock = 10;
+}
+
+// Epoch hold the last finalized headers hash and state root hash
+message Epoch {
+    uint32                        Epoch                    = 1  [json_name = "epoch"];
+	bytes                         ParentHash               = 2  [json_name = "parentHash"];
+	bytes                         TrieRoot                 = 3  [json_name = "trieRoot"];
+	uint64                        Block                    = 4  [json_name = "block"];
+	bytes                         Reserved                 = 10 [json_name = "-"];
+}
+
+// BlockHeader holds the metadata of a block. This is the part that is being hashed and run through consensus.
+// The header holds the hash of the body and also the link to the previous block header hash
+message BlockHeader  {
+    uint64                   Nonce                  = 1  [json_name = "nonce"];
+    bytes                    ParentHash             = 2  [json_name = "parentHash"];
+    int64                    Timestamp              = 3  [json_name = "timestamp"];
+    uint64                   Slot                   = 4  [json_name = "slot"];
+    uint32                   Epoch                  = 5  [json_name = "epoch"];
+    bool                     IsEpochStart           = 6  [json_name = "isEpochStart"];
+    uint64                   PrevEpochStartSlot     = 7  [json_name = "prevEpochStartSlot"];
+    bytes                    TxRootHash             = 8  [json_name = "txRootHash"];
+    bytes                    TrieRoot               = 9  [json_name = "trieRoot"];
+    bytes                    ValidatorsTrieRoot     = 10 [json_name = "validatorsTrieRoot"];
+    bytes                    KAppsTrieRoot          = 11 [json_name = "kappsTrieRoot"];
+    bytes                    PrevRandSeed           = 13 [json_name = "prevRandSeed,omitempty"];
+    bytes                    RandSeed               = 14 [json_name = "randSeed,omitempty"];
+    uint32                   TxCount                = 15 [json_name = "txCount,omitempty"];
+    int64                    TxFees                 = 16 [json_name = "txFees,omitempty"];
+    int64                    TxBurnedFees           = 17 [json_name = "txBurnedFees,omitempty"];
+    int64                    KAppFees               = 18 [json_name = "kAppFees,omitempty"];
+    int64                    BlockRewards           = 19 [json_name = "blockRewards,omitempty"];
+    int64                    StakingRewards         = 20 [json_name = "stakingRewards,omitempty"];
+    bytes                    SoftwareVersion        = 21 [json_name = "softwareVersion,omitempty"];
+    bytes                    ChainID                = 22 [json_name = "chainID,omitempty"];
+    int64                    BurnedUnclaimed        = 23 [json_name = "burnedUnclaimed,omitempty"];
+    bytes                    Reserved               = 30 [json_name = "-"];
+}
+
+// Block holds all block info 
+message Block  {
+    BlockHeader              Header                 = 1 [json_name = "blockHeader"];
+    repeated bytes           TxHashes  		        = 2 [json_name = "txHashes"];
+    bytes                    ProducerSignature      = 3 [json_name = "producerSignature"];
+    bytes                    PubKeysBitmap          = 4 [json_name = "pubKeysBitmap"];
+    bytes                    Signature              = 5 [json_name = "signature"];
+}
+
+message EValidatorInfo  {
+    bytes                    OwnerAddress          = 1 [json_name = "ownerAddress"];
+    bytes                    PublicKey             = 2 [json_name = "publicKey"];
+    string                   List                  = 3 [json_name = "list"];
+    uint32                   Index                 = 4 [json_name = "index"];
+    uint32                   TempRating            = 5 [json_name = "tempRating"];
+}

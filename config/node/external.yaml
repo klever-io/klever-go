@@ -1,0 +1,25 @@
+elasticSearchConnector:
+  enabled: false
+  indexerCacheSize: 100
+  url: http://localhost:9200 
+  useKibana: true
+  username:  
+  password:  
+  enabledIndexes:
+    - transactions
+    - blocks
+    - accounts
+    - accountshistory
+    - assets
+    - proposals
+    - marketplaces
+    - network-parameters
+    - rating
+    - epoch
+    - accountskda
+    - peersaccounts
+    - marketplaceorders
+    - itos
+    - kdapools
+    - logs
+    - scdeploys

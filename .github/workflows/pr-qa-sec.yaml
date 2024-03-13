@@ -1,0 +1,17 @@
+name: QA Sec
+
+on: [pull_request]
+
+jobs:
+  config:
+    uses: klever-io/workflow-calls/.github/workflows/go-setup.yaml@master
+    secrets:
+      git_user: ${{ secrets.GIT_USER }}
+      git_pass: ${{ secrets.GIT_PASS }}
+
+  ci:
+    uses: klever-io/klever-go/.github/workflows/reusable.yaml@chore/qa-sec-tests
+    secrets:
+      sonar_token: ${{ secrets.SONAR_TOKEN }}
+      sonar_host_url: ${{ secrets.SONAR_HOST_URL }}
+    needs: [config]

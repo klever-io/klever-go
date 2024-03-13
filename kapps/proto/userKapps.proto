@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;kapps";
+
+message UserKDA {
+    int64                   Balance             = 1 [json_name = "balance,omitempty"];
+    int64                   FrozenBalance       = 2 [json_name = "frozenBalance,omitempty"];
+    LastClaim               LastClaim           = 3 [json_name = "lastClaim,omitempty"];
+    map<string, UserBucket> Buckets             = 4 [json_name = "buckets,omitempty"];
+    bytes                   MIME                = 5 [json_name = "mime,omitempty"];
+    bytes                   Metadata            = 6 [json_name = "metadata,omitempty"];
+}
+
+message LastClaim {
+    int64   Timestamp = 1 [json_name = "timestamp"];
+    uint32  Epoch     = 2 [json_name = "epoch"];
+}
+
+message UserBucket {
+    int64   StakedAt         = 1 [json_name = "stakedAt"];
+    uint32  StakedEpoch      = 2 [json_name = "stakedEpoch"];
+    uint32  UnstakedEpoch    = 3 [json_name = "unstakedEpoch"];
+    int64   Value            = 4 [json_name = "value"];
+    bytes   Delegation       = 5 [json_name = "delegation,omitempty"];
+}

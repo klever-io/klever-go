@@ -1,0 +1,43 @@
+name: End-To-End Reusable
+on:
+  workflow_call:
+    secrets:
+      node_url:
+        required: true
+      proxy_url:
+        required: true
+      private_keys:
+        required: true
+
+jobs:
+  e2e-tests:
+    needs: [config]
+    runs-on: klever-pipe
+    env:
+      E2E_NODE_URL: ${{ secrets.node_url }}
+      E2E_PROXY_URL: ${{ secrets.proxy_url }}
+      E2E_PRIVATE_KEYS: ${{ secrets.private_keys }}
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions/setup-go@v2
+        with:
+          go-version: "1.20"
+
+      - name: cache vendored dependencies
+        id: cache-vendor
+        uses: actions/cache@v2
+        with:
+          path: vendor
+          key: ${{ hashFiles('**/go.sum') }}-${{ secrets.CACHE_VERSION }}
+
+      - name: vendor dependencies
+        run: |
+          go mod vendor
+          go install github.com/goware/modvendor@latest
+          modvendor -copy="**/*.c **/*.h **/*.proto **/*.a" -v
+        if: steps.cache-vendor.outputs.cache-hit != 'true'
+
+      - name: run e2e tests
+        run: |
+          make tests-e2e

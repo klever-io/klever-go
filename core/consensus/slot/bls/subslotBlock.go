@@ -1,0 +1,413 @@
+package bls
+
+import (
+	"time"
+
+	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/consensus"
+	"github.com/klever-io/klever-go/core/consensus/slot"
+	"github.com/klever-io/klever-go/data"
+	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/tools"
+	"github.com/klever-io/klever-go/tools/check"
+)
+
+// subslotBlock defines the data needed by the subslot Block
+type subslotBlock struct {
+	*slot.Subslot
+
+	processingThresholdPercentage int
+}
+
+// NewSubslotBlock creates a subslotBlock object
+func NewSubslotBlock(
+	baseSubslot *slot.Subslot,
+	extend func(subslotId int),
+	processingThresholdPercentage int,
+) (*subslotBlock, error) {
+	err := checkNewSubslotBlockParams(baseSubslot)
+	if err != nil {
+		return nil, err
+	}
+
+	srBlock := subslotBlock{
+		Subslot:                       baseSubslot,
+		processingThresholdPercentage: processingThresholdPercentage,
+	}
+
+	srBlock.Job = srBlock.doBlockJob
+	srBlock.Check = srBlock.doBlockConsensusCheck
+	srBlock.Extend = extend
+
+	return &srBlock, nil
+}
+
+func checkNewSubslotBlockParams(
+	baseSubslot *slot.Subslot,
+) error {
+	if baseSubslot == nil {
+		return slot.ErrNilSubslot
+	}
+
+	if baseSubslot.ConsensusState == nil {
+		return slot.ErrNilConsensusState
+	}
+
+	err := slot.ValidateConsensusCore(baseSubslot.ConsensusCoreHandler)
+
+	return err
+}
+
+// doBlockJob method does the job of the subslot Block
+func (sr *subslotBlock) doBlockJob() bool {
+	if !sr.IsSelfLeaderInCurrentSlot() { // is NOT self leader in this slot?
+		return false
+	}
+
+	if sr.SlotManager().Index() <= sr.getSlotInLastCommittedBlock() {
+		return false
+	}
+
+	if sr.IsSelfJobDone(sr.Current()) {
+		return false
+	}
+
+	if sr.IsSubslotFinished(sr.Current()) {
+		return false
+	}
+
+	metricStatTime := time.Now()
+	defer sr.computeSubslotProcessingMetric(metricStatTime, core.MetricCreatedProposedBlock)
+
+	header, err := sr.createHeader()
+	if err != nil {
+		log.Debug("doBlockJob.createHeader", "error", err.Error())
+		return false
+	}
+
+	header, err = sr.createBlock(header)
+	if err != nil {
+		log.Debug("doBlockJob.createBlock", "error", err.Error())
+		return false
+	}
+
+	sentWithSuccess := sr.sendBlock(header)
+	if !sentWithSuccess {
+		return false
+	}
+
+	err = sr.SetSelfJobDone(sr.Current(), true)
+	if err != nil {
+		log.Debug("doBlockJob.SetSelfJobDone", "error", err.Error())
+		return false
+	}
+
+	return true
+}
+
+func (sr *subslotBlock) sendBlock(header data.HeaderHandler) bool {
+
+	blkObj, ok := header.(*block.Block)
+	if !ok {
+		log.Error("sendBlock.Assertion block", "error", common.ErrWrongTypeAssertion.Error())
+		return false
+	}
+
+	headerHash, err := tools.CalculateHash(sr.Marshalizer(), sr.Hasher(), blkObj.Header)
+	if err != nil {
+		log.Error("sendBlock.CalculateHash", "error", err.Error())
+		return false
+	}
+
+	marshalizedData, err := sr.Marshalizer().Marshal(header)
+	if err != nil {
+		log.Debug("sendBlock.Marshal: header", "error", err.Error())
+		return false
+	}
+
+	return sr.sendBlockBodyAndHeader(header, headerHash, marshalizedData)
+
+}
+
+func (sr *subslotBlock) createBlock(header data.HeaderHandler) (data.HeaderHandler, error) {
+	startTime := sr.SlotTimestamp
+	maxTime := time.Duration(sr.EndTime())
+	haveTimeInCurrentSubslot := func() bool {
+		return sr.SlotManager().RemainingTime(startTime, maxTime) > 0
+	}
+
+	finalHeader, err := sr.BlockProcessor().CreateBlock(
+		header,
+		haveTimeInCurrentSubslot,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return finalHeader, nil
+}
+
+// sendBlockBodyAndHeader method sends the proposed block body and header in the subslot Block
+func (sr *subslotBlock) sendBlockBodyAndHeader(
+	headerHandler data.HeaderHandler,
+	headerHash []byte,
+	marshalizedHeader []byte,
+) bool {
+	cnsMsg := consensus.NewConsensusMessage(
+		headerHash,
+		nil,
+		marshalizedHeader,
+		[]byte(sr.SelfPubKey()),
+		nil,
+		int(MtBlockBodyAndHeader),
+		sr.SlotManager().Index(),
+		headerHandler.GetNonce(),
+		sr.ChainID(),
+		nil,
+		nil,
+		nil,
+		sr.CurrentPid(),
+	)
+
+	err := sr.BroadcastMessenger().BroadcastConsensusMessage(cnsMsg)
+	if err != nil {
+		log.Debug("sendBlockBodyAndHeader.BroadcastConsensusMessage", "error", err.Error())
+		return false
+	}
+
+	log.Debug("step 1: block body and header have been sent",
+		"nonce", headerHandler.GetNonce(),
+		"hash", headerHash)
+
+	sr.Data = headerHash
+	sr.Header = headerHandler
+
+	return true
+}
+
+func (sr *subslotBlock) createHeader() (data.HeaderHandler, error) {
+	var nonce uint64
+	var prevHash []byte
+	var prevRandSeed []byte
+
+	currentHeader := sr.Blockchain().GetCurrentBlockHeader()
+	if check.IfNil(currentHeader) {
+		nonce = sr.Blockchain().GetGenesisHeader().GetNonce() + 1
+		prevHash = sr.Blockchain().GetGenesisHeaderHash()
+		prevRandSeed = sr.Blockchain().GetGenesisHeader().GetRandSeed()
+	} else {
+		nonce = currentHeader.GetNonce() + 1
+		prevHash = sr.Blockchain().GetCurrentBlockHeaderHash()
+		prevRandSeed = currentHeader.GetRandSeed()
+	}
+
+	slot := uint64(sr.SlotManager().Index())
+	hdr := sr.BlockProcessor().CreateNewHeader(slot, nonce)
+	hdr.SetParentHash(prevHash)
+
+	randSeed, err := sr.SingleSigner().Sign(sr.PrivateKey(), prevRandSeed)
+	if err != nil {
+		return nil, err
+	}
+
+	hdr.SetTimestamp(sr.SlotManager().Timestamp().Unix())
+	hdr.SetPrevRandSeed(prevRandSeed)
+	hdr.SetRandSeed(randSeed)
+	hdr.SetChainID(sr.ChainID())
+
+	return hdr, nil
+}
+
+// receivedBlockBodyAndHeader method is called when a block body and a block header is received
+func (sr *subslotBlock) receivedBlockBodyAndHeader(cnsDta *consensus.Message) bool {
+	sw := tools.NewStopWatch()
+	sw.Start("receivedBlockBodyAndHeader")
+
+	defer func() {
+		sw.Stop("receivedBlockBodyAndHeader")
+		log.Debug("time measurements of receivedBlockBodyAndHeader", sw.GetMeasurements()...)
+	}()
+
+	node := string(cnsDta.PubKey)
+
+	if sr.IsConsensusDataSet() {
+		return false
+	}
+
+	if !sr.IsNodeLeaderInCurrentSlot(node) { // is NOT this node leader in current slot?
+		sr.PeerHonestyHandler().ChangeScore(
+			node,
+			common.ConsensusTopic,
+			slot.LeaderPeerHonestyDecreaseFactor,
+		)
+
+		return false
+	}
+
+	if sr.IsHeaderAlreadyReceived() {
+		return false
+	}
+
+	if !sr.CanProcessReceivedMessage(cnsDta, sr.SlotManager().Index(), sr.Current()) {
+		return false
+	}
+
+	sr.Data = cnsDta.BlockHeaderHash
+	sr.Header = sr.BlockProcessor().DecodeBlockHeader(cnsDta.Header)
+
+	if sr.Data == nil || check.IfNil(sr.Header) {
+		return false
+	}
+
+	log.Debug("step 1: block body and header have been received",
+		"nonce", sr.Header.GetNonce(),
+		"hash", cnsDta.BlockHeaderHash)
+
+	sw.Start("processReceivedBlock")
+	blockProcessedWithSuccess := sr.processReceivedBlock(cnsDta)
+	sw.Stop("processReceivedBlock")
+
+	sr.PeerHonestyHandler().ChangeScore(
+		node,
+		common.ConsensusTopic,
+		slot.LeaderPeerHonestyIncreaseFactor,
+	)
+
+	return blockProcessedWithSuccess
+}
+
+func (sr *subslotBlock) processReceivedBlock(cnsDta *consensus.Message) bool {
+	if check.IfNil(sr.Header) {
+		return false
+	}
+
+	defer func() {
+		sr.SetProcessingBlock(false)
+	}()
+
+	sr.SetProcessingBlock(true)
+
+	shouldNotProcessBlock := sr.ExtendedCalled || cnsDta.SlotIndex < sr.SlotManager().Index()
+	if shouldNotProcessBlock {
+		log.Debug("canceled slot, extended has been called or slot index has been changed",
+			"slot", sr.SlotManager().Index(),
+			"subslot", sr.Name(),
+			"cnsDta slot", cnsDta.SlotIndex,
+			"extended called", sr.ExtendedCalled,
+		)
+		return false
+	}
+
+	node := string(cnsDta.PubKey)
+
+	startTime := sr.SlotTimestamp
+	maxTime := sr.SlotManager().TimeDuration() * time.Duration(sr.processingThresholdPercentage) / 100
+	remainingTimeInCurrentSlot := func() time.Duration {
+		return sr.SlotManager().RemainingTime(startTime, maxTime)
+	}
+
+	metricStatTime := time.Now()
+	defer sr.computeSubslotProcessingMetric(metricStatTime, core.MetricProcessedProposedBlock)
+
+	err := sr.BlockProcessor().ProcessBlock(
+		sr.Header,
+		remainingTimeInCurrentSlot,
+	)
+
+	if cnsDta.SlotIndex < sr.SlotManager().Index() {
+		log.Debug("canceled slot, slot index has been changed",
+			"slot", sr.SlotManager().Index(),
+			"subslot", sr.Name(),
+			"cnsDta slot", cnsDta.SlotIndex,
+		)
+		return false
+	}
+
+	if err != nil {
+		log.Debug("canceled slot",
+			"slot", sr.SlotManager().Index(),
+			"subslot", sr.Name(),
+			"error", err.Error())
+
+		sr.SlotCanceled = true
+
+		return false
+	}
+
+	err = sr.SetJobDone(node, sr.Current(), true)
+	if err != nil {
+		log.Debug("canceled slot",
+			"slot", sr.SlotManager().Index(),
+			"subslot", sr.Name(),
+			"error", err.Error())
+		return false
+	}
+
+	return true
+}
+
+func (sr *subslotBlock) computeSubslotProcessingMetric(startTime time.Time, metric string) {
+	subSlotDuration := sr.EndTime() - sr.StartTime()
+	if subSlotDuration == 0 {
+		//can not do division by 0
+		return
+	}
+
+	percent := uint64(time.Since(startTime)) * 100 / uint64(subSlotDuration)
+	sr.AppStatusHandler().SetUInt64Value(metric, percent)
+}
+
+// doBlockConsensusCheck method checks if the consensus in the subslot Block is achieved
+func (sr *subslotBlock) doBlockConsensusCheck() bool {
+	if sr.SlotCanceled {
+		return false
+	}
+
+	if sr.IsSubslotFinished(sr.Current()) {
+		return true
+	}
+
+	threshold := sr.Threshold(sr.Current())
+	if sr.isBlockReceived(threshold) {
+		log.Debug("step 1: subslot has been finished",
+			"subslot", sr.Name())
+		sr.SetStatus(sr.Current(), slot.SsFinished)
+		return true
+	}
+
+	return false
+}
+
+// isBlockReceived method checks if the block was received from the leader in the current slot
+func (sr *subslotBlock) isBlockReceived(threshold int) bool {
+	n := 0
+
+	for i := 0; i < len(sr.ConsensusGroup()); i++ {
+		node := sr.ConsensusGroup()[i]
+		isJobDone, err := sr.JobDone(node, sr.Current())
+		if err != nil {
+			log.Debug("isBlockReceived.JobDone",
+				"node", node,
+				"subslot", sr.Name(),
+				"error", err.Error())
+			continue
+		}
+
+		if isJobDone {
+			n++
+		}
+	}
+
+	return n >= threshold
+}
+
+func (sr *subslotBlock) getSlotInLastCommittedBlock() int64 {
+	slotInLastCommittedBlock := int64(0)
+	currentHeader := sr.Blockchain().GetCurrentBlockHeader()
+	if !check.IfNil(currentHeader) {
+		slotInLastCommittedBlock = int64(currentHeader.GetSlot())
+	}
+
+	return slotInLastCommittedBlock
+}

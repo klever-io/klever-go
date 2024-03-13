@@ -1,0 +1,36 @@
+name: Reusable
+on:
+  workflow_call:
+    inputs:
+      extra_label:
+        required: false
+        default: klever-pipe
+        type: string
+    secrets:
+      sonar_token:
+        required: true
+      sonar_host_url:
+        required: true
+jobs:
+  analysis:
+    runs-on: ["self-hosted", "${{ inputs.extra_label }}"]
+    env:
+      SONAR_TOKEN: ${{ secrets.sonar_token }}
+      SONAR_HOST_URL: ${{ secrets.sonar_host_url }}
+      GO111MODULE: on
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Run Gosec Security Scanner
+        uses: securego/gosec@master
+        with:
+          args: '-no-fail --fmt sonarqube --out report.json ./...'
+
+      - name: SonarQube Go detailed scan
+        uses: sonarsource/sonarqube-scan-action@master
+        with:
+          args: >
+            -Dsonar.projectKey=${{ github.event.repository.name }}
+            -Dsonar.externalIssuesReportPaths="report.json"
+            -Dsonar.branch.name=${{ github.ref_name }}

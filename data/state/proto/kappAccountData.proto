@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;state";
+
+message KAppAccountData {
+    bytes   Address                  = 1 [json_name = "address,omitempty"];
+    bytes   Name                     = 2 [json_name = "name,omitempty"];
+    bytes   RootHash                 = 3 [json_name = "rootHash,omitempty"];
+}

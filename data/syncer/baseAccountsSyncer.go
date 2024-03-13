@@ -1,0 +1,130 @@
+package syncer
+
+import (
+	"context"
+	"sync"
+	"time"
+
+	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/crypto/hashing"
+	"github.com/klever-io/klever-go/data"
+	"github.com/klever-io/klever-go/data/trie"
+	"github.com/klever-io/klever-go/storage"
+	"github.com/klever-io/klever-go/tools/check"
+	"github.com/klever-io/klever-go/tools/marshal"
+)
+
+type baseAccountsSyncer struct {
+	hasher                    hashing.Hasher
+	marshalizer               marshal.Marshalizer
+	trieSyncers               map[string]data.TrieSyncer
+	dataTries                 map[string]data.Trie
+	mutex                     sync.Mutex
+	trieStorageManager        data.StorageManager
+	requestHandler            trie.RequestHandler
+	timeout                   time.Duration
+	cacher                    storage.Cacher
+	rootHash                  []byte
+	maxTrieLevelInMemory      uint
+	name                      string
+	maxHardCapForMissingNodes int
+}
+
+const timeBetweenStatisticsPrints = time.Second * 2
+
+// ArgsNewBaseAccountsSyncer defines the arguments needed for the new account syncer
+type ArgsNewBaseAccountsSyncer struct {
+	Hasher                    hashing.Hasher
+	Marshalizer               marshal.Marshalizer
+	TrieStorageManager        data.StorageManager
+	RequestHandler            trie.RequestHandler
+	Timeout                   time.Duration
+	Cacher                    storage.Cacher
+	MaxTrieLevelInMemory      uint
+	MaxHardCapForMissingNodes int
+}
+
+func checkArgs(args ArgsNewBaseAccountsSyncer) error {
+	if check.IfNil(args.Hasher) {
+		return common.ErrNilHasher
+	}
+	if check.IfNil(args.Marshalizer) {
+		return common.ErrNilMarshalizer
+	}
+	if check.IfNil(args.TrieStorageManager) {
+		return common.ErrNilStorageManager
+	}
+	if check.IfNil(args.RequestHandler) {
+		return common.ErrNilRequestHandler
+	}
+	if check.IfNil(args.Cacher) {
+		return common.ErrNilCacher
+	}
+	if args.MaxHardCapForMissingNodes < 1 {
+		return common.ErrInvalidMaxHardCapForMissingNodes
+	}
+
+	return nil
+}
+
+func (b *baseAccountsSyncer) syncMainTrie(rootHash []byte, trieTopic string, ssh data.SyncStatisticsHandler, ctx context.Context) error {
+	b.rootHash = rootHash
+
+	dataTrie, err := trie.NewTrie(b.trieStorageManager, b.marshalizer, b.hasher, b.maxTrieLevelInMemory)
+	if err != nil {
+		return err
+	}
+
+	b.dataTries[string(rootHash)] = dataTrie
+	arg := trie.ArgTrieSyncer{
+		RequestHandler:                 b.requestHandler,
+		InterceptedNodes:               b.cacher,
+		Trie:                           dataTrie,
+		Topic:                          trieTopic,
+		TrieSyncStatistics:             ssh,
+		TimeoutBetweenTrieNodesCommits: b.timeout,
+		MaxHardCapForMissingNodes:      b.maxHardCapForMissingNodes,
+	}
+	trieSyncer, err := trie.NewTrieSyncer(arg)
+	if err != nil {
+		return err
+	}
+	b.trieSyncers[string(rootHash)] = trieSyncer
+
+	err = trieSyncer.StartSyncing(rootHash, ctx)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// GetSyncedTries returns the synced map of data trie
+func (b *baseAccountsSyncer) GetSyncedTries() map[string]data.Trie {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+
+	clonedMap := make(map[string]data.Trie, len(b.dataTries))
+	for key, value := range b.dataTries {
+		clonedMap[key] = value
+	}
+
+	return clonedMap
+}
+
+func (b *baseAccountsSyncer) printStatistics(ssh data.SyncStatisticsHandler, ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("finished trie sync", "name", b.name, "num received", ssh.NumReceived(), "num missing", ssh.NumMissing())
+			return
+		case <-time.After(timeBetweenStatisticsPrints):
+			log.Info("trie sync in progress", "name", b.name, "num received", ssh.NumReceived(), "num missing", ssh.NumMissing())
+		}
+	}
+}
+
+// IsInterfaceNil returns true if underlying object is nil
+func (b *baseAccountsSyncer) IsInterfaceNil() bool {
+	return b == nil
+}

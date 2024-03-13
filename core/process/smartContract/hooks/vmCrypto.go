@@ -1,0 +1,58 @@
+package hooks
+
+import (
+	factoryHasher "github.com/klever-io/klever-go/crypto/hashing/factory"
+	"golang.org/x/crypto/ripemd160"
+)
+
+// VMCryptoHook is a wrapper used in vm implementation
+type VMCryptoHook struct {
+}
+
+// NewVMCryptoHook creates a new instance of a vm crypto hook
+func NewVMCryptoHook() *VMCryptoHook {
+	return &VMCryptoHook{}
+}
+
+// Sha256 returns a sha 256 hash of the input string. Should return in hex format.
+func (vmch *VMCryptoHook) Sha256(data []byte) ([]byte, error) {
+	hasher, err := factoryHasher.NewHasher("sha256")
+	if err != nil {
+		return nil, err
+	}
+
+	return hasher.Compute(string(data)), nil
+}
+
+// Keccak256 returns a keccak 256 hash of the input string. Should return in hex format.
+func (vmch *VMCryptoHook) Keccak256(data []byte) ([]byte, error) {
+	hasher, err := factoryHasher.NewHasher("keccak")
+	if err != nil {
+		return nil, err
+	}
+
+	return hasher.Compute(string(data)), nil
+}
+
+// Ripemd160 is a legacy hash and should not be used for new applications
+func (vmch *VMCryptoHook) Ripemd160(data []byte) ([]byte, error) {
+	hash := ripemd160.New()
+	_, err := hash.Write(data)
+	if err != nil {
+		return nil, err
+	}
+
+	result := hash.Sum(nil)
+	return result, nil
+}
+
+// Ecrecover calculates the corresponding Ethereum address for the public key which created the given signature
+// https://ewasm.readthedocs.io/en/mkdocs/system_contracts/
+func (vmch *VMCryptoHook) Ecrecover(_ []byte, _ []byte, _ []byte, _ []byte) ([]byte, error) {
+	return nil, ErrNotImplemented
+}
+
+// IsInterfaceNil returns true if the underlying object is nil
+func (vmch *VMCryptoHook) IsInterfaceNil() bool {
+	return vmch == nil
+}

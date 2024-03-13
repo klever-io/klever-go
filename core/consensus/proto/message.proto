@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;consensus";
+
+// Message defines the data needed by consensus to communicate between nodes over network in all subslots
+message Message {
+	bytes    BlockHeaderHash    = 1;
+	bytes    SignatureShare     = 2;
+	bytes    Header             = 3;
+	bytes    PubKey             = 5;
+	bytes    Signature          = 6;
+	int64    MsgType            = 7;
+	int64    SlotIndex          = 8;
+	bytes    ChainID            = 9;
+	bytes    PubKeysBitmap      = 10;
+	bytes    AggregateSignature = 11;
+	bytes    LeaderSignature    = 12;
+	bytes    OriginatorPid      = 13;
+	uint64   Nonce              = 20;
+}

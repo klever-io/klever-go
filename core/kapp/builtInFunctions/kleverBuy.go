@@ -1,0 +1,149 @@
+package builtInFunctions
+
+import (
+	"fmt"
+	"sync"
+
+	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/kapp"
+	"github.com/klever-io/klever-go/data/state"
+	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/tools/check"
+	"github.com/klever-io/klever-go/vmcommon"
+)
+
+type kleverBuy struct {
+	baseAlwaysActiveHandler
+	accountsCacher state.AccountsCacher
+	kappController kapp.KAppController
+	funcGasCost    uint64
+	marshaller     vmcommon.Marshalizer
+	keyPrefix      []byte
+	payableHandler vmcommon.PayableChecker
+	mutExecution   sync.RWMutex
+	forkController core.ForkController
+}
+
+// NewKleverBuyFunc returns the create asset built-in function component
+func NewKleverBuyFunc(
+	funcGasCost uint64,
+	marshaller vmcommon.Marshalizer,
+	accountsCacher state.AccountsCacher,
+	forkController core.ForkController,
+	kappController kapp.KAppController,
+) (*kleverBuy, error) {
+	if check.IfNil(marshaller) {
+		return nil, ErrNilMarshalizer
+	}
+	if check.IfNil(forkController) {
+		return nil, ErrNilEnableEpochsHandler
+	}
+
+	e := &kleverBuy{
+		funcGasCost:    funcGasCost,
+		marshaller:     marshaller,
+		keyPrefix:      []byte(""),
+		payableHandler: &disabledPayableHandler{},
+		accountsCacher: accountsCacher,
+		forkController: forkController,
+		kappController: kappController,
+	}
+
+	return e, nil
+}
+
+// SetNewGasConfig is called whenever gas cost is changed
+func (e *kleverBuy) SetNewGasConfig(gasCost *vmcommon.GasCost) {
+	if gasCost == nil {
+		return
+	}
+
+	e.mutExecution.Lock()
+	e.funcGasCost = gasCost.BuiltInCost.Buy
+	e.mutExecution.Unlock()
+}
+
+// ProcessBuiltinFunction resolves KDA transfer function calls
+func (e *kleverBuy) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+	e.mutExecution.RLock()
+	defer e.mutExecution.RUnlock()
+
+	contract, err := e.getBuyContract(vmInput)
+	if err != nil {
+		return nil, err
+	}
+
+	err = checkBasicKDAArguments(vmInput)
+	if err != nil {
+		return nil, err
+	}
+
+	gasRemaining := computeGasRemaining(vmInput.GasProvided, e.funcGasCost)
+
+	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
+	err = e.payableHandler.CheckPayable(vmInput, vmInput.RecipientAddr, core.MinLenArgumentsBuy)
+	if err != nil {
+		return nil, err
+	}
+
+	//Using Kapps
+	var resultCode transaction.Transaction_TXResultCode
+	switch contract.GetBuyType() {
+	case transaction.BuyContract_ITOBuy:
+		resultCode, err = e.kappController.GetITOKApp().Buy(vmInput.CallerAddr, contract)
+	case transaction.BuyContract_MarketBuy:
+		resultCode, err = e.kappController.GetMarketKApp().Buy(vmInput.CallerAddr, contract)
+	default:
+		resultCode = transaction.Transaction_ParameterInvalid
+		err = common.ErrBuyTypeInvalid
+	}
+	if err != nil {
+		log.Trace("KleverBuy error", "resultCode", resultCode, "err", err.Error())
+		return nil, err
+	}
+
+	if resultCode != transaction.Transaction_Ok {
+		err = fmt.Errorf("KleverBuy error: %s", resultCode.String())
+		log.Trace("KleverBuy error", "resultCode", resultCode, "err", err.Error())
+		return nil, err
+	}
+
+	vmOutput.GasRemaining, err = vmcommon.SafeSubUint64(vmInput.GasProvided, e.funcGasCost)
+	if err != nil {
+		return nil, err
+	}
+
+	return vmOutput, nil
+}
+
+// getBuyContract convert the arguments to an BuyContract
+func (e *kleverBuy) getBuyContract(vmInput *vmcommon.ContractCallInput) (*transaction.BuyContract, error) {
+	if len(vmInput.Arguments) < core.MinLenArgumentsBuy {
+		return nil, ErrInvalidArguments
+	}
+
+	contract := &transaction.BuyContract{
+		BuyType:    transaction.BuyContract_EnumBuyType(vmInput.NextArg().Int32()),
+		ID:         vmInput.NextArg(),
+		CurrencyID: vmInput.NextArg(),
+		Amount:     vmInput.NextArg().Int64(),
+	}
+
+	return contract, nil
+}
+
+// SetPayableChecker will set the payableCheck handler to the function
+func (e *kleverBuy) SetPayableChecker(payableHandler vmcommon.PayableChecker) error {
+	if check.IfNil(payableHandler) {
+		return ErrNilPayableHandler
+	}
+
+	e.payableHandler = payableHandler
+	return nil
+}
+
+// IsInterfaceNil returns true if underlying object in nil
+func (e *kleverBuy) IsInterfaceNil() bool {
+	return e == nil
+}

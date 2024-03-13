@@ -1,0 +1,11 @@
+[
+  {
+    "address": "klv17e8zzgn73h6ehe3c6q9vlt77kuxk5euddmhymy5uhv2rhv0dc0nqlfp0ap",
+    "balance": 19000000000000,
+    "kfiBalance": 15000000000000,
+    "delegation": {
+      "address": "klv17e8zzgn73h6ehe3c6q9vlt77kuxk5euddmhymy5uhv2rhv0dc0nqlfp0ap",
+      "value": 10000000000000
+    }
+  }
+]

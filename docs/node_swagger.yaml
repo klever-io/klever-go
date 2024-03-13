@@ -1,0 +1,1158 @@
+definitions:
+  anypb.Any:
+    properties:
+      type_url:
+        description: |-
+          A URL/resource name that uniquely identifies the type of the serialized
+          protocol buffer message. This string must contain at least
+          one "/" character. The last segment of the URL's path must represent
+          the fully qualified name of the type (as in
+          `path/google.protobuf.Duration`). The name should be in a canonical form
+          (e.g., leading "." is not accepted).
+
+          In practice, teams usually precompile into the binary all types that they
+          expect it to use in the context of Any. However, for URLs which use the
+          scheme `http`, `https`, or no scheme, one can optionally set up a type
+          server that maps type URLs to message definitions as follows:
+
+          * If no scheme is provided, `https` is assumed.
+          * An HTTP GET on the URL must yield a [google.protobuf.Type][]
+            value in binary format, or produce an error.
+          * Applications are allowed to cache lookup results based on the
+            URL, or have them precompiled into a binary to avoid any
+            lookup. Therefore, binary compatibility needs to be preserved
+            on changes to types. (Use versioned type names to manage
+            breaking changes.)
+
+          Note: this functionality is not currently available in the official
+          protobuf release, and it is not used for type URLs beginning with
+          type.googleapis.com.
+
+          Schemes other than `http`, `https` (or the empty scheme) might be
+          used with implementation specific semantics.
+        type: string
+      value:
+        description: Must be a valid serialized protocol buffer of the above specified
+          type.
+        items:
+          type: integer
+        type: array
+    type: object
+  api.Block:
+    properties:
+      Header:
+        $ref: '#/definitions/block.BlockHeader'
+      ProducerSignature:
+        items:
+          type: integer
+        type: array
+      PubKeysBitmap:
+        items:
+          type: integer
+        type: array
+      Signature:
+        items:
+          type: integer
+        type: array
+      TxHashes:
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
+      hash:
+        type: string
+      status:
+        type: string
+      transactions:
+        items:
+          $ref: '#/definitions/api.Transaction'
+        type: array
+    type: object
+  api.Transaction:
+    properties:
+      Block:
+        type: integer
+      RawData:
+        $ref: '#/definitions/transaction.Transaction_Raw'
+      Receipts:
+        items:
+          $ref: '#/definitions/transaction.Transaction_Receipt'
+        type: array
+      Result:
+        type: integer
+      ResultCode:
+        type: integer
+      Signature:
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
+      hash:
+        type: string
+      signature:
+        items:
+          type: string
+        type: array
+      status:
+        type: string
+    type: object
+  asset.NFTAsset:
+    properties:
+      AssetType:
+        type: integer
+      Attributes:
+        $ref: '#/definitions/kapps.AttributesData'
+      BurnedValue:
+        type: integer
+      CirculatingSupply:
+        type: integer
+      ID:
+        items:
+          type: integer
+        type: array
+      InitialSupply:
+        type: integer
+      IssueDate:
+        type: integer
+      Logo:
+        type: string
+      MaxSupply:
+        type: integer
+      MintedValue:
+        type: integer
+      Name:
+        items:
+          type: integer
+        type: array
+      OwnerAddress:
+        items:
+          type: integer
+        type: array
+      Precision:
+        type: integer
+      Properties:
+        $ref: '#/definitions/kapps.PropertiesData'
+      Roles:
+        items:
+          $ref: '#/definitions/kapps.RolesData'
+        type: array
+      Royalties:
+        $ref: '#/definitions/kapps.RoyaltiesData'
+      Ticker:
+        items:
+          type: integer
+        type: array
+      URIs:
+        additionalProperties:
+          type: string
+        type: object
+      userKDA:
+        $ref: '#/definitions/kapps.UserKDA'
+    type: object
+  block.BlockHeader:
+    properties:
+      BlockRewards:
+        type: integer
+      BurnedUnclaimed:
+        type: integer
+      ChainID:
+        items:
+          type: integer
+        type: array
+      Epoch:
+        type: integer
+      IsEpochStart:
+        type: boolean
+      KAppFees:
+        type: integer
+      KAppsTrieRoot:
+        items:
+          type: integer
+        type: array
+      Nonce:
+        type: integer
+      ParentHash:
+        items:
+          type: integer
+        type: array
+      PrevEpochStartSlot:
+        type: integer
+      PrevRandSeed:
+        items:
+          type: integer
+        type: array
+      RandSeed:
+        items:
+          type: integer
+        type: array
+      Reserved:
+        items:
+          type: integer
+        type: array
+      Slot:
+        type: integer
+      SoftwareVersion:
+        items:
+          type: integer
+        type: array
+      StakingRewards:
+        type: integer
+      Timestamp:
+        type: integer
+      TrieRoot:
+        items:
+          type: integer
+        type: array
+      TxBurnedFees:
+        type: integer
+      TxCount:
+        type: integer
+      TxFees:
+        type: integer
+      TxRootHash:
+        items:
+          type: integer
+        type: array
+      ValidatorsTrieRoot:
+        items:
+          type: integer
+        type: array
+    type: object
+  kapps.AttributesData:
+    properties:
+      IsNFTMetadataChangeStopped:
+        type: boolean
+      IsNFTMintStopped:
+        type: boolean
+      IsPaused:
+        type: boolean
+      IsRoyaltiesChangeStopped:
+        type: boolean
+    type: object
+  kapps.KDAData:
+    properties:
+      AssetType:
+        type: integer
+      Attributes:
+        $ref: '#/definitions/kapps.AttributesData'
+      BurnedValue:
+        type: integer
+      CirculatingSupply:
+        type: integer
+      ID:
+        items:
+          type: integer
+        type: array
+      InitialSupply:
+        type: integer
+      IssueDate:
+        type: integer
+      Logo:
+        type: string
+      MaxSupply:
+        type: integer
+      MintedValue:
+        type: integer
+      Name:
+        items:
+          type: integer
+        type: array
+      OwnerAddress:
+        items:
+          type: integer
+        type: array
+      Precision:
+        type: integer
+      Properties:
+        $ref: '#/definitions/kapps.PropertiesData'
+      Roles:
+        items:
+          $ref: '#/definitions/kapps.RolesData'
+        type: array
+      Royalties:
+        $ref: '#/definitions/kapps.RoyaltiesData'
+      Ticker:
+        items:
+          type: integer
+        type: array
+      URIs:
+        additionalProperties:
+          type: string
+        type: object
+    type: object
+  kapps.LastClaim:
+    properties:
+      Epoch:
+        type: integer
+      Timestamp:
+        type: integer
+    type: object
+  kapps.PropertiesData:
+    properties:
+      CanAddRoles:
+        type: boolean
+      CanBurn:
+        type: boolean
+      CanChangeOwner:
+        type: boolean
+      CanFreeze:
+        type: boolean
+      CanMint:
+        type: boolean
+      CanPause:
+        type: boolean
+      CanWipe:
+        type: boolean
+    type: object
+  kapps.RolesData:
+    properties:
+      Address:
+        items:
+          type: integer
+        type: array
+      HasRoleDeposit:
+        type: boolean
+      HasRoleMint:
+        type: boolean
+      HasRoleSetITOPrices:
+        type: boolean
+    type: object
+  kapps.RoyaltiesData:
+    properties:
+      Address:
+        items:
+          type: integer
+        type: array
+      ITOFixed:
+        type: integer
+      ITOPercentage:
+        type: integer
+      MarketFixed:
+        type: integer
+      MarketPercentage:
+        type: integer
+      SplitRoyalties:
+        additionalProperties:
+          $ref: '#/definitions/kapps.RoyaltySplitData'
+        type: object
+      TransferFixed:
+        type: integer
+      TransferPercentage:
+        items:
+          $ref: '#/definitions/kapps.RoyaltyData'
+        type: array
+    type: object
+  kapps.RoyaltyData:
+    properties:
+      Amount:
+        type: integer
+      Percentage:
+        type: integer
+    type: object
+  kapps.RoyaltySplitData:
+    properties:
+      PercentITOFixed:
+        type: integer
+      PercentITOPercentage:
+        type: integer
+      PercentMarketFixed:
+        type: integer
+      PercentMarketPercentage:
+        type: integer
+      PercentTransferFixed:
+        type: integer
+      PercentTransferPercentage:
+        type: integer
+    type: object
+  kapps.UserBucket:
+    properties:
+      Delegation:
+        items:
+          type: integer
+        type: array
+      StakedAt:
+        type: integer
+      StakedEpoch:
+        type: integer
+      UnstakedEpoch:
+        type: integer
+      Value:
+        type: integer
+    type: object
+  kapps.UserKDA:
+    properties:
+      Balance:
+        type: integer
+      Buckets:
+        additionalProperties:
+          $ref: '#/definitions/kapps.UserBucket'
+        type: object
+      FrozenBalance:
+        type: integer
+      LastClaim:
+        $ref: '#/definitions/kapps.LastClaim'
+      MIME:
+        items:
+          type: integer
+        type: array
+      Metadata:
+        items:
+          type: integer
+        type: array
+    type: object
+  kdafeespool.KDAFeesPoolData:
+    properties:
+      Active:
+        type: boolean
+      AdminAddress:
+        items:
+          type: integer
+        type: array
+      ConvertedFees:
+        type: integer
+      FRatioKDA:
+        type: integer
+      FRatioKLV:
+        type: integer
+      KDA:
+        items:
+          type: integer
+        type: array
+      KDABalance:
+        type: integer
+      KLVBalance:
+        type: integer
+      OwnerAddress:
+        items:
+          type: integer
+        type: array
+    type: object
+  node.QueryDebugRequest:
+    properties:
+      name:
+        type: string
+      search:
+        type: string
+    type: object
+  shared.GenericAPIResponse:
+    properties:
+      code:
+        type: string
+      data: {}
+      error:
+        type: string
+    type: object
+  transaction.BroadcastTXRequest:
+    properties:
+      tx:
+        $ref: '#/definitions/transaction.Transaction'
+      txs:
+        items:
+          $ref: '#/definitions/transaction.Transaction'
+        type: array
+    type: object
+  transaction.TXContract:
+    properties:
+      Parameter:
+        $ref: '#/definitions/anypb.Any'
+      Type:
+        type: integer
+    type: object
+  transaction.Transaction:
+    properties:
+      Block:
+        type: integer
+      RawData:
+        $ref: '#/definitions/transaction.Transaction_Raw'
+      Receipts:
+        items:
+          $ref: '#/definitions/transaction.Transaction_Receipt'
+        type: array
+      Result:
+        type: integer
+      ResultCode:
+        type: integer
+      Signature:
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
+    type: object
+  transaction.Transaction_KDAFee:
+    properties:
+      Amount:
+        description: 'TODO: allow spread'
+        type: integer
+      KDA:
+        items:
+          type: integer
+        type: array
+    type: object
+  transaction.Transaction_Raw:
+    properties:
+      BandwidthFee:
+        type: integer
+      ChainID:
+        items:
+          type: integer
+        type: array
+      Contract:
+        items:
+          $ref: '#/definitions/transaction.TXContract'
+        type: array
+      Data:
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
+      KAppFee:
+        type: integer
+      KDAFee:
+        $ref: '#/definitions/transaction.Transaction_KDAFee'
+      Nonce:
+        type: integer
+      PermissionID:
+        type: integer
+      Sender:
+        items:
+          type: integer
+        type: array
+      Version:
+        type: integer
+    type: object
+  transaction.Transaction_Receipt:
+    properties:
+      Data:
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
+    type: object
+  transaction.sendTXRequest:
+    properties:
+      contract:
+        items:
+          type: integer
+        type: array
+      contracts:
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
+      data:
+        items:
+          items:
+            type: integer
+          type: array
+        type: array
+      kdaFee:
+        type: string
+      nonce:
+        type: integer
+      permID:
+        type: integer
+      sender:
+        type: string
+      type:
+        type: integer
+    type: object
+info:
+  contact: {}
+  description: This is a sample of the KleverChain Node Server.
+  title: KleverChain Node
+  version: "1.0"
+paths:
+  /address/{address}:
+    get:
+      parameters:
+      - description: address
+        in: path
+        name: address
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns an accountResponse
+      tags:
+      - Address
+  /address/{address}/allowance:
+    get:
+      parameters:
+      - description: address
+        in: path
+        name: address
+        required: true
+        type: string
+      - description: asset
+        in: query
+        name: asset
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the rewards avaible for a specific asset in an account
+      tags:
+      - Address
+  /address/{address}/balance:
+    get:
+      parameters:
+      - description: address
+        in: path
+        name: address
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the balance for the address parameter
+      tags:
+      - Address
+  /address/{address}/nonce:
+    get:
+      parameters:
+      - description: address
+        in: path
+        name: address
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the rewards avaible for a specific asset in an account
+      tags:
+      - Address
+  /asset/{id}:
+    get:
+      parameters:
+      - description: asset id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/kapps.KDAData'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns an assetResponse containing information about the asset
+      tags:
+      - Asset
+  /asset/{id}/pool:
+    get:
+      parameters:
+      - description: asset id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/kdafeespool.KDAFeesPoolData'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns an poolResponse containing information about the asset pool
+      tags:
+      - Asset
+  /asset/nft/{owner}/{id}:
+    get:
+      parameters:
+      - description: asset owner
+        in: path
+        name: owner
+        required: true
+        type: string
+      - description: asset id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/asset.NFTAsset'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns an assetResponse containing information about the asset
+      tags:
+      - Asset
+  /block/by-hash/{hash}:
+    get:
+      parameters:
+      - description: block hash
+        in: path
+        name: hash
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/api.Block'
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the block info by hash
+      tags:
+      - Block
+  /block/by-nonce/{nonce}:
+    get:
+      parameters:
+      - description: block nonce
+        in: path
+        name: nonce
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/api.Block'
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the block info by hash
+      tags:
+      - Block
+  /marketplace/{id}:
+    get:
+      parameters:
+      - description: marketplace Id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns an marketplaceResponse containing information about the marketplace
+      tags:
+      - Marketplace
+  /network/config:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns metrics related to the network configuration (shard independent)
+      tags:
+      - Network
+  /network/network-parameters:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the active parameters of the proposal controller
+      tags:
+      - Network
+  /network/status-parameters:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns metrics related to the network status (shard specific)
+      tags:
+      - Network
+  /node/debug:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: body data
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/node.QueryDebugRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the debug information after the query has been interpreted
+      tags:
+      - Node
+  /node/enable-epochs:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: get node enable epochs configuration
+      tags:
+      - Node
+  /node/heartbeatstatus:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: respond with the heartbeat status of the node
+      tags:
+      - Node
+  /node/overview:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns a node overview
+      tags:
+      - Node
+  /node/p2pstatus:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: return the data in the way that prometheus expects them
+      tags:
+      - Node
+  /node/peerinfo:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the information of a provided p2p peer ID
+      tags:
+      - Node
+  /node/set-redundancy:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: set node redundancy level
+      tags:
+      - Node
+  /node/statistics:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the blockchain statistics
+      tags:
+      - Node
+  /node/status:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the node statistics exported by an StatusMetricsHandler without
+        p2p statistics
+      tags:
+      - Node
+  /transaction/{txhash}:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: txhash
+        in: path
+        name: txhash
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: some internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns transaction details for a given txhash
+      tags:
+      - Transaction
+  /transaction/broadcast:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: body data
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/transaction.BroadcastTXRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: broadcast the TX
+      tags:
+      - Transaction
+  /transaction/decode:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: body data
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/transaction.Transaction'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: decode a given transaction
+      tags:
+      - Transaction
+  /transaction/pool:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: sender
+        in: query
+        name: sender
+        required: true
+        type: string
+      - description: page
+        in: query
+        name: page
+        required: true
+        type: integer
+      - description: page size
+        in: query
+        name: pageSize
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: some internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns transaction memory pool
+      tags:
+      - Transaction
+  /transaction/send:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: body data
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/transaction.sendTXRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns send transcation
+      tags:
+      - Transaction
+  /validator/peers:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: will return the peers
+      tags:
+      - Validator
+  /validator/statistics:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: will return the validation statistics for all validators
+      tags:
+      - Validator
+swagger: "2.0"

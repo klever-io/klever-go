@@ -1,0 +1,24 @@
+
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;smartContractResult";
+
+message SmartContractResult  {
+	uint64   Nonce           = 1  [json_name = "nonce"];
+	map<string, int64> Value = 2  [json_name = "value"];
+	bytes    RcvAddr         = 3  [json_name = "receiver"];
+	bytes    SndAddr         = 4  [json_name = "sender"];
+	bytes    RelayerAddr     = 5  [json_name = "relayer"];
+	int64    RelayedValue    = 6  [json_name = "relayedValue"];
+	bytes    Code            = 7  [json_name = "code,omitempty"];
+	bytes    SCData          = 8  [json_name = "scData,omitempty"];
+	bytes    PrevTxHash      = 9  [json_name = "prevTxHash"];
+	bytes    OriginalTxHash  = 10 [json_name = "originalTxHash"];
+	uint64   GasLimit        = 11 [json_name = "gasLimit"];
+	uint64   GasMultiplier   = 12 [json_name = "gasMultiplier"];
+	bytes    CodeMetadata    = 13 [json_name = "codeMetadata,omitempty"];
+	bytes    ReturnMessage   = 14 [json_name = "returnMessage,omitempty"];
+	bytes    OriginalSender  = 15 [json_name = "originalSender,omitempty"];
+}

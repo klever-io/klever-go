@@ -1,0 +1,50 @@
+[
+  {
+    "address": "0001",
+    "balance": 5,
+    "delegation": {
+      "address": "",
+      "value":   0
+    }
+  },
+  {
+    "address": "0002",
+    "balance": 2,
+    "delegation": {
+      "address": "",
+      "value":   0
+    }
+  },
+  {
+    "address": "0003",
+    "balance": 0,
+    "delegation": {
+      "address": "",
+      "value":   0
+    }
+  },
+  {
+    "address": "0004",
+    "balance": 2,
+    "delegation": {
+      "address": "0005",
+      "value":   3
+    }
+  },
+  {
+    "address": "0006",
+    "balance": 0,
+    "delegation": {
+      "address": "0007",
+      "value":   3
+    }
+  },
+  {
+    "address": "0008",
+    "balance": 1,
+    "delegation": {
+      "address": "0009",
+      "value":   2
+    }
+  }
+]

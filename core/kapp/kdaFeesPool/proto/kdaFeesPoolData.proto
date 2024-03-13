@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;kdafeespool";
+
+message KDAFeesPoolData {
+    bytes               OwnerAddress     = 1  [json_name = "ownerAddress"];
+    bytes               KDA              = 2  [json_name = "kda"];
+    bool                Active           = 3  [json_name = "active"];
+    int64               KLVBalance       = 4  [json_name = "klvBalance"];
+    int64               KDABalance       = 5  [json_name = "kdaBalance"];
+    int64               ConvertedFees    = 6  [json_name = "convertedFees"];
+    bytes               AdminAddress     = 7  [json_name = "adminAddress"];
+
+    int64               FRatioKDA        = 8  [json_name = "fRatioKDA"];
+    int64               FRatioKLV        = 9  [json_name = "fRatioKLV"];
+}

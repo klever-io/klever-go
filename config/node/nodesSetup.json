@@ -1,0 +1,16 @@
+{
+  "startTime": 0,
+  "slotInterval": 4000,
+  "slotsPerEpoch": 20,
+  "consensusGroupSize": 1,
+  "minNodes": 1,
+  "chainID": "420420",
+  "minTransactionVersion": 1,
+  "klvDenomination": 6,
+  "initialNodes": [
+    {
+      "pubkey": "1d8cb37e902525bf8bda62b635ca240ac7c3a713250295381b3e661cb32a7cdeb64cd8f17144ca7ad2520c92dfe5330f610d18bf9b503dda86a1ba5d7071cdeb0e510bcc28e32ca8c033c493f61abf43448ea39e3215cec49e4f4ae796c13b08",
+      "address": "klv17e8zzgn73h6ehe3c6q9vlt77kuxk5euddmhymy5uhv2rhv0dc0nqlfp0ap"
+    }
+  ]
+}

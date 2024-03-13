@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;validators";
+
+message ValidatorData {
+    bytes               OwnerAddress     = 1  [json_name = "ownerAddress"];
+    bytes               RewardsAddress   = 2  [json_name = "rewardsAddress"];
+    uint64              RegisterNonce    = 3  [json_name = "registerNonce"];
+    bool                SelfStaked       = 4  [json_name = "selfStaked"];
+    int64               SelfStake        = 5  [json_name = "selfStake"];
+    int64               TotalStake       = 6  [json_name = "totalStake"];
+    bytes               BlsPubKey        = 7  [json_name = "blsPubKey"];
+    uint32              JailedEpoch      = 8  [json_name = "jailedEpoch"];
+    bool                Jailed           = 9  [json_name = "jailed"];
+    bool                Waiting          = 10 [json_name = "waiting"];
+    uint32              NumJailed        = 11 [json_name = "numJailed"];
+    int64               TotalSlash       = 12 [json_name = "slashValue"];
+
+    bool                CanDelegate      = 20 [json_name = "canDelegate"];
+    int64               MaxDelegation    = 21 [json_name = "maxDelegation"];
+    uint32              Commission       = 22 [json_name = "commission"];
+    int64               TotalRewards     = 23 [json_name = "totalRewards"];
+    string              Name             = 24 [json_name = "name"];
+    string              Logo             = 25 [json_name = "logo"];
+    map<string, string> URIs             = 26 [json_name = "uris"];
+}
+
+message PeerData {
+    map<string, PeerBucket> Buckets = 1 [json_name = "buckets"];
+}
+
+message PeerBucket {
+    int64   DelegatedAt       = 1 [json_name = "delegatedAt"];
+    uint32  DelegatedEpoch    = 2 [json_name = "delegatedEpoch"];
+    uint32  UndelegatedEpoch  = 3 [json_name = "undelegatedEpoch"];
+    int64   Value             = 4 [json_name = "value"];
+    bytes   Address           = 5 [json_name = "address,omitempty"];
+}
+
+message ElementInList {
+    bytes BLSPublicKey = 1 [json_name = "blsPublicKey"];
+    bytes PreviousKey  = 2 [json_name = "previousKey"];
+    bytes NextKey      = 3 [json_name = "nextKey"];
+}
+
+message WaitingList {
+    bytes FirstKey      = 1 [json_name = "firstKey"];
+    bytes LastKey       = 2 [json_name = "lastKey"];
+    uint32 Length       = 3 [json_name = "length"];
+    bytes LastJailedKey = 4 [json_name = "lastJailedKey"];
+}

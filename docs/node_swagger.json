@@ -1,0 +1,1734 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "This is a sample of the KleverChain Node Server.",
+        "title": "KleverChain Node",
+        "contact": {},
+        "version": "1.0"
+    },
+    "paths": {
+        "/address/{address}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Address"
+                ],
+                "summary": "returns an accountResponse",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "address",
+                        "name": "address",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/address/{address}/allowance": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Address"
+                ],
+                "summary": "returns the rewards avaible for a specific asset in an account",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "address",
+                        "name": "address",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "asset",
+                        "name": "asset",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/address/{address}/balance": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Address"
+                ],
+                "summary": "returns the balance for the address parameter",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "address",
+                        "name": "address",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/address/{address}/nonce": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Address"
+                ],
+                "summary": "returns the rewards avaible for a specific asset in an account",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "address",
+                        "name": "address",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/asset/nft/{owner}/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Asset"
+                ],
+                "summary": "returns an assetResponse containing information about the asset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "asset owner",
+                        "name": "owner",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "asset id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/asset.NFTAsset"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/asset/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Asset"
+                ],
+                "summary": "returns an assetResponse containing information about the asset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "asset id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/kapps.KDAData"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/asset/{id}/pool": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Asset"
+                ],
+                "summary": "returns an poolResponse containing information about the asset pool",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "asset id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/kdafeespool.KDAFeesPoolData"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/block/by-hash/{hash}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Block"
+                ],
+                "summary": "returns the block info by hash",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "block hash",
+                        "name": "hash",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/api.Block"
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/block/by-nonce/{nonce}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Block"
+                ],
+                "summary": "returns the block info by hash",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "block nonce",
+                        "name": "nonce",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/api.Block"
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/marketplace/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Marketplace"
+                ],
+                "summary": "returns an marketplaceResponse containing information about the marketplace",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "marketplace Id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/network/config": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Network"
+                ],
+                "summary": "returns metrics related to the network configuration (shard independent)",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/network/network-parameters": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Network"
+                ],
+                "summary": "returns the active parameters of the proposal controller",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/network/status-parameters": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Network"
+                ],
+                "summary": "returns metrics related to the network status (shard specific)",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/node/debug": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Node"
+                ],
+                "summary": "returns the debug information after the query has been interpreted",
+                "parameters": [
+                    {
+                        "description": "body data",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/node.QueryDebugRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/node/enable-epochs": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Node"
+                ],
+                "summary": "get node enable epochs configuration",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/node/heartbeatstatus": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Node"
+                ],
+                "summary": "respond with the heartbeat status of the node",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/node/overview": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Node"
+                ],
+                "summary": "returns a node overview",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/node/p2pstatus": {
+            "get": {
+                "tags": [
+                    "Node"
+                ],
+                "summary": "return the data in the way that prometheus expects them",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/node/peerinfo": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Node"
+                ],
+                "summary": "returns the information of a provided p2p peer ID",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/node/set-redundancy": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Node"
+                ],
+                "summary": "set node redundancy level",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/node/statistics": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Node"
+                ],
+                "summary": "returns the blockchain statistics",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/node/status": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Node"
+                ],
+                "summary": "returns the node statistics exported by an StatusMetricsHandler without p2p statistics",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/transaction/broadcast": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transaction"
+                ],
+                "summary": "broadcast the TX",
+                "parameters": [
+                    {
+                        "description": "body data",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/transaction.BroadcastTXRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/transaction/decode": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transaction"
+                ],
+                "summary": "decode a given transaction",
+                "parameters": [
+                    {
+                        "description": "body data",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/transaction.Transaction"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/transaction/pool": {
+            "get": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transaction"
+                ],
+                "summary": "returns transaction memory pool",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "sender",
+                        "name": "sender",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page",
+                        "name": "page",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "page size",
+                        "name": "pageSize",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "some internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/transaction/send": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transaction"
+                ],
+                "summary": "returns send transcation",
+                "parameters": [
+                    {
+                        "description": "body data",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/transaction.sendTXRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/transaction/{txhash}": {
+            "get": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transaction"
+                ],
+                "summary": "returns transaction details for a given txhash",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "txhash",
+                        "name": "txhash",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "some internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/validator/peers": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Validator"
+                ],
+                "summary": "will return the peers",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/validator/statistics": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Validator"
+                ],
+                "summary": "will return the validation statistics for all validators",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "anypb.Any": {
+            "type": "object",
+            "properties": {
+                "type_url": {
+                    "description": "A URL/resource name that uniquely identifies the type of the serialized\nprotocol buffer message. This string must contain at least\none \"/\" character. The last segment of the URL's path must represent\nthe fully qualified name of the type (as in\n`path/google.protobuf.Duration`). The name should be in a canonical form\n(e.g., leading \".\" is not accepted).\n\nIn practice, teams usually precompile into the binary all types that they\nexpect it to use in the context of Any. However, for URLs which use the\nscheme `http`, `https`, or no scheme, one can optionally set up a type\nserver that maps type URLs to message definitions as follows:\n\n* If no scheme is provided, `https` is assumed.\n* An HTTP GET on the URL must yield a [google.protobuf.Type][]\n  value in binary format, or produce an error.\n* Applications are allowed to cache lookup results based on the\n  URL, or have them precompiled into a binary to avoid any\n  lookup. Therefore, binary compatibility needs to be preserved\n  on changes to types. (Use versioned type names to manage\n  breaking changes.)\n\nNote: this functionality is not currently available in the official\nprotobuf release, and it is not used for type URLs beginning with\ntype.googleapis.com.\n\nSchemes other than `http`, `https` (or the empty scheme) might be\nused with implementation specific semantics.",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "Must be a valid serialized protocol buffer of the above specified type.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "api.Block": {
+            "type": "object",
+            "properties": {
+                "Header": {
+                    "$ref": "#/definitions/block.BlockHeader"
+                },
+                "ProducerSignature": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "PubKeysBitmap": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Signature": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "TxHashes": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "hash": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "transactions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.Transaction"
+                    }
+                }
+            }
+        },
+        "api.Transaction": {
+            "type": "object",
+            "properties": {
+                "Block": {
+                    "type": "integer"
+                },
+                "RawData": {
+                    "$ref": "#/definitions/transaction.Transaction_Raw"
+                },
+                "Receipts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/transaction.Transaction_Receipt"
+                    }
+                },
+                "Result": {
+                    "type": "integer"
+                },
+                "ResultCode": {
+                    "type": "integer"
+                },
+                "Signature": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "hash": {
+                    "type": "string"
+                },
+                "signature": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "asset.NFTAsset": {
+            "type": "object",
+            "properties": {
+                "AssetType": {
+                    "type": "integer"
+                },
+                "Attributes": {
+                    "$ref": "#/definitions/kapps.AttributesData"
+                },
+                "BurnedValue": {
+                    "type": "integer"
+                },
+                "CirculatingSupply": {
+                    "type": "integer"
+                },
+                "ID": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "InitialSupply": {
+                    "type": "integer"
+                },
+                "IssueDate": {
+                    "type": "integer"
+                },
+                "Logo": {
+                    "type": "string"
+                },
+                "MaxSupply": {
+                    "type": "integer"
+                },
+                "MintedValue": {
+                    "type": "integer"
+                },
+                "Name": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "OwnerAddress": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Precision": {
+                    "type": "integer"
+                },
+                "Properties": {
+                    "$ref": "#/definitions/kapps.PropertiesData"
+                },
+                "Roles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/kapps.RolesData"
+                    }
+                },
+                "Royalties": {
+                    "$ref": "#/definitions/kapps.RoyaltiesData"
+                },
+                "Ticker": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "URIs": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "userKDA": {
+                    "$ref": "#/definitions/kapps.UserKDA"
+                }
+            }
+        },
+        "block.BlockHeader": {
+            "type": "object",
+            "properties": {
+                "BlockRewards": {
+                    "type": "integer"
+                },
+                "BurnedUnclaimed": {
+                    "type": "integer"
+                },
+                "ChainID": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Epoch": {
+                    "type": "integer"
+                },
+                "IsEpochStart": {
+                    "type": "boolean"
+                },
+                "KAppFees": {
+                    "type": "integer"
+                },
+                "KAppsTrieRoot": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Nonce": {
+                    "type": "integer"
+                },
+                "ParentHash": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "PrevEpochStartSlot": {
+                    "type": "integer"
+                },
+                "PrevRandSeed": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "RandSeed": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Reserved": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Slot": {
+                    "type": "integer"
+                },
+                "SoftwareVersion": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "StakingRewards": {
+                    "type": "integer"
+                },
+                "Timestamp": {
+                    "type": "integer"
+                },
+                "TrieRoot": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "TxBurnedFees": {
+                    "type": "integer"
+                },
+                "TxCount": {
+                    "type": "integer"
+                },
+                "TxFees": {
+                    "type": "integer"
+                },
+                "TxRootHash": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "ValidatorsTrieRoot": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "kapps.AttributesData": {
+            "type": "object",
+            "properties": {
+                "IsNFTMetadataChangeStopped": {
+                    "type": "boolean"
+                },
+                "IsNFTMintStopped": {
+                    "type": "boolean"
+                },
+                "IsPaused": {
+                    "type": "boolean"
+                },
+                "IsRoyaltiesChangeStopped": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "kapps.KDAData": {
+            "type": "object",
+            "properties": {
+                "AssetType": {
+                    "type": "integer"
+                },
+                "Attributes": {
+                    "$ref": "#/definitions/kapps.AttributesData"
+                },
+                "BurnedValue": {
+                    "type": "integer"
+                },
+                "CirculatingSupply": {
+                    "type": "integer"
+                },
+                "ID": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "InitialSupply": {
+                    "type": "integer"
+                },
+                "IssueDate": {
+                    "type": "integer"
+                },
+                "Logo": {
+                    "type": "string"
+                },
+                "MaxSupply": {
+                    "type": "integer"
+                },
+                "MintedValue": {
+                    "type": "integer"
+                },
+                "Name": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "OwnerAddress": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Precision": {
+                    "type": "integer"
+                },
+                "Properties": {
+                    "$ref": "#/definitions/kapps.PropertiesData"
+                },
+                "Roles": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/kapps.RolesData"
+                    }
+                },
+                "Royalties": {
+                    "$ref": "#/definitions/kapps.RoyaltiesData"
+                },
+                "Ticker": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "URIs": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "kapps.LastClaim": {
+            "type": "object",
+            "properties": {
+                "Epoch": {
+                    "type": "integer"
+                },
+                "Timestamp": {
+                    "type": "integer"
+                }
+            }
+        },
+        "kapps.PropertiesData": {
+            "type": "object",
+            "properties": {
+                "CanAddRoles": {
+                    "type": "boolean"
+                },
+                "CanBurn": {
+                    "type": "boolean"
+                },
+                "CanChangeOwner": {
+                    "type": "boolean"
+                },
+                "CanFreeze": {
+                    "type": "boolean"
+                },
+                "CanMint": {
+                    "type": "boolean"
+                },
+                "CanPause": {
+                    "type": "boolean"
+                },
+                "CanWipe": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "kapps.RolesData": {
+            "type": "object",
+            "properties": {
+                "Address": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "HasRoleDeposit": {
+                    "type": "boolean"
+                },
+                "HasRoleMint": {
+                    "type": "boolean"
+                },
+                "HasRoleSetITOPrices": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "kapps.RoyaltiesData": {
+            "type": "object",
+            "properties": {
+                "Address": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "ITOFixed": {
+                    "type": "integer"
+                },
+                "ITOPercentage": {
+                    "type": "integer"
+                },
+                "MarketFixed": {
+                    "type": "integer"
+                },
+                "MarketPercentage": {
+                    "type": "integer"
+                },
+                "SplitRoyalties": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/kapps.RoyaltySplitData"
+                    }
+                },
+                "TransferFixed": {
+                    "type": "integer"
+                },
+                "TransferPercentage": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/kapps.RoyaltyData"
+                    }
+                }
+            }
+        },
+        "kapps.RoyaltyData": {
+            "type": "object",
+            "properties": {
+                "Amount": {
+                    "type": "integer"
+                },
+                "Percentage": {
+                    "type": "integer"
+                }
+            }
+        },
+        "kapps.RoyaltySplitData": {
+            "type": "object",
+            "properties": {
+                "PercentITOFixed": {
+                    "type": "integer"
+                },
+                "PercentITOPercentage": {
+                    "type": "integer"
+                },
+                "PercentMarketFixed": {
+                    "type": "integer"
+                },
+                "PercentMarketPercentage": {
+                    "type": "integer"
+                },
+                "PercentTransferFixed": {
+                    "type": "integer"
+                },
+                "PercentTransferPercentage": {
+                    "type": "integer"
+                }
+            }
+        },
+        "kapps.UserBucket": {
+            "type": "object",
+            "properties": {
+                "Delegation": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "StakedAt": {
+                    "type": "integer"
+                },
+                "StakedEpoch": {
+                    "type": "integer"
+                },
+                "UnstakedEpoch": {
+                    "type": "integer"
+                },
+                "Value": {
+                    "type": "integer"
+                }
+            }
+        },
+        "kapps.UserKDA": {
+            "type": "object",
+            "properties": {
+                "Balance": {
+                    "type": "integer"
+                },
+                "Buckets": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/kapps.UserBucket"
+                    }
+                },
+                "FrozenBalance": {
+                    "type": "integer"
+                },
+                "LastClaim": {
+                    "$ref": "#/definitions/kapps.LastClaim"
+                },
+                "MIME": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Metadata": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "kdafeespool.KDAFeesPoolData": {
+            "type": "object",
+            "properties": {
+                "Active": {
+                    "type": "boolean"
+                },
+                "AdminAddress": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "ConvertedFees": {
+                    "type": "integer"
+                },
+                "FRatioKDA": {
+                    "type": "integer"
+                },
+                "FRatioKLV": {
+                    "type": "integer"
+                },
+                "KDA": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "KDABalance": {
+                    "type": "integer"
+                },
+                "KLVBalance": {
+                    "type": "integer"
+                },
+                "OwnerAddress": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "node.QueryDebugRequest": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "search": {
+                    "type": "string"
+                }
+            }
+        },
+        "shared.GenericAPIResponse": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string"
+                },
+                "data": {},
+                "error": {
+                    "type": "string"
+                }
+            }
+        },
+        "transaction.BroadcastTXRequest": {
+            "type": "object",
+            "properties": {
+                "tx": {
+                    "$ref": "#/definitions/transaction.Transaction"
+                },
+                "txs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/transaction.Transaction"
+                    }
+                }
+            }
+        },
+        "transaction.TXContract": {
+            "type": "object",
+            "properties": {
+                "Parameter": {
+                    "$ref": "#/definitions/anypb.Any"
+                },
+                "Type": {
+                    "type": "integer"
+                }
+            }
+        },
+        "transaction.Transaction": {
+            "type": "object",
+            "properties": {
+                "Block": {
+                    "type": "integer"
+                },
+                "RawData": {
+                    "$ref": "#/definitions/transaction.Transaction_Raw"
+                },
+                "Receipts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/transaction.Transaction_Receipt"
+                    }
+                },
+                "Result": {
+                    "type": "integer"
+                },
+                "ResultCode": {
+                    "type": "integer"
+                },
+                "Signature": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                }
+            }
+        },
+        "transaction.Transaction_KDAFee": {
+            "type": "object",
+            "properties": {
+                "Amount": {
+                    "description": "TODO: allow spread",
+                    "type": "integer"
+                },
+                "KDA": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "transaction.Transaction_Raw": {
+            "type": "object",
+            "properties": {
+                "BandwidthFee": {
+                    "type": "integer"
+                },
+                "ChainID": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Contract": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/transaction.TXContract"
+                    }
+                },
+                "Data": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "KAppFee": {
+                    "type": "integer"
+                },
+                "KDAFee": {
+                    "$ref": "#/definitions/transaction.Transaction_KDAFee"
+                },
+                "Nonce": {
+                    "type": "integer"
+                },
+                "PermissionID": {
+                    "type": "integer"
+                },
+                "Sender": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Version": {
+                    "type": "integer"
+                }
+            }
+        },
+        "transaction.Transaction_Receipt": {
+            "type": "object",
+            "properties": {
+                "Data": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                }
+            }
+        },
+        "transaction.sendTXRequest": {
+            "type": "object",
+            "properties": {
+                "contract": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "contracts": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "kdaFee": {
+                    "type": "string"
+                },
+                "nonce": {
+                    "type": "integer"
+                },
+                "permID": {
+                    "type": "integer"
+                },
+                "sender": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "integer"
+                }
+            }
+        }
+    }
+}

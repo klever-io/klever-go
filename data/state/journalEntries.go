@@ -1,0 +1,246 @@
+package state
+
+import (
+	"bytes"
+	"fmt"
+
+	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/tools/check"
+	"github.com/klever-io/klever-go/tools/marshal"
+)
+
+// JournalEntryAccount represents a journal entry for account fields change
+type journalEntryAccount struct {
+	account AccountHandler
+}
+
+// NewJournalEntryAccount creates a new instance of JournalEntryAccount
+func NewJournalEntryAccount(account AccountHandler) (*journalEntryAccount, error) {
+	if check.IfNil(account) {
+		return nil, fmt.Errorf("%w in NewJournalEntryAccount", common.ErrNilAccountHandler)
+	}
+
+	return &journalEntryAccount{
+		account: account,
+	}, nil
+}
+
+// Revert applies undo operation
+func (jea *journalEntryAccount) Revert() (AccountHandler, error) {
+	return jea.account, nil
+}
+
+// IsInterfaceNil returns true if there is no value under the interface
+func (jea *journalEntryAccount) IsInterfaceNil() bool {
+	return jea == nil
+}
+
+// JournalEntryAccountCreation represents a journal entry for account creation
+type journalEntryAccountCreation struct {
+	address []byte
+	updater Updater
+}
+
+// NewJournalEntryAccountCreation creates a new instance of JournalEntryAccountCreation
+func NewJournalEntryAccountCreation(address []byte, updater Updater) (*journalEntryAccountCreation, error) {
+	if check.IfNil(updater) {
+		return nil, common.ErrNilUpdater
+	}
+	if len(address) == 0 {
+		return nil, common.ErrInvalidAddressLength
+	}
+
+	return &journalEntryAccountCreation{
+		address: address,
+		updater: updater,
+	}, nil
+}
+
+// Revert applies undo operation
+func (jea *journalEntryAccountCreation) Revert() (AccountHandler, error) {
+	return nil, jea.updater.Update(jea.address, nil)
+}
+
+// IsInterfaceNil returns true if there is no value under the interface
+func (jea *journalEntryAccountCreation) IsInterfaceNil() bool {
+	return jea == nil
+}
+
+// journalEntryAccountDataTrieUpdates stores all the updates done to the account's data trie,
+// so it can be reverted in case of rollback
+type journalEntryAccountDataTrieUpdates struct {
+	trieUpdates map[string][]byte
+	account     baseAccountHandler
+}
+
+// NewJournalEntryAccountDataTrieUpdates outputs a new journalEntryAccountDataTrieUpdates implementation used to revert an account's data trie
+func NewJournalEntryAccountDataTrieUpdates(trieUpdates map[string][]byte, account baseAccountHandler) (*journalEntryAccountDataTrieUpdates, error) {
+	if check.IfNil(account) {
+		return nil, fmt.Errorf("%w in NewJournalEntryAccountDataTrieUpdates", common.ErrNilAccountHandler)
+	}
+	if len(trieUpdates) == 0 {
+		return nil, common.ErrNilOrEmptyDataTrieUpdates
+	}
+
+	return &journalEntryAccountDataTrieUpdates{
+		trieUpdates: trieUpdates,
+		account:     account,
+	}, nil
+}
+
+// Revert applies undo operation
+func (jeadtu *journalEntryAccountDataTrieUpdates) Revert() (AccountHandler, error) {
+	for key := range jeadtu.trieUpdates {
+		err := jeadtu.account.DataTrie().Update([]byte(key), jeadtu.trieUpdates[key])
+		if err != nil {
+			return nil, err
+		}
+
+		log.Trace("revert data trie update", "key", []byte(key), "val", jeadtu.trieUpdates[key])
+	}
+
+	rootHash, err := jeadtu.account.DataTrie().RootHash()
+	if err != nil {
+		return nil, err
+	}
+
+	jeadtu.account.SetRootHash(rootHash)
+
+	return jeadtu.account, nil
+}
+
+// IsInterfaceNil returns true if there is no value under the interface
+func (jeadtu *journalEntryAccountDataTrieUpdates) IsInterfaceNil() bool {
+	return jeadtu == nil
+}
+
+// journalEntryAccountDataTrieRemove cancels the eviction of the hashes from the data trie with the given root hash
+type journalEntryAccountDataTrieRemove struct {
+	rootHash               []byte
+	obsoleteDataTrieHashes map[string][][]byte
+}
+
+// NewJournalEntryAccountDataTrieRemove outputs a new journalEntryAccountDataTrieRemove implementation used to cancel
+// the eviction of the hashes from the data trie with the given root hash
+func NewJournalEntryAccountDataTrieRemove(rootHash []byte, obsoleteDataTrieHashes map[string][][]byte) (*journalEntryAccountDataTrieRemove, error) {
+	if obsoleteDataTrieHashes == nil {
+		return nil, fmt.Errorf("%w in NewJournalEntryAccountDataTrieRemove", common.ErrNilMapOfHashes)
+	}
+	if len(rootHash) == 0 {
+		return nil, common.ErrInvalidRootHash
+	}
+
+	return &journalEntryAccountDataTrieRemove{
+		rootHash:               rootHash,
+		obsoleteDataTrieHashes: obsoleteDataTrieHashes,
+	}, nil
+}
+
+// Revert applies undo operation
+func (jeadtr *journalEntryAccountDataTrieRemove) Revert() (AccountHandler, error) {
+	delete(jeadtr.obsoleteDataTrieHashes, string(jeadtr.rootHash))
+
+	return nil, nil
+}
+
+// IsInterfaceNil returns true if there is no value under the interface
+func (jeadtr *journalEntryAccountDataTrieRemove) IsInterfaceNil() bool {
+	return jeadtr == nil
+}
+
+type journalEntryCode struct {
+	oldCodeEntry *CodeEntry
+	oldCodeHash  []byte
+	newCodeHash  []byte
+	trie         Updater
+	marshalizer  marshal.Marshalizer
+}
+
+// NewJournalEntryCode creates a new instance of JournalEntryCode
+func NewJournalEntryCode(
+	oldCodeEntry *CodeEntry,
+	oldCodeHash []byte,
+	newCodeHash []byte,
+	trie Updater,
+	marshalizer marshal.Marshalizer,
+) (*journalEntryCode, error) {
+	if check.IfNil(trie) {
+		return nil, common.ErrNilUpdater
+	}
+	if check.IfNil(marshalizer) {
+		return nil, common.ErrNilMarshalizer
+	}
+
+	return &journalEntryCode{
+		oldCodeEntry: oldCodeEntry,
+		oldCodeHash:  oldCodeHash,
+		newCodeHash:  newCodeHash,
+		trie:         trie,
+		marshalizer:  marshalizer,
+	}, nil
+}
+
+// Revert applies undo operation
+func (jea *journalEntryCode) Revert() (AccountHandler, error) {
+	if bytes.Equal(jea.oldCodeHash, jea.newCodeHash) {
+		return nil, nil
+	}
+
+	err := jea.revertOldCodeEntry()
+	if err != nil {
+		return nil, err
+	}
+
+	err = jea.revertNewCodeEntry()
+	if err != nil {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+func (jea *journalEntryCode) revertOldCodeEntry() error {
+	if len(jea.oldCodeHash) == 0 {
+		return nil
+	}
+
+	err := saveCodeEntry(jea.oldCodeHash, jea.oldCodeEntry, jea.trie, jea.marshalizer)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (jea *journalEntryCode) revertNewCodeEntry() error {
+	newCodeEntry, err := getCodeEntry(jea.newCodeHash, jea.trie, jea.marshalizer)
+	if err != nil {
+		return err
+	}
+
+	if newCodeEntry == nil {
+		return nil
+	}
+
+	if newCodeEntry.NumReferences <= 1 {
+		err = jea.trie.Update(jea.newCodeHash, nil)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	newCodeEntry.NumReferences--
+	err = saveCodeEntry(jea.newCodeHash, newCodeEntry, jea.trie, jea.marshalizer)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// IsInterfaceNil returns true if there is no value under the interface
+func (jea *journalEntryCode) IsInterfaceNil() bool {
+	return jea == nil
+}

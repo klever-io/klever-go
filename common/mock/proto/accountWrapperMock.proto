@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package protoDataMock;
+
+option go_package = "./;mock";
+
+message AccountWrapMockData {
+	int64   MockValue     = 1;
+}

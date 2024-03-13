@@ -1,0 +1,421 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;transaction";
+
+// TXContract available
+message TransferContract {
+	bytes ToAddress    = 1 [json_name = "toAddress,omitempty"];
+	bytes AssetID      = 2 [json_name = "assetId,omitempty"];
+	int64 Amount       = 3 [json_name = "amount,omitempty"];
+	int64 KDARoyalties = 4 [json_name = "kdaRoyalties,omitempty"];
+    int64 KLVRoyalties = 5 [json_name = "klvRoyalties,omitempty"];
+}
+
+// CreateAssetContract holds the data for a Klever digital asset
+message CreateAssetContract {
+    enum EnumAssetType {
+        Fungible     = 0;
+        NonFungible  = 1;
+        SemiFungible = 2;
+    }
+    EnumAssetType        Type                      = 1  [json_name = "type"];
+    bytes                Name                      = 2  [json_name = "name"];
+    bytes                Ticker                    = 3  [json_name = "ticker"];
+    bytes                OwnerAddress              = 4  [json_name = "ownerAddress"];
+    string               Logo                      = 5  [json_name = "logo"];
+    map<string, string>  URIs                      = 6  [json_name = "uris"];
+    uint32               Precision                 = 7  [json_name = "precision"];
+    int64                InitialSupply             = 8  [json_name = "initialSupply"];
+    int64                MaxSupply                 = 9  [json_name = "maxSupply"];
+    RoyaltiesInfo        Royalties                 = 10 [json_name = "royalties"];
+    PropertiesInfo       Properties                = 11 [json_name = "properties"];
+    AttributesInfo       Attributes                = 12 [json_name = "attributes"];
+    StakingInfo          Staking                   = 13 [json_name = "staking"];
+    repeated RolesInfo   Roles                     = 14 [json_name = "roles"];
+}
+
+// PropertiesInfo hold the properties structure for the KDA asset
+message PropertiesInfo {
+    bool CanFreeze                = 1 [json_name = "canFreeze"];
+    bool CanWipe                  = 2 [json_name = "canWipe"];
+    bool CanPause                 = 3 [json_name = "canPause"];
+    bool CanMint                  = 4 [json_name = "canMint"];
+    bool CanBurn                  = 5 [json_name = "canBurn"];
+    bool CanChangeOwner           = 6 [json_name = "canChangeOwner"];
+    bool CanAddRoles              = 7 [json_name = "canAddRoles"];
+    bool LimitTransfer            = 8 [json_name = "limitTransfer"];
+}
+
+// AttributesInfo hold the attributes structure for the KDA asset
+message AttributesInfo {
+    bool IsPaused                      = 1 [json_name = "isPaused"];
+    bool IsNFTMintStopped              = 2 [json_name = "isNFTMintStopped"];
+    bool IsRoyaltiesChangeStopped      = 3 [json_name = "isRoyaltiesChangeStopped"];
+    bool IsNFTMetadataChangeStopped    = 4 [json_name = "isNFTMetadataChangeStopped"];
+}
+
+// StakingInfo hold the staking structure for the KDA asset
+message StakingInfo {
+    enum InterestType {	
+        APRI = 0;	
+        FPRI = 1;	
+    }
+    InterestType Type                         = 1 [json_name = "type"];
+    uint32       APR                          = 2 [json_name = "apr"];
+    uint32       MinEpochsToClaim             = 3 [json_name = "minEpochsToClaim"];
+    uint32       MinEpochsToUnstake           = 4 [json_name = "minEpochsToUnstake"];
+    uint32       MinEpochsToWithdraw          = 5 [json_name = "minEpochsToWithdraw"];
+}
+
+// RolesInfo holds the roles for a given asset and the given address
+message RolesInfo {
+    bytes Address               = 1 [json_name = "address"];
+    bool  HasRoleMint           = 2 [json_name = "hasRoleMint"];
+    bool  HasRoleSetITOPrices   = 3 [json_name = "hasRoleSetITOPrices"];
+    bool  HasRoleDeposit        = 4 [json_name = "hasRoleDeposit"];
+    bool  HasRoleTransfer       = 5 [json_name = "hasRoleTransfer"];
+}
+
+// RoyaltiesInfo holds the royalties for a given asset
+message RoyaltiesInfo {
+    bytes                          Address            = 1 [json_name = "address"];
+    repeated RoyaltyInfo           TransferPercentage = 2 [json_name = "transferPercentage"];
+    int64                          TransferFixed      = 3 [json_name = "transferFixed"];
+    uint32                         MarketPercentage   = 4 [json_name = "marketPercentage"];
+    int64                          MarketFixed        = 5 [json_name = "marketFixed"];
+    map<string, RoyaltySplitInfo>  SplitRoyalties     = 6 [json_name = "splitRoyalties"];
+    int64                          ITOFixed           = 7 [json_name = "itoFixed"];
+    uint32                         ITOPercentage      = 8 [json_name = "itoPercentage"];
+}
+
+// RoyaltySplitInfo holds the royalty split
+message RoyaltySplitInfo {
+    uint32 PercentTransferPercentage         = 1 [json_name = "percentTransferPercentage"];
+    uint32 PercentTransferFixed              = 2 [json_name = "percentTransferFixed"];
+    uint32 PercentMarketPercentage           = 3 [json_name = "percentMarketPercentage"];
+    uint32 PercentMarketFixed                = 4 [json_name = "percentMarketFixed"];
+    uint32 PercentITOPercentage              = 5 [json_name = "percentITOPercentage"];
+    uint32 PercentITOFixed                   = 6 [json_name = "percentITOFixed"];
+}
+
+// RoyaltyInfo holds the royalty threshold
+message RoyaltyInfo {
+    int64  Amount     = 1  [json_name = "amount"];
+    uint32 Percentage = 2  [json_name = "percentage"];
+}
+
+// KDAPoolInfo holds the KDA Fee pool info
+message KDAPoolInfo {
+    bool                Active           = 1  [json_name = "active"];
+    bytes               AdminAddress     = 2  [json_name = "adminAddress"];
+    int64               FRatioKDA        = 3  [json_name = "fRatioKDA"];
+    int64               FRatioKLV        = 4  [json_name = "fRatioKLV"];
+}
+
+// AssetTriggerContract triggers assets functions
+message AssetTriggerContract {
+    enum EnumTriggerType {
+        Mint                    = 0;
+        Burn                    = 1;
+        Wipe                    = 2;
+        Pause                   = 3;
+        Resume                  = 4;
+        ChangeOwner             = 5;
+        AddRole                 = 6;
+        RemoveRole              = 7;
+        UpdateMetadata          = 8;
+        StopNFTMint             = 9;
+        UpdateLogo              = 10;
+        UpdateURIs              = 11;
+        ChangeRoyaltiesReceiver = 12;
+        UpdateStaking           = 13;
+        UpdateRoyalties         = 14;
+        UpdateKDAFeePool        = 15;
+        StopRoyaltiesChange     = 16;
+        StopNFTMetadataChange   = 17;
+    }
+    EnumTriggerType    TriggerType  = 1  [json_name = "triggerType"];
+	bytes              AssetID      = 2  [json_name = "assetId"];
+    bytes              ToAddress    = 3  [json_name = "toAddress,omitempty"];
+	int64              Amount       = 4  [json_name = "amount,omitempty"];
+	bytes              MIME         = 5  [json_name = "mime,omitempty"];
+	string             Logo         = 6  [json_name = "logo,omitempty"];
+	map<string,string> URIs         = 7  [json_name = "uris,omitempty"];
+    RolesInfo          Role         = 8  [json_name = "role,omitempty"];
+    StakingInfo        Staking      = 9  [json_name = "staking,omitempty"];
+    RoyaltiesInfo      Royalties    = 10 [json_name = "royalties,omitempty"];
+    KDAPoolInfo        KDAPool      = 11 [json_name = "kdaPool,omitempty"];
+}
+
+// ValidatorConfig holds the data for a validator configuration
+message ValidatorConfig {
+    bytes                BLSPublicKey        = 1 [json_name = "blsPublicKey,omitempty"];
+    bytes                RewardAddress       = 2 [json_name = "rewardAddress,omitempty"];
+    bool                 CanDelegate         = 3 [json_name = "canDelegate"];
+    uint32               Commission          = 4 [json_name = "commission"];
+    int64                MaxDelegationAmount = 5 [json_name = "maxDelegationAmount"];
+    string               Logo                = 6 [json_name = "logo"];
+    map<string, string>  URIs                = 7 [json_name = "uris"];
+    string               Name                = 8 [json_name = "name"];
+}
+
+// CreateValidatorContract holds the data for create a validator
+message CreateValidatorContract {
+    bytes OwnerAddress         = 1 [json_name = "ownerAddress,omitempty"];
+    ValidatorConfig Config     = 2 [json_name = "config,omitempty"];
+}
+
+// ValidatorConfigContract holds the data for a validator configuration transaction
+message ValidatorConfigContract {
+    ValidatorConfig Config = 1 [json_name = "config,omitempty"];
+}
+
+// FreezeContract holds the data for a freeze transaction
+message FreezeContract {
+    bytes AssetID      = 1 [json_name = "assetId"];
+    int64 Amount       = 2 [json_name = "amount"];
+}
+
+// UnfreezeContract holds the data for a unfreeze transaction
+message UnfreezeContract {
+    bytes AssetID      = 1 [json_name = "assetId"];
+    bytes BucketID     = 2 [json_name = "bucketId"];
+}
+
+// DelegateContract holds the data for a delegate transaction
+message DelegateContract {
+    bytes ToAddress    = 1 [json_name = "toAddress,omitempty"];
+    bytes BucketID     = 2 [json_name = "bucketId"];
+}
+
+// UndelegateContract holds the data for a undelegate transaction
+message UndelegateContract {
+    bytes BucketID     = 1 [json_name = "bucketId"];
+}
+
+// WithdrawContract holds the data for a withdraw transaction
+message WithdrawContract {
+    bytes AssetID      = 1 [json_name = "assetId"];
+    enum EnumWithdrawType {
+        Staking     = 0;
+        KDAPool     = 1;
+    }
+    EnumWithdrawType WithdrawType  = 2 [json_name = "withdrawType"];
+    int64 amount       = 3 [json_name = "amount"];
+    bytes CurrencyID   = 4 [json_name = "currencyID"];
+}
+
+// ClaimContract holds the data for a claim transaction
+message ClaimContract {
+    enum EnumClaimType {
+        StakingClaim    = 0;
+        AllowanceClaim  = 1;
+        MarketClaim     = 2;
+    }
+    EnumClaimType ClaimType  = 1 [json_name = "claimType"];
+    bytes         ID         = 2 [json_name = "id"];
+}
+
+// UnjailContract holds the data for a unjail transaction
+message UnjailContract {}
+
+// SetAccountNameContract holds the data for a setAccountName transaction
+message SetAccountNameContract {
+    bytes Name     = 1 [json_name = "name"];
+}
+
+// ProposalContract holds the data for a proposal transaction
+message ProposalContract {
+    map<int32, bytes> Parameters     = 1 [json_name = "parameters"];
+    bytes             Description    = 2 [json_name = "description"];
+    uint32            EpochsDuration = 3 [json_name = "epochsDuration"];
+}
+
+// VoteContract holds the data for a vote transaction
+message VoteContract {
+    enum EnumVoteType {
+        Yes = 0;
+        No  = 1;
+    }
+    uint64       ProposalID = 1 [json_name = "proposalId"];
+    int64        Amount     = 2 [json_name = "amount"];
+    EnumVoteType Type       = 3 [json_name = "type"];
+}
+
+// ConfigITOContract holds the data for a ConfigITO transaction
+message ConfigITOContract {
+    enum EnumITOStatus {
+        DefaultITO = 0;
+        ActiveITO  = 1;
+        PausedITO  = 2;
+    }
+    bytes                      AssetID                 = 1  [json_name = "assetId"];
+    bytes                      ReceiverAddress         = 2  [json_name = "receiverAddress"];
+    EnumITOStatus              Status                  = 3  [json_name = "status"];
+    int64                      MaxAmount               = 4  [json_name = "maxAmount"];
+    map<string, PackInfo>      PackInfo                = 5  [json_name = "packInfo"];
+    int64                      DefaultLimitPerAddress  = 6  [json_name = "defaultLimitPerAddress"];
+    EnumITOStatus              WhitelistStatus         = 7  [json_name = "whitelistStatus"];
+    map<string, WhitelistInfo> WhitelistInfo           = 8  [json_name = "whitelistInfo"];
+    int64                      WhitelistStartTime      = 9  [json_name = "whitelistStartTime"];
+    int64                      WhitelistEndTime        = 10 [json_name = "whitelistEndTime"];
+    int64                      StartTime               = 11 [json_name = "startTime"];
+    int64                      EndTime                 = 12 [json_name = "endTime"];
+}
+
+message WhitelistInfo {
+    int64 Limit = 1 [json_name = "limit"];
+}
+
+// SetITOPrices holds the data for a ConfigITO transaction
+message SetITOPricesContract {
+    bytes                 AssetID  = 1 [json_name = "assetId"];
+    map<string, PackInfo> PackInfo = 2 [json_name = "packInfo"];
+}
+
+// ITOTriggerContract triggers assets functions
+message ITOTriggerContract {
+    enum EnumITOTriggerType {
+        SetITOPrices                    = 0;
+        UpdateStatus                    = 1;
+        UpdateReceiverAddress           = 2;
+        UpdateMaxAmount                 = 3;
+        UpdateDefaultLimitPerAddress    = 4;
+        UpdateTimes                     = 5;
+        UpdateWhitelistStatus           = 6;
+        AddToWhitelist                  = 7;
+        RemoveFromWhitelist             = 8;
+        UpdateWhitelistTimes            = 9;
+    }
+    enum EnumITOStatus {
+        DefaultITO = 0;
+        ActiveITO  = 1;
+        PausedITO  = 2;
+    }
+    EnumITOTriggerType         TriggerType             = 1  [json_name = "triggerType"];
+    bytes                      AssetID                 = 2  [json_name = "assetId"];
+    bytes                      ReceiverAddress         = 3  [json_name = "receiverAddress,omitempty"];
+    EnumITOStatus              Status                  = 4  [json_name = "status,omitempty"];
+    int64                      MaxAmount               = 5  [json_name = "maxAmount,omitempty"];
+    map<string, PackInfo>      PackInfo                = 6  [json_name = "packInfo,omitempty"];
+    int64                      DefaultLimitPerAddress  = 7  [json_name = "defaultLimitPerAddress,omitempty"];
+    EnumITOStatus              WhitelistStatus         = 8  [json_name = "whitelistStatus,omitempty"];
+    map<string, WhitelistInfo> WhitelistInfo           = 9  [json_name = "whitelistInfo,omitempty"];
+    int64                      WhitelistStartTime      = 10 [json_name = "whitelistStartTime,omitempty"];
+    int64                      WhitelistEndTime        = 11 [json_name = "whitelistEndTime,omitempty"];
+    int64                      StartTime               = 12 [json_name = "startTime,omitempty"];
+    int64                      EndTime                 = 13 [json_name = "endTime,omitempty"];
+}
+
+// PackInfo holds the pack list structure for the ITO contract
+message PackInfo {
+    repeated PackItem Packs = 1 [json_name = "packs"];
+}
+
+// PackItem hold the pack structure for the ITO contract
+message PackItem {
+    int64 Amount = 1 [json_name = "amount"];
+    int64 Price  = 2 [json_name = "price"];
+}
+
+// BuyContract holds the data for a buy transaction
+message BuyContract {
+    enum EnumBuyType {
+        ITOBuy    = 0;
+        MarketBuy = 1;
+    }
+    EnumBuyType BuyType    = 1 [json_name = "buyType"];
+    bytes       ID         = 2 [json_name = "id"];
+    bytes       CurrencyID = 3 [json_name = "currencyId"];
+    int64       Amount     = 4 [json_name = "amount"];
+}
+
+// SellContract holds the data for a sell transaction
+message SellContract {
+    enum EnumMarketType {
+        BuyItNowMarket = 0;
+        AuctionMarket  = 1;
+    }
+    EnumMarketType  MarketType         = 1 [json_name = "marketType"];
+    bytes           MarketplaceID      = 2 [json_name = "marketplaceId"];
+    bytes           AssetID            = 3 [json_name = "assetId"];
+    bytes           CurrencyID         = 4 [json_name = "currencyId"];
+    int64           Price              = 5 [json_name = "price"];
+    int64           ReservePrice       = 6 [json_name = "reservePrice"];
+    int64           EndTime            = 7 [json_name = "endTime"];
+}
+
+// CancelMarketOrderContract holds the data for a cancel market transaction
+message CancelMarketOrderContract {
+    bytes OrderID = 1 [json_name = "orderId"];
+}
+
+// CreateMarketplaceContract holds the data for a create marketplace transaction
+message CreateMarketplaceContract {
+    bytes  Name               = 1 [json_name = "name"];
+    bytes  ReferralAddress    = 2 [json_name = "referralAddress,omitempty"];
+    uint32 ReferralPercentage = 3 [json_name = "referralPercentage,omitempty"];
+}
+
+// ConfigMarketplaceContract holds the data for a config marketplace transaction
+message ConfigMarketplaceContract {
+    bytes  MarketplaceID      = 1 [json_name = "marketplaceId"];
+    bytes  Name               = 2 [json_name = "name"];
+    bytes  ReferralAddress    = 3 [json_name = "referralAddress,omitempty"];
+    uint32 ReferralPercentage = 4 [json_name = "referralPercentage,omitempty"];
+}
+
+// TODO: Reuse from account
+message AccKey {
+    bytes address = 1 [json_name = "address"];
+    int64 weight  = 2 [json_name = "weight"];
+}
+
+message AccPermission {
+    enum AccPermissionType {
+        Owner = 0;
+        User  = 1;
+    }
+    AccPermissionType  Type           = 2 [json_name = "type"];
+    string             PermissionName = 3 [json_name = "permissionName"];
+    int64              Threshold      = 4 [json_name = "threshold"];
+    bytes              Operations     = 5 [json_name = "operations"]; //1 bit 1 contract
+    repeated AccKey    Signers        = 6 [json_name = "signers"];
+}
+
+// UpdateAccountPermissionContract holds the data for update account permission transaction
+message UpdateAccountPermissionContract {
+    repeated AccPermission Permissions = 8 [json_name = "permissions,omitempty"];
+}
+
+// DepositContract holds the data for a deposit transaction
+message DepositContract {
+    enum EnumDepositType {
+        FPRDeposit  = 0;
+        KDAPool     = 1;
+    }
+    EnumDepositType DepositType  = 1 [json_name = "depositType"];
+    bytes           ID           = 2 [json_name = "id"];
+    bytes           CurrencyID   = 3 [json_name = "currencyID"];
+    int64           Amount       = 4 [json_name = "amount"];
+}
+
+message CallValue {
+    int64 Amount       = 1 [json_name = "amount"];
+    int64 KDARoyalties = 2 [json_name = "kdaRoyalties"];
+    int64 KLVRoyalties = 3 [json_name = "klvRoyalties"];
+}
+
+message SmartContract {
+    enum SCType {
+        SCInvoke  = 0;
+        SCDeploy  = 1;
+    }
+    SCType  Type       = 1 [json_name = "type"];
+    bytes   Address    = 2 [json_name = "address"];
+    // SmartContract CallValue is represented by a map of currencyID and amount
+    //  should be limited to 50 currencies
+    map<string, CallValue> CallValue = 3 [json_name = "callValue"];
+}

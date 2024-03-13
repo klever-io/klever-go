@@ -1,0 +1,97 @@
+apiPackages:
+  address:
+    routes:
+      - name: /:address
+        open: true
+      - name: /:address/balance
+        open: true
+      - name: /:address/nonce
+        open: true
+      - name: /:address/allowance
+        open: true
+      - name: /:address/allowance/list
+        open: true
+  subscribe:
+    routes:
+      - name: /subscribe
+        open: true
+  asset:
+    routes:
+      - name: /:id
+        open: true
+      - name: /nft/:owner/*id
+        open: true
+      - name: /pool/:id/
+        open: true
+  marketplace:
+    routes:
+      - name: /:id
+        open: true
+  block:
+    routes:
+      - name: /by-nonce/:nonce
+        open: true
+      - name: /by-hash/:hash
+        open: true
+  transaction:
+    routes:
+      - name: /broadcast
+        open: true
+      - name: /send
+        open: true
+      - name: /decode
+        open: true
+      - name: /pool
+        open: true
+      - name: /:txhash
+        open: true
+      - name: /simulate
+        open: true
+  validator:
+    routes:
+      - name: /statistics
+        open: true
+      - name: /peers
+        open: true
+  network:
+    routes:
+      - name: /config
+        open: true
+      - name: /status
+        open: true
+      - name: /network-parameters
+        open: true
+  node:
+    routes:
+      - name: /status
+        open: true
+      - name: /metrics
+        open: true
+      - name: /overview
+        open: true
+      - name: /p2pstatus
+        open: true
+      - name: /debug
+        open: true
+      - name: /peerinfo
+        open: true
+      - name: /statistics
+        open: true
+      - name: /set-redundancy
+        open: false
+      - name: /enable-epochs
+        open: true
+  log:
+    routes:
+      - name: /log
+        open: true
+  vm:
+    routes:
+      - name: /hex
+        open: true
+      - name: /string
+        open: true
+      - name: /int
+        open: true
+      - name: /query
+        open: true

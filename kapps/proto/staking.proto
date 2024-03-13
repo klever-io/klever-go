@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;kapps";
+
+message StakingData {
+    enum EnumInterestType {
+        APRI = 0;
+        FPRI = 1;
+    }
+    EnumInterestType   InterestType        = 1  [json_name = "interestType"];
+    repeated APRData   APR                 = 2  [json_name = "apr"];
+    repeated FPRData   FPR                 = 3  [json_name = "fpr"];
+    int64              CurrentFPRAmount    = 4  [json_name = "currentFPRAmount"];
+    int64              TotalStaked         = 5  [json_name = "totalStaked"];
+    uint32             MinEpochsToClaim    = 6  [json_name = "minEpochsToClaim"];
+    uint32             MinEpochsToUnstake  = 7  [json_name = "minEpochsToUnstake"];
+    uint32             MinEpochsToWithdraw = 8  [json_name = "minEpochsToWithdraw"];
+}
+
+message APRData {
+    int64  Timestamp  = 1 [json_name = "timestamp"];
+    uint32 Epoch      = 2 [json_name = "epoch"];
+    uint32 Value      = 3 [json_name = "value"];
+}
+
+message FPRData {
+    int64  TotalAmount           = 1 [json_name = "totalAmount"];
+    int64  TotalStaked           = 2 [json_name = "totalStaked"];
+    uint32 Epoch                 = 4 [json_name = "epoch"];
+    int64  TotalClaimed          = 5 [json_name = "totalClaimed"];
+    map<string, KDAFPRData> KDAS = 6 [json_name = "kdas,omitempty"];
+}
+
+message KDAFPRData {
+    int64  TotalAmount  = 1 [json_name = "totalAmount"];
+    int64  TotalClaimed = 2 [json_name = "totalClaimed"];
+}

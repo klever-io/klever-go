@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;state";
+
+
+// ValidatorApiResponse represents the data which is fetched from each validator for returning it in API call
+message ValidatorApiResponse {
+    float   TempRating                          = 1  [json_name = "tempRating"];
+    uint32  NumLeaderSuccess                    = 2  [json_name = "numLeaderSuccess"];
+    uint32  NumLeaderFailure                    = 3  [json_name = "numLeaderFailure"];
+    uint32  NumValidatorSuccess                 = 4  [json_name = "numValidatorSuccess"];
+    uint32  NumValidatorFailure                 = 5  [json_name = "numValidatorFailure"];
+    uint32  NumValidatorIgnoredSignatures       = 6  [json_name = "numValidatorIgnoredSignatures"];
+    float   Rating                              = 7  [json_name = "rating"];
+    float   RatingModifier                      = 8  [json_name = "ratingModifier"];
+    uint32  TotalNumLeaderSuccess               = 9  [json_name = "totalNumLeaderSuccess"];
+    uint32  TotalNumLeaderFailure               = 10 [json_name = "totalNumLeaderFailure"];
+    uint32  TotalNumValidatorSuccess            = 11 [json_name = "totalNumValidatorSuccess"];
+    uint32  TotalNumValidatorFailure            = 12 [json_name = "totalNumValidatorFailure"];
+    uint32  TotalNumValidatorIgnoredSignatures  = 13 [json_name = "totalNumValidatorIgnoredSignatures"];
+    string  ValidatorStatus                     = 14 [json_name = "validatorStatus,omitempty"];
+    bool    Revoked                             = 15 [json_name = "revoked,omitempty"];
+}
+
+enum List {
+    inactive    = 0;
+    observer    = 1;
+    waiting     = 2;
+    eligible    = 3;
+    elected     = 4;
+    leaving     = 5;
+    jailed      = 6;
+}
+
+// SignRate is used to keep the number of success and failed signings
+message SignRate {
+    uint32 NumSuccess = 1;
+    uint32 NumFailure = 2;
+}
+
+
+// PeerAccountData represents the data that defines the PeerAccount
+message PeerAccountData {
+    bytes       BLSPublicKey                        = 1  [json_name = "blsPublicKey"];
+    bytes       RootHash                            = 2  [json_name = "rootHash,omitempty"];
+    bytes       OwnerAddress                        = 3  [json_name = "ownerAddress,omitempty"];
+    bool        Revoked                             = 4  [json_name = "revoked,omitempty"];
+    uint32      ShardId                             = 5  [json_name = "shardId"];
+    List        List                                = 6  [json_name = "list"];
+    uint32      Index                               = 7  [json_name = "index"];
+    int64       AccumulatedFees                     = 8  [json_name = "accumulatedFees"];
+    SignRate    ValidatorSuccessRate                = 9  [json_name = "validatorSuccessRate"];
+    SignRate    LeaderSuccessRate                   = 10 [json_name = "leaderSuccessRate"];
+    uint32      ValidatorIgnoredSignaturesRate      = 11 [json_name = "validatorIgnoredSignaturesRate"];
+    uint32      Rating                              = 12 [json_name = "rating"];
+    uint32      TempRating                          = 13 [json_name = "tempRating"];
+    uint32      NumSelectedInSuccessBlocks          = 14 [json_name = "numSelectedInSuccessBlocks"];
+    uint32      ConsecutiveProposerMisses           = 15 [json_name = "consecutiveProposerMisses"];
+    SignRate    TotalValidatorSuccessRate           = 16 [json_name = "totalValidatorSuccessRate"];
+    SignRate    TotalLeaderSuccessRate              = 17 [json_name = "totalLeaderSuccessRate"];
+    uint32      TotalValidatorIgnoredSignaturesRate = 18 [json_name = "totalValidatorIgnoredSignaturesRate"];
+}

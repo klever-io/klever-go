@@ -1,0 +1,173 @@
+package processor_test
+
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/klever-io/klever-go/common"
+	testscommon "github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/core/process/interceptors/processor"
+	"github.com/klever-io/klever-go/core/process/mock"
+	"github.com/klever-io/klever-go/data"
+	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/tools/check"
+	"github.com/stretchr/testify/assert"
+)
+
+func createMockTxArgument() *processor.ArgTxInterceptorProcessor {
+	return &processor.ArgTxInterceptorProcessor{
+		TxDataCache: testscommon.NewShardedDataStub(),
+		TxValidator: &mock.TxValidatorStub{},
+	}
+}
+
+func TestNewTxInterceptorProcessor_NilArgumentShouldErr(t *testing.T) {
+	t.Parallel()
+
+	txip, err := processor.NewTxInterceptorProcessor(nil)
+
+	assert.Nil(t, txip)
+	assert.Equal(t, process.ErrNilArgumentStruct, err)
+}
+
+func TestNewTxInterceptorProcessor_NilDataPoolShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockTxArgument()
+	arg.TxDataCache = nil
+	txip, err := processor.NewTxInterceptorProcessor(arg)
+
+	assert.Nil(t, txip)
+	assert.Equal(t, common.ErrNilDataPoolHolder, err)
+}
+
+func TestNewTxInterceptorProcessor_NilTxValidatorShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockTxArgument()
+	arg.TxValidator = nil
+	txip, err := processor.NewTxInterceptorProcessor(arg)
+
+	assert.Nil(t, txip)
+	assert.Equal(t, process.ErrNilTxValidator, err)
+}
+
+func TestNewTxInterceptorProcessor_ShouldWork(t *testing.T) {
+	t.Parallel()
+
+	txip, err := processor.NewTxInterceptorProcessor(createMockTxArgument())
+
+	assert.False(t, check.IfNil(txip))
+	assert.Nil(t, err)
+}
+
+//------- Validate
+
+func TestTxInterceptorProcessor_ValidateNilTxShouldErr(t *testing.T) {
+	t.Parallel()
+
+	txip, _ := processor.NewTxInterceptorProcessor(createMockTxArgument())
+
+	err := txip.Validate(nil, "")
+
+	assert.Equal(t, process.ErrWrongTypeAssertion, err)
+}
+
+func TestTxInterceptorProcessor_ValidateReturnsFalseShouldErr(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("tx validation error")
+	arg := createMockTxArgument()
+	arg.TxValidator = &mock.TxValidatorStub{
+		CheckTxValidityCalled: func(txValidatorHandler process.TxValidatorHandler) error {
+			return expectedErr
+		},
+	}
+	txip, _ := processor.NewTxInterceptorProcessor(arg)
+
+	txInterceptedData := &struct {
+		mock.InterceptedDataStub
+		mock.InterceptedTxHandlerStub
+	}{}
+	err := txip.Validate(txInterceptedData, "")
+
+	assert.NotNil(t, err)
+	assert.True(t, strings.Contains(err.Error(), expectedErr.Error()))
+}
+
+func TestTxInterceptorProcessor_ValidateReturnsTrueShouldWork(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockTxArgument()
+	arg.TxValidator = &mock.TxValidatorStub{
+		CheckTxValidityCalled: func(txValidatorHandler process.TxValidatorHandler) error {
+			return nil
+		},
+	}
+	txip, _ := processor.NewTxInterceptorProcessor(arg)
+
+	txInterceptedData := &struct {
+		mock.InterceptedDataStub
+		mock.InterceptedTxHandlerStub
+	}{}
+	err := txip.Validate(txInterceptedData, "")
+
+	assert.Nil(t, err)
+}
+
+//------- Save
+
+func TestTxInterceptorProcessor_SaveNilDataShouldErr(t *testing.T) {
+	t.Parallel()
+
+	txip, _ := processor.NewTxInterceptorProcessor(createMockTxArgument())
+
+	err := txip.Save(nil, "", "")
+
+	assert.Equal(t, process.ErrWrongTypeAssertion, err)
+}
+
+func TestTxInterceptorProcessor_SaveShouldWork(t *testing.T) {
+	t.Parallel()
+
+	addedWasCalled := false
+	txInterceptedData := &struct {
+		mock.InterceptedDataStub
+		mock.InterceptedTxHandlerStub
+	}{
+		InterceptedDataStub: mock.InterceptedDataStub{
+			HashCalled: func() []byte {
+				return make([]byte, 0)
+			},
+		},
+		InterceptedTxHandlerStub: mock.InterceptedTxHandlerStub{
+			TransactionCalled: func() data.TransactionHandler {
+				return &transaction.Transaction{}
+			},
+		},
+	}
+	arg := createMockTxArgument()
+	txDataCache := arg.TxDataCache.(*testscommon.ShardedDataStub)
+	txDataCache.AddDataCalled = func(key []byte, data interface{}, sizeInBytes int, cacheId string) {
+		addedWasCalled = true
+	}
+
+	txip, _ := processor.NewTxInterceptorProcessor(arg)
+
+	err := txip.Save(txInterceptedData, "", "")
+
+	assert.Nil(t, err)
+	assert.True(t, addedWasCalled)
+}
+
+//------- IsInterfaceNil
+
+func TestTxInterceptorProcessor_IsInterfaceNil(t *testing.T) {
+	t.Parallel()
+
+	var txip *processor.TxInterceptorProcessor
+
+	assert.True(t, check.IfNil(txip))
+}

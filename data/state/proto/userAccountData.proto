@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;state";
+
+message Key {
+    bytes address = 1 [json_name = "address"];
+    int64 weight  = 2 [json_name = "weight"];
+}
+
+message Permission {
+    enum PermissionType {
+        Owner = 0;
+        User  = 1;
+    }
+    int32           ID             = 1 [json_name = "id"];
+    PermissionType  Type           = 2 [json_name = "type"];
+    string          PermissionName = 3 [json_name = "permissionName"];
+    int64           Threshold      = 4 [json_name = "threshold"];
+    bytes           Operations     = 5 [json_name = "operations"]; //1 bit 1 contract
+    repeated Key    Signers        = 6 [json_name = "signers"];
+}
+
+message UserAccountData {
+    bytes               Address        = 1  [json_name = "address,omitempty"];
+    bytes               Name           = 2  [json_name = "name,omitempty"];
+    bytes               RootHash       = 3  [json_name = "rootHash,omitempty"];
+    int64               Balance        = 5  [json_name = "balance"];
+    int64               Allowance      = 6  [json_name = "allowance"];
+    uint64              Nonce          = 7  [json_name = "nonce"];
+    repeated Permission Permissions    = 8  [json_name = "permissions,omitempty"];
+    bytes               OwnerAddress   = 9  [json_name = "ownerAddress,omitempty"];
+    bytes               CodeHash       = 10 [json_name = "codeHash,omitempty"];
+    bytes               CodeMetadata   = 11 [json_name = "codeMetadata,omitempty"];
+}
+
+message CodeEntry {
+    bytes   Code             = 1 [json_name = "code,omitempty"];
+    uint32  NumReferences    = 2 [json_name = "numReferences"];
+}

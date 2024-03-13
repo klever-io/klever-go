@@ -1,0 +1,135 @@
+package storageResolvers
+
+import (
+	"sync"
+	"time"
+
+	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/data/endProcess"
+	"github.com/klever-io/klever-go/data/retriever"
+	"github.com/klever-io/klever-go/data/retriever/resolvers/epochproviders"
+	"github.com/klever-io/klever-go/storage"
+	"github.com/klever-io/klever-go/tools/check"
+	"github.com/klever-io/klever-go/tools/typeConverters"
+)
+
+var log = logger.GetOrCreate("data/retriever/storageresolvers")
+
+// ArgHeaderResolver is the argument structure used to create new HeaderResolver instance
+type ArgHeaderResolver struct {
+	Messenger                retriever.MessageHandler
+	ResponseTopicName        string
+	NonceConverter           typeConverters.Uint64ByteSliceConverter
+	HdrStorage               storage.Storer
+	HeadersNoncesStorage     storage.Storer
+	ManualEpochStartNotifier retriever.ManualEpochStartNotifier
+	ChanGracefullyClose      chan endProcess.ArgEndProcess
+	DelayBeforeGracefulClose time.Duration
+	DataPacker               retriever.DataPacker
+}
+
+type headerResolver struct {
+	*storageResolver
+	nonceConverter   typeConverters.Uint64ByteSliceConverter
+	mutEpochHandler  sync.RWMutex
+	epochHandler     retriever.EpochHandler
+	hdrStorage       storage.Storer
+	dataPacker       retriever.DataPacker
+	hdrNoncesStorage storage.Storer
+}
+
+// NewHeaderResolver creates a new storage header resolver
+func NewHeaderResolver(arg ArgHeaderResolver) (*headerResolver, error) {
+	if check.IfNil(arg.Messenger) {
+		return nil, common.ErrNilMessenger
+	}
+	if check.IfNil(arg.HdrStorage) {
+		return nil, common.ErrNilHeadersStorage
+	}
+	if check.IfNil(arg.HeadersNoncesStorage) {
+		return nil, common.ErrNilHeadersNoncesStorage
+	}
+	if check.IfNil(arg.DataPacker) {
+		return nil, common.ErrNilDataPacker
+	}
+	if check.IfNil(arg.NonceConverter) {
+		return nil, common.ErrNilUint64ByteSliceConverter
+	}
+	if check.IfNil(arg.ManualEpochStartNotifier) {
+		return nil, common.ErrNilManualEpochStartNotifier
+	}
+	if arg.ChanGracefullyClose == nil {
+		return nil, common.ErrNilGracefullyCloseChannel
+	}
+
+	epochHandler := epochproviders.NewNilEpochHandler()
+	return &headerResolver{
+		storageResolver: &storageResolver{
+			messenger:                arg.Messenger,
+			responseTopicName:        arg.ResponseTopicName,
+			manualEpochStartNotifier: arg.ManualEpochStartNotifier,
+			chanGracefullyClose:      arg.ChanGracefullyClose,
+			delayBeforeGracefulClose: arg.DelayBeforeGracefulClose,
+		},
+		hdrStorage:       arg.HdrStorage,
+		dataPacker:       arg.DataPacker,
+		hdrNoncesStorage: arg.HeadersNoncesStorage,
+		nonceConverter:   arg.NonceConverter,
+		epochHandler:     epochHandler,
+	}, nil
+}
+
+// RequestDataFromHash searches the hash in provided storage and then will send to self the message
+func (hdrRes *headerResolver) RequestDataFromHash(hash []byte, _ uint32) error {
+	hdrRes.mutEpochHandler.RLock()
+	epoch := hdrRes.epochHandler.Epoch()
+	hdrRes.mutEpochHandler.RUnlock()
+
+	hdrRes.manualEpochStartNotifier.NewEpoch(epoch + 2)
+
+	buff, err := hdrRes.hdrStorage.SearchFirst(hash)
+	if err != nil {
+		hdrRes.signalGracefullyClose()
+
+		return err
+	}
+
+	return hdrRes.sendToSelf(buff)
+}
+
+// RequestDataFromNonce requests a header by its nonce
+func (hdrRes *headerResolver) RequestDataFromNonce(nonce uint64, epoch uint32) error {
+	nonceKey := hdrRes.nonceConverter.ToByteSlice(nonce)
+	hash, err := hdrRes.hdrNoncesStorage.SearchFirst(nonceKey)
+	if err != nil {
+		hdrRes.signalGracefullyClose()
+
+		return err
+	}
+
+	return hdrRes.RequestDataFromHash(hash, epoch)
+}
+
+// RequestDataFromEpoch requests the epoch start block
+func (hdrRes *headerResolver) RequestDataFromEpoch(identifier []byte) error {
+	return hdrRes.RequestDataFromHash(identifier, 0)
+}
+
+// SetEpochHandler sets the epoch handler
+func (hdrRes *headerResolver) SetEpochHandler(epochHandler retriever.EpochHandler) error {
+	if check.IfNil(epochHandler) {
+		return common.ErrNilEpochHandler
+	}
+
+	hdrRes.mutEpochHandler.Lock()
+	hdrRes.epochHandler = epochHandler
+	hdrRes.mutEpochHandler.Unlock()
+
+	return nil
+}
+
+// IsInterfaceNil returns true if there is no value under the interface
+func (hdrRes *headerResolver) IsInterfaceNil() bool {
+	return hdrRes == nil
+}

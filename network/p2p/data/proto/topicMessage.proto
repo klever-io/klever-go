@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;data";
+
+message TopicMessage{
+    uint32 Version        = 1;
+    bytes  Payload        = 2;
+    int64  Timestamp      = 3;
+    bytes  Pk             = 4;
+    bytes  SignatureOnPid = 5;
+}

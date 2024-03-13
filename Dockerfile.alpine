@@ -1,0 +1,38 @@
+FROM golang:1.20-alpine3.16 as builder-alpine
+
+COPY . /go/src/github.com/klever-io/klever-go
+
+WORKDIR /go/src/github.com/klever-io/klever-go
+
+ARG arg_version
+ENV VERSION=$arg_version
+
+RUN apk add --no-cache make gcc g++
+
+RUN make build-validator
+
+FROM alpine:3.16
+
+RUN apk -U upgrade; \
+    apk add --no-cache libstdc++
+
+RUN apk add doas; \
+    adduser klever -G wheel; \
+    echo 'permit nopass:wheel as root' > /etc/doas.d/doas.conf
+
+COPY --from=builder-alpine --chown=klever:klever /go/src/github.com/klever-io/klever-go/bin/validator /usr/local/bin/
+COPY --from=builder-alpine --chown=klever:klever /go/src/github.com/klever-io/klever-go/kvm/wasmer2/libvmexeccapi.so /lib/libvmexeccapi.so
+RUN chmod +x /usr/local/bin/validator
+
+USER klever
+
+COPY --chown=klever config/seednode/config.yaml /opt/klever-blockchain/config/seednode/config.yaml
+RUN mkdir -p /opt/klever-blockchain/stats && \
+    mkdir -p /opt/klever-blockchain/db && \
+    mkdir -p /opt/klever-blockchain/logs && \
+    chown -R klever /opt/klever-blockchain
+WORKDIR /opt/klever-blockchain
+
+HEALTHCHECK --interval=10s CMD exit 0
+
+ENTRYPOINT [ "/usr/local/bin/validator", "--use-log-view" ]

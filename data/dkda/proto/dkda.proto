@@ -1,0 +1,31 @@
+
+syntax = "proto3";
+
+package protoBuiltInFunctions;
+
+option go_package = "./;dkda";
+
+// KDigitalToken holds the data for a Electronic standard digital token transaction
+message KDigitalToken {
+	uint32   Type            = 1 [json_name = "Type"];
+	int64    Value           = 2 [json_name = "Value"];
+	bytes    Properties      = 3 [json_name = "Properties"];
+	MetaData TokenMetaData   = 4 [json_name = "MetaData"];
+	bytes    Reserved        = 5 [json_name = "Reserved"];
+}
+
+// KDARoles holds the roles for a given token and the given address
+message KDARoles {
+	repeated bytes Roles = 1 [json_name = "roles"];
+}
+
+// MetaData hold the metadata structure for the KDA token
+message MetaData {
+	uint64   Nonce         = 1 [json_name = "Nonce"];
+	bytes    Name          = 2 [json_name = "Name"];
+	bytes    Creator       = 3 [json_name = "Creator"];
+	uint32   Royalties     = 4 [json_name = "Royalties"];
+	bytes    Hash          = 5 [json_name = "Hash"];
+	repeated bytes  URIs   = 6 [json_name = "URIs"];
+	bytes    Attributes    = 7 [json_name = "Attributes"];
+}

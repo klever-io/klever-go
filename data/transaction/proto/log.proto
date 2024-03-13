@@ -1,0 +1,21 @@
+// This file holds the data structures related with the transaction logs functionality
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;transaction";
+
+// Event holds all the data needed for an event structure
+message Event {
+    bytes Address          = 1 [json_name = "address"];
+    bytes Identifier       = 2 [json_name = "identifier"];
+    repeated bytes Topics  = 3 [json_name = "topics"];
+    repeated bytes Data    = 4 [json_name = "data"];
+}
+
+// Log holds all the data needed for a log structure
+message Log {
+    bytes Address         = 1 [json_name = "address"];
+    int32 ContractID      = 2 [json_name = "contract_id"];
+    repeated Event Events = 3 [json_name = "events"];
+}

@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;kapps";
+
+message Marketplace {
+    bytes            ID                    = 1 [json_name = "id"];
+    bytes            Name                  = 2 [json_name = "name"];
+    bytes            OwnerAddress          = 3 [json_name = "ownerAddress"];
+    bytes            ReferralAddress       = 4 [json_name = "referralAddress,omitempty"];
+    uint32           ReferralPercentage    = 5 [json_name = "referralPercentage,omitempty"];
+}
+
+message MarketOrderData {
+    enum EnumMarketType {
+        BuyItNow = 0;
+        Auction  = 1;
+    }
+    bytes            ID                    = 1  [json_name = "id"];
+    bytes            MarketplaceID         = 2  [json_name = "marketplaceId"];
+    EnumMarketType   MarketType            = 3  [json_name = "marketType"];
+    bytes            OwnerAddress          = 4  [json_name = "ownerAddress"];
+    bytes            AssetID               = 5  [json_name = "assetId"];
+    bytes            CollectionID          = 6  [json_name = "collectionId"];
+    bytes            CurrencyID            = 7  [json_name = "currencyId"];
+    int64            Price                 = 8  [json_name = "price"];
+    int64            ReservePrice          = 9  [json_name = "reservePrice,omitempty"];
+    bytes            CurrentBidder         = 10 [json_name = "currentBidder,omitempty"];
+    int64            CurrentBid            = 11 [json_name = "currentBid,omitempty"];
+    int64            RoyaltiesFixedDeposit = 12 [json_name = "royaltiesFixedDeposit,omitempty"];
+    uint32           ReferralPercentage    = 13 [json_name = "referralPercentage,omitempty"];
+    int64            StartTime             = 14 [json_name = "startTime"];
+    int64            EndTime               = 15 [json_name = "endTime"];
+    bool             IsClaimed             = 16 [json_name = "isClaimed"];
+}

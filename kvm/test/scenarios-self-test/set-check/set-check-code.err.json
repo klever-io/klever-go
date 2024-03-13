@@ -1,0 +1,22 @@
+{
+    "comment": "verifies that setState and checkState are consistent",
+    "steps": [
+        {
+            "step": "setState",
+            "accounts": {
+                "sc:contract-address": {
+                    "code": "file:set-check-kda.scen.json"
+                }
+            }
+        },
+        {
+            "step": "checkState",
+            "id": "check-1",
+            "accounts": {
+                "sc:contract-address": {
+                    "code": "file:set-check-code.scen.json"
+                }
+            }
+        }
+    ]
+}

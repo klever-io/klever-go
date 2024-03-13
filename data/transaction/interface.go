@@ -1,0 +1,37 @@
+package transaction
+
+import (
+	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/kapps"
+)
+
+// NodeHelper contains some helper functions to interact with node instance
+type NodeHelper interface {
+	GetAsset(address string) (*kapps.KDAData, error)
+	GetNFT(owner string, address string) (*kapps.UserKDA, *kapps.KDAData, error)
+	GetAddressPCK() core.PubkeyConverter
+	GetValidatorPCK() core.PubkeyConverter
+	GetEncodedAddressLength() int
+	GetForkController() core.ForkController
+	IsInterfaceNil() bool
+}
+
+// EventHandler defines the type for an event resulted from a smart contract call contained in a log
+type EventHandler interface {
+	// GetAddress returns the address of the contract that generated this event
+	//  - in sc calling another sc situation this will differ from the
+	//    LogHandler's GetAddress, whereas in the single sc situation
+	//    they will be the same
+	GetAddress() []byte
+	// GetIdentifier returns identifier of the event, that together with the ABI can
+	//   be used to understand the type of the event by other applications
+	GetIdentifier() []byte
+	// GetTopics returns the data that can be indexed so that it would be searchable
+	//  by other applications
+	GetTopics() [][]byte
+	// GetData returns the rest of the event data, which will not be indexed, so storing
+	//  information here should be cheaper
+	GetData() [][]byte
+
+	IsInterfaceNil() bool
+}

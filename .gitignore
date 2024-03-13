@@ -1,0 +1,57 @@
+# ide settings
+.idea/
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+bin/
+
+# Test binary, build with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+/vendor
+
+/vmhost/debug
+/vmserver/testdata/db
+/cmd/vmserver/vmserver
+/cmd/vmserver/db
+compiledSCStorage/
+
+# VSCode settings
+.vscode
+
+tags
+*.backup
+
+# SmartContract compilation artefacts
+*.hex*
+*.ll
+*.o
+wasm32-unknown-unknown
+test/contracts/**/target
+test/contracts/**/wasm/target
+**/output/*.abi.json
+**/output/*.wat
+
+# Mac
+**/.DS_Store
+
+**/Cargo.lock
+vmhost/**/__debug_bin
+
+# NODE DB and logs
+db/
+stats/*
+*.pem*
+*.env*
+seednode
+*.log
+
+# Backup test files
+cmd/backtest/files/*.tar.gz
+cmd/backtest/backups/*/
+cmd/backtest/working/*/
+*.trace*

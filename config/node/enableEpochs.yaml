@@ -1,0 +1,26 @@
+maxNodesChangeEnableEpoch:
+  - epochEnable: 0
+    nodesToShuffle: 4
+
+enableEpochs:
+  # Claim KFI enable epoch
+  claimKFI: 0
+  # TX Processor Cacher Flow && ITO Price updates
+  processorFlowITOPrice: 0
+  # FPR/Staking flow
+  fixStakingBuckets: 0
+  # KDA FPR flow
+  kdaFpr: 0
+  # Compute APR and FPR with big Buckets
+  bigBucketsCompute: 0
+  # Compute FPR int Amount and Kda Fee Flow
+  fprComputeAndKdaFeeFlow: 0
+  # Fix Delegation step on same epoch
+  fixDelegationSameEpoch: 0
+  # SmartContracts
+  smartContracts: 0
+
+gasSchedule:
+  gasScheduleByEpochs:
+    - startEpoch: 0
+      fileName: "config/node/gasScheduleV1.yaml"

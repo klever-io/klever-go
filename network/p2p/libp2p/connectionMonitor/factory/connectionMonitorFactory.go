@@ -1,0 +1,31 @@
+package factory
+
+import (
+	"fmt"
+
+	"github.com/klever-io/klever-go/network/p2p"
+	"github.com/klever-io/klever-go/network/p2p/libp2p/connectionMonitor"
+	"github.com/klever-io/klever-go/tools/check"
+)
+
+// ArgsConnectionMonitorFactory represents the argument for the connection monitor factory
+type ArgsConnectionMonitorFactory struct {
+	Reconnecter                p2p.Reconnecter
+	Sharder                    p2p.CommonSharder
+	ThresholdMinConnectedPeers uint32
+	TargetCount                int
+}
+
+// NewConnectionMonitor creates a new ConnectionMonitor instance
+func NewConnectionMonitor(arg ArgsConnectionMonitorFactory) (ConnectionMonitor, error) {
+	if check.IfNil(arg.Reconnecter) {
+		return nil, p2p.ErrNilReconnecter
+	}
+
+	switch kadSharder := arg.Sharder.(type) {
+	case connectionMonitor.Sharder:
+		return connectionMonitor.NewLibp2pConnectionMonitorSimple(arg.Reconnecter, arg.ThresholdMinConnectedPeers, kadSharder)
+	default:
+		return nil, fmt.Errorf("%w for connection monitor: invalid type %T", p2p.ErrInvalidValue, kadSharder)
+	}
+}

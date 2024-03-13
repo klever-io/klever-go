@@ -1,0 +1,21 @@
+name: End-To-End Manual Tests - Devnet
+on: workflow_dispatch
+
+jobs:
+  config:
+    uses: klever-io/workflow-calls/.github/workflows/go-setup.yaml@master
+    with:
+      with_vendor: false
+      with_cache: false
+      go_private: "github.com/klever-io/*"
+    secrets:
+      git_user: ${{ secrets.GIT_USER }}
+      git_pass: ${{ secrets.GIT_PASS }}
+
+  e2e-tests:
+    uses: klever-io/klever-go/.github/workflows/e2e-reusable.yaml@develop
+    secrets:
+      node_url: ${{ secrets.E2E_DEVNET_NODE_URL }}
+      proxy_url: ${{ secrets.E2E_DEVNET_PROXY_URL }}
+      private_keys: ${{ secrets.E2E_DEVNET_PRIVATE_KEYS }}
+    needs: [ config ]

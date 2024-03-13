@@ -1,0 +1,693 @@
+p2p:
+  node:
+    port: 37373-38383
+    seed:
+    maximumExpectedPeerCount: 0
+    thresholdMinConnectedPeers: 0
+    broadcastIP:
+  kadDhtPeerDiscovery:
+    enabled: true
+    refreshIntervalInSec: 10
+    protocolID: /klv/kad/0.0.1
+    initialPeerList:
+      - /ip4/127.0.0.1/tcp/37373/p2p/16Uiu2HAkw5SNNtSvH1zJiQ6Gc3WoGNSxiyNueRKe6fuAuh57G3Bk
+    bucketSize: 100
+    routingTableRefreshIntervalInSec: 300
+  sharding:
+    targetPeerCount: 75
+    maxIntraShardValidators: 25
+    maxCrossShardValidators: 0
+    maxIntraShardObservers: 15
+    maxCrossShardObservers: 0
+    #available options:
+    #  `ListsSharder` will split the peers based on the shard membership (intra, cross or unknown)
+    #  `OneListSharder` will do just the connection triming (upto TargetPeerCount value) not taking into account
+    #              the shard membership of the connected peers
+    #  `NilListSharder` will disable connection trimming (sharder is off)
+    type: NilListSharder
+
+logs:
+  logFileLifeSpanInSec: 86400
+  logFileSizeSpanInSec: 60
+  maxFileSize: 104857600
+  maxBackups: 10
+
+ntp:
+  hosts:
+    - time.google.com
+    - time.cloudflare.com
+    - time.windows.com
+    - time.apple.com
+  port: 123
+  timeoutMilliseconds: 100
+  syncPeriodSeconds: 3600
+  version: 0
+
+preferences:
+  # NodeDisplayName represents the friendly name a user can pick for his node in the status monitor
+  nodeDisplayName:
+  # Identity represents the keybase's identity
+  identity:
+  # RedundancyLevel represents the level of redundancy used by the node (-1 = disabled, 0 = main instance (default),
+  # 1 = first backup, 2 = second backup, etc.)
+  redundancyLevel: 0
+  # statics pooling interval
+  statusPollingIntervalSec: 2
+
+softwareVersionConfig:
+  stableTagLocation: "https://api.github.com/repos/klever-io/klever-go/releases/latest"
+  pollingIntervalInMinutes: 65
+
+logsAndEvents:
+  saveInStorageEnabled: true
+  txLogsStorage:
+    cache:
+      name: TxLogsStorage
+      capacity: 1000
+      type: SizeLRU
+      sizeInBytes: 20971520 #20MB
+    db:
+      filePath: Logs
+      type: LvlDBSerial
+      batchDelaySeconds: 2
+      maxBatchSize: 100
+      maxOpenFiles: 10
+
+debug:
+  interceptorResolver:
+    enabled: true
+    enablePrint: true
+    cacheSize: 10000
+    intervalAutoPrintInSeconds: 20
+    numRequestsThreshold: 9
+    numResolveFailureThreshold: 3
+    debugLineExpiration: 10
+
+  antiflood:
+    enabled: true
+    cacheSize: 10000
+    intervalAutoPrintInSeconds: 20
+
+antiflood:
+  enabled: true
+  numConcurrentResolverJobs: 50
+  fastReacting:
+    intervalInSeconds: 1
+    reservedPercent: 20.0
+    peerMaxInput:
+      baseMessagesPerInterval: 140
+      totalSizePerInterval: 4194304 #4MB/s
+      increaseFactor:
+        threshold: 10 #if consensus size will exceed this value, then
+        factor: 1.0 #increase the base value with [factor*consensus size]
+    blackList:
+      thresholdNumMessagesPerInterval: 1000
+      thresholdSizePerInterval: 8388608 #8MB/s
+      numFloodingSlots: 10
+      peerBanDurationInSeconds: 300
+
+  slowReacting:
+    intervalInSeconds: 30
+    reservedPercent: 20.0
+    peerMaxInput:
+      baseMessagesPerInterval: 6000
+      totalSizePerInterval: 18874368 # 18MB/interval
+      increaseFactor:
+        threshold: 10 #if consensus size will exceed this value, then
+        factor: 0.0 #increase the base value with [factor*consensus size]
+    blackList:
+      thresholdNumMessagesPerInterval: 10000
+      thresholdSizePerInterval: 37748736 # 36MB/interval
+      numFloodingSlots: 2
+      peerBanDurationInSeconds: 3600
+
+  outOfSpecs:
+    intervalInSeconds: 1
+    reservedPercent: 0.0
+    peerMaxInput:
+      baseMessagesPerInterval: 2000
+      totalSizePerInterval: 10485760 # 10MB/interval
+      increaseFactor:
+        threshold: 0 #if consensus size will exceed this value, then
+        factor: 0.0 #increase the base value with [factor*consensus size]
+    blackList:
+      thresholdNumMessagesPerInterval: 3600
+      thresholdSizePerInterval: 12582912 # 12MB/interval
+      numFloodingSlots: 2
+      peerBanDurationInSeconds: 3600
+
+  peerMaxOutput:
+    baseMessagesPerInterval: 75
+    totalSizePerInterval: 2097152 #2MB/s
+
+  cache:
+    name: Antiflood
+    capacity: 7000
+    type: LRU
+
+  topic:
+    defaultMaxMessagesPerSec: 15000
+    maxMessages:
+      - topic: heartbeat
+        numMessagesPerSec: 70
+      - topic: blocks
+        numMessagesPerSec: 30
+
+  webServer:
+    # SimultaneousRequests represents the number of concurrent requests accepted by the web server
+    # this is a global throttler that acts on all http connections regardless of the originating source
+    simultaneousRequests: 100
+    # SameSourceRequests defines how many requests are allowed from the same source in the specified
+    # time frame (SameSourceResetIntervalInSec)
+    sameSourceRequests: 10000
+    # SameSourceResetIntervalInSec time frame between counter reset, in seconds
+    sameSourceResetIntervalInSec: 1
+    # EndpointsThrottlers represents a map for maximum simultaneous go routines for an endpoint
+    endpointsThrottlers:
+      - endpoint: /transaction/:hash
+        maxNumGoRoutines: 10
+      - endpoint: /transaction/send
+        maxNumGoRoutines: 2
+
+  txAccumulator:
+    # MaxAllowedTimeInMilliseconds is used as a time frame in which the node gathers transactions.
+    # After this period, collected transactions will be sent on the p2p topics
+    maxAllowedTimeInMilliseconds: 250
+    # MaxDeviationTimeInMilliseconds represents the time in milliseconds that will cause the effectual time frame be
+    # less than the specified max value. This is used to create desynchronizations between senders as to not
+    # clutter the network exactly in the same moment
+    maxDeviationTimeInMilliseconds: 25
+
+heartbeat:
+  minTimeToWaitBetweenBroadcastsInSec: 20
+  maxTimeToWaitBetweenBroadcastsInSec: 25
+  heartbeatRefreshIntervalInSec: 60
+  hideInactiveValidatorIntervalInSec: 3600
+  durationToConsiderUnresponsiveInSec: 60
+
+softwareVersion:
+  stableTagLocation: https://api.github.com/repos/klever-io/klever-go/releases/latest
+  pollingIntervalInMinutes: 65
+
+# DB CONFIGs
+evictionWaitingList:
+  size: 10000
+  db:
+    filePath: EvictionWaitingList
+    type: LvlDBSerial
+    batchDelaySeconds: 2
+    maxBatchSize: 100
+    maxOpenFiles: 10
+
+stateTriesConfig:
+  checkpointSlotsModulus: 100
+  accountsStatePruningEnabled: true
+  peerStatePruningEnabled: true
+  kappStatePruningEnabled: true
+  maxStateTrieLevelInMemory: 5
+  maxPeerTrieLevelInMemory: 5
+  maxKAppTrieLevelInMemory: 5
+
+trieSnapshotDB:
+  filePath: TrieSnapshot
+  type: LvlDBSerial
+  batchDelaySeconds: 1
+  maxBatchSize: 40000
+  maxOpenFiles: 10
+
+trieStorageManagerConfig:
+  pruningBufferLen: 100000
+  snapshotsBufferLen: 1000000
+  maxSnapshots: 3
+
+trieStorageManager:
+  pruningBufferLen: 100000
+  snapshotsBufferLen: 1000000
+  maxSnapshots: 3
+
+versions:
+  defaultVersion: default
+  versionsByEpochs:
+    - startEpoch: 0
+      version: "*"
+  cache:
+    name: VersionsCache
+    capacity: 100
+    type: LRU
+
+whiteListPool:
+  name: WhiteListPool
+  capacity: 100000
+  type: FIFOSharded
+  shards: 10
+
+whiteListerVerifiedTxs:
+  name: WhiteListerVerifiedTxs
+  capacity: 50000
+  type: FIFOSharded
+  shards: 50
+
+resourceStats:
+  enabled: true
+  refreshIntervalInSec: 30
+
+accountsTrieStorage:
+  cache:
+    name: AccountsTrieStorage
+    capacity: 500000
+    type: SizeLRU
+    sizeInBytes: 314572800 #300MB
+  db:
+    filePath: AccountsTrie/MainDB
+    type: LvlDBSerial
+    batchDelaySeconds: 2
+    maxBatchSize: 45000
+    maxOpenFiles: 10
+
+peerAccountsTrieStorage:
+  cache:
+    name: PeerAccountsTrieStorage
+    capacity: 5000
+    type: SizeLRU
+    sizeInBytes: 104857600 #100MB
+  db:
+    filePath: PeerAccountsTrie/MainDB
+    type: LvlDBSerial
+    batchDelaySeconds: 2
+    maxBatchSize: 1000
+    maxOpenFiles: 10
+
+kappAccountsTrieStorage:
+  cache:
+    name: KAppAccountsTrieStorage
+    capacity: 500000
+    type: SizeLRU
+    sizeInBytes: 314572800 #300MB
+  db:
+    filePath: KAppAccountsTrie/MainDB
+    type: LvlDBSerial
+    batchDelaySeconds: 2
+    maxBatchSize: 1000
+    maxOpenFiles: 10
+
+health:
+  intervalVerifyMemoryInSeconds: 5
+  intervalDiagnoseComponentsInSeconds: 30
+  intervalDiagnoseComponentsDeeplyInSeconds: 120
+  memoryUsageToCreateProfiles: 2415919104 # 2.25GB
+  numMemoryUsageRecordsToKeep: 100
+  folderPath: health-numMemoryUsageRecordsToKeep
+
+storages:
+  blocksStorage:
+    cache:
+      name: BlocksStorage
+      type: SizeLRU
+      capacity: 1000
+      sizeInBytes: 104857600 #100MB
+    db:
+      filePath: Blocks
+      type: LvlDBSerial
+      batchDelaySeconds: 2
+      maxBatchSize: 100
+      maxOpenFiles: 10
+  txStorage:
+    cache:
+      name: TxStorage
+      type: SizeLRU
+      capacity: 500000
+      sizeInBytes: 209715200 #200MB
+    db:
+      filePath: Transactions
+      type: LvlDBSerial
+      batchDelaySeconds: 2
+      maxBatchSize: 30000
+      maxOpenFiles: 10
+  hdrNonceHashStorage:
+    cache:
+      name: HdrNonceHashStorage
+      type: SizeLRU
+      capacity: 1000
+      sizeInBytes: 3145728 #3MB
+    db:
+      filePath: MetaHdrHashNonce
+      type: LvlDBSerial
+      batchDelaySeconds: 2
+      maxBatchSize: 100
+      maxOpenFiles: 10
+  statusMetricsStorage:
+    cache:
+      name: StatusMetricsStorage
+      type: LRU
+      capacity: 1000
+    db:
+      filePath: StatusMetricsStorageDB
+      type: LvlDBSerial
+      batchDelaySeconds: 2
+      maxBatchSize: 100
+      maxOpenFiles: 10
+  heartbeatStorage:
+    cache:
+      name: HeartbeatStorage
+      type: LRU
+      capacity: 1000
+    db:
+      filePath: HeartbeatStorage
+      type: LvlDBSerial
+      batchDelaySeconds: 5
+      maxBatchSize: 100
+      maxOpenFiles: 10
+  bootstrapStorage:
+    cache:
+      name: BootstrapStorage
+      type: SizeLRU
+      capacity: 1000
+      sizeInBytes: 104857600 #100MB
+    db:
+      filePath: BootstrapStorage
+      type: LvlDBSerial
+      batchDelaySeconds: 2
+      maxBatchSize: 100
+      maxOpenFiles: 10
+  smartContractsStorage:
+    cache:
+      name: SmartContractsStorage
+      capacity: 1000
+      type: SizeLRU
+      sizeInBytes: 52428800 #50MB
+    db:
+      filePath: SmartContractsStorage
+      type: LvlDBSerial
+      batchDelaySeconds: 2
+      maxBatchSize: 100
+      maxOpenFiles: 10
+  smartContractsStorageSimulate:
+    cache:
+      name: SmartContractsStorageSimulate
+      capacity: 1000
+      type: SizeLRU
+      sizeInBytes: 52428800 #50MB
+    db:
+      filePath: SmartContractsStorageSimulate
+      type: LvlDBSerial
+      batchDelaySeconds: 2
+      maxBatchSize: 100
+      maxOpenFiles: 10
+  smartContractsStorageForSCQuery:
+    cache:
+      name: SmartContractsStorageForSCQuery
+      capacity: 1000
+      type: SizeLRU
+      sizeInBytes: 52428800 #50MB
+    db:
+      filePath: SmartContractsStorageForSCQuery
+      type: LvlDBSerial
+      batchDelaySeconds: 2
+      maxBatchSize: 100
+      maxOpenFiles: 10
+
+dbLookupExtensions:
+  enabled: false
+  BlocksMetadataStorage:
+    cache:
+      name: DbLookupExtensions.BlocksMetadataStorage
+      capacity: 20000
+      type: LRU
+  blockHashByTxHashStorage:
+    cache:
+      name: DbLookupExtensions.BlockHashByTxHashStorage
+      capacity: 20000
+      type: LRU
+    db:
+      filePath: DbLookupExtensions_BlockHashByTxHash
+      type: LvlDBSerial
+      batchDelaySeconds: 2
+      maxBatchSize: 20000
+      maxOpenFiles: 10
+  EpochByHashStorage:
+    cache:
+      name: DbLookupExtensions.EpochByHashStorage
+      capacity: 20000
+      type: LRU
+    db:
+      filePath: DbLookupExtensions_EpochByHash
+      type: LvlDBSerial
+      batchDelaySeconds: 2
+      maxBatchSiz: 20000
+      maxOpenFiles: 10
+
+storagePruning:
+  # If the Enabled flag is set to false, then the storers won't divide epochs into separate dbs
+  enabled: false
+  # If this flag is set to false, the node won't delete any database between epochs
+  cleanOldEpochsData: false
+  # NumEpochsToKeep - if the flag above is set to true, this will set the number of epochs to keep in the storage.
+  # Epochs older that (current epoch - NumOfEpochsToKeep) will be removed
+  numEpochsToKeep: 10
+  # NumActivePersisters - this will set the number of persisters to keep active at a moment. This works even if
+  # the node removes old epochs data or not. In case of a node which removes old epochs data, this value has to be
+  # smaller or equal to the NumOfEpochsToKeep flag
+  numActivePersisters: 9
+
+txDataPool:
+  name: TxDataPool
+  capacity: 600000
+  sizePerSender: 20000
+  sizeInBytes: 419430400 #400MB
+  sizeInBytesPerSender: 12288000
+  type: TxCache
+  shards: 16
+
+headersPoolConfig:
+  maxHeadersPerShard: 1000
+  numElementsToRemoveOnEviction: 200
+
+trieNodesDataPool:
+  name: TrieNodesDataPool
+  capacity: 900000
+  type: SizeLRU
+  sizeInBytes: 314572800 #300MB
+
+smartContractDataPool:
+  name: SmartContractDataPool
+  capacity: 900000
+  type: SizeLRU
+  sizeInBytes: 209715200 #200MB
+
+#PublicKeyPeerID represents the main cache used to map Klever block signing public keys to their associated peer id's.
+publicKeyPeerID:
+  name: PublicKeyPeerID
+  capacity: 30000
+  type: LRU
+#PeerIDShardID is the fallback cache used in network sharding to allow direct connection between peer id and shard.
+# Used mainly for observers.
+peerIDShardID:
+  name: PeerIdShardID
+  capacity: 30000
+  type: LRU
+#PublicKeyPIDSignature is the cache that is used to map a public key to a peerId-signature pair.
+publicKeyPIDSignature:
+  name: PublicKeyPIDSignature
+  capacity: 3000
+  type: LRU
+
+peerHonesty:
+  name: PeerHonesty
+  capacity: 5000
+  type: LRU
+
+vmOutputCacher:
+  name: VMOutputCacher
+  capacity: 10000
+  type: LRU
+
+# Crypto Configs
+hasher:
+  type: blake2b
+multisigHasher:
+  type: blake2b
+txSignHasher:
+  type: blake2b
+# The marshalizer used in transaction signing
+txSignMarshalizer:
+  type: protobuf
+# The main marshalizer, used in internodes communication
+# Type identifies the marshalizer
+marshalizer:
+  type: protobuf
+
+elasticSearch:
+  url: "http://localhost:9200"
+  username: basic_auth_username
+  password: basic_auth_password
+
+maxNodesChangeEnableEpoch:
+  - epochEnable: 0
+    nodesToShuffle: 4
+
+#Ratings configuration
+
+# proposer-validator importanceRatio = 1 =>
+#   50% rating increase from proposer and 50% rating increase from validator
+
+# ProposerIncreaseRatingStep = 1/2 * (maxRating - startRating)/(nrTimesProposerPerHour * hoursToGetToMaxRating)
+# ValidatorIncreaseRatingStep = 1/2 * (maxRating - startRating)/(nrTimeValidatorPerHour * hoursToGetToMaxRating)
+# ProposerDecreaseRatingStep = -4 * ProposerIncreaseRatingStep
+# ValidatorDecreaseRatingStep = -4 * ValidatorIncreaseRatingStep
+
+ratings:
+  general:
+    startRating: 5000001
+    maxRating: 10000000
+    minRating: 1
+    signedBlocksThreshold: 0.01
+    selectionChances:
+      - maxThreshold: 0
+        chancePercent: 5
+      - maxThreshold: 1000000
+        chancePercent: 0
+      - maxThreshold: 2000000
+        chancePercent: 16
+      - maxThreshold: 3000000
+        chancePercent: 17
+      - maxThreshold: 4000000
+        chancePercent: 18
+      - maxThreshold: 5000000
+        chancePercent: 19
+      - maxThreshold: 6000000
+        chancePercent: 20
+      - maxThreshold: 7000000
+        chancePercent: 21
+      - maxThreshold: 8000000
+        chancePercent: 22
+      - maxThreshold: 9000000
+        chancePercent: 23
+      - maxThreshold: 10000000
+        chancePercent: 24
+
+  peerHonesty:
+    #this value will be multiplied with the current value for a public key each DecayUpdateIntervalInSeconds seconds
+    #for the current settings, a pk will reach to value 0 after maximum 2h (if it stopped misbehaving or stopped sending good messages)
+    decayCoefficient: 0.9779
+    decayUpdateIntervalInSeconds: 10
+    maxScore: 100.0
+    minScore: -100.0
+    badPeerThreshold: -80.0
+    unitValue: 1.0
+
+  ratingSteps:
+    hoursToMaxRatingFromStartRating: 55
+    proposerValidatorImportance: 1.0
+    proposerDecreaseFactor: -4.0
+    validatorDecreaseFactor: -4.0
+    consecutiveMissedBlocksPenalty: 1.50
+
+epochStart:
+  minNumConnectedPeersToStart: 2
+  minNumOfPeersToConsiderBlockValid: 2
+
+virtualMachine:
+  execution:
+    timeOutForSCExecutionInMilliseconds: 3000 # 3 seconds = 3000 milliseconds
+    wasmerSIGSEGVPassthrough: false # must be false for release
+    wasmVMVersions:
+      - startEpoch: 0
+        version: "v1.0"
+
+  querying:
+    numConcurrentVMs: 1
+    timeOutForSCExecutionInMilliseconds: 3000 # 3 seconds = 3000 milliseconds
+    wasmerSIGSEGVPassthrough: false # must be false for release
+    wasmVMVersions:
+      - startEpoch: 0
+        version: "v1.0"
+      - startEpoch: 1
+        version: "v1.0"
+
+  gasConfig:
+    # The following values define the maximum amount of gas to be allocated for VM Queries coming from API
+    # If set to 0, then MaxUInt64 will be used
+    metaMaxGasPerVmQuery: 0 #unlimited
+
+builtInFunctions:
+  maxNumAddressesInTransferRole: 100
+
+hardfork:
+  enableTrigger: true
+  enableTriggerFromP2P: true
+  publicKeyToListenFrom: "153dae6cb3963260f309959bf285537b77ae16d82e9933147be7827f7394de8dc97d9d9af41e970bc72aecb44b77e819621081658c37f7000d21e2d0e8963df83233407bde9f46369ba4fcd03b57f40b80b06c191a428cfb5c447ec510e79307"
+  closeAfterExportInMinutes: 10000
+  afterHardFork: false
+  importFolder: "export"
+  startSlot: 10000
+  startNonce: 10000
+  startEpoch: 100
+  genesisTime: 0
+  validatorGracePeriodInEpochs: 1 #defines how long is the rating computation disabled after hardfork
+  exportStateStorageConfig:
+    cache:
+      name: "HardFork.ExportStateStorageConfig"
+      capacity: 5000
+      type: "LRU"
+    db:
+      filePath: "ExportStateStorage/MainDB"
+      type: "LvlDBSerial"
+      batchDelaySeconds: 2
+      maxBatchSize: 1000
+      maxOpenFiles: 10
+  exportKeysStorageConfig:
+    cache:
+      name: "HardFork.ExportKeysStorageConfig"
+      capacity: 5000
+      type: "LRU"
+    db:
+      filePath: "ExportKeysStorageConfig/MainDB"
+      type: "LvlDBSerial"
+      batchDelaySeconds: 2
+      maxBatchSize: 1000
+      maxOpenFiles: 10
+  exportTriesStorageConfig:
+    cache:
+      name: "HardFork.ExportTriesStorageConfig"
+      capacity: 5000
+      type: "LRU"
+    db:
+      filePath: "ExportTrieStorage/MainTrie"
+      type: "LvlDBSerial"
+      batchDelaySeconds: 2
+      maxBatchSize: 1000
+      maxOpenFiles: 10
+  importStateStorageConfig:
+    cache:
+      name: "HardFork.ImportStateStorageConfig"
+      capacity: 5000
+      type: "LRU"
+    db:
+      filePath: "ExportStateStorage/MainDB"
+      type: "LvlDBSerial"
+      batchDelaySeconds: 2
+      maxBatchSize: 1000
+      maxOpenFiles: 10
+  importKeysStorageConfig:
+    cache:
+      name: "HardFork.ImportKeysStorageConfig"
+      capacity: 5000
+      type: "LRU"
+    db:
+      filePath: "ExportKeysStorageConfig/MainDB"
+      type: "LvlDBSerial"
+      batchDelaySeconds: 2
+      maxBatchSize: 1000
+      maxOpenFiles: 10
+
+trieSync:
+  numConcurrentTrieSyncers: 200
+  maxHardCapForMissingNodes: 5000
+
+importDbConfig:
+  isImportDBMode: false
+  importDBStartInEpoch: 0
+  importDBWorkingDir: "./importedDB"
+  importDbNoSigCheckFlag: false
+
+consensusMonitorList:

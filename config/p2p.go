@@ -1,0 +1,37 @@
+package config
+
+// P2PConfig will hold all the P2P settings
+type P2PConfig struct {
+	Node                NodeConfig                `yaml:"node"`
+	KadDhtPeerDiscovery KadDhtPeerDiscoveryConfig `yaml:"kadDhtPeerDiscovery"`
+	Sharding            ShardingConfig            `yaml:"sharding"`
+}
+
+// NodeConfig will hold basic p2p settings
+type NodeConfig struct {
+	Port                       string `yaml:"port"`
+	Seed                       string `yaml:"seed"`
+	MaximumExpectedPeerCount   uint64 `yaml:"maximumExpectedPeerCount"`
+	ThresholdMinConnectedPeers uint32 `yaml:"thresholdMinConnectedPeers"`
+	BroadcastIP                string `yaml:"broadcastIP"`
+}
+
+// KadDhtPeerDiscoveryConfig will hold the kad-dht discovery config settings
+type KadDhtPeerDiscoveryConfig struct {
+	Enabled                          bool     `yaml:"enabled"`
+	RefreshIntervalInSec             uint32   `yaml:"refreshIntervalInSec"`
+	ProtocolID                       string   `yaml:"protocolID"`
+	InitialPeerList                  []string `yaml:"initialPeerList"`
+	BucketSize                       uint32   `yaml:"bucketSize"`
+	RoutingTableRefreshIntervalInSec uint32   `yaml:"routingTableRefreshIntervalInSec"`
+}
+
+// ShardingConfig will hold the network sharding config settings
+type ShardingConfig struct {
+	TargetPeerCount         int    `yaml:"targetPeerCount"`
+	MaxIntraShardValidators uint32 `yaml:"maxIntraShardValidators"`
+	MaxCrossShardValidators uint32 `yaml:"maxCrossShardValidators"`
+	MaxIntraShardObservers  uint32 `yaml:"maxIntraShardObservers"`
+	MaxCrossShardObservers  uint32 `yaml:"maxCrossShardObservers"`
+	Type                    string `yaml:"type"`
+}

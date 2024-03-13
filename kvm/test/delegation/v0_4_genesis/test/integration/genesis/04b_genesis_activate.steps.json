@@ -1,0 +1,34 @@
+{
+    "name": "genesis activate",
+    "steps": [
+        {
+            "step": "scCall",
+            "txId": "activate-genesis-1",
+            "tx": {
+                "from": "''node_address__________________s1",
+                "to": "sc:delegation",
+                "value": "0",
+                "function": "activateGenesis",
+                "arguments": [],
+                "gasLimit": "100,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "",
+                "logs": [
+                    {
+                        "address": "sc:delegation",
+                        "endpoint": "str:activateGenesis",
+                        "topics": [
+                            "0x0000000000000000000000000000000000000000000000000000000000000003"
+                        ],
+                        "data": "0x"
+                    }
+                ],
+                "gas": "*",
+                "refund": "*"
+            }
+        }
+    ]
+}

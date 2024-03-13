@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;kapps";
+
+message ITOData {
+    bool                       IsActive                = 1  [json_name = "isActive"];
+    int64                      MaxAmount               = 2  [json_name = "maxAmount"];
+    int64                      MintedAmount            = 3  [json_name = "mintedAmount"];
+    bytes                      ReceiverAddress         = 4  [json_name = "receiverAddress"];
+    map<string, PackData>      PackData                = 5  [json_name = "packData"];
+    int64                      DefaultLimitPerAddress  = 6  [json_name = "defaultLimitPerAddress"];
+    bool                       IsWhitelistActive       = 7  [json_name = "isWhitelistActive"];
+    int64                      WhitelistStartTime      = 9  [json_name = "whitelistStartTime"];
+    int64                      WhitelistEndTime        = 10 [json_name = "whitelistEndTime"];
+    int32                      WhitelistLen            = 11 [json_name = "whitelistLen"];
+    int64                      StartTime               = 12 [json_name = "startTime"];
+    int64                      EndTime                 = 13 [json_name = "endTime"];
+}
+
+message PackData {
+    repeated Pack Packs = 1 [json_name = "packs"];
+}
+
+message Pack {
+    int64 Amount = 1 [json_name = "amount"];
+    int64 Price  = 2 [json_name = "price"];
+}
+
+message WhitelistData {
+    int64 Limit = 1 [json_name = "limit"];
+}

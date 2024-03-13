@@ -1,0 +1,483 @@
+package node
+
+import (
+	"fmt"
+	"math/big"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/klever-io/klever-go/config"
+	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/statistics"
+	"github.com/klever-io/klever-go/network/api/errors"
+	"github.com/klever-io/klever-go/network/api/shared"
+	"github.com/klever-io/klever-go/network/api/wrapper"
+	"github.com/klever-io/klever-go/node/heartbeat/data"
+	"github.com/klever-io/klever-go/tools/debug"
+)
+
+const (
+	pidQueryParam       = "pid"
+	debugPath           = "/debug"
+	heartbeatStatusPath = "/heartbeatstatus"
+	metricsPath         = "/metrics"
+	overviewPath        = "/overview"
+	p2pStatusPath       = "/p2pstatus"
+	peerInfoPath        = "/peerinfo"
+	statisticsPath      = "/statistics"
+	statusPath          = "/status"
+	setRedundancyPath   = "/set-redundancy"
+	enableEpochs        = "/enable-epochs"
+)
+
+// AccStateCheckpointsKey is used as a key for the number of account state checkpoints in the api response
+const AccStateCheckpointsKey = "klv_num_accounts_state_checkpoints"
+
+// PeerStateCheckpointsKey is used as a key for the number of peer state checkpoints in the api response
+const PeerStateCheckpointsKey = "klv_num_peer_state_checkpoints"
+
+// RedundancyLevelKey is used as a key for the redundancy level in the api response
+const RedundancyLevelKey = "klv_redundancy_level"
+
+// FacadeHandler interface defines methods that can be used by the gin webserver
+type FacadeHandler interface {
+	GetHeartbeats() ([]data.PubKeyHeartbeat, error)
+	TpsBenchmark() *statistics.TpsBenchmark
+	StatusMetrics() core.StatusMetricsHandler
+	GetQueryHandler(name string) (debug.QueryHandler, error)
+	GetPeerInfo(pid string) ([]core.QueryP2PPeerInfo, error)
+	SetRedundancy(level int64) error
+	GetRedundancy() int64
+	GetEnableEpochs() (config.EnableEpochsConfig, error)
+	IsInterfaceNil() bool
+}
+
+// QueryDebugRequest represents the structure on which user input for querying a debug info will validate against
+type QueryDebugRequest struct {
+	Name   string `form:"name" json:"name"`
+	Search string `form:"search" json:"search"`
+}
+
+type statisticsResponse struct {
+	LiveTPS               float64                 `json:"liveTPS"`
+	PeakTPS               float64                 `json:"peakTPS"`
+	BlockNumber           uint64                  `json:"blockNumber"`
+	SlotNumber            uint64                  `json:"slotNumber"`
+	SlotTime              uint64                  `json:"slotTime"`
+	AverageBlockTxCount   *big.Int                `json:"averageBlockTxCount"`
+	TotalProcessedTxCount *big.Int                `json:"totalProcessedTxCount"`
+	ChainStatistics       chainStatisticsResponse `json:"chainStatistics"`
+	LastBlockTxCount      uint32                  `json:"lastBlockTxCount"`
+}
+
+type chainStatisticsResponse struct {
+	LiveTPS               float64  `json:"liveTPS"`
+	AverageTPS            *big.Int `json:"averageTPS"`
+	PeakTPS               float64  `json:"peakTPS"`
+	CurrentBlockNonce     uint64   `json:"currentBlockNonce"`
+	TotalProcessedTxCount *big.Int `json:"totalProcessedTxCount"`
+	AverageBlockTxCount   uint32   `json:"averageBlockTxCount"`
+	LastBlockTxCount      uint32   `json:"lastBlockTxCount"`
+}
+
+// Routes defines node related routes
+func Routes(router *wrapper.RouterWrapper) {
+	router.RegisterHandler(http.MethodGet, heartbeatStatusPath, HeartbeatStatus)
+	router.RegisterHandler(http.MethodGet, statisticsPath, Statistics)
+	router.RegisterHandler(http.MethodGet, statusPath, StatusMetrics)
+	router.RegisterHandler(http.MethodGet, p2pStatusPath, P2pStatusMetrics)
+	router.RegisterHandler(http.MethodGet, metricsPath, PrometheusMetrics)
+	router.RegisterHandler(http.MethodGet, overviewPath, overview)
+	router.RegisterHandler(http.MethodPost, debugPath, QueryDebug)
+	router.RegisterHandler(http.MethodGet, peerInfoPath, PeerInfo)
+	router.RegisterHandler(http.MethodPost, setRedundancyPath, setRedundancy)
+	router.RegisterHandler(http.MethodGet, enableEpochs, getEnableEpochs)
+	// placeholder for custom routes
+}
+
+func getFacade(c *gin.Context) (FacadeHandler, bool) {
+	facadeObj, ok := c.Get("facade")
+	if !ok {
+		c.JSON(
+			http.StatusInternalServerError,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: errors.ErrNilAppContext.Error(),
+				Code:  shared.ReturnCodeInternalError,
+			},
+		)
+		return nil, false
+	}
+
+	facade, ok := facadeObj.(FacadeHandler)
+	if !ok {
+		c.JSON(
+			http.StatusInternalServerError,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: errors.ErrInvalidAppContext.Error(),
+				Code:  shared.ReturnCodeInternalError,
+			},
+		)
+		return nil, false
+	}
+
+	return facade, true
+}
+
+// @Summary respond with the heartbeat status of the node
+// @Tags Node
+// @Produce  json
+// @Success 200 object shared.GenericAPIResponse "ok"
+// @Failure 500 object shared.GenericAPIResponse "internal error"
+// @Router /node/heartbeatstatus [get]
+// HeartbeatStatus respond with the heartbeat status of the node
+func HeartbeatStatus(c *gin.Context) {
+	facade, ok := getFacade(c)
+	if !ok {
+		return
+	}
+
+	hbStatus, err := facade.GetHeartbeats()
+	if err != nil {
+		c.JSON(
+			http.StatusInternalServerError,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: err.Error(),
+				Code:  shared.ReturnCodeInternalError,
+			},
+		)
+		return
+	}
+
+	c.JSON(
+		http.StatusOK,
+		shared.GenericAPIResponse{
+			Data:  gin.H{"heartbeats": hbStatus},
+			Error: "",
+			Code:  shared.ReturnCodeSuccess,
+		},
+	)
+}
+
+// @Summary returns the blockchain statistics
+// @Tags Node
+// @Produce  json
+// @Success 200 object shared.GenericAPIResponse "ok"
+// @Router /node/statistics [get]
+// Statistics returns the blockchain statistics
+func Statistics(c *gin.Context) {
+	facade, ok := getFacade(c)
+	if !ok {
+		return
+	}
+
+	c.JSON(
+		http.StatusOK,
+		shared.GenericAPIResponse{
+			Data:  gin.H{"statistics": statsFromTpsBenchmark(facade.TpsBenchmark())},
+			Error: "",
+			Code:  shared.ReturnCodeSuccess,
+		},
+	)
+}
+
+// @Summary returns the node statistics exported by an StatusMetricsHandler without p2p statistics
+// @Tags Node
+// @Produce json
+// @Success 200 object shared.GenericAPIResponse "ok"
+// @Router /node/status [get]
+// StatusMetrics returns the node statistics exported by an StatusMetricsHandler without p2p statistics
+func StatusMetrics(c *gin.Context) {
+	facade, ok := getFacade(c)
+	if !ok {
+		return
+	}
+
+	details := facade.StatusMetrics().StatusMetricsMapWithoutP2P()
+	details[RedundancyLevelKey] = facade.GetRedundancy()
+
+	// TODO:
+	//details[AccStateCheckpointsKey] = facade.GetNumCheckpointsFromAccountState()
+	// details[PeerStateCheckpointsKey] = facade.GetNumCheckpointsFromPeerState()
+	c.JSON(
+		http.StatusOK,
+		shared.GenericAPIResponse{
+			Data:  gin.H{"metrics": details},
+			Error: "",
+			Code:  shared.ReturnCodeSuccess,
+		},
+	)
+}
+
+// @Summary returns the node's p2p statistics exported by a StatusMetricsHandler
+// @Tags Node
+// @Produce json
+// @Success 200 object shared.GenericAPIResponse "ok"
+// @Router /node/p2pstatus [get]
+// P2pStatusMetrics returns the node's p2p statistics exported by a StatusMetricsHandler
+func P2pStatusMetrics(c *gin.Context) {
+	facade, ok := getFacade(c)
+	if !ok {
+		return
+	}
+
+	details := facade.StatusMetrics().StatusP2pMetricsMap()
+	c.JSON(
+		http.StatusOK,
+		shared.GenericAPIResponse{
+			Data:  gin.H{"metrics": details},
+			Error: "",
+			Code:  shared.ReturnCodeSuccess,
+		},
+	)
+}
+
+func statsFromTpsBenchmark(tpsBenchmark *statistics.TpsBenchmark) statisticsResponse {
+	sr := statisticsResponse{}
+	sr.LiveTPS = tpsBenchmark.LiveTPS()
+	sr.PeakTPS = tpsBenchmark.PeakTPS()
+	sr.SlotTime = tpsBenchmark.SlotTime()
+	sr.BlockNumber = tpsBenchmark.BlockNumber()
+	sr.SlotNumber = tpsBenchmark.SlotNumber()
+	sr.AverageBlockTxCount = tpsBenchmark.AverageBlockTxCount()
+	sr.LastBlockTxCount = tpsBenchmark.LastBlockTxCount()
+	sr.TotalProcessedTxCount = tpsBenchmark.TotalProcessedTxCount()
+
+	ss := tpsBenchmark.Statistic()
+	sr.ChainStatistics = chainStatisticsResponse{
+		LiveTPS:               ss.LiveTPS(),
+		PeakTPS:               ss.PeakTPS(),
+		AverageTPS:            ss.AverageTPS(),
+		AverageBlockTxCount:   ss.AverageBlockTxCount(),
+		CurrentBlockNonce:     ss.CurrentBlockNonce(),
+		LastBlockTxCount:      ss.LastBlockTxCount(),
+		TotalProcessedTxCount: ss.TotalProcessedTxCount(),
+	}
+
+	return sr
+}
+
+// @Summary returns the debug information after the query has been interpreted
+// @Tags Node
+// @Accept  json
+// @Produce  json
+// @Param data body QueryDebugRequest true "body data"
+// @Success 200 object shared.GenericAPIResponse "ok"
+// @Failure 400 object shared.GenericAPIResponse "some error"
+// @Router /node/debug [post]
+// QueryDebug returns the debug information after the query has been interpreted
+func QueryDebug(c *gin.Context) {
+	facade, ok := getFacade(c)
+	if !ok {
+		return
+	}
+
+	var gtx = QueryDebugRequest{}
+	err := c.ShouldBindJSON(&gtx)
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), err.Error()),
+				Code:  shared.ReturnCodeRequestError,
+			},
+		)
+		return
+	}
+
+	qh, err := facade.GetQueryHandler(gtx.Name)
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: fmt.Sprintf("%s: %s", errors.ErrQueryError.Error(), err.Error()),
+				Code:  shared.ReturnCodeRequestError,
+			},
+		)
+		return
+	}
+
+	c.JSON(
+		http.StatusOK,
+		shared.GenericAPIResponse{
+			Data:  gin.H{"result": qh.Query(gtx.Search)},
+			Error: "",
+			Code:  shared.ReturnCodeSuccess,
+		},
+	)
+}
+
+// @Summary returns the information of a provided p2p peer ID
+// @Tags Node
+// @Produce json
+// @Success 200 object shared.GenericAPIResponse "ok"
+// @Failure 500 object shared.GenericAPIResponse "internal error"
+// @Router /node/peerinfo [get]
+// PeerInfo returns the information of a provided p2p peer ID
+func PeerInfo(c *gin.Context) {
+	facade, ok := getFacade(c)
+	if !ok {
+		return
+	}
+
+	queryVals := c.Request.URL.Query()
+	pids := queryVals[pidQueryParam]
+	pid := ""
+	if len(pids) > 0 {
+		pid = pids[0]
+	}
+
+	info, err := facade.GetPeerInfo(pid)
+	if err != nil {
+		c.JSON(
+			http.StatusInternalServerError,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: fmt.Sprintf("%s: %s", errors.ErrGetPidInfo.Error(), err.Error()),
+				Code:  shared.ReturnCodeInternalError,
+			},
+		)
+		return
+	}
+
+	c.JSON(
+		http.StatusOK,
+		shared.GenericAPIResponse{
+			Data:  gin.H{"info": info},
+			Error: "",
+			Code:  shared.ReturnCodeSuccess,
+		},
+	)
+}
+
+// @Summary return the data in the way that prometheus expects them
+// @Tags Node
+// @Success 200 {string} ok
+// @Router /node/p2pstatus [get]
+// PrometheusMetrics is the endpoint which will return the data in the way that prometheus expects them
+func PrometheusMetrics(c *gin.Context) {
+	facade, ok := getFacade(c)
+	if !ok {
+		return
+	}
+
+	metrics := facade.StatusMetrics().StatusMetricsWithoutP2PPrometheusString()
+	c.String(
+		http.StatusOK,
+		metrics,
+	)
+}
+
+// @Summary returns a node overview
+// @Tags Node
+// @Produce json
+// @Success 200 object shared.GenericAPIResponse "ok"
+// @Router /node/overview [get]
+// Overview is the endpoint which will return the node overview in JSON format
+func overview(c *gin.Context) {
+	facade, ok := getFacade(c)
+	if !ok {
+		return
+	}
+
+	metrics := facade.StatusMetrics().Overview()
+
+	c.JSON(
+		http.StatusOK,
+		shared.GenericAPIResponse{
+			Data:  gin.H{"overview": metrics},
+			Error: "",
+			Code:  shared.ReturnCodeSuccess,
+		},
+	)
+}
+
+// @Summary set node redundancy level
+// @Tags Node
+// @Produce json
+// @Success 200 object shared.GenericAPIResponse "ok"
+// @Router /node/set-redundancy [post]
+// setRedundancy is the endpoint which will return the node overview in JSON format
+func setRedundancy(c *gin.Context) {
+	facade, ok := getFacade(c)
+	if !ok {
+		return
+	}
+
+	var glevel = struct {
+		Level int64 `form:"level" json:"level"`
+	}{}
+
+	err := c.ShouldBindJSON(&glevel)
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), err.Error()),
+				Code:  shared.ReturnCodeRequestError,
+			},
+		)
+		return
+	}
+
+	err = facade.SetRedundancy(glevel.Level)
+	if err != nil {
+		c.JSON(
+			http.StatusInternalServerError,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), err.Error()),
+				Code:  shared.ReturnCodeRequestError,
+			},
+		)
+		return
+	}
+
+	c.JSON(
+		http.StatusOK,
+		shared.GenericAPIResponse{
+			Error: "",
+			Code:  shared.ReturnCodeSuccess,
+		},
+	)
+}
+
+// @Summary get node enable epochs configuration
+// @Tags Node
+// @Produce json
+// @Success 200 object shared.GenericAPIResponse "ok"
+// @Router /node/enable-epochs [post]
+// getEnableEpochs is the endpoint which will return the node enable epochs configuration in JSON format
+func getEnableEpochs(c *gin.Context) {
+	facade, ok := getFacade(c)
+	if !ok {
+		return
+	}
+
+	ep, err := facade.GetEnableEpochs()
+	if err != nil {
+		c.JSON(
+			http.StatusInternalServerError,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), err.Error()),
+				Code:  shared.ReturnCodeRequestError,
+			},
+		)
+		return
+	}
+
+	c.JSON(
+		http.StatusOK,
+		shared.GenericAPIResponse{
+			Data:  gin.H{"config": ep},
+			Error: "",
+			Code:  shared.ReturnCodeSuccess,
+		},
+	)
+}

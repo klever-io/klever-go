@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;kapps";
+
+enum EnumType {
+    Bool       = 0;
+    Int8       = 1;
+    Int16      = 2;
+    Int32      = 3;
+    Int64      = 4;
+    Uint8      = 5;
+    Uint16     = 6;
+    Uint32     = 7;
+    Uint64     = 8;
+    Float32    = 9;
+    Float64    = 10;
+    Complex64  = 11;
+    Complex128 = 12;
+    String     = 13;
+    Bytes      = 14;
+}
+
+enum EnumParameter {
+    FeePerDataByte                   = 0;
+    KAppFeeCreateValidator           = 1;
+    KAppFeeCreateAsset               = 2;
+    MaxEpochsUnclaimed               = 3;
+    MinSelfDelegatedAmount           = 4;
+    MinTotalDelegatedAmount          = 5;
+    BlockRewards                     = 6;
+    StakingRewards                   = 7;
+    KAppFeeTransfer                  = 8;
+    KAppFeeAssetTrigger              = 9;
+    KAppFeeValidatorConfig           = 10;
+    KAppFeeFreeze                    = 11;
+    KAppFeeUnfreeze                  = 12;
+    KAppFeeDelegate                  = 13;
+    KAppFeeUndelegate                = 14;
+    KAppFeeWithdraw                  = 15;
+    KAppFeeClaim                     = 16;
+    KAppFeeUnjail                    = 17;
+    KAppFeeSetAccountName            = 18;
+    KAppFeeProposal                  = 19;
+    KAppFeeVote                      = 20;
+    KAppFeeConfigITO                 = 21;
+    KAppFeeSetITOPrices              = 22;
+    KAppFeeBuy                       = 23;
+    KAppFeeSell                      = 24;
+    KAppFeeCancelMarketOrder         = 25;
+    KAppFeeCreateMarketplace         = 26;
+    KAppFeeConfigMarketplace         = 27;
+    KAppFeeUpdateAccountPermission   = 28;
+    MaxNFTMintBatch                  = 29;
+    MinKFIStakedToEnableProposals    = 30;
+    MinKLVBucketAmount               = 31;
+    MaxBucketSize                    = 32;
+    LeaderValidatorRewardsPercentage = 33;
+    ProposalMaxEpochsDuration        = 34;
+    KAppFeeITOTrigger                = 35;
+    KAppFeeDeposit                   = 36;
+    KAppFeeSmartContract             = 37;
+    GasMultiplier                    = 38;
+}
+
+message ProposalController {
+    uint64                       ProposalCount    = 1 [json_name = "proposalCount"];
+    map<int32, Parameter>        ActiveParameters = 2 [json_name = "activeParameters"];
+    map<uint32, ActiveProposals> ActiveProposals  = 3 [json_name = "activeProposals"];
+}
+
+message Parameter {
+    EnumType Type  = 1 [json_name = "type"];
+    bytes    Value = 2 [json_name = "value"];
+}
+
+message ActiveProposals {
+    repeated uint64 ProposalIDs = 1 [json_name = "proposalIds"];
+}
+
+message ProposalData {
+    message VoteDetail {
+        enum EnumVoteType {
+            Yes = 0;
+            No  = 1;
+        }
+        EnumVoteType  Type      = 1  [json_name = "type"];
+        int64         Amount    = 2  [json_name = "amount"];
+        int64         Timestamp = 3  [json_name = "timestamp"];
+    }
+    enum EnumProposalStatus {
+        ActiveProposal    = 0;
+        ApprovedProposal  = 1;
+        DeniedProposal    = 2;
+    }
+    bytes                   Proposer       = 1  [json_name = "proposer"];
+    bytes                   TXHash         = 2  [json_name = "txHash"];
+    EnumProposalStatus      ProposalStatus = 3  [json_name = "proposalStatus"];
+    map<int32, bytes>       Parameters     = 4  [json_name = "parameters"];
+    bytes                   Description    = 5  [json_name = "description"];
+    uint32                  EpochStart     = 6  [json_name = "epochStart"];
+    uint32                  EpochEnd       = 7  [json_name = "epochEnd"];
+    map<int32, int64>       Votes          = 8  [json_name = "votes"];
+    int64                   Timestamp      = 9  [json_name = "timestamp"];
+    map<string, VoteDetail> Voters         = 10 [json_name = "voters"];
+    int64                   TotalStaked    = 11 [json_name = "totalStaked"];
+}

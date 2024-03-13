@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;batch";
+
+enum CType {
+	GZip = 0;
+	LZ4  = 1;
+}
+
+// Transaction holds all the data needed for a value transfer or SC call
+message Batch {
+	repeated bytes Data         = 1 [json_name = "data,omitempty"];
+	bytes          Stream       = 2 [json_name = "stream,omitempty"];
+	bool           IsCompressed = 3 [json_name = "isCompressed"];
+	CType          Algo 		= 4 [json_name = "algo,omitempty"];
+	int32          DataSize     = 5 [json_name = "dataSize"];
+}

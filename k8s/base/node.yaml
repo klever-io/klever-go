@@ -1,0 +1,108 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/component: blockchain
+  name: blockchain
+  namespace: klever-go
+spec:
+  serviceName: blockchain
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: blockchain
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: blockchain
+    spec:
+      tolerations:
+        - effect: NoSchedule
+          key: app.kubernetes.io/name
+          operator: Equal
+          value: blockchain
+      nodeSelector:
+        role: blockchain
+      containers:
+        - image: klever-go
+          imagePullPolicy: Always
+          name: validator
+          ports:
+            - containerPort: 8080
+              name: api
+              protocol: TCP
+          command:
+            - "validator"
+          args:
+           - "--log-level=*:DEBUG,ntp:INFO"
+           - "--use-log-view"
+           - "--rest-api-interface=:8080"
+          resources: {}
+          volumeMounts:
+            - mountPath: /opt/klever-blockchain/config/node
+              name: config
+            - mountPath: /opt/klever-blockchain/db
+              name: data
+        - image: klever-go
+          imagePullPolicy: Always
+          name: seed-node
+          command:
+            - "seednode"
+          volumeMounts:
+            - mountPath: /opt/klever-blockchain/config/seednode
+              name: seednode
+          args:
+            - "--log-level=*:DEBUG"
+            - "--rest-api-interface=:8081"
+          ports:
+            - containerPort: 8081
+              name: seednode-api
+              protocol: TCP
+          resources: {}
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      imagePullSecrets:
+        - name: docker-klever-go
+      volumes:
+        - name: config
+          secret:
+            secretName: config
+        - name: seednode
+          configMap:
+            name: seednode
+  volumeClaimTemplates:
+    - metadata:
+        labels:
+          app.kubernetes.io/component: node
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 15Gi
+        storageClassName: ssd
+        volumeMode: Filesystem
+      status:
+        phase: Pending
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: blockchain
+  name: rest
+spec:
+  clusterIP: None
+  ports:
+    - name: api
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+  selector:
+    app.kubernetes.io/component: blockchain
+  sessionAffinity: None
+  type: ClusterIP

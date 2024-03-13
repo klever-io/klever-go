@@ -1,0 +1,9 @@
+.git
+.cache
+*.tar*
+*.pem*
+*.log
+bin/
+logs/
+dbs/
+db/

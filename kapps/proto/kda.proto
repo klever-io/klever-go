@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;kapps";
+
+// KDAData holds the data for a Klever digital asset
+message KDAData {
+  enum EnumAssetType {
+    Fungible = 0;
+    NonFungible = 1;
+    SemiFungible = 2;
+  }
+  EnumAssetType       AssetType                 = 1  [json_name = "assetType"];
+  bytes               ID                        = 2  [json_name = "id,omitempty"];
+  bytes               Name                      = 3  [json_name = "name"];
+  bytes               Ticker                    = 4  [json_name = "ticker"];
+  bytes               OwnerAddress              = 5  [json_name = "ownerAddress"];
+  string              Logo                      = 6  [json_name = "logo"];
+  map<string, string> URIs                      = 7  [json_name = "uris"];
+  uint32              Precision                 = 8  [json_name = "precision"];
+  int64               InitialSupply             = 9  [json_name = "initialSupply"];
+  int64               CirculatingSupply         = 10 [json_name = "circulatingSupply"];
+  int64               MaxSupply                 = 11 [json_name = "maxSupply"];
+  int64               MintedValue               = 12 [json_name = "mintedValue"];
+  int64               BurnedValue               = 13 [json_name = "burnedValue"];
+  int64               IssueDate                 = 14 [json_name = "issueDate"];
+  RoyaltiesData       Royalties                 = 15 [json_name = "royalties"];
+  PropertiesData      Properties                = 16 [json_name = "properties"];
+  AttributesData      Attributes                = 17 [json_name = "attributes"];
+  repeated RolesData  Roles                     = 18 [json_name = "roles"];
+}
+
+// PropertiesData hold the properties structure for the KDA asset
+message PropertiesData {
+  bool CanFreeze                = 1 [json_name = "canFreeze"];
+  bool CanWipe                  = 2 [json_name = "canWipe"];
+  bool CanPause                 = 3 [json_name = "canPause"];
+  bool CanMint                  = 4 [json_name = "canMint"];
+  bool CanBurn                  = 5 [json_name = "canBurn"];
+  bool CanChangeOwner           = 6 [json_name = "canChangeOwner"];
+  bool CanAddRoles              = 7 [json_name = "canAddRoles"];
+  bool LimitTransfer              = 8 [json_name = "limitTransfer"];
+}
+
+// AttributesData hold the attributes structure for the KDA asset
+message AttributesData {
+  bool  IsPaused                    = 1 [json_name = "isPaused"];
+  bool  IsNFTMintStopped            = 2 [json_name = "isNFTMintStopped"];
+  bool  IsRoyaltiesChangeStopped    = 3 [json_name = "isRoyaltiesChangeStopped"];
+  bool  IsNFTMetadataChangeStopped  = 4 [json_name = "isNFTMetadataChangeStopped"];
+}
+
+// RolesData holds the roles for a given asset and the given address
+message RolesData {
+  bytes Address               = 1 [json_name = "address"];
+  bool  HasRoleMint           = 2 [json_name = "hasRoleMint"];
+  bool  HasRoleSetITOPrices   = 3 [json_name = "hasRoleSetITOPrices"];
+  bool  HasRoleDeposit        = 4 [json_name = "hasRoleDeposit"];
+  bool  HasRoleTransfer       = 5 [json_name = "hasRoleTransfer"];
+}
+
+// RoyaltiesData holds the royalties for a given asset
+message RoyaltiesData {
+  bytes                          Address            = 1 [json_name = "Address"];
+  repeated RoyaltyData           TransferPercentage = 2 [json_name = "transferPercentage"];
+  int64                          TransferFixed      = 3 [json_name = "transferFixed"];
+  uint32                         MarketPercentage   = 4 [json_name = "marketPercentage"];
+  int64                          MarketFixed        = 5 [json_name = "marketFixed"];
+  map<string, RoyaltySplitData>  SplitRoyalties     = 6 [json_name = "splitRoyalties"];
+  uint32                         ITOPercentage      = 7 [json_name = "itoPercentage"];
+  int64                          ITOFixed           = 8 [json_name = "itoFixed"];
+}
+
+// Royalty holds the royalty threshold
+message RoyaltyData {
+  int64  Amount     = 1  [json_name = "amount"];
+  uint32 Percentage = 2  [json_name = "percentage"];
+}
+
+// RoyaltySplitData holds the royalty split
+message RoyaltySplitData {
+  uint32 PercentTransferPercentage         = 1 [json_name = "percentTransferPercentage"];
+  uint32 PercentTransferFixed              = 2 [json_name = "percentTransferFixed"];
+  uint32 PercentMarketPercentage           = 3 [json_name = "percentMarketPercentage"];
+  uint32 PercentMarketFixed                = 4 [json_name = "percentMarketFixed"];
+  uint32 PercentITOPercentage              = 5 [json_name = "percentITOPercentage"];
+  uint32 PercentITOFixed                   = 6 [json_name = "percentITOFixed"];
+}

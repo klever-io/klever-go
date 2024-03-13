@@ -1,0 +1,85 @@
+name: Release Dev
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  config:
+    uses: klever-io/workflow-calls/.github/workflows/go-setup.yaml@master
+    with:
+      with_vendor: false
+      with_cache: false
+      go_private: "github.com/klever-io/*"
+    secrets:
+      git_user: ${{ secrets.GIT_USER }}
+      git_pass: ${{ secrets.GIT_PASS }}
+
+  build:
+    needs: [config]
+    runs-on: klever-pipe
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions/setup-go@v2
+        with:
+          go-version: "1.20"
+
+      - name: cache vendored dependencies
+        id: cache-vendor
+        uses: actions/cache@v2
+        with:
+          path: vendor
+          key: ${{ hashFiles('**/go.sum') }}-${{ secrets.CACHE_VERSION }}
+
+      - name: GoImports Formatter
+        run: |
+          go install golang.org/x/tools/cmd/goimports@latest
+          go mod tidy
+          make goimports
+
+      # If there are any diffs from goimports or go mod tidy, fail.
+      - name: Verify no changes from goimports and go mod tidy
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            exit 1
+          fi
+
+      - name: vendor dependencies
+        run: |
+          go mod vendor
+          go install github.com/goware/modvendor@latest
+          modvendor -copy="**/*.c **/*.h **/*.proto **/*.a" -v
+        if: steps.cache-vendor.outputs.cache-hit != 'true'
+
+      - name: ensure code is buildable
+        run: |
+          go vet -unsafeptr=false $(go list ./... | grep -v /vendor/) 
+  release:
+    runs-on: klever-pipe
+
+    needs:
+      - build
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: cache vendored dependencies
+        uses: actions/cache@v2
+        with:
+          path: vendor
+          key: ${{ hashFiles('**/go.sum') }}-${{ secrets.CACHE_VERSION }}
+
+      - name: setup gcloud
+        uses: google-github-actions/setup-gcloud@v0
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
+          export_default_credentials: true
+
+      - name: build and push container image
+        run: |
+          gcloud auth configure-docker
+          docker build --build-arg arg_version=$(git describe --always --long --dirty --tag) . --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/$(basename $GITHUB_REPOSITORY)-dev:${{ github.sha }}
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/$(basename $GITHUB_REPOSITORY)-dev:${{ github.sha }}

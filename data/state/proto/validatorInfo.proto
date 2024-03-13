@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;state";
+
+// ValidatorInfo represents the data regarding a validator that is verified by the metaNodes
+message ValidatorInfo {
+    bytes   PublicKey                       = 1  [json_name = "publicKey"];
+    string  List                            = 2  [json_name = "list"];
+    uint32  Index                           = 3  [json_name = "index"];
+    uint32  TempRating                      = 4  [json_name = "tempRating"];
+    uint32  Rating                          = 5  [json_name = "rating"];
+    float   RatingModifier                  = 6  [json_name = "ratingModifier"];
+    bytes   OwnerAddress                    = 7  [json_name = "ownerAddress"];
+    uint32  LeaderSuccess                   = 9  [json_name = "leaderSuccess"];
+    uint32  LeaderFailure                   = 10 [json_name = "leaderFailure"];
+    uint32  ValidatorSuccess                = 11 [json_name = "validatorSuccess"];
+    uint32  ValidatorFailure                = 12 [json_name = "validatorFailure"];
+    uint32  ValidatorIgnoredSignatures      = 13 [json_name = "validatorIgnoredSignatures"];
+    uint32  NumSelectedInSuccessBlocks      = 14 [json_name = "numSelectedInSuccessBlocks"];
+    uint32  TotalLeaderSuccess              = 16 [json_name = "totalLeaderSuccess"];
+    uint32  TotalLeaderFailure              = 17 [json_name = "totalLeaderFailure"];
+    uint32  TotalValidatorSuccess           = 18 [json_name = "totalValidatorSuccess"];
+    uint32  TotalValidatorFailure           = 19 [json_name = "totalValidatorFailure"];
+    uint32  TotalValidatorIgnoredSignatures = 20 [json_name = "totalValidatorIgnoredSignatures"];
+    bool    IsPubKeyRevoked                 = 21 [json_name = "pubKeyRevoked"];
+}
+

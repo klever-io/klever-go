@@ -1,0 +1,48 @@
+{
+    "name": "activate pt 1",
+    "steps": [
+        {
+            "step": "scCall",
+            "txId": "activate-1",
+            "tx": {
+                "from": "''node_address__________________s1",
+                "to": "sc:delegation",
+                "value": "0",
+                "function": "stakeNodes",
+                "arguments": [
+                    "''bls_key_2_______________________________________________________________________________________",
+                    "''bls_key_3_______________________________________________________________________________________",
+                    "''bls_key_6_______________________________________________________________________________________"
+                ],
+                "gasLimit": "100,000,000",
+                "gasPrice": "0"
+            },
+            "expect": {
+                "out": [],
+                "status": "",
+                "logs": [
+                    {
+                        "address": "sc:auction",
+                        "endpoint": "str:transferValueOnly",
+                        "topics": [
+                            "sc:delegation",
+                            "sc:auction",
+                            "333,000,000,000,000"
+                        ],
+                        "data": ""
+                    },
+                    {
+                        "address": "sc:delegation",
+                        "endpoint": "str:callBack",
+                        "topics": [
+                            "0x0000000000000000000000000000000000000000000000000000000000000003"
+                        ],
+                        "data": "0x"
+                    }
+                ],
+                "gas": "*",
+                "refund": "*"
+            }
+        }
+    ]
+}

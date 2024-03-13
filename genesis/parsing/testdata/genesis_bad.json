@@ -1,0 +1,10 @@
+[
+  {
+    "address": "not-an-address",
+    "balance": 1,
+    "delegation": {
+      "address": "",
+      "value":   0
+    }
+  }
+]
