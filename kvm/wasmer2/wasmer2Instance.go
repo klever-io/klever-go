@@ -102,9 +102,9 @@ func (instance *Wasmer2Instance) Cache() ([]byte, error) {
 		return nil, ErrCachingFailed
 	}
 
-	goBytes := C.GoBytes(unsafe.Pointer(cacheBytes), C.int(cacheLen))
+	goBytes := C.GoBytes(unsafe.Pointer(cacheBytes), C.int(cacheLen)) // #nosec G103: unsafe.Pointer is used to convert to GoBytes
 
-	C.free(unsafe.Pointer(cacheBytes))
+	C.free(unsafe.Pointer(cacheBytes)) // #nosec G103: free is used to free the memory allocated by C
 	cacheBytes = nil
 	return goBytes, nil
 }
@@ -117,7 +117,7 @@ func (instance *Wasmer2Instance) IsFunctionImported(name string) bool {
 // CallFunction executes given function from loaded contract.
 func (instance *Wasmer2Instance) CallFunction(functionName string) error {
 	var wasmFunctionName = cCString(functionName)
-	defer cFree(unsafe.Pointer(wasmFunctionName))
+	defer cFree(unsafe.Pointer(wasmFunctionName)) // #nosec G103: free is used to free the memory allocated by cCString
 
 	var callResult = cWasmerInstanceCall(
 		instance.cgoInstance,
@@ -135,7 +135,7 @@ func (instance *Wasmer2Instance) CallFunction(functionName string) error {
 // HasFunction checks if loaded contract has a function (endpoint) with given name.
 func (instance *Wasmer2Instance) HasFunction(functionName string) bool {
 	var wasmFunctionName = cCString(functionName)
-	defer cFree(unsafe.Pointer(wasmFunctionName))
+	defer cFree(unsafe.Pointer(wasmFunctionName)) // #nosec G103: free is used to free the memory allocated by cCString
 
 	result := cWasmerInstanceHasFunction(
 		instance.cgoInstance,
@@ -154,7 +154,7 @@ func (instance *Wasmer2Instance) getFunctionNamesConcat() (string, error) {
 	}
 
 	var buffer = make([]cChar, bufferLength)
-	var bufferPointer = (*cChar)(unsafe.Pointer(&buffer[0]))
+	var bufferPointer = (*cChar)(unsafe.Pointer(&buffer[0])) // #nosec G103: unsafe.Pointer is used to convert to cChar pointer
 
 	var result = cWasmerInstanceExportedFunctionNames(instance.cgoInstance, bufferPointer, bufferLength)
 

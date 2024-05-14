@@ -54,6 +54,10 @@ preferences:
   # statics pooling interval
   statusPollingIntervalSec: 2
 
+blockSizeThrottleConfig:
+  minSizeInBytes: 104857 # 104857 is 10% from 1MB
+  maxSizeInBytes: 943718 # 943718 is 90% from 1MB
+
 softwareVersionConfig:
   stableTagLocation: "https://api.github.com/repos/klever-io/klever-go/releases/latest"
   pollingIntervalInMinutes: 65

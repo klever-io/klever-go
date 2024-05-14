@@ -2,17 +2,15 @@ package main
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"crypto/rand"
 	"fmt"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	"github.com/libp2p/go-libp2p"
-	libp2pCrypto "github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 type messenger struct {
@@ -35,7 +33,7 @@ func newMessenger() *messenger {
 		libp2p.NATPortMap(),
 	}
 
-	h, _ := libp2p.New(context.Background(), opts...)
+	h, _ := libp2p.New(opts...)
 
 	optsPS := []pubsub.Option{
 		pubsub.WithMessageSigning(true),
@@ -48,9 +46,9 @@ func newMessenger() *messenger {
 	}
 }
 
-func createP2PPrivKey() *libp2pCrypto.Secp256k1PrivateKey {
-	prvKey, _ := ecdsa.GenerateKey(btcec.S256(), rand.Reader)
-	return (*libp2pCrypto.Secp256k1PrivateKey)(prvKey)
+func createP2PPrivKey() libp2pCrypto.PrivKey {
+	prvKey, _, _ := libp2pCrypto.GenerateSecp256k1Key(rand.Reader)
+	return prvKey
 }
 
 func (m *messenger) connectTo(target *messenger) {
@@ -76,7 +74,7 @@ func (m *messenger) joinTopic(topic string) {
 				return
 			}
 
-			fmt.Printf("%s: got message %s\n", m.host.ID().Pretty(), string(msg.Data))
+			fmt.Printf("%s: got message %s\n", m.host.ID().String(), string(msg.Data))
 		}
 	}()
 
@@ -114,7 +112,7 @@ func main() {
 
 func printConnections(peers []*messenger) {
 	for _, p := range peers {
-		fmt.Printf(" %s is connected to %d peers\n", p.host.ID().Pretty(), len(p.host.Network().Peers()))
+		fmt.Printf(" %s is connected to %d peers\n", p.host.ID().String(), len(p.host.Network().Peers()))
 	}
 }
 
@@ -129,7 +127,7 @@ func create8ConnectedPeers() []*messenger {
 	peers := make([]*messenger, 0)
 	for i := 0; i < 8; i++ {
 		p := newMessenger()
-		fmt.Printf("%d - created peer %s\n", i, p.host.ID().Pretty())
+		fmt.Printf("%d - created peer %s\n", i, p.host.ID().String())
 
 		peers = append(peers, p)
 	}

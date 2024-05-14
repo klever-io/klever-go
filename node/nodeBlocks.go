@@ -32,7 +32,6 @@ func (n *Node) createAPIBlockProcessor() blockAPI.APIBlockHandler {
 		Marshalizer:              n.internalMarshalizer,
 		Uint64ByteSliceConverter: n.uint64ByteSliceConverter,
 		UnmarshalTx:              n.unmarshalTransaction,
-		//HistoryRepo:              n.historyRepository, // TODO:
 	}
 
 	return blockAPI.NewAPIBlockProcessor(blockAPIArgs)

@@ -5,9 +5,9 @@ import (
 	"errors"
 
 	"github.com/jbenet/goprocess"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/peerstore"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peerstore"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -105,7 +105,7 @@ func (ns *NetworkStub) Close() error {
 func (ns *NetworkStub) SetStreamHandler(network.StreamHandler) {}
 
 // SetConnHandler -
-func (ns *NetworkStub) SetConnHandler(network.ConnHandler) {}
+func (ns *NetworkStub) SetConnHandler(network.Conn) {}
 
 // NewStream -
 func (ns *NetworkStub) NewStream(context.Context, peer.ID) (network.Stream, error) {
@@ -129,5 +129,10 @@ func (ns *NetworkStub) InterfaceListenAddresses() ([]multiaddr.Multiaddr, error)
 
 // Process -
 func (ns *NetworkStub) Process() goprocess.Process {
+	return nil
+}
+
+// Process -
+func (ns *NetworkStub) ResourceManager() network.ResourceManager {
 	return nil
 }

@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 
-	"github.com/libp2p/go-libp2p-core/connmgr"
-	"github.com/libp2p/go-libp2p-core/event"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/peerstore"
-	"github.com/libp2p/go-libp2p-core/protocol"
+	"github.com/libp2p/go-libp2p/core/connmgr"
+	"github.com/libp2p/go-libp2p/core/event"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peerstore"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -23,7 +23,7 @@ type ConnectableHostStub struct {
 	MuxCalled                   func() protocol.Switch
 	ConnectCalled               func(ctx context.Context, pi peer.AddrInfo) error
 	SetStreamHandlerCalled      func(pid protocol.ID, handler network.StreamHandler)
-	SetStreamHandlerMatchCalled func(protocol.ID, func(string) bool, network.StreamHandler)
+	SetStreamHandlerMatchCalled func(protocol.ID, func(protocol.ID) bool, network.StreamHandler)
 	RemoveStreamHandlerCalled   func(pid protocol.ID)
 	NewStreamCalled             func(ctx context.Context, p peer.ID, pids ...protocol.ID) (network.Stream, error)
 	CloseCalled                 func() error
@@ -111,7 +111,7 @@ func (hs *ConnectableHostStub) SetStreamHandler(pid protocol.ID, handler network
 }
 
 // SetStreamHandlerMatch -
-func (hs *ConnectableHostStub) SetStreamHandlerMatch(pid protocol.ID, handler func(string) bool, streamHandler network.StreamHandler) {
+func (hs *ConnectableHostStub) SetStreamHandlerMatch(pid protocol.ID, handler func(protocol.ID) bool, streamHandler network.StreamHandler) {
 	if hs.SetStreamHandlerMatchCalled != nil {
 		hs.SetStreamHandlerMatchCalled(pid, handler, streamHandler)
 	}

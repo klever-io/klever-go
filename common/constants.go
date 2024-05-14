@@ -1,5 +1,11 @@
 package common
 
+// DefaultDirPermission represents the default directory permissions
+const DefaultDirPermission = 0750
+
+// FileModeUserReadWrite represents the permission for a file which allows the user for reading and writing
+const FileModeUserReadWrite = 0600
+
 // BaseOperationCost represents the field name for base operation costs
 const BaseOperationCost = "BaseOperationCost"
 

@@ -4,8 +4,9 @@ import (
 	"context"
 	"time"
 
-	libp2pCrypto "github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/peer"
+	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -30,14 +31,15 @@ type PeerstoreStub struct {
 	PutCalled                    func(p peer.ID, key string, val interface{}) error
 	RecordLatencyCalled          func(id peer.ID, duration time.Duration)
 	LatencyEWMACalled            func(id peer.ID) time.Duration
-	GetProtocolsCalled           func(id peer.ID) ([]string, error)
-	AddProtocolsCalled           func(id peer.ID, s ...string) error
-	SetProtocolsCalled           func(id peer.ID, s ...string) error
-	RemoveProtocolsCalled        func(id peer.ID, s ...string) error
-	SupportsProtocolsCalled      func(id peer.ID, s ...string) ([]string, error)
-	FirstSupportedProtocolCalled func(id peer.ID, s ...string) (string, error)
+	GetProtocolsCalled           func(id peer.ID) ([]protocol.ID, error)
+	AddProtocolsCalled           func(id peer.ID, s ...protocol.ID) error
+	SetProtocolsCalled           func(id peer.ID, s ...protocol.ID) error
+	RemoveProtocolsCalled        func(id peer.ID, s ...protocol.ID) error
+	SupportsProtocolsCalled      func(id peer.ID, s ...protocol.ID) ([]protocol.ID, error)
+	FirstSupportedProtocolCalled func(id peer.ID, s ...protocol.ID) (protocol.ID, error)
 	PeerInfoCalled               func(id peer.ID) peer.AddrInfo
 	PeersCalled                  func() peer.IDSlice
+	RemovePeerCalled             func(id peer.ID)
 }
 
 // Close -
@@ -198,7 +200,7 @@ func (ps *PeerstoreStub) LatencyEWMA(id peer.ID) time.Duration {
 }
 
 // GetProtocols -
-func (ps *PeerstoreStub) GetProtocols(id peer.ID) ([]string, error) {
+func (ps *PeerstoreStub) GetProtocols(id peer.ID) ([]protocol.ID, error) {
 	if ps.GetProtocolsCalled != nil {
 		return ps.GetProtocolsCalled(id)
 	}
@@ -207,7 +209,7 @@ func (ps *PeerstoreStub) GetProtocols(id peer.ID) ([]string, error) {
 }
 
 // AddProtocols -
-func (ps *PeerstoreStub) AddProtocols(id peer.ID, s ...string) error {
+func (ps *PeerstoreStub) AddProtocols(id peer.ID, s ...protocol.ID) error {
 	if ps.AddProtocolsCalled != nil {
 		return ps.AddProtocolsCalled(id, s...)
 	}
@@ -216,7 +218,7 @@ func (ps *PeerstoreStub) AddProtocols(id peer.ID, s ...string) error {
 }
 
 // SetProtocols -
-func (ps *PeerstoreStub) SetProtocols(id peer.ID, s ...string) error {
+func (ps *PeerstoreStub) SetProtocols(id peer.ID, s ...protocol.ID) error {
 	if ps.SetProtocolsCalled != nil {
 		return ps.SetProtocolsCalled(id, s...)
 	}
@@ -225,7 +227,7 @@ func (ps *PeerstoreStub) SetProtocols(id peer.ID, s ...string) error {
 }
 
 // RemoveProtocols -
-func (ps *PeerstoreStub) RemoveProtocols(id peer.ID, s ...string) error {
+func (ps *PeerstoreStub) RemoveProtocols(id peer.ID, s ...protocol.ID) error {
 	if ps.RemoveProtocolsCalled != nil {
 		return ps.RemoveProtocolsCalled(id, s...)
 	}
@@ -234,7 +236,7 @@ func (ps *PeerstoreStub) RemoveProtocols(id peer.ID, s ...string) error {
 }
 
 // SupportsProtocols -
-func (ps *PeerstoreStub) SupportsProtocols(id peer.ID, s ...string) ([]string, error) {
+func (ps *PeerstoreStub) SupportsProtocols(id peer.ID, s ...protocol.ID) ([]protocol.ID, error) {
 	if ps.SupportsProtocolsCalled != nil {
 		return ps.SupportsProtocolsCalled(id, s...)
 	}
@@ -243,7 +245,7 @@ func (ps *PeerstoreStub) SupportsProtocols(id peer.ID, s ...string) ([]string, e
 }
 
 // FirstSupportedProtocol -
-func (ps *PeerstoreStub) FirstSupportedProtocol(id peer.ID, s ...string) (string, error) {
+func (ps *PeerstoreStub) FirstSupportedProtocol(id peer.ID, s ...protocol.ID) (protocol.ID, error) {
 	if ps.FirstSupportedProtocolCalled != nil {
 		return ps.FirstSupportedProtocolCalled(id, s...)
 	}
@@ -267,4 +269,12 @@ func (ps *PeerstoreStub) Peers() peer.IDSlice {
 	}
 
 	return nil
+}
+
+// RemovePeer -
+func (ps *PeerstoreStub) RemovePeer(id peer.ID) {
+	if ps.RemovePeerCalled != nil {
+		ps.RemovePeerCalled(id)
+	}
+
 }

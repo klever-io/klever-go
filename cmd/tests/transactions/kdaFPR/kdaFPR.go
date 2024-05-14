@@ -180,7 +180,7 @@ func CreateKdaFprs(args common.TestArgs) {
 
 	fmt.Println("Allowance Before Claim ACC1: ", allowanceUser1)
 	fmt.Println("Allowance Before Claim ACC2: ", allowanceUser2)
-	fmt.Println()
+	fmt.Printf("CreateKdaFprs\n\n")
 
 	if klvAllowance := allowanceUser1["KLV"]; klvAllowance != 333333333 {
 		log.Fatalln("Allowance account1 is wrong.")
@@ -279,7 +279,7 @@ func CreateKdaFprs(args common.TestArgs) {
 
 		fmt.Println("----------------------------")
 	} else {
-		log.Fatalln("account diffs")
+		log.Fatalln("CreateKdaFprs account diffs")
 	}
 }
 
@@ -479,7 +479,7 @@ func CreateKdaFprsWithoutFreeze(args common.TestArgs) {
 
 	fmt.Println("Allowance Before Claim ACC1: ", allowanceUser1)
 	fmt.Println("Allowance Before Claim ACC2: ", allowanceUser2)
-	fmt.Println()
+	fmt.Printf("CreateKdaFprsWithoutFreeze\n\n")
 
 	if klvAllowance := allowanceUser1["KLV"]; klvAllowance != 333333333 {
 		log.Fatalln("Allowance account1 is wrong.")
@@ -578,7 +578,7 @@ func CreateKdaFprsWithoutFreeze(args common.TestArgs) {
 
 		fmt.Println("----------------------------")
 	} else {
-		log.Fatalln("account diffs")
+		log.Fatalln("CreateKdaFprsWithoutFreeze account diffs")
 	}
 }
 
@@ -766,13 +766,14 @@ func CreateKdaFprsBeforeFreeze(args common.TestArgs) {
 
 	fmt.Println("Allowance Before Claim ACC1: ", allowanceUser1)
 	fmt.Println("Allowance Before Claim ACC2: ", allowanceUser2)
-	fmt.Println()
+	fmt.Printf("CreateKdaFprsBeforeFreeze\n\n")
 
 	if klvAllowance := allowanceUser1["KLV"]; klvAllowance != 666666666 {
 		log.Fatalln("Allowance account1 is wrong.")
 	}
 
-	if klvAllowance := allowanceUser2["KLV"]; klvAllowance != 1333333333 {
+	// 1000 KLV / 150 * 100 + 1000 KLV = 666666666 + 666666666 = 1333333332
+	if klvAllowance := allowanceUser2["KLV"]; klvAllowance != 1333333332 {
 		log.Fatalln("Allowance account2 is wrong.")
 	}
 
@@ -842,7 +843,7 @@ func CreateKdaFprsBeforeFreeze(args common.TestArgs) {
 		log.Println(diffErr[len(diffErr)-1])
 	}
 
-	if account2.Data.Balance != initialBalanceAccount2+1333333333-feeClaim {
+	if account2.Data.Balance != initialBalanceAccount2+1333333332-feeClaim {
 		diffErr = append(diffErr, fmt.Errorf("account 2 balance diff: initial: %v - expect: %v - actual: %v", initialBalanceAccount2, initialBalanceAccount2+1333333333-feeClaim, account2.Data.Balance))
 		log.Println(diffErr[len(diffErr)-1])
 	}
@@ -865,7 +866,7 @@ func CreateKdaFprsBeforeFreeze(args common.TestArgs) {
 
 		fmt.Println("----------------------------")
 	} else {
-		log.Fatalln("account diffs")
+		log.Fatalln("CreateKdaFprsBeforeFreeze account diffs")
 	}
 }
 
@@ -1031,7 +1032,7 @@ func CreateKdaFprsOnlyOneStaked(args common.TestArgs) {
 
 	fmt.Println("Allowance Before Claim ACC1: ", allowanceUser1)
 	fmt.Println("Allowance Before Claim ACC2: ", allowanceUser2)
-	fmt.Println()
+	fmt.Printf("CreateKdaFprsOnlyOneStaked\n\n")
 
 	if klvAllowance := allowanceUser1["KLV"]; klvAllowance != 1000_000_000 {
 		log.Fatalln("Allowance account1 is wrong.")
@@ -1114,17 +1115,17 @@ func CreateKdaFprsOnlyOneStaked(args common.TestArgs) {
 	if len(diffErr) == 0 {
 		fmt.Println("----- All tests passed! ----")
 
-		fmt.Printf("Account 1: initial: %v - expect: %v - actual: %v\n", initialBalanceAccount1, initialBalanceAccount1+333333333-feeClaim, account1.Data.Balance)
+		fmt.Printf("Account 1: initial: %v - expect: %v - actual: %v\n", initialBalanceAccount1, initialBalanceAccount1+1000_000_000-feeClaim, account1.Data.Balance)
 		fmt.Println("Account 1: Allowance: ", allowanceUser1["KLV"])
 
-		fmt.Printf("Account 2: initial: %v - expect: %v - actual: %v\n", initialBalanceAccount2, initialBalanceAccount2+333333333-feeClaim, account2.Data.Balance)
+		fmt.Printf("Account 2: initial: %v - expect: %v - actual: %v\n", initialBalanceAccount2, initialBalanceAccount2, account2.Data.Balance)
 		fmt.Println("Account 2: Allowance: ", allowanceUser2["KLV"])
 
 		fmt.Printf("Account 3 - Owner: initial: %v - expect: %v - actual: %v\n", initialBalanceAccount3, initialBalanceAccount3-1000_000_000-(feeDeposit), account3.Data.Balance)
 
 		fmt.Println("----------------------------")
 	} else {
-		log.Fatalln("account diffs")
+		log.Fatalln("CreateKdaFprsOnlyOneStaked account diffs")
 	}
 }
 
@@ -1320,7 +1321,7 @@ func CreateKdaFprsMultipleTokenDeposits(args common.TestArgs) {
 
 	fmt.Println("Allowance Before Claim ACC1: ", allowanceUser1)
 	fmt.Println("Allowance Before Claim ACC2: ", allowanceUser2)
-	fmt.Println()
+	fmt.Printf("CreateKdaFprsMultipleTokenDeposits\n\n")
 
 	if klvAllowance := allowanceUser1["KLV"]; klvAllowance != 333333333 {
 		log.Fatalln("Allowance account1 is wrong.")
@@ -1331,11 +1332,11 @@ func CreateKdaFprsMultipleTokenDeposits(args common.TestArgs) {
 	}
 
 	if klvAllowance := allowanceUser1["KFI"]; klvAllowance != 333333333 {
-		log.Fatalln("Allowance account1 is wrong.")
+		log.Fatalln("KFI Allowance account1 is wrong.")
 	}
 
 	if klvAllowance := allowanceUser2["KFI"]; klvAllowance != 666666666 {
-		log.Fatalln("Allowance account2 is wrong.")
+		log.Fatalln("KFI Allowance account2 is wrong.")
 	}
 
 	// Claim allowance
@@ -1453,7 +1454,7 @@ func CreateKdaFprsMultipleTokenDeposits(args common.TestArgs) {
 
 		fmt.Println("----------------------------")
 	} else {
-		log.Fatalln("account diffs")
+		log.Fatalln("CreateKdaFprsMultipleTokenDeposits account diffs")
 	}
 }
 
@@ -1638,7 +1639,7 @@ func CreateKdaFprsSelfFreeze(args common.TestArgs) {
 	fmt.Println("Allowance Before Claim ACC1: ", allowanceUser1)
 	fmt.Println("Allowance Before Claim ACC2: ", allowanceUser2)
 	fmt.Println("Allowance Before Claim ACC3 - Owner: ", allowanceUser3)
-	fmt.Println()
+	fmt.Printf("CreateKdaFprsSelfFreeze\n\n")
 
 	if klvAllowance := allowanceUser1["KLV"]; klvAllowance != 333333333 {
 		log.Fatalln("Allowance account1 is wrong.")
@@ -1756,7 +1757,7 @@ func CreateKdaFprsSelfFreeze(args common.TestArgs) {
 
 		fmt.Println("----------------------------")
 	} else {
-		log.Fatalln("account diffs")
+		log.Fatalln("CreateKdaFprsSelfFreeze account diffs")
 	}
 }
 

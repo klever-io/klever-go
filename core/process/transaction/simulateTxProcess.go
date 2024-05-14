@@ -84,11 +84,13 @@ func (txProc *simulateTxProcessor) ProcessTransaction(tx *transaction.Transactio
 
 	tx.GasLimit = math.MaxInt64
 
-	ownerAcc, err := txProc.accountsCacher.GetExistingUser(tx.GetSender())
+	ownerAcc, err := txProc.accountsCacher.LoadUser(tx.GetSender())
 	if err != nil {
 		tx.ResultCode = transaction.Transaction_LoadAccountError
 		return err
 	}
+
+	ownerAcc.IncreaseNonce(1)
 
 	computedHash, err := tools.CalculateHash(txProc.marshalizer, txProc.hasher, tx.RawData)
 	if err != nil {
@@ -120,6 +122,7 @@ func (txProc *simulateTxProcessor) ProcessTransaction(tx *transaction.Transactio
 		TxHash:         computedHash,
 		TxNonce:        tx.GetNonce(),
 		TxData:         tx.GetRawData().GetData(),
+		IsScSimulation: true,
 	})
 
 	for i, _ := range tx.RawData.Contract {

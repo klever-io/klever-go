@@ -3,6 +3,7 @@ package wasmer2
 // #cgo LDFLAGS: -Wl,-rpath,${SRCDIR} -L${SRCDIR}
 // #cgo linux,amd64 LDFLAGS:-lvmexeccapi
 // #cgo darwin,amd64 LDFLAGS:-lvmexeccapi
+// #cgo darwin,arm64 LDFLAGS:-lvmexeccapi_arm
 // #include "./libvmexeccapi.h"
 //
 import "C"
@@ -89,7 +90,7 @@ func cWasmerInstanceCache(
 ) cWasmerResultT {
 	return (cWasmerResultT)(C.vm_exec_instance_cache(
 		(*C.vm_exec_instance_t)(instance),
-		(**C.uchar)(unsafe.Pointer(cacheBytes)),
+		(**C.uchar)(unsafe.Pointer(cacheBytes)), // #nosec G103: unsafe.Pointer is used to convert to cUchar pointer
 		(*C.uint32_t)(cacheLen),
 	))
 }
@@ -103,7 +104,7 @@ func cWasmerInstanceFromCache(
 ) cWasmerResultT {
 	return (cWasmerResultT)(C.vm_exec_instance_from_cache(
 		(*C.vm_exec_executor_t)(executor),
-		(**C.vm_exec_instance_t)(unsafe.Pointer(instance)),
+		(**C.vm_exec_instance_t)(unsafe.Pointer(instance)), // #nosec G103: unsafe.Pointer is used to convert to cWasmerInstanceT pointer
 		(*C.uchar)(cacheBytes),
 		(C.uint32_t)(cacheLen),
 		(*C.vm_exec_compilation_options_t)(options),
@@ -115,7 +116,7 @@ func cWasmerNewExecutor(
 	vmHookPointersPtrPtr unsafe.Pointer,
 ) cWasmerResultT {
 	return (cWasmerResultT)(C.vm_exec_new_executor(
-		(**C.vm_exec_executor_t)(unsafe.Pointer(executor)),
+		(**C.vm_exec_executor_t)(unsafe.Pointer(executor)), // #nosec G103: unsafe.Pointer is used to convert to cWasmerExecutorT pointer
 		(**C.vm_exec_vm_hook_c_func_pointers)(vmHookPointersPtrPtr),
 	))
 }
@@ -129,7 +130,7 @@ func cWasmerInstantiateWithOptions(
 ) cWasmerResultT {
 	return (cWasmerResultT)(C.vm_exec_new_instance(
 		(*C.vm_exec_executor_t)(executor),
-		(**C.vm_exec_instance_t)(unsafe.Pointer(instance)),
+		(**C.vm_exec_instance_t)(unsafe.Pointer(instance)), // #nosec G103: unsafe.Pointer is used to convert to cWasmerInstanceT pointer
 		(*C.uchar)(wasmBytes),
 		(C.uint)(wasmBytesLength),
 		(*C.vm_exec_compilation_options_t)(options),

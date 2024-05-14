@@ -4,6 +4,7 @@ package mock
 type EventSubscriptionStub struct {
 	CloseCalled func() error
 	OutCalled   func() <-chan interface{}
+	NameCalled  func() string
 }
 
 // Close -
@@ -22,4 +23,13 @@ func (ess *EventSubscriptionStub) Out() <-chan interface{} {
 	}
 
 	return make(chan interface{})
+}
+
+// Out -
+func (ess *EventSubscriptionStub) Name() string {
+	if ess.NameCalled != nil {
+		return ess.NameCalled()
+	}
+
+	return ""
 }

@@ -44,7 +44,7 @@ type Account struct {
 	MockWorld       *MockWorld
 }
 
-func (a *Account) GetUserKDA(assetID []byte, nonce []byte) (*kapps.UserKDA, error) {
+func (a *Account) GetUserKDA(assetID []byte, nonce []byte, _ bool) (*kapps.UserKDA, error) {
 	kdaData := &kapps.UserKDA{
 		LastClaim: &kapps.LastClaim{},
 		Buckets:   make(map[string]*kapps.UserBucket),
@@ -95,19 +95,19 @@ func (a *Account) SetUserKDA(assetID []byte, nonce []byte, userKDA *kapps.UserKD
 }
 
 // MOCK world is been refactor to use the new world, is is a mock only for SFT assets
-func (a *Account) GetBalanceWithNonce(_ []byte, _ []byte) int64 {
+func (a *Account) GetBalanceWithNonce(_ []byte, _ []byte, _ bool) int64 {
 	return 0
 }
 
-func (a *Account) AddToBalanceWithNonce(_ int64, _ []byte, _ []byte, _ ...*kapps.UserKDA) error {
+func (a *Account) AddToBalanceWithNonce(_ int64, _ []byte, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
 	return fmt.Errorf("not implemented")
 }
 
-func (a *Account) SubFromBalanceWithNonce(_ int64, _ []byte, _ []byte, _ ...*kapps.UserKDA) error {
+func (a *Account) SubFromBalanceWithNonce(_ int64, _ []byte, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
 	return fmt.Errorf("not implemented")
 }
 
-func (a *Account) AddToBalance(value int64, assetID []byte, userKDAopts ...*kapps.UserKDA) error {
+func (a *Account) AddToBalance(value int64, assetID []byte, _ bool, userKDAopts ...*kapps.UserKDA) error {
 	if value < 0 {
 		return common.ErrInvalidValue
 	}
@@ -129,7 +129,7 @@ func (a *Account) AddToBalance(value int64, assetID []byte, userKDAopts ...*kapp
 	}
 
 	if userKDA == nil {
-		userKDA, err = a.GetUserKDA(assetID, nil)
+		userKDA, err = a.GetUserKDA(assetID, nil, true)
 		if err != nil {
 			return err
 		}
@@ -155,7 +155,7 @@ func (a *Account) SetTokenBalanceUint64(tokenIdentifier []byte, nonce uint64, ba
 		return nil
 	}
 
-	kda, err := a.GetUserKDA(tokenIdentifier, []byte(fmt.Sprintf("%d", nonce)))
+	kda, err := a.GetUserKDA(tokenIdentifier, []byte(fmt.Sprintf("%d", nonce)), true)
 	if err != nil {
 		return err
 	}
@@ -166,7 +166,7 @@ func (a *Account) SetTokenBalanceUint64(tokenIdentifier []byte, nonce uint64, ba
 }
 
 func (a *Account) GetTokenBalanceUint64(tokenIdentifier []byte, nonce uint64) (uint64, error) {
-	kda, err := a.GetUserKDA(tokenIdentifier, []byte(fmt.Sprintf("%d", nonce)))
+	kda, err := a.GetUserKDA(tokenIdentifier, []byte(fmt.Sprintf("%d", nonce)), true)
 	if err != nil {
 		return 0, err
 	}
@@ -174,7 +174,7 @@ func (a *Account) GetTokenBalanceUint64(tokenIdentifier []byte, nonce uint64) (u
 	return uint64(kda.Balance), nil
 }
 
-func (a *Account) SubFromBalance(value int64, assetID []byte, userKDA ...*kapps.UserKDA) error {
+func (a *Account) SubFromBalance(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 	//TODO implement me
 	panic("implement me")
 }
@@ -194,7 +194,7 @@ func (a *Account) AddToAllowance(value int64) error {
 	panic("implement me")
 }
 
-func (a *Account) GetBalance(assetID []byte) int64 {
+func (a *Account) GetBalance(assetID []byte, cdd bool) int64 {
 	return a.Balance.Int64()
 }
 
@@ -203,12 +203,12 @@ func (a *Account) GetAllowance() int64 {
 	panic("implement me")
 }
 
-func (a *Account) GetFrozenBalance(assetID []byte) int64 {
+func (a *Account) GetFrozenBalance(assetID []byte, _ bool) int64 {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (a *Account) GetBuckets(assetID []byte) map[string]*kapps.UserBucket {
+func (a *Account) GetBuckets(assetID []byte, _ bool) map[string]*kapps.UserBucket {
 	//TODO implement me
 	panic("implement me")
 }

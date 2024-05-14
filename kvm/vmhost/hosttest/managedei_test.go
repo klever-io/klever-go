@@ -1015,7 +1015,7 @@ func TestBaseOpsAPI_NFTNonceOverflow(t *testing.T) {
 			setZeroCodeCosts(host)
 			world.MockAsset = &kapps.KDAData{
 				AssetType:         1,
-				ID:                []byte("TTT-1234"),
+				ID:                test.KDATestTokenName,
 				Name:              []byte("test"),
 				Ticker:            []byte("TTT"),
 				OwnerAddress:      test.ParentAddress,

@@ -46,7 +46,7 @@ func getAccAdapter(balance int64) *mock.AccountsStub {
 	accDB := &mock.AccountsStub{}
 	accDB.GetExistingAccountCalled = func(address []byte) (handler state.AccountHandler, e error) {
 		acc, _ := state.NewUserAccount(address)
-		_ = acc.AddToBalance(balance, nil)
+		_ = acc.AddToBalance(balance, nil, true)
 
 		return acc, nil
 	}

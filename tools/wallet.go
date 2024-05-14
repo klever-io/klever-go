@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/tools/check"
@@ -31,6 +32,12 @@ func CreateWallet(walletPemFile string, pwd string, keyGen crypto.KeyGenerator, 
 	}
 
 	addr, err := writeKeyToStream(file, walletKey, pubkeyConverter, pwd)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// flush system buffers to disk
+	err = file.Sync()
 	if err != nil {
 		return nil, "", err
 	}
@@ -99,19 +106,20 @@ func generateFile(walletPemFile string) (*os.File, error) {
 	}
 
 	filename := filepath.Join(dir, file)
+	filename = filepath.Clean(filename)
 	backupFileIfExists(filename)
 	err = os.Remove(filename)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
 
-	return os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, FileModeUserReadWrite)
+	return os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, common.FileModeUserReadWrite)
 }
 
 func generateFolder(absPath string) error {
 	log.Info("generating files in", "folder", absPath)
 
-	return os.MkdirAll(absPath, os.ModePerm)
+	return os.MkdirAll(absPath, common.DefaultDirPermission)
 }
 
 func backupFileIfExists(filename string) {

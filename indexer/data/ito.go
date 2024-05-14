@@ -15,6 +15,7 @@ type AlteredITOs struct {
 	RemovedAddresses       map[string]WhitelistInfo
 	AddedAddresses         map[string]WhitelistInfo
 	AlteredAddresses       map[string]AlteredITOAddresses
+	Timestamp              int64
 	DefaultLimitPerAddress int64
 }
 

@@ -44,7 +44,7 @@ func (s *SCProcessorMock) IsPayable(sndAddress []byte, recvAddress []byte) (bool
 		return s.IsPayableCalled(sndAddress, recvAddress)
 	}
 
-	return false, nil
+	return true, nil
 }
 
 // LastBlock returns the last committed block

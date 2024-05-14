@@ -108,7 +108,10 @@ func CheckTransactionWithResultsOnNode(hash string, times int) (bool, *api.Trans
 		return false, &body.Data.Transaction, nil
 	}
 
-	if body.Error != "" || len(body.Data.Transaction.Receipts) == 0 {
+	if body.Error != "" ||
+		len(body.Data.Transaction.Receipts) == 0 ||
+		body.Data.Transaction.Logs == nil ||
+		len(body.Data.Transaction.Logs.Events) == 0 {
 		return CheckTransactionWithResultsOnNode(hash, times+1)
 	}
 

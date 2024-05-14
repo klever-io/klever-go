@@ -197,7 +197,10 @@ func (ae *VMTestExecutor) UpdateAccount(scenAccount *scenjsonmodel.Account) erro
 		existingAccount.IncreaseNonce(worldAccount.GetNonce() - existingAccount.GetNonce())
 	}
 	if !scenAccount.Balance.Unspecified {
-		existingAccount.AddToBalance(worldAccount.GetBalance(nil)-existingAccount.GetBalance(nil), nil)
+		err = existingAccount.AddToBalance(worldAccount.GetBalance(nil, true)-existingAccount.GetBalance(nil, true), nil, true)
+		if err != nil {
+			return err
+		}
 	}
 	if !scenAccount.Username.Unspecified {
 		existingAccount.SetName(worldAccount.GetName())

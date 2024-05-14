@@ -485,6 +485,7 @@ func (t *Transaction) addAssetTrigger(txArgs TXArgs) error {
 		Amount:      contractRequest.Amount,
 		MIME:        []byte(contractRequest.MIME),
 		Logo:        contractRequest.Logo,
+		Value:       contractRequest.Value,
 		URIs:        contractRequest.URIs,
 		Role:        roleInfo,
 	}
@@ -1335,21 +1336,34 @@ func (t *Transaction) addSmartContract(txArgs TXArgs) error {
 		kdaRoyalties := int64(0)
 		klvRoyalties := int64(0)
 
+		asset, _, _, err := kdautils.ExtractAssetIDAndNonce([]byte(key))
+		if err != nil {
+			return errors.New("could not extract asset from callValue")
+		}
+
+		assetName := string(asset)
+
 		// check asset for royalties
-		if key != "" && key != string(kdautils.KLVIdentifier) && key != string(kdautils.KFIIdentifier) {
-			kda, err := txArgs.NodeHelper.GetAsset(key)
+		if assetName != "" && assetName != string(kdautils.KLVIdentifier) && assetName != string(kdautils.KFIIdentifier) {
+			kda, err := txArgs.NodeHelper.GetAsset(assetName)
 			if err != nil {
 				return errors.New("could not create receiver address from provided param")
 			}
 
-			if kda.Royalties != nil && len(kda.Royalties.TransferPercentage) > 0 {
-				kdaRoyalties, err = kda.GetTransferRoyaltyByAmount(value, txArgs.NodeHelper.GetForkController().KdaFpr())
-				if err != nil {
-					return err
-				}
+			if kda == nil {
+				return errors.New("could not find asset")
 			}
 
-			klvRoyalties = kda.Royalties.TransferFixed
+			if kda.Royalties != nil {
+				if len(kda.Royalties.TransferPercentage) > 0 {
+					kdaRoyalties, err = kda.GetTransferRoyaltyByAmount(value, txArgs.NodeHelper.GetForkController().KdaFpr())
+					if err != nil {
+						return err
+					}
+				}
+
+				klvRoyalties = kda.Royalties.TransferFixed
+			}
 		}
 
 		callValue[key] = &CallValue{

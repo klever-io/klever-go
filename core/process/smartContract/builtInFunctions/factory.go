@@ -78,29 +78,3 @@ func CreateBuiltInFunctionsFactory(args ArgsCreateBuiltInFunctionContainer) (vmc
 
 	return bContainerFactory, nil
 }
-
-// GetAllowedAddress returns the allowed crawler address on the current shard
-func GetAllowedAddress(coordinator vmcommon.Coordinator, addresses [][]byte) ([]byte, error) {
-	if check.IfNil(coordinator) {
-		return nil, process.ErrNilShardCoordinator
-	}
-
-	// if len(addresses) == 0 {
-	// 	return nil, fmt.Errorf("%w for shard %d, provided count is %d", process.ErrNilCrawlerAllowedAddress, coordinator.SelfId(), len(addresses))
-	// }
-
-	// if coordinator.SelfId() == core.MetachainShardId {
-	// 	return core.SystemAccountAddress, nil
-	// }
-
-	// for _, address := range addresses {
-	// 	allowedAddressShardId := coordinator.ComputeId(address)
-	// 	if allowedAddressShardId == coordinator.SelfId() {
-	// 		return address, nil
-	// 	}
-	// }
-
-	// return nil, fmt.Errorf("%w for shard %d, provided count is %d", process.ErrNilCrawlerAllowedAddress, coordinator.SelfId(), len(addresses))
-
-	return nil, nil
-}

@@ -24,7 +24,9 @@ type Wasmer2Executor struct {
 // CreateExecutor creates a new wasmer executor.
 func CreateExecutor() (*Wasmer2Executor, error) {
 	vmHookPointers := populateCgoFunctionPointers()
+	// #nosec G103: unsafe.Pointer is used to convert to uintptr
 	localPtr := uintptr(unsafe.Pointer(vmHookPointers))
+	// #nosec G103: unsafe.Pointer is used to convert to uintptr
 	localPtrPtr := unsafe.Pointer(&localPtr)
 
 	var c_executor *cWasmerExecutorT
@@ -54,6 +56,7 @@ func (wasmerExecutor *Wasmer2Executor) SetOpcodeCosts(wasmOps *executor.WASMOpco
 	wasmerExecutor.opcodeCost = wasmerExecutor.extractOpcodeCost(wasmOps)
 	cWasmerExecutorSetOpcodeCost(
 		wasmerExecutor.cgoExecutor,
+		// #nosec G103: unsafe.Pointer is used to convert to cWasmerOpcodeCostT
 		(*cWasmerOpcodeCostT)(unsafe.Pointer(wasmerExecutor.opcodeCost)),
 	)
 }
@@ -82,10 +85,12 @@ func (wasmerExecutor *Wasmer2Executor) NewInstanceWithOptions(
 		return nil, newWrappedError(ErrInvalidBytecode)
 	}
 
+	// #nosec G103: unsafe.Pointer is used to convert to cWasmerCompilationOptions
 	cOptions := unsafe.Pointer(&options)
 	var compileResult = cWasmerInstantiateWithOptions(
 		wasmerExecutor.cgoExecutor,
 		&c_instance,
+		// #nosec G103: unsafe.Pointer is used to convert to cUint
 		(*cUchar)(unsafe.Pointer(&contractCode[0])),
 		cUint(len(contractCode)),
 		(*cWasmerCompilationOptions)(cOptions),
@@ -110,10 +115,12 @@ func (wasmerExecutor *Wasmer2Executor) NewInstanceFromCompiledCodeWithOptions(
 		return nil, newWrappedError(ErrInvalidBytecode)
 	}
 
+	// #nosec G103: unsafe.Pointer is used to convert to cWasmerCompilationOptions
 	cOptions := unsafe.Pointer(&options)
 	var compileResult = cWasmerInstanceFromCache(
 		wasmerExecutor.cgoExecutor,
 		&c_instance,
+		// #nosec G103: unsafe.Pointer is used to convert to cUchar
 		(*cUchar)(unsafe.Pointer(&compiledCode[0])),
 		cUint32T(len(compiledCode)),
 		(*cWasmerCompilationOptions)(cOptions),
@@ -134,8 +141,10 @@ func (wasmerExecutor *Wasmer2Executor) IsInterfaceNil() bool {
 // InitVMHooks inits the VM hooks
 func (wasmerExecutor *Wasmer2Executor) initVMHooks(vmHooks executor.VMHooks) {
 	wasmerExecutor.vmHooks = vmHooks
+	// #nosec G103: unsafe.Pointer is used to convert to uintptr
 	localPtr := uintptr(unsafe.Pointer(&wasmerExecutor.vmHooks))
 	wasmerExecutor.vmHooksPtr = localPtr
+	// #nosec G103: unsafe.Pointer is used to convert to uintptr
 	wasmerExecutor.vmHooksPtrPtr = unsafe.Pointer(&localPtr)
 	cWasmerExecutorContextDataSet(wasmerExecutor.cgoExecutor, wasmerExecutor.vmHooksPtrPtr)
 }

@@ -75,58 +75,6 @@ func TestGetBlockByHashFromNormalNode(t *testing.T) {
 	assert.Equal(t, expectedBlock, blk)
 }
 
-func TestGetBlockByNonceFromHistoryNode(t *testing.T) {
-	t.Parallel()
-
-	nonce := uint64(1)
-	slot := uint64(2)
-	epoch := uint32(1)
-	storerMock := mock.NewStorerMock("", 0)
-	headerHash := "d08089f2ab739520598fd7aeed08c427460fe94f286383047f3f61951afc4e00"
-	n, _ := node.NewNode(
-		node.WithUint64ByteSliceConverter(mock.NewNonceHashConverterMock()),
-		node.WithInternalMarshalizer(&mock.MarshalizerFake{}),
-		//node.WithHistoryRepository(historyProc),
-		node.WithDataStore(&mock.ChainStorerMock{
-			GetCalled: func(unitType retriever.UnitType, key []byte) ([]byte, error) {
-				if unitType == retriever.BlockUnit {
-					return storerMock.Get(key)
-				}
-				return hex.DecodeString(headerHash)
-			},
-			GetStorerCalled: func(unitType retriever.UnitType) storage.Storer {
-				return storerMock
-			},
-		}),
-	)
-
-	header := &block.Block{
-		Header: &block.BlockHeader{
-			Nonce: nonce,
-			Slot:  slot,
-			Epoch: epoch,
-		},
-	}
-	headerBytes, _ := json.Marshal(header)
-	_ = storerMock.Put(func() []byte { hashBytes, _ := hex.DecodeString(headerHash); return hashBytes }(), headerBytes)
-
-	expectedBlock := &api.Block{
-		Block: &block.Block{
-			Header: &block.BlockHeader{
-				Nonce: nonce,
-				Slot:  slot,
-				Epoch: epoch,
-			},
-		},
-		Hash:   headerHash,
-		Status: blockAPI.BlockStatusOnChain,
-	}
-
-	blk, err := n.GetBlockByNonce(1, false)
-	assert.Nil(t, err)
-	assert.Equal(t, expectedBlock, blk)
-}
-
 func TestGetBlockByNonceFromNormalNode(t *testing.T) {
 	t.Parallel()
 
@@ -175,6 +123,14 @@ func TestGetBlockByNonceFromNormalNode(t *testing.T) {
 func TestGetBlockByHashFromHistoryNode_StatusReverted(t *testing.T) {
 	t.Parallel()
 
+	/*historyProc := &testscommon.HistoryRepositoryStub{
+		IsEnabledCalled: func() bool {
+			return true
+		},
+		GetEpochByHashCalled: func(hash []byte) (uint32, error) {
+			return 1, nil
+		},
+	}*/
 	nonce := uint64(1)
 	slot := uint64(2)
 	epoch := uint32(1)

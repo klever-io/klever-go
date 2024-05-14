@@ -18,6 +18,8 @@ const SplitRoyaltiesLen = 28
 const RoyaltiesLen = 32
 const RolesDataLen = 8
 const UserBucketsLen = 24
+const SFTMetaLen = 12
+const SFTMetadataLen = 12
 const URIsDataLen = 8
 
 // Deserializes a *transaction.TXContract object.
@@ -253,6 +255,10 @@ func writeRoyaltiesToBytes(
 	managedType vmhost.ManagedTypesContext,
 	royalties *kapps.RoyaltiesData,
 ) []byte {
+	if royalties == nil {
+		return make([]byte, 0)
+	}
+
 	destinationBytes := make([]byte, RoyaltiesLen)
 	addressHandle := managedType.NewManagedBufferFromBytes(royalties.Address)
 	transferPercentageHandle := managedType.NewManagedBufferFromBytes(writeTransferPercentagesToBytes(managedType, royalties.TransferPercentage))
@@ -281,7 +287,7 @@ func encodeBool(value bool, index int) uint32 {
 }
 
 // Serializes Properties
-func getPropertiesValue(properties *kapps.PropertiesData) uint32 {
+func getPropertiesValue(properties *kapps.PropertiesData, tokenType int32) uint32 {
 	value := uint32(0)
 
 	value += encodeBool(properties.CanFreeze, 0)
@@ -292,6 +298,9 @@ func getPropertiesValue(properties *kapps.PropertiesData) uint32 {
 	value += encodeBool(properties.CanChangeOwner, 5)
 	value += encodeBool(properties.CanAddRoles, 6)
 	value += encodeBool(properties.LimitTransfer, 7)
+
+	// convert tokenType from int32 into 2bits and add to value bits 30 and 31 masked
+	value += uint32(tokenType) << 30
 
 	return value
 }
@@ -334,6 +343,47 @@ func writeURIsToBytes(managedType vmhost.ManagedTypesContext, uris map[string]st
 		writeURIs(managedType, key, value, destinationBytes[dataIndex:dataIndex+RolesDataLen])
 		dataIndex += RolesDataLen
 	}
+
+	return destinationBytes
+}
+
+// Serializes Metadatav2 to a byte slice.
+// Circulation      - 4 bytes
+// Supply           - 4 bytes
+// Metadata         - 4 bytes
+// Total: 12 bytes.
+func writeSFTMeta(managedType vmhost.ManagedTypesContext, meta *kapps.MetaV2) []byte {
+	destinationBytes := make([]byte, SFTMetaLen)
+
+	maxSupplyHandle := managedType.NewBigIntFromInt64(meta.MaxSupply)
+	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(maxSupplyHandle))
+
+	circulationSupplyHandle := managedType.NewBigIntFromInt64(meta.Circulation)
+	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(circulationSupplyHandle))
+
+	metadata := writeSFTMetadata(managedType, meta.Metadata)
+	metaHandle := managedType.NewManagedBufferFromBytes(metadata)
+	binary.BigEndian.PutUint32(destinationBytes[8:12], uint32(metaHandle))
+
+	return destinationBytes
+}
+
+// Serializes Metadatav2 to a byte slice.
+// Name             - 4 bytes
+// Hash           	- 4 bytes
+// Attributes       - 4 bytes
+// Total: 12 bytes.
+func writeSFTMetadata(managedType vmhost.ManagedTypesContext, metadata *kapps.MetaV2Data) []byte {
+	destinationBytes := make([]byte, SFTMetadataLen)
+
+	nameHandle := managedType.NewManagedBufferFromBytes(metadata.Name)
+	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(nameHandle))
+
+	hashHandle := managedType.NewManagedBufferFromBytes(metadata.Hash)
+	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(hashHandle))
+
+	attriHandle := managedType.NewManagedBufferFromBytes(metadata.Attributes)
+	binary.BigEndian.PutUint32(destinationBytes[8:12], uint32(attriHandle))
 
 	return destinationBytes
 }

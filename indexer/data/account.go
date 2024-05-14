@@ -23,16 +23,19 @@ type Permissions struct {
 
 // AccountInfo holds (serializable) data about an account
 type AccountInfo struct {
-	Address       string        `json:"address,omitempty"`
-	Nonce         uint64        `json:"nonce"`
-	Name          string        `json:"name,omitempty"`
-	RootHash      string        `json:"rootHash,omitempty"`
-	Balance       int64         `json:"balance"`
-	FrozenBalance int64         `json:"frozenBalance"`
-	Allowance     int64         `json:"allowance"`
-	Permissions   []Permissions `json:"permissions"`
-	Timestamp     time.Duration `json:"timestamp"`
-	Foundation    bool          `json:"foundation,omitempty"`
+	Address         string        `json:"address,omitempty"`
+	Nonce           uint64        `json:"nonce"`
+	Name            string        `json:"name,omitempty"`
+	RootHash        string        `json:"rootHash,omitempty"`
+	Balance         int64         `json:"balance"`
+	FrozenBalance   int64         `json:"frozenBalance"`
+	UnfrozenBalance int64         `json:"unfrozenBalance"`
+	Allowance       int64         `json:"allowance"`
+	Permissions     []Permissions `json:"permissions"`
+	Timestamp       time.Duration `json:"timestamp"`
+	CodeHash        string        `json:"codeHash,omitempty"`
+	CodeMetadata    string        `json:"codeMetadata,omitempty"`
+	Foundation      bool          `json:"foundation,omitempty"`
 }
 
 // AccountBalanceHistory represents an entry in the user accounts balances history

@@ -1,6 +1,7 @@
 package disabled
 
 import (
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kapps"
@@ -31,6 +32,10 @@ func (a *kappsController) GetKDAFeesPoolKApp() kapp.KDAFeesPoolKapp {
 
 // GetAccountsKApp -
 func (a *kappsController) GetAccountsKApp() kapp.AccountsKapp {
+	return nil
+}
+
+func (a *kappsController) GetSystemAccountKApp() kapp.SystemAccountKapp {
 	return nil
 }
 
@@ -69,6 +74,10 @@ func (k *kappsController) GetProposalController() kapps.ActiveProposalController
 
 // SetProposalController
 func (k *kappsController) SetProposalController(_ kapps.ActiveProposalController) error {
+	return nil
+}
+
+func (k *kappsController) GetForkController() core.ForkController {
 	return nil
 }
 

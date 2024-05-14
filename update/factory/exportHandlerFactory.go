@@ -459,7 +459,7 @@ func (e *exportHandlerFactory) prepareFolders(folder string) error {
 		return err
 	}
 
-	return os.MkdirAll(folder, os.ModePerm)
+	return os.MkdirAll(folder, common.DefaultDirPermission)
 }
 
 func (e *exportHandlerFactory) createInterceptors() error {

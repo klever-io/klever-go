@@ -47,10 +47,10 @@ func (b *MockWorld) UpdateWorldStateBefore(
 	gasPayment := big.NewInt(0).Mul(
 		big.NewInt(0).SetUint64(gasLimit),
 		big.NewInt(0).SetUint64(gasPrice))
-	if acct.GetBalance(nil) < gasPayment.Int64() {
+	if acct.GetBalance(nil, true) < gasPayment.Int64() {
 		return errors.New("not enough balance to pay gas upfront")
 	}
-	err = acct.SubFromBalance(gasPayment.Int64(), nil)
+	err = acct.SubFromBalance(gasPayment.Int64(), nil, true)
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,9 @@ func (b *MockWorld) UpdateAccounts(
 }
 
 func (b *MockWorld) CommitChangesToDB() error {
-	b.AccountsCacher.SaveAll()
+	if err := b.AccountsCacher.SaveAll(); err != nil {
+		return err
+	}
 
 	_, err := b.AccountsAdapter.Commit()
 	if err != nil {

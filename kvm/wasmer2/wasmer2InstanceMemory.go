@@ -28,12 +28,15 @@ func (memory *Wasmer2Memory) Data() []byte {
 	var data = (*uint8)(cWasmerMemoryData(memory.cgoInstance))
 
 	var header reflect.SliceHeader
+	// #nosec G103: unsafe.Pointer is used to convert to reflect.SliceHeader
 	header = *(*reflect.SliceHeader)(unsafe.Pointer(&header))
 
+	// #nosec G103: unsafe.Pointer is used to convert to uintptr
 	header.Data = uintptr(unsafe.Pointer(data))
 	header.Len = int(length)
 	header.Cap = int(length)
 
+	// #nosec G103: unsafe.Pointer is used to convert to []byte
 	return *(*[]byte)(unsafe.Pointer(&header))
 }
 

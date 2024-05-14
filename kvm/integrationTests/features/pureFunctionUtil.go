@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	cmock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
 	"github.com/klever-io/klever-go/crypto/hashing/blake2b"
 	imock "github.com/klever-io/klever-go/integrationTest/mock"
@@ -15,7 +17,6 @@ import (
 	worldhook "github.com/klever-io/klever-go/kvm/mock/world"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/vmhost/hostCore"
-	"github.com/klever-io/klever-go/kvm/vmhost/mock"
 	vmi "github.com/klever-io/klever-go/vmcommon"
 	"github.com/klever-io/klever-go/vmcommon/parsers"
 	"github.com/stretchr/testify/require"
@@ -65,7 +66,7 @@ func newPureFunctionExecutor() (*pureFunctionExecutor, error) {
 			BuiltInFuncContainer:     builtInFunctions.NewBuiltInFunctionContainer(),
 			ProtectedKeyPrefix:       protectedKeys,
 			KDATransferParser:        kdaTransferParser,
-			EpochNotifier:            &mock.EpochNotifierStub{},
+			EpochNotifier:            &cmock.EpochNotifierStub{},
 			ForkController:           &imock.ForkControllerStub{},
 			WasmerSIGSEGVPassthrough: false,
 			Hasher:                   defaultHasher,
@@ -85,7 +86,7 @@ func (pfe *pureFunctionExecutor) initAccounts(contractPath string) {
 	pfe.contractAddress = []byte("contract_addr_________________s1")
 	pfe.userAddress = []byte("user_addr_____________________s1")
 
-	scCode, err := os.ReadFile(contractPath)
+	scCode, err := os.ReadFile(filepath.Clean(contractPath))
 	if err != nil {
 		panic(err)
 	}

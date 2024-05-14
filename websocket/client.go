@@ -39,7 +39,9 @@ func (c *client) close() {
 	c.aliveLock.Lock()
 	defer c.aliveLock.Unlock()
 	if c.alive {
-		c.conn.Close()
+		if err := c.conn.Close(); err != nil {
+			log.Error("ws.close", "err", err.Error())
+		}
 		c.alive = false
 		c.cancel()
 		close(c.out)

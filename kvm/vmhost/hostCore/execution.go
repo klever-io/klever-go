@@ -364,6 +364,8 @@ func (host *vmHost) addNewBackTransfersFromVMOutput(vmOutput *vmcommon.VMOutput,
 	}
 
 	for _, transfer := range callerOutAcc.OutputTransfers {
+		transfer := transfer
+
 		if !bytes.Equal(transfer.SenderAddress, child) {
 			continue
 		}
@@ -985,6 +987,8 @@ func (host *vmHost) callBuiltinFunction(input *vmcommon.ContractCallInput) (*vmc
 		}
 
 		input.KDATransfers = append(input.KDATransfers, parsedTransfer.KDATransfers...)
+		// recipient may be updated by the parser
+		input.RecipientAddr = parsedTransfer.RcvAddr
 	}
 
 	vmOutput, err := host.Blockchain().ProcessBuiltInFunction(input)

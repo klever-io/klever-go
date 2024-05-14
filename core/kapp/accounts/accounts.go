@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"unicode/utf8"
 
-	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
@@ -24,8 +23,6 @@ import (
 )
 
 var _ kapp.AccountsKapp = (*accountsKapp)(nil)
-
-var log = logger.GetOrCreate("kapp/account")
 
 type accountsKapp struct {
 	hasher         hashing.Hasher
@@ -244,12 +241,12 @@ func (a *accountsKapp) processFixedRoyaltiesTransfer(cType transaction.TXContrac
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
-	balance := acntSrc.GetBalance(kdautils.KLVIdentifier)
+	balance := acntSrc.GetBalance(kdautils.KLVIdentifier, a.forkController.EnableSmartContracts())
 	if balance < kda.Royalties.TransferFixed {
 		return transaction.Transaction_OutOfFunds, process.ErrInsufficientFunds
 	}
 
-	err := acntSrc.SubFromBalance(kda.Royalties.TransferFixed, kdautils.KLVIdentifier)
+	err := acntSrc.SubFromBalance(kda.Royalties.TransferFixed, kdautils.KLVIdentifier, a.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_BalanceError, err
 	}
@@ -274,7 +271,7 @@ func (a *accountsKapp) processFixedRoyaltiesTransfer(cType transaction.TXContrac
 		splitToPay := int64(float64(kda.Royalties.TransferFixed) * float64(value.PercentTransferFixed) / float64(core.HundredPercent))
 		royaltiesFixedToPay -= splitToPay
 
-		err = splitRoyalty.AddToBalance(splitToPay, kdautils.KLVIdentifier)
+		err = splitRoyalty.AddToBalance(splitToPay, kdautils.KLVIdentifier, a.forkController.EnableSmartContracts())
 		if err != nil {
 			return transaction.Transaction_BalanceError, err
 		}
@@ -305,7 +302,7 @@ func (a *accountsKapp) processFixedRoyaltiesTransfer(cType transaction.TXContrac
 			return transaction.Transaction_LoadAccountError, err
 		}
 
-		err = royaltyOwner.AddToBalance(royaltiesFixedToPay, kdautils.KLVIdentifier)
+		err = royaltyOwner.AddToBalance(royaltiesFixedToPay, kdautils.KLVIdentifier, a.forkController.EnableSmartContracts())
 		if err != nil {
 			return transaction.Transaction_BalanceError, err
 		}
@@ -350,7 +347,7 @@ func (a *accountsKapp) processPercentageRoyaltiesTransfer(ctType transaction.TXC
 		}
 	}
 
-	balance := acntSrc.GetBalance(assetID)
+	balance := acntSrc.GetBalance(assetID, a.forkController.EnableSmartContracts())
 	if balance < value+royaltyAmount {
 		return transaction.Transaction_OutOfFunds, process.ErrInsufficientFunds
 	}
@@ -376,7 +373,7 @@ func (a *accountsKapp) processPercentageRoyaltiesTransfer(ctType transaction.TXC
 			splitToPay := int64(float64(royaltyAmount) * float64(value.PercentTransferPercentage) / float64(core.HundredPercent))
 			royaltiesToPay -= splitToPay
 
-			err = splitRoyalty.AddToBalance(splitToPay, assetID)
+			err = splitRoyalty.AddToBalance(splitToPay, assetID, a.forkController.EnableSmartContracts())
 			if err != nil {
 				return transaction.Transaction_BalanceError, err
 			}
@@ -403,12 +400,12 @@ func (a *accountsKapp) processPercentageRoyaltiesTransfer(ctType transaction.TXC
 				return transaction.Transaction_LoadAccountError, err
 			}
 
-			err = acntSrc.SubFromBalance(royaltyAmount, assetID)
+			err = acntSrc.SubFromBalance(royaltyAmount, assetID, a.forkController.EnableSmartContracts())
 			if err != nil {
 				return transaction.Transaction_BalanceError, err
 			}
 
-			err = royaltyReceiver.AddToBalance(royaltiesToPay, assetID)
+			err = royaltyReceiver.AddToBalance(royaltiesToPay, assetID, a.forkController.EnableSmartContracts())
 			if err != nil {
 				return transaction.Transaction_BalanceError, err
 			}
@@ -476,17 +473,17 @@ func (a *accountsKapp) processSemiFungibleTransfer(tc *transaction.TransferContr
 		return transaction.Transaction_ContractInvalid, common.ErrInvalidValue
 	}
 
-	balance := acntSrc.GetBalanceWithNonce(assetID, internalID)
+	balance := acntSrc.GetBalanceWithNonce(assetID, internalID, a.forkController.EnableSmartContracts())
 	if balance < value {
 		return transaction.Transaction_OutOfFunds, process.ErrInsufficientFunds
 	}
 
-	err := acntSrc.SubFromBalanceWithNonce(value, assetID, internalID)
+	err := acntSrc.SubFromBalanceWithNonce(value, assetID, internalID, a.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_BalanceError, err
 	}
 
-	err = acntDst.AddToBalanceWithNonce(value, assetID, internalID)
+	err = acntDst.AddToBalanceWithNonce(value, assetID, internalID, a.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_BalanceError, err
 	}
@@ -511,12 +508,12 @@ func (a *accountsKapp) processFungibleTransfer(tc *transaction.TransferContract,
 		return transaction.Transaction_ContractInvalid, common.ErrInvalidValue
 	}
 
-	balance := acntSrc.GetBalance(assetID)
+	balance := acntSrc.GetBalance(assetID, a.forkController.EnableSmartContracts())
 	if balance < value {
 		return transaction.Transaction_OutOfFunds, process.ErrInsufficientFunds
 	}
 
-	err := acntSrc.SubFromBalance(value, assetID)
+	err := acntSrc.SubFromBalance(value, assetID, a.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_BalanceError, err
 	}
@@ -525,7 +522,7 @@ func (a *accountsKapp) processFungibleTransfer(tc *transaction.TransferContract,
 		return transaction.Transaction_SaveAccountError, err
 	}
 
-	err = acntDst.AddToBalance(value, assetID)
+	err = acntDst.AddToBalance(value, assetID, a.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_BalanceError, err
 	}
@@ -594,7 +591,7 @@ func (a *accountsKapp) ClaimBalance(
 				userKDAToUpdate = userKDA
 			}
 
-			err = acc.AddToBalance(value, []byte(key), userKDAToUpdate)
+			err = acc.AddToBalance(value, []byte(key), a.forkController.EnableSmartContracts(), userKDAToUpdate)
 			if err != nil {
 				return nil, err
 			}
@@ -650,7 +647,7 @@ func (a *accountsKapp) Freeze(sender []byte, tc *transaction.FreezeContract) (tr
 		return transaction.Transaction_LoadAccountError, err
 	}
 
-	buckets := ownerAcc.GetBuckets(tc.GetAssetID())
+	buckets := ownerAcc.GetBuckets(tc.GetAssetID(), a.forkController.EnableSmartContracts())
 	if len(buckets) >= int(a.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MaxBucketSize)) {
 		return transaction.Transaction_BucketsExceeded, common.ErrMaxBucketsExceeded
 	}
@@ -669,7 +666,7 @@ func (a *accountsKapp) Freeze(sender []byte, tc *transaction.FreezeContract) (tr
 		return transaction.Transaction_KAPPError, err
 	}
 
-	userKDA, err := ownerAcc.GetUserKDA(assetID, nil)
+	userKDA, err := ownerAcc.GetUserKDA(assetID, nil, a.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_AssetError, err
 	}
@@ -679,12 +676,12 @@ func (a *accountsKapp) Freeze(sender []byte, tc *transaction.FreezeContract) (tr
 		return transaction.Transaction_ClaimError, err
 	}
 
-	balance := ownerAcc.GetBalance(assetID)
+	balance := ownerAcc.GetBalance(assetID, a.forkController.EnableSmartContracts())
 	if balance < value {
 		return transaction.Transaction_OutOfFunds, process.ErrInsufficientFunds
 	}
 
-	err = ownerAcc.SubFromBalance(value, assetID, userKDA)
+	err = ownerAcc.SubFromBalance(value, assetID, a.forkController.EnableSmartContracts(), userKDA)
 	if err != nil {
 		return transaction.Transaction_BalanceError, err
 	}
@@ -798,7 +795,7 @@ func (a *accountsKapp) Unfreeze(sender []byte, tc *transaction.UnfreezeContract)
 		return transaction.Transaction_AssetError, err
 	}
 
-	userKDA, err := ownerAcc.GetUserKDA(assetID, nil)
+	userKDA, err := ownerAcc.GetUserKDA(assetID, nil, a.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_AssetError, err
 	}
@@ -912,7 +909,7 @@ func (a *accountsKapp) Unfreeze(sender []byte, tc *transaction.UnfreezeContract)
 			return transaction.Transaction_AccountError, err
 		}
 
-		userKDA, err := ownerAcc.GetUserKDA(assetID, nil)
+		userKDA, err := ownerAcc.GetUserKDA(assetID, nil, a.forkController.EnableSmartContracts())
 		if err != nil {
 			return transaction.Transaction_AccountError, err
 		}
@@ -995,7 +992,7 @@ func (a *accountsKapp) Delegate(sender []byte, tc *transaction.DelegateContract)
 		return transaction.Transaction_KAPPError, err
 	}
 
-	userKDA, err := ownerAcc.GetUserKDA(kdautils.KLVIdentifier, nil)
+	userKDA, err := ownerAcc.GetUserKDA(kdautils.KLVIdentifier, nil, a.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_AccountError, err
 	}
@@ -1114,7 +1111,7 @@ func (a *accountsKapp) Undelegate(sender []byte, tc *transaction.UndelegateContr
 		return transaction.Transaction_KAPPError, err
 	}
 
-	userKDA, err := ownerAcc.GetUserKDA(kdautils.KLVIdentifier, nil)
+	userKDA, err := ownerAcc.GetUserKDA(kdautils.KLVIdentifier, nil, a.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_AccountError, err
 	}
@@ -1229,7 +1226,7 @@ func (a *accountsKapp) Withdraw(sender []byte, tc *transaction.WithdrawContract)
 		return transaction.Transaction_KAPPError, err
 	}
 
-	userKDA, err := ownerAcc.GetUserKDA(assetID, nil)
+	userKDA, err := ownerAcc.GetUserKDA(assetID, nil, a.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_AccountError, err
 	}
@@ -1331,7 +1328,7 @@ func (a *accountsKapp) ClaimStaking(sender []byte, tc *transaction.ClaimContract
 		return transaction.Transaction_KAPPError, err
 	}
 
-	userKDA, err := ownerAcc.GetUserKDA(assetID, nil)
+	userKDA, err := ownerAcc.GetUserKDA(assetID, nil, a.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_AccountError, err
 	}
@@ -1430,7 +1427,7 @@ func (a *accountsKapp) ClaimAllowance(sender []byte, tc *transaction.ClaimContra
 		return transaction.Transaction_AssetIDInvalid, common.ErrAssetIDInvalid
 	}
 
-	userKDA, err := ownerAcc.GetUserKDA(assetID, nil)
+	userKDA, err := ownerAcc.GetUserKDA(assetID, nil, a.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_AccountError, err
 	}
@@ -1489,7 +1486,7 @@ func (a *accountsKapp) SetAccountName(sender []byte, tc *transaction.SetAccountN
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
-	ownerAcc, err := a.GetExistingUserAccount(sender)
+	ownerAcc, err := a.LoadUserAccount(sender)
 	if err != nil {
 		return transaction.Transaction_LoadAccountError, err
 	}
@@ -1499,6 +1496,14 @@ func (a *accountsKapp) SetAccountName(sender []byte, tc *transaction.SetAccountN
 	if err := a.accountsCacher.UpdateUser(ownerAcc); err != nil {
 		return transaction.Transaction_SaveAccountError, err
 	}
+
+	ctx := a.KAppController.GetCurrentKAppContext()
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.SetAccountName,
+		ctx.ContractID(),
+		tc.Name,
+		sender,
+	))
 
 	return transaction.Transaction_Ok, nil
 }

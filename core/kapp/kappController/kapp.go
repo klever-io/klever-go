@@ -15,13 +15,14 @@ import (
 var log = logger.GetOrCreate("kapp")
 
 const (
-	ValidatorsKapp  = "KAPP_VALIDATORS"
-	KDAFeesPoolKApp = "KAPP_KDA_FEES_POOL"
-	AccountsKApp    = "KAPP_ACCOUNTS"
-	ITOKApp         = "KAPP_ITO"
-	MarketKApp      = "KAPP_MARKET"
-	KDAKapp         = "KAPP_KDA"
-	ProposalKApp    = "KAPP_PROPOSAL"
+	ValidatorsKapp    = "KAPP_VALIDATORS"
+	KDAFeesPoolKApp   = "KAPP_KDA_FEES_POOL"
+	AccountsKApp      = "KAPP_ACCOUNTS"
+	ITOKApp           = "KAPP_ITO"
+	MarketKApp        = "KAPP_MARKET"
+	KDAKapp           = "KAPP_KDA"
+	ProposalKApp      = "KAPP_PROPOSAL"
+	SystemAccountKApp = "KAPP_SYSTEM_ACCOUNT"
 )
 
 type KleverKApp interface {
@@ -32,6 +33,7 @@ type KleverKApp interface {
 type kApp struct {
 	validatorsKapp     kapp.ValidatorsKapp
 	kdaFeesPoolKapp    kapp.KDAFeesPoolKapp
+	systemAccountKapp  kapp.SystemAccountKapp
 	accountsKapp       kapp.AccountsKapp
 	itoKapp            kapp.ITOKapp
 	marketKapp         kapp.MarketKapp
@@ -79,6 +81,17 @@ func NewKappController(args ArgsNewKApp) (kapp.KAppController, error) {
 	}
 
 	container[KDAFeesPoolKApp] = kdaFeesPoolKapp
+
+	systemAccountKapp, err := factory.NewSystemAccountKApp(
+		args.Marshalizer,
+		args.PubkeyConv,
+		args.ForkController,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	container[SystemAccountKApp] = systemAccountKapp
 
 	accountsKapp, err := factory.NewAccountKApp(
 		args.Hasher,
@@ -139,14 +152,15 @@ func NewKappController(args ArgsNewKApp) (kapp.KAppController, error) {
 	container[ProposalKApp] = proposalKapp
 
 	return &kApp{
-		forkController:  args.ForkController,
-		validatorsKapp:  validatorsKapp,
-		kdaFeesPoolKapp: kdaFeesPoolKapp,
-		accountsKapp:    accountsKapp,
-		itoKapp:         itoKapp,
-		marketKapp:      MarketKapp,
-		kdaKapp:         kdaKapp,
-		proposalKapp:    proposalKapp,
+		forkController:    args.ForkController,
+		validatorsKapp:    validatorsKapp,
+		kdaFeesPoolKapp:   kdaFeesPoolKapp,
+		systemAccountKapp: systemAccountKapp,
+		accountsKapp:      accountsKapp,
+		itoKapp:           itoKapp,
+		marketKapp:        MarketKapp,
+		kdaKapp:           kdaKapp,
+		proposalKapp:      proposalKapp,
 
 		container: container,
 	}, nil
@@ -202,6 +216,10 @@ func (k *kApp) GetKDAFeesPoolKApp() kapp.KDAFeesPoolKapp {
 	return k.kdaFeesPoolKapp
 }
 
+func (k *kApp) GetSystemAccountKApp() kapp.SystemAccountKapp {
+	return k.systemAccountKapp
+}
+
 func (k *kApp) GetAccountsKApp() kapp.AccountsKapp {
 	return k.accountsKapp
 }
@@ -238,6 +256,10 @@ func (k *kApp) SetProposalController(proposalController kapps.ActiveProposalCont
 	k.proposalController = proposalController
 
 	return nil
+}
+
+func (k *kApp) GetForkController() core.ForkController {
+	return k.forkController
 }
 
 // IsNilIndexer will return a bool value that signals if the indexer's implementation is a NilIndexer

@@ -358,7 +358,7 @@ func (nf *nodeFacade) CreateTransaction(
 	return nf.node.CreateTransaction(txType, base, contracts, skipValidate)
 }
 
-// EncodeAddressPubkey returns readable adrress from bytes
+// EncodeAddressPubkey returns readable address from bytes
 func (nf *nodeFacade) EncodeAddressPubkey(addr []byte) (string, error) {
 	return nf.node.EncodeAddressPubkey(addr)
 }

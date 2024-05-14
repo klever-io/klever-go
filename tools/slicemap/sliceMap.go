@@ -1,7 +1,7 @@
 package slicemap
 
 import (
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505: Blocklisted import sha1 hash is what is desired in this case
 	"fmt"
 )
 
@@ -12,6 +12,7 @@ type SliceMap struct {
 
 // Key retuns key of a byteslice
 func (s *SliceMap) Key(buf []byte) string {
+	// #nosec G401: Blocklisted call to sha1 hash is what is desired in this case
 	h := sha1.New()
 	h.Write(buf)
 	sum := h.Sum(nil)

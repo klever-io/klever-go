@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	twos "github.com/klever-io/klever-go/kvm/math/twos-complement"
@@ -79,20 +80,22 @@ func generateBigFloatFromPartsData() {
 		_, _ = file.WriteString("BigFloatNewFromPartsTest@")
 
 		// integralPart
-		integralPart := rand.Intn(math.MaxInt32 - 1)
+		integralPart := rand.Intn(math.MaxInt32 - 1) // #nosec G404: This is a test file
 		bigIntegralPart := big.NewInt(0).SetInt64(int64(integralPart))
-		if rand.Intn(2) == 1 {
+		// #nosec G404: This is a test file
+		v := rand.Intn(2) == 1
+		if v {
 			bigIntegralPart.Neg(bigIntegralPart)
 		}
 		hexEncodedIntegralPart := hex.EncodeToString(twos.ToBytes(bigIntegralPart))
 		_, _ = file.WriteString(hexEncodedIntegralPart + "@")
 		// fractionalPart
-		fractionalPart := rand.Intn(math.MaxInt32 - 1)
+		fractionalPart := rand.Intn(math.MaxInt32 - 1) // #nosec G404: This is a test file
 		bigFractionalPart := big.NewInt(0).SetInt64(int64(fractionalPart))
 		hexEncodedFractionalPart := hex.EncodeToString(twos.ToBytes(bigFractionalPart))
 		_, _ = file.WriteString(hexEncodedFractionalPart + "@")
 		// exponent
-		exponent := rand.Intn(400)
+		exponent := rand.Intn(400) // #nosec G404: This is a test file
 		bigExponent := big.NewInt(0).SetInt64(int64(exponent))
 		validExponent := big.NewInt(0).Neg(bigExponent)
 		hexEncodedExponent := hex.EncodeToString(validExponent.Bytes())
@@ -111,15 +114,17 @@ func generateBigFloatsFromFracData() {
 		_, _ = file.WriteString("BigFloatNewFromFracTest@")
 
 		// numerator
-		numeratorPart := rand.Intn(math.MaxInt64 - 1)
+		numeratorPart := rand.Intn(math.MaxInt64 - 1) // #nosec G404: This is a test file
 		bigNumeratorPart := big.NewInt(0).SetInt64(int64(numeratorPart))
-		if rand.Intn(2) == 1 {
+		// #nosec G404: This is a test file
+		v := rand.Intn(2) == 1
+		if v {
 			bigNumeratorPart.Neg(bigNumeratorPart)
 		}
 		hexEncodedNumerator := hex.EncodeToString(bigNumeratorPart.Bytes())
 		_, _ = file.WriteString(hexEncodedNumerator + "@")
 		// denominator
-		denominatorPart := rand.Intn(math.MaxInt64 - 1)
+		denominatorPart := rand.Intn(math.MaxInt64 - 1) // #nosec G404: This is a test file
 		bigDenominatorPart := big.NewInt(0).SetInt64(int64(denominatorPart))
 		hexEncodedDenominator := hex.EncodeToString(bigDenominatorPart.Bytes())
 		_, _ = file.WriteString(hexEncodedDenominator + ":30000" + "\n")
@@ -137,15 +142,17 @@ func generateBigFloatsFromSciData() {
 		_, _ = file.WriteString("BigFloatNewFromSciTest@")
 
 		// significand
-		significandPart := rand.Intn(math.MaxInt64 - 1)
+		significandPart := rand.Intn(math.MaxInt64 - 1) // #nosec G404: This is a test file
 		bigSignificandPart := big.NewInt(0).SetInt64(int64(significandPart))
-		if rand.Intn(2) == 1 {
+		// #nosec G404: This is a test file
+		v := rand.Intn(2) == 1
+		if v {
 			bigSignificandPart.Neg(bigSignificandPart)
 		}
 		hexEncodedSignificand := hex.EncodeToString(bigSignificandPart.Bytes())
 		_, _ = file.WriteString(hexEncodedSignificand + "@")
 		// exponent
-		exponentPart := rand.Intn(400)
+		exponentPart := rand.Intn(400) // #nosec G404: This is a test file
 		bigExponentPart := big.NewInt(0).SetInt64(int64(exponentPart))
 		hexEncodedExponent := hex.EncodeToString(bigExponentPart.Bytes())
 		_, _ = file.WriteString(hexEncodedExponent + ":30000" + "\n")
@@ -161,7 +168,7 @@ func generateBigFloatsSetBigInt() {
 
 	for i := 0; i < numberOfDataSets; i++ {
 		_, _ = file.WriteString("BigFloatSetBigIntTest@")
-		numberOfBytes := rand.Intn(200)
+		numberOfBytes := rand.Intn(200) // #nosec G404: This is a test file
 		bigIntBytes := make([]byte, numberOfBytes)
 		_, _ = crand.Read(bigIntBytes)
 
@@ -178,9 +185,11 @@ func generateBigFloatsSetInt64() {
 
 	for i := 0; i < numberOfDataSets; i++ {
 		_, _ = file.WriteString("BigFloatSetInt64Test@")
-		smallValue := rand.Intn(math.MaxInt64 - 1)
+		smallValue := rand.Intn(math.MaxInt64 - 1) // #nosec G404: This is a test file
 		bigIntVal := big.NewInt(int64(smallValue))
-		if rand.Intn(2) == 1 {
+		// #nosec G404: This is a test file
+		v := rand.Intn(2) == 1
+		if v {
 			bigIntVal.Neg(bigIntVal)
 		}
 		argumentBytes := twos.ToBytes(bigIntVal)
@@ -209,7 +218,9 @@ func generateDataForBigFloatPow() {
 		exponentBytes := make([]byte, 1)
 		_, _ = crand.Read(exponentBytes)
 		bigExponent := big.NewInt(0).SetBytes(exponentBytes)
-		if rand.Intn(2) == 1 {
+		// #nosec G404: This is a test file
+		v := rand.Intn(2) == 1
+		if v {
 			bigExponent.Neg(bigExponent)
 		}
 		exponentBytes, _ = twos.ToBytesOfLength(bigExponent, 4)
@@ -233,7 +244,7 @@ func generateDataForBigFloatPow() {
 
 func generateDataForEndpoint(numberOfBigFloats int, endpointName string, gasLimit int) {
 	fileName := fmt.Sprintf("%s.data", endpointName)
-	file, _ := os.Create(fileName)
+	file, _ := os.Create(filepath.Clean(fileName))
 
 	for i := 0; i < numberOfDataSets; i++ {
 		_, _ = file.WriteString(endpointName)
@@ -250,7 +261,9 @@ func generateDataForEndpoint(numberOfBigFloats int, endpointName string, gasLimi
 
 func generateHexEncodedBigFloat() string {
 	encodedBigFloat := make([]byte, 0)
-	if rand.Intn(2) == 1 {
+	// #nosec G404: This is a test file
+	v := rand.Intn(2) == 1
+	if v {
 		encodedBigFloat = append(encodedBigFloat, positiveEncodedBigFloatPrefix[:]...)
 	} else {
 		encodedBigFloat = append(encodedBigFloat, negativeEncodedBigFloatPrefix[:]...)
@@ -264,7 +277,9 @@ func generateHexEncodedBigFloat() string {
 
 func generateHexEncodedBigFloatForPow() string {
 	encodedBigFloat := make([]byte, 0)
-	if rand.Intn(2) == 1 {
+	// #nosec G404: This is a test file
+	v := rand.Intn(2) == 1
+	if v {
 		encodedBigFloat = append(encodedBigFloat, positiveEncodedBigFloatForPowPrefix[:]...)
 	} else {
 		encodedBigFloat = append(encodedBigFloat, negativeEncodedBigFloatForPowPrefix[:]...)

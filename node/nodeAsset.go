@@ -23,12 +23,18 @@ func (n *Node) GetAsset(assetID string) (*kapps.KDAData, error) {
 		return &kapps.KDAData{}, err
 	}
 
+	// remove nonce if needed
+	tokenID, _, _, err := kdautils.ExtractAssetIDAndNonce([]byte(assetID))
+	if err != nil {
+		return &kapps.KDAData{}, err
+	}
+
 	kapp, ok := acnt.(state.KAppAccountHandler)
 	if !ok {
 		return &kapps.KDAData{}, common.ErrWrongTypeAssertion
 	}
 
-	key := kdautils.ToKDAKey([]byte(assetID), nil)
+	key := kdautils.ToKDAKey([]byte(tokenID), nil)
 
 	assetWrp, err := kapp.DataTrieTracker().RetrieveValue(key)
 	if err != nil {
@@ -67,7 +73,7 @@ func (n *Node) GetNFT(owner string, id string) (*kapps.UserKDA, *kapps.KDAData, 
 		return &kapps.UserKDA{}, &kapps.KDAData{}, err
 	}
 
-	userKDA, err := acc.GetUserKDA([]byte(ids[0]), []byte(ids[1]))
+	userKDA, err := acc.GetUserKDA([]byte(ids[0]), []byte(ids[1]), n.forkController.EnableSmartContracts())
 	if err != nil {
 		return &kapps.UserKDA{}, &kapps.KDAData{}, err
 	}

@@ -12,8 +12,8 @@ import (
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/network/p2p/libp2p/networksharding/sorting"
 	"github.com/klever-io/klever-go/tools/check"
-	"github.com/libp2p/go-libp2p-core/peer"
 	kbucket "github.com/libp2p/go-libp2p-kbucket"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 var _ p2p.CommonSharder = (*listsSharder)(nil)

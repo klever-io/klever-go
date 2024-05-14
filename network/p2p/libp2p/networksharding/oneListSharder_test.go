@@ -6,7 +6,7 @@ import (
 
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/tools/check"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/assert"
 )
 

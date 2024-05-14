@@ -451,7 +451,7 @@ func (k *kdaKapp) createFungible(ctx kapp.KappContext, tc *transaction.CreateAss
 			return transaction.Transaction_LoadAccountError, err
 		}
 
-		if err = ownerAcc.AddToBalance(asset.InitialSupply, asset.ID); err != nil {
+		if err = ownerAcc.AddToBalance(asset.InitialSupply, asset.ID, k.forkController.EnableSmartContracts()); err != nil {
 			return transaction.Transaction_BalanceError, err
 		}
 

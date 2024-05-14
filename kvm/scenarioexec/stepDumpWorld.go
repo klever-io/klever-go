@@ -73,7 +73,7 @@ func (ae *VMTestExecutor) convertMockAccountToScenarioFormat(account state.UserA
 		userInstances := make([]*scenjsonmodel.KDAInstance, 0)
 
 		// load kda data
-		kda, err := account.GetUserKDA(tokenIdentifier, nonce)
+		kda, err := account.GetUserKDA(tokenIdentifier, nonce, true)
 		if err != nil {
 			// if for some reason the KDA Key was in storage but the KDA was not found, create a KDAInstance with 0 balance
 			userInstances = append(userInstances, &scenjsonmodel.KDAInstance{
@@ -137,8 +137,8 @@ func (ae *VMTestExecutor) convertMockAccountToScenarioFormat(account state.UserA
 			Original: ae.exprReconstructor.ReconstructFromUint64(account.GetNonce()),
 		},
 		Balance: scenjsonmodel.JSONBigInt{
-			Value:    big.NewInt(account.GetBalance(nil)),
-			Original: ae.exprReconstructor.ReconstructFromBigInt(big.NewInt(account.GetBalance(nil))),
+			Value:    big.NewInt(account.GetBalance(nil, true)),
+			Original: ae.exprReconstructor.ReconstructFromBigInt(big.NewInt(account.GetBalance(nil, true))),
 		},
 		Storage: storageKvps,
 		KDAData: scenKDA,

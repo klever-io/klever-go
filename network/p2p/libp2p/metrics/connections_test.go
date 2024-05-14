@@ -19,10 +19,8 @@ func TestConnections_EmptyFunctionsDoNotPanicWhenCalled(t *testing.T) {
 
 	cdm := metrics.NewConnections()
 
-	cdm.ClosedStream(nil, nil)
 	cdm.Listen(nil, nil)
 	cdm.ListenClose(nil, nil)
-	cdm.OpenedStream(nil, nil)
 }
 
 func TestConnections_ResetNumConnectionsShouldWork(t *testing.T) {

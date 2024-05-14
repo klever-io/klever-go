@@ -44,7 +44,7 @@ func (awm *AccountWrapMock) IncreaseNonce(_ uint64) {
 }
 
 // GetUserKDA -
-func (awm *AccountWrapMock) GetUserKDA(assetID []byte, nonce []byte) (*kapps.UserKDA, error) {
+func (awm *AccountWrapMock) GetUserKDA(assetID []byte, nonce []byte, _ bool) (*kapps.UserKDA, error) {
 	return nil, nil
 }
 
@@ -54,20 +54,20 @@ func (awm *AccountWrapMock) SetUserKDA(assetID []byte, nonce []byte, userKDA *ka
 }
 
 // AddToBalance -
-func (awm *AccountWrapMock) AddToBalance(_ int64, _ []byte, _ ...*kapps.UserKDA) error {
+func (awm *AccountWrapMock) AddToBalance(_ int64, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
 	return nil
 }
 
-func (awm *AccountWrapMock) AddToBalanceWithNonce(_ int64, _ []byte, _ []byte, _ ...*kapps.UserKDA) error {
+func (awm *AccountWrapMock) AddToBalanceWithNonce(_ int64, _ []byte, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
 	return nil
 }
 
 // SubFromBalance -
-func (awm *AccountWrapMock) SubFromBalance(_ int64, _ []byte, _ ...*kapps.UserKDA) error {
+func (awm *AccountWrapMock) SubFromBalance(_ int64, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
 	return nil
 }
 
-func (awm *AccountWrapMock) SubFromBalanceWithNonce(_ int64, _ []byte, _ []byte, _ ...*kapps.UserKDA) error {
+func (awm *AccountWrapMock) SubFromBalanceWithNonce(_ int64, _ []byte, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
 	return nil
 }
 
@@ -86,11 +86,11 @@ func (awm *AccountWrapMock) AddToAllowance(_ int64) error {
 }
 
 // GetBalance -
-func (awm *AccountWrapMock) GetBalance(_ []byte) int64 {
+func (awm *AccountWrapMock) GetBalance(_ []byte, _ bool) int64 {
 	return 0
 }
 
-func (awm *AccountWrapMock) GetBalanceWithNonce(_ []byte, _ []byte) int64 {
+func (awm *AccountWrapMock) GetBalanceWithNonce(_ []byte, _ []byte, _ bool) int64 {
 	return 0
 }
 
@@ -100,12 +100,12 @@ func (awm *AccountWrapMock) GetAllowance() int64 {
 }
 
 // GetFrozenBalance -
-func (awm *AccountWrapMock) GetFrozenBalance(_ []byte) int64 {
+func (awm *AccountWrapMock) GetFrozenBalance(_ []byte, _ bool) int64 {
 	return 0
 }
 
 // GetBuckets -
-func (awm *AccountWrapMock) GetBuckets(assetID []byte) map[string]*kapps.UserBucket {
+func (awm *AccountWrapMock) GetBuckets(assetID []byte, _ bool) map[string]*kapps.UserBucket {
 	return nil
 }
 

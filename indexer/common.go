@@ -173,19 +173,31 @@ func (cm *commonProcessor) receiptToMap(data [][]byte) (map[string]interface{}, 
 		if len(data) < 5 {
 			return nil, fmt.Errorf("%w: (%d/%d)", ErrInvalidDataMapLen, len(data), 5)
 		}
+
+		txValueInt, err := strconv.ParseInt(string(data[4]), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+
 		m["bucketId"] = hex.EncodeToString(data[1])
 		m["from"] = cm.addressPubkeyConverter.Encode(data[2])
 		m["assetId"] = string(data[3])
-		m["value"] = string(data[4])
+		m["value"] = txValueInt
 	case ptx.Unfreeze:
 		if len(data) < 6 {
 			return nil, fmt.Errorf("%w: (%d/%d)", ErrInvalidDataMapLen, len(data), 6)
 		}
+
+		txValueInt, err := strconv.ParseInt(string(data[5]), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+
 		m["bucketId"] = hex.EncodeToString(data[1])
 		m["availableEpoch"] = string(data[2]) // strConv from int???
 		m["from"] = cm.addressPubkeyConverter.Encode(data[3])
 		m["assetId"] = string(data[4])
-		m["value"] = string(data[5])
+		m["value"] = txValueInt
 	case ptx.Proposal:
 		if len(data) < 2 {
 			return nil, fmt.Errorf("%w: (%d/%d)", ErrInvalidDataMapLen, len(data), 2)
@@ -301,10 +313,15 @@ func (cm *commonProcessor) receiptToMap(data [][]byte) (map[string]interface{}, 
 		if len(data) < 4 {
 			return nil, fmt.Errorf("%w: (%d/%d)", ErrInvalidDataMapLen, len(data), 4)
 		}
+
+		amount, err := strconv.ParseInt(string(data[3]), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+
 		m["from"] = cm.addressPubkeyConverter.Encode(data[1])
 		m["assetId"] = string(data[2])
-		m["amount"] = string(data[3])
-
+		m["amount"] = amount
 	case ptx.UpdateMetadata:
 		if len(data) < 4 {
 			return nil, fmt.Errorf("%w: (%d/%d)", ErrInvalidDataMapLen, len(data), 4)
@@ -335,9 +352,15 @@ func (cm *commonProcessor) receiptToMap(data [][]byte) (map[string]interface{}, 
 		if len(data) < 6 {
 			return nil, fmt.Errorf("%w: (%d/%d)", ErrInvalidDataMapLen, len(data), 4)
 		}
+
+		amount, err := strconv.ParseInt(string(data[3]), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+
 		m["from"] = cm.addressPubkeyConverter.Encode(data[1])
 		m["depositType"] = string(data[2])
-		m["amount"] = string(data[3])
+		m["amount"] = amount
 		m["assetId"] = string(data[4])
 		m["currencyId"] = string(data[5])
 	case ptx.CancelOrder:
@@ -353,6 +376,18 @@ func (cm *commonProcessor) receiptToMap(data [][]byte) (map[string]interface{}, 
 		m["triggerType"] = string(data[1])
 		m["from"] = cm.addressPubkeyConverter.Encode(data[2])
 		m["contract"] = cm.addressPubkeyConverter.Encode(data[3])
+
+	case ptx.SetAccountName:
+		if len(data) != 3 {
+			return nil, fmt.Errorf("%w: (%d/%d)", ErrInvalidDataMapLen, len(data), 2)
+		}
+		m["name"] = string(data[1])
+		m["address"] = cm.addressPubkeyConverter.Encode(data[2])
+	case ptx.UpdateAccountPermission:
+		if len(data) < 2 {
+			return nil, fmt.Errorf("%w: (%d/%d)", ErrInvalidDataMapLen, len(data), 2)
+		}
+		m["address"] = cm.addressPubkeyConverter.Encode(data[1])
 	}
 
 	return m, nil
@@ -369,8 +404,8 @@ func (cm *commonProcessor) BuildTransaction(
 		// convert slice to map
 		data, err := cm.receiptToMap(receipt.Data)
 		if err != nil {
-			_ = bugsnag.Notify(fmt.Errorf("invalid receipt: %w", err), bugsnag.MetaData{"data": {"receipt": receipt.Data}})
-			log.Error("invalid receipt", "error", err.Error())
+			_ = bugsnag.Notify(fmt.Errorf("invalid receipt: %w", err), bugsnag.MetaData{"data": {"receipt": receipt.Data, "txHash": txHash, "blockNonce": header.GetNonce()}})
+			log.Error("invalid receipt", "txHash", txHash, "blockNonce", header.GetNonce(), "error", err.Error())
 			continue
 		}
 		receipts = append(receipts, data)
@@ -650,6 +685,7 @@ func (cm *commonProcessor) DecodeContract(dbTx *data.Transaction, tx *transactio
 					IsNew:                  true,
 					AddedAddresses:         convertedWhiteList,
 					DefaultLimitPerAddress: configITOContract.DefaultLimitPerAddress,
+					Timestamp:              blockTimestamp,
 				})
 			}
 
@@ -1398,6 +1434,18 @@ func (cm *commonProcessor) convertAssetInfo(assetInfo *kapps.KDAData) *data.Asse
 	}
 
 	return asset
+}
+
+func (cm *commonProcessor) convertSFTMeta(meta *kapps.MetaV2) *data.Meta {
+	return &data.Meta{
+		Circulation: meta.GetCirculation(),
+		MaxSupply:   meta.GetMaxSupply(),
+		Metadata: data.Metadata{
+			Name:       string(meta.GetMetadata().GetName()),
+			Hash:       hex.EncodeToString(meta.GetMetadata().GetHash()),
+			Attributes: string(meta.GetMetadata().GetAttributes()),
+		},
+	}
 }
 
 func (cm *commonProcessor) convertStakingData(stakingData *kapps.StakingData) *data.StakingData {
@@ -2215,7 +2263,7 @@ func prepareSerializedDataForATransaction(
 	meta := []byte(fmt.Sprintf(`{ "update" : { "_index":"%s", "_id" : "%s" } }%s`, index, tx.Hash, "\n"))
 	log.Trace("indexer tx:", "meta", string(meta), "marshaledTx", string(marshaledTx))
 
-	upsertScript := []byte(fmt.Sprintf(`{"script":{"source":"ctx._source.hash = '%s';","lang": "painless"},"upsert":%s}`, tx.Hash, string(marshaledTx)))
+	upsertScript := []byte(fmt.Sprintf(`{"script":{"source":"ctx._source.hash = params.hash","lang": "painless", "params": {"hash": "%s"}},"upsert":%s}`, tx.Hash, string(marshaledTx)))
 	return meta, upsertScript, nil
 }
 
@@ -2272,11 +2320,12 @@ func serializedDataForUpdateAccounts(accounts map[string]*data.AccountInfo, buff
 			`ctx._source.rootHash = params.rootHash;`+
 			`ctx._source.balance = params.balance;`+
 			`ctx._source.frozenBalance = params.frozenBalance;`+
+			`ctx._source.unfrozenBalance = params.unfrozenBalance;`+
 			`ctx._source.allowance = params.allowance;`+
 			`ctx._source.permissions = params.permissions;`+
 			`","lang": "painless","params":`+
-			`{"name": "%s", "nonce": %d, "rootHash": "%s", "balance": %d, "frozenBalance": %d,"allowance": %d, "permissions": %s}}}`,
-			acc.Name, acc.Nonce, acc.RootHash, acc.Balance, acc.FrozenBalance, acc.Allowance, string(pData)))
+			`{"name": "%s", "nonce": %d, "rootHash": "%s", "balance": %d, "frozenBalance": %d, "unfrozenBalance": %d, "allowance": %d, "permissions": %s}}}`,
+			acc.Name, acc.Nonce, acc.RootHash, acc.Balance, acc.FrozenBalance, acc.UnfrozenBalance, acc.Allowance, string(pData)))
 
 		err = buffSlice.PutData(metaData, serializedData)
 		if err != nil {

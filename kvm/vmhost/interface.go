@@ -95,6 +95,7 @@ type BlockchainContext interface {
 	SaveCompiledCode(codeHash []byte, code []byte)
 	GetCompiledCode(codeHash []byte) (bool, []byte)
 	GetKDAToken(address []byte, tokenID []byte, nonce uint64) (*kapps.KDAData, *kapps.UserKDA, error)
+	GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, error)
 	GetUserAccount(address []byte) (state.UserAccountHandler, error)
 	ProcessBuiltInFunction(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error)
 	GetSnapshot() int

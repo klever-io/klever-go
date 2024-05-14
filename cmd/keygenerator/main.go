@@ -14,6 +14,7 @@ import (
 	"github.com/fatih/color"
 	logger "github.com/klever-io/klever-go-logger"
 	utils "github.com/klever-io/klever-go/cmd/operator/utils"
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/crypto/pubkeyConverter"
@@ -340,7 +341,7 @@ func generateFile(index int, numKeys int, noSplit bool, baseFilenameTemplate str
 		return nil, err
 	}
 
-	return os.OpenFile(filename, os.O_CREATE|os.O_WRONLY, tools.FileModeUserReadWrite)
+	return os.OpenFile(filepath.Clean(filename), os.O_CREATE|os.O_WRONLY, common.FileModeUserReadWrite)
 }
 
 func generateFolder(index int, numKeys int, noSplit bool) (string, error) {
@@ -356,7 +357,7 @@ func generateFolder(index int, numKeys int, noSplit bool) (string, error) {
 
 	log.Info("generating files in", "folder", absPath)
 
-	err = os.MkdirAll(absPath, os.ModePerm)
+	err = os.MkdirAll(absPath, common.DefaultDirPermission)
 	if err != nil {
 		return "", err
 	}

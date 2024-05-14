@@ -129,6 +129,7 @@ type AssetTriggerTXRequest struct {
 	Amount      int64             `form:"amount" json:"amount"`
 	MIME        string            `form:"mime" json:"mime"`
 	Logo        string            `form:"logo" json:"logo"`
+	Value       int64             `form:"value" json:"value"`
 	URIs        map[string]string `form:"uris" json:"uris"`
 	Role        *RolesInfo        `form:"role" json:"role"`
 	Staking     *StakingInfo      `form:"staking" json:"staking"`

@@ -297,12 +297,12 @@ func (i *itoKapp) Buy(sender []byte, tc *transaction.BuyContract) (transaction.T
 	itoOwnerAmount := valueInt - royaltiesPercentAmount
 
 	if asset.Royalties.ITOFixed > 0 {
-		balance := ownerAcc.GetBalance(kdautils.KLVIdentifier)
+		balance := ownerAcc.GetBalance(kdautils.KLVIdentifier, i.forkController.EnableSmartContracts())
 		if balance < asset.Royalties.ITOFixed {
 			return transaction.Transaction_OutOfFunds, process.ErrInsufficientFunds
 		}
 
-		err = ownerAcc.SubFromBalance(asset.Royalties.ITOFixed, kdautils.KLVIdentifier)
+		err = ownerAcc.SubFromBalance(asset.Royalties.ITOFixed, kdautils.KLVIdentifier, i.forkController.EnableSmartContracts())
 		if err != nil {
 			return transaction.Transaction_BalanceError, err
 		}
@@ -326,7 +326,7 @@ func (i *itoKapp) Buy(sender []byte, tc *transaction.BuyContract) (transaction.T
 			splitToPay := int64(float64(asset.Royalties.ITOFixed) * float64(value.PercentITOFixed) / float64(core.HundredPercent))
 			royaltiesITOFixedToPay -= splitToPay
 
-			err = splitRoyalty.AddToBalance(splitToPay, kdautils.KLVIdentifier)
+			err = splitRoyalty.AddToBalance(splitToPay, kdautils.KLVIdentifier, i.forkController.EnableSmartContracts())
 			if err != nil {
 				return transaction.Transaction_BalanceError, err
 			}
@@ -355,7 +355,7 @@ func (i *itoKapp) Buy(sender []byte, tc *transaction.BuyContract) (transaction.T
 				return transaction.Transaction_LoadAccountError, err
 			}
 
-			err = kdaOwner.AddToBalance(royaltiesITOFixedToPay, kdautils.KLVIdentifier)
+			err = kdaOwner.AddToBalance(royaltiesITOFixedToPay, kdautils.KLVIdentifier, i.forkController.EnableSmartContracts())
 			if err != nil {
 				return transaction.Transaction_BalanceError, err
 			}
@@ -395,7 +395,7 @@ func (i *itoKapp) Buy(sender []byte, tc *transaction.BuyContract) (transaction.T
 			splitToPay := int64(float64(royaltiesPercentAmount) * float64(value.PercentITOPercentage) / float64(core.HundredPercent))
 			royaltiesITOPercentageToPay -= splitToPay
 
-			err = splitRoyalty.AddToBalance(splitToPay, currencyID)
+			err = splitRoyalty.AddToBalance(splitToPay, currencyID, i.forkController.EnableSmartContracts())
 			if err != nil {
 				return transaction.Transaction_BalanceError, err
 			}
@@ -427,7 +427,7 @@ func (i *itoKapp) Buy(sender []byte, tc *transaction.BuyContract) (transaction.T
 				return transaction.Transaction_LoadAccountError, err
 			}
 
-			err = kdaOwner.AddToBalance(royaltiesITOPercentageToPay, currencyID)
+			err = kdaOwner.AddToBalance(royaltiesITOPercentageToPay, currencyID, i.forkController.EnableSmartContracts())
 			if err != nil {
 				return transaction.Transaction_BalanceError, err
 			}
@@ -452,7 +452,7 @@ func (i *itoKapp) Buy(sender []byte, tc *transaction.BuyContract) (transaction.T
 
 	}
 
-	err = ownerAcc.SubFromBalance(valueInt, currencyID)
+	err = ownerAcc.SubFromBalance(valueInt, currencyID, i.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_BalanceError, err
 	}
@@ -466,7 +466,7 @@ func (i *itoKapp) Buy(sender []byte, tc *transaction.BuyContract) (transaction.T
 		return transaction.Transaction_LoadAccountError, err
 	}
 
-	err = receiverAcc.AddToBalance(itoOwnerAmount, currencyID)
+	err = receiverAcc.AddToBalance(itoOwnerAmount, currencyID, i.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_BalanceError, err
 	}

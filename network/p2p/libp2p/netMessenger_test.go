@@ -20,11 +20,11 @@ import (
 	"github.com/klever-io/klever-go/network/p2p/message"
 	"github.com/klever-io/klever-go/network/p2p/mock"
 	"github.com/klever-io/klever-go/tools/check"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/peerstore"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	pubsub_pb "github.com/libp2p/go-libp2p-pubsub/pb"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/peerstore"
 	mocknet "github.com/libp2p/go-libp2p/p2p/net/mock"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/assert"
@@ -90,7 +90,7 @@ func createMockNetworkArgs() libp2p.ArgsNetworkMessenger {
 }
 
 func createMockNetworkOf2() (mocknet.Mocknet, p2p.Messenger, p2p.Messenger) {
-	netw := mocknet.New(context.Background())
+	netw := mocknet.New()
 
 	mes1, _ := libp2p.NewMockMessenger(createMockNetworkArgs(), netw)
 	mes2, _ := libp2p.NewMockMessenger(createMockNetworkArgs(), netw)
@@ -101,7 +101,7 @@ func createMockNetworkOf2() (mocknet.Mocknet, p2p.Messenger, p2p.Messenger) {
 }
 
 func createMockMessenger() p2p.Messenger {
-	netw := mocknet.New(context.Background())
+	netw := mocknet.New()
 
 	mes, _ := libp2p.NewMockMessenger(createMockNetworkArgs(), netw)
 
@@ -128,7 +128,7 @@ func TestNewMemoryLibp2pMessenger_NilMockNetShouldErr(t *testing.T) {
 }
 
 func TestNewMemoryLibp2pMessenger_OkValsWithoutDiscoveryShouldWork(t *testing.T) {
-	netw := mocknet.New(context.Background())
+	netw := mocknet.New()
 
 	mes, err := libp2p.NewMockMessenger(createMockNetworkArgs(), netw)
 
@@ -210,7 +210,7 @@ func TestNewNetworkMessenger_WithKadDiscovererListSharderShouldWork(t *testing.T
 //------- Messenger functionality
 
 func TestLibp2pMessenger_ConnectToPeerShouldCallUpgradedHost(t *testing.T) {
-	netw := mocknet.New(context.Background())
+	netw := mocknet.New()
 
 	mes, _ := libp2p.NewMockMessenger(createMockNetworkArgs(), netw)
 	_ = mes.Close()
@@ -680,7 +680,7 @@ func TestLibp2pMessenger_PeerAddressConnectedPeerShouldWork(t *testing.T) {
 }
 
 func TestLibp2pMessenger_PeerAddressNotConnectedShouldReturnFromPeerstore(t *testing.T) {
-	netw := mocknet.New(context.Background())
+	netw := mocknet.New()
 	mes, _ := libp2p.NewMockMessenger(createMockNetworkArgs(), netw)
 
 	networkHandler := &mock.NetworkStub{
@@ -932,7 +932,7 @@ func TestLibp2pMessenger_ConnectedPeersShouldReturnUniquePeers(t *testing.T) {
 		},
 	}
 
-	netw := mocknet.New(context.Background())
+	netw := mocknet.New()
 	mes, _ := libp2p.NewMockMessenger(createMockNetworkArgs(), netw)
 	//we can safely close the host as the next operations will be done on a mock
 	_ = mes.Close()
@@ -1078,7 +1078,7 @@ func TestLibp2pMessenger_SendDirectWithRealNetToSelfShouldWork(t *testing.T) {
 func TestNetworkMessenger_BootstrapPeerDiscoveryShouldCallPeerBootstrapper(t *testing.T) {
 	wasCalled := false
 
-	netw := mocknet.New(context.Background())
+	netw := mocknet.New()
 	pdm := &mock.PeerDiscovererStub{
 		BootstrapCalled: func() error {
 			wasCalled = true
@@ -1477,7 +1477,7 @@ func TestNetworkMessenger_ValidMessageByTimestampMessageAtUpperLimitShouldWork(t
 }
 
 func TestNetworkMessenger_GetConnectedPeersInfo(t *testing.T) {
-	netw := mocknet.New(context.Background())
+	netw := mocknet.New()
 
 	peers := []peer.ID{
 		"valI1",

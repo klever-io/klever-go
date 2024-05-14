@@ -65,6 +65,7 @@ func subKDA() []*cobra.Command {
 		receiver                    string
 		amount                      float64
 		mime                        string
+		value                       int64
 		staking                     map[string]string
 		kdaPool                     map[string]string
 	)
@@ -411,6 +412,7 @@ func subKDA() []*cobra.Command {
 				Logo:        logo,
 				URIs:        uris,
 				Role:        role,
+				Value:       value,
 				Royalties:   royalties,
 				Staking:     stakingInfo,
 				KDAPool:     kdaPoolInfo,
@@ -426,6 +428,7 @@ func subKDA() []*cobra.Command {
 	cmdTrigger.Flags().StringVar(&receiver, "receiver", "", "Trigger receiver")
 	cmdTrigger.Flags().StringVar(&mime, "mime", "", "Trigger mime")
 	cmdTrigger.Flags().StringVar(&logo, "logo", "", "Trigger logo")
+	cmdTrigger.Flags().Int64Var(&value, "value", 0, "Value used for SFT maxSupply")
 	cmdTrigger.Flags().StringToStringVar(&uris, "uris", nil, "Trigger uris")
 	cmdTrigger.Flags().StringVar(&royaltiesAddress, "royaltiesAddress", "", "KDA royaltiesAddress")
 	cmdTrigger.Flags().Float64Var(&royaltiesTransferFixed, "royaltiesTransferFixed", 0, "KDA royaltiesTransferFixed")

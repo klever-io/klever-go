@@ -3,9 +3,9 @@ package mock
 import (
 	"context"
 
-	libp2pCrypto "github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
+	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -21,7 +21,9 @@ type ConnStub struct {
 	RemoteMultiaddrCalled func() multiaddr.Multiaddr
 	NewStreamCalled       func(ctx context.Context) (network.Stream, error)
 	GetStreamsCalled      func() []network.Stream
-	StatCalled            func() network.Stat
+	StatCalled            func() network.ConnStats
+	ConnStateCalled       func() network.ConnectionState
+	ConnScopeCalled       func() network.ConnScope
 }
 
 // ID -
@@ -79,6 +81,21 @@ func (cs *ConnStub) GetStreams() []network.Stream {
 }
 
 // Stat -
-func (cs *ConnStub) Stat() network.Stat {
+func (cs *ConnStub) Stat() network.ConnStats {
 	return cs.StatCalled()
+}
+
+// ConnState -
+func (cs *ConnStub) ConnState() network.ConnectionState {
+	return cs.ConnStateCalled()
+}
+
+// IsClosed -
+func (cs *ConnStub) IsClosed() bool {
+	return false
+}
+
+// Scope -
+func (cs *ConnStub) Scope() network.ConnScope {
+	return cs.ConnScopeCalled()
 }

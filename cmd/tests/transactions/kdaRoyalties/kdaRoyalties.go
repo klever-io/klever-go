@@ -21,6 +21,7 @@ func syncAccounts(accs ...*account.Account) {
 
 // CreateKdaRoyalties Should create a KDA with splitted royalties, send, sell, buy and validate rewards distribution
 func CreateKdaRoyalties(args common.TestArgs) {
+	fmt.Println("Running KDA Royalties Test")
 	// bootstrap the test accounts
 	_, _, addr1, err := utils.LoadKey("wallet-generated-1.pem")
 	if err != nil {
@@ -328,8 +329,9 @@ func CreateKdaRoyalties(args common.TestArgs) {
 	}
 }
 
-// CreateKdaRoyalties Should create a KDA with splitted royalties, send, sell, buy and validate rewards distribution
+// CreateKdaRoyalties Should create a KDA with spited royalties, send, sell, buy and validate rewards distribution
 func CreateKdaRoyaltiesFungible(args common.TestArgs) {
+	fmt.Println("Running KDA Royalties Fungible Test")
 	// bootstrap the test accounts
 	_, _, addr1, err := utils.LoadKey("wallet-generated-1.pem")
 	if err != nil {

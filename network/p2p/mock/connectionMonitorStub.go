@@ -1,7 +1,7 @@
 package mock
 
 import (
-	"github.com/libp2p/go-libp2p-core/network"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -11,8 +11,6 @@ type ConnectionMonitorStub struct {
 	ListenCloseCalled                   func(netw network.Network, ma multiaddr.Multiaddr)
 	ConnectedCalled                     func(netw network.Network, conn network.Conn)
 	DisconnectedCalled                  func(netw network.Network, conn network.Conn)
-	OpenedStreamCalled                  func(netw network.Network, stream network.Stream)
-	ClosedStreamCalled                  func(netw network.Network, stream network.Stream)
 	IsConnectedToTheNetworkCalled       func(netw network.Network) bool
 	SetThresholdMinConnectedPeersCalled func(thresholdMinConnectedPeers int, netw network.Network)
 	ThresholdMinConnectedPeersCalled    func() int
@@ -43,20 +41,6 @@ func (cms *ConnectionMonitorStub) Connected(netw network.Network, conn network.C
 func (cms *ConnectionMonitorStub) Disconnected(netw network.Network, conn network.Conn) {
 	if cms.DisconnectedCalled != nil {
 		cms.DisconnectedCalled(netw, conn)
-	}
-}
-
-// OpenedStream -
-func (cms *ConnectionMonitorStub) OpenedStream(netw network.Network, stream network.Stream) {
-	if cms.OpenedStreamCalled != nil {
-		cms.OpenedStreamCalled(netw, stream)
-	}
-}
-
-// ClosedStream -
-func (cms *ConnectionMonitorStub) ClosedStream(netw network.Network, stream network.Stream) {
-	if cms.ClosedStreamCalled != nil {
-		cms.ClosedStreamCalled(netw, stream)
 	}
 }
 

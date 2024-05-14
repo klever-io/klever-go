@@ -14,6 +14,7 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v8/esapi"
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	kdafeespool "github.com/klever-io/klever-go/core/kapp/kdaFeesPool"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
@@ -38,6 +39,7 @@ type elasticProcessor struct {
 	enabledIndexes         map[string]struct{}
 	accountsDB             state.AccountsAdapter
 	kappsDB                state.AccountsAdapter
+	kappsController        kapp.KAppController
 	dividerForDenomination float64
 	balancePrecision       float64
 	logsAndEventsProc      LogsAndEventsHandler
@@ -59,6 +61,7 @@ func NewElasticProcessor(arguments ArgElasticProcessor) (ElasticProcessor, error
 		enabledIndexes:         arguments.EnabledIndexes,
 		accountsDB:             arguments.AccountsDB,
 		kappsDB:                arguments.KappsDB,
+		kappsController:        arguments.KAppController,
 		balancePrecision:       math.Pow(10, float64(numDecimalsInFloatBalance)),
 		dividerForDenomination: math.Pow(10, float64(tools.MaxInt(arguments.Denomination, 0))),
 	}
@@ -133,6 +136,12 @@ func (ei *elasticProcessor) initWithKibana(indexTemplates, indexPolicies map[str
 	if err != nil {
 		return err
 	}
+
+	// TODO: Re-activate after we think of a solid way to handle forks+rotating indexes
+	/*err = ei.createIndexPolicies(indexPolicies)
+	if err != nil {
+		return err
+	}*/
 
 	err = ei.createIndexTemplates(indexTemplates)
 	if err != nil {
@@ -727,6 +736,7 @@ func (ei *elasticProcessor) indexITOs(itos map[string]*data.AlteredITOs, buffSli
 				delete(itoHandler.WhiteList, address)
 			}
 
+			itoHandler.ITO.Timestamp = itoInfo.Timestamp
 			itoRecords[assetID] = itoHandler
 
 			continue
@@ -989,6 +999,8 @@ func (ei *elasticProcessor) indexKDAPools(pools map[string][]*data.AlteredKDAPoo
 	return nil
 }
 
+const SFTSeparator = "%2F"
+
 func (ei *elasticProcessor) indexAssets(assets map[string][]*data.AlteredAsset, buffSlice *data.BufferSlice) error {
 	if !ei.isIndexEnabled(assetsIndex) || len(assets) == 0 {
 		return nil
@@ -996,7 +1008,7 @@ func (ei *elasticProcessor) indexAssets(assets map[string][]*data.AlteredAsset, 
 
 	var assetsSlice []*data.Asset
 	var assetsUpdateSlice []*data.Asset
-	for assetID := range assets {
+	for assetName := range assets {
 		assetKDAaccount, err := ei.kappsDB.LoadAccount(kapps.KDAKAppAddress)
 		if err != nil {
 			return err
@@ -1007,7 +1019,9 @@ func (ei *elasticProcessor) indexAssets(assets map[string][]*data.AlteredAsset, 
 			return common.ErrWrongTypeAssertion
 		}
 
-		assetID := strings.Split(assetID, kapps.Sp)[0]
+		assetSplit := strings.Split(assetName, kapps.Sp)
+		assetID := assetSplit[0]
+
 		key := kdautils.ToKDAKey([]byte(assetID), nil)
 
 		kdaBytes, err := kdaKapp.DataTrieTracker().RetrieveValue(key)
@@ -1026,30 +1040,40 @@ func (ei *elasticProcessor) indexAssets(assets map[string][]*data.AlteredAsset, 
 
 		asset := ei.convertAssetInfo(kda)
 
-		//Check Staking Data
-		stakingKDAAccount, err := ei.kappsDB.LoadAccount(kapps.StakingKAppAddress)
-		if err != nil {
-			return err
-		}
-
-		stakingKapp, ok := stakingKDAAccount.(state.KAppAccountHandler)
-		if !ok {
-			return common.ErrWrongTypeAssertion
-		}
-
-		stakedBytes, err := stakingKapp.DataTrieTracker().RetrieveValue(key)
-		if err != nil {
-			return err
-		}
-
-		if len(stakedBytes) != 0 {
-			kdaStaking := &kapps.StakingData{}
-			err = ei.marshalizer.Unmarshal(kdaStaking, stakedBytes)
+		if kda.AssetType == kapps.KDAData_SemiFungible {
+			err = ei.getSFTMeta(assetSplit, asset)
 			if err != nil {
 				return err
 			}
 
-			asset.Staking = ei.convertStakingData(kdaStaking)
+			assetID = strings.ReplaceAll(assetName, kapps.Sp, SFTSeparator)
+			asset.AssetID = assetName
+		} else {
+			//Check Staking Data
+			stakingKDAAccount, err := ei.kappsDB.LoadAccount(kapps.StakingKAppAddress)
+			if err != nil {
+				return err
+			}
+
+			stakingKapp, ok := stakingKDAAccount.(state.KAppAccountHandler)
+			if !ok {
+				return common.ErrWrongTypeAssertion
+			}
+
+			stakedBytes, err := stakingKapp.DataTrieTracker().RetrieveValue(key)
+			if err != nil {
+				return err
+			}
+
+			if len(stakedBytes) != 0 {
+				kdaStaking := &kapps.StakingData{}
+				err = ei.marshalizer.Unmarshal(kdaStaking, stakedBytes)
+				if err != nil {
+					return err
+				}
+
+				asset.Staking = ei.convertStakingData(kdaStaking)
+			}
 		}
 
 		exist := ei.elasticClient.DocExists(assetsIndex, assetID)
@@ -1074,6 +1098,35 @@ func (ei *elasticProcessor) indexAssets(assets map[string][]*data.AlteredAsset, 
 	if err != nil {
 		return err
 	}
+
+	return nil
+}
+
+func (ei *elasticProcessor) getSFTMeta(assetParts []string, asset *data.Asset) error {
+	if len(assetParts) != 2 {
+		return nil
+	}
+
+	meta, err := ei.kappsController.GetSystemAccountKApp().SFTGetMeta([]byte(assetParts[0]), []byte(assetParts[1]))
+	if err != nil {
+		return err
+	}
+
+	// prepare to index
+	asset.Metadata = ei.convertSFTMeta(meta)
+	asset.URIs = nil
+	asset.InitialSupply = 0
+	asset.CirculatingSupply = 0
+	asset.MaxSupply = 0
+	asset.MintedValue = 0
+	asset.BurnedValue = 0
+	asset.Royalties = nil
+	isSft := true
+	asset.IsSFT = &isSft
+	asset.Staking = nil
+	asset.Attributes = nil
+	asset.Roles = nil
+	asset.Tags = nil
 
 	return nil
 }
@@ -1187,9 +1240,9 @@ func (ei *elasticProcessor) getKDAInfo(account state.AccountHandlerWithGetUserKD
 		assetID += kapps.Sp + alteredData.NFTNonce
 	}
 
-	userKDA, err := account.GetUserKDA([]byte(alteredData.TokenIdentifier), nonce)
+	userKDA, err := account.GetUserKDA([]byte(alteredData.TokenIdentifier), nonce, true)
 	if err != nil {
-		log.Warn("cannot retrive KDA", "address", accountAddress, "tokenIdentifier", assetID, "error", err)
+		log.Warn("cannot retrieve KDA", "address", accountAddress, "tokenIdentifier", assetID, "error", err)
 		return nil, err
 	}
 
@@ -1246,22 +1299,32 @@ func (ei *elasticProcessor) getKDAInfo(account state.AccountHandlerWithGetUserKD
 		}
 	}
 
+	buckets := ei.convertAccountBuckets(userKDA.Buckets)
+
+	unfrozenBalance := int64(0)
+	for _, bucket := range buckets {
+		if bucket.UnstakedEpoch != core.DefaultUnstakedEpoch {
+			unfrozenBalance += bucket.Value
+		}
+	}
+
 	accountKDA := &data.AccountKDA{
-		AccountAddress: accountAddress,
-		AssetID:        assetID,
-		Collection:     alteredData.TokenIdentifier,
-		AssetName:      string(kda.Name),
-		AssetType:      kda.AssetType,
-		Balance:        userKDA.Balance,
-		Precision:      kda.Precision,
-		FrozenBalance:  userKDA.FrozenBalance,
-		LastClaim:      convertAccountLastClaim(userKDA.LastClaim),
-		Buckets:        ei.convertAccountBuckets(userKDA.Buckets),
-		Metadata:       string(userKDA.Metadata),
-		MIME:           string(userKDA.MIME),
-		MarketplaceID:  alteredData.MarketplaceID,
-		OrderID:        alteredData.OrderID,
-		StakingType:    kdaStaking.GetInterestType(),
+		AccountAddress:  accountAddress,
+		AssetID:         assetID,
+		Collection:      alteredData.TokenIdentifier,
+		AssetName:       string(kda.Name),
+		AssetType:       kda.AssetType,
+		Balance:         userKDA.Balance,
+		Precision:       kda.Precision,
+		FrozenBalance:   userKDA.FrozenBalance,
+		UnfrozenBalance: unfrozenBalance,
+		LastClaim:       convertAccountLastClaim(userKDA.LastClaim),
+		Buckets:         buckets,
+		Metadata:        string(userKDA.Metadata),
+		MIME:            string(userKDA.MIME),
+		MarketplaceID:   alteredData.MarketplaceID,
+		OrderID:         alteredData.OrderID,
+		StakingType:     kdaStaking.GetInterestType(),
 	}
 
 	if len(alteredData.NFTNonce) > 0 {
@@ -1330,17 +1393,32 @@ func (ei *elasticProcessor) saveAccounts(
 			})
 		}
 
+		userKDA, err := userAccount.UserAccount.GetUserKDA(kdautils.KLVIdentifier, nil, true)
+		if err != nil {
+			return err
+		}
+
+		unfrozenBalance := int64(0)
+		for _, bucket := range userKDA.Buckets {
+			if bucket.UnstakedEpoch != core.DefaultUnstakedEpoch {
+				unfrozenBalance += bucket.Value
+			}
+		}
+
 		acc := &data.AccountInfo{
-			Address:       address,
-			Nonce:         userAccount.UserAccount.GetNonce(),
-			Name:          string(userAccount.UserAccount.GetName()),
-			RootHash:      hex.EncodeToString(userAccount.UserAccount.GetRootHash()),
-			Balance:       userAccount.UserAccount.GetBalance([]byte("KLV")),
-			FrozenBalance: userAccount.UserAccount.GetFrozenBalance([]byte("KLV")),
-			Allowance:     userAccount.UserAccount.GetAllowance(),
-			Permissions:   permissions,
-			Timestamp:     time.Duration(blockTimestamp * 1000),
-			Foundation:    false,
+			Address:         address,
+			Nonce:           userAccount.UserAccount.GetNonce(),
+			Name:            string(userAccount.UserAccount.GetName()),
+			RootHash:        hex.EncodeToString(userAccount.UserAccount.GetRootHash()),
+			Balance:         userAccount.UserAccount.GetBalance(kdautils.KLVIdentifier, true),
+			FrozenBalance:   userKDA.FrozenBalance,
+			UnfrozenBalance: unfrozenBalance,
+			Allowance:       userAccount.UserAccount.GetAllowance(),
+			Permissions:     permissions,
+			Timestamp:       time.Duration(blockTimestamp * 1000),
+			CodeHash:        hex.EncodeToString(userAccount.UserAccount.GetCodeHash()),
+			CodeMetadata:    hex.EncodeToString(userAccount.UserAccount.GetCodeMetadata()),
+			Foundation:      false,
 		}
 
 		exist := ei.elasticClient.DocExists(accountsIndex, address)

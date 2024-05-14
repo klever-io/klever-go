@@ -1,34 +1,36 @@
 name: Pull Request
 
-on: [pull_request]
+on:
+  pull_request:
+    branches:
+      - master
+      - develop
 
 jobs:
   config:
-    uses: klever-io/workflow-calls/.github/workflows/go-setup.yaml@master
-    with:
-      with_vendor: false
-      with_cache: false
-      go_private: "github.com/klever-io/*"
+    uses: ./.github/workflows/go-setup.yaml
     secrets:
       git_user: ${{ secrets.GIT_USER }}
       git_pass: ${{ secrets.GIT_PASS }}
 
-  run-test:
+  validate:
     needs: [config]
     runs-on: klever-pipe
     steps:
-      - uses: actions/checkout@v2
-
-      - uses: actions/setup-go@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: "1.20"
+          go-version: ${{ vars.GO_VERSION }}
 
-      - name: cache vendored dependencies
-        id: cache-vendor
-        uses: actions/cache@v2
+      - name: Cache Vendor
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-vendor
         with:
+          fail-on-cache-miss: true
           path: vendor
-          key: ${{ hashFiles('**/go.sum') }}-${{ secrets.CACHE_VERSION }}
+          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
 
       - name: GoImports Formatter
         run: |
@@ -43,20 +45,52 @@ jobs:
             exit 1
           fi
 
-      - name: vendor dependencies
-        run: |
-          go mod vendor
-          go install github.com/goware/modvendor@latest
-          modvendor -copy="**/*.c **/*.h **/*.proto **/*.a" -v
-        if: steps.cache-vendor.outputs.cache-hit != 'true'
-
       - name: ensure code is buildable
         run: |
           go vet -unsafeptr=false $(go list ./... | grep -v /vendor/) 
 
+
+  unit-tests:
+    needs: [validate]
+    runs-on: klever-pipe
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ vars.GO_VERSION }}
+
+      - name: Cache Vendor
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-vendor
+        with:
+          fail-on-cache-miss: true
+          path: vendor
+          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
+
       - name: ensure all unit test is passing
         run: |
           make tests-unit
+  
+  integration-tests:
+    needs: [validate]
+    runs-on: klever-pipe
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ vars.GO_VERSION }}
+
+      - name: Cache Vendor
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-vendor
+        with:
+          fail-on-cache-miss: true
+          path: vendor
+          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
 
       - name: integration tests
         run: |

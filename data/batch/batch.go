@@ -53,11 +53,26 @@ func decompressGzip(data []byte) ([]byte, error) {
 }
 
 func compressLZ4(data []byte) ([]byte, error) {
+	// use gzip for now
 	return compressGzip(data)
+	/*output := make([]byte, lz4.CompressBound(data))
+	outSize, err := lz4.Compress(output, data)
+	if err != nil {
+		return nil, err
+	}
+
+	return output[:outSize], nil*/
 }
 
 func decompressLZ4(dataSize int32, data []byte) ([]byte, error) {
 	return decompressGzip(data)
+	/*output := make([]byte, dataSize)
+	_, err := lz4.Uncompress(output, data)
+	if err != nil {
+		return nil, err
+	}
+
+	return output, nil*/
 }
 
 func (ba *Batch) Compress(m marshal.Marshalizer) error {

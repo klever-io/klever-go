@@ -5,7 +5,7 @@ import (
 
 	"github.com/klever-io/klever-go/network/p2p/mock"
 	"github.com/klever-io/klever-go/tools/check"
-	"github.com/libp2p/go-libp2p-core/network"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -22,11 +22,9 @@ func TestNilConnectionMonitor_MethodsShouldNotPanic(t *testing.T) {
 	ncm := &NilConnectionMonitor{}
 
 	assert.False(t, check.IfNil(ncm))
-	ncm.OpenedStream(nil, nil)
 	ncm.ListenClose(nil, nil)
 	ncm.Listen(nil, nil)
 	ncm.Disconnected(nil, nil)
-	ncm.ClosedStream(nil, nil)
 	ncm.Connected(nil, nil)
 }
 

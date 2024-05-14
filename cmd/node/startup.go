@@ -17,6 +17,7 @@ import (
 	"github.com/google/gops/agent"
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/cmd/node/metrics"
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/facade"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
@@ -677,7 +678,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		})
 
 	statsFile := filepath.Join(statsFolder, "session.info")
-	err = os.WriteFile(statsFile, []byte(sessionInfoFileOutput), os.ModePerm)
+	err = os.WriteFile(statsFile, []byte(sessionInfoFileOutput), common.DefaultDirPermission)
 	log.LogIfError(err)
 
 	log.Trace("creating tps benchmark components")
@@ -1169,7 +1170,7 @@ func getSuite(config *config.Config) (crypto.Suite, error) {
 }
 
 func copyConfigToStatsFolder(log logger.Logger, statsFolder string, configs []string) {
-	err := os.MkdirAll(statsFolder, os.ModePerm)
+	err := os.MkdirAll(statsFolder, common.DefaultDirPermission)
 	log.LogIfError(err)
 
 	for _, configFile := range configs {
@@ -1192,7 +1193,7 @@ func copySingleFile(folder string, configFile string) {
 	}()
 
 	destPath := filepath.Join(folder, fileName)
-	destination, err := os.Create(destPath)
+	destination, err := os.Create(filepath.Clean(destPath))
 	if err != nil {
 		return
 	}

@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "./;kapps";
+
+message MetaV2 {
+  int64 Circulation = 1 [json_name = "circulation"];
+  int64 MaxSupply = 2 [json_name = "maxSupply"];
+  MetaV2Data Metadata = 3 [json_name = "metadata"];
+}
+
+message MetaV2Data {
+  bytes Name = 1[json_name = "name"];
+  bytes Hash = 2 [json_name = "hash"];
+  bytes Attributes = 3 [json_name = "attributes"];
+}

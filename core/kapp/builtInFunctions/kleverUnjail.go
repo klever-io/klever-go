@@ -19,7 +19,6 @@ type kleverUnjail struct {
 	funcGasCost    uint64
 	marshaller     vmcommon.Marshalizer
 	keyPrefix      []byte
-	payableHandler vmcommon.PayableChecker
 	mutExecution   sync.RWMutex
 	forkController core.ForkController
 }
@@ -43,7 +42,6 @@ func NewKleverUnjailFunc(
 		funcGasCost:    funcGasCost,
 		marshaller:     marshaller,
 		keyPrefix:      []byte(""),
-		payableHandler: &disabledPayableHandler{},
 		accountsCacher: accountsCacher,
 		forkController: forkController,
 		kappController: kappController,
@@ -81,10 +79,6 @@ func (e *kleverUnjail) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInpu
 	gasRemaining := computeGasRemaining(vmInput.GasProvided, e.funcGasCost)
 
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
-	err = e.payableHandler.CheckPayable(vmInput, vmInput.RecipientAddr, core.MinLenArgumentsUnjail)
-	if err != nil {
-		return nil, err
-	}
 
 	//Using Kapps
 	resultCode, err := e.kappController.GetValidatorsKApp().Unjail(vmInput.CallerAddr, contract)
@@ -110,16 +104,6 @@ func (e *kleverUnjail) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInpu
 // getUnjailContract convert the arguments to an UnjailContract
 func (e *kleverUnjail) getUnjailContract(vmInput *vmcommon.ContractCallInput) (*transaction.UnjailContract, error) {
 	return &transaction.UnjailContract{}, nil
-}
-
-// SetPayableChecker will set the payableCheck handler to the function
-func (e *kleverUnjail) SetPayableChecker(payableHandler vmcommon.PayableChecker) error {
-	if check.IfNil(payableHandler) {
-		return ErrNilPayableHandler
-	}
-
-	e.payableHandler = payableHandler
-	return nil
 }
 
 // IsInterfaceNil returns true if underlying object in nil

@@ -1,6 +1,8 @@
 package builtInFunctions
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -19,7 +21,6 @@ type kleverUpdateAccountPermission struct {
 	funcGasCost    uint64
 	marshaller     vmcommon.Marshalizer
 	keyPrefix      []byte
-	payableHandler vmcommon.PayableChecker
 	mutExecution   sync.RWMutex
 	forkController core.ForkController
 }
@@ -43,7 +44,6 @@ func NewKleverUpdateAccountPermissionFunc(
 		funcGasCost:    funcGasCost,
 		marshaller:     marshaller,
 		keyPrefix:      []byte(""),
-		payableHandler: &disabledPayableHandler{},
 		accountsCacher: accountsCacher,
 		forkController: forkController,
 		kappController: kappController,
@@ -68,6 +68,8 @@ func (e *kleverUpdateAccountPermission) ProcessBuiltinFunction(vmInput *vmcommon
 	e.mutExecution.RLock()
 	defer e.mutExecution.RUnlock()
 
+	address := vmInput.NextArg()
+
 	contract, err := e.getUpdateAccountPermissionContract(vmInput)
 	if err != nil {
 		return nil, err
@@ -81,13 +83,45 @@ func (e *kleverUpdateAccountPermission) ProcessBuiltinFunction(vmInput *vmcommon
 	gasRemaining := computeGasRemaining(vmInput.GasProvided, e.funcGasCost)
 
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
-	err = e.payableHandler.CheckPayable(vmInput, vmInput.RecipientAddr, core.MinLenArgumentsUpdateAccountPermission)
+
+	acc, err := e.accountsCacher.LoadUser(address)
 	if err != nil {
 		return nil, err
 	}
 
+	has := false
+	permissions := acc.GetPermissions()
+
+LoopPermissions:
+	for _, permission := range permissions {
+		for _, signer := range permission.Signers {
+			if !bytes.Equal(signer.Address, vmInput.RecipientAddr) {
+				continue
+			}
+
+			if permission.Type != state.Permission_Owner {
+				value := int32(transaction.TXContract_UpdateAccountPermissionContractType)
+				base := value / 8
+				index := value % 8
+
+				if int32(len(permission.Operations)) <= base || permission.Operations[base]&(1<<index) == 0 {
+					continue
+				}
+			}
+
+			if permission.Threshold >= signer.Weight {
+				has = true
+				break LoopPermissions
+			}
+		}
+	}
+
+	if !has {
+		return nil, errors.New("invalid permission operation")
+	}
+
 	//Using Kapps
-	resultCode, err := e.kappController.GetAccountsKApp().UpdatePermission(vmInput.CallerAddr, contract)
+	resultCode, err := e.kappController.GetAccountsKApp().UpdatePermission(address, contract)
 	if err != nil {
 		log.Trace("UpdatePermission error", "resultCode", resultCode, "err", err.Error())
 		return nil, err
@@ -113,21 +147,18 @@ func (e *kleverUpdateAccountPermission) getUpdateAccountPermissionContract(vmInp
 		return nil, ErrInvalidArguments
 	}
 
+	permissionsBytes := vmInput.NextArg()
+
+	permissions, err := DecodeAccountPermissionData(permissionsBytes)
+	if err != nil {
+		return nil, err
+	}
+
 	contract := &transaction.UpdateAccountPermissionContract{
-		Permissions: []*transaction.AccPermission{},
+		Permissions: permissions,
 	}
 
 	return contract, nil
-}
-
-// SetPayableChecker will set the payableCheck handler to the function
-func (e *kleverUpdateAccountPermission) SetPayableChecker(payableHandler vmcommon.PayableChecker) error {
-	if check.IfNil(payableHandler) {
-		return ErrNilPayableHandler
-	}
-
-	e.payableHandler = payableHandler
-	return nil
 }
 
 // IsInterfaceNil returns true if underlying object in nil

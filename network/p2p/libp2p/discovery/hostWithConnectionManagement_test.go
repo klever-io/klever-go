@@ -8,8 +8,8 @@ import (
 	"github.com/klever-io/klever-go/network/p2p/libp2p/discovery"
 	"github.com/klever-io/klever-go/network/p2p/mock"
 	"github.com/klever-io/klever-go/tools/check"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/assert"
 )
 

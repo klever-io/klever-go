@@ -23,6 +23,7 @@ func GetLastError() (string, error) {
 	}
 
 	var errorMessage = make([]cChar, errorLength)
+	// #nosec G103: unsafe.Pointer is used to convert to cChar pointer
 	var errorMessagePointer = (*cChar)(unsafe.Pointer(&errorMessage[0]))
 
 	var errorResult = cWasmerLastErrorMessage(errorMessagePointer, errorLength)

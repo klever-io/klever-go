@@ -47,6 +47,8 @@ func main() {
 	triggerITO.RunTests(args)
 	time.Sleep(time.Second * 4)
 
-	fmt.Println("------- RUNNING KAPPS CUSTOM CONTRACT TEST ------- ")
+	fmt.Println("------- RUNNING KAPPS SMART CONTRACT TEST ------- ")
 	vmKapps.RunTests(args)
+
+	fmt.Println("------- ALL TESTS COMPLETE ------- ")
 }

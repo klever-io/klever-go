@@ -7,6 +7,8 @@ import (
 	"errors"
 	"math/big"
 
+	"github.com/klever-io/klever-go/core"
+
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/data/transaction"
 )
@@ -273,4 +275,107 @@ func DecodeRoyaltiesData(data []byte) (*transaction.RoyaltiesInfo, error) {
 	}
 
 	return royalties, nil
+}
+
+func DecodeAccountPermissionData(data []byte) ([]*transaction.AccPermission, error) {
+	buf := bytes.NewReader(data)
+
+	var length uint32
+	err := binary.Read(buf, binary.BigEndian, &length)
+	if err != nil {
+		return nil, err
+	}
+
+	var permissions []*transaction.AccPermission
+	for i := uint32(0); i < length; i++ {
+		var permission = &transaction.AccPermission{}
+
+		var permTypeByte uint8
+		err := binary.Read(buf, binary.BigEndian, &permTypeByte)
+		if err != nil {
+			return nil, err
+		}
+
+		permission.Type = transaction.AccPermission_AccPermissionType(permTypeByte)
+
+		var nameLen uint32
+		err = binary.Read(buf, binary.BigEndian, &nameLen)
+		if err != nil {
+			return nil, err
+		}
+
+		name := make([]byte, nameLen)
+		err = binary.Read(buf, binary.BigEndian, name)
+		if err != nil {
+			return nil, err
+		}
+
+		permission.PermissionName = string(name)
+
+		var threshold int64
+		err = binary.Read(buf, binary.BigEndian, &threshold)
+		if err != nil {
+			return nil, err
+		}
+
+		permission.Threshold = threshold
+
+		var operationsLen uint32
+		err = binary.Read(buf, binary.BigEndian, &operationsLen)
+		if err != nil {
+			return nil, err
+		}
+
+		operations := make([]byte, operationsLen)
+		err = binary.Read(buf, binary.BigEndian, operations)
+		if err != nil {
+			return nil, err
+		}
+
+		operationHex, err := hex.DecodeString(string(operations))
+		if err != nil {
+			return nil, errors.New("error decoding operations")
+		}
+
+		if len(operationHex) > core.MaxOperationsSize {
+			return nil, errors.New("invalid permission operation")
+		}
+
+		permission.Operations = operationHex
+
+		var signersLen uint32
+		err = binary.Read(buf, binary.BigEndian, &signersLen)
+		if err != nil {
+			return nil, err
+		}
+
+		var signers []*transaction.AccKey
+		for i := uint32(0); i < signersLen; i++ {
+			var signer = &transaction.AccKey{}
+
+			var address = make([]byte, 32)
+			err = binary.Read(buf, binary.BigEndian, address)
+			if err != nil {
+				return nil, err
+			}
+
+			signer.Address = address
+
+			var weight int64
+			err = binary.Read(buf, binary.BigEndian, &weight)
+			if err != nil {
+				return nil, err
+			}
+
+			signer.Weight = weight
+
+			signers = append(signers, signer)
+		}
+
+		permission.Signers = signers
+
+		permissions = append(permissions, permission)
+	}
+
+	return permissions, nil
 }

@@ -385,7 +385,7 @@ func DisplayProcessTxDetails(
 		if ok {
 			log.Trace(message,
 				"nonce", account.GetNonce(),
-				"balance", account.GetBalance(nil),
+				"balance", account.GetBalance(nil, true),
 			)
 		}
 	}

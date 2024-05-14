@@ -2,7 +2,6 @@ package libp2p
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
 	"sort"
@@ -10,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	logging "github.com/ipfs/go-log"
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/config"
@@ -28,13 +26,13 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 	p2pDebug "github.com/klever-io/klever-go/tools/debug/p2p"
 	"github.com/libp2p/go-libp2p"
-	libp2pCrypto "github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/protocol"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	pubsub_pb "github.com/libp2p/go-libp2p-pubsub/pb"
+	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
@@ -162,7 +160,7 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 	setupExternalP2PLoggers()
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
-	h, err := libp2p.New(ctx, opts...)
+	h, err := libp2p.New(opts...)
 	if err != nil {
 		cancelFunc()
 		return nil, err
@@ -188,15 +186,18 @@ func setupExternalP2PLoggers() {
 	}
 }
 
-func createP2PPrivKey(seed string) (*libp2pCrypto.Secp256k1PrivateKey, error) {
+func createP2PPrivKey(seed string) (libp2pCrypto.PrivKey, error) {
 	randReader, err := randFactory.NewRandFactory(seed)
 	if err != nil {
 		return nil, err
 	}
 
-	prvKey, _ := ecdsa.GenerateKey(btcec.S256(), randReader)
+	prvKey, _, err := libp2pCrypto.GenerateSecp256k1Key(randReader)
+	if err != nil {
+		return nil, err
+	}
 
-	return (*libp2pCrypto.Secp256k1PrivateKey)(prvKey), nil
+	return prvKey, nil
 }
 
 func createMessenger(
@@ -616,7 +617,7 @@ func (netMes *networkMessenger) ConnectedAddresses() []string {
 	conns := make([]string, 0)
 
 	for _, c := range h.Network().Conns() {
-		conns = append(conns, c.RemoteMultiaddr().String()+"/p2p/"+c.RemotePeer().Pretty())
+		conns = append(conns, c.RemoteMultiaddr().String()+"/p2p/"+c.RemotePeer().String())
 	}
 	return conns
 }
@@ -1097,7 +1098,7 @@ func (netMes *networkMessenger) GetConnectedPeersInfo() *p2p.ConnectedPeersInfo 
 		conns := netMes.p2pHost.Network().ConnsToPeer(p)
 		connString := "[invalid connection string]"
 		if len(conns) > 0 {
-			connString = conns[0].RemoteMultiaddr().String() + "/p2p/" + p.Pretty()
+			connString = conns[0].RemoteMultiaddr().String() + "/p2p/" + p.String()
 		}
 
 		peerInfo := netMes.peerShardResolver.GetPeerInfo(core.PeerID(p))

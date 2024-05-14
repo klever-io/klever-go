@@ -1,7 +1,7 @@
 package connectionMonitor
 
 import (
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 // Sharder defines the eviction computing process of unwanted peers

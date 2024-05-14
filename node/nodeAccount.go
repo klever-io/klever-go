@@ -86,7 +86,7 @@ func (n *Node) GetBalance(address string, kda string) (int64, error) {
 		return 0, nil
 	}
 
-	return userAccount.GetBalance([]byte(kda)), nil
+	return userAccount.GetBalance([]byte(kda), n.forkController.EnableSmartContracts()), nil
 }
 
 // GetAvailableClaim returns the rewards avaible for a specific asset in an account
@@ -153,7 +153,7 @@ func (n *Node) GetAvailableClaim(address string, assetId string) (int64, map[str
 		return 0, nil, 0, err
 	}
 
-	userKDA, err := userAccount.GetUserKDA([]byte(assetId), nil)
+	userKDA, err := userAccount.GetUserKDA([]byte(assetId), nil, n.forkController.EnableSmartContracts())
 	if err != nil {
 		return 0, nil, 0, err
 	}

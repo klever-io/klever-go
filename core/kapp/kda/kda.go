@@ -297,7 +297,16 @@ func (k *kdaKapp) Burn(sender []byte, tc *transaction.AssetTriggerContract) (tra
 			return transaction.Transaction_AssetTypeInvalid, process.ErrInvalidArgument
 		}
 
-		acc.SubFromBalanceWithNonce(tc.GetAmount(), assetID, internalID)
+		if err = acc.SubFromBalanceWithNonce(tc.GetAmount(), assetID, internalID, k.forkController.EnableSmartContracts()); err != nil {
+			return transaction.Transaction_BalanceError, err
+		}
+
+		negativeAmount := -tc.GetAmount()
+
+		if err := k.KAppController.GetSystemAccountKApp().SFTAddCirculation(assetID, internalID, negativeAmount); err != nil {
+			return transaction.Transaction_AssetError, err
+		}
+
 		ctx.Receipts().Add(txProcess.NewReceipt(
 			txProcess.Transfer,
 			ctx.ContractID(),
@@ -326,7 +335,7 @@ func (k *kdaKapp) Burn(sender []byte, tc *transaction.AssetTriggerContract) (tra
 			return transaction.Transaction_AssetError, process.ErrSupplyNotValid
 		}
 
-		err := acc.SubFromBalance(tc.GetAmount(), assetID)
+		err := acc.SubFromBalance(tc.GetAmount(), assetID, k.forkController.EnableSmartContracts())
 		if err != nil {
 			return transaction.Transaction_BalanceError, err
 		}
@@ -412,7 +421,7 @@ func (k *kdaKapp) Deposit(sender []byte, tc *transaction.DepositContract) (trans
 		return transaction.Transaction_LoadAccountError, err
 	}
 
-	if err := ownerAcc.SubFromBalance(tc.GetAmount(), currencyID); err != nil {
+	if err := ownerAcc.SubFromBalance(tc.GetAmount(), currencyID, k.forkController.EnableSmartContracts()); err != nil {
 		return transaction.Transaction_BalanceError, err
 	}
 
@@ -436,7 +445,7 @@ func (k *kdaKapp) Deposit(sender []byte, tc *transaction.DepositContract) (trans
 		//pay expired KLV
 		expiredKLV := fpr.TotalAmount - fpr.TotalClaimed
 		if expiredKLV > 0 {
-			err = ownerAcc.AddToBalance(expiredKLV, nil)
+			err = ownerAcc.AddToBalance(expiredKLV, nil, k.forkController.EnableSmartContracts())
 			if err != nil {
 				return transaction.Transaction_AssetError, err
 			}
@@ -457,7 +466,7 @@ func (k *kdaKapp) Deposit(sender []byte, tc *transaction.DepositContract) (trans
 		for key, value := range fpr.GetKDAS() {
 			expiredKDA := value.TotalAmount - value.TotalClaimed
 			if expiredKDA > 0 {
-				err = ownerAcc.AddToBalance(expiredKDA, []byte(key))
+				err = ownerAcc.AddToBalance(expiredKDA, []byte(key), k.forkController.EnableSmartContracts())
 				if err != nil {
 					return transaction.Transaction_AssetError, err
 				}

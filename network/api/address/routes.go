@@ -283,7 +283,7 @@ func GetAvailableClaimList(c *gin.Context) {
 	}
 
 	addr := c.Param("address")
-	assets := c.Query("asset") // need to be separeted in commas
+	assets := c.Query("asset") // need to be separated by comma
 
 	// split assets
 	assetList := strings.Split(assets, ",")

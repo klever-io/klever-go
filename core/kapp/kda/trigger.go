@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"sort"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/klever-io/klever-go/common"
@@ -41,7 +42,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 
 	switch tc.GetTriggerType() {
 	case transaction.AssetTriggerContract_Mint:
-		return k.KAppController.GetKDAKApp().Mint(sender, &transaction.AssetTriggerContract{AssetID: tc.GetAssetID(), Amount: tc.GetAmount(), ToAddress: tc.GetToAddress()})
+		return k.KAppController.GetKDAKApp().Mint(sender, &transaction.AssetTriggerContract{AssetID: tc.GetAssetID(), Amount: tc.GetAmount(), ToAddress: tc.GetToAddress(), Value: tc.GetValue()})
 
 	case transaction.AssetTriggerContract_Burn:
 		return k.KAppController.GetKDAKApp().Burn(sender, &transaction.AssetTriggerContract{TriggerType: tc.GetTriggerType(), AssetID: tc.GetAssetID(), Amount: tc.GetAmount(), ToAddress: sender})
@@ -139,6 +140,30 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 			return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
 		}
 
+		if asset.AssetType == kapps.KDAData_SemiFungible {
+			args := make([][]byte, 0)
+			tokens := strings.Split(string(txData[ctx.ContractID()]), "@")
+			for i := 0; i < len(tokens); i++ {
+				decoded, err := hex.DecodeString(tokens[i])
+				if err != nil {
+					return transaction.Transaction_ParameterInvalid, process.ErrInvalidArgument
+				}
+				args = append(args, decoded)
+			}
+
+			if err := k.KAppController.GetSystemAccountKApp().SFTSetMetadata(assetID[0], assetID[1], args); err != nil {
+				return transaction.Transaction_AssetError, err
+			}
+
+			k.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
+				txProcess.UpdateKDA,
+				k.KAppController.GetCurrentKAppContext().ContractID(),
+				kdautils.ToKDAKeyWithouPrefix(assetID[0], assetID[1]),
+			))
+
+			return transaction.Transaction_Ok, nil
+		}
+
 		toAcc, err := k.GetExistingUserAccount(tc.GetToAddress())
 		if err != nil {
 			return transaction.Transaction_LoadAccountError, err
@@ -149,7 +174,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 		}
 
 		// check if asset exists
-		userKDA, err := toAcc.GetUserKDA(assetID[0], assetID[1])
+		userKDA, err := toAcc.GetUserKDA(assetID[0], assetID[1], k.forkController.EnableSmartContracts())
 		if err != nil {
 			return transaction.Transaction_AssetTypeInvalid, err
 		}

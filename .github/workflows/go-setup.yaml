@@ -1,0 +1,86 @@
+on:
+    workflow_call:
+      inputs:
+        go_private:
+          description: Private go modules
+          default: "github.com/klever-io/*"
+          required: false
+          type: string
+        with_vendor:
+          description: runs go mod vendor
+          default: true
+          required: false
+          type: boolean
+        with_cache:
+          description: activate the go cache
+          default: true
+          required: false
+          type: boolean
+        go_version:
+          description: Custom GO Version
+          required: false
+          type: string
+          default: ">=1.22"
+      secrets:
+        git_user:
+          required: false
+        git_pass:
+          required: false
+jobs:
+    setup:
+      timeout-minutes: 10
+      env:
+        USER: ${{ secrets.git_user }}
+        TOKEN: ${{ secrets.git_pass }}
+        GO_PRIVATE: ${{ inputs.go_private }}
+      runs-on: klever-pipe
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v4
+  
+        - name: Set up Golang
+          uses: actions/setup-go@v5
+          with:
+            go-version: ${{ inputs.go_version }}
+  
+        - name: Configure git for private modules
+          if: env.TOKEN != ''
+          run: git config --global url."https://${USER}:${TOKEN}@github.com".insteadOf "https://github.com"
+  
+        - name: Install modvendor tool
+          if: ${{ inputs.with_vendor }}
+          run: go install github.com/goware/modvendor@latest
+          
+        - name: Cache Vendor
+          if: ${{ inputs.with_cache }}
+          id: cache_vendor
+          uses: actions/cache@v4
+          env:
+            cache-name: cache-vendor
+          with:
+            path: vendor
+            key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
+            restore-keys: |
+              ${{ runner.os }}-${{ env.cache-name }}-
+  
+        # Resolving a package to a module
+        - name: Resolve package to module && Download dependencies
+          if: ${{ steps.cache_vendor.outputs.cache-hit != 'true' }}
+          run: |
+            go mod tidy
+            go mod download
+        
+        # Verify no changes from go mod tidy
+        - name: Verify no changes from go mod tidy
+          run: |
+            if [ -n "$(git status --porcelain)" ]; then
+              exit 1
+            fi
+
+        # Generate vendor
+        - name: Generate vendor and Vendor C files
+          if: ${{ steps.cache_vendor.outputs.cache-hit != 'true' && inputs.with_vendor }}
+          run: |
+            go mod vendor
+            modvendor -copy="**/*.c **/*.h **/*.proto **/*.a"
+  

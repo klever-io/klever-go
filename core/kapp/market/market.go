@@ -262,7 +262,7 @@ func (m *marketKapp) Buy(sender []byte, tc *transaction.BuyContract) (transactio
 			return transaction.Transaction_LoadAccountError, err
 		}
 
-		err = lastBidderAcc.AddToBalance(marketOrder.CurrentBid, currencyID)
+		err = lastBidderAcc.AddToBalance(marketOrder.CurrentBid, currencyID, m.forkController.EnableSmartContracts())
 		if err != nil {
 			return transaction.Transaction_BalanceError, err
 		}
@@ -291,7 +291,7 @@ func (m *marketKapp) Buy(sender []byte, tc *transaction.BuyContract) (transactio
 		return transaction.Transaction_LoadAccountError, err
 	}
 
-	err = bidderAcc.SubFromBalance(tc.GetAmount(), currencyID)
+	err = bidderAcc.SubFromBalance(tc.GetAmount(), currencyID, m.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_BalanceError, err
 	}
@@ -373,7 +373,7 @@ func (m *marketKapp) executeBuyMarket(bidderAcc state.UserAccountHandler, market
 			return transaction.Transaction_LoadAccountError, err
 		}
 
-		err = referralAcc.AddToBalance(referralAmount, currencyID)
+		err = referralAcc.AddToBalance(referralAmount, currencyID, m.forkController.EnableSmartContracts())
 		if err != nil {
 			return transaction.Transaction_BalanceError, err
 		}
@@ -413,7 +413,7 @@ func (m *marketKapp) executeBuyMarket(bidderAcc state.UserAccountHandler, market
 			splitToPay := int64(float64(marketOrder.RoyaltiesFixedDeposit) * float64(value.PercentMarketFixed) / float64(core.HundredPercent))
 			royaltiesMarketFixedToPay -= splitToPay
 
-			err = splitRoyalty.AddToBalance(splitToPay, kdautils.KLVIdentifier)
+			err = splitRoyalty.AddToBalance(splitToPay, kdautils.KLVIdentifier, m.forkController.EnableSmartContracts())
 			if err != nil {
 				return transaction.Transaction_BalanceError, err
 			}
@@ -442,7 +442,7 @@ func (m *marketKapp) executeBuyMarket(bidderAcc state.UserAccountHandler, market
 				return transaction.Transaction_LoadAccountError, err
 			}
 
-			err = kdaOwner.AddToBalance(royaltiesMarketFixedToPay, kdautils.KLVIdentifier)
+			err = kdaOwner.AddToBalance(royaltiesMarketFixedToPay, kdautils.KLVIdentifier, m.forkController.EnableSmartContracts())
 			if err != nil {
 				return transaction.Transaction_BalanceError, err
 			}
@@ -484,7 +484,7 @@ func (m *marketKapp) executeBuyMarket(bidderAcc state.UserAccountHandler, market
 			splitToPay := int64(float64(royaltiesAmount) * float64(value.PercentMarketPercentage) / float64(core.HundredPercent))
 			royaltiesMarketPercentageToPay -= splitToPay
 
-			err = splitRoyalty.AddToBalance(splitToPay, currencyID)
+			err = splitRoyalty.AddToBalance(splitToPay, currencyID, m.forkController.EnableSmartContracts())
 			if err != nil {
 				return transaction.Transaction_BalanceError, err
 			}
@@ -516,7 +516,7 @@ func (m *marketKapp) executeBuyMarket(bidderAcc state.UserAccountHandler, market
 				return transaction.Transaction_LoadAccountError, err
 			}
 
-			err = kdaOwner.AddToBalance(royaltiesMarketPercentageToPay, currencyID)
+			err = kdaOwner.AddToBalance(royaltiesMarketPercentageToPay, currencyID, m.forkController.EnableSmartContracts())
 			if err != nil {
 				return transaction.Transaction_BalanceError, err
 			}
@@ -547,7 +547,7 @@ func (m *marketKapp) executeBuyMarket(bidderAcc state.UserAccountHandler, market
 			return transaction.Transaction_LoadAccountError, err
 		}
 
-		err = marketOwnerAcc.AddToBalance(marketOwnerAmount, currencyID)
+		err = marketOwnerAcc.AddToBalance(marketOwnerAmount, currencyID, m.forkController.EnableSmartContracts())
 		if err != nil {
 			return transaction.Transaction_BalanceError, err
 		}
@@ -631,6 +631,7 @@ func (m *marketKapp) Claim(sender []byte, tc *transaction.ClaimContract) (transa
 
 	marketOrder.IsClaimed = true
 
+	claimType := []byte(strconv.FormatInt(int64(transaction.ClaimContract_MarketClaim.Enum().Number()), 10))
 	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Claim,
 		ctx.ContractID(),
@@ -639,6 +640,7 @@ func (m *marketKapp) Claim(sender []byte, tc *transaction.ClaimContract) (transa
 		marketOrder.MarketplaceID,
 		[]byte{},
 		[]byte{},
+		claimType,
 	))
 
 	if marketOrder.EndTime >= ctx.Block().GetTimestamp() {
@@ -667,20 +669,6 @@ func (m *marketKapp) Claim(sender []byte, tc *transaction.ClaimContract) (transa
 
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
-
-	marketOrder.IsClaimed = true
-
-	claimType := []byte(strconv.FormatInt(int64(transaction.ClaimContract_MarketClaim.Enum().Number()), 10))
-	ctx.Receipts().Add(txProcess.NewReceipt(
-		txProcess.Claim,
-		ctx.ContractID(),
-		[]byte(strconv.FormatInt(0, 10)),
-		marketOrder.ID,
-		marketOrder.MarketplaceID,
-		[]byte{},
-		[]byte{},
-		claimType,
-	))
 
 	if marketOrder.ReservePrice > 0 && marketOrder.CurrentBid >= marketOrder.ReservePrice {
 		bidderAcc, err := m.GetExistingUserAccount(marketOrder.CurrentBidder)
@@ -735,7 +723,7 @@ func (m *marketKapp) Claim(sender []byte, tc *transaction.ClaimContract) (transa
 		))
 
 		if marketOrder.RoyaltiesFixedDeposit > 0 {
-			err = marketOwnerAcc.AddToBalance(marketOrder.RoyaltiesFixedDeposit, kdautils.KLVIdentifier)
+			err = marketOwnerAcc.AddToBalance(marketOrder.RoyaltiesFixedDeposit, kdautils.KLVIdentifier, m.forkController.EnableSmartContracts())
 			if err != nil {
 				return transaction.Transaction_BalanceError, err
 			}
@@ -764,7 +752,7 @@ func (m *marketKapp) Claim(sender []byte, tc *transaction.ClaimContract) (transa
 				return transaction.Transaction_LoadAccountError, err
 			}
 
-			err = bidderAcc.AddToBalance(marketOrder.CurrentBid, marketOrder.CurrencyID)
+			err = bidderAcc.AddToBalance(marketOrder.CurrentBid, marketOrder.CurrencyID, m.forkController.EnableSmartContracts())
 			if err != nil {
 				return transaction.Transaction_BalanceError, err
 			}
@@ -901,7 +889,7 @@ func (m *marketKapp) Sell(sender []byte, tc *transaction.SellContract) (transact
 	))
 
 	if asset.Royalties.MarketFixed > 0 {
-		err = ownerAcc.SubFromBalance(asset.Royalties.MarketFixed, kdautils.KLVIdentifier)
+		err = ownerAcc.SubFromBalance(asset.Royalties.MarketFixed, kdautils.KLVIdentifier, m.forkController.EnableSmartContracts())
 		if err != nil {
 			return transaction.Transaction_BalanceError, err
 		}
@@ -992,7 +980,7 @@ func (m *marketKapp) CancelOrder(sender []byte, tc *transaction.CancelMarketOrde
 	}
 
 	if marketOrder.RoyaltiesFixedDeposit > 0 {
-		err = ownerAcc.AddToBalance(marketOrder.RoyaltiesFixedDeposit, kdautils.KLVIdentifier)
+		err = ownerAcc.AddToBalance(marketOrder.RoyaltiesFixedDeposit, kdautils.KLVIdentifier, m.forkController.EnableSmartContracts())
 		if err != nil {
 			return transaction.Transaction_BalanceError, err
 		}
@@ -1022,7 +1010,7 @@ func (m *marketKapp) CancelOrder(sender []byte, tc *transaction.CancelMarketOrde
 			return transaction.Transaction_LoadAccountError, err
 		}
 
-		err = bidderAcc.AddToBalance(marketOrder.CurrentBid, marketOrder.CurrencyID)
+		err = bidderAcc.AddToBalance(marketOrder.CurrentBid, marketOrder.CurrencyID, m.forkController.EnableSmartContracts())
 		if err != nil {
 			return transaction.Transaction_BalanceError, err
 		}

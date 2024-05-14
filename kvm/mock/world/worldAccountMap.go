@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/vmcommon"
 )
 
@@ -109,7 +110,7 @@ func (am AccountMap) LoadAccountStorageFrom(otherAM AccountMap) error {
 	for address, account := range am {
 		otherAccount, otherExists := otherAM[address]
 		if !otherExists {
-			if bytes.Equal([]byte(address), vmcommon.SystemAccountAddress) {
+			if bytes.Equal([]byte(address), core.SystemAccountAddress) {
 				continue
 			}
 

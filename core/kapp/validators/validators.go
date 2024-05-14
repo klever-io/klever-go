@@ -603,7 +603,7 @@ func (v *validatorsKApp) Delegate(
 	}
 
 	// Check current deletation mathes or remove
-	buckets := senderAcc.GetBuckets(nil)
+	buckets := senderAcc.GetBuckets(nil, v.forkController.EnableSmartContracts())
 
 	// must use string to marshal proto map due UTF8 issue
 	encodedBucketID := hex.EncodeToString(tc.BucketID)

@@ -21,8 +21,10 @@ type Asset struct {
 	Attributes        *AttributesInfo `json:"attributes"`
 	Roles             []*RolesInfo    `json:"roles,omitempty"`
 	Hidden            *bool           `json:"hidden,omitempty"`
+	IsSFT             *bool           `json:"isSFT,omitempty"`
 	Verified          *bool           `json:"verified,omitempty"`
 	Tags              []string        `json:"tags,omitempty"`
+	Metadata          *Meta           `json:"meta,omitempty"`
 }
 
 type ITOInfo struct {
@@ -39,6 +41,7 @@ type ITOInfo struct {
 	StartTime              int64            `json:"startTime,omitempty"`
 	EndTime                int64            `json:"endTime,omitempty"`
 	AssetID                string           `json:"assetId"`
+	Timestamp              int64            `json:"timestamp"`
 }
 
 func (i *ITOInfo) ConvertToMap() map[string]*WhitelistInfo {

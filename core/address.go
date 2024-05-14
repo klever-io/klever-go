@@ -17,9 +17,6 @@ const VMTypeLen = 2
 // ShardIdentiferLen number of characters for shard identifier in an address
 const ShardIdentiferLen = 2
 
-const metaChainShardIdentifier uint8 = 255
-const numInitCharactersForOnMetachainSC = 15
-
 const numInitCharactersForSystemAccountAddress = 30
 
 // IsSystemAccountAddress returns true if given address is system account address
@@ -49,39 +46,4 @@ func IsSmartContractAddress(rcvAddress []byte) bool {
 func IsEmptyAddress(address []byte) bool {
 	isEmptyAddress := bytes.Equal(address, make([]byte, len(address)))
 	return isEmptyAddress
-}
-
-// IsMetachainIdentifier verifies if the identifier is of type metachain
-func IsMetachainIdentifier(identifier []byte) bool {
-	if len(identifier) == 0 {
-		return false
-	}
-
-	for i := 0; i < len(identifier); i++ {
-		if identifier[i] != metaChainShardIdentifier {
-			return false
-		}
-	}
-
-	return true
-}
-
-// IsSmartContractOnMetachain verifies if an address is smart contract on metachain
-func IsSmartContractOnMetachain(identifier []byte, rcvAddress []byte) bool {
-	if len(rcvAddress) <= NumInitCharactersForScAddress+numInitCharactersForOnMetachainSC {
-		return false
-	}
-
-	if !IsMetachainIdentifier(identifier) {
-		return false
-	}
-
-	if !IsSmartContractAddress(rcvAddress) {
-		return false
-	}
-
-	leftSide := rcvAddress[NumInitCharactersForScAddress:(NumInitCharactersForScAddress + numInitCharactersForOnMetachainSC)]
-	isOnMetaChainSCAddress := bytes.Equal(leftSide,
-		make([]byte, numInitCharactersForOnMetachainSC))
-	return isOnMetaChainSCAddress
 }

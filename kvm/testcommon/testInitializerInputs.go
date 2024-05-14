@@ -75,7 +75,7 @@ func MakeTestSCAddressWithDefaultVM(identifier string) []byte {
 // testing based on the given identifier.
 func MakeTestSCAddressWithVMType(identifier string, vmType []byte) []byte {
 	address := MakeTestSCAddress(identifier)
-	copy(address[vmcommon.NumInitCharactersForScAddress-core.VMTypeLen:], vmType)
+	copy(address[core.NumInitCharactersForScAddress-core.VMTypeLen:], vmType)
 	return address
 }
 

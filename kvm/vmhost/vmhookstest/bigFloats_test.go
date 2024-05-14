@@ -128,7 +128,7 @@ func TestBigFloats_Panic_FailExecution_Add(t *testing.T) {
 		AndAssertResults(func(host vmhost.VMHost, stubBlockchainHook *contextmock.BlockchainHookStub, verify *test.VMOutputVerifier) {
 			verify.
 				ReturnCode(vmcommon.ReturnCode(transaction.Transaction_VMExecutionFailed)).
-				ReturnMessage("this big Float operation is not permitted while doing float.Add")
+				ReturnMessage("Float.GobDecode: msb not set in last word 0x1f1c1a96fe0e2d of 0x.1f1c1a96fe0e2dp+58")
 		})
 }
 
@@ -175,7 +175,7 @@ func TestBigFloats_Panic_FailExecution_Sub(t *testing.T) {
 		AndAssertResults(func(host vmhost.VMHost, stubBlockchainHook *contextmock.BlockchainHookStub, verify *test.VMOutputVerifier) {
 			verify.
 				ReturnCode(vmcommon.ReturnCode(transaction.Transaction_VMExecutionFailed)).
-				ReturnMessage("this big Float operation is not permitted while doing float.Sub")
+				ReturnMessage("Float.GobDecode: msb not set in last word 0x1f1c1a96fe0e2d of 0x.1f1c1a96fe0e2dp+58")
 		})
 }
 

@@ -3,26 +3,24 @@ package libp2p_test
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	ggio "github.com/gogo/protobuf/io"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/network/p2p/libp2p"
 	"github.com/klever-io/klever-go/network/p2p/mock"
 	"github.com/klever-io/klever-go/tools/check"
-	libp2pCrypto "github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
-	"github.com/libp2p/go-libp2p-core/protocol"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	pubsub_pb "github.com/libp2p/go-libp2p-pubsub/pb"
+	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -60,8 +58,8 @@ func createConnStub(stream network.Stream, id peer.ID, sk libp2pCrypto.PrivKey, 
 }
 
 func createLibP2PCredentialsDirectSender() (peer.ID, libp2pCrypto.PrivKey) {
-	prvKey, _ := ecdsa.GenerateKey(btcec.S256(), rand.Reader)
-	sk := (*libp2pCrypto.Secp256k1PrivateKey)(prvKey)
+	sk, _, _ := libp2pCrypto.GenerateSecp256k1Key(rand.Reader)
+
 	id, _ := peer.IDFromPublicKey(sk.GetPublic())
 
 	return id, sk

@@ -39,6 +39,7 @@ const (
 	UpdateITO
 	CancelOrder
 	SCTrigger
+	SetAccountName
 )
 
 var receiptTypeStrings = map[ReceiptType]string{
@@ -68,6 +69,7 @@ var receiptTypeStrings = map[ReceiptType]string{
 	UpdateITO:               "UpdateITO",
 	CancelOrder:             "CancelOrder",
 	SCTrigger:               "SCTrigger",
+	SetAccountName:          "SetAccountName",
 }
 
 func NewReceipt(receiptType ReceiptType, contractID int, params ...[]byte) *transaction.Transaction_Receipt {

@@ -148,7 +148,7 @@ func TestTransaction_KDAFeePoolFlow_ShouldWork(t *testing.T) {
 
 	user := integrationTest.GetUserAccount(nodes[0], sender.Address)
 
-	balanceBeforeDeposit := user.GetBalance(kdautils.KLVIdentifier)
+	balanceBeforeDeposit := user.GetBalance(kdautils.KLVIdentifier, true)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -159,7 +159,7 @@ func TestTransaction_KDAFeePoolFlow_ShouldWork(t *testing.T) {
 
 	// Verify user balance after deposit transaction
 	user = integrationTest.GetUserAccount(nodes[0], sender.Address)
-	balanceAfterDeposit := user.GetBalance(kdautils.KLVIdentifier)
+	balanceAfterDeposit := user.GetBalance(kdautils.KLVIdentifier, true)
 	require.Equal(t, balanceBeforeDeposit-(depositTX.GetTotalFees()+depositAmount), balanceAfterDeposit)
 
 	blkSlot = integrationTest.IncrementAndPrintSlot(blkSlot)
@@ -182,7 +182,7 @@ func TestTransaction_KDAFeePoolFlow_ShouldWork(t *testing.T) {
 	time.Sleep(1000 * time.Millisecond)
 
 	user = integrationTest.GetUserAccount(nodes[0], sender.Address)
-	balanceBeforeWitdraw := user.GetBalance(kdautils.KLVIdentifier)
+	balanceBeforeWitdraw := user.GetBalance(kdautils.KLVIdentifier, true)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -190,7 +190,7 @@ func TestTransaction_KDAFeePoolFlow_ShouldWork(t *testing.T) {
 	time.Sleep(1000 * time.Millisecond)
 
 	user = integrationTest.GetUserAccount(nodes[0], sender.Address)
-	balanceAfterWitdraw := user.GetBalance(kdautils.KLVIdentifier)
+	balanceAfterWitdraw := user.GetBalance(kdautils.KLVIdentifier, true)
 	require.Equal(t, balanceBeforeWitdraw+depositAmount-withdrawTX.GetTotalFees(), balanceAfterWitdraw)
 }
 

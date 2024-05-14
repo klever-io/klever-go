@@ -8,8 +8,8 @@ import (
 	"github.com/klever-io/klever-go/network/p2p/data"
 	"github.com/klever-io/klever-go/network/p2p/message"
 	"github.com/klever-io/klever-go/tools/check"
-	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 const currentTopicMessageVersion = uint32(1)

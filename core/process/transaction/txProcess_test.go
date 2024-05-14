@@ -484,10 +484,10 @@ func createBaseKAppsProcessingArgs2() pTX.ArgsNewTxProcessor {
 func createBaseKAppsProcessingArgsCommon(userDB, kappDB, peerDB state.AccountsAdapter, accCacher state.AccountsCacher) pTX.ArgsNewTxProcessor {
 
 	ownerAcc := loadUserAccount(accCacher, testOwnerAddress)
-	_ = ownerAcc.AddToBalance(100_000_000, nil)
+	_ = ownerAcc.AddToBalance(100_000_000, nil, true)
 
 	toAcc := loadUserAccount(accCacher, testToAddress)
-	_ = toAcc.AddToBalance(100_000_000, nil)
+	_ = toAcc.AddToBalance(100_000_000, nil, true)
 
 	kdaKapp := loadKAppAccount(accCacher, kapps.KDAKAppAddress)
 	stakingKapp := loadKAppAccount(accCacher, kapps.StakingKAppAddress)
@@ -591,9 +591,9 @@ func TestTxProcessor_GetAccountsOkValsShouldWork(t *testing.T) {
 
 	args := createArgsForTxProcessor()
 	acnt1, _ := args.AccountsCacher.LoadUser(adr1)
-	acnt1.AddToBalance(100_000_000, nil)
+	acnt1.AddToBalance(100_000_000, nil, true)
 	acnt2, _ := args.AccountsCacher.LoadUser(adr2)
-	acnt2.AddToBalance(200_000_000, nil)
+	acnt2.AddToBalance(200_000_000, nil, true)
 	args.AccountsCacher.SaveAll()
 
 	execTx := NewTXProcessor(t, args)
@@ -653,10 +653,10 @@ func TestTxProcessor_ProcessTransactionMalfunctionAccountsShouldErr(t *testing.T
 
 func InitTestAccounts(db state.AccountsCacher) {
 	ownerAcc := loadUserAccount(db, testOwnerAddress)
-	_ = ownerAcc.AddToBalance(100_000_000, nil)
+	_ = ownerAcc.AddToBalance(100_000_000, nil, true)
 
 	toAcc := loadUserAccount(db, testToAddress)
-	_ = toAcc.AddToBalance(100_000_000, nil)
+	_ = toAcc.AddToBalance(100_000_000, nil, true)
 
 	_ = db.SaveAll()
 }
@@ -835,8 +835,8 @@ func TestTxProcessor_ProcessTransferOkValsShouldWork2(t *testing.T) {
 	ownerAcc := loadUserAccount(args.AccountsCacher, testOwnerAddress)
 	toAcc := loadUserAccount(args.AccountsCacher, testToAddress)
 
-	assert.Equal(t, int64(99999939), ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(100000061), toAcc.GetBalance(kdautils.KLVIdentifier))
+	assert.Equal(t, int64(99999939), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(100000061), toAcc.GetBalance(kdautils.KLVIdentifier, true))
 }
 
 func TestTxProcessor_ProcessCreateAssetInvalidTypeShouldErr(t *testing.T) {
@@ -1465,7 +1465,7 @@ func NexTXProcessorV2(t *testing.T) (process.TransactionProcessor, pTX.ArgsNewTx
 
 func AddBalanceAccount(db state.AccountsCacher, amount int64, asset []byte, address []byte) {
 	acc, _ := db.LoadUser(address)
-	_ = acc.AddToBalance(amount, asset)
+	_ = acc.AddToBalance(amount, asset, true)
 	_ = db.SaveUser(acc)
 }
 
@@ -1822,10 +1822,10 @@ func TestTxProcessor_ProcessDelegateAndUndelegateWrongValsShouldErr(t *testing.T
 	userDB, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
 
 	ownerAcc := loadUserAccount(accCacher, testOwnerAddress)
-	_ = ownerAcc.AddToBalance(100_000_000, nil)
+	_ = ownerAcc.AddToBalance(100_000_000, nil, true)
 
 	toAcc := loadUserAccount(accCacher, testToAddress)
-	_ = toAcc.AddToBalance(100_000_000, nil)
+	_ = toAcc.AddToBalance(100_000_000, nil, true)
 
 	peerAcc := loadPeerAccount(accCacher, peerAddress)
 	_ = peerAcc.SetOwnerAddress(testToAddress)
@@ -1909,7 +1909,7 @@ func TestTxProcessor_ProcessDelegateAndUndelegateOkValsShouldWork(t *testing.T) 
 	validatorsKapp := loadKAppAccount(accCacher, kapps.ValidatorsKAppAddress)
 
 	initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
-	_ = ownerAcc.AddToBalance(10_000_000_000, nil)
+	_ = ownerAcc.AddToBalance(10_000_000_000, nil, true)
 
 	_ = userDB.SaveAccount(ownerAcc)
 	_ = userDB.SaveAccount(toAcc)
@@ -2107,10 +2107,10 @@ func TestTxProcessor_ProcessWithdrawWrongValsShouldErr(t *testing.T) {
 	userDB, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
 
 	ownerAcc := loadUserAccount(accCacher, testOwnerAddress)
-	_ = ownerAcc.AddToBalance(100_000_000, nil)
+	_ = ownerAcc.AddToBalance(100_000_000, nil, true)
 
 	toAcc := loadUserAccount(accCacher, testToAddress)
-	_ = toAcc.AddToBalance(100_000_000, nil)
+	_ = toAcc.AddToBalance(100_000_000, nil, true)
 
 	peerAcc := loadPeerAccount(accCacher, peerAddress)
 	_ = peerAcc.SetOwnerAddress(testToAddress)
@@ -2186,7 +2186,7 @@ func TestTxProcessor_ProcessWithdrawOkValsShouldWork(t *testing.T) {
 	err = ownerAcc.DataTrieTracker().SaveKeyValue(kfiKey, kfiBucket)
 	assert.Nil(t, err)
 
-	_ = ownerAcc.AddToBalance(1000, nil)
+	_ = ownerAcc.AddToBalance(1000, nil, true)
 
 	_ = userDB.SaveAccount(ownerAcc)
 	_ = kappDB.SaveAccount(kdaKapp)
@@ -2243,8 +2243,8 @@ func TestTxProcessor_ProcessWithdrawOkValsShouldWork(t *testing.T) {
 	err = marshalizer.Unmarshal(userKFIWithdraw, userKFIBytes)
 	assert.Nil(t, err)
 
-	assert.Equal(t, int64(13345), ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(6789), ownerAcc.GetBalance(kdautils.KFIIdentifier))
+	assert.Equal(t, int64(13345), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(6789), ownerAcc.GetBalance(kdautils.KFIIdentifier, true))
 	assert.Equal(t, 0, len(userKLVWithdraw.Buckets))
 	assert.Equal(t, 0, len(userKFIWithdraw.Buckets))
 }
@@ -2326,7 +2326,7 @@ func TestTxProcessor_ProcessClaimStakingShouldWork(t *testing.T) {
 
 	epoch0Time := time.Now().AddDate(0, 0, -10).Unix()
 
-	_ = ownerAcc.AddToBalance(1000000, kdautils.KLVIdentifier)
+	_ = ownerAcc.AddToBalance(1000000, kdautils.KLVIdentifier, true)
 
 	userKDA := kapps.UserKDA{
 		Balance:       1000000,
@@ -2481,9 +2481,9 @@ func TestTxProcessor_ProcessClaimStakingShouldWork(t *testing.T) {
 	err = marshalizer.Unmarshal(kfiStaking, kfiStakingBytes)
 	assert.Nil(t, err)
 
-	assert.Equal(t, int64(1001862), ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(1000000), ownerAcc.GetBalance(kdautils.KFIIdentifier))
-	assert.Equal(t, int64(APR_BALANCE+APR_REWARDS), ownerAcc.GetBalance([]byte("APR")))
+	assert.Equal(t, int64(1001862), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(1000000), ownerAcc.GetBalance(kdautils.KFIIdentifier, true))
+	assert.Equal(t, int64(APR_BALANCE+APR_REWARDS), ownerAcc.GetBalance([]byte("APR"), true))
 	assert.Equal(t, int64(block.Header.Timestamp), userKLVClaim.LastClaim.Timestamp)
 	assert.Equal(t, uint32(block.Header.Epoch), userKLVClaim.LastClaim.Epoch)
 	assert.Equal(t, block.Header.Timestamp, userKFIClaim.LastClaim.Timestamp)
@@ -2514,7 +2514,7 @@ func TestTxProcessor_ProcessClaimAllowanceOkValsShouldWork(t *testing.T) {
 
 	args := createArgsForTxProcessor()
 	acntSrc := loadUserAccount(args.AccountsCacher, testOwnerAddress)
-	acntSrc.AddToBalance(90, nil)
+	acntSrc.AddToBalance(90, nil, true)
 	acntSrc.AddToAllowance(123)
 	args.AccountsCacher.SaveAll()
 	SetupKappController(t, &args)
@@ -2530,7 +2530,7 @@ func TestTxProcessor_ProcessClaimAllowanceOkValsShouldWork(t *testing.T) {
 	err = execTx.ProcessTransaction(block, hash, tx)
 	assert.Nil(t, err)
 	acntSrc = loadUserAccount(args.AccountsCacher, testOwnerAddress)
-	assert.Equal(t, int64(213), acntSrc.GetBalance(nil))
+	assert.Equal(t, int64(213), acntSrc.GetBalance(nil, true))
 	assert.Equal(t, int64(0), acntSrc.GetAllowance())
 }
 
@@ -2545,7 +2545,7 @@ func TestTxProcessor_ProcessClaimAllowanceKFIShouldFail(t *testing.T) {
 
 	args := createArgsForTxProcessor()
 	acntSrc := loadUserAccount(args.AccountsCacher, testOwnerAddress)
-	acntSrc.AddToBalance(90, nil)
+	acntSrc.AddToBalance(90, nil, true)
 	acntSrc.AddToAllowance(123)
 	err = args.AccountsCacher.SaveAll()
 	assert.Nil(t, err)
@@ -2563,7 +2563,7 @@ func TestTxProcessor_ProcessClaimAllowanceKFIShouldFail(t *testing.T) {
 	acntSrc = loadUserAccount(args.AccountsCacher, testOwnerAddress)
 
 	assert.Equal(t, common.ErrAssetIDInvalid, err)
-	assert.Equal(t, int64(90), acntSrc.GetBalance(nil))
+	assert.Equal(t, int64(90), acntSrc.GetBalance(nil, true))
 	assert.Equal(t, int64(123), acntSrc.GetAllowance())
 }
 
@@ -3174,7 +3174,7 @@ func TestTxProcessor_ProcessAssetTriggerOkValsShouldWork(t *testing.T) {
 	err = marshalizer.Unmarshal(nftKDAData, nftKDADataBytes)
 	assert.Nil(t, err)
 
-	assert.Equal(t, int64(1009999), ownerAcc.GetBalance(fungibleID))
+	assert.Equal(t, int64(1009999), ownerAcc.GetBalance(fungibleID, true))
 	assert.Equal(t, int64(1009999), fungibleKDAData.MintedValue)
 	assert.Equal(t, int64(1009999), fungibleKDAData.CirculatingSupply)
 	assert.Greater(t, len(userNFTBytes), 0)
@@ -3643,7 +3643,7 @@ func TestTxProcessor_ProcessSetAccountNameOkValsShouldWork(t *testing.T) {
 
 	args := createArgsForTxProcessor()
 	acntSrc := loadUserAccount(args.AccountsCacher, testOwnerAddress)
-	acntSrc.AddToBalance(90, nil)
+	acntSrc.AddToBalance(90, nil, true)
 	_ = args.AccountsCacher.SaveAll()
 
 	SetupKappController(t, &args)
@@ -3669,10 +3669,10 @@ func TestTxProcessor_ProcessProposalWrongValsShouldErr(t *testing.T) {
 	userDB, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
 
 	ownerAcc := loadUserAccount(accCacher, testOwnerAddress)
-	_ = ownerAcc.AddToBalance(100_000_000, nil)
+	_ = ownerAcc.AddToBalance(100_000_000, nil, true)
 
 	toAcc := loadUserAccount(accCacher, testToAddress)
-	_ = toAcc.AddToBalance(100_000_000, nil)
+	_ = toAcc.AddToBalance(100_000_000, nil, true)
 
 	peerAcc := loadPeerAccount(accCacher, peerAddress)
 	_ = peerAcc.SetOwnerAddress(testToAddress)
@@ -3774,7 +3774,7 @@ func TestTxProcessor_ProcessProposalOkValsShouldWork(t *testing.T) {
 	err = ownerAcc.DataTrieTracker().SaveKeyValue(kfiKey, kfiBucket)
 	assert.Nil(t, err)
 
-	_ = ownerAcc.AddToBalance(1000, nil)
+	_ = ownerAcc.AddToBalance(1000, nil, true)
 
 	_ = userDB.SaveAccount(ownerAcc)
 	_ = kappDB.SaveAccount(kdaKapp)
@@ -3844,10 +3844,10 @@ func TestTxProcessor_ProcessVoteWrongValsShouldErr(t *testing.T) {
 	userDB, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
 
 	ownerAcc := loadUserAccount(accCacher, testOwnerAddress)
-	_ = ownerAcc.AddToBalance(100_000_000, nil)
+	_ = ownerAcc.AddToBalance(100_000_000, nil, true)
 
 	toAcc := loadUserAccount(accCacher, testToAddress)
-	_ = toAcc.AddToBalance(100_000_000, nil)
+	_ = toAcc.AddToBalance(100_000_000, nil, true)
 
 	peerAcc := loadPeerAccount(accCacher, peerAddress)
 	_ = peerAcc.SetOwnerAddress(testToAddress)
@@ -3939,7 +3939,7 @@ func TestTxProcessor_ProcessVoteOkValsShouldWork(t *testing.T) {
 	err = ownerAcc.DataTrieTracker().SaveKeyValue(kfiKey, kfiBucket)
 	assert.Nil(t, err)
 
-	_ = ownerAcc.AddToBalance(1000, nil)
+	_ = ownerAcc.AddToBalance(1000, nil, true)
 
 	_ = userDB.SaveAccount(ownerAcc)
 	_ = kappDB.SaveAccount(kdaKapp)
@@ -4023,10 +4023,10 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOWrongValsShouldErr(t *testing.T) {
 	userDB, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
 
 	ownerAcc := loadUserAccount(accCacher, testOwnerAddress)
-	_ = ownerAcc.AddToBalance(100_000_000, nil)
+	_ = ownerAcc.AddToBalance(100_000_000, nil, true)
 
 	toAcc := loadUserAccount(accCacher, testToAddress)
-	_ = toAcc.AddToBalance(100_000_000, nil)
+	_ = toAcc.AddToBalance(100_000_000, nil, true)
 
 	peerAcc := loadPeerAccount(accCacher, peerAddress)
 	_ = peerAcc.SetOwnerAddress(testToAddress)
@@ -4604,7 +4604,7 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOOkValsShouldWork(t *testing.T) {
 	itoKapp := loadKAppAccount(accCacher, kapps.ITOKAppAddress)
 
 	initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
-	_ = ownerAcc.AddToBalance(1_000_000_000, nil)
+	_ = ownerAcc.AddToBalance(1_000_000_000, nil, true)
 
 	_ = userDB.SaveAccount(ownerAcc)
 	_ = userDB.SaveAccount(receiverAcc)
@@ -4841,8 +4841,8 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOOkValsShouldWork(t *testing.T) {
 
 	assert.Equal(t, int64(5), nftBuyITOData.MintedAmount)
 	assert.Equal(t, int64(5), nftBuyKDAData.MintedValue)
-	assert.Equal(t, int64(999999800), ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(200), receiverAcc.GetBalance(kdautils.KLVIdentifier))
+	assert.Equal(t, int64(999999800), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(200), receiverAcc.GetBalance(kdautils.KLVIdentifier, true))
 
 	//BUY FUNGIBLE ITO ######################################################
 
@@ -4885,8 +4885,8 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOOkValsShouldWork(t *testing.T) {
 
 	assert.Equal(t, int64(680_000_000), fungibleBuyITOData.MintedAmount)
 	assert.Equal(t, int64(680_000_000+1_000_000), fungibleBuyKDAData.MintedValue)
-	assert.Equal(t, int64(999_999_800-272_000_000), ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(272_000_200), receiverAcc.GetBalance(kdautils.KLVIdentifier))
+	assert.Equal(t, int64(999_999_800-272_000_000), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(272_000_200), receiverAcc.GetBalance(kdautils.KLVIdentifier, true))
 }
 
 func TestTxProcessor_ProcessSellBuyClaimCancelMarketWrongValsShouldErr(t *testing.T) {
@@ -4897,10 +4897,10 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketWrongValsShouldErr(t *testin
 	userDB, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
 
 	ownerAcc := loadUserAccount(accCacher, testOwnerAddress)
-	_ = ownerAcc.AddToBalance(100_000_000, nil)
+	_ = ownerAcc.AddToBalance(100_000_000, nil, true)
 
 	toAcc := loadUserAccount(accCacher, testToAddress)
-	_ = toAcc.AddToBalance(100_000_000, nil)
+	_ = toAcc.AddToBalance(100_000_000, nil, true)
 
 	peerAcc := loadPeerAccount(accCacher, peerAddress)
 	_ = peerAcc.SetOwnerAddress(testToAddress)
@@ -5288,10 +5288,10 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketOkValsShouldWork(t *testing.
 	initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
 	initMarketplaceKapp(marketKapp)
 
-	_ = ownerAcc.AddToBalance(100000000, nil)
-	_ = receiverAcc.AddToBalance(100000000, nil)
-	_ = bidderAcc.AddToBalance(100000000, nil)
-	_ = bidder2Acc.AddToBalance(100000000, nil)
+	_ = ownerAcc.AddToBalance(100000000, nil, true)
+	_ = receiverAcc.AddToBalance(100000000, nil, true)
+	_ = bidderAcc.AddToBalance(100000000, nil, true)
+	_ = bidder2Acc.AddToBalance(100000000, nil, true)
 
 	_ = userDB.SaveAccount(ownerAcc)
 	_ = userDB.SaveAccount(receiverAcc)
@@ -5392,9 +5392,9 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketOkValsShouldWork(t *testing.
 	assert.Equal(t, int64(3), nftKDAData.MintedValue)
 	assert.Equal(t, int64(3), nftKDAData.CirculatingSupply)
 
-	assert.Equal(t, int64(100000000), ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(100000000), receiverAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(0), referralAcc.GetBalance(kdautils.KLVIdentifier))
+	assert.Equal(t, int64(100000000), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(100000000), receiverAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(0), referralAcc.GetBalance(kdautils.KLVIdentifier, true))
 
 	//Sell BuyItNow ##############################################################
 
@@ -5462,9 +5462,9 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketOkValsShouldWork(t *testing.
 	assert.Equal(t, []uint8([]byte(nil)), marketNFTDataBIN.MIME)
 	assert.Equal(t, []uint8([]byte(nil)), marketNFTDataBIN.Metadata)
 
-	assert.Equal(t, int64(99999000), ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(100000000), receiverAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(0), referralAcc.GetBalance(kdautils.KLVIdentifier))
+	assert.Equal(t, int64(99999000), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(100000000), receiverAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(0), referralAcc.GetBalance(kdautils.KLVIdentifier, true))
 
 	//Sell Auction ##############################################################
 
@@ -5534,9 +5534,9 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketOkValsShouldWork(t *testing.
 	assert.Equal(t, []uint8([]byte(nil)), marketNFTDataAuction.MIME)
 	assert.Equal(t, []uint8([]byte(nil)), marketNFTDataAuction.Metadata)
 
-	assert.Equal(t, int64(99998000), ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(100000000), receiverAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(0), referralAcc.GetBalance(kdautils.KLVIdentifier))
+	assert.Equal(t, int64(99998000), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(100000000), receiverAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(0), referralAcc.GetBalance(kdautils.KLVIdentifier, true))
 
 	//Buy BuyItNow ##############################################################
 
@@ -5599,9 +5599,9 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketOkValsShouldWork(t *testing.
 	assert.Equal(t, []uint8([]byte(nil)), userNFTDataBuyBIN.MIME)
 	assert.Equal(t, []uint8([]byte(nil)), userNFTDataBuyBIN.Metadata)
 
-	assert.Equal(t, int64(100122333), ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(99876544), receiverAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(123), referralAcc.GetBalance(kdautils.KLVIdentifier))
+	assert.Equal(t, int64(100122333), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(99876544), receiverAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(123), referralAcc.GetBalance(kdautils.KLVIdentifier, true))
 
 	//Buy Auction ##############################################################
 
@@ -5700,13 +5700,13 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketOkValsShouldWork(t *testing.
 	assert.Equal(t, []uint8([]byte(nil)), marketNFTDataBuyAuction.MIME)
 	assert.Equal(t, []uint8([]byte(nil)), marketNFTDataBuyAuction.Metadata)
 
-	assert.Equal(t, int64(100122333), ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(99753086), receiverAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(123), referralAcc.GetBalance(kdautils.KLVIdentifier))
+	assert.Equal(t, int64(100122333), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(99753086), receiverAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(123), referralAcc.GetBalance(kdautils.KLVIdentifier, true))
 
 	//Check bidders balance
-	assert.Equal(t, int64(100000000), bidderAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(100000000), bidder2Acc.GetBalance(kdautils.KLVIdentifier))
+	assert.Equal(t, int64(100000000), bidderAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(100000000), bidder2Acc.GetBalance(kdautils.KLVIdentifier, true))
 
 	//Claim Auction ##############################################################
 
@@ -5770,9 +5770,9 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketOkValsShouldWork(t *testing.
 	assert.Equal(t, []uint8([]byte(nil)), userNFTDataClaimAuction.MIME)
 	assert.Equal(t, []uint8([]byte(nil)), userNFTDataClaimAuction.Metadata)
 
-	assert.Equal(t, int64(100246668), ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(99753086), receiverAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(246), referralAcc.GetBalance(kdautils.KLVIdentifier))
+	assert.Equal(t, int64(100246668), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(99753086), receiverAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(246), referralAcc.GetBalance(kdautils.KLVIdentifier, true))
 
 	//Sell BuyItNow for Cancel ##############################################################
 	block.Header.Timestamp = startedTimestamp
@@ -5842,9 +5842,9 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketOkValsShouldWork(t *testing.
 	assert.Equal(t, []uint8([]byte(nil)), marketNFTDataBINCC.MIME)
 	assert.Equal(t, []uint8([]byte(nil)), marketNFTDataBINCC.Metadata)
 
-	assert.Equal(t, int64(100245668), ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(99753086), receiverAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(246), referralAcc.GetBalance(kdautils.KLVIdentifier))
+	assert.Equal(t, int64(100245668), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(99753086), receiverAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(246), referralAcc.GetBalance(kdautils.KLVIdentifier, true))
 
 	//Cancel Market ##############################################################
 	cancelBINMarket := transaction.CancelMarketOrderContract{
@@ -5903,9 +5903,9 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketOkValsShouldWork(t *testing.
 	assert.Equal(t, []uint8([]byte(nil)), userNFTDataCancelBIN.MIME)
 	assert.Equal(t, []uint8([]byte(nil)), userNFTDataCancelBIN.Metadata)
 
-	assert.Equal(t, int64(100246668), ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(99753086), receiverAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, int64(246), referralAcc.GetBalance(kdautils.KLVIdentifier))
+	assert.Equal(t, int64(100246668), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(99753086), receiverAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(246), referralAcc.GetBalance(kdautils.KLVIdentifier, true))
 }
 
 func TestTxProcessor_ProcessCreateConfigMarketplaceWrongValsShouldErr(t *testing.T) {
@@ -5924,8 +5924,8 @@ func TestTxProcessor_ProcessCreateConfigMarketplaceWrongValsShouldErr(t *testing
 	initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
 	initMarketplaceKapp(marketKapp)
 
-	_ = ownerAcc.AddToBalance(100000000, nil)
-	_ = toAcc.AddToBalance(100000000, nil)
+	_ = ownerAcc.AddToBalance(100000000, nil, true)
+	_ = toAcc.AddToBalance(100000000, nil, true)
 
 	_ = userDB.SaveAccount(ownerAcc)
 	_ = userDB.SaveAccount(toAcc)
@@ -6036,8 +6036,8 @@ func TestTxProcessor_ProcessCreateConfigMarketplaceOkValsShouldWork(t *testing.T
 	initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
 	initMarketplaceKapp(marketKapp)
 
-	_ = ownerAcc.AddToBalance(100000000, nil)
-	_ = toAcc.AddToBalance(100000000, nil)
+	_ = ownerAcc.AddToBalance(100000000, nil, true)
+	_ = toAcc.AddToBalance(100000000, nil, true)
 
 	_ = userDB.SaveAccount(ownerAcc)
 	_ = userDB.SaveAccount(toAcc)

@@ -121,7 +121,7 @@ func (ae *VMTestExecutor) senderHasEnoughBalance(tx *scenjsonmodel.Transaction) 
 	if err != nil {
 		return false
 	}
-	return sender.GetBalance(nil) >= 0
+	return sender.GetBalance(nil, true) >= 0
 }
 
 func outOfFundsResult() *vmcommon.VMOutput {

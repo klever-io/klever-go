@@ -88,7 +88,9 @@ func (callerTest *MockInstancesTestTemplate) AndAssertResults(assertResults Asse
 	return callerTest.andAssertResultsWithWorld(nil, true, nil, RunTest, nil, func(startNode *TestCallNode, world *worldmock.MockWorld, verify *VMOutputVerifier, expectedErrorsForRound []string) {
 		// update cached values if success or reset on error
 		if verify.VmOutput.ReturnCode == vmcommon.Ok {
-			world.AccountsCacher.SaveAll()
+			if err := world.AccountsCacher.SaveAll(); err != nil {
+				callerTest.tb.Errorf("failed to save accounts: %v", err)
+			}
 		} else {
 			world.AccountsCacher.ResetAll(true)
 		}

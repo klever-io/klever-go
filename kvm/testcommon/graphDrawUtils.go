@@ -32,17 +32,17 @@ func CreateSvgWithLocation(folder string, file string, graphviz *gographviz.Grap
 	destDot := folder + file + ".dot"
 
 	output := graphviz.String()
-	err := os.WriteFile(destDot, []byte(output), 0644)
+	err := os.WriteFile(destDot, []byte(output), 0600)
 	if err != nil {
 		panic(err)
 	}
-
+	// #nosec G204: test only
 	out, err := exec.Command("dot" /*"-extent 800x1500",*/, "-Tsvg", destDot).Output()
 	if err != nil {
 		panic(err)
 	}
 
-	err = os.WriteFile(folder+file+".svg", out, 0644)
+	err = os.WriteFile(folder+file+".svg", out, 0600)
 	if err != nil {
 		panic(err)
 	}

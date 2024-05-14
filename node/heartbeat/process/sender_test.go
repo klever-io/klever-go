@@ -534,7 +534,7 @@ func TestSender_SendHeartbeatAfterTriggerWithRecorededPayloadShouldWork(t *testi
 	err := sender.SendHeartbeat()
 
 	assert.Nil(t, err)
-	assert.True(t, broadcastCalled)\
+	assert.True(t, broadcastCalled)
 	assert.True(t, signCalled)
 	assert.True(t, genPubKeyCalled)
 	assert.True(t, marshalCalled)

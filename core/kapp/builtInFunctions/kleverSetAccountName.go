@@ -19,7 +19,7 @@ type kleverSetAccountName struct {
 	funcGasCost    uint64
 	marshaller     vmcommon.Marshalizer
 	keyPrefix      []byte
-	payableHandler vmcommon.PayableChecker
+
 	mutExecution   sync.RWMutex
 	forkController core.ForkController
 }
@@ -43,7 +43,6 @@ func NewKleverSetAccountNameFunc(
 		funcGasCost:    funcGasCost,
 		marshaller:     marshaller,
 		keyPrefix:      []byte(""),
-		payableHandler: &disabledPayableHandler{},
 		accountsCacher: accountsCacher,
 		forkController: forkController,
 		kappController: kappController,
@@ -114,16 +113,6 @@ func (e *kleverSetAccountName) getSetAccountNameContract(vmInput *vmcommon.Contr
 	}
 
 	return contract, nil
-}
-
-// SetPayableChecker will set the payableCheck handler to the function
-func (e *kleverSetAccountName) SetPayableChecker(payableHandler vmcommon.PayableChecker) error {
-	if check.IfNil(payableHandler) {
-		return ErrNilPayableHandler
-	}
-
-	e.payableHandler = payableHandler
-	return nil
 }
 
 // IsInterfaceNil returns true if underlying object in nil

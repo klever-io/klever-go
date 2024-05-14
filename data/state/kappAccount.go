@@ -160,14 +160,14 @@ func (a *kappAccount) SubInternalKDA(assetID []byte, internalID []byte) ([]byte,
 }
 
 // GetUserKDA returns the unmarshalled kda data from kapp for the given key
-func (a *kappAccount) GetUserKDA(assetID []byte, nonce []byte) (*kapps.UserKDA, error) {
+func (a *kappAccount) GetUserKDA(assetID []byte, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
 	kdaData := &kapps.UserKDA{
 		LastClaim: &kapps.LastClaim{},
 		Buckets:   make(map[string]*kapps.UserBucket),
 	}
 
 	if check.IfNil(a.dataTrieTracker.DataTrie()) &&
-		len(a.dataTrieTracker.DirtyData()) == 0 {
+		(!checkDirtData || len(a.dataTrieTracker.DirtyData()) == 0) {
 		return kdaData, nil
 	}
 

@@ -43,7 +43,7 @@ func (uam *UserAccountMock) DataTrieTracker() state.DataTrieTracker {
 }
 
 // AddToBalance -
-func (uam *UserAccountMock) AddToBalance(value int64, assetID []byte, userKDAopts ...*kapps.UserKDA) error {
+func (uam *UserAccountMock) AddToBalance(value int64, assetID []byte, cdd bool, userKDAopts ...*kapps.UserKDA) error {
 	if value < 0 {
 		return ErrNegativeValue
 	}

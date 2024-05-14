@@ -52,10 +52,10 @@ const MetricNonceAtEpochStart = "klv_nonce_at_epoch_start"
 const MetricSlotsPerEpoch = "klv_slots_per_epoch"
 
 // MetricSlotsPassedInCurrentEpoch is the metric that tells the number of slots passed in current epoch
-const MetricSlotsPassedInCurrentEpoch = "klv_slots_passed_in_current_epoch"
+const MetricSlotsPassedInCurrentEpoch = "klv_slots_passed_in_current_epoch" // #nosec G101: false positive
 
 // MetricNoncesPassedInCurrentEpoch is the metric that tells the number of nonces passed in current epoch
-const MetricNoncesPassedInCurrentEpoch = "klv_nonces_passed_in_current_epoch"
+const MetricNoncesPassedInCurrentEpoch = "klv_nonces_passed_in_current_epoch" // #nosec G101: false positive
 
 // MetricNonce is the metric for monitoring the nonce of a node
 const MetricNonce = "klv_nonce"

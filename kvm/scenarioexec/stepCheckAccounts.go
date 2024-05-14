@@ -2,11 +2,12 @@ package scenarioexec
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data/dkda"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kapps"
@@ -15,7 +16,6 @@ import (
 	"github.com/klever-io/klever-go/kvm/scenarioexec/kdaconvert"
 	scenjsonmodel "github.com/klever-io/klever-go/kvm/scenarioexec/model"
 	"github.com/klever-io/klever-go/kvm/scenarioexec/orderedjson"
-	"github.com/klever-io/klever-go/vmcommon"
 )
 
 // ExecuteCheckStateStep executes a CheckStateStep defined by the current scenario.
@@ -41,7 +41,7 @@ func (ae *VMTestExecutor) checkAccounts(baseErrMsg string, checkAccounts *scenjs
 		if !checkAccounts.MoreAccountsAllowed {
 			for _, worldAcctAddr := range cacher.GetAddressList() {
 				postAcctMatch := scenjsonmodel.FindCheckAccount(checkAccounts.Accounts, worldAcctAddr)
-				if postAcctMatch == nil && !bytes.Equal(worldAcctAddr, vmcommon.SystemAccountAddress) {
+				if postAcctMatch == nil && !bytes.Equal(worldAcctAddr, core.SystemAccountAddress) {
 					return fmt.Errorf("%s unexpected account address: %s",
 						baseErrMsg,
 						ae.exprReconstructor.Reconstruct(
@@ -76,12 +76,12 @@ func (ae *VMTestExecutor) checkAccounts(baseErrMsg string, checkAccounts *scenjs
 				matchingAcct.GetNonce())
 		}
 
-		if !expectedAcct.Balance.Check(big.NewInt(matchingAcct.GetBalance(nil))) {
+		if !expectedAcct.Balance.Check(big.NewInt(matchingAcct.GetBalance(nil, true))) {
 			return fmt.Errorf("%s bad account balance. Account: %s. Want: \"%s\". Have: \"%d\"",
 				baseErrMsg,
 				expectedAcct.Address.Original,
 				expectedAcct.Balance.Original,
-				matchingAcct.GetBalance(nil))
+				matchingAcct.GetBalance(nil, true))
 		}
 
 		if !expectedAcct.Username.Check(matchingAcct.GetName()) {
@@ -227,15 +227,9 @@ func (ae *VMTestExecutor) checkAccountKDA(baseErrMsg string, expectedAcct *scenj
 
 		userInstances := make([]*dkda.KDigitalToken, 0)
 		for _, instance := range expectedToken.Instances {
-			// uint64 to []byte
-			var nonce []byte = nil
-			if instance.Nonce.Value > 0 {
-				buf := make([]byte, binary.MaxVarintLen64)
-				n := binary.PutUvarint(buf, instance.Nonce.Value)
-				nonce = buf[:n]
-			}
+			nonce := []byte(strconv.FormatUint(instance.Nonce.Value, 10))
 
-			kda, err := matchingAcct.GetUserKDA(expectedToken.TokenIdentifier.Value, nonce)
+			kda, err := matchingAcct.GetUserKDA(expectedToken.TokenIdentifier.Value, nonce, true)
 			if err != nil {
 				userInstances = append(userInstances, &dkda.KDigitalToken{
 					Value: 0,

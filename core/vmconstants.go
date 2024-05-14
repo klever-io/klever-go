@@ -14,19 +14,6 @@ const (
 	ShardHeaderV2 HeaderType = "HeaderV2"
 )
 
-// FileModeUserReadWrite represents the permission for a file which allows the user for reading and writing
-const FileModeUserReadWrite = 0600
-
-// FileModeReadWrite represents the permission for a file which allows reading and writing for user and group and read
-// for others
-const FileModeReadWrite = 0664
-
-// MetachainShardId will be used to identify a shard ID as metachain
-const MetachainShardId = uint32(0xFFFFFFFF)
-
-// AllShardId will be used to identify that a message is for all shards
-const AllShardId = uint32(0xFFFFFFF0)
-
 // MegabyteSize represents the size in bytes of a megabyte
 const MegabyteSize = 1024 * 1024
 
@@ -80,9 +67,6 @@ const MaxBufferSizeToSendTrieNodes = 1 << 18 //256KB
 
 // MinLenArgumentsKDATransfer defines the min length of arguments for the KDA transfer
 const MinLenArgumentsKDATransfer = 2
-
-// MinLenArgumentsKDANFTTransfer defines the minimum length for kda nft transfer
-const MinLenArgumentsKDANFTTransfer = 4
 
 // MinLenArgumentsAssetTrigger defines the min length of arguments for the KDA asset trigger
 const MinLenArgumentsAssetTrigger = 2

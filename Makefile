@@ -95,14 +95,18 @@ build-keygenerator:
 	$(GOBUILD) -o ./bin/keygenerator ./cmd/keygenerator
 
 build-batch:
-    CGO_ENABLED=0 go build -a -tags netgo -ldflags '-w -extldflags "-static"' -o batchsend ./cmd/batchsend
+	CGO_ENABLED=0 go build -a -tags netgo -ldflags '-w -extldflags "-static"' -o ./bin/batchsend ./cmd/batchsend
 
 docker-vendor:
 	go mod vendor
 	modvendor -copy="**/*.c **/*.h **/*.proto **/*.a" -v
 
 docker-build: docker-vendor
+	echo "Building docker image for version ${VERSION}"
 	docker build --build-arg arg_version=${VERSION} -t kleverapp/klever-go:${FOR_DEV}${VERSION}${FOR_TESTNET} -t kleverapp/klever-go:${FOR_DEV}latest${FOR_TESTNET} .
+
+docker-push:
+	docker push kleverapp/klever-proxy-go:${FOR_DEV}${VERSION}${FOR_TESTNET}
 
 docker-build-validator: docker-vendor
 	docker build --build-arg arg_version=${VERSION} -t kleverapp/klever-go:val-${FOR_DEV}${VERSION}${FOR_TESTNET} -f Dockerfile.validator .

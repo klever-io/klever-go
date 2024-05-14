@@ -19,7 +19,6 @@ type kleverAssetTrigger struct {
 	funcGasCost    uint64
 	marshaller     vmcommon.Marshalizer
 	keyPrefix      []byte
-	payableHandler vmcommon.PayableChecker
 	mutExecution   sync.RWMutex
 	forkController core.ForkController
 }
@@ -43,7 +42,6 @@ func NewKleverAssetTriggerFunc(
 		funcGasCost:    funcGasCost,
 		marshaller:     marshaller,
 		keyPrefix:      []byte(""),
-		payableHandler: &disabledPayableHandler{},
 		accountsCacher: accountsCacher,
 		forkController: forkController,
 		kappController: kappController,
@@ -120,13 +118,9 @@ func (e *kleverAssetTrigger) getAssetTriggerContract(vmInput *vmcommon.ContractC
 			contract.AssetID = []byte(fmt.Sprintf("%s/%d", contract.AssetID, nonce.Int64()))
 		}
 
-		err := e.payableHandler.CheckPayable(vmInput, vmInput.RecipientAddr, core.MinLenArgumentsAssetTrigger)
-		if err != nil {
-			return nil, txData, err
-		}
-
 		contract.Amount = vmInput.NextArg().Int64()
 		contract.ToAddress = vmInput.NextArg()
+		contract.Value = vmInput.NextArg().Int64()
 	case transaction.AssetTriggerContract_Wipe:
 		nonce := vmInput.NextArg()
 		if len(nonce) > 0 {
@@ -207,16 +201,6 @@ func (e *kleverAssetTrigger) getAssetTriggerContract(vmInput *vmcommon.ContractC
 	}
 
 	return contract, txData, nil
-}
-
-// SetPayableChecker will set the payableCheck handler to the function
-func (e *kleverAssetTrigger) SetPayableChecker(payableHandler vmcommon.PayableChecker) error {
-	if check.IfNil(payableHandler) {
-		return ErrNilPayableHandler
-	}
-
-	e.payableHandler = payableHandler
-	return nil
 }
 
 // IsInterfaceNil returns true if underlying object in nil

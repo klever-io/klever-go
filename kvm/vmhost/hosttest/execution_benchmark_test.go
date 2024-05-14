@@ -19,7 +19,6 @@ import (
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/vmhost/contexts"
 	"github.com/klever-io/klever-go/kvm/vmhost/hostCore"
-	"github.com/klever-io/klever-go/kvm/vmhost/mock"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/klever-io/klever-go/vmcommon/parsers"
 	"github.com/stretchr/testify/assert"
@@ -276,7 +275,7 @@ func prepare(tb testing.TB, ownerAddress []byte) (*worldmock.MockWorld, *worldmo
 			BuiltInFuncContainer:     mockWorld.BuiltinFuncs.Container,
 			ProtectedKeyPrefix:       protectedKeys,
 			KDATransferParser:        kdaTransferParser,
-			EpochNotifier:            &mock.EpochNotifierStub{},
+			EpochNotifier:            &commonMock.EpochNotifierStub{},
 			WasmerSIGSEGVPassthrough: false,
 			Hasher:                   worldmock.DefaultHasher,
 			ForkController:           forkController,

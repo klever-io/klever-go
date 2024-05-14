@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/fatih/color"
@@ -20,7 +21,7 @@ type txDATA struct {
 }
 
 func csvSend(fileName string) error {
-	in, err := os.Open(fileName)
+	in, err := os.Open(filepath.Clean(fileName))
 	if err != nil {
 		return err
 	}
@@ -68,7 +69,7 @@ func csvSend(fileName string) error {
 }
 
 func writeCSV(fileName string, data []*txDATA) {
-	out, err := os.Create(fileName + ".output.csv")
+	out, err := os.Create(filepath.Clean(fileName + ".output.csv"))
 	if err != nil {
 		color.Red("Error wrting output file: %+v", err)
 		// dump

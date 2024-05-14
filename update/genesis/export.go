@@ -375,7 +375,7 @@ func (se *stateExport) exportNodesSetupJson(validators []*state.ValidatorInfo) e
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(se.exportFolder, core.NodesSetupJsonFileName), nodesSetupBytes, 0664)
+	return os.WriteFile(filepath.Join(se.exportFolder, core.NodesSetupJsonFileName), nodesSetupBytes, common.DefaultDirPermission)
 }
 
 // IsInterfaceNil returns true if underlying object is nil

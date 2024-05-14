@@ -11,7 +11,7 @@ import (
 	"github.com/klever-io/klever-go/network/p2p/libp2p/discovery"
 	"github.com/klever-io/klever-go/network/p2p/mock"
 	"github.com/klever-io/klever-go/tools/check"
-	"github.com/libp2p/go-libp2p-core/event"
+	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/stretchr/testify/assert"
 )
 

@@ -9,8 +9,8 @@ import (
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/network/p2p/data"
 	"github.com/klever-io/klever-go/tools/check"
-	"github.com/libp2p/go-libp2p-core/host"
-	"github.com/libp2p/go-libp2p-core/network"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -94,12 +94,6 @@ func (ip *identityProvider) Connected(_ network.Network, conn network.Conn) {
 
 // Disconnected is called when a connection closed
 func (ip *identityProvider) Disconnected(network.Network, network.Conn) {}
-
-// OpenedStream is called when a stream opened
-func (ip *identityProvider) OpenedStream(network.Network, network.Stream) {}
-
-// ClosedStream is called when a stream closed
-func (ip *identityProvider) ClosedStream(network.Network, network.Stream) {}
 
 func (ip *identityProvider) createPayload() ([]byte, error) {
 	am := &data.AuthMessage{

@@ -3,7 +3,7 @@ package sorting
 import (
 	"math/big"
 
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 // PeerDistance is a composite struct on top of a peer ID that also contains the kad distance measured

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/klever-io/klever-go/common"
 	eapigen "github.com/klever-io/klever-go/kvm/vmhost/vmhooks/generate"
 )
 
@@ -111,7 +112,7 @@ func writeNamesForMockExecutor(eiMetadata *eapigen.EIMetadata) {
 func tryCreateRustOutputDirectory() {
 	outputDirPath := filepath.Join(pathToApiPackage, "generate/cmd/output")
 	if _, err := os.Stat(outputDirPath); errors.Is(err, os.ErrNotExist) {
-		err := os.Mkdir(outputDirPath, os.ModePerm)
+		err := os.Mkdir(outputDirPath, common.DefaultDirPermission)
 		if err != nil {
 			panic(err)
 		}
@@ -194,7 +195,7 @@ func writeRustWasmerMeteringHelpers() {
 }
 
 func tryCopyFilesToRustExecutorRepo() {
-	fullPathToRustRepoConfigFile := filepath.Join(pathToApiPackage, "generate/cmd/", pathToRustRepoConfigFile)
+	fullPathToRustRepoConfigFile := filepath.Clean(filepath.Join(pathToApiPackage, "generate/cmd/", pathToRustRepoConfigFile))
 	contentBytes, err := os.ReadFile(fullPathToRustRepoConfigFile)
 	if err != nil {
 		// this feature is optional
@@ -231,6 +232,7 @@ func tryCopyFilesToRustExecutorRepo() {
 }
 
 func copyFile(from, to string) {
+	from, to = filepath.Clean(from), filepath.Clean(to)
 	fmt.Printf("    %s -> %s\n", from, to)
 
 	// Open original file

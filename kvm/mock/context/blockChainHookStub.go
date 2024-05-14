@@ -52,6 +52,15 @@ type BlockchainHookStub struct {
 	GetKAppControllerCalled                 func() kapp.KAppController
 	LastBlockCalled                         func() data.HeaderHandler
 	SetCurrentHeaderCalled                  func(hdr data.HeaderHandler)
+	GetSFTMetaCalled                        func(tokenID []byte, nonce uint64) (*kapps.MetaV2, error)
+}
+
+func (b *BlockchainHookStub) GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, error) {
+	if b.GetSFTMetaCalled != nil {
+		return b.GetSFTMetaCalled(tokenID, nonce)
+	}
+
+	return &kapps.MetaV2{}, nil
 }
 
 func (b *BlockchainHookStub) GetBlockHash(nonce uint64) ([]byte, error) {
@@ -304,7 +313,7 @@ func (b *BlockchainHookStub) DeleteCompiledCode(codeHash []byte) {
 
 func (b *BlockchainHookStub) FilterCodeMetadataForUpgrade(input []byte) ([]byte, error) {
 	if b.FilterCodeMetadataForUpgradeCalled != nil {
-		b.FilterCodeMetadataForUpgradeCalled(input)
+		return b.FilterCodeMetadataForUpgradeCalled(input)
 	}
 
 	return make([]byte, 0), nil

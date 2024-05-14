@@ -77,7 +77,7 @@ func (context *blockchainContext) GetBalanceBigInt(address []byte) *big.Int {
 		return big.NewInt(0)
 	}
 
-	balance := big.NewInt(account.GetBalance(nil))
+	balance := big.NewInt(account.GetBalance(nil, true))
 	return balance
 }
 
@@ -94,6 +94,11 @@ func (context *blockchainContext) GetNonce(address []byte) (uint64, error) {
 // GetKDAToken returns the unmarshalled kda token for the given address and nonce for NFTs
 func (context *blockchainContext) GetKDAToken(address []byte, tokenID []byte, nonce uint64) (*kapps.KDAData, *kapps.UserKDA, error) {
 	return context.blockChainHook.GetKDAToken(address, tokenID, nonce)
+}
+
+// GetSFTMeta returns the unmarshalled sft meta for the given tokenID and nonce
+func (context *blockchainContext) GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, error) {
+	return context.blockChainHook.GetSFTMeta(tokenID, nonce)
 }
 
 // GetCodeHash retrieves the hash of the code stored under the given address.

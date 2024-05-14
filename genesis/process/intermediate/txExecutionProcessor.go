@@ -57,7 +57,7 @@ func (tep *txExecutionProcessor) AddBalance(senderBytes []byte, value int64) err
 		return genesis.ErrWrongTypeAssertion
 	}
 
-	err = userAccnt.AddToBalance(value, nil)
+	err = userAccnt.AddToBalance(value, nil, false)
 	if err != nil {
 		return err
 	}

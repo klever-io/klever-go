@@ -7,7 +7,6 @@ import (
 	commonMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core/fork"
-	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
 	"github.com/klever-io/klever-go/kapps"
 	kvmConfig "github.com/klever-io/klever-go/kvm/config"
 	"github.com/klever-io/klever-go/kvm/executor"
@@ -105,7 +104,7 @@ func (ae *VMTestExecutor) InitVM(scenGasSchedule scenjsonmodel.GasSchedule) erro
 			OverrideVMExecutor:       ae.OverrideVMExecutor,
 			BlockGasLimit:            blockGasLimit,
 			GasSchedule:              gasSchedule,
-			BuiltInFuncContainer:     builtInFunctions.NewBuiltInFunctionContainer(),
+			BuiltInFuncContainer:     ae.World.BuiltinFuncs.Container,
 			ProtectedKeyPrefix:       protectedKeys,
 			KDATransferParser:        kdaTransferParser,
 			WasmerSIGSEGVPassthrough: false,

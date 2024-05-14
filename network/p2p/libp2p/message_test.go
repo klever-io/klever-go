@@ -1,30 +1,27 @@
 package libp2p_test
 
 import (
-	"crypto/ecdsa"
 	"crypto/rand"
 	"errors"
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	commonMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/network/p2p/data"
 	"github.com/klever-io/klever-go/network/p2p/libp2p"
 	"github.com/klever-io/klever-go/tools/check"
-	libp2pCrypto "github.com/libp2p/go-libp2p-core/crypto"
-	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	pubsubpb "github.com/libp2p/go-libp2p-pubsub/pb"
+	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func getRandomID() []byte {
-	prvKey, _ := ecdsa.GenerateKey(btcec.S256(), rand.Reader)
-	sk := (*libp2pCrypto.Secp256k1PrivateKey)(prvKey)
+	sk, _, _ := libp2pCrypto.GenerateSecp256k1Key(rand.Reader)
 	id, _ := peer.IDFromPublicKey(sk.GetPublic())
 
 	return []byte(id)

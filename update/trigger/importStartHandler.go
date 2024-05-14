@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/klever-io/klever-go/tools"
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/update"
 )
 
@@ -94,7 +94,7 @@ func (ish *importStartHandler) SetStartImport() error {
 	file, err := os.OpenFile(
 		filepath.Join(ish.getFilename()),
 		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
-		tools.FileModeUserReadWrite,
+		common.FileModeUserReadWrite,
 	)
 	if err != nil {
 		return err

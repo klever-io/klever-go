@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  config:
+    uses: ./.github/workflows/go-setup.yaml
+    secrets:
+      git_user: ${{ secrets.GIT_USER }}
+      git_pass: ${{ secrets.GIT_PASS }}
+
+  build:
+    needs: [config]
+    runs-on: klever-pipe
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ vars.GO_VERSION }}
+
+      - name: Cache Vendor
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-vendor
+        with:
+          fail-on-cache-miss: true
+          path: vendor
+          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
+
+      - name: Build
+        run: make build
+
+      - name: Create tarball
+        run: |
+          cp kvm/wasmer2/libvmexeccapi.so bin/
+          cd bin
+          tar -czf klevergo-node.tar.gz validator libvmexeccapi.so
+          tar -czf klevergo-operator.tar.gz operator libvmexeccapi.so
+      
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: |
+            bin/klevergo-node.tar.gz
+            bin/klevergo-operator.tar.gz
+          generate_release_notes: true
+          draft: true
+          prerelease: true

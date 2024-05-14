@@ -69,6 +69,10 @@ func (k *kappContext) TxNonce() uint64 {
 	return 0
 }
 
+func (k *kappContext) IsScSimulation() bool {
+	return false
+}
+
 func (k *kappContext) SetContractID(_ int) {
 }
 

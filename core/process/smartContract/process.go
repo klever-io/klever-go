@@ -290,7 +290,7 @@ func (sc *scProcessor) doExecuteSmartContractTransaction(
 		return vmOutput.ReturnCode, nil
 	}
 
-	err = sc.processVMOutput(vmOutput, txHash, tx, vmInput.CallType)
+	err = sc.processVMOutput(ctx, vmOutput, txHash, tx, vmInput.CallType)
 	if err != nil {
 		log.Trace("process vm output returned with problem ", "err", err.Error())
 		return vmcommon.VMExecutionFailed, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), err.Error(), []byte(vmOutput.ReturnMessage))
@@ -597,7 +597,7 @@ func (sc *scProcessor) doDeploySmartContract(
 		return vmcommon.VMUserError, sc.processIfErrorWithAddedLogs(acntSnd, txHash, tx, tc, ctx.ContractID(), vmOutput.ReturnCode.String(), []byte(vmOutput.ReturnMessage), nil, vmOutput.Logs)
 	}
 
-	err = sc.processVMOutput(vmOutput, txHash, tx, vmInput.CallType)
+	err = sc.processVMOutput(ctx, vmOutput, txHash, tx, vmInput.CallType)
 	if err != nil {
 		log.Trace("Processing error", "error", err.Error())
 		return vmcommon.VMExecutionFailed, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), err.Error(), []byte(vmOutput.ReturnMessage))
@@ -690,13 +690,14 @@ func (sc *scProcessor) processSCPayment(tc data.SmartContractHandler, acntSnd st
 }
 
 func (sc *scProcessor) processVMOutput(
+	ctx kapp.KappContext,
 	vmOutput *vmcommon.VMOutput,
 	txHash []byte,
 	tx data.TransactionHandler,
 	callType vmData.CallType,
 ) error {
 	outPutAccounts := process.SortVMOutputInsideData(vmOutput)
-	err := sc.processSCOutputAccounts(vmOutput, callType, outPutAccounts, tx, txHash)
+	err := sc.processSCOutputAccounts(ctx, vmOutput, callType, outPutAccounts, tx, txHash)
 	if err != nil {
 		return err
 	}
@@ -749,6 +750,7 @@ func (sc *scProcessor) createSCRsWhenError(
 
 // save account changes in state from vmOutput - protected by VM - every output can be treated as is.
 func (sc *scProcessor) processSCOutputAccounts(
+	ctx kapp.KappContext,
 	vmOutput *vmcommon.VMOutput,
 	callType vmData.CallType,
 	outputAccounts []*vmcommon.OutputAccount,
@@ -761,17 +763,19 @@ func (sc *scProcessor) processSCOutputAccounts(
 			return err
 		}
 
-		// TODO: Review BuiltIN StorageUpdates
-		// check if keyValue storage is updating in cacher or writing to AccOutputs...
-		// If saved in cacher, then no need to update states here
-		for _, storeUpdate := range outAcc.StorageUpdates {
-			// TODO: Validate that all user keys are updated with PREFIX
-			err = acc.SaveKeyValue(storeUpdate.Offset, storeUpdate.Data)
-			if err != nil {
-				log.Warn("saveKeyValue", "error", err)
-				return err
+		if !ctx.IsScSimulation() {
+			// TODO: Review BuiltIN StorageUpdates
+			// check if keyValue storage is updating in cacher or writing to AccOutputs...
+			// If saved in cacher, then no need to update states here
+			for _, storeUpdate := range outAcc.StorageUpdates {
+				// TODO: Validate that all user keys are updated with PREFIX
+				err = acc.SaveKeyValue(storeUpdate.Offset, storeUpdate.Data)
+				if err != nil {
+					log.Warn("saveKeyValue", "error", err)
+					return err
+				}
+				log.Trace("storeUpdate", "acc", outAcc.Address, "key", storeUpdate.Offset, "data", storeUpdate.Data)
 			}
-			log.Trace("storeUpdate", "acc", outAcc.Address, "key", storeUpdate.Offset, "data", storeUpdate.Data)
 		}
 
 		err = sc.updateSmartContractCode(vmOutput, acc, outAcc)

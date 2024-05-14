@@ -1,6 +1,7 @@
 package kapp
 
 import (
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
@@ -71,6 +72,16 @@ type KDAFeesPoolKapp interface {
 	UpdatePool(poolID []byte, assetOwner []byte, sender []byte, info *transaction.KDAPoolInfo) (transaction.Transaction_TXResultCode, error)
 	Deposit(sender []byte, tc *transaction.DepositContract) (transaction.Transaction_TXResultCode, error)
 	Withdraw(sender []byte, tc *transaction.WithdrawContract) (transaction.Transaction_TXResultCode, error)
+	IsInterfaceNil() bool
+}
+
+type SystemAccountKapp interface {
+	SetKAppController(controller KAppController) error
+	SetAccountsCacher(cacher state.AccountsCacher) error
+	SFTSetMetadata(asset, nonce []byte, args [][]byte) error
+	SFTAddCirculation(asset, nonce []byte, amount int64) error
+	SFTCreateMeta(asset, nonce []byte, supply int64, hash []byte) error
+	SFTGetMeta(asset, nonce []byte) (*kapps.MetaV2, error)
 	IsInterfaceNil() bool
 }
 
@@ -148,6 +159,7 @@ type KAppController interface {
 	InitKApps(state.AccountsCacher) error
 	GetValidatorsKApp() ValidatorsKapp
 	GetKDAFeesPoolKApp() KDAFeesPoolKapp
+	GetSystemAccountKApp() SystemAccountKapp
 	GetAccountsKApp() AccountsKapp
 	GetITOKApp() ITOKapp
 	GetMarketKApp() MarketKapp
@@ -158,7 +170,13 @@ type KAppController interface {
 
 	GetProposalController() kapps.ActiveProposalController
 	SetProposalController(proposalController kapps.ActiveProposalController) error
+
+	GetForkController() core.ForkController
 	IsInterfaceNil() bool
+}
+
+type BlockchainHook interface {
+	IsPayable(sndAddress []byte, recvAddress []byte) (bool, error)
 }
 
 type KappContext interface {
@@ -172,6 +190,7 @@ type KappContext interface {
 	SetReturnData(data [][]byte)
 	AddReturnData(data []byte)
 	GetAndClearReturnData() [][]byte
+	IsScSimulation() bool
 }
 
 type ReceiptsContext interface {

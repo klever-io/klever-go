@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/klever-io/klever-go/common"
 	scenjsonparse "github.com/klever-io/klever-go/kvm/scenarioexec/json/parse"
 	scenjsonwrite "github.com/klever-io/klever-go/kvm/scenarioexec/json/write"
 	scenjsonmodel "github.com/klever-io/klever-go/kvm/scenarioexec/model"
@@ -20,7 +21,7 @@ func ParseScenariosScenario(parser scenjsonparse.Parser, scenFilePath string) (*
 
 	// Open our jsonFile
 	var jsonFile *os.File
-	jsonFile, err = os.Open(scenFilePath)
+	jsonFile, err = os.Open(filepath.Clean(scenFilePath))
 	// if we os.Open returns an error then handle it
 	if err != nil {
 		return nil, err
@@ -51,10 +52,10 @@ func ParseScenariosScenarioDefaultParser(scenFilePath string) (*scenjsonmodel.Sc
 func WriteScenariosScenario(scenario *scenjsonmodel.Scenario, toPath string) error {
 	jsonString := scenjsonwrite.ScenarioToJSONString(scenario)
 
-	err := os.MkdirAll(filepath.Dir(toPath), os.ModePerm)
+	err := os.MkdirAll(filepath.Dir(toPath), common.DefaultDirPermission)
 	if err != nil {
 		return err
 	}
 
-	return ioutil.WriteFile(toPath, []byte(jsonString), 0644)
+	return os.WriteFile(toPath, []byte(jsonString), common.DefaultDirPermission)
 }

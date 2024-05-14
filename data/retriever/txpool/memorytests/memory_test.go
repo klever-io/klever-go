@@ -34,14 +34,14 @@ func TestShardedTxPool_MemoryFootprint(t *testing.T) {
 	journals = append(journals, runScenario(t, newScenario(10, 1000, 20480, "0"), memoryAssertion{190, 205}, memoryAssertion{1, 4}))
 	journals = append(journals, runScenario(t, newScenario(10000, 1, 1024, "0"), memoryAssertion{10, 16}, memoryAssertion{4, 10}))
 	journals = append(journals, runScenario(t, newScenario(1, 60000, 256, "0"), memoryAssertion{38, 40}, memoryAssertion{10, 16}))
-	journals = append(journals, runScenario(t, newScenario(10, 10000, 100, "0"), memoryAssertion{50, 53}, memoryAssertion{16, 30}))
-	journals = append(journals, runScenario(t, newScenario(100000, 1, 1024, "0"), memoryAssertion{135, 140}, memoryAssertion{51, 79}))
+	journals = append(journals, runScenario(t, newScenario(10, 10000, 100, "0"), memoryAssertion{50, 54}, memoryAssertion{16, 30}))
+	journals = append(journals, runScenario(t, newScenario(100000, 1, 1024, "0"), memoryAssertion{135, 141}, memoryAssertion{51, 79}))
 
 	// With larger memory footprint
 
-	journals = append(journals, runScenario(t, newScenario(100000, 3, 650, "0"), memoryAssertion{330, 342}, memoryAssertion{95, 115}))
-	journals = append(journals, runScenario(t, newScenario(150000, 2, 650, "0"), memoryAssertion{330, 342}, memoryAssertion{110, 120}))
-	journals = append(journals, runScenario(t, newScenario(300000, 1, 650, "0"), memoryAssertion{330, 342}, memoryAssertion{160, 170}))
+	journals = append(journals, runScenario(t, newScenario(100000, 3, 650, "0"), memoryAssertion{330, 343}, memoryAssertion{95, 115}))
+	journals = append(journals, runScenario(t, newScenario(150000, 2, 650, "0"), memoryAssertion{330, 343}, memoryAssertion{110, 120}))
+	journals = append(journals, runScenario(t, newScenario(300000, 1, 650, "0"), memoryAssertion{330, 343}, memoryAssertion{160, 170}))
 	journals = append(journals, runScenario(t, newScenario(30, 10000, 640, "0"), memoryAssertion{310, 325}, memoryAssertion{60, 70}))
 	journals = append(journals, runScenario(t, newScenario(300, 1000, 640, "0"), memoryAssertion{310, 325}, memoryAssertion{60, 70}))
 

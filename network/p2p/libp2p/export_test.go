@@ -5,10 +5,10 @@ import (
 
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/storage"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	pubsub_pb "github.com/libp2p/go-libp2p-pubsub/pb"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/whyrusleeping/timecache"
 )
 

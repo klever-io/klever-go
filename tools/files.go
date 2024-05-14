@@ -5,7 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505: Blocklisted import sha1 hash is what is desired in this case
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -21,6 +21,7 @@ import (
 	"time"
 
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/common"
 	"golang.org/x/crypto/pbkdf2"
 )
 
@@ -63,7 +64,8 @@ func ReadAll(r io.Reader) ([]byte, error) {
 // reads the whole file, it does not treat an EOF from Read as an error
 // to be reported.
 func ReadFile(filename string) ([]byte, error) {
-	f, err := os.Open(filename)
+	cleanFile := filepath.Clean(filename)
+	f, err := os.Open(cleanFile)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +92,8 @@ func ReadFile(filename string) ([]byte, error) {
 // If the file does not exist, WriteFile creates it with permissions perm;
 // otherwise WriteFile truncates it before writing.
 func WriteFile(filename string, data []byte, perm os.FileMode) error {
-	f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	cleanFile := filepath.Clean(filename)
+	f, err := os.OpenFile(cleanFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm) // #nosec G304: desired file permissions
 	if err != nil {
 		return err
 	}
@@ -107,12 +110,14 @@ func WriteFile(filename string, data []byte, perm os.FileMode) error {
 // ReadDir reads the directory named by dirname and returns
 // a list of directory entries sorted by filename.
 func ReadDir(dirname string) ([]os.FileInfo, error) {
-	f, err := os.Open(dirname)
+	f, err := os.Open(filepath.Clean(dirname))
 	if err != nil {
 		return nil, err
 	}
 	list, err := f.Readdir(-1)
-	f.Close()
+	if err = f.Close(); err != nil {
+		return nil, err
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +192,7 @@ func CreateFile(arg ArgCreateFileArgument) (*os.File, error) {
 		return nil, err
 	}
 
-	err = os.MkdirAll(absPath, os.ModePerm)
+	err = os.MkdirAll(absPath, common.DefaultDirPermission)
 	if err != nil {
 		return nil, err
 	}
@@ -196,11 +201,12 @@ func CreateFile(arg ArgCreateFileArgument) (*os.File, error) {
 	if arg.Prefix != "" {
 		fileName = arg.Prefix + "-" + fileName
 	}
+	fileName = fmt.Sprintf("%s.%s", fileName, arg.FileExtension)
 
 	return os.OpenFile(
-		filepath.Join(absPath, fileName+"."+arg.FileExtension),
+		filepath.Clean(filepath.Join(absPath, fileName)),
 		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
-		FileModeUserReadWrite)
+		common.FileModeUserReadWrite)
 }
 
 // OpenFile method opens the file from given path - does not close the file

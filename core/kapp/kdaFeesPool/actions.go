@@ -110,9 +110,28 @@ func (v *kdaFeesPoolKApp) Deposit(sender []byte, tc *transaction.DepositContract
 		return transaction.Transaction_AmountInvalid, common.ErrAssetPoolAmountError
 	}
 
-	// check if sender is allowed to deposit
-	if !bytes.Equal(sender, pool.AdminAddress) && !bytes.Equal(sender, pool.OwnerAddress) {
-		return transaction.Transaction_KAPPError, common.ErrAssetPoolInvalidAddress
+	isPoolOwnerOrAdmin := bytes.Equal(sender, pool.AdminAddress) || bytes.Equal(sender, pool.OwnerAddress)
+
+	if !isPoolOwnerOrAdmin {
+		if !v.forkController.EnableSmartContracts() {
+			// Before fork, only owner or admin could deposit
+			return transaction.Transaction_KAPPError, common.ErrAssetPoolInvalidAddress
+		}
+
+		// After fork, owner, admin and kda deposit role can deposit
+		_, kda, err := v.KAppController.GetKDAKApp().GetKDA(assetID)
+		if err != nil {
+			return transaction.Transaction_KAPPError, err
+		}
+
+		role, err := kda.GetRoleByAddress(sender)
+		if err != nil {
+			return transaction.Transaction_AssetError, err
+		}
+
+		if !role.HasRoleDeposit {
+			return transaction.Transaction_AccountError, common.ErrInvalidValue
+		}
 	}
 
 	// get sender acc
@@ -122,7 +141,7 @@ func (v *kdaFeesPoolKApp) Deposit(sender []byte, tc *transaction.DepositContract
 	}
 
 	// check if amount/kda is valid
-	balance := acc.GetBalance(currencyID)
+	balance := acc.GetBalance(currencyID, v.forkController.EnableSmartContracts())
 	if balance < amount {
 		return transaction.Transaction_OutOfFunds, common.ErrBalance
 	}
@@ -140,7 +159,7 @@ func (v *kdaFeesPoolKApp) Deposit(sender []byte, tc *transaction.DepositContract
 	}
 
 	// sub from account
-	err = acc.SubFromBalance(amount, currencyID)
+	err = acc.SubFromBalance(amount, currencyID, v.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_AccountError, err
 	}
@@ -227,7 +246,7 @@ func (v *kdaFeesPoolKApp) Withdraw(sender []byte, tc *transaction.WithdrawContra
 		// remove from pool balance
 		pool.KLVBalance -= tc.GetAmount()
 		// add to addressTo balance
-		err = receiver.AddToBalance(tc.GetAmount(), nil)
+		err = receiver.AddToBalance(tc.GetAmount(), nil, v.forkController.EnableSmartContracts())
 		if err != nil {
 			return transaction.Transaction_AccountError, err
 		}
@@ -239,7 +258,7 @@ func (v *kdaFeesPoolKApp) Withdraw(sender []byte, tc *transaction.WithdrawContra
 		// remove from pool balance
 		pool.KDABalance -= tc.GetAmount()
 		// add to addressTo balance
-		err = receiver.AddToBalance(tc.GetAmount(), tc.GetCurrencyID())
+		err = receiver.AddToBalance(tc.GetAmount(), tc.GetCurrencyID(), v.forkController.EnableSmartContracts())
 		if err != nil {
 			return transaction.Transaction_AccountError, err
 		}
@@ -302,7 +321,7 @@ func (v *kdaFeesPoolKApp) Swap(sender state.UserAccountHandler, klvAmount int64,
 	}
 
 	// SUB KDA from USER
-	err = sender.SubFromBalance(info.GetAmount(), info.GetKDA())
+	err = sender.SubFromBalance(info.GetAmount(), info.GetKDA(), v.forkController.EnableSmartContracts())
 	if err != nil {
 		return err
 	}
@@ -317,7 +336,7 @@ func (v *kdaFeesPoolKApp) Swap(sender state.UserAccountHandler, klvAmount int64,
 	}
 
 	// ADD KLV to User
-	err = sender.AddToBalance(klvAmount, nil)
+	err = sender.AddToBalance(klvAmount, nil, v.forkController.EnableSmartContracts())
 	if err != nil {
 		return err
 	}

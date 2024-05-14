@@ -4,14 +4,49 @@ on: [pull_request]
 
 jobs:
   config:
-    uses: klever-io/workflow-calls/.github/workflows/go-setup.yaml@master
+    uses: ./.github/workflows/go-setup.yaml
     secrets:
       git_user: ${{ secrets.GIT_USER }}
       git_pass: ${{ secrets.GIT_PASS }}
 
-  ci:
-    uses: klever-io/klever-go/.github/workflows/reusable.yaml@chore/qa-sec-tests
-    secrets:
-      sonar_token: ${{ secrets.SONAR_TOKEN }}
-      sonar_host_url: ${{ secrets.SONAR_HOST_URL }}
+  analysis:
     needs: [config]
+    runs-on: klever-pipe
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ vars.GO_VERSION }}
+
+      - name: Cache Vendor
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-vendor
+        with:
+          fail-on-cache-miss: true
+          path: vendor
+          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
+
+      - name: Run Gosec Security Scanner
+        uses: securego/gosec@master
+        env:
+          GITHUB_AUTHENTICATION_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: '--fmt sonarqube --out report.json ./...'
+
+      - name: SonarQube Go detailed scan
+        uses: sonarsource/sonarqube-scan-action@master
+        with:
+          args: >
+            -Dsonar.projectKey=${{ github.event.repository.name }}
+            -Dsonar.exclusions=**/*.json,**/*.xml,**/*_test.go,vendor/**,coverage.out
+            -Dsonar.test.inclusions="**/*_test.go"
+            -Dsonar.externalIssuesReportPaths="report.json"
+            -Dsonar.pullrequest.branch=${{ github.ref_name }}
+            -Dsonar.pullrequest.base=${{ github.base_ref }}
+            -Dsonar.pullrequest.key=${{ github.event.number }}            
+

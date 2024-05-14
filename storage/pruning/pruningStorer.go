@@ -934,8 +934,6 @@ func createPersisterPathForEpoch(args *StorerArgs, epoch uint32, shard string) s
 }
 
 func createPersisterDataForEpoch(args *StorerArgs, epoch uint32, shard string) (*persisterData, error) {
-	// TODO: if booting from storage in an epoch > 0, shardID needs to be taken from somewhere else
-	// e.g. determined from directories in persister path or taken from boot storer
 	filePath := createPersisterPathForEpoch(args, epoch, shard)
 
 	db, err := args.PersisterFactory.Create(filePath)

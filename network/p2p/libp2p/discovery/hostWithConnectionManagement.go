@@ -6,7 +6,7 @@ import (
 
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/tools/check"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 type hostWithConnectionManagement struct {
@@ -48,7 +48,7 @@ func (hwcm *hostWithConnectionManagement) canConnectToPeer(pid peer.ID) error {
 
 	evicted := hwcm.sharder.ComputeEvictionList(allPeers)
 	if hwcm.sharder.Has(pid, evicted) {
-		return fmt.Errorf("%w, pid: %s", p2p.ErrUnwantedPeer, pid.Pretty())
+		return fmt.Errorf("%w, pid: %s", p2p.ErrUnwantedPeer, pid.String())
 	}
 
 	return nil

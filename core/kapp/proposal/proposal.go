@@ -227,7 +227,7 @@ func (p *proposalKapp) Create(sender []byte, tc *transaction.ProposalContract) (
 		return transaction.Transaction_LoadAccountError, err
 	}
 
-	userKFIStaking, err := ownerAcc.GetUserKDA(kdautils.KFIIdentifier, nil)
+	userKFIStaking, err := ownerAcc.GetUserKDA(kdautils.KFIIdentifier, nil, p.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_AccountError, err
 	}
@@ -319,7 +319,7 @@ func (p *proposalKapp) Vote(sender []byte, tc *transaction.VoteContract) (transa
 		return transaction.Transaction_LoadAccountError, err
 	}
 
-	userKFIStaking, err := ownerAcc.GetUserKDA(kdautils.KFIIdentifier, nil)
+	userKFIStaking, err := ownerAcc.GetUserKDA(kdautils.KFIIdentifier, nil, p.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_AccountError, err
 	}

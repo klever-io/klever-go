@@ -110,8 +110,8 @@ func TestTxProcessor_ProcessTransferKDAFee(t *testing.T) {
 	// Validate Balance
 	ownerAcc, err := args.AccountsCacher.LoadUser(testOwnerAddress)
 	require.Nil(t, err)
-	assert.Equal(t, initialBalance, ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, kdaBalance, ownerAcc.GetBalance(kdaID))
+	assert.Equal(t, initialBalance, ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, kdaBalance, ownerAcc.GetBalance(kdaID, true))
 	assert.Equal(t, nonceCounter, ownerAcc.GetNonce())
 
 	// withdraw KLV from POOL
@@ -129,8 +129,8 @@ func TestTxProcessor_ProcessTransferKDAFee(t *testing.T) {
 	// Validate Balance
 	ownerAcc, err = args.AccountsCacher.LoadUser(testOwnerAddress)
 	require.Nil(t, err)
-	assert.Equal(t, initialBalance, ownerAcc.GetBalance(kdautils.KLVIdentifier))
-	assert.Equal(t, kdaBalance, ownerAcc.GetBalance(kdaID))
+	assert.Equal(t, initialBalance, ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, kdaBalance, ownerAcc.GetBalance(kdaID, true))
 	assert.Equal(t, nonceCounter, ownerAcc.GetNonce())
 
 }

@@ -316,7 +316,7 @@ func TestGasUsed_KDATransfer_ThenExecuteCall_Success(t *testing.T) {
 		WithSetup(func(host vmhost.VMHost, world *worldmock.MockWorld) {
 			// AddBalance
 			acc, _ := world.AccountsCacher.LoadUser(test.ParentAddress)
-			_ = acc.AddToBalance(initialKDATokenBalance, test.KDATestTokenName)
+			_ = acc.AddToBalance(initialKDATokenBalance, test.KDATestTokenName, true)
 
 			createMockBuiltinFunctions(t, host, world)
 			setZeroCodeCosts(host)
@@ -330,11 +330,11 @@ func TestGasUsed_KDATransfer_ThenExecuteCall_Success(t *testing.T) {
 				GasRemaining(testConfig.GasProvided - testConfig.GasUsedByParent - kdaTransferGasCost - testConfig.GasUsedByChild)
 
 			user, _ := world.AccountsCacher.LoadUser(test.ParentAddress)
-			userKda, _ := user.GetUserKDA(test.KDATestTokenName, nil)
+			userKda, _ := user.GetUserKDA(test.KDATestTokenName, nil, true)
 			require.Equal(t, initialKDATokenBalance-testConfig.KDATokensToTransfer, userKda.Balance)
 
 			child, _ := world.AccountsCacher.LoadUser(test.ChildAddress)
-			childUserKda, _ := child.GetUserKDA(test.KDATestTokenName, nil)
+			childUserKda, _ := child.GetUserKDA(test.KDATestTokenName, nil, true)
 			require.Equal(t, testConfig.KDATokensToTransfer, childUserKda.Balance)
 		})
 	assert.Nil(t, err)
@@ -366,7 +366,7 @@ func TestGasUsed_KDATransfer_ThenExecuteCall_Fail(t *testing.T) {
 		WithSetup(func(host vmhost.VMHost, world *worldmock.MockWorld) {
 			// AddBalance
 			acc, _ := world.AccountsCacher.LoadUser(test.ParentAddress)
-			_ = acc.AddToBalance(int64(initialKDATokenBalance), test.KDATestTokenName)
+			_ = acc.AddToBalance(int64(initialKDATokenBalance), test.KDATestTokenName, true)
 
 			createMockBuiltinFunctions(t, host, world)
 			setZeroCodeCosts(host)
@@ -377,10 +377,10 @@ func TestGasUsed_KDATransfer_ThenExecuteCall_Fail(t *testing.T) {
 				GasRemaining(0)
 
 			user, _ := world.AccountsCacher.LoadUser(test.ParentAddress)
-			require.Equal(t, initialKDATokenBalance, uint64(user.GetBalance(test.KDATestTokenName)))
+			require.Equal(t, initialKDATokenBalance, uint64(user.GetBalance(test.KDATestTokenName, true)))
 
 			child, _ := world.AccountsCacher.LoadUser(test.ChildAddress)
-			require.Equal(t, uint64(0), uint64(child.GetBalance(test.KDATestTokenName)))
+			require.Equal(t, uint64(0), uint64(child.GetBalance(test.KDATestTokenName, true)))
 		})
 	assert.Nil(t, err)
 }
@@ -411,7 +411,7 @@ func TestGasUsed_KDATransferFailed(t *testing.T) {
 		WithSetup(func(host vmhost.VMHost, world *worldmock.MockWorld) {
 			// AddBalance
 			acc, _ := world.AccountsCacher.LoadUser(test.ParentAddress)
-			_ = acc.AddToBalance(int64(initialKDATokenBalance), test.KDATestTokenName)
+			_ = acc.AddToBalance(int64(initialKDATokenBalance), test.KDATestTokenName, true)
 
 			createMockBuiltinFunctions(t, host, world)
 			setZeroCodeCosts(host)
@@ -422,11 +422,11 @@ func TestGasUsed_KDATransferFailed(t *testing.T) {
 				GasRemaining(0)
 
 			user, _ := world.AccountsCacher.LoadUser(test.ParentAddress)
-			userKda, _ := user.GetUserKDA(test.KDATestTokenName, nil)
+			userKda, _ := user.GetUserKDA(test.KDATestTokenName, nil, true)
 			require.Equal(t, initialKDATokenBalance, userKda.Balance)
 
 			child, _ := world.AccountsCacher.LoadUser(test.ChildAddress)
-			childUserKda, _ := child.GetUserKDA(test.KDATestTokenName, nil)
+			childUserKda, _ := child.GetUserKDA(test.KDATestTokenName, nil, true)
 			require.Equal(t, int64(0), childUserKda.Balance)
 		})
 	assert.Nil(t, err)

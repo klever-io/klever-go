@@ -49,16 +49,17 @@ func SendPayFeesWithKDA(args common.TestArgs, keyfile string, to string, amount 
 }
 
 func CreateWallet() (string, string, error) {
-	walletName := fmt.Sprintf("auxAddress-%d", time.Now().Unix())
+	walletName := fmt.Sprintf("auxAddress-%d.pem", time.Now().Unix())
 	err := common.Exec("go", "run", "./cmd/operator/", "account", "create", fmt.Sprintf("--key-file=./%s", walletName))
 	if err != nil {
 		return "", "", err
 	}
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	_, _, addr, err := utils.LoadKey(walletName)
-	if err != nil {
+	if err != nil || len(addr) == 0 {
+		err = fmt.Errorf("AddrLen: %d, Error: %v", len(addr), err)
 		fmt.Printf("error : %s", err)
 		return "", "", err
 	}
@@ -226,6 +227,7 @@ func configITOButPayedWithKDA(args common.TestArgs, kdaID string) error {
 }
 
 func kdaFeePool_KLV_DepositAndWithdraw(args common.TestArgs) error {
+	fmt.Println("KDA Fee Pool KLV Deposit and Withdraw")
 	// Create a asset and activate the feepool of this asset
 	assetId, err := CreateKdaFeePool(args, "1000", "100000")
 	if err != nil {
@@ -277,6 +279,7 @@ func kdaFeePool_KLV_DepositAndWithdraw(args common.TestArgs) error {
 }
 
 func createKdaFeePool_KLV_Deposit(args common.TestArgs) (string, error) {
+	fmt.Println("KDA Fee Pool KLV Deposit")
 	// Create a asset and activate the feepool of this asset
 	assetId, err := CreateKdaFeePool(args, "1", "1")
 	if err != nil {
@@ -310,6 +313,7 @@ func createKdaFeePool_KLV_Deposit(args common.TestArgs) (string, error) {
 }
 
 func kdaFeePool_KDA_DepositAndWithdraw(args common.TestArgs) error {
+	fmt.Println("KDA Fee Pool KDA Deposit and Withdraw")
 	// Create a asset and activate the feepool of this asset
 	assetId, err := CreateKdaFeePool(args, "1000", "100000")
 	if err != nil {
@@ -361,6 +365,7 @@ func kdaFeePool_KDA_DepositAndWithdraw(args common.TestArgs) error {
 }
 
 func kdaFeePool_KLV_KDA_Deposit(args common.TestArgs) (string, error) {
+	fmt.Println("KDA Fee Pool KLV and KDA Deposit")
 	// Create a asset and activate the feepool of this asset
 	assetId, err := CreateKdaFeePool(args, "1", "100")
 	if err != nil {

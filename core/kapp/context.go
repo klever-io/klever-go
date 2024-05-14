@@ -15,6 +15,7 @@ type kappContext struct {
 	txHash         []byte
 	txNonce        uint64
 	returnData     [][]byte
+	isScSimulation bool
 }
 
 // ArgsNewKAppContext holds the arguments needed to create the KApp Context
@@ -26,6 +27,7 @@ type ArgsNewKAppContext struct {
 	TxHash         []byte
 	TxNonce        uint64
 	TxData         [][]byte
+	IsScSimulation bool
 }
 
 type ReceiptSlice []*transaction.Transaction_Receipt
@@ -48,6 +50,7 @@ func NewKappContext(args ArgsNewKAppContext) KappContext {
 		txHash:         args.TxHash,
 		txNonce:        args.TxNonce,
 		returnData:     make([][]byte, 0),
+		isScSimulation: args.IsScSimulation,
 	}
 }
 
@@ -73,6 +76,10 @@ func (k *kappContext) TxHash() []byte {
 
 func (k *kappContext) TxNonce() uint64 {
 	return k.txNonce
+}
+
+func (k *kappContext) IsScSimulation() bool {
+	return k.isScSimulation
 }
 
 func (k *kappContext) SetContractID(id int) {

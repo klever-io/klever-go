@@ -2,7 +2,7 @@ package kdaconvert
 
 import (
 	"bytes"
-	"encoding/binary"
+	"strconv"
 
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 
@@ -65,13 +65,7 @@ func WriteScenariosKDAToStorage(kdaData []*scenjsonmodel.KDAData, destination st
 
 			userKDA := kapps.UserKDA{Balance: instance.Balance.Value.Int64()}
 
-			// uint64 to []byte
-			var nonce []byte = nil
-			if instance.Nonce.Value > 0 {
-				buf := make([]byte, binary.MaxVarintLen64)
-				n := binary.PutUvarint(buf, instance.Nonce.Value)
-				nonce = buf[:n]
-			}
+			nonce := []byte(strconv.FormatUint(instance.Nonce.Value, 10))
 			err := destination.SetUserKDA(assetID, nonce, &userKDA)
 			if err != nil {
 				return err

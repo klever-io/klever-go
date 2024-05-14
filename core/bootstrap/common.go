@@ -44,6 +44,9 @@ func checkArguments(args ArgsEpochStartBootstrap) error {
 	if args.GenesisNodesConfig == nil {
 		return fmt.Errorf("%s: %w", baseErrorMessage, common.ErrNilGenesisNodesConfig)
 	}
+	/*if check.IfNil(args.Rater) {
+		return fmt.Errorf("%s: %w", baseErrorMessage, common.ErrNilRater)
+	}*/
 	if len(args.DefaultDBPath) == 0 {
 		return fmt.Errorf("%s: %w", baseErrorMessage, common.ErrInvalidDefaultDBPath)
 	}

@@ -30,6 +30,7 @@ const (
 	managedGetBackTransferName              = "managedGetBackTransfer"
 	managedGetKDABalanceName                = "managedGetKDABalance"
 	managedGetKDATokenDataName              = "managedGetKDATokenData"
+	managedGetSftTokenDataName              = "managedGetSftTokenData"
 	managedGetKDARolesName                  = "managedGetKDARoles"
 	managedGetReturnDataName                = "managedGetReturnData"
 	managedGetPrevBlockRandomSeedName       = "managedGetPrevBlockRandomSeed"
@@ -478,15 +479,11 @@ func ManagedGetKDATokenDataWithHost(
 	managedType.GetBigIntOrCreate(burnedHandle).Set(big.NewInt(int64(kda.BurnedValue)))
 	managedType.GetBigIntOrCreate(issueDateHandle).Set(big.NewInt(int64(kda.IssueDate)))
 
-	// TODO: Validate that conditional
-	royalties := make([]byte, 0)
-	if kda.Royalties != nil {
-		royalties = writeRoyaltiesToBytes(managedType, kda.Royalties)
-	}
+	royalties := writeRoyaltiesToBytes(managedType, kda.Royalties)
 
 	managedType.SetBytes(royaltiesHandle, royalties)
 
-	managedType.GetBigIntOrCreate(propertiesHandle).Set(big.NewInt(int64(getPropertiesValue(kda.Properties))))
+	managedType.GetBigIntOrCreate(propertiesHandle).Set(big.NewInt(int64(getPropertiesValue(kda.Properties, int32(kda.AssetType)))))
 	managedType.GetBigIntOrCreate(attributesHandle).Set(big.NewInt(int64(getAttributesValue(kda.Attributes))))
 
 	roles := writeRolesToBytes(managedType, kda.Roles)
@@ -973,4 +970,50 @@ func ManagedIsBuiltinFunctionWithHost(host vmhost.VMHost, functionNameHandle int
 	}
 
 	return 0
+}
+
+// ManagedGetSftMetadata VMHooks implementation.
+// @autogenerate(VMHooks)
+func (context *VMHooksImpl) ManagedGetSftMetadata(
+	tickerHandle int32,
+	nonce int64,
+	dataHandle int32,
+) {
+	host := context.GetVMHost()
+	ManagedGetSftMetadataWithHost(
+		host,
+		tickerHandle,
+		nonce,
+		dataHandle)
+}
+
+func ManagedGetSftMetadataWithHost(
+	host vmhost.VMHost,
+	tickerHandle int32,
+	nonce int64,
+	dataHandle int32,
+) {
+	runtime := host.Runtime()
+	metering := host.Metering()
+	blockchain := host.Blockchain()
+	managedType := host.ManagedTypes()
+	metering.StartGasTracing(managedGetSftTokenDataName)
+
+	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetExternalBalance
+	metering.UseAndTraceGas(gasToUse)
+
+	ticker, err := managedType.GetBytes(tickerHandle)
+	if err != nil {
+		_ = WithFaultAndHost(host, vmhost.ErrArgOutOfRange, runtime.BaseOpsErrorShouldFailExecution())
+		return
+	}
+
+	meta, err := blockchain.GetSFTMeta(ticker, uint64(nonce))
+	if err != nil {
+		_ = WithFaultAndHost(host, vmhost.ErrArgOutOfRange, runtime.BaseOpsErrorShouldFailExecution())
+		return
+	}
+
+	metadata := writeSFTMeta(managedType, meta)
+	managedType.SetBytes(dataHandle, metadata)
 }

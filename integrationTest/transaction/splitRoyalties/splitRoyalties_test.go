@@ -136,11 +136,11 @@ func TestTransaction_SplitRoyalties_Fungible_TransferPercentage_ShouldWork(t *te
 	splitAccount2 := integrationTest.GetUserAccount(nodes[0], split2.Address)
 	require.NotNil(t, splitAccount2)
 
-	mainRoyaltyKDABalance, err := mainRoyaltyAccount.GetUserKDA([]byte(assetId), nil)
+	mainRoyaltyKDABalance, err := mainRoyaltyAccount.GetUserKDA([]byte(assetId), nil, true)
 	require.Nil(t, err)
-	splitAccount1KDABalance, err := splitAccount1.GetUserKDA([]byte(assetId), nil)
+	splitAccount1KDABalance, err := splitAccount1.GetUserKDA([]byte(assetId), nil, true)
 	require.Nil(t, err)
-	splitAccount2KDABalance, err := splitAccount2.GetUserKDA([]byte(assetId), nil)
+	splitAccount2KDABalance, err := splitAccount2.GetUserKDA([]byte(assetId), nil, true)
 	require.Nil(t, err)
 
 	require.Equal(t, estimatedTotalRoyalty-estimatedTotalSplitRoyalty, mainRoyaltyKDABalance.Balance)
@@ -269,9 +269,9 @@ func TestTransaction_SplitRoyalties_Fungible_TransferFixed_ShouldWork(t *testing
 	splitAccount2 := integrationTest.GetUserAccount(nodes[0], split2.Address)
 	require.NotNil(t, splitAccount2)
 
-	require.Equal(t, estimatedTotalRoyalty-estimatedTotalSplitRoyalty, mainRoyaltyAccount.GetBalance(kdautils.KLVIdentifier))
-	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 100), splitAccount1.GetBalance(kdautils.KLVIdentifier))
-	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 200), splitAccount2.GetBalance(kdautils.KLVIdentifier))
+	require.Equal(t, estimatedTotalRoyalty-estimatedTotalSplitRoyalty, mainRoyaltyAccount.GetBalance(kdautils.KLVIdentifier, true))
+	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 100), splitAccount1.GetBalance(kdautils.KLVIdentifier, true))
+	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 200), splitAccount2.GetBalance(kdautils.KLVIdentifier, true))
 }
 
 func TestTransaction_SplitRoyalties_Fungible_TransferFixedAndPercentage_ShouldWork(t *testing.T) {
@@ -398,15 +398,15 @@ func TestTransaction_SplitRoyalties_Fungible_TransferFixedAndPercentage_ShouldWo
 	splitAccount2 := integrationTest.GetUserAccount(nodes[0], split2.Address)
 	require.NotNil(t, splitAccount2)
 
-	require.Equal(t, estimatedFixedTotalRoyalty-estimatedFixedTotalSplitRoyalty, mainRoyaltyAccount.GetBalance(kdautils.KLVIdentifier))
-	require.Equal(t, computeRoyalty(estimatedFixedTotalRoyalty, 100), splitAccount1.GetBalance(kdautils.KLVIdentifier))
-	require.Equal(t, computeRoyalty(estimatedFixedTotalRoyalty, 200), splitAccount2.GetBalance(kdautils.KLVIdentifier))
+	require.Equal(t, estimatedFixedTotalRoyalty-estimatedFixedTotalSplitRoyalty, mainRoyaltyAccount.GetBalance(kdautils.KLVIdentifier, true))
+	require.Equal(t, computeRoyalty(estimatedFixedTotalRoyalty, 100), splitAccount1.GetBalance(kdautils.KLVIdentifier, true))
+	require.Equal(t, computeRoyalty(estimatedFixedTotalRoyalty, 200), splitAccount2.GetBalance(kdautils.KLVIdentifier, true))
 
-	mainRoyaltyKDABalance, err := mainRoyaltyAccount.GetUserKDA([]byte(assetId), nil)
+	mainRoyaltyKDABalance, err := mainRoyaltyAccount.GetUserKDA([]byte(assetId), nil, true)
 	require.Nil(t, err)
-	splitAccount1KDABalance, err := splitAccount1.GetUserKDA([]byte(assetId), nil)
+	splitAccount1KDABalance, err := splitAccount1.GetUserKDA([]byte(assetId), nil, true)
 	require.Nil(t, err)
-	splitAccount2KDABalance, err := splitAccount2.GetUserKDA([]byte(assetId), nil)
+	splitAccount2KDABalance, err := splitAccount2.GetUserKDA([]byte(assetId), nil, true)
 	require.Nil(t, err)
 
 	require.Equal(t, estimatedPercentageTotalRoyalty-estimatedPercentageTotalSplitRoyalty, mainRoyaltyKDABalance.Balance)
@@ -561,9 +561,9 @@ func TestTransaction_SplitRoyalties_NFT_TransferFixed_ShouldWork(t *testing.T) {
 	splitAccount2 := integrationTest.GetUserAccount(nodes[0], split2.Address)
 	require.NotNil(t, splitAccount2)
 
-	require.Equal(t, estimatedTotalRoyalty-estimatedTotalSplitRoyalty, mainRoyaltyAccount.GetBalance(kdautils.KLVIdentifier))
-	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 100), splitAccount1.GetBalance(kdautils.KLVIdentifier))
-	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 200), splitAccount2.GetBalance(kdautils.KLVIdentifier))
+	require.Equal(t, estimatedTotalRoyalty-estimatedTotalSplitRoyalty, mainRoyaltyAccount.GetBalance(kdautils.KLVIdentifier, true))
+	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 100), splitAccount1.GetBalance(kdautils.KLVIdentifier, true))
+	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 200), splitAccount2.GetBalance(kdautils.KLVIdentifier, true))
 }
 
 func TestTransaction_SplitRoyalties_NFT_MarketPercentage_ShouldWork(t *testing.T) {
@@ -767,7 +767,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketPercentage_ShouldWork(t *testing.T
 	receiverAccount := integrationTest.GetUserAccount(nodes[0], receiver.Address)
 	require.NotNil(t, receiverAccount)
 
-	nftBalance, _ := receiverAccount.GetUserKDA([]byte(assetId), []byte("1"))
+	nftBalance, _ := receiverAccount.GetUserKDA([]byte(assetId), []byte("1"), true)
 	require.Equal(t, int64(1), nftBalance.Balance)
 
 	estimatedTotalRoyalty := computeRoyalty(1_200_000, 100)
@@ -780,9 +780,9 @@ func TestTransaction_SplitRoyalties_NFT_MarketPercentage_ShouldWork(t *testing.T
 	splitAccount2 := integrationTest.GetUserAccount(nodes[0], split2.Address)
 	require.NotNil(t, splitAccount2)
 
-	require.Equal(t, estimatedTotalRoyalty-estimatedTotalSplitRoyalty, mainRoyaltyAccount.GetBalance(kdautils.KLVIdentifier))
-	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 100), splitAccount1.GetBalance(kdautils.KLVIdentifier))
-	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 200), splitAccount2.GetBalance(kdautils.KLVIdentifier))
+	require.Equal(t, estimatedTotalRoyalty-estimatedTotalSplitRoyalty, mainRoyaltyAccount.GetBalance(kdautils.KLVIdentifier, true))
+	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 100), splitAccount1.GetBalance(kdautils.KLVIdentifier, true))
+	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 200), splitAccount2.GetBalance(kdautils.KLVIdentifier, true))
 }
 
 func TestTransaction_SplitRoyalties_NFT_MarketFixed_ShouldWork(t *testing.T) {
@@ -987,7 +987,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixed_ShouldWork(t *testing.T) {
 	receiverAccount := integrationTest.GetUserAccount(nodes[0], receiver.Address)
 	require.NotNil(t, receiverAccount)
 
-	nftBalance, _ := receiverAccount.GetUserKDA([]byte(assetId), []byte("1"))
+	nftBalance, _ := receiverAccount.GetUserKDA([]byte(assetId), []byte("1"), true)
 	require.Equal(t, int64(1), nftBalance.Balance)
 
 	estimatedTotalRoyalty := int64(100)
@@ -1000,9 +1000,9 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixed_ShouldWork(t *testing.T) {
 	splitAccount2 := integrationTest.GetUserAccount(nodes[0], split2.Address)
 	require.NotNil(t, splitAccount2)
 
-	require.Equal(t, estimatedTotalRoyalty-estimatedTotalSplitRoyalty, mainRoyaltyAccount.GetBalance(kdautils.KLVIdentifier))
-	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 100), splitAccount1.GetBalance(kdautils.KLVIdentifier))
-	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 200), splitAccount2.GetBalance(kdautils.KLVIdentifier))
+	require.Equal(t, estimatedTotalRoyalty-estimatedTotalSplitRoyalty, mainRoyaltyAccount.GetBalance(kdautils.KLVIdentifier, true))
+	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 100), splitAccount1.GetBalance(kdautils.KLVIdentifier, true))
+	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 200), splitAccount2.GetBalance(kdautils.KLVIdentifier, true))
 }
 
 func TestTransaction_SplitRoyalties_NFT_MarketFixedAndPercentage_ShouldWork(t *testing.T) {
@@ -1209,7 +1209,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixedAndPercentage_ShouldWork(t *t
 	receiverAccount := integrationTest.GetUserAccount(nodes[0], receiver.Address)
 	require.NotNil(t, receiverAccount)
 
-	nftBalance, _ := receiverAccount.GetUserKDA([]byte(assetId), []byte("1"))
+	nftBalance, _ := receiverAccount.GetUserKDA([]byte(assetId), []byte("1"), true)
 	require.Equal(t, int64(1), nftBalance.Balance)
 
 	estimatedTotalRoyalty := int64(100)
@@ -1222,7 +1222,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixedAndPercentage_ShouldWork(t *t
 	splitAccount2 := integrationTest.GetUserAccount(nodes[0], split2.Address)
 	require.NotNil(t, splitAccount2)
 
-	require.Equal(t, estimatedTotalRoyalty-estimatedTotalSplitRoyalty, mainRoyaltyAccount.GetBalance(kdautils.KLVIdentifier))
-	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 100), splitAccount1.GetBalance(kdautils.KLVIdentifier))
-	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 200), splitAccount2.GetBalance(kdautils.KLVIdentifier))
+	require.Equal(t, estimatedTotalRoyalty-estimatedTotalSplitRoyalty, mainRoyaltyAccount.GetBalance(kdautils.KLVIdentifier, true))
+	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 100), splitAccount1.GetBalance(kdautils.KLVIdentifier, true))
+	require.Equal(t, computeRoyalty(estimatedTotalRoyalty, 200), splitAccount2.GetBalance(kdautils.KLVIdentifier, true))
 }

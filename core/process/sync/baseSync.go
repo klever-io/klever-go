@@ -508,7 +508,9 @@ func (boot *baseBootstrap) syncBlocks(ctx context.Context) {
 
 		if boot.epochToEndFinished {
 			log.Warn("finish sync", "epoch", boot.syncUntil)
-			boot.Close()
+			if err := boot.Close(); err != nil {
+				log.Debug("Close", "error", err.Error())
+			}
 		}
 
 		// check connection

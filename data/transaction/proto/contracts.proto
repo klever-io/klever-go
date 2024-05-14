@@ -147,6 +147,7 @@ message AssetTriggerContract {
     StakingInfo        Staking      = 9  [json_name = "staking,omitempty"];
     RoyaltiesInfo      Royalties    = 10 [json_name = "royalties,omitempty"];
     KDAPoolInfo        KDAPool      = 11 [json_name = "kdaPool,omitempty"];
+    int64              Value        = 12 [json_name = "value,omitempty"];
 }
 
 // ValidatorConfig holds the data for a validator configuration
@@ -223,7 +224,7 @@ message UnjailContract {}
 
 // SetAccountNameContract holds the data for a setAccountName transaction
 message SetAccountNameContract {
-    bytes Name     = 1 [json_name = "name"];
+    bytes Name    = 1 [json_name = "name"];
 }
 
 // ProposalContract holds the data for a proposal transaction

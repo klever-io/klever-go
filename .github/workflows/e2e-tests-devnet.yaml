@@ -1,21 +1,36 @@
-name: End-To-End Manual Tests - Devnet
+name: End-To-End Tests - Devnet
 on: workflow_dispatch
 
 jobs:
   config:
-    uses: klever-io/workflow-calls/.github/workflows/go-setup.yaml@master
-    with:
-      with_vendor: false
-      with_cache: false
-      go_private: "github.com/klever-io/*"
+    uses: ./.github/workflows/go-setup.yaml
     secrets:
       git_user: ${{ secrets.GIT_USER }}
       git_pass: ${{ secrets.GIT_PASS }}
 
   e2e-tests:
-    uses: klever-io/klever-go/.github/workflows/e2e-reusable.yaml@develop
-    secrets:
-      node_url: ${{ secrets.E2E_DEVNET_NODE_URL }}
-      proxy_url: ${{ secrets.E2E_DEVNET_PROXY_URL }}
-      private_keys: ${{ secrets.E2E_DEVNET_PRIVATE_KEYS }}
-    needs: [ config ]
+    needs: [config]
+    runs-on: klever-pipe
+    env:
+      E2E_NODE_URL: ${{ secrets.E2E_DEVNET_NODE_URL }}
+      E2E_PROXY_URL: ${{ secrets.E2E_DEVNET_PROXY_URL }}
+      E2E_PRIVATE_KEYS: ${{ secrets.E2E_DEVNET_PRIVATE_KEYS }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ vars.GO_VERSION }}
+
+      - name: Cache Vendor
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-vendor
+        with:
+          fail-on-cache-miss: true
+          path: vendor
+          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
+
+      - name: Run End-To-End Tests
+        run: |
+          make e2e-tests

@@ -270,7 +270,9 @@ func (tdp *txDatabaseProcessor) indexReceipt(
 			})
 
 		case ptx.UpdateAccountPermission:
-			// nothing to do
+			ad.Accounts.Add(m["address"].(string), &data.AlteredAccount{
+				IsSender: false,
+			})
 
 		case ptx.SignedBy:
 			// nothing to do
@@ -409,9 +411,19 @@ func (tdp *txDatabaseProcessor) indexReceipt(
 				IsSmartContract: true,
 			})
 
+		case ptx.SetAccountName:
+			updatedAddress := m["address"].(string)
+			addressBytes, _ := tdp.addressPubkeyConverter.Decode(updatedAddress)
+
+			isSender := updatedAddress == sender
+			isSmartContract := core.IsSmartContractAddress(addressBytes)
+			ad.Accounts.Add(updatedAddress, &data.AlteredAccount{
+				IsSender:        isSender,
+				IsSmartContract: isSmartContract,
+			})
 		default:
-			_ = bugsnag.Notify(fmt.Errorf("indexReceipt not able to index. Type: %v", m["type"]))
-			log.Error("indexReceipt not able to index", "type", m["type"])
+			_ = bugsnag.Notify(fmt.Errorf("indexReceipt not able to index. Hash: %s, Type: %v", txHash, m["type"]))
+			log.Error("indexReceipt not able to index", "type", m["type"], "txHash", txHash)
 		}
 	}
 }

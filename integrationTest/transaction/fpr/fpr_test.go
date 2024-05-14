@@ -102,8 +102,8 @@ func TestTransaction_TransactionFPR(t *testing.T) {
 		senderAccount := integrationTest.GetUserAccount(nodes[1], sender.Address)
 		require.NotNil(t, senderAccount)
 		assert.Equal(t, uint64(1), senderAccount.GetNonce())
-		assert.Equal(t, initialBalance-(tx1.GetTotalFees()), senderAccount.GetBalance(kdautils.KLVIdentifier))
-		assert.Equal(t, initialSupply, senderAccount.GetBalance([]byte(assetId)))
+		assert.Equal(t, initialBalance-(tx1.GetTotalFees()), senderAccount.GetBalance(kdautils.KLVIdentifier, true))
+		assert.Equal(t, initialSupply, senderAccount.GetBalance([]byte(assetId), true))
 	}
 
 	//check account initial supply
@@ -150,16 +150,16 @@ func TestTransaction_TransactionFPR(t *testing.T) {
 	{
 		receiver1 := integrationTest.GetUserAccount(nodes[1], wallets[1].Address)
 		require.False(t, receiver1.IsInterfaceNil())
-		assert.Equal(t, amountMinted, receiver1.GetBalance([]byte(assetId)))
+		assert.Equal(t, amountMinted, receiver1.GetBalance([]byte(assetId), true))
 
 		receiver2 := integrationTest.GetUserAccount(nodes[1], wallets[2].Address)
 		require.False(t, receiver2.IsInterfaceNil())
-		assert.Equal(t, amountMinted, receiver2.GetBalance([]byte(assetId)))
+		assert.Equal(t, amountMinted, receiver2.GetBalance([]byte(assetId), true))
 
 		senderAccount := integrationTest.GetUserAccount(nodes[1], sender.Address)
 		require.False(t, senderAccount.IsInterfaceNil())
 		assert.Equal(t, uint64(3), senderAccount.GetNonce())
-		assert.Equal(t, initialBalance-mainWalletFee, senderAccount.GetBalance(kdautils.KLVIdentifier))
+		assert.Equal(t, initialBalance-mainWalletFee, senderAccount.GetBalance(kdautils.KLVIdentifier, true))
 	}
 
 	tx4, txHash4, err := commonTxTest.CreateAndSendTransaction(nodes[0],
@@ -195,15 +195,15 @@ func TestTransaction_TransactionFPR(t *testing.T) {
 	{
 		receiver1 := integrationTest.GetUserAccount(nodes[1], wallets[1].Address)
 		require.False(t, receiver1.IsInterfaceNil())
-		assert.Equal(t, int64(0), receiver1.GetBalance([]byte(assetId)))
-		assert.Equal(t, initialBalance-tx4.GetTotalFees(), receiver1.GetBalance(kdautils.KLVIdentifier))
-		assert.Equal(t, amountMinted, receiver1.GetFrozenBalance([]byte(assetId)))
+		assert.Equal(t, int64(0), receiver1.GetBalance([]byte(assetId), true))
+		assert.Equal(t, initialBalance-tx4.GetTotalFees(), receiver1.GetBalance(kdautils.KLVIdentifier, true))
+		assert.Equal(t, amountMinted, receiver1.GetFrozenBalance([]byte(assetId), true))
 
 		receiver2 := integrationTest.GetUserAccount(nodes[1], wallets[2].Address)
 		require.False(t, receiver2.IsInterfaceNil())
-		assert.Equal(t, int64(0), receiver2.GetBalance([]byte(assetId)))
-		assert.Equal(t, initialBalance-tx5.GetTotalFees(), receiver2.GetBalance(kdautils.KLVIdentifier))
-		assert.Equal(t, amountMinted, receiver2.GetFrozenBalance([]byte(assetId)))
+		assert.Equal(t, int64(0), receiver2.GetBalance([]byte(assetId), true))
+		assert.Equal(t, initialBalance-tx5.GetTotalFees(), receiver2.GetBalance(kdautils.KLVIdentifier, true))
+		assert.Equal(t, amountMinted, receiver2.GetFrozenBalance([]byte(assetId), true))
 	}
 
 	depositedAmount := int64(1000_000_000) // 1000 KLV
@@ -239,7 +239,7 @@ func TestTransaction_TransactionFPR(t *testing.T) {
 		senderAccount := integrationTest.GetUserAccount(nodes[1], wallets[0].Address)
 		require.False(t, senderAccount.IsInterfaceNil())
 		assert.Equal(t, uint64(4), senderAccount.GetNonce())
-		assert.Equal(t, initialBalance-mainWalletFee, senderAccount.GetBalance(kdautils.KLVIdentifier))
+		assert.Equal(t, initialBalance-mainWalletFee, senderAccount.GetBalance(kdautils.KLVIdentifier, true))
 	}
 
 	blkSlot, blkNonce, nodes, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
@@ -254,7 +254,7 @@ func TestTransaction_TransactionFPR(t *testing.T) {
 		receiver1 := integrationTest.GetUserAccount(nodes[1], wallets[1].Address)
 		require.False(t, receiver1.IsInterfaceNil())
 
-		receiver1Kda, err := receiver1.GetUserKDA([]byte(assetId), nil)
+		receiver1Kda, err := receiver1.GetUserKDA([]byte(assetId), nil, true)
 		require.NoError(t, err)
 		receiver1Rewards, err := receiver1.ComputeAvailableClaim([]byte(assetId),
 			nodes[1].Blkc.GetCurrentBlockHeader().GetEpoch(),
@@ -270,7 +270,7 @@ func TestTransaction_TransactionFPR(t *testing.T) {
 		receiver2 := integrationTest.GetUserAccount(nodes[1], wallets[1].Address)
 		require.False(t, receiver2.IsInterfaceNil())
 
-		receiver2Kda, err := receiver2.GetUserKDA([]byte(assetId), nil)
+		receiver2Kda, err := receiver2.GetUserKDA([]byte(assetId), nil, true)
 		require.NoError(t, err)
 		receiver2Rewards, err := receiver2.ComputeAvailableClaim([]byte(assetId),
 			nodes[1].Blkc.GetCurrentBlockHeader().GetEpoch(),
@@ -317,7 +317,7 @@ func TestTransaction_TransactionFPR(t *testing.T) {
 		receiver1 := integrationTest.GetUserAccount(nodes[1], wallets[1].Address)
 		require.False(t, receiver1.IsInterfaceNil())
 
-		receiver1Kda, err := receiver1.GetUserKDA([]byte(assetId), nil)
+		receiver1Kda, err := receiver1.GetUserKDA([]byte(assetId), nil, true)
 		require.NoError(t, err)
 		receiver1Rewards, err := receiver1.ComputeAvailableClaim([]byte(assetId),
 			nodes[1].Blkc.GetCurrentBlockHeader().GetEpoch(),
@@ -330,12 +330,12 @@ func TestTransaction_TransactionFPR(t *testing.T) {
 
 		assert.Equal(t, uint64(2), receiver1.GetNonce())
 		assert.Equal(t, int64(0), receiver1Rewards[depositedCurrency])
-		assert.Equal(t, initialBalance-tx4.GetTotalFees()-tx7.GetTotalFees()+(depositedAmount/depositedHolders), receiver1.GetBalance(kdautils.KLVIdentifier))
+		assert.Equal(t, initialBalance-tx4.GetTotalFees()-tx7.GetTotalFees()+(depositedAmount/depositedHolders), receiver1.GetBalance(kdautils.KLVIdentifier, true))
 
 		receiver2 := integrationTest.GetUserAccount(nodes[1], wallets[1].Address)
 		require.False(t, receiver2.IsInterfaceNil())
 
-		receiver2Kda, err := receiver2.GetUserKDA([]byte(assetId), nil)
+		receiver2Kda, err := receiver2.GetUserKDA([]byte(assetId), nil, true)
 		require.NoError(t, err)
 		receiver2Rewards, err := receiver2.ComputeAvailableClaim([]byte(assetId),
 			nodes[1].Blkc.GetCurrentBlockHeader().GetEpoch(),
@@ -348,6 +348,6 @@ func TestTransaction_TransactionFPR(t *testing.T) {
 
 		assert.Equal(t, uint64(2), receiver2.GetNonce())
 		assert.Equal(t, int64(0), receiver2Rewards[depositedCurrency])
-		assert.Equal(t, initialBalance-tx5.GetTotalFees()-tx8.GetTotalFees()+(depositedAmount/depositedHolders), receiver2.GetBalance(kdautils.KLVIdentifier))
+		assert.Equal(t, initialBalance-tx5.GetTotalFees()-tx8.GetTotalFees()+(depositedAmount/depositedHolders), receiver2.GetBalance(kdautils.KLVIdentifier, true))
 	}
 }

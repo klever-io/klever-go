@@ -3,6 +3,7 @@ package factory
 import (
 	"errors"
 	"os"
+	"path/filepath"
 )
 
 type directoryReader struct {
@@ -77,7 +78,7 @@ func (dr *directoryReader) listDirectoriesAndFilesAsString(directoryPath string)
 }
 
 func (dr *directoryReader) loadContent(path string) ([]os.FileInfo, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return nil, err
 	}

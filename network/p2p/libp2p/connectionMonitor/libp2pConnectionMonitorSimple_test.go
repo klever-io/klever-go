@@ -7,7 +7,7 @@ import (
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/network/p2p/mock"
 	"github.com/klever-io/klever-go/tools/check"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -131,11 +131,9 @@ func TestLibp2pConnectionMonitorSimple_EmptyFuncsShouldNotPanic(t *testing.T) {
 
 	lcms, _ := NewLibp2pConnectionMonitorSimple(&mock.ReconnecterStub{}, 3, &mock.SharderStub{})
 
-	lcms.ClosedStream(netw, nil)
 	lcms.Disconnected(netw, nil)
 	lcms.Listen(netw, nil)
 	lcms.ListenClose(netw, nil)
-	lcms.OpenedStream(netw, nil)
 }
 
 func TestLibp2pConnectionMonitorSimple_SetThresholdMinConnectedPeers(t *testing.T) {

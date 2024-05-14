@@ -174,7 +174,7 @@ func (txProc *baseTxProcessor) checkTxValues(tx *transaction.Transaction, acntSn
 	}
 
 	// check if account has balance (KLV or KDA)
-	accountAssetBalance := acntSnd.GetBalance(assetID)
+	accountAssetBalance := acntSnd.GetBalance(assetID, txProc.forkController.EnableSmartContracts())
 	if accountAssetBalance < totalFees {
 		return fmt.Errorf("%w, has: %d, wanted: %d",
 			process.ErrInsufficientFee,
@@ -593,7 +593,7 @@ func (txProc *baseTxProcessor) ClaimBalance(
 				userKDAToUpdate = userKDA
 			}
 
-			err = acc.AddToBalance(value, []byte(key), userKDAToUpdate)
+			err = acc.AddToBalance(value, []byte(key), txProc.forkController.EnableSmartContracts(), userKDAToUpdate)
 			if err != nil {
 				return nil, err
 			}

@@ -4,6 +4,7 @@
 //go:generate protoc -I=proto -I=$GOPATH/src -I=$GOPATH/src/github.com/klever-io/klever-go/protobuf --go_out=. proposal.proto
 //go:generate protoc -I=proto -I=$GOPATH/src -I=$GOPATH/src/github.com/klever-io/klever-go/protobuf --go_out=. ito.proto
 //go:generate protoc -I=proto -I=$GOPATH/src -I=$GOPATH/src/github.com/klever-io/klever-go/protobuf --go_out=. market.proto
+//go:generate protoc -I=proto -I=$GOPATH/src -I=$GOPATH/src/github.com/klever-io/klever-go/protobuf --go_out=. systemAccount.proto
 package kapps
 
 // StakingKAppAddress is the hard-coded address of the staking KApp
@@ -27,14 +28,17 @@ var ValidatorsKAppAddress = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 
 // KDAFeesPoolKAppAddress is the hard-coded address of the token fees pool KApp
 var KDAFeesPoolKAppAddress = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 6, 255, 255}
 
+var SystemAccountKAppAddress = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 255, 255}
+
 var KAppsAddressList = map[string]string{
-	string(StakingKAppAddress):     "Staking",
-	string(KDAKAppAddress):         "KDA",
-	string(ProposalKAppAddress):    "Proposal",
-	string(ITOKAppAddress):         "ITO",
-	string(MarketKAppAddress):      "Market",
-	string(ValidatorsKAppAddress):  "Validators",
-	string(KDAFeesPoolKAppAddress): "KDAFeesPool",
+	string(StakingKAppAddress):       "Staking",
+	string(KDAKAppAddress):           "KDA",
+	string(ProposalKAppAddress):      "Proposal",
+	string(ITOKAppAddress):           "ITO",
+	string(MarketKAppAddress):        "Market",
+	string(ValidatorsKAppAddress):    "Validators",
+	string(KDAFeesPoolKAppAddress):   "KDAFeesPool",
+	string(SystemAccountKAppAddress): "SystemAccount",
 }
 
 // Sp is the key separator

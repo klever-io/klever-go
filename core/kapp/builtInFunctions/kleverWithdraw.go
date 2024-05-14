@@ -20,7 +20,6 @@ type kleverWithdraw struct {
 	funcGasCost    uint64
 	marshaller     vmcommon.Marshalizer
 	keyPrefix      []byte
-	payableHandler vmcommon.PayableChecker
 	mutExecution   sync.RWMutex
 	forkController core.ForkController
 }
@@ -44,7 +43,6 @@ func NewKleverWithdrawFunc(
 		funcGasCost:    funcGasCost,
 		marshaller:     marshaller,
 		keyPrefix:      []byte(""),
-		payableHandler: &disabledPayableHandler{},
 		accountsCacher: accountsCacher,
 		forkController: forkController,
 		kappController: kappController,
@@ -82,10 +80,6 @@ func (e *kleverWithdraw) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallIn
 	gasRemaining := computeGasRemaining(vmInput.GasProvided, e.funcGasCost)
 
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
-	err = e.payableHandler.CheckPayable(vmInput, vmInput.RecipientAddr, core.MinLenArgumentsWithdraw)
-	if err != nil {
-		return nil, err
-	}
 
 	//Using Kapps
 	var resultCode transaction.Transaction_TXResultCode
@@ -131,16 +125,6 @@ func (e *kleverWithdraw) getWithdrawContract(vmInput *vmcommon.ContractCallInput
 	}
 
 	return contract, nil
-}
-
-// SetPayableChecker will set the payableCheck handler to the function
-func (e *kleverWithdraw) SetPayableChecker(payableHandler vmcommon.PayableChecker) error {
-	if check.IfNil(payableHandler) {
-		return ErrNilPayableHandler
-	}
-
-	e.payableHandler = payableHandler
-	return nil
 }
 
 // IsInterfaceNil returns true if underlying object in nil

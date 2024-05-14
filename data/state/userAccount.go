@@ -87,14 +87,14 @@ func (a *userAccount) HasNewCode() bool {
 }
 
 // GetUserKDA returns the unmarshalled kda data for the given key
-func (a *userAccount) GetUserKDA(assetID []byte, nonce []byte) (*kapps.UserKDA, error) {
+func (a *userAccount) GetUserKDA(assetID []byte, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
 	kdaData := &kapps.UserKDA{
 		LastClaim: &kapps.LastClaim{},
 		Buckets:   make(map[string]*kapps.UserBucket),
 	}
 
 	if check.IfNil(a.dataTrieTracker.DataTrie()) &&
-		len(a.dataTrieTracker.DirtyData()) == 0 {
+		(!checkDirtData || len(a.dataTrieTracker.DirtyData()) == 0) {
 		return kdaData, nil
 	}
 
@@ -159,7 +159,7 @@ func (a *userAccount) AddToAllowance(value int64) error {
 }
 
 // AddToBalance adds new value to balance
-func (a *userAccount) AddToBalance(value int64, assetID []byte, userKDAopts ...*kapps.UserKDA) error {
+func (a *userAccount) AddToBalance(value int64, assetID []byte, cdd bool, userKDAopts ...*kapps.UserKDA) error {
 	if value < 0 {
 		return ErrInvalidValue
 	}
@@ -181,7 +181,7 @@ func (a *userAccount) AddToBalance(value int64, assetID []byte, userKDAopts ...*
 	}
 
 	if userKDA == nil {
-		userKDA, err = a.GetUserKDA(assetID, nil)
+		userKDA, err = a.GetUserKDA(assetID, nil, cdd)
 		if err != nil {
 			return err
 		}
@@ -197,7 +197,7 @@ func (a *userAccount) AddToBalance(value int64, assetID []byte, userKDAopts ...*
 }
 
 // AddToBalance adds new value to balance
-func (a *userAccount) AddToBalanceWithNonce(value int64, assetID []byte, nonce []byte, userKDAopts ...*kapps.UserKDA) error {
+func (a *userAccount) AddToBalanceWithNonce(value int64, assetID []byte, nonce []byte, cdd bool, userKDAopts ...*kapps.UserKDA) error {
 	if value < 0 {
 		return ErrInvalidValue
 	}
@@ -218,7 +218,7 @@ func (a *userAccount) AddToBalanceWithNonce(value int64, assetID []byte, nonce [
 	}
 
 	if userKDA == nil {
-		userKDA, err = a.GetUserKDA(assetID, nonce)
+		userKDA, err = a.GetUserKDA(assetID, nonce, cdd)
 		if err != nil {
 			return err
 		}
@@ -234,7 +234,7 @@ func (a *userAccount) AddToBalanceWithNonce(value int64, assetID []byte, nonce [
 }
 
 // SubFromBalance subtracts new value from balance
-func (a *userAccount) SubFromBalance(value int64, assetID []byte, userKDAopts ...*kapps.UserKDA) error {
+func (a *userAccount) SubFromBalance(value int64, assetID []byte, cdd bool, userKDAopts ...*kapps.UserKDA) error {
 	if value < 0 {
 		return ErrInvalidValue
 	}
@@ -256,7 +256,7 @@ func (a *userAccount) SubFromBalance(value int64, assetID []byte, userKDAopts ..
 	}
 
 	if userKDA == nil {
-		userKDA, err = a.GetUserKDA(assetID, nil)
+		userKDA, err = a.GetUserKDA(assetID, nil, cdd)
 		if err != nil {
 			return err
 		}
@@ -272,7 +272,7 @@ func (a *userAccount) SubFromBalance(value int64, assetID []byte, userKDAopts ..
 }
 
 // AddToBalance adds new value to balance, clear key if balance == 0
-func (a *userAccount) SubFromBalanceWithNonce(value int64, assetID []byte, nonce []byte, userKDAopts ...*kapps.UserKDA) error {
+func (a *userAccount) SubFromBalanceWithNonce(value int64, assetID []byte, nonce []byte, cdd bool, userKDAopts ...*kapps.UserKDA) error {
 	if value < 0 {
 		return ErrInvalidValue
 	}
@@ -293,7 +293,7 @@ func (a *userAccount) SubFromBalanceWithNonce(value int64, assetID []byte, nonce
 	}
 
 	if userKDA == nil {
-		userKDA, err = a.GetUserKDA(assetID, nonce)
+		userKDA, err = a.GetUserKDA(assetID, nonce, cdd)
 		if err != nil {
 			return err
 		}
@@ -347,17 +347,17 @@ func (a *userAccount) DeleteInternalKDA(assetID []byte, internalID []byte) error
 }
 
 // GetBalance returns the actual balance from the account
-func (a *userAccount) GetBalance(assetID []byte) int64 {
+func (a *userAccount) GetBalance(assetID []byte, cdd bool) int64 {
 	if assetID == nil || bytes.Equal(assetID, kdautils.KLVIdentifier) {
 		return a.Balance
 	}
 
-	return a.GetBalanceWithNonce(assetID, nil)
+	return a.GetBalanceWithNonce(assetID, nil, cdd)
 }
 
 // GetBalance returns the actual balance from the account
-func (a *userAccount) GetBalanceWithNonce(assetID []byte, nonce []byte) int64 {
-	userKDA, err := a.GetUserKDA(assetID, nonce)
+func (a *userAccount) GetBalanceWithNonce(assetID []byte, nonce []byte, cdd bool) int64 {
+	userKDA, err := a.GetUserKDA(assetID, nonce, cdd)
 	if err != nil {
 		return 0
 	}
@@ -371,8 +371,8 @@ func (a *userAccount) GetAllowance() int64 {
 }
 
 // GetBalance returns the actual balance from the account
-func (a *userAccount) GetFrozenBalance(assetID []byte) int64 {
-	userKDA, err := a.GetUserKDA(assetID, nil)
+func (a *userAccount) GetFrozenBalance(assetID []byte, cdd bool) int64 {
+	userKDA, err := a.GetUserKDA(assetID, nil, cdd)
 	if err != nil {
 		return 0
 	}
@@ -381,8 +381,8 @@ func (a *userAccount) GetFrozenBalance(assetID []byte) int64 {
 }
 
 // GetBucket -
-func (a *userAccount) GetBuckets(assetID []byte) map[string]*kapps.UserBucket {
-	userKDA, err := a.GetUserKDA(assetID, nil)
+func (a *userAccount) GetBuckets(assetID []byte, cdd bool) map[string]*kapps.UserBucket {
+	userKDA, err := a.GetUserKDA(assetID, nil, cdd)
 	if err != nil {
 		return nil
 	}

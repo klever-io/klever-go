@@ -361,7 +361,7 @@ func (c *Controller) CreateFPRAsset() {
 
 func (c *Controller) AddUser(addr []byte, amount int64, assetID []byte) state.UserAccountHandler {
 	ownerAcc := loadUserAccount(c.accCacher, addr)
-	err := ownerAcc.AddToBalance(amount, assetID)
+	err := ownerAcc.AddToBalance(amount, assetID, true)
 	require.NoError(c.t, err)
 
 	err = c.userDB.SaveAccount(ownerAcc)
@@ -523,7 +523,7 @@ func (c *Controller) RunTriggerUpdateAPR(
 
 func (c *Controller) CheckBalance(addr []byte, assetID []byte, amount int64) state.UserAccountHandler {
 	ownerAcc := loadUserAccount(c.accCacher, addr)
-	assert.Equal(c.t, amount, ownerAcc.GetBalance(assetID))
+	assert.Equal(c.t, amount, ownerAcc.GetBalance(assetID, true))
 	return ownerAcc
 }
 
@@ -597,7 +597,7 @@ func (c *Controller) GetAsset(assetID []byte) (*kapps.KDAData, error) {
 
 func (c *Controller) CheckFrozenBalance(addr []byte, assetID []byte, amount int64) state.UserAccountHandler {
 	ownerAcc := loadUserAccount(c.accCacher, addr)
-	assert.Equal(c.t, amount, ownerAcc.GetFrozenBalance(assetID))
+	assert.Equal(c.t, amount, ownerAcc.GetFrozenBalance(assetID, true))
 	return ownerAcc
 }
 

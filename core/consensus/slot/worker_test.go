@@ -96,9 +96,10 @@ func createDefaultWorkerArgs() *slot.WorkerArgs {
 		AntifloodHandler:         createMockP2PAntifloodHandler(),
 		TXPool:                   txPool.Transactions(),
 		OnRequestTransactionTo:   reqHandler.RequestTransactionTo,
-		SignatureSize:            SignatureSize,
-		PublicKeySize:            PublicKeySize,
-		NodeRedundancyHandler:    &mock.NodeRedundancyHandlerStub{},
+		// PoolAdder:                headerPool,
+		SignatureSize:         SignatureSize,
+		PublicKeySize:         PublicKeySize,
+		NodeRedundancyHandler: &mock.NodeRedundancyHandlerStub{},
 	}
 
 	return workerArgs

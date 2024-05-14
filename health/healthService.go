@@ -10,6 +10,7 @@ import (
 
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go-logger/check"
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/tools"
 )
@@ -82,7 +83,7 @@ func (h *healthService) Start() {
 }
 
 func (h *healthService) prepareFolder() {
-	err := os.MkdirAll(h.folder, os.ModePerm)
+	err := os.MkdirAll(h.folder, common.DefaultDirPermission)
 	if err != nil {
 		log.Error("healthService.prepareFolder", "err", err)
 	}

@@ -35,7 +35,6 @@ type BuiltInCost struct {
 	UpdateAccountPermission uint64
 	Deposit                 uint64
 	ITOTrigger              uint64
-	SaveKeyValue            uint64
 }
 
 // GasCost holds all the needed gas costs for system smart contracts

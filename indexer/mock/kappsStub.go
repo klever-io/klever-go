@@ -3,6 +3,7 @@ package mock
 import (
 	"context"
 
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
@@ -107,6 +108,10 @@ func (k *KappsControllerMock) GetKDAFeesPoolKApp() kapp.KDAFeesPoolKapp {
 	return nil
 }
 
+func (k *KappsControllerMock) GetSystemAccountKApp() kapp.SystemAccountKapp {
+	return nil
+}
+
 // IsInterfaceNil -
 func (k *KappsControllerMock) GetAccountsKApp() kapp.AccountsKapp {
 	return nil
@@ -139,6 +144,10 @@ func (k *KappsControllerMock) GetProposalController() kapps.ActiveProposalContro
 
 // SetProposalController
 func (k *KappsControllerMock) SetProposalController(_ kapps.ActiveProposalController) error {
+	return nil
+}
+
+func (k *KappsControllerMock) GetForkController() core.ForkController {
 	return nil
 }
 

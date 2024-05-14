@@ -10,7 +10,7 @@ type eiGenWriter struct {
 }
 
 func NewEIGenWriter(pathToApiPackage string, relativePath string) *eiGenWriter {
-	outFile, err := os.Create(filepath.Join(pathToApiPackage, relativePath))
+	outFile, err := os.Create(filepath.Clean(filepath.Join(pathToApiPackage, relativePath)))
 	if err != nil {
 		panic(err)
 	}

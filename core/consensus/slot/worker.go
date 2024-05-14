@@ -651,12 +651,15 @@ func (wrk *Worker) Extend(subslotId int) {
 		reportErr = fmt.Errorf("%s: %+w", reportErr.Error(), err)
 	}
 
-	_ = bugsnag.Notify(reportErr, bugsnag.MetaData{
-		"consensus": {
-			"leader":    hex.EncodeToString([]byte(leader)),
-			"slot":      wrk.slotManager.Index(),
-			"subslotId": wrk.consensusService.GetSubslotName(subslotId),
-		}})
+	// check if in monitor list
+	if wrk.checkInMonitorList(leader) {
+		_ = bugsnag.Notify(reportErr, bugsnag.MetaData{
+			"consensus": {
+				"leader":    hex.EncodeToString([]byte(leader)),
+				"slot":      wrk.slotManager.Index(),
+				"subslotId": wrk.consensusService.GetSubslotName(subslotId),
+			}})
+	}
 
 	wrk.blockProcessor.RevertStateToSnapshot(wrk.consensusState.Header)
 
@@ -774,7 +777,7 @@ func (wrk *Worker) reportValidatorFail(leader string, consensusMessages []*conse
 				"sigsNum":   len(consensusMessages),
 				"leader":    hex.EncodeToString([]byte(leader)),
 				"consensus": consensusGroup,
-				"faild":     failList,
+				"failed":    failList,
 				"slot":      wrk.slotManager.Index(),
 				"nonce":     consensusMessages[0].Nonce,
 			}})

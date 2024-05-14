@@ -24,7 +24,7 @@ type KAppAccountHandlerStub struct {
 	state.AccountHandler
 }
 
-func (k *KAppAccountHandlerStub) GetUserKDA(assetID []byte, nonce []byte) (*kapps.UserKDA, error) {
+func (k *KAppAccountHandlerStub) GetUserKDA(assetID []byte, nonce []byte, _ bool) (*kapps.UserKDA, error) {
 	return nil, nil
 }
 

@@ -114,16 +114,7 @@ func (b *builtInFuncCreator) CreateBuiltInFunctionContainer() error {
 
 	b.builtInFunctions = NewBuiltInFunctionContainer()
 	var newFunc vmcommon.BuiltinFunction
-	newFunc, err := NewSaveKeyValueStorageFunc(b.gasConfig.BaseOperationCost, b.gasConfig.BuiltInCost.SaveKeyValue, b.accountsCacher)
-	if err != nil {
-		return err
-	}
-	err = b.builtInFunctions.Add(core.BuiltInFunctionSaveKeyValue, newFunc)
-	if err != nil {
-		return err
-	}
-
-	newFunc, err = NewKDATransferFunc(
+	newFunc, err := NewKDATransferFunc(
 		b.gasConfig.BuiltInCost.Transfer,
 		b.marshaller,
 		b.accountsCacher,
@@ -505,14 +496,6 @@ func (b *builtInFuncCreator) SetPayableHandler(payableHandler vmcommon.PayableHa
 
 	listOfTransferFunc := []string{
 		core.BuiltInFunctionTransfer,
-		core.BuiltInFunctionAssetTrigger,
-		core.BuiltInFunctionCreateAsset,
-		core.BuiltInFunctionBuy,
-		core.BuiltInFunctionFreeze,
-		core.BuiltInFunctionClaim,
-		core.BuiltInFunctionDeposit,
-		core.BuiltInFunctionSell,
-		core.BuiltInFunctionWithdraw,
 	}
 
 	for _, transferFunc := range listOfTransferFunc {

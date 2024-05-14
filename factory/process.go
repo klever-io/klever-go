@@ -143,6 +143,19 @@ func NewProcessComponentsFactoryArgs(
 	forkController core.ForkController,
 	txLogProcessor process.TransactionLogProcessor,
 ) *processComponentsFactoryArgs {
+
+	minSizeInBytes := mainConfig.BlockSizeThrottle.MinSizeInBytes
+	maxSizeInBytes := mainConfig.BlockSizeThrottle.MaxSizeInBytes
+	maxRating := mainConfig.Ratings.General.MaxRating
+
+	// if not after fork, use the old hardcoded values
+	if !forkController.EnableSmartContracts() {
+		minSizeInBytes = 0
+		maxSizeInBytes = 100000000
+		maxRating = 10000000
+
+	}
+
 	return &processComponentsFactoryArgs{
 		coreComponents:            coreComponents,
 		accountsParser:            accountsParser,
@@ -165,9 +178,9 @@ func NewProcessComponentsFactoryArgs(
 		startEpochNum:             startEpochNum,
 		stateCheckpointModulus:    mainConfig.StateTriesConfig.CheckpointSlotsModulus,
 		numConcurrentResolverJobs: mainConfig.Antiflood.NumConcurrentResolverJobs,
-		minSizeInBytes:            0,
-		maxSizeInBytes:            100000000,
-		maxRating:                 10000000, // TODO: from config
+		minSizeInBytes:            minSizeInBytes,
+		maxSizeInBytes:            maxSizeInBytes,
+		maxRating:                 maxRating,
 		validatorPubkeyConverter:  validatorPubkeyConverter,
 		version:                   version,
 		uint64Converter:           uint64Converter,

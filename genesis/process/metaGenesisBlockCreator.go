@@ -74,7 +74,7 @@ func setBalanceToTrie(arg ArgsGenesisBlockCreator, accnt genesis.InitialAccountH
 		return common.ErrWrongTypeAssertion
 	}
 
-	err = account.AddToBalance(accnt.GetBalanceValue(), nil)
+	err = account.AddToBalance(accnt.GetBalanceValue(), nil, false)
 	if err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func setBalanceToTrie(arg ArgsGenesisBlockCreator, accnt genesis.InitialAccountH
 	})
 
 	if accnt.GetKFIBalanceValue() > 0 {
-		err = account.AddToBalance(accnt.GetKFIBalanceValue(), kdautils.KFIIdentifier)
+		err = account.AddToBalance(accnt.GetKFIBalanceValue(), kdautils.KFIIdentifier, false)
 		if err != nil {
 			return err
 		}
@@ -338,21 +338,18 @@ func setPermissionToTrie(
 			},
 			Result:     transaction.Transaction_SUCCESS,
 			ResultCode: transaction.Transaction_Ok,
-			Receipts: []*transaction.Transaction_Receipt{
-				{Data: [][]byte{
-					{byte(ptx.UpdateAccountPermission)}, account.AddressBytes(),
-				}},
-			},
-			Signature: [][]byte{[]byte("klever genesis block")},
+			Receipts:   make([]*transaction.Transaction_Receipt, 0),
+			Signature:  [][]byte{[]byte("klever genesis block")},
 		}
 
 		updatePermissionContract := &transaction.UpdateAccountPermissionContract{Permissions: permsContracts}
 
-		permissionTransaction.PushContract(transaction.TXContract_UpdateAccountPermissionContractType, updatePermissionContract)
+		if err = permissionTransaction.PushContract(transaction.TXContract_UpdateAccountPermissionContractType, updatePermissionContract); err != nil {
+			return nil, err
+		}
 		permissionTransaction.Receipts = append(permissionTransaction.Receipts, &transaction.Transaction_Receipt{
 			Data: [][]byte{
 				{byte(ptx.UpdateAccountPermission), byte(len(permissionTransaction.GetContracts()) - 1)},
-				core.ZeroAddress,
 				accnt.AddressBytes(),
 			},
 		})
@@ -409,7 +406,7 @@ func setStakingToTrie(
 	if delegation.GetValue() > 0 {
 		bucketID := kdautils.ToBucketID(arg.Hasher, []byte(arg.GenesisString), account.AddressBytes(), kdautils.KLVIdentifier, account.GetNonce(), 0, delegation.GetValue())
 
-		userKDA, err := account.GetUserKDA(kdautils.KLVIdentifier, nil)
+		userKDA, err := account.GetUserKDA(kdautils.KLVIdentifier, nil, false)
 		if err != nil {
 			return nil, err
 		}

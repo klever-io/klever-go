@@ -123,7 +123,6 @@ func (rcf *resolversContainerFactory) checkIfResolverExists(topic string) bool {
 
 func (rcf *resolversContainerFactory) createTrieNodesResolver(baseTopic string, trieId string) (retriever.Resolver, error) {
 	//for each resolver we create a pseudo-intra shard topic as to make at least of half of the requests target the proper peers
-	//this pseudo-intra shard topic is the consensus_targetShardID
 
 	targetConsensusStopic := common.ConsensusTopic
 	peerListCreator, err := topicResolverSender.NewDiffPeerListCreator(

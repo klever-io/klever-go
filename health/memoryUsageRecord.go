@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"runtime/pprof"
 	"strings"
@@ -30,7 +31,7 @@ func newMemoryUsageRecord(stats runtime.MemStats, timestamp time.Time, parentFol
 
 func (record *memoryUsageRecord) save() error {
 	filename := record.getFilename()
-	file, err := os.Create(filename)
+	file, err := os.Create(filepath.Clean(filename))
 	if err != nil {
 		return err
 	}

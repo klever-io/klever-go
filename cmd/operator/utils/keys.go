@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/klever-io/klever-go/core"
@@ -13,7 +14,7 @@ import (
 )
 
 func LoadKey(pemFile string, skIndex int, converter core.PubkeyConverter, pwd string, pwdFilePath string) ([]byte, []byte, string, error) {
-	// if password flag, ask for passord
+	// if password flag, ask for password
 	pwd, err := GetPassphrase(pwd, pwdFilePath)
 	if err != nil {
 		return nil, nil, "", err
@@ -37,7 +38,7 @@ func LoadKey(pemFile string, skIndex int, converter core.PubkeyConverter, pwd st
 	return skBytes, pkBytes, pkString, nil
 }
 
-// getPassphrase fetches the correct passphrase depending on if a file is available to
+// GetPassphrase fetches the correct passphrase depending on if a file is available to
 // read from or if the user wants to enter in their own passphrase. Otherwise, just use
 // the default passphrase. No confirmation of passphrase
 func GetPassphrase(pwd string, pwdFilePath string) (string, error) {
@@ -45,7 +46,7 @@ func GetPassphrase(pwd string, pwdFilePath string) (string, error) {
 		if _, err := os.Stat(pwdFilePath); os.IsNotExist(err) {
 			return "", fmt.Errorf("password file not found at `%s`", pwdFilePath)
 		}
-		dat, err := os.ReadFile(pwdFilePath)
+		dat, err := os.ReadFile(filepath.Clean(pwdFilePath))
 		if err != nil {
 			return "", err
 		}
@@ -65,7 +66,7 @@ func GetPassphrase(pwd string, pwdFilePath string) (string, error) {
 	return pwd, nil
 }
 
-// GetPassphrase fetches the correct passphrase depending on if a file is available to
+// GetPassphraseWithConfirm fetches the correct passphrase depending on if a file is available to
 // read from or if the user wants to enter in their own passphrase. Otherwise, just use
 // the default passphrase. Passphrase requires a confirmation
 func GetPassphraseWithConfirm(pwd string, pwdFilePath string) (string, error) {
@@ -73,7 +74,7 @@ func GetPassphraseWithConfirm(pwd string, pwdFilePath string) (string, error) {
 		if _, err := os.Stat(pwdFilePath); os.IsNotExist(err) {
 			return "", fmt.Errorf("password file not found at `%s`", pwdFilePath)
 		}
-		dat, err := os.ReadFile(pwdFilePath)
+		dat, err := os.ReadFile(filepath.Clean(pwdFilePath))
 		if err != nil {
 			return "", err
 		}

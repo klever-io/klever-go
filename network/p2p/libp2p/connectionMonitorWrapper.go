@@ -6,7 +6,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/tools/check"
-	"github.com/libp2p/go-libp2p-core/network"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -53,7 +53,7 @@ func (cmw *connectionMonitorWrapper) Connected(netw network.Network, conn networ
 	pid := conn.RemotePeer()
 	if peerBlackList.IsDenied(core.PeerID(pid)) {
 		log.Trace("dropping connection to blacklisted peer",
-			"pid", pid.Pretty(),
+			"pid", pid.String(),
 		)
 		_ = conn.Close()
 
@@ -68,16 +68,6 @@ func (cmw *connectionMonitorWrapper) Disconnected(netw network.Network, conn net
 	cmw.ConnectionMonitor.Disconnected(netw, conn)
 }
 
-// OpenedStream is called when a stream opened
-func (cmw *connectionMonitorWrapper) OpenedStream(netw network.Network, stream network.Stream) {
-	cmw.ConnectionMonitor.OpenedStream(netw, stream)
-}
-
-// ClosedStream is called when a stream closed
-func (cmw *connectionMonitorWrapper) ClosedStream(netw network.Network, stream network.Stream) {
-	cmw.ConnectionMonitor.ClosedStream(netw, stream)
-}
-
 // CheckConnectionsBlocking does a peer sweep, calling Close on those peers that are black listed
 func (cmw *connectionMonitorWrapper) CheckConnectionsBlocking() {
 	peers := cmw.network.Peers()
@@ -88,7 +78,7 @@ func (cmw *connectionMonitorWrapper) CheckConnectionsBlocking() {
 	for _, pid := range peers {
 		if peerDenialEvaluator.IsDenied(core.PeerID(pid)) {
 			log.Trace("dropping connection to blacklisted peer",
-				"pid", pid.Pretty(),
+				"pid", pid.String(),
 			)
 			_ = cmw.network.ClosePeer(pid)
 		}

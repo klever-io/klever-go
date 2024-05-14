@@ -1,7 +1,7 @@
 package scenfileresolver
 
 import (
-	"io/ioutil"
+	"os"
 	"path/filepath"
 )
 
@@ -59,7 +59,7 @@ func (fr *DefaultFileResolver) ResolveFileValue(value string) ([]byte, error) {
 		return []byte{}, nil
 	}
 	fullPath := fr.ResolveAbsolutePath(value)
-	scCode, err := ioutil.ReadFile(fullPath)
+	scCode, err := os.ReadFile(filepath.Clean(fullPath))
 	if err != nil {
 		return []byte{}, err
 	}

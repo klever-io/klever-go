@@ -86,6 +86,11 @@ func (e *kdaTransfer) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput
 		OutputAccounts: make(map[string]*vmcommon.OutputAccount),
 	}
 
+	err = e.payableHandler.CheckPayable(vmInput, vmInput.RecipientAddr, core.MinLenArgumentsKDATransfer)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, kdaTransfer := range vmInput.KDATransfers {
 		// Check if the transfer was already executed
 		if kdaTransfer.IsExecuted() {
@@ -109,16 +114,6 @@ func (e *kdaTransfer) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput
 			KLVRoyalties: 0, // No royalties for SC transfers
 		}
 
-		acntDst, err := e.accountsCacher.LoadUser(contract.ToAddress)
-		if err != nil {
-			return nil, err
-		}
-
-		err = e.payableHandler.CheckPayable(vmInput, acntDst.AddressBytes(), core.MinLenArgumentsKDATransfer)
-		if err != nil {
-			return nil, err
-		}
-
 		// Using Kapps, transfer the KDA without transfer fixed/percentage royalties
 		// royalties are only processed if the contract is a TXContract_TransferContractType
 		resultCode, err := e.kappController.GetAccountsKApp().Transfer(
@@ -139,7 +134,7 @@ func (e *kdaTransfer) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput
 		// mark as executed to avoid double spending
 		kdaTransfer.SetExecuted()
 
-		addKDAEntryInVMOutput(vmOutput, []byte(core.BuiltInFunctionTransfer), contract.AssetID, 0, big.NewInt(contract.Amount), vmInput.CallerAddr, acntDst.AddressBytes())
+		addKDAEntryInVMOutput(vmOutput, []byte(core.BuiltInFunctionTransfer), contract.AssetID, 0, big.NewInt(contract.Amount), vmInput.CallerAddr, contract.ToAddress)
 	}
 
 	return vmOutput, nil

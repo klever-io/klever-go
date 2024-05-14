@@ -93,6 +93,7 @@ type CreateAssetContract struct {
 	Attributes        *AttributesInfo `json:"attributes"`
 	Staking           *Staking        `json:"staking"`
 	Roles             []*RolesInfo    `json:"roles"`
+	Metadata          *Meta           `json:"meta,omitempty"`
 }
 
 type RolesInfo struct {
@@ -169,6 +170,18 @@ type KDAPool struct {
 	AdminAddress string `json:"adminAddress"`
 	FRatioKLV    int64  `json:"fRatioKLV"`
 	FRatioKDA    int64  `json:"fRatioKDA"`
+}
+
+type Meta struct {
+	MaxSupply   int64    `json:"maxSupply"`
+	Circulation int64    `json:"circulationSupply"`
+	Metadata    Metadata `json:"metadata"`
+}
+
+type Metadata struct {
+	Name       string `json:"name"`
+	Hash       string `json:"hash"`
+	Attributes string `json:"attributes"`
 }
 
 type KDAPoolData struct {
@@ -354,6 +367,7 @@ type ITOTriggerContract struct {
 	WhitelistEndTime       int64            `json:"whitelistEndTime,omitempty"`
 	StartTime              int64            `json:"startTime,omitempty"`
 	EndTime                int64            `json:"endTime,omitempty"`
+	Timestamp              int64            `json:"timestamp,omitempty"`
 }
 
 // -- SetITOPricesContract

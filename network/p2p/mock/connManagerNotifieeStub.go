@@ -3,9 +3,9 @@ package mock
 import (
 	"context"
 
-	"github.com/libp2p/go-libp2p-core/connmgr"
-	"github.com/libp2p/go-libp2p-core/network"
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/connmgr"
+	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -23,8 +23,6 @@ type ConnManagerNotifieeStub struct {
 	ListenCloseCalled   func(netw network.Network, ma multiaddr.Multiaddr)
 	ConnectedCalled     func(netw network.Network, conn network.Conn)
 	DisconnectedCalled  func(netw network.Network, conn network.Conn)
-	OpenedStreamCalled  func(netw network.Network, stream network.Stream)
-	ClosedStreamCalled  func(netw network.Network, stream network.Stream)
 }
 
 // UpsertTag -
@@ -90,14 +88,4 @@ func (cmns *ConnManagerNotifieeStub) Connected(netw network.Network, conn networ
 // Disconnected -
 func (cmns *ConnManagerNotifieeStub) Disconnected(netw network.Network, conn network.Conn) {
 	cmns.DisconnectedCalled(netw, conn)
-}
-
-// OpenedStream -
-func (cmns *ConnManagerNotifieeStub) OpenedStream(netw network.Network, stream network.Stream) {
-	cmns.OpenedStreamCalled(netw, stream)
-}
-
-// ClosedStream -
-func (cmns *ConnManagerNotifieeStub) ClosedStream(netw network.Network, stream network.Stream) {
-	cmns.ClosedStreamCalled(netw, stream)
 }

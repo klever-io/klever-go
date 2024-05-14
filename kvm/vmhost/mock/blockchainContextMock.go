@@ -170,6 +170,11 @@ func (b *BlockchainContextMock) GetKDAToken(_ []byte, _ []byte, _ uint64) (*kapp
 	return &kapps.KDAData{}, &kapps.UserKDA{}, nil
 }
 
+// GetSFTMeta -
+func (b *BlockchainContextMock) GetSFTMeta(_ []byte, _ uint64) (*kapps.MetaV2, error) {
+	return &kapps.MetaV2{}, nil
+}
+
 // GetUserAccount -
 func (b *BlockchainContextMock) GetUserAccount(_ []byte) (state.UserAccountHandler, error) {
 	return nil, nil

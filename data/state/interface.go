@@ -34,22 +34,22 @@ type UserAccountHandler interface {
 	SaveKeyValue(key []byte, value []byte) error
 	RetrieveValue(key []byte) ([]byte, error)
 	GetNonce() uint64
-	GetUserKDA(assetID []byte, nonce []byte) (*kapps.UserKDA, error)
+	GetUserKDA(assetID []byte, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error)
 	SetUserKDA(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error
 	SetRootHash([]byte)
 	GetRootHash() []byte
-	AddToBalance(value int64, assetID []byte, userKDA ...*kapps.UserKDA) error
-	AddToBalanceWithNonce(value int64, assetID []byte, nonce []byte, userKDAopts ...*kapps.UserKDA) error
-	SubFromBalance(value int64, assetID []byte, userKDA ...*kapps.UserKDA) error
-	SubFromBalanceWithNonce(value int64, assetID []byte, nonce []byte, userKDAopts ...*kapps.UserKDA) error
+	AddToBalance(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error
+	AddToBalanceWithNonce(value int64, assetID []byte, nonce []byte, cdd bool, userKDAopts ...*kapps.UserKDA) error
+	SubFromBalance(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error
+	SubFromBalanceWithNonce(value int64, assetID []byte, nonce []byte, cdd bool, userKDAopts ...*kapps.UserKDA) error
 	AddInternalKDA(assetID []byte, internalID []byte, data []byte) error
 	SubInternalKDA(assetID []byte, internalID []byte) ([]byte, error)
 	AddToAllowance(value int64) error
-	GetBalance(assetID []byte) int64
-	GetBalanceWithNonce(assetID []byte, nonce []byte) int64
+	GetBalance(assetID []byte, cdd bool) int64
+	GetBalanceWithNonce(assetID []byte, nonce []byte, cdd bool) int64
 	GetAllowance() int64
-	GetFrozenBalance(assetID []byte) int64
-	GetBuckets(assetID []byte) map[string]*kapps.UserBucket
+	GetFrozenBalance(assetID []byte, cdd bool) int64
+	GetBuckets(assetID []byte, cdd bool) map[string]*kapps.UserBucket
 	Freeze(assetID, bucketID []byte, value int64, blockEpoch uint32, blockTime int64, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) error
 	Unfreeze(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error)
 	Delegate(bucketID, delegation []byte, userKDA *kapps.UserKDA) (int64, error)
@@ -87,7 +87,7 @@ type KAppAccountHandler interface {
 	StartProposalsKApp(forks core.ForkController) (kapps.ActiveProposalController, error)
 	GetNonce() uint64
 	IncreaseNonce(nonce uint64)
-	GetUserKDA(assetID []byte, nonce []byte) (*kapps.UserKDA, error)
+	GetUserKDA(assetID []byte, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error)
 	AddInternalKDA(assetID []byte, internalID []byte, data []byte) error
 	SubInternalKDA(assetID []byte, internalID []byte) ([]byte, error)
 	SetDataTrie(trie data.Trie)
@@ -111,7 +111,7 @@ type AccountHandler interface {
 // It knows about code and data, as data structures not hashes
 type AccountHandlerWithGetUserKDA interface {
 	AccountHandler
-	GetUserKDA(assetID []byte, nonce []byte) (*kapps.UserKDA, error)
+	GetUserKDA(assetID []byte, nonce []byte, checkDirtyData bool) (*kapps.UserKDA, error)
 }
 
 // BasicAccountsAdapter is a simplified version of AccountsAdapter with only

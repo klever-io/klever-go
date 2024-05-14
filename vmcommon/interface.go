@@ -94,6 +94,9 @@ type BlockchainHook interface {
 	// GetKDAToken loads the KDA digital token for the given key
 	GetKDAToken(address []byte, tokenID []byte, nonce uint64) (*kapps.KDAData, *kapps.UserKDA, error)
 
+	// GetSFTMeta loads the SFT metadata for the given key
+	GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, error)
+
 	// GetSnapshot gets the number of entries in the journal as a snapshot id
 	GetSnapshot() int
 
@@ -162,16 +165,6 @@ type KDARoleHandler interface {
 // PayableHandler provides IsPayable function which returns if an account is payable or not
 type PayableHandler interface {
 	IsPayable(sndAddress, rcvAddress []byte) (bool, error)
-	IsInterfaceNil() bool
-}
-
-// Coordinator defines what a shard state coordinator should hold
-type Coordinator interface {
-	NumberOfShards() uint32
-	ComputeId(address []byte) uint32
-	SelfId() uint32
-	SameShard(firstAddress, secondAddress []byte) bool
-	CommunicationIdentifier(destShardID uint32) string
 	IsInterfaceNil() bool
 }
 
@@ -254,55 +247,6 @@ type PayableChecker interface {
 // AcceptPayableChecker defines the methods to accept a payable handler through a set function
 type AcceptPayableChecker interface {
 	SetPayableChecker(payableHandler PayableChecker) error
-	IsInterfaceNil() bool
-}
-
-// EnableEpochsHandler is used to verify which flags are set in the current epoch based on EnableEpochs config
-type EnableEpochsHandler interface {
-	IsGlobalMintBurnFlagEnabled() bool
-	IsKDATransferRoleFlagEnabled() bool
-	IsBuiltInFunctionsFlagEnabled() bool
-	IsCheckCorrectTokenIDForTransferRoleFlagEnabled() bool
-	IsMultiKDATransferFixOnCallBackFlagEnabled() bool
-	IsFixOOGReturnCodeFlagEnabled() bool
-	IsRemoveNonUpdatedStorageFlagEnabled() bool
-	IsCreateNFTThroughExecByCallerFlagEnabled() bool
-	IsStorageAPICostOptimizationFlagEnabled() bool
-	IsFailExecutionOnEveryAPIErrorFlagEnabled() bool
-	IsManagedCryptoAPIsFlagEnabled() bool
-	IsSCDeployFlagEnabled() bool
-	IsAheadOfTimeGasUsageFlagEnabled() bool
-	IsRepairCallbackFlagEnabled() bool
-	IsDisableExecByCallerFlagEnabled() bool
-	IsRefactorContextFlagEnabled() bool
-	IsCheckFunctionArgumentFlagEnabled() bool
-	IsCheckExecuteOnReadOnlyFlagEnabled() bool
-	IsFixAsyncCallbackCheckFlagEnabled() bool
-	IsSaveToSystemAccountFlagEnabled() bool
-	IsCheckFrozenCollectionFlagEnabled() bool
-	IsSendAlwaysFlagEnabled() bool
-	IsValueLengthCheckFlagEnabled() bool
-	IsCheckTransferFlagEnabled() bool
-	IsTransferToMetaFlagEnabled() bool
-	IsKDANFTImprovementV1FlagEnabled() bool
-	IsFixOldTokenLiquidityEnabled() bool
-	IsRuntimeMemStoreLimitEnabled() bool
-	IsMaxBlockchainHookCountersFlagEnabled() bool
-	IsWipeSingleNFTLiquidityDecreaseEnabled() bool
-	IsAlwaysSaveTokenMetaDataEnabled() bool
-	IsRuntimeCodeSizeFixEnabled() bool
-
-	MultiKDATransferAsyncCallBackEnableEpoch() uint32
-	FixOOGReturnCodeEnableEpoch() uint32
-	RemoveNonUpdatedStorageEnableEpoch() uint32
-	CreateNFTThroughExecByCallerEnableEpoch() uint32
-	FixFailExecutionOnErrorEnableEpoch() uint32
-	ManagedCryptoAPIEnableEpoch() uint32
-	DisableExecByCallerEnableEpoch() uint32
-	RefactorContextEnableEpoch() uint32
-	CheckExecuteReadOnlyEnableEpoch() uint32
-	StorageAPICostOptimizationEnableEpoch() uint32
-
 	IsInterfaceNil() bool
 }
 

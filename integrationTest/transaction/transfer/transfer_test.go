@@ -67,11 +67,11 @@ func TestTransaction_TransactionTransfer(t *testing.T) {
 	senderAccount := integrationTest.GetUserAccount(nodes[1], wallets[0].Address)
 	require.NotNil(t, senderAccount)
 	assert.Equal(t, uint64(1), senderAccount.GetNonce())
-	assert.Equal(t, initialBalance-(amount+tx1.GetTotalFees()), senderAccount.GetBalance(kdautils.KLVIdentifier))
+	assert.Equal(t, initialBalance-(amount+tx1.GetTotalFees()), senderAccount.GetBalance(kdautils.KLVIdentifier, true), true)
 
 	//Receiver balance
 	receiverAccount := integrationTest.GetUserAccount(nodes[1], wallets[1].Address)
 	require.NotNil(t, receiverAccount)
-	assert.Equal(t, initialBalance+amount, receiverAccount.GetBalance(kdautils.KLVIdentifier))
+	assert.Equal(t, initialBalance+amount, receiverAccount.GetBalance(kdautils.KLVIdentifier, true))
 
 }

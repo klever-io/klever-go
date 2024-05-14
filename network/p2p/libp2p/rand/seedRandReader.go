@@ -34,6 +34,7 @@ func (srr *seedRandReader) Read(p []byte) (n int, err error) {
 		return 0, p2p.ErrEmptyBuffer
 	}
 
+	// #nosec G404: required for random number generation
 	randomizer := rand.New(rand.NewSource(srr.seedNumber))
 
 	return randomizer.Read(p)

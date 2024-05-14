@@ -197,13 +197,13 @@ func (txProc *txProcessor) consumeFee(fee int64, tx *transaction.Transaction, ow
 		return 0, nil
 	}
 
-	balance := ownerAcc.GetBalance(nil)
+	balance := ownerAcc.GetBalance(nil, txProc.forkController.EnableSmartContracts())
 	if balance == 0 || balance < fee {
 		tx.ResultCode = transaction.Transaction_OutOfFunds
 		return 0, process.ErrInsufficientFee
 	}
 
-	if err := ownerAcc.SubFromBalance(fee, nil); err != nil {
+	if err := ownerAcc.SubFromBalance(fee, nil, txProc.forkController.EnableSmartContracts()); err != nil {
 		tx.ResultCode = transaction.Transaction_BalanceError
 		return 0, err
 	}
@@ -431,6 +431,19 @@ func (txProc *txProcessor) transferContract(ctx kapp.KappContext, tx *transactio
 	if err != nil {
 		tx.ResultCode = transaction.Transaction_ContractNotFound
 		return err
+	}
+
+	// check if address isPayable
+	if txProc.forkController.EnableSmartContracts() {
+		isPayable, err := txProc.scProcessor.IsPayable(tx.GetSender(), tc.ToAddress)
+		if err != nil {
+			tx.ResultCode = transaction.Transaction_AccountError
+			return err
+		}
+		if !isPayable {
+			tx.ResultCode = transaction.Transaction_AccountError
+			return process.ErrAccountNotPayable
+		}
 	}
 
 	tx.ResultCode, err = txProc.kApps.GetAccountsKApp().Transfer(cType, tx.GetSender(), tc)

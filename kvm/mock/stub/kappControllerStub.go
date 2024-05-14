@@ -1,6 +1,7 @@
 package stub
 
 import (
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kapps"
@@ -22,7 +23,17 @@ type KAppControllerStub struct {
 	GetCurrentKAppContextCalled func() kapp.KappContext
 	GetProposalControllerCalled func() kapps.ActiveProposalController
 	SetProposalControllerCalled func(proposalController kapps.ActiveProposalController) error
+	GetForkControllerCalled     func() core.ForkController
+	GetSystemAccountsCalled     func() kapp.SystemAccountKapp
 	IsInterfaceNilCalled        func() bool
+}
+
+func (stub *KAppControllerStub) GetSystemAccountKApp() kapp.SystemAccountKapp {
+	if stub.GetSystemAccountsCalled != nil {
+		return stub.GetSystemAccountsCalled()
+	}
+
+	return nil
 }
 
 func (stub *KAppControllerStub) InitKApps(accountsCacher state.AccountsCacher) error {
@@ -114,6 +125,14 @@ func (stub *KAppControllerStub) GetProposalController() kapps.ActiveProposalCont
 func (stub *KAppControllerStub) SetProposalController(proposalController kapps.ActiveProposalController) error {
 	if stub.SetProposalControllerCalled != nil {
 		return stub.SetProposalControllerCalled(proposalController)
+	}
+
+	return nil
+}
+
+func (stub *KAppControllerStub) GetForkController() core.ForkController {
+	if stub.GetForkControllerCalled != nil {
+		return stub.GetForkControllerCalled()
 	}
 
 	return nil

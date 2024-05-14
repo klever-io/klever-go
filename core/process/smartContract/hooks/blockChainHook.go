@@ -294,6 +294,12 @@ func (bh *BlockChainHookImpl) GetBlockHash(nonce uint64) ([]byte, error) {
 	return hash, nil
 }
 
+// GetSFTMeta returns the metadata for a given asset ID and nonce
+func (bh *BlockChainHookImpl) GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, error) {
+	sysKapp := bh.kappController.GetSystemAccountKApp()
+	return sysKapp.SFTGetMeta(tokenID, []byte(fmt.Sprint(nonce)))
+}
+
 // LastNonce returns the nonce from the last committed block
 func (bh *BlockChainHookImpl) LastNonce() uint64 {
 	if !check.IfNil(bh.blockChain.GetCurrentBlockHeader()) {
@@ -467,7 +473,7 @@ func (bh *BlockChainHookImpl) ProcessBuiltInFunction(input *vmcommon.ContractCal
 	// load return from context
 	vmOutput.ReturnData = ctx.GetAndClearReturnData()
 
-	if !vmcommon.IsSmartContractAddress(input.CallerAddr) {
+	if !core.IsSmartContractAddress(input.CallerAddr) {
 		return vmOutput, nil
 	}
 
@@ -559,6 +565,9 @@ func (bh *BlockChainHookImpl) IsPayable(sndAddress []byte, recvAddress []byte) (
 	}
 
 	metadata := vmcommon.CodeMetadataFromBytes(userAcc.GetCodeMetadata())
+	if bh.IsSmartContract(sndAddress) {
+		return metadata.PayableBySC, nil
+	}
 
 	return metadata.Payable, nil
 }
@@ -601,7 +610,7 @@ func (bh *BlockChainHookImpl) GetKDAToken(address []byte, assetID []byte, nonce 
 			return kda, userKDA, err
 		}
 
-		userKDA, err = acc.GetUserKDA(assetID, []byte(fmt.Sprint(nonce)))
+		userKDA, err = acc.GetUserKDA(assetID, []byte(fmt.Sprint(nonce)), bh.forkController.EnableSmartContracts())
 		if err != nil {
 			return kda, userKDA, err
 		}
@@ -854,6 +863,10 @@ func addOutputTransferToVMOutput(
 		SenderAddress: senderAddress,
 		RcvAddr:       recipient,
 		KDATransfers:  kdaTransfer.Clone(),
+	}
+
+	if vmOutput.OutputAccounts == nil {
+		vmOutput.OutputAccounts = make(map[string]*vmcommon.OutputAccount)
 	}
 
 	outAcc, ok := vmOutput.OutputAccounts[string(recipient)]

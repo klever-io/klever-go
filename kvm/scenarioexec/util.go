@@ -18,7 +18,7 @@ import (
 
 func createTestAssetsFromSetKDAData(kdaData []*scenjsonmodel.KDAData, world *worldmock.MockWorld) {
 	for _, scenKDAData := range kdaData {
-		world.MockTestAsset(scenKDAData.TokenIdentifier.Value)
+		world.MockTestAsset(scenKDAData)
 	}
 }
 

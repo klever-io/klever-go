@@ -33,7 +33,7 @@ func MintAddress(node *processorNode.ProcessorNode, balance int64, address []byt
 		return err
 	}
 
-	err = acc.(state.UserAccountHandler).AddToBalance(balance, nil)
+	err = acc.(state.UserAccountHandler).AddToBalance(balance, nil, true)
 	if err != nil {
 		return err
 	}

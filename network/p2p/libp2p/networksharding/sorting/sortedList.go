@@ -4,7 +4,7 @@ import (
 	"math/big"
 	"sort"
 
-	"github.com/libp2p/go-libp2p-core/peer"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 // SortedID contains the peer data

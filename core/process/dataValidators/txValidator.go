@@ -145,7 +145,10 @@ func (txv *txValidator) CheckTxValidity(interceptedTx process.TxValidatorHandler
 		txFee = kdaFee.GetAmount()
 	}
 
-	accountBalance := account.GetBalance(assetFee)
+	accountBalance := account.GetBalance(
+		assetFee,
+		txv.kAppController.GetForkController().EnableSmartContracts(),
+	)
 	if accountBalance < txFee {
 		if len(assetFee) == 0 {
 			assetFee = kdautils.KLVIdentifier

@@ -207,6 +207,7 @@ func (hbh *HeartbeatHandler) getLatestValidators() ([]*state.ValidatorInfo, map[
 }
 
 func (hbh *HeartbeatHandler) startSendingHeartbeats(ctx context.Context) {
+	// #nosec G404: required for randomness
 	r := rand.New(rand.NewSource(time.Now().Unix()))
 	cfg := hbh.arg.HeartbeatConfig
 

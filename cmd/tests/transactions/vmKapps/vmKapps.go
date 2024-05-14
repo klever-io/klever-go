@@ -65,7 +65,7 @@ func StartVars(args common.TestArgs) {
 
 	if !args.Deployed {
 		kappsDeployHash, err := common.ExecAndGetHash("go", "run", "./cmd/operator/", fmt.Sprintf("--key-file=%s", args.KeyFile),
-			"sc", "create", testWalletAddress, "--wasm", "../klever-vm-sdk-rs/contracts/examples/kapps/output/kapps.wasm", "--payable", "--payableBySC", "--readable")
+			"sc", "create", "--wasm", "../klever-vm-sdk-rs/contracts/examples/kapps/output/kapps.wasm", "--payable", "--payableBySC", "--readable")
 
 		if err != nil {
 			log.Fatalln(err)
@@ -177,7 +177,7 @@ func TriggerKDATransactions(args common.TestArgs) {
 		log.Fatalln("asset is not resumed.")
 	}
 
-	invokeContractCall("Add Role KDA", args.KeyFile, nil, "add_role", assetHex, hex.EncodeToString(testWalletAddress2Hex), "00", "01", "00")
+	invokeContractCall("Add Role KDA", args.KeyFile, nil, "add_role", assetHex, hex.EncodeToString(testWalletAddress2Hex), "00", "01", "00", "00")
 
 	_, asset, err = common.GetAssetOnNode(assetStr, 10)
 	if err != nil {
@@ -339,16 +339,16 @@ func invokeContractCall(name string, keyFile string, values []Values, funcName s
 	}
 
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalf("%s(%s) Invoke error:  %+v", name, funcName, err)
 	}
 
 	status, tx, err := common.CheckTransactionOnNode(hash, 10)
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatalf("%s(%s) Check error: %+v", name, funcName, err)
 	}
 
 	if !status {
-		log.Fatalf("%s Transaction: %s is not success.\n", name, hash)
+		log.Fatalf("%s(%s) Transaction: %s is not success.\n", name, funcName, hash)
 	}
 
 	fmt.Printf("%s Hash: %+v receipts: %d\n\n", name, hash, len(tx.Receipts))

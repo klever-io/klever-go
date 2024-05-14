@@ -136,6 +136,16 @@ func ToKDAKey(kdaID []byte, nonce []byte) []byte {
 	return []byte(key)
 }
 
+// ToKDAKeyWithouPrefix parse a key for the given KDA
+func ToKDAKeyWithouPrefix(kdaID []byte, nonce []byte) []byte {
+	key := string(kdaID)
+	if len(nonce) > 0 && string(nonce) != "0" {
+		// access internal tokenID for NFT
+		key += kapps.Sp + string(nonce)
+	}
+	return []byte(key)
+}
+
 // ToProposalKey parse a key for the given proposal
 func ToProposalKey(proposalID uint64) []byte {
 	return []byte(kapps.ProposalPrefix + kapps.Sp + strconv.FormatUint(proposalID, 10))

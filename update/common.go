@@ -12,11 +12,9 @@ var log = logger.GetOrCreate("update")
 
 // MbInfo defines the structure which hold the miniBlock info
 type MbInfo struct {
-	MbHash          []byte
-	SenderShardID   uint32
-	ReceiverShardID uint32
-	Type            block.Type
-	TxsInfo         []*TxInfo
+	MbHash  []byte
+	Type    block.Type
+	TxsInfo []*TxInfo
 }
 
 // TxInfo defines the structure which hold the transaction info

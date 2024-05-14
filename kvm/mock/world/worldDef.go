@@ -5,7 +5,10 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strconv"
 	"time"
+
+	scenjsonmodel "github.com/klever-io/klever-go/kvm/scenarioexec/model"
 
 	"github.com/klever-io/klever-go/data/state/factory"
 
@@ -186,7 +189,7 @@ func (b *MockWorld) ConvertAccountToWorldMock(acc state.UserAccountHandler) *Acc
 		Exists:  acc != nil,
 		Address: acc.AddressBytes(),
 		Nonce:   acc.GetNonce(),
-		Balance: big.NewInt(acc.GetBalance(nil)),
+		Balance: big.NewInt(acc.GetBalance(nil, true)),
 		Storage: b.ExtractAccountStorage(acc),
 		//Code:            acc.GetCode(),
 		CodeMetadata:    acc.GetCodeMetadata(),
@@ -311,34 +314,11 @@ func (b *MockWorld) CreateTestAssets() {
 	}
 }
 
-func (b *MockWorld) MockTestAsset(assetId []byte) {
-	tokenKey := kdautils.ToKDAKey(assetId, nil)
+func (b *MockWorld) GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, error) {
+	return &kapps.MetaV2{}, nil
+}
 
-	token := kapps.KDAData{
-		ID:                assetId,
-		AssetType:         kapps.KDAData_Fungible,
-		Name:              assetId,
-		Ticker:            assetId,
-		OwnerAddress:      nil,
-		Precision:         6,
-		InitialSupply:     10000000000000000,
-		CirculatingSupply: 100000000000000,
-		MaxSupply:         90000000000000000,
-		IssueDate:         time.Now().Unix(),
-		Royalties:         &kapps.RoyaltiesData{},
-		Properties: &kapps.PropertiesData{
-			CanFreeze: true,
-			CanMint:   true,
-			CanBurn:   true,
-		},
-		Attributes: &kapps.AttributesData{
-			IsPaused:         false,
-			IsNFTMintStopped: true,
-		},
-	}
-
-	tokenData, _ := marshalizer.Marshal(&token)
-
+func (b *MockWorld) MockTestAsset(asset *scenjsonmodel.KDAData) {
 	kdaKappAccount, err := b.KAppsAdapter.LoadAccount(kapps.KDAKAppAddress)
 	if err != nil {
 		panic(err)
@@ -348,8 +328,47 @@ func (b *MockWorld) MockTestAsset(assetId []byte) {
 		panic("KDA Kapp account not found")
 	}
 
-	_ = kdaKapp.DataTrieTracker().SaveKeyValue(tokenKey, tokenData)
+	assetId := asset.TokenIdentifier.Value
 
+	for _, instance := range asset.Instances {
+		assetType := kapps.KDAData_Fungible
+		if instance.Nonce.Value != 0 {
+			assetType = kapps.KDAData_NonFungible
+		}
+
+		nonce := []byte(strconv.FormatUint(instance.Nonce.Value, 10))
+
+		tokenKey := kdautils.ToKDAKey(assetId, nonce)
+		parentTokenKey := kdautils.ToKDAKey(assetId, nil)
+
+		token := kapps.KDAData{
+			ID:                assetId,
+			AssetType:         assetType,
+			Name:              assetId,
+			Ticker:            assetId,
+			OwnerAddress:      nil,
+			Precision:         6,
+			InitialSupply:     10000000000000000,
+			CirculatingSupply: 100000000000000,
+			MaxSupply:         90000000000000000,
+			IssueDate:         time.Now().Unix(),
+			Royalties:         &kapps.RoyaltiesData{},
+			Properties: &kapps.PropertiesData{
+				CanFreeze: true,
+				CanMint:   true,
+				CanBurn:   true,
+			},
+			Attributes: &kapps.AttributesData{
+				IsPaused:         false,
+				IsNFTMintStopped: true,
+			},
+		}
+
+		tokenData, _ := marshalizer.Marshal(&token)
+
+		_ = kdaKapp.DataTrieTracker().SaveKeyValue(tokenKey, tokenData)
+		_ = kdaKapp.DataTrieTracker().SaveKeyValue(parentTokenKey, tokenData)
+	}
 	err = b.KAppsAdapter.SaveAccount(kdaKappAccount)
 	if err != nil {
 		panic(err)
@@ -453,7 +472,9 @@ func (b *MockWorld) Clear() {
 	b.AccountsCacher = accCacher
 
 	b.CreateTestAssets()
-	b.CommitChangesToDB()
+	if err = b.CommitChangesToDB(); err != nil {
+		panic(err)
+	}
 }
 
 // SetCurrentBlockHash -
@@ -462,11 +483,6 @@ func (b *MockWorld) SetCurrentBlockHash(blockHash []byte) {
 		b.CurrentBlockInfo = &BlockInfo{}
 	}
 	b.Blockhashes = [][]byte{blockHash}
-}
-
-// CommunicationIdentifier -
-func (b *MockWorld) CommunicationIdentifier(destShardID uint32) string {
-	return fmt.Sprintf("commID-dest-%d", destShardID)
 }
 
 // GetSnapshot -

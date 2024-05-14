@@ -858,6 +858,14 @@ func (w *WrapperVMHooks) ManagedIsBuiltinFunction(functionNameHandle int32) int3
 	return result
 }
 
+// ManagedGetSftMetadata VM hook wrapper
+func (w *WrapperVMHooks) ManagedGetSftMetadata(tickerHandle int32, nonce int64, dataHandle int32) {
+	callInfo := fmt.Sprintf("ManagedGetSftMetadata(%d, %d, %d)", tickerHandle, nonce, dataHandle)
+	w.logger.LogVMHookCallBefore(callInfo)
+	w.wrappedVMHooks.ManagedGetSftMetadata(tickerHandle, nonce, dataHandle)
+	w.logger.LogVMHookCallAfter(callInfo)
+}
+
 // BigFloatNewFromParts VM hook wrapper
 func (w *WrapperVMHooks) BigFloatNewFromParts(integralPart int32, fractionalPart int32, exponent int32) int32 {
 	callInfo := fmt.Sprintf("BigFloatNewFromParts(%d, %d, %d)", integralPart, fractionalPart, exponent)

@@ -12,6 +12,11 @@ import (
 
 var log = logger.GetOrCreate("config")
 
+type BlockSizeThrottleConfig struct {
+	MinSizeInBytes uint32 `yaml:"minSizeInBytes"`
+	MaxSizeInBytes uint32 `yaml:"maxSizeInBytes"`
+}
+
 // LogsConfig will hold settings related to the logging sub-system
 type LogsConfig struct {
 	LogFileLifeSpanInSec int   `yaml:"logFileLifeSpanInSec"`
@@ -74,11 +79,12 @@ type ImportDbConfig struct {
 
 // Config handle all configs
 type Config struct {
-	Logs                  LogsConfig            `yaml:"logs"`
-	Debug                 DebugConfig           `yaml:"debug"`
-	P2P                   P2PConfig             `yaml:"p2p"`
-	SoftwareVersionConfig SoftwareVersionConfig `yaml:"softwareVersionConfig"`
-	TrieSync              TrieSyncConfig        `yaml:"trieSync"`
+	BlockSizeThrottle     BlockSizeThrottleConfig `yaml:"blockSizeThrottleConfig"`
+	Logs                  LogsConfig              `yaml:"logs"`
+	Debug                 DebugConfig             `yaml:"debug"`
+	P2P                   P2PConfig               `yaml:"p2p"`
+	SoftwareVersionConfig SoftwareVersionConfig   `yaml:"softwareVersionConfig"`
+	TrieSync              TrieSyncConfig          `yaml:"trieSync"`
 
 	NTP         NTPConfig         `yaml:"ntp"`
 	Preferences PreferencesConfig `yaml:"preferences"`

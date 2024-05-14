@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"math/big"
+	"strconv"
+
+	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
@@ -26,7 +29,7 @@ var zero = big.NewInt(0)
 
 // NewAddress provides the address for a new account.
 // It looks up the explicit new address mocks, if none found generates one using a fake but realistic algorithm.
-func (b *MockWorld) NewAddress(creatorAddress []byte, creatorNonce uint64, _ []byte) ([]byte, error) {
+func (b *MockWorld) NewAddress(creatorAddress []byte, creatorNonce uint64, vmType []byte) ([]byte, error) {
 	// custom error
 	if b.Err != nil {
 		return nil, b.Err
@@ -43,7 +46,7 @@ func (b *MockWorld) NewAddress(creatorAddress []byte, creatorNonce uint64, _ []b
 
 	// If a mock address wasn't registered for the specified creatorAddress, generate one automatically.
 	// This is not the real algorithm but it's simple and close enough.
-	result := GenerateMockAddress(creatorAddress, creatorNonce)
+	result := GenerateMockAddress(creatorAddress, creatorNonce, vmType)
 	b.LastCreatedContractAddress = result
 	return result, nil
 }
@@ -196,15 +199,36 @@ func (b *MockWorld) GetKDAToken(address []byte, tokenIdentifier []byte, nonce ui
 		return nil, nil, b.Err
 	}
 
+	// mock for unit tests
+	if b.MockAsset != nil && bytes.Equal(tokenIdentifier, b.MockAsset.ID) {
+		return b.MockAsset, nil, nil
+	}
+
 	if b.BuiltinFuncs == nil {
 		return nil, nil, ErrBuiltinFuncWrapperNotInitialized
 	}
 
-	if b.MockAsset != nil {
-		return b.MockAsset, &kapps.UserKDA{}, nil
+	// convert nonce
+	nonceBytes := []byte(strconv.FormatUint(nonce, 10))
+
+	user, err := b.AccountsCacher.GetExistingUser(address)
+	if err != nil {
+		return nil, nil, err
+	}
+	userKda, err := user.GetUserKDA(tokenIdentifier, nonceBytes, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	// klv does not save its balance in a KDA instance
+	if bytes.Equal(tokenIdentifier, kdautils.KLVIdentifier) {
+		userKda.Balance = user.GetBalance(kdautils.KLVIdentifier, true)
+	}
+	kdaData, err := b.GetKDAData(tokenIdentifier, nonceBytes)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	return &kapps.KDAData{}, &kapps.UserKDA{}, nil
+	return kdaData, userKda, nil
 }
 
 // GetBuiltinFunctionNames -
@@ -248,7 +272,7 @@ func (b *MockWorld) IsPayable(sndAddress []byte, rcvAddress []byte) (bool, error
 
 	metadata := vmcommon.CodeMetadataFromBytes(account.GetCodeMetadata())
 	if core.IsSmartContractAddress(sndAddress) {
-		return metadata.PayableBySC || metadata.Payable, nil
+		return metadata.PayableBySC, nil
 	}
 
 	return metadata.Payable, nil
@@ -280,11 +304,11 @@ func (b *MockWorld) TransferValueOnly(to []byte, from []byte, value *big.Int) er
 	if err != nil {
 		return err
 	}
-	err = fromAccount.SubFromBalance(value.Int64(), nil)
+	err = fromAccount.SubFromBalance(value.Int64(), nil, true)
 	if err != nil {
 		return err
 	}
-	err = toAccount.AddToBalance(value.Int64(), nil)
+	err = toAccount.AddToBalance(value.Int64(), nil, true)
 	if err != nil {
 		return err
 	}

@@ -19,7 +19,6 @@ type kleverITOTrigger struct {
 	funcGasCost    uint64
 	marshaller     vmcommon.Marshalizer
 	keyPrefix      []byte
-	payableHandler vmcommon.PayableChecker
 	mutExecution   sync.RWMutex
 	forkController core.ForkController
 }
@@ -43,7 +42,6 @@ func NewKleverITOTriggerFunc(
 		funcGasCost:    funcGasCost,
 		marshaller:     marshaller,
 		keyPrefix:      []byte(""),
-		payableHandler: &disabledPayableHandler{},
 		accountsCacher: accountsCacher,
 		forkController: forkController,
 		kappController: kappController,
@@ -81,10 +79,6 @@ func (e *kleverITOTrigger) ProcessBuiltinFunction(vmInput *vmcommon.ContractCall
 	gasRemaining := computeGasRemaining(vmInput.GasProvided, e.funcGasCost)
 
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
-	//err = e.payableHandler.CheckPayable(vmInput, vmInput.RecipientAddr, core.MinLenArgumentsITOTrigger)
-	//if err != nil {
-	//	return nil, err
-	//}
 
 	//Using Kapps
 	resultCode, err := e.kappController.GetITOKApp().Trigger(vmInput.CallerAddr, contract)
@@ -156,16 +150,6 @@ func (e *kleverITOTrigger) getITOTriggerContract(vmInput *vmcommon.ContractCallI
 	}
 
 	return contract, nil
-}
-
-// SetPayableChecker will set the payableCheck handler to the function
-func (e *kleverITOTrigger) SetPayableChecker(payableHandler vmcommon.PayableChecker) error {
-	if check.IfNil(payableHandler) {
-		return ErrNilPayableHandler
-	}
-
-	e.payableHandler = payableHandler
-	return nil
 }
 
 // IsInterfaceNil returns true if underlying object in nil

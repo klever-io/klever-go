@@ -1,7 +1,7 @@
 package connectionMonitor
 
 import (
-	"github.com/libp2p/go-libp2p-core/network"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -21,12 +21,6 @@ func (n *NilConnectionMonitor) Connected(network.Network, network.Conn) {}
 
 // Disconnected is called when a connection closed
 func (n *NilConnectionMonitor) Disconnected(network.Network, network.Conn) {}
-
-// OpenedStream is called when a stream opened
-func (n *NilConnectionMonitor) OpenedStream(network.Network, network.Stream) {}
-
-// ClosedStream is called when a stream closed
-func (n *NilConnectionMonitor) ClosedStream(network.Network, network.Stream) {}
 
 // IsConnectedToTheNetwork returns true if the number of connected peer is at least equal with thresholdMinConnectedPeers
 func (n *NilConnectionMonitor) IsConnectedToTheNetwork(netw network.Network) bool {

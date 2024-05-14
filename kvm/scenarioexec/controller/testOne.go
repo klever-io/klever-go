@@ -16,7 +16,7 @@ func (r *TestRunner) RunSingleJSONTest(contextPath string) error {
 
 	// Open our jsonFile
 	var jsonFile *os.File
-	jsonFile, err = os.Open(contextPath)
+	jsonFile, err = os.Open(filepath.Clean(contextPath))
 	// if we os.Open returns an error then handle it
 	if err != nil {
 		return err

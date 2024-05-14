@@ -23,7 +23,7 @@ func (k *kdaKapp) Mint(sender []byte, tc *transaction.AssetTriggerContract) (tra
 		return transaction.Transaction_LoadAccountError, err
 	}
 
-	assetID, internalID, kdaKapp, kda, resultCode, err := k.parseAndLoadKDA(tc.GetAssetID())
+	assetID, internalID, kdaAcc, kda, resultCode, err := k.parseAndLoadKDA(tc.GetAssetID())
 	if err != nil {
 		return resultCode, err
 	}
@@ -45,25 +45,37 @@ func (k *kdaKapp) Mint(sender []byte, tc *transaction.AssetTriggerContract) (tra
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
-	// if asset not SFT, internalID must be empty
-	if k.forkController.EnableSmartContracts() &&
-		kda.AssetType != kapps.KDAData_SemiFungible && len(internalID) > 0 {
-		return transaction.Transaction_AssetError, process.ErrInvalidArgument
+	if k.forkController.EnableSmartContracts() {
+		// if asset is not SFT, internalID must be empty
+		if kda.AssetType != kapps.KDAData_SemiFungible && len(internalID) > 0 {
+			return transaction.Transaction_AssetError, process.ErrInvalidArgument
+		}
+
+		// if asset is not SFT, cannot have value set
+		if kda.AssetType != kapps.KDAData_SemiFungible && tc.GetValue() != 0 {
+			return transaction.Transaction_AssetError, process.ErrInvalidArgument
+		}
 	}
 
 	switch kda.AssetType {
 	case kapps.KDAData_NonFungible:
-		return k.processNonFungibleMint(tc, assetID, acntDst, kdaKapp, kda)
+		return k.processNonFungibleMint(tc, assetID, acntDst, kdaAcc, kda)
 	case kapps.KDAData_SemiFungible:
-		return k.processSemiFungibleMint(tc, assetID, internalID, acntDst, kdaKapp, kda)
+		return k.processSemiFungibleMint(tc, assetID, internalID, acntDst, kdaAcc, kda)
 	case kapps.KDAData_Fungible:
-		return k.processFungibleMint(tc, assetID, acntDst, kdaKapp, kda)
+		return k.processFungibleMint(tc, assetID, acntDst, kdaAcc, kda)
 	default:
 		return transaction.Transaction_ParameterInvalid, process.ErrInvalidUnitValue
 	}
 }
 
-func (k *kdaKapp) processNonFungibleMint(tc *transaction.AssetTriggerContract, assetID []byte, acntDst state.UserAccountHandler, kdaKapp state.KAppAccountHandler, kda *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+func (k *kdaKapp) processNonFungibleMint(
+	tc *transaction.AssetTriggerContract,
+	assetID []byte,
+	acntDst state.UserAccountHandler,
+	kdaAcc state.KAppAccountHandler,
+	kda *kapps.KDAData,
+) (transaction.Transaction_TXResultCode, error) {
 	if kda.Attributes.IsNFTMintStopped {
 		return transaction.Transaction_NFTMintStopped, process.ErrInvalidArgument
 	}
@@ -119,12 +131,12 @@ func (k *kdaKapp) processNonFungibleMint(tc *transaction.AssetTriggerContract, a
 		return transaction.Transaction_SaveAccountError, err
 	}
 
-	err = k.SetKDA(kdaKapp, assetID, kda)
+	err = k.SetKDA(kdaAcc, assetID, kda)
 	if err != nil {
 		return transaction.Transaction_KAPPError, err
 	}
 
-	if err := k.accountsCacher.UpdateKapp(kdaKapp); err != nil {
+	if err := k.accountsCacher.UpdateKapp(kdaAcc); err != nil {
 		return transaction.Transaction_SaveAccountError, err
 	}
 
@@ -134,7 +146,14 @@ func (k *kdaKapp) processNonFungibleMint(tc *transaction.AssetTriggerContract, a
 	return transaction.Transaction_Ok, nil
 }
 
-func (k *kdaKapp) processSemiFungibleMint(tc *transaction.AssetTriggerContract, assetID []byte, internalID []byte, acntDst state.UserAccountHandler, kdaKapp state.KAppAccountHandler, kda *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+func (k *kdaKapp) processSemiFungibleMint(
+	tc *transaction.AssetTriggerContract,
+	assetID []byte,
+	internalID []byte,
+	acntDst state.UserAccountHandler,
+	kdaAcc state.KAppAccountHandler,
+	kda *kapps.KDAData,
+) (transaction.Transaction_TXResultCode, error) {
 	// check if fork is enabled
 	if !k.forkController.EnableSmartContracts() {
 		return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
@@ -147,14 +166,28 @@ func (k *kdaKapp) processSemiFungibleMint(tc *transaction.AssetTriggerContract, 
 	// if internalID is not provided, create asset
 	// else add quantity to existing asset
 	if len(internalID) == 0 {
-		return k.processSemiFungibleMintNew(tc, assetID, acntDst, kdaKapp, kda)
+		return k.processSemiFungibleMintNew(tc, assetID, acntDst, kdaAcc, kda)
+	}
+
+	if tc.GetValue() != 0 {
+		return transaction.Transaction_AssetError, process.ErrInvalidArgument
 	}
 
 	// add quantity to existing asset
-	return k.processSemiFungibleAddQuantity(tc, assetID, internalID, acntDst, kdaKapp, kda)
+	return k.processSemiFungibleAddQuantity(tc, assetID, internalID, acntDst, kda)
 }
 
-func (k *kdaKapp) processSemiFungibleMintNew(tc *transaction.AssetTriggerContract, assetID []byte, acntDst state.UserAccountHandler, kdaKapp state.KAppAccountHandler, kda *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+func (k *kdaKapp) processSemiFungibleMintNew(
+	tc *transaction.AssetTriggerContract,
+	assetID []byte,
+	acntDst state.UserAccountHandler,
+	kdaAcc state.KAppAccountHandler,
+	kda *kapps.KDAData,
+) (transaction.Transaction_TXResultCode, error) {
+	if tc.GetValue() < 0 || tc.GetValue() > 0 && tc.GetAmount() > tc.GetValue() {
+		return transaction.Transaction_AssetError, process.ErrInvalidArgument
+	}
+
 	if kda.MaxSupply > 0 && kda.CirculatingSupply+1 > kda.MaxSupply {
 		return transaction.Transaction_AssetError, common.ErrMaxSupplyExceeded
 	}
@@ -169,23 +202,40 @@ func (k *kdaKapp) processSemiFungibleMintNew(tc *transaction.AssetTriggerContrac
 	internalID := []byte(strconv.FormatInt(kda.MintedValue, 10))
 	mintedTokens := [][]byte{internalID}
 
-	err := k.SetKDA(kdaKapp, assetID, kda)
+	err := k.SetKDA(kdaAcc, assetID, kda)
 	if err != nil {
 		return transaction.Transaction_KAPPError, err
 	}
 
-	if err := k.accountsCacher.UpdateKapp(kdaKapp); err != nil {
+	if err := k.accountsCacher.UpdateKapp(kdaAcc); err != nil {
 		return transaction.Transaction_SaveAccountError, err
 	}
 
 	ctx := k.KAppController.GetCurrentKAppContext()
 	ctx.SetReturnData(mintedTokens)
 
+	hash := k.hasher.Compute(
+		string(k.KAppController.GetCurrentKAppContext().Block().GetRandSeed()) +
+			string(k.KAppController.GetCurrentKAppContext().TxHash()) +
+			string(assetID) +
+			string(internalID),
+	)
+
+	if err := k.KAppController.GetSystemAccountKApp().SFTCreateMeta(assetID, internalID, tc.GetValue(), hash); err != nil {
+		return transaction.Transaction_AssetError, err
+	}
+
 	// add minted tokens to account
-	return k.processSemiFungibleAddQuantity(tc, assetID, internalID, acntDst, kdaKapp, kda)
+	return k.processSemiFungibleAddQuantity(tc, assetID, internalID, acntDst, kda)
 }
 
-func (k *kdaKapp) processSemiFungibleAddQuantity(tc *transaction.AssetTriggerContract, assetID []byte, internalID []byte, acntDst state.UserAccountHandler, kdaKapp state.KAppAccountHandler, kda *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+func (k *kdaKapp) processSemiFungibleAddQuantity(
+	tc *transaction.AssetTriggerContract,
+	assetID []byte,
+	internalID []byte,
+	acntDst state.UserAccountHandler,
+	kda *kapps.KDAData,
+) (transaction.Transaction_TXResultCode, error) {
 	// check valid internalID and if it have been "minted"/created"
 	internalIDInt, err := strconv.ParseInt(string(internalID), 10, 64)
 	if err != nil {
@@ -195,7 +245,13 @@ func (k *kdaKapp) processSemiFungibleAddQuantity(tc *transaction.AssetTriggerCon
 		return transaction.Transaction_AssetError, common.ErrAssetIDInvalid
 	}
 
-	acntDst.AddToBalanceWithNonce(tc.GetAmount(), assetID, internalID)
+	if err = acntDst.AddToBalanceWithNonce(tc.GetAmount(), assetID, internalID, k.forkController.EnableSmartContracts()); err != nil {
+		return transaction.Transaction_BalanceError, err
+	}
+
+	if err := k.KAppController.GetSystemAccountKApp().SFTAddCirculation(assetID, internalID, tc.GetAmount()); err != nil {
+		return transaction.Transaction_AssetError, err
+	}
 
 	k.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
 		txProcess.Transfer,
@@ -224,7 +280,7 @@ func (k *kdaKapp) processFungibleMint(tc *transaction.AssetTriggerContract, asse
 		return transaction.Transaction_AssetError, common.ErrMaxSupplyExceeded
 	}
 
-	err := acntDst.AddToBalance(tc.GetAmount(), assetID)
+	err := acntDst.AddToBalance(tc.GetAmount(), assetID, k.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_BalanceError, err
 	}

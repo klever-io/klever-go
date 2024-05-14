@@ -161,6 +161,7 @@ func (tc *CreateAssetContract) Validate() error {
 type allowedAssetTriggerFields struct {
 	ToAddress bool
 	Amount    bool
+	Value     bool
 	MIME      bool
 	Logo      bool
 	URIs      bool
@@ -240,8 +241,9 @@ func (tc *AssetTriggerContract) Validate() error {
 		AssetTriggerContract_StopNFTMetadataChange,
 		AssetTriggerContract_StopRoyaltiesChange:
 		allowed = allowedAssetTriggerFields{}
-	case AssetTriggerContract_Mint,
-		AssetTriggerContract_Wipe:
+	case AssetTriggerContract_Mint:
+		allowed = allowedAssetTriggerFields{ToAddress: true, Amount: true, Value: true}
+	case AssetTriggerContract_Wipe:
 		allowed = allowedAssetTriggerFields{ToAddress: true, Amount: true}
 	case AssetTriggerContract_Burn:
 		allowed = allowedAssetTriggerFields{Amount: true}

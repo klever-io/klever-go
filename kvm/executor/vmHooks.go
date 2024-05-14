@@ -120,6 +120,7 @@ type ManagedVMHooks interface {
 	ManagedBufferToHex(sourceHandle int32, destHandle int32)
 	ManagedGetCodeMetadata(addressHandle int32, responseHandle int32)
 	ManagedIsBuiltinFunction(functionNameHandle int32) int32
+	ManagedGetSftMetadata(tickerHandle int32, nonce int64, dataHandle int32)
 }
 
 type BigFloatVMHooks interface {
