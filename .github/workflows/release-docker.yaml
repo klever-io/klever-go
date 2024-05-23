@@ -31,6 +31,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ vars.GO_VERSION }}
@@ -58,7 +60,7 @@ jobs:
           if [[ $LABEL == 'testnet' ]]; then
             export FOR_TESTNET=1
           elif [[ $LABEL == 'devnet' ]]; then
-            export FOR_DEVNET=1
+            export FOR_DEV=1
           fi
           export PATH="$PATH:$(go env GOPATH)/bin"
           go install github.com/goware/modvendor@latest
@@ -70,7 +72,9 @@ jobs:
           LABEL: ${{ github.event.inputs.label }}
         if: ${{ github.event.inputs.latest == 'true' }}
         run: |
-          if [[ $LABEL == 'testnet' ]]; then
+          if [[ $LABEL == 'devnet' ]]; then
+            docker push kleverapp/klever-go:dev-latest
+          elif [[ $LABEL == 'testnet' ]]; then
             docker push kleverapp/klever-go:latest-testnet
           elif [[ $LABEL == 'mainnet' ]]; then
             docker push kleverapp/klever-go:latest
