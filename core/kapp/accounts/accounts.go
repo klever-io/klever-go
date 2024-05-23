@@ -732,7 +732,7 @@ func (a *accountsKapp) Freeze(sender []byte, tc *transaction.FreezeContract) (tr
 		ctx.Receipts().Add(txProcess.NewReceipt(
 			txProcess.Transfer,
 			ctx.ContractID(),
-			core.ZeroAddress,
+			claimAddress(staking.InterestType),
 			sender,
 			[]byte(strconv.FormatInt(value, 10)),
 			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
@@ -748,7 +748,7 @@ func (a *accountsKapp) Freeze(sender []byte, tc *transaction.FreezeContract) (tr
 			[]byte(strconv.FormatInt(value, 10)),
 			nil,
 			nil,
-			[]byte(key),
+			assetID,
 			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
 			claimType,
 		))
@@ -870,7 +870,7 @@ func (a *accountsKapp) Unfreeze(sender []byte, tc *transaction.UnfreezeContract)
 		ctx.Receipts().Add(txProcess.NewReceipt(
 			txProcess.Transfer,
 			ctx.ContractID(),
-			core.ZeroAddress,
+			claimAddress(staking.InterestType),
 			sender,
 			[]byte(strconv.FormatInt(value, 10)),
 			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
@@ -885,7 +885,7 @@ func (a *accountsKapp) Unfreeze(sender []byte, tc *transaction.UnfreezeContract)
 			[]byte(strconv.FormatInt(value, 10)),
 			nil,
 			nil,
-			[]byte(key),
+			assetID,
 			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
 			claimType,
 		))
@@ -1047,7 +1047,7 @@ func (a *accountsKapp) Delegate(sender []byte, tc *transaction.DelegateContract)
 		ctx.Receipts().Add(txProcess.NewReceipt(
 			txProcess.Transfer,
 			ctx.ContractID(),
-			core.ZeroAddress,
+			kapps.StakingKAppAddress, // only for KLV (FPR)
 			sender,
 			[]byte(strconv.FormatInt(value, 10)),
 			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), kdautils.KLVIdentifier, []byte(key)),
@@ -1062,7 +1062,7 @@ func (a *accountsKapp) Delegate(sender []byte, tc *transaction.DelegateContract)
 			[]byte(strconv.FormatInt(value, 10)),
 			nil,
 			nil,
-			[]byte(key),
+			kdautils.KLVIdentifier,
 			[]byte(key),
 			claimType,
 		))
@@ -1164,7 +1164,7 @@ func (a *accountsKapp) Undelegate(sender []byte, tc *transaction.UndelegateContr
 		ctx.Receipts().Add(txProcess.NewReceipt(
 			txProcess.Transfer,
 			ctx.ContractID(),
-			core.ZeroAddress,
+			kapps.StakingKAppAddress, // only for KLV (FPR)
 			sender,
 			[]byte(strconv.FormatInt(value, 10)),
 			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), kdautils.KLVIdentifier, []byte(key)),
@@ -1179,7 +1179,7 @@ func (a *accountsKapp) Undelegate(sender []byte, tc *transaction.UndelegateContr
 			[]byte(strconv.FormatInt(value, 10)),
 			nil,
 			nil,
-			[]byte(key),
+			kdautils.KLVIdentifier,
 			[]byte(key),
 			claimType,
 		))
@@ -1272,7 +1272,7 @@ func (a *accountsKapp) Withdraw(sender []byte, tc *transaction.WithdrawContract)
 		ctx.Receipts().Add(txProcess.NewReceipt(
 			txProcess.Transfer,
 			ctx.ContractID(),
-			core.ZeroAddress,
+			claimAddress(staking.InterestType),
 			sender,
 			[]byte(strconv.FormatInt(value, 10)),
 			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
@@ -1287,7 +1287,7 @@ func (a *accountsKapp) Withdraw(sender []byte, tc *transaction.WithdrawContract)
 			[]byte(strconv.FormatInt(value, 10)),
 			nil,
 			nil,
-			[]byte(key),
+			assetID,
 			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
 			claimType,
 		))
@@ -1353,7 +1353,7 @@ func (a *accountsKapp) ClaimStaking(sender []byte, tc *transaction.ClaimContract
 		ctx.Receipts().Add(txProcess.NewReceipt(
 			txProcess.Transfer,
 			ctx.ContractID(),
-			core.ZeroAddress,
+			claimAddress(staking.InterestType),
 			sender,
 			[]byte(strconv.FormatInt(value, 10)),
 			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
@@ -1368,7 +1368,7 @@ func (a *accountsKapp) ClaimStaking(sender []byte, tc *transaction.ClaimContract
 			[]byte(strconv.FormatInt(value, 10)),
 			nil,
 			nil,
-			[]byte(key),
+			assetID,
 			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
 			claimType,
 		))
@@ -1447,7 +1447,7 @@ func (a *accountsKapp) ClaimAllowance(sender []byte, tc *transaction.ClaimContra
 		ctx.Receipts().Add(txProcess.NewReceipt(
 			txProcess.Transfer,
 			ctx.ContractID(),
-			core.ZeroAddress,
+			kapps.StakingKAppAddress, // Only for KLV (FPR), mint is done during  block processing
 			sender,
 			[]byte(strconv.FormatInt(value, 10)),
 			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
@@ -1462,7 +1462,7 @@ func (a *accountsKapp) ClaimAllowance(sender []byte, tc *transaction.ClaimContra
 			[]byte(strconv.FormatInt(value, 10)),
 			nil,
 			nil,
-			[]byte(key),
+			assetID,
 			[]byte(key),
 			claimType,
 		))
@@ -1628,4 +1628,13 @@ func (a *accountsKapp) TokeTypeHasNonce(tokenType kapps.KDAData_EnumAssetType) b
 	}
 
 	return tokenType == kapps.KDAData_NonFungible
+}
+
+func claimAddress(interestType kapps.StakingData_EnumInterestType) []byte {
+	// case asset has an APR staking, its a mint process and should use zeroAddress
+	if interestType == kapps.StakingData_APRI {
+		return core.ZeroAddress
+	}
+	// return StakingKApp address
+	return kapps.StakingKAppAddress
 }
