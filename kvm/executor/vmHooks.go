@@ -106,7 +106,7 @@ type ManagedVMHooks interface {
 	ManagedGetBackTransfers(kdaTransfersValueHandle int32, callValueHandle int32)
 	ManagedGetKDABalance(addressHandle int32, tokenIDHandle int32, nonce int64, valueHandle int32)
 	ManagedGetUserKDA(addressHandle int32, tickerHandle int32, nonce int64, balanceHandle int32, frozenHandle int32, lastClaimHandle int32, bucketsHandle int32, mimeHandle int32, metadataHandle int32)
-	ManagedGetKDATokenData(addressHandle int32, tickerHandle int32, nonce int64, precisionHandle int32, idHandle int32, nameHandle int32, creatorHandle int32, logoHandle int32, urisHandle int32, initialSupplyHandle int32, circulatingSupplyHandle int32, maxSupplyHandle int32, mintedHandle int32, burnedHandle int32, royaltiesHandle int32, propertiesHandle int32, attributesHandle int32, rolesHandle int32, issueDateHandle int32)
+	ManagedGetKDATokenData(addressHandle int32, tickerHandle int32, nonce int64, precisionHandle int32, idHandle int32, nameHandle int32, creatorHandle int32, adminHandle int32, logoHandle int32, urisHandle int32, initialSupplyHandle int32, circulatingSupplyHandle int32, maxSupplyHandle int32, mintedHandle int32, burnedHandle int32, royaltiesHandle int32, propertiesHandle int32, attributesHandle int32, rolesHandle int32, issueDateHandle int32)
 	ManagedGetKDARoles(tickerHandle int32, rolesHandle int32)
 	ManagedUpgradeFromSourceContract(destHandle int32, gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32)
 	ManagedUpgradeContract(destHandle int32, gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32)

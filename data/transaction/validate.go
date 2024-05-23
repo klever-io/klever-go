@@ -248,6 +248,7 @@ func (tc *AssetTriggerContract) Validate() error {
 	case AssetTriggerContract_Burn:
 		allowed = allowedAssetTriggerFields{Amount: true}
 	case AssetTriggerContract_ChangeOwner,
+		AssetTriggerContract_ChangeAdmin,
 		AssetTriggerContract_RemoveRole,
 		AssetTriggerContract_ChangeRoyaltiesReceiver:
 		allowed = allowedAssetTriggerFields{ToAddress: true}

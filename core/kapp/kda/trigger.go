@@ -51,7 +51,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 		return k.KAppController.GetKDAKApp().Burn(sender, &transaction.AssetTriggerContract{TriggerType: tc.GetTriggerType(), AssetID: tc.GetAssetID(), Amount: tc.GetAmount(), ToAddress: tc.GetToAddress()})
 
 	case transaction.AssetTriggerContract_Pause:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -61,7 +61,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 
 		asset.Attributes.IsPaused = true
 	case transaction.AssetTriggerContract_Resume:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -81,7 +81,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 
 		asset.OwnerAddress = tc.GetToAddress()
 	case transaction.AssetTriggerContract_AddRole:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -114,7 +114,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 			})
 		}
 	case transaction.AssetTriggerContract_RemoveRole:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -128,7 +128,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 
 		asset.Roles = newRoles
 	case transaction.AssetTriggerContract_UpdateMetadata:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -221,7 +221,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 		))
 
 	case transaction.AssetTriggerContract_StopNFTMint:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -231,7 +231,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 
 		asset.Attributes.IsNFTMintStopped = true
 	case transaction.AssetTriggerContract_StopRoyaltiesChange:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -241,7 +241,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 
 		asset.Attributes.IsRoyaltiesChangeStopped = true
 	case transaction.AssetTriggerContract_UpdateLogo:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -251,7 +251,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 
 		asset.Logo = tc.GetLogo()
 	case transaction.AssetTriggerContract_UpdateURIs:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -270,7 +270,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 
 		asset.URIs = tc.GetURIs()
 	case transaction.AssetTriggerContract_ChangeRoyaltiesReceiver:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -280,7 +280,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 
 		asset.Royalties.Address = tc.GetToAddress()
 	case transaction.AssetTriggerContract_UpdateStaking:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -337,7 +337,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 			return transaction.Transaction_SaveAccountError, err
 		}
 	case transaction.AssetTriggerContract_UpdateRoyalties:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -530,7 +530,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 			assetID[0],
 		))
 	case transaction.AssetTriggerContract_StopNFTMetadataChange:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -539,6 +539,16 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 		}
 
 		asset.Attributes.IsNFTMetadataChangeStopped = true
+	case transaction.AssetTriggerContract_ChangeAdmin:
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+		}
+
+		if len(tc.GetToAddress()) > 0 && len(tc.GetToAddress()) != k.pubkeyConv.Len() {
+			return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
+		}
+
+		asset.AdminAddress = tc.GetToAddress()
 	default:
 		return transaction.Transaction_AssetError, common.ErrAssetTriggerInvalid
 	}

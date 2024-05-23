@@ -12,7 +12,6 @@ message KDAFeesPoolData {
     int64               KDABalance       = 5  [json_name = "kdaBalance"];
     int64               ConvertedFees    = 6  [json_name = "convertedFees"];
     bytes               AdminAddress     = 7  [json_name = "adminAddress"];
-
     int64               FRatioKDA        = 8  [json_name = "fRatioKDA"];
     int64               FRatioKLV        = 9  [json_name = "fRatioKLV"];
 }

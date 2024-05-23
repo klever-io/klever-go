@@ -34,6 +34,7 @@ message CreateAssetContract {
     AttributesInfo       Attributes                = 12 [json_name = "attributes"];
     StakingInfo          Staking                   = 13 [json_name = "staking"];
     repeated RolesInfo   Roles                     = 14 [json_name = "roles"];
+    bytes                AdminAddress              = 15 [json_name = "adminAddress"];
 }
 
 // PropertiesInfo hold the properties structure for the KDA asset
@@ -135,6 +136,7 @@ message AssetTriggerContract {
         UpdateKDAFeePool        = 15;
         StopRoyaltiesChange     = 16;
         StopNFTMetadataChange   = 17;
+        ChangeAdmin             = 18;
     }
     EnumTriggerType    TriggerType  = 1  [json_name = "triggerType"];
 	bytes              AssetID      = 2  [json_name = "assetId"];

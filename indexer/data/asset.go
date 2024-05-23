@@ -6,6 +6,7 @@ type Asset struct {
 	Name              string          `json:"name"`
 	Ticker            string          `json:"ticker"`
 	OwnerAddress      string          `json:"ownerAddress"`
+	AdminAddress      string          `json:"adminAddress"`
 	Logo              string          `json:"logo"`
 	URIs              []*URI          `json:"uris,omitempty"`
 	Precision         uint32          `json:"precision"`

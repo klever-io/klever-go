@@ -111,6 +111,9 @@ var ErrInvalidSndAddr = errors.New("invalid sender address")
 // ErrInvalidOwnerAddr signals that an invalid owner address was provided
 var ErrInvalidOwnerAddr = errors.New("invalid owner address")
 
+// ErrInvalidAdminAddr signals that an invalid admin address was provided
+var ErrInvalidAdminAddr = errors.New("invalid admin address")
+
 // ErrInvalidRoleAddr signals that an invalid role address was provided
 var ErrInvalidRoleAddr = errors.New("invalid role address")
 

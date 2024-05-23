@@ -49,6 +49,7 @@ const MarketIDLength = 6
 
 var addressConverter, _ = pubkeyConverter.NewBech32PubkeyConverter(32)
 var testOwnerAddress, _ = addressConverter.Decode("klv10gq6xsegedacd084vmpr2xus950j3d6lhqjfe8ue2xkmfwtkzavqnqhz99")
+var testAdminAddress, _ = addressConverter.Decode("klv1mt8yw657z6nk9002pccmwql8w90k0ac6340cjqkvm9e7lu0z2wjqudt69s")
 var testToAddress, _ = addressConverter.Decode("klv15zssmvht00ugvge5le9n885kahc5ykxzvmxx6xwz5ya2an562yyssfa0c5")
 var testReferralAddress, _ = addressConverter.Decode("klv1kxevjek45u94k9kpsm3en5amw7cgxrpjjyryvpwmavhl9w4da65s9ul66d")
 var testWhitelistAddress, _ = addressConverter.Decode("klv1vrcecp3f6d8r6gk3p5r8m3lu7ndrzsfce2dhr5werntr43lvjcpsq97c7y")
@@ -486,6 +487,9 @@ func createBaseKAppsProcessingArgsCommon(userDB, kappDB, peerDB state.AccountsAd
 	ownerAcc := loadUserAccount(accCacher, testOwnerAddress)
 	_ = ownerAcc.AddToBalance(100_000_000, nil, true)
 
+	adminAcc := loadUserAccount(accCacher, testAdminAddress)
+	_ = adminAcc.AddToBalance(100_000_000, nil, true)
+
 	toAcc := loadUserAccount(accCacher, testToAddress)
 	_ = toAcc.AddToBalance(100_000_000, nil, true)
 
@@ -494,6 +498,7 @@ func createBaseKAppsProcessingArgsCommon(userDB, kappDB, peerDB state.AccountsAd
 	kdaFeesPoolKapp := loadKAppAccount(accCacher, kapps.KDAFeesPoolKAppAddress)
 
 	_ = userDB.SaveAccount(ownerAcc)
+	_ = userDB.SaveAccount(adminAcc)
 	_ = userDB.SaveAccount(toAcc)
 	_ = kappDB.SaveAccount(kdaKapp)
 	_ = kappDB.SaveAccount(stakingKapp)
@@ -654,6 +659,9 @@ func TestTxProcessor_ProcessTransactionMalfunctionAccountsShouldErr(t *testing.T
 func InitTestAccounts(db state.AccountsCacher) {
 	ownerAcc := loadUserAccount(db, testOwnerAddress)
 	_ = ownerAcc.AddToBalance(100_000_000, nil, true)
+
+	adminAcc := loadUserAccount(db, testAdminAddress)
+	_ = adminAcc.AddToBalance(100_000_000, nil, true)
 
 	toAcc := loadUserAccount(db, testToAddress)
 	_ = toAcc.AddToBalance(100_000_000, nil, true)
@@ -1282,6 +1290,7 @@ func TestTxProcessor_ProcessCreateAssetOkValsShouldWork(t *testing.T) {
 		Name:          []byte("KDA"),
 		Ticker:        []byte("TEST"),
 		OwnerAddress:  []byte("klv1d05ju9jaj6u99zph0ant9jh7gksf"),
+		AdminAddress:  testAdminAddress,
 		Precision:     6,
 		InitialSupply: 10000,
 		MaxSupply:     0,
@@ -1331,6 +1340,7 @@ func TestTxProcessor_ProcessCreateAssetOkValsShouldWork(t *testing.T) {
 	assert.Equal(t, contract.Name, kdaData.Name)
 	assert.Equal(t, contract.Ticker, kdaData.Ticker)
 	assert.Equal(t, contract.OwnerAddress, kdaData.OwnerAddress)
+	assert.Equal(t, contract.AdminAddress, kdaData.AdminAddress)
 	assert.Equal(t, contract.Precision, kdaData.Precision)
 	assert.Equal(t, contract.InitialSupply, kdaData.InitialSupply)
 	assert.Equal(t, contract.InitialSupply, kdaData.CirculatingSupply)
@@ -3630,6 +3640,619 @@ func TestTxProcessor_ProcessAssetTriggerOkValsShouldWork(t *testing.T) {
 	assert.Equal(t, true, stopNFTMetadataChangeKDAData.Attributes.IsNFTMetadataChangeStopped)
 }
 
+func TestTxProcessor_ProcessAssetTriggerOkValsWithAdminShouldWork(t *testing.T) {
+	t.Parallel()
+
+	fungibleContract := transaction.CreateAssetContract{
+		Type:          transaction.CreateAssetContract_Fungible,
+		Name:          []byte("KDA"),
+		Ticker:        []byte("KDA"),
+		OwnerAddress:  testOwnerAddress,
+		AdminAddress:  testAdminAddress,
+		Precision:     6,
+		InitialSupply: 1000000,
+		MaxSupply:     0,
+		Properties: &transaction.PropertiesInfo{
+			CanMint:        true,
+			CanBurn:        true,
+			CanPause:       true,
+			CanWipe:        true,
+			CanChangeOwner: true,
+			CanAddRoles:    true,
+		},
+	}
+
+	nftContract := transaction.CreateAssetContract{
+		Type:         transaction.CreateAssetContract_NonFungible,
+		Name:         []byte("NFT"),
+		Ticker:       []byte("NFT"),
+		OwnerAddress: testOwnerAddress,
+		AdminAddress: testAdminAddress,
+		MaxSupply:    10000,
+		Properties: &transaction.PropertiesInfo{
+			CanMint:        true,
+			CanBurn:        true,
+			CanPause:       true,
+			CanWipe:        true,
+			CanChangeOwner: true,
+			CanAddRoles:    true,
+		},
+	}
+
+	fungibleTX, _ := createTransactionMock(&fungibleContract, transaction.TXContract_CreateAssetContractType, testOwnerAddress, 0)
+	nftTX, _ := createTransactionMock(&nftContract, transaction.TXContract_CreateAssetContractType, testOwnerAddress, 0)
+
+	execTx, args := NexTXProcessorV2(t)
+	accCacher := args.AccountsCacher
+	AddBalanceAccount(accCacher, 1000, kdautils.KLVIdentifier, testOwnerAddress)
+	AddBalanceAccount(accCacher, 1000, kdautils.KLVIdentifier, testAdminAddress)
+
+	ownerAcc := loadUserAccount(accCacher, testOwnerAddress)
+	loadUserAccount(accCacher, testAdminAddress)
+	block := createBlockHeader()
+
+	//KDA creation ###################################################
+
+	_, hash, err := execTx.PreProcessTransaction(fungibleTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, fungibleTX)
+	assert.Nil(t, err)
+
+	fungibleID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), fungibleContract.GetTicker())
+
+	_, hash, err = execTx.PreProcessTransaction(nftTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, nftTX)
+	assert.Nil(t, err)
+
+	nftID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), nftContract.GetTicker())
+
+	//MINT FUNGIBLE ######################################################
+
+	fungibleTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_Mint,
+		AssetID:     fungibleID,
+		ToAddress:   testAdminAddress,
+		Amount:      9999,
+	}
+
+	fungibleTriggerTX, _ := createTransactionMock(&fungibleTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(fungibleTriggerTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, fungibleTriggerTX)
+	assert.Nil(t, err)
+
+	adminAcc := loadUserAccount(accCacher, testAdminAddress)
+	kdaKapp := loadKAppAccount(accCacher, kapps.KDAKAppAddress)
+
+	fungibleKey := kdautils.ToKDAKey(fungibleID, nil)
+
+	userFungibleBytes, err := adminAcc.DataTrieTracker().RetrieveValue(fungibleKey)
+	assert.Nil(t, err)
+
+	userFungible := &kapps.UserKDA{}
+	err = marshalizer.Unmarshal(userFungible, userFungibleBytes)
+	assert.Nil(t, err)
+
+	fungibleKDADataBytes, err := kdaKapp.DataTrieTracker().RetrieveValue(fungibleKey)
+	assert.Nil(t, err)
+
+	fungibleKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(fungibleKDAData, fungibleKDADataBytes)
+	assert.Nil(t, err)
+
+	//MINT NFT ######################################################
+
+	nftTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_Mint,
+		AssetID:     nftID,
+		ToAddress:   testAdminAddress,
+		Amount:      2,
+	}
+
+	nftTriggerTX, _ := createTransactionMock(&nftTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(nftTriggerTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, nftTriggerTX)
+	assert.Nil(t, err)
+
+	adminAcc = loadUserAccount(accCacher, testAdminAddress)
+
+	nftKey := kdautils.ToKDAKey(nftID, nil)
+	userNFTKey := kdautils.ToKDAKey(nftID, []byte("1"))
+
+	userNFTKey2 := kdautils.ToKDAKey(nftID, []byte("2"))
+
+	userNFTBytes, err := adminAcc.DataTrieTracker().RetrieveValue(userNFTKey)
+	assert.Nil(t, err)
+
+	userNFT := &kapps.UserKDA{}
+	err = marshalizer.Unmarshal(userNFT, userNFTBytes)
+	assert.Nil(t, err)
+
+	nftKDADataBytes, err := kdaKapp.DataTrieTracker().RetrieveValue(nftKey)
+	assert.Nil(t, err)
+
+	nftKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(nftKDAData, nftKDADataBytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, int64(9999), adminAcc.GetBalance(fungibleID, true))
+	assert.Equal(t, int64(1009999), fungibleKDAData.MintedValue)
+	assert.Equal(t, int64(1009999), fungibleKDAData.CirculatingSupply)
+	assert.Greater(t, len(userNFTBytes), 0)
+	assert.Equal(t, []uint8([]byte(nil)), userNFT.MIME)
+	assert.Equal(t, []uint8([]byte(nil)), userNFT.Metadata)
+	assert.Equal(t, int64(2), nftKDAData.MintedValue)
+	assert.Equal(t, int64(2), nftKDAData.CirculatingSupply)
+
+	//PAUSE ######################################################
+
+	pauseTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_Pause,
+		AssetID:     fungibleID,
+	}
+
+	pauseTriggerTX, _ := createTransactionMock(&pauseTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(pauseTriggerTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, pauseTriggerTX)
+	assert.Nil(t, err)
+
+	pausedKDABytes, err := kdaKapp.DataTrieTracker().RetrieveValue(fungibleKey)
+	assert.Nil(t, err)
+
+	pausedKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(pausedKDAData, pausedKDABytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, true, pausedKDAData.Attributes.IsPaused)
+
+	//RESUME ######################################################
+
+	resumeTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_Resume,
+		AssetID:     fungibleID,
+	}
+
+	resumeTriggerTX, _ := createTransactionMock(&resumeTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(resumeTriggerTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, resumeTriggerTX)
+	assert.Nil(t, err)
+
+	resumedKDABytes, err := kdaKapp.DataTrieTracker().RetrieveValue(fungibleKey)
+	assert.Nil(t, err)
+
+	resumedKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(resumedKDAData, resumedKDABytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, false, resumedKDAData.Attributes.IsPaused)
+
+	//ADD ROLE ######################################################
+
+	addRoleTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_AddRole,
+		AssetID:     fungibleID,
+		Role: &transaction.RolesInfo{
+			Address:     []byte("klv1d05ju9jaj6u99zph0ant9jh7gksg"),
+			HasRoleMint: true,
+		},
+	}
+
+	addRoleTriggerTX, _ := createTransactionMock(&addRoleTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(addRoleTriggerTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, addRoleTriggerTX)
+	assert.Nil(t, err)
+
+	addRoleKDABytes, err := kdaKapp.DataTrieTracker().RetrieveValue(fungibleKey)
+	assert.Nil(t, err)
+
+	addRoleKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(addRoleKDAData, addRoleKDABytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, addRoleTrigger.Role.Address, addRoleKDAData.Roles[0].Address)
+	assert.Equal(t, true, addRoleKDAData.Roles[0].HasRoleMint)
+	assert.Equal(t, false, addRoleKDAData.Roles[0].HasRoleSetITOPrices)
+
+	//REMOVE ROLE ######################################################
+
+	removeRoleTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_RemoveRole,
+		AssetID:     fungibleID,
+		ToAddress:   []byte("klv1d05ju9jaj6u99zph0ant9jh7gksg"),
+	}
+
+	removeRoleTriggerTX, _ := createTransactionMock(&removeRoleTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(removeRoleTriggerTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, removeRoleTriggerTX)
+	assert.Nil(t, err)
+
+	removeRoleKDABytes, err := kdaKapp.DataTrieTracker().RetrieveValue(fungibleKey)
+	assert.Nil(t, err)
+
+	removeRoleKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(removeRoleKDAData, removeRoleKDABytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, 0, len(removeRoleKDAData.Roles))
+
+	//UPDATE Logo ######################################################
+
+	updateLogoTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_UpdateLogo,
+		AssetID:     fungibleID,
+		Logo:        "https://github.com/klever-io/klever-go",
+	}
+
+	updateLogoTriggerTX, _ := createTransactionMock(&updateLogoTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(updateLogoTriggerTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, updateLogoTriggerTX)
+	assert.Nil(t, err)
+
+	kdaKapp = loadKAppAccount(accCacher, kapps.KDAKAppAddress)
+
+	updateLogoKDABytes, err := kdaKapp.DataTrieTracker().RetrieveValue(fungibleKey)
+	assert.Nil(t, err)
+
+	updateLogoKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(updateLogoKDAData, updateLogoKDABytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, "https://github.com/klever-io/klever-go", updateLogoKDAData.Logo)
+
+	//UPDATE URIS ######################################################
+
+	updateURIsTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_UpdateURIs,
+		AssetID:     fungibleID,
+		URIs:        map[string]string{"Github": "https://github.com/klever-io/klever-go"},
+	}
+
+	updateURIsTriggerTX, _ := createTransactionMock(&updateURIsTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(updateURIsTriggerTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, updateURIsTriggerTX)
+	assert.Nil(t, err)
+
+	kdaKapp = loadKAppAccount(accCacher, kapps.KDAKAppAddress)
+
+	updateURIsKDABytes, err := kdaKapp.DataTrieTracker().RetrieveValue(fungibleKey)
+	assert.Nil(t, err)
+
+	updateURIsKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(updateURIsKDAData, updateURIsKDABytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, "https://github.com/klever-io/klever-go", updateURIsKDAData.URIs["Github"])
+
+	// UPDATE MULTIPLE METADATA ############################################
+
+	updateMultipleMetadataTrigger := []transaction.AssetTriggerContract{
+		{
+			TriggerType: transaction.AssetTriggerContract_UpdateMetadata,
+			AssetID:     []byte(string(nftID) + kapps.Sp + "1"),
+			ToAddress:   testAdminAddress,
+			MIME:        []byte("application/octet-stream"),
+		},
+		{
+			TriggerType: transaction.AssetTriggerContract_UpdateMetadata,
+			AssetID:     []byte(string(nftID) + kapps.Sp + "2"),
+			ToAddress:   testAdminAddress,
+			MIME:        []byte("application/octet-stream"),
+		},
+	}
+
+	serialized, serializeErr := marshalizer.Marshal(&updateMultipleMetadataTrigger[1])
+	assert.NoError(t, serializeErr)
+
+	updateMultipleMetadataTriggerTX, _ := createTransactionMock(&updateMultipleMetadataTrigger[0], transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+	updateMultipleMetadataTriggerTX.RawData.Contract = append(updateMultipleMetadataTriggerTX.RawData.Contract, &transaction.TXContract{
+		Type: transaction.TXContract_AssetTriggerContractType,
+		Parameter: &anypb.Any{
+			TypeUrl: "github.com/klever-io/klever-go/" + string(proto.MessageName(&updateMultipleMetadataTrigger[1])),
+			Value:   serialized,
+		},
+	})
+
+	_, hash, err = execTx.PreProcessTransaction(updateMultipleMetadataTriggerTX)
+	assert.Nil(t, err)
+
+	metadataFirst := []byte("first metadata value")
+	metadataSecond := []byte("second metadata value")
+
+	updateMultipleMetadataTriggerTX.RawData.Data = [][]byte{metadataFirst, metadataSecond}
+
+	err = execTx.ProcessTransaction(block, hash, updateMultipleMetadataTriggerTX)
+	assert.Nil(t, err)
+
+	adminAcc = loadUserAccount(accCacher, testAdminAddress)
+
+	userFirstMetadataNFTBytes, err := adminAcc.DataTrieTracker().RetrieveValue(userNFTKey)
+	assert.Nil(t, err)
+
+	userFirstMetadaNFT := &kapps.UserKDA{}
+	err = marshalizer.Unmarshal(userFirstMetadaNFT, userFirstMetadataNFTBytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, updateMultipleMetadataTrigger[0].MIME, userFirstMetadaNFT.MIME)
+	assert.Equal(t, metadataFirst, userFirstMetadaNFT.Metadata)
+
+	userSecondMetadataNFTBytes, err := adminAcc.DataTrieTracker().RetrieveValue(userNFTKey2)
+	assert.Nil(t, err)
+
+	userSecondMetadaNFT := &kapps.UserKDA{}
+	err = marshalizer.Unmarshal(userSecondMetadaNFT, userSecondMetadataNFTBytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, updateMultipleMetadataTrigger[1].MIME, userSecondMetadaNFT.MIME)
+	assert.Equal(t, metadataSecond, userSecondMetadaNFT.Metadata)
+
+	//UPDATE METADATA ######################################################
+
+	updateMetadataTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_UpdateMetadata,
+		AssetID:     []byte(string(nftID) + kapps.Sp + "1"),
+		ToAddress:   testAdminAddress,
+		MIME:        []byte("application/octet-stream"),
+	}
+
+	updateMetadataTriggerTX, _ := createTransactionMock(&updateMetadataTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(updateMetadataTriggerTX)
+	assert.Nil(t, err)
+
+	metadataValue := []byte("data")
+
+	updateMetadataTriggerTX.RawData.Data = [][]byte{metadataValue}
+
+	err = execTx.ProcessTransaction(block, hash, updateMetadataTriggerTX)
+	assert.Nil(t, err)
+
+	adminAcc = loadUserAccount(accCacher, testAdminAddress)
+
+	userMetadataNFTBytes, err := adminAcc.DataTrieTracker().RetrieveValue(userNFTKey)
+	assert.Nil(t, err)
+
+	userMetadaNFT := &kapps.UserKDA{}
+	err = marshalizer.Unmarshal(userMetadaNFT, userMetadataNFTBytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, updateMetadataTrigger.MIME, userMetadaNFT.MIME)
+	assert.Equal(t, metadataValue, userMetadaNFT.Metadata)
+
+	//BURN NFT ######################################################
+
+	nftTrigger2 := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_Mint,
+		AssetID:     nftID,
+		ToAddress:   testAdminAddress,
+		Amount:      1,
+	}
+
+	nftTriggerTX2, _ := createTransactionMock(&nftTrigger2, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(nftTriggerTX2)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, nftTriggerTX2)
+	assert.Nil(t, err)
+
+	nftBurnTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_Burn,
+		AssetID:     []byte(string(nftID) + kapps.Sp + "2"),
+		Amount:      1,
+	}
+
+	nftBurnTX, _ := createTransactionMock(&nftBurnTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(nftBurnTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, nftBurnTX)
+	assert.Nil(t, err)
+
+	adminAcc = loadUserAccount(accCacher, testAdminAddress)
+	kdaKapp = loadKAppAccount(accCacher, kapps.KDAKAppAddress)
+
+	userNFT13Bytes, err := adminAcc.DataTrieTracker().RetrieveValue(userNFTKey2)
+	assert.Nil(t, err)
+
+	nftBurnKDADataBytes, err := kdaKapp.DataTrieTracker().RetrieveValue(nftKey)
+	assert.Nil(t, err)
+
+	nftBurnKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(nftBurnKDAData, nftBurnKDADataBytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, 0, len(userNFT13Bytes))
+	assert.Equal(t, int64(3), nftBurnKDAData.MintedValue)
+	assert.Equal(t, int64(1), nftBurnKDAData.BurnedValue)
+	assert.Equal(t, int64(2), nftBurnKDAData.CirculatingSupply)
+
+	//BURN FUNGIBLE ######################################################
+
+	fungibleBurnTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_Burn,
+		AssetID:     fungibleID,
+		Amount:      1234,
+	}
+
+	fungibleBurnTX, _ := createTransactionMock(&fungibleBurnTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(fungibleBurnTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, fungibleBurnTX)
+	assert.Nil(t, err)
+
+	adminAcc = loadUserAccount(accCacher, testAdminAddress)
+	kdaKapp = loadKAppAccount(accCacher, kapps.KDAKAppAddress)
+
+	userBurnFungibleBytes, err := adminAcc.DataTrieTracker().RetrieveValue(fungibleKey)
+	assert.Nil(t, err)
+
+	userBurnFungible := &kapps.UserKDA{}
+	err = marshalizer.Unmarshal(userBurnFungible, userBurnFungibleBytes)
+	assert.Nil(t, err)
+
+	burnFungibleKDADataBytes, err := kdaKapp.DataTrieTracker().RetrieveValue(fungibleKey)
+	assert.Nil(t, err)
+
+	burnFungibleKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(burnFungibleKDAData, burnFungibleKDADataBytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, int64(8765), userBurnFungible.Balance)
+	assert.Equal(t, int64(1009999), burnFungibleKDAData.MintedValue)
+	assert.Equal(t, int64(1234), burnFungibleKDAData.BurnedValue)
+	assert.Equal(t, int64(1008765), burnFungibleKDAData.CirculatingSupply)
+
+	//CHANGE OWNER ######################################################
+	//Should err, only owner can change owner
+	changeOwnerTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_ChangeOwner,
+		AssetID:     nftID,
+		ToAddress:   []byte("klv1d05ju9jaj6u99zph0ant9jh7gksg"),
+	}
+
+	changeOwnerTriggerTX, _ := createTransactionMock(&changeOwnerTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(changeOwnerTriggerTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, changeOwnerTriggerTX)
+	assert.Equal(t, "account is not the owner", err.Error())
+
+	//WIPE ######################################################
+
+	_ = loadUserAccount(accCacher, testAdminAddress)
+	_ = accCacher.SaveAll()
+
+	wipeTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_Wipe,
+		AssetID:     []byte(string(nftID) + kapps.Sp + "1"),
+		ToAddress:   testAdminAddress,
+		MIME:        []byte("application/octet-stream"),
+		Amount:      1,
+	}
+
+	wipeTriggerTX, _ := createTransactionMock(&wipeTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(wipeTriggerTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, wipeTriggerTX)
+	assert.Nil(t, err)
+
+	adminAcc = loadUserAccount(accCacher, testAdminAddress)
+
+	userWipeNFTBytes, err := adminAcc.DataTrieTracker().RetrieveValue(userNFTKey)
+	assert.Nil(t, err)
+
+	assert.Equal(t, 0, len(userWipeNFTBytes))
+
+	//STOP NFT MINT ######################################################
+	StopNFTMintTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_StopNFTMint,
+		AssetID:     nftID,
+	}
+
+	StopNFTMintTriggerTX, _ := createTransactionMock(&StopNFTMintTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(StopNFTMintTriggerTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, StopNFTMintTriggerTX)
+	assert.Nil(t, err)
+
+	kdaKapp = loadKAppAccount(accCacher, kapps.KDAKAppAddress)
+
+	stopNFTMintKDABytes, err := kdaKapp.DataTrieTracker().RetrieveValue(nftKey)
+	assert.Nil(t, err)
+
+	stopNFTMintKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(stopNFTMintKDAData, stopNFTMintKDABytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, true, stopNFTMintKDAData.Attributes.IsNFTMintStopped)
+
+	//STOP NFT METADATA CHANGE ######################################################
+	StopNFTMetadataChangeTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_StopNFTMetadataChange,
+		AssetID:     nftID,
+	}
+
+	stopNFTMetadataChangeTriggerTX, _ := createTransactionMock(&StopNFTMetadataChangeTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(stopNFTMetadataChangeTriggerTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, stopNFTMetadataChangeTriggerTX)
+	assert.Nil(t, err)
+
+	kdaKapp = loadKAppAccount(accCacher, kapps.KDAKAppAddress)
+
+	stopNFTMetadataChangeTriggerTXKDABytes, err := kdaKapp.DataTrieTracker().RetrieveValue(nftKey)
+	assert.Nil(t, err)
+
+	stopNFTMetadataChangeKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(stopNFTMetadataChangeKDAData, stopNFTMetadataChangeTriggerTXKDABytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, true, stopNFTMetadataChangeKDAData.Attributes.IsNFTMetadataChangeStopped)
+
+	//CHANGE Admin ######################################################
+
+	changeAdminTrigger := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_ChangeAdmin,
+		AssetID:     nftID,
+		ToAddress:   []byte("klv1d05ju9jaj6u99zph0ant9jh7gksg"),
+	}
+
+	changeAdminTriggerTX, _ := createTransactionMock(&changeAdminTrigger, transaction.TXContract_AssetTriggerContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(changeAdminTriggerTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, changeAdminTriggerTX)
+	assert.Nil(t, err)
+
+	kdaKapp = loadKAppAccount(accCacher, kapps.KDAKAppAddress)
+
+	changeAdminKDABytes, err := kdaKapp.DataTrieTracker().RetrieveValue(nftKey)
+	assert.Nil(t, err)
+
+	changeAdminKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(changeAdminKDAData, changeAdminKDABytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, changeAdminTrigger.ToAddress, changeAdminKDAData.AdminAddress)
+}
+
 func TestTxProcessor_ProcessSetAccountNameOkValsShouldWork(t *testing.T) {
 	t.Parallel()
 
@@ -4864,6 +5487,350 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOOkValsShouldWork(t *testing.T) {
 	itoKapp = loadKAppAccount(accCacher, kapps.ITOKAppAddress)
 	kdaKapp = loadKAppAccount(accCacher, kapps.KDAKAppAddress)
 	ownerAcc = loadUserAccount(accCacher, testOwnerAddress)
+	receiverAcc = loadUserAccount(accCacher, receiverAddress)
+
+	fungibleBuyITODataBytes, err := itoKapp.DataTrieTracker().RetrieveValue(fungibleITOKey)
+	assert.Nil(t, err)
+
+	fungibleBuyITOData := &kapps.ITOData{}
+	err = marshalizer.Unmarshal(fungibleBuyITOData, fungibleBuyITODataBytes)
+	assert.Nil(t, err)
+
+	fungibleBuyKDADataBytes, err := kdaKapp.DataTrieTracker().RetrieveValue(fungibleKey)
+	assert.Nil(t, err)
+
+	fungibleBuyKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(fungibleBuyKDAData, fungibleBuyKDADataBytes)
+	assert.Nil(t, err)
+
+	// 680 Un (Amount) * 0.4KLV (Price)
+	// Cost = 680*0.4 = 272 KLV
+
+	assert.Equal(t, int64(680_000_000), fungibleBuyITOData.MintedAmount)
+	assert.Equal(t, int64(680_000_000+1_000_000), fungibleBuyKDAData.MintedValue)
+	assert.Equal(t, int64(999_999_800-272_000_000), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(272_000_200), receiverAcc.GetBalance(kdautils.KLVIdentifier, true))
+}
+
+func TestTxProcessor_ProcessConfigSetAndBuyITOWithAdminOkValsShouldWork(t *testing.T) {
+	t.Parallel()
+
+	receiverAddress := []byte("klv1d05ju9jaj6u99zph0ant9jh7gksg")
+
+	fungibleContract := transaction.CreateAssetContract{
+		Type:          transaction.CreateAssetContract_Fungible,
+		Name:          []byte("KDA"),
+		Ticker:        []byte("KDA"),
+		OwnerAddress:  testOwnerAddress,
+		AdminAddress:  testAdminAddress,
+		Precision:     6,
+		InitialSupply: 1_000_000,
+		MaxSupply:     1_000_000_000_000,
+		Properties: &transaction.PropertiesInfo{
+			CanMint:        true,
+			CanBurn:        true,
+			CanPause:       true,
+			CanWipe:        true,
+			CanChangeOwner: true,
+			CanAddRoles:    true,
+		},
+	}
+
+	nftContract := transaction.CreateAssetContract{
+		Type:          transaction.CreateAssetContract_NonFungible,
+		Name:          []byte("NFT"),
+		Ticker:        []byte("NFT"),
+		OwnerAddress:  testOwnerAddress,
+		AdminAddress:  testAdminAddress,
+		Precision:     0,
+		InitialSupply: 0,
+		MaxSupply:     10000,
+		Properties: &transaction.PropertiesInfo{
+			CanMint:        true,
+			CanBurn:        true,
+			CanPause:       true,
+			CanWipe:        true,
+			CanChangeOwner: true,
+			CanAddRoles:    true,
+		},
+	}
+
+	fungibleTX, _ := createTransactionMock(&fungibleContract, transaction.TXContract_CreateAssetContractType, testOwnerAddress, 0)
+	nftTX, _ := createTransactionMock(&nftContract, transaction.TXContract_CreateAssetContractType, testOwnerAddress, 0)
+
+	userDB, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
+
+	ownerAcc := loadUserAccount(accCacher, testOwnerAddress)
+	adminAcc := loadUserAccount(accCacher, testAdminAddress)
+	receiverAcc := loadUserAccount(accCacher, receiverAddress)
+	peerAcc := loadPeerAccount(accCacher, []byte("PEER"))
+	kdaKapp := loadKAppAccount(accCacher, kapps.KDAKAppAddress)
+	stakingKapp := loadKAppAccount(accCacher, kapps.StakingKAppAddress)
+	itoKapp := loadKAppAccount(accCacher, kapps.ITOKAppAddress)
+
+	initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
+	_ = ownerAcc.AddToBalance(1_000_000_000, nil, true)
+	_ = adminAcc.AddToBalance(1_000_000_000, nil, true)
+
+	_ = userDB.SaveAccount(ownerAcc)
+	_ = userDB.SaveAccount(adminAcc)
+	_ = userDB.SaveAccount(receiverAcc)
+	_ = kappDB.SaveAccount(kdaKapp)
+	_ = kappDB.SaveAccount(stakingKapp)
+	_ = kappDB.SaveAccount(itoKapp)
+	_ = peerDB.SaveAccount(peerAcc)
+
+	args := createArgsForTxProcessor()
+	args.AccountsCacher = accCacher
+	execTx := NewTXProcessor(t, args)
+
+	block := createBlockHeader()
+
+	//KDA creation ###################################################
+
+	_, hash, err := execTx.PreProcessTransaction(fungibleTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, fungibleTX)
+	assert.Nil(t, err)
+
+	fungibleID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), fungibleContract.GetTicker())
+
+	_, hash, err = execTx.PreProcessTransaction(nftTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, nftTX)
+	assert.Nil(t, err)
+
+	nftID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), nftContract.GetTicker())
+
+	nftITOKey := kdautils.ToITOKey(nftID)
+	fungibleITOKey := kdautils.ToITOKey(fungibleID)
+	nftKey := kdautils.ToKDAKey(nftID, nil)
+	fungibleKey := kdautils.ToKDAKey(fungibleID, nil)
+
+	//Create NFT ITO ######################################################
+
+	packInfo := make(map[string]*transaction.PackInfo)
+
+	packInfo["KLV"] = &transaction.PackInfo{
+		Packs: []*transaction.PackItem{{Amount: 1, Price: 50}, {Amount: 5, Price: 40}},
+	}
+
+	configITO := transaction.ConfigITOContract{
+		AssetID:         nftID,
+		ReceiverAddress: receiverAddress,
+		Status:          transaction.ConfigITOContract_ActiveITO,
+		MaxAmount:       1_000_000_000,
+		PackInfo:        packInfo,
+	}
+
+	nftConfigITOTX, _ := createTransactionMock(&configITO, transaction.TXContract_ConfigITOContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(nftConfigITOTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, nftConfigITOTX)
+	assert.Nil(t, err)
+
+	configITO.AssetID = fungibleID
+	packInfo["KLV"] = &transaction.PackInfo{
+		Packs: []*transaction.PackItem{{Amount: 500_000_000, Price: 500_000}, {Amount: 1_000_000_000, Price: 400_000}},
+	}
+
+	fungibleConfigITOTX, _ := createTransactionMock(&configITO, transaction.TXContract_ConfigITOContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(fungibleConfigITOTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, fungibleConfigITOTX)
+	assert.Nil(t, err)
+
+	kdaKapp = loadKAppAccount(accCacher, kapps.KDAKAppAddress)
+	itoKapp = loadKAppAccount(accCacher, kapps.ITOKAppAddress)
+
+	nftITODataBytes, err := itoKapp.DataTrieTracker().RetrieveValue(nftITOKey)
+	assert.Nil(t, err)
+
+	nftITOData := &kapps.ITOData{}
+	err = marshalizer.Unmarshal(nftITOData, nftITODataBytes)
+	assert.Nil(t, err)
+
+	fungibleITODataBytes, err := itoKapp.DataTrieTracker().RetrieveValue(fungibleITOKey)
+	assert.Nil(t, err)
+
+	fungibleITOData := &kapps.ITOData{}
+	err = marshalizer.Unmarshal(fungibleITOData, fungibleITODataBytes)
+	assert.Nil(t, err)
+
+	nftKDADataBytes, err := kdaKapp.DataTrieTracker().RetrieveValue(nftKey)
+	assert.Nil(t, err)
+
+	nftKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(nftKDAData, nftKDADataBytes)
+	assert.Nil(t, err)
+
+	fungibleKDADataBytes, err := kdaKapp.DataTrieTracker().RetrieveValue(fungibleKey)
+	assert.Nil(t, err)
+
+	fungibleKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(fungibleKDAData, fungibleKDADataBytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, true, nftITOData.IsActive)
+	assert.Equal(t, int64(1_000_000_000), nftITOData.MaxAmount)
+	assert.Equal(t, int64(0), nftITOData.MintedAmount)
+	assert.Equal(t, receiverAddress, nftITOData.ReceiverAddress)
+	assert.Equal(t, int64(1), nftITOData.PackData["KLV"].Packs[0].Amount)
+	assert.Equal(t, int64(50), nftITOData.PackData["KLV"].Packs[0].Price)
+	assert.Equal(t, int64(5), nftITOData.PackData["KLV"].Packs[1].Amount)
+	assert.Equal(t, int64(40), nftITOData.PackData["KLV"].Packs[1].Price)
+
+	assert.Equal(t, true, fungibleITOData.IsActive)
+	assert.Equal(t, int64(1_000_000_000), fungibleITOData.MaxAmount)
+	assert.Equal(t, int64(0), fungibleITOData.MintedAmount)
+	assert.Equal(t, receiverAddress, fungibleITOData.ReceiverAddress)
+	assert.Equal(t, int64(500_000_000), fungibleITOData.PackData["KLV"].Packs[0].Amount)
+	assert.Equal(t, int64(500_000), fungibleITOData.PackData["KLV"].Packs[0].Price)
+	assert.Equal(t, int64(1_000_000_000), fungibleITOData.PackData["KLV"].Packs[1].Amount)
+	assert.Equal(t, int64(400_000), fungibleITOData.PackData["KLV"].Packs[1].Price)
+
+	assert.Equal(t, kapps.ITOKAppAddress, nftKDAData.Roles[0].Address)
+	assert.Equal(t, true, nftKDAData.Roles[0].HasRoleMint)
+	assert.Equal(t, true, nftKDAData.Roles[0].HasRoleSetITOPrices)
+
+	assert.Equal(t, kapps.ITOKAppAddress, fungibleKDAData.Roles[0].Address)
+	assert.Equal(t, true, fungibleKDAData.Roles[0].HasRoleMint)
+	assert.Equal(t, true, fungibleKDAData.Roles[0].HasRoleSetITOPrices)
+
+	//SetPrices Fungible ITO ######################################################
+
+	//Pre fork tx executor for deprecated SetITOPrices
+	argsTemp := createArgsForTxProcessor()
+
+	epochNotifier := &commonMock.EpochNotifierStub{}
+	forkController, _ := fork.NewForkController(config.EnableEpochs{
+		ClaimKFI:              0,
+		ProcessorFlowITOPrice: 0,
+		FixStakingBuckets:     0,
+		KdaFpr:                1000,
+	}, epochNotifier)
+
+	argsKappTemp := kappcontroller.ArgsNewKApp{
+		Hasher:         argsTemp.Hasher,
+		Marshalizer:    argsTemp.Marshalizer,
+		PubkeyConv:     argsTemp.PubkeyConv,
+		AccountsCacher: accCacher,
+		ForkController: forkController,
+		RatingsData:    argsTemp.RatingsData,
+	}
+
+	kAppController, err := kappcontroller.NewKappController(argsKappTemp)
+	assert.Nil(t, err)
+
+	controller := createProposalController()
+	_ = kAppController.SetProposalController(controller)
+
+	_ = kAppController.GetValidatorsKApp().SetAccountsCacher(accCacher)
+
+	argsTemp.AccountsCacher = accCacher
+	argsTemp.KAppController = kAppController
+	argsTemp.ForkController = forkController
+
+	execTxTemp := NewTXProcessor(t, argsTemp)
+
+	packInfo["KFI"] = &transaction.PackInfo{
+		Packs: []*transaction.PackItem{{Amount: 500, Price: 50}, {Amount: 1000, Price: 40}},
+	}
+
+	setITOPrices := transaction.SetITOPricesContract{
+		AssetID:  fungibleID,
+		PackInfo: packInfo,
+	}
+
+	fungibleSetITOPricesTX, _ := createTransactionMock(&setITOPrices, transaction.TXContract_SetITOPricesContractType, testAdminAddress, 0)
+
+	_, hash, err = execTxTemp.PreProcessTransaction(fungibleSetITOPricesTX)
+	assert.Nil(t, err)
+
+	err = execTxTemp.ProcessTransaction(block, hash, fungibleSetITOPricesTX)
+	assert.Nil(t, err)
+
+	itoKapp = loadKAppAccount(accCacher, kapps.ITOKAppAddress)
+
+	fungibleSetITOPricesDataBytes, err := itoKapp.DataTrieTracker().RetrieveValue(fungibleITOKey)
+	assert.Nil(t, err)
+
+	fungibleSetITOPricesData := &kapps.ITOData{}
+	err = marshalizer.Unmarshal(fungibleSetITOPricesData, fungibleSetITOPricesDataBytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, int64(500), fungibleSetITOPricesData.PackData["KFI"].Packs[0].Amount)
+	assert.Equal(t, int64(50), fungibleSetITOPricesData.PackData["KFI"].Packs[0].Price)
+	assert.Equal(t, int64(1000), fungibleSetITOPricesData.PackData["KFI"].Packs[1].Amount)
+	assert.Equal(t, int64(40), fungibleSetITOPricesData.PackData["KFI"].Packs[1].Price)
+
+	//BUY NFT ITO ######################################################
+
+	nftBuyITO := transaction.BuyContract{
+		BuyType:    transaction.BuyContract_ITOBuy,
+		ID:         nftID,
+		CurrencyID: kdautils.KLVIdentifier,
+		Amount:     5,
+	}
+
+	nftBuyTX, _ := createTransactionMock(&nftBuyITO, transaction.TXContract_BuyContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(nftBuyTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, nftBuyTX)
+	assert.Nil(t, err)
+
+	itoKapp = loadKAppAccount(accCacher, kapps.ITOKAppAddress)
+	kdaKapp = loadKAppAccount(accCacher, kapps.KDAKAppAddress)
+	ownerAcc = loadUserAccount(accCacher, testAdminAddress)
+	receiverAcc = loadUserAccount(accCacher, receiverAddress)
+
+	nftBuyITODataBytes, err := itoKapp.DataTrieTracker().RetrieveValue(nftITOKey)
+	assert.Nil(t, err)
+
+	nftBuyITOData := &kapps.ITOData{}
+	err = marshalizer.Unmarshal(nftBuyITOData, nftBuyITODataBytes)
+	assert.Nil(t, err)
+
+	nftBuyKDADataBytes, err := kdaKapp.DataTrieTracker().RetrieveValue(nftKey)
+	assert.Nil(t, err)
+
+	nftBuyKDAData := &kapps.KDAData{}
+	err = marshalizer.Unmarshal(nftBuyKDAData, nftBuyKDADataBytes)
+	assert.Nil(t, err)
+
+	assert.Equal(t, int64(5), nftBuyITOData.MintedAmount)
+	assert.Equal(t, int64(5), nftBuyKDAData.MintedValue)
+	assert.Equal(t, int64(999999800), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(200), receiverAcc.GetBalance(kdautils.KLVIdentifier, true))
+
+	//BUY FUNGIBLE ITO ######################################################
+
+	fungibleBuyITO := transaction.BuyContract{
+		BuyType:    transaction.BuyContract_ITOBuy,
+		ID:         fungibleID,
+		CurrencyID: kdautils.KLVIdentifier,
+		Amount:     680_000_000,
+	}
+
+	fungibleBuyTX, _ := createTransactionMock(&fungibleBuyITO, transaction.TXContract_BuyContractType, testAdminAddress, 0)
+
+	_, hash, err = execTx.PreProcessTransaction(fungibleBuyTX)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(block, hash, fungibleBuyTX)
+	assert.Nil(t, err)
+
+	itoKapp = loadKAppAccount(accCacher, kapps.ITOKAppAddress)
+	kdaKapp = loadKAppAccount(accCacher, kapps.KDAKAppAddress)
+	ownerAcc = loadUserAccount(accCacher, testAdminAddress)
 	receiverAcc = loadUserAccount(accCacher, receiverAddress)
 
 	fungibleBuyITODataBytes, err := itoKapp.DataTrieTracker().RetrieveValue(fungibleITOKey)

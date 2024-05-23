@@ -27,7 +27,7 @@ func (kda *KDAData) IsTransferAllowed(sender []byte, destination []byte) bool {
 
 // GetRoleByAddress return the role of the given address into the kda or error if doesnt exist
 func (kda *KDAData) GetRoleByAddress(address []byte) (*RolesData, error) {
-	if bytes.Equal(kda.OwnerAddress, address) {
+	if bytes.Equal(kda.OwnerAddress, address) || bytes.Equal(kda.AdminAddress, address) {
 		return &RolesData{
 			Address:             address,
 			HasRoleMint:         true,

@@ -114,10 +114,10 @@ func (e *kleverCreateAsset) getCreateAssetContract(vmInput *vmcommon.ContractCal
 		Ticker:        vmInput.NextArg(),
 		Precision:     vmInput.NextArg().Uint32(),
 		OwnerAddress:  vmInput.NextArg(),
+		AdminAddress:  vmInput.NextArg(),
 		Logo:          vmInput.NextArg().String(),
 		InitialSupply: vmInput.NextArg().Int64(),
 		MaxSupply:     vmInput.NextArg().Int64(),
-
 		Properties: &transaction.PropertiesInfo{
 			CanFreeze:      vmInput.NextArg().Bool(),
 			CanWipe:        vmInput.NextArg().Bool(),

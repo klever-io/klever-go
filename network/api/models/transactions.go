@@ -31,6 +31,7 @@ type CreateAssetTXRequest struct {
 	Name          string            `form:"name" json:"name"`
 	Ticker        string            `form:"ticker" json:"ticker"`
 	OwnerAddress  string            `form:"ownerAddress" json:"ownerAddress"`
+	AdminAddress  string            `form:"adminAddress" json:"adminAddress"`
 	Logo          string            `form:"logo" json:"logo"`
 	URIs          map[string]string `form:"uris" json:"uris"`
 	Precision     uint32            `form:"precision" json:"precision"`

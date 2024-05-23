@@ -29,6 +29,7 @@ func subKDA() []*cobra.Command {
 		name                        string
 		ticker                      string
 		ownerAddress                string
+		adminAddress                string
 		logo                        string
 		uris                        map[string]string
 		precision                   uint32
@@ -168,6 +169,7 @@ func subKDA() []*cobra.Command {
 			kdaRequest := models.CreateAssetTXRequest{
 				Type:          uint32(kdaType),
 				OwnerAddress:  signerAddress,
+				AdminAddress:  adminAddress,
 				Name:          name,
 				Ticker:        ticker,
 				Precision:     precision,
@@ -216,6 +218,7 @@ func subKDA() []*cobra.Command {
 	cmdCreate.Flags().StringVar(&name, "name", "", "KDA name")
 	cmdCreate.Flags().StringVar(&ticker, "ticker", "", "KDA ticker")
 	cmdCreate.Flags().StringVar(&ownerAddress, "ownerAddress", "", "KDA ownerAddress")
+	cmdCreate.Flags().StringVar(&adminAddress, "adminAddress", "", "KDA adminAddress")
 	cmdCreate.Flags().StringVar(&logo, "logo", "", "KDA logo")
 	cmdCreate.Flags().StringToStringVar(&uris, "uris", nil, "KDA uris")
 	cmdCreate.Flags().Uint32Var(&precision, "precision", 0, "KDA precision")

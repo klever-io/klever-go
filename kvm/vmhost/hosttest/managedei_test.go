@@ -960,6 +960,7 @@ func TestBaseOpsAPI_NFTNonceOverflow(t *testing.T) {
 						nameHandle := managed.NewManagedBuffer()
 						initialSupplyHandle := managed.NewManagedBuffer()
 						creatorHandle := managed.NewManagedBuffer()
+						adminHandle := managed.NewManagedBuffer()
 						royaltiesHandle := managed.NewManagedBuffer()
 						urisHandle := managed.NewManagedBuffer()
 						circulatingSupplyHandle := managed.NewManagedBuffer()
@@ -980,6 +981,7 @@ func TestBaseOpsAPI_NFTNonceOverflow(t *testing.T) {
 							idHandle,
 							nameHandle,
 							creatorHandle,
+							adminHandle,
 							logoHandle,
 							urisHandle,
 							initialSupplyHandle,
@@ -1019,6 +1021,7 @@ func TestBaseOpsAPI_NFTNonceOverflow(t *testing.T) {
 				Name:              []byte("test"),
 				Ticker:            []byte("TTT"),
 				OwnerAddress:      test.ParentAddress,
+				AdminAddress:      nil,
 				Logo:              "",
 				URIs:              nil,
 				Precision:         0,

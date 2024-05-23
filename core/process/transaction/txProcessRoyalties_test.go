@@ -23,6 +23,7 @@ var splitAddress1, _ = addressConverter.Decode("klv1g5ys9yu6knlhs7khks8q4wpaxx78
 var splitAddress2, _ = addressConverter.Decode("klv1w3mxqga3usmszvucy8yeaz4n9v9mvrgk4898ytltn2ty02h09tlqwghth5")
 var mainRoyaltyAddress, _ = addressConverter.Decode("klv1d9q8lp3vx6nt4u2ndvnhsesz4d5m5fk8ltfggaqu5axyzp0kwpkqsea3mr")
 var sender, _ = addressConverter.Decode("klv1g5khe6ec5yhwqd773gghc55q0kvpanevgqzj8h5r5sj2eeke2heqnt5dfp")
+var admin, _ = addressConverter.Decode("klv1mt8yw657z6nk9002pccmwql8w90k0ac6340cjqkvm9e7lu0z2wjqudt69s")
 var receiver, _ = addressConverter.Decode("klv1u75daf827dd864ug63mh5xvntd06h9wjk7rau3sd2c7vktqegfjqe7kvnz")
 var marketplaceReferralAddress, _ = addressConverter.Decode("klv1nrgrqs3psf4r7e7y440fzqckhk7sndp9mq3dyxqpg76e5djk203qvq0ft8")
 var itoReferralAddress, _ = addressConverter.Decode("klv17e8zzgn73h6ehe3c6q9vlt77kuxk5euddmhymy5uhv2rhv0dc0nqlfp0ap")

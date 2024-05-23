@@ -39,6 +39,16 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 		return transaction.Transaction_AccountError, process.ErrInvalidOwnerAddr
 	}
 
+	if len(tc.GetAdminAddress()) > 0 {
+		if !k.forkController.EnableSmartContracts() {
+			return transaction.Transaction_ParameterInvalid, process.ErrInvalidAdminAddr
+		}
+
+		if len(tc.GetAdminAddress()) != k.pubkeyConv.Len() {
+			return transaction.Transaction_AccountError, process.ErrInvalidAdminAddr
+		}
+	}
+
 	// MaxSupply == 0 = infinite supply
 	if tc.GetMaxSupply() < 0 {
 		return transaction.Transaction_ParameterInvalid, process.ErrSupplyNotValid
@@ -87,6 +97,7 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 		Name:              tc.GetName(),
 		Ticker:            tc.GetTicker(),
 		OwnerAddress:      tc.GetOwnerAddress(),
+		AdminAddress:      tc.GetAdminAddress(),
 		Logo:              tc.GetLogo(),
 		URIs:              tc.GetURIs(),
 		Precision:         0,

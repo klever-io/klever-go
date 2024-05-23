@@ -409,6 +409,19 @@ func (t *Transaction) addCreateAsset(txArgs TXArgs) error {
 		Roles:         roles,
 	}
 
+	if contractRequest.AdminAddress != "" {
+		if len(contractRequest.AdminAddress) > txArgs.NodeHelper.GetEncodedAddressLength() {
+			return fmt.Errorf("%w for ownerAddress", common.ErrInvalidAddressLength)
+		}
+
+		adminAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.AdminAddress)
+		if err != nil {
+			return errors.New("could not create admin address from provided param")
+		}
+
+		contract.AdminAddress = adminAddress
+	}
+
 	if contractRequest.Attributes != nil {
 		contract.Attributes = &AttributesInfo{
 			IsPaused:                   contractRequest.Attributes.IsPaused,

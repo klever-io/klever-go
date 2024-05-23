@@ -230,7 +230,7 @@ func (k *kdaKapp) Burn(sender []byte, tc *transaction.AssetTriggerContract) (tra
 	}
 
 	if tc.GetTriggerType() == transaction.AssetTriggerContract_Wipe {
-		if !bytes.Equal(kda.OwnerAddress, sender) {
+		if !bytes.Equal(kda.OwnerAddress, sender) && !bytes.Equal(kda.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 

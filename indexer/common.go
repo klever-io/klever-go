@@ -1297,6 +1297,11 @@ func (cm *commonProcessor) convertAssetContractInfo(createAssetContract *transac
 		rolesInfo = append(rolesInfo, roleInfo)
 	}
 
+	adminAddress := ""
+	if len(createAssetContract.AdminAddress) > 0 {
+		adminAddress = cm.addressPubkeyConverter.Encode(createAssetContract.AdminAddress)
+	}
+
 	assetContract := &data.TXContract{
 		Type:       transaction.TXContract_CreateAssetContractType,
 		TypeString: transaction.TXContract_CreateAssetContractType.String(),
@@ -1306,6 +1311,7 @@ func (cm *commonProcessor) convertAssetContractInfo(createAssetContract *transac
 			Ticker:        string(createAssetContract.Ticker),
 			Logo:          createAssetContract.GetLogo(),
 			OwnerAddress:  cm.addressPubkeyConverter.Encode(createAssetContract.OwnerAddress),
+			AdminAddress:  adminAddress,
 			URIs:          cm.convertURIs(createAssetContract.URIs),
 			Precision:     createAssetContract.Precision,
 			InitialSupply: createAssetContract.InitialSupply,
@@ -1412,12 +1418,18 @@ func (cm *commonProcessor) convertAssetInfo(assetInfo *kapps.KDAData) *data.Asse
 		ownerAddr = cm.addressPubkeyConverter.Encode(assetInfo.OwnerAddress)
 	}
 
+	adminAddr := ""
+	if len(assetInfo.AdminAddress) > 0 {
+		adminAddr = cm.addressPubkeyConverter.Encode(assetInfo.AdminAddress)
+	}
+
 	asset := &data.Asset{
 		AssetType:         assetInfo.AssetType.String(),
 		AssetID:           string(assetInfo.ID),
 		Name:              string(assetInfo.Name),
 		Ticker:            string(assetInfo.Ticker),
 		OwnerAddress:      ownerAddr,
+		AdminAddress:      adminAddr,
 		URIs:              cm.convertURIs(assetInfo.URIs),
 		Logo:              assetInfo.Logo,
 		Precision:         assetInfo.Precision,

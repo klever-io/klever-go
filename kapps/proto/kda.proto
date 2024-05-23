@@ -29,6 +29,7 @@ message KDAData {
   PropertiesData      Properties                = 16 [json_name = "properties"];
   AttributesData      Attributes                = 17 [json_name = "attributes"];
   repeated RolesData  Roles                     = 18 [json_name = "roles"];
+  bytes               AdminAddress              = 19 [json_name = "adminAddress"];
 }
 
 // PropertiesData hold the properties structure for the KDA asset

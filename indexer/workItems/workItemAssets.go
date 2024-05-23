@@ -108,6 +108,11 @@ func (wia *itemAsset) Save() error {
 			owner = wia.addressPubkeyConverter.Encode(kda.OwnerAddress)
 		}
 
+		admin := ""
+		if len(kda.AdminAddress) > 0 {
+			admin = wia.addressPubkeyConverter.Encode(kda.AdminAddress)
+		}
+
 		uris := kda.GetURIs()
 		var convertedURIs []*data.URI
 		for key, value := range uris {
@@ -124,6 +129,7 @@ func (wia *itemAsset) Save() error {
 			Name:              string(kda.Name),
 			Ticker:            string(kda.Ticker),
 			OwnerAddress:      owner,
+			AdminAddress:      admin,
 			Logo:              kda.GetLogo(),
 			URIs:              convertedURIs,
 			Precision:         kda.Precision,

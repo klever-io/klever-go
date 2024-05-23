@@ -141,6 +141,7 @@ func (e *kleverAssetTrigger) getAssetTriggerContract(vmInput *vmcommon.ContractC
 		transaction.AssetTriggerContract_StopRoyaltiesChange:
 		//noop - no extra arguments needed
 	case transaction.AssetTriggerContract_ChangeOwner,
+		transaction.AssetTriggerContract_ChangeAdmin,
 		transaction.AssetTriggerContract_RemoveRole,
 		transaction.AssetTriggerContract_ChangeRoyaltiesReceiver:
 		contract.ToAddress = vmInput.NextArg()

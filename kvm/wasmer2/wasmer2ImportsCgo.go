@@ -95,7 +95,7 @@ package wasmer2
 // extern void      w2_managedGetBackTransfers(void* context, int32_t kdaTransfersValueHandle, int32_t callValueHandle);
 // extern void      w2_managedGetKDABalance(void* context, int32_t addressHandle, int32_t tokenIDHandle, long long nonce, int32_t valueHandle);
 // extern void      w2_managedGetUserKDA(void* context, int32_t addressHandle, int32_t tickerHandle, long long nonce, int32_t balanceHandle, int32_t frozenHandle, int32_t lastClaimHandle, int32_t bucketsHandle, int32_t mimeHandle, int32_t metadataHandle);
-// extern void      w2_managedGetKDATokenData(void* context, int32_t addressHandle, int32_t tickerHandle, long long nonce, int32_t precisionHandle, int32_t idHandle, int32_t nameHandle, int32_t creatorHandle, int32_t logoHandle, int32_t urisHandle, int32_t initialSupplyHandle, int32_t circulatingSupplyHandle, int32_t maxSupplyHandle, int32_t mintedHandle, int32_t burnedHandle, int32_t royaltiesHandle, int32_t propertiesHandle, int32_t attributesHandle, int32_t rolesHandle, int32_t issueDateHandle);
+// extern void      w2_managedGetKDATokenData(void* context, int32_t addressHandle, int32_t tickerHandle, long long nonce, int32_t precisionHandle, int32_t idHandle, int32_t nameHandle, int32_t creatorHandle, int32_t adminHandle, int32_t logoHandle, int32_t urisHandle, int32_t initialSupplyHandle, int32_t circulatingSupplyHandle, int32_t maxSupplyHandle, int32_t mintedHandle, int32_t burnedHandle, int32_t royaltiesHandle, int32_t propertiesHandle, int32_t attributesHandle, int32_t rolesHandle, int32_t issueDateHandle);
 // extern void      w2_managedGetKDARoles(void* context, int32_t tickerHandle, int32_t rolesHandle);
 // extern void      w2_managedUpgradeFromSourceContract(void* context, int32_t destHandle, long long gas, int32_t valueHandle, int32_t addressHandle, int32_t codeMetadataHandle, int32_t argumentsHandle, int32_t resultHandle);
 // extern void      w2_managedUpgradeContract(void* context, int32_t destHandle, long long gas, int32_t valueHandle, int32_t codeHandle, int32_t codeMetadataHandle, int32_t argumentsHandle, int32_t resultHandle);
@@ -1012,9 +1012,9 @@ func w2_managedGetUserKDA(context unsafe.Pointer, addressHandle int32, tickerHan
 }
 
 //export w2_managedGetKDATokenData
-func w2_managedGetKDATokenData(context unsafe.Pointer, addressHandle int32, tickerHandle int32, nonce int64, precisionHandle int32, idHandle int32, nameHandle int32, creatorHandle int32, logoHandle int32, urisHandle int32, initialSupplyHandle int32, circulatingSupplyHandle int32, maxSupplyHandle int32, mintedHandle int32, burnedHandle int32, royaltiesHandle int32, propertiesHandle int32, attributesHandle int32, rolesHandle int32, issueDateHandle int32) {
+func w2_managedGetKDATokenData(context unsafe.Pointer, addressHandle int32, tickerHandle int32, nonce int64, precisionHandle int32, idHandle int32, nameHandle int32, creatorHandle int32, adminHandle int32, logoHandle int32, urisHandle int32, initialSupplyHandle int32, circulatingSupplyHandle int32, maxSupplyHandle int32, mintedHandle int32, burnedHandle int32, royaltiesHandle int32, propertiesHandle int32, attributesHandle int32, rolesHandle int32, issueDateHandle int32) {
 	vmHooks := getVMHooksFromContextRawPtr(context)
-	vmHooks.ManagedGetKDATokenData(addressHandle, tickerHandle, nonce, precisionHandle, idHandle, nameHandle, creatorHandle, logoHandle, urisHandle, initialSupplyHandle, circulatingSupplyHandle, maxSupplyHandle, mintedHandle, burnedHandle, royaltiesHandle, propertiesHandle, attributesHandle, rolesHandle, issueDateHandle)
+	vmHooks.ManagedGetKDATokenData(addressHandle, tickerHandle, nonce, precisionHandle, idHandle, nameHandle, creatorHandle, adminHandle, logoHandle, urisHandle, initialSupplyHandle, circulatingSupplyHandle, maxSupplyHandle, mintedHandle, burnedHandle, royaltiesHandle, propertiesHandle, attributesHandle, rolesHandle, issueDateHandle)
 }
 
 //export w2_managedGetKDARoles

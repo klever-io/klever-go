@@ -536,8 +536,8 @@ func (i *itoKapp) Config(sender []byte, tc *transaction.ConfigITOContract) (tran
 		return transaction.Transaction_AssetTypeInvalid, common.ErrInvalidValue
 	}
 
-	if !bytes.Equal(asset.OwnerAddress, sender) {
-		return transaction.Transaction_AccountNotOwner, common.ErrInvalidValue
+	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if !asset.Properties.CanMint || asset.Attributes.IsNFTMintStopped {
@@ -885,7 +885,7 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 			return transaction.Transaction_SaveAccountError, err
 		}
 	case transaction.ITOTriggerContract_UpdateStatus:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -941,7 +941,7 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 		}
 
 	case transaction.ITOTriggerContract_UpdateReceiverAddress:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -951,7 +951,7 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 
 		ito.ReceiverAddress = tc.GetReceiverAddress()
 	case transaction.ITOTriggerContract_UpdateMaxAmount:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -965,7 +965,7 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 
 		ito.MaxAmount = tc.GetMaxAmount()
 	case transaction.ITOTriggerContract_UpdateDefaultLimitPerAddress:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -975,7 +975,7 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 
 		ito.DefaultLimitPerAddress = tc.GetDefaultLimitPerAddress()
 	case transaction.ITOTriggerContract_UpdateTimes:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -988,7 +988,7 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 		ito.StartTime = tc.GetStartTime()
 		ito.EndTime = tc.GetEndTime()
 	case transaction.ITOTriggerContract_AddToWhitelist:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -1030,7 +1030,7 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 			return transaction.Transaction_ITOWhiteListError, err
 		}
 	case transaction.ITOTriggerContract_RemoveFromWhitelist:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -1065,7 +1065,7 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 			return transaction.Transaction_ITOWhiteListError, err
 		}
 	case transaction.ITOTriggerContract_UpdateWhitelistTimes:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -1078,7 +1078,7 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 		ito.WhitelistStartTime = tc.GetWhitelistStartTime()
 		ito.WhitelistEndTime = tc.GetWhitelistEndTime()
 	case transaction.ITOTriggerContract_UpdateWhitelistStatus:
-		if !bytes.Equal(asset.OwnerAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 

@@ -80,6 +80,7 @@ type CreateAssetContract struct {
 	Ticker            string          `json:"ticker"`
 	Logo              string          `json:"logo"`
 	OwnerAddress      string          `json:"ownerAddress"`
+	AdminAddress      string          `json:"adminAddress"`
 	URIs              []*URI          `json:"uris"`
 	Precision         uint32          `json:"precision"`
 	InitialSupply     int64           `json:"initialSupply"`

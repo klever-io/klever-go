@@ -335,14 +335,14 @@ func (context *VMHooksImpl) ManagedGetKDATokenData(
 	addressHandle int32,
 	tickerHandle int32,
 	nonce int64,
-	precisionHandle, idHandle, nameHandle, creatorHandle, logoHandle, urisHandle, initialSupplyHandle, circulatingSupplyHandle, maxSupplyHandle, mintedHandle, burnedHandle, royaltiesHandle, propertiesHandle, attributesHandle, rolesHandle, issueDateHandle int32) {
+	precisionHandle, idHandle, nameHandle, creatorHandle, adminHandle, logoHandle, urisHandle, initialSupplyHandle, circulatingSupplyHandle, maxSupplyHandle, mintedHandle, burnedHandle, royaltiesHandle, propertiesHandle, attributesHandle, rolesHandle, issueDateHandle int32) {
 	host := context.GetVMHost()
 	ManagedGetKDATokenDataWithHost(
 		host,
 		addressHandle,
 		tickerHandle,
 		nonce,
-		precisionHandle, idHandle, nameHandle, creatorHandle, logoHandle, urisHandle, initialSupplyHandle, circulatingSupplyHandle, maxSupplyHandle, mintedHandle, burnedHandle, royaltiesHandle, propertiesHandle, attributesHandle, rolesHandle, issueDateHandle)
+		precisionHandle, idHandle, nameHandle, creatorHandle, adminHandle, logoHandle, urisHandle, initialSupplyHandle, circulatingSupplyHandle, maxSupplyHandle, mintedHandle, burnedHandle, royaltiesHandle, propertiesHandle, attributesHandle, rolesHandle, issueDateHandle)
 
 }
 
@@ -439,7 +439,7 @@ func ManagedGetKDATokenDataWithHost(
 	addressHandle int32,
 	tickerHandle int32,
 	nonce int64,
-	precisionHandle, idHandle, nameHandle, creatorHandle, logoHandle, urisHandle, initialSupplyHandle, circulatingSupplyHandle, maxSupplyHandle, mintedHandle, burnedHandle, royaltiesHandle, propertiesHandle, attributesHandle, rolesHandle, issueDateHandle int32) {
+	precisionHandle, idHandle, nameHandle, creatorHandle, adminHandle, logoHandle, urisHandle, initialSupplyHandle, circulatingSupplyHandle, maxSupplyHandle, mintedHandle, burnedHandle, royaltiesHandle, propertiesHandle, attributesHandle, rolesHandle, issueDateHandle int32) {
 	runtime := host.Runtime()
 	metering := host.Metering()
 	blockchain := host.Blockchain()
@@ -471,6 +471,7 @@ func ManagedGetKDATokenDataWithHost(
 	managedType.SetBytes(idHandle, kda.ID)
 	managedType.SetBytes(nameHandle, kda.Name)
 	managedType.SetBytes(creatorHandle, kda.OwnerAddress)
+	managedType.SetBytes(adminHandle, kda.AdminAddress)
 	managedType.SetBytes(logoHandle, []byte(kda.Logo))
 	managedType.GetBigIntOrCreate(initialSupplyHandle).Set(big.NewInt(int64(kda.InitialSupply)))
 	managedType.GetBigIntOrCreate(circulatingSupplyHandle).Set(big.NewInt(int64(kda.CirculatingSupply)))

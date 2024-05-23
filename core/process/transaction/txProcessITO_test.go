@@ -26,6 +26,7 @@ func (c *Controller) CreateAssetForITO() {
 		Name:              []byte("TEST"),
 		Ticker:            assetITOIdentifier,
 		OwnerAddress:      sender,
+		AdminAddress:      admin,
 		InitialSupply:     0,
 		CirculatingSupply: 0,
 		MaxSupply:         1000,
@@ -61,6 +62,7 @@ func (c *Controller) CreateAssetWithITORoyalties() {
 		Name:              []byte("TEST"),
 		Ticker:            assetITOIdentifier,
 		OwnerAddress:      sender,
+		AdminAddress:      admin,
 		InitialSupply:     0,
 		CirculatingSupply: 0,
 		MaxSupply:         1000,
@@ -241,6 +243,7 @@ func TestITOTriggerTxProcessor_SetITOPrices_ShouldErr(t *testing.T) {
 func TestITOTriggerTxProcessor_SetITOPrices_ShouldWork(t *testing.T) {
 	c := NewController(t)
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
+	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
 	blk := createBlockHeader()
 	c.CreateAssetForITO()
@@ -254,6 +257,14 @@ func TestITOTriggerTxProcessor_SetITOPrices_ShouldWork(t *testing.T) {
 
 	tx, _ := createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, sender, 0)
 	_, hash, err := c.execTx.PreProcessTransaction(tx)
+	assert.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	assert.Equal(t, nil, err)
+
+	//Same SetITOPrices with asset admin address
+	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, admin, 0)
+	_, hash, err = c.execTx.PreProcessTransaction(tx)
 	assert.Nil(c.t, err)
 
 	err = c.execTx.ProcessTransaction(blk, hash, tx)
@@ -321,6 +332,7 @@ func TestITOTriggerTxProcessor_UpdateStatus_ShouldErr(t *testing.T) {
 func TestITOTriggerTxProcessor_UpdateStatus_ShouldWork(t *testing.T) {
 	c := NewController(t)
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
+	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
 	blk := createBlockHeader()
 	c.CreateAssetForITO()
@@ -334,6 +346,14 @@ func TestITOTriggerTxProcessor_UpdateStatus_ShouldWork(t *testing.T) {
 
 	tx, _ := createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, sender, 0)
 	_, hash, err := c.execTx.PreProcessTransaction(tx)
+	assert.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	assert.Equal(t, nil, err)
+
+	//Same UpdateStatus with asset admin address
+	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, admin, 0)
+	_, hash, err = c.execTx.PreProcessTransaction(tx)
 	assert.Nil(c.t, err)
 
 	err = c.execTx.ProcessTransaction(blk, hash, tx)
@@ -359,6 +379,14 @@ func TestITOTriggerTxProcessor_UpdateStatus_ShouldWork(t *testing.T) {
 	err = c.execTx.ProcessTransaction(blk, hash, tx)
 	assert.Equal(t, nil, err)
 
+	// Same UpdateStatus with asset admin address
+	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, admin, 0)
+	_, hash, err = c.execTx.PreProcessTransaction(tx)
+	assert.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	assert.Equal(t, nil, err)
+
 	//Make ITO buy after it's paused
 	buyITOContract := transaction.BuyContract{
 		BuyType:    transaction.BuyContract_ITOBuy,
@@ -374,7 +402,6 @@ func TestITOTriggerTxProcessor_UpdateStatus_ShouldWork(t *testing.T) {
 	buyITOblk := c.CreateBlockHeader(time.Now().AddDate(0, 0, 2).Unix(), 2, 2)
 	err = c.execTx.ProcessTransaction(buyITOblk, hash, tx)
 	assert.Equal(t, common.ErrITONotActive, err)
-
 }
 
 func TestITOTriggerTxProcessor_UpdateReceiverAddress_ShouldErr(t *testing.T) {
@@ -420,6 +447,7 @@ func TestITOTriggerTxProcessor_UpdateReceiverAddress_ShouldWork(t *testing.T) {
 	newReceiverAddress := []byte("klv1d05ju9jaj6u99zph0ant9jh7gksx")
 
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
+	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(buyerAddress, 1_000_000, kdautils.KLVIdentifier)
 	blk := createBlockHeader()
 	c.CreateAssetForITO()
@@ -439,6 +467,14 @@ func TestITOTriggerTxProcessor_UpdateReceiverAddress_ShouldWork(t *testing.T) {
 
 	tx, _ := createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, sender, 0)
 	_, hash, err := c.execTx.PreProcessTransaction(tx)
+	assert.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	assert.Equal(t, nil, err)
+
+	// Same UpdateReceiverAddress with asset admin address
+	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, admin, 0)
+	_, hash, err = c.execTx.PreProcessTransaction(tx)
 	assert.Nil(c.t, err)
 
 	err = c.execTx.ProcessTransaction(blk, hash, tx)
@@ -511,6 +547,7 @@ func TestITOTriggerTxProcessor_UpdateMaxAmount_ShouldErr(t *testing.T) {
 func TestITOTriggerTxProcessor_UpdateMaxAmount_ShouldWork(t *testing.T) {
 	c := NewController(t)
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
+	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
 	blk := createBlockHeader()
 	c.CreateAssetForITO()
@@ -524,6 +561,14 @@ func TestITOTriggerTxProcessor_UpdateMaxAmount_ShouldWork(t *testing.T) {
 
 	tx, _ := createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, sender, 0)
 	_, hash, err := c.execTx.PreProcessTransaction(tx)
+	assert.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	assert.Equal(t, nil, err)
+
+	// Same UpdateMaxAmount with asset admin address
+	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, admin, 0)
+	_, hash, err = c.execTx.PreProcessTransaction(tx)
 	assert.Nil(c.t, err)
 
 	err = c.execTx.ProcessTransaction(blk, hash, tx)
@@ -586,6 +631,7 @@ func TestITOTriggerTxProcessor_UpdateDefaultLimitPerAddress_ShouldErr(t *testing
 func TestITOTriggerTxProcessor_UpdateDefaultLimitPerAddress_ShouldWork(t *testing.T) {
 	c := NewController(t)
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
+	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
 	blk := createBlockHeader()
 	c.CreateAssetForITO()
@@ -600,6 +646,14 @@ func TestITOTriggerTxProcessor_UpdateDefaultLimitPerAddress_ShouldWork(t *testin
 
 	tx, _ := createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, sender, 0)
 	_, hash, err := c.execTx.PreProcessTransaction(tx)
+	assert.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	assert.Equal(t, nil, err)
+
+	// Same UpdateDefaultLimitPerAddress with asset admin address
+	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, admin, 0)
+	_, hash, err = c.execTx.PreProcessTransaction(tx)
 	assert.Nil(c.t, err)
 
 	err = c.execTx.ProcessTransaction(blk, hash, tx)
@@ -709,6 +763,7 @@ func TestITOTriggerTxProcessor_UpdateTimes_ShouldErr(t *testing.T) {
 func TestITOTriggerTxProcessor_UpdateTimes_ShouldWork(t *testing.T) {
 	c := NewController(t)
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
+	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	blk := createBlockHeader()
 	c.CreateAssetForITO()
 	c.RunConfigITOTX(blk, sender, sender, assetITOIdentifier, 1000, 10)
@@ -727,6 +782,13 @@ func TestITOTriggerTxProcessor_UpdateTimes_ShouldWork(t *testing.T) {
 	err = c.execTx.ProcessTransaction(blk, hash, tx)
 	assert.Equal(t, nil, err)
 
+	// Same UpdateTimes with asset admin address
+	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, admin, 0)
+	_, hash, err = c.execTx.PreProcessTransaction(tx)
+	assert.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	assert.Equal(t, nil, err)
 }
 
 func TestITOTriggerTxProcessor_AddToWhitelist_ShouldErr(t *testing.T) {
@@ -797,6 +859,7 @@ func TestITOTriggerTxProcessor_AddToWhitelist_ShouldErr(t *testing.T) {
 func TestITOTriggerTxProcessor_AddToWhitelist_ShouldWork(t *testing.T) {
 	c := NewController(t)
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
+	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
 	blk := createBlockHeader()
 	c.CreateAssetForITO()
@@ -833,6 +896,14 @@ func TestITOTriggerTxProcessor_AddToWhitelist_ShouldWork(t *testing.T) {
 	}
 
 	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, sender, 0)
+	_, hash, err = c.execTx.PreProcessTransaction(tx)
+	assert.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	assert.Equal(t, nil, err)
+
+	// Same AddToWhitelist with asset admin address
+	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, admin, 0)
 	_, hash, err = c.execTx.PreProcessTransaction(tx)
 	assert.Nil(c.t, err)
 
@@ -908,6 +979,7 @@ func TestITOTriggerTxProcessor_RemoveFromWhitelist_ShouldErr(t *testing.T) {
 func TestITOTriggerTxProcessor_RemoveFromWhitelist_ShouldWork(t *testing.T) {
 	c := NewController(t)
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
+	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
 	blk := createBlockHeader()
 	c.CreateAssetForITO()
@@ -951,6 +1023,14 @@ func TestITOTriggerTxProcessor_RemoveFromWhitelist_ShouldWork(t *testing.T) {
 	}
 
 	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, sender, 0)
+	_, hash, err = c.execTx.PreProcessTransaction(tx)
+	assert.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	assert.Equal(t, nil, err)
+
+	// Same RemoveFromWhitelist with asset admin address
+	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, admin, 0)
 	_, hash, err = c.execTx.PreProcessTransaction(tx)
 	assert.Nil(c.t, err)
 
@@ -1031,6 +1111,7 @@ func TestITOTriggerTxProcessor_UpdateWhitelistTimes_ShouldErr(t *testing.T) {
 func TestITOTriggerTxProcessor_UpdateWhitelistTimes_ShouldWork(t *testing.T) {
 	c := NewController(t)
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
+	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
 	blk := createBlockHeader()
 	c.CreateAssetForITO()
@@ -1074,6 +1155,14 @@ func TestITOTriggerTxProcessor_UpdateWhitelistTimes_ShouldWork(t *testing.T) {
 	}
 
 	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, sender, 0)
+	_, hash, err = c.execTx.PreProcessTransaction(tx)
+	assert.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	assert.Equal(t, nil, err)
+
+	// Same UpdateWhitelistTimes with asset admin address
+	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, admin, 0)
 	_, hash, err = c.execTx.PreProcessTransaction(tx)
 	assert.Nil(c.t, err)
 
@@ -1151,6 +1240,7 @@ func TestITOTriggerTxProcessor_UpdateWhitelistStatus_ShouldErr(t *testing.T) {
 func TestITOTriggerTxProcessor_UpdateWhitelistStatus_ShouldWork(t *testing.T) {
 	c := NewController(t)
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
+	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
 	blk := createBlockHeader()
 	c.CreateAssetForITO()
@@ -1193,6 +1283,15 @@ func TestITOTriggerTxProcessor_UpdateWhitelistStatus_ShouldWork(t *testing.T) {
 	err = c.execTx.ProcessTransaction(activateWhitelistBlk, hash, tx)
 	assert.Equal(t, nil, err)
 
+	// Same UpdateWhitelistStatus with asset admin address
+	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, admin, 0)
+	_, hash, err = c.execTx.PreProcessTransaction(tx)
+	assert.Nil(c.t, err)
+
+	activateWhitelistBlk = c.CreateBlockHeader(time.Now().AddDate(0, 0, 2).Unix(), 2, 2)
+	err = c.execTx.ProcessTransaction(activateWhitelistBlk, hash, tx)
+	assert.Equal(t, nil, err)
+
 	//Try to buy ITO
 	buyITOContract = transaction.BuyContract{
 		BuyType:    transaction.BuyContract_ITOBuy,
@@ -1212,6 +1311,7 @@ func TestITOTriggerTxProcessor_UpdateWhitelistStatus_ShouldWork(t *testing.T) {
 func TestITOTriggerTxProcessor_BuyRoyalties_ShouldWork(t *testing.T) {
 	c := NewController(t)
 	c.AddUser(sender, 10_000_000_000, kdautils.KLVIdentifier)
+	c.AddUser(admin, 10_000_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 10_000_000_000, kdautils.KLVIdentifier)
 	blk := createBlockHeader()
 	c.CreateAssetWithITORoyalties()
@@ -1225,6 +1325,14 @@ func TestITOTriggerTxProcessor_BuyRoyalties_ShouldWork(t *testing.T) {
 
 	tx, _ := createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, sender, 0)
 	_, hash, err := c.execTx.PreProcessTransaction(tx)
+	assert.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	assert.Equal(t, nil, err)
+
+	// Same SetITOPrices with asset admin address
+	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, admin, 0)
+	_, hash, err = c.execTx.PreProcessTransaction(tx)
 	assert.Nil(c.t, err)
 
 	err = c.execTx.ProcessTransaction(blk, hash, tx)
