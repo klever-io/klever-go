@@ -8,6 +8,7 @@ import (
 	"path"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -603,8 +604,10 @@ func (bh *BlockChainHookImpl) GetAllState(_ []byte) (map[string][]byte, error) {
 func (bh *BlockChainHookImpl) GetKDAToken(address []byte, assetID []byte, nonce uint64) (*kapps.KDAData, *kapps.UserKDA, error) {
 	kda := &kapps.KDAData{}
 	userKDA := &kapps.UserKDA{}
+	isNft := strings.Contains(string(assetID), "/")
+
 	var err error
-	if address != nil && nonce > 0 {
+	if address != nil && (isNft && nonce > 0 || !isNft) {
 		acc, err := bh.GetUserAccount(address)
 		if err != nil {
 			return kda, userKDA, err
