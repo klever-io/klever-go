@@ -58,12 +58,12 @@ const KDANFTLatestNonceIdentifier = "nonce"
 const MinMetaTxExtraGasCost = uint64(1_000_000)
 
 // MaxLeafSize represents maximum amount of data which can be saved under one leaf
-const MaxLeafSize = uint64(1 << 26) //64MB
+const MaxLeafSize = uint64(1 << 26) // 64MB
 
 // MaxBufferSizeToSendTrieNodes represents max buffer size to send in bytes used when resolving trie nodes
 // Every trie node that has a greater size than this constant is considered a large trie node and should be split in
 // smaller chunks
-const MaxBufferSizeToSendTrieNodes = 1 << 18 //256KB
+const MaxBufferSizeToSendTrieNodes = 1 << 18 // 256KB
 
 // MinLenArgumentsKDATransfer defines the min length of arguments for the KDA transfer
 const MinLenArgumentsKDATransfer = 2
@@ -136,6 +136,9 @@ const MinLenArgumentsConfigMarketplace = 4
 
 // MinLenArgumentsCancelMarketOrder defines the min length of arguments for the KDA CancelMarketOrder
 const MinLenArgumentsCancelMarketOrder = 1
+
+// MinLenArgumentsChangeOwnerAddress defines the min length of arguments for the Change Owner Address builtin function
+const MinLenArgumentsChangeOwnerAddress = 1
 
 // MaxLenForKDAIssueMint defines the maximum length in bytes for the issued/minted balance
 const MaxLenForKDAIssueMint = 100
@@ -249,3 +252,6 @@ const BuiltInFunctionKDABurn = "KDABurn"
 
 // BuiltInFunctionKDALocalMint is the key for the electronic standard digital token local mint built-in function
 const BuiltInFunctionKDALocalMint = "KDALocalMint"
+
+// BuiltInFunctionChangeOwnerAddress is the key for the ChangeOwnerAddress built in function
+const BuiltInFunctionChangeOwnerAddress = "ChangeOwnerAddress"

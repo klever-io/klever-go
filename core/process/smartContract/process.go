@@ -718,7 +718,6 @@ func (sc *scProcessor) createSCRsWhenError(
 	returnCode string,
 	returnMessage []byte,
 ) (*smartContractResult.SmartContractResult, *big.Int) {
-
 	callValue := make(map[string]int64)
 	for assetID, cvwr := range tc.GetCallValue() {
 		callValue[assetID] = cvwr.Amount

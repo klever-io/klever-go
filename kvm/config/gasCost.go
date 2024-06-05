@@ -45,6 +45,7 @@ type BuiltInCost struct {
 	Deposit                 uint64
 	ITOTrigger              uint64
 	SaveKeyValue            uint64
+	ChangeOwnerAddress      uint64
 }
 
 // BaseOperationCost defines the base operations gas cost config structure

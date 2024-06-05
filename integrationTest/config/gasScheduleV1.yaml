@@ -24,6 +24,7 @@ BuiltInCost:
   Deposit: 100000
   ITOTrigger: 100000
   SaveKeyValue: 100000
+  ChangeOwnerAddress: 2000000
 
 BaseOperationCost:
   StorePerByte: 10000

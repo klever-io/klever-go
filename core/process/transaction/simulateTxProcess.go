@@ -125,7 +125,7 @@ func (txProc *simulateTxProcessor) ProcessTransaction(tx *transaction.Transactio
 		IsScSimulation: true,
 	})
 
-	for i, _ := range tx.RawData.Contract {
+	for i := range tx.RawData.Contract {
 		ctx.SetContractID(i)
 		txProc.kApps.SetCurrentKAppContext(ctx)
 

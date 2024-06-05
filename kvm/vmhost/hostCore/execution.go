@@ -298,7 +298,6 @@ func copyTxHashesFromContext(runtime vmhost.RuntimeContext, input *vmcommon.Cont
 	if len(currentVMInput.PrevTxHash) > 0 {
 		input.PrevTxHash = currentVMInput.PrevTxHash
 	}
-
 }
 
 // ExecuteOnDestContext pushes each context to the corresponding stack

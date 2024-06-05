@@ -166,3 +166,6 @@ var ErrNilEnableEpochsHandler = errors.New("nil enable epochs handler")
 
 // ErrNilActiveHandler signals that a nil active handler has been provided
 var ErrNilActiveHandler = errors.New("nil active handler")
+
+// ErrChangeOwnerAddressFailed signals that change owner address failed
+var ErrChangeOwnerAddressFailed = errors.New("change owner address failed")

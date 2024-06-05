@@ -52,6 +52,7 @@ type BuiltInCost struct {
 	Deposit                 uint64 `yaml:"Deposit"`
 	ITOTrigger              uint64 `yaml:"ITOTrigger"`
 	SaveKeyValue            uint64 `yaml:"SaveKeyValue"`
+	ChangeOwnerAddress      uint64 `yaml:"ChangeOwnerAddress"`
 }
 
 // BaseOperationCost defines the base operations gas cost config structure

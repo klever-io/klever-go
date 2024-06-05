@@ -123,7 +123,6 @@ func NewTxProcessor(args ArgsNewTxProcessor) (*txProcessor, error) {
 
 // EpochConfirmed is called whenever a new epoch is confirmed
 func (txProc *txProcessor) EpochConfirmed(epoch uint32) {
-
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

@@ -23,6 +23,7 @@ BuiltInCost:
   UpdateAccountPermission: 10000000000
   Deposit: 50000000
   ITOTrigger: 10000000
+  ChangeOwnerAddress: 2000000
 
 BaseOperationCost:
   StorePerByte: 10000

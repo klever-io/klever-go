@@ -63,7 +63,6 @@ func NewVMHost(
 	blockChainHook vmcommon.BlockchainHook,
 	hostParameters *vmhost.VMHostParameters,
 ) (vmhost.VMHost, error) {
-
 	if check.IfNil(blockChainHook) {
 		return nil, vmhost.ErrNilBlockChainHook
 	}

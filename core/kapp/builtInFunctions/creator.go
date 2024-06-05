@@ -111,7 +111,6 @@ func (b *builtInFuncCreator) BuiltInFunctionContainer() vmcommon.BuiltInFunction
 
 // CreateBuiltInFunctionContainer will create the list of built-in functions
 func (b *builtInFuncCreator) CreateBuiltInFunctionContainer() error {
-
 	b.builtInFunctions = NewBuiltInFunctionContainer()
 	var newFunc vmcommon.BuiltinFunction
 	newFunc, err := NewKDATransferFunc(
@@ -404,6 +403,20 @@ func (b *builtInFuncCreator) CreateBuiltInFunctionContainer() error {
 		return err
 	}
 	err = b.builtInFunctions.Add(core.BuiltInFunctionUpdateAccountPermission, newFunc)
+	if err != nil {
+		return err
+	}
+
+	newFunc, err = NewKleverChangeOwnerAddressFunc(
+		b.gasConfig.BuiltInCost.ChangeOwnerAddress,
+		b.marshaller,
+		b.accountsCacher,
+		b.forkController,
+		b.kappController)
+	if err != nil {
+		return err
+	}
+	err = b.builtInFunctions.Add(core.BuiltInFunctionChangeOwnerAddress, newFunc)
 	if err != nil {
 		return err
 	}

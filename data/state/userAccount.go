@@ -125,11 +125,9 @@ func (a *userAccount) GetUserKDA(assetID []byte, nonce []byte, checkDirtData boo
 
 // SetUserKDA returns the unmarshalled kda data for the given key
 func (a *userAccount) SetUserKDA(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
-
 	if assetID == nil {
 		assetID = kdautils.KLVIdentifier
 	}
-
 	marshalizer := marshal.NewProtoMarshalizer()
 
 	data, err := marshalizer.Marshal(userKDA)
@@ -306,7 +304,6 @@ func (a *userAccount) SubFromBalanceWithNonce(value int64, assetID []byte, nonce
 	userKDA.Balance = newBalance
 
 	return a.SetUserKDA(assetID, nonce, userKDA)
-
 }
 
 // AddInternalKDA adds new internal KDA to user
@@ -554,8 +551,8 @@ func (a *userAccount) Claim(claimType transaction.ClaimContract_EnumClaimType,
 	assetID []byte, epoch uint32, blockTime int64,
 	staking *kapps.StakingData, kda *kapps.KDAData,
 	userKDA *kapps.UserKDA,
-	forkController core.ForkController) (map[string]int64, error) {
-
+	forkController core.ForkController,
+) (map[string]int64, error) {
 	switch claimType {
 	case transaction.ClaimContract_StakingClaim:
 		amountToAdd, err := a.claimStaking(assetID, epoch, blockTime, userKDA, staking, forkController)

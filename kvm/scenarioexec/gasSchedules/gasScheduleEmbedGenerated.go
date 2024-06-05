@@ -36,6 +36,7 @@ UpdateAccountPermission = 100_000
 Deposit = 100_000
 ITOTrigger = 100_000
 SaveKeyValue = 100_000
+ChangeOwnerAddress = 200_000
 
 [BaseOperationCost]
 StorePerByte = 10_000
