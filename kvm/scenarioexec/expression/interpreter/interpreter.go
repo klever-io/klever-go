@@ -21,7 +21,7 @@ const scAddrPrefix = "sc:"
 const bech32Prefix = "bech32:"
 
 const filePrefix = "file:"
-const mxscPrefix = "mxsc:"
+const kleverscPrefix = "kleversc:"
 const keccak256Prefix = "keccak256:"
 
 const u64Prefix = "u64:"
@@ -103,16 +103,16 @@ func (ei *ExprInterpreter) InterpretString(strRaw string) ([]byte, error) {
 	}
 
 	// file contents
-	if strings.HasPrefix(strRaw, mxscPrefix) {
+	if strings.HasPrefix(strRaw, kleverscPrefix) {
 		if ei.FileResolver == nil {
-			return []byte{}, errors.New("parser MxscResolver not provided")
+			return []byte{}, errors.New("parser KleverscResolver not provided")
 		}
-		fileContents, err := ei.FileResolver.ResolveFileValue(strRaw[len(mxscPrefix):])
+		fileContents, err := ei.FileResolver.ResolveFileValue(strRaw[len(kleverscPrefix):])
 		if err != nil {
 			return []byte{}, err
 		}
 
-		return ei.interpretMxscJson(fileContents)
+		return ei.interpretKleverscJson(fileContents)
 	}
 
 	// file contents
@@ -398,16 +398,16 @@ func (ei *ExprInterpreter) interpretNestedBytes(strRaw string) (bool, []byte, er
 	return true, append(encodedLength, nestedBytes...), err
 }
 
-func (ei *ExprInterpreter) interpretMxscJson(fileContents []byte) ([]byte, error) {
-	mxsc := make(map[string]interface{})
-	err1 := json.Unmarshal([]byte(fileContents), &mxsc)
+func (ei *ExprInterpreter) interpretKleverscJson(fileContents []byte) ([]byte, error) {
+	kleversc := make(map[string]interface{})
+	err1 := json.Unmarshal([]byte(fileContents), &kleversc)
 	if err1 != nil {
 		return []byte{}, err1
 	}
 
-	mxscCode, err := hex.DecodeString(mxsc["code"].(string))
+	kleverscCode, err := hex.DecodeString(kleversc["code"].(string))
 	if err != nil {
 		return []byte{}, err1
 	}
-	return mxscCode, nil
+	return kleverscCode, nil
 }
