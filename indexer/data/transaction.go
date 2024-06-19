@@ -105,13 +105,13 @@ type RolesInfo struct {
 
 type RoyaltiesInfo struct {
 	Address            string              `json:"address,omitempty"`
-	TransferPercentage []*RoyaltyDataInfo  `json:"transferPercentage,omitempty"`
-	TransferFixed      int64               `json:"transferFixed,omitempty"`
-	MarketPercentage   uint32              `json:"marketPercentage,omitempty"`
-	MarketFixed        int64               `json:"marketFixed,omitempty"`
-	ITOPercentage      uint32              `json:"itoPercentage,omitempty"`
-	ITOFixed           int64               `json:"itoFixed,omitempty"`
-	SplitRoyalties     []*RoyaltySplitInfo `json:"splitRoyalties,omitempty"`
+	TransferPercentage []*RoyaltyDataInfo  `json:"transferPercentage"`
+	TransferFixed      int64               `json:"transferFixed"`
+	MarketPercentage   uint32              `json:"marketPercentage"`
+	MarketFixed        int64               `json:"marketFixed"`
+	ITOPercentage      uint32              `json:"itoPercentage"`
+	ITOFixed           int64               `json:"itoFixed"`
+	SplitRoyalties     []*RoyaltySplitInfo `json:"splitRoyalties"`
 }
 
 type RoyaltyDataInfo struct {
