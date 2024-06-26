@@ -15,18 +15,19 @@ definitions:
           scheme `http`, `https`, or no scheme, one can optionally set up a type
           server that maps type URLs to message definitions as follows:
 
-          * If no scheme is provided, `https` is assumed.
-          * An HTTP GET on the URL must yield a [google.protobuf.Type][]
-            value in binary format, or produce an error.
-          * Applications are allowed to cache lookup results based on the
-            URL, or have them precompiled into a binary to avoid any
-            lookup. Therefore, binary compatibility needs to be preserved
-            on changes to types. (Use versioned type names to manage
-            breaking changes.)
+            - If no scheme is provided, `https` is assumed.
+            - An HTTP GET on the URL must yield a [google.protobuf.Type][]
+              value in binary format, or produce an error.
+            - Applications are allowed to cache lookup results based on the
+              URL, or have them precompiled into a binary to avoid any
+              lookup. Therefore, binary compatibility needs to be preserved
+              on changes to types. (Use versioned type names to manage
+              breaking changes.)
 
           Note: this functionality is not currently available in the official
           protobuf release, and it is not used for type URLs beginning with
-          type.googleapis.com.
+          type.googleapis.com. As of May 2023, there are no widely used type server
+          implementations and no plans to implement one.
 
           Schemes other than `http`, `https` (or the empty scheme) might be
           used with implementation specific semantics.
@@ -69,9 +70,39 @@ definitions:
           $ref: '#/definitions/api.Transaction'
         type: array
     type: object
+  api.Events:
+    properties:
+      address:
+        type: string
+      data:
+        items:
+          type: string
+        type: array
+      identifier:
+        type: string
+      topics:
+        items:
+          type: string
+        type: array
+    type: object
+  api.Logs:
+    properties:
+      address:
+        type: string
+      contractId:
+        type: integer
+      events:
+        items:
+          $ref: '#/definitions/api.Events'
+        type: array
+    type: object
   api.Transaction:
     properties:
       Block:
+        type: integer
+      GasLimit:
+        type: integer
+      GasMultiplier:
         type: integer
       RawData:
         $ref: '#/definitions/transaction.Transaction_Raw'
@@ -80,9 +111,9 @@ definitions:
           $ref: '#/definitions/transaction.Transaction_Receipt'
         type: array
       Result:
-        type: integer
+        $ref: '#/definitions/transaction.Transaction_TXResult'
       ResultCode:
-        type: integer
+        $ref: '#/definitions/transaction.Transaction_TXResultCode'
       Signature:
         items:
           items:
@@ -91,6 +122,8 @@ definitions:
         type: array
       hash:
         type: string
+      logs:
+        $ref: '#/definitions/api.Logs'
       signature:
         items:
           type: string
@@ -100,8 +133,12 @@ definitions:
     type: object
   asset.NFTAsset:
     properties:
+      AdminAddress:
+        items:
+          type: integer
+        type: array
       AssetType:
-        type: integer
+        $ref: '#/definitions/kapps.KDAData_EnumAssetType'
       Attributes:
         $ref: '#/definitions/kapps.AttributesData'
       BurnedValue:
@@ -233,8 +270,12 @@ definitions:
     type: object
   kapps.KDAData:
     properties:
+      AdminAddress:
+        items:
+          type: integer
+        type: array
       AssetType:
-        type: integer
+        $ref: '#/definitions/kapps.KDAData_EnumAssetType'
       Attributes:
         $ref: '#/definitions/kapps.AttributesData'
       BurnedValue:
@@ -282,6 +323,16 @@ definitions:
           type: string
         type: object
     type: object
+  kapps.KDAData_EnumAssetType:
+    enum:
+    - 0
+    - 1
+    - 2
+    type: integer
+    x-enum-varnames:
+    - KDAData_Fungible
+    - KDAData_NonFungible
+    - KDAData_SemiFungible
   kapps.LastClaim:
     properties:
       Epoch:
@@ -305,6 +356,8 @@ definitions:
         type: boolean
       CanWipe:
         type: boolean
+      LimitTransfer:
+        type: boolean
     type: object
   kapps.RolesData:
     properties:
@@ -317,6 +370,8 @@ definitions:
       HasRoleMint:
         type: boolean
       HasRoleSetITOPrices:
+        type: boolean
+      HasRoleTransfer:
         type: boolean
     type: object
   kapps.RoyaltiesData:
@@ -439,11 +494,23 @@ definitions:
   shared.GenericAPIResponse:
     properties:
       code:
-        type: string
+        $ref: '#/definitions/shared.ReturnCode'
       data: {}
       error:
         type: string
     type: object
+  shared.ReturnCode:
+    enum:
+    - successful
+    - internal_issue
+    - bad_request
+    - system_busy
+    type: string
+    x-enum-varnames:
+    - ReturnCodeSuccess
+    - ReturnCodeInternalError
+    - ReturnCodeRequestError
+    - ReturnCodeSystemBusy
   transaction.BroadcastTXRequest:
     properties:
       tx:
@@ -458,11 +525,71 @@ definitions:
       Parameter:
         $ref: '#/definitions/anypb.Any'
       Type:
-        type: integer
+        $ref: '#/definitions/transaction.TXContract_ContractType'
     type: object
+  transaction.TXContract_ContractType:
+    enum:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+    - 8
+    - 9
+    - 10
+    - 11
+    - 12
+    - 13
+    - 14
+    - 15
+    - 16
+    - 17
+    - 18
+    - 19
+    - 20
+    - 21
+    - 22
+    - 23
+    - 24
+    - 99
+    type: integer
+    x-enum-varnames:
+    - TXContract_TransferContractType
+    - TXContract_CreateAssetContractType
+    - TXContract_CreateValidatorContractType
+    - TXContract_ValidatorConfigContractType
+    - TXContract_FreezeContractType
+    - TXContract_UnfreezeContractType
+    - TXContract_DelegateContractType
+    - TXContract_UndelegateContractType
+    - TXContract_WithdrawContractType
+    - TXContract_ClaimContractType
+    - TXContract_UnjailContractType
+    - TXContract_AssetTriggerContractType
+    - TXContract_SetAccountNameContractType
+    - TXContract_ProposalContractType
+    - TXContract_VoteContractType
+    - TXContract_ConfigITOContractType
+    - TXContract_SetITOPricesContractType
+    - TXContract_BuyContractType
+    - TXContract_SellContractType
+    - TXContract_CancelMarketOrderContractType
+    - TXContract_CreateMarketplaceContractType
+    - TXContract_ConfigMarketplaceContractType
+    - TXContract_UpdateAccountPermissionContractType
+    - TXContract_DepositContractType
+    - TXContract_ITOTriggerContractType
+    - TXContract_SmartContractType
   transaction.Transaction:
     properties:
       Block:
+        type: integer
+      GasLimit:
+        type: integer
+      GasMultiplier:
         type: integer
       RawData:
         $ref: '#/definitions/transaction.Transaction_Raw'
@@ -471,9 +598,9 @@ definitions:
           $ref: '#/definitions/transaction.Transaction_Receipt'
         type: array
       Result:
-        type: integer
+        $ref: '#/definitions/transaction.Transaction_TXResult'
       ResultCode:
-        type: integer
+        $ref: '#/definitions/transaction.Transaction_TXResultCode'
       Signature:
         items:
           items:
@@ -533,6 +660,152 @@ definitions:
           type: array
         type: array
     type: object
+  transaction.Transaction_TXResult:
+    enum:
+    - 0
+    - 1
+    type: integer
+    x-enum-varnames:
+    - Transaction_SUCCESS
+    - Transaction_FAILED
+  transaction.Transaction_TXResultCode:
+    enum:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    - 7
+    - 8
+    - 9
+    - 10
+    - 11
+    - 12
+    - 13
+    - 14
+    - 15
+    - 16
+    - 17
+    - 18
+    - 19
+    - 20
+    - 21
+    - 22
+    - 23
+    - 24
+    - 25
+    - 26
+    - 27
+    - 28
+    - 29
+    - 30
+    - 31
+    - 32
+    - 33
+    - 34
+    - 35
+    - 36
+    - 37
+    - 38
+    - 39
+    - 40
+    - 41
+    - 42
+    - 43
+    - 44
+    - 45
+    - 46
+    - 47
+    - 48
+    - 49
+    - 50
+    - 51
+    - 52
+    - 53
+    - 54
+    - 55
+    - 56
+    - 57
+    - 58
+    - 59
+    - 60
+    - 61
+    - 62
+    - 63
+    - 64
+    - 65
+    - 99
+    type: integer
+    x-enum-varnames:
+    - Transaction_Ok
+    - Transaction_OutOfFunds
+    - Transaction_AccountError
+    - Transaction_AssetError
+    - Transaction_ContractInvalid
+    - Transaction_ContractNotFound
+    - Transaction_FeeInvalid
+    - Transaction_ParameterInvalid
+    - Transaction_APRInvalid
+    - Transaction_AssetIDInvalid
+    - Transaction_AssetTypeInvalid
+    - Transaction_AssetCantBeMinted
+    - Transaction_AssetCantBeBurned
+    - Transaction_AssetCantBePaused
+    - Transaction_AssetCantBeDelegated
+    - Transaction_AssetOwnerCantBeChanged
+    - Transaction_AccountNotOwner
+    - Transaction_CommissionTooHigh
+    - Transaction_DelegationAmountInvalid
+    - Transaction_ProposalNotActive
+    - Transaction_ValueInvalid
+    - Transaction_AmountInvalid
+    - Transaction_BucketIDInvalid
+    - Transaction_KeyConflict
+    - Transaction_MaxDelegationAmount
+    - Transaction_InvalidPeerKey
+    - Transaction_MinKFIStakedUnreached
+    - Transaction_MaxSupplyExceeded
+    - Transaction_SaveAccountError
+    - Transaction_LoadAccountError
+    - Transaction_SameAccountError
+    - Transaction_AssetPaused
+    - Transaction_DeletegateError
+    - Transaction_WithdrawNotAvailable
+    - Transaction_ErrOverflow
+    - Transaction_SetStakingErr
+    - Transaction_SetMarketOrderErr
+    - Transaction_BalanceError
+    - Transaction_KAPPError
+    - Transaction_UnfreezeError
+    - Transaction_UndeletegateError
+    - Transaction_WithdrawError
+    - Transaction_ClaimError
+    - Transaction_BucketsExceeded
+    - Transaction_AssetCantBeWiped
+    - Transaction_AssetCantAddRoles
+    - Transaction_FreezeError
+    - Transaction_ITONotActive
+    - Transaction_NFTMintStopped
+    - Transaction_RoyaltiesChangeStopped
+    - Transaction_ITOKAPPError
+    - Transaction_ITOWhiteListError
+    - Transaction_NFTMetadataChangeStopped
+    - Transaction_AlreadyExists
+    - Transaction_IteratorLimitReached
+    - Transaction_VMFunctionNotFound
+    - Transaction_VMFunctionWrongSignature
+    - Transaction_VMUserError
+    - Transaction_VMOutOfGas
+    - Transaction_VMAccountCollision
+    - Transaction_VMCallStackOverFlow
+    - Transaction_VMExecutionPanicked
+    - Transaction_VMExecutionFailed
+    - Transaction_VMUpgradeFailed
+    - Transaction_VMSimulateFailed
+    - Transaction_KDATransferNotAllowed
+    - Transaction_Fail
   transaction.sendTXRequest:
     properties:
       contract:
@@ -561,6 +834,27 @@ definitions:
         type: string
       type:
         type: integer
+    type: object
+  vm.VMValueRequest:
+    properties:
+      args:
+        items:
+          type: string
+        type: array
+      caller:
+        type: string
+      funcName:
+        type: string
+      sameScState:
+        type: boolean
+      scAddress:
+        type: string
+      shouldBeSynced:
+        type: boolean
+      value:
+        additionalProperties:
+          type: integer
+        type: object
     type: object
 info:
   contact: {}
@@ -618,7 +912,7 @@ paths:
           description: internal error
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
-      summary: returns the rewards avaible for a specific asset in an account
+      summary: returns the rewards avaible for a specific list of asset in an account
       tags:
       - Address
   /address/{address}/balance:
@@ -1060,6 +1354,34 @@ paths:
       summary: decode a given transaction
       tags:
       - Transaction
+  /transaction/estimate-fee:
+    get:
+      consumes:
+      - application/json
+      parameters:
+      - description: txhash
+        in: path
+        name: txhash
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: some internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns transaction details for a given txhash
+      tags:
+      - Transaction
   /transaction/pool:
     get:
       consumes:
@@ -1120,7 +1442,7 @@ paths:
           description: some error
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
-      summary: returns send transcation
+      summary: returns send transaction
       tags:
       - Transaction
   /validator/peers:
@@ -1155,4 +1477,96 @@ paths:
       summary: will return the validation statistics for all validators
       tags:
       - Validator
+  /vm/hex:
+    post:
+      parameters:
+      - description: vm request data
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/vm.VMValueRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the data as bytes, hex-encoded
+      tags:
+      - VM
+  /vm/int:
+    post:
+      parameters:
+      - description: vm request data
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/vm.VMValueRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the data as big int
+      tags:
+      - VM
+  /vm/query:
+    post:
+      parameters:
+      - description: vm request data
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/vm.VMValueRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the data as string
+      tags:
+      - VM
+  /vm/string:
+    post:
+      parameters:
+      - description: vm request data
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/vm.VMValueRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the data as string
+      tags:
+      - VM
 swagger: "2.0"

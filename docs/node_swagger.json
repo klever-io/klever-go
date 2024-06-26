@@ -49,7 +49,7 @@
                 "tags": [
                     "Address"
                 ],
-                "summary": "returns the rewards avaible for a specific asset in an account",
+                "summary": "returns the rewards avaible for a specific list of asset in an account",
                 "parameters": [
                     {
                         "type": "string",
@@ -726,6 +726,49 @@
                 }
             }
         },
+        "/transaction/estimate-fee": {
+            "get": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transaction"
+                ],
+                "summary": "returns transaction details for a given txhash",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "txhash",
+                        "name": "txhash",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "some internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/transaction/pool": {
             "get": {
                 "consumes": [
@@ -794,7 +837,7 @@
                 "tags": [
                     "Transaction"
                 ],
-                "summary": "returns send transcation",
+                "summary": "returns send transaction",
                 "parameters": [
                     {
                         "description": "body data",
@@ -914,6 +957,150 @@
                     }
                 }
             }
+        },
+        "/vm/hex": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "VM"
+                ],
+                "summary": "returns the data as bytes, hex-encoded",
+                "parameters": [
+                    {
+                        "description": "vm request data",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/vm.VMValueRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/vm/int": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "VM"
+                ],
+                "summary": "returns the data as big int",
+                "parameters": [
+                    {
+                        "description": "vm request data",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/vm.VMValueRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/vm/query": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "VM"
+                ],
+                "summary": "returns the data as string",
+                "parameters": [
+                    {
+                        "description": "vm request data",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/vm.VMValueRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/vm/string": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "VM"
+                ],
+                "summary": "returns the data as string",
+                "parameters": [
+                    {
+                        "description": "vm request data",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/vm.VMValueRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -921,7 +1108,7 @@
             "type": "object",
             "properties": {
                 "type_url": {
-                    "description": "A URL/resource name that uniquely identifies the type of the serialized\nprotocol buffer message. This string must contain at least\none \"/\" character. The last segment of the URL's path must represent\nthe fully qualified name of the type (as in\n`path/google.protobuf.Duration`). The name should be in a canonical form\n(e.g., leading \".\" is not accepted).\n\nIn practice, teams usually precompile into the binary all types that they\nexpect it to use in the context of Any. However, for URLs which use the\nscheme `http`, `https`, or no scheme, one can optionally set up a type\nserver that maps type URLs to message definitions as follows:\n\n* If no scheme is provided, `https` is assumed.\n* An HTTP GET on the URL must yield a [google.protobuf.Type][]\n  value in binary format, or produce an error.\n* Applications are allowed to cache lookup results based on the\n  URL, or have them precompiled into a binary to avoid any\n  lookup. Therefore, binary compatibility needs to be preserved\n  on changes to types. (Use versioned type names to manage\n  breaking changes.)\n\nNote: this functionality is not currently available in the official\nprotobuf release, and it is not used for type URLs beginning with\ntype.googleapis.com.\n\nSchemes other than `http`, `https` (or the empty scheme) might be\nused with implementation specific semantics.",
+                    "description": "A URL/resource name that uniquely identifies the type of the serialized\nprotocol buffer message. This string must contain at least\none \"/\" character. The last segment of the URL's path must represent\nthe fully qualified name of the type (as in\n`path/google.protobuf.Duration`). The name should be in a canonical form\n(e.g., leading \".\" is not accepted).\n\nIn practice, teams usually precompile into the binary all types that they\nexpect it to use in the context of Any. However, for URLs which use the\nscheme `http`, `https`, or no scheme, one can optionally set up a type\nserver that maps type URLs to message definitions as follows:\n\n  - If no scheme is provided, `https` is assumed.\n  - An HTTP GET on the URL must yield a [google.protobuf.Type][]\n    value in binary format, or produce an error.\n  - Applications are allowed to cache lookup results based on the\n    URL, or have them precompiled into a binary to avoid any\n    lookup. Therefore, binary compatibility needs to be preserved\n    on changes to types. (Use versioned type names to manage\n    breaking changes.)\n\nNote: this functionality is not currently available in the official\nprotobuf release, and it is not used for type URLs beginning with\ntype.googleapis.com. As of May 2023, there are no widely used type server\nimplementations and no plans to implement one.\n\nSchemes other than `http`, `https` (or the empty scheme) might be\nused with implementation specific semantics.",
                     "type": "string"
                 },
                 "value": {
@@ -980,10 +1167,56 @@
                 }
             }
         },
+        "api.Events": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "identifier": {
+                    "type": "string"
+                },
+                "topics": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "api.Logs": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "contractId": {
+                    "type": "integer"
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.Events"
+                    }
+                }
+            }
+        },
         "api.Transaction": {
             "type": "object",
             "properties": {
                 "Block": {
+                    "type": "integer"
+                },
+                "GasLimit": {
+                    "type": "integer"
+                },
+                "GasMultiplier": {
                     "type": "integer"
                 },
                 "RawData": {
@@ -996,10 +1229,10 @@
                     }
                 },
                 "Result": {
-                    "type": "integer"
+                    "$ref": "#/definitions/transaction.Transaction_TXResult"
                 },
                 "ResultCode": {
-                    "type": "integer"
+                    "$ref": "#/definitions/transaction.Transaction_TXResultCode"
                 },
                 "Signature": {
                     "type": "array",
@@ -1012,6 +1245,9 @@
                 },
                 "hash": {
                     "type": "string"
+                },
+                "logs": {
+                    "$ref": "#/definitions/api.Logs"
                 },
                 "signature": {
                     "type": "array",
@@ -1027,8 +1263,14 @@
         "asset.NFTAsset": {
             "type": "object",
             "properties": {
+                "AdminAddress": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
                 "AssetType": {
-                    "type": "integer"
+                    "$ref": "#/definitions/kapps.KDAData_EnumAssetType"
                 },
                 "Attributes": {
                     "$ref": "#/definitions/kapps.AttributesData"
@@ -1228,8 +1470,14 @@
         "kapps.KDAData": {
             "type": "object",
             "properties": {
+                "AdminAddress": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
                 "AssetType": {
-                    "type": "integer"
+                    "$ref": "#/definitions/kapps.KDAData_EnumAssetType"
                 },
                 "Attributes": {
                     "$ref": "#/definitions/kapps.AttributesData"
@@ -1302,6 +1550,19 @@
                 }
             }
         },
+        "kapps.KDAData_EnumAssetType": {
+            "type": "integer",
+            "enum": [
+                0,
+                1,
+                2
+            ],
+            "x-enum-varnames": [
+                "KDAData_Fungible",
+                "KDAData_NonFungible",
+                "KDAData_SemiFungible"
+            ]
+        },
         "kapps.LastClaim": {
             "type": "object",
             "properties": {
@@ -1336,6 +1597,9 @@
                 },
                 "CanWipe": {
                     "type": "boolean"
+                },
+                "LimitTransfer": {
+                    "type": "boolean"
                 }
             }
         },
@@ -1355,6 +1619,9 @@
                     "type": "boolean"
                 },
                 "HasRoleSetITOPrices": {
+                    "type": "boolean"
+                },
+                "HasRoleTransfer": {
                     "type": "boolean"
                 }
             }
@@ -1542,13 +1809,28 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "type": "string"
+                    "$ref": "#/definitions/shared.ReturnCode"
                 },
                 "data": {},
                 "error": {
                     "type": "string"
                 }
             }
+        },
+        "shared.ReturnCode": {
+            "type": "string",
+            "enum": [
+                "successful",
+                "internal_issue",
+                "bad_request",
+                "system_busy"
+            ],
+            "x-enum-varnames": [
+                "ReturnCodeSuccess",
+                "ReturnCodeInternalError",
+                "ReturnCodeRequestError",
+                "ReturnCodeSystemBusy"
+            ]
         },
         "transaction.BroadcastTXRequest": {
             "type": "object",
@@ -1571,14 +1853,79 @@
                     "$ref": "#/definitions/anypb.Any"
                 },
                 "Type": {
-                    "type": "integer"
+                    "$ref": "#/definitions/transaction.TXContract_ContractType"
                 }
             }
+        },
+        "transaction.TXContract_ContractType": {
+            "type": "integer",
+            "enum": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15,
+                16,
+                17,
+                18,
+                19,
+                20,
+                21,
+                22,
+                23,
+                24,
+                99
+            ],
+            "x-enum-varnames": [
+                "TXContract_TransferContractType",
+                "TXContract_CreateAssetContractType",
+                "TXContract_CreateValidatorContractType",
+                "TXContract_ValidatorConfigContractType",
+                "TXContract_FreezeContractType",
+                "TXContract_UnfreezeContractType",
+                "TXContract_DelegateContractType",
+                "TXContract_UndelegateContractType",
+                "TXContract_WithdrawContractType",
+                "TXContract_ClaimContractType",
+                "TXContract_UnjailContractType",
+                "TXContract_AssetTriggerContractType",
+                "TXContract_SetAccountNameContractType",
+                "TXContract_ProposalContractType",
+                "TXContract_VoteContractType",
+                "TXContract_ConfigITOContractType",
+                "TXContract_SetITOPricesContractType",
+                "TXContract_BuyContractType",
+                "TXContract_SellContractType",
+                "TXContract_CancelMarketOrderContractType",
+                "TXContract_CreateMarketplaceContractType",
+                "TXContract_ConfigMarketplaceContractType",
+                "TXContract_UpdateAccountPermissionContractType",
+                "TXContract_DepositContractType",
+                "TXContract_ITOTriggerContractType",
+                "TXContract_SmartContractType"
+            ]
         },
         "transaction.Transaction": {
             "type": "object",
             "properties": {
                 "Block": {
+                    "type": "integer"
+                },
+                "GasLimit": {
+                    "type": "integer"
+                },
+                "GasMultiplier": {
                     "type": "integer"
                 },
                 "RawData": {
@@ -1591,10 +1938,10 @@
                     }
                 },
                 "Result": {
-                    "type": "integer"
+                    "$ref": "#/definitions/transaction.Transaction_TXResult"
                 },
                 "ResultCode": {
-                    "type": "integer"
+                    "$ref": "#/definitions/transaction.Transaction_TXResultCode"
                 },
                 "Signature": {
                     "type": "array",
@@ -1686,6 +2033,158 @@
                 }
             }
         },
+        "transaction.Transaction_TXResult": {
+            "type": "integer",
+            "enum": [
+                0,
+                1
+            ],
+            "x-enum-varnames": [
+                "Transaction_SUCCESS",
+                "Transaction_FAILED"
+            ]
+        },
+        "transaction.Transaction_TXResultCode": {
+            "type": "integer",
+            "enum": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15,
+                16,
+                17,
+                18,
+                19,
+                20,
+                21,
+                22,
+                23,
+                24,
+                25,
+                26,
+                27,
+                28,
+                29,
+                30,
+                31,
+                32,
+                33,
+                34,
+                35,
+                36,
+                37,
+                38,
+                39,
+                40,
+                41,
+                42,
+                43,
+                44,
+                45,
+                46,
+                47,
+                48,
+                49,
+                50,
+                51,
+                52,
+                53,
+                54,
+                55,
+                56,
+                57,
+                58,
+                59,
+                60,
+                61,
+                62,
+                63,
+                64,
+                65,
+                99
+            ],
+            "x-enum-varnames": [
+                "Transaction_Ok",
+                "Transaction_OutOfFunds",
+                "Transaction_AccountError",
+                "Transaction_AssetError",
+                "Transaction_ContractInvalid",
+                "Transaction_ContractNotFound",
+                "Transaction_FeeInvalid",
+                "Transaction_ParameterInvalid",
+                "Transaction_APRInvalid",
+                "Transaction_AssetIDInvalid",
+                "Transaction_AssetTypeInvalid",
+                "Transaction_AssetCantBeMinted",
+                "Transaction_AssetCantBeBurned",
+                "Transaction_AssetCantBePaused",
+                "Transaction_AssetCantBeDelegated",
+                "Transaction_AssetOwnerCantBeChanged",
+                "Transaction_AccountNotOwner",
+                "Transaction_CommissionTooHigh",
+                "Transaction_DelegationAmountInvalid",
+                "Transaction_ProposalNotActive",
+                "Transaction_ValueInvalid",
+                "Transaction_AmountInvalid",
+                "Transaction_BucketIDInvalid",
+                "Transaction_KeyConflict",
+                "Transaction_MaxDelegationAmount",
+                "Transaction_InvalidPeerKey",
+                "Transaction_MinKFIStakedUnreached",
+                "Transaction_MaxSupplyExceeded",
+                "Transaction_SaveAccountError",
+                "Transaction_LoadAccountError",
+                "Transaction_SameAccountError",
+                "Transaction_AssetPaused",
+                "Transaction_DeletegateError",
+                "Transaction_WithdrawNotAvailable",
+                "Transaction_ErrOverflow",
+                "Transaction_SetStakingErr",
+                "Transaction_SetMarketOrderErr",
+                "Transaction_BalanceError",
+                "Transaction_KAPPError",
+                "Transaction_UnfreezeError",
+                "Transaction_UndeletegateError",
+                "Transaction_WithdrawError",
+                "Transaction_ClaimError",
+                "Transaction_BucketsExceeded",
+                "Transaction_AssetCantBeWiped",
+                "Transaction_AssetCantAddRoles",
+                "Transaction_FreezeError",
+                "Transaction_ITONotActive",
+                "Transaction_NFTMintStopped",
+                "Transaction_RoyaltiesChangeStopped",
+                "Transaction_ITOKAPPError",
+                "Transaction_ITOWhiteListError",
+                "Transaction_NFTMetadataChangeStopped",
+                "Transaction_AlreadyExists",
+                "Transaction_IteratorLimitReached",
+                "Transaction_VMFunctionNotFound",
+                "Transaction_VMFunctionWrongSignature",
+                "Transaction_VMUserError",
+                "Transaction_VMOutOfGas",
+                "Transaction_VMAccountCollision",
+                "Transaction_VMCallStackOverFlow",
+                "Transaction_VMExecutionPanicked",
+                "Transaction_VMExecutionFailed",
+                "Transaction_VMUpgradeFailed",
+                "Transaction_VMSimulateFailed",
+                "Transaction_KDATransferNotAllowed",
+                "Transaction_Fail"
+            ]
+        },
         "transaction.sendTXRequest": {
             "type": "object",
             "properties": {
@@ -1727,6 +2226,38 @@
                 },
                 "type": {
                     "type": "integer"
+                }
+            }
+        },
+        "vm.VMValueRequest": {
+            "type": "object",
+            "properties": {
+                "args": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "caller": {
+                    "type": "string"
+                },
+                "funcName": {
+                    "type": "string"
+                },
+                "sameScState": {
+                    "type": "boolean"
+                },
+                "scAddress": {
+                    "type": "string"
+                },
+                "shouldBeSynced": {
+                    "type": "boolean"
+                },
+                "value": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
                 }
             }
         }

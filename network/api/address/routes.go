@@ -266,7 +266,7 @@ func GetAvailableClaim(c *gin.Context) {
 	)
 }
 
-// @Summary returns the rewards avaible for a specific list of  asset in an account
+// @Summary returns the rewards avaible for a specific list of asset in an account
 // @Tags Address
 // @Produce json
 // @Param address path string true "address"

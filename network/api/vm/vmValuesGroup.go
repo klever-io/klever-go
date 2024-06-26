@@ -46,17 +46,35 @@ type VMValueRequest struct {
 	ShouldBeSynced bool             `json:"shouldBeSynced"`
 }
 
-// getHex returns the data as bytes, hex-encoded
+// @Summary  returns the data as bytes, hex-encoded
+// @Tags VM
+// @Produce json
+// @Param data body vm.VMValueRequest true "vm request data"
+// @Success 200 object shared.GenericAPIResponse "ok"
+// @Failure 500 object shared.GenericAPIResponse "internal error"
+// @Router /vm/hex [post]
 func getHex(context *gin.Context) {
 	doGetVMValue(context, vm.AsHex)
 }
 
-// getString returns the data as string
+// @Summary  returns the data as string
+// @Tags VM
+// @Produce json
+// @Param data body vm.VMValueRequest true "vm request data"
+// @Success 200 object shared.GenericAPIResponse "ok"
+// @Failure 500 object shared.GenericAPIResponse "internal error"
+// @Router /vm/string [post]
 func getString(context *gin.Context) {
 	doGetVMValue(context, vm.AsString)
 }
 
-// getInt returns the data as big int
+// @Summary  returns the data as big int
+// @Tags VM
+// @Produce json
+// @Param data body vm.VMValueRequest true "vm request data"
+// @Success 200 object shared.GenericAPIResponse "ok"
+// @Failure 500 object shared.GenericAPIResponse "internal error"
+// @Router /vm/int [post]
 func getInt(context *gin.Context) {
 	doGetVMValue(context, vm.AsBigIntString)
 }
@@ -81,7 +99,13 @@ func doGetVMValue(c *gin.Context, asType vm.ReturnDataKind) {
 	returnOkResponse(c, returnData, execErrMsg)
 }
 
-// executeQuery returns the data as string
+// @Summary  returns the data as string
+// @Tags VM
+// @Produce json
+// @Param data body vm.VMValueRequest true "vm request data"
+// @Success 200 object shared.GenericAPIResponse "ok"
+// @Failure 500 object shared.GenericAPIResponse "internal error"
+// @Router /vm/query [post]
 func executeQuery(c *gin.Context) {
 	facade, ok := getFacade(c)
 	if !ok {
