@@ -8,6 +8,9 @@ import (
 // ZeroAddress represents the zero Address
 var ZeroAddress = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
+// BlackHoleAddress represents the black hole Address
+var BlackHoleAddress = []byte{123, 222, 247, 189, 239, 123, 222, 247, 189, 239, 123, 222, 247, 189, 239, 123, 222, 247, 189, 239, 123, 222, 247, 189, 239, 123, 222, 247, 189, 239, 123, 222}
+
 // OneYearTimestamp represents the relative timestamp of an year
 const OneYearTimestamp = int64(31556926)
 

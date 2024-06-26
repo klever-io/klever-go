@@ -179,7 +179,9 @@ func (inTx *InterceptedTransaction) integrity(tx *transaction.Transaction) error
 		return process.ErrInvalidChainID
 	}
 
-	if len(tx.RawData.Sender) != inTx.pubkeyConv.Len() || bytes.Equal(tx.RawData.Sender, core.ZeroAddress) {
+	if len(tx.RawData.Sender) != inTx.pubkeyConv.Len() ||
+		bytes.Equal(tx.RawData.Sender, core.ZeroAddress) ||
+		bytes.Equal(tx.RawData.Sender, core.BlackHoleAddress) {
 		return process.ErrInvalidSndAddr
 	}
 
