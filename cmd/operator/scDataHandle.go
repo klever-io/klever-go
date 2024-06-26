@@ -259,7 +259,11 @@ func (a *vmOutputData) selectDecoder(
 	}
 }
 
-func (a *vmOutputData) decodeSingleValue(hexRef *string, valueType string, trim int) (interface{}, error) {
+func (a *vmOutputData) decodeSingleValue(
+	hexRef *string,
+	valueType string,
+	trim int,
+) (interface{}, error) {
 	switch valueType {
 	case Int8:
 		decodedValue, err := a.decodeInt(hexRef, HexLength8Bits)
@@ -472,7 +476,8 @@ func (a *vmOutputData) handleBigIntTill128(hexRef *string) (*big.Int, error) {
 
 	MaxIntNBits := new(big.Int).Sub(twoToTheNth, one)
 
-	if rawValue.Cmp(new(big.Int).SetUint64(math.MaxUint64)) == 1 && rawValue.Cmp(MaxIntNBits) == -1 {
+	if rawValue.Cmp(new(big.Int).SetUint64(math.MaxUint64)) == 1 &&
+		rawValue.Cmp(MaxIntNBits) == -1 {
 		return rawValue, nil
 	}
 
@@ -580,7 +585,6 @@ func (a *vmOutputData) handleList(hexRef *string, valueType string) (interface{}
 
 	if wrapperType == List {
 		listTrim, err := a.getFixedTrim(hexRef)
-
 		if err != nil {
 			return nil, fmt.Errorf("error getting the list trim: %w", err)
 		}
@@ -602,7 +606,11 @@ func (a *vmOutputData) handleList(hexRef *string, valueType string) (interface{}
 	return a.decodeSingleValue(hexRef, coreType, valueTrim)
 }
 
-func (a *vmOutputData) decodeNestedList(hexRef *string, valueType string, limit int) (interface{}, error) {
+func (a *vmOutputData) decodeNestedList(
+	hexRef *string,
+	valueType string,
+	limit int,
+) (interface{}, error) {
 	var result []interface{}
 	for i := 0; i < limit; i++ {
 		decoded, err := a.handleList(hexRef, valueType)
@@ -689,7 +697,10 @@ func (a *vmOutputData) decodeVariadic(hexRef *string, valueType string) (interfa
 	return decodedValue, nil
 }
 
-func (a *vmOutputData) decodeStruct(hexRef *string, valueType string) (map[string]interface{}, error) {
+func (a *vmOutputData) decodeStruct(
+	hexRef *string,
+	valueType string,
+) (map[string]interface{}, error) {
 	typeDef, exists := a.Types[valueType]
 	if !exists {
 		return nil, fmt.Errorf("type %s not found in provided abi", valueType)
@@ -701,7 +712,12 @@ func (a *vmOutputData) decodeStruct(hexRef *string, valueType string) (map[strin
 		if strings.HasPrefix(field.Type, List) {
 			decodedList, err := a.handleList(hexRef, field.Type)
 			if err != nil {
-				return nil, fmt.Errorf("error %w decoding list value of key %s of custom type %s", err, field.Type, valueType)
+				return nil, fmt.Errorf(
+					"error %w decoding list value of key %s of custom type %s",
+					err,
+					field.Type,
+					valueType,
+				)
 			}
 
 			result[field.Name] = decodedList
@@ -721,7 +737,12 @@ func (a *vmOutputData) decodeStruct(hexRef *string, valueType string) (map[strin
 
 		decodedValue, err := a.doDecode(hexRef, field.Type, trim)
 		if err != nil {
-			return nil, fmt.Errorf("error %w decoding value of key %s of custom type %s", err, field.Type, valueType)
+			return nil, fmt.Errorf(
+				"error %w decoding value of key %s of custom type %s",
+				err,
+				field.Type,
+				valueType,
+			)
 		}
 
 		result[field.Name] = decodedValue
@@ -771,15 +792,15 @@ func encodeSingleValue(t, v string, isNested bool) (string, error) {
 	case
 		Int8, strings.ToUpper(Int8), // int8
 		Int16, strings.ToUpper(Int16), // int16
-		Int32, strings.ToUpper(Int32), Isize, // int32
+		Int32, strings.ToUpper(Int32), Isize, strings.ToUpper(Isize), // int32
 		Int64, strings.ToUpper(Int64): // int864
 
 		return encodeInt(v, t, isNested)
 	case
-		Uint8, strings.ToUpper(Int8), // uint8
-		Uint16, strings.ToUpper(Int64), // uint16
-		Uint32, strings.ToUpper(Int64), Usize, // uint32
-		Uint64, strings.ToUpper(Int64): // uint864
+		Uint8, strings.ToUpper(Uint8), // uint8
+		Uint16, strings.ToUpper(Uint16), // uint16
+		Uint32, strings.ToUpper(Uint32), Usize, strings.ToUpper(Usize), // uint32
+		Uint64, strings.ToUpper(Uint64): // uint864
 
 		return encodeUint(v, t, isNested)
 	case BigInt, strings.ToLower(BigInt),
@@ -826,17 +847,29 @@ func encodeTopLevelInt(v string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid string `%s` to convert to signed integer", v)
 	}
+
+	var encoded string
 	switch {
 	// typecast to uint to correspondent bit size to use 2's complement in negative values
 	case rawInt >= math.MinInt8 && rawInt <= math.MaxInt8:
-		return fmt.Sprintf("%x", uint8(rawInt)), nil
+		encoded = fmt.Sprintf("%x", uint8(rawInt))
 	case rawInt >= math.MinInt16 && rawInt <= math.MaxInt16:
-		return fmt.Sprintf("%x", uint16(rawInt)), nil
+		encoded = fmt.Sprintf("%x", uint16(rawInt))
 	case rawInt >= math.MinInt32 && rawInt <= math.MaxInt32:
-		return fmt.Sprintf("%x", uint32(rawInt)), nil
+		encoded = fmt.Sprintf("%x", uint32(rawInt))
 	default:
-		return fmt.Sprintf("%x", uint64(rawInt)), nil
+		encoded = fmt.Sprintf("%x", uint64(rawInt))
 	}
+
+	if len(encoded)%2 != 0 {
+		prefix := "0"
+		if rawInt < 0 {
+			prefix = "f"
+		}
+		encoded = prefix + encoded
+	}
+
+	return encoded, nil
 }
 
 func encodeNestedInt(v, t string) (string, error) {
@@ -870,16 +903,24 @@ func encodeTopLevelUint(v string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid string `%s` to convert to signed integer", v)
 	}
+
+	var encoded string
 	switch {
 	case rawInt <= math.MaxInt8:
-		return fmt.Sprintf("%x", uint8(rawInt)), nil
+		encoded = fmt.Sprintf("%x", uint8(rawInt))
 	case rawInt <= math.MaxInt16:
-		return fmt.Sprintf("%x", uint16(rawInt)), nil
+		encoded = fmt.Sprintf("%x", uint16(rawInt))
 	case rawInt <= math.MaxInt32:
-		return fmt.Sprintf("%x", uint32(rawInt)), nil
+		encoded = fmt.Sprintf("%x", uint32(rawInt))
 	default:
-		return fmt.Sprintf("%x", rawInt), nil
+		encoded = fmt.Sprintf("%x", rawInt)
 	}
+
+	if len(encoded)%2 != 0 {
+		encoded = "0" + encoded
+	}
+
+	return encoded, nil
 }
 
 func encodeNestedUint(v, t string) (string, error) {
@@ -990,7 +1031,10 @@ func bigIntTwosComplement(b *big.Int) {
 func encodeBigFloat(v string, isNested bool) (string, error) {
 	bf, ok := new(big.Float).SetString(v)
 	if !ok {
-		return "", fmt.Errorf("invalid string `%s` representing a big float to encode to hexadecimal", v)
+		return "", fmt.Errorf(
+			"invalid string `%s` representing a big float to encode to hexadecimal",
+			v,
+		)
 	}
 
 	bf.SetPrec(BigFloatVMPrecision)
@@ -998,7 +1042,10 @@ func encodeBigFloat(v string, isNested bool) (string, error) {
 
 	bfBytes, err := bf.GobEncode()
 	if err != nil {
-		return "", fmt.Errorf("invalid string `%s` representing a big float to encode to hexadecimal", v)
+		return "", fmt.Errorf(
+			"invalid string `%s` representing a big float to encode to hexadecimal",
+			v,
+		)
 	}
 
 	hexBf := hex.EncodeToString(bfBytes)
