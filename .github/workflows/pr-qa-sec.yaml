@@ -1,6 +1,11 @@
 name: QA Sec
 
-on: [pull_request]
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  push:
+    branches: [master, main, develop]
+  workflow_dispatch:
 
 jobs:
   config:
@@ -48,5 +53,5 @@ jobs:
             -Dsonar.externalIssuesReportPaths="report.json"
             -Dsonar.pullrequest.branch=${{ github.ref_name }}
             -Dsonar.pullrequest.base=${{ github.base_ref }}
-            -Dsonar.pullrequest.key=${{ github.event.number }}            
+            -Dsonar.pullrequest.key=${{ github.event.number }}
 

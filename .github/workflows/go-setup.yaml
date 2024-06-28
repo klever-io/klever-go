@@ -37,20 +37,20 @@ jobs:
       steps:
         - name: Checkout repository
           uses: actions/checkout@v4
-  
+
         - name: Set up Golang
           uses: actions/setup-go@v5
           with:
             go-version: ${{ inputs.go_version }}
-  
+
         - name: Configure git for private modules
           if: env.TOKEN != ''
           run: git config --global url."https://${USER}:${TOKEN}@github.com".insteadOf "https://github.com"
-  
+
         - name: Install modvendor tool
           if: ${{ inputs.with_vendor }}
           run: go install github.com/goware/modvendor@latest
-          
+
         - name: Cache Vendor
           if: ${{ inputs.with_cache }}
           id: cache_vendor
@@ -62,14 +62,15 @@ jobs:
             key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
             restore-keys: |
               ${{ runner.os }}-${{ env.cache-name }}-
-  
+            enableCrossOsArchive: true
+
         # Resolving a package to a module
         - name: Resolve package to module && Download dependencies
           if: ${{ steps.cache_vendor.outputs.cache-hit != 'true' }}
           run: |
             go mod tidy
             go mod download
-        
+
         # Verify no changes from go mod tidy
         - name: Verify no changes from go mod tidy
           run: |
@@ -83,4 +84,3 @@ jobs:
           run: |
             go mod vendor
             modvendor -copy="**/*.c **/*.h **/*.proto **/*.a"
-  

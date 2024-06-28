@@ -14,7 +14,21 @@ jobs:
 
   build:
     needs: [config]
-    runs-on: klever-pipe
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-13]
+        include:
+          - os: ubuntu-latest
+            name: linux
+            extension: .tar.gz
+          - os: macos-13
+            name: darwin
+            extension: .tar.gz
+          - os: macos-latest
+            name: darwin-arm64
+            extension: .tar.gz
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,24 +39,39 @@ jobs:
           go-version: ${{ vars.GO_VERSION }}
 
       - name: Cache Vendor
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         env:
           cache-name: cache-vendor
         with:
           fail-on-cache-miss: true
           path: vendor
-          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
+          # In go-setup cache is created in klever-pipe machine (Linux)
+          key: Linux-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
+          enableCrossOsArchive: true
 
       - name: Build
-        run: make build
+        run: |
+          make build-operator
+          make build-validator
 
       - name: Create tarball
         run: |
-          cp kvm/wasmer2/libvmexeccapi.so bin/
+          cp kvm/wasmer2/libvmexeccapi* bin/
           cd bin
-          tar -czf klevergo-node.tar.gz validator libvmexeccapi.so
-          tar -czf klevergo-operator.tar.gz operator libvmexeccapi.so
-      
+          if [[ "${{ matrix.name }}" == "darwin-arm64" ]]; then
+            tar -czf klevergo-operator${{ matrix.extension }} operator libvmexeccapi_arm.dylib
+            tar -czf klevergo-node${{ matrix.extension }} validator libvmexeccapi_arm.dylib
+          elif [[ "${{ matrix.name }}" == "darwin" ]]; then
+            tar -czf klevergo-operator${{ matrix.extension }} operator libvmexeccapi.dylib
+            tar -czf klevergo-node${{ matrix.extension }} validator libvmexeccapi.dylib
+          elif [[ "${{ matrix.name }}" == "windows" ]]; then
+            powershell Compress-Archive -Path operator, libvmexeccapi.so -DestinationPath klevergo-operator${{ matrix.extension }}
+            powershell Compress-Archive -Path validator, libvmexeccapi.so -DestinationPath klevergo-node${{ matrix.extension }}
+          else
+            tar -czf klevergo-operator${{ matrix.extension }} operator libvmexeccapi.so
+            tar -czf klevergo-node${{ matrix.extension }} validator libvmexeccapi.so
+          fi
+
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v2
@@ -50,8 +79,24 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: |
-            bin/klevergo-node.tar.gz
-            bin/klevergo-operator.tar.gz
+            bin/klevergo-node${{ matrix.extension }}
+            bin/klevergo-operator${{ matrix.extension }}
           generate_release_notes: true
           draft: true
           prerelease: true
+
+      - name: Get the release version from the tag
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+      - name: Configure GCP service account
+        uses: google-github-actions/auth@v0
+        with:
+          credentials_json: '${{ secrets.GCP_CLOUD_RUN_SA }}'
+
+      - name: Upload files to bucket
+        uses: 'google-github-actions/upload-cloud-storage@v2'
+        with:
+          path: 'bin/klevergo-operator${{ matrix.extension }}'
+          destination: 'kleverchain-public/koperator/${{ matrix.name }}/${{ env.VERSION }}'
+
