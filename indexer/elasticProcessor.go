@@ -21,11 +21,13 @@ import (
 	nodeData "github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/indexer"
 	"github.com/klever-io/klever-go/data/state"
+	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/indexer/logsevents"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
+	"github.com/klever-io/klever-go/tools/marshal"
 )
 
 const numDecimalsInFloatBalance = 10 //?
@@ -362,6 +364,7 @@ func (ei *elasticProcessor) SaveTransactions(
 	if err != nil {
 		return err
 	}
+
 	ld := ei.logsAndEventsProc.ExtractDataFromLogs(pool, txs, headerTimestamp)
 
 	// Dispatch events
@@ -441,6 +444,9 @@ func (ei *elasticProcessor) indexTransactions(txs []*data.Transaction, bytesBuff
 	if !ei.isIndexEnabled(txIndex) {
 		return nil
 	}
+
+	// Add asset type and collection to all contracts before indexing
+	txs = ei.addContractInfoToTransactions(txs)
 
 	return ei.serializeTransactions(txs, bytesBuff)
 }
@@ -1008,6 +1014,18 @@ func (ei *elasticProcessor) indexAssets(assets map[string][]*data.AlteredAsset, 
 
 	var assetsSlice []*data.Asset
 	var assetsUpdateSlice []*data.Asset
+
+	// Initialize kdaPoolKapp to check if asset has kda pool
+	kdaPoolAccount, err := ei.kappsDB.LoadAccount(kapps.KDAFeesPoolKAppAddress)
+	if err != nil {
+		return err
+	}
+
+	kdaPoolKapp, ok := kdaPoolAccount.(state.KAppAccountHandler)
+	if !ok {
+		return common.ErrWrongTypeAssertion
+	}
+
 	for assetName := range assets {
 		assetKDAaccount, err := ei.kappsDB.LoadAccount(kapps.KDAKAppAddress)
 		if err != nil {
@@ -1075,21 +1093,41 @@ func (ei *elasticProcessor) indexAssets(assets map[string][]*data.AlteredAsset, 
 				asset.Staking = ei.convertStakingData(kdaStaking)
 			}
 		}
-
 		exist := ei.elasticClient.DocExists(assetsIndex, assetID)
 		if !exist {
 			initialAssetPermissionsState := false
 			asset.Hidden = &initialAssetPermissionsState
 			asset.Verified = &initialAssetPermissionsState
+			asset.HasKdaPool = false
 			asset.Tags = []string{}
 
 			assetsSlice = append(assetsSlice, asset)
 		} else {
+			//check if asset have kda pool activated
+			poolBytes, err := kdaPoolKapp.DataTrieTracker().RetrieveValue([]byte(assetID))
+			if err != nil && !errors.Is(err, common.ErrNilTrie) {
+				return err
+			}
+
+			if len(poolBytes) != 0 {
+				kdaPool := &kdafeespool.KDAFeesPoolData{}
+				if len(poolBytes) == 0 {
+					continue
+				}
+
+				err = ei.marshalizer.Unmarshal(kdaPool, poolBytes)
+				if err != nil {
+					return err
+				}
+
+				poolData := ei.convertKDAPoolData(kdaPool)
+				asset.HasKdaPool = poolData.Active
+			}
 			assetsUpdateSlice = append(assetsUpdateSlice, asset)
 		}
 	}
 
-	err := serializeUpdateAssets(assetsUpdateSlice, buffSlice, assetsIndex)
+	err = serializeUpdateAssets(assetsUpdateSlice, buffSlice, assetsIndex)
 	if err != nil {
 		return err
 	}
@@ -1720,6 +1758,189 @@ func (ei *elasticProcessor) doBulkRequests(index string, buffSlice []*bytes.Buff
 	}
 
 	return nil
+}
+
+func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transaction) []*data.Transaction {
+	// Load before loop all contracts
+	asset, err := ei.kappsDB.LoadAccount(kapps.KDAKAppAddress)
+	if err != nil {
+		return txs
+	}
+	kdaKapp, ok := asset.(state.KAppAccountHandler)
+	if !ok {
+		return txs
+	}
+	for _, tx := range txs {
+		for _, contract := range tx.Contracts {
+			switch contract.Type {
+			case transaction.TXContract_TransferContractType:
+				c := contract.Parameter.(data.TransferContract)
+				if len(c.AssetID) <= 0 {
+					continue
+				}
+				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				if err != nil {
+					continue
+				}
+				c.AssetType = *updatedContract
+				contract.Parameter = c
+			case transaction.TXContract_FreezeContractType:
+				c := contract.Parameter.(data.FreezeContract)
+				if len(c.AssetID) <= 0 {
+					continue
+				}
+				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				if err != nil {
+					continue
+				}
+				c.AssetType = *updatedContract
+				contract.Parameter = c
+			case transaction.TXContract_UnfreezeContractType:
+				c := contract.Parameter.(data.UnfreezeContract)
+
+				if len(c.AssetID) <= 0 {
+					continue
+				}
+
+				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				if err != nil {
+					continue
+				}
+				c.AssetType = *updatedContract
+				contract.Parameter = c
+			case transaction.TXContract_DepositContractType:
+				c := contract.Parameter.(data.DepositContract)
+
+				if len(c.ID) <= 0 {
+					continue
+				}
+
+				updatedContract, err := getAssetTypeAndCollection([]byte(c.ID), kdaKapp, ei.marshalizer)
+				if err != nil {
+					continue
+				}
+				c.AssetType = *updatedContract
+				contract.Parameter = c
+			case transaction.TXContract_WithdrawContractType:
+				c := contract.Parameter.(data.WithdrawContract)
+
+				if len(c.AssetID) <= 0 {
+					continue
+				}
+				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				if err != nil {
+					continue
+				}
+				c.AssetType = *updatedContract
+				contract.Parameter = c
+			case transaction.TXContract_ClaimContractType:
+				c := contract.Parameter.(data.UnfreezeContract)
+
+				if len(c.AssetID) <= 0 {
+					continue
+				}
+
+				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				if err != nil {
+					continue
+				}
+				c.AssetType = *updatedContract
+				contract.Parameter = c
+			case transaction.TXContract_AssetTriggerContractType:
+				c := contract.Parameter.(data.AssetTriggerContract)
+
+				if len(c.AssetID) <= 0 {
+					continue
+				}
+
+				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				if err != nil {
+					continue
+				}
+				c.AssetType = *updatedContract
+				contract.Parameter = c
+			case transaction.TXContract_ConfigITOContractType:
+				c := contract.Parameter.(data.ConfigITOContract)
+
+				if len(c.AssetID) <= 0 {
+					continue
+				}
+
+				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				if err != nil {
+					continue
+				}
+				c.AssetType = *updatedContract
+				contract.Parameter = c
+			case transaction.TXContract_BuyContractType:
+				c := contract.Parameter.(data.BuyContract)
+
+				if len(c.ID) <= 0 {
+					continue
+				}
+				updatedContract, err := getAssetTypeAndCollection([]byte(c.ID), kdaKapp, ei.marshalizer)
+				if err != nil {
+					continue
+				}
+				c.AssetType = *updatedContract
+				contract.Parameter = c
+			case transaction.TXContract_SellContractType:
+				c := contract.Parameter.(data.SellContract)
+
+				if len(c.AssetID) <= 0 {
+					continue
+				}
+
+				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				if err != nil {
+					continue
+				}
+				c.AssetType = *updatedContract
+				contract.Parameter = c
+			case transaction.TXContract_ITOTriggerContractType:
+				c := contract.Parameter.(data.ITOTriggerContract)
+
+				if len(c.AssetID) <= 0 {
+					continue
+				}
+
+				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				if err != nil {
+					continue
+				}
+				c.AssetType = *updatedContract
+				contract.Parameter = c
+			default:
+				continue
+			}
+		}
+	}
+	return txs
+}
+
+func getAssetTypeAndCollection(assetId []byte, kdaKapp state.KAppAccountHandler, m marshal.Marshalizer) (*data.AssetType, error) {
+	kda := string(assetId)
+	kda = strings.Split(kda, "/")[0]
+	key := kdautils.ToKDAKey([]byte(assetId), nil)
+
+	kdaBytes, err := kdaKapp.DataTrieTracker().RetrieveValue(key)
+	if err != nil {
+		return nil, err
+	}
+	if len(kdaBytes) == 0 {
+		return nil, common.ErrEmptyString
+	}
+
+	kdaParsed := &kapps.KDAData{}
+	err = m.Unmarshal(kdaParsed, kdaBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return &data.AssetType{
+		Type:       kdaParsed.GetAssetType().String(),
+		Collection: kda,
+	}, nil
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

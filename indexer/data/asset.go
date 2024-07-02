@@ -26,6 +26,7 @@ type Asset struct {
 	Verified          *bool           `json:"verified,omitempty"`
 	Tags              []string        `json:"tags,omitempty"`
 	Metadata          *Meta           `json:"meta,omitempty"`
+	HasKdaPool        bool            `json:"hasKdaPool"`
 }
 
 type ITOInfo struct {

@@ -469,7 +469,6 @@ func (cm *commonProcessor) DecodeContract(dbTx *data.Transaction, tx *transactio
 			if err != nil {
 				log.Warn("error decoding transfer contract for indexing (will skip tx)", "error", err)
 				dbTx.Contracts = append(dbTx.Contracts, convertToGenericContract(contract))
-
 				continue
 			}
 
@@ -1726,7 +1725,6 @@ func (cm *commonProcessor) convertAssetTriggerContract(assetTriggerContract *tra
 		}
 
 		for address, splitRoyaltiesInfo := range royalties.SplitRoyalties {
-
 			var convertedAddress string
 			decodedAddress, err := hex.DecodeString(address)
 			if err != nil {

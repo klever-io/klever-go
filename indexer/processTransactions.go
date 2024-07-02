@@ -69,7 +69,6 @@ func (tdp *txDatabaseProcessor) prepareTransactionsForDatabase(
 	txs := getTransactions(txPool)
 	for hash, tx := range txs {
 		txHash := hex.EncodeToString([]byte(hash))
-
 		dbTx := tdp.commonProcessor.BuildTransaction(tx.Transaction, txHash, header)
 		// always index sender balance change
 		ad.Accounts.Add(dbTx.Sender, &data.AlteredAccount{

@@ -57,20 +57,26 @@ type KDAFee struct {
 	Amount int64  `json:"amount"`
 }
 
+type AssetType struct {
+	Type       string `json:"type"`
+	Collection string `json:"collection"`
+}
+
 type TXContract struct {
 	Type       transaction.TXContract_ContractType `json:"type"`
 	TypeString string                              `json:"typeString"`
 	Parameter  interface{}                         `json:"parameter,omitempty"`
 }
 
-//-- TransferContract
+// -- TransferContract
 
 type TransferContract struct {
-	AssetID      string `json:"assetId,omitempty"`
-	ToAddress    string `json:"toAddress,omitempty"`
-	Amount       int64  `json:"amount,omitempty"`
-	KDARoyalties int64  `json:"kdaRoyalties,omitempty"`
-	KLVRoyalties int64  `json:"klvRoyalties,omitempty"`
+	AssetID      string    `json:"assetId,omitempty"`
+	ToAddress    string    `json:"toAddress,omitempty"`
+	Amount       int64     `json:"amount,omitempty"`
+	KDARoyalties int64     `json:"kdaRoyalties,omitempty"`
+	KLVRoyalties int64     `json:"klvRoyalties,omitempty"`
+	AssetType    AssetType `json:"assetType,omitempty"`
 }
 
 // -- CreateAssetContract
@@ -244,14 +250,16 @@ type ValidatorConfig struct {
 
 // -- FreezeContract
 type FreezeContract struct {
-	Amount  int64  `json:"amount,omitempty"`
-	AssetID string `json:"assetId,omitempty"`
+	Amount    int64     `json:"amount,omitempty"`
+	AssetID   string    `json:"assetId,omitempty"`
+	AssetType AssetType `json:"assetType,omitempty"`
 }
 
 // -- UnfreezeContract
 type UnfreezeContract struct {
-	BucketID string `json:"bucketID,omitempty"`
-	AssetID  string `json:"assetId,omitempty"`
+	BucketID  string    `json:"bucketID,omitempty"`
+	AssetID   string    `json:"assetId,omitempty"`
+	AssetType AssetType `json:"assetType,omitempty"`
 }
 
 // -- DelegateContract
@@ -272,6 +280,7 @@ type WithdrawContract struct {
 	WithdrawType       transaction.WithdrawContract_EnumWithdrawType `json:"withdrawType,omitempty"`
 	Amount             int64                                         `json:"amount,omitempty"`
 	CurrencyID         string                                        `json:"currencyID,omitempty"`
+	AssetType          AssetType                                     `json:"assetType,omitempty"`
 }
 
 // --  DepositContract
@@ -281,6 +290,7 @@ type DepositContract struct {
 	ID                string                                      `json:"id,omitempty"`
 	Amount            int64                                       `json:"amount,omitempty"`
 	CurrencyID        string                                      `json:"currencyID,omitempty"`
+	AssetType         AssetType                                   `json:"assetType,omitempty"`
 }
 
 // -- UnjailContract
@@ -293,8 +303,9 @@ type RedeemContract struct {
 
 // -- ClaimContract
 type ClaimContract struct {
-	ClaimType string `json:"claimType,omitempty"`
-	ID        string `json:"id,omitempty"`
+	ClaimType string    `json:"claimType,omitempty"`
+	ID        string    `json:"id,omitempty"`
+	AssetType AssetType `json:"assetType,omitempty"`
 }
 
 // -- SetAccountNameContract
@@ -315,6 +326,7 @@ type AssetTriggerContract struct {
 	Royalties   *RoyaltiesInfo `json:"royalties,omitempty"`
 	Staking     *Staking       `json:"staking,omitempty"`
 	KDAPool     *KDAPool       `json:"kdaPool,omitempty"`
+	AssetType   AssetType      `json:"assetType,omitempty"`
 }
 
 // -- ProposalContract
@@ -345,6 +357,7 @@ type ConfigITOContract struct {
 	WhitelistEndTime       int64            `json:"whitelistEndTime,omitempty"`
 	StartTime              int64            `json:"startTime,omitempty"`
 	EndTime                int64            `json:"endTime,omitempty"`
+	AssetType              AssetType        `json:"assetType,omitempty"`
 }
 
 // -- WhitelistInfo
@@ -369,6 +382,7 @@ type ITOTriggerContract struct {
 	StartTime              int64            `json:"startTime,omitempty"`
 	EndTime                int64            `json:"endTime,omitempty"`
 	Timestamp              int64            `json:"timestamp,omitempty"`
+	AssetType              AssetType        `json:"assetType,omitempty"`
 }
 
 // -- SetITOPricesContract
@@ -391,21 +405,23 @@ type PackItem struct {
 
 // -- BuyContract
 type BuyContract struct {
-	BuyType    string `json:"buyType,omitempty"`
-	ID         string `json:"id,omitempty"`
-	CurrencyID string `json:"currencyID,omitempty"`
-	Amount     int64  `json:"amount,omitempty"`
+	BuyType    string    `json:"buyType,omitempty"`
+	ID         string    `json:"id,omitempty"`
+	CurrencyID string    `json:"currencyID,omitempty"`
+	Amount     int64     `json:"amount,omitempty"`
+	AssetType  AssetType `json:"assetType,omitempty"`
 }
 
 // -- SellContract
 type SellContract struct {
-	MarketType    string `json:"marketType,omitempty"`
-	MarketplaceID string `json:"marketplaceID,omitempty"`
-	AssetID       string `json:"assetId,omitempty"`
-	CurrencyID    string `json:"currencyID,omitempty"`
-	Price         int64  `json:"price,omitempty"`
-	ReservePrice  int64  `json:"reservePrice,omitempty"`
-	EndTime       int64  `json:"endTime,omitempty"`
+	MarketType    string    `json:"marketType,omitempty"`
+	MarketplaceID string    `json:"marketplaceID,omitempty"`
+	AssetID       string    `json:"assetId,omitempty"`
+	CurrencyID    string    `json:"currencyID,omitempty"`
+	Price         int64     `json:"price,omitempty"`
+	ReservePrice  int64     `json:"reservePrice,omitempty"`
+	EndTime       int64     `json:"endTime,omitempty"`
+	AssetType     AssetType `json:"assetType,omitempty"`
 }
 
 // -- CancelMarketOrderContract
