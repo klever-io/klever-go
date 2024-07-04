@@ -114,6 +114,13 @@ func (s *systemAccountKApp) SFTSetMetadata(asset, nonce []byte, args [][]byte) e
 }
 
 func (s *systemAccountKApp) SFTAddCirculation(asset, nonce []byte, amount int64) error {
+	// amount can be negative, removing from circulation
+	// this will happen when burning tokens
+	if amount == 0 {
+		// nothing to do
+		return nil
+	}
+
 	kapp, err := s.getKApp()
 	if err != nil {
 		return err

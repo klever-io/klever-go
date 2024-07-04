@@ -200,6 +200,11 @@ func (a *userAccount) AddToBalanceWithNonce(value int64, assetID []byte, nonce [
 		return ErrInvalidValue
 	}
 
+	// nothing to do here
+	if value == 0 {
+		return nil
+	}
+
 	// parse and check nonce
 	internalIDInt, err := strconv.ParseInt(string(nonce), 10, 64)
 	if err != nil {

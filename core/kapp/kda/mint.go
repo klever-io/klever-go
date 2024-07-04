@@ -33,7 +33,9 @@ func (k *kdaKapp) Mint(sender []byte, tc *transaction.AssetTriggerContract) (tra
 		return transaction.Transaction_AssetCantBeMinted, common.ErrAssetTriggerInvalid
 	}
 
-	if tc.GetAmount() <= 0 {
+	// if asset is an SFT, allow to mint with 0 amount (only creates the SFT internal ID place holder)
+	if tc.GetAmount() < 0 ||
+		(tc.GetAmount() == 0 && kda.AssetType != kapps.KDAData_SemiFungible) {
 		return transaction.Transaction_ParameterInvalid, process.ErrInvalidArgument
 	}
 
