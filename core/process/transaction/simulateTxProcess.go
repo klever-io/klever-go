@@ -102,7 +102,7 @@ func (txProc *simulateTxProcessor) ProcessTransaction(tx *transaction.Transactio
 	process.DisplayProcessTxDetails(
 		"ProcessTransaction: sender account details",
 		ownerAcc,
-		nil,
+		tx,
 		computedHash,
 		txProc.pubkeyConv,
 	)

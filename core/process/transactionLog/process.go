@@ -181,7 +181,6 @@ func (tlp *txLogProcessor) saveLogToCache(txHash []byte, log *transaction.Log) {
 	})
 	tlp.logsIndices[string(txHash)] = len(tlp.logs) - 1
 	tlp.mut.Unlock()
-
 }
 
 // For SC deployment transactions, we use the sender address

@@ -2,7 +2,6 @@ package smartContract
 
 import (
 	"bytes"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -19,7 +18,6 @@ import (
 	txProcess "github.com/klever-io/klever-go/core/process/transaction"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/data"
-	"github.com/klever-io/klever-go/data/smartContractResult"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	vmData "github.com/klever-io/klever-go/data/vm"
@@ -482,16 +480,13 @@ func (sc *scProcessor) processIfErrorWithAddedLogs(acntSnd state.UserAccountHand
 
 	returnMessage = []byte(returnCode)
 
-	scrIfError, consumedFee := sc.createSCRsWhenError(acntSnd, txHash, tx, tc, returnCode, returnMessage)
-
-	userErrorLog := createNewLogFromSCRIfError(scrIfError, tc.GetAddress(), contractID)
+	consumedFee := big.NewInt(int64(tx.GetGasLimit()))
 
 	processIfErrorLogs := make([]*vmcommon.LogEntry, 0)
 	if prevVmOutput != nil && len(prevVmOutput.Logs) > 0 {
 		processIfErrorLogs = append(processIfErrorLogs, prevVmOutput.Logs...)
 	}
 
-	processIfErrorLogs = append(processIfErrorLogs, userErrorLog)
 	if len(internalVMLogs) > 0 {
 		processIfErrorLogs = append(processIfErrorLogs, internalVMLogs...)
 	}
@@ -504,23 +499,6 @@ func (sc *scProcessor) processIfErrorWithAddedLogs(acntSnd state.UserAccountHand
 	log.Debug("processIfErrorWithAddedLogs", "totalConsumedFee", consumedFee)
 
 	return fmt.Errorf("%s", returnMessage)
-}
-
-func createNewLogFromSCRIfError(txHandler data.TransactionHandler, contractAddress []byte, contractID int) *vmcommon.LogEntry {
-	returnMessage := make([]byte, 0)
-	scr, ok := txHandler.(*smartContractResult.SmartContractResult)
-	if ok {
-		returnMessage = scr.ReturnMessage
-	}
-
-	newLog := &vmcommon.LogEntry{
-		Identifier: []byte(core.SignalErrorOperation),
-		Address:    txHandler.GetSender(),
-		Topics:     [][]byte{contractAddress, returnMessage},
-		Data:       [][]byte{txHandler.GetDataWithIdx(contractID)},
-	}
-
-	return newLog
 }
 
 // DeploySmartContract processes the transaction, then deploy the smart contract into VM, final code is saved in account
@@ -715,42 +693,6 @@ func (sc *scProcessor) processVMOutput(
 	}
 
 	return nil
-}
-
-func (sc *scProcessor) createSCRsWhenError(
-	acntSnd state.UserAccountHandler,
-	txHash []byte,
-	tx data.TransactionHandler,
-	tc data.SmartContractHandler,
-	returnCode string,
-	returnMessage []byte,
-) (*smartContractResult.SmartContractResult, *big.Int) {
-	callValue := make(map[string]int64)
-	for assetID, cvwr := range tc.GetCallValue() {
-		callValue[assetID] = cvwr.Amount
-	}
-
-	scr := &smartContractResult.SmartContractResult{
-		Nonce:         tx.GetNonce(),
-		Value:         callValue,
-		RcvAddr:       tx.GetSender(),
-		SndAddr:       tc.GetAddress(),
-		ReturnMessage: returnMessage,
-	}
-
-	accumulatedSCRData := ""
-
-	// consume all fees provided
-	consumedFee := big.NewInt(int64(tx.GetGasLimit()))
-
-	accumulatedSCRData += "@" + hex.EncodeToString([]byte(returnCode))
-
-	scr.SCData = []byte(accumulatedSCRData)
-	if len(scr.Value) > 0 {
-		scr.OriginalSender = tx.GetSender()
-	}
-
-	return scr, consumedFee
 }
 
 // save account changes in state from vmOutput - protected by VM - every output can be treated as is.

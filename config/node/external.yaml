@@ -1,10 +1,10 @@
 elasticSearchConnector:
   enabled: false
   indexerCacheSize: 100
-  url: http://localhost:9200 
+  url: http://localhost:9200
   useKibana: true
-  username:  
-  password:  
+  username:
+  password:
   enabledIndexes:
     - transactions
     - blocks

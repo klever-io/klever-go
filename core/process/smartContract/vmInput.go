@@ -7,7 +7,6 @@ import (
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/data"
-	"github.com/klever-io/klever-go/data/smartContractResult"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/vmcommon"
 )
@@ -90,15 +89,7 @@ func (sc *scProcessor) createVMCallInput(
 	vmCallInput.RecipientAddr = contractAddress
 	vmCallInput.Function = function
 	vmCallInput.CurrentTxHash = txHash
-
-	scr, isSCR := tx.(*smartContractResult.SmartContractResult)
-	if isSCR {
-		vmCallInput.OriginalTxHash = scr.GetOriginalTxHash()
-	} else {
-		vmCallInput.OriginalTxHash = txHash
-	}
-
-	vmCallInput.ReturnCallAfterError = isSCR && len(scr.ReturnMessage) > 0
+	vmCallInput.OriginalTxHash = txHash
 
 	err = sc.initializeVMInputFromTx(&vmCallInput.VMInput, tx, callValue)
 	if err != nil {

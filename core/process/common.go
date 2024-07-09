@@ -2,7 +2,6 @@ package process
 
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"math"
 	"sort"
@@ -13,8 +12,8 @@ import (
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/retriever"
-	"github.com/klever-io/klever-go/data/smartContractResult"
 	"github.com/klever-io/klever-go/data/state"
+	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/klever-io/klever-go/tools/typeConverters"
@@ -376,7 +375,7 @@ func GetSortedStorageUpdates(account *vmcommon.OutputAccount) []*vmcommon.Storag
 func DisplayProcessTxDetails(
 	message string,
 	accountHandler state.AccountHandler,
-	scr *smartContractResult.SmartContractResult,
+	tx *transaction.Transaction,
 	txHash []byte,
 	addressPubkeyConverter core.PubkeyConverter,
 ) {
@@ -390,30 +389,21 @@ func DisplayProcessTxDetails(
 		}
 	}
 
-	if check.IfNil(addressPubkeyConverter) {
+	if check.IfNil(tx) || check.IfNil(addressPubkeyConverter) {
 		return
-	}
-	if check.IfNil(scr) {
-		return
-	}
-
-	receiver := ""
-	if len(scr.GetRcvAddr()) == addressPubkeyConverter.Len() {
-		receiver = addressPubkeyConverter.Encode(scr.GetRcvAddr())
 	}
 
 	sender := ""
-	if len(scr.GetSndAddr()) == addressPubkeyConverter.Len() {
-		sender = addressPubkeyConverter.Encode(scr.GetSndAddr())
+	if len(tx.GetSender()) == addressPubkeyConverter.Len() {
+		sender = addressPubkeyConverter.Encode(tx.GetSender())
 	}
 
 	log.Trace("executing transaction",
 		"txHash", txHash,
-		"nonce", scr.GetNonce(),
-		"value", scr.GetValue(),
-		"gas limit", scr.GetGasLimit(),
-		"gas multiplier", scr.GetGasMultiplier(),
-		"data", hex.EncodeToString(scr.GetSCData()),
+		"nonce", tx.GetNonce(),
+		"gas limit", tx.GetGasLimit(),
+		"gas multiplier", tx.GetGasMultiplier(),
+		"data len", len(tx.GetRawData().GetData()),
 		"sender", sender,
-		"receiver", receiver)
+	)
 }

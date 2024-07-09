@@ -296,6 +296,14 @@ func (txProc *txProcessor) ProcessTransaction(block *block.Block, txHash []byte,
 		return err
 	}
 
+	process.DisplayProcessTxDetails(
+		"ProcessTransaction: ...",
+		ownerAcc,
+		tx,
+		txHash,
+		txProc.pubkeyConv,
+	)
+
 	kAppFee, kAppFeeErr := txProc.ProcessKAppFee(txHash, tx, ownerAcc)
 	if kAppFeeErr != nil {
 		log.Error("error processing kApp fee")
@@ -413,11 +421,6 @@ func (txProc *txProcessor) ProcessTransaction(block *block.Block, txHash []byte,
 	}
 
 	tx.Receipts = append(tx.Receipts, ctx.Receipts().Get()...)
-
-	log.Trace(
-		"ProcessTransaction: ...",
-		"txHash", txHash,
-	)
 
 	txProc.kApps.SetCurrentKAppContext(disabled.NewDisabledKappContext())
 
