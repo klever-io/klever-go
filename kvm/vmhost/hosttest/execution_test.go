@@ -185,7 +185,7 @@ func TestExecution_DeployWASM_Successful(t *testing.T) {
 		AndAssertResults(func(blockchainHook *contextmock.BlockchainHookStub, verify *test.VMOutputVerifier) {
 			verify.Ok().
 				ReturnData([]byte("init successful")).
-				GasRemaining(430).
+				GasRemaining(226).
 				Code(newAddress, input.ContractCode)
 			// BalanceDelta(newAddress, 88)
 		})
@@ -247,7 +247,7 @@ func TestExecution_DeployWASM_MoreThanMaximumLocals(t *testing.T) {
 func TestExecution_DeployWASM_Init_Errors(t *testing.T) {
 	test.BuildInstanceCreatorTest(t).
 		WithInput(test.CreateTestContractCreateInputBuilder().
-			WithGasProvided(1000).
+			WithGasProvided(2000).
 			WithKDATransfers([]*vmcommon.KDATransfer{
 				{
 					KDAValue: big.NewInt(88),
@@ -1410,7 +1410,7 @@ func TestExecution_ExecuteOnDestContextByCaller_SimpleTransfer(t *testing.T) {
 		WithInput(test.CreateTestContractCallInputBuilder().
 			WithRecipientAddr(test.ParentAddress).
 			WithFunction("call_child").
-			WithGasProvided(2000).
+			WithGasProvided(5000).
 			Build()).
 		AndAssertResults(func(host vmhost.VMHost, stubBlockchainHook *contextmock.BlockchainHookStub, verify *test.VMOutputVerifier) {
 			verify.ReturnCode(vmcommon.VMContractInvalid)

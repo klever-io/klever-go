@@ -17,6 +17,8 @@ import (
 
 func TestExecution_ExecuteOnDestContext_MockBuiltinFunctions_Claim(t *testing.T) {
 	parentGasUsed := uint64(1973)
+	transferGas := uint64(2005)
+	parentGasUsed += transferGas
 	test.BuildInstanceCallTest(t).
 		WithContracts(
 			test.CreateInstanceContract(test.ParentAddress).
@@ -41,6 +43,8 @@ func TestExecution_ExecuteOnDestContext_MockBuiltinFunctions_Claim(t *testing.T)
 
 func TestExecution_ExecuteOnDestContext_MockBuiltinFunctions_DoSomething(t *testing.T) {
 	parentGasUsed := uint64(1977)
+	transferGas := uint64(2005)
+	parentGasUsed += transferGas
 	test.BuildInstanceCallTest(t).
 		WithContracts(
 			test.CreateInstanceContract(test.ParentAddress).

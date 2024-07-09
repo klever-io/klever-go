@@ -9,16 +9,16 @@ void give() {
 		signalError(message, 25);
 	}
 
-  byte value_to_give = 0;
-  getArgument(0, &value_to_give);
+	byte value_to_give = 0;
+	getArgument(0, &value_to_give);
 
-  byte caller[32] = {0};
-  getCaller(caller);
+	byte caller[32] = {0};
+	getCaller(caller);
 
 	byte value[32] = {0};
 	value[31] = value_to_give;
 
-  transferValue(caller, value, 0, 0);
+  	transferValue(caller, value, 0, 0);
 
 	byte msg[] = "sent";
 	finish(msg, 4);

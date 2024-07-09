@@ -80,7 +80,7 @@ func TestRustFormattedMessageFeatures(t *testing.T) {
 
 func TestTimelocks(t *testing.T) {
 	ScenariosTest(t).
-		Folder("timelocks").
+		Folder("contracts/timelocks").
 		Run().
 		CheckNoError()
 }
