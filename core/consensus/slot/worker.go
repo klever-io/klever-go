@@ -328,6 +328,11 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 		return ErrNilDataToProcess
 	}
 
+	// early check to prevent process messages from untrusted peers
+	if err := wrk.antifloodHandler.CanProcessMessage(message, fromConnectedPeer); err != nil {
+		return err
+	}
+
 	nodeState := wrk.bootstrapper.GetNodeState()
 	if nodeState != core.NsSynchronized { // if node is not synchronized yet, it has to continue the bootstrapping mechanism
 		log.Trace("Skipping consensus message due to unsynchronized state")
