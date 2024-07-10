@@ -46,8 +46,8 @@ func IsTickerValid(tickerName []byte) bool {
 	return true
 }
 
-// IsAssetNameHumanReadable verifies if the asset name is human readable
-func IsAssetNameHumanReadable(assetName []byte) bool {
+// IsAssetNameHumanReadableOld verifies if the asset name is human readable
+func IsAssetNameHumanReadableOld(assetName []byte) bool {
 	if len(assetName) < core.MinLengthForAssetName ||
 		len(assetName) > core.MaxLengthForAssetName {
 		return false
@@ -59,6 +59,24 @@ func IsAssetNameHumanReadable(assetName []byte) bool {
 		isNumber := ch >= '0' && ch <= '9'
 		isSpace := ch == ' '
 		isReadable := isSmallCharacter || isBigCharacter || isNumber || isSpace
+		if !isReadable {
+			return false
+		}
+	}
+	return true
+}
+
+func IsAssetNameHumanReadable(assetName []byte) bool {
+	if len(assetName) < core.MinLengthForAssetName ||
+		len(assetName) > core.MaxLengthForAssetName {
+		return false
+	}
+
+	for _, ch := range assetName {
+		isSmallCharacter := ch >= 'a' && ch <= 'z'
+		isBigCharacter := ch >= 'A' && ch <= 'Z'
+		isNumber := ch >= '0' && ch <= '9'
+		isReadable := isSmallCharacter || isBigCharacter || isNumber
 		if !isReadable {
 			return false
 		}

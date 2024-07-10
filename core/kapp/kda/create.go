@@ -27,7 +27,15 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 		return transaction.Transaction_ContractInvalid, err
 	}
 
-	if !kdautils.IsAssetNameHumanReadable(tc.Name) {
+	var isValid bool
+
+	if k.forkController.EnableSmartContracts() {
+		isValid = kdautils.IsAssetNameHumanReadable(tc.Name)
+	} else {
+		isValid = kdautils.IsAssetNameHumanReadableOld(tc.Name)
+	}
+
+	if !isValid {
 		return transaction.Transaction_ContractInvalid, process.ErrTokenNameNotHumanReadable
 	}
 

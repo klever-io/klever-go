@@ -320,7 +320,15 @@ func (t *Transaction) addCreateAsset(txArgs TXArgs) error {
 		return errors.New("could not create receiver address from provided param")
 	}
 
-	if !kdautils.IsAssetNameHumanReadable([]byte(contractRequest.Name)) {
+	var isValid bool
+
+	if txArgs.NodeHelper.GetForkController().EnableSmartContracts() {
+		isValid = kdautils.IsAssetNameHumanReadable([]byte(contractRequest.Name))
+	} else {
+		isValid = kdautils.IsAssetNameHumanReadableOld([]byte(contractRequest.Name))
+	}
+
+	if !isValid {
 		return common.ErrTokenNameNotHumanReadable
 	}
 

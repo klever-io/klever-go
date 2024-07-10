@@ -103,7 +103,11 @@ func (tc *TransferContract) Validate() error {
 }
 
 func (tc *CreateAssetContract) Validate() error {
-	if !kdautils.IsAssetNameHumanReadable(tc.GetName()) {
+	// During the initial transaction validation receipt, we do not have access to the forkController to determine
+	// whether the fork is active. Therefore, we continue to use the deprecated
+	// IsAssetNameHumanReadableOld function for backward compatibility.
+	// In the transaction processing step, the white space character restriction will be applied if the fork is active.
+	if !kdautils.IsAssetNameHumanReadableOld(tc.GetName()) {
 		return errors.New("invalid name")
 	}
 
