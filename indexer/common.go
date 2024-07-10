@@ -364,14 +364,14 @@ func (cm *commonProcessor) receiptToMap(data [][]byte) (map[string]interface{}, 
 		m["assetId"] = string(data[4])
 		m["currencyId"] = string(data[5])
 	case ptx.CancelOrder:
-		if len(data) < 2 {
-			return nil, fmt.Errorf("%w: (%d/%d)", ErrInvalidDataMapLen, len(data), 2)
+		if len(data) < 3 {
+			return nil, fmt.Errorf("%w: (%d/%d)", ErrInvalidDataMapLen, len(data), 3)
 		}
 		m["marketplaceId"] = hex.EncodeToString(data[1])
 		m["orderId"] = hex.EncodeToString(data[2])
 	case ptx.SCTrigger:
-		if len(data) < 3 {
-			return nil, fmt.Errorf("%w: (%d/%d)", ErrInvalidDataMapLen, len(data), 2)
+		if len(data) < 4 {
+			return nil, fmt.Errorf("%w: (%d/%d)", ErrInvalidDataMapLen, len(data), 4)
 		}
 		m["triggerType"] = string(data[1])
 		m["from"] = cm.addressPubkeyConverter.Encode(data[2])

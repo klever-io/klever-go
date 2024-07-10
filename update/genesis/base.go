@@ -75,7 +75,7 @@ func NewEmptyAccount(accType Type, address []byte) (state.AccountHandler, error)
 // GetTrieType returns the type for a given account according to the saved key
 func GetTrieType(key string) (Type, error) {
 	splitString := strings.Split(key, atSep)
-	if len(splitString) < 2 {
+	if len(splitString) < 3 {
 		return UserAccount, update.ErrUnknownType
 	}
 
