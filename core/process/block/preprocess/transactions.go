@@ -646,6 +646,7 @@ func (txs *transactions) processAndRemoveBadTransaction(
 
 func (txs *transactions) notifyTransactionProviderIfNeeded() {
 	txs.mutAccountsInfo.RLock()
+	defer txs.mutAccountsInfo.RUnlock()
 
 	txShardPool := txs.txPool.ShardDataStore("0")
 	if check.IfNil(txShardPool) {
@@ -667,7 +668,6 @@ func (txs *transactions) notifyTransactionProviderIfNeeded() {
 
 		sortedTransactionsProvider.NotifyAccountNonce([]byte(senderAddress), account.GetNonce())
 	}
-	txs.mutAccountsInfo.RUnlock()
 }
 
 func (txs *transactions) getAccountForAddress(address []byte) (state.AccountHandler, error) {
