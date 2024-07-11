@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/klever-io/klever-go/common/types"
+
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
@@ -665,8 +667,9 @@ func (sc *scProcessor) printScDeployed(vmOutput *vmcommon.VMOutput, tx data.Tran
 func (sc *scProcessor) processSCPayment(tc data.SmartContractHandler, acntSnd state.UserAccountHandler) error {
 	accKapp := sc.blockChainHook.GetKAppController().GetAccountsKApp()
 
+	dMap := types.NewDeterministicMap(tc.GetCallValue())
 	// sub from sender the call value
-	for assetID, cvwr := range tc.GetCallValue() {
+	return dMap.Each(func(assetID string, cvwr *transaction.CallValue) error {
 		// execute transfer without royalties as it will be deducted from sender account
 		resultCode, err := accKapp.Transfer(transaction.TXContract_TransferContractType, acntSnd.AddressBytes(), &transaction.TransferContract{
 			ToAddress:    tc.GetAddress(),
@@ -678,9 +681,8 @@ func (sc *scProcessor) processSCPayment(tc data.SmartContractHandler, acntSnd st
 		if err != nil {
 			return fmt.Errorf("result code: %d, %v", resultCode, err)
 		}
-	}
-
-	return nil
+		return nil
+	})
 }
 
 func (sc *scProcessor) processVMOutput(

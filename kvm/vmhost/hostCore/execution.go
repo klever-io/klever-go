@@ -60,6 +60,7 @@ func (host *vmHost) doRunSmartContractCreate(input *vmcommon.ContractCreateInput
 	}
 
 	// perform transfer value from sender to new contract
+	// execution already ordered by the caller
 	for _, kda := range input.KDATransfers {
 		if kda.IsExecuted() {
 			log.Warn("doRunSmartContractCreate skip executed transfers", "assetID", string(kda.KDATokenName), "amount", kda.KDAValue.Int64())

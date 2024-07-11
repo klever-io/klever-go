@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"sync"
 
+	"github.com/klever-io/klever-go/common/types"
+
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
@@ -195,17 +197,22 @@ func (service *SCQueryService) createVMCallInput(query *process.SCQuery) (*vmcom
 	}
 
 	// load other tokens calls
-	for token, amount := range query.CallValue {
+	dm := types.NewDeterministicMap(query.CallValue)
+	err := dm.Each(func(token string, amount int64) error {
 		tokenID, nonce, _, err := kdautils.ExtractAssetIDAndNonce([]byte(token))
 		if err != nil {
 			log.Error("Error extracting asset ID and nonce", "error", err)
-			return nil, err
+			return err
 		}
 		vmInput.KDATransfers = append(vmInput.KDATransfers, &vmcommon.KDATransfer{
 			KDAValue:      big.NewInt(amount),
 			KDATokenName:  tokenID,
 			KDATokenNonce: nonce,
 		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	vmContractCallInput := &vmcommon.ContractCallInput{

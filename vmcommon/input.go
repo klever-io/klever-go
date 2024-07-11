@@ -36,7 +36,7 @@ type VMInput struct {
 	// CurrentTxHash
 	CurrentTxHash []byte
 
-	// KDATransfers is the map of KDA and amount of tokens transferred by the transaction.
+	// KDATransfers is a list of KDA and amount of tokens transferred by the transaction.
 	// Before reaching the VM this value is subtracted from sender balance (CallerAddr)
 	// and to added to the smart contract balance.
 	// It is often, but not always zero in SC calls.

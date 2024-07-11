@@ -3,6 +3,8 @@ package smartContract
 import (
 	"math/big"
 
+	"github.com/klever-io/klever-go/common/types"
+
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
@@ -44,7 +46,9 @@ func (sc *scProcessor) initializeVMInputFromTx(
 ) error {
 	vmInput.CallerAddr = tx.GetSender()
 	vmInput.KDATransfers = make([]*vmcommon.KDATransfer, 0)
-	for kda, cvwr := range callValue {
+
+	dm := types.NewDeterministicMap(callValue)
+	err := dm.Each(func(kda string, cvwr *transaction.CallValue) error {
 		// validate token name and extract nonce if any
 		// nil or empty name will be taken as KLV
 		id, nonce, assetType, err := kdautils.ExtractAssetIDAndNonce([]byte(kda))
@@ -60,11 +64,12 @@ func (sc *scProcessor) initializeVMInputFromTx(
 			KDARoyalties:  cvwr.KDARoyalties,
 			KLVRoyalties:  cvwr.KLVRoyalties,
 		})
-	}
+		return nil
+	})
 
 	vmInput.GasProvided = gasLimit
 
-	return nil
+	return err
 }
 
 func (sc *scProcessor) createVMCallInput(
