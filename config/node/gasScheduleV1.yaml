@@ -198,6 +198,13 @@ ManagedBufferAPICost:
   MBufferToBigFloat: 2000
   MBufferFromBigFloat: 2000
 
+ManagedMapAPICost:
+  ManagedMapNew: 2000
+  ManagedMapPut: 2000
+  ManagedMapGet: 2000
+  ManagedMapRemove: 2000
+  ManagedMapContains: 2000
+
 BigFloatAPICost:
   BigFloatNewFromParts: 3000
   BigFloatAdd: 7000

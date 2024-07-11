@@ -198,6 +198,13 @@ MBufferSetRandom = 6_000
 MBufferToBigFloat = 2_000
 MBufferFromBigFloat = 2_000
 
+[ManagedMapAPICost]
+ManagedMapNew = 2_000
+ManagedMapPut = 2_000
+ManagedMapGet = 2_000
+ManagedMapRemove = 2_000
+ManagedMapContains = 2_000
+
 [BigFloatAPICost]
 BigFloatNewFromParts = 3_000
 BigFloatAdd = 7_000

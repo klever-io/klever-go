@@ -93,6 +93,17 @@ func CreateGasConfig(gasMap GasScheduleMap) (*GasCost, error) {
 		return nil, err
 	}
 
+	managedMapOps := &ManagedMapAPICost{}
+	err = mapstructure.Decode(gasMap["ManagedMapAPICost"], managedMapOps)
+	if err != nil {
+		return nil, err
+	}
+
+	err = checkForZeroUint64Fields(*managedMapOps)
+	if err != nil {
+		return nil, err
+	}
+
 	wasmOps := &executor.WASMOpcodeCost{}
 	err = mapstructure.Decode(gasMap["WASMOpcodeCost"], wasmOps)
 	if err != nil {
@@ -125,6 +136,7 @@ func CreateGasConfig(gasMap GasScheduleMap) (*GasCost, error) {
 		BaseOpsAPICost:       *baseOpsAPI,
 		CryptoAPICost:        *cryptOps,
 		ManagedBufferAPICost: *MBufferOps,
+		ManagedMapAPICost:    *managedMapOps,
 		WASMOpcodeCost:       wasmOps,
 		DynamicStorageLoad:   *dynamicStorageLoadParams,
 	}
@@ -208,6 +220,7 @@ func FillGasMap(gasMap GasScheduleMap, value uint64) GasScheduleMap {
 	gasMap["BigFloatAPICost"] = FillGasMapBigFloatAPICosts(value)
 	gasMap["CryptoAPICost"] = FillGasMapCryptoAPICosts(value)
 	gasMap["ManagedBufferAPICost"] = FillGasMapManagedBufferAPICosts(value)
+	gasMap["ManagedMapAPICost"] = FillGasMapManagedMapAPICosts(value)
 	gasMap["WASMOpcodeCost"] = FillGasMapWASMOpcodeValues(value)
 	gasMap["DynamicStorageLoad"] = FillGasMapDynamicStorageLoad()
 
@@ -469,6 +482,18 @@ func FillGasMapManagedBufferAPICosts(value uint64) map[string]uint64 {
 	gasMap["MBufferGetArgument"] = value
 	gasMap["MBufferFinish"] = value
 	gasMap["MBufferSetRandom"] = value
+
+	return gasMap
+}
+
+// FillGasMapManagedMapAPICosts fills the managed map costs
+func FillGasMapManagedMapAPICosts(value uint64) map[string]uint64 {
+	gasMap := make(map[string]uint64)
+	gasMap["ManagedMapNew"] = value
+	gasMap["ManagedMapPut"] = value
+	gasMap["ManagedMapGet"] = value
+	gasMap["ManagedMapRemove"] = value
+	gasMap["ManagedMapContains"] = value
 
 	return gasMap
 }
