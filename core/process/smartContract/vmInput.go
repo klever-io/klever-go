@@ -14,6 +14,7 @@ import (
 func (sc *scProcessor) createVMDeployInput(
 	tx data.TransactionHandler,
 	transferValues map[string]*transaction.CallValue,
+	gasLimit uint64,
 ) (*vmcommon.ContractCreateInput, []byte, error) {
 	deployData, err := sc.argsParser.ParseDeployData(string(tx.GetDataWithIdx(0)))
 	if err != nil {
@@ -25,7 +26,7 @@ func (sc *scProcessor) createVMDeployInput(
 	// when executing SC deploys we should always apply the flags
 	vmCreateInput.ContractCodeMetadata = deployData.CodeMetadata.ToBytes()
 	vmCreateInput.VMInput = vmcommon.VMInput{}
-	err = sc.initializeVMInputFromTx(&vmCreateInput.VMInput, tx, transferValues)
+	err = sc.initializeVMInputFromTx(&vmCreateInput.VMInput, tx, transferValues, gasLimit)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -39,6 +40,7 @@ func (sc *scProcessor) initializeVMInputFromTx(
 	vmInput *vmcommon.VMInput,
 	tx data.TransactionHandler,
 	callValue map[string]*transaction.CallValue,
+	gasLimit uint64,
 ) error {
 	vmInput.CallerAddr = tx.GetSender()
 	vmInput.KDATransfers = make([]*vmcommon.KDATransfer, 0)
@@ -60,7 +62,7 @@ func (sc *scProcessor) initializeVMInputFromTx(
 		})
 	}
 
-	vmInput.GasProvided = tx.GetGasLimit()
+	vmInput.GasProvided = gasLimit
 
 	return nil
 }
@@ -69,6 +71,7 @@ func (sc *scProcessor) createVMCallInput(
 	tx data.TransactionHandler,
 	contractAddress []byte,
 	callValue map[string]*transaction.CallValue,
+	gasLimit uint64,
 	contractID int,
 	txHash []byte,
 ) (*vmcommon.ContractCallInput, error) {
@@ -91,7 +94,7 @@ func (sc *scProcessor) createVMCallInput(
 	vmCallInput.CurrentTxHash = txHash
 	vmCallInput.OriginalTxHash = txHash
 
-	err = sc.initializeVMInputFromTx(&vmCallInput.VMInput, tx, callValue)
+	err = sc.initializeVMInputFromTx(&vmCallInput.VMInput, tx, callValue, gasLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +105,7 @@ func (sc *scProcessor) createVMCallInput(
 	}
 
 	vmCallInput.VMInput.Arguments = arguments
-	if vmCallInput.GasProvided > tx.GetGasLimit() {
+	if vmCallInput.GasProvided > gasLimit {
 		return nil, process.ErrInvalidVMInputGasComputation
 	}
 

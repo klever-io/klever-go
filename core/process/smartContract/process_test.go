@@ -1534,7 +1534,7 @@ func TestScProcessor_CreateVMCallInputWrongCode(t *testing.T) {
 	argParser.ParseCallDataCalled = func(data string) (string, [][]byte, error) {
 		return "", nil, tmpError
 	}
-	input, err := sc.createVMCallInput(tx, []byte{}, contract.CallValue, 0, computedHash)
+	input, err := sc.createVMCallInput(tx, []byte{}, contract.CallValue, tx.GasLimit, 0, computedHash)
 	require.Nil(t, input)
 	require.Equal(t, tmpError, err)
 }
@@ -1561,7 +1561,7 @@ func TestScProcessor_CreateVMCallInput(t *testing.T) {
 	computedHash, err := tools.CalculateHash(arguments.Marshalizer, arguments.Hasher, tx.RawData)
 	require.Nil(t, err)
 
-	input, err := sc.createVMCallInput(tx, []byte{}, contract.CallValue, 0, computedHash)
+	input, err := sc.createVMCallInput(tx, []byte{}, contract.CallValue, tx.GasLimit, 0, computedHash)
 	require.NotNil(t, input)
 	require.Nil(t, err)
 }
@@ -1589,7 +1589,7 @@ func TestScProcessor_CreateVMDeployBadCode(t *testing.T) {
 		return nil, badCodeError
 	}
 
-	input, vmType, err := sc.createVMDeployInput(tx, nil)
+	input, vmType, err := sc.createVMDeployInput(tx, nil, tx.GasLimit)
 	require.Nil(t, vmType)
 	require.Nil(t, input)
 	require.Equal(t, badCodeError, err)
@@ -1625,7 +1625,7 @@ func TestScProcessor_CreateVMDeployInput(t *testing.T) {
 		}, nil
 	}
 
-	input, vmType, err := sc.createVMDeployInput(tx, contract.CallValue)
+	input, vmType, err := sc.createVMDeployInput(tx, contract.CallValue, tx.GasLimit)
 	require.NotNil(t, input)
 	require.Nil(t, err)
 	require.Equal(t, vmData.DirectCall, input.CallType)
@@ -1653,7 +1653,7 @@ func TestScProcessor_CreateVMDeployInputNotEnoughArguments(t *testing.T) {
 	}
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("data@0000")})
 
-	input, vmType, err := sc.createVMDeployInput(tx, contract.CallValue)
+	input, vmType, err := sc.createVMDeployInput(tx, contract.CallValue, tx.GasLimit)
 	require.Nil(t, input)
 	require.Nil(t, vmType)
 	require.Equal(t, parsers.ErrInvalidDeployArguments, err)
@@ -1682,7 +1682,7 @@ func TestScProcessor_CreateVMDeployInputWrongArgument(t *testing.T) {
 	argParser.ParseDeployDataCalled = func(data string) (*parsers.DeployArgs, error) {
 		return nil, tmpError
 	}
-	input, vmType, err := sc.createVMDeployInput(tx, contract.CallValue)
+	input, vmType, err := sc.createVMDeployInput(tx, contract.CallValue, tx.GasLimit)
 	require.Nil(t, input)
 	require.Nil(t, vmType)
 	require.Equal(t, tmpError, err)
@@ -1708,7 +1708,7 @@ func TestScProcessor_InitializeVMInputFromTx(t *testing.T) {
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("data")})
 
 	vmInput := &vmcommon.VMInput{}
-	err = sc.initializeVMInputFromTx(vmInput, tx, contract.CallValue)
+	err = sc.initializeVMInputFromTx(vmInput, tx, contract.CallValue, tx.GasLimit)
 	require.Nil(t, err)
 }
 

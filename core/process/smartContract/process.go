@@ -38,13 +38,10 @@ var log = logger.GetOrCreate("process/smartcontract")
 var logCounters = logger.GetOrCreate("process/smartcontract.blockchainHookCounters")
 
 const (
-	// TooMuchGasProvidedMessage is the message for the too much gas provided error
-	TooMuchGasProvidedMessage = "too much gas provided"
-
 	executeDurationAlarmThreshold = time.Duration(100) * time.Millisecond
 
-	upgradeFunctionName = "upgradeContract"
-	returnOkData        = "@6f6b"
+	upgradeFunctionName      = "upgradeContract"
+	transferValueGasSchedule = "Transfer"
 )
 
 var zero = big.NewInt(0)
@@ -253,7 +250,13 @@ func (sc *scProcessor) prepareExecution(
 	tc data.SmartContractHandler,
 	acntSnd, acntDst state.UserAccountHandler,
 ) (vmcommon.ReturnCode, *vmcommon.ContractCallInput, []byte, error) {
-	err := sc.processSCPayment(tc, acntSnd)
+	// transaction process transfer funds cost
+	gasRemaining, err := sc.consumeKDATransferGas(tx.GetGasLimit(), tc)
+	if err != nil {
+		return vmcommon.VMUserError, nil, nil, process.ErrNotEnoughGas
+	}
+
+	err = sc.processSCPayment(tc, acntSnd)
 	if err != nil {
 		log.Debug("process sc payment error", "error", err.Error())
 		return vmcommon.VMContractInvalid, nil, nil, err
@@ -262,7 +265,7 @@ func (sc *scProcessor) prepareExecution(
 	txHash := ctx.TxHash()
 
 	var vmInput *vmcommon.ContractCallInput
-	vmInput, err = sc.createVMCallInput(tx, tc.GetAddress(), tc.GetCallValue(), ctx.ContractID(), txHash)
+	vmInput, err = sc.createVMCallInput(tx, tc.GetAddress(), tc.GetCallValue(), gasRemaining, ctx.ContractID(), txHash)
 	if err != nil {
 		returnMessage := "cannot create VMInput, check the transaction data field"
 		log.Debug("create vm call input error", "error", err.Error())
@@ -551,7 +554,13 @@ func (sc *scProcessor) doDeploySmartContract(
 		return vmcommon.VMUserError, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), process.ErrSmartContractDeploymentIsDisabled.Error(), []byte(""))
 	}
 
-	vmInput, vmType, err := sc.createVMDeployInput(tx, tc.GetCallValue())
+	// transaction process transfer funds cost
+	gasRemaining, err := sc.consumeKDATransferGas(tx.GetGasLimit(), tc)
+	if err != nil {
+		return vmcommon.VMUserError, process.ErrNotEnoughGas
+	}
+
+	vmInput, vmType, err := sc.createVMDeployInput(tx, tc.GetCallValue(), gasRemaining)
 	if err != nil {
 		log.Trace("Transaction data invalid", "error", err.Error())
 		return vmcommon.VMUserError, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), err.Error(), []byte(""))
@@ -867,6 +876,16 @@ func (sc *scProcessor) createCompleteEventLogIfNoMoreAction(
 	txHash []byte,
 ) *vmcommon.LogEntry {
 	return createCompleteEventLog(tx, tc, txHash)
+}
+
+func (sc *scProcessor) consumeKDATransferGas(gasLimit uint64, tc data.SmartContractHandler) (uint64, error) {
+	sc.mutGasLock.RLock()
+	gasCostPerTransfer := sc.builtInGasCosts[transferValueGasSchedule]
+	sc.mutGasLock.RUnlock()
+
+	gasCost := gasCostPerTransfer * uint64(len(tc.GetCallValue()))
+
+	return tools.SafeSubUint64(gasLimit, gasCost)
 }
 
 func createCompleteEventLog(tx data.TransactionHandler, tc data.SmartContractHandler, txHash []byte) *vmcommon.LogEntry {

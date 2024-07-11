@@ -21,7 +21,7 @@ type baseDataInterceptor struct {
 	debugHandler     process.InterceptedDebugger
 }
 
-func (bdi *baseDataInterceptor) preProcessMesage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
+func (bdi *baseDataInterceptor) preProcessMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
 	if message == nil {
 		return common.ErrNilMessage
 	}
