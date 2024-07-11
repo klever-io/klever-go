@@ -67,7 +67,7 @@ func checkNewSubslotSignatureParams(
 // doSignatureJob method does the job of the subslot Signature
 func (sr *subslotSignature) doSignatureJob() bool {
 	if !sr.IsNodeInConsensusGroup(sr.SelfPubKey()) {
-		return true
+		return false
 	}
 	if !sr.CanDoSubslotJob(sr.Current()) {
 		return false
