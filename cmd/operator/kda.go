@@ -62,6 +62,7 @@ func subKDA() []*cobra.Command {
 		addRolesMint                []string
 		addRolesSetITOPrices        []string
 		addRolesDeposit             []string
+		addRolesTransfer            []string
 		kdaID                       string
 		nftID                       string
 		receiver                    string
@@ -126,6 +127,17 @@ func subKDA() []*cobra.Command {
 				} else {
 					newRoles[address] = models.RolesInfo{
 						HasRoleDeposit: true,
+					}
+				}
+			}
+
+			for _, address := range addRolesTransfer {
+				if entry, ok := newRoles[address]; ok {
+					entry.HasRoleTransfer = true
+					newRoles[address] = entry
+				} else {
+					newRoles[address] = models.RolesInfo{
+						HasRoleTransfer: true,
 					}
 				}
 			}
@@ -263,6 +275,7 @@ func subKDA() []*cobra.Command {
 	cmdCreate.Flags().StringSliceVar(&addRolesMint, "addRolesMint", nil, "KDA addRolesMint")
 	cmdCreate.Flags().StringSliceVar(&addRolesSetITOPrices, "addRolesSetITOPrices", nil, "KDA addRolesSetITOPrices")
 	cmdCreate.Flags().StringSliceVar(&addRolesDeposit, "addRolesDeposit", nil, "KDA addRolesDeposit")
+	cmdCreate.Flags().StringSliceVar(&addRolesTransfer, "addRolesTransfer", nil, "KDA addRolesTransfer")
 
 	cmdTrigger := &cobra.Command{
 		Use:   "trigger [TRIGGER_TYPE]",
@@ -314,6 +327,15 @@ func subKDA() []*cobra.Command {
 			case 1:
 				role.Address = addRolesDeposit[0]
 				role.HasRoleDeposit = true
+			default:
+				return fmt.Errorf("can only add one role per trigger")
+			}
+
+			switch len(addRolesTransfer) {
+			case 0:
+			case 1:
+				role.Address = addRolesTransfer[0]
+				role.HasRoleTransfer = true
 			default:
 				return fmt.Errorf("can only add one role per trigger")
 			}
@@ -466,6 +488,7 @@ func subKDA() []*cobra.Command {
 	cmdTrigger.Flags().StringSliceVar(&addRolesMint, "addRolesMint", nil, "Trigger addRolesMint")
 	cmdTrigger.Flags().StringSliceVar(&addRolesSetITOPrices, "addRolesSetITOPrices", nil, "Trigger addRolesSetITOPrices")
 	cmdTrigger.Flags().StringSliceVar(&addRolesDeposit, "addRolesDeposit", nil, "Trigger addRolesDeposit")
+	cmdTrigger.Flags().StringSliceVar(&addRolesTransfer, "addRolesTransfer", nil, "Trigger addRolesTransfer")
 	cmdTrigger.Flags().StringToStringVar(&staking, "updateStaking", nil, "--updateStaking 'apr=10,claim=1,unstake=5,withdraw=7' (claim/unstake/withdraw are the min epochs to make the respective actions)")
 	cmdTrigger.Flags().StringToStringVar(&kdaPool, "updateKdaPool", nil, "--updateKdaPool 'active=false,adminAddress=klv-address,fixedRatioKLV=1,fixedRatioKDA=100")
 
