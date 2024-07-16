@@ -361,6 +361,14 @@ func (tc *ValidatorConfigContract) Validate() error {
 }
 
 func (tc *FreezeContract) Validate() error {
+	if len(tc.AssetID) != 0 && len(tc.AssetID) < 3 {
+		return errors.New("invalid asset id")
+	}
+
+	if tc.Amount <= 0 {
+		return errors.New("invalid amount")
+	}
+
 	return nil
 }
 
@@ -415,14 +423,34 @@ func (tc *DepositContract) Validate() error {
 }
 
 func (tc *UnfreezeContract) Validate() error {
+	if len(tc.AssetID) != 0 && len(tc.AssetID) < 3 {
+		return errors.New("invalid asset id")
+	}
+
+	if len(tc.BucketID) != 0 {
+		return errors.New("invalid bucket id")
+	}
+
 	return nil
 }
 
 func (tc *DelegateContract) Validate() error {
+	if len(tc.ToAddress) == 0 {
+		return errors.New("invalid receiver address")
+	}
+
+	if len(tc.BucketID) == 0 {
+		return errors.New("invalid bucket id")
+	}
+
 	return nil
 }
 
 func (tc *UndelegateContract) Validate() error {
+	if len(tc.BucketID) == 0 {
+		return errors.New("invalid bucket id")
+	}
+
 	return nil
 }
 
@@ -438,6 +466,7 @@ func (tc *ClaimContract) Validate() error {
 }
 
 func (tc *UnjailContract) Validate() error {
+	// Empty validation because the contract does not have any fields
 	return nil
 }
 
@@ -470,6 +499,14 @@ func (tc *ProposalContract) Validate() error {
 }
 
 func (tc *VoteContract) Validate() error {
+	if tc.GetProposalID() <= 0 {
+		return errors.New("invalid proposal id")
+	}
+
+	if tc.GetAmount() <= 0 {
+		return errors.New("invalid amount")
+	}
+
 	return nil
 }
 
@@ -506,14 +543,46 @@ func (tc *SetITOPricesContract) Validate() error {
 }
 
 func (tc *BuyContract) Validate() error {
+	if len(tc.GetID()) == 0 {
+		return errors.New("invalid pack id")
+	}
+
+	if tc.GetAmount() <= 0 {
+		return errors.New("invalid amount")
+	}
+
 	return nil
 }
 
 func (tc *SellContract) Validate() error {
+	if len(tc.MarketplaceID) == 0 {
+		return errors.New("invalid marketplace id")
+	}
+
+	if len(tc.AssetID) == 0 {
+		return errors.New("invalid asset id")
+	}
+
+	if tc.Price < 0 {
+		return errors.New("invalid price")
+	}
+
+	if tc.ReservePrice < 0 {
+		return errors.New("invalid reserve price")
+	}
+
+	if tc.EndTime <= 0 {
+		return errors.New("invalid end time")
+	}
+
 	return nil
 }
 
 func (tc *CancelMarketOrderContract) Validate() error {
+	if len(tc.GetOrderID()) == 0 {
+		return errors.New("invalid order id")
+	}
+
 	return nil
 }
 
@@ -660,5 +729,20 @@ func (tc *ITOTriggerContract) Validate() error {
 }
 
 func (tc *SmartContract) Validate() error {
+	switch tc.Type {
+	case SmartContract_SCDeploy:
+		if len(tc.Address) > 0 {
+			return errors.New("invalid contract address")
+		}
+	default:
+		if len(tc.Address) != core.PubKeyLen {
+			return errors.New("invalid contract address")
+		}
+	}
+
+	if len(tc.CallValue) > core.MaxCallValueSize {
+		return errors.New("invalid call value")
+	}
+
 	return nil
 }

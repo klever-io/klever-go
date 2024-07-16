@@ -270,3 +270,9 @@ const MetricAreVMQueriesReady = "erd_are_vm_queries_ready"
 
 // Maximum amount of APR updates that will be saved by the blockchain and the indexer
 const MaxAPRPercentageUpdates = 100
+
+// MaxCallValueSize defines the maximum number of currencies that can be used in a smart contract call value
+const MaxCallValueSize = 50
+
+// PubKeyLen defines the length of a public key
+const PubKeyLen = 32
