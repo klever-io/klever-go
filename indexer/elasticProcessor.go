@@ -25,6 +25,8 @@ import (
 	"github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/indexer/logsevents"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/storage"
+	"github.com/klever-io/klever-go/storage/memcache"
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
@@ -45,6 +47,7 @@ type elasticProcessor struct {
 	dividerForDenomination float64
 	balancePrecision       float64
 	logsAndEventsProc      LogsAndEventsHandler
+	cacher                 storage.MemoryCacher
 }
 
 // NewElasticProcessor creates an elasticsearch es and handles saving
@@ -80,6 +83,11 @@ func NewElasticProcessor(arguments ArgElasticProcessor) (ElasticProcessor, error
 	}
 
 	ei.logsAndEventsProc = logsAndEventsProc
+	memCache, err := memcache.NewCache(arguments.CacheExpirationTime, arguments.CacheCleanUpInterval)
+	if err != nil {
+		return nil, err
+	}
+	ei.cacher = memCache
 
 	ei.txDatabaseProcessor = newTxDatabaseProcessor(
 		arguments.Hasher,
@@ -449,6 +457,29 @@ func (ei *elasticProcessor) indexTransactions(txs []*data.Transaction, bytesBuff
 	txs = ei.addContractInfoToTransactions(txs)
 
 	return ei.serializeTransactions(txs, bytesBuff)
+}
+
+func (ei *elasticProcessor) GetCachedKDA(kda string, kdaKapp state.KAppAccountHandler) (*data.CachedAsset, error) {
+	var cachedAsset *data.CachedAsset
+
+	cachedData, found := ei.cacher.Get(kda)
+	if !found {
+		parsedData, err := getAssetTypeAndCollection([]byte(kda), kdaKapp, ei.marshalizer)
+		if err != nil {
+			return nil, err
+		}
+		cachedAsset = parsedData
+
+		ei.cacher.Set(kda, parsedData)
+	} else {
+		parsedData, ok := cachedData.(*data.CachedAsset)
+		if !ok {
+			return nil, ErrCannotParseKDA
+		}
+		cachedAsset = parsedData
+	}
+
+	return cachedAsset, nil
 }
 
 func (ei *elasticProcessor) getProposal(proposalKapp state.KAppAccountHandler, proposalID uint64) (*data.Proposal, error) {
@@ -1770,6 +1801,7 @@ func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transactio
 	if !ok {
 		return txs
 	}
+
 	for _, tx := range txs {
 		for _, contract := range tx.Contracts {
 			switch contract.Type {
@@ -1778,22 +1810,32 @@ func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transactio
 				if len(c.AssetID) <= 0 {
 					continue
 				}
-				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+
+				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
 				if err != nil {
 					continue
 				}
-				c.AssetType = *updatedContract
+
+				c.AssetType = data.AssetType{
+					Type:       cachedKDA.Type,
+					Collection: cachedKDA.Collection,
+				}
+
 				contract.Parameter = c
 			case transaction.TXContract_FreezeContractType:
 				c := contract.Parameter.(data.FreezeContract)
 				if len(c.AssetID) <= 0 {
 					continue
 				}
-				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
 				if err != nil {
 					continue
 				}
-				c.AssetType = *updatedContract
+
+				c.AssetType = data.AssetType{
+					Type:       cachedKDA.Type,
+					Collection: cachedKDA.Collection,
+				}
 				contract.Parameter = c
 			case transaction.TXContract_UnfreezeContractType:
 				c := contract.Parameter.(data.UnfreezeContract)
@@ -1801,12 +1843,15 @@ func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transactio
 				if len(c.AssetID) <= 0 {
 					continue
 				}
-
-				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
 				if err != nil {
 					continue
 				}
-				c.AssetType = *updatedContract
+
+				c.AssetType = data.AssetType{
+					Type:       cachedKDA.Type,
+					Collection: cachedKDA.Collection,
+				}
 				contract.Parameter = c
 			case transaction.TXContract_DepositContractType:
 				c := contract.Parameter.(data.DepositContract)
@@ -1814,12 +1859,15 @@ func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transactio
 				if len(c.ID) <= 0 {
 					continue
 				}
-
-				updatedContract, err := getAssetTypeAndCollection([]byte(c.ID), kdaKapp, ei.marshalizer)
+				cachedKDA, err := ei.GetCachedKDA(c.ID, kdaKapp)
 				if err != nil {
 					continue
 				}
-				c.AssetType = *updatedContract
+
+				c.AssetType = data.AssetType{
+					Type:       cachedKDA.Type,
+					Collection: cachedKDA.Collection,
+				}
 				contract.Parameter = c
 			case transaction.TXContract_WithdrawContractType:
 				c := contract.Parameter.(data.WithdrawContract)
@@ -1827,11 +1875,15 @@ func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transactio
 				if len(c.AssetID) <= 0 {
 					continue
 				}
-				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
 				if err != nil {
 					continue
 				}
-				c.AssetType = *updatedContract
+
+				c.AssetType = data.AssetType{
+					Type:       cachedKDA.Type,
+					Collection: cachedKDA.Collection,
+				}
 				contract.Parameter = c
 			case transaction.TXContract_ClaimContractType:
 				c := contract.Parameter.(data.UnfreezeContract)
@@ -1840,11 +1892,15 @@ func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transactio
 					continue
 				}
 
-				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
 				if err != nil {
 					continue
 				}
-				c.AssetType = *updatedContract
+
+				c.AssetType = data.AssetType{
+					Type:       cachedKDA.Type,
+					Collection: cachedKDA.Collection,
+				}
 				contract.Parameter = c
 			case transaction.TXContract_AssetTriggerContractType:
 				c := contract.Parameter.(data.AssetTriggerContract)
@@ -1853,11 +1909,15 @@ func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transactio
 					continue
 				}
 
-				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
 				if err != nil {
 					continue
 				}
-				c.AssetType = *updatedContract
+
+				c.AssetType = data.AssetType{
+					Type:       cachedKDA.Type,
+					Collection: cachedKDA.Collection,
+				}
 				contract.Parameter = c
 			case transaction.TXContract_ConfigITOContractType:
 				c := contract.Parameter.(data.ConfigITOContract)
@@ -1866,11 +1926,16 @@ func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transactio
 					continue
 				}
 
-				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
 				if err != nil {
 					continue
 				}
-				c.AssetType = *updatedContract
+
+				c.AssetType = data.AssetType{
+					Type:       cachedKDA.Type,
+					Collection: cachedKDA.Collection,
+				}
+
 				contract.Parameter = c
 			case transaction.TXContract_BuyContractType:
 				c := contract.Parameter.(data.BuyContract)
@@ -1878,11 +1943,16 @@ func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transactio
 				if len(c.ID) <= 0 {
 					continue
 				}
-				updatedContract, err := getAssetTypeAndCollection([]byte(c.ID), kdaKapp, ei.marshalizer)
+
+				cachedKDA, err := ei.GetCachedKDA(c.ID, kdaKapp)
 				if err != nil {
 					continue
 				}
-				c.AssetType = *updatedContract
+
+				c.AssetType = data.AssetType{
+					Type:       cachedKDA.Type,
+					Collection: cachedKDA.Collection,
+				}
 				contract.Parameter = c
 			case transaction.TXContract_SellContractType:
 				c := contract.Parameter.(data.SellContract)
@@ -1891,11 +1961,15 @@ func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transactio
 					continue
 				}
 
-				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
 				if err != nil {
 					continue
 				}
-				c.AssetType = *updatedContract
+
+				c.AssetType = data.AssetType{
+					Type:       cachedKDA.Type,
+					Collection: cachedKDA.Collection,
+				}
 				contract.Parameter = c
 			case transaction.TXContract_ITOTriggerContractType:
 				c := contract.Parameter.(data.ITOTriggerContract)
@@ -1904,11 +1978,16 @@ func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transactio
 					continue
 				}
 
-				updatedContract, err := getAssetTypeAndCollection([]byte(c.AssetID), kdaKapp, ei.marshalizer)
+				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
 				if err != nil {
 					continue
 				}
-				c.AssetType = *updatedContract
+
+				c.AssetType = data.AssetType{
+					Type:       cachedKDA.Type,
+					Collection: cachedKDA.Collection,
+				}
+
 				contract.Parameter = c
 			default:
 				continue
@@ -1918,7 +1997,7 @@ func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transactio
 	return txs
 }
 
-func getAssetTypeAndCollection(assetId []byte, kdaKapp state.KAppAccountHandler, m marshal.Marshalizer) (*data.AssetType, error) {
+func getAssetTypeAndCollection(assetId []byte, kdaKapp state.KAppAccountHandler, m marshal.Marshalizer) (*data.CachedAsset, error) {
 	kda := string(assetId)
 	kda = strings.Split(kda, "/")[0]
 	key := kdautils.ToKDAKey([]byte(assetId), nil)
@@ -1937,9 +2016,10 @@ func getAssetTypeAndCollection(assetId []byte, kdaKapp state.KAppAccountHandler,
 		return nil, err
 	}
 
-	return &data.AssetType{
+	return &data.CachedAsset{
 		Type:       kdaParsed.GetAssetType().String(),
 		Collection: kda,
+		Precision:  kdaParsed.Precision,
 	}, nil
 }
 

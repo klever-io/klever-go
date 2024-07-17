@@ -2,6 +2,7 @@ package factory
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/klever-io/klever-go/common"
@@ -117,6 +118,8 @@ func createElasticProcessor(args *ArgsIndexerFactory) (indexer.ElasticProcessor,
 		KAppController:           args.KAppController,
 		Denomination:             args.Denomination,
 		IsInImportDBMode:         args.IsInImportDBMode,
+		CacheExpirationTime:      time.Hour,
+		CacheCleanUpInterval:     2 * time.Hour,
 	}
 
 	return indexer.NewElasticProcessor(esIndexerArgs)

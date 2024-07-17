@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"bytes"
+	"time"
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
@@ -38,4 +39,6 @@ type ArgElasticProcessor struct {
 	KAppController           kapp.KAppController
 	Denomination             int
 	IsInImportDBMode         bool
+	CacheExpirationTime      time.Duration
+	CacheCleanUpInterval     time.Duration
 }

@@ -51,3 +51,6 @@ var ErrCannotFindAccountInDb = errors.New("cannot find account in database")
 
 // ErrInvalidDataMapLen -
 var ErrInvalidDataMapLen = errors.New("invalid indexer data len")
+
+// ErrCannotParseKDA -
+var ErrCannotParseKDA = errors.New("cannot parse kda")

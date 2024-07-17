@@ -65,3 +65,9 @@ func (i *ITOInfo) SetWhiteListFromMap(whitelist map[string]*WhitelistInfo) {
 
 	i.WhitelistInfo = list
 }
+
+type CachedAsset struct {
+	Type       string
+	Collection string
+	Precision  uint32
+}

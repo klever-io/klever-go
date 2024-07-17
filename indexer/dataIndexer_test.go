@@ -144,6 +144,8 @@ func testCreateIndexer(t *testing.T) {
 		AddressPubkeyConverter:   &mock.PubkeyConverterMock{},
 		ValidatorPubkeyConverter: &mock.PubkeyConverterMock{},
 		DBClient:                 dbClient,
+		CacheExpirationTime:      time.Hour,
+		CacheCleanUpInterval:     2 * time.Hour,
 	})
 
 	di, err := NewDataIndexer(ArgDataIndexer{

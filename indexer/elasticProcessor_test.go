@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"testing"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/esapi"
@@ -61,9 +62,11 @@ func createMockElasticProcessorArgs() ArgElasticProcessor {
 		EnabledIndexes: map[string]struct{}{
 			blockIndex: {}, txIndex: {}, accountsIndex: {}, proposalsIndex: {}, accountsHistoryIndex: {}, peersAccountsIndex: {}, kdaPoolsIndex: {},
 		},
-		KappsDB:        &mock.KappsDBMock{},
-		KAppController: &mock.KappsControllerMock{},
-		AccountsDB:     &mock.AccountsStub{},
+		KappsDB:              &mock.KappsDBMock{},
+		KAppController:       &mock.KappsControllerMock{},
+		AccountsDB:           &mock.AccountsStub{},
+		CacheExpirationTime:  time.Hour,
+		CacheCleanUpInterval: 2 * time.Hour,
 	}
 }
 

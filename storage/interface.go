@@ -152,6 +152,13 @@ type TimeCacher interface {
 	IsInterfaceNil() bool
 }
 
+// MemoryCacher defines the cache that can keep a record with a expiration time
+type MemoryCacher interface {
+	Set(key string, data interface{})
+	Get(key string) (interface{}, bool)
+	IsInterfaceNil() bool
+}
+
 // StorerWithPutInEpoch is an extended storer with the ability to set the epoch which will be used for put operations
 type StorerWithPutInEpoch interface {
 	Storer

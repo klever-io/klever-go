@@ -39,6 +39,7 @@ require (
 	github.com/multiformats/go-base36 v0.2.0
 	github.com/multiformats/go-multiaddr v0.12.3
 	github.com/nwidger/jsoncolor v0.3.0
+	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pelletier/go-toml v1.9.3
 	github.com/pkg/errors v0.9.1
 	github.com/rivo/tview v0.0.0-20230104153304-892d1a2eb0da
