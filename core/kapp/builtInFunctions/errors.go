@@ -29,12 +29,6 @@ var ErrNilShardCoordinator = errors.New("nil shard coordinator")
 // ErrWrongTypeAssertion signals that an type assertion failed
 var ErrWrongTypeAssertion = errors.New("wrong type assertion")
 
-// ErrNilSCDestAccount signals that destination account is nil
-var ErrNilSCDestAccount = errors.New("nil destination SC account")
-
-// ErrNotEnoughGas signals that not enough gas has been provided
-var ErrNotEnoughGas = errors.New("not enough gas was sent in the transaction")
-
 // ErrInvalidArguments signals that invalid arguments were given to process built-in function
 var ErrInvalidArguments = errors.New("invalid arguments to process built-in function")
 

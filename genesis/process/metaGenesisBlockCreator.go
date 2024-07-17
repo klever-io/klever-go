@@ -504,7 +504,13 @@ func setStakingToTrie(
 		}
 
 		if len(peerAddress) > 0 {
-			kappContext := kapp.NewKappContext(kapp.ArgsNewKAppContext{ContractID: 0, ContractType: transaction.TXContract_CreateValidatorContractType, Block: &block.Block{}, TxNonce: 0})
+			kappContext := kapp.NewKappContext(
+				kapp.ArgsNewKAppContext{
+					ContractID:   0,
+					ContractType: transaction.TXContract_CreateValidatorContractType,
+					Block:        &block.Block{},
+					TX:           &transaction.Transaction{},
+				})
 			arg.KAppController.SetCurrentKAppContext(kappContext)
 			// Register Validator
 			_, err = arg.KAppController.GetValidatorsKApp().Register(

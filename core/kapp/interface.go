@@ -190,6 +190,9 @@ type KappContext interface {
 	SetReturnData(data [][]byte)
 	AddReturnData(data []byte)
 	GetAndClearReturnData() [][]byte
+	SubGasUsed(gasUsed uint64) error
+	GetGasLimit() uint64
+	GetExecData() []byte
 	IsScSimulation() bool
 }
 

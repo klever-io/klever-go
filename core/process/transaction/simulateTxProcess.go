@@ -79,7 +79,6 @@ func (txProc *simulateTxProcessor) ProcessTransaction(tx *transaction.Transactio
 	if check.IfNil(tx) {
 		return process.ErrNilTransaction
 	}
-
 	txProc.accountsCacher.ResetAll(true)
 
 	tx.GasLimit = math.MaxInt64
@@ -120,8 +119,7 @@ func (txProc *simulateTxProcessor) ProcessTransaction(tx *transaction.Transactio
 		ContractType:   -1,
 		Block:          blockHeader,
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
@@ -137,7 +135,7 @@ func (txProc *simulateTxProcessor) ProcessTransaction(tx *transaction.Transactio
 
 		switch tc.GetType() {
 		case transaction.SmartContract_SCDeploy:
-			returnCode, err := txProc.scProcessor.DeploySmartContract(ctx, tx, tc, ownerAcc)
+			returnCode, err := txProc.scProcessor.DeploySmartContract(ctx, tc)
 			if err != nil || returnCode != vmcommon.Ok {
 				tx.ResultCode = returnCode.ResultCode()
 				if err == nil {
@@ -158,7 +156,7 @@ func (txProc *simulateTxProcessor) ProcessTransaction(tx *transaction.Transactio
 				return err
 			}
 
-			returnCode, err := txProc.scProcessor.ExecuteSmartContractTransaction(ctx, tx, tc, ownerAcc, destAcc)
+			returnCode, err := txProc.scProcessor.ExecuteSmartContractTransaction(ctx, tc, ownerAcc, destAcc)
 			if err != nil || returnCode != vmcommon.Ok {
 				tx.ResultCode = returnCode.ResultCode()
 				if err == nil {
@@ -170,7 +168,7 @@ func (txProc *simulateTxProcessor) ProcessTransaction(tx *transaction.Transactio
 
 			sw.Stop("execute")
 			duration := sw.GetMeasurement("execute")
-			logSC.Trace("execute smart contract", "duration", duration.String())
+			logSC.Trace("execute smart contract", "duration", duration)
 
 			tx.ResultCode = transaction.Transaction_Ok
 		default:

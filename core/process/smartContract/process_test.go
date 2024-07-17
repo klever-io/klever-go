@@ -51,6 +51,17 @@ func createMockPubkeyConverter() *mock.PubkeyConverterMock {
 	return mock.NewPubkeyConverterMock(32)
 }
 
+func createDefaultContext(tx data.TransactionHandler) kapp.KappContext {
+	return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+		OriginalSender: []byte("SRC"),
+		ContractID:     0,
+		ContractType:   transaction.TXContract_SmartContractType,
+		Block:          &block.Block{},
+		TxHash:         []byte("TX_HASH"),
+		TX:             tx,
+	})
+}
+
 func createAccounts(tx data.TransactionHandler) (state.UserAccountHandler, state.UserAccountHandler) {
 	acntSrc, _ := state.NewUserAccount(tx.GetSender())
 
@@ -647,15 +658,14 @@ func TestScProcessor_DeploySmartContractBadParse(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
 	tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
 	require.Nil(t, err)
 
-	returnCode, err := sc.DeploySmartContract(ctx, tx, tc, acntSrc)
+	returnCode, err := sc.DeploySmartContract(ctx, tc)
 
 	require.Equal(t, parseError, err)
 	require.Equal(t, vmcommon.VMUserError.ResultCode(), returnCode.ResultCode())
@@ -689,15 +699,14 @@ func TestScProcessor_DeploySmartContractWithAddressShouldFail(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
 	tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
 	require.Nil(t, err)
 
-	returnCode, err := sc.DeploySmartContract(ctx, tx, tc, acntSrc)
+	returnCode, err := sc.DeploySmartContract(ctx, tc)
 
 	require.Equal(t, process.ErrInvalidRcvAddr, err)
 	require.Equal(t, vmcommon.VMContractInvalid.ResultCode(), returnCode.ResultCode())
@@ -723,7 +732,7 @@ func TestScProcessor_DeploySmartContractRunError(t *testing.T) {
 	}
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("abba@0500@0000")})
 
-	acntSrc, _ := createAccounts(tx)
+	_, _ = createAccounts(tx)
 
 	vm := &contextmock.VMExecutionHandlerStub{}
 
@@ -745,15 +754,14 @@ func TestScProcessor_DeploySmartContractRunError(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
 	tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
 	require.Nil(t, err)
 
-	returnCode, err := sc.DeploySmartContract(ctx, tx, tc, acntSrc)
+	returnCode, err := sc.DeploySmartContract(ctx, tc)
 
 	require.Equal(t, createError, err)
 	require.Equal(t, vmcommon.VMUserError.ResultCode(), returnCode.ResultCode())
@@ -784,7 +792,7 @@ func TestScProcessor_DeploySmartContractDisabled(t *testing.T) {
 	}
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("abba@0500@0000")})
 
-	acntSrc, _ := createAccounts(tx)
+	_, _ = createAccounts(tx)
 
 	vm := &contextmock.VMExecutionHandlerStub{}
 	vmContainer.GetCalled = func(key []byte) (handler vmcommon.VMExecutionHandler, e error) {
@@ -800,15 +808,14 @@ func TestScProcessor_DeploySmartContractDisabled(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
 	tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
 	require.Nil(t, err)
 
-	returnCode, err := sc.DeploySmartContract(ctx, tx, tc, acntSrc)
+	returnCode, err := sc.DeploySmartContract(ctx, tc)
 	require.Equal(t, common.ErrInvalidContract, err)
 
 	require.Equal(t, vmcommon.VMContractInvalid.ResultCode(), returnCode.ResultCode())
@@ -825,14 +832,7 @@ func TestScProcessor_DeploySmartContractNilTx(t *testing.T) {
 
 	sc, _ := NewSmartContractProcessor(arguments)
 
-	contract := transaction.SmartContract{
-		Type:      transaction.SmartContract_SCDeploy,
-		CallValue: map[string]*transaction.CallValue{"KLV": {Amount: 45}},
-	}
-	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("data")})
-	acntSrc, _ := createAccounts(tx)
-
-	_, err := sc.DeploySmartContract(nil, nil, nil, acntSrc)
+	_, err := sc.DeploySmartContract(nil, nil)
 	require.Equal(t, process.ErrNilTransaction, err)
 }
 
@@ -884,7 +884,7 @@ func TestScProcessor_DeploySmartContractVmContainerGetFails(t *testing.T) {
 		CallValue: map[string]*transaction.CallValue{"KLV": {Amount: 45}},
 	}
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("abba@0500@0000")})
-	acntSrc, _ := createAccounts(tx)
+	_, _ = createAccounts(tx)
 
 	computedHash, err := tools.CalculateHash(arguments.Marshalizer, arguments.Hasher, tx.RawData)
 	require.Nil(t, err)
@@ -895,15 +895,14 @@ func TestScProcessor_DeploySmartContractVmContainerGetFails(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
 	tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
 	require.Nil(t, err)
 
-	code, err := sc.DeploySmartContract(ctx, tx, tc, acntSrc)
+	code, err := sc.DeploySmartContract(ctx, tc)
 	require.Equal(t, expectedError, err)
 	require.Equal(t, vmcommon.VMUserError.ResultCode(), code.ResultCode())
 }
@@ -934,7 +933,7 @@ func TestScProcessor_DeploySmartContractVmExecuteCreateSCFails(t *testing.T) {
 		CallValue: map[string]*transaction.CallValue{"KLV": {Amount: 45}},
 	}
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("abba@0500@0000")})
-	acntSrc, _ := createAccounts(tx)
+	_, _ = createAccounts(tx)
 
 	computedHash, err := tools.CalculateHash(arguments.Marshalizer, arguments.Hasher, tx.RawData)
 	require.Nil(t, err)
@@ -945,15 +944,14 @@ func TestScProcessor_DeploySmartContractVmExecuteCreateSCFails(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
 	tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
 	require.Nil(t, err)
 
-	code, err := sc.DeploySmartContract(ctx, tx, tc, acntSrc)
+	code, err := sc.DeploySmartContract(ctx, tc)
 	require.Equal(t, expectedError, err)
 	require.Equal(t, vmcommon.VMUserError.ResultCode(), code.ResultCode())
 }
@@ -982,7 +980,7 @@ func TestScProcessor_DeploySmartContractVmExecuteCreateSCVMOutputNil(t *testing.
 		CallValue: map[string]*transaction.CallValue{"KLV": {Amount: 45}},
 	}
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("abba@0500@0000")})
-	acntSrc, _ := createAccounts(tx)
+	_, _ = createAccounts(tx)
 
 	computedHash, err := tools.CalculateHash(arguments.Marshalizer, arguments.Hasher, tx.RawData)
 	require.Nil(t, err)
@@ -993,15 +991,14 @@ func TestScProcessor_DeploySmartContractVmExecuteCreateSCVMOutputNil(t *testing.
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
 	tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
 	require.Nil(t, err)
 
-	code, err := sc.DeploySmartContract(ctx, tx, tc, acntSrc)
+	code, err := sc.DeploySmartContract(ctx, tc)
 	require.Equal(t, process.ErrNilVMOutput, err)
 	require.Equal(t, vmcommon.VMUserError.ResultCode(), code.ResultCode())
 }
@@ -1030,7 +1027,7 @@ func TestScProcessor_DeploySmartContractVmOutputReturnCodeNotOk(t *testing.T) {
 		CallValue: map[string]*transaction.CallValue{"KLV": {Amount: 45}},
 	}
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("abba@0500@0000")})
-	acntSrc, _ := createAccounts(tx)
+	_, _ = createAccounts(tx)
 
 	computedHash, err := tools.CalculateHash(arguments.Marshalizer, arguments.Hasher, tx.RawData)
 	require.Nil(t, err)
@@ -1041,15 +1038,14 @@ func TestScProcessor_DeploySmartContractVmOutputReturnCodeNotOk(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
 	tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
 	require.Nil(t, err)
 
-	code, err := sc.DeploySmartContract(ctx, tx, tc, acntSrc)
+	code, err := sc.DeploySmartContract(ctx, tc)
 	require.Equal(t, vmcommon.VMCallStackOverFlow.String(), err.Error())
 	require.Equal(t, vmcommon.VMUserError.ResultCode(), code.ResultCode())
 }
@@ -1072,7 +1068,7 @@ func TestScProcessor_DeploySmartContract(t *testing.T) {
 		CallValue: map[string]*transaction.CallValue{"KLV": {Amount: 45}},
 	}
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("abba@0500@0000")})
-	acntSrc, _ := createAccounts(tx)
+	_, _ = createAccounts(tx)
 
 	computedHash, err := tools.CalculateHash(arguments.Marshalizer, arguments.Hasher, tx.RawData)
 	require.Nil(t, err)
@@ -1083,58 +1079,16 @@ func TestScProcessor_DeploySmartContract(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
 	tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
 	require.Nil(t, err)
 
-	returnCode, err := sc.DeploySmartContract(ctx, tx, tc, acntSrc)
+	returnCode, err := sc.DeploySmartContract(ctx, tc)
 	require.Nil(t, err)
 	require.Equal(t, vmcommon.Ok.ResultCode(), returnCode.ResultCode())
-}
-
-func TestScProcessor_ExecuteSmartContractTransactionNilTx(t *testing.T) {
-	t.Parallel()
-
-	vm := &contextmock.VMContainerMock{}
-	argParser := &contextmock.ArgumentParserMock{}
-	arguments := createMockSmartContractProcessorArguments()
-	arguments.VmContainer = vm
-	arguments.ArgsParser = argParser
-	sc, err := NewSmartContractProcessor(arguments)
-	require.NotNil(t, sc)
-	require.Nil(t, err)
-
-	contract := transaction.SmartContract{
-		Type:      transaction.SmartContract_SCInvoke,
-		CallValue: map[string]*transaction.CallValue{"KLV": {Amount: 45}},
-		Address:   []byte("DST"),
-	}
-	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("data")})
-	acntSrc, acntDst := createAccounts(tx)
-
-	computedHash, err := tools.CalculateHash(arguments.Marshalizer, arguments.Hasher, tx.RawData)
-	require.Nil(t, err)
-
-	ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
-		OriginalSender: tx.GetSender(),
-		ContractID:     0,
-		ContractType:   tx.RawData.GetContract()[0].Type,
-		Block:          &block.Block{},
-		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
-		IsScSimulation: true,
-	})
-
-	tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
-	require.Nil(t, err)
-
-	_, err = sc.ExecuteSmartContractTransaction(ctx, nil, tc, acntSrc, acntDst)
-	require.Equal(t, process.ErrNilTransaction, err)
 }
 
 func TestScProcessor_ExecuteSmartContractTransactionNilAccount(t *testing.T) {
@@ -1163,8 +1117,7 @@ func TestScProcessor_ExecuteSmartContractTransactionNilAccount(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
@@ -1199,12 +1152,12 @@ func TestScProcessor_ExecuteSmartContractTransactionNilAccount(t *testing.T) {
 	require.NotNil(t, sc)
 	require.Nil(t, err)
 
-	_, err = sc.ExecuteSmartContractTransaction(ctx, tx, tc, acntSrc, acntDst)
+	_, err = sc.ExecuteSmartContractTransaction(ctx, tc, acntSrc, acntDst)
 	require.Nil(t, err)
 
 	acntDst = nil
 
-	_, err = sc.ExecuteSmartContractTransaction(ctx, tx, tc, acntSrc, acntDst)
+	_, err = sc.ExecuteSmartContractTransaction(ctx, tc, acntSrc, acntDst)
 	require.Equal(t, process.ErrNilSCDestAccount, err)
 }
 
@@ -1233,8 +1186,7 @@ func TestScProcessor_ExecuteSmartContractTransactionBadParser(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
@@ -1279,7 +1231,7 @@ func TestScProcessor_ExecuteSmartContractTransactionBadParser(t *testing.T) {
 		return "", nil, tmpError
 	}
 
-	_, err = sc.ExecuteSmartContractTransaction(ctx, tx, tc, acntSrc, acntDst)
+	_, err = sc.ExecuteSmartContractTransaction(ctx, tc, acntSrc, acntDst)
 	require.True(t, called)
 	require.Equal(t, tmpError, err)
 }
@@ -1309,8 +1261,7 @@ func TestScProcessor_ExecuteSmartContractTransactionVMRunError(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
@@ -1359,7 +1310,7 @@ func TestScProcessor_ExecuteSmartContractTransactionVMRunError(t *testing.T) {
 		return vm, nil
 	}
 
-	_, err = sc.ExecuteSmartContractTransaction(ctx, tx, tc, acntSrc, acntDst)
+	_, err = sc.ExecuteSmartContractTransaction(ctx, tc, acntSrc, acntDst)
 	require.True(t, called)
 	require.Equal(t, tmpError, err)
 }
@@ -1389,8 +1340,7 @@ func TestScProcessor_ExecuteSmartContractTransaction(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
@@ -1428,7 +1378,7 @@ func TestScProcessor_ExecuteSmartContractTransaction(t *testing.T) {
 	acntSrc, acntDst := initAccounts(tx, arguments.AccountsCacher, contract.CallValue["KLV"].Amount*2)
 
 	acntDst.SetCode([]byte("code"))
-	_, err = sc.ExecuteSmartContractTransaction(ctx, tx, tc, acntSrc, acntDst)
+	_, err = sc.ExecuteSmartContractTransaction(ctx, tc, acntSrc, acntDst)
 	require.Nil(t, err)
 }
 
@@ -1443,7 +1393,7 @@ func TestScProcessor_ExecuteSmartContractTransactionSaveLogCalled(t *testing.T) 
 	arguments.VmContainer = vmContainer
 	arguments.ArgsParser = argParser
 	arguments.TxLogsProcessor = &contextmock.TxLogsProcessorStub{
-		SaveLogCalled: func(txHash []byte, tx data.TransactionHandler, tc data.SmartContractHandler, contractID int, vmLogs []*vmcommon.LogEntry) error {
+		SaveLogCalled: func(txHash []byte, sender []byte, tc data.SmartContractHandler, contractID int, vmLogs []*vmcommon.LogEntry) error {
 			slCalled = true
 			return nil
 		},
@@ -1465,8 +1415,7 @@ func TestScProcessor_ExecuteSmartContractTransactionSaveLogCalled(t *testing.T) 
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
@@ -1504,7 +1453,7 @@ func TestScProcessor_ExecuteSmartContractTransactionSaveLogCalled(t *testing.T) 
 	acntSrc, acntDst := initAccounts(tx, arguments.AccountsCacher, contract.CallValue["KLV"].Amount*2)
 
 	acntDst.SetCode([]byte("code"))
-	_, _ = sc.ExecuteSmartContractTransaction(ctx, tx, tc, acntSrc, acntDst)
+	_, _ = sc.ExecuteSmartContractTransaction(ctx, tc, acntSrc, acntDst)
 	require.True(t, slCalled)
 }
 
@@ -1527,14 +1476,11 @@ func TestScProcessor_CreateVMCallInputWrongCode(t *testing.T) {
 	}
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("abba@0500@0000")})
 
-	computedHash, err := tools.CalculateHash(arguments.Marshalizer, arguments.Hasher, tx.RawData)
-	require.Nil(t, err)
-
 	tmpError := errors.New("error")
 	argParser.ParseCallDataCalled = func(data string) (string, [][]byte, error) {
 		return "", nil, tmpError
 	}
-	input, err := sc.createVMCallInput(tx, []byte{}, contract.CallValue, tx.GasLimit, 0, computedHash)
+	input, err := sc.createVMCallInput(createDefaultContext(tx), tx.GasLimit, []byte{}, contract.CallValue)
 	require.Nil(t, input)
 	require.Equal(t, tmpError, err)
 }
@@ -1558,10 +1504,7 @@ func TestScProcessor_CreateVMCallInput(t *testing.T) {
 	}
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("abba@0500@0000")})
 
-	computedHash, err := tools.CalculateHash(arguments.Marshalizer, arguments.Hasher, tx.RawData)
-	require.Nil(t, err)
-
-	input, err := sc.createVMCallInput(tx, []byte{}, contract.CallValue, tx.GasLimit, 0, computedHash)
+	input, err := sc.createVMCallInput(createDefaultContext(tx), tx.GasLimit, []byte{}, contract.CallValue)
 	require.NotNil(t, input)
 	require.Nil(t, err)
 }
@@ -1589,7 +1532,7 @@ func TestScProcessor_CreateVMDeployBadCode(t *testing.T) {
 		return nil, badCodeError
 	}
 
-	input, vmType, err := sc.createVMDeployInput(tx, nil, tx.GasLimit)
+	input, vmType, err := sc.createVMDeployInput(createDefaultContext(tx), tx.GasLimit, nil)
 	require.Nil(t, vmType)
 	require.Nil(t, input)
 	require.Equal(t, badCodeError, err)
@@ -1625,7 +1568,7 @@ func TestScProcessor_CreateVMDeployInput(t *testing.T) {
 		}, nil
 	}
 
-	input, vmType, err := sc.createVMDeployInput(tx, contract.CallValue, tx.GasLimit)
+	input, vmType, err := sc.createVMDeployInput(createDefaultContext(tx), tx.GasLimit, contract.CallValue)
 	require.NotNil(t, input)
 	require.Nil(t, err)
 	require.Equal(t, vmData.DirectCall, input.CallType)
@@ -1653,7 +1596,7 @@ func TestScProcessor_CreateVMDeployInputNotEnoughArguments(t *testing.T) {
 	}
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("data@0000")})
 
-	input, vmType, err := sc.createVMDeployInput(tx, contract.CallValue, tx.GasLimit)
+	input, vmType, err := sc.createVMDeployInput(createDefaultContext(tx), tx.GasLimit, contract.CallValue)
 	require.Nil(t, input)
 	require.Nil(t, vmType)
 	require.Equal(t, parsers.ErrInvalidDeployArguments, err)
@@ -1682,7 +1625,7 @@ func TestScProcessor_CreateVMDeployInputWrongArgument(t *testing.T) {
 	argParser.ParseDeployDataCalled = func(data string) (*parsers.DeployArgs, error) {
 		return nil, tmpError
 	}
-	input, vmType, err := sc.createVMDeployInput(tx, contract.CallValue, tx.GasLimit)
+	input, vmType, err := sc.createVMDeployInput(createDefaultContext(tx), tx.GasLimit, contract.CallValue)
 	require.Nil(t, input)
 	require.Nil(t, vmType)
 	require.Equal(t, tmpError, err)
@@ -1708,7 +1651,7 @@ func TestScProcessor_InitializeVMInputFromTx(t *testing.T) {
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("data")})
 
 	vmInput := &vmcommon.VMInput{}
-	err = sc.initializeVMInputFromTx(vmInput, tx, contract.CallValue, tx.GasLimit)
+	err = sc.initializeVMInputFromTx(tx.GetSender(), vmInput, contract.CallValue)
 	require.Nil(t, err)
 }
 
@@ -1736,8 +1679,7 @@ func TestScProcessor_processVMOutputNilSndAcc(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
@@ -1745,7 +1687,7 @@ func TestScProcessor_processVMOutputNilSndAcc(t *testing.T) {
 		GasRemaining: 0,
 	}
 
-	err = sc.processVMOutput(ctx, vmOutput, computedHash, tx, vmData.DirectCall)
+	err = sc.processVMOutput(ctx, vmOutput)
 	require.Nil(t, err)
 }
 
@@ -1773,8 +1715,7 @@ func TestScProcessor_processVMOutputNilDstAcc(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
@@ -1782,7 +1723,7 @@ func TestScProcessor_processVMOutputNilDstAcc(t *testing.T) {
 		GasRemaining: 0,
 	}
 
-	err = sc.processVMOutput(ctx, vmOutput, computedHash, tx, vmData.DirectCall)
+	err = sc.processVMOutput(ctx, vmOutput)
 	require.Nil(t, err)
 }
 
@@ -1811,8 +1752,7 @@ func TestScProcessor_ProcessSCPaymentNotEnoughBalance(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
@@ -1880,8 +1820,7 @@ func TestScProcessor_ProcessSCPayment(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
@@ -1954,8 +1893,7 @@ func TestScProcessor_processVMOutput(t *testing.T) {
 		ContractType:   tx.RawData.GetContract()[0].Type,
 		Block:          &block.Block{},
 		TxHash:         computedHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 		IsScSimulation: true,
 	})
 
@@ -1963,6 +1901,6 @@ func TestScProcessor_processVMOutput(t *testing.T) {
 		GasRemaining: 0,
 	}
 
-	err = sc.processVMOutput(ctx, vmOutput, computedHash, tx, vmData.DirectCall)
+	err = sc.processVMOutput(ctx, vmOutput)
 	require.Nil(t, err)
 }

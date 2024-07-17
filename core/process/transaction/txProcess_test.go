@@ -1967,7 +1967,6 @@ func TestTxProcessor_ProcessDelegateAndUndelegateOkValsShouldWork(t *testing.T) 
 			ContractID:   0,
 			ContractType: transaction.TXContract_CreateValidatorContractType,
 			Block:        block,
-			TxNonce:      0,
 		})
 	args.KAppController.SetCurrentKAppContext(kappContext)
 
@@ -1989,7 +1988,6 @@ func TestTxProcessor_ProcessDelegateAndUndelegateOkValsShouldWork(t *testing.T) 
 			ContractID:   0,
 			ContractType: transaction.TXContract_CreateValidatorContractType,
 			Block:        block,
-			TxNonce:      0,
 		})
 	args.KAppController.SetCurrentKAppContext(kappContext)
 

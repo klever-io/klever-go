@@ -1,6 +1,8 @@
 package kapp
 
 import (
+	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/transaction"
 )
@@ -13,8 +15,9 @@ type kappContext struct {
 	receipts       *ReceiptSlice
 	block          *block.Block
 	txHash         []byte
-	txNonce        uint64
 	returnData     [][]byte
+	tx             data.TransactionHandler
+	gasLimit       uint64
 	isScSimulation bool
 }
 
@@ -25,8 +28,7 @@ type ArgsNewKAppContext struct {
 	ContractType   transaction.TXContract_ContractType
 	Block          *block.Block
 	TxHash         []byte
-	TxNonce        uint64
-	TxData         [][]byte
+	TX             data.TransactionHandler
 	IsScSimulation bool
 }
 
@@ -41,17 +43,26 @@ func (r *ReceiptSlice) Get() []*transaction.Transaction_Receipt {
 }
 
 func NewKappContext(args ArgsNewKAppContext) KappContext {
+
+	// create empty TX if nil
+	if args.TX == nil {
+		args.TX = &transaction.Transaction{}
+	}
+
 	receipts := make(ReceiptSlice, 0)
-	return &kappContext{
+	ctx := &kappContext{
 		originalSender: append([]byte{}, args.OriginalSender...),
 		contractID:     args.ContractID,
 		receipts:       &receipts,
 		block:          args.Block,
 		txHash:         args.TxHash,
-		txNonce:        args.TxNonce,
 		returnData:     make([][]byte, 0),
+		tx:             args.TX,
+		gasLimit:       args.TX.GetGasLimit(),
 		isScSimulation: args.IsScSimulation,
 	}
+
+	return ctx
 }
 
 func (k *kappContext) OriginalSender() []byte {
@@ -75,7 +86,7 @@ func (k *kappContext) TxHash() []byte {
 }
 
 func (k *kappContext) TxNonce() uint64 {
-	return k.txNonce
+	return k.tx.GetNonce()
 }
 
 func (k *kappContext) IsScSimulation() bool {
@@ -120,4 +131,26 @@ func (k *kappContext) GetAndClearReturnData() [][]byte {
 
 	k.returnData = make([][]byte, 0)
 	return dst
+}
+
+func (k *kappContext) GetExecData() []byte {
+	data := k.tx.GetData()
+	if k.contractID < 0 || len(data) <= k.contractID {
+		return nil
+	}
+
+	return append([]byte{}, data[k.contractID]...)
+}
+
+func (k *kappContext) SubGasUsed(gasUsed uint64) error {
+	if gasUsed > k.gasLimit {
+		return common.ErrNotEnoughGas
+	}
+
+	k.gasLimit -= gasUsed
+	return nil
+}
+
+func (k *kappContext) GetGasLimit() uint64 {
+	return k.gasLimit
 }

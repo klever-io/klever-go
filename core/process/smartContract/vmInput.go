@@ -5,20 +5,18 @@ import (
 
 	"github.com/klever-io/klever-go/common/types"
 
-	"github.com/klever-io/klever-go/common"
-	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
-	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/vmcommon"
 )
 
 func (sc *scProcessor) createVMDeployInput(
-	tx data.TransactionHandler,
-	transferValues map[string]*transaction.CallValue,
+	ctx kapp.KappContext,
 	gasLimit uint64,
+	transferValues map[string]*transaction.CallValue,
 ) (*vmcommon.ContractCreateInput, []byte, error) {
-	deployData, err := sc.argsParser.ParseDeployData(string(tx.GetDataWithIdx(0)))
+	deployData, err := sc.argsParser.ParseDeployData(string(ctx.GetExecData()))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -28,23 +26,23 @@ func (sc *scProcessor) createVMDeployInput(
 	// when executing SC deploys we should always apply the flags
 	vmCreateInput.ContractCodeMetadata = deployData.CodeMetadata.ToBytes()
 	vmCreateInput.VMInput = vmcommon.VMInput{}
-	err = sc.initializeVMInputFromTx(&vmCreateInput.VMInput, tx, transferValues, gasLimit)
+	err = sc.initializeVMInputFromTx(ctx.OriginalSender(), &vmCreateInput.VMInput, transferValues)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	vmCreateInput.VMInput.GasProvided = gasLimit
 	vmCreateInput.VMInput.Arguments = deployData.Arguments
 
 	return vmCreateInput, deployData.VMType, nil
 }
 
 func (sc *scProcessor) initializeVMInputFromTx(
+	sender []byte,
 	vmInput *vmcommon.VMInput,
-	tx data.TransactionHandler,
 	callValue map[string]*transaction.CallValue,
-	gasLimit uint64,
 ) error {
-	vmInput.CallerAddr = tx.GetSender()
+	vmInput.CallerAddr = sender
 	vmInput.KDATransfers = make([]*vmcommon.KDATransfer, 0)
 
 	dm := types.NewDeterministicMap(callValue)
@@ -67,25 +65,16 @@ func (sc *scProcessor) initializeVMInputFromTx(
 		return nil
 	})
 
-	vmInput.GasProvided = gasLimit
-
 	return err
 }
 
 func (sc *scProcessor) createVMCallInput(
-	tx data.TransactionHandler,
+	ctx kapp.KappContext,
+	gasLimit uint64,
 	contractAddress []byte,
 	callValue map[string]*transaction.CallValue,
-	gasLimit uint64,
-	contractID int,
-	txHash []byte,
 ) (*vmcommon.ContractCallInput, error) {
-	// check if any input data is provided
-	if len(tx.GetData()) <= contractID {
-		return nil, common.ErrNilInputData
-	}
-
-	txData := string(tx.GetRaw().GetData()[contractID])
+	txData := string(ctx.GetExecData())
 
 	function, arguments, err := sc.argsParser.ParseCallData(txData)
 	if err != nil {
@@ -96,22 +85,20 @@ func (sc *scProcessor) createVMCallInput(
 	vmCallInput.VMInput = vmcommon.VMInput{}
 	vmCallInput.RecipientAddr = contractAddress
 	vmCallInput.Function = function
-	vmCallInput.CurrentTxHash = txHash
-	vmCallInput.OriginalTxHash = txHash
+	vmCallInput.CurrentTxHash = ctx.TxHash()
+	vmCallInput.OriginalTxHash = ctx.TxHash()
 
-	err = sc.initializeVMInputFromTx(&vmCallInput.VMInput, tx, callValue, gasLimit)
+	err = sc.initializeVMInputFromTx(ctx.OriginalSender(), &vmCallInput.VMInput, callValue)
 	if err != nil {
 		return nil, err
 	}
 
+	vmCallInput.VMInput.GasProvided = gasLimit
+	vmCallInput.VMInput.Arguments = arguments
+
 	// set all initialized transfer inputs as executed
 	for _, kdaTransfer := range vmCallInput.KDATransfers {
 		kdaTransfer.SetExecuted()
-	}
-
-	vmCallInput.VMInput.Arguments = arguments
-	if vmCallInput.GasProvided > gasLimit {
-		return nil, process.ErrInvalidVMInputGasComputation
 	}
 
 	return vmCallInput, nil

@@ -9,31 +9,31 @@ import (
 )
 
 type SCProcessorMock struct {
-	ExecuteSmartContractTransactionCalled func(ctx kapp.KappContext, tx data.TransactionHandler, tc data.SmartContractHandler, acntSrc, acntDst state.UserAccountHandler) (vmcommon.ReturnCode, error)
-	DeploySmartContractCalled             func(ctx kapp.KappContext, tx data.TransactionHandler, tc data.SmartContractHandler, acntSrc state.UserAccountHandler) (vmcommon.ReturnCode, error)
-	ProcessIfErrorCalled                  func(acntSnd state.UserAccountHandler, txHash []byte, tx data.TransactionHandler, tc data.SmartContractHandler, contractID int, returnCode string, returnMessage []byte) error
+	ExecuteSmartContractTransactionCalled func(ctx kapp.KappContext, tc data.SmartContractHandler, acntSrc, acntDst state.UserAccountHandler) (vmcommon.ReturnCode, error)
+	DeploySmartContractCalled             func(ctx kapp.KappContext, tc data.SmartContractHandler) (vmcommon.ReturnCode, error)
+	ProcessIfErrorCalled                  func(ctx kapp.KappContext, tc data.SmartContractHandler, returnCode string, returnMessage []byte) error
 	IsPayableCalled                       func(sndAddress []byte, recvAddress []byte) (bool, error)
 }
 
-func (s *SCProcessorMock) ExecuteSmartContractTransaction(ctx kapp.KappContext, tx data.TransactionHandler, tc data.SmartContractHandler, acntSrc, acntDst state.UserAccountHandler) (vmcommon.ReturnCode, error) {
+func (s *SCProcessorMock) ExecuteSmartContractTransaction(ctx kapp.KappContext, tc data.SmartContractHandler, acntSrc, acntDst state.UserAccountHandler) (vmcommon.ReturnCode, error) {
 	if s.ExecuteSmartContractTransactionCalled != nil {
-		return s.ExecuteSmartContractTransactionCalled(ctx, tx, tc, acntSrc, acntDst)
+		return s.ExecuteSmartContractTransactionCalled(ctx, tc, acntSrc, acntDst)
 	}
 
 	return vmcommon.Ok, nil
 }
 
-func (s *SCProcessorMock) DeploySmartContract(ctx kapp.KappContext, tx data.TransactionHandler, tc data.SmartContractHandler, acntSrc state.UserAccountHandler) (vmcommon.ReturnCode, error) {
+func (s *SCProcessorMock) DeploySmartContract(ctx kapp.KappContext, tc data.SmartContractHandler) (vmcommon.ReturnCode, error) {
 	if s.DeploySmartContractCalled != nil {
-		return s.DeploySmartContractCalled(ctx, tx, tc, acntSrc)
+		return s.DeploySmartContractCalled(ctx, tc)
 	}
 
 	return vmcommon.Ok, nil
 }
 
-func (s *SCProcessorMock) ProcessIfError(acntSnd state.UserAccountHandler, txHash []byte, tx data.TransactionHandler, tc data.SmartContractHandler, contractID int, returnCode string, returnMessage []byte) error {
+func (s *SCProcessorMock) ProcessIfError(ctx kapp.KappContext, tc data.SmartContractHandler, returnCode string, returnMessage []byte) error {
 	if s.ProcessIfErrorCalled != nil {
-		return s.ProcessIfErrorCalled(acntSnd, txHash, tx, tc, contractID, returnCode, returnMessage)
+		return s.ProcessIfErrorCalled(ctx, tc, returnCode, returnMessage)
 	}
 
 	return nil

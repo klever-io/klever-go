@@ -11,9 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/klever-io/klever-go/common/types"
-
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/common/types"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
@@ -22,7 +21,6 @@ import (
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
-	vmData "github.com/klever-io/klever-go/data/vm"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/tools"
@@ -193,8 +191,8 @@ func (sc *scProcessor) GasScheduleChange(gasSchedule map[string]map[string]uint6
 	sc.persistPerByte = gasSchedule[common.BaseOperationCost]["PersistPerByte"]
 }
 
-func (sc *scProcessor) checkTxValidity(tx data.TransactionHandler, tc data.SmartContractHandler) error {
-	if check.IfNil(tx) || check.IfNil(tc) {
+func (sc *scProcessor) checkTxValidity(tc data.SmartContractHandler) error {
+	if check.IfNil(tc) {
 		return process.ErrNilTransaction
 	}
 
@@ -217,7 +215,6 @@ func (sc *scProcessor) checkTxValidity(tx data.TransactionHandler, tc data.Smart
 // ExecuteSmartContractTransaction processes the transaction, call the VM and processes the SC call output
 func (sc *scProcessor) ExecuteSmartContractTransaction(
 	ctx kapp.KappContext,
-	tx data.TransactionHandler,
 	tc data.SmartContractHandler,
 	acntSnd, acntDst state.UserAccountHandler,
 ) (vmcommon.ReturnCode, error) {
@@ -225,7 +222,7 @@ func (sc *scProcessor) ExecuteSmartContractTransaction(
 		return vmcommon.VMContractInvalid, common.ErrInvalidContract
 	}
 
-	err := sc.checkTxValidity(tx, tc)
+	err := sc.checkTxValidity(tc)
 	if err != nil {
 		log.Debug("invalid transaction", "error", err.Error())
 		return vmcommon.VMContractInvalid, err
@@ -233,14 +230,39 @@ func (sc *scProcessor) ExecuteSmartContractTransaction(
 
 	sw := tools.NewStopWatch()
 	sw.Start("execute")
-	returnCode, err := sc.doExecuteSmartContractTransaction(ctx, tx, tc, acntSnd, acntDst)
+	returnCode, err := sc.doExecuteSmartContractTransaction(ctx, tc, acntSnd, acntDst)
 	sw.Stop("execute")
 	duration := sw.GetMeasurement("execute")
 
 	if duration > executeDurationAlarmThreshold {
-		log.Debug(fmt.Sprintf("scProcessor.ExecuteSmartContractTransaction(): execution took > %s", executeDurationAlarmThreshold), "tx hash", ctx.TxHash(), "sc", tc.GetAddress(), "duration", duration, "returnCode", returnCode, "err", err, "data", string(tx.GetDataWithIdx(0)))
+		log.Debug(fmt.Sprintf(
+			"scProcessor.ExecuteSmartContractTransaction(): execution took > %s", executeDurationAlarmThreshold),
+			"tx hash",
+			ctx.TxHash(),
+			"sc",
+			tc.GetAddress(),
+			"duration",
+			duration,
+			"returnCode",
+			returnCode,
+			"err", err,
+			"data",
+			string(ctx.GetExecData()),
+		)
 	} else {
-		log.Trace("scProcessor.ExecuteSmartContractTransaction()", "sc", tc.GetAddress(), "duration", duration, "returnCode", returnCode, "err", err, "data", string(tx.GetDataWithIdx(0)))
+		log.Trace(
+			"scProcessor.ExecuteSmartContractTransaction()",
+			"sc",
+			tc.GetAddress(),
+			"duration",
+			duration,
+			"returnCode",
+			returnCode,
+			"err",
+			err,
+			"data",
+			string(ctx.GetExecData()),
+		)
 	}
 
 	return returnCode, err
@@ -248,53 +270,54 @@ func (sc *scProcessor) ExecuteSmartContractTransaction(
 
 func (sc *scProcessor) prepareExecution(
 	ctx kapp.KappContext,
-	tx data.TransactionHandler,
 	tc data.SmartContractHandler,
 	acntSnd, acntDst state.UserAccountHandler,
-) (vmcommon.ReturnCode, *vmcommon.ContractCallInput, []byte, error) {
+) (vmcommon.ReturnCode, *vmcommon.ContractCallInput, error) {
+	if check.IfNil(acntDst) {
+		return vmcommon.VMUserError, nil, process.ErrNilSCDestAccount
+	}
+
+	gasLimit := ctx.GetGasLimit()
 	// transaction process transfer funds cost
-	gasRemaining, err := sc.consumeKDATransferGas(tx.GetGasLimit(), tc)
+	gasLimit, err := sc.consumeKDATransferGas(gasLimit, tc)
 	if err != nil {
-		return vmcommon.VMUserError, nil, nil, process.ErrNotEnoughGas
+		return vmcommon.VMUserError, nil, process.ErrNotEnoughGas
 	}
 
 	err = sc.processSCPayment(tc, acntSnd)
 	if err != nil {
 		log.Debug("process sc payment error", "error", err.Error())
-		return vmcommon.VMContractInvalid, nil, nil, err
+		return vmcommon.VMContractInvalid, nil, err
 	}
 
-	txHash := ctx.TxHash()
-
 	var vmInput *vmcommon.ContractCallInput
-	vmInput, err = sc.createVMCallInput(tx, tc.GetAddress(), tc.GetCallValue(), gasRemaining, ctx.ContractID(), txHash)
+	vmInput, err = sc.createVMCallInput(ctx, gasLimit, tc.GetAddress(), tc.GetCallValue())
 	if err != nil {
 		returnMessage := "cannot create VMInput, check the transaction data field"
 		log.Debug("create vm call input error", "error", err.Error())
-		return vmcommon.VMUserError, vmInput, txHash, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), err.Error(), []byte(returnMessage))
+		return vmcommon.VMUserError, vmInput, sc.ProcessIfError(ctx, tc, err.Error(), []byte(returnMessage))
 	}
 
 	err = sc.checkUpgradePermission(acntDst, vmInput)
 	if err != nil {
 		log.Debug("checkUpgradePermission", "error", err.Error())
-		return vmcommon.VMUserError, vmInput, txHash, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), err.Error(), []byte(err.Error()))
+		return vmcommon.VMUserError, vmInput, sc.ProcessIfError(ctx, tc, err.Error(), []byte(err.Error()))
 	}
 
-	return vmcommon.Ok, vmInput, txHash, nil
+	return vmcommon.Ok, vmInput, nil
 }
 
 func (sc *scProcessor) doExecuteSmartContractTransaction(
 	ctx kapp.KappContext,
-	tx data.TransactionHandler,
 	tc data.SmartContractHandler,
 	acntSnd, acntDst state.UserAccountHandler,
 ) (vmcommon.ReturnCode, error) {
-	returnCode, vmInput, txHash, err := sc.prepareExecution(ctx, tx, tc, acntSnd, acntDst)
+	returnCode, vmInput, err := sc.prepareExecution(ctx, tc, acntSnd, acntDst)
 	if err != nil || returnCode != vmcommon.Ok {
 		return returnCode, err
 	}
 
-	vmOutput, err := sc.executeSmartContractCall(ctx, vmInput, tx, tc, txHash, acntSnd, acntDst, nil)
+	vmOutput, err := sc.executeSmartContractCall(ctx, vmInput, tc, nil)
 	if err != nil {
 		return vmOutput.ReturnCode, err
 	}
@@ -302,30 +325,23 @@ func (sc *scProcessor) doExecuteSmartContractTransaction(
 		return vmOutput.ReturnCode, nil
 	}
 
-	err = sc.processVMOutput(ctx, vmOutput, txHash, tx, vmInput.CallType)
+	err = sc.processVMOutput(ctx, vmOutput)
 	if err != nil {
 		log.Trace("process vm output returned with problem ", "err", err.Error())
-		return vmcommon.VMExecutionFailed, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), err.Error(), []byte(vmOutput.ReturnMessage))
+		return vmcommon.VMExecutionFailed, sc.ProcessIfError(ctx, tc, err.Error(), []byte(vmOutput.ReturnMessage))
 	}
 
-	return sc.finishSCExecution(txHash, tx, tc, ctx.ContractID(), vmOutput)
+	return sc.finishSCExecution(ctx, tc, vmOutput)
 }
 
 func (sc *scProcessor) executeSmartContractCall(
 	ctx kapp.KappContext,
 	vmInput *vmcommon.ContractCallInput,
-	tx data.TransactionHandler,
 	tc data.SmartContractHandler,
-	txHash []byte,
-	acntSnd, acntDst state.UserAccountHandler,
 	prevVmOutput *vmcommon.VMOutput,
 ) (*vmcommon.VMOutput, error) {
 	userErrorVmOutput := &vmcommon.VMOutput{
 		ReturnCode: vmcommon.VMUserError,
-	}
-
-	if check.IfNil(acntDst) {
-		return userErrorVmOutput, process.ErrNilSCDestAccount
 	}
 
 	sc.wasmVMChangeLocker.RLock()
@@ -334,11 +350,11 @@ func (sc *scProcessor) executeSmartContractCall(
 		sc.wasmVMChangeLocker.RUnlock()
 		returnMessage := "cannot get vm from address"
 		log.Trace("get vm from address error", "error", err.Error())
-		return userErrorVmOutput, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), err.Error(), []byte(returnMessage))
+		return userErrorVmOutput, sc.ProcessIfError(ctx, tc, err.Error(), []byte(returnMessage))
 	}
 
 	sc.blockChainHook.ResetCounters()
-	defer sc.printBlockchainHookCounters(ctx, tx, tc)
+	defer sc.printBlockchainHookCounters(ctx, tc)
 
 	var vmOutput *vmcommon.VMOutput
 	vmOutput, err = vmExec.RunSmartContractCall(vmInput)
@@ -349,22 +365,22 @@ func (sc *scProcessor) executeSmartContractCall(
 		}
 
 		log.Debug("run smart contract call error", "error", err.Error())
-		return userErrorVmOutput, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), err.Error(), []byte(""))
+		return userErrorVmOutput, sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
 	}
 	if vmOutput == nil {
 		err = process.ErrNilVMOutput
 		log.Debug("run smart contract call error", "error", err.Error())
-		return userErrorVmOutput, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), err.Error(), []byte(""))
+		return userErrorVmOutput, sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
 	}
 
 	if vmOutput.ReturnCode != vmcommon.Ok {
-		return userErrorVmOutput, sc.processIfErrorWithAddedLogs(acntSnd, txHash, tx, tc, ctx.ContractID(), vmOutput.ReturnCode.String(), []byte(vmOutput.ReturnMessage), prevVmOutput, vmOutput.Logs)
+		return userErrorVmOutput, sc.processIfErrorWithAddedLogs(ctx, tc, vmOutput.ReturnCode.String(), []byte(vmOutput.ReturnMessage), prevVmOutput, vmOutput.Logs)
 	}
 
 	return vmOutput, nil
 }
 
-func (sc *scProcessor) printBlockchainHookCounters(ctx kapp.KappContext, tx data.TransactionHandler, tc data.SmartContractHandler) {
+func (sc *scProcessor) printBlockchainHookCounters(ctx kapp.KappContext, tc data.SmartContractHandler) {
 	if logCounters.GetLevel() > logger.LogTrace {
 		return
 	}
@@ -372,9 +388,9 @@ func (sc *scProcessor) printBlockchainHookCounters(ctx kapp.KappContext, tx data
 	logCounters.Trace("blockchain hook counters",
 		"counters", sc.getBlockchainHookCountersString(),
 		"tx hash", ctx.TxHash(),
-		"sender", sc.pubkeyConv.Encode(tx.GetSender()),
+		"sender", sc.pubkeyConv.Encode(ctx.OriginalSender()),
 		"value", tc.GetCallValue(),
-		"data", tx.GetDataWithIdx(ctx.ContractID()),
+		"data", ctx.GetExecData(),
 	)
 }
 
@@ -401,13 +417,12 @@ func (sc *scProcessor) getBlockchainHookCountersString() string {
 }
 
 func (sc *scProcessor) finishSCExecution(
-	txHash []byte,
-	tx data.TransactionHandler,
+	ctx kapp.KappContext,
 	tc data.SmartContractHandler,
-	contractID int,
 	vmOutput *vmcommon.VMOutput,
 ) (vmcommon.ReturnCode, error) {
-	totalConsumedGas := sc.computeTotalConsumedGas(tx, vmOutput)
+	txHash := ctx.TxHash()
+	totalConsumedGas := sc.computeTotalConsumedGas(ctx.GetGasLimit(), vmOutput)
 
 	logEntries := []*vmcommon.LogEntry{
 		{
@@ -423,13 +438,19 @@ func (sc *scProcessor) finishSCExecution(
 		},
 	}
 	vmOutput.Logs = append(vmOutput.Logs, logEntries...)
+	// sub consumed gas from context
+	err := ctx.SubGasUsed(totalConsumedGas.Uint64())
+	if err != nil {
+		log.Error("subGasUsed", "error", err.Error())
+		return vmcommon.VMExecutionFailed, err
+	}
 
-	completedTxLog := sc.createCompleteEventLogIfNoMoreAction(tx, tc, txHash)
+	completedTxLog := sc.createCompleteEventLogIfNoMoreAction(tc, txHash)
 	if completedTxLog != nil {
 		vmOutput.Logs = append(vmOutput.Logs, completedTxLog)
 	}
 
-	ignorableError := sc.txLogsProcessor.SaveLog(txHash, tx, tc, contractID, vmOutput.Logs)
+	ignorableError := sc.txLogsProcessor.SaveLog(txHash, ctx.OriginalSender(), tc, ctx.ContractID(), vmOutput.Logs)
 	if ignorableError != nil {
 		log.Debug("scProcessor.finishSCExecution txLogsProcessor.SaveLog()", "error", ignorableError.Error())
 	}
@@ -440,14 +461,14 @@ func (sc *scProcessor) finishSCExecution(
 }
 
 func (sc *scProcessor) computeTotalConsumedGas(
-	tx data.TransactionHandler,
+	gasLimit uint64,
 	vmOutput *vmcommon.VMOutput,
 ) *big.Int {
-	if tx.GetGasLimit() == 0 {
+	if gasLimit == 0 {
 		return big.NewInt(0)
 	}
 
-	consumedGas, err := tools.SafeSubUint64(tx.GetGasLimit(), vmOutput.GasRemaining)
+	consumedGas, err := tools.SafeSubUint64(gasLimit, vmOutput.GasRemaining)
 	log.LogIfError(err, "computeTotalConsumedGas", "vmOutput.GasRemaining")
 
 	log.Info("computeTotalConsumedGas", "consumedGas", consumedGas)
@@ -457,27 +478,23 @@ func (sc *scProcessor) computeTotalConsumedGas(
 
 // ProcessIfError creates a smart contract result, consumes the gas and returns the value to the user
 func (sc *scProcessor) ProcessIfError(
-	acntSnd state.UserAccountHandler,
-	txHash []byte,
-	tx data.TransactionHandler,
+	ctx kapp.KappContext,
 	tc data.SmartContractHandler,
-	contractID int,
 	returnCode string,
 	returnMessage []byte,
 ) error {
-	return sc.processIfErrorWithAddedLogs(acntSnd, txHash, tx, tc, contractID, returnCode, returnMessage, nil, nil)
+	return sc.processIfErrorWithAddedLogs(ctx, tc, returnCode, returnMessage, nil, nil)
 }
 
-func (sc *scProcessor) processIfErrorWithAddedLogs(acntSnd state.UserAccountHandler,
-	txHash []byte,
-	tx data.TransactionHandler,
+func (sc *scProcessor) processIfErrorWithAddedLogs(
+	ctx kapp.KappContext,
 	tc data.SmartContractHandler,
-	contractID int,
 	returnCode string,
 	returnMessage []byte,
 	prevVmOutput *vmcommon.VMOutput,
 	internalVMLogs []*vmcommon.LogEntry,
 ) error {
+	txHash := ctx.TxHash()
 	sc.vmOutputCacher.Put(txHash, &vmcommon.VMOutput{
 		ReturnCode:    vmcommon.VMSimulateFailed,
 		ReturnMessage: string(returnMessage),
@@ -485,7 +502,13 @@ func (sc *scProcessor) processIfErrorWithAddedLogs(acntSnd state.UserAccountHand
 
 	returnMessage = []byte(returnCode)
 
-	consumedFee := big.NewInt(int64(tx.GetGasLimit()))
+	consumedFee := big.NewInt(int64(ctx.GetGasLimit()))
+	// sub consumed gas from context
+	err := ctx.SubGasUsed(consumedFee.Uint64())
+	if err != nil {
+		log.Error("subGasUsed", "error", err.Error())
+		return err
+	}
 
 	processIfErrorLogs := make([]*vmcommon.LogEntry, 0)
 	if prevVmOutput != nil && len(prevVmOutput.Logs) > 0 {
@@ -496,7 +519,7 @@ func (sc *scProcessor) processIfErrorWithAddedLogs(acntSnd state.UserAccountHand
 		processIfErrorLogs = append(processIfErrorLogs, internalVMLogs...)
 	}
 
-	ignorableError := sc.txLogsProcessor.SaveLog(txHash, tx, tc, contractID, processIfErrorLogs)
+	ignorableError := sc.txLogsProcessor.SaveLog(txHash, ctx.OriginalSender(), tc, ctx.ContractID(), processIfErrorLogs)
 	if ignorableError != nil {
 		log.Debug("scProcessor.ProcessIfError() txLogsProcessor.SaveLog()", "error", ignorableError.Error())
 	}
@@ -507,12 +530,12 @@ func (sc *scProcessor) processIfErrorWithAddedLogs(acntSnd state.UserAccountHand
 }
 
 // DeploySmartContract processes the transaction, then deploy the smart contract into VM, final code is saved in account
-func (sc *scProcessor) DeploySmartContract(ctx kapp.KappContext, tx data.TransactionHandler, tc data.SmartContractHandler, acntSrc state.UserAccountHandler) (vmcommon.ReturnCode, error) {
+func (sc *scProcessor) DeploySmartContract(ctx kapp.KappContext, tc data.SmartContractHandler) (vmcommon.ReturnCode, error) {
 	if !sc.forkController.EnableSmartContracts() {
 		return vmcommon.VMContractInvalid, common.ErrInvalidContract
 	}
 
-	err := sc.checkTxValidity(tx, tc)
+	err := sc.checkTxValidity(tc)
 	if err != nil {
 		log.Debug("invalid transaction", "error", err.Error())
 		return vmcommon.VMContractInvalid, err
@@ -520,7 +543,7 @@ func (sc *scProcessor) DeploySmartContract(ctx kapp.KappContext, tx data.Transac
 
 	sw := tools.NewStopWatch()
 	sw.Start("deploy")
-	returnCode, err := sc.doDeploySmartContract(ctx, tx, tc, acntSrc)
+	returnCode, err := sc.doDeploySmartContract(ctx, tc)
 	sw.Stop("deploy")
 	duration := sw.GetMeasurement("deploy")
 
@@ -535,12 +558,10 @@ func (sc *scProcessor) DeploySmartContract(ctx kapp.KappContext, tx data.Transac
 
 func (sc *scProcessor) doDeploySmartContract(
 	ctx kapp.KappContext,
-	tx data.TransactionHandler,
 	tc data.SmartContractHandler,
-	acntSnd state.UserAccountHandler,
 ) (vmcommon.ReturnCode, error) {
 	sc.blockChainHook.ResetCounters()
-	defer sc.printBlockchainHookCounters(ctx, tx, tc)
+	defer sc.printBlockchainHookCounters(ctx, tc)
 
 	if len(tc.GetAddress()) != 0 {
 		log.Debug("wrong transaction - not empty address", "error", process.ErrWrongTransaction.Error())
@@ -553,19 +574,20 @@ func (sc *scProcessor) doDeploySmartContract(
 	shouldAllowDeploy := sc.isGenesisProcessing
 	if !shouldAllowDeploy {
 		log.Trace("deploy is disabled")
-		return vmcommon.VMUserError, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), process.ErrSmartContractDeploymentIsDisabled.Error(), []byte(""))
+		return vmcommon.VMUserError, sc.ProcessIfError(ctx, tc, process.ErrSmartContractDeploymentIsDisabled.Error(), []byte(""))
 	}
 
+	gasLimit := ctx.GetGasLimit()
 	// transaction process transfer funds cost
-	gasRemaining, err := sc.consumeKDATransferGas(tx.GetGasLimit(), tc)
+	gasLimit, err := sc.consumeKDATransferGas(gasLimit, tc)
 	if err != nil {
 		return vmcommon.VMUserError, process.ErrNotEnoughGas
 	}
 
-	vmInput, vmType, err := sc.createVMDeployInput(tx, tc.GetCallValue(), gasRemaining)
+	vmInput, vmType, err := sc.createVMDeployInput(ctx, gasLimit, tc.GetCallValue())
 	if err != nil {
 		log.Trace("Transaction data invalid", "error", err.Error())
-		return vmcommon.VMUserError, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), err.Error(), []byte(""))
+		return vmcommon.VMUserError, sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
 	}
 
 	sc.wasmVMChangeLocker.RLock()
@@ -573,50 +595,57 @@ func (sc *scProcessor) doDeploySmartContract(
 	if err != nil {
 		sc.wasmVMChangeLocker.RUnlock()
 		log.Trace("VM not found", "error", err.Error())
-		return vmcommon.VMUserError, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), err.Error(), []byte(""))
+		return vmcommon.VMUserError, sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
 	}
 
 	vmOutput, err = vmExec.RunSmartContractCreate(vmInput)
 	sc.wasmVMChangeLocker.RUnlock()
 	if err != nil {
 		log.Debug("VM error", "error", err.Error())
-		return vmcommon.VMUserError, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), err.Error(), []byte(""))
+		return vmcommon.VMUserError, sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
 	}
 
 	if vmOutput == nil {
 		err = process.ErrNilVMOutput
 		log.Trace("run smart contract create", "error", err.Error())
-		return vmcommon.VMUserError, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), err.Error(), []byte(""))
+		return vmcommon.VMUserError, sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
 	}
 
 	if vmOutput.ReturnCode != vmcommon.Ok {
-		return vmcommon.VMUserError, sc.processIfErrorWithAddedLogs(acntSnd, txHash, tx, tc, ctx.ContractID(), vmOutput.ReturnCode.String(), []byte(vmOutput.ReturnMessage), nil, vmOutput.Logs)
+		return vmcommon.VMUserError, sc.processIfErrorWithAddedLogs(ctx, tc, vmOutput.ReturnCode.String(), []byte(vmOutput.ReturnMessage), nil, vmOutput.Logs)
 	}
 
-	err = sc.processVMOutput(ctx, vmOutput, txHash, tx, vmInput.CallType)
+	err = sc.processVMOutput(ctx, vmOutput)
 	if err != nil {
 		log.Trace("Processing error", "error", err.Error())
-		return vmcommon.VMExecutionFailed, sc.ProcessIfError(acntSnd, txHash, tx, tc, ctx.ContractID(), err.Error(), []byte(vmOutput.ReturnMessage))
+		return vmcommon.VMExecutionFailed, sc.ProcessIfError(ctx, tc, err.Error(), []byte(vmOutput.ReturnMessage))
 	}
 
-	totalConsumedGas := sc.computeTotalConsumedGas(tx, vmOutput)
+	totalConsumedGas := sc.computeTotalConsumedGas(ctx.GetGasLimit(), vmOutput)
 	log.Info("DeploySmartContract", "totalConsumedGas", totalConsumedGas)
-	deployedSC := sc.printScDeployed(vmOutput, tx)
+	deployedSC := sc.printScDeployed(ctx.OriginalSender(), vmOutput)
 
 	logEntries := []*vmcommon.LogEntry{
 		{
-			Address:    tx.GetSender(),
+			Address:    ctx.OriginalSender(),
 			Identifier: []byte(core.ReturnDataString),
 			Topics:     [][]byte{[]byte(vmOutput.ReturnMessage)},
 			Data:       vmOutput.ReturnData,
 		},
 		{
-			Address:    tx.GetSender(),
+			Address:    ctx.OriginalSender(),
 			Identifier: []byte(core.TotalConsumedGasString),
 			Topics:     [][]byte{totalConsumedGas.Bytes()},
 		},
 	}
 	vmOutput.Logs = append(vmOutput.Logs, logEntries...)
+
+	// sub consumed gas from context
+	err = ctx.SubGasUsed(totalConsumedGas.Uint64())
+	if err != nil {
+		log.Error("subGasUsed", "error", err.Error())
+		return vmcommon.VMUserError, sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
+	}
 
 	// add receipt for deploy
 	for _, addr := range deployedSC {
@@ -624,14 +653,14 @@ func (sc *scProcessor) doDeploySmartContract(
 			txProcess.SCTrigger,
 			ctx.ContractID(),
 			[]byte(strconv.FormatInt(int64(tc.GetType()), 10)),
-			tx.GetSender(),
+			ctx.OriginalSender(),
 			addr,
 		))
 	}
 
 	sc.vmOutputCacher.Put(txHash, vmOutput, 0)
 
-	ignorableError := sc.txLogsProcessor.SaveLog(txHash, tx, tc, ctx.ContractID(), vmOutput.Logs)
+	ignorableError := sc.txLogsProcessor.SaveLog(txHash, ctx.OriginalSender(), tc, ctx.ContractID(), vmOutput.Logs)
 	if ignorableError != nil {
 		log.Debug("scProcessor.DeploySmartContract() txLogsProcessor.SaveLog()", "error", ignorableError.Error())
 	}
@@ -639,7 +668,7 @@ func (sc *scProcessor) doDeploySmartContract(
 	return 0, nil
 }
 
-func (sc *scProcessor) printScDeployed(vmOutput *vmcommon.VMOutput, tx data.TransactionHandler) [][]byte {
+func (sc *scProcessor) printScDeployed(sender []byte, vmOutput *vmcommon.VMOutput) [][]byte {
 	deployedSC := make([][]byte, 0)
 	scGenerated := make([]string, 0, len(vmOutput.OutputAccounts))
 	for _, account := range vmOutput.OutputAccounts {
@@ -657,7 +686,7 @@ func (sc *scProcessor) printScDeployed(vmOutput *vmcommon.VMOutput, tx data.Tran
 	}
 
 	log.Debug("SmartContract deployed",
-		"owner", sc.pubkeyConv.Encode(tx.GetSender()),
+		"owner", sc.pubkeyConv.Encode(sender),
 		"SC address(es)", strings.Join(scGenerated, ", "))
 
 	return deployedSC
@@ -688,12 +717,9 @@ func (sc *scProcessor) processSCPayment(tc data.SmartContractHandler, acntSnd st
 func (sc *scProcessor) processVMOutput(
 	ctx kapp.KappContext,
 	vmOutput *vmcommon.VMOutput,
-	txHash []byte,
-	tx data.TransactionHandler,
-	callType vmData.CallType,
 ) error {
 	outPutAccounts := process.SortVMOutputInsideData(vmOutput)
-	err := sc.processSCOutputAccounts(ctx, vmOutput, callType, outPutAccounts, tx, txHash)
+	err := sc.processSCOutputAccounts(ctx, vmOutput, outPutAccounts)
 	if err != nil {
 		return err
 	}
@@ -710,10 +736,7 @@ func (sc *scProcessor) processVMOutput(
 func (sc *scProcessor) processSCOutputAccounts(
 	ctx kapp.KappContext,
 	vmOutput *vmcommon.VMOutput,
-	callType vmData.CallType,
 	outputAccounts []*vmcommon.OutputAccount,
-	tx data.TransactionHandler,
-	txHash []byte,
 ) error {
 	for _, outAcc := range outputAccounts {
 		acc, err := sc.getAccountFromAddress(outAcc.Address)
@@ -873,24 +896,27 @@ func (sc *scProcessor) checkUpgradePermission(contract state.UserAccountHandler,
 }
 
 func (sc *scProcessor) createCompleteEventLogIfNoMoreAction(
-	tx data.TransactionHandler,
 	tc data.SmartContractHandler,
 	txHash []byte,
 ) *vmcommon.LogEntry {
-	return createCompleteEventLog(tx, tc, txHash)
+	return createCompleteEventLog(tc, txHash)
 }
 
-func (sc *scProcessor) consumeKDATransferGas(gasLimit uint64, tc data.SmartContractHandler) (uint64, error) {
+func (sc *scProcessor) consumeKDATransferGas(providedGas uint64, tc data.SmartContractHandler) (uint64, error) {
+	count := len(tc.GetCallValue())
+	if count == 0 {
+		return providedGas, nil
+	}
+
 	sc.mutGasLock.RLock()
 	gasCostPerTransfer := sc.builtInGasCosts[transferValueGasSchedule]
 	sc.mutGasLock.RUnlock()
 
-	gasCost := gasCostPerTransfer * uint64(len(tc.GetCallValue()))
-
-	return tools.SafeSubUint64(gasLimit, gasCost)
+	gasCost := gasCostPerTransfer * uint64(count)
+	return tools.SafeSubUint64(providedGas, gasCost)
 }
 
-func createCompleteEventLog(tx data.TransactionHandler, tc data.SmartContractHandler, txHash []byte) *vmcommon.LogEntry {
+func createCompleteEventLog(tc data.SmartContractHandler, txHash []byte) *vmcommon.LogEntry {
 	newLog := &vmcommon.LogEntry{
 		Identifier: []byte(core.CompletedTxEventIdentifier),
 		Address:    tc.GetAddress(),

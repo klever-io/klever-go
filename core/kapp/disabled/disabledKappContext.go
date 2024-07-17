@@ -88,3 +88,15 @@ func (k *kappContext) SetReturnData(data [][]byte) {
 func (k *kappContext) GetAndClearReturnData() [][]byte {
 	return [][]byte{}
 }
+
+func (k *kappContext) GetExecData() []byte {
+	return nil
+}
+
+func (k *kappContext) GetGasLimit() uint64 {
+	return 0
+}
+
+func (k *kappContext) SubGasUsed(_ uint64) error {
+	return nil
+}

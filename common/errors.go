@@ -846,3 +846,6 @@ var ErrNilTxSimulatorProcessor = errors.New("nil transaction simulator processor
 
 // ErrNilTxLogsProcessor is the error returned when a transaction has no logs
 var ErrNilTxLogsProcessor = errors.New("nil transaction logs processor")
+
+// ErrNotEnoughGas signals that not enough gas has been provided
+var ErrNotEnoughGas = errors.New("not enough gas was sent in the transaction")

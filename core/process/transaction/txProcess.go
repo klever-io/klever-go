@@ -316,8 +316,7 @@ func (txProc *txProcessor) ProcessTransaction(block *block.Block, txHash []byte,
 		ContractType:   -1,
 		Block:          block,
 		TxHash:         txHash,
-		TxNonce:        tx.GetNonce(),
-		TxData:         tx.GetRawData().GetData(),
+		TX:             tx,
 	})
 
 	if kAppFeeErr == nil {
@@ -790,7 +789,7 @@ func (txProc *txProcessor) smartContract(ctx kapp.KappContext, owner state.UserA
 
 	switch tc.GetType() {
 	case transaction.SmartContract_SCDeploy:
-		returnCode, err := txProc.scProcessor.DeploySmartContract(ctx, tx, tc, owner)
+		returnCode, err := txProc.scProcessor.DeploySmartContract(ctx, tc)
 		if err != nil || returnCode != vmcommon.Ok {
 			tx.ResultCode = returnCode.ResultCode()
 			if err == nil {
@@ -812,7 +811,7 @@ func (txProc *txProcessor) smartContract(ctx kapp.KappContext, owner state.UserA
 			return err
 		}
 
-		returnCode, err := txProc.scProcessor.ExecuteSmartContractTransaction(ctx, tx, tc, owner, destAcc)
+		returnCode, err := txProc.scProcessor.ExecuteSmartContractTransaction(ctx, tc, owner, destAcc)
 		if err != nil || returnCode != vmcommon.Ok {
 			tx.ResultCode = returnCode.ResultCode()
 			if err == nil {
@@ -824,7 +823,7 @@ func (txProc *txProcessor) smartContract(ctx kapp.KappContext, owner state.UserA
 
 		sw.Stop("execute")
 		duration := sw.GetMeasurement("execute")
-		logSC.Trace("execute smart contract", "duration", duration.String())
+		logSC.Trace("execute smart contract", "duration", duration)
 
 		tx.ResultCode = transaction.Transaction_Ok
 		return nil

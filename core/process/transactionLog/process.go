@@ -131,13 +131,9 @@ func (tlp *txLogProcessor) Clean() {
 }
 
 // SaveLog takes the VM logs and saves them into the correct format in storage
-func (tlp *txLogProcessor) SaveLog(txHash []byte, tx data.TransactionHandler, tc data.SmartContractHandler, contractID int, logEntries []*vmcommon.LogEntry) error {
+func (tlp *txLogProcessor) SaveLog(txHash []byte, acntSender []byte, tc data.SmartContractHandler, contractID int, logEntries []*vmcommon.LogEntry) error {
 	if len(txHash) == 0 {
 		return process.ErrNilTxHash
-	}
-
-	if check.IfNil(tx) {
-		return process.ErrNilTransaction
 	}
 
 	if len(logEntries) == 0 {
@@ -150,7 +146,7 @@ func (tlp *txLogProcessor) SaveLog(txHash []byte, tx data.TransactionHandler, tc
 	}
 
 	txLog := &transaction.Log{
-		Address:    getLogAddressByTx(tx, tc),
+		Address:    getLogAddressByTx(acntSender, tc),
 		ContractID: int32(contractID),
 	}
 
@@ -184,9 +180,9 @@ func (tlp *txLogProcessor) saveLogToCache(txHash []byte, log *transaction.Log) {
 }
 
 // For SC deployment transactions, we use the sender address
-func getLogAddressByTx(tx data.TransactionHandler, tc data.SmartContractHandler) []byte {
+func getLogAddressByTx(acntSender []byte, tc data.SmartContractHandler) []byte {
 	if core.IsEmptyAddress(tc.GetAddress()) {
-		return tx.GetSender()
+		return acntSender
 	}
 
 	return tc.GetAddress()

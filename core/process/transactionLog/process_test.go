@@ -45,23 +45,13 @@ func TestTxLogProcessor_SaveLogsNilTxHash(t *testing.T) {
 	require.Equal(t, process.ErrNilTxHash, err)
 }
 
-func TestTxLogProcessor_SaveLogsNilTx(t *testing.T) {
-	txLogProcessor, _ := transactionLog.NewTxLogProcessor(transactionLog.ArgTxLogProcessor{
-		Storer:      &mock.StorerStub{},
-		Marshalizer: &mock.MarshalizerMock{},
-	})
-
-	err := txLogProcessor.SaveLog([]byte("txhash"), nil, nil, 0, make([]*vmcommon.LogEntry, 0))
-	require.Equal(t, process.ErrNilTransaction, err)
-}
-
 func TestTxLogProcessor_SaveLogsEmptyLogsReturnsNil(t *testing.T) {
 	txLogProcessor, _ := transactionLog.NewTxLogProcessor(transactionLog.ArgTxLogProcessor{
 		Storer:      &mock.StorerStub{},
 		Marshalizer: &mock.MarshalizerMock{},
 	})
 
-	err := txLogProcessor.SaveLog([]byte("txhash"), &transaction.Transaction{}, nil, 0, make([]*vmcommon.LogEntry, 0))
+	err := txLogProcessor.SaveLog([]byte("txhash"), []byte{}, nil, 0, make([]*vmcommon.LogEntry, 0))
 	require.Nil(t, err)
 }
 
@@ -76,7 +66,7 @@ func TestTxLogProcessor_Clean(t *testing.T) {
 	logs := []*vmcommon.LogEntry{
 		{Address: []byte("first log")},
 	}
-	err := txLogsProc.SaveLog([]byte("txhash"), &transaction.Transaction{}, &transaction.SmartContract{}, 0, logs)
+	err := txLogsProc.SaveLog([]byte("txhash"), []byte{}, &transaction.SmartContract{}, 0, logs)
 	require.Nil(t, err)
 	require.Len(t, txLogsProc.GetAllCurrentLogs(), 1)
 
@@ -99,7 +89,7 @@ func TestTxLogProcessor_SaveLogsMarshalErr(t *testing.T) {
 	logs := []*vmcommon.LogEntry{
 		{Address: []byte("first log")},
 	}
-	err := txLogProcessor.SaveLog([]byte("txhash"), &transaction.Transaction{}, &transaction.SmartContract{}, 0, logs)
+	err := txLogProcessor.SaveLog([]byte("txhash"), []byte{}, &transaction.SmartContract{}, 0, logs)
 	require.Equal(t, retErr, err)
 }
 
@@ -122,7 +112,7 @@ func TestTxLogProcessor_SaveLogsStoreErr(t *testing.T) {
 	logs := []*vmcommon.LogEntry{
 		{Address: []byte("first log")},
 	}
-	err := txLogProcessor.SaveLog([]byte("txhash"), &transaction.Transaction{}, &transaction.SmartContract{}, 0, logs)
+	err := txLogProcessor.SaveLog([]byte("txhash"), []byte{}, &transaction.SmartContract{}, 0, logs)
 	require.Equal(t, retErr, err)
 }
 
@@ -147,7 +137,7 @@ func TestTxLogProcessor_SaveLogsCallsPutWithMarshalBuff(t *testing.T) {
 	logs := []*vmcommon.LogEntry{
 		{Address: []byte("first log")},
 	}
-	_ = txLogProcessor.SaveLog([]byte("txhash"), &transaction.Transaction{}, &transaction.SmartContract{}, 0, logs)
+	_ = txLogProcessor.SaveLog([]byte("txhash"), []byte{}, &transaction.SmartContract{}, 0, logs)
 
 	require.Equal(t, buffExpected, buffActual)
 }
@@ -199,7 +189,7 @@ func TestTxLogProcessor_GetLogFromCache(t *testing.T) {
 		Marshalizer: &mock.MarshalizerMock{},
 	})
 	txLogProcessor.EnableLogToBeSavedInCache()
-	_ = txLogProcessor.SaveLog([]byte("txhash"), &transaction.Transaction{}, &transaction.SmartContract{}, 0, []*vmcommon.LogEntry{{}})
+	_ = txLogProcessor.SaveLog([]byte("txhash"), []byte{}, &transaction.SmartContract{}, 0, []*vmcommon.LogEntry{{}})
 
 	logData, found := txLogProcessor.GetLogFromCache([]byte("txhash"))
 	require.True(t, found)
@@ -230,7 +220,7 @@ func TestTxLogProcessor_GetLogFromCacheNotInCacheShouldReturnFromStorage(t *test
 		},
 		Marshalizer: marshalizer,
 	})
-	_ = txLogProcessor.SaveLog([]byte("txhash"), &transaction.Transaction{}, &transaction.SmartContract{}, 0, logs)
+	_ = txLogProcessor.SaveLog([]byte("txhash"), []byte{}, &transaction.SmartContract{}, 0, logs)
 
 	_, found := txLogProcessor.GetLogFromCache([]byte("txhash"))
 	require.True(t, found)

@@ -914,7 +914,7 @@ func (host *vmHost) ExecuteKDATransfer(transfersArgs *vmhost.KDATransfersArgs, c
 
 	if log.GetLevel() == logger.LogTrace {
 		for _, transfer := range transfersArgs.Transfers {
-			log.Trace("KDA transfer", "token", transfer.KDATokenName, "nonce", transfer.KDATokenNonce, "value", transfer.KDAValue)
+			log.Trace("KDA transfer", "token", string(transfer.KDATokenName), "nonce", transfer.KDATokenNonce, "value", transfer.KDAValue)
 		}
 	}
 	log.Debug("KDA transfer", "sender", transfersArgs.Sender, "dest", transfersArgs.Destination)

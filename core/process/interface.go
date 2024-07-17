@@ -606,9 +606,9 @@ type VirtualMachinesContainerFactory interface {
 
 // SmartContractProcessor is the main interface for the smart contract caller engine
 type SmartContractProcessor interface {
-	ExecuteSmartContractTransaction(ctx kapp.KappContext, tx data.TransactionHandler, tc data.SmartContractHandler, acntSrc, acntDst state.UserAccountHandler) (vmcommon.ReturnCode, error)
-	DeploySmartContract(ctx kapp.KappContext, tx data.TransactionHandler, tc data.SmartContractHandler, acntSrc state.UserAccountHandler) (vmcommon.ReturnCode, error)
-	ProcessIfError(acntSnd state.UserAccountHandler, txHash []byte, tx data.TransactionHandler, tc data.SmartContractHandler, contractID int, returnCode string, returnMessage []byte) error
+	ExecuteSmartContractTransaction(ctx kapp.KappContext, tc data.SmartContractHandler, acntSrc, acntDst state.UserAccountHandler) (vmcommon.ReturnCode, error)
+	DeploySmartContract(ctx kapp.KappContext, tc data.SmartContractHandler) (vmcommon.ReturnCode, error)
+	ProcessIfError(ctx kapp.KappContext, tc data.SmartContractHandler, returnCode string, returnMessage []byte) error
 	IsPayable(sndAddress []byte, recvAddress []byte) (bool, error)
 	LastBlock() data.HeaderHandler
 	IsInterfaceNil() bool
@@ -705,7 +705,7 @@ type ArgumentsParser interface {
 type TransactionLogProcessor interface {
 	GetAllCurrentLogs() []*data.LogData
 	GetLog(txHash []byte) (data.LogHandler, error)
-	SaveLog(txHash []byte, tx data.TransactionHandler, tc data.SmartContractHandler, contractID int, vmLogs []*vmcommon.LogEntry) error
+	SaveLog(txHash []byte, acntSender []byte, tc data.SmartContractHandler, contractID int, vmLogs []*vmcommon.LogEntry) error
 	Clean()
 	IsInterfaceNil() bool
 }

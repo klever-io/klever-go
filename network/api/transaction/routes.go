@@ -593,18 +593,6 @@ func SimulateTransaction(c *gin.Context) {
 		log.Debug(fmt.Sprintf("API call: SimulateTransaction took %s", duration))
 	}
 
-	if err != nil {
-		c.JSON(
-			http.StatusInternalServerError,
-			shared.GenericAPIResponse{
-				Data:  nil,
-				Error: err.Error(),
-				Code:  shared.ReturnCodeInternalError,
-			},
-		)
-		return
-	}
-
 	c.JSON(
 		http.StatusOK,
 		shared.GenericAPIResponse{
