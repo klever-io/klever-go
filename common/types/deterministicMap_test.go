@@ -196,3 +196,62 @@ func TestDeterministicMapEach_Order(t *testing.T) {
 		})
 	}
 }
+
+func TestDeterministicMapGetAt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		data      map[string]string
+		index     int
+		expectedV string
+	}{
+		{
+			name:      "GetFirstElement",
+			data:      map[string]string{"1": "a", "2": "b", "3": "c"},
+			index:     0,
+			expectedV: "a",
+		},
+		{
+			name:      "GetMiddleElement",
+			data:      map[string]string{"1": "a", "2": "b", "3": "c"},
+			index:     1,
+			expectedV: "b",
+		},
+		{
+			name:      "GetLastElement",
+			data:      map[string]string{"1": "a", "2": "b", "3": "c"},
+			index:     2,
+			expectedV: "c",
+		},
+		{
+			name:      "GetLastElementNegativeIndex",
+			data:      map[string]string{"1": "a", "2": "b", "3": "c"},
+			index:     -1,
+			expectedV: "c",
+		},
+		{
+			name:      "GetElementOutOfBoundsPositive",
+			data:      map[string]string{"1": "a", "2": "b", "3": "c"},
+			index:     3,
+			expectedV: "",
+		},
+		{
+			name:      "GetElementOutOfBoundsNegative",
+			data:      map[string]string{"1": "a", "2": "b", "3": "c"},
+			index:     -4,
+			expectedV: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dm := NewDeterministicMap(tt.data)
+			value := dm.GetAt(tt.index)
+
+			if value != tt.expectedV {
+				t.Errorf("Expected value %s, got %s", tt.expectedV, value)
+			}
+		})
+	}
+}

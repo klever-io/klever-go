@@ -51,3 +51,18 @@ func (dm deterministicMap[K, V]) Each(f func(key K, value V) error) error {
 	}
 	return nil
 }
+
+// GetAt returns the value at the given index in the deterministic order.
+func (dm deterministicMap[K, V]) GetAt(index int) V {
+	if index < 0 {
+		index = len(dm.sortedKeys) + index
+	}
+
+	if index < 0 || index >= len(dm.sortedKeys) {
+		var zeroValue V
+		return zeroValue
+	}
+
+	key := dm.sortedKeys[index]
+	return dm.data[key]
+}

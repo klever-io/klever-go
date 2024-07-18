@@ -956,7 +956,7 @@ func (mp *metaProcessor) createBlockBody(blk *block.Block, haveTime func() bool)
 	err := mp.txCoordinator.CreateAndProcessBlockTransactions(blk, haveTime)
 	elapsedTime := time.Since(startTime)
 	log.Debug("elapsed time to select tx and create block",
-		"time [s]", elapsedTime,
+		"time [s]", elapsedTime.Seconds(),
 	)
 	if err != nil {
 		log.Debug("createAndProcessBlock", "error", err.Error())

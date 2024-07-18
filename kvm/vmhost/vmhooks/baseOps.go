@@ -7,6 +7,7 @@ import (
 	"math/big"
 
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/common/types"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/data/vm"
 	"github.com/klever-io/klever-go/kapps"
@@ -351,12 +352,9 @@ func (context *VMHooksImpl) GetKDANFTURILength(
 		return 0
 	}
 
-	// get first from map
-	for _, uri := range kdaData.URIs {
-		return int32(len(uri))
-	}
+	dMap := types.NewDeterministicMap(kdaData.URIs)
 
-	return 0
+	return int32(len(dMap.GetAt(0)))
 }
 
 // GetKDATokenData VMHooks implementation.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/big"
 
+	"github.com/klever-io/klever-go/common/types"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/math"
@@ -141,10 +142,14 @@ func writeSplitRoyaltiesToBytes(
 ) []byte {
 	destinationBytes := make([]byte, SplitRoyaltiesLen*len(splitRoyalties))
 	dataIndex := 0
-	for key, sr := range splitRoyalties {
-		writeSplitRoyalties(managedType, key, sr, destinationBytes[dataIndex:dataIndex+SplitRoyaltiesLen])
+
+	dMap := types.NewDeterministicMap(splitRoyalties)
+
+	dMap.Each(func(key string, value *kapps.RoyaltySplitData) error {
+		writeSplitRoyalties(managedType, key, value, destinationBytes[dataIndex:dataIndex+SplitRoyaltiesLen])
 		dataIndex += SplitRoyaltiesLen
-	}
+		return nil
+	})
 
 	return destinationBytes
 }
@@ -211,10 +216,13 @@ func writeUserBuckets(
 	destinationBytes := make([]byte, UserBucketsLen*len(buckets))
 	dataIndex := 0
 
-	for key, bucket := range buckets {
-		writeUserBucket(managedType, key, bucket, destinationBytes[dataIndex:dataIndex+UserBucketsLen])
+	dMap := types.NewDeterministicMap(buckets)
+
+	dMap.Each(func(key string, value *kapps.UserBucket) error {
+		writeUserBucket(managedType, key, value, destinationBytes[dataIndex:dataIndex+UserBucketsLen])
 		dataIndex += UserBucketsLen
-	}
+		return nil
+	})
 
 	return destinationBytes
 }
@@ -339,10 +347,14 @@ func writeRolesToBytes(managedType vmhost.ManagedTypesContext, roles []*kapps.Ro
 func writeURIsToBytes(managedType vmhost.ManagedTypesContext, uris map[string]string) []byte {
 	destinationBytes := make([]byte, URIsDataLen*len(uris))
 	dataIndex := 0
-	for key, value := range uris {
-		writeURIs(managedType, key, value, destinationBytes[dataIndex:dataIndex+RolesDataLen])
-		dataIndex += RolesDataLen
-	}
+
+	dMap := types.NewDeterministicMap(uris)
+
+	dMap.Each(func(key string, value string) error {
+		writeURIs(managedType, key, value, destinationBytes[dataIndex:dataIndex+URIsDataLen])
+		dataIndex += URIsDataLen
+		return nil
+	})
 
 	return destinationBytes
 }

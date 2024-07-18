@@ -427,7 +427,7 @@ func (tc *UnfreezeContract) Validate() error {
 		return errors.New("invalid asset id")
 	}
 
-	if len(tc.BucketID) != 0 {
+	if len(tc.BucketID) == 0 {
 		return errors.New("invalid bucket id")
 	}
 
