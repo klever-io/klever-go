@@ -14,6 +14,7 @@ import (
 
 var userA, _ = addressConverter.Decode("klv1g5khe6ec5yhwqd773gghc55q0kvpanevgqzj8h5r5sj2eeke2heqnt5dfp")
 var userB, _ = addressConverter.Decode("klv1u75daf827dd864ug63mh5xvntd06h9wjk7rau3sd2c7vktqegfjqe7kvnz")
+var userC, _ = addressConverter.Decode("klv1fdrecm058y8kr3yxvnccf7daffpavsn7df7dmg27yn56d0a6qjqsm2h8q9")
 var validatorA, _ = addressConverter.Decode("klv10gq6xsegedacd084vmpr2xus950j3d6lhqjfe8ue2xkmfwtkzavqnqhz99")
 var validatorB, _ = addressConverter.Decode("klv15zssmvht00ugvge5le9n885kahc5ykxzvmxx6xwz5ya2an562yyssfa0c5")
 
@@ -218,4 +219,55 @@ func TestRewards_ValidatorRewards_AfterFixDelegationSameEpochFork(t *testing.T) 
 	assert.Equal(t, rewardsA, c.GetAllowance(userA))
 	assert.Equal(t, rewardsB, c.GetAllowance(userB))
 
+}
+
+func TestRewards_ValidatorRewards_RemainFees(t *testing.T) {
+	c := NewController(t)
+
+	initialBalance := int64(100_000_000_000)
+	freezeBalance := int64(100_000_000)
+
+	// Create Users
+	c.AddUser(userA, initialBalance, kdautils.KLVIdentifier)
+	c.AddUser(userB, initialBalance, kdautils.KLVIdentifier)
+	c.AddUser(userC, initialBalance, kdautils.KLVIdentifier)
+	c.AddUser(validatorA, initialBalance, kdautils.KLVIdentifier)
+	c.AddUser(validatorB, initialBalance, kdautils.KLVIdentifier)
+
+	// Create Validators
+	blk := c.CreateBlockHeader(0, 1, 1)
+	CreateValidators(c, blk)
+
+	// Users need to Freeze KLV
+	freezeContract := transaction.FreezeContract{
+		AssetID: kdautils.KLVIdentifier,
+		Amount:  freezeBalance,
+	}
+
+	blk = c.CreateBlockHeader(0, 1, 2)
+	bucketUserA := c.RunFreezeTX(blk, userA, freezeContract.AssetID, freezeContract.Amount)
+	bucketUserB := c.RunFreezeTX(blk, userB, freezeContract.AssetID, freezeContract.Amount)
+	bucketUserC := c.RunFreezeTX(blk, userC, freezeContract.AssetID, freezeContract.Amount)
+
+	// User A, B and C delegate their current bucket to validator A
+	blk = c.CreateBlockHeader(0, 1, 3)
+	c.RunDelegateTX(blk, userA, bucketUserA, validatorA)
+	c.RunDelegateTX(blk, userB, bucketUserB, validatorA)
+	c.RunDelegateTX(blk, userC, bucketUserC, validatorA)
+
+	// Simulate rewards distribution
+	rewardsA := int64(100)
+
+	err := c.AddFeesToPeer(peerAddressA, rewardsA)
+	require.Nil(t, err)
+
+	validatorInfo := []*state.ValidatorInfo{{OwnerAddress: validatorA, PublicKey: peerAddressA}}
+
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo)
+	require.Nil(t, err)
+
+	assert.Equal(t, int64(33), c.GetAllowance(userA))
+	assert.Equal(t, int64(33), c.GetAllowance(userB))
+	assert.Equal(t, int64(33), c.GetAllowance(userC))
+	assert.Equal(t, int64(1), c.GetAllowance(testReferralAddress))
 }

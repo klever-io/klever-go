@@ -145,7 +145,7 @@ func writeSplitRoyaltiesToBytes(
 
 	dMap := types.NewDeterministicMap(splitRoyalties)
 
-	dMap.Each(func(key string, value *kapps.RoyaltySplitData) error {
+	_ = dMap.Each(func(key string, value *kapps.RoyaltySplitData) error {
 		writeSplitRoyalties(managedType, key, value, destinationBytes[dataIndex:dataIndex+SplitRoyaltiesLen])
 		dataIndex += SplitRoyaltiesLen
 		return nil
@@ -218,7 +218,7 @@ func writeUserBuckets(
 
 	dMap := types.NewDeterministicMap(buckets)
 
-	dMap.Each(func(key string, value *kapps.UserBucket) error {
+	_ = dMap.Each(func(key string, value *kapps.UserBucket) error {
 		writeUserBucket(managedType, key, value, destinationBytes[dataIndex:dataIndex+UserBucketsLen])
 		dataIndex += UserBucketsLen
 		return nil
@@ -350,7 +350,7 @@ func writeURIsToBytes(managedType vmhost.ManagedTypesContext, uris map[string]st
 
 	dMap := types.NewDeterministicMap(uris)
 
-	dMap.Each(func(key string, value string) error {
+	_ = dMap.Each(func(key string, value string) error {
 		writeURIs(managedType, key, value, destinationBytes[dataIndex:dataIndex+URIsDataLen])
 		dataIndex += URIsDataLen
 		return nil

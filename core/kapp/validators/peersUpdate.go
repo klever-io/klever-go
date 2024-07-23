@@ -325,11 +325,19 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpoch(currentEpoch uint32, validat
 
 		totalDelegations[string(val.GetRewardsAddress())] += commissionAmount
 
-		accumulatedFees := float64(peerAcc.GetAccumulatedFees() - commissionAmount)
+		remainingFees := peerAcc.GetAccumulatedFees() - commissionAmount
+		accumulatedFees := float64(remainingFees)
 		// move accumulated to top of validators lop
 		for address, amount := range accumulatedDelegations {
 			userShare := int64(accumulatedFees * (float64(amount) / float64(totalDelegated)))
 			totalDelegations[address] += userShare
+			remainingFees -= userShare
+		}
+
+		// remaining fees should be added to validator
+		if remainingFees != 0 &&
+			v.forkController.EnableSmartContracts() {
+			totalDelegations[string(val.GetRewardsAddress())] += remainingFees
 		}
 
 		val.SelfStaked = val.SelfStake >= minSelfDelegated
