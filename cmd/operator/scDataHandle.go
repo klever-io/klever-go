@@ -852,13 +852,13 @@ func encodeTopLevelInt(v string) (string, error) {
 	switch {
 	// typecast to uint to correspondent bit size to use 2's complement in negative values
 	case rawInt >= math.MinInt8 && rawInt <= math.MaxInt8:
-		encoded = fmt.Sprintf("%x", uint8(rawInt))
+		encoded = fmt.Sprintf("%02x", uint8(rawInt))
 	case rawInt >= math.MinInt16 && rawInt <= math.MaxInt16:
-		encoded = fmt.Sprintf("%x", uint16(rawInt))
+		encoded = fmt.Sprintf("%04x", uint16(rawInt))
 	case rawInt >= math.MinInt32 && rawInt <= math.MaxInt32:
-		encoded = fmt.Sprintf("%x", uint32(rawInt))
+		encoded = fmt.Sprintf("%08x", uint32(rawInt))
 	default:
-		encoded = fmt.Sprintf("%x", uint64(rawInt))
+		encoded = fmt.Sprintf("%16x", uint64(rawInt))
 	}
 
 	if len(encoded)%2 != 0 {
