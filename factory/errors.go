@@ -5,9 +5,6 @@ import "errors"
 // ErrPublicKeyMismatch signals that the read public key mismatch the one read
 var ErrPublicKeyMismatch = errors.New("public key mismatch between the computed and the one read from the file")
 
-// ErrNilEconomicsData signals that a nil economics data handler has been provided
-var ErrNilEconomicsData = errors.New("nil economics data provided")
-
 // ErrNilCoreComponents signals that nil core components have been provided
 var ErrNilCoreComponents = errors.New("nil core components provided")
 
@@ -26,12 +23,6 @@ var ErrMarshalizerCreation = errors.New("error creating marshalizer")
 // ErrDataPoolCreation signals that the data pool cannot be created
 var ErrDataPoolCreation = errors.New("can not create data pool")
 
-// ErrBlockchainCreation signals that the blockchain cannot be created
-var ErrBlockchainCreation = errors.New("can not create blockchain")
-
-// ErrDataStoreCreation signals that the data store cannot be created
-var ErrDataStoreCreation = errors.New("can not create data store")
-
 // ErrMultiSigCreation signals that the multisigner couldn't be created
 var ErrMultiSigCreation = errors.New("could not start creation of multiSigner")
 
@@ -43,9 +34,6 @@ var ErrMissingConsensusConfig = errors.New("no consensus type provided in config
 
 // ErrMultiSigHasherMissmatch signals that an invalid multisig hasher was provided
 var ErrMultiSigHasherMissmatch = errors.New("wrong multisig hasher provided for bls consensus type")
-
-// ErrMissingMultiHasherConfig signals that the multihasher type isn't specified in the configuration file
-var ErrMissingMultiHasherConfig = errors.New("no multisig hasher provided in config file")
 
 // ErrNilTriesComponents signals that nil tries components have been provided
 var ErrNilTriesComponents = errors.New("nil tries components provided")

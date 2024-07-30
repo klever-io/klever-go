@@ -789,6 +789,8 @@ func (txProc *txProcessor) smartContract(ctx kapp.KappContext, owner state.UserA
 
 	switch tc.GetType() {
 	case transaction.SmartContract_SCDeploy:
+		sw := tools.NewStopWatch()
+		sw.Start("deploy")
 		returnCode, err := txProc.scProcessor.DeploySmartContract(ctx, tc)
 		if err != nil || returnCode != vmcommon.Ok {
 			tx.ResultCode = returnCode.ResultCode()
@@ -798,6 +800,10 @@ func (txProc *txProcessor) smartContract(ctx kapp.KappContext, owner state.UserA
 			logSC.Debug("error deploying smart contract", "error", err, "returnCode", returnCode)
 			return err
 		}
+
+		sw.Stop("deploy")
+		duration := sw.GetMeasurement("deploy")
+		logSC.Trace("deploy smart contract", "duration", duration)
 
 		tx.ResultCode = transaction.Transaction_Ok
 		return nil

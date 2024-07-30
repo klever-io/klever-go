@@ -108,6 +108,7 @@ func (ed *EconomicsData) ComputeTransactionCost(tx process.TransactionWithFeeHan
 
 	gasMultiplier := ed.proposalController.GetParameterUint(kapps.EnumParameter_GasMultiplier)
 
+	hasSC := false
 	estimatedGas := uint64(0)
 	for _, c := range tx.GetContracts() {
 		feeType, ok := ContractEnum[c.Type]
@@ -122,35 +123,39 @@ func (ed *EconomicsData) ComputeTransactionCost(tx process.TransactionWithFeeHan
 
 		if simulateSC &&
 			c.Type == transaction.TXContract_SmartContractType {
-			res, err := ed.txSimulatorProcessor.ProcessTx(tx.GetTransaction())
-			if err != nil {
-				return nil, err
-			}
-
-			if res.FailReason != "" {
-				if res.VMOutput != nil && res.VMOutput.ReturnMessage != "" {
-					return nil, fmt.Errorf("%w: %s - (%s)", process.ErrInvalidArgument, res.FailReason, res.VMOutput.ReturnMessage)
-				}
-
-				return nil, fmt.Errorf("%w: %s", process.ErrInvalidArgument, res.FailReason)
-			}
-
-			if res.VMOutput == nil {
-				return nil, process.ErrNilVMOutput
-			}
-
-			totalGasConsumed := big.NewInt(0)
-			for _, log := range res.VMOutput.Logs {
-				if string(log.Identifier) == core.TotalConsumedGasString {
-					if len(log.Topics) > 0 {
-						totalGasConsumed.Add(totalGasConsumed, big.NewInt(0).SetBytes(log.Topics[0]))
-					}
-				}
-			}
-
-			// increase 1 BW for minimum gas consumed to prevent `memory limit reached` error
-			estimatedGas += totalGasConsumed.Uint64() + gasMultiplier
+			hasSC = true
 		}
+	}
+
+	if hasSC {
+		res, err := ed.txSimulatorProcessor.ProcessTx(tx.GetTransaction())
+		if err != nil {
+			return nil, err
+		}
+
+		if res.FailReason != "" {
+			if res.VMOutput != nil && res.VMOutput.ReturnMessage != "" {
+				return nil, fmt.Errorf("%w: %s - (%s)", process.ErrInvalidArgument, res.FailReason, res.VMOutput.ReturnMessage)
+			}
+
+			return nil, fmt.Errorf("%w: %s", process.ErrInvalidArgument, res.FailReason)
+		}
+
+		if res.VMOutput == nil {
+			return nil, process.ErrNilVMOutput
+		}
+
+		totalGasConsumed := big.NewInt(0)
+		for _, log := range res.VMOutput.Logs {
+			if string(log.Identifier) == core.TotalConsumedGasString {
+				if len(log.Topics) > 0 {
+					totalGasConsumed.Add(totalGasConsumed, big.NewInt(0).SetBytes(log.Topics[0]))
+				}
+			}
+		}
+
+		// increase 1 BW for minimum gas consumed to prevent `memory limit reached` error
+		estimatedGas += totalGasConsumed.Uint64() + gasMultiplier
 	}
 
 	feePerDataByte := ed.proposalController.GetParameterInt(kapps.EnumParameter_FeePerDataByte)

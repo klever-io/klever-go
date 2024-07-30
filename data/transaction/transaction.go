@@ -1352,7 +1352,7 @@ func (t *Transaction) addSmartContract(txArgs TXArgs) error {
 	if len(contractRequest.Address) > 0 {
 		parsedAddress, err = txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.Address)
 		if err != nil {
-			return errors.New("could not create receiver address from provided param")
+			return errors.New("could not create receiver address from provided param" + contractRequest.Address)
 		}
 	}
 
@@ -1372,7 +1372,7 @@ func (t *Transaction) addSmartContract(txArgs TXArgs) error {
 		if assetName != "" && assetName != string(kdautils.KLVIdentifier) && assetName != string(kdautils.KFIIdentifier) {
 			kda, err := txArgs.NodeHelper.GetAsset(assetName)
 			if err != nil {
-				return errors.New("could not create receiver address from provided param")
+				return errors.New("invalid asset name provided")
 			}
 
 			if kda == nil {

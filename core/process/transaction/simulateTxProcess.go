@@ -123,6 +123,8 @@ func (txProc *simulateTxProcessor) ProcessTransaction(tx *transaction.Transactio
 		IsScSimulation: true,
 	})
 
+	sw := tools.NewStopWatch()
+	sw.Start("txProc")
 	for i := range tx.RawData.Contract {
 		ctx.SetContractID(i)
 		txProc.kApps.SetCurrentKAppContext(ctx)
@@ -135,6 +137,7 @@ func (txProc *simulateTxProcessor) ProcessTransaction(tx *transaction.Transactio
 
 		switch tc.GetType() {
 		case transaction.SmartContract_SCDeploy:
+			sw.Start("deploy")
 			returnCode, err := txProc.scProcessor.DeploySmartContract(ctx, tc)
 			if err != nil || returnCode != vmcommon.Ok {
 				tx.ResultCode = returnCode.ResultCode()
@@ -145,9 +148,12 @@ func (txProc *simulateTxProcessor) ProcessTransaction(tx *transaction.Transactio
 				return err
 			}
 
+			sw.Stop("deploy")
+			duration := sw.GetMeasurement("deploy")
+			logSC.Trace("deploy smart contract", "duration", duration)
+
 			tx.ResultCode = transaction.Transaction_Ok
 		case transaction.SmartContract_SCInvoke:
-			sw := tools.NewStopWatch()
 			sw.Start("execute")
 
 			destAcc, err := txProc.accountsCacher.GetExistingUser(tc.GetAddress())
@@ -176,6 +182,10 @@ func (txProc *simulateTxProcessor) ProcessTransaction(tx *transaction.Transactio
 			return common.ErrSmartContractTypeInvalid
 		}
 	}
+
+	sw.Stop("txProc")
+	duration := sw.GetMeasurement("txProc")
+	logSC.Trace("txProc smart contract", "duration", duration)
 
 	return nil
 }

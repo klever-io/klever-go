@@ -246,9 +246,6 @@ var ErrNilStorage = errors.New("nil storage")
 // ErrInvalidTxInPool signals an invalid transaction in the transactions pool
 var ErrInvalidTxInPool = errors.New("invalid transaction in the transactions pool")
 
-// ErrNilIntermediateProcessorContainer signals that intermediate processors container is nil
-var ErrNilIntermediateProcessorContainer = errors.New("intermediate processor container is nil")
-
 // ErrNilTxValidator signals that a nil tx validator has been provided
 var ErrNilTxValidator = errors.New("nil transaction validator")
 
@@ -821,12 +818,6 @@ var ErrNilNodesSetup = errors.New("nil nodes setup")
 // ErrNilPeerShardMapper signals that a nil peer shard mapper has been provided
 var ErrNilPeerShardMapper = errors.New("nil peer shard mapper")
 
-// ErrNilBlockTracker signals that a nil block tracker was provided
-var ErrNilBlockTracker = errors.New("nil block tracker")
-
-// ErrNilEconomicsData signals that nil economics data has been provided
-var ErrNilEconomicsData = errors.New("nil economics data")
-
 // ErrNilOutportDataProvider signals that a nil outport data provider has been given
 var ErrNilOutportDataProvider = errors.New("nil outport data  provider")
 
@@ -1082,18 +1073,6 @@ var ErrMaxAccumulatedFeesExceeded = errors.New("max accumulated fees has been ex
 // ErrMaxDeveloperFeesExceeded signals that max developer fees has been exceeded
 var ErrMaxDeveloperFeesExceeded = errors.New("max developer fees has been exceeded")
 
-// ErrNilBuiltInFunctionsCostHandler signals that a nil built-in functions cost handler has been provided
-var ErrNilBuiltInFunctionsCostHandler = errors.New("nil built in functions cost handler")
-
-// ErrNilArgsBuiltInFunctionsConstHandler signals that a nil arguments struct for built-in functions cost handler has been provided
-var ErrNilArgsBuiltInFunctionsConstHandler = errors.New("nil arguments for built in functions cost handler")
-
-// ErrInvalidEpochStartMetaBlockConsensusPercentage signals that a small epoch start meta block consensus percentage has been provided
-var ErrInvalidEpochStartMetaBlockConsensusPercentage = errors.New("invalid epoch start meta block consensus percentage")
-
-// ErrNilNumConnectedPeersProvider signals that a nil number of connected peers provider has been provided
-var ErrNilNumConnectedPeersProvider = errors.New("nil number of connected peers provider")
-
 // ErrNilLocker signals that a nil locker was provided
 var ErrNilLocker = errors.New("nil locker")
 
@@ -1103,29 +1082,8 @@ var ErrNilAllowExternalQueriesChan = errors.New("nil channel for signaling the a
 // ErrQueriesNotAllowedYet signals that the node is not ready yet to process VM Queries
 var ErrQueriesNotAllowedYet = errors.New("node is not ready yet to process VM Queries")
 
-// ErrNilChunksProcessor signals that a nil chunks processor has been provided
-var ErrNilChunksProcessor = errors.New("nil chunks processor")
-
-// ErrIncompatibleReference signals that an incompatible reference was provided when processing a batch
-var ErrIncompatibleReference = errors.New("incompatible reference when processing batch")
-
-// ErrProcessClosed signals that an incomplete processing occurred due to the early process closing
-var ErrProcessClosed = errors.New("incomplete processing: process is closing")
-
-// ErrNilAccountsDBSyncer signals that a nil accounts db syncer has been provided
-var ErrNilAccountsDBSyncer = errors.New("nil accounts DB syncer")
-
-// ErrNilCurrentNetworkEpochProvider signals that a nil CurrentNetworkEpochProvider handler has been provided
-var ErrNilCurrentNetworkEpochProvider = errors.New("nil current network epoch provider")
-
 // ErrNilKDATransferParser signals that a nil KDA transfer parser has been provided
 var ErrNilKDATransferParser = errors.New("nil kda transfer parser")
-
-// ErrResultingSCRIsTooBig signals that resulting smart contract result is too big
-var ErrResultingSCRIsTooBig = errors.New("resulting SCR is too big")
-
-// ErrNotAllowedToWriteUnderProtectedKey signals that writing under protected key is not allowed
-var ErrNotAllowedToWriteUnderProtectedKey = errors.New("not allowed to write under protected key")
 
 // ErrNilBootstrapper signals that a nil bootstraper has been provided
 var ErrNilBootstrapper = errors.New("nil bootstrapper")
@@ -1136,44 +1094,11 @@ var ErrNodeIsNotSynced = errors.New("node is not synced")
 // ErrStateChangedWhileExecutingVmQuery signals that the state has been changed while executing a vm query and the request required not to
 var ErrStateChangedWhileExecutingVmQuery = errors.New("state changed while executing vm query")
 
-// ErrNilEnableRoundsHandler signals a nil enable rounds handler has been provided
-var ErrNilEnableRoundsHandler = errors.New("nil enable rounds handler has been provided")
-
-// ErrNilScheduledTxsExecutionHandler signals that scheduled txs execution handler is nil
-var ErrNilScheduledTxsExecutionHandler = errors.New("nil scheduled txs execution handler")
-
 // ErrNilVersionedHeaderFactory signals that the versioned header factory is nil
 var ErrNilVersionedHeaderFactory = errors.New("nil versioned header factory")
 
-// ErrNilIntermediateProcessor signals that intermediate processors is nil
-var ErrNilIntermediateProcessor = errors.New("intermediate processor is nil")
-
 // ErrNilSyncTimer signals that the sync timer is nil
 var ErrNilSyncTimer = errors.New("sync timer is nil")
-
-// ErrNilIsShardStuckHandler signals a nil shard stuck handler
-var ErrNilIsShardStuckHandler = errors.New("nil handler for checking stuck shard")
-
-// ErrNilIsMaxBlockSizeReachedHandler signals a nil max block size reached handler
-var ErrNilIsMaxBlockSizeReachedHandler = errors.New("nil handler for max block size reached")
-
-// ErrNilTxMaxTotalCostHandler signals a nil transaction max total cost
-var ErrNilTxMaxTotalCostHandler = errors.New("nil transaction max total cost")
-
-// ErrNilAccountTxsPerShard signals a nil mapping for account transactions to shard
-var ErrNilAccountTxsPerShard = errors.New("nil account transactions per shard mapping")
-
-// ErrScheduledRootHashDoesNotMatch signals that scheduled root hash does not match
-// var ErrScheduledRootHashDoesNotMatch = errors.New("scheduled root hash does not match")
-
-// ErrNilAdditionalData signals that additional data is nil
-var ErrNilAdditionalData = errors.New("nil additional data")
-
-// ErrNumOfMiniBlocksAndMiniBlocksHeadersMismatch signals that number of mini blocks and mini blocks headers does not match
-var ErrNumOfMiniBlocksAndMiniBlocksHeadersMismatch = errors.New("num of mini blocks and mini blocks headers does not match")
-
-// ErrNilDoubleTransactionsDetector signals that a nil double transactions detector has been provided
-var ErrNilDoubleTransactionsDetector = errors.New("nil double transactions detector")
 
 // ErrNoTxToProcess signals that no transaction were sent for processing
 var ErrNoTxToProcess = errors.New("no transaction to process")
@@ -1181,77 +1106,23 @@ var ErrNoTxToProcess = errors.New("no transaction to process")
 // ErrInvalidPeerSubType signals that an invalid peer subtype was provided
 var ErrInvalidPeerSubType = errors.New("invalid peer subtype")
 
-// ErrNilSignaturesHandler signals that a nil signatures handler was provided
-var ErrNilSignaturesHandler = errors.New("nil signatures handler")
-
-// ErrMessageExpired signals that a received message is expired
-var ErrMessageExpired = errors.New("message expired")
-
-// ErrInvalidExpiryTimespan signals that an invalid expiry timespan was provided
-var ErrInvalidExpiryTimespan = errors.New("invalid expiry timespan")
-
 // ErrNilPeerSignatureHandler signals that a nil peer signature handler was provided
 var ErrNilPeerSignatureHandler = errors.New("nil peer signature handler")
-
-// ErrNilPeerAuthenticationCacher signals that a nil peer authentication cacher was provided
-var ErrNilPeerAuthenticationCacher = errors.New("nil peer authentication cacher")
 
 // ErrNilHeartbeatCacher signals that a nil heartbeat cacher was provided
 var ErrNilHeartbeatCacher = errors.New("nil heartbeat cacher")
 
-// ErrInvalidProcessWaitTime signals that an invalid process wait time was provided
-var ErrInvalidProcessWaitTime = errors.New("invalid process wait time")
-
-// ErrMetaHeaderEpochOutOfRange signals that the given header is out of accepted range
-var ErrMetaHeaderEpochOutOfRange = errors.New("epoch out of range for meta block header")
-
 // ErrNilHardforkTrigger signals that a nil hardfork trigger has been provided
 var ErrNilHardforkTrigger = errors.New("nil hardfork trigger")
 
-// ErrMissingMiniBlockHeader signals that mini block header is missing
-var ErrMissingMiniBlockHeader = errors.New("missing mini block header")
-
-// ErrMissingMiniBlock signals that mini block is missing
-var ErrMissingMiniBlock = errors.New("missing mini block")
-
-// ErrIndexIsOutOfBound signals that the given index is out of bound
-var ErrIndexIsOutOfBound = errors.New("index is out of bound")
-
-// ErrIndexDoesNotMatchWithPartialExecutedMiniBlock signals that the given index does not match with a partial executed mini block
-var ErrIndexDoesNotMatchWithPartialExecutedMiniBlock = errors.New("index does not match with a partial executed mini block")
-
-// ErrIndexDoesNotMatchWithFullyExecutedMiniBlock signals that the given index does not match with a fully executed mini block
-var ErrIndexDoesNotMatchWithFullyExecutedMiniBlock = errors.New("index does not match with a fully executed mini block")
-
-// ErrNilProcessedMiniBlocksTracker signals that a nil processed mini blocks tracker has been provided
-var ErrNilProcessedMiniBlocksTracker = errors.New("nil processed mini blocks tracker")
-
-// ErrNilReceiptsRepository signals that a nil receipts repository has been provided
-var ErrNilReceiptsRepository = errors.New("nil receipts repository")
-
 // ErrNilEnableEpochsHandler signals that a nil enable epochs handler has been provided
 var ErrNilEnableEpochsHandler = errors.New("nil enable epochs handler")
-
-// ErrNilMultiSignerContainer signals that the given multisigner container is nil
-var ErrNilMultiSignerContainer = errors.New("nil multiSigner container")
-
-// ErrNilCrawlerAllowedAddress signals that no crawler allowed address was found
-var ErrNilCrawlerAllowedAddress = errors.New("nil crawler allowed address")
-
-// ErrNilPayloadValidator signals that a nil payload validator was provided
-var ErrNilPayloadValidator = errors.New("nil payload validator")
-
-// ErrNilValidatorInfoPool signals that a nil validator info pool has been provided
-var ErrNilValidatorInfoPool = errors.New("nil validator info pool")
 
 // ErrPropertyTooLong signals that a heartbeat property was too long
 var ErrPropertyTooLong = errors.New("property too long")
 
 // ErrPropertyTooShort signals that a heartbeat property was too short
 var ErrPropertyTooShort = errors.New("property too short")
-
-// ErrNilProcessDebugger signals that a nil process debugger was provided
-var ErrNilProcessDebugger = errors.New("nil process debugger")
 
 // ErrMaxCallsReached signals that the allowed max number of calls was reached
 var ErrMaxCallsReached = errors.New("max calls reached")

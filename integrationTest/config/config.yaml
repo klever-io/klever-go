@@ -581,7 +581,7 @@ epochStart:
 
 virtualMachine:
   execution:
-    timeOutForSCExecutionInMilliseconds: 3000 # 3 seconds = 3000 milliseconds
+    timeOutForSCExecutionInMilliseconds: 500 # 0.5 seconds = 500 milliseconds
     wasmerSIGSEGVPassthrough: false # must be false for release
     wasmVMVersions:
       - startEpoch: 0
@@ -591,7 +591,7 @@ virtualMachine:
 
   querying:
     numConcurrentVMs: 1
-    timeOutForSCExecutionInMilliseconds: 3000 # 3 seconds = 3000 milliseconds
+    timeOutForSCExecutionInMilliseconds: 500 # 0.5 seconds = 500 milliseconds
     wasmerSIGSEGVPassthrough: false # must be false for release
     wasmVMVersions:
       - startEpoch: 0

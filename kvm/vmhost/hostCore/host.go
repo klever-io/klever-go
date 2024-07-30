@@ -31,7 +31,7 @@ var MaximumRuntimeInstanceStackSize = uint64(10)
 
 var _ vmhost.VMHost = (*vmHost)(nil)
 
-const minExecutionTimeout = time.Second
+const minExecutionTimeout = time.Millisecond * 400
 const internalVMErrors = "internalVMErrors"
 
 // vmHost implements HostContext interface.
@@ -343,7 +343,8 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 	log.Trace("RunSmartContractCreate begin",
 		"len(code)", len(input.ContractCode),
 		"metadata", input.ContractCodeMetadata,
-		"gasProvided", input.GasProvided)
+		"gasProvided", input.GasProvided,
+		"executionTimeout", host.executionTimeout)
 
 	done := make(chan struct{})
 	go func() {
