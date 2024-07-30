@@ -81,7 +81,6 @@ func NewVMContainerFactory(args ArgVMContainerFactory) (*vmContainerFactory, err
 	if check.IfNil(args.Hasher) {
 		return nil, process.ErrNilHasher
 	}
-
 	cryptoHook := hooks.NewVMCryptoHook()
 
 	vmf := &vmContainerFactory{
@@ -262,6 +261,10 @@ func (vmf *vmContainerFactory) createWasmVM(version config.WasmVMVersionByEpoch)
 }
 
 func (vmf *vmContainerFactory) getMatchingVersion(epoch uint32) config.WasmVMVersionByEpoch {
+	if len(vmf.wasmVMVersions) == 0 {
+		return config.WasmVMVersionByEpoch{}
+	}
+
 	matchingVersion := vmf.wasmVMVersions[len(vmf.wasmVMVersions)-1]
 	for idx := 0; idx < len(vmf.wasmVMVersions)-1; idx++ {
 		crtVer := vmf.wasmVMVersions[idx]
