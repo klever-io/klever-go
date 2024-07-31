@@ -1,6 +1,7 @@
 package kda
 
 import (
+	"math/big"
 	"strconv"
 
 	"github.com/klever-io/klever-go/common"
@@ -105,8 +106,8 @@ func (k *kdaKapp) processNonFungibleMint(
 		}
 
 		internalID := []byte(strconv.FormatInt(kda.MintedValue, 10))
-
-		mintedTokens = append(mintedTokens, internalID)
+		// VM data format
+		mintedTokens = append(mintedTokens, big.NewInt(0).SetInt64(kda.MintedValue).Bytes())
 
 		key := kdautils.ToKDAKey(assetID, internalID)
 
@@ -200,7 +201,8 @@ func (k *kdaKapp) processSemiFungibleMintNew(
 	}
 
 	internalID := []byte(strconv.FormatInt(kda.MintedValue, 10))
-	mintedTokens := [][]byte{internalID}
+	// VM data format
+	mintedTokens := [][]byte{big.NewInt(0).SetInt64(kda.MintedValue).Bytes()}
 
 	err := k.SetKDA(kdaAcc, assetID, kda)
 	if err != nil {

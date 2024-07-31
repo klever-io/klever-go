@@ -87,13 +87,12 @@ network.host: 0.0.0.0
 #
 #action.destructive_requires_name: true
 
+http.cors.enabled: true
 
-http.cors.enabled : true
-
-http.cors.allow-origin : "*"
-http.cors.allow-methods : OPTIONS, HEAD, GET, POST, PUT, DELETE
-http.cors.allow-headers : X-Requested-With,X-Auth-Token,Content-Type,Content-Length
+http.cors.allow-origin: "*"
+http.cors.allow-methods: OPTIONS, HEAD, GET, POST, PUT, DELETE
+http.cors.allow-headers: X-Requested-With,X-Auth-Token,Content-Type,Content-Length
 
 xpack.security.enabled: false
 
-xpack.license.self_generated.type : basic
+xpack.license.self_generated.type: basic

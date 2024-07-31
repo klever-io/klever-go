@@ -314,7 +314,6 @@ func (tsm *trieStorageManager) removeFromDb(rootHash []byte) error {
 			continue
 		}
 
-		// TODO: use string()???
 		hash, err = hex.DecodeString(key)
 		if err != nil {
 			return err
@@ -563,10 +562,12 @@ func (tsm *trieStorageManager) Close() error {
 	defer tsm.storageOperationMutex.Unlock()
 
 	var err error
-	errEvictionWaitingListClose := tsm.dbEvictionWaitingList.Close()
-	if errEvictionWaitingListClose != nil {
-		log.Error("trieStorageManager.Close dbEvictionWaitingList", "error", errEvictionWaitingListClose)
-		err = errEvictionWaitingListClose
+	if tsm.dbEvictionWaitingList != nil {
+		errEvictionWaitingListClose := tsm.dbEvictionWaitingList.Close()
+		if errEvictionWaitingListClose != nil {
+			log.Error("trieStorageManager.Close dbEvictionWaitingList", "error", errEvictionWaitingListClose)
+			err = errEvictionWaitingListClose
+		}
 	}
 
 	errCheckpointsStorerClose := tsm.db.Close()

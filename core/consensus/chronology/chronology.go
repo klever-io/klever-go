@@ -144,8 +144,7 @@ func (chr *chronology) startSlots(ctx context.Context) {
 		case <-ctx.Done():
 			log.Debug("chronology's go routine is stopping...")
 			return
-		//case <-time.After(chr.slotManager.RemainingTime(chr.slotManager.Timestamp(), chr.slotManager.TimeDuration())):
-		case <-time.After(time.Millisecond): // TODO: verify if can reduce checker
+		case <-time.After(time.Millisecond):
 		}
 
 		chr.startSlot()

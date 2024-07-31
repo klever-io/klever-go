@@ -9,8 +9,7 @@ import (
 )
 
 func TestDefaultScoreComputer_computeRawScore(t *testing.T) {
-	_, txFeeHelper := dummyParamsWithGasPrice(1_500_000)
-	computer := newDefaultScoreComputer(txFeeHelper)
+	computer := newDefaultScoreComputer()
 
 	// 50k movefees, 100Bil minPrice -> normalizedFee 8940
 	score := computer.computeRawScore(senderScoreParams{count: 1, size: 128, fees: 1_500_000})
@@ -33,8 +32,7 @@ func TestDefaultScoreComputer_computeRawScore(t *testing.T) {
 }
 
 func BenchmarkScoreComputer_computeRawScore(b *testing.B) {
-	_, txFeeHelper := dummyParams()
-	computer := newDefaultScoreComputer(txFeeHelper)
+	computer := newDefaultScoreComputer()
 
 	for i := 0; i < b.N; i++ {
 		for j := uint64(0); j < 10000000; j++ {
@@ -44,13 +42,12 @@ func BenchmarkScoreComputer_computeRawScore(b *testing.B) {
 }
 
 func TestDefaultScoreComputer_computeRawScoreOfTxListForSender(t *testing.T) {
-	_, txFeeHelper := dummyParamsWithGasPrice(1_500_000)
-	computer := newDefaultScoreComputer(txFeeHelper)
+	computer := newDefaultScoreComputer()
 	list := newUnconstrainedListToTest()
 
-	list.AddTx(createTxWithParams([]byte("a"), ".", 1, 512, 1_500_000), txFeeHelper)
-	list.AddTx(createTxWithParams([]byte("b"), ".", 1, 256, 1_500_000), txFeeHelper)
-	list.AddTx(createTxWithParams([]byte("c"), ".", 1, 256, 1_500_000), txFeeHelper)
+	list.AddTx(createTxWithParams([]byte("a"), ".", 1, 512, 1_500_000))
+	list.AddTx(createTxWithParams([]byte("b"), ".", 1, 256, 1_500_000))
+	list.AddTx(createTxWithParams([]byte("c"), ".", 1, 256, 1_500_000))
 
 	require.Equal(t, uint64(3), list.countTx())
 	require.Equal(t, int64(1024), list.totalBytes.Get())
@@ -62,8 +59,7 @@ func TestDefaultScoreComputer_computeRawScoreOfTxListForSender(t *testing.T) {
 }
 
 func TestDefaultScoreComputer_scoreFluctuatesDeterministicallyWhileTxListForSenderMutates(t *testing.T) {
-	_, txFeeHelper := dummyParamsWithGasPrice(1_500_000)
-	computer := newDefaultScoreComputer(txFeeHelper)
+	computer := newDefaultScoreComputer()
 	list := newUnconstrainedListToTest()
 
 	A := createTxWithParams([]byte("A"), ".", 1, 1024, 1_500_000)
@@ -72,13 +68,13 @@ func TestDefaultScoreComputer_scoreFluctuatesDeterministicallyWhileTxListForSend
 	D := createTxWithParams([]byte("d"), ".", 1, 128, 1_500_000)
 
 	scoreNone := int(computer.computeScore(list.getScoreParams()))
-	list.AddTx(A, txFeeHelper)
+	list.AddTx(A)
 	scoreA := int(computer.computeScore(list.getScoreParams()))
-	list.AddTx(B, txFeeHelper)
+	list.AddTx(B)
 	scoreAB := int(computer.computeScore(list.getScoreParams()))
-	list.AddTx(C, txFeeHelper)
+	list.AddTx(C)
 	scoreABC := int(computer.computeScore(list.getScoreParams()))
-	list.AddTx(D, txFeeHelper)
+	list.AddTx(D)
 	scoreABCD := int(computer.computeScore(list.getScoreParams()))
 
 	require.Equal(t, 0, scoreNone)
@@ -103,8 +99,7 @@ func TestDefaultScoreComputer_scoreFluctuatesDeterministicallyWhileTxListForSend
 }
 
 func TestDefaultScoreComputer_DifferentSenders(t *testing.T) {
-	_, txFeeHelper := dummyParamsWithGasPrice(1_500_000)
-	computer := newDefaultScoreComputer(txFeeHelper)
+	computer := newDefaultScoreComputer()
 
 	A := createTxWithParams([]byte("a"), "a", 1, 128, 1_500_000)     // min value normal tx
 	B := createTxWithParams([]byte("b"), "b", 1, 128, 3_000_000_000) // 50% higher value normal tx
@@ -112,19 +107,19 @@ func TestDefaultScoreComputer_DifferentSenders(t *testing.T) {
 	D := createTxWithParams([]byte("d"), "d", 1, 128, 3_000_000_000) // 50% higher value SC call
 
 	listA := newUnconstrainedListToTest()
-	listA.AddTx(A, txFeeHelper)
+	listA.AddTx(A)
 	scoreA := int(computer.computeScore(listA.getScoreParams()))
 
 	listB := newUnconstrainedListToTest()
-	listB.AddTx(B, txFeeHelper)
+	listB.AddTx(B)
 	scoreB := int(computer.computeScore(listB.getScoreParams()))
 
 	listC := newUnconstrainedListToTest()
-	listC.AddTx(C, txFeeHelper)
+	listC.AddTx(C)
 	scoreC := int(computer.computeScore(listC.getScoreParams()))
 
 	listD := newUnconstrainedListToTest()
-	listD.AddTx(D, txFeeHelper)
+	listD.AddTx(D)
 	scoreD := int(computer.computeScore(listD.getScoreParams()))
 
 	require.Equal(t, 21, scoreA)
@@ -135,13 +130,13 @@ func TestDefaultScoreComputer_DifferentSenders(t *testing.T) {
 	// adding same type of transactions for each sender decreases the score
 	for i := 2; i < 1000; i++ {
 		A = createTxWithParams([]byte("a"+strconv.Itoa(i)), "a", uint64(i), 128, 1_500_000) // min value normal tx
-		listA.AddTx(A, txFeeHelper)
+		listA.AddTx(A)
 		B = createTxWithParams([]byte("b"+strconv.Itoa(i)), "b", uint64(i), 128, 3_000_000_000) // 50% higher value normal tx
-		listB.AddTx(B, txFeeHelper)
+		listB.AddTx(B)
 		C = createTxWithParams([]byte("c"+strconv.Itoa(i)), "c", uint64(i), 128, 1_500_000) // min value SC call
-		listC.AddTx(C, txFeeHelper)
+		listC.AddTx(C)
 		D = createTxWithParams([]byte("d"+strconv.Itoa(i)), "d", uint64(i), 128, 3_000_000_000) // 50% higher value SC call
-		listD.AddTx(D, txFeeHelper)
+		listD.AddTx(D)
 	}
 
 	scoreA = int(computer.computeScore(listA.getScoreParams()))

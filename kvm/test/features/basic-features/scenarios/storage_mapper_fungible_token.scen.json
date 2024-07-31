@@ -19,13 +19,13 @@
                     "kda": {
                         "str:TICKER-000000": {
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         },
                         "str:TICKER-222222": {
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         }
@@ -80,13 +80,13 @@
                     "kda": {
                         "str:TICKER-000000": {
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         },
                         "str:TICKER-222222": {
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         }
@@ -163,13 +163,13 @@
                     "kda": {
                         "str:TICKER-000000": {
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         },
                         "str:TICKER-222222": {
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         }
@@ -245,13 +245,13 @@
                     "kda": {
                         "str:TICKER-000000": {
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         },
                         "str:TICKER-222222": {
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         }
@@ -330,13 +330,13 @@
                     "kda": {
                         "str:TICKER-000000": {
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         },
                         "str:TICKER-222222": {
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         }
@@ -418,7 +418,7 @@
                                 }
                             ],
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         }
@@ -469,7 +469,7 @@
                                 }
                             ],
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         }
@@ -529,7 +529,7 @@
                                 }
                             ],
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         }
@@ -579,7 +579,7 @@
                                 }
                             ],
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         }
@@ -695,7 +695,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:incorrect number of KDA transfers",
                 "logs": "*",
                 "gas": "*",

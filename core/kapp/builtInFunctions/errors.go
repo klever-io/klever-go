@@ -125,9 +125,6 @@ var ErrEmptyFunctionName = errors.New("empty function name")
 // ErrInsufficientQuantityKDA signals the funds are insufficient for the KDA transfer
 var ErrInsufficientQuantityKDA = errors.New("insufficient quantity")
 
-// ErrNilKDANFTStorageHandler signals that a nil nft storage handler has been provided
-var ErrNilKDANFTStorageHandler = errors.New("nil kda nft storage handler")
-
 // ErrNilTransactionHandler signals that a nil transaction handler has been provided
 var ErrNilTransactionHandler = errors.New("nil transaction handler")
 

@@ -61,13 +61,12 @@ func TestSmartContractResult_CheckIntegrityShouldWork(t *testing.T) {
 	t.Parallel()
 
 	scr := &smartContractResult.SmartContractResult{
-		Nonce:      1,
-		Value:      map[string]int64{"KLV": 10},
-		GasLimit:   10,
-		SCData:     []byte("data"),
-		RcvAddr:    []byte("rcv-address"),
-		SndAddr:    []byte("snd-address"),
-		PrevTxHash: []byte("prev-hash"),
+		Nonce:    1,
+		Value:    map[string]int64{"KLV": 10},
+		GasLimit: 10,
+		SCData:   []byte("data"),
+		RcvAddr:  []byte("rcv-address"),
+		SndAddr:  []byte("snd-address"),
 	}
 
 	err := scr.CheckIntegrity()
@@ -92,10 +91,11 @@ func TestSmartContractResult_CheckIntegrityShouldErr(t *testing.T) {
 	assert.Equal(t, data.ErrNilSndAddr, err)
 
 	scr.SndAddr = []byte("snd-address")
-
+	// no error
 	err = scr.CheckIntegrity()
-	assert.Equal(t, data.ErrNilTxHash, err)
+	assert.Equal(t, nil, err)
 
+	// invalid value
 	scr.Value["klv"] = -1
 
 	err = scr.CheckIntegrity()
@@ -103,6 +103,7 @@ func TestSmartContractResult_CheckIntegrityShouldErr(t *testing.T) {
 
 	scr.Value["klv"] = 10
 
+	// no error
 	err = scr.CheckIntegrity()
-	assert.Equal(t, data.ErrNilTxHash, err)
+	assert.Equal(t, nil, err)
 }

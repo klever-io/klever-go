@@ -768,7 +768,6 @@ func (boot *baseBootstrap) rollBack(revertUsingForkNonce bool) error {
 
 		boot.indexer.RevertIndexedBlock(currBody)
 
-		//TODO: Implement blacklist for needed blocks
 		shouldAddHeaderToBlackList := revertUsingForkNonce && boot.blockBootstrapper.isForkTriggeredByMeta()
 		if shouldAddHeaderToBlackList {
 			process.AddHeaderToBlackList(boot.blackListHandler, currHeaderHash)

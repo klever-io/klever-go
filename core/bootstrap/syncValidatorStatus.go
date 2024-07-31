@@ -81,7 +81,6 @@ func NewSyncValidatorStatus(args ArgsNewSyncValidatorStatus) (*syncValidatorStat
 		ConsensusGroupCache: consensusGroupCache,
 	}
 
-	// TODO: add changerate
 	baseNodesCoordinator, err := sharding.NewNodesCoordinator(argsNodesCoordinator)
 	if err != nil {
 		return nil, err

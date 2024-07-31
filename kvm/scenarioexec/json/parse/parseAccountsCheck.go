@@ -26,11 +26,9 @@ func (p *Parser) processCheckAccount(acctRaw orderedjson.OJsonObject) (*scenjson
 		Code:                 scenjsonmodel.JSONCheckBytesUnspecified(),
 		CodeMetadata:         scenjsonmodel.JSONCheckBytesUnspecified(),
 		Owner:                scenjsonmodel.JSONCheckBytesUnspecified(),
-		AsyncCallData:        scenjsonmodel.JSONCheckBytesUnspecified(),
 		IgnoreKDA:            false,
 		MoreKDATokensAllowed: false,
 		CheckKDAData:         nil,
-		DeveloperReward:      scenjsonmodel.JSONCheckBigIntUnspecified(),
 	}
 	var err error
 
@@ -122,16 +120,6 @@ func (p *Parser) processCheckAccount(acctRaw orderedjson.OJsonObject) (*scenjson
 			acct.Owner, err = p.parseCheckBytes(kvp.Value)
 			if err != nil {
 				return nil, fmt.Errorf("invalid account owner: %w", err)
-			}
-		case "asyncCallData":
-			acct.AsyncCallData, err = p.parseCheckBytes(kvp.Value)
-			if err != nil {
-				return nil, fmt.Errorf("invalid asyncCallData: %w", err)
-			}
-		case "developerRewards":
-			acct.DeveloperReward, err = p.processCheckBigInt(kvp.Value, bigIntUnsignedBytes)
-			if err != nil {
-				return nil, fmt.Errorf("invalid developerRewards: %w", err)
 			}
 
 		default:

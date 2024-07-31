@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	logging "github.com/ipfs/go-log"
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/config"
@@ -73,14 +74,12 @@ func init() {
 	}
 }
 
-// TODO refactor this struct to have be a wrapper (with logic) over a glue code
 type networkMessenger struct {
-	ctx        context.Context
-	cancelFunc context.CancelFunc
-	p2pHost    ConnectableHost
-	pb         *pubsub.PubSub
-	ds         p2p.DirectSender
-	//TODO refactor this (connMonitor & connMonitorWrapper)
+	ctx                 context.Context
+	cancelFunc          context.CancelFunc
+	p2pHost             ConnectableHost
+	pb                  *pubsub.PubSub
+	ds                  p2p.DirectSender
 	connMonitor         ConnectionMonitor
 	connMonitorWrapper  p2p.ConnectionMonitorWrapper
 	peerDiscoverer      p2p.PeerDiscoverer
@@ -192,12 +191,13 @@ func createP2PPrivKey(seed string) (libp2pCrypto.PrivKey, error) {
 		return nil, err
 	}
 
-	prvKey, _, err := libp2pCrypto.GenerateSecp256k1Key(randReader)
+	prvKey, err := secp256k1.GeneratePrivateKeyFromRand(randReader)
 	if err != nil {
 		return nil, err
 	}
 
-	return prvKey, nil
+	k := (*libp2pCrypto.Secp256k1PrivateKey)(prvKey)
+	return k, nil
 }
 
 func createMessenger(
@@ -1074,7 +1074,6 @@ func (netMes *networkMessenger) SetPeerShardResolver(peerShardResolver p2p.PeerS
 }
 
 // SetPeerDenialEvaluator sets the peer black list handler
-// TODO decide if we continue on using setters or switch to options. Refactor if necessary
 func (netMes *networkMessenger) SetPeerDenialEvaluator(handler p2p.PeerDenialEvaluator) error {
 	return netMes.connMonitorWrapper.SetPeerDenialEvaluator(handler)
 }

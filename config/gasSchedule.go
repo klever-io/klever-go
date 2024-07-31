@@ -75,7 +75,6 @@ type BaseOpsAPICost struct {
 	GetBlockHash         uint64 `yaml:"GetBlockHash"`
 	GetOriginalTxHash    uint64 `yaml:"GetOriginalTxHash"`
 	GetCurrentTxHash     uint64 `yaml:"GetCurrentTxHash"`
-	GetPrevTxHash        uint64 `yaml:"GetPrevTxHash"`
 	TransferValue        uint64 `yaml:"TransferValue"`
 	GetArgument          uint64 `yaml:"GetArgument"`
 	GetFunction          uint64 `yaml:"GetFunction"`

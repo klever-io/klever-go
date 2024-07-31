@@ -1,6 +1,6 @@
 {
     "name": "message_otherShard_callback",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",

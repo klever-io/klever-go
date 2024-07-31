@@ -2,12 +2,15 @@ package worldmock
 
 import (
 	"github.com/klever-io/klever-go/common/mock"
+	nconfig "github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/fork"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
 	kappcontroller "github.com/klever-io/klever-go/core/kapp/kappController"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
+	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/config"
 	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/klever-io/klever-go/vmcommon"
@@ -37,12 +40,27 @@ func NewBuiltinFunctionsWrapper(
 
 	ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
 		OriginalSender: []byte("sender1"),
-		ContractID:     -1,
+		ContractID:     0,
 		ContractType:   -1,
 		Block:          &block.Block{},
 	})
 
 	kappController.SetCurrentKAppContext(ctx)
+	forkController, err := fork.NewForkController(nconfig.EnableEpochs{
+		SmartContracts: 0,
+	}, &mock.EpochNotifierStub{})
+	if err != nil {
+		return nil, err
+	}
+
+	proposalController, err := kapps.NewProposalController(forkController)
+	if err != nil {
+		return nil, err
+	}
+	err = kappController.SetProposalController(proposalController)
+	if err != nil {
+		return nil, err
+	}
 
 	argsBuiltIn := builtInFunctions.ArgsCreateBuiltInFunctionContainer{
 		GasMap:                           gasMap,
@@ -70,6 +88,9 @@ func NewBuiltinFunctionsWrapper(
 		MapDNSAddresses: argsBuiltIn.MapDNSAddresses,
 		World:           world,
 	}
+
+	world.KAppController = kappController
+
 	return builtinFuncsWrapper, nil
 }
 
@@ -85,6 +106,11 @@ func (bf *BuiltinFunctionsWrapper) ProcessBuiltInFunction(input *vmcommon.Contra
 	if err != nil {
 		return nil, err
 	}
+
+	// get KAppController
+	ctx := bf.World.GetKAppController().GetCurrentKAppContext()
+	// load return from context
+	vmOutput.ReturnData = ctx.GetAndClearReturnData()
 
 	return vmOutput, nil
 }

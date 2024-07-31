@@ -429,7 +429,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:No storage!",
                 "logs": "*",
                 "gas": "*",

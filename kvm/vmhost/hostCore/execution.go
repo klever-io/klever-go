@@ -295,9 +295,6 @@ func copyTxHashesFromContext(runtime vmhost.RuntimeContext, input *vmcommon.Cont
 	if len(currentVMInput.CurrentTxHash) > 0 {
 		input.CurrentTxHash = currentVMInput.CurrentTxHash
 	}
-	if len(currentVMInput.PrevTxHash) > 0 {
-		input.PrevTxHash = currentVMInput.PrevTxHash
-	}
 }
 
 // ExecuteOnDestContext pushes each context to the corresponding stack
@@ -310,18 +307,6 @@ func (host *vmHost) ExecuteOnDestContext(input *vmcommon.ContractCallInput) (vmO
 	blockchain := host.Blockchain()
 
 	blockchain.PushState()
-
-	if host.IsOutOfVMFunctionExecution(input) {
-		vmOutput, err = host.handleFunctionCallOnOtherVM(input)
-		if err != nil {
-			blockchain.PopSetActiveState()
-			host.Runtime().AddError(err, input.Function)
-			vmOutput = host.Output().CreateVMOutputInCaseOfError(err)
-		} else {
-			blockchain.PopDiscard()
-		}
-		return
-	}
 
 	// if ExecuteOnDestContext is called with an embedded builtin function call
 	// then parser the builtin function call and execute it i.e. (with_kda_transfer , with_klv_transfer)
@@ -415,6 +400,16 @@ func (host *vmHost) handleBuiltinFunctionCall(input *vmcommon.ContractCallInput)
 }
 
 func (host *vmHost) executeOnDestContextNoBuiltinFunction(input *vmcommon.ContractCallInput) (vmOutput *vmcommon.VMOutput, err error) {
+	if host.IsOutOfVMFunctionExecution(input) {
+		vmOutput, err = host.handleFunctionCallOnOtherVM(input)
+		if err != nil {
+			host.Runtime().AddError(err, input.Function)
+			vmOutput = host.Output().CreateVMOutputInCaseOfError(err)
+		}
+
+		return vmOutput, err
+	}
+
 	managedTypes, _, metering, output, runtime, storage := host.GetContexts()
 	managedTypes.PushState()
 	managedTypes.InitState()
@@ -530,7 +525,7 @@ func (host *vmHost) ExecuteOnSameContext(input *vmcommon.ContractCallInput) erro
 
 	managedTypes, blockchain, metering, output, runtime, _ := host.GetContexts()
 
-	// Back up the states of the contexts (except Storage and Async, which aren't affected
+	// Back up the states of the contexts (except Storage, which aren't affected
 	// by ExecuteOnSameContext())
 	managedTypes.PushState()
 	managedTypes.InitState()
@@ -1041,7 +1036,6 @@ func (host *vmHost) isSCExecutionAfterBuiltInFunc(
 			GasProvided:        vmOutput.GasRemaining,
 			OriginalTxHash:     vmInput.OriginalTxHash,
 			CurrentTxHash:      vmInput.CurrentTxHash,
-			PrevTxHash:         vmInput.PrevTxHash,
 			KDATransfers:       make([]*vmcommon.KDATransfer, len(vmInput.KDATransfers)),
 		},
 		RecipientAddr:     parsedTransfer.RcvAddr,

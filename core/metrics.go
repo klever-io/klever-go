@@ -239,3 +239,9 @@ const MetricCreatedProposedBlock = "klv_consensus_created_proposed_block"
 // processing (0 meaning that the block was processed in no-time and 100 meaning that the block processing used all the
 // subslot spare duration)
 const MetricProcessedProposedBlock = "klv_consensus_processed_proposed_block"
+
+// MetricRedundancyLevel is the metric that specifies the redundancy level of the current node
+const MetricRedundancyLevel = "klv_redundancy_level" // #nosec G101: false positive
+
+// MetricRedundancyIsMainActive is the metric that specifies data about the redundancy main machine
+const MetricRedundancyIsMainActive = "klv_redundancy_is_main_active"

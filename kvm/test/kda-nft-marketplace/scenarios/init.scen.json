@@ -63,7 +63,7 @@
             "newAddresses": [
                 {
                     "creatorAddress": "address:owner",
-                    "creatorNonce": "0",
+                    "creatorNonce": "1",
                     "newAddress": "sc:marketplace"
                 }
             ]

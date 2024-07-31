@@ -5,7 +5,6 @@ import "bytes"
 // Account is a json object representing an account.
 type Account struct {
 	Address         JSONBytesFromString
-	Shard           JSONUint64
 	IsSmartContract bool
 	Comment         string
 	Nonce           JSONUint64
@@ -15,10 +14,8 @@ type Account struct {
 	Code            JSONBytesFromString
 	CodeMetadata    JSONBytesFromString
 	Owner           JSONBytesFromString
-	AsyncCallData   string
 	KDAData         []*KDAData
 	Update          bool
-	DeveloperReward JSONBigInt
 }
 
 // StorageKeyValuePair is a json key value pair in the storage map.
@@ -41,11 +38,9 @@ type CheckAccount struct {
 	Code                 JSONCheckBytes
 	CodeMetadata         JSONCheckBytes
 	Owner                JSONCheckBytes
-	AsyncCallData        JSONCheckBytes
 	CheckKDAData         []*CheckKDAData
 	IgnoreKDA            bool
 	MoreKDATokensAllowed bool
-	DeveloperReward      JSONCheckBigInt
 }
 
 // CheckStorageKeyValuePair checks a single entry in storage.

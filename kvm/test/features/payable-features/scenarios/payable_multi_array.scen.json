@@ -1,6 +1,6 @@
 {
     "name": "payable",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
@@ -61,7 +61,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:incorrect number of KDA transfers",
                 "logs": "*",
                 "gas": "*",
@@ -92,7 +92,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:incorrect number of KDA transfers",
                 "logs": "*",
                 "gas": "*",

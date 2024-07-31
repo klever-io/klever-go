@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -182,17 +181,11 @@ func TestExportAll(t *testing.T) {
 	}()
 
 	metaBlock := &block.Block{Header: &block.BlockHeader{Slot: 2, ChainID: []byte("chainId")}}
-	unFinishedMetaBlocks := map[string]*block.Block{
-		"hash": {Header: &block.BlockHeader{Slot: 1, ChainID: []byte("chainId")}},
-	}
 
 	tx := &transaction.Transaction{}
 	stateSyncer := &mock.SyncStateStub{
-		GetEpochStartMetaBlockCalled: func() (block *block.Block, err error) {
+		GetEpochStartMetaBlockCalled: func(uint32) (block *block.Block, err error) {
 			return metaBlock, nil
-		},
-		GetUnFinishedMetaBlocksCalled: func() (map[string]*block.Block, error) {
-			return unFinishedMetaBlocks, nil
 		},
 		GetAllTransactionsCalled: func() (m map[string]data.TransactionHandler, err error) {
 			mt := make(map[string]data.TransactionHandler)
@@ -207,7 +200,6 @@ func TestExportAll(t *testing.T) {
 
 	transactionsWereWrote := false
 	epochStartMetablockWasWrote := false
-	unFinishedMetablocksWereWrote := false
 	hs := &mock.HardforkStorerStub{
 		WriteCalled: func(identifier string, key []byte, value []byte) error {
 			switch identifier {
@@ -215,9 +207,6 @@ func TestExportAll(t *testing.T) {
 				transactionsWereWrote = true
 			case EpochStartMetaBlockIdentifier:
 				epochStartMetablockWasWrote = true
-			case UnFinishedMetaBlocksIdentifier:
-				unFinishedMetablocksWereWrote = true
-
 			}
 
 			return nil
@@ -243,7 +232,6 @@ func TestExportAll(t *testing.T) {
 
 	assert.True(t, transactionsWereWrote)
 	assert.True(t, epochStartMetablockWasWrote)
-	assert.True(t, unFinishedMetablocksWereWrote)
 }
 
 func TestStateExport_ExportTrieShouldExportNodesSetupJson(t *testing.T) {
@@ -373,46 +361,4 @@ func TestStateExport_ExportNodesSetupJsonShouldExportKeysInAlphabeticalOrder(t *
 	require.Equal(t, string(val01.PublicKey), initialNodes[3].PubKey) // bbbbbb
 	require.Equal(t, string(val10.PublicKey), initialNodes[4].PubKey) // ccc
 	require.Equal(t, string(val11.PublicKey), initialNodes[5].PubKey) // ddd
-}
-
-func TestStateExport_ExportUnfinishedMetaBlocksShouldWork(t *testing.T) {
-	t.Parallel()
-
-	unFinishedMetaBlocks := map[string]*block.Block{
-		"hash": {Header: &block.BlockHeader{Slot: 1, ChainID: []byte("chainId")}},
-	}
-	stateSyncer := &mock.SyncStateStub{
-		GetUnFinishedMetaBlocksCalled: func() (map[string]*block.Block, error) {
-			return unFinishedMetaBlocks, nil
-		},
-	}
-
-	unFinishedMetablocksWereWrote := false
-	hs := &mock.HardforkStorerStub{
-		WriteCalled: func(identifier string, key []byte, value []byte) error {
-			if strings.Compare(identifier, UnFinishedMetaBlocksIdentifier) == 0 {
-				unFinishedMetablocksWereWrote = true
-			}
-			return nil
-		},
-	}
-
-	args := ArgsNewStateExporter{
-		Marshalizer:              &cMock.MarshalizerMock{},
-		StateSyncer:              stateSyncer,
-		HardforkStorer:           hs,
-		Hasher:                   &cMock.HasherMock{},
-		AddressPubKeyConverter:   &cMock.PubkeyConverterStub{},
-		ValidatorPubKeyConverter: &cMock.PubkeyConverterStub{},
-		ExportFolder:             "test",
-		GenesisNodesSetupHandler: &mock.GenesisNodesSetupHandlerStub{},
-	}
-
-	stateExporter, _ := NewStateExporter(args)
-	require.False(t, check.IfNil(stateExporter))
-
-	err := stateExporter.exportUnFinishedMetaBlocks()
-	require.Nil(t, err)
-
-	assert.True(t, unFinishedMetablocksWereWrote)
 }

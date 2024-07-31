@@ -25,7 +25,6 @@ func TestNewSyncValidatorStatus_ShouldWork(t *testing.T) {
 
 func TestSyncValidatorStatus_NodesConfigFromMetaBlock(t *testing.T) {
 	t.Parallel()
-	// TODO: review...
 	args := getSyncValidatorStatusArgs()
 	svs, _ := NewSyncValidatorStatus(args)
 

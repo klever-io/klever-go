@@ -40,8 +40,6 @@ func TestPrepareTransactionsForDatabase(t *testing.T) {
 	txHash4 := []byte("txHash4")
 	tx4, _ := createTransactionHandlerMock(&sc_contract, transaction.TXContract_SmartContractType, []byte("klv1d05ju9jaj6u99zph0ant9jh7gksf"))
 
-	// TODO: Add receipt
-
 	header := &block.Block{
 		Header:   &block.BlockHeader{},
 		TxHashes: [][]byte{txHash1, txHash2, txHash3, txHash4},

@@ -189,6 +189,8 @@ func gasScheduleToOJ(gasSchedule scenjsonmodel.GasSchedule) orderedjson.OJsonObj
 		return stringToOJ("default")
 	case scenjsonmodel.GasScheduleDummy:
 		return stringToOJ("dummy")
+	case scenjsonmodel.GasScheduleV1:
+		return stringToOJ("v1")
 	default:
 		return stringToOJ("")
 	}

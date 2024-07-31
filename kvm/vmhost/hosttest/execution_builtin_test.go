@@ -166,7 +166,7 @@ func dummyProcessBuiltInFunction(input *vmcommon.ContractCallInput) (*vmcommon.V
 			Address:         input.RecipientAddr,
 			OutputTransfers: []vmcommon.OutputTransfer{outTransfer},
 		}
-		// TODO when KDA token balance querying is implemented, ensure the
+		// FIXME when KDA token balance querying is implemented, ensure the
 		// transfers that happen here are persisted in the mock accounts
 		return vmOutput, nil
 	}

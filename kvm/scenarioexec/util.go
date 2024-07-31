@@ -2,6 +2,7 @@ package scenarioexec
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -69,8 +70,33 @@ func convertAccount(testAcct *scenjsonmodel.Account, world *worldmock.MockWorld)
 	return acct, nil
 }
 
-func validateSetStateAccount(scenAccount *scenjsonmodel.Account, converted *worldmock.Account) error {
-	err := converted.Validate()
+func validate(addr []byte, code []byte) error {
+	if len(addr) != 32 {
+		return fmt.Errorf(
+			"account address should be 32 bytes long: 0x%s",
+			hex.EncodeToString(addr))
+	}
+
+	scAddress := core.IsSmartContractAddress(addr)
+	if len(code) > 0 {
+		if !scAddress {
+			return fmt.Errorf(
+				"account has code but not a smart contract address: %s",
+				hex.EncodeToString(addr))
+		}
+	} else {
+		if scAddress {
+			return fmt.Errorf(
+				"account has a smart contract address, but has no code: 0x%s",
+				hex.EncodeToString(addr))
+		}
+	}
+
+	return nil
+}
+
+func validateSetStateAccount(scenAccount *scenjsonmodel.Account, converted state.UserAccountHandler) error {
+	err := validate(converted.AddressBytes(), scenAccount.Code.Value)
 	if err != nil {
 		return fmt.Errorf(
 			`"setState" step validation failed for account "%s": %w`,

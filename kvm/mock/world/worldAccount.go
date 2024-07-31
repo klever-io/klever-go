@@ -175,22 +175,18 @@ func (a *Account) GetTokenBalanceUint64(tokenIdentifier []byte, nonce uint64) (u
 }
 
 func (a *Account) SubFromBalance(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) AddInternalKDA(assetID []byte, internalID []byte, data []byte) error {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) SubInternalKDA(assetID []byte, internalID []byte) ([]byte, error) {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) AddToAllowance(value int64) error {
-	//TODO implement me
 	panic("implement me")
 }
 
@@ -199,82 +195,66 @@ func (a *Account) GetBalance(assetID []byte, cdd bool) int64 {
 }
 
 func (a *Account) GetAllowance() int64 {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) GetFrozenBalance(assetID []byte, _ bool) int64 {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) GetBuckets(assetID []byte, _ bool) map[string]*kapps.UserBucket {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) Freeze(assetID, bucketID []byte, value int64, blockEpoch uint32, blockTime int64, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) error {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) Unfreeze(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) Delegate(bucketID, delegation []byte, userKDA *kapps.UserKDA) (int64, error) {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) Undelegate(bucketID []byte, userKDA *kapps.UserKDA) ([]byte, int64, error) {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) Claim(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) ComputeAvailableClaim(assetID []byte, epoch uint32, blockTime int64, userKDA *kapps.UserKDA, staking *kapps.StakingData, forkController core.ForkController) (map[string]int64, error) {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) Withdraw(assetID []byte, epoch uint32, minEpochsToWithdraw uint32, userKDA *kapps.UserKDA) (int64, error) {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) GetPermission(id int32) (*state.Permission, bool, error) {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) SetPermissions(permissions []*state.Permission) {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) GetPermissions() []*state.Permission {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) SetName(name []byte) {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) GetName() []byte {
-	//TODO implement me
 	panic("implement me")
 }
 
 func (a *Account) SetDataTrie(trie data.Trie) {
-	//TODO implement me
 	panic("implement me")
 }
 

@@ -78,7 +78,6 @@ func (e *kleverWithdraw) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallIn
 	}
 
 	gasRemaining := computeGasRemaining(vmInput.GasProvided, e.funcGasCost)
-
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
 
 	//Using Kapps
@@ -100,11 +99,6 @@ func (e *kleverWithdraw) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallIn
 	if resultCode != transaction.Transaction_Ok {
 		err = fmt.Errorf("KleverWithdraw error: %s", resultCode.String())
 		log.Trace("Withdraw error", "resultCode", resultCode, "err", err.Error())
-		return nil, err
-	}
-
-	vmOutput.GasRemaining, err = vmcommon.SafeSubUint64(vmInput.GasProvided, e.funcGasCost)
-	if err != nil {
 		return nil, err
 	}
 

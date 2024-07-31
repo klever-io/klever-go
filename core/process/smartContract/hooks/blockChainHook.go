@@ -56,7 +56,6 @@ type ArgBlockChainHook struct {
 	Marshalizer        marshal.Marshalizer
 	Uint64Converter    typeConverters.Uint64ByteSliceConverter
 	BuiltInFunctions   vmcommon.BuiltInFunctionContainer
-	NFTStorageHandler  vmcommon.SimpleKDANFTStorageHandler
 	EnableEpochs       config.EnableEpochs
 	CompiledSCPool     storage.Cacher
 	ConfigSCStorage    config.StorageConfig
@@ -70,17 +69,16 @@ type ArgBlockChainHook struct {
 
 // BlockChainHookImpl is a wrapper over AccountsAdapter that satisfy vmcommon.BlockchainHook interface
 type BlockChainHookImpl struct {
-	accountsCacher    state.AccountsCacher
-	kappController    kapp.KAppController
-	pubkeyConv        core.PubkeyConverter
-	storageService    dataRetriever.StorageService
-	blockChain        data.ChainHandler
-	marshalizer       marshal.Marshalizer
-	uint64Converter   typeConverters.Uint64ByteSliceConverter
-	builtInFunctions  vmcommon.BuiltInFunctionContainer
-	nftStorageHandler vmcommon.SimpleKDANFTStorageHandler
-	forkController    core.ForkController
-	counter           BlockChainHookCounter
+	accountsCacher   state.AccountsCacher
+	kappController   kapp.KAppController
+	pubkeyConv       core.PubkeyConverter
+	storageService   dataRetriever.StorageService
+	blockChain       data.ChainHandler
+	marshalizer      marshal.Marshalizer
+	uint64Converter  typeConverters.Uint64ByteSliceConverter
+	builtInFunctions vmcommon.BuiltInFunctionContainer
+	forkController   core.ForkController
+	counter          BlockChainHookCounter
 
 	mutCurrentHdr sync.RWMutex
 	currentHdr    data.HeaderHandler
@@ -118,7 +116,6 @@ func NewBlockChainHookImpl(
 		configSCStorage:    args.ConfigSCStorage,
 		workingDir:         args.WorkingDir,
 		nilCompiledSCStore: args.NilCompiledSCStore,
-		nftStorageHandler:  args.NFTStorageHandler,
 		forkController:     args.ForkController,
 		counter:            args.Counter,
 	}
@@ -181,9 +178,6 @@ func checkForNil(args ArgBlockChainHook) error {
 	if check.IfNil(args.CompiledSCPool) {
 		return process.ErrNilCacher
 	}
-	//if check.IfNil(args.NFTStorageHandler) {
-	//	return process.ErrNilNFTStorageHandler
-	//}
 	if check.IfNil(args.EpochNotifier) {
 		return process.ErrNilEpochNotifier
 	}
@@ -595,7 +589,6 @@ func (bh *BlockChainHookImpl) GetBuiltinFunctionsContainer() vmcommon.BuiltInFun
 }
 
 // GetAllState returns the underlying state of a given account
-// TODO remove this func completely
 func (bh *BlockChainHookImpl) GetAllState(_ []byte) (map[string][]byte, error) {
 	return nil, nil
 }
@@ -745,18 +738,14 @@ func (bh *BlockChainHookImpl) makeCompiledSCStorage() error {
 	return nil
 }
 
-// TODO: not needed as we use accounts cacher, remove
 // GetSnapshot gets the number of entries in the journal as a snapshot id
 func (bh *BlockChainHookImpl) GetSnapshot() int {
-	return 0
-	// return bh.accounts.JournalLen()
+	return 0 //not needed as we use accounts cacher
 }
 
-// TODO: Probably as we use accounts cacher, remove?
 // RevertToSnapshot reverts snapshots up to the specified one
 func (bh *BlockChainHookImpl) RevertToSnapshot(snapshot int) error {
-	return nil
-	// return bh.accounts.RevertToSnapshot(snapshot)
+	return nil ////not needed as we use accounts cacher
 }
 
 // TransferValueOnly transfers KLV from one account to another

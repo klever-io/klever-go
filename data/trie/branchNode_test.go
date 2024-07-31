@@ -52,8 +52,6 @@ func newEmptyTrie() (*patriciaMerkleTrie, *trieStorageManager, *mock.EvictionWai
 	evictionWaitListSize := uint(100)
 	evictionWaitList, _ := mock.NewEvictionWaitingList(evictionWaitListSize, mock.NewMemDbMock(), marsh)
 
-	// TODO change this initialization of the persister  (and everywhere in this package)
-	// by using a persister factory
 	tempDir, _ := os.MkdirTemp("", "leveldb_temp")
 	cfg := config.DBConfig{
 		FilePath:          tempDir,

@@ -12,7 +12,6 @@ import (
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 var sc1Address = testcommon.MakeTestSCAddress("sc1")
@@ -169,29 +168,6 @@ func TestUpdateFromSource_NoPermission_NoEpochFlag(t *testing.T) {
 			ExecutionFailed().
 			HasRuntimeErrors(vmhost.ErrUpgradeNotAllowed.Error())
 		//Code(testConfig.ContractToBeUpdatedAddress, nil)
-	})
-}
-
-func TestUpdateFromSource_NoGasForAsyncCall_EpochFlag(t *testing.T) {
-	testConfig := getUpdateFromSourceTestConfig()
-	testConfig.GasProvidedForInit = uint64(100)
-	testConfig.AsyncCallStepCost = uint64(300)
-	runUpdateFromSourceTest(t, &testConfig, func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
-		verify.
-			OutOfGas()
-		require.Nil(t, verify.VmOutput.OutputAccounts[string(testConfig.ContractToBeUpdatedAddress)])
-	})
-}
-
-func TestUpdateFromSource_NoGasForAsyncCall_NoEpochFlag(t *testing.T) {
-	testConfig := getUpdateFromSourceTestConfig()
-	testConfig.IsFlagEnabled = false
-	testConfig.GasProvidedForInit = uint64(100)
-	testConfig.AsyncCallStepCost = uint64(300)
-	runUpdateFromSourceTest(t, &testConfig, func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
-		verify.
-			OutOfGas()
-		require.Nil(t, verify.VmOutput.OutputAccounts[string(testConfig.ContractToBeUpdatedAddress)])
 	})
 }
 

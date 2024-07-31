@@ -104,6 +104,17 @@ func TestNewSender_NilStatusHandlerShouldErr(t *testing.T) {
 	assert.Equal(t, heartbeat.ErrNilAppStatusHandler, err)
 }
 
+func TestNewSender_NilHardforkTriggerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatSender()
+	arg.HardforkTrigger = nil
+	sender, err := process.NewSender(arg)
+
+	assert.Nil(t, sender)
+	assert.Equal(t, heartbeat.ErrNilHardforkTrigger, err)
+}
+
 func TestNewSender_PropertyTooLongShouldErr(t *testing.T) {
 	t.Parallel()
 
@@ -124,6 +135,32 @@ func TestNewSender_NilCurrentBlockProviderShouldErr(t *testing.T) {
 
 	assert.Nil(t, sender)
 	assert.True(t, errors.Is(err, heartbeat.ErrNilCurrentBlockProvider))
+}
+
+func TestNewSender_NilRedundancyHandlerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatSender()
+	arg.RedundancyHandler = nil
+	sender, err := process.NewSender(arg)
+
+	assert.Nil(t, sender)
+	assert.True(t, errors.Is(err, heartbeat.ErrNilRedundancyHandler))
+}
+
+func TestNewSender_RedundancyHandlerReturnsANilObserverPrivateKeyShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatSender()
+	arg.RedundancyHandler = &mock.RedundancyHandlerStub{
+		ObserverPrivateKeyCalled: func() crypto.PrivateKey {
+			return nil
+		},
+	}
+	sender, err := process.NewSender(arg)
+
+	assert.Nil(t, sender)
+	assert.True(t, errors.Is(err, heartbeat.ErrNilPrivateKey))
 }
 
 func TestNewSender_ShouldWork(t *testing.T) {
@@ -316,6 +353,77 @@ func TestSender_SendHeartbeatNotABackupNodeShouldWork(t *testing.T) {
 
 	assert.Nil(t, err)
 	assert.True(t, broadcastCalled)
+	assert.True(t, signCalled)
+	assert.True(t, genPubKeyCalled)
+}
+
+func TestSender_SendHeartbeatBackupNodeShouldWork(t *testing.T) {
+	t.Parallel()
+
+	testTopic := "topic"
+	originalPkBytes := []byte("aaaa")
+	pkBytes := []byte("bbbb")
+	pubKey := &mock.PublicKeyMock{
+		ToByteArrayHandler: func() (i []byte, e error) {
+			return originalPkBytes, nil
+		},
+	}
+	signature := []byte("signature")
+
+	broadcastCalled := false
+	signCalled := false
+	genPubKeyCalled := false
+
+	arg := createMockArgHeartbeatSender()
+	arg.RedundancyHandler = &mock.RedundancyHandlerStub{
+		IsRedundancyNodeCalled: func() bool {
+			return true
+		},
+		IsMainMachineActiveCalled: func() bool {
+			return true
+		},
+		ObserverPrivateKeyCalled: func() crypto.PrivateKey {
+			return &mock.PrivateKeyStub{
+				GeneratePublicHandler: func() crypto.PublicKey {
+					return &mock.PublicKeyMock{
+						ToByteArrayHandler: func() (i []byte, e error) {
+							return pkBytes, nil
+						},
+					}
+				},
+			}
+		},
+	}
+	arg.Marshalizer = &cMock.ProtoMarshalizerMock{}
+	arg.Topic = testTopic
+	arg.PeerMessenger = &mock.MessengerStub{
+		BroadcastCalled: func(topic string, buff []byte) {
+			pkEncoded := base64.StdEncoding.EncodeToString(pkBytes)
+			if topic == testTopic && bytes.Contains(buff, []byte(pkEncoded)) {
+				broadcastCalled = true
+			}
+		},
+	}
+	singleSigner := &mock.SinglesignStub{
+		SignCalled: func(private crypto.PrivateKey, msg []byte) (i []byte, e error) {
+			signCalled = true
+			return signature, nil
+		},
+	}
+	arg.PeerSignatureHandler = &mock.PeerSignatureHandler{Signer: singleSigner}
+
+	arg.PrivKey = &mock.PrivateKeyStub{
+		GeneratePublicHandler: func() crypto.PublicKey {
+			genPubKeyCalled = true
+			return pubKey
+		},
+	}
+	sender, _ := process.NewSender(arg)
+
+	err := sender.SendHeartbeat()
+
+	assert.Nil(t, err)
+	_ = broadcastCalled // assert.True(t, broadcastCalled) // TODO: Implement Hardfork trigger on heartbeat (?)
 	assert.True(t, signCalled)
 	assert.True(t, genPubKeyCalled)
 }

@@ -92,8 +92,6 @@ func (ae *VMTestExecutor) executeTx(txIndex string, tx *scenjsonmodel.Transactio
 		case scenjsonmodel.Transfer:
 			// transfer already processed by directKDATransferFromTx
 			output = ae.vmHost.Output().GetVMOutput()
-		case scenjsonmodel.ValidatorReward:
-			fallthrough
 		default:
 			return nil, errors.New("unknown transaction type")
 		}

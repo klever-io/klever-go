@@ -433,7 +433,7 @@ func TestGasUsed_KDATransferFailed(t *testing.T) {
 }
 
 func TestGasUsed_BuiltinMultiContractChainCall(t *testing.T) {
-	// TODO matei-p enable this test for R2
+	// FIXME matei-p enable this test for R2
 	t.Skip()
 
 	testConfig := makeTestConfig()

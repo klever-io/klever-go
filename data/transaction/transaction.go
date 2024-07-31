@@ -343,6 +343,8 @@ func (t *Transaction) addCreateAsset(txArgs TXArgs) error {
 			Address:             roleAddress,
 			HasRoleMint:         role.HasRoleMint,
 			HasRoleSetITOPrices: role.HasRoleSetITOPrices,
+			HasRoleDeposit:      role.HasRoleDeposit,
+			HasRoleTransfer:     role.HasRoleTransfer,
 		}
 	}
 
@@ -486,6 +488,8 @@ func (t *Transaction) addAssetTrigger(txArgs TXArgs) error {
 			}
 			roleInfo.HasRoleMint = contractRequest.Role.HasRoleMint
 			roleInfo.HasRoleSetITOPrices = contractRequest.Role.HasRoleSetITOPrices
+			roleInfo.HasRoleDeposit = contractRequest.Role.HasRoleDeposit
+			roleInfo.HasRoleTransfer = contractRequest.Role.HasRoleTransfer
 		} else if contractRequest.Role.HasRoleMint || contractRequest.Role.HasRoleSetITOPrices {
 			return errors.New("invalid role address")
 		}
@@ -725,7 +729,6 @@ func (t *Transaction) addUnfreeze(txArgs TXArgs) error {
 		return errors.New("invalid bucket id")
 	}
 
-	// TODO: check for asset instead of test error
 	bucketID, err := hex.DecodeString(contractRequest.BucketID)
 	if err != nil {
 		bucketID = []byte(contractRequest.BucketID)
@@ -1332,11 +1335,12 @@ func (t *Transaction) addSmartContract(txArgs TXArgs) error {
 		return err
 	}
 
-	if len(contractRequest.Address) > txArgs.NodeHelper.GetEncodedAddressLength() {
+	if SmartContract_SCType(txArgs.Type) != SmartContract_SCDeploy &&
+		len(contractRequest.Address) > txArgs.NodeHelper.GetEncodedAddressLength() {
 		return fmt.Errorf("%w for address", common.ErrInvalidAddressLength)
 	}
 
-	parsedAddress := make([]byte, txArgs.NodeHelper.GetAddressPCK().Len())
+	parsedAddress := make([]byte, 0)
 	if len(contractRequest.Address) > 0 {
 		parsedAddress, err = txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.Address)
 		if err != nil {
@@ -1789,9 +1793,8 @@ func (t *TXContract) GetSmartContract() (*SmartContract, error) {
 	return tc, nil
 }
 
-// TODO: VM review implementation of these methods
 func (t *Transaction) Size() int {
-	return 100
+	return t.GetSize()
 }
 
 func (t *Transaction) CheckIntegrity() error {

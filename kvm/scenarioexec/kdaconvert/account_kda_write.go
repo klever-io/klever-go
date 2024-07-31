@@ -18,13 +18,13 @@ func RoleListToKDARole(roles []string) *kapps.RolesData {
 	HasRoleDeposit := false
 	HasRoleTransfer := false
 	for _, scenRoles := range roles {
-		if scenRoles == "KDARoleLocalMint" {
+		if scenRoles == "KDARoleMint" {
 			HasRoleMint = true
-		} else if scenRoles == "KDARoleLocalSetITOPrices" {
+		} else if scenRoles == "KDARoleSetITOPrices" {
 			HasRoleSetITOPrices = true
-		} else if scenRoles == "KDARoleLocalDeposit" {
+		} else if scenRoles == "KDARoleDeposit" {
 			HasRoleDeposit = true
-		} else if scenRoles == "KDARoleLocalTransfer" {
+		} else if scenRoles == "KDARoleTransfer" {
 			HasRoleTransfer = true
 		}
 	}
@@ -39,16 +39,16 @@ func RoleListToKDARole(roles []string) *kapps.RolesData {
 func KDARoleToRoleList(roles *kapps.RolesData) [][]byte {
 	roleList := make([][]byte, 0)
 	if roles.HasRoleMint {
-		roleList = append(roleList, []byte("KDARoleLocalMint"))
+		roleList = append(roleList, []byte("KDARoleMint"))
 	}
 	if roles.HasRoleSetITOPrices {
-		roleList = append(roleList, []byte("KDARoleLocalSetITOPrices"))
+		roleList = append(roleList, []byte("KDARoleSetITOPrices"))
 	}
 	if roles.HasRoleDeposit {
-		roleList = append(roleList, []byte("KDARoleLocalDeposit"))
+		roleList = append(roleList, []byte("KDARoleDeposit"))
 	}
 	if roles.HasRoleTransfer {
-		roleList = append(roleList, []byte("KDARoleLocalTransfer"))
+		roleList = append(roleList, []byte("KDARoleTransfer"))
 	}
 	return roleList
 }
@@ -63,7 +63,10 @@ func WriteScenariosKDAToStorage(kdaData []*scenjsonmodel.KDAData, destination st
 				assetID = kdautils.KLVIdentifier
 			}
 
-			userKDA := kapps.UserKDA{Balance: instance.Balance.Value.Int64()}
+			userKDA := kapps.UserKDA{
+				Balance:  instance.Balance.Value.Int64(),
+				Metadata: instance.Attributes.Value,
+			}
 
 			nonce := []byte(strconv.FormatUint(instance.Nonce.Value, 10))
 			err := destination.SetUserKDA(assetID, nonce, &userKDA)

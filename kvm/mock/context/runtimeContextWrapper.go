@@ -574,11 +574,6 @@ func (contextWrapper *RuntimeContextWrapper) HasFunction(functionName string) bo
 	return contextWrapper.runtimeContext.HasFunction(functionName)
 }
 
-// GetPrevTxHash calls corresponding xxxFunc function, that by default in turn calls the original method of the wrapped RuntimeContext
-func (contextWrapper *RuntimeContextWrapper) GetPrevTxHash() []byte {
-	return contextWrapper.runtimeContext.GetPrevTxHash()
-}
-
 // CleanInstance calls corresponding xxxFunc function, that by default in turn calls the original method of the wrapped RuntimeContext
 func (contextWrapper *RuntimeContextWrapper) CleanInstance() {
 	contextWrapper.CleanInstanceFunc()

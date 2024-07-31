@@ -1,6 +1,7 @@
 package builtInFunctions
 
 import (
+	"encoding/hex"
 	"fmt"
 	"sync"
 
@@ -77,16 +78,10 @@ func (e *kleverAssetTrigger) ProcessBuiltinFunction(vmInput *vmcommon.ContractCa
 	}
 
 	gasRemaining := computeGasRemaining(vmInput.GasProvided, e.funcGasCost)
-
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
 
 	//Using Kapps
 	_, err = e.kappController.GetKDAKApp().Trigger(vmInput.CallerAddr, contract, txData)
-	if err != nil {
-		return nil, err
-	}
-
-	vmOutput.GasRemaining, err = vmcommon.SafeSubUint64(vmInput.GasProvided, e.funcGasCost)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +152,17 @@ func (e *kleverAssetTrigger) getAssetTriggerContract(vmInput *vmcommon.ContractC
 		//Add metadata to txData
 		currentContractID := e.kappController.GetCurrentKAppContext().ContractID()
 		data := make([][]byte, currentContractID+1)
-		data[currentContractID] = vmInput.NextArg()
+		// Make compatible with TX from contract adding `@` to split keys if any
+		attributes := vmInput.NextArg()
+		if vmInput.HasNextArg() {
+			name := vmInput.NextArg()
+			data[currentContractID] = []byte(hex.EncodeToString(name))
+			// add separator
+			data[currentContractID] = append(data[currentContractID], []byte("@")...)
+		}
+		data[currentContractID] = append(data[currentContractID],
+			[]byte(hex.EncodeToString(attributes))...)
+
 		txData = data
 	case transaction.AssetTriggerContract_UpdateLogo:
 		contract.Logo = vmInput.NextArg().String()

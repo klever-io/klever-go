@@ -8,7 +8,6 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 )
 
-// TODO: check if SmartContractResult is needed
 var _ = data.TransactionHandler(&SmartContractResult{})
 
 // IsInterfaceNil verifies if underlying object is nil
@@ -64,14 +63,10 @@ func (scr *SmartContractResult) CheckIntegrity() error {
 			return data.ErrNegativeValue
 		}
 	}
-	if len(scr.PrevTxHash) == 0 {
-		return data.ErrNilTxHash
-	}
 
 	return nil
 }
 
-// TODO: VM check implementation
 // GetData
 func (sc *SmartContractResult) GetData() [][]byte {
 	return [][]byte{sc.SCData}

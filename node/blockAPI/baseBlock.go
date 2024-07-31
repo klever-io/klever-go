@@ -47,7 +47,6 @@ func (mbp *apiBlockProcessor) getTxsByMb(blck *block.Block) []*api.Transaction {
 				"error", errUnmarshalTx.Error())
 			continue
 		}
-		// TODO: add Status
 
 		txs = append(txs, tx)
 	}

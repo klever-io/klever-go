@@ -12,7 +12,7 @@
                     "nonce": "0",
                     "balance": "0",
                     "kda": {
-                        "str:CROWD-123456": "1,000,000,000,000"
+                        "str:CROWD-1234": "1,000,000,000,000"
                     }
                 }
             }
@@ -25,7 +25,7 @@
                 "to": "sc:crowdfunding",
                 "kdaValue": [
                     {
-                        "tokenIdentifier": "str:CROWD-123456",
+                        "tokenIdentifier": "str:CROWD-1234",
                         "value": "250,000,000,000"
                     }
                 ],
@@ -53,7 +53,7 @@
                     "nonce": "1",
                     "balance": "0",
                     "kda": {
-                        "str:CROWD-123456": "150,000,000,000"
+                        "str:CROWD-1234": "150,000,000,000"
                     },
                     "storage": {}
                 },
@@ -61,7 +61,7 @@
                     "nonce": "1",
                     "balance": "0",
                     "kda": {
-                        "str:CROWD-123456": "750,000,000,000"
+                        "str:CROWD-1234": "750,000,000,000"
                     },
                     "storage": {}
                 },
@@ -69,12 +69,12 @@
                     "nonce": "0",
                     "balance": "0",
                     "kda": {
-                        "str:CROWD-123456": "500,000,000,000"
+                        "str:CROWD-1234": "500,000,000,000"
                     },
                     "storage": {
                         "str:target": "500,000,000,000",
                         "str:deadline": "123,000",
-                        "str:tokenIdentifier": "str:CROWD-123456",
+                        "str:tokenIdentifier": "str:CROWD-1234",
                         "str:deposit|address:donor1": "250,000,000,000",
                         "str:deposit|address:donor2": "250,000,000,000"
                     },
@@ -101,7 +101,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:only owner can claim successful funding",
                 "gas": "*",
                 "refund": "*"
@@ -124,9 +124,9 @@
                 "logs": [
                     {
                         "address": "sc:crowdfunding",
-                        "endpoint": "str:KDATransfer",
+                        "endpoint": "str:KleverTransfer",
                         "topics": [
-                            "str:CROWD-123456",
+                            "str:CROWD-1234",
                             "",
                             "500,000,000,000",
                             "address:my_address"
@@ -145,7 +145,7 @@
                     "nonce": "2",
                     "balance": "1,000,000",
                     "kda": {
-                        "str:CROWD-123456": "500,000,000,000"
+                        "str:CROWD-1234": "500,000,000,000"
                     },
                     "storage": {}
                 },
@@ -153,7 +153,7 @@
                     "nonce": "2",
                     "balance": "0",
                     "kda": {
-                        "str:CROWD-123456": "150,000,000,000"
+                        "str:CROWD-1234": "150,000,000,000"
                     },
                     "storage": {}
                 },
@@ -161,7 +161,7 @@
                     "nonce": "1",
                     "balance": "0",
                     "kda": {
-                        "str:CROWD-123456": "750,000,000,000"
+                        "str:CROWD-1234": "750,000,000,000"
                     },
                     "storage": {}
                 },
@@ -169,12 +169,12 @@
                     "nonce": "0",
                     "balance": "0",
                     "kda": {
-                        "str:CROWD-123456": "0"
+                        "str:CROWD-1234": "0"
                     },
                     "storage": {
                         "str:target": "500,000,000,000",
                         "str:deadline": "123,000",
-                        "str:tokenIdentifier": "str:CROWD-123456",
+                        "str:tokenIdentifier": "str:CROWD-1234",
                         "str:deposit|address:donor1": "250,000,000,000",
                         "str:deposit|address:donor2": "250,000,000,000"
                     },

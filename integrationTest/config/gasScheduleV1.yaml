@@ -39,7 +39,6 @@ BaseOpsAPICost:
   GetSCAddress: 100
   GetOwnerAddress: 5000
   GetCurrentTxHash: 100
-  GetPrevTxHash: 10
   IsSmartContract: 5000
   GetExternalBalance: 7000
   GetBlockHash: 10000

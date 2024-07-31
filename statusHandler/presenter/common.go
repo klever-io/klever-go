@@ -86,7 +86,6 @@ func (psh *PresenterStatusHandler) computeSlotsPerHourAccordingToHitRate() float
 func (psh *PresenterStatusHandler) computeRewardsInKLV() *big.Float {
 	rewardsValue := psh.getBigIntFromStringMetric(core.MetricRewardsValue)
 
-	// TODO: from config
 	denominationCoefficient := big.NewFloat(1.0 / math.Pow10(int(6)))
 
 	if rewardsValue.Cmp(big.NewInt(0)) <= 0 {

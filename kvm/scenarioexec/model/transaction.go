@@ -17,17 +17,13 @@ const (
 	// Transfer is an ERD transfer transaction without calling a smart contract
 	Transfer
 
-	// ValidatorReward is when the protocol sends a validator reward to the target account.
-	// It increases the balance, but also increments the reward value in storage.
-	ValidatorReward
-
 	// ScUpgrade describes a transaction that upgrades an existing contract
 	ScUpgrade
 )
 
 // HasSender is a helper function to indicate if transaction has `from` field.
 func (tt TransactionType) HasSender() bool {
-	return tt != ScQuery && tt != ValidatorReward
+	return tt != ScQuery
 }
 
 // HasReceiver is a helper function to indicate if transaction has receivscenexpressionreconstructor.

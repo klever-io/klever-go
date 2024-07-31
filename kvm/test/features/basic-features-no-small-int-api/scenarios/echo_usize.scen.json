@@ -123,7 +123,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:argument decode error (i): input too long",
                 "logs": "*",
                 "gas": "*",

@@ -611,14 +611,6 @@ func (w *WrapperVMHooks) GetCurrentTxHash(dataOffset executor.MemPtr) {
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
-// GetPrevTxHash VM hook wrapper
-func (w *WrapperVMHooks) GetPrevTxHash(dataOffset executor.MemPtr) {
-	callInfo := fmt.Sprintf("GetPrevTxHash(%d)", dataOffset)
-	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.GetPrevTxHash(dataOffset)
-	w.logger.LogVMHookCallAfter(callInfo)
-}
-
 // ManagedSCAddress VM hook wrapper
 func (w *WrapperVMHooks) ManagedSCAddress(destinationHandle int32) {
 	callInfo := fmt.Sprintf("ManagedSCAddress(%d)", destinationHandle)

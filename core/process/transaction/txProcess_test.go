@@ -1366,9 +1366,6 @@ func TestTxProcessor_ProcessTransferAssetOkValsShouldWork(t *testing.T) {
 	execTx, args := NexTXProcessorV2(t)
 	AddBalanceAccount(args.AccountsCacher, 90, nil, contract.GetOwnerAddress())
 
-	// TODO: userDB := args.Accounts
-	// TODO: kappDB := args.KApps
-
 	block := createBlockHeader()
 
 	ownAcc, hash, err := execTx.PreProcessTransaction(tx)

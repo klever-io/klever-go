@@ -10,6 +10,7 @@ require (
 	github.com/btcsuite/btcd/btcec/v2 v2.3.2
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btcutil v1.0.2
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0
 	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/dustinkirkland/golang-petname v0.0.0-20191129215211-8e5a1ed0cff0
 	github.com/elastic/go-elasticsearch/v8 v8.4.0
@@ -24,7 +25,7 @@ require (
 	github.com/google/gops v0.3.23
 	github.com/gorilla/websocket v1.5.1
 	github.com/hashicorp/golang-lru v1.0.2
-	github.com/herumi/bls-go-binary v1.31.0
+	github.com/herumi/bls-go-binary v1.28.2
 	github.com/ipfs/go-log v1.0.5
 	github.com/jbenet/goprocess v0.1.4
 	github.com/klever-io/klever-go-logger v1.3.1
@@ -69,7 +70,6 @@ require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/davidlazar/go-crypto v0.0.0-20200604182044-b73af7476f6c // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/elastic/elastic-transport-go/v8 v8.1.0 // indirect
 	github.com/elastic/gosigar v0.14.2 // indirect

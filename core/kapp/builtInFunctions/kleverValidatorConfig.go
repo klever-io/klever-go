@@ -77,7 +77,6 @@ func (e *kleverValidatorConfig) ProcessBuiltinFunction(vmInput *vmcommon.Contrac
 	}
 
 	gasRemaining := computeGasRemaining(vmInput.GasProvided, e.funcGasCost)
-
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
 
 	//Using Kapps
@@ -90,11 +89,6 @@ func (e *kleverValidatorConfig) ProcessBuiltinFunction(vmInput *vmcommon.Contrac
 	if resultCode != transaction.Transaction_Ok {
 		err = fmt.Errorf("ValidatorConfig error: %s", resultCode.String())
 		log.Trace("ValidatorConfig error", "resultCode", resultCode, "err", err.Error())
-		return nil, err
-	}
-
-	vmOutput.GasRemaining, err = vmcommon.SafeSubUint64(vmInput.GasProvided, e.funcGasCost)
-	if err != nil {
 		return nil, err
 	}
 

@@ -166,7 +166,7 @@ backtest:
 	go run ./cmd/backtest --generate
 
 singlebacktest:
-	$(GORUN) ./cmd/node --log-level=*:INFO --use-log-view --import-db=./db/mainnet --import-db-no-sig-check
+	$(GORUN) ./cmd/node --log-level=*:INFO --use-log-view --import-db=./db/local --import-db-no-sig-check
 
 ############################
 ###  Integration Tests   ###
@@ -174,11 +174,15 @@ singlebacktest:
 
 tests-unit:
 	go clean -testcache
-	go test $(shell go list ./... | grep -v "integrationTest")
+	go test $(shell go list ./... | grep -v "integrationTest" | grep -v "kvm")
 
 tests-integration:
 	go clean -testcache
 	go test ./integrationTest/...
+
+tests-kvm:
+	go clean -testcache
+	go test -timeout 1500s ./kvm/...
 
 tests-e2e:
 	go run ./cmd/tests --node="${E2E_NODE_URL}" --proxy="${E2E_PROXY_URL}"

@@ -167,13 +167,6 @@ func (hdrRes *HeaderResolver) resolveHeaderFromNonce(rd *retriever.RequestData) 
 
 	epoch := rd.Epoch
 
-	// TODO : uncomment this when epoch provider by nonce is complete
-	//epoch, err = hdrRes.epochProviderByNonce.EpochForNonce(nonce)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//
-	//hash, err := hdrRes.hdrNoncesStorage.GetFromEpoch(rd.Value, epoch)
 	hash, err := hdrRes.hdrNoncesStorage.SearchFirst(rd.Value)
 	if err != nil {
 		log.Trace("hdrNoncesStorage.Get from calculated epoch", "error", err.Error())
@@ -216,10 +209,6 @@ func (hdrRes *HeaderResolver) resolveHeaderFromHash(rd *retriever.RequestData) (
 	value, err := hdrRes.headers.GetHeaderByHash(rd.Value)
 	if err != nil {
 		return hdrRes.hdrStorage.SearchFirst(rd.Value)
-
-		// TODO : uncomment this when epoch provider by nonce is complete
-
-		//  return hdrRes.hdrStorage.GetFromEpoch(rd.Value, rd.Epoch)
 	}
 
 	return hdrRes.marshalizer.Marshal(value)

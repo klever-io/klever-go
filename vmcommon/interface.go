@@ -5,7 +5,6 @@ import (
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/closing"
-	"github.com/klever-io/klever-go/data/dkda"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kapps"
 )
@@ -205,23 +204,6 @@ type KDATransferParser interface {
 	IsInterfaceNil() bool
 }
 
-// KDANFTStorageHandler will handle the storage for the nft metadata
-type KDANFTStorageHandler interface {
-	SaveKDANFTToken(senderAddress []byte, acnt state.UserAccountHandler, kdaTokenKey []byte, nonce uint64, kdaData *dkda.KDigitalToken, mustUpdateAllFields bool, isReturnWithError bool) ([]byte, error)
-	GetKDANFTTokenOnSender(acnt state.UserAccountHandler, kdaTokenKey []byte, nonce uint64) (*dkda.KDigitalToken, error)
-	GetKDANFTTokenOnDestination(acnt state.UserAccountHandler, kdaTokenKey []byte, nonce uint64) (*dkda.KDigitalToken, bool, error)
-	GetKDANFTTokenOnDestinationWithCustomSystemAccount(accnt state.UserAccountHandler, kdaTokenKey []byte, nonce uint64, systemAccount state.UserAccountHandler) (*dkda.KDigitalToken, bool, error)
-	WasAlreadySentToDestinationShardAndUpdateState(tickerID []byte, nonce uint64, dstAddress []byte) (bool, error)
-	AddToLiquiditySystemAcc(kdaTokenKey []byte, nonce uint64, transferValue *big.Int) error
-	IsInterfaceNil() bool
-}
-
-// SimpleKDANFTStorageHandler will handle get of KDA data and save metadata to system acc
-type SimpleKDANFTStorageHandler interface {
-	GetKDANFTTokenOnDestination(accnt state.UserAccountHandler, kdaTokenKey []byte, nonce uint64) (*dkda.KDigitalToken, bool, error)
-	IsInterfaceNil() bool
-}
-
 // CallArgsParser will handle parsing transaction data to function and arguments
 type CallArgsParser interface {
 	ParseData(data string) (string, [][]byte, error)
@@ -231,7 +213,6 @@ type CallArgsParser interface {
 
 // BuiltInFunctionFactory will handle built-in functions and components
 type BuiltInFunctionFactory interface {
-	NFTStorageHandler() SimpleKDANFTStorageHandler
 	BuiltInFunctionContainer() BuiltInFunctionContainer
 	SetPayableHandler(handler PayableHandler) error
 	CreateBuiltInFunctionContainer() error

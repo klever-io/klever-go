@@ -17,6 +17,7 @@ import (
 	"github.com/klever-io/klever-go/kapps"
 )
 
+// TODO: refactor asset trigger
 func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, txData [][]byte) (transaction.Transaction_TXResultCode, error) {
 	ctx := k.KAppController.GetCurrentKAppContext()
 
@@ -101,6 +102,8 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 					Address:             roleInfo.Address,
 					HasRoleMint:         roleInfo.HasRoleMint,
 					HasRoleSetITOPrices: roleInfo.HasRoleSetITOPrices,
+					HasRoleDeposit:      roleInfo.HasRoleDeposit,
+					HasRoleTransfer:     roleInfo.HasRoleTransfer,
 				}
 				updated = true
 			}
@@ -111,6 +114,8 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 				Address:             roleInfo.Address,
 				HasRoleMint:         roleInfo.HasRoleMint,
 				HasRoleSetITOPrices: roleInfo.HasRoleSetITOPrices,
+				HasRoleDeposit:      roleInfo.HasRoleDeposit,
+				HasRoleTransfer:     roleInfo.HasRoleTransfer,
 			})
 		}
 	case transaction.AssetTriggerContract_RemoveRole:
@@ -136,11 +141,12 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 			return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
 		}
 
-		if len(tc.GetToAddress()) != k.pubkeyConv.Len() {
-			return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
-		}
-
 		if asset.AssetType == kapps.KDAData_SemiFungible {
+			// check if asset has nonce Metadata only supported with NFT/SFTs
+			if len(assetID) != 2 {
+				return transaction.Transaction_AssetTypeInvalid, common.ErrAssetIDInvalid
+			}
+
 			args := make([][]byte, 0)
 			tokens := strings.Split(string(txData[ctx.ContractID()]), "@")
 			for i := 0; i < len(tokens); i++ {
@@ -155,7 +161,7 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 				return transaction.Transaction_AssetError, err
 			}
 
-			k.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
+			ctx.Receipts().Add(txProcess.NewReceipt(
 				txProcess.UpdateKDA,
 				k.KAppController.GetCurrentKAppContext().ContractID(),
 				kdautils.ToKDAKeyWithouPrefix(assetID[0], assetID[1]),
@@ -164,11 +170,16 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 			return transaction.Transaction_Ok, nil
 		}
 
+		if len(tc.GetToAddress()) != k.pubkeyConv.Len() {
+			return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
+		}
+
 		toAcc, err := k.GetExistingUserAccount(tc.GetToAddress())
 		if err != nil {
 			return transaction.Transaction_LoadAccountError, err
 		}
 
+		// check if asset has nonce Metadata only supported with NFT/SFTs
 		if len(assetID) != 2 {
 			return transaction.Transaction_AssetTypeInvalid, common.ErrAssetIDInvalid
 		}

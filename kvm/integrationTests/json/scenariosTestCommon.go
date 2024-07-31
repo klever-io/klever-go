@@ -3,6 +3,7 @@ package vmjsonintegrationtest
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"testing"
 	"time"
@@ -10,6 +11,10 @@ import (
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/kvm/executor"
 	executorwrapper "github.com/klever-io/klever-go/kvm/executor/wrapper"
+	am "github.com/klever-io/klever-go/kvm/scenarioexec"
+	mc "github.com/klever-io/klever-go/kvm/scenarioexec/controller"
+	"github.com/klever-io/klever-go/kvm/testcommon/testexecutor"
+	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/require"
 )
 
@@ -86,41 +91,41 @@ func (mtb *ScenariosTestBuilder) WithExecutorFactory(executorFactory executor.Ex
 
 // Run will start the testing process
 func (mtb *ScenariosTestBuilder) Run() *ScenariosTestBuilder {
-	// executor, err := am.NewVMTestExecutor()
-	// require.Nil(mtb.t, err)
-	// defer executor.Close()
+	executor, err := am.NewVMTestExecutor()
+	require.Nil(mtb.t, err)
+	defer executor.Close()
 
-	// if check.IfNil(mtb.executorFactory) {
-	// 	mtb.executorFactory = testexecutor.NewDefaultTestExecutorFactory(mtb.t)
-	// }
+	if check.IfNil(mtb.executorFactory) {
+		mtb.executorFactory = testexecutor.NewDefaultTestExecutorFactory(mtb.t)
+	}
 
-	// executor.OverrideVMExecutor = mtb.executorFactory
-	// if mtb.executorLogger != nil {
-	// 	executor.OverrideVMExecutor = executorwrapper.NewWrappedExecutorFactory(
-	// 		mtb.executorLogger,
-	// 		mtb.executorFactory)
-	// }
+	executor.OverrideVMExecutor = mtb.executorFactory
+	if mtb.executorLogger != nil {
+		executor.OverrideVMExecutor = executorwrapper.NewWrappedExecutorFactory(
+			mtb.executorLogger,
+			mtb.executorFactory)
+	}
 
-	// runner := mc.NewScenarioController(
-	// 	executor,
-	// 	mc.NewDefaultFileResolver(),
-	// )
+	runner := mc.NewScenarioController(
+		executor,
+		mc.NewDefaultFileResolver(),
+	)
 
-	// if len(mtb.singleFile) > 0 {
-	// 	fullPath := path.Join(getTestRoot(), mtb.folder)
-	// 	fullPath = path.Join(fullPath, mtb.singleFile)
+	if len(mtb.singleFile) > 0 {
+		fullPath := path.Join(getTestRoot(), mtb.folder)
+		fullPath = path.Join(fullPath, mtb.singleFile)
 
-	// 	mtb.currentError = runner.RunSingleJSONScenario(
-	// 		fullPath,
-	// 		mc.DefaultRunScenarioOptions())
-	// } else {
-	// 	mtb.currentError = runner.RunAllJSONScenariosInDirectory(
-	// 		getTestRoot(),
-	// 		mtb.folder,
-	// 		".scen.json",
-	// 		mtb.exclusions,
-	// 		mc.DefaultRunScenarioOptions())
-	// }
+		mtb.currentError = runner.RunSingleJSONScenario(
+			fullPath,
+			mc.DefaultRunScenarioOptions())
+	} else {
+		mtb.currentError = runner.RunAllJSONScenariosInDirectory(
+			getTestRoot(),
+			mtb.folder,
+			".scen.json",
+			mtb.exclusions,
+			mc.DefaultRunScenarioOptions())
+	}
 
 	return mtb
 }

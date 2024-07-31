@@ -67,9 +67,6 @@ func appendCheckKDAInstanceToOJ(kdaInstance *scenjsonmodel.CheckKDAInstance, tar
 	if !kdaInstance.Royalties.Unspecified && len(kdaInstance.Royalties.Original) > 0 {
 		targetOj.Put("royalties", checkUint64ToOJ(kdaInstance.Royalties))
 	}
-	if !kdaInstance.Hash.Unspecified && len(kdaInstance.Hash.Value) > 0 {
-		targetOj.Put("hash", checkBytesToOJ(kdaInstance.Hash))
-	}
 	if !kdaInstance.Uris.IsUnspecified() {
 		targetOj.Put("uri", checkValueListToOJ(kdaInstance.Uris))
 	}

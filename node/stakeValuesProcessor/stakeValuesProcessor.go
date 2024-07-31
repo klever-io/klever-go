@@ -32,13 +32,11 @@ func NewTotalStakedValueProcessor(
 
 // GetTotalStakedValue will calculate total staked value if needed and return calculated value
 func (svp *stakedValuesProc) GetTotalStakedValue() (int64, error) {
-	// TODO:
 	totalStaked, err := svp.computeStakedValueAndTopUp()
 	return totalStaked, err
 }
 
 func (svp *stakedValuesProc) computeStakedValueAndTopUp() (int64, error) {
-	// TODO:
 	return 0, nil
 }
 

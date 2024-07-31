@@ -57,33 +57,14 @@ func NewSyncState(args ArgsNewSyncState) (*syncState, error) {
 // SyncAllState gets an epoch number and will sync the complete data for that epoch start metablock
 func (ss *syncState) SyncAllState(epoch uint32) error {
 	ctxDisplay, cancelDisplay := context.WithCancel(context.Background())
-	go displayStatusMessage(fmt.Sprintf("syncing un-finished meta headers for epoch %d", epoch), ctxDisplay)
-	ss.syncingEpoch = epoch
-	err := ss.headers.SyncUnFinishedMetaHeaders(epoch)
-	cancelDisplay()
-	if err != nil {
-		return fmt.Errorf("%w in syncState.SyncAllState - SyncUnFinishedMetaHeaders", err)
-	}
-
-	ctxDisplay, cancelDisplay = context.WithCancel(context.Background())
 	go displayStatusMessage("getting epoch start metablock", ctxDisplay)
-	meta, err := ss.headers.GetEpochStartMetaBlock()
+	meta, err := ss.headers.GetEpochStartMetaBlock(epoch)
 	cancelDisplay()
 	if err != nil {
 		return fmt.Errorf("%w in syncState.SyncAllState - GetEpochStartMetaBlock for epoch %d", err, epoch)
 	}
 
 	ss.printMetablockInfo(meta)
-
-	ctxDisplay, cancelDisplay = context.WithCancel(context.Background())
-	go displayStatusMessage("getting un-finished metablocks", ctxDisplay)
-	unFinished, err := ss.headers.GetUnFinishedMetaBlocks()
-	// TODO: review... should not have any "UnFinishedMetaBlocks", as no miniblocks defined
-	_ = unFinished
-	cancelDisplay()
-	if err != nil {
-		return fmt.Errorf("%w in syncState.SyncAllState - GetUnFinishedMetaBlocks", err)
-	}
 
 	ss.syncingEpoch = meta.GetEpoch()
 
@@ -156,13 +137,8 @@ func (ss *syncState) printMetablockInfo(metaBlock *block.Block) {
 }
 
 // GetEpochStartMetaBlock returns the synced metablock
-func (ss *syncState) GetEpochStartMetaBlock() (*block.Block, error) {
-	return ss.headers.GetEpochStartMetaBlock()
-}
-
-// GetUnFinishedMetaBlocks returns the synced unFinished metablocks
-func (ss *syncState) GetUnFinishedMetaBlocks() (map[string]*block.Block, error) {
-	return ss.headers.GetUnFinishedMetaBlocks()
+func (ss *syncState) GetEpochStartMetaBlock(epoch uint32) (*block.Block, error) {
+	return ss.headers.GetEpochStartMetaBlock(epoch)
 }
 
 // GetAllTries returns the synced tries

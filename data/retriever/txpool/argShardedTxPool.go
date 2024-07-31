@@ -13,7 +13,6 @@ type ArgShardedTxPool struct {
 	Config storageUnit.CacheConfig
 }
 
-// TODO: Upon further analysis and brainstorming, add some sensible minimum accepted values for the appropriate fields.
 func (args *ArgShardedTxPool) verify() error {
 	config := args.Config
 

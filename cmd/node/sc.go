@@ -158,7 +158,6 @@ func createScQueryElement(
 		Marshalizer:        args.coreComponents.InternalMarshalizer,
 		Uint64Converter:    args.coreComponents.Uint64ByteSliceConverter,
 		BuiltInFunctions:   builtInFuncFactory.BuiltInFunctionContainer(),
-		NFTStorageHandler:  builtInFuncFactory.NFTStorageHandler(),
 		DataPool:           args.dataComponents.Datapool,
 		ConfigSCStorage:    scStorage,
 		CompiledSCPool:     smartContractsCache,

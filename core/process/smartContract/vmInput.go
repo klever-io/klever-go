@@ -94,10 +94,8 @@ func (sc *scProcessor) createVMCallInput(
 	scr, isSCR := tx.(*smartContractResult.SmartContractResult)
 	if isSCR {
 		vmCallInput.OriginalTxHash = scr.GetOriginalTxHash()
-		vmCallInput.PrevTxHash = scr.PrevTxHash
 	} else {
 		vmCallInput.OriginalTxHash = txHash
-		vmCallInput.PrevTxHash = txHash
 	}
 
 	vmCallInput.ReturnCallAfterError = isSCR && len(scr.ReturnMessage) > 0

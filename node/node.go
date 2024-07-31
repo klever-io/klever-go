@@ -644,7 +644,6 @@ func (n *Node) sendBulkTransactionsPack(transactions [][]byte) error {
 // printTxSentCounter prints the peak transaction counter from a time frame of about 'numSecondsBetweenPrints' seconds
 // if this peak value is 0 (no transaction was sent through the REST API interface), the print will not be done
 // the peak counter resets after each print. There is also a total number of transactions sent to p2p
-// TODO make this function testable. Refactor if necessary.
 func (n *Node) printTxSentCounter() {
 	maxTxCounter := uint32(0)
 	totalTxCounter := uint64(0)
@@ -759,7 +758,6 @@ func (n *Node) ValidateTransaction(tx *transaction.Transaction, checkSignature b
 }
 
 // StartHeartbeat starts the node's heartbeat processing/signaling module
-// TODO(next PR) remove the instantiation of the heartbeat component from here
 func (n *Node) StartHeartbeat(hbConfig config.HeartbeatConfig, versionNumber string, prefsConfig config.PreferencesConfig) error {
 	arg := componentHandler.ArgHeartbeat{
 		HeartbeatConfig:          hbConfig,

@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/klever-io/klever-go/data/state"
+	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 	scencontroller "github.com/klever-io/klever-go/kvm/scenarioexec/controller"
 	scenfileresolver "github.com/klever-io/klever-go/kvm/scenarioexec/fileresolver"
 	scenjsonmodel "github.com/klever-io/klever-go/kvm/scenarioexec/model"
@@ -176,12 +177,27 @@ func (ae *VMTestExecutor) PutNewAccount(scenAccount *scenjsonmodel.Account) erro
 	if err != nil {
 		return err
 	}
+	err = validateSetStateAccount(scenAccount, worldAccount)
+	if err != nil {
+		return err
+	}
+
+	for _, stu := range scenAccount.Storage {
+		ae.World.AccountsCacher.(*worldmock.WorldAccountsCacher).RegisterStorageKeyUse(
+			scenAccount.Address.Value, stu.Key.Value,
+		)
+	}
+
 	return ae.World.AccountsCacher.SaveUser(worldAccount)
 }
 
 // UpdateAccount Updates an account in world account map.
 func (ae *VMTestExecutor) UpdateAccount(scenAccount *scenjsonmodel.Account) error {
 	worldAccount, err := convertAccount(scenAccount, ae.World)
+	if err != nil {
+		return err
+	}
+	err = validateSetStateAccount(scenAccount, worldAccount)
 	if err != nil {
 		return err
 	}
@@ -211,5 +227,14 @@ func (ae *VMTestExecutor) UpdateAccount(scenAccount *scenjsonmodel.Account) erro
 	if !scenAccount.Code.Unspecified {
 		existingAccount.SetCode(ae.World.GetCode(worldAccount))
 	}
-	return nil
+
+	for _, stu := range scenAccount.Storage {
+		ae.World.AccountsCacher.(*worldmock.WorldAccountsCacher).RegisterStorageKeyUse(
+			scenAccount.Address.Value, stu.Key.Value,
+		)
+		_ = existingAccount.SaveKeyValue(stu.Key.Value, stu.Value.Value)
+	}
+
+	// set to cache
+	return ae.World.AccountsCacher.SaveUser(existingAccount)
 }

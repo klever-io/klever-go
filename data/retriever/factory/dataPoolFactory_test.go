@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -21,6 +22,28 @@ func TestNewDataPoolFromConfig_MissingDependencyShouldErr(t *testing.T) {
 	holder, err := NewDataPoolFromConfig(args)
 	require.Nil(t, holder)
 	require.Equal(t, common.ErrNilConfig, err)
+}
+
+func TestNewDataPoolFromConfig_BadConfigShouldErr(t *testing.T) {
+	// We test one (arbitrary and trivial) erroneous config for each component that needs to be created
+	args := getGoodArgs()
+	args.Config.TxDataPool.Capacity = 0
+	holder, err := NewDataPoolFromConfig(args)
+	require.Nil(t, holder)
+	require.NotNil(t, err)
+
+	args = getGoodArgs()
+	args.Config.HeadersPoolConfig.MaxHeadersPerShard = 0
+	holder, err = NewDataPoolFromConfig(args)
+	require.Nil(t, holder)
+	fmt.Println(err)
+	require.NotNil(t, err)
+
+	args = getGoodArgs()
+	args.Config.TrieNodesDataPool.Capacity = 0
+	holder, err = NewDataPoolFromConfig(args)
+	require.Nil(t, holder)
+	require.NotNil(t, err)
 }
 
 func getGoodArgs() ArgsDataPool {

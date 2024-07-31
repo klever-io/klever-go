@@ -140,7 +140,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "0x04",
+                "status": "57",
                 "message": "str:allowance exceeded",
                 "logs": "*",
                 "gas": "*",

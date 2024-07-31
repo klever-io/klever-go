@@ -6,31 +6,13 @@ import (
 
 // HeaderSyncHandlerStub -
 type HeaderSyncHandlerStub struct {
-	SyncUnFinishedMetaHeadersCalled func(epoch uint32) error
-	GetEpochStartMetaBlockCalled    func() (*block.Block, error)
-	GetUnFinishedMetaBlocksCalled   func() (map[string]*block.Block, error)
-}
-
-// SyncUnFinishedMetaHeaders -
-func (hsh *HeaderSyncHandlerStub) SyncUnFinishedMetaHeaders(epoch uint32) error {
-	if hsh.SyncUnFinishedMetaHeadersCalled != nil {
-		return hsh.SyncUnFinishedMetaHeadersCalled(epoch)
-	}
-	return nil
+	GetEpochStartMetaBlockCalled func(uint32) (*block.Block, error)
 }
 
 // GetEpochStartMetaBlock -
-func (hsh *HeaderSyncHandlerStub) GetEpochStartMetaBlock() (*block.Block, error) {
+func (hsh *HeaderSyncHandlerStub) GetEpochStartMetaBlock(epoch uint32) (*block.Block, error) {
 	if hsh.GetEpochStartMetaBlockCalled != nil {
-		return hsh.GetEpochStartMetaBlockCalled()
-	}
-	return nil, nil
-}
-
-// GetUnFinishedMetaBlocks -
-func (hsh *HeaderSyncHandlerStub) GetUnFinishedMetaBlocks() (map[string]*block.Block, error) {
-	if hsh.GetUnFinishedMetaBlocksCalled != nil {
-		return hsh.GetUnFinishedMetaBlocksCalled()
+		return hsh.GetEpochStartMetaBlockCalled(epoch)
 	}
 	return nil, nil
 }

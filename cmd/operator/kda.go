@@ -61,6 +61,7 @@ func subKDA() []*cobra.Command {
 		minEpochsToWithdraw         uint32
 		addRolesMint                []string
 		addRolesSetITOPrices        []string
+		addRolesDeposit             []string
 		kdaID                       string
 		nftID                       string
 		receiver                    string
@@ -114,6 +115,17 @@ func subKDA() []*cobra.Command {
 				} else {
 					newRoles[address] = models.RolesInfo{
 						HasRoleSetITOPrices: true,
+					}
+				}
+			}
+
+			for _, address := range addRolesDeposit {
+				if entry, ok := newRoles[address]; ok {
+					entry.HasRoleDeposit = true
+					newRoles[address] = entry
+				} else {
+					newRoles[address] = models.RolesInfo{
+						HasRoleDeposit: true,
 					}
 				}
 			}
@@ -250,6 +262,7 @@ func subKDA() []*cobra.Command {
 	cmdCreate.Flags().Uint32Var(&minEpochsToWithdraw, "minEpochsToWithdraw", 0, "KDA minEpochsToWithdraw")
 	cmdCreate.Flags().StringSliceVar(&addRolesMint, "addRolesMint", nil, "KDA addRolesMint")
 	cmdCreate.Flags().StringSliceVar(&addRolesSetITOPrices, "addRolesSetITOPrices", nil, "KDA addRolesSetITOPrices")
+	cmdCreate.Flags().StringSliceVar(&addRolesDeposit, "addRolesDeposit", nil, "KDA addRolesDeposit")
 
 	cmdTrigger := &cobra.Command{
 		Use:   "trigger [TRIGGER_TYPE]",
@@ -294,6 +307,15 @@ func subKDA() []*cobra.Command {
 				role.HasRoleSetITOPrices = true
 			default:
 				return fmt.Errorf("can only add one roler per trigger")
+			}
+
+			switch len(addRolesDeposit) {
+			case 0:
+			case 1:
+				role.Address = addRolesDeposit[0]
+				role.HasRoleDeposit = true
+			default:
+				return fmt.Errorf("can only add one role per trigger")
 			}
 
 			var stakingInfo *models.StakingInfo
@@ -443,6 +465,7 @@ func subKDA() []*cobra.Command {
 	cmdTrigger.Flags().StringArrayVarP(&splitRoyalties, "splitRoyalties", "", []string{}, `--splitRoyalties='{"address":"klv...", "percentTransferPercentage": 1, "percentTransferFixed": 1, "percentMarketPercentage": 1, "percentMarketFixed": 1}, "percentITOPercentage": 1, "percentITOFixed": 1}'`)
 	cmdTrigger.Flags().StringSliceVar(&addRolesMint, "addRolesMint", nil, "Trigger addRolesMint")
 	cmdTrigger.Flags().StringSliceVar(&addRolesSetITOPrices, "addRolesSetITOPrices", nil, "Trigger addRolesSetITOPrices")
+	cmdTrigger.Flags().StringSliceVar(&addRolesDeposit, "addRolesDeposit", nil, "Trigger addRolesDeposit")
 	cmdTrigger.Flags().StringToStringVar(&staking, "updateStaking", nil, "--updateStaking 'apr=10,claim=1,unstake=5,withdraw=7' (claim/unstake/withdraw are the min epochs to make the respective actions)")
 	cmdTrigger.Flags().StringToStringVar(&kdaPool, "updateKdaPool", nil, "--updateKdaPool 'active=false,adminAddress=klv-address,fixedRatioKLV=1,fixedRatioKDA=100")
 

@@ -3389,7 +3389,6 @@ func (x *ConfigMarketplaceContract) GetReferralPercentage() uint32 {
 	return 0
 }
 
-// TODO: Reuse from account
 type AccKey struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache

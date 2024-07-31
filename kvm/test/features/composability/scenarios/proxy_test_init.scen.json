@@ -1,5 +1,5 @@
 {
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
@@ -17,7 +17,7 @@
             "newAddresses": [
                 {
                     "creatorAddress": "sc:proxy-first",
-                    "creatorNonce": "0",
+                    "creatorNonce": "1",
                     "newAddress": "sc:proxy-second"
                 }
             ]

@@ -97,7 +97,6 @@ type WorkerHandler interface {
 
 // ConsensusDataIndexer defines the actions that a consensus data indexer has to do
 type ConsensusDataIndexer interface {
-	// TODO: add SlotInfo into Indexer SaveSlotsInfo(slotsInfos []workItems.SlotInfo)
 	IsInterfaceNil() bool
 }
 
@@ -146,6 +145,6 @@ type HeaderIntegrityVerifier interface {
 
 // PoolAdder adds data in a key-value pool
 type PoolAdder interface {
-	AddHeader(headerHash []byte, header data.HeaderHandler) // TODO: FIXME: Review the poolAdder
+	AddHeader(headerHash []byte, header data.HeaderHandler)
 	IsInterfaceNil() bool
 }

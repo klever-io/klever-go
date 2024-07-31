@@ -151,7 +151,6 @@ func (ccf *cryptoComponentsFactory) createMultiSigner(
 		return &disabledMultiSig.DisabledMultiSig{}, nil
 	}
 
-	//TODO: the instantiation of BLS multi signer can be done with own public key instead of all public keys
 	// e.g []string{ownPubKey}.
 	// The parameter pubKeys for multi-signer is relevant when we want to create a multisig and in the multisig bitmap
 	// we care about the order of the initial public keys that signed, but we never use the entire set of initial

@@ -111,6 +111,7 @@ func NewAccountsDB(
 		loadCodeMeasurements: &loadingMeasurements{
 			identifier: "load code",
 		},
+		processingMode: processingMode,
 	}, nil
 }
 
@@ -878,6 +879,8 @@ func (adb *AccountsDB) SnapshotState(rootHash []byte, ctx context.Context) {
 		trieStorageManager.ExitPruningBufferingMode()
 
 		adb.increaseNumCheckpoints()
+
+		stats.SnapshotFinished()
 	}()
 
 	if adb.processingMode == core.ImportDb {
@@ -886,7 +889,7 @@ func (adb *AccountsDB) SnapshotState(rootHash []byte, ctx context.Context) {
 }
 
 func (adb *AccountsDB) snapshotUserAccountDataTrie(rootHash []byte, ctx context.Context) {
-	leavesChannel, err := adb.GetAllLeaves(rootHash, ctx)
+	leavesChannel, err := adb.mainTrie.GetAllLeavesOnChannel(rootHash, ctx)
 	if err != nil {
 		log.Error("incomplete snapshot as getAllLeaves error", "error", err)
 		return
@@ -899,7 +902,6 @@ func (adb *AccountsDB) snapshotUserAccountDataTrie(rootHash []byte, ctx context.
 			log.Trace("this must be a leaf with code", "err", err)
 			continue
 		}
-
 		if len(account.RootHash) > 0 {
 			adb.mainTrie.GetStorageManager().SetCheckpoint(account.RootHash)
 		}
@@ -922,6 +924,8 @@ func (adb *AccountsDB) SetStateCheckpoint(rootHash []byte, ctx context.Context) 
 		trieStorageManager.ExitPruningBufferingMode()
 
 		adb.increaseNumCheckpoints()
+
+		stats.SnapshotFinished()
 	}()
 
 	if adb.processingMode == core.ImportDb {

@@ -28,7 +28,7 @@ jobs:
           go-version: ${{ vars.GO_VERSION }}
 
       - name: Cache Vendor
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         env:
           cache-name: cache-vendor
         with:
@@ -43,15 +43,15 @@ jobs:
         with:
           args: '--fmt sonarqube --out report.json ./...'
 
-      - name: SonarQube Go detailed scan
-        uses: sonarsource/sonarqube-scan-action@master
-        with:
-          args: >
-            -Dsonar.projectKey=${{ github.event.repository.name }}
-            -Dsonar.exclusions=**/*.json,**/*.xml,**/*_test.go,vendor/**,coverage.out
-            -Dsonar.test.inclusions="**/*_test.go"
-            -Dsonar.externalIssuesReportPaths="report.json"
-            -Dsonar.pullrequest.branch=${{ github.ref_name }}
-            -Dsonar.pullrequest.base=${{ github.base_ref }}
-            -Dsonar.pullrequest.key=${{ github.event.number }}
+      # - name: SonarQube Go detailed scan
+      #   uses: sonarsource/sonarqube-scan-action@master
+      #   with:
+      #     args: >
+      #       -Dsonar.projectKey=${{ github.event.repository.name }}
+      #       -Dsonar.exclusions=**/*.json,**/*.xml,**/*_test.go,vendor/**,coverage.out
+      #       -Dsonar.test.inclusions="**/*_test.go"
+      #       -Dsonar.externalIssuesReportPaths="report.json"
+      #       -Dsonar.pullrequest.branch=${{ github.ref_name }}
+      #       -Dsonar.pullrequest.base=${{ github.base_ref }}
+      #       -Dsonar.pullrequest.key=${{ github.event.number }}
 

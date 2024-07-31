@@ -23,6 +23,7 @@ func NewPeerAccountsDB(
 	hasher hashing.Hasher,
 	marshalizer marshal.Marshalizer,
 	accountFactory AccountFactory,
+	processingMode core.NodeProcessingMode,
 ) (*PeerAccountsDB, error) {
 	if check.IfNil(trie) {
 		return nil, common.ErrNilTrie
@@ -51,6 +52,7 @@ func NewPeerAccountsDB(
 			loadCodeMeasurements: &loadingMeasurements{
 				identifier: "load code",
 			},
+			processingMode: processingMode,
 		},
 	}, nil
 }
@@ -60,15 +62,9 @@ func (adb *PeerAccountsDB) SnapshotState(rootHash []byte, _ context.Context) {
 	log.Trace("peerAccountsDB.SnapshotState", "root hash", rootHash)
 	trieStorageManager := adb.mainTrie.GetStorageManager()
 
-	stats := newSnapshotStatistics(0)
-
 	trieStorageManager.EnterPruningBufferingMode()
 	trieStorageManager.TakeSnapshot(rootHash)
 	trieStorageManager.ExitPruningBufferingMode()
-
-	if adb.processingMode == core.ImportDb {
-		stats.WaitForSnapshotsToFinish()
-	}
 
 	adb.increaseNumCheckpoints()
 }
@@ -78,15 +74,9 @@ func (adb *PeerAccountsDB) SetStateCheckpoint(rootHash []byte, _ context.Context
 	log.Trace("peerAccountsDB.SetStateCheckpoint", "root hash", rootHash)
 	trieStorageManager := adb.mainTrie.GetStorageManager()
 
-	stats := newSnapshotStatistics(0)
-
 	trieStorageManager.EnterPruningBufferingMode()
 	trieStorageManager.SetCheckpoint(rootHash)
 	trieStorageManager.ExitPruningBufferingMode()
-
-	if adb.processingMode == core.ImportDb {
-		stats.WaitForSnapshotsToFinish()
-	}
 
 	adb.increaseNumCheckpoints()
 }

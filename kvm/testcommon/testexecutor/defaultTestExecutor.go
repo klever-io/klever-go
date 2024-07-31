@@ -40,13 +40,6 @@ func NewDefaultTestExecutorFactory(tb testing.TB) executor.ExecutorAbstractFacto
 	return nil
 }
 
-// IsWasmer1Allowed returns true if the default test executor is Wasmer 1.
-// If the default test executor is Wasmer 2, it is not allowed to instantiate a
-// Wasmer 1 executor due to low-level conflicts between Wasmer 1 and 2.
-func IsWasmer1Allowed() bool {
-	return getVMExecutorString() == ExecWasmer1
-}
-
 func getVMExecutorString() string {
 	execStr := os.Getenv(EnvVMEXECUTOR)
 

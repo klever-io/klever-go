@@ -310,6 +310,8 @@ func (k *kdaKapp) parseRoles(tcRoles []*transaction.RolesInfo) ([]*kapps.RolesDa
 				Address:             newRole.Address,
 				HasRoleMint:         newRole.HasRoleMint,
 				HasRoleSetITOPrices: newRole.HasRoleSetITOPrices,
+				HasRoleDeposit:      newRole.HasRoleDeposit,
+				HasRoleTransfer:     newRole.HasRoleTransfer,
 			})
 		}
 	}

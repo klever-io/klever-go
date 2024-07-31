@@ -12,7 +12,7 @@
                     "nonce": "0",
                     "balance": "0",
                     "kda": {
-                        "str:CROWD-123456": "400,000,000,000"
+                        "str:CROWD-1234": "400,000,000,000"
                     }
                 }
             }
@@ -25,7 +25,7 @@
                 "to": "sc:crowdfunding",
                 "kdaValue": [
                     {
-                        "tokenIdentifier": "str:CROWD-123456",
+                        "tokenIdentifier": "str:CROWD-1234",
                         "value": "250,000,000,000"
                     }
                 ],
@@ -53,7 +53,7 @@
                     "nonce": "1",
                     "balance": "0",
                     "kda": {
-                        "str:CROWD-123456": "150,000,000,000"
+                        "str:CROWD-1234": "150,000,000,000"
                     },
                     "storage": {}
                 },
@@ -61,12 +61,12 @@
                     "nonce": "0",
                     "balance": "0",
                     "kda": {
-                        "str:CROWD-123456": "250,000,000,000"
+                        "str:CROWD-1234": "250,000,000,000"
                     },
                     "storage": {
                         "str:target": "500,000,000,000",
                         "str:deadline": "123,000",
-                        "str:tokenIdentifier": "str:CROWD-123456",
+                        "str:tokenIdentifier": "str:CROWD-1234",
                         "str:deposit|address:donor1": "250,000,000,000"
                     },
                     "code": "file:../output/crowdfunding-kda.wasm"

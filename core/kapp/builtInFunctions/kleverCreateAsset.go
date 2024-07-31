@@ -77,7 +77,6 @@ func (e *kleverCreateAsset) ProcessBuiltinFunction(vmInput *vmcommon.ContractCal
 	}
 
 	gasRemaining := computeGasRemaining(vmInput.GasProvided, e.funcGasCost)
-
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
 
 	//Using Kapps
@@ -90,12 +89,6 @@ func (e *kleverCreateAsset) ProcessBuiltinFunction(vmInput *vmcommon.ContractCal
 	if resultCode != transaction.Transaction_Ok {
 		err = fmt.Errorf("CreateAsset error: %s", resultCode.String())
 		log.Trace("CreateAsset error", "resultCode", resultCode, "err", err.Error())
-		return nil, err
-	}
-
-	// subtract gas cost
-	vmOutput.GasRemaining, err = vmcommon.SafeSubUint64(vmInput.GasProvided, e.funcGasCost)
-	if err != nil {
 		return nil, err
 	}
 
@@ -114,7 +107,6 @@ func (e *kleverCreateAsset) getCreateAssetContract(vmInput *vmcommon.ContractCal
 		Ticker:        vmInput.NextArg(),
 		Precision:     vmInput.NextArg().Uint32(),
 		OwnerAddress:  vmInput.NextArg(),
-		AdminAddress:  vmInput.NextArg(),
 		Logo:          vmInput.NextArg().String(),
 		InitialSupply: vmInput.NextArg().Int64(),
 		MaxSupply:     vmInput.NextArg().Int64(),
@@ -129,6 +121,14 @@ func (e *kleverCreateAsset) getCreateAssetContract(vmInput *vmcommon.ContractCal
 			LimitTransfer:  vmInput.NextArg().Bool(),
 		},
 	}
+
+	// use ticker if name is empty
+	if len(contract.Name) == 0 {
+		contract.Name = contract.Ticker
+	}
+
+	// initial admin address is the owner address
+	contract.AdminAddress = contract.OwnerAddress
 
 	royalties, err := DecodeRoyaltiesData(vmInput.NextArg())
 	if err != nil {

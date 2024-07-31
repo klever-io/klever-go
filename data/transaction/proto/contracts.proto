@@ -370,7 +370,6 @@ message ConfigMarketplaceContract {
     uint32 ReferralPercentage = 4 [json_name = "referralPercentage,omitempty"];
 }
 
-// TODO: Reuse from account
 message AccKey {
     bytes address = 1 [json_name = "address"];
     int64 weight  = 2 [json_name = "weight"];

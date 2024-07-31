@@ -135,10 +135,9 @@ func (txPool *shardedTxPool) AddData(key []byte, value interface{}, sizeInBytes 
 	}
 
 	wrapper := &txcache.WrappedTransaction{
-		Tx:     valueAsTransaction,
-		TxHash: key,
-		Size:   int64(sizeInBytes),
-		// TODO: move to pool config
+		Tx:       valueAsTransaction,
+		TxHash:   key,
+		Size:     int64(sizeInBytes),
 		ExpireOn: time.Now().Add(txPoolTTL).Unix(),
 	}
 

@@ -1,6 +1,6 @@
 {
     "name": "echo_string",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
@@ -79,7 +79,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:argument decode error (s): utf-8 decode error",
                 "logs": "*",
                 "gas": "*",

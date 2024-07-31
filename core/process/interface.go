@@ -442,8 +442,6 @@ type EpochStartTriggerHandler interface {
 
 // EpochStartDataCreator defines the functionality for node to create epoch start data
 type EpochStartDataCreator interface {
-	// TODO:
-	//CreateEpochStartData() (*block.EpochStart, error)
 	VerifyEpochStartDataForMetablock(metaBlock *block.Block) error
 	IsInterfaceNil() bool
 }
@@ -700,12 +698,6 @@ type ArgumentsParser interface {
 
 	CreateDataFromStorageUpdate(storageUpdates []*vmcommon.StorageUpdate) string
 	GetStorageUpdates(data string) ([]*vmcommon.StorageUpdate, error)
-	IsInterfaceNil() bool
-}
-
-// TxTypeHandler is an interface to calculate the transaction type
-type TxTypeHandler interface {
-	ComputeTransactionType(ctx kapp.KappContext, tx data.TransactionHandler, tc data.SmartContractHandler) (TransactionType, TransactionType)
 	IsInterfaceNil() bool
 }
 

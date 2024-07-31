@@ -30,7 +30,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:Static error",
                 "logs": "*",
                 "gas": "*",
@@ -52,7 +52,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:Got this buffer: abcd. I don't like it, ERROR!",
                 "logs": "*",
                 "gas": "*",
@@ -78,7 +78,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:Got token TOKEN-123456, with nonce 0, amount 1000. I prefer KLV. ERROR!",
                 "logs": "*",
                 "gas": "*",
@@ -104,7 +104,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:Got token TOKEN-123456, with nonce 0, amount 1000. I prefer KLV. ERROR!",
                 "logs": "*",
                 "gas": "*",
@@ -124,7 +124,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:unsupported operation",
                 "logs": "*",
                 "gas": "*",

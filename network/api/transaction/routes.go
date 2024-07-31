@@ -171,9 +171,7 @@ func SendTX(c *gin.Context) {
 	}
 
 	baseInfo := &transaction.TXBaseInfo{
-		Sender: gtx.Sender,
-		// TODO: allow username?
-		// SenderUsername:
+		Sender:         gtx.Sender,
 		Nonce:          gtx.Nonce,
 		SenderUsername: nil,
 		DataField:      gtx.Data,

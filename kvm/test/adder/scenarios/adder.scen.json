@@ -1,13 +1,13 @@
 {
     "name": "adder",
     "comment": "add then check",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
             "accounts": {
                 "address:owner": {
-                    "nonce": "1",
+                    "nonce": "0",
                     "balance": "0"
                 }
             },
@@ -33,7 +33,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "",
+                "status": "0",
                 "logs": "*",
                 "gas": "*",
                 "refund": "*"

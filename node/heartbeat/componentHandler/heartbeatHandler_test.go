@@ -143,5 +143,3 @@ func TestNewHeartbeatHandler_ShouldWork(t *testing.T) {
 	// let the sending go routine finish
 	time.Sleep(time.Second)
 }
-
-//TODO(next PR) add more tests

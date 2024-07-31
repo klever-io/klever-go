@@ -49,7 +49,7 @@ func newTxListForSender(sender string, constraints *senderConstraints, onScoreCh
 
 // AddTx adds a transaction in sender's list
 // This is a "sorted" insert
-func (listForSender *txListForSender) AddTx(tx *WrappedTransaction, txFeeHelper feeHelper) (bool, [][]byte) {
+func (listForSender *txListForSender) AddTx(tx *WrappedTransaction) (bool, [][]byte) {
 	// We don't allow concurrent interceptor goroutines to mutate a given sender's list
 	listForSender.mutex.Lock()
 	defer listForSender.mutex.Unlock()
@@ -65,7 +65,7 @@ func (listForSender *txListForSender) AddTx(tx *WrappedTransaction, txFeeHelper 
 		listForSender.items.InsertAfter(tx, insertionPlace)
 	}
 
-	listForSender.onAddedTransaction(tx, txFeeHelper)
+	listForSender.onAddedTransaction(tx)
 	evicted := listForSender.applySizeConstraints()
 	listForSender.triggerScoreChange()
 
@@ -125,7 +125,7 @@ func (listForSender *txListForSender) isCapacityExceeded() bool {
 	return tooManyBytes || tooManyTxs
 }
 
-func (listForSender *txListForSender) onAddedTransaction(tx *WrappedTransaction, txFeeHelper feeHelper) {
+func (listForSender *txListForSender) onAddedTransaction(tx *WrappedTransaction) {
 	listForSender.totalBytes.Add(tx.Size)
 	listForSender.totalFees.Add(int64(estimateTxGas(tx)))
 }

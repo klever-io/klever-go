@@ -877,7 +877,7 @@ func (n *ProcessorNode) initValidatorStatistics() error {
 		DataPool:           n.DataPool,
 		StorageService:     n.Store,
 		Marshalizer:        n.InternalMarshalizer,
-		MaxComputableSlots: 100, // TODO: from config
+		MaxComputableSlots: n.MainConfig.Preferences.MaxComputableSlots,
 		Rater:              rater,
 		RewardsHandler:     n.EconomicsData,
 		NodesSetup:         n.NodesSetup,
@@ -1062,7 +1062,6 @@ func (n *ProcessorNode) initBlockProcessor() error {
 		Marshalizer:        n.InternalMarshalizer,
 		Uint64Converter:    n.Uint64ByteSliceConverter,
 		BuiltInFunctions:   builtInFuncFactory.BuiltInFunctionContainer(),
-		NFTStorageHandler:  builtInFuncFactory.NFTStorageHandler(),
 		DataPool:           n.DataPool,
 		ConfigSCStorage:    n.MainConfig.Storages.SmartContractsStorage,
 		CompiledSCPool:     smartContractsCache,
@@ -1393,7 +1392,7 @@ func (n *ProcessorNode) initAccountDBsWithoutPruningStorer() error {
 	peerFactory := stateFactory.NewPeerAccountCreator()
 	n.TrieContainer.Put([]byte(trieFactory.PeerAccountTrie), peerAccountTrie)
 	n.TrieStorageManagers[trieFactory.PeerAccountTrie] = peerStorageManager
-	n.PeersAdapter, err = state.NewPeerAccountsDB(peerAccountTrie, n.Hasher, n.InternalMarshalizer, peerFactory)
+	n.PeersAdapter, err = state.NewPeerAccountsDB(peerAccountTrie, n.Hasher, n.InternalMarshalizer, peerFactory, core.Normal)
 	if err != nil {
 		return err
 	}
@@ -1410,7 +1409,7 @@ func (n *ProcessorNode) initAccountDBsWithoutPruningStorer() error {
 	kappFactory := stateFactory.NewKAppAccountCreator()
 	n.TrieContainer.Put([]byte(trieFactory.KAppAccountTrie), kappAccountTrie)
 	n.TrieStorageManagers[trieFactory.KAppAccountTrie] = kappStorageManager
-	n.KappsAdapter, err = state.NewKAppAccountsDB(kappAccountTrie, n.Hasher, n.InternalMarshalizer, kappFactory)
+	n.KappsAdapter, err = state.NewKAppAccountsDB(kappAccountTrie, n.Hasher, n.InternalMarshalizer, kappFactory, core.Normal)
 	if err != nil {
 		return err
 	}
@@ -1585,7 +1584,6 @@ func createHeaderIntegrityVerifier() (process.HeaderIntegrityVerifier, error) {
 	return headerVersioning, nil
 }
 
-// TODO: Moved to here to avoid circular reference - need to refactor
 // ConnectNodes will try to connect all provided connectable instances in a full mesh fashion
 func ConnectNodes(nodes []Connectable) {
 	encounteredErrors := make([]error, 0)

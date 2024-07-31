@@ -77,6 +77,8 @@ func (p *Parser) parseGasSchedule(value orderedjson.OJsonObject) (scenjsonmodel.
 		return scenjsonmodel.GasScheduleDefault, nil
 	case "dummy":
 		return scenjsonmodel.GasScheduleDummy, nil
+	case "v1":
+		return scenjsonmodel.GasScheduleV1, nil
 	default:
 		return scenjsonmodel.GasScheduleDummy, fmt.Errorf("invalid gasSchedule: %s", gasScheduleStr)
 	}
@@ -255,8 +257,6 @@ func (p *Parser) processScenarioStep(stepObj orderedjson.OJsonObject) (scenjsonm
 		return p.parseTxStep(scenjsonmodel.ScQuery, stepMap)
 	case scenjsonmodel.StepNameTransfer:
 		return p.parseTxStep(scenjsonmodel.Transfer, stepMap)
-	case scenjsonmodel.StepNameValidatorReward:
-		return p.parseTxStep(scenjsonmodel.ValidatorReward, stepMap)
 	default:
 		return nil, fmt.Errorf("unknown step type: %s", stepTypeStr)
 	}

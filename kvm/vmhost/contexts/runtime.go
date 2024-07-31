@@ -211,7 +211,7 @@ func (context *runtimeContext) makeInstanceFromContractByteCode(contract []byte,
 		UnmeteredLocals:    uint64(gasSchedule.WASMOpcodeCost.LocalsUnmetered),
 		MaxMemoryGrow:      uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrow),
 		MaxMemoryGrowDelta: uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrowDelta),
-		OpcodeTrace:        true,
+		OpcodeTrace:        false,
 		Metering:           true,
 		RuntimeBreakpoints: true,
 	}
@@ -493,11 +493,6 @@ func (context *runtimeContext) SetVMInput(vmInput *vmcommon.ContractCallInput) {
 		copy(context.vmInput.CurrentTxHash, vmInput.CurrentTxHash)
 	}
 
-	if len(vmInput.PrevTxHash) > 0 {
-		context.vmInput.PrevTxHash = make([]byte, len(vmInput.PrevTxHash))
-		copy(context.vmInput.PrevTxHash, vmInput.PrevTxHash)
-	}
-
 	if len(vmInput.Arguments) > 0 {
 		context.vmInput.Arguments = make([][]byte, len(vmInput.Arguments))
 		for i, arg := range vmInput.Arguments {
@@ -527,14 +522,9 @@ func (context *runtimeContext) GetCurrentTxHash() []byte {
 	return context.vmInput.CurrentTxHash
 }
 
-// GetOriginalTxHash returns the hash of the original transaction, in the case of async calls, as specified by the current VMInput.
+// GetOriginalTxHash returns the hash of the original transaction as specified by the current VMInput.
 func (context *runtimeContext) GetOriginalTxHash() []byte {
 	return context.vmInput.OriginalTxHash
-}
-
-// GetPrevTxHash returns the hash of the previous transaction, in the case of async calls, as specified by the current VMInput.
-func (context *runtimeContext) GetPrevTxHash() []byte {
-	return context.vmInput.PrevTxHash
 }
 
 // FunctionName returns the name of the contract function to be called next

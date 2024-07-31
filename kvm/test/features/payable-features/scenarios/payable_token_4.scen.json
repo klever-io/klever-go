@@ -1,6 +1,6 @@
 {
     "name": "payable",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
@@ -33,7 +33,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:function expects single KDA payment",
                 "logs": "*",
                 "gas": "*",
@@ -54,8 +54,8 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
-                "message": "str:function expects single KDA payment",
+                "status": "57",
+                "message": "str:bad call value token provided",
                 "logs": "*",
                 "gas": "*",
                 "refund": "*"
@@ -108,7 +108,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:bad call value token provided",
                 "logs": "*",
                 "gas": "*",

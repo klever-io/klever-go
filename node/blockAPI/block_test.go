@@ -36,6 +36,14 @@ func createMockMetaAPIProcessor(
 				},
 			},
 			Uint64ByteSliceConverter: mock.NewNonceHashConverterMock(),
+			/* FIXME: HistoryRepo: &testscommon.HistoryRepositoryStub{
+				GetEpochByHashCalled: func(hash []byte) (uint32, error) {
+					return 1, nil
+				},
+				IsEnabledCalled: func() bool {
+					return withHistory
+				},
+			},*/
 		},
 	)
 }

@@ -311,6 +311,9 @@ func TestAccountsDB_SaveAccountSavesCodeAndDataTrieForUserAccount(t *testing.T) 
 	}
 
 	adb := generateAccountDBFromTrie(&mock.TrieStub{
+		RootCalled: func() (i []byte, err error) {
+			return []byte("rootHash"), nil
+		},
 		GetCalled: func(key []byte) (i []byte, err error) {
 			return nil, nil
 		},
@@ -334,10 +337,12 @@ func TestAccountsDB_SaveAccountSavesCodeAndDataTrieForUserAccount(t *testing.T) 
 
 	err := adb.SaveAccount(acc)
 	assert.Nil(t, err)
-	// TODO:
 	assert.Equal(t, 1, updateCalled)
-	// TODO:
-	// assert.NotNil(t, acc.GetRootHash())
+
+	rootHash, err := adb.RootHash()
+	assert.Nil(t, err)
+
+	assert.NotNil(t, rootHash)
 }
 
 func TestAccountsDB_SaveAccountMalfunctionMarshalizerShouldErr(t *testing.T) {
@@ -1120,7 +1125,6 @@ func TestAccountsDB_RecreateTrieInvalidatesJournalEntries(t *testing.T) {
 	_ = acc.(state.UserAccountHandler).DataTrieTracker().SaveKeyValue(key, value)
 	_ = adb.SaveAccount(acc)
 
-	// TODO:
 	assert.Equal(t, 2, adb.JournalLen())
 	err := adb.RecreateTrie(rootHash)
 	assert.Nil(t, err)

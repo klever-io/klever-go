@@ -5,6 +5,7 @@ import (
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/tools/check"
@@ -19,6 +20,7 @@ func TestNewPeerAccountsDB_WithNilTrieShouldErr(t *testing.T) {
 		&mock.HasherMock{},
 		&mock.MarshalizerMock{},
 		&mock.AccountsFactoryStub{},
+		core.Normal,
 	)
 
 	assert.True(t, check.IfNil(adb))
@@ -33,6 +35,7 @@ func TestNewPeerAccountsDB_WithNilHasherShouldErr(t *testing.T) {
 		nil,
 		&mock.MarshalizerMock{},
 		&mock.AccountsFactoryStub{},
+		core.Normal,
 	)
 
 	assert.True(t, check.IfNil(adb))
@@ -47,6 +50,7 @@ func TestNewPeerAccountsDB_WithNilMarshalizerShouldErr(t *testing.T) {
 		&mock.HasherMock{},
 		nil,
 		&mock.AccountsFactoryStub{},
+		core.Normal,
 	)
 
 	assert.True(t, check.IfNil(adb))
@@ -61,6 +65,7 @@ func TestNewPeerAccountsDB_WithNilAddressFactoryShouldErr(t *testing.T) {
 		&mock.HasherMock{},
 		&mock.MarshalizerMock{},
 		nil,
+		core.Normal,
 	)
 
 	assert.True(t, check.IfNil(adb))
@@ -83,6 +88,7 @@ func TestNewPeerAccountsDB_OkValsShouldWork(t *testing.T) {
 		&mock.HasherMock{},
 		&mock.MarshalizerMock{},
 		&mock.AccountsFactoryStub{},
+		core.Normal,
 	)
 
 	assert.Nil(t, err)

@@ -15,7 +15,6 @@ type txListBySenderMap struct {
 	senderConstraints senderConstraints
 	counter           atomic.Counter
 	scoreComputer     scoreComputer
-	txFeeHelper       feeHelper
 	mutex             sync.Mutex
 }
 
@@ -24,7 +23,6 @@ func newTxListBySenderMap(
 	nChunksHint uint32,
 	senderConstraints senderConstraints,
 	scoreComputer scoreComputer,
-	txFeeHelper feeHelper,
 ) *txListBySenderMap {
 	backingMap := maps.NewBucketSortedMap(nChunksHint, numberOfScoreChunks)
 
@@ -32,7 +30,6 @@ func newTxListBySenderMap(
 		backingMap:        backingMap,
 		senderConstraints: senderConstraints,
 		scoreComputer:     scoreComputer,
-		txFeeHelper:       txFeeHelper,
 	}
 }
 
@@ -40,7 +37,7 @@ func newTxListBySenderMap(
 func (txMap *txListBySenderMap) addTx(tx *WrappedTransaction) (bool, [][]byte) {
 	sender := string(tx.Tx.GetSender())
 	listForSender := txMap.getOrAddListForSender(sender)
-	return listForSender.AddTx(tx, txMap.txFeeHelper)
+	return listForSender.AddTx(tx)
 }
 
 // getOrAddListForSender gets or lazily creates a list (using double-checked locking pattern)

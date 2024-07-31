@@ -18,6 +18,8 @@ import (
 	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/eventNotifier"
+	"github.com/klever-io/klever-go/eventNotifier/epochStart"
+	"github.com/klever-io/klever-go/eventNotifier/notifier"
 	"github.com/klever-io/klever-go/genesis/process/disabled"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/sharding"
@@ -287,10 +289,24 @@ func (e *exportHandlerFactory) Create() (update.ExportHandler, error) {
 		return nil, err
 	}
 
-	// TODO reuse the debugger when the one used for regular resolvers & interceptors will be moved inside the status components
 	debugger, errNotCritical := factory.NewInterceptorResolverDebuggerFactory(e.interceptorDebugConfig)
 	if errNotCritical != nil {
 		log.Warn("error creating hardfork debugger", "error", errNotCritical)
+	}
+
+	argsEpochTrigger := epochStart.ArgsNewEpochStartTrigger{
+		GenesisTime:        time.Unix(e.genesisNodesSetupHandler.GetStartTime(), 0),
+		Marshalizer:        e.marshalizer,
+		Hasher:             e.hasher,
+		Storage:            e.storageService,
+		EpochStartNotifier: notifier.NewEpochStartSubscriptionHandler(),
+		Epoch:              0,
+		EpochStartSlot:     e.epochStartTrigger.EpochStartSlot(),
+		ForkController:     e.kAppController.GetForkController(),
+	}
+	epochHandler, err := epochStart.NewEpochStartTrigger(&argsEpochTrigger)
+	if err != nil {
+		return nil, err
 	}
 
 	argsDataTrieFactory := ArgsNewDataTrieFactory{
@@ -361,7 +377,7 @@ func (e *exportHandlerFactory) Create() (update.ExportHandler, error) {
 		Cache:           e.dataPool.Headers(),
 		Marshalizer:     e.marshalizer,
 		Hasher:          e.hasher,
-		EpochHandler:    e.epochStartTrigger, // TODO: EpochHandler:    epochHandler,
+		EpochHandler:    epochHandler,
 		RequestHandler:  e.requestHandler,
 		Uint64Converter: e.uint64Converter,
 	}
@@ -434,7 +450,7 @@ func (e *exportHandlerFactory) Create() (update.ExportHandler, error) {
 		return nil, err
 	}
 
-	// TODO: e.epochStartTrigger = epochHandler
+	e.epochStartTrigger = epochHandler
 	err = e.createInterceptors()
 	if err != nil {
 		return nil, err

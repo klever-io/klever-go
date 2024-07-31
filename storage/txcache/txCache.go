@@ -42,12 +42,11 @@ func NewTxCache(config Config) (*TxCache, error) {
 	// Note: for simplicity, we use the same "numChunks" for both internal concurrent maps
 	numChunks := config.NumChunks
 	senderConstraintsObj := config.getSenderConstraints()
-	txFeeHelper := newFeeComputationHelper()
-	scoreComputerObj := newDefaultScoreComputer(txFeeHelper)
+	scoreComputerObj := newDefaultScoreComputer()
 
 	txCache := &TxCache{
 		name:            config.Name,
-		txListBySender:  newTxListBySenderMap(numChunks, senderConstraintsObj, scoreComputerObj, txFeeHelper),
+		txListBySender:  newTxListBySenderMap(numChunks, senderConstraintsObj, scoreComputerObj),
 		txByHash:        newTxByHashMap(numChunks),
 		config:          config,
 		evictionJournal: evictionJournal{},
@@ -312,7 +311,6 @@ func (cache *TxCache) Keys() [][]byte {
 
 // MaxSize is not implemented
 func (cache *TxCache) MaxSize() int {
-	//TODO: Should be analyzed if the returned value represents the max size of one cache in sharded cache configuration
 	return int(cache.config.CountThreshold)
 }
 

@@ -10,23 +10,23 @@
         {
             "step": "scCall",
             "txId": "save-public-info-ok",
-            "comment": "args are keccak256(keccak256(str:0123 456 789)), keccak256(str:secret_data) respectively",
+            "comment": "args are 0x6d2ff32e31b14e2edbdfe411d3873edc90d77bd0a3b5779355686ff82a171a8d, 0x18805c46852ee738c3daba511a465c4b42cbe6306a9491b037b8194bc7d6c13b respectively",
             "tx": {
-                "from": "address:attester",
-                "to": "sc:contract",
+                "from": "address:acc1",
+                "to": "sc:attestation",
                 "value": "0",
-                "function": "savePublicInfo",
+                "function": "saveAttestation",
                 "arguments": [
-                    "0x6d2ff32e31b14e2edbdfe411d3873edc90d77bd0a3b5779355686ff82a171a8d",
-                    "0x18805c46852ee738c3daba511a465c4b42cbe6306a9491b037b8194bc7d6c13b"
+                    "keccak256:keccak256:str:0123 456 789",
+                    "keccak256:str:secret_data"
                 ],
-                "gasLimit": "10,000,000",
+                "gasLimit": "15,000,000",
                 "gasPrice": "0"
             },
             "expect": {
+                "status": "0",
+                "message": "",
                 "out": [],
-                "status": "",
-                "logs": "*",
                 "gas": "*",
                 "refund": "*"
             }
@@ -35,25 +35,24 @@
             "step": "checkState",
             "accounts": {
                 "address:attester": {
-                    "nonce": "1",
+                    "nonce": "0",
                     "balance": "1,000,000",
                     "storage": {},
                     "code": ""
                 },
-                "sc:contract": {
+                "sc:attestation": {
                     "nonce": "0",
                     "balance": "500,000",
                     "storage": {
                         "str:registration_cost": "500,000",
                         "str:max_nonce_diff": "1000",
-                        "str:attestator|address:attester": "3",
-                        "str:attestator_list": "address:attester",
-                        "str:user|0x6d2ff32e31b14e2edbdfe411d3873edc90d77bd0a3b5779355686ff82a171a8d": [
+                        "str:attestator_state|address:attester": "3",
+                        "str:user_state|keccak256:keccak256:str:0123 456 789": [
                             "u8:2",
-                            "0x18805c46852ee738c3daba511a465c4b42cbe6306a9491b037b8194bc7d6c13b",
+                            "keccak256:str:secret_data",
                             "u32:0",
                             "address:acc1",
-                            "address:attester",
+                            "0x0000000000000000000000000000000000000000000000000000000000000000",
                             "u64:50"
                         ]
                     },

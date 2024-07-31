@@ -77,7 +77,6 @@ func (e *kleverFreeze) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInpu
 	}
 
 	gasRemaining := computeGasRemaining(vmInput.GasProvided, e.funcGasCost)
-
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
 
 	//Using Kapps
@@ -90,11 +89,6 @@ func (e *kleverFreeze) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInpu
 	if resultCode != transaction.Transaction_Ok {
 		err = fmt.Errorf("BucketFreeze error: %s", resultCode.String())
 		log.Trace("Freeze error", "resultCode", resultCode, "err", err.Error())
-		return nil, err
-	}
-
-	vmOutput.GasRemaining, err = vmcommon.SafeSubUint64(vmInput.GasProvided, e.funcGasCost)
-	if err != nil {
 		return nil, err
 	}
 

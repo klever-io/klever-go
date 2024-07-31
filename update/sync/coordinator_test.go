@@ -179,12 +179,9 @@ func TestSyncState_SyncAllStateSyncTxsErr(t *testing.T) {
 	localErr := errors.New("err")
 	args := ArgsNewSyncState{
 		Headers: &mock.HeaderSyncHandlerStub{
-			SyncUnFinishedMetaHeadersCalled: func(epoch uint32) error {
-				return nil
-			},
-			GetEpochStartMetaBlockCalled: func() (metaBlock *block.Block, err error) {
+			GetEpochStartMetaBlockCalled: func(epoch uint32) (metaBlock *block.Block, err error) {
 				return &block.Block{
-					Header: &block.BlockHeader{},
+					Header: &block.BlockHeader{Epoch: epoch},
 				}, nil
 			},
 		},

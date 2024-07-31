@@ -154,8 +154,8 @@ func setStakingToTries(arg ArgsGenesisBlockCreator) (int, [][]byte, error) {
 
 	// compute initial supply
 	initSupply := InitialSupply{}
-	initSupply.KLV.Max = 10_000_000_000_000_000 // TODO: add to config
-	initSupply.KFI.Max = 21_000_000_000_000     // TODO: add to config
+	initSupply.KLV.Max = 10_000_000_000_000_000
+	initSupply.KFI.Max = 21_000_000_000_000
 	for _, accnt := range initialAccounts {
 		initSupply.KLV.Initial += accnt.GetBalanceValue()
 		if !check.IfNil(accnt.GetDelegationHandler()) {
@@ -379,7 +379,6 @@ func setPermissionToTrie(
 	return txHash, nil
 }
 
-// TODO: refactor genesis creation
 func setStakingToTrie(
 	arg ArgsGenesisBlockCreator,
 	klvStaking *kapps.StakingData,
@@ -616,8 +615,6 @@ func createGenesisBlock(
 	}
 	prevHash := arg.Hasher.Compute(arg.GenesisString)
 
-	// TODO: create transactions and compute TxRootHash
-
 	header := &block.Block{
 		Header: &block.BlockHeader{
 			TrieRoot:           accountRootHash,
@@ -654,7 +651,6 @@ func saveGenesisMetaToStorage(
 
 	epochStartID := core.EpochStartIdentifier(genesisBlock.GetEpoch())
 
-	// TODO: FIXME: review... identifier for startEpoch same BlockUnit
 	metaHdrStorage := storageService.GetStorer(retriever.BlockUnit)
 	if check.IfNil(metaHdrStorage) {
 		return common.ErrNilStorage
@@ -737,7 +733,6 @@ func setKLVStakingKApp(arg ArgsGenesisBlockCreator, stakingKapp state.KAppAccoun
 	return arg.KAppAccounts.SaveAccount(stakingKapp)
 }
 
-// TODO: Move to a config file
 func initKLVAndKFIintoKapps(arg ArgsGenesisBlockCreator, initialSupply InitialSupply, kdaKapp, stakingKapp state.KAppAccountHandler) error {
 	klvStaking := &kapps.StakingData{
 		InterestType: kapps.StakingData_FPRI,

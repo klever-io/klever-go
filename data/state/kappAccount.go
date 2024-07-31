@@ -179,7 +179,7 @@ func (a *kappAccount) GetUserKDA(assetID []byte, nonce []byte, checkDirtData boo
 	key := kdautils.ToKDAKey(assetID, nonce)
 
 	value, err := a.dataTrieTracker.RetrieveValue(key)
-	if err != nil {
+	if err != nil && err != common.ErrNilTrie {
 		return nil, err
 	}
 	if len(value) == 0 {

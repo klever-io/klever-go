@@ -53,7 +53,6 @@ func (p *Parser) processCheckKDADataMap(tokenName scenjsonmodel.JSONBytesFromStr
 		Balance:    scenjsonmodel.JSONCheckBigIntUnspecified(),
 		Creator:    scenjsonmodel.JSONCheckBytesUnspecified(),
 		Royalties:  scenjsonmodel.JSONCheckUint64Unspecified(),
-		Hash:       scenjsonmodel.JSONCheckBytesUnspecified(),
 		Uris:       scenjsonmodel.JSONCheckValueListUnspecified(),
 		Attributes: scenjsonmodel.JSONCheckBytesUnspecified(),
 	}
@@ -132,11 +131,6 @@ func (p *Parser) tryProcessCheckKDAInstanceField(kvp *orderedjson.OJsonKeyValueP
 		}
 		if targetInstance.Royalties.Value > 10000 {
 			return false, errors.New("invalid KDA NFT royalties: value exceeds maximum allowed 10000")
-		}
-	case "hash":
-		targetInstance.Hash, err = p.parseCheckBytes(kvp.Value)
-		if err != nil {
-			return false, fmt.Errorf("invalid KDA NFT hash: %w", err)
 		}
 	case "uri":
 		targetInstance.Uris, err = p.parseCheckValueList(kvp.Value)

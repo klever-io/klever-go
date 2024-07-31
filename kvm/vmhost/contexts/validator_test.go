@@ -16,7 +16,6 @@ func testImportNames() vmcommon.FunctionNames {
 	importNames := make(vmcommon.FunctionNames)
 	var empty struct{}
 	importNames["getArgument"] = empty
-	importNames["asyncCall"] = empty
 	return importNames
 }
 
@@ -48,7 +47,6 @@ func TestFunctionsGuard_isValidFunctionName(t *testing.T) {
 	require.NotNil(t, validator.verifyValidFunctionName(strings.Repeat("_", 256)))
 
 	require.NotNil(t, validator.verifyValidFunctionName("getArgument"))
-	require.NotNil(t, validator.verifyValidFunctionName("asyncCall"))
 	require.Nil(t, validator.verifyValidFunctionName("getArgument55"))
 }
 

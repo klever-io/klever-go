@@ -28,7 +28,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "1",
+                "status": "55",
                 "message": "str:invalid function (not found)",
                 "logs": "*",
                 "gas": "*",

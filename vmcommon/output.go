@@ -93,12 +93,15 @@ func (ot *OutputTransfer) Clone() *OutputTransfer {
 }
 
 // LogEntry represents an entry in the contract execution log.
-// TODO: document all fields.
 type LogEntry struct {
+	// Identifier is the identifier of the log entry.
 	Identifier []byte
-	Address    []byte
-	Topics     [][]byte
-	Data       [][]byte
+	// Address is the address involved in the log entry.
+	Address []byte
+	// Topics contains the events of the log entry.
+	Topics [][]byte
+	// Data is the data of the log entry.
+	Data [][]byte
 }
 
 // VMOutput is the return data and final account state after a SC execution.

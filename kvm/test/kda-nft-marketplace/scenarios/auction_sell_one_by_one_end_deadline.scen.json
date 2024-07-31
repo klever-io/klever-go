@@ -28,7 +28,7 @@
                 "gasPrice": "0"
             },
             "expect": {
-                "status": "4",
+                "status": "57",
                 "message": "str:Cannot end this type of auction",
                 "gas": "*",
                 "refund": "*"
@@ -51,7 +51,7 @@
                 "gasPrice": "0"
             },
             "expect": {
-                "status": "4",
+                "status": "57",
                 "message": "str:Cannot buy SFT after deadline",
                 "gas": "*",
                 "refund": "*"

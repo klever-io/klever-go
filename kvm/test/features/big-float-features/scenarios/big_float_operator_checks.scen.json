@@ -1,5 +1,5 @@
 {
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
@@ -31,8 +31,8 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
-                "message": "str:this big Float operation is not permitted while doing float.Add"
+                "status": "62",
+                "message": "str:Float.GobDecode: msb not set in last word 0x1f1c1a96fe0e2d of 0x.1f1c1a96fe0e2dp+58"
             }
         },
         {
@@ -51,7 +51,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:exponent is either too small or too big"
             }
         },
@@ -71,8 +71,8 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
-                "message": "str:this big Float operation is not permitted while doing float.Sub"
+                "status": "62",
+                "message": "str:Float.GobDecode: msb not set in last word 0x1f1c1a96fe0e2d of 0x.1f1c1a96fe0e2dp+58"
             }
         }
     ]

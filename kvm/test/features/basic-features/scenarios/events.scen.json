@@ -1,5 +1,5 @@
 {
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
@@ -151,8 +151,10 @@
                             "str:arg2_an_address_______________s3"
                         ],
                         "data": [
-                            "biguint:1",
-                            "biguint:2"
+                            [
+                                "biguint:1",
+                                "biguint:2"
+                            ]
                         ]
                     }
                 ],

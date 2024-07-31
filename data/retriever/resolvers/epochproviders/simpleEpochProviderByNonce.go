@@ -6,8 +6,6 @@ import (
 
 var _ retriever.EpochProviderByNonce = (*simpleEpochProviderByNonce)(nil)
 
-//TODO: implement a real epoch provider by nonce
-
 // simpleEpochProviderByNonce will use the epoch handler to return the current epoch
 type simpleEpochProviderByNonce struct {
 	epochHandler retriever.EpochHandler

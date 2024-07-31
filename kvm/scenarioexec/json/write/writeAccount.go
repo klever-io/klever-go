@@ -16,9 +16,6 @@ func AccountsToOJ(accounts []*scenjsonmodel.Account) orderedjson.OJsonObject {
 		if account.Update {
 			acctOJ.Put("update", boolToOJ(account.Update))
 		}
-		if len(account.Shard.Original) > 0 {
-			acctOJ.Put("shard", uint64ToOJ(account.Shard))
-		}
 		if len(account.Nonce.Original) > 0 {
 			acctOJ.Put("nonce", uint64ToOJ(account.Nonce))
 		}
@@ -46,12 +43,6 @@ func AccountsToOJ(accounts []*scenjsonmodel.Account) orderedjson.OJsonObject {
 		}
 		if len(account.Owner.Value) > 0 {
 			acctOJ.Put("owner", bytesFromStringToOJ(account.Owner))
-		}
-		if len(account.DeveloperReward.Original) > 0 {
-			acctOJ.Put("developerRewards", bigIntToOJ(account.DeveloperReward))
-		}
-		if len(account.AsyncCallData) > 0 {
-			acctOJ.Put("asyncCallData", stringToOJ(account.AsyncCallData))
 		}
 
 		acctsOJ.Put(bytesFromStringToString(account.Address), acctOJ)
@@ -106,12 +97,6 @@ func checkAccountsToOJ(checkAccounts *scenjsonmodel.CheckAccounts) orderedjson.O
 		}
 		if !checkAccount.Owner.IsUnspecified() {
 			acctOJ.Put("owner", checkBytesToOJ(checkAccount.Owner))
-		}
-		if !checkAccount.DeveloperReward.IsUnspecified() {
-			acctOJ.Put("developerRewards", checkBigIntToOJ(checkAccount.DeveloperReward))
-		}
-		if !checkAccount.AsyncCallData.IsUnspecified() {
-			acctOJ.Put("asyncCallData", checkBytesToOJ(checkAccount.AsyncCallData))
 		}
 
 		acctsOJ.Put(bytesFromStringToString(checkAccount.Address), acctOJ)

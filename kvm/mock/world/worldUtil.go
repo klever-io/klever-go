@@ -2,11 +2,11 @@ package worldmock
 
 import (
 	"github.com/klever-io/klever-go/core"
-	"github.com/klever-io/klever-go/crypto/hashing/blake2b"
+	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 )
 
 // DefaultHasher is an exposed value to use in tests
-var DefaultHasher = &blake2b.Blake2b{}
+var DefaultHasher = &sha256.Sha256{}
 
 // DefaultVMType is an exposed value to use in tests
 var DefaultVMType = []byte{0xF, 0xF}

@@ -38,18 +38,6 @@ func TestRustBasicFeaturesNoSmallIntApi(t *testing.T) {
 		CheckNoError()
 }
 
-// Backwards compatibility.
-func TestRustBasicFeaturesLegacy(t *testing.T) {
-	if testing.Short() {
-		t.Skip("not a short test")
-	}
-
-	ScenariosTest(t).
-		Folder("features/basic-features-legacy/scenarios").
-		Run().
-		CheckNoError()
-}
-
 func TestRustBigFloatFeatures(t *testing.T) {
 	if testing.Short() {
 		t.Skip("not a short test")
@@ -83,34 +71,6 @@ func TestRustPayableFeaturesLatest(t *testing.T) {
 		CheckNoError()
 }
 
-func TestRustComposability(t *testing.T) {
-	// TODO The two excluded tests perform async calls from within async calls,
-	// which are unsupported by the legacy async calls on which the forwarder is
-	// currently based. The new AsyncContext will block multi-level async calls
-	// anyway in its first release.
-	ScenariosTest(t).
-		Folder("features/composability/scenarios").
-		Exclude("features/composability/scenarios/forwarder_send_twice_klv.scen.json").
-		Exclude("features/composability/scenarios/forwarder_send_twice_kda.scen.json").
-		Run().
-		CheckNoError()
-}
-
-func TestRustPromisesFeatures(t *testing.T) {
-	ScenariosTest(t).
-		Folder("features/composability/scenarios-promises").
-		Run().
-		CheckNoError()
-}
-
-// TODO: debug, then delete
-func TestRustPromisesFeaturesDebug(t *testing.T) {
-	ScenariosTest(t).
-		Folder("features/composability/scenarios-promises/promises_call_async_retrieve_klv.scen.json").
-		Run().
-		CheckNoError()
-}
-
 func TestRustFormattedMessageFeatures(t *testing.T) {
 	ScenariosTest(t).
 		Folder("features/formatted-message-features/scenarios").
@@ -118,38 +78,9 @@ func TestRustFormattedMessageFeatures(t *testing.T) {
 		CheckNoError()
 }
 
-// New contracts no longer contain the older, unmanaged hooks.
-// We have older contracts that just do regression checking.
-func TestRustLegacyComposability(t *testing.T) {
-	ScenariosTest(t).
-		Folder("features/composability-legacy/scenarios-legacy").
-		Exclude("features/composability-legacy/scenarios-legacy/l_forw_raw_async_send_and_retrieve_multi_transfer_funds.scen.json").
-		Exclude("features/composability-legacy/scenarios-legacy/l_forw_raw_call_async_retrieve_multi_transfer.scen.json").
-		Exclude("features/composability-legacy/scenarios-legacy/l_forwarder_call_async_retrieve_kda.scen.json").
-		Exclude("features/composability-legacy/scenarios-legacy/l_forwarder_call_async_retrieve_nft.scen.json").
-		Run().
-		CheckNoError()
-}
-
 func TestTimelocks(t *testing.T) {
 	ScenariosTest(t).
 		Folder("timelocks").
-		Run().
-		CheckNoError()
-}
-
-func TestForwarderTransfExec(t *testing.T) {
-	ScenariosTest(t).
-		Folder("features/composability/scenarios").
-		File("forwarder_call_transf_exec_reject_nft.scen.json").
-		Run().
-		CheckNoError()
-}
-
-func TestForwarderTransfExecMultiReject(t *testing.T) {
-	ScenariosTest(t).
-		Folder("features/composability/scenarios").
-		File("forwarder_call_transf_exec_reject_multi_transfer.scen.json").
 		Run().
 		CheckNoError()
 }

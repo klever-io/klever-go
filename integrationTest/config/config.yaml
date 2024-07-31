@@ -52,6 +52,9 @@ preferences:
   redundancyLevel: 0
   # statics pooling interval
   statusPollingIntervalSec: 2
+  # MaxComputableSlots represents the max number of slots computable in a round
+  # by the validator statistics processor
+  maxComputableSlots: 100
 
 softwareVersionConfig:
   stableTagLocation: "https://api.github.com/repos/klever-io/klever-go/releases/latest"
@@ -249,6 +252,9 @@ whiteListerVerifiedTxs:
 resourceStats:
   enabled: true
   refreshIntervalInSec: 30
+
+validatorStatistics:
+  cacheRefreshIntervalInSec: 60
 
 accountsTrieStorage:
   cache:

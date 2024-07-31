@@ -188,9 +188,8 @@ func createTxListBySenderMap(numSenders int) *txListBySenderMap {
 }
 
 func newSendersMapToTest() *txListBySenderMap {
-	_, txFeeHelper := dummyParams()
 	return newTxListBySenderMap(4, senderConstraints{
 		maxNumBytes: math.MaxUint32,
 		maxNumTxs:   math.MaxUint32,
-	}, &disabledScoreComputer{}, txFeeHelper)
+	}, &disabledScoreComputer{})
 }

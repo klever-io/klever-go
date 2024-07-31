@@ -13,6 +13,7 @@ import (
 	"github.com/klever-io/klever-go/data/state/factory"
 
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 	"github.com/klever-io/klever-go/data/state"
@@ -69,6 +70,7 @@ type MockWorld struct {
 	ProvidedBlockchainHook     vmcommon.BlockchainHook
 	OtherVMOutputMap           map[string]*vmcommon.VMOutput
 	MockAsset                  *kapps.KDAData
+	KAppController             kapp.KAppController
 }
 
 var marshalizer = marshal.NewProtoMarshalizer()
@@ -315,7 +317,8 @@ func (b *MockWorld) CreateTestAssets() {
 }
 
 func (b *MockWorld) GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, error) {
-	return &kapps.MetaV2{}, nil
+	sysKapp := b.KAppController.GetSystemAccountKApp()
+	return sysKapp.SFTGetMeta(tokenID, []byte(fmt.Sprint(nonce)))
 }
 
 func (b *MockWorld) MockTestAsset(asset *scenjsonmodel.KDAData) {
@@ -332,8 +335,15 @@ func (b *MockWorld) MockTestAsset(asset *scenjsonmodel.KDAData) {
 
 	for _, instance := range asset.Instances {
 		assetType := kapps.KDAData_Fungible
-		if instance.Nonce.Value != 0 {
-			assetType = kapps.KDAData_NonFungible
+		// if explicit type, set it, or adjust based on nonce
+		if instance.AssetType.Value != 0 {
+			assetType = kapps.KDAData_EnumAssetType(instance.AssetType.Value)
+		} else if instance.Nonce.Value != 0 {
+			if instance.Balance.Value.Cmp(big.NewInt(1)) == 1 {
+				assetType = kapps.KDAData_SemiFungible
+			} else {
+				assetType = kapps.KDAData_NonFungible
+			}
 		}
 
 		nonce := []byte(strconv.FormatUint(instance.Nonce.Value, 10))
@@ -346,13 +356,16 @@ func (b *MockWorld) MockTestAsset(asset *scenjsonmodel.KDAData) {
 			AssetType:         assetType,
 			Name:              assetId,
 			Ticker:            assetId,
-			OwnerAddress:      nil,
+			OwnerAddress:      instance.Creator.Value,
+			URIs:              make(map[string]string),
 			Precision:         6,
 			InitialSupply:     10000000000000000,
 			CirculatingSupply: 100000000000000,
 			MaxSupply:         90000000000000000,
 			IssueDate:         time.Now().Unix(),
-			Royalties:         &kapps.RoyaltiesData{},
+			Royalties: &kapps.RoyaltiesData{
+				TransferFixed: int64(instance.Royalties.Value),
+			},
 			Properties: &kapps.PropertiesData{
 				CanFreeze: true,
 				CanMint:   true,
@@ -362,6 +375,11 @@ func (b *MockWorld) MockTestAsset(asset *scenjsonmodel.KDAData) {
 				IsPaused:         false,
 				IsNFTMintStopped: true,
 			},
+		}
+
+		// set uris
+		for _, uri := range instance.Uris.Values {
+			token.URIs[string(uri.Value)] = string(uri.Value)
 		}
 
 		tokenData, _ := marshalizer.Marshal(&token)

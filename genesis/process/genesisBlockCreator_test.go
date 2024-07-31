@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TODO improve code coverage of this package
+// FIXME improve code coverage of this package
 func createMockArgument(
 	t *testing.T,
 	genesisFilename string,

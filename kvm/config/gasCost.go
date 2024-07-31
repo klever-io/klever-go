@@ -68,7 +68,6 @@ type BaseOpsAPICost struct {
 	GetBlockHash         uint64
 	GetOriginalTxHash    uint64
 	GetCurrentTxHash     uint64
-	GetPrevTxHash        uint64
 	TransferValue        uint64
 	GetArgument          uint64
 	GetFunction          uint64

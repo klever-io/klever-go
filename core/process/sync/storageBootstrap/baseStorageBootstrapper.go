@@ -287,8 +287,6 @@ func (st *storageBootstrapper) applyBootInfos(bootInfos []*bootstrapStorage.Boot
 			"epoch", bootInfos[i].LastHeader.Epoch,
 			"nonce", bootInfos[i].LastHeader.Nonce)
 
-		// TODO:
-
 		var header data.HeaderHandler
 		header, err = st.bootstrapper.getHeader(bootInfos[i].LastHeader.Hash)
 		if err != nil {

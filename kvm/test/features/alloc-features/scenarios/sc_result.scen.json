@@ -27,7 +27,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:return_sc_error",
                 "logs": "*",
                 "gas": "*",
@@ -69,7 +69,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:test error message",
                 "logs": "*",
                 "gas": "*",
@@ -91,7 +91,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:test error message",
                 "logs": "*",
                 "gas": "*",
@@ -113,7 +113,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:test error message",
                 "logs": "*",
                 "gas": "*",
@@ -135,7 +135,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:test error message",
                 "logs": "*",
                 "gas": "*",
@@ -157,7 +157,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:test error message",
                 "logs": "*",
                 "gas": "*",
@@ -180,7 +180,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:test argument is false",
                 "logs": "*",
                 "gas": "*",
@@ -203,7 +203,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:option argument is none",
                 "logs": "*",
                 "gas": "*",
@@ -250,7 +250,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:option argument is none",
                 "logs": "*",
                 "gas": "*",
@@ -296,7 +296,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:option argument is none",
                 "logs": "*",
                 "gas": "*",

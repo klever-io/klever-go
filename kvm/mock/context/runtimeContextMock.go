@@ -222,11 +222,6 @@ func (r *RuntimeContextMock) GetRuntimeBreakpointValue() vmhost.BreakpointValue 
 	return r.CurrentBreakpointValue
 }
 
-// PrepareLegacyAsyncCall mocked method
-func (r *RuntimeContextMock) PrepareLegacyAsyncCall(_ []byte, _ []byte, _ []byte) error {
-	return r.Err
-}
-
 // VerifyContractCode mocked method
 func (r *RuntimeContextMock) VerifyContractCode() error {
 	return r.Err
@@ -353,11 +348,6 @@ func (r *RuntimeContextMock) ValidateCallbackName(_ string) error {
 // HasFunction mocked method
 func (r *RuntimeContextMock) HasFunction(_ string) bool {
 	return r.HasFunctionResult
-}
-
-// GetPrevTxHash mocked method
-func (r *RuntimeContextMock) GetPrevTxHash() []byte {
-	return nil
 }
 
 // NumRunningInstances mocked method

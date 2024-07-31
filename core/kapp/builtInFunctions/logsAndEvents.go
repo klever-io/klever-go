@@ -6,7 +6,6 @@ import (
 	"github.com/klever-io/klever-go/vmcommon"
 )
 
-// TODO: add logs into all built-in functions with KDA actions
 func addKDAEntryInVMOutput(vmOutput *vmcommon.VMOutput, identifier []byte, tokenID []byte, nonce uint64, value *big.Int, args ...[]byte) {
 	entry := newEntryForKDA(identifier, tokenID, nonce, value, args...)
 

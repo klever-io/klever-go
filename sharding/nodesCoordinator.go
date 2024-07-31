@@ -56,7 +56,6 @@ type epochNodesConfig struct {
 }
 
 type indexHashedNodesCoordinator struct {
-	// TODO:
 	selfPubKey                    []byte
 	mutNodesConfig                sync.RWMutex
 	epochStartRegistrationHandler EpochStartEventNotifier
@@ -492,7 +491,6 @@ func (ihgs *indexHashedNodesCoordinator) ComputeConsensusGroup(
 		return nil, fmt.Errorf("%w epoch=%v", ErrEpochNodesConfigDoesNotExist, epoch)
 	}
 
-	//TODO: Remove shardID from key
 	key := []byte(fmt.Sprintf(keyFormat, string(randomness), slot, 0, epoch))
 	validators := ihgs.searchConsensusForKey(key)
 	if validators != nil {
@@ -801,8 +799,6 @@ func (ihgs *indexHashedNodesCoordinator) SetNodes(
 	if elected == nil || eligible == nil {
 		return ErrNilInputNodesMap
 	}
-
-	// TODO: Check consensus size
 
 	var err error
 	// nbShards holds number of shards without meta

@@ -397,7 +397,6 @@ func DisplayProcessTxDetails(
 		return
 	}
 
-	// TODO: Review, RcvAddr and SndAddr are not set in the txHandler
 	receiver := ""
 	if len(scr.GetRcvAddr()) == addressPubkeyConverter.Len() {
 		receiver = addressPubkeyConverter.Encode(scr.GetRcvAddr())

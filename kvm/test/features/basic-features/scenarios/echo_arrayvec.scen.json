@@ -1,6 +1,6 @@
 {
     "name": "echo_arrayvec",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
@@ -67,7 +67,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:argument decode error (av): capacity exceeded",
                 "logs": "*",
                 "gas": "*",

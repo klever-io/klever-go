@@ -94,7 +94,6 @@ func NewMetaProcessor(arguments ArgMetaProcessor) (*metaProcessor, error) {
 	}
 
 	mp.txCounter = NewTransactionCounter()
-	mp.blockProcessor = &mp
 
 	headersPool := mp.dataPool.Headers()
 	headersPool.RegisterHandler(mp.receivedHeader)
@@ -328,8 +327,6 @@ func (mp *metaProcessor) baseProcessEpochStartBlock(
 		return err
 	}
 
-	// TODO: move index validators status for epoch to here???
-
 	return nil
 }
 
@@ -512,10 +509,6 @@ func (mp *metaProcessor) updateEpochStartHeader(blk *block.Block) error {
 	blk.Header.IsEpochStart = true
 	blk.Header.PrevEpochStartSlot = mp.epochStartTrigger.EpochStartSlot()
 
-	// TODO: compute accumulated fees
-
-	// TODO: update stats
-
 	return nil
 }
 
@@ -659,7 +652,6 @@ func (mp *metaProcessor) displayPoolsInfo() {
 		"total headers", headersPool.Len(),
 		"headers pool capacity", headersPool.MaxSize(),
 	)
-	// TODO: add TX lenth
 }
 
 func (mp *metaProcessor) updateState(lastMetaBlock data.HeaderHandler) {
@@ -720,7 +712,7 @@ func (mp *metaProcessor) commitEpochStart(header *block.Block) {
 		currentHeader := mp.blockChain.GetCurrentBlockHeader()
 		if !check.IfNil(currentHeader) && currentHeader.GetIsEpochStart() {
 			mp.epochStartTrigger.SetFinalityAttestingSlot(header.GetSlot())
-			// TODO: check this process @yuri
+			// TODO: check this process
 			// mp.nodesCoordinator.ShuffleOutForEpoch(currentHeader.GetEpoch())
 		}
 	}
@@ -787,9 +779,6 @@ func (mp *metaProcessor) receivedHeader(headerHandler data.HeaderHandler, header
 		"nonce", blk.GetNonce(),
 		"hash", headerHash,
 	)
-
-	// TODO: check if any prior header missing?
-	// TODO: keep cache?
 }
 
 // applyBodyToHeader creates a miniblock header list given a block body
@@ -844,7 +833,6 @@ func (mp *metaProcessor) applyBodyToHeader(blk *block.Block) error {
 	}
 	blk.Header.KAppsTrieRoot = mp.getRootHashKApp()
 
-	// TODO: review...???
 	marshalizedBody, err := mp.marshalizer.Marshal(blk)
 	if err != nil {
 		return err
@@ -898,24 +886,6 @@ func (mp *metaProcessor) IsInterfaceNil() bool {
 	return mp == nil
 }
 
-func (mp *metaProcessor) removeStartOfEpochBlockDataFromPools(
-	headerHandler data.HeaderHandler,
-) error {
-
-	if !headerHandler.GetIsEpochStart() {
-		return nil
-	}
-
-	blk, ok := headerHandler.(*block.Block)
-	if !ok {
-		return common.ErrWrongTypeAssertion
-	}
-
-	// TODO:
-	_ = blk
-	return nil
-}
-
 // RestoreBlockIntoPools restores the block into associated pools
 func (mp *metaProcessor) RestoreBlockIntoPools(headerHandler data.HeaderHandler) error {
 	if check.IfNil(headerHandler) {
@@ -951,7 +921,6 @@ func (mp *metaProcessor) RestoreBlockIntoPools(headerHandler data.HeaderHandler)
 		log.Debug("HdrNonceHashDataUnit.Remove", "error", errNotCritical.Error())
 	}
 
-	// TODO: restore TXs?
 	mp.restoreBlockBody(blk)
 
 	return nil
@@ -1132,7 +1101,6 @@ func (mp *metaProcessor) epochStartNativeStakingKapps(blk data.HeaderHandler) er
 		amountKLVToBurn = klv.FPR[0].TotalAmount - klv.FPR[0].TotalClaimed
 
 		klv.FPR = klv.FPR[1:]
-		// TODO: index claimed amount
 	}
 
 	klv.FPR = append(klv.FPR, &kapps.FPRData{
@@ -1147,7 +1115,6 @@ func (mp *metaProcessor) epochStartNativeStakingKapps(blk data.HeaderHandler) er
 		amountKLVToBurnKFI = kfi.FPR[0].TotalAmount - kfi.FPR[0].TotalClaimed
 
 		kfi.FPR = kfi.FPR[1:]
-		// TODO: index claimed amount
 	}
 
 	kfi.FPR = append(kfi.FPR, &kapps.FPRData{

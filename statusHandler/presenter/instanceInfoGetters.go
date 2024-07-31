@@ -2,6 +2,7 @@ package presenter
 
 import (
 	"math/big"
+	"strconv"
 	"strings"
 
 	"github.com/klever-io/klever-go/core"
@@ -27,6 +28,23 @@ func (psh *PresenterStatusHandler) GetPeerType() string {
 // GetPublicKeyBlockSign will return node public key for sign blocks
 func (psh *PresenterStatusHandler) GetPublicKeyBlockSign() string {
 	return psh.getFromCacheAsString(core.MetricPublicKeyBlockSign)
+}
+
+// GetRedundancyLevel will return the redundancy level of the node
+func (psh *PresenterStatusHandler) GetRedundancyLevel() int64 {
+	// redundancy level is sent as string as JSON unmarshal doesn't treat well the casting from interface{} to int64
+	redundancyLevelStr := psh.getFromCacheAsString(core.MetricRedundancyLevel)
+	i64Val, err := strconv.ParseInt(redundancyLevelStr, 10, 64)
+	if err != nil {
+		return 0
+	}
+
+	return i64Val
+}
+
+// GetRedundancyIsMainActive will return the info about redundancy main machine
+func (psh *PresenterStatusHandler) GetRedundancyIsMainActive() string {
+	return psh.getFromCacheAsString(core.MetricRedundancyIsMainActive)
 }
 
 // GetChainID will return node chainID

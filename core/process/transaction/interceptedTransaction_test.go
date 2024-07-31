@@ -573,7 +573,37 @@ func TestInterceptedTransaction_Type(t *testing.T) {
 }
 
 func TestInterceptedTransaction_Fee(t *testing.T) {
-	// TODO:
+	t.Parallel()
+
+	kappFee := int64(150)
+	bwFee := int64(100)
+	sndAddr := []byte("snd")
+
+	tx := dataTransaction.NewBaseTransaction(sndAddr, 0, nil, kappFee, bwFee)
+	tx.Signature = append(tx.Signature, sigOk)
+	err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 10)
+	require.Nil(t, err)
+
+	marshalizer := &mock.MarshalizerMock{}
+	txBuff, _ := marshalizer.Marshal(tx)
+
+	txin, err := transaction.NewInterceptedTransaction(
+		txBuff,
+		marshalizer,
+		marshalizer,
+		mock.HasherMock{},
+		createKeyGenMock(),
+		createDummySigner(),
+		&mock.PubkeyConverterStub{},
+		&mock.WhiteListHandlerStub{},
+		[]byte("T"),
+		mock.HasherMock{},
+		createFreeTxFeeHandler(),
+		versioning.NewTxVersionChecker(1),
+	)
+	require.Nil(t, err)
+
+	assert.Equal(t, kappFee+bwFee, txin.Fee())
 }
 
 func TestInterceptedTransaction_String(t *testing.T) {

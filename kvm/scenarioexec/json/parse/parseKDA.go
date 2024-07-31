@@ -101,10 +101,15 @@ func (p *Parser) processKDADataMap(tokenName scenjsonmodel.JSONBytesFromString, 
 func (p *Parser) tryProcessKDAInstanceField(kvp *orderedjson.OJsonKeyValuePair, targetInstance *scenjsonmodel.KDAInstance) (bool, error) {
 	var err error
 	switch kvp.Key {
+	case "type":
+		targetInstance.AssetType, err = p.processUint64(kvp.Value)
+		if err != nil {
+			return false, fmt.Errorf("invalid asset type: %w", err)
+		}
 	case "nonce":
 		targetInstance.Nonce, err = p.processUint64(kvp.Value)
 		if err != nil {
-			return false, fmt.Errorf("invalid account nonce: %w", err)
+			return false, fmt.Errorf("invalid asset nonce: %w", err)
 		}
 	case "balance":
 		targetInstance.Balance, err = p.processBigInt(kvp.Value, bigIntUnsignedBytes)

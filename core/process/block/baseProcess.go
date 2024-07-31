@@ -54,7 +54,6 @@ type baseProcessor struct {
 	headerIntegrityVerifier      process.HeaderIntegrityVerifier
 	appStatusHandler             core.AppStatusHandler
 	stateCheckpointModulus       uint
-	blockProcessor               blockProcessor
 	txCounter                    *transactionCounter
 
 	tpsBenchmark statistics.TPSBenchmark
@@ -436,11 +435,6 @@ func (bp *baseProcessor) removeBlockDataFromPools(headerHandler data.HeaderHandl
 	}
 
 	err := bp.txCoordinator.RemoveBlockDataFromPool(body)
-	if err != nil {
-		return err
-	}
-
-	err = bp.blockProcessor.removeStartOfEpochBlockDataFromPools(headerHandler)
 	if err != nil {
 		return err
 	}

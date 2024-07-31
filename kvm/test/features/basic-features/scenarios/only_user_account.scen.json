@@ -1,6 +1,6 @@
 {
     "name": "only_owner",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
@@ -54,7 +54,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:Endpoint can only be called by user accounts",
                 "logs": "*",
                 "gas": "*",

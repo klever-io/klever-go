@@ -84,7 +84,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:only owner can claim successful funding",
                 "gas": "*",
                 "refund": "*"

@@ -1,7 +1,7 @@
 package scencontroller
 
 import (
-	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -32,7 +32,7 @@ func ParseScenariosScenario(parser scenjsonparse.Parser, scenFilePath string) (*
 		_ = jsonFile.Close()
 	}()
 
-	byteValue, err := ioutil.ReadAll(jsonFile)
+	byteValue, err := io.ReadAll(jsonFile)
 	if err != nil {
 		return nil, err
 	}

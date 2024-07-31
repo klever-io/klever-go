@@ -462,7 +462,6 @@ func NewDBWithSleep(argDB ArgDB, sleepBetween time.Duration) (storage.Persister,
 			return db, nil
 		}
 
-		//TODO: extract this in a parameter and inject it
 		time.Sleep(time.Duration(sleepBetween))
 	}
 	if err != nil {

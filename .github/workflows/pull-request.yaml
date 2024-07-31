@@ -24,7 +24,7 @@ jobs:
           go-version: ${{ vars.GO_VERSION }}
 
       - name: Cache Vendor
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         env:
           cache-name: cache-vendor
         with:
@@ -61,7 +61,7 @@ jobs:
           go-version: ${{ vars.GO_VERSION }}
 
       - name: Cache Vendor
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         env:
           cache-name: cache-vendor
         with:
@@ -84,7 +84,7 @@ jobs:
           go-version: ${{ vars.GO_VERSION }}
 
       - name: Cache Vendor
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         env:
           cache-name: cache-vendor
         with:
@@ -95,3 +95,26 @@ jobs:
       - name: integration tests
         run: |
           make tests-integration
+
+  kvm-tests:
+    needs: [validate]
+    runs-on: klever-pipe
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ vars.GO_VERSION }}
+
+      - name: Cache Vendor
+        uses: actions/cache@v4
+        env:
+          cache-name: cache-vendor
+        with:
+          fail-on-cache-miss: true
+          path: vendor
+          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
+
+      - name: ensure all unit test is passing
+        run: |
+          make tests-kvm

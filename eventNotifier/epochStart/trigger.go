@@ -188,7 +188,6 @@ func (t *trigger) Update(slot uint64, nonce uint64) {
 	}
 
 	isWithEarlyEndOfEpoch := t.currentSlot >= t.nextEpochStartSlot
-	// TODO: add into config file
 	hasMinimumForgeToTrigger := nonce > t.epochStartBlock.Header.Nonce+5
 	shouldTriggerEpochStart := (isNormalEpochStart || isWithEarlyEndOfEpoch) && hasMinimumForgeToTrigger
 	if shouldTriggerEpochStart {

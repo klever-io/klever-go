@@ -129,7 +129,6 @@ func (cns *ConsensusState) GetNextConsensusGroup(
 	nodesCoordinator sharding.NodesCoordinator,
 	epoch uint32,
 ) ([]string, error) {
-	// TODO: revisit implementation
 	validatorsGroup, err := nodesCoordinator.ComputeConsensusGroup(randomSource, slot, epoch)
 	if err != nil {
 		log.Debug(

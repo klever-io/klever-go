@@ -519,11 +519,11 @@ func makeBcHookStub(
 }
 
 func TestStorageContext_LoadGasStoreGasPerKey(t *testing.T) {
-	// TODO
+	// FIXME: Implement this test
 }
 
 func TestStorageContext_StoreGasPerKey(t *testing.T) {
-	// TODO
+	// FIXME: Implement this test
 }
 
 func TestStorageContext_PopSetActiveStateIfStackIsEmptyShouldNotPanic(t *testing.T) {

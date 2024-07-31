@@ -37,7 +37,6 @@ type TestConfig struct {
 	DeployedContractAddress []byte
 	GasUsedByInit           uint64
 	GasProvidedForInit      uint64
-	AsyncCallStepCost       uint64
 	AoTPreparePerByteCost   uint64
 	CompilePerByteCost      uint64
 

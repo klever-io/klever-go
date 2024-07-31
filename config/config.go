@@ -94,14 +94,15 @@ type Config struct {
 
 	Storages StoragesConfig `yaml:"storages"`
 
-	DbLookupExtensions     DbLookupExtensionsConfig `yaml:"dbLookupExtensions"`
-	StoragePruning         StoragePruningConfig     `yaml:"storagePruning"`
-	LogsAndEvents          LogsAndEventsConfig      `yaml:"logsAndEvents"`
-	WhiteListPool          CacheConfig              `yaml:"whiteListPool"`
-	WhiteListerVerifiedTxs CacheConfig              `yaml:"whiteListerVerifiedTxs"`
-	Antiflood              AntifloodConfig          `yaml:"antiflood"`
-	Heartbeat              HeartbeatConfig          `yaml:"heartbeat"`
-	ResourceStats          ResourceStatsConfig      `yaml:"resourceStats"`
+	DbLookupExtensions     DbLookupExtensionsConfig  `yaml:"dbLookupExtensions"`
+	StoragePruning         StoragePruningConfig      `yaml:"storagePruning"`
+	LogsAndEvents          LogsAndEventsConfig       `yaml:"logsAndEvents"`
+	WhiteListPool          CacheConfig               `yaml:"whiteListPool"`
+	WhiteListerVerifiedTxs CacheConfig               `yaml:"whiteListerVerifiedTxs"`
+	Antiflood              AntifloodConfig           `yaml:"antiflood"`
+	Heartbeat              HeartbeatConfig           `yaml:"heartbeat"`
+	ResourceStats          ResourceStatsConfig       `yaml:"resourceStats"`
+	ValidatorStatistics    ValidatorStatisticsConfig `yaml:"validatorStatistics"`
 
 	AccountsTrieStorage      StorageConfig             `yaml:"accountsTrieStorage"`
 	PeerAccountsTrieStorage  StorageConfig             `yaml:"peerAccountsTrieStorage"`

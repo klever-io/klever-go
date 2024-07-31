@@ -1,7 +1,7 @@
 {
     "name": "crypto",
     "comment": "does not currently work with scenarios-rs, because verify_secp256k1 functions are not yet mocked",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",

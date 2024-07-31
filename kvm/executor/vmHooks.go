@@ -87,7 +87,6 @@ type MainVMHooks interface {
 	DeleteFromReturnData(resultID int32)
 	GetOriginalTxHash(dataOffset MemPtr)
 	GetCurrentTxHash(dataOffset MemPtr)
-	GetPrevTxHash(dataOffset MemPtr)
 }
 
 type ManagedVMHooks interface {

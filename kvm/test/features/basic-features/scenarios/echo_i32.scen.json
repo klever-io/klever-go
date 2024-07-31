@@ -1,6 +1,6 @@
 {
     "name": "echo_i32",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
@@ -168,7 +168,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:argument decode error (i): input out of range",
                 "logs": "*",
                 "gas": "*",
@@ -190,7 +190,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:argument decode error (i): input out of range",
                 "logs": "*",
                 "gas": "*",

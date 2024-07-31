@@ -146,7 +146,7 @@ func TestSyncEpochStartMetaHeader_MetaBlockInStorage(t *testing.T) {
 	err = headersSyncHandler.syncEpochStartMetaHeader(1, time.Second)
 	require.Nil(t, err)
 
-	metaBlock, err := headersSyncHandler.GetEpochStartMetaBlock()
+	metaBlock, err := headersSyncHandler.GetEpochStartMetaBlock(1)
 	require.Nil(t, err)
 	require.Equal(t, meta, metaBlock)
 }
@@ -255,7 +255,7 @@ func TestSyncEpochStartMetaHeader_ReceiveHeaderOk(t *testing.T) {
 	err = headersSyncHandler.syncEpochStartMetaHeader(1, 2*time.Second)
 	require.Nil(t, err)
 
-	metaBlockSync, err := headersSyncHandler.GetEpochStartMetaBlock()
+	metaBlockSync, err := headersSyncHandler.GetEpochStartMetaBlock(1)
 	require.Nil(t, err)
 	require.Equal(t, meta, metaBlockSync)
 

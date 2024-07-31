@@ -6,7 +6,6 @@ type scoreComputer interface {
 
 // TxFeesHandler handles a transaction gas and gas cost
 type TxFeesHandler interface {
-	// TODO:
 	IsInterfaceNil() bool
 }
 

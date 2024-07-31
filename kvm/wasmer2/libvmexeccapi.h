@@ -106,7 +106,6 @@ typedef struct {
   void (*delete_from_return_data_func_ptr)(void *context, int32_t result_id);
   void (*get_original_tx_hash_func_ptr)(void *context, int32_t data_offset);
   void (*get_current_tx_hash_func_ptr)(void *context, int32_t data_offset);
-  void (*get_prev_tx_hash_func_ptr)(void *context, int32_t data_offset);
   void (*managed_sc_address_func_ptr)(void *context, int32_t destination_handle);
   void (*managed_owner_address_func_ptr)(void *context, int32_t destination_handle);
   void (*managed_caller_func_ptr)(void *context, int32_t destination_handle);

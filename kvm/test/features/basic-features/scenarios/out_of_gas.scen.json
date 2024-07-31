@@ -1,6 +1,6 @@
 {
     "name": "storage",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
@@ -32,7 +32,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "5",
+                "status": "58",
                 "message": "str:not enough gas",
                 "logs": "*",
                 "gas": "*",

@@ -81,7 +81,6 @@ func (e *kleverUpdateAccountPermission) ProcessBuiltinFunction(vmInput *vmcommon
 	}
 
 	gasRemaining := computeGasRemaining(vmInput.GasProvided, e.funcGasCost)
-
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
 
 	acc, err := e.accountsCacher.LoadUser(address)
@@ -130,11 +129,6 @@ LoopPermissions:
 	if resultCode != transaction.Transaction_Ok {
 		err = fmt.Errorf("UpdatePermission error: %s", resultCode.String())
 		log.Trace("UpdatePermission error", "resultCode", resultCode, "err", err.Error())
-		return nil, err
-	}
-
-	vmOutput.GasRemaining, err = vmcommon.SafeSubUint64(vmInput.GasProvided, e.funcGasCost)
-	if err != nil {
 		return nil, err
 	}
 

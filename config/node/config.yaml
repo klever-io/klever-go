@@ -53,6 +53,9 @@ preferences:
   redundancyLevel: 0
   # statics pooling interval
   statusPollingIntervalSec: 2
+  # MaxComputableSlots represents the max number of slots computable in a round
+  # by the validator statistics processor
+  maxComputableSlots: 100
 
 blockSizeThrottleConfig:
   minSizeInBytes: 104857 # 104857 is 10% from 1MB
@@ -254,6 +257,9 @@ whiteListerVerifiedTxs:
 resourceStats:
   enabled: true
   refreshIntervalInSec: 30
+
+validatorStatistics:
+  cacheRefreshIntervalInSec: 60
 
 accountsTrieStorage:
   cache:

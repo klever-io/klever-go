@@ -99,6 +99,8 @@ func (wia *itemAsset) Save() error {
 				Address:             wia.addressPubkeyConverter.Encode(role.Address),
 				HasRoleMint:         role.HasRoleMint,
 				HasRoleSetITOPrices: role.HasRoleSetITOPrices,
+				HasRoleDeposit:      role.HasRoleDeposit,
+				HasRoleTransfer:     role.HasRoleTransfer,
 			}
 			rolesInfo = append(rolesInfo, roleInfo)
 		}

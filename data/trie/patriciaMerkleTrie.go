@@ -544,7 +544,6 @@ func (tr *patriciaMerkleTrie) GetSerializedNodes(rootHash []byte, maxBuffToSend 
 // GetAllLeavesOnChannel adds all the trie leaves to the given channel
 func (tr *patriciaMerkleTrie) GetAllLeavesOnChannel(rootHash []byte, ctx context.Context) (chan data.KeyValueHolder, error) {
 	leavesChannel := make(chan data.KeyValueHolder, 100)
-
 	tr.mutOperation.RLock()
 
 	newTrie, err := tr.recreate(rootHash)

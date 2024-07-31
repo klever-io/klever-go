@@ -23,7 +23,7 @@
                 "gasPrice": "0"
             },
             "expect": {
-                "status": "4",
+                "status": "57",
                 "message": "str:Auction ID does not match the token",
                 "gas": "*",
                 "refund": "*"
@@ -46,7 +46,7 @@
                 "gasPrice": "0"
             },
             "expect": {
-                "status": "4",
+                "status": "57",
                 "message": "str:Can't bid on your own token",
                 "gas": "*",
                 "refund": "*"
@@ -76,7 +76,7 @@
                 "gasPrice": "0"
             },
             "expect": {
-                "status": "4",
+                "status": "57",
                 "message": "str:Auction ended already",
                 "gas": "*",
                 "refund": "*"
@@ -120,7 +120,7 @@
                 "gasPrice": "0"
             },
             "expect": {
-                "status": "4",
+                "status": "57",
                 "message": "str:Wrong token used as payment",
                 "gas": "*",
                 "refund": "*"
@@ -143,7 +143,7 @@
                 "gasPrice": "0"
             },
             "expect": {
-                "status": "4",
+                "status": "57",
                 "message": "str:Can't outbid yourself",
                 "gas": "*",
                 "refund": "*"
@@ -166,7 +166,7 @@
                 "gasPrice": "0"
             },
             "expect": {
-                "status": "4",
+                "status": "57",
                 "message": "str:Bid must be higher than or equal to the min bid",
                 "gas": "*",
                 "refund": "*"
@@ -189,7 +189,7 @@
                 "gasPrice": "0"
             },
             "expect": {
-                "status": "4",
+                "status": "57",
                 "message": "str:Bid must be higher than the current winning bid",
                 "gas": "*",
                 "refund": "*"
@@ -212,7 +212,7 @@
                 "gasPrice": "0"
             },
             "expect": {
-                "status": "4",
+                "status": "57",
                 "message": "str:Bid must be less than or equal to the max bid",
                 "gas": "*",
                 "refund": "*"

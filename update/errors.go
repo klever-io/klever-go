@@ -140,9 +140,6 @@ var ErrTransactionNotFoundInImportedMap = errors.New("transaction was not found 
 // ErrNilEpochStartMetaBlock signals that a nil epoch start metaBlock was provided
 var ErrNilEpochStartMetaBlock = errors.New("nil epoch start metaBlock was provided")
 
-// ErrNilUnFinishedMetaBlocksMap signals that a nil unFinished metaBlocks map was provided
-var ErrNilUnFinishedMetaBlocksMap = errors.New("nil unFinished metaBlocks map was provided")
-
 // ErrPostProcessTransactionNotFound signals that the given transaction was not found in post process map
 var ErrPostProcessTransactionNotFound = errors.New("transaction was not found in post process map")
 

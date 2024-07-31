@@ -77,7 +77,6 @@ var functionNames = map[string]struct{}{
 	"deleteFromReturnData": empty,
 	"getOriginalTxHash": empty,
 	"getCurrentTxHash": empty,
-	"getPrevTxHash": empty,
 	"managedSCAddress": empty,
 	"managedOwnerAddress": empty,
 	"managedCaller": empty,

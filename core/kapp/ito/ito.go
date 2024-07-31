@@ -262,7 +262,6 @@ func (i *itoKapp) Buy(sender []byte, tc *transaction.BuyContract) (transaction.T
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
-	// TODO: Check SFT Package for ITO
 	if asset.AssetType == kapps.KDAData_NonFungible && tc.GetAmount() != pack.Amount {
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}

@@ -265,7 +265,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:Item not whitelisted",
                 "logs": "*",
                 "gas": "*",
@@ -310,7 +310,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:Item not whitelisted",
                 "logs": "*",
                 "gas": "*",

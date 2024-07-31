@@ -9,6 +9,7 @@ type KDATxData struct {
 
 // KDAInstance models an instance of an NFT/SFT, with its own nonce
 type KDAInstance struct {
+	AssetType  JSONUint64
 	Nonce      JSONUint64
 	Balance    JSONBigInt
 	Creator    JSONBytesFromString
@@ -33,7 +34,6 @@ type CheckKDAInstance struct {
 	Balance    JSONCheckBigInt
 	Creator    JSONCheckBytes
 	Royalties  JSONCheckUint64
-	Hash       JSONCheckBytes
 	Uris       JSONCheckValueList
 	Attributes JSONCheckBytes
 }
@@ -45,7 +45,6 @@ func NewCheckKDAInstance() *CheckKDAInstance {
 		Balance:    JSONCheckBigIntUnspecified(),
 		Creator:    JSONCheckBytesUnspecified(),
 		Royalties:  JSONCheckUint64Unspecified(),
-		Hash:       JSONCheckBytesUnspecified(),
 		Uris:       JSONCheckValueListUnspecified(),
 		Attributes: JSONCheckBytesUnspecified(),
 	}

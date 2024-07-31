@@ -39,40 +39,6 @@ func TestDigitalCash(t *testing.T) {
 		CheckNoError()
 }
 
-func TestKDAMultiTransferOnCallback(t *testing.T) {
-	ScenariosTest(t).
-		Folder("features/composability/scenarios").
-		File("forw_raw_call_async_retrieve_multi_transfer.scen.json").
-		Run().
-		CheckNoError()
-}
-
-func TestCreateAsyncCall(t *testing.T) {
-	ScenariosTest(t).
-		Folder("features/composability/scenarios-promises").
-		File("promises_single_transfer.scen.json").
-		Run().
-		CheckNoError()
-}
-
-func TestMultisig(t *testing.T) {
-	ScenariosTest(t).
-		Folder("multisig/scenarios").
-		Run().
-		CheckNoError()
-}
-
-func TestDnsContract(t *testing.T) {
-	if testing.Short() {
-		t.Skip("not a short test")
-	}
-
-	ScenariosTest(t).
-		Folder("dns").
-		Run().
-		CheckNoError()
-}
-
 func TestCrowdfundingKda(t *testing.T) {
 	ScenariosTest(t).
 		Folder("crowdfunding-kda").
@@ -83,13 +49,6 @@ func TestCrowdfundingKda(t *testing.T) {
 func TestWKlvSwap(t *testing.T) {
 	ScenariosTest(t).
 		Folder("wklv-swap").
-		Run().
-		CheckNoError()
-}
-
-func TestPingPongKlv(t *testing.T) {
-	ScenariosTest(t).
-		Folder("ping-pong-klv").
 		Run().
 		CheckNoError()
 }

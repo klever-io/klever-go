@@ -1,6 +1,6 @@
 package vm
 
-// CallType specifies the type of SC invocation (in terms of asynchronicity)
+// CallType specifies the type of SC invocation
 type CallType int
 
 const (

@@ -128,7 +128,7 @@
                 "gasPrice": "0"
             },
             "expect": {
-                "status": "4",
+                "status": "57",
                 "message": "str:Auction hasn't started yet",
                 "gas": "*",
                 "refund": "*"

@@ -88,13 +88,9 @@ func runERC20Benchmark(tb testing.TB, nTransfers int, nRuns int, failTransaction
 				receiver,
 				big.NewInt(1).Bytes(),
 			},
-			KDATransfers: []*vmcommon.KDATransfer{
-				{
-					KDAValue: big.NewInt(0),
-				},
-			},
-			CallType:    vm.DirectCall,
-			GasProvided: gasProvided,
+			KDATransfers: []*vmcommon.KDATransfer{},
+			CallType:     vm.DirectCall,
+			GasProvided:  gasProvided,
 		},
 		RecipientAddr: scAddress,
 		Function:      "transferToken",
@@ -310,13 +306,9 @@ func deploy(
 			Arguments: [][]byte{
 				totalTokenSupply.Bytes(),
 			},
-			KDATransfers: []*vmcommon.KDATransfer{
-				{
-					KDAValue: big.NewInt(0),
-				},
-			},
-			CallType:    vm.DirectCall,
-			GasProvided: 0x0FFFFFFFFFFFFFFF,
+			KDATransfers: []*vmcommon.KDATransfer{},
+			CallType:     vm.DirectCall,
+			GasProvided:  0x0FFFFFFFFFFFFFFF,
 		},
 		ContractCode: code,
 	}

@@ -106,7 +106,6 @@ func (trs *topicResolverSender) SendOnRequestTopic(rd *retriever.RequestData, or
 
 	topicToSendRequest := trs.topicName + topicRequestSuffix
 
-	// TODO: FIXME: remove cross peer?
 	crossPeers := trs.peerListCreator.PeerList()
 	numSentCross := trs.sendOnTopic(crossPeers, topicToSendRequest, buff, trs.numCrossShardPeers, "cross peer")
 

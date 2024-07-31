@@ -168,9 +168,6 @@ var ErrInvalidTransactionType = errors.New("invalid transaction type")
 // ErrInvalidTransactionFees signals that transaction fee is invalid
 var ErrInvalidTransactionFees = errors.New("invalid transaction fees")
 
-// ErrNilTxTypeHandler signals that tx type handler is nil
-var ErrNilTxTypeHandler = errors.New("nil tx type handler")
-
 // ErrWrongNonceInBlock signals the nonce in block is different than expected nonce
 var ErrWrongNonceInBlock = errors.New("wrong nonce in block")
 
@@ -1129,9 +1126,6 @@ var ErrResultingSCRIsTooBig = errors.New("resulting SCR is too big")
 
 // ErrNotAllowedToWriteUnderProtectedKey signals that writing under protected key is not allowed
 var ErrNotAllowedToWriteUnderProtectedKey = errors.New("not allowed to write under protected key")
-
-// ErrNilNFTStorageHandler signals that nil NFT storage handler has been provided
-var ErrNilNFTStorageHandler = errors.New("nil NFT storage handler")
 
 // ErrNilBootstrapper signals that a nil bootstraper has been provided
 var ErrNilBootstrapper = errors.New("nil bootstrapper")

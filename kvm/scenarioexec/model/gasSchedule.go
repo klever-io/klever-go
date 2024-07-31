@@ -10,4 +10,7 @@ const (
 
 	// GasScheduleDummy is a dummy model, with all costs set to 1.
 	GasScheduleDummy
+
+	// GasScheduleV1 is currently used on mainnet.
+	GasScheduleV1
 )

@@ -96,14 +96,18 @@ func (s *systemAccountKApp) SFTSetMetadata(asset, nonce []byte, args [][]byte) e
 		return err
 	}
 
-	if len(args) != 2 {
+	// if one argument set only attributes
+	switch len(args) {
+	case 1:
+		meta.Metadata.Attributes = args[0]
+	case 2:
+		meta.Metadata.Name = args[0]
+		meta.Metadata.Attributes = args[1]
+	default:
 		return common.ErrInvalidParameter
 	}
 
-	meta.Metadata.Name = args[0]
-	meta.Metadata.Attributes = args[1]
-
-	log.Trace("SFTSetMetadata", "name", string(args[0]), "attributes", string(args[1]))
+	log.Trace("SFTSetMetadata", "name", string(meta.Metadata.Name), "attributes", string(meta.Metadata.Attributes))
 
 	key := kdautils.ToKDAKey(asset, nonce)
 	return s.marshalAndSave(key, kapp, meta)
@@ -134,7 +138,12 @@ func (s *systemAccountKApp) SFTAddCirculation(asset, nonce []byte, amount int64)
 }
 
 func (s *systemAccountKApp) SFTGetMeta(asset, nonce []byte) (*kapps.MetaV2, error) {
-	return s.getKDAData(asset, nonce)
+	data, err := s.getKDAData(asset, nonce)
+	if err == common.ErrNilTrie {
+		return &kapps.MetaV2{Metadata: &kapps.MetaV2Data{}}, nil
+	}
+
+	return data, err
 }
 
 func (s *systemAccountKApp) SFTCreateMeta(asset, nonce []byte, supply int64, hash []byte) error {

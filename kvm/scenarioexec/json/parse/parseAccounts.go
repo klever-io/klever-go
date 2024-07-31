@@ -26,7 +26,6 @@ func (p *Parser) processAccount(acctRaw orderedjson.OJsonObject) (*scenjsonmodel
 	}
 
 	acct := scenjsonmodel.Account{
-		Shard:           scenjsonmodel.JSONUint64Zero(),
 		IsSmartContract: false,
 		Comment:         "",
 		Nonce:           scenjsonmodel.JSONUint64Zero(),
@@ -36,10 +35,8 @@ func (p *Parser) processAccount(acctRaw orderedjson.OJsonObject) (*scenjsonmodel
 		Code:            scenjsonmodel.JSONBytesEmpty(),
 		CodeMetadata:    scenjsonmodel.JSONBytesEmpty(),
 		Owner:           scenjsonmodel.JSONBytesEmpty(),
-		AsyncCallData:   "",
 		KDAData:         nil,
 		Update:          false,
-		DeveloperReward: scenjsonmodel.JSONBigIntZero(),
 	}
 
 	var err error
@@ -55,11 +52,6 @@ func (p *Parser) processAccount(acctRaw orderedjson.OJsonObject) (*scenjsonmodel
 			acct.Update, err = p.parseBool(kvp.Value)
 			if err != nil {
 				return nil, fmt.Errorf("invalid update flag bool: %w", err)
-			}
-		case "shard":
-			acct.Shard, err = p.processUint64(kvp.Value)
-			if err != nil {
-				return nil, fmt.Errorf("invalid shard number: %w", err)
 			}
 		case "nonce":
 			acct.Nonce, err = p.processUint64(kvp.Value)
@@ -127,16 +119,6 @@ func (p *Parser) processAccount(acctRaw orderedjson.OJsonObject) (*scenjsonmodel
 			acct.Owner, err = p.processStringAsByteArray(kvp.Value)
 			if err != nil {
 				return nil, fmt.Errorf("invalid account owner: %w", err)
-			}
-		case "asyncCallData":
-			acct.AsyncCallData, err = p.parseString(kvp.Value)
-			if err != nil {
-				return nil, fmt.Errorf("invalid asyncCallData string: %w", err)
-			}
-		case "developerRewards":
-			acct.DeveloperReward, err = p.processBigInt(kvp.Value, bigIntUnsignedBytes)
-			if err != nil {
-				return nil, errors.New("invalid developerRewards")
 			}
 		default:
 			return nil, fmt.Errorf("unknown account field: %s", kvp.Key)

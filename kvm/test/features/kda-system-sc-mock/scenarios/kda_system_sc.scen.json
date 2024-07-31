@@ -13,7 +13,7 @@
                     "kda": {
                         "str:TICKER-000000": {
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         }
@@ -41,7 +41,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:Invalid token ID",
                 "gas": "*",
                 "refund": "*"
@@ -88,7 +88,7 @@
                     "kda": {
                         "str:TICKER-000000": {
                             "roles": [
-                                "KDARoleLocalMint",
+                                "KDARoleMint",
                                 "KDARoleLocalBurn"
                             ]
                         }

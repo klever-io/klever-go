@@ -182,8 +182,6 @@ func (inMb *InterceptedBlock) integrity() error {
 
 	blk := inMb.block
 
-	// TODO:
-
 	for _, txHash := range blk.TxHashes {
 		if txHash == nil {
 			return process.ErrNilTxHash

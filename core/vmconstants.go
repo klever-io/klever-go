@@ -72,7 +72,7 @@ const MinLenArgumentsKDATransfer = 2
 const MinLenArgumentsAssetTrigger = 2
 
 // MinLenArgumentsCreateAsset defines the min length of arguments for the KDA create asset
-const MinLenArgumentsCreateAsset = 11
+const MinLenArgumentsCreateAsset = 17
 
 // MinLenArgumentsFreeze defines the min length of arguments for the KDA freeze
 const MinLenArgumentsFreeze = 2
@@ -241,17 +241,6 @@ const BuiltInFunctionDeposit = "KleverDeposit"
 
 // BuiltInFunctionITOTrigger is the key for the ITOTrigger built in function
 const BuiltInFunctionITOTrigger = "KleverITOTrigger"
-
-// BuiltInFunctionSaveKeyValue is the key for the save key value built-in function
-const BuiltInFunctionSaveKeyValue = "KleverSaveKeyValue"
-
-// TODO: change these ones to the new ones /\
-
-// BuiltInFunctionKDABurn is the key for the electronic standard digital token burn built-in function
-const BuiltInFunctionKDABurn = "KDABurn"
-
-// BuiltInFunctionKDALocalMint is the key for the electronic standard digital token local mint built-in function
-const BuiltInFunctionKDALocalMint = "KDALocalMint"
 
 // BuiltInFunctionChangeOwnerAddress is the key for the ChangeOwnerAddress built in function
 const BuiltInFunctionChangeOwnerAddress = "ChangeOwnerAddress"

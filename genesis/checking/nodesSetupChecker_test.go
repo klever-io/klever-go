@@ -132,28 +132,3 @@ func TestNewNodesSetupChecker_CheckNotAValidPubkeyShouldErr(t *testing.T) {
 
 	assert.True(t, errors.Is(err, genesis.ErrInvalidPubKey))
 }
-
-func TestNewNodeSetupChecker_CheckNotStakedShouldErr(t *testing.T) {
-	t.Parallel()
-	// TODO:
-}
-
-func TestNewNodeSetupChecker_CheckNotEnoughStakedShouldErr(t *testing.T) {
-	t.Parallel()
-	// TODO:
-}
-
-func TestNewNodeSetupChecker_CheckNotEnoughDelegatedShouldErr(t *testing.T) {
-	t.Parallel()
-	// TODO:
-}
-
-func TestNewNodeSetupChecker_CheckTooMuchDelegatedShouldErr(t *testing.T) {
-	t.Parallel()
-	// TODO:
-}
-
-func TestNewNodeSetupChecker_CheckStakedAndDelegatedShouldWork(t *testing.T) {
-	t.Parallel()
-	// TODO:
-}

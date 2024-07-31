@@ -466,7 +466,6 @@ func ManagedGetKDATokenDataWithHost(
 		return
 	}
 
-	// TODO: Add user info into get KDA token data
 	managedType.GetBigIntOrCreate(precisionHandle).Set(big.NewInt(int64(kda.Precision)))
 	managedType.SetBytes(idHandle, kda.ID)
 	managedType.SetBytes(nameHandle, kda.Name)

@@ -15,7 +15,7 @@ func TestNewEmptyPeerAccount(t *testing.T) {
 	acc := state.NewEmptyPeerAccount()
 
 	assert.NotNil(t, acc)
-	// TODO: assert.Equal(t, big.NewInt(0), acc.AccumulatedFees)
+	assert.Equal(t, int64(0), acc.AccumulatedFees)
 }
 
 func TestNewPeerAccount_NilAddressContainerShouldErr(t *testing.T) {

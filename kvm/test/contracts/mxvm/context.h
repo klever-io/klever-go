@@ -51,8 +51,6 @@ int getFunction(byte *function);
 int getCallValue(byte *result);
 long long getGasLeft();
 void writeLog(byte *pointer, int length, byte *topicPtr, int numTopics);
-void asyncCall(byte *destination, byte *value, byte *data, int length);
-int createAsyncCall(byte *destination, byte *value, byte *data, int length,  byte *successCallback, int successLength, byte *errorCallback, int errorLength, long long gas, long long extraGasForCallback);
 void signalError(byte *message, int length);
 
 int executeOnSameContext(
@@ -75,15 +73,15 @@ int executeOnDestContext(
 		byte *argumentsLengths,
 		byte *arguments);
 
-int executeOnDestContextByCaller(
-		long long gas,
-		byte *address,
-		byte *value,
-		byte *function,
-		int functionLength,
-		int numArguments,
-		byte *argumentsLengths,
-		byte *arguments);
+// int executeOnDestContextByCaller(
+// 		long long gas,
+// 		byte *address,
+// 		byte *value,
+// 		byte *function,
+// 		int functionLength,
+// 		int numArguments,
+// 		byte *argumentsLengths,
+// 		byte *arguments);
 
 int createContract(
 		long long gas,
@@ -136,7 +134,7 @@ int getArgumentLength(int argumentIndex);
 
 // Account-related functions
 void getExternalBalance(byte *address, byte *balance);
-int transferValue(byte *destination, byte *value, byte *data, int length);
+// int transferValue(byte *destination, byte *value, byte *data, int length);
 
 // Storage-related functions
 int storageLoadLength(byte *key, int keyLength);

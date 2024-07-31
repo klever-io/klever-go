@@ -38,7 +38,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "0x04",
+                "status": "57",
                 "message": "str:insufficient funds",
                 "logs": "*",
                 "gas": "*",

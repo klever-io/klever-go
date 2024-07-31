@@ -1,7 +1,7 @@
 {
     "name": "crypto",
     "comment": "does not currently work with scenarios-rs, because verify_bls function is not yet mocked",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",

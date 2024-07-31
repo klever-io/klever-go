@@ -136,6 +136,8 @@ func (ae *VMTestExecutor) gasScheduleMapFromScenarios(scenGasSchedule scenjsonmo
 		return gasSchedules.LoadGasScheduleConfig(gasSchedules.GetV1())
 	case scenjsonmodel.GasScheduleDummy:
 		return kvmConfig.MakeGasMapForTests(), nil
+	case scenjsonmodel.GasScheduleV1:
+		return gasSchedules.LoadGasScheduleConfig(gasSchedules.GetV1())
 	default:
 		return nil, fmt.Errorf("unknown scenario GasSchedule: %d", scenGasSchedule)
 	}

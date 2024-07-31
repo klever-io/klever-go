@@ -25,7 +25,6 @@ message MetaData {
 	bytes    Name          = 2 [json_name = "Name"];
 	bytes    Creator       = 3 [json_name = "Creator"];
 	uint32   Royalties     = 4 [json_name = "Royalties"];
-	bytes    Hash          = 5 [json_name = "Hash"];
 	repeated bytes  URIs   = 6 [json_name = "URIs"];
 	bytes    Attributes    = 7 [json_name = "Attributes"];
 }

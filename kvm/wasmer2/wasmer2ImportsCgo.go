@@ -79,7 +79,6 @@ package wasmer2
 // extern void      w2_deleteFromReturnData(void* context, int32_t resultID);
 // extern void      w2_getOriginalTxHash(void* context, int32_t dataOffset);
 // extern void      w2_getCurrentTxHash(void* context, int32_t dataOffset);
-// extern void      w2_getPrevTxHash(void* context, int32_t dataOffset);
 // extern void      w2_managedSCAddress(void* context, int32_t destinationHandle);
 // extern void      w2_managedOwnerAddress(void* context, int32_t destinationHandle);
 // extern void      w2_managedCaller(void* context, int32_t destinationHandle);
@@ -331,7 +330,6 @@ func populateCgoFunctionPointers() *cWasmerVmHookPointers {
 		delete_from_return_data_func_ptr: funcPointer(C.w2_deleteFromReturnData),
 		get_original_tx_hash_func_ptr: funcPointer(C.w2_getOriginalTxHash),
 		get_current_tx_hash_func_ptr: funcPointer(C.w2_getCurrentTxHash),
-		get_prev_tx_hash_func_ptr: funcPointer(C.w2_getPrevTxHash),
 		managed_sc_address_func_ptr: funcPointer(C.w2_managedSCAddress),
 		managed_owner_address_func_ptr: funcPointer(C.w2_managedOwnerAddress),
 		managed_caller_func_ptr: funcPointer(C.w2_managedCaller),
@@ -913,12 +911,6 @@ func w2_getOriginalTxHash(context unsafe.Pointer, dataOffset int32) {
 func w2_getCurrentTxHash(context unsafe.Pointer, dataOffset int32) {
 	vmHooks := getVMHooksFromContextRawPtr(context)
 	vmHooks.GetCurrentTxHash(executor.MemPtr(dataOffset))
-}
-
-//export w2_getPrevTxHash
-func w2_getPrevTxHash(context unsafe.Pointer, dataOffset int32) {
-	vmHooks := getVMHooksFromContextRawPtr(context)
-	vmHooks.GetPrevTxHash(executor.MemPtr(dataOffset))
 }
 
 //export w2_managedSCAddress

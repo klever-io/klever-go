@@ -102,12 +102,7 @@ func (se *stateExport) ExportAll(epoch uint32) error {
 		log.LogIfError(errClose)
 	}()
 
-	err = se.exportEpochStartMetaBlock()
-	if err != nil {
-		return err
-	}
-
-	err = se.exportUnFinishedMetaBlocks()
+	err = se.exportEpochStartMetaBlock(epoch)
 	if err != nil {
 		return err
 	}
@@ -159,8 +154,8 @@ func (se *stateExport) exportAllTries() error {
 	return nil
 }
 
-func (se *stateExport) exportEpochStartMetaBlock() error {
-	metaBlock, err := se.stateSyncer.GetEpochStartMetaBlock()
+func (se *stateExport) exportEpochStartMetaBlock(epoch uint32) error {
+	metaBlock, err := se.stateSyncer.GetEpochStartMetaBlock(epoch)
 	if err != nil {
 		return err
 	}
@@ -172,28 +167,6 @@ func (se *stateExport) exportEpochStartMetaBlock() error {
 	}
 
 	err = se.hardforkStorer.FinishedIdentifier(EpochStartMetaBlockIdentifier)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (se *stateExport) exportUnFinishedMetaBlocks() error {
-	unFinishedMetaBlocks, err := se.stateSyncer.GetUnFinishedMetaBlocks()
-	if err != nil {
-		return err
-	}
-
-	log.Debug("Starting export for unFinished metaBlocks", "len", len(unFinishedMetaBlocks))
-	for _, metaBlock := range unFinishedMetaBlocks {
-		errExportMetaBlock := se.exportMetaBlock(metaBlock, UnFinishedMetaBlocksIdentifier)
-		if errExportMetaBlock != nil {
-			return errExportMetaBlock
-		}
-	}
-
-	err = se.hardforkStorer.FinishedIdentifier(UnFinishedMetaBlocksIdentifier)
 	if err != nil {
 		return err
 	}

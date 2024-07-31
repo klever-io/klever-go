@@ -23,7 +23,7 @@
                 "gasPrice": "0"
             },
             "expect": {
-                "status": "4",
+                "status": "57",
                 "message": "str:Cannot bid on this type of auction",
                 "gas": "*",
                 "refund": "*"

@@ -1,6 +1,6 @@
 {
     "name": "storage",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
@@ -55,7 +55,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:A value was already set",
                 "gas": "*"
             }
@@ -99,7 +99,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:A value was already set",
                 "gas": "*"
             }
@@ -168,7 +168,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:A value was not previously set",
                 "gas": "*"
             }
@@ -212,7 +212,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:Unknown token id",
                 "gas": "*"
             }
@@ -256,7 +256,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:A value was not previously set",
                 "gas": "*"
             }
@@ -300,7 +300,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:Unknown token id",
                 "gas": "*"
             }
@@ -437,7 +437,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:A value was not previously set",
                 "gas": "*"
             }
@@ -482,7 +482,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "4",
+                "status": "57",
                 "message": "str:Unknown token id",
                 "gas": "*"
             }

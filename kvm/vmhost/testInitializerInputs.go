@@ -75,7 +75,6 @@ func AddArgument(input *vmcommon.ContractCallInput, argument []byte) {
 // CopyTxHashes copies the tx hashes from a source ContractCallInput into another
 func CopyTxHashes(input *vmcommon.ContractCallInput, sourceInput *vmcommon.ContractCallInput) {
 	input.CurrentTxHash = sourceInput.CurrentTxHash
-	input.PrevTxHash = sourceInput.PrevTxHash
 	input.OriginalTxHash = sourceInput.OriginalTxHash
 }
 

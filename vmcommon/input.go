@@ -21,8 +21,6 @@ type VMInput struct {
 	Arguments [][]byte
 
 	// CallType is the type of SmartContract call
-	// Based on this value, the VM is informed of whether the call is direct,
-	// asynchronous, or asynchronous callback.
 	CallType vm.CallType
 
 	// GasProvided is the maximum gas allowed for the smart contract execution.
@@ -37,9 +35,6 @@ type VMInput struct {
 
 	// CurrentTxHash
 	CurrentTxHash []byte
-
-	// PrevTxHash
-	PrevTxHash []byte
 
 	// KDATransfers is the map of KDA and amount of tokens transferred by the transaction.
 	// Before reaching the VM this value is subtracted from sender balance (CallerAddr)
@@ -191,10 +186,20 @@ func (ccInput *ContractCallInput) initIterator() {
 	}
 }
 
+// HasNextArg returns true if there is another argument in the iterator
+func (ccInput *ContractCallInput) HasNextArg() bool {
+	ccInput.initIterator()
+	return ccInput.argsIterator.HasNextArg()
+}
+
 // NextArg returns the next argument from the iterator, Argument is an alias for []byte
 func (ccInput *ContractCallInput) NextArg() Argument {
 	ccInput.initIterator()
 	return ccInput.argsIterator.NextArg()
+}
+
+func (ai *ArgsIterator) HasNextArg() bool {
+	return ai.position < len(ai.Arguments)
 }
 
 func (ai *ArgsIterator) NextArg() Argument {

@@ -776,8 +776,6 @@ func TestMetaProcessor_CommitBlockOkValsShouldWork(t *testing.T) {
 	err = mp.CommitBlock(hdr)
 	assert.Nil(t, err)
 	assert.True(t, forkDetectorAddCalled)
-	//this should sleep as there is an async call to display current header and block in CommitBlock
-	time.Sleep(time.Second)
 }
 
 func TestMetaProcessor_RevertStateShouldWork(t *testing.T) {

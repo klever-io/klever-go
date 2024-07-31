@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/tools/check"
@@ -21,6 +22,7 @@ func NewKAppAccountsDB(
 	hasher hashing.Hasher,
 	marshalizer marshal.Marshalizer,
 	accountFactory AccountFactory,
+	processingMode core.NodeProcessingMode,
 ) (*KAppAccountsDB, error) {
 	if check.IfNil(trie) {
 		return nil, common.ErrNilTrie
@@ -50,6 +52,7 @@ func NewKAppAccountsDB(
 			loadCodeMeasurements: &loadingMeasurements{
 				identifier: "load code",
 			},
+			processingMode: processingMode,
 		},
 	}, nil
 }

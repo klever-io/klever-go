@@ -883,7 +883,7 @@ func (e *epochStartBootstrap) GetEpochValidatorsFromTrie(validatorsTrieRoot []by
 	peerFactory := factoryState.NewPeerAccountCreator()
 	merkleTriePeer := e.trieContainer.Get([]byte(factory.PeerAccountTrie))
 
-	peerAdapter, err := state.NewPeerAccountsDB(merkleTriePeer, e.hasher, e.marshalizer, peerFactory)
+	peerAdapter, err := state.NewPeerAccountsDB(merkleTriePeer, e.hasher, e.marshalizer, peerFactory, core.Normal)
 	if err != nil {
 		return nil, err
 	}
@@ -917,7 +917,7 @@ func (e *epochStartBootstrap) PeerAccountToValidatorInfo(peer state.PeerAccountH
 	return &state.ValidatorInfo{
 		OwnerAddress:                    peer.GetOwnerAddress(),
 		PublicKey:                       peer.GetBLSPublicKey(),
-		List:                            peer.GetListString(), // TODO: review to use constant??
+		List:                            peer.GetListString(),
 		TempRating:                      peer.GetTempRating(),
 		Rating:                          peer.GetRating(),
 		RatingModifier:                  0,

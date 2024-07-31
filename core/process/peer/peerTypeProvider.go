@@ -136,7 +136,7 @@ func computePeerType(
 	for _, val := range validatorsList {
 		newCache[string(val)] = &peerListAndShard{
 			pType:  currentPeerType,
-			pShard: 0, // TODO: default as 0, maybe change this for intrachain communication
+			pShard: 0,
 		}
 	}
 

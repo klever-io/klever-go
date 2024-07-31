@@ -154,8 +154,6 @@ func (sr *subslotStartSlot) initCurrentSlot() bool {
 
 	pubKeys := sr.ConsensusGroup()
 
-	sr.indexSlotIfNeeded(pubKeys)
-
 	selfIndex, err := sr.SelfConsensusGroupIndex()
 	if err != nil {
 		log.Debug("not in consensus group")
@@ -194,21 +192,6 @@ func (sr *subslotStartSlot) initCurrentSlot() bool {
 	go sr.executeStoredMessages()
 
 	return true
-}
-
-func (sr *subslotStartSlot) indexSlotIfNeeded(pubKeys []string) {
-	if check.IfNil(sr.indexer) {
-		return
-	}
-
-	currentHeader := sr.Blockchain().GetCurrentBlockHeader()
-	if check.IfNil(currentHeader) {
-		currentHeader = sr.Blockchain().GetGenesisHeader()
-	}
-
-	epoch := currentHeader.GetEpoch()
-
-	_ = epoch
 }
 
 func (sr *subslotStartSlot) generateNextConsensusGroup(slotIndex int64) error {

@@ -333,12 +333,6 @@ func (contractInput *ContractCallInputBuilder) WithCurrentTxHash(txHash []byte) 
 	return contractInput
 }
 
-// WithPrevTxHash provides the PrevTxHash for ContractCallInputBuilder
-func (contractInput *ContractCallInputBuilder) WithPrevTxHash(txHash []byte) *ContractCallInputBuilder {
-	contractInput.ContractCallInput.PrevTxHash = txHash
-	return contractInput
-}
-
 func (contractInput *ContractCallInputBuilder) initKDATransferIfNeeded() {
 	if len(contractInput.KDATransfers) == 0 {
 		contractInput.KDATransfers = make([]*vmcommon.KDATransfer, 1)

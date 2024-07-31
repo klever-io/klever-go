@@ -32,7 +32,6 @@ func Test_NewTxCache(t *testing.T) {
 		CountThreshold:                math.MaxUint32,
 		NumSendersToPreemptivelyEvict: 100,
 	}
-	txFeesHandler, _ := dummyParams()
 
 	cache, err := NewTxCache(config)
 	require.Nil(t, err)
@@ -40,34 +39,34 @@ func Test_NewTxCache(t *testing.T) {
 
 	badConfig := config
 	badConfig.Name = ""
-	requireErrorOnNewTxCache(t, badConfig, storage.ErrInvalidConfig, "config.Name", txFeesHandler)
+	requireErrorOnNewTxCache(t, badConfig, storage.ErrInvalidConfig, "config.Name")
 
 	badConfig = config
 	badConfig.NumChunks = 0
-	requireErrorOnNewTxCache(t, badConfig, storage.ErrInvalidConfig, "config.NumChunks", txFeesHandler)
+	requireErrorOnNewTxCache(t, badConfig, storage.ErrInvalidConfig, "config.NumChunks")
 
 	badConfig = config
 	badConfig.NumBytesPerSenderThreshold = 0
-	requireErrorOnNewTxCache(t, badConfig, storage.ErrInvalidConfig, "config.NumBytesPerSenderThreshold", txFeesHandler)
+	requireErrorOnNewTxCache(t, badConfig, storage.ErrInvalidConfig, "config.NumBytesPerSenderThreshold")
 
 	badConfig = config
 	badConfig.CountPerSenderThreshold = 0
-	requireErrorOnNewTxCache(t, badConfig, storage.ErrInvalidConfig, "config.CountPerSenderThreshold", txFeesHandler)
+	requireErrorOnNewTxCache(t, badConfig, storage.ErrInvalidConfig, "config.CountPerSenderThreshold")
 
 	badConfig = withEvictionConfig
 	badConfig.NumBytesThreshold = 0
-	requireErrorOnNewTxCache(t, badConfig, storage.ErrInvalidConfig, "config.NumBytesThreshold", txFeesHandler)
+	requireErrorOnNewTxCache(t, badConfig, storage.ErrInvalidConfig, "config.NumBytesThreshold")
 
 	badConfig = withEvictionConfig
 	badConfig.CountThreshold = 0
-	requireErrorOnNewTxCache(t, badConfig, storage.ErrInvalidConfig, "config.CountThreshold", txFeesHandler)
+	requireErrorOnNewTxCache(t, badConfig, storage.ErrInvalidConfig, "config.CountThreshold")
 
 	badConfig = withEvictionConfig
 	badConfig.NumSendersToPreemptivelyEvict = 0
-	requireErrorOnNewTxCache(t, badConfig, storage.ErrInvalidConfig, "config.NumSendersToPreemptivelyEvict", txFeesHandler)
+	requireErrorOnNewTxCache(t, badConfig, storage.ErrInvalidConfig, "config.NumSendersToPreemptivelyEvict")
 }
 
-func requireErrorOnNewTxCache(t *testing.T, config Config, errExpected error, errPartialMessage string, txFeesHandler TxFeesHandler) {
+func requireErrorOnNewTxCache(t *testing.T, config Config, errExpected error, errPartialMessage string) {
 	cache, errReceived := NewTxCache(config)
 	require.Nil(t, cache)
 	require.True(t, errors.Is(errReceived, errExpected))

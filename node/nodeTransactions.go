@@ -264,7 +264,6 @@ func (n *Node) unmarshalTransaction(txBytes []byte) (*api.Transaction, error) {
 	if err != nil {
 		return nil, err
 	}
-	// TODO: get Block
 	return n.prepareNormalTx(&tx)
 }
 

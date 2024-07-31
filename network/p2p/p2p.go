@@ -266,8 +266,6 @@ type CommonSharder interface {
 }
 
 // PeerDenialEvaluator defines the behavior of a component that is able to decide if a peer ID is black listed or not
-// TODO merge this interface with the PeerShardResolver => P2PProtocolHandler ?
-// TODO move antiflooding inside network messenger
 type PeerDenialEvaluator interface {
 	IsDenied(pid core.PeerID) bool
 	UpsertPeerID(pid core.PeerID, duration time.Duration) error
@@ -275,7 +273,6 @@ type PeerDenialEvaluator interface {
 }
 
 // ConnectionMonitorWrapper uses a connection monitor but checks if the peer is blacklisted or not
-// TODO this should be removed after merging of the PeerShardResolver and BlacklistHandler
 type ConnectionMonitorWrapper interface {
 	CheckConnectionsBlocking()
 	SetPeerDenialEvaluator(handler PeerDenialEvaluator) error

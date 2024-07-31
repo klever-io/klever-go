@@ -8,8 +8,6 @@ import (
 	"github.com/klever-io/klever-go/vmcommon"
 )
 
-// TODO:
-
 // NodeAPIResolver can resolve API requests
 type NodeAPIResolver struct {
 	statusMetricsHandler    core.StatusMetricsHandler

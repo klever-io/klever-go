@@ -36,7 +36,6 @@ type builtInFuncCreator struct {
 	marshaller                       vmcommon.Marshalizer
 	builtInFunctions                 vmcommon.BuiltInFunctionContainer
 	gasConfig                        *vmcommon.GasCost
-	kdaStorageHandler                vmcommon.KDANFTStorageHandler
 	forkController                   core.ForkController
 	maxNumOfAddressesForTransferRole uint32
 	configAddress                    []byte
@@ -97,11 +96,6 @@ func (b *builtInFuncCreator) GasScheduleChange(gasSchedule map[string]map[string
 
 		builtInFunc.SetNewGasConfig(b.gasConfig)
 	}
-}
-
-// NFTStorageHandler will return the kda storage handler from the built in functions factory
-func (b *builtInFuncCreator) NFTStorageHandler() vmcommon.SimpleKDANFTStorageHandler {
-	return b.kdaStorageHandler
 }
 
 // BuiltInFunctionContainer will return the built in function container

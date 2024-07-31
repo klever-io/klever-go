@@ -1,7 +1,7 @@
 {
     "name": "count ones",
     "comment": "should fail if the processor doesn't support the `count ones` instruction",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",

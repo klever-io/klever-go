@@ -153,8 +153,7 @@ func (brcf *baseResolversContainerFactory) createOneResolverSenderWithSpecifiedN
 		NumCrossShardPeers: numCrossShard,
 		NumIntraShardPeers: numIntraShard,
 	}
-	//TODO instantiate topic sender resolver with the shard IDs for which this resolver is supposed to serve the data
-	// this will improve the serving of transactions as the searching will be done only on 2 sharded data units
+
 	resolverSender, err := topicResolverSender.NewTopicResolverSender(arg)
 	if err != nil {
 		return nil, err

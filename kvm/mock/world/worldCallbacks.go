@@ -15,7 +15,6 @@ import (
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kapps"
-	"github.com/klever-io/klever-go/kvm/mock/stub"
 	"github.com/klever-io/klever-go/vmcommon"
 )
 
@@ -343,11 +342,7 @@ func (b *MockWorld) GetCounterValues() map[string]uint64 {
 
 // GetKAppController implements process.BlockChainHookHandler.
 func (b *MockWorld) GetKAppController() kapp.KAppController {
-	return &stub.KAppControllerStub{
-		GetAccountsKAppCalled: func() kapp.AccountsKapp {
-			return &stub.KAppAccountsStub{}
-		},
-	}
+	return b.KAppController
 }
 
 // LastBlock implements process.BlockChainHookHandler.

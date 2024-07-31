@@ -285,7 +285,7 @@ func TestBlockchainContext_NewAddress(t *testing.T) {
 func TestBlockchainContext_BlockHash(t *testing.T) {
 	t.Parallel()
 
-	// TODO rewrite this test to use absolute block nonces
+	// FIXME rewrite this test to use absolute block nonces
 	host := &contextmock.VMHostMock{}
 	mockWorld := worldmock.NewMockWorld()
 	blockchainContext, _ := NewBlockchainContext(host, mockWorld)

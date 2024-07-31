@@ -105,7 +105,7 @@ func (ae *VMTestExecutor) checkAccounts(baseErrMsg string, checkAccounts *scenjs
 		}
 
 		if !expectedAcct.Owner.IsUnspecified() && !bytes.Equal(matchingAcct.GetOwnerAddress(), expectedAcct.Owner.Value) {
-			return fmt.Errorf("%s bad account ownscenexpressionreconstructor. Account: %s. Want: %s. Have: \"%s\"",
+			return fmt.Errorf("%s bad account owner. Account: %s. Want: %s. Have: \"%s\"",
 				baseErrMsg,
 				expectedAcct.Address.Original,
 				orderedjson.JSONString(expectedAcct.Owner.Original),
@@ -238,25 +238,62 @@ func (ae *VMTestExecutor) checkAccountKDA(baseErrMsg string, expectedAcct *scenj
 					},
 				})
 			}
-			userInstances = append(userInstances, &dkda.KDigitalToken{
+			asset := &dkda.KDigitalToken{
 				Value: kda.Balance,
 				TokenMetaData: &dkda.MetaData{
-					Nonce: instance.Nonce.Value,
+					Nonce:      instance.Nonce.Value,
+					Creator:    tokenData.OwnerAddress,
+					URIs:       make([][]byte, 0),
+					Royalties:  uint32(tokenData.Royalties.TransferFixed),
+					Attributes: kda.Metadata,
 				},
-			})
+			}
+
+			// if asset is an SFT, should check global metadata SFTGetMeta
+			if tokenData.AssetType == kapps.KDAData_SemiFungible {
+				metaV2, err := ae.World.KAppController.GetSystemAccountKApp().SFTGetMeta(expectedToken.TokenIdentifier.Value, nonce)
+				if err != nil {
+					return err
+				}
+				asset.TokenMetaData.Attributes = metaV2.Metadata.Attributes
+				if len(metaV2.Metadata.Name) > 0 {
+					asset.TokenMetaData.Name = metaV2.Metadata.Name
+				}
+			}
+
+			// instance uris
+			for _, uri := range tokenData.URIs {
+				asset.TokenMetaData.URIs = append(asset.TokenMetaData.URIs, []byte(uri))
+			}
+
+			userInstances = append(userInstances, asset)
 		}
 		userRoles := make([][]byte, 0)
-		for _, role := range tokenData.Roles {
-			if bytes.Equal(role.Address, matchingAcct.AddressBytes()) {
-				list := kdaconvert.KDARoleToRoleList(role)
-				userRoles = append(userRoles, list...)
+		// if address is owner or admin, check all roles (only if any roles specified in the test)
+		if len(expectedToken.Roles) > 0 &&
+			(bytes.Equal(matchingAcct.AddressBytes(), tokenData.OwnerAddress) ||
+				bytes.Equal(matchingAcct.AddressBytes(), tokenData.AdminAddress)) {
+			// owner always has all roles
+			list := kdaconvert.KDARoleToRoleList(&kapps.RolesData{
+				HasRoleMint:         true,
+				HasRoleSetITOPrices: true,
+				HasRoleDeposit:      true,
+				HasRoleTransfer:     true,
+			})
+			userRoles = append(userRoles, list...)
+		} else {
+			for _, role := range tokenData.Roles {
+				if bytes.Equal(role.Address, matchingAcct.AddressBytes()) {
+					list := kdaconvert.KDARoleToRoleList(role)
+					userRoles = append(userRoles, list...)
+				}
 			}
 		}
 
 		accountToken := &kdaconvert.MockKDAData{
 			TokenIdentifier: []byte(tokenName),
 			Instances:       userInstances,
-			LastNonce:       0,
+			LastNonce:       uint64(tokenData.MintedValue),
 			Roles:           userRoles,
 		}
 
@@ -375,17 +412,6 @@ func (ae *VMTestExecutor) checkTokenInstances(
 				expectedInstance.Royalties.Original,
 				ae.exprReconstructor.ReconstructFromUint64(
 					uint64(accountInstance.TokenMetaData.Royalties))))
-		}
-		if !expectedInstance.Hash.IsUnspecified() &&
-			!expectedInstance.Hash.Check(accountInstance.TokenMetaData.Hash) {
-			errors = append(errors, fmt.Errorf(
-				"for token: %s, nonce: %d: Bad hash. Want: %s. Have: %s",
-				tokenName,
-				nonce,
-				objectStringOrDefault(expectedInstance.Hash.Original),
-				ae.exprReconstructor.Reconstruct(
-					accountInstance.TokenMetaData.Hash,
-					scenexpressionreconstructor.NoHint)))
 		}
 
 		if !expectedInstance.Uris.IsUnspecified() &&

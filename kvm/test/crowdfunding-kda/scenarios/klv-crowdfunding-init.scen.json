@@ -12,7 +12,7 @@
             "newAddresses": [
                 {
                     "creatorAddress": "address:my_address",
-                    "creatorNonce": "0",
+                    "creatorNonce": "1",
                     "newAddress": "sc:crowdfunding"
                 }
             ]

@@ -612,7 +612,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 	err = metrics.InitMetrics(
 		statusHandlersInfo.StatusHandler,
 		cryptoParams.PublicKeyString,
-		core.NodeTypeValidator, // TODO: if eligible
+		core.NodeTypeValidator,
 		genesisNodesConfig,
 		version,
 		strconv.FormatInt(totalSupply, 10),
@@ -914,8 +914,6 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 	}
 
 	log.Trace("activating nodesCoordinator's validators indexing")
-	// TODO:
-	//indexValidatorsListIfNeeded(esIndexer, nodesCoordinator, processComponents.EpochStartTrigger.Epoch(), log)
 
 	wasmVMChangeLocker := &sync.RWMutex{}
 	argsGasScheduleNotifier := notifier.ArgsNewGasScheduleNotifier{

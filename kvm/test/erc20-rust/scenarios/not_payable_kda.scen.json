@@ -42,7 +42,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:function does not accept KDA payment",
                 "logs": "*",
                 "gas": "*",
@@ -70,7 +70,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:function does not accept KDA payment",
                 "logs": "*",
                 "gas": "*",
@@ -99,7 +99,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:function does not accept KDA payment",
                 "logs": "*",
                 "gas": "*",
@@ -128,7 +128,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:function does not accept KDA payment",
                 "logs": "*",
                 "gas": "*",
@@ -157,7 +157,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:function does not accept KDA payment",
                 "logs": "*",
                 "gas": "*",
@@ -187,7 +187,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:function does not accept KDA payment",
                 "logs": "*",
                 "gas": "*",

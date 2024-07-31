@@ -30,7 +30,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "*",
                 "logs": "*",
                 "gas": "*",
@@ -555,7 +555,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:point is not on curve",
                 "gas": "*",
                 "refund": "*"
@@ -580,7 +580,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:point is not on curve",
                 "gas": "*",
                 "refund": "*"
@@ -631,7 +631,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:point is not on curve",
                 "gas": "*",
                 "refund": "*"
@@ -680,7 +680,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:point is not on curve"
             }
         },
@@ -724,7 +724,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:point is not on curve"
             }
         },
@@ -744,7 +744,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:point is not on curve"
             }
         },
@@ -764,7 +764,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:length of buffer is not correct"
             }
         },
@@ -808,7 +808,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:point is not on curve"
             }
         },
@@ -852,7 +852,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:point is not on curve"
             }
         },
@@ -872,7 +872,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:point is not on curve"
             }
         },
@@ -892,7 +892,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:length of buffer is not correct"
             }
         },
@@ -1052,7 +1052,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:point is not on curve"
             }
         },

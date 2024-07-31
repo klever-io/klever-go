@@ -1,7 +1,6 @@
 package chronology_test
 
 import (
-	"encoding/hex"
 	"testing"
 	"time"
 
@@ -19,7 +18,6 @@ import (
 
 var (
 	nodesCoordinator sharding.NodesCoordinator
-	pub              []byte
 )
 
 func initSubslotHandlerMock() *mock.SubslotHandlerMock {
@@ -41,8 +39,6 @@ func initSubslotHandlerMock() *mock.SubslotHandlerMock {
 
 func init() {
 	nodesCoordinator = commonMock.NewNodesCoordinatorMock()
-	pub, _ = hex.DecodeString("2eec1bf505a88ab7a5a372d3d21281bb27b38f35e15e1a2b071fb5ff3d8d080650757aeb75779edd3abc6ed20b04f91882be2a016a9b0830f337ed27bd8d7e7c6e20383e26c7861f2a176059c3498b77ee02a248e56c71c21f9009cd4a8f8382")
-	// TODO: push validator to initial node
 }
 
 func TestChronology_NewChronologyNilSlotManagerShouldFail(t *testing.T) {
@@ -154,26 +150,6 @@ func TestChronology_StartSlotShouldWork(t *testing.T) {
 		syncTimerMock,
 		&mock.WatchdogMock{},
 	)
-	sh := &mock.SlotHandlerMock{
-		IsMinerCalled: func(blsPubKey []byte) bool {
-			return true
-		},
-		ProduceBlockCalled: func(blkc data.ChainHandler, sm consensus.SlotManager) (data.HeaderHandler, []byte, error) {
-			return &block.Block{
-				Header: &block.BlockHeader{
-					Nonce:      0,
-					ParentHash: make([]byte, 0),
-					Timestamp:  time.Now().Unix(),
-					Slot:       0,
-					Epoch:      0,
-					TrieRoot:   make([]byte, 0),
-					TxCount:    0,
-				},
-			}, make([]byte, 32), nil
-		},
-	}
-	// TODO: chr.SetSlotHandler(sh)
-	_ = sh
 
 	ash := &commonMock.AppStatusHandlerStub{
 		SetUInt64ValueHandler: func(key string, value uint64) {
@@ -310,26 +286,6 @@ func TestChronology_StartSlotShouldNotUpdateSlotWhenCurrentSlotIsNotFinished(t *
 		syncTimerMock,
 		&mock.WatchdogMock{},
 	)
-	sh := &mock.SlotHandlerMock{
-		IsMinerCalled: func(blsPubKey []byte) bool {
-			return true
-		},
-		ProduceBlockCalled: func(blkc data.ChainHandler, sm consensus.SlotManager) (data.HeaderHandler, []byte, error) {
-			return &block.Block{
-				Header: &block.BlockHeader{
-					Nonce:      0,
-					ParentHash: make([]byte, 0),
-					Timestamp:  time.Now().Unix(),
-					Slot:       0,
-					Epoch:      0,
-					TrieRoot:   make([]byte, 0),
-					TxCount:    0,
-				},
-			}, make([]byte, 32), nil
-		},
-	}
-	// TODO: chr.SetSlotHandler(sh)
-	_ = sh
 
 	ash := &commonMock.AppStatusHandlerStub{
 		SetUInt64ValueHandler: func(key string, value uint64) {
@@ -372,26 +328,7 @@ func TestChronology_StartSlotShouldUpdateSlotWhenCurrentSlotIsFinished(t *testin
 		syncTimerMock,
 		&mock.WatchdogMock{},
 	)
-	sh := &mock.SlotHandlerMock{
-		IsMinerCalled: func(blsPubKey []byte) bool {
-			return true
-		},
-		ProduceBlockCalled: func(blkc data.ChainHandler, sm consensus.SlotManager) (data.HeaderHandler, []byte, error) {
-			return &block.Block{
-				Header: &block.BlockHeader{
-					Nonce:      0,
-					ParentHash: make([]byte, 0),
-					Timestamp:  time.Now().Unix(),
-					Slot:       0,
-					Epoch:      0,
-					TrieRoot:   make([]byte, 0),
-					TxCount:    0,
-				},
-			}, make([]byte, 32), nil
-		},
-	}
-	// TODO: chr.SetSlotHandler(sh)
-	_ = sh
+
 	ash := &commonMock.AppStatusHandlerStub{
 		SetUInt64ValueHandler: func(key string, value uint64) {
 

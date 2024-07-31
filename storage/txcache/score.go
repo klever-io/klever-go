@@ -15,16 +15,14 @@ type senderScoreParams struct {
 }
 
 type defaultScoreComputer struct {
-	txFeeHelper feeHelper
-	ppuDivider  uint64
+	ppuDivider uint64
 }
 
-func newDefaultScoreComputer(txFeeHelper feeHelper) *defaultScoreComputer {
+func newDefaultScoreComputer() *defaultScoreComputer {
 	ppuScoreDivider := uint64(1_000_000)
 
 	return &defaultScoreComputer{
-		txFeeHelper: txFeeHelper,
-		ppuDivider:  ppuScoreDivider,
+		ppuDivider: ppuScoreDivider,
 	}
 }
 

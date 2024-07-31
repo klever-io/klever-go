@@ -39,6 +39,11 @@ type ResourceStatsConfig struct {
 	RefreshIntervalInSec int  `yaml:"refreshIntervalInSec"`
 }
 
+// ValidatorStatisticsConfig will hold all validator statistics settings
+type ValidatorStatisticsConfig struct {
+	CacheRefreshIntervalInSec int `yaml:"cacheRefreshIntervalInSec"`
+}
+
 // StoragePruningConfig will hold settings related to storage pruning
 type StoragePruningConfig struct {
 	Enabled             bool   `yaml:"enabled"`

@@ -34,7 +34,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "0x04",
+                "status": "57",
                 "message": "str:attempted to transfer funds via a non-payable function",
                 "logs": "*",
                 "gas": "*",
@@ -57,7 +57,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "0x04",
+                "status": "57",
                 "message": "str:attempted to transfer funds via a non-payable function",
                 "logs": "*",
                 "gas": "*",
@@ -81,7 +81,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "0x04",
+                "status": "57",
                 "message": "str:attempted to transfer funds via a non-payable function",
                 "logs": "*",
                 "gas": "*",
@@ -105,7 +105,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "0x04",
+                "status": "57",
                 "message": "str:attempted to transfer funds via a non-payable function",
                 "logs": "*",
                 "gas": "*",
@@ -129,7 +129,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "0x04",
+                "status": "57",
                 "message": "str:attempted to transfer funds via a non-payable function",
                 "logs": "*",
                 "gas": "*",
@@ -154,7 +154,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "0x04",
+                "status": "57",
                 "message": "str:attempted to transfer funds via a non-payable function",
                 "logs": "*",
                 "gas": "*",

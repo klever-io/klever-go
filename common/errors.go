@@ -304,9 +304,6 @@ var ErrCacheConfigInvalidShards = errors.New("cache parameter [shards] is not va
 // ErrCacheConfigInvalidEconomics signals that an economics parameter required by the cache is invalid
 var ErrCacheConfigInvalidEconomics = errors.New("cache-economics parameter is not valid")
 
-// ErrNilTxFeesHandler signals that a nil tx gas handler was provided
-var ErrNilTxFeesHandler = errors.New("nil tx dees handler provided")
-
 // ErrNilNodesCoordinator signals a nil nodes coordinator has been provided
 var ErrNilNodesCoordinator = errors.New("nil nodes coordinator")
 

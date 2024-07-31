@@ -319,7 +319,7 @@ func ProcessComponentsFactory(args *processComponentsFactoryArgs) (*Process, err
 		return nil, err
 	}
 
-	cacheRefreshIntervalInSec := 60 // TODO: from config
+	cacheRefreshIntervalInSec := args.mainConfig.ValidatorStatistics.CacheRefreshIntervalInSec
 	cacheRefreshDuration := time.Duration(cacheRefreshIntervalInSec) * time.Second
 	argVSP := peer.ArgValidatorsProvider{
 		NodesCoordinator:                  args.nodesCoordinator,
@@ -378,7 +378,6 @@ func ProcessComponentsFactory(args *processComponentsFactoryArgs) (*Process, err
 		return nil, err
 	}
 
-	//TODO refactor all these factory calls
 	interceptorsContainer, err := interceptorContainerFactory.Create()
 	if err != nil {
 		return nil, err
@@ -727,7 +726,7 @@ func newValidatorStatisticsProcessor(
 		DataPool:           peerDataPool,
 		StorageService:     storageService,
 		Marshalizer:        processComponents.coreData.InternalMarshalizer,
-		MaxComputableSlots: 100, // TODO: from config
+		MaxComputableSlots: processComponents.mainConfig.Preferences.MaxComputableSlots,
 		Rater:              processComponents.rater,
 		RewardsHandler:     processComponents.economicsData,
 		NodesSetup:         processComponents.nodesConfig,
@@ -806,7 +805,6 @@ func newBlockProcessor(
 		Marshalizer:        processArgs.coreData.InternalMarshalizer,
 		Uint64Converter:    processArgs.coreData.Uint64ByteSliceConverter,
 		BuiltInFunctions:   builtInFuncFactory.BuiltInFunctionContainer(),
-		NFTStorageHandler:  &disabled.SimpleNFTStorage{},
 		DataPool:           processArgs.data.Datapool,
 		CompiledSCPool:     processArgs.data.Datapool.SmartContracts(),
 		EpochNotifier:      processArgs.epochNotifier,
@@ -819,18 +817,6 @@ func newBlockProcessor(
 	}
 
 	blockChainHookImpl, err := hooks.NewBlockChainHookImpl(argsHook)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	argsTxTypeHandler := coordinator.ArgNewTxTypeHandler{
-		PubkeyConverter:   processArgs.state.AddressPubkeyConverter,
-		BuiltInFunctions:  builtInFuncFactory.BuiltInFunctionContainer(),
-		ArgumentParser:    parsers.NewCallArgsParser(),
-		KDATransferParser: kdaTransferParser,
-		ForkController:    processArgs.forkController,
-	}
-	txTypeHandler, err := coordinator.NewTxTypeHandler(argsTxTypeHandler)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -872,7 +858,6 @@ func newBlockProcessor(
 		PubkeyConv:          processArgs.state.AddressPubkeyConverter,
 		TxFeeHandler:        txFeeHandler,
 		EconomicsFee:        processArgs.economicsData,
-		TxTypeHandler:       txTypeHandler,
 		GasSchedule:         gasScheduleNotifier,
 		TxLogsProcessor:     processArgs.txLogsProcessor,
 		ForkController:      processArgs.forkController,
@@ -886,7 +871,7 @@ func newBlockProcessor(
 		return nil, nil, err
 	}
 
-	err = createMetaTxSimulatorProcessor(txSimulatorProcessorArgs, processArgs, argsNewSCProcessor, txTypeHandler, kdaTransferParser, forkDetector, gasScheduleNotifier)
+	err = createMetaTxSimulatorProcessor(txSimulatorProcessorArgs, processArgs, argsNewSCProcessor, kdaTransferParser, forkDetector, gasScheduleNotifier)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1139,7 +1124,6 @@ func createMetaTxSimulatorProcessor(
 	txSimulatorProcessorArgs *txsimulator.ArgsTxSimulator,
 	processArgs *processComponentsFactoryArgs,
 	scProcArgs smartContract.ArgsNewSmartContractProcessor,
-	txTypeHandler process.TxTypeHandler,
 	kdaTransferParser vmcommon.KDATransferParser,
 	forkDetector process.ForkDetector,
 	gasScheduleNotifier core.GasScheduleNotifier,
@@ -1192,7 +1176,6 @@ func createMetaTxSimulatorProcessor(
 		Marshalizer:        processArgs.coreData.InternalMarshalizer,
 		Uint64Converter:    processArgs.coreData.Uint64ByteSliceConverter,
 		BuiltInFunctions:   builtInFuncFactory.BuiltInFunctionContainer(),
-		NFTStorageHandler:  &disabled.SimpleNFTStorage{},
 		DataPool:           processArgs.data.Datapool,
 		CompiledSCPool:     processArgs.data.Datapool.SmartContracts(),
 		EpochNotifier:      processArgs.epochNotifier,

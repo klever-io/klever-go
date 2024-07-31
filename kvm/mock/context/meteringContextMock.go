@@ -135,16 +135,6 @@ func (m *MeteringContextMock) BoundGasLimit(value int64) uint64 {
 	return limit
 }
 
-// ComputeExtraGasLockedForAsync mocked method
-func (m *MeteringContextMock) ComputeExtraGasLockedForAsync() uint64 {
-	return m.GasComputedToLock
-}
-
-// DeductGasIfAsyncStep mocked method
-func (m *MeteringContextMock) DeductGasIfAsyncStep() error {
-	return m.Err
-}
-
 // UseGasBounded mocked method
 func (m *MeteringContextMock) UseGasBounded(gas uint64) error {
 	if m.Err != nil {
@@ -155,22 +145,6 @@ func (m *MeteringContextMock) UseGasBounded(gas uint64) error {
 	}
 	m.UseGas(gas)
 	return nil
-}
-
-// UnlockGasIfAsyncCallback mocked method
-func (m *MeteringContextMock) UnlockGasIfAsyncCallback() {}
-
-// UseGasForAsyncStep mocked method
-func (m *MeteringContextMock) UseGasForAsyncStep() error {
-	return m.Err
-}
-
-// UnlockGasIfAsyncStep mocked method
-func (m *MeteringContextMock) UnlockGasIfAsyncStep() {}
-
-// GetGasLocked mocked method
-func (m *MeteringContextMock) GetGasLocked() uint64 {
-	return m.GasLockedMock
 }
 
 // BlockGasLimit mocked method

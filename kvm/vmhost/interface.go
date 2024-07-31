@@ -160,7 +160,6 @@ type RuntimeContext interface {
 	GetAllErrors() error
 
 	HasFunction(functionName string) bool
-	GetPrevTxHash() []byte
 	EndExecution()
 	ValidateInstances() error
 }

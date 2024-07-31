@@ -107,6 +107,8 @@ type RolesInfo struct {
 	Address             string `json:"address"`
 	HasRoleMint         bool   `json:"hasRoleMint"`
 	HasRoleSetITOPrices bool   `json:"hasRoleSetITOPrices"`
+	HasRoleDeposit      bool   `json:"hasRoleDeposit"`
+	HasRoleTransfer     bool   `json:"hasRoleTransfer"`
 }
 
 type RoyaltiesInfo struct {

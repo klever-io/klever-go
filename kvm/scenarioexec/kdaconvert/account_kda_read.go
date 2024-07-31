@@ -69,59 +69,6 @@ func getTokenDataByKey(tokenKey []byte, source map[string][]byte, systemAccStora
 	return kdaData, nil
 }
 
-// GetTokenRoles returns the roles of the account for the specified tokenName.
-func GetTokenRoles(tokenName []byte, source map[string][]byte) ([][]byte, error) {
-	tokenRolesKey := makeTokenRolesKey(tokenName)
-	tokenRolesData := &dkda.KDARoles{
-		Roles: make([][]byte, 0),
-	}
-
-	marshaledData := source[string(tokenRolesKey)]
-	if len(marshaledData) == 0 {
-		return tokenRolesData.Roles, nil
-	}
-
-	err := kdaDataMarshalizer.Unmarshal(tokenRolesData, marshaledData)
-	if err != nil {
-		return nil, err
-	}
-
-	return tokenRolesData.Roles, nil
-
-}
-
-// GetFullMockKDAData returns the information about all the KDA tokens held by the account.
-func GetFullMockKDAData(source map[string][]byte, systemAccStorage map[string][]byte) (map[string]*MockKDAData, error) {
-	resultMap := make(map[string]*MockKDAData)
-	for key := range source {
-		storageKeyBytes := []byte(key)
-		if isTokenKey(storageKeyBytes) {
-			tokenName, tokenInstance, err := loadMockKDADataInstance(storageKeyBytes, source, systemAccStorage)
-			if err != nil {
-				return nil, err
-			}
-			if tokenInstance.Value > 0 {
-				resultObj := getOrCreateMockKDAData(tokenName, resultMap)
-				resultObj.Instances = append(resultObj.Instances, tokenInstance)
-			}
-		} else if isNonceKey(storageKeyBytes) {
-			tokenName := key[len(kdaNonceKeyPrefix):]
-			resultObj := getOrCreateMockKDAData(tokenName, resultMap)
-			resultObj.LastNonce = big.NewInt(0).SetBytes(source[key]).Uint64()
-		} else if isRoleKey(storageKeyBytes) {
-			tokenName := key[len(kdaRoleKeyPrefix):]
-			roles, err := GetTokenRoles([]byte(tokenName), source)
-			if err != nil {
-				return nil, err
-			}
-			resultObj := getOrCreateMockKDAData(tokenName, resultMap)
-			resultObj.Roles = roles
-		}
-	}
-
-	return resultMap, nil
-}
-
 func extractTokenIdentifierAndNonceKDAWipe(args []byte) ([]byte, uint64) {
 	argsSplit := bytes.Split(args, []byte(kdaIdentifierSeparator))
 	if len(argsSplit) < 2 {

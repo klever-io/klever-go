@@ -983,7 +983,7 @@ func (v *validatorsKApp) PeerAccountToValidatorInfo(pubkey []byte, revoked bool,
 	return &state.ValidatorInfo{
 		OwnerAddress:                    peerAcc.GetOwnerAddress(),
 		PublicKey:                       pubkey,
-		List:                            peerAcc.GetListString(), // TODO: review to use constant??
+		List:                            peerAcc.GetListString(),
 		TempRating:                      peerAcc.GetTempRating(),
 		Rating:                          peerAcc.GetRating(),
 		RatingModifier:                  0,

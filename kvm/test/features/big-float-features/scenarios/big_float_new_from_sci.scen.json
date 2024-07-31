@@ -1,5 +1,5 @@
 {
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
@@ -95,7 +95,7 @@
             },
             "expect": {
                 "out": [],
-                "status": "10",
+                "status": "62",
                 "message": "str:exponent must be negative"
             }
         }

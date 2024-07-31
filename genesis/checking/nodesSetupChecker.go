@@ -64,7 +64,6 @@ func (nsc *nodeSetupChecker) Check(initialNodes []sharding.GenesisNodeInfoHandle
 
 	initialAccounts := nsc.getClonedInitialAccounts()
 	delegated := nsc.createDelegatedValues(initialAccounts)
-	// TODO: FIXME: check delegated values and initial balances
 
 	return nsc.checkRemainderInitialAccounts(initialAccounts, delegated)
 }

@@ -273,7 +273,6 @@ func FillGasMapBaseOpsAPICosts(value uint64) map[string]uint64 {
 	gasMap["GetBlockHash"] = value
 	gasMap["GetOriginalTxHash"] = value
 	gasMap["GetCurrentTxHash"] = value
-	gasMap["GetPrevTxHash"] = value
 	gasMap["TransferValue"] = value
 	gasMap["GetArgument"] = value
 	gasMap["GetFunction"] = value

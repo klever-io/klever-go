@@ -541,7 +541,6 @@ func (cm *commonProcessor) DecodeContract(dbTx *data.Transaction, tx *transactio
 				continue
 			}
 
-			// TODO: check if receipt changes asset
 			if statusOK && alteredAccounts != nil {
 				alteredAccounts.Add(dbTx.Sender, &data.AlteredAccount{
 					IsKDAOperation:  true,
@@ -560,7 +559,6 @@ func (cm *commonProcessor) DecodeContract(dbTx *data.Transaction, tx *transactio
 				continue
 			}
 
-			// TODO: check if receipt changes asset
 			if statusOK && alteredAccounts != nil {
 				alteredAccounts.Add(dbTx.Sender, &data.AlteredAccount{
 					IsKDAOperation:  true,
@@ -856,7 +854,6 @@ func (ei *elasticProcessor) serializeTransactions(
 			return err
 		}
 
-		// TODO: refactor
 		metaContracts, serializedContractsData, errPrepareContracts := prepareSerializedDataForTransactionContracts(tx, txIndex)
 		if errPrepareContracts != nil {
 			log.Warn("error preparing contracts for indexing", "tx hash", tx.Hash, "error", err)
@@ -1292,6 +1289,8 @@ func (cm *commonProcessor) convertAssetContractInfo(createAssetContract *transac
 			Address:             cm.addressPubkeyConverter.Encode(role.Address),
 			HasRoleMint:         role.HasRoleMint,
 			HasRoleSetITOPrices: role.HasRoleSetITOPrices,
+			HasRoleDeposit:      role.HasRoleDeposit,
+			HasRoleTransfer:     role.HasRoleTransfer,
 		}
 		rolesInfo = append(rolesInfo, roleInfo)
 	}
@@ -1408,6 +1407,8 @@ func (cm *commonProcessor) convertAssetInfo(assetInfo *kapps.KDAData) *data.Asse
 			Address:             cm.addressPubkeyConverter.Encode(role.Address),
 			HasRoleMint:         role.HasRoleMint,
 			HasRoleSetITOPrices: role.HasRoleSetITOPrices,
+			HasRoleDeposit:      role.HasRoleDeposit,
+			HasRoleTransfer:     role.HasRoleTransfer,
 		}
 		rolesInfo = append(rolesInfo, roleInfo)
 	}
@@ -1672,6 +1673,8 @@ func (cm *commonProcessor) convertAssetTriggerContract(assetTriggerContract *tra
 			Address:             cm.addressPubkeyConverter.Encode(assetTriggerContract.Role.Address),
 			HasRoleMint:         assetTriggerContract.Role.HasRoleMint,
 			HasRoleSetITOPrices: assetTriggerContract.Role.HasRoleSetITOPrices,
+			HasRoleDeposit:      assetTriggerContract.Role.HasRoleDeposit,
+			HasRoleTransfer:     assetTriggerContract.Role.HasRoleTransfer,
 		}
 	}
 

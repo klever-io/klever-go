@@ -85,7 +85,6 @@ const (
 	getPrevBlockRandomSeedName       = "getPrevBlockRandomSeed"
 	getOriginalTxHashName            = "getOriginalTxHash"
 	getCurrentTxHashName             = "getCurrentTxHash"
-	getPrevTxHashName                = "getPrevTxHash"
 )
 
 type CreateContractCallType int
@@ -404,7 +403,7 @@ func (context *VMHooksImpl) GetKDATokenData(
 		return -1
 	}
 
-	// TODO: implement all fields
+	// BUG: implement all fields
 	return int32(len(big.NewInt(userKDA.Balance).Bytes()))
 }
 
@@ -2441,19 +2440,6 @@ func (context *VMHooksImpl) GetCurrentTxHash(dataOffset executor.MemPtr) {
 	metering.UseGasAndAddTracedGas(getCurrentTxHashName, gasToUse)
 
 	err := context.MemStore(dataOffset, runtime.GetCurrentTxHash())
-	_ = context.WithFault(err, runtime.BaseOpsErrorShouldFailExecution())
-}
-
-// GetPrevTxHash VMHooks implementation.
-// @autogenerate(VMHooks)
-func (context *VMHooksImpl) GetPrevTxHash(dataOffset executor.MemPtr) {
-	runtime := context.GetRuntimeContext()
-	metering := context.GetMeteringContext()
-
-	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetPrevTxHash
-	metering.UseGasAndAddTracedGas(getPrevTxHashName, gasToUse)
-
-	err := context.MemStore(dataOffset, runtime.GetPrevTxHash())
 	_ = context.WithFault(err, runtime.BaseOpsErrorShouldFailExecution())
 }
 

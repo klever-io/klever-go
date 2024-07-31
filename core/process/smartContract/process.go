@@ -67,7 +67,6 @@ type scProcessor struct {
 	forkController core.ForkController
 	txFeeHandler   process.TransactionFeeHandler
 	economicsFee   process.EconomicsDataHandler
-	txTypeHandler  process.TxTypeHandler
 
 	builtInGasCosts     map[string]uint64
 	persistPerByte      uint64
@@ -89,7 +88,6 @@ type ArgsNewSmartContractProcessor struct {
 	PubkeyConv          core.PubkeyConverter
 	TxFeeHandler        process.TransactionFeeHandler
 	EconomicsFee        process.EconomicsDataHandler
-	TxTypeHandler       process.TxTypeHandler
 	GasSchedule         core.GasScheduleNotifier
 	TxLogsProcessor     process.TransactionLogProcessor
 	ForkController      core.ForkController
@@ -125,9 +123,6 @@ func NewSmartContractProcessor(args ArgsNewSmartContractProcessor) (*scProcessor
 	if check.IfNil(args.EconomicsFee) {
 		return nil, process.ErrNilEconomicsFeeHandler
 	}
-	if check.IfNil(args.TxTypeHandler) {
-		return nil, process.ErrNilTxTypeHandler
-	}
 	if check.IfNil(args.GasSchedule) || args.GasSchedule.LatestGasSchedule() == nil {
 		return nil, process.ErrNilGasSchedule
 	}
@@ -161,7 +156,6 @@ func NewSmartContractProcessor(args ArgsNewSmartContractProcessor) (*scProcessor
 		pubkeyConv:          args.PubkeyConv,
 		txFeeHandler:        args.TxFeeHandler,
 		economicsFee:        args.EconomicsFee,
-		txTypeHandler:       args.TxTypeHandler,
 		builtInGasCosts:     builtInFuncCost,
 		txLogsProcessor:     args.TxLogsProcessor,
 		forkController:      args.ForkController,
@@ -207,9 +201,17 @@ func (sc *scProcessor) checkTxValidity(tx data.TransactionHandler, tc data.Smart
 		return process.ErrNilTransaction
 	}
 
-	recvAddressIsInvalid := sc.pubkeyConv.Len() != len(tc.GetAddress())
+	// if deploying, new contract, address should be zero
+	var recvAddressIsInvalid bool
+	switch tc.GetType() {
+	case transaction.SmartContract_SCDeploy:
+		recvAddressIsInvalid = len(tc.GetAddress()) != 0
+	default:
+		recvAddressIsInvalid = sc.pubkeyConv.Len() != len(tc.GetAddress())
+	}
+
 	if recvAddressIsInvalid {
-		return process.ErrWrongTransaction
+		return process.ErrInvalidRcvAddr
 	}
 
 	return nil
@@ -222,9 +224,16 @@ func (sc *scProcessor) ExecuteSmartContractTransaction(
 	tc data.SmartContractHandler,
 	acntSnd, acntDst state.UserAccountHandler,
 ) (vmcommon.ReturnCode, error) {
-	if check.IfNil(tx) {
-		return 0, process.ErrNilTransaction
+	if !sc.forkController.EnableSmartContracts() {
+		return vmcommon.VMContractInvalid, common.ErrInvalidContract
 	}
+
+	err := sc.checkTxValidity(tx, tc)
+	if err != nil {
+		log.Debug("invalid transaction", "error", err.Error())
+		return vmcommon.VMContractInvalid, err
+	}
+
 	sw := tools.NewStopWatch()
 	sw.Start("execute")
 	returnCode, err := sc.doExecuteSmartContractTransaction(ctx, tx, tc, acntSnd, acntDst)
@@ -249,7 +258,7 @@ func (sc *scProcessor) prepareExecution(
 	err := sc.processSCPayment(tc, acntSnd)
 	if err != nil {
 		log.Debug("process sc payment error", "error", err.Error())
-		return 0, nil, nil, err
+		return vmcommon.VMContractInvalid, nil, nil, err
 	}
 
 	txHash := ctx.TxHash()
@@ -516,10 +525,14 @@ func createNewLogFromSCRIfError(txHandler data.TransactionHandler, contractAddre
 
 // DeploySmartContract processes the transaction, then deploy the smart contract into VM, final code is saved in account
 func (sc *scProcessor) DeploySmartContract(ctx kapp.KappContext, tx data.TransactionHandler, tc data.SmartContractHandler, acntSrc state.UserAccountHandler) (vmcommon.ReturnCode, error) {
+	if !sc.forkController.EnableSmartContracts() {
+		return vmcommon.VMContractInvalid, common.ErrInvalidContract
+	}
+
 	err := sc.checkTxValidity(tx, tc)
 	if err != nil {
 		log.Debug("invalid transaction", "error", err.Error())
-		return 0, err
+		return vmcommon.VMContractInvalid, err
 	}
 
 	sw := tools.NewStopWatch()
@@ -537,11 +550,6 @@ func (sc *scProcessor) DeploySmartContract(ctx kapp.KappContext, tx data.Transac
 	return returnCode, err
 }
 
-func (sc *scProcessor) isDestAddressEmpty(tc data.SmartContractHandler) bool {
-	isEmptyAddress := bytes.Equal(tc.GetAddress(), make([]byte, sc.pubkeyConv.Len()))
-	return isEmptyAddress
-}
-
 func (sc *scProcessor) doDeploySmartContract(
 	ctx kapp.KappContext,
 	tx data.TransactionHandler,
@@ -551,10 +559,9 @@ func (sc *scProcessor) doDeploySmartContract(
 	sc.blockChainHook.ResetCounters()
 	defer sc.printBlockchainHookCounters(ctx, tx, tc)
 
-	isEmptyAddress := sc.isDestAddressEmpty(tc)
-	if !isEmptyAddress {
+	if len(tc.GetAddress()) != 0 {
 		log.Debug("wrong transaction - not empty address", "error", process.ErrWrongTransaction.Error())
-		return 0, process.ErrWrongTransaction
+		return vmcommon.VMContractInvalid, process.ErrWrongTransaction
 	}
 
 	txHash := ctx.TxHash()
@@ -728,7 +735,6 @@ func (sc *scProcessor) createSCRsWhenError(
 		Value:         callValue,
 		RcvAddr:       tx.GetSender(),
 		SndAddr:       tc.GetAddress(),
-		PrevTxHash:    txHash,
 		ReturnMessage: returnMessage,
 	}
 
@@ -763,11 +769,10 @@ func (sc *scProcessor) processSCOutputAccounts(
 		}
 
 		if !ctx.IsScSimulation() {
-			// TODO: Review BuiltIN StorageUpdates
 			// check if keyValue storage is updating in cacher or writing to AccOutputs...
 			// If saved in cacher, then no need to update states here
 			for _, storeUpdate := range outAcc.StorageUpdates {
-				// TODO: Validate that all user keys are updated with PREFIX
+				// BUG: Validate that all user keys are updated with PREFIX
 				err = acc.SaveKeyValue(storeUpdate.Offset, storeUpdate.Data)
 				if err != nil {
 					log.Warn("saveKeyValue", "error", err)
@@ -923,16 +928,10 @@ func (sc *scProcessor) createCompleteEventLogIfNoMoreAction(
 }
 
 func createCompleteEventLog(tx data.TransactionHandler, tc data.SmartContractHandler, txHash []byte) *vmcommon.LogEntry {
-	prevTxHash := txHash
-	originalSCR, ok := tx.(*smartContractResult.SmartContractResult)
-	if ok {
-		prevTxHash = originalSCR.PrevTxHash
-	}
-
 	newLog := &vmcommon.LogEntry{
 		Identifier: []byte(core.CompletedTxEventIdentifier),
 		Address:    tc.GetAddress(),
-		Topics:     [][]byte{prevTxHash},
+		Topics:     [][]byte{txHash},
 	}
 
 	return newLog

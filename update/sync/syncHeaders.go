@@ -1,7 +1,6 @@
 package sync
 
 import (
-	"bytes"
 	"math"
 	"sync"
 	"time"
@@ -27,7 +26,6 @@ const waitTimeForHeaders = time.Minute
 type headersToSync struct {
 	mutMeta                sync.Mutex
 	epochStartMetaBlock    *block.Block
-	unFinishedMetaBlocks   map[string]*block.Block
 	firstPendingMetaBlocks map[string]*block.Block
 	missingMetaBlocks      map[string]struct{}
 	missingMetaNonces      map[uint64]struct{}
@@ -90,7 +88,6 @@ func NewHeadersSyncHandler(args ArgsNewHeadersSyncHandler) (*headersToSync, erro
 		requestHandler:         args.RequestHandler,
 		marshalizer:            args.Marshalizer,
 		hasher:                 args.Hasher,
-		unFinishedMetaBlocks:   make(map[string]*block.Block),
 		firstPendingMetaBlocks: make(map[string]*block.Block),
 		missingMetaBlocks:      make(map[string]struct{}),
 		missingMetaNonces:      make(map[uint64]struct{}),
@@ -98,7 +95,6 @@ func NewHeadersSyncHandler(args ArgsNewHeadersSyncHandler) (*headersToSync, erro
 	}
 
 	h.metaBlockPool.RegisterHandler(h.receivedMetaBlockFirstPending)
-	h.metaBlockPool.RegisterHandler(h.receivedUnFinishedMetaBlocks)
 
 	return h, nil
 }
@@ -131,64 +127,6 @@ func (h *headersToSync) receivedMetaBlockFirstPending(headerHandler data.HeaderH
 
 	h.mutMeta.Unlock()
 	h.chReceivedAll <- true
-}
-
-func (h *headersToSync) receivedUnFinishedMetaBlocks(headerHandler data.HeaderHandler, hash []byte) {
-	h.mutMeta.Lock()
-	if h.stopSyncing || len(h.missingMetaNonces) == 0 {
-		h.mutMeta.Unlock()
-		return
-	}
-
-	meta, ok := headerHandler.(*block.Block)
-	if !ok {
-		h.mutMeta.Unlock()
-		return
-	}
-
-	if _, ok = h.missingMetaNonces[meta.GetNonce()]; !ok {
-		h.mutMeta.Unlock()
-		return
-	}
-
-	attestingHash, okHash := h.foundMetaNonces[meta.GetNonce()+1]
-	attestingHdr, okHdr := h.unFinishedMetaBlocks[attestingHash]
-
-	isTheNeededMeta := okHash && okHdr && bytes.Equal(attestingHdr.GetParentHash(), hash)
-	if !isTheNeededMeta {
-		h.requestHandler.RequestHeaderByNonce(meta.GetNonce())
-		h.requestHandler.RequestHeaderByNonce(meta.GetNonce() + 1)
-		h.mutMeta.Unlock()
-		return
-	}
-
-	delete(h.missingMetaNonces, meta.GetNonce())
-	h.unFinishedMetaBlocks[string(hash)] = meta
-	h.foundMetaNonces[meta.GetNonce()] = string(hash)
-
-	if len(h.missingMetaNonces) > 0 {
-		h.mutMeta.Unlock()
-		return
-	}
-
-	h.mutMeta.Unlock()
-	h.chReceivedAll <- true
-}
-
-// SyncUnFinishedMetaHeaders syncs and validates all the unFinished metaHeaders
-func (h *headersToSync) SyncUnFinishedMetaHeaders(epoch uint32) error {
-	// TODO: do this with context.Context
-	err := h.syncEpochStartMetaHeader(epoch, waitTimeForHeaders)
-	if err != nil {
-		return err
-	}
-
-	err = h.syncAllNeededMetaHeaders(waitTimeForHeaders)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // SyncEpochStartMetaHeader syncs and validates an epoch start metaHeader
@@ -294,10 +232,8 @@ func (h *headersToSync) computeMissingNonce(epochStart *block.Block) error {
 	}
 
 	h.foundMetaNonces[epochStartNonce] = string(epochStartHash)
-	h.unFinishedMetaBlocks[string(epochStartHash)] = epochStart
 
 	for hash, meta := range h.firstPendingMetaBlocks {
-		h.unFinishedMetaBlocks[hash] = meta
 		h.foundMetaNonces[meta.GetNonce()] = hash
 	}
 
@@ -317,19 +253,18 @@ func (h *headersToSync) computeMissingNonce(epochStart *block.Block) error {
 			h.missingMetaNonces[nonce] = struct{}{}
 			continue
 		}
-		attestingMeta, ok := h.unFinishedMetaBlocks[attestingHash]
+		attestingMeta, ok := h.firstPendingMetaBlocks[attestingHash]
 		if !ok {
 			h.missingMetaNonces[nonce] = struct{}{}
 			continue
 		}
-		metaHdr, errGetMetaHeader := process.GetHeader(attestingMeta.GetParentHash(), h.metaBlockPool, h.marshalizer, h.store)
+		_, errGetMetaHeader := process.GetHeader(attestingMeta.GetParentHash(), h.metaBlockPool, h.marshalizer, h.store)
 		if errGetMetaHeader != nil {
 			h.missingMetaNonces[nonce] = struct{}{}
 			continue
 		}
 
 		h.foundMetaNonces[nonce] = string(attestingMeta.GetParentHash())
-		h.unFinishedMetaBlocks[string(attestingMeta.GetParentHash())] = metaHdr
 	}
 
 	return nil
@@ -346,7 +281,17 @@ func (h *headersToSync) lowestPendingNonceFrom(metaBlocks map[string]*block.Bloc
 }
 
 // GetEpochStartMetaBlock returns the synced epoch start metaBlock
-func (h *headersToSync) GetEpochStartMetaBlock() (*block.Block, error) {
+func (h *headersToSync) GetEpochStartMetaBlock(epoch uint32) (*block.Block, error) {
+	err := h.syncEpochStartMetaHeader(epoch, waitTimeForHeaders)
+	if err != nil {
+		return nil, err
+	}
+
+	err = h.syncAllNeededMetaHeaders(waitTimeForHeaders)
+	if err != nil {
+		return nil, err
+	}
+
 	h.mutMeta.Lock()
 	meta := h.epochStartMetaBlock
 	h.mutMeta.Unlock()
@@ -356,18 +301,6 @@ func (h *headersToSync) GetEpochStartMetaBlock() (*block.Block, error) {
 	}
 
 	return nil, update.ErrNotSynced
-}
-
-// GetUnFinishedMetaBlocks returns the synced metablock
-func (h *headersToSync) GetUnFinishedMetaBlocks() (map[string]*block.Block, error) {
-	h.mutMeta.Lock()
-	unFinished := make(map[string]*block.Block)
-	for hash, meta := range h.unFinishedMetaBlocks {
-		unFinished[hash] = meta
-	}
-	h.mutMeta.Unlock()
-
-	return unFinished, nil
 }
 
 // IsInterfaceNil returns true if underlying object is nil

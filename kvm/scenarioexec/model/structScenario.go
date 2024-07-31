@@ -134,9 +134,6 @@ const StepNameScQuery = "scQuery"
 // StepNameTransfer is a json step type name.
 const StepNameTransfer = "transfer"
 
-// StepNameValidatorReward is a json step type name.
-const StepNameValidatorReward = "validatorReward"
-
 // StepTypeName type as string
 func (t *TxStep) StepTypeName() string {
 	switch t.Tx.Type {
@@ -150,8 +147,6 @@ func (t *TxStep) StepTypeName() string {
 		return StepNameScQuery
 	case Transfer:
 		return StepNameTransfer
-	case ValidatorReward:
-		return StepNameValidatorReward
 	default:
 		panic("unknown TransactionType")
 	}

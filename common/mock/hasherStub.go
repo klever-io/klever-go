@@ -1,5 +1,7 @@
 package mock
 
+import "crypto/sha256"
+
 // HasherStub -
 type HasherStub struct {
 	ComputeCalled   func(s string) []byte
@@ -9,6 +11,12 @@ type HasherStub struct {
 
 // Compute will output the SHA's equivalent of the input string
 func (hs *HasherStub) Compute(s string) []byte {
+	if hs.ComputeCalled == nil {
+		h := sha256.New()
+		_, _ = h.Write([]byte(s))
+		return h.Sum(nil)
+	}
+
 	return hs.ComputeCalled(s)
 }
 

@@ -32,7 +32,6 @@ type p2pBlackListProcessor struct {
 
 // NewP2PBlackListProcessor creates a new instance of p2pQuotaBlacklistProcessor able to determine
 // a flooding peer and mark it accordingly
-// TODO use argument on constructor
 func NewP2PBlackListProcessor(
 	cacher storage.Cacher,
 	peerBlacklistCacher process.PeerBlackListCacher,

@@ -1,6 +1,6 @@
 {
     "name": "smart contract properties: is_smart_contract, owner, more to follow",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
@@ -19,7 +19,7 @@
             "newAddresses": [
                 {
                     "creatorAddress": "address:an_account",
-                    "creatorNonce": "0",
+                    "creatorNonce": "1",
                     "newAddress": "sc:also-features-contract"
                 }
             ]

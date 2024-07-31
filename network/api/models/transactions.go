@@ -112,6 +112,8 @@ type RolesInfo struct {
 	Address             string `form:"address" json:"address"`
 	HasRoleMint         bool   `form:"hasRoleMint" json:"hasRoleMint"`
 	HasRoleSetITOPrices bool   `form:"hasRoleSetITOPrices" json:"hasRoleSetITOPrices"`
+	HasRoleDeposit      bool   `form:"hasRoleDeposit" json:"hasRoleDeposit"`
+	HasRoleTransfer     bool   `form:"hasRoleTransfer" json:"hasRoleTransfer"`
 }
 
 // KDAPoolInfo -

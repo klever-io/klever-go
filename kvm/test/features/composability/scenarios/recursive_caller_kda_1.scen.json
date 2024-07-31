@@ -1,6 +1,6 @@
 {
     "comment": "not the main test, just warmup",
-    "gasSchedule": "v3",
+    "gasSchedule": "v1",
     "steps": [
         {
             "step": "setState",
@@ -57,7 +57,7 @@
                     },
                     {
                         "address": "sc:recursive-caller",
-                        "endpoint": "str:KDATransfer",
+                        "endpoint": "str:KleverTransfer",
                         "topics": [
                             "str:REC-TOKEN",
                             "",

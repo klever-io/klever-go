@@ -15,8 +15,6 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 )
 
-//TODO: merge this with data components
-
 // StateComponentsFactoryArgs holds the arguments needed for creating a state components factory
 type StateComponentsFactoryArgs struct {
 	Config         config.Config
@@ -79,14 +77,14 @@ func (scf *stateComponentsFactory) Create(forkController core.ForkController) (*
 
 	peerFactory := factoryState.NewPeerAccountCreator()
 	merkleTrie = scf.tries.TriesContainer.Get([]byte(factory.PeerAccountTrie))
-	peerAdapter, err := state.NewPeerAccountsDB(merkleTrie, scf.core.Hasher, scf.core.InternalMarshalizer, peerFactory)
+	peerAdapter, err := state.NewPeerAccountsDB(merkleTrie, scf.core.Hasher, scf.core.InternalMarshalizer, peerFactory, scf.processingMode)
 	if err != nil {
 		return nil, err
 	}
 
 	kappFactory := factoryState.NewKAppAccountCreator()
 	merkleTrie = scf.tries.TriesContainer.Get([]byte(factory.KAppAccountTrie))
-	kappAdapter, err := state.NewKAppAccountsDB(merkleTrie, scf.core.Hasher, scf.core.InternalMarshalizer, kappFactory)
+	kappAdapter, err := state.NewKAppAccountsDB(merkleTrie, scf.core.Hasher, scf.core.InternalMarshalizer, kappFactory, scf.processingMode)
 	if err != nil {
 		return nil, err
 	}

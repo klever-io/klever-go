@@ -98,7 +98,6 @@ func NewNodesSetup(
 	nodes.processChainAssignment()
 	nodes.createInitialNodesInfo()
 
-	//TODO: delete this log before merging:
 	log.Debug("nodes setup",
 		"start time", nodes.StartTime,
 		"chain id", nodes.ChainID,

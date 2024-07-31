@@ -152,7 +152,6 @@ func (micf *metaInterceptorsContainerFactory) Create() (process.InterceptorsCont
 }
 
 func (micf *metaInterceptorsContainerFactory) generateTrieNodesInterceptors() error {
-	// TODO:
 	keys := make([]string, 0)
 	trieInterceptors := make([]process.Interceptor, 0)
 

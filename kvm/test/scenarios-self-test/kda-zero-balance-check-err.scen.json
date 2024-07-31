@@ -24,6 +24,9 @@
                 "address:A": {
                     "nonce": "0",
                     "balance": "0",
+                    "kda": {
+                        "str:TOK-123456": ""
+                    },
                     "storage": {},
                     "code": ""
                 },
