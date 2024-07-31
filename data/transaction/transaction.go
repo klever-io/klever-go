@@ -356,6 +356,11 @@ func (t *Transaction) addCreateAsset(txArgs TXArgs) error {
 		}
 	}
 
+	// prevents nil pointer when Royalties is intended to be empty
+	if contractRequest.Royalties == nil {
+		contractRequest.Royalties = &models.RoyaltiesInfo{}
+	}
+
 	royalties := &RoyaltiesInfo{
 		MarketFixed:      contractRequest.Royalties.MarketFixed,
 		MarketPercentage: contractRequest.Royalties.MarketPercentage,
