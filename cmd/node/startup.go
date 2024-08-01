@@ -362,7 +362,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 	log.Trace("creating slotManager")
 	sm, err := slot.NewSlotManager(
 		time.Unix(genesisNodesConfig.StartTime, 0),
-		time.Now(),
+		syncer.CurrentTime(),
 		time.Duration(genesisNodesConfig.SlotInterval)*time.Millisecond,
 		syncer,
 		startSlot,
