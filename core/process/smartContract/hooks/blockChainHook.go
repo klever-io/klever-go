@@ -18,7 +18,9 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/core/process/factory/containers"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
+	"github.com/klever-io/klever-go/core/process/smartContract"
 	txProcess "github.com/klever-io/klever-go/core/process/transaction"
 	factoryHasher "github.com/klever-io/klever-go/crypto/hashing/factory"
 	"github.com/klever-io/klever-go/data"
@@ -77,6 +79,7 @@ type BlockChainHookImpl struct {
 	marshalizer      marshal.Marshalizer
 	uint64Converter  typeConverters.Uint64ByteSliceConverter
 	builtInFunctions vmcommon.BuiltInFunctionContainer
+	vmContainer      process.VirtualMachinesContainer
 	forkController   core.ForkController
 	counter          BlockChainHookCounter
 
@@ -128,6 +131,7 @@ func NewBlockChainHookImpl(
 	blockChainHookImpl.ClearCompiledCodes()
 	blockChainHookImpl.currentHdr = &block.Block{}
 	blockChainHookImpl.mapActivationEpochs = createMapActivationEpochs(&args.EnableEpochs)
+	blockChainHookImpl.vmContainer = containers.NewVirtualMachinesContainer()
 
 	args.EpochNotifier.RegisterNotifyHandler(blockChainHookImpl)
 	args.GasSchedule.RegisterNotifyHandler(blockChainHookImpl)
@@ -781,6 +785,15 @@ func (bh *BlockChainHookImpl) EpochConfirmed(epoch uint32) {
 	if ok {
 		bh.ClearCompiledCodes()
 	}
+}
+
+// ExecuteSmartContractCallOnOtherVM on another VM
+func (bh *BlockChainHookImpl) ExecuteSmartContractCallOnOtherVM(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+	vmExec, err := smartContract.FindVMByScAddress(bh.vmContainer, input.RecipientAddr)
+	if err != nil {
+		return nil, err
+	}
+	return vmExec.RunSmartContractCall(input)
 }
 
 // GasScheduleChange sets the new gas schedule where it is needed

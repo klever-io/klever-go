@@ -102,6 +102,9 @@ type BlockchainHook interface {
 	// RevertToSnapshot reverts snapshots up to the specified one
 	RevertToSnapshot(snapshot int) error
 
+	// ExecuteSmartContractCallOnOtherVM executes a smart contract call on another VM
+	ExecuteSmartContractCallOnOtherVM(input *ContractCallInput) (*VMOutput, error)
+
 	// TransferValueOnly transfers KLV from one account to another
 	TransferValueOnly(destination []byte, sender []byte, value *big.Int) error
 

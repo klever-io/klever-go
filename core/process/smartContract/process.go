@@ -345,7 +345,7 @@ func (sc *scProcessor) executeSmartContractCall(
 	}
 
 	sc.wasmVMChangeLocker.RLock()
-	vmExec, err := findVMByScAddress(sc.vmContainer, vmInput.RecipientAddr)
+	vmExec, err := FindVMByScAddress(sc.vmContainer, vmInput.RecipientAddr)
 	if err != nil {
 		sc.wasmVMChangeLocker.RUnlock()
 		returnMessage := "cannot get vm from address"

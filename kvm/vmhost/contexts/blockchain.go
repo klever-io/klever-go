@@ -342,7 +342,5 @@ func (context *blockchainContext) ClearCompiledCodes() {
 
 // ExecuteSmartContractCallOnOtherVM runs contract on another VM
 func (context *blockchainContext) ExecuteSmartContractCallOnOtherVM(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
-	// return context.blockChainHook.ExecuteSmartContractCallOnOtherVM(input)
-
-	return nil, nil
+	return context.blockChainHook.ExecuteSmartContractCallOnOtherVM(input)
 }

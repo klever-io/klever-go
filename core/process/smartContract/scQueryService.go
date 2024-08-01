@@ -128,7 +128,7 @@ func (service *SCQueryService) executeScCall(query *process.SCQuery) (*vmcommon.
 	service.blockChainHook.SetCurrentHeader(service.blockChain.GetCurrentBlockHeader())
 
 	service.wasmVMChangeLocker.RLock()
-	vm, err := findVMByScAddress(service.vmContainer, query.ScAddress)
+	vm, err := FindVMByScAddress(service.vmContainer, query.ScAddress)
 	if err != nil {
 		service.wasmVMChangeLocker.RUnlock()
 		return nil, err

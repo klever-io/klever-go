@@ -5,7 +5,7 @@ import (
 	"github.com/klever-io/klever-go/vmcommon"
 )
 
-func findVMByScAddress(container process.VirtualMachinesContainer, scAddress []byte) (vmcommon.VMExecutionHandler, error) {
+func FindVMByScAddress(container process.VirtualMachinesContainer, scAddress []byte) (vmcommon.VMExecutionHandler, error) {
 	vmType, err := vmcommon.ParseVMTypeFromContractAddress(scAddress)
 	if err != nil {
 		return nil, err
