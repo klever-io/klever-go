@@ -363,7 +363,7 @@ func (context *meteringContext) GetSCPrepareInitialCost() uint64 {
 	return context.initialCost
 }
 
-// BoundGasLimit returns the maximum between the provided amount and the gas
+// BoundGasLimit returns the minimum between the provided amount and the gas
 // left on the currently running Wasmer instance.
 func (context *meteringContext) BoundGasLimit(value int64) uint64 {
 	gasLeft := context.GasLeft()

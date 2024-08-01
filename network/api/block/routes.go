@@ -33,7 +33,7 @@ func Routes(routes *wrapper.RouterWrapper) {
 	routes.RegisterHandler(http.MethodGet, getBlockByHashPath, getBlockByHash)
 }
 
-// @Summary returns the block info by hash
+// @Summary returns the block info by nonce
 // @Tags Block
 // @Produce json
 // @Param nonce path string true "block nonce"
