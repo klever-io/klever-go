@@ -41,7 +41,7 @@ operator kda create [KDA_TYPE] [flags]
       --royaltiesMarketPercentage float           KDA royaltiesMarketPercentage
       --royaltiesTransferFixed float              KDA royaltiesTransferFixed
       --royaltiesTransferPercentage stringArray   --royaltiesTransferPercentage='{"amount": 100, "percentage": 50}'
-      --splitRoyalties stringArray                --splitRoyalties='{"address":"klv...", "percentTransferPercentage": 1, "percentTransferFixed": 1, "percentMarketPercentage": 1, "percentMarketFixed": 1}, "percentITOPercentage": 1, "percentITOFixed": 1}'
+      --splitRoyalties stringArray                --splitRoyalties='{"address":"klv...", "percentTransferPercentage": 1, "percentTransferFixed": 1, "percentMarketPercentage": 1, "percentMarketFixed": 1, "percentITOPercentage": 1, "percentITOFixed": 1}'
       --ticker string                             KDA ticker
       --uris stringToString                       KDA uris (default [])
 ```
@@ -55,7 +55,7 @@ operator kda create [KDA_TYPE] [flags]
   -k, --key-file string           set walelt pem file --key-file=./walletKey.pem (default "./walletKey.pem")
       --message stringArray       set TX message --message="MyMessage"
   -m, --multi-files stringArray   add more files to sign tx. Ex: -m=./file.pem -m=./file2.pem
-  -n, --node string               entrypoint to node API --node=http://node.testnet.klever.finance (default "http://localhost:8080")
+  -n, --node string               entrypoint to node API --node=https://node.testnet.klever.finance (default "http://localhost:8080")
       --nonce uint                set TX nonce --nonce=33
   -p, --password string[="*"]     --password=MY_SECRET
       --password-file string      path to a file containing the password

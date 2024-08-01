@@ -22,7 +22,7 @@ operator account undelegate [flags]
   -k, --key-file string           set walelt pem file --key-file=./walletKey.pem (default "./walletKey.pem")
       --message stringArray       set TX message --message="MyMessage"
   -m, --multi-files stringArray   add more files to sign tx. Ex: -m=./file.pem -m=./file2.pem
-  -n, --node string               entrypoint to node API --node=http://node.testnet.klever.finance (default "http://localhost:8080")
+  -n, --node string               entrypoint to node API --node=https://node.testnet.klever.finance (default "http://localhost:8080")
       --nonce uint                set TX nonce --nonce=33
   -p, --password string[="*"]     --password=MY_SECRET
       --password-file string      path to a file containing the password

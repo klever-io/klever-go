@@ -25,7 +25,7 @@ operator kda trigger [TRIGGER_TYPE] [flags]
       --royaltiesMarketPercentage float           KDA royaltiesMarketPercentage
       --royaltiesTransferFixed float              KDA royaltiesTransferFixed
       --royaltiesTransferPercentage stringArray   --royaltiesTransferPercentage='{"amount": 100, "percentage": 50}'
-      --splitRoyalties stringArray                --splitRoyalties='{"address":"klv...", "percentTransferPercentage": 1, "percentTransferFixed": 1, "percentMarketPercentage": 1, "percentMarketFixed": 1}, "percentITOPercentage": 1, "percentITOFixed": 1}'
+      --splitRoyalties stringArray                --splitRoyalties='{"address":"klv...", "percentTransferPercentage": 1, "percentTransferFixed": 1, "percentMarketPercentage": 1, "percentMarketFixed": 1, "percentITOPercentage": 1, "percentITOFixed": 1}'
       --updateKdaPool stringToString              --updateKdaPool 'active=false,adminAddress=klv-address,fixedRatioKLV=1,fixedRatioKDA=100 (default [])
       --updateStaking stringToString              --updateStaking 'apr=10, claim=1, unstake=5, withdraw=7' (claim/unstake/withdraw are the min epochs to make the respective actions) (default [])
       --uris stringToString                       Trigger uris (default [])
@@ -40,7 +40,7 @@ operator kda trigger [TRIGGER_TYPE] [flags]
   -k, --key-file string           set walelt pem file --key-file=./walletKey.pem (default "./walletKey.pem")
       --message stringArray       set TX message --message="MyMessage"
   -m, --multi-files stringArray   add more files to sign tx. Ex: -m=./file.pem -m=./file2.pem
-  -n, --node string               entrypoint to node API --node=http://node.testnet.klever.finance (default "http://localhost:8080")
+  -n, --node string               entrypoint to node API --node=https://node.testnet.klever.finance (default "http://localhost:8080")
       --nonce uint                set TX nonce --nonce=33
   -p, --password string[="*"]     --password=MY_SECRET
       --password-file string      path to a file containing the password

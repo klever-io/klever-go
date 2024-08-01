@@ -163,7 +163,7 @@ OPERATOR interface to Klever Blockchain
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&walletPemFile, "key-file", "k", "./walletKey.pem", "set walelt pem file --key-file=./walletKey.pem")
-	rootCmd.PersistentFlags().StringVarP(&nodeAPI, "node", "n", "http://localhost:8080", "entrypoint to node API --node=http://node.testnet.klever.finance")
+	rootCmd.PersistentFlags().StringVarP(&nodeAPI, "node", "n", "http://localhost:8080", "entrypoint to node API --node=https://node.testnet.klever.finance")
 	rootCmd.PersistentFlags().Uint64Var(&txNonce, "nonce", 0, "set TX nonce --nonce=33")
 	rootCmd.PersistentFlags().StringVar(&nonceCheck, "nonce-check", "current", fmt.Sprintf("use [%s, %s, %s] nonce for the account", NONCE_CHECK_CURRENT, NONCE_CHECK_FIRST_PENDING, NONCE_CHECK_PENDING))
 	rootCmd.PersistentFlags().StringArrayVar(&message, "message", nil, "set TX message --message=\"MyMessage\"")
