@@ -51,6 +51,9 @@ const (
 	// BreakpointOutOfGasString is the human-readable name of BreakpointOutOfGas
 	BreakpointOutOfGasString = "BreakpointOutOfGas"
 
+	// BreakpointMemoryLimitString is the human-readable name of BreakpointMemoryLimit
+	BreakpointMemoryLimitString = "BreakpointMemoryLimit"
+
 	// UnknownBreakpointString is the human-readable label for an unknown breakpoint value
 	UnknownBreakpointString = "unknown breakpoint"
 
@@ -96,6 +99,8 @@ func (b BreakpointValue) String() string {
 		return BreakpointSignalErrorString
 	case BreakpointOutOfGas:
 		return BreakpointOutOfGasString
+	case BreakpointMemoryLimit:
+		return BreakpointMemoryLimitString
 	default:
 		return UnknownBreakpointString
 	}

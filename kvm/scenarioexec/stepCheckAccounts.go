@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/klever-io/klever-go/common/types"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data/dkda"
 	"github.com/klever-io/klever-go/data/state"
@@ -262,9 +263,12 @@ func (ae *VMTestExecutor) checkAccountKDA(baseErrMsg string, expectedAcct *scenj
 			}
 
 			// instance uris
-			for _, uri := range tokenData.URIs {
-				asset.TokenMetaData.URIs = append(asset.TokenMetaData.URIs, []byte(uri))
-			}
+			_ = types.
+				NewDeterministicMap(tokenData.URIs).
+				Each(func(_, uri string) error {
+					asset.TokenMetaData.URIs = append(asset.TokenMetaData.URIs, []byte(uri))
+					return nil
+				})
 
 			userInstances = append(userInstances, asset)
 		}
