@@ -1886,13 +1886,13 @@ func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transactio
 				}
 				contract.Parameter = c
 			case transaction.TXContract_ClaimContractType:
-				c := contract.Parameter.(data.UnfreezeContract)
+				c := contract.Parameter.(data.ClaimContract)
 
-				if len(c.AssetID) <= 0 {
+				if len(c.ID) <= 0 {
 					continue
 				}
 
-				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
+				cachedKDA, err := ei.GetCachedKDA(c.ID, kdaKapp)
 				if err != nil {
 					continue
 				}
