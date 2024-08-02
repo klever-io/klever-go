@@ -262,7 +262,7 @@ func TriggerNFTTransactions(args common.TestArgs) {
 	assetHex := hex.EncodeToString(assetBytes)
 
 	invokeContractCall("Mint NFT", args.KeyFile, nil, "mint", assetHex, "01")
-	invokeContractCall("Update Metadata", args.KeyFile, nil, "update_metadata", assetHex, "01", hex.EncodeToString(CONTRACT_ADDRESS_HEX), "6170706c69636174696f6e2f6a736f6e", "7b2274657374223a2022313233227d")
+	invokeContractCall("Update Metadata", args.KeyFile, nil, "update_metadata", assetHex, "01", hex.EncodeToString(CONTRACT_ADDRESS_HEX), "6170706c69636174696f6e2f6a736f6e", "7b2274657374223a2022313233227d", "cafe")
 	invokeContractCall("Stop NFT Mint", args.KeyFile, nil, "stop_nft_mint", assetHex)
 	invokeContractCall("Update Logo", args.KeyFile, nil, "update_logo", assetHex, "68747470733a2f2f73746f726167652e676f6f676c65617069732e636f6d2f6465786265742f6c6f676f2e706e67")
 
