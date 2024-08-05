@@ -63,7 +63,6 @@ func (context *meteringContext) InitState() {
 	context.initialGasProvided = 0
 	context.initialCost = 0
 	context.gasForExecution = 0
-	context.gasUsedByAccounts = make(map[string]uint64)
 	context.restoreGasEnabled = true
 
 	var newGasTracer vmhost.GasTracing
