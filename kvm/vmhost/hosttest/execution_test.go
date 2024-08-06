@@ -2021,8 +2021,9 @@ func TestExecution_Mocked_OnSameFollowedByOnDest(t *testing.T) {
 // number of i64 locals it instantiates
 func makeBytecodeWithLocals(numLocals uint64) []byte {
 	originalCode := test.GetTestSCCode("answer-locals", "../../")
-	firstSlice := originalCode[:0x5B]
-	secondSlice := originalCode[0x5C:]
+
+	firstSlice := originalCode[:0x66]
+	secondSlice := originalCode[0x67:]
 
 	encodedNumLocals := vmhost.U64ToLEB128(numLocals)
 	extraBytes := len(encodedNumLocals) - 1
@@ -2032,8 +2033,8 @@ func makeBytecodeWithLocals(numLocals uint64) []byte {
 	result = append(result, encodedNumLocals...)
 	result = append(result, secondSlice...)
 
-	result[0x57] = byte(int(result[0x57]) + extraBytes)
-	result[0x59] = byte(int(result[0x59]) + extraBytes)
+	result[0x5F] = byte(int(result[0x5F]) + extraBytes)
+	result[0x64] = byte(int(result[0x64]) + extraBytes)
 
 	return result
 }
