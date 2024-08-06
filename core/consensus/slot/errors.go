@@ -172,6 +172,3 @@ var ErrOriginatorMismatch = errors.New("consensus message originator mismatch")
 
 // ErrNilSubslot is raised when a valid subslot is expected but nil used
 var ErrNilSubslot = errors.New("subslot is nil")
-
-// ErrInvalidConsensusNonce signals an invalid consensus nonce received in consensus message
-var ErrInvalidConsensusNonce = errors.New("invald consensus nonce received")

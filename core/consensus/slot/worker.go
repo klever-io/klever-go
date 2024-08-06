@@ -439,9 +439,7 @@ func (wrk *Worker) shouldBlacklistPeer(err error) bool {
 		errors.Is(err, crypto.ErrPIDMismatch) ||
 		errors.Is(err, crypto.ErrSignatureMismatch) ||
 		errors.Is(err, sharding.ErrEpochNodesConfigDoesNotExist) ||
-		errors.Is(err, ErrMessageTypeLimitReached) ||
-		errors.Is(err, ErrMessageFromItself) ||
-		errors.Is(err, ErrInvalidConsensusNonce) {
+		errors.Is(err, ErrMessageTypeLimitReached) {
 		return false
 	}
 

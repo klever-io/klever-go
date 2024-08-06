@@ -232,10 +232,6 @@ func (pph *p2pPeerHonesty) checkBlacklistNoLock(ps *peerScore) {
 		return
 	}
 
-	if pph.blackListedPkCache.Has(ps.pk) {
-		return
-	}
-
 	log.Debug("p2pPeerHonesty.checkBlacklist: added blacklisted pk",
 		"pk", tools.GetTrimmedPk(hex.EncodeToString([]byte(ps.pk))),
 		"duration", tools.PublicKeyBlacklistDuration,

@@ -296,15 +296,10 @@ func TestP2pPeerHonesty_CheckBlacklistMinScoreReached(t *testing.T) {
 
 	cfg := createMockPeerHonestyConfig()
 	cfg.UnitValue = 4
-	hasCalled := false
 	upsertCalled := false
 	pph, _ := NewP2pPeerHonesty(
 		cfg,
 		&mock.TimeCacheStub{
-			HasCalled: func(key string) bool {
-				hasCalled = true
-				return false
-			},
 			UpsertCalled: func(key string, span time.Duration) error {
 				upsertCalled = true
 				return nil
@@ -322,7 +317,6 @@ func TestP2pPeerHonesty_CheckBlacklistMinScoreReached(t *testing.T) {
 	assert.Equal(t, 1, len(ps.scoresByTopic))
 	assert.Equal(t, cfg.MinScore, ps.scoresByTopic[topic])
 
-	assert.True(t, hasCalled)
 	assert.True(t, upsertCalled)
 }
 
@@ -331,15 +325,10 @@ func TestP2pPeerHonesty_CheckBlacklistHasShouldNotCallUpsert(t *testing.T) {
 
 	cfg := createMockPeerHonestyConfig()
 	cfg.UnitValue = 4
-	hasCalled := false
 	upsertCalled := false
 	pph, _ := NewP2pPeerHonesty(
 		cfg,
 		&mock.TimeCacheStub{
-			HasCalled: func(key string) bool {
-				hasCalled = true
-				return true
-			},
 			UpsertCalled: func(key string, span time.Duration) error {
 				upsertCalled = true
 				return nil
@@ -353,8 +342,7 @@ func TestP2pPeerHonesty_CheckBlacklistHasShouldNotCallUpsert(t *testing.T) {
 	units := int(cfg.MinScore) - 1
 	pph.ChangeScore(pk, topic, units)
 
-	assert.True(t, hasCalled)
-	assert.False(t, upsertCalled)
+	assert.True(t, upsertCalled)
 }
 
 func TestP2pPeerHonesty_CheckBlacklistUpsertErrorsShouldWork(t *testing.T) {
