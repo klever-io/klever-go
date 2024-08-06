@@ -609,12 +609,14 @@ func (wrk *Worker) checkChannels(ctx context.Context) {
 	var rcvDta *consensus.Message
 
 	for {
+		timer := time.NewTimer(sleepTime)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			log.Debug("worker's go routine is stopping...")
 			return
 		case rcvDta = <-wrk.executeMessageChannel:
-		case <-time.After(sleepTime):
+		case <-timer.C:
 			continue
 		}
 

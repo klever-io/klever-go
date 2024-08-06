@@ -125,9 +125,11 @@ func checkParams(
 }
 
 func (pph *p2pPeerHonesty) executeDecayContinuously(ctx context.Context, handler func()) {
+	ticker := time.NewTicker(pph.updateIntervalForDecay)
+	defer ticker.Stop()
 	for {
 		select {
-		case <-time.After(pph.updateIntervalForDecay):
+		case <-ticker.C:
 			handler()
 		case <-ctx.Done():
 			return

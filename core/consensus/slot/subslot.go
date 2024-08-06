@@ -131,13 +131,15 @@ func (sr *Subslot) DoWork(slotManager consensus.SlotManager) bool {
 		return true
 	}
 
+	timer := time.NewTimer(slotManager.RemainingTime(startTime, maxTime))
+	defer timer.Stop()
 	for {
 		select {
 		case <-sr.consensusStateChangedChannel:
 			if sr.Check() {
 				return true
 			}
-		case <-time.After(slotManager.RemainingTime(startTime, maxTime)):
+		case <-timer.C:
 			if sr.Extend != nil {
 				sr.SlotCanceled = true
 				sr.Extend(sr.current)
