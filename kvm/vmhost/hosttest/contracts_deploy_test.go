@@ -49,6 +49,7 @@ func TestDeployFromSource_Success(t *testing.T) {
 			GasRemaining(testConfig.GasProvided -
 				testConfig.GasUsedByInit -
 				deployedCodeLen*testConfig.CompilePerByteCost -
+				deployedCodeLen*testConfig.AoTPreparePerByteCost -
 				deployedCodeLen*testConfig.AoTPreparePerByteCost)
 	})
 }

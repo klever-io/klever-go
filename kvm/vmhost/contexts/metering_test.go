@@ -112,12 +112,14 @@ func TestMeteringContext_DeductInitialGasForExecution(t *testing.T) {
 	}
 
 	meteringCtx, _ := NewMeteringContext(host, config.MakeGasMapForTests(), uint64(15000))
+	meteringCtx.InitStateFromContractCallInput(&vmInput.VMInput)
 
 	contract := []byte("contract")
 	err := meteringCtx.DeductInitialGasForExecution(contract)
 	require.Nil(t, err)
 
-	vmInput.GasProvided = 1
+	vmInput.VMInput.GasProvided = 1
+	meteringCtx.InitStateFromContractCallInput(&vmInput.VMInput)
 	err = meteringCtx.DeductInitialGasForExecution(contract)
 	require.Equal(t, vmhost.ErrNotEnoughGas, err)
 }
@@ -142,6 +144,7 @@ func TestDeductInitialGasForDirectDeployment(t *testing.T) {
 	}
 
 	meteringCtx, _ := NewMeteringContext(host, config.MakeGasMapForTests(), uint64(15000))
+	meteringCtx.InitStateFromContractCallInput(&input.VMInput)
 
 	mockRuntime.SetPointsUsed(0)
 	err := meteringCtx.DeductInitialGasForDirectDeployment(vmhost.CodeDeployInput{ContractCode: contractCode})
@@ -149,7 +152,8 @@ func TestDeductInitialGasForDirectDeployment(t *testing.T) {
 	remainingGas := meteringCtx.GasLeft()
 	require.Equal(t, gasProvided-uint64(len(contractCode))-1, remainingGas)
 
-	contractCallInput.GasProvided = 2
+	contractCallInput.VMInput.GasProvided = 2
+	meteringCtx.InitStateFromContractCallInput(&contractCallInput.VMInput)
 	mockRuntime.SetPointsUsed(0)
 	err = meteringCtx.DeductInitialGasForDirectDeployment(vmhost.CodeDeployInput{ContractCode: contractCode})
 	require.Equal(t, vmhost.ErrNotEnoughGas, err)
@@ -176,6 +180,7 @@ func TestDeductInitialGasForIndirectDeployment(t *testing.T) {
 	}
 
 	meteringCtx, _ := NewMeteringContext(host, config.MakeGasMapForTests(), uint64(15000))
+	meteringCtx.InitStateFromContractCallInput(&input.VMInput)
 
 	mockRuntime.SetPointsUsed(0)
 	err := meteringCtx.DeductInitialGasForIndirectDeployment(vmhost.CodeDeployInput{ContractCode: contractCode})
@@ -183,7 +188,8 @@ func TestDeductInitialGasForIndirectDeployment(t *testing.T) {
 	remainingGas := meteringCtx.GasLeft()
 	require.Equal(t, gasProvided-uint64(len(contractCode)), remainingGas)
 
-	contractCallInput.GasProvided = 2
+	contractCallInput.VMInput.GasProvided = 2
+	meteringCtx.InitStateFromContractCallInput(&contractCallInput.VMInput)
 	mockRuntime.SetPointsUsed(0)
 	err = meteringCtx.DeductInitialGasForDirectDeployment(vmhost.CodeDeployInput{ContractCode: contractCode})
 	require.Equal(t, vmhost.ErrNotEnoughGas, err)

@@ -420,23 +420,24 @@ func (context *meteringContext) DeductInitialGasForIndirectDeployment(input vmho
 	)
 }
 
+// deductInitialGas deducts the initial gas for the execution of a contract, also called for contract deployments
+// can be called multiple times if the contract call deploys other contracts or calls other contracts
 func (context *meteringContext) deductInitialGas(
 	code []byte,
 	baseCost uint64,
 	costPerByte uint64,
 ) error {
-	input := context.host.Runtime().GetVMInput()
 	codeLength := uint64(len(code))
 	codeCost := math.MulUint64(codeLength, costPerByte)
 	initialCost := math.AddUint64(baseCost, codeCost)
 
-	if initialCost > input.GasProvided {
-		logMetering.Trace("initialCost", initialCost, "input.GasProvided", input.GasProvided)
+	if initialCost > context.gasForExecution {
+		logMetering.Trace("initialCost", initialCost, "context.gasForExecution", context.gasForExecution)
 		return vmhost.ErrNotEnoughGas
 	}
 
 	context.initialCost = initialCost
-	context.gasForExecution = input.GasProvided - initialCost
+	context.gasForExecution -= initialCost
 	return nil
 }
 
