@@ -14,7 +14,7 @@ func TestInstanceTracker_InitState(t *testing.T) {
 	require.Equal(t, 0, iTracker.numRunningInstances)
 
 	for i := 0; i < 5; i++ {
-		iTracker.SetNewInstance(mock.NewInstanceMock(nil), Bytecode)
+		_ = iTracker.SetNewInstance(mock.NewInstanceMock(nil), Bytecode)
 	}
 
 	require.Equal(t, 5, iTracker.numRunningInstances)
@@ -39,7 +39,7 @@ func TestInstanceTracker_GetWarmInstance(t *testing.T) {
 	testData := []string{"warm1", "bytecode1", "bytecode2", "warm2"}
 
 	for _, codeHash := range testData {
-		iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
+		_ = iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
 		iTracker.codeHash = []byte(codeHash)
 		if strings.Contains(codeHash, "warm") {
 			iTracker.SaveAsWarmInstance()
@@ -71,7 +71,7 @@ func TestInstanceTracker_UseWarmInstance(t *testing.T) {
 	testData := []string{"warm1", "bytecode1", "warm2", "bytecode2"}
 
 	for _, codeHash := range testData {
-		iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
+		_ = iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
 		iTracker.codeHash = []byte(codeHash)
 
 		if strings.Contains(codeHash, "warm") {
@@ -82,7 +82,7 @@ func TestInstanceTracker_UseWarmInstance(t *testing.T) {
 	require.Equal(t, []byte("bytecode2"), iTracker.CodeHash())
 
 	for _, codeHash := range testData {
-		ok := iTracker.UseWarmInstance([]byte(codeHash), false)
+		ok, _ := iTracker.UseWarmInstance([]byte(codeHash), false)
 
 		if strings.Contains(codeHash, "warm") {
 			require.True(t, ok)
@@ -100,7 +100,7 @@ func TestInstanceTracker_IsCodeHashOnStack_Ok(t *testing.T) {
 	testData := []string{"alpha", "beta", "alpha", "active"}
 
 	for i, codeHash := range testData {
-		iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
+		_ = iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
 		iTracker.codeHash = []byte(codeHash)
 		if i < 2 || codeHash == "active" {
 			iTracker.SaveAsWarmInstance()
@@ -133,7 +133,7 @@ func TestInstanceTracker_PopSetActiveSelfScenario(t *testing.T) {
 	testData := []string{"alpha", "alpha", "alpha", "alpha", "active"}
 
 	for i, codeHash := range testData {
-		iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
+		_ = iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
 		iTracker.codeHash = []byte(codeHash)
 		if i == 0 || codeHash == "active" {
 			iTracker.SaveAsWarmInstance()
@@ -163,7 +163,7 @@ func TestInstanceTracker_PopSetActiveSimpleScenario(t *testing.T) {
 	testData := []string{"alpha", "beta", "alpha", "beta", "active"}
 
 	for i, codeHash := range testData {
-		iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
+		_ = iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
 		iTracker.codeHash = []byte(codeHash)
 		if i < 2 || codeHash == "active" {
 			iTracker.SaveAsWarmInstance()
@@ -202,7 +202,7 @@ func TestInstanceTracker_PopSetActiveComplexScenario(t *testing.T) {
 	testData := []string{"alpha", "beta", "gamma", "beta", "gamma", "delta", "alpha", "active"}
 
 	for i, codeHash := range testData {
-		iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
+		_ = iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
 		iTracker.codeHash = []byte(codeHash)
 		if i < 3 || codeHash == "delta" || codeHash == "active" {
 			iTracker.SaveAsWarmInstance()
@@ -231,7 +231,7 @@ func TestInstanceTracker_PopSetActiveWarmOnlyScenario(t *testing.T) {
 	testData := []string{"alpha", "beta", "gamma", "delta", "active"}
 
 	for _, codeHash := range testData {
-		iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
+		_ = iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
 		iTracker.codeHash = []byte(codeHash)
 		iTracker.SaveAsWarmInstance()
 
@@ -259,7 +259,7 @@ func TestInstanceTracker_ForceCleanInstanceWithBypass(t *testing.T) {
 	testData := []string{"warm1", "bytecode1"}
 
 	for _, codeHash := range testData {
-		iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
+		_ = iTracker.SetNewInstance(mock.NewInstanceMock([]byte(codeHash)), Bytecode)
 		iTracker.codeHash = []byte(codeHash)
 
 		if strings.Contains(codeHash, "warm") {
@@ -274,7 +274,7 @@ func TestInstanceTracker_ForceCleanInstanceWithBypass(t *testing.T) {
 	iTracker.ForceCleanInstance(true)
 	require.Nil(t, iTracker.instance)
 
-	iTracker.UseWarmInstance([]byte("warm1"), false)
+	_, _ = iTracker.UseWarmInstance([]byte("warm1"), false)
 	require.NotNil(t, iTracker.instance)
 
 	iTracker.ForceCleanInstance(true)
@@ -288,7 +288,7 @@ func TestInstanceTracker_DoubleForceClean(t *testing.T) {
 	iTracker, err := NewInstanceTracker()
 	require.Nil(t, err)
 
-	iTracker.SetNewInstance(mock.NewInstanceMock(nil), Bytecode)
+	_ = iTracker.SetNewInstance(mock.NewInstanceMock(nil), Bytecode)
 	require.NotNil(t, iTracker.instance)
 	require.Equal(t, 1, iTracker.numRunningInstances)
 
