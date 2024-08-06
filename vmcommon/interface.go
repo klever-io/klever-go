@@ -108,6 +108,9 @@ type BlockchainHook interface {
 	// TransferValueOnly transfers KLV from one account to another
 	TransferValueOnly(destination []byte, sender []byte, value *big.Int) error
 
+	// IncreaseNonce increase the nonce of given address
+	IncreaseNonce(address []byte) error
+
 	// IsInterfaceNil returns true if there is no value under the interface
 	IsInterfaceNil() bool
 }

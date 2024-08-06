@@ -53,6 +53,7 @@ type BlockchainHookStub struct {
 	LastBlockCalled                         func() data.HeaderHandler
 	SetCurrentHeaderCalled                  func(hdr data.HeaderHandler)
 	GetSFTMetaCalled                        func(tokenID []byte, nonce uint64) (*kapps.MetaV2, error)
+	IncreaseNonceCalled                     func(address []byte) error
 }
 
 func (b *BlockchainHookStub) GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, error) {
@@ -361,6 +362,13 @@ func (b *BlockchainHookStub) SetCurrentHeader(hdr data.HeaderHandler) {
 	if b.SetCurrentHeaderCalled != nil {
 		b.SetCurrentHeaderCalled(hdr)
 	}
+}
+
+func (b *BlockchainHookStub) IncreaseNonce(address []byte) error {
+	if b.IncreaseNonceCalled != nil {
+		return b.IncreaseNonceCalled(address)
+	}
+	return nil
 }
 
 func (b *BlockchainHookStub) Close() error {

@@ -315,6 +315,17 @@ func (b *MockWorld) TransferValueOnly(to []byte, from []byte, value *big.Int) er
 	return nil
 }
 
+// IncreaseNonce -
+func (b *MockWorld) IncreaseNonce(address []byte) error {
+	account, err := b.AccountsCacher.LoadUser(address)
+	if err != nil {
+		return err
+	}
+
+	account.IncreaseNonce(1)
+	return nil
+}
+
 // Close implements process.BlockChainHookHandler.
 func (b *MockWorld) Close() error {
 	panic("unimplemented")

@@ -105,7 +105,6 @@ func (host *vmHost) performCodeDeployment(input vmhost.CodeDeployInput, initFunc
 	log.Trace("performCodeDeployment", "address", input.ContractAddress, "len(code)", len(input.ContractCode), "metadata", input.ContractCodeMetadata)
 
 	_, _, metering, output, runtime, _ := host.GetContexts()
-
 	err := metering.DeductInitialGasForDirectDeployment(input)
 	if err != nil {
 		output.SetReturnCode(vmcommon.VMOutOfGas)
@@ -721,6 +720,10 @@ func (host *vmHost) CreateNewContract(input *vmcommon.ContractCreateInput, creat
 		host.CompleteLogEntriesWithCallType(initVmOutput, vmhost.DeployFromSourceString)
 	} else {
 		host.CompleteLogEntriesWithCallType(initVmOutput, vmhost.DeploySmartContractString)
+	}
+
+	if blockchain.IsSmartContract(input.CallerAddr) {
+		blockchain.IncreaseNonce(input.CallerAddr)
 	}
 
 	return

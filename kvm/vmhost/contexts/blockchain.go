@@ -317,6 +317,10 @@ func (context *blockchainContext) TransferValueOnly(destination []byte, sender [
 	return context.blockChainHook.TransferValueOnly(destination, sender, value)
 }
 
+func (context *blockchainContext) IncreaseNonce(address []byte) {
+	_ = context.blockChainHook.IncreaseNonce(address)
+}
+
 // KDATransfer transfers value from sender to destination
 // This function is used only during deploy smart contract prior the init function is triggered
 func (context *blockchainContext) KDATransfer(sender []byte, tc *transaction.TransferContract) error {

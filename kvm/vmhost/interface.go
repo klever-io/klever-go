@@ -101,6 +101,7 @@ type BlockchainContext interface {
 	GetSnapshot() int
 	RevertToSnapshot(snapshot int)
 	TransferValueOnly(destination []byte, sender []byte, value *big.Int) error
+	IncreaseNonce(address []byte)
 	KDATransfer(sender []byte, tc *transaction.TransferContract) error
 	ClearCompiledCodes()
 	ExecuteSmartContractCallOnOtherVM(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error)

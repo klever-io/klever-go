@@ -779,6 +779,16 @@ func (bh *BlockChainHookImpl) TransferValueOnly(destination []byte, sender []byt
 	return nil
 }
 
+// IncreaseNonce increase the nonce of given address
+func (bh *BlockChainHookImpl) IncreaseNonce(address []byte) error {
+	user, err := bh.kappController.GetAccountsKApp().GetAccountsCacher().GetExistingUser(address)
+	if err != nil {
+		return err
+	}
+	user.IncreaseNonce(1)
+	return nil
+}
+
 // EpochConfirmed is called whenever a new epoch is confirmed
 func (bh *BlockChainHookImpl) EpochConfirmed(epoch uint32) {
 	_, ok := bh.mapActivationEpochs[epoch]
