@@ -8,7 +8,7 @@ type Asset struct {
 	OwnerAddress      string          `json:"ownerAddress"`
 	AdminAddress      string          `json:"adminAddress"`
 	Logo              string          `json:"logo"`
-	URIs              []*URI          `json:"uris,omitempty"`
+	URIs              []*URI          `json:"uris"`
 	Precision         uint32          `json:"precision"`
 	InitialSupply     int64           `json:"initialSupply"`
 	CirculatingSupply int64           `json:"circulatingSupply"`
