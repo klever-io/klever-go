@@ -105,20 +105,11 @@ func (tc *transactionCoordinator) RequestBlockTransactions(block *block.Block) {
 		return
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
+	requestedTxs := tc.txPreProcessor.RequestBlockTransactions(block)
 
-	go func() {
-		requestedTxs := tc.txPreProcessor.RequestBlockTransactions(block)
-
-		tc.mutRequestedTxs.Lock()
-		tc.requestedTxs = requestedTxs
-		tc.mutRequestedTxs.Unlock()
-
-		wg.Done()
-	}()
-
-	wg.Wait()
+	tc.mutRequestedTxs.Lock()
+	tc.requestedTxs = requestedTxs
+	tc.mutRequestedTxs.Unlock()
 }
 
 // IsDataPreparedForProcessing verifies if all the needed data is prepared
