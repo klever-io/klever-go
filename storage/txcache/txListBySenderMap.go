@@ -42,6 +42,12 @@ func (txMap *txListBySenderMap) addTx(tx *WrappedTransaction) (bool, [][]byte) {
 
 // getOrAddListForSender gets or lazily creates a list (using double-checked locking pattern)
 func (txMap *txListBySenderMap) getOrAddListForSender(sender string) *txListForSender {
+	/*
+		This function is useful in multi-threaded or concurrent environments where multiple
+		goroutines might attempt to access or create a transaction list for the same sender
+		simultaneously. The double-checked locking pattern ensures that the list is only
+		created once and is safely shared among goroutines.
+	*/
 	listForSender, ok := txMap.getListForSender(sender)
 	if ok {
 		return listForSender
