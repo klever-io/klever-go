@@ -770,7 +770,7 @@ func (host *vmHost) executeUpgrade(input *vmcommon.ContractCallInput) error {
 		CodeDeployerAddress:  input.CallerAddr,
 	}
 
-	err = metering.DeductInitialGasForDirectDeployment(codeDeployInput)
+	err = metering.DeductInitialGasForIndirectDeployment(codeDeployInput)
 	if err != nil {
 		output.SetReturnCode(vmcommon.VMOutOfGas)
 		return err
