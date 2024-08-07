@@ -471,7 +471,7 @@ func (sc *scProcessor) computeTotalConsumedGas(
 	consumedGas, err := tools.SafeSubUint64(gasLimit, vmOutput.GasRemaining)
 	log.LogIfError(err, "computeTotalConsumedGas", "vmOutput.GasRemaining")
 
-	log.Info("computeTotalConsumedGas", "consumedGas", consumedGas)
+	log.Debug("computeTotalConsumedGas", "consumedGas", consumedGas, "gasLimit", gasLimit)
 
 	return big.NewInt(int64(consumedGas))
 }

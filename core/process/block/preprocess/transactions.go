@@ -465,7 +465,6 @@ func (txs *transactions) CreateAndProcessBlockTransactions(blk *block.Block, hav
 	processedHashes, numTxs, err := txs.createAndProcessBlock(
 		blk,
 		haveTime,
-		nil,
 		selectedTXs,
 	)
 	elapsedTime = time.Since(startTime)
@@ -484,7 +483,6 @@ func (txs *transactions) CreateAndProcessBlockTransactions(blk *block.Block, hav
 func (txs *transactions) createAndProcessBlock(
 	blk *block.Block,
 	haveTime func() bool,
-	isShardStuck func(uint32) bool,
 	sortedTxs []*txcache.WrappedTransaction,
 ) ([][]byte, int, error) {
 	log.Debug("createAndProcessBlock has been started")
