@@ -287,6 +287,47 @@ func TestNodesCoordinator_ComputeValidatorsGroup25of400(t *testing.T) {
 	require.Equal(t, consensusGroupSize, len(finalList))
 }
 
+func TestNodesCoordinator_ComputeValidatorsGroupBiggerThanElected(t *testing.T) {
+	consensusGroupSize := 25
+	nodes := uint32(400)
+	electedList := createDummyNodesList(nodes, "elected")
+	eligibleList := createDummyNodesList(0, "eligible")
+	shufflerArgs := &NodesShufflerArgs{
+		Nodes:                nodes,
+		MaxNodesEnableConfig: nil,
+	}
+	nodeShuffler, err := NewHashValidatorsShuffler(shufflerArgs)
+	require.Nil(t, err)
+
+	epochStartSubscriber := &mock.EpochStartNotifierStub{}
+	bootStorer := mock.NewStorerMock()
+
+	arguments := ArgNodesCoordinator{
+		ConsensusGroupSize:  consensusGroupSize,
+		Marshalizer:         &mock.MarshalizerMock{},
+		Hasher:              &mock.HasherMock{},
+		Shuffler:            nodeShuffler,
+		EpochStartNotifier:  epochStartSubscriber,
+		BootStorer:          bootStorer,
+		ElectedNodes:        electedList,
+		EligibleNodes:       eligibleList,
+		SelfPublicKey:       []byte("test"),
+		ConsensusGroupCache: &mock.NodesCoordinatorCacheMock{},
+	}
+	// create coordinator using valid configurations
+	ihgs, err := NewNodesCoordinator(arguments)
+	require.Nil(t, err)
+
+	// force unexpected scenario of empty elected list
+	currentConfig := ihgs.nodesConfig[0]
+	currentConfig.electedList = createDummyNodesList(uint32(0), "elected")
+	ihgs.nodesConfig[0] = currentConfig
+
+	// try to compute
+	_, err = ihgs.ComputeConsensusGroup([]byte("randomness"), 0, 0)
+	require.Equal(t, ErrSmallElectedListSize, err)
+}
+
 func TestNodesCoordinator_GetValidatorWithPublicKeyShouldReturnErrNilPubKey(t *testing.T) {
 	t.Parallel()
 

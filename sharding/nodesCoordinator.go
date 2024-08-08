@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"sync"
@@ -547,10 +548,14 @@ func selectValidators(
 		return nil, ErrNilRandomness
 	}
 
-	// todo: checks for indexes
 	selectedIndexes, err := selector.Select(randomness, consensusSize)
 	if err != nil {
 		return nil, err
+	}
+
+	// check if the selected indexes are within the range of the elected list
+	if slices.Max(selectedIndexes) > uint32(len(electedList)) || len(electedList) == 0 {
+		return nil, ErrSmallElectedListSize
 	}
 
 	consensusGroup := make([]Validator, consensusSize)
