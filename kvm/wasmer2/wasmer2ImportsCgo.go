@@ -109,6 +109,7 @@ package wasmer2
 // extern void      w2_managedGetCodeMetadata(void* context, int32_t addressHandle, int32_t responseHandle);
 // extern int32_t   w2_managedIsBuiltinFunction(void* context, int32_t functionNameHandle);
 // extern void      w2_managedGetSftMetadata(void* context, int32_t tickerHandle, long long nonce, int32_t dataHandle);
+// extern int32_t   w2_managedAccHasPerm(void* context, long long ops, int32_t sourceAccAddr, int32_t targetAccAddr);
 // extern int32_t   w2_bigFloatNewFromParts(void* context, int32_t integralPart, int32_t fractionalPart, int32_t exponent);
 // extern int32_t   w2_bigFloatNewFromFrac(void* context, long long numerator, long long denominator);
 // extern int32_t   w2_bigFloatNewFromSci(void* context, long long significand, long long exponent);
@@ -360,6 +361,7 @@ func populateCgoFunctionPointers() *cWasmerVmHookPointers {
 		managed_get_code_metadata_func_ptr: funcPointer(C.w2_managedGetCodeMetadata),
 		managed_is_builtin_function_func_ptr: funcPointer(C.w2_managedIsBuiltinFunction),
 		managed_get_sft_metadata_func_ptr: funcPointer(C.w2_managedGetSftMetadata),
+		managed_acc_has_perm_func_ptr: funcPointer(C.w2_managedAccHasPerm),
 		big_float_new_from_parts_func_ptr: funcPointer(C.w2_bigFloatNewFromParts),
 		big_float_new_from_frac_func_ptr: funcPointer(C.w2_bigFloatNewFromFrac),
 		big_float_new_from_sci_func_ptr: funcPointer(C.w2_bigFloatNewFromSci),
@@ -1091,6 +1093,12 @@ func w2_managedIsBuiltinFunction(context unsafe.Pointer, functionNameHandle int3
 func w2_managedGetSftMetadata(context unsafe.Pointer, tickerHandle int32, nonce int64, dataHandle int32) {
 	vmHooks := getVMHooksFromContextRawPtr(context)
 	vmHooks.ManagedGetSftMetadata(tickerHandle, nonce, dataHandle)
+}
+
+//export w2_managedAccHasPerm
+func w2_managedAccHasPerm(context unsafe.Pointer, ops int64, sourceAccAddr int32, targetAccAddr int32) int32 {
+	vmHooks := getVMHooksFromContextRawPtr(context)
+	return vmHooks.ManagedAccHasPerm(ops, sourceAccAddr, targetAccAddr)
 }
 
 //export w2_bigFloatNewFromParts

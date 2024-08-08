@@ -1,11 +1,13 @@
 package vmhooks
 
 import (
+	"bytes"
 	"encoding/hex"
 	"math/big"
 
 	"github.com/klever-io/klever-go/tools/check"
 
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kvm/math"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 )
@@ -31,6 +33,7 @@ const (
 	managedGetKDABalanceName                = "managedGetKDABalance"
 	managedGetKDATokenDataName              = "managedGetKDATokenData"
 	managedGetSftTokenDataName              = "managedGetSftTokenData"
+	managedAccHasPermName                   = "managedAccHasPerm"
 	managedGetKDARolesName                  = "managedGetKDARoles"
 	managedGetReturnDataName                = "managedGetReturnData"
 	managedGetPrevBlockRandomSeedName       = "managedGetPrevBlockRandomSeed"
@@ -1016,4 +1019,105 @@ func ManagedGetSftMetadataWithHost(
 
 	metadata := writeSFTMeta(managedType, meta)
 	managedType.SetBytes(dataHandle, metadata)
+}
+
+// ManagedAccHasPerm VMHooks implementation.
+// @autogenerate(VMHooks)
+func (context *VMHooksImpl) ManagedAccHasPerm(
+	ops int64,
+	sourceAccAddr, targetAccAddr int32,
+) int32 {
+	return ManagedAccHasPermWithHost(
+		context.GetVMHost(),
+		ops,
+		sourceAccAddr,
+		targetAccAddr,
+	)
+}
+
+func ManagedAccHasPermWithHost(
+	host vmhost.VMHost,
+	ops int64,
+	sourceAccAddr, targetAccAddr int32,
+) int32 {
+	runtime := host.Runtime()
+	metering := host.Metering()
+	blockchain := host.Blockchain()
+	managedType := host.ManagedTypes()
+	metering.StartGasTracing(managedAccHasPermName)
+
+	gasToUse := metering.GasSchedule().BaseOpsAPICost.Int64Finish +
+		metering.GasSchedule().BaseOpsAPICost.GetOwnerAddress
+	metering.UseAndTraceGas(gasToUse)
+
+	srcAddBytes, err := managedType.GetBytes(sourceAccAddr)
+	if err != nil {
+		_ = WithFaultAndHost(
+			host,
+			vmhost.ErrArgOutOfRange,
+			runtime.BaseOpsErrorShouldFailExecution(),
+		)
+		return 0
+	}
+
+	tgtAddBytes, err := managedType.GetBytes(targetAccAddr)
+	if err != nil {
+		_ = WithFaultAndHost(
+			host,
+			vmhost.ErrArgOutOfRange,
+			runtime.BaseOpsErrorShouldFailExecution(),
+		)
+		return 0
+	}
+
+	acc, err := blockchain.GetUserAccount(srcAddBytes)
+	if err != nil {
+		_ = WithFaultAndHost(
+			host,
+			vmhost.ErrArgOutOfRange,
+			runtime.BaseOpsErrorShouldFailExecution(),
+		)
+		return 0
+	}
+
+	return ValidatePerm(acc, tgtAddBytes, ops)
+}
+
+func ValidatePerm(acc state.UserAccountHandler, tgtAddBytes []byte, ops int64) int32 {
+	perms := acc.GetPermissions()
+
+	for _, perm := range perms {
+		for _, signer := range perm.Signers {
+			if !bytes.Equal(signer.GetAddress(), tgtAddBytes) ||
+				signer.GetWeight() < perm.GetThreshold() {
+				continue
+			}
+
+			switch perm.GetType() {
+			case state.Permission_Owner:
+				return 1
+			case state.Permission_User:
+				if isOperationPermitted(perm.GetOperations(), ops) {
+					return 1
+				}
+			}
+		}
+	}
+
+	return 0
+}
+
+func isOperationPermitted(permission []byte, ops int64) bool {
+	// Check each bit of ops
+	for i := 0; i < 64; i++ {
+		if ops&(1<<i) != 0 {
+			value := int32(i)
+			base := value / 8
+			index := value % 8
+			if int32(len(permission)) <= base || permission[base]&(1<<index) == 0 {
+				return false
+			}
+		}
+	}
+	return true
 }

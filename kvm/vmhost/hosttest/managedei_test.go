@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klever-io/klever-go/data/state"
+	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/crypto/hashing"
 	"github.com/klever-io/klever-go/kvm/crypto/signing/secp256k1"
@@ -1056,4 +1058,193 @@ func TestBaseOpsAPI_NFTNonceOverflow(t *testing.T) {
 				Ok()
 		})
 	assert.Nil(t, err)
+}
+
+func opsValue(ops ...transaction.TXContract_ContractType) int64 {
+	value := int64(0)
+	for _, op := range ops {
+		value |= 1 << uint(op)
+	}
+
+	return value
+}
+
+func opsBytes(ops ...transaction.TXContract_ContractType) []byte {
+	opCleanBytes := make([]byte, 0)
+	for _, op := range ops {
+		value := int32(op)
+		base := int(value / 8)
+		index := value % 8
+		if len(opCleanBytes) <= base {
+			opCleanBytes = append(opCleanBytes, make([]byte, base-len(opCleanBytes)+1)...)
+		}
+
+		opCleanBytes[base] = 1 << uint(index)
+	}
+
+	return opCleanBytes
+}
+
+func TestManagedei_ManagedAccHasPerm_Helper_Func_ValidatePerm(t *testing.T) {
+
+	testVectors := []struct {
+		name          string
+		targetAddress []byte
+		perm          []*state.Permission
+		contractType  []transaction.TXContract_ContractType
+		expected      int32
+	}{
+		{
+			name:          "no permission for target",
+			targetAddress: []byte("targetaddress"),
+			perm: []*state.Permission{
+				{
+					Type:       state.Permission_Owner,
+					Threshold:  1,
+					Operations: opsBytes(transaction.TXContract_TransferContractType),
+					Signers:    []*state.Key{{Address: []byte("sourceaddress"), Weight: 1}},
+				},
+			},
+			contractType: []transaction.TXContract_ContractType{transaction.TXContract_TransferContractType},
+			expected:     0,
+		},
+		{
+			name:          "no permission",
+			targetAddress: []byte("targetaddress"),
+			perm: []*state.Permission{
+				{
+					Type:       state.Permission_User,
+					Threshold:  1,
+					Operations: nil,
+					Signers:    []*state.Key{{Address: []byte("targetaddress"), Weight: 1}},
+				},
+			},
+			contractType: []transaction.TXContract_ContractType{transaction.TXContract_TransferContractType},
+			expected:     0,
+		},
+		{
+			name:          "no permission slice 8",
+			targetAddress: []byte("targetaddress"),
+			perm: []*state.Permission{
+				{
+					Type:       state.Permission_User,
+					Threshold:  1,
+					Operations: make([]byte, 8),
+					Signers:    []*state.Key{{Address: []byte("targetaddress"), Weight: 1}},
+				},
+			},
+			contractType: []transaction.TXContract_ContractType{transaction.TXContract_TransferContractType},
+			expected:     0,
+		},
+		{
+			name:          "wrong permission",
+			targetAddress: []byte("targetaddress"),
+			perm: []*state.Permission{
+				{
+					Type:       state.Permission_User,
+					Threshold:  1,
+					Operations: opsBytes(transaction.TXContract_AssetTriggerContractType),
+					Signers:    []*state.Key{{Address: []byte("targetaddress"), Weight: 1}},
+				},
+			},
+			contractType: []transaction.TXContract_ContractType{transaction.TXContract_TransferContractType},
+			expected:     0,
+		},
+		{
+			name:          "has permission",
+			targetAddress: []byte("targetaddress"),
+			perm: []*state.Permission{
+				{
+					Type:       state.Permission_User,
+					Threshold:  1,
+					Operations: opsBytes(transaction.TXContract_TransferContractType),
+					Signers:    []*state.Key{{Address: []byte("targetaddress"), Weight: 1}},
+				},
+			},
+			contractType: []transaction.TXContract_ContractType{transaction.TXContract_TransferContractType},
+			expected:     1,
+		},
+		{
+			name:          "has owner permission",
+			targetAddress: []byte("targetaddress"),
+			perm: []*state.Permission{
+				{
+					Type:       state.Permission_Owner,
+					Threshold:  1,
+					Operations: nil,
+					Signers:    []*state.Key{{Address: []byte("targetaddress"), Weight: 1}},
+				},
+			},
+			contractType: []transaction.TXContract_ContractType{transaction.TXContract_TransferContractType},
+			expected:     1,
+		},
+		{
+			name:          "low threshold permission",
+			targetAddress: []byte("targetaddress"),
+			perm: []*state.Permission{
+				{
+					Type:       state.Permission_Owner,
+					Threshold:  2,
+					Operations: opsBytes(transaction.TXContract_TransferContractType),
+					Signers:    []*state.Key{{Address: []byte("targetaddress"), Weight: 1}},
+				},
+			},
+			contractType: []transaction.TXContract_ContractType{transaction.TXContract_TransferContractType},
+			expected:     0,
+		},
+		{
+			name:          "missing permission",
+			targetAddress: []byte("targetaddress"),
+			perm: []*state.Permission{
+				{
+					Type:       state.Permission_User,
+					Threshold:  1,
+					Operations: opsBytes(transaction.TXContract_TransferContractType),
+					Signers:    []*state.Key{{Address: []byte("targetaddress"), Weight: 1}},
+				},
+			},
+			contractType: []transaction.TXContract_ContractType{transaction.TXContract_TransferContractType, transaction.TXContract_AssetTriggerContractType},
+			expected:     0,
+		},
+		{
+			name:          "double permission",
+			targetAddress: []byte("targetaddress"),
+			perm: []*state.Permission{
+				{
+					Type:       state.Permission_User,
+					Threshold:  1,
+					Operations: opsBytes(transaction.TXContract_TransferContractType, transaction.TXContract_AssetTriggerContractType),
+					Signers:    []*state.Key{{Address: []byte("targetaddress"), Weight: 1}},
+				},
+			},
+			contractType: []transaction.TXContract_ContractType{transaction.TXContract_TransferContractType, transaction.TXContract_AssetTriggerContractType},
+			expected:     1,
+		},
+		{
+			name:          "all permission slice 8",
+			targetAddress: []byte("targetaddress"),
+			perm: []*state.Permission{
+				{
+					Type:       state.Permission_User,
+					Threshold:  1,
+					Operations: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+					Signers:    []*state.Key{{Address: []byte("targetaddress"), Weight: 1}},
+				},
+			},
+			contractType: []transaction.TXContract_ContractType{transaction.TXContract_TransferContractType, transaction.TXContract_AssetTriggerContractType},
+			expected:     1,
+		},
+	}
+
+	for _, tv := range testVectors {
+		sourceAccount := state.NewEmptyUserAccount()
+		sourceAccount.SetPermissions(tv.perm)
+
+		result := vmhooks.ValidatePerm(
+			sourceAccount,
+			tv.targetAddress,
+			opsValue(tv.contractType...),
+		)
+		assert.Equal(t, tv.expected, result, tv.name)
+	}
 }

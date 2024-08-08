@@ -136,6 +136,7 @@ typedef struct {
   void (*managed_get_code_metadata_func_ptr)(void *context, int32_t address_handle, int32_t response_handle);
   int32_t (*managed_is_builtin_function_func_ptr)(void *context, int32_t function_name_handle);
   void (*managed_get_sft_metadata_func_ptr)(void *context, int32_t ticker_handle, int64_t nonce, int32_t data_handle);
+  int32_t (*managed_acc_has_perm_func_ptr)(void *context, int64_t ops, int32_t source_acc_addr, int32_t target_acc_addr);
   int32_t (*big_float_new_from_parts_func_ptr)(void *context, int32_t integral_part, int32_t fractional_part, int32_t exponent);
   int32_t (*big_float_new_from_frac_func_ptr)(void *context, int64_t numerator, int64_t denominator);
   int32_t (*big_float_new_from_sci_func_ptr)(void *context, int64_t significand, int64_t exponent);

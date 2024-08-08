@@ -120,6 +120,7 @@ type ManagedVMHooks interface {
 	ManagedGetCodeMetadata(addressHandle int32, responseHandle int32)
 	ManagedIsBuiltinFunction(functionNameHandle int32) int32
 	ManagedGetSftMetadata(tickerHandle int32, nonce int64, dataHandle int32)
+	ManagedAccHasPerm(ops int64, sourceAccAddr int32, targetAccAddr int32) int32
 }
 
 type BigFloatVMHooks interface {

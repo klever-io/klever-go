@@ -107,6 +107,7 @@ var functionNames = map[string]struct{}{
 	"managedGetCodeMetadata": empty,
 	"managedIsBuiltinFunction": empty,
 	"managedGetSftMetadata": empty,
+	"managedAccHasPerm": empty,
 	"bigFloatNewFromParts": empty,
 	"bigFloatNewFromFrac": empty,
 	"bigFloatNewFromSci": empty,

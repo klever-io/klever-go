@@ -858,6 +858,15 @@ func (w *WrapperVMHooks) ManagedGetSftMetadata(tickerHandle int32, nonce int64, 
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
+// ManagedAccHasPerm VM hook wrapper
+func (w *WrapperVMHooks) ManagedAccHasPerm(ops int64, sourceAccAddr int32, targetAccAddr int32) int32 {
+	callInfo := fmt.Sprintf("ManagedAccHasPerm(%d, %d, %d)", ops, sourceAccAddr, targetAccAddr)
+	w.logger.LogVMHookCallBefore(callInfo)
+	result := w.wrappedVMHooks.ManagedAccHasPerm(ops, sourceAccAddr, targetAccAddr)
+	w.logger.LogVMHookCallAfter(callInfo)
+	return result
+}
+
 // BigFloatNewFromParts VM hook wrapper
 func (w *WrapperVMHooks) BigFloatNewFromParts(integralPart int32, fractionalPart int32, exponent int32) int32 {
 	callInfo := fmt.Sprintf("BigFloatNewFromParts(%d, %d, %d)", integralPart, fractionalPart, exponent)
