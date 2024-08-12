@@ -102,56 +102,58 @@ func Start(ctx context.Context, kleverFacade MainAPIHandler, routesConfig config
 
 // RegisterRoutes will register all routes available on the web server
 func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.APIRoutesConfig, kleverFacade middleware.Handler) {
+	authHandler := middleware.NewAuthenticationFunc(routesConfig)
+
 	nodeRoutes := ws.Group("/node")
-	wrappedNodeRouter, err := wrapper.NewRouterWrapper("node", nodeRoutes, routesConfig)
+	wrappedNodeRouter, err := wrapper.NewRouterWrapper("node", nodeRoutes, routesConfig, authHandler)
 	if err == nil {
 		node.Routes(wrappedNodeRouter)
 	}
 
 	addressRoutes := ws.Group("/address")
-	wrappedAddressRouter, err := wrapper.NewRouterWrapper("address", addressRoutes, routesConfig)
+	wrappedAddressRouter, err := wrapper.NewRouterWrapper("address", addressRoutes, routesConfig, authHandler)
 	if err == nil {
 		address.Routes(wrappedAddressRouter)
 	}
 
 	networkRoutes := ws.Group("/network")
-	wrappedNetworkRoutes, err := wrapper.NewRouterWrapper("network", networkRoutes, routesConfig)
+	wrappedNetworkRoutes, err := wrapper.NewRouterWrapper("network", networkRoutes, routesConfig, authHandler)
 	if err == nil {
 		network.Routes(wrappedNetworkRoutes)
 	}
 
 	txRoutes := ws.Group("/transaction")
-	wrappedTransactionRouter, err := wrapper.NewRouterWrapper("transaction", txRoutes, routesConfig)
+	wrappedTransactionRouter, err := wrapper.NewRouterWrapper("transaction", txRoutes, routesConfig, authHandler)
 	if err == nil {
 		transaction.Routes(wrappedTransactionRouter)
 	}
 
 	validatorRoutes := ws.Group("/validator")
-	wrappedValidatorsRouter, err := wrapper.NewRouterWrapper("validator", validatorRoutes, routesConfig)
+	wrappedValidatorsRouter, err := wrapper.NewRouterWrapper("validator", validatorRoutes, routesConfig, authHandler)
 	if err == nil {
 		valStats.Routes(wrappedValidatorsRouter)
 	}
 
 	blockRoutes := ws.Group("/block")
-	wrappedBlockRouter, err := wrapper.NewRouterWrapper("block", blockRoutes, routesConfig)
+	wrappedBlockRouter, err := wrapper.NewRouterWrapper("block", blockRoutes, routesConfig, authHandler)
 	if err == nil {
 		block.Routes(wrappedBlockRouter)
 	}
 
 	assetRoutes := ws.Group("/asset")
-	wrappedAssetRouter, err := wrapper.NewRouterWrapper("asset", assetRoutes, routesConfig)
+	wrappedAssetRouter, err := wrapper.NewRouterWrapper("asset", assetRoutes, routesConfig, authHandler)
 	if err == nil {
 		asset.Routes(wrappedAssetRouter)
 	}
 
 	marketplaceRoutes := ws.Group("/marketplace")
-	wrappedMarketplaceRouter, err := wrapper.NewRouterWrapper("marketplace", marketplaceRoutes, routesConfig)
+	wrappedMarketplaceRouter, err := wrapper.NewRouterWrapper("marketplace", marketplaceRoutes, routesConfig, authHandler)
 	if err == nil {
 		marketplace.Routes(wrappedMarketplaceRouter)
 	}
 
 	vmRoutes := ws.Group("/vm")
-	wrappedVMRouter, err := wrapper.NewRouterWrapper("vm", vmRoutes, routesConfig)
+	wrappedVMRouter, err := wrapper.NewRouterWrapper("vm", vmRoutes, routesConfig, authHandler)
 	if err == nil {
 		vm.Routes(wrappedVMRouter)
 	}

@@ -6,33 +6,20 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	txcostestimator "github.com/klever-io/klever-go/core/process/transaction/txCostEstimator"
-	"github.com/klever-io/klever-go/crypto/hashing"
-	"github.com/klever-io/klever-go/data"
-	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/factory"
 	"github.com/klever-io/klever-go/network/api/apiResolver"
 	"github.com/klever-io/klever-go/node/stakeValuesProcessor"
 	"github.com/klever-io/klever-go/sharding"
 	"github.com/klever-io/klever-go/tools/marshal"
-	"github.com/klever-io/klever-go/tools/typeConverters"
 )
 
 func createAPIResolver(
 	generalConfig *config.Config,
 	accnts state.AccountsAdapter,
-	validatorAccounts state.AccountsAdapter,
-	kapps state.AccountsAdapter,
-	pubkeyConv core.PubkeyConverter,
-	storageService retriever.StorageService,
-	dataPool retriever.PoolsHolder,
-	blockChain data.ChainHandler,
 	marshalizer marshal.Marshalizer,
-	hasher hashing.Hasher,
-	uint64Converter typeConverters.Uint64ByteSliceConverter,
 	statusMetrics core.StatusMetricsHandler,
 	economics process.EconomicsDataHandler,
-	nodesSetup sharding.GenesisNodesSetupHandler,
 	epochNotifier process.EpochNotifier,
 	apiWorkingDir string,
 	coreComponents *factory.CoreComponents,
@@ -40,7 +27,6 @@ func createAPIResolver(
 	dataComponents *factory.DataComponents,
 	processComponents *factory.Process,
 	gasScheduleNotifier core.GasScheduleNotifier,
-	cryptoComponents *factory.CryptoComponents,
 	forkController core.ForkController,
 	rater sharding.ChanceComputer,
 	allowVMQueriesChan chan struct{},

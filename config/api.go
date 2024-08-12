@@ -3,6 +3,8 @@ package config
 // APIRoutesConfig holds the configuration related to Rest API routes
 type APIRoutesConfig struct {
 	APIPackages map[string]APIPackageConfig `yaml:"apiPackages"`
+	Credentials []Credential                `yaml:"credentials"`
+	Hasher      TypeConfig                  `yaml:"hasher"`
 }
 
 // APIPackageConfig holds the configuration for the routes of each package
@@ -12,8 +14,15 @@ type APIPackageConfig struct {
 
 // RouteConfig holds the configuration for a single route
 type RouteConfig struct {
-	Name string `yaml:"name"`
-	Open bool   `yaml:"open"`
+	Name    string `yaml:"name"`
+	Open    bool   `yaml:"open"`
+	Secured bool   `yaml:"secured"`
+}
+
+// Credential holds an username and a password
+type Credential struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 // FacadeConfig will hold different configuration option that will be passed to the main KleverFacade

@@ -78,7 +78,8 @@ apiPackages:
       - name: /statistics
         open: true
       - name: /set-redundancy
-        open: false
+        open: true
+        secured: true
       - name: /enable-epochs
         open: true
   log:
@@ -95,3 +96,11 @@ apiPackages:
         open: true
       - name: /query
         open: true
+
+credentials:
+  - username: example
+    password: hashed password
+  - username: example2
+    password: hashed password
+hasher:
+  type: sha256
