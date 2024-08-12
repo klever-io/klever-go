@@ -42,7 +42,7 @@ func init() {
 				return err
 			}
 
-			return DumpTX(TX)
+			return DumpAsJson(TX)
 		},
 	}
 
@@ -204,7 +204,7 @@ func checkForTX(await bool, hash string) error {
 	return errors.New("transaction not found within the specified timeout")
 }
 
-func DumpTX(TX *transaction.Transaction) error {
+func DumpAsJson(data interface{}) error {
 	// Make a custom formatter with indent set
 	// create custom formatter
 	f := jsoncolor.NewFormatter()
@@ -212,7 +212,7 @@ func DumpTX(TX *transaction.Transaction) error {
 
 	// marshal v with custom formatter,
 	// dst contains colorized output
-	dst, err := jsoncolor.MarshalIndentWithFormatter(TX, "", "    ", f)
+	dst, err := jsoncolor.MarshalIndentWithFormatter(data, "", "    ", f)
 	if err != nil {
 		return err
 	}

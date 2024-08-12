@@ -10,6 +10,7 @@ import (
 	"github.com/klever-io/klever-go/cmd/operator/utils"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/data/api"
+	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/indexer"
@@ -201,11 +202,26 @@ func getTXByID(hash string) error {
 		return err
 	}
 
+	return formatAndDumpTX(tx, hash, blockResult.Data.Block)
+}
+
+func formatAndDumpRawTX(tx *transaction.Transaction) error {
+	return formatAndDumpTX(&api.Transaction{
+		Transaction: tx,
+	}, "", &api.Block{
+		Block:        &block.Block{},
+		Hash:         "",
+		Status:       "",
+		Transactions: nil,
+	})
+}
+
+func formatAndDumpTX(tx *api.Transaction, hash string, block *api.Block) error {
 	cp, err := indexer.NewCommonProcessor(walletPubKeyConverter, validatorPubKeyConverter)
 	if err != nil {
 		return err
 	}
-	txDecoded := cp.BuildTransaction(tx.Transaction, hash, blockResult.Data.Block)
+	txDecoded := cp.BuildTransaction(tx.Transaction, hash, block)
 	if err != nil {
 		return err
 	}
@@ -235,27 +251,12 @@ func getTXByID(hash string) error {
 		}
 	}
 
-	err = cp.DecodeContract(txDecoded, tx.Transaction, nil, nil, blockResult.Data.Block.Block.GetTimestamp())
+	err = cp.DecodeContract(txDecoded, tx.Transaction, nil, nil, block.Block.GetTimestamp())
 	if err != nil {
 		return err
 	}
 
-	// Make a custom formatter with indent set
-	// create custom formatter
-	f := json.NewFormatter()
-	f.Indent = "    "
-
-	// marshal v with custom formatter,
-	// dst contains colorized output
-	dst, err := json.MarshalIndentWithFormatter(txDecoded, "", "    ", f)
-	if err != nil {
-		return err
-	}
-
-	// print colorized output to stdout
-	fmt.Println(string(dst))
-
-	return nil
+	return DumpAsJson(txDecoded)
 }
 
 func getAssetData(assetID string) (*kapps.KDAData, error) {

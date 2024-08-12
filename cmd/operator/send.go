@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 
@@ -51,7 +52,44 @@ func multiTransfer(fromAddr, kda string, toAmount ...ToAmount) (string, error) {
 	return sendSignAndBroadcast(data)
 }
 
+// shouldSign prompts the user to sign a transaction
+// returns an error if the user does not confirm the transaction
+func shouldSign(TX *transaction.Transaction) error {
+	if autoSign {
+		return nil
+	}
+
+	// print TX
+	fmt.Println("Requested Transaction Details:")
+	err := formatAndDumpRawTX(TX)
+	if err != nil {
+		return err
+	}
+
+	// prompt
+	fmt.Println("Please carefully review the transaction above.")
+	fmt.Println("Would you like to sign this transaction? (yes/no)")
+	fmt.Println("Tip: You can skip this prompt in the future by using the --sign flag.")
+	confirmation := askForConfirmation()
+
+	// confirm user input by feedback
+	if confirmation {
+		fmt.Println("Signing transaction...")
+	} else {
+		return errors.New("transaction signing has been canceled by the user")
+	}
+	return nil
+}
+
+// signAndBroadcast is a utility function that signs and broadcasts a transaction
+// for all operator transactions
 func signAndBroadcast(tx *transaction.Transaction) (string, error) {
+	// ask for permission right before signing
+	err := shouldSign(tx)
+	if err != nil {
+		return "", err
+	}
+
 	hash, err := SignTX(tx)
 	if err != nil {
 		return "", err
@@ -72,7 +110,7 @@ func signAndBroadcast(tx *transaction.Transaction) (string, error) {
 	hashSt := hex.EncodeToString(hash)
 
 	if createOnly {
-		return hashSt, DumpTX(tx)
+		return hashSt, DumpAsJson(tx)
 	}
 
 	return hashSt, broadcast(tx)

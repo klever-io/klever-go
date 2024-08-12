@@ -55,6 +55,7 @@ var (
 	pwd           string
 	pwdFilePath   string
 	createOnly    bool
+	autoSign      bool
 	await         bool
 	resultOnly    bool
 )
@@ -174,6 +175,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&pwdFilePath, "password-file", "", "path to a file containing the password")
 	rootCmd.PersistentFlags().StringArrayVarP(&multiSign, "multi-files", "m", []string{}, "add more files to sign tx. Ex: -m=./file.pem -m=./file2.pem")
 	rootCmd.PersistentFlags().BoolVarP(&createOnly, "create-only", "c", false, "only create transaction to be signed later")
+	rootCmd.PersistentFlags().BoolVarP(&autoSign, "sign", "s", false, "auto signs transactions without confirmation")
 	rootCmd.PersistentFlags().StringVar(&kdaFee, "kdaFee", "", "use KDA to pay for fees")
 	rootCmd.PersistentFlags().BoolVar(&await, "await", false, "wait for transaction to be posted on blockchain")
 	rootCmd.PersistentFlags().BoolVar(&resultOnly, "result-only", false, "print result only")
