@@ -210,6 +210,28 @@ func (sr *subslotEndSlot) doEndSlotJobByLeader() bool {
 
 	// broadcast section
 
+	defer func() {
+		sr.SetProcessingBlock(false)
+	}()
+
+	sr.SetProcessingBlock(true)
+
+	shouldNotCommitBlock := sr.ExtendedCalled ||
+		int64(sr.Header.GetSlot()) < sr.SlotManager().Index()
+	if shouldNotCommitBlock {
+		log.Debug("canceled slot, extended has been called or slot index has been changed",
+			"slot", sr.SlotManager().Index(),
+			"subslot", sr.Name(),
+			"header slot", sr.Header.GetSlot(),
+			"extended called", sr.ExtendedCalled,
+		)
+		return false
+	}
+
+	if sr.isOutOfTime() {
+		return false
+	}
+
 	// create and broadcast header final info
 	sr.createAndBroadcastHeaderFinalInfo()
 
