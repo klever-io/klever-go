@@ -163,15 +163,15 @@ func (sr *subslotStartSlot) initCurrentSlot() bool {
 			sr.AppStatusHandler().Increment(core.MetricCountConsensus)
 		}
 		sr.AppStatusHandler().SetStringValue(core.MetricConsensusState, "participant")
-	}
 
-	err = sr.MultiSigner().Reset(pubKeys, uint16(selfIndex))
-	if err != nil {
-		log.Debug("initCurrentSlot.Reset", "error", err.Error())
+		err = sr.MultiSigner().Reset(pubKeys, uint16(selfIndex))
+		if err != nil {
+			log.Debug("initCurrentSlot.Reset", "error", err.Error())
 
-		sr.SlotCanceled = true
+			sr.SlotCanceled = true
 
-		return false
+			return false
+		}
 	}
 
 	startTime := sr.SlotTimestamp

@@ -395,6 +395,7 @@ func TestSubslotStartSlot_InitCurrentSlotShouldReturnFalseWhenCreateErr(t *testi
 	container.SetMultiSigner(multiSignerMock)
 
 	srStartSlot := *initSubslotStartSlotWithContainer(container)
+	srStartSlot.SetSelfPubKey("pubKey0")
 
 	r := srStartSlot.InitCurrentSlot()
 	assert.False(t, r)
