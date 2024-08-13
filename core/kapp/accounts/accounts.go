@@ -818,6 +818,12 @@ func (a *accountsKapp) Unfreeze(sender []byte, tc *transaction.UnfreezeContract)
 		if err != nil {
 			return resultCode, err
 		}
+		if a.forkController.EnableSmartContracts() {
+			_, _, err = ownerAcc.Undelegate(tc.GetBucketID(), userKDA)
+			if err != nil {
+				return transaction.Transaction_UndelegateError, err
+			}
+		}
 	}
 
 	err = ownerAcc.SetUserKDA(assetID, nil, userKDA)
@@ -1124,7 +1130,7 @@ func (a *accountsKapp) Undelegate(sender []byte, tc *transaction.UndelegateContr
 
 	delegationAddress, bucketValue, err := ownerAcc.Undelegate(tc.BucketID, userKDA)
 	if err != nil {
-		return transaction.Transaction_UndeletegateError, err
+		return transaction.Transaction_UndelegateError, err
 	}
 
 	// Undelegate bucket on validator

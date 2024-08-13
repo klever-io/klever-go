@@ -2165,7 +2165,7 @@ const docTemplatenode = `{
                 "Transaction_BalanceError",
                 "Transaction_KAPPError",
                 "Transaction_UnfreezeError",
-                "Transaction_UndeletegateError",
+                "Transaction_UndelegateError",
                 "Transaction_WithdrawError",
                 "Transaction_ClaimError",
                 "Transaction_BucketsExceeded",

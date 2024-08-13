@@ -469,7 +469,6 @@ func (a *userAccount) Unfreeze(
 		blockEpoch-userKDA.Buckets[parsedBucketID].StakedEpoch < staking.MinEpochsToUnstake {
 		return nil, 0, ErrUnstakeNotAvailable
 	}
-
 	userKDA.Buckets[parsedBucketID].UnstakedEpoch = blockEpoch
 
 	if newStakingFlow && staking.InterestType == kapps.StakingData_APRI {

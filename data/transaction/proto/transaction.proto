@@ -91,7 +91,7 @@ message Transaction {
         BalanceError             = 37;
         KAPPError                = 38;
         UnfreezeError            = 39;
-        UndeletegateError        = 40;
+        UndelegateError          = 40;
         WithdrawError            = 41;
         ClaimError               = 42;
         BucketsExceeded          = 43;
@@ -128,8 +128,8 @@ message Transaction {
         VMSimulateFailed           = 64;
         // KDA Transfer not allowed
         KDATransferNotAllowed      = 65;
-        
-        
+
+
         Fail                     = 99;
     }
 
