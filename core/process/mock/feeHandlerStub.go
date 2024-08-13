@@ -60,7 +60,7 @@ func (fhs *FeeHandlerStub) GenesisTotalSupply() int64 {
 }
 
 // CheckValidityTxValues -
-func (fhs *FeeHandlerStub) CheckValidityTxValues(tx process.TransactionCoordinator, _ bool) error {
+func (fhs *FeeHandlerStub) CheckValidityTxValues(tx process.TransactionCoordinator) error {
 	if fhs.CheckValidityTxValuesCalled != nil {
 		return fhs.CheckValidityTxValuesCalled(tx)
 	}

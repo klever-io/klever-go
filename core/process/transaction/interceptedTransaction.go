@@ -193,7 +193,7 @@ func (inTx *InterceptedTransaction) integrity(tx *transaction.Transaction) error
 		return err
 	}
 
-	_, err = inTx.feeHandler.CheckValidityTxValues(tx, false)
+	_, err = inTx.feeHandler.CheckValidityTxValues(tx)
 	return err
 }
 

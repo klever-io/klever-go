@@ -175,8 +175,8 @@ func (ed *EconomicsData) EpochConfirmed(epoch uint32) {
 }
 
 // CheckValidityTxValues checks if the provided transaction is economically correct
-func (ed *EconomicsData) CheckValidityTxValues(tx process.TransactionWithFeeHandler, simulateSC bool) (*transaction.CostResponse, error) {
-	cost, err := ed.ComputeTransactionCost(tx, simulateSC)
+func (ed *EconomicsData) CheckValidityTxValues(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error) {
+	cost, err := ed.ComputeTransactionCost(tx, false)
 	if err != nil {
 		return nil, err
 	}

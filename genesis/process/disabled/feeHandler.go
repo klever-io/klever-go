@@ -27,7 +27,7 @@ func (fh *FeeHandler) ComputeTransactionCost(_ process.TransactionWithFeeHandler
 	return &transaction.CostResponse{}, nil
 }
 
-func (fh *FeeHandler) CheckValidityTxValues(_ process.TransactionWithFeeHandler, _ bool) (*transaction.CostResponse, error) {
+func (fh *FeeHandler) CheckValidityTxValues(_ process.TransactionWithFeeHandler) (*transaction.CostResponse, error) {
 	return &transaction.CostResponse{}, nil
 }
 

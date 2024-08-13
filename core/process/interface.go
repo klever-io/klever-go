@@ -496,7 +496,7 @@ type EconomicsDataHandler interface {
 	SetProposalController(controller kapps.ActiveProposalController) error
 	SetTXSimulatorProcessor(txSimulatorProcessor txsimulator.TransactionSimulatorProcessor) error
 	ComputeTransactionCost(tx TransactionWithFeeHandler, simulateSC bool) (*transaction.CostResponse, error)
-	CheckValidityTxValues(tx TransactionWithFeeHandler, simulateSC bool) (*transaction.CostResponse, error)
+	CheckValidityTxValues(tx TransactionWithFeeHandler) (*transaction.CostResponse, error)
 	LeaderPercentage() float64
 	IsInterfaceNil() bool
 }

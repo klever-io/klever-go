@@ -32,7 +32,7 @@ func (fhs *FeeHandlerStub) SetTXSimulatorProcessor(txSimulatorProcessor txsimula
 }
 
 // CheckValidityTxValues -
-func (fhs *FeeHandlerStub) CheckValidityTxValues(tx process.TransactionWithFeeHandler, _ bool) (*transaction.CostResponse, error) {
+func (fhs *FeeHandlerStub) CheckValidityTxValues(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error) {
 	if fhs.CheckValidityTxValuesCalled != nil {
 		return fhs.CheckValidityTxValuesCalled(tx)
 	}

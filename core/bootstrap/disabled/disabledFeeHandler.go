@@ -22,7 +22,7 @@ func (fh *FeeHandler) SetTXSimulatorProcessor(txSimulatorProcessor txsimulator.T
 }
 
 // CheckValidityTxValues returns nil
-func (fh *FeeHandler) CheckValidityTxValues(tx process.TransactionWithFeeHandler, _ bool) (*transaction.CostResponse, error) {
+func (fh *FeeHandler) CheckValidityTxValues(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error) {
 	return &transaction.CostResponse{}, nil
 }
 

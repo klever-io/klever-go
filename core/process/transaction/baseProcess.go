@@ -151,7 +151,7 @@ func (txProc *baseTxProcessor) checkTxValues(tx *transaction.Transaction, acntSn
 		signedBy...,
 	))
 
-	computedCost, err := txProc.economicsFee.CheckValidityTxValues(tx, false)
+	computedCost, err := txProc.economicsFee.CheckValidityTxValues(tx)
 	if err != nil {
 		return err
 	}

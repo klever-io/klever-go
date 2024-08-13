@@ -53,7 +53,7 @@ func (e *EconomicsHandlerStub) EpochConfirmed(epoch uint32) {
 }
 
 // CheckValidityTxValues checks if the provided transaction is economically correct
-func (e *EconomicsHandlerStub) CheckValidityTxValues(tx process.TransactionWithFeeHandler, _ bool) (*transaction.CostResponse, error) {
+func (e *EconomicsHandlerStub) CheckValidityTxValues(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error) {
 	if e.CheckValidityTxValuesCalled != nil {
 		return e.CheckValidityTxValuesCalled(tx)
 	}
