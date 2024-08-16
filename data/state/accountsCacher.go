@@ -209,10 +209,16 @@ func (acc *accountsCache) LoadPeer(address []byte) (PeerAccountHandler, error) {
 	return peerAcc, nil
 }
 
+// ResetAll reset all cached accounts (User/KApps/Peers) with lock
 func (acc *accountsCache) ResetAll(enableCache bool) {
 	acc.mut.Lock()
 	defer acc.mut.Unlock()
+	acc.resetAllNoLock(enableCache)
+}
 
+// resetAllNoLock reset all cached accounts (User/KApps/Peers) without locking
+// this function should be called only when lock is already acquired
+func (acc *accountsCache) resetAllNoLock(enableCache bool) {
 	acc.userMap = make(map[string]UserAccountHandler)
 	acc.userList = make([]string, 0)
 	acc.kappMap = make(map[string]KAppAccountHandler)
@@ -227,6 +233,7 @@ func (acc *accountsCache) ResetAll(enableCache bool) {
 // if cacher not enable, list will be empty and none will be saved
 func (acc *accountsCache) SaveAll() error {
 	acc.mut.Lock()
+	defer acc.mut.Unlock()
 
 	for _, value := range acc.userList {
 		err := acc.accounts.SaveAccount(acc.userMap[value])
@@ -249,9 +256,7 @@ func (acc *accountsCache) SaveAll() error {
 		}
 	}
 
-	acc.mut.Unlock()
-
-	acc.ResetAll(acc.cacheEnable)
+	acc.resetAllNoLock(acc.cacheEnable)
 
 	return nil
 }
