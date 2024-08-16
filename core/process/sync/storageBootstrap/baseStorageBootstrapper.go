@@ -277,7 +277,6 @@ func (st *storageBootstrapper) applyBootInfos(bootInfos []*bootstrapStorage.Boot
 
 	defer func() {
 		if err != nil {
-			//st.blockTracker.RestoreToGenesis()
 			st.forkDetector.RestoreToGenesis()
 		}
 	}()
@@ -309,11 +308,7 @@ func (st *storageBootstrapper) applyBootInfos(bootInfos []*bootstrapStorage.Boot
 				"slot", header.GetSlot(),
 				"nonce", header.GetNonce(),
 				"hash", bootInfos[i].LastHeader.Hash)
-
-			//st.blockTracker.AddSelfNotarizedHeader(header, bootInfos[i].LastHeader.Hash)
 		}
-
-		//st.blockTracker.AddTrackedHeader(header, bootInfos[i].LastHeader.Hash)
 	}
 
 	if len(bootInfos) == 1 {

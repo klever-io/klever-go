@@ -31,8 +31,6 @@ type randHashShuffler struct {
 	activeNodesConfig     config.MaxNodesChangeConfig
 	availableNodesConfigs []config.MaxNodesChangeConfig
 	mutShufflerParams     sync.RWMutex
-	//TODO: Make sure if it's needed
-	// validatorDistributor           ValidatorsDistributor
 }
 
 // NewHashValidatorsShuffler creates a validator shuffler that uses a hash between validator key and a given

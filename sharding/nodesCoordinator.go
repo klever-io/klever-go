@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	keyFormat               = "%s_%v_%v_%v"
+	keyFormat               = "%s_%v_%v"
 	DefaultSelectionChances = uint32(1)
 )
 
@@ -74,6 +74,8 @@ type indexHashedNodesCoordinator struct {
 	consensusGroupSize            int
 	currentEpoch                  uint32
 	startEpoch                    uint32
+
+	stateReady bool
 }
 
 type indexHashedNodesCoordinatorWithRater struct {
@@ -113,6 +115,8 @@ func NewNodesCoordinator(arguments ArgNodesCoordinator) (*indexHashedNodesCoordi
 		publicKeyToValidatorMap:       make(map[string]Validator),
 		startEpoch:                    arguments.StartEpoch,
 		currentEpoch:                  arguments.StartEpoch,
+		// no need to wait for load state, as we have the initial configuration
+		stateReady: arguments.StartEpoch == 0,
 	}
 
 	ihgs.loadingFromDisk.Store(false)
@@ -276,6 +280,8 @@ func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 	ihgs.mutNodesConfig.Lock()
 	ihgs.nodesConfig = nodesConfig
 	ihgs.mutNodesConfig.Unlock()
+
+	ihgs.stateReady = true
 
 	return nil
 }
@@ -468,6 +474,11 @@ func (ihgs *indexHashedNodesCoordinator) ComputeConsensusGroup(
 	slot uint64,
 	epoch uint32,
 ) (validatorsGroup []Validator, err error) {
+	// check if component is ready (previous epoch nodes config is loaded)
+	if !ihgs.stateReady {
+		return nil, ErrNodesCoordinatorNotReady
+	}
+
 	var selector RandomSelector
 	var electedList []Validator
 
@@ -492,7 +503,7 @@ func (ihgs *indexHashedNodesCoordinator) ComputeConsensusGroup(
 		return nil, fmt.Errorf("%w epoch=%v", ErrEpochNodesConfigDoesNotExist, epoch)
 	}
 
-	key := []byte(fmt.Sprintf(keyFormat, string(randomness), slot, 0, epoch))
+	key := []byte(fmt.Sprintf(keyFormat, string(randomness), slot, epoch))
 	validators := ihgs.searchConsensusForKey(key)
 	if validators != nil {
 		return validators, nil
@@ -582,7 +593,7 @@ func displayValidatorsForRandomness(validators []Validator, randomness []byte, s
 	log.Trace("selectValidators", "slot", slot, "randomness", randomness, "validators", strValidators)
 }
 
-// GetAllElectedValidatorsKeys will return all validators public keys for all shards
+// GetAllElectedValidatorsKeys will return all validators elected public keys
 func (ihgs *indexHashedNodesCoordinator) GetAllElectedValidatorsKeys(epoch uint32, ownerKey bool) ([][]byte, error) {
 	validatorsPubKeys := make([][]byte, 0)
 

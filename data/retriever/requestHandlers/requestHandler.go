@@ -328,6 +328,7 @@ func (rrh *resolverRequestHandler) RequestHeaderByNonce(nonce uint64) {
 
 	log.Debug("requesting meta header by nonce from network",
 		"nonce", nonce,
+		"currentEpoch", rrh.epoch,
 	)
 
 	headerResolver, err := rrh.getHeaderResolver()

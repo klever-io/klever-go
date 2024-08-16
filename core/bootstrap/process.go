@@ -514,10 +514,9 @@ func (e *epochStartBootstrap) processNodesConfig(pubKey []byte, epochStartValida
 	var err error
 
 	argsNewValidatorStatusSyncers := ArgsNewSyncValidatorStatus{
-		DataPool:       e.dataPool,
-		Marshalizer:    e.marshalizer,
-		RequestHandler: e.requestHandler,
-		//ChanceComputer:     e.rater,
+		DataPool:           e.dataPool,
+		Marshalizer:        e.marshalizer,
+		RequestHandler:     e.requestHandler,
 		GenesisNodesConfig: e.genesisNodesConfig,
 		NodeShuffler:       e.nodeShuffler,
 		Hasher:             e.hasher,

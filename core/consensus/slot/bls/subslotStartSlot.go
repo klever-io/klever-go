@@ -94,11 +94,7 @@ func (sr *subslotStartSlot) doStartSlotConsensusCheck() bool {
 		return true
 	}
 
-	if sr.initCurrentSlot() {
-		return true
-	}
-
-	return false
+	return sr.initCurrentSlot()
 }
 
 func (sr *subslotStartSlot) initCurrentSlot() bool {

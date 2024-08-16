@@ -88,3 +88,6 @@ var ErrNilNodeShufflerArguments = errors.New("nil arguments for the creation of 
 
 // ErrValidatorListNotFound signals that the validator list has not been found
 var ErrValidatorListNotFound = errors.New("validator list not found")
+
+// ErrNodesCoordinatorNotReady signals that the nodes coordinator is not ready
+var ErrNodesCoordinatorNotReady = errors.New("nodes coordinator not ready")
