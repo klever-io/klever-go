@@ -343,7 +343,7 @@ func (nf *nodeFacade) GetThrottlerForEndpoint(endpoint string) (core.Throttler, 
 	return throttlerForEndpoint, isThrottlerOk
 }
 
-// TXPool returns list of transctions in mempool
+// TXPool returns list of transactions in mempool
 func (nf *nodeFacade) TXPool(sender string, page int, pageSize int) ([]*dataAPI.Transaction, int, error) {
 	return nf.node.TXPool(sender, page, pageSize)
 }

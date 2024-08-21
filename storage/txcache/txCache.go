@@ -201,7 +201,10 @@ func (cache *TxCache) GetBySenderPaginated(sender []byte, page int, pageSize int
 	cache.mutTxOperation.Lock()
 	defer cache.mutTxOperation.Unlock()
 
-	listForSender := cache.txListBySender.getOrAddListForSender(string(sender))
+	listForSender, ok := cache.txListBySender.getListForSender(string(sender))
+	if !ok {
+		return make([]interface{}, 0), 0
+	}
 
 	l := listForSender.items.Len()
 	idx := page * pageSize
@@ -215,12 +218,17 @@ func (cache *TxCache) GetBySenderPaginated(sender []byte, page int, pageSize int
 
 	result := make([]interface{}, idxEnd-idx)
 	count := 0
-	for element := listForSender.items.Front(); element != nil; element = element.Next() {
+	for element := listForSender.items.Front(); element != nil && count < idxEnd; element = element.Next() {
+		// listForSender.items is a linked list, so we need to skip elements until we reach the desired index
+		if count < idx {
+			count++
+			continue
+		}
 		tx, ok := element.Value.(*WrappedTransaction)
 		if !ok {
 			continue
 		}
-		result[count] = tx.Tx
+		result[count-idx] = tx.Tx
 
 		count++
 	}

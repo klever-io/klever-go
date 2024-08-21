@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klever-io/klever-go/data/transaction"
+
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
@@ -338,6 +340,123 @@ func Test_AddWithEviction_UniformDistributionOfTxsPerSender(t *testing.T) {
 
 	addManyTransactionsWithUniformDistribution(cache, 100, 1000)
 	require.LessOrEqual(t, cache.CountTx(), uint64(250000))
+}
+
+func Test_GetBySenderPaginated_NewSender(t *testing.T) {
+	sender := []byte("alice")
+	cache := newUnconstrainedCacheToTest()
+
+	// new sender must return empty list
+	paginated, i := cache.GetBySenderPaginated(sender, 0, 10)
+	require.Equal(t, 0, i)
+	require.Len(t, paginated, 0)
+}
+
+func Test_GetBySenderPaginated_CachePreserved(t *testing.T) {
+	sender := []byte("alice")
+	cache := newUnconstrainedCacheToTest()
+
+	// new sender must return empty list
+	paginated, i := cache.GetBySenderPaginated(sender, 0, 10)
+	require.Equal(t, 0, i)
+	require.Len(t, paginated, 0)
+
+	// ensure that the sender is not inserted in cache as a side effect
+	_, ok := cache.txListBySender.backingMap.Get(string(sender))
+	require.False(t, ok)
+}
+
+func Test_GetBySenderPaginated_ExistingSender(t *testing.T) {
+	sender := []byte("alice")
+	cache := newUnconstrainedCacheToTest()
+
+	// if manually added, sender must exist
+	_ = cache.txListBySender.getOrAddListForSender(string(sender))
+	_, ok := cache.txListBySender.backingMap.Get(string(sender))
+	require.True(t, ok)
+
+	// existing sender with no transactions
+	paginated, i := cache.GetBySenderPaginated(sender, 0, 10)
+	require.Equal(t, 0, i)
+	require.Len(t, paginated, 0)
+
+	// add transaction
+	cache.AddTx(createTx([]byte("hash-1"), string(sender), 1, 1))
+
+	// existing sender with 1 transaction
+	paginated, i = cache.GetBySenderPaginated(sender, 0, 10)
+	require.Equal(t, 1, i)
+	require.Len(t, paginated, 1)
+}
+
+func Test_GetBySenderPaginated_TxsOnlyFromSender(t *testing.T) {
+	sender := []byte("alice")
+	sender2 := []byte("not-alice")
+	cache := newUnconstrainedCacheToTest()
+
+	// add transaction
+	cache.AddTx(createTx([]byte("hash-1"), string(sender), 1, 1))
+
+	// existing sender with 1 transaction
+	paginated, i := cache.GetBySenderPaginated(sender, 0, 10)
+	require.Equal(t, 1, i)
+	require.Len(t, paginated, 1)
+
+	// add transaction from another sender
+	cache.AddTx(createTx([]byte("hash-2"), string(sender2), 1, 1))
+	cache.AddTx(createTx([]byte("hash-3"), string(sender2), 1, 1))
+	cache.AddTx(createTx([]byte("hash-4"), string(sender2), 1, 1))
+	cache.AddTx(createTx([]byte("hash-5"), string(sender2), 1, 1))
+
+	// transactions exists in cache
+	count := len(cache.txByHash.keys())
+	require.Equal(t, 5, count)
+
+	// existing sender still returns only 1 transaction
+	paginated, i = cache.GetBySenderPaginated(sender, 0, 10)
+	require.Equal(t, 1, i)
+	require.Len(t, paginated, 1)
+}
+
+func Test_GetBySenderPaginated_Pagination(t *testing.T) {
+	sender := []byte("alice")
+	cache := newUnconstrainedCacheToTest()
+
+	// add transactions
+	cache.AddTx(createTx([]byte("hash-1"), string(sender), 1, 1))
+	cache.AddTx(createTx([]byte("hash-2"), string(sender), 2, 1))
+	cache.AddTx(createTx([]byte("hash-3"), string(sender), 3, 1))
+	cache.AddTx(createTx([]byte("hash-4"), string(sender), 4, 1))
+
+	// transactions exists in cache
+	count := len(cache.txByHash.keys())
+	require.Equal(t, 4, count)
+
+	// retrieve all on same page
+	paginated, i := cache.GetBySenderPaginated(sender, 0, 10)
+	require.Equal(t, 4, i)
+	require.Len(t, paginated, 4)
+
+	// paginate
+	page01, i := cache.GetBySenderPaginated(sender, 0, 2)
+	require.Equal(t, 4, i)
+	require.Len(t, page01, 2)
+
+	page02, i := cache.GetBySenderPaginated(sender, 1, 2)
+	require.Equal(t, 4, i)
+	require.Len(t, page02, 2)
+
+	// out of bounds
+	page03, i := cache.GetBySenderPaginated(sender, 2, 2)
+	require.Equal(t, 4, i)    // total count must be correct even if out of bounds
+	require.Len(t, page03, 0) // beyond bounds returns empty list
+
+	// check if all transactions are returned ordered
+	items := append(page01, page02...)
+	for i, tx := range items {
+		wrapped := tx.(*transaction.Transaction)
+		require.Equal(t, uint64(i+1), wrapped.GetNonce())
+	}
 }
 
 func Test_NotImplementedFunctions(t *testing.T) {
