@@ -348,7 +348,8 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 			return transaction.Transaction_SaveAccountError, err
 		}
 	case transaction.AssetTriggerContract_UpdateRoyalties:
-		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		if !bytes.Equal(asset.OwnerAddress, sender) &&
+			(k.forkController.EnableSmartContracts() && !bytes.Equal(asset.AdminAddress, sender)) {
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -439,7 +440,6 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 			asset.Royalties.SplitRoyalties = splitRoyalties
 
 		case kapps.KDAData_Fungible:
-
 			sumSplitTransferPercentage := uint32(0)
 			sumSplitTransferFixed := uint32(0)
 			sumSplitITOPercentage := uint32(0)
@@ -474,8 +474,12 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 				return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 			}
 
-			if !pkda.CheckValid100Params(tc.GetRoyalties().GetMarketPercentage(),
-				tc.GetRoyalties().GetITOPercentage()) {
+			if !pkda.CheckValid100Params(tc.GetRoyalties().GetITOPercentage()) {
+				return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+			}
+
+			if k.forkController.EnableSmartContracts() &&
+				!pkda.CheckValid100Params(tc.GetRoyalties().GetMarketPercentage()) {
 				return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 			}
 
@@ -507,9 +511,11 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 				asset.Royalties.TransferPercentage = royaltiesTransfer
 			}
 
+			if k.forkController.EnableSmartContracts() {
+				asset.Royalties.MarketFixed = tc.GetRoyalties().GetMarketFixed()
+				asset.Royalties.MarketPercentage = tc.GetRoyalties().GetMarketPercentage()
+			}
 			asset.Royalties.TransferFixed = tc.GetRoyalties().GetTransferFixed()
-			asset.Royalties.MarketFixed = tc.GetRoyalties().GetMarketFixed()
-			asset.Royalties.MarketPercentage = tc.GetRoyalties().GetMarketPercentage()
 			asset.Royalties.ITOFixed = tc.GetRoyalties().GetITOFixed()
 			asset.Royalties.ITOPercentage = tc.GetRoyalties().GetITOPercentage()
 			asset.Royalties.SplitRoyalties = splitRoyalties
