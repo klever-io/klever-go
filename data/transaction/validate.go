@@ -571,7 +571,7 @@ func (tc *SellContract) Validate() error {
 		return errors.New("invalid reserve price")
 	}
 
-	if tc.EndTime <= 0 {
+	if tc.EndTime < 0 {
 		return errors.New("invalid end time")
 	}
 
