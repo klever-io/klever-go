@@ -25,7 +25,7 @@ import (
 )
 
 const disabledSlotForForceEpochStart = math.MaxUint64
-const minSlotToFork = uint64(5)
+const minSlotsToTrigger = uint64(5)
 
 // ArgsNewEpochStartTrigger defines struct needed to create a new start of epoch trigger
 type ArgsNewEpochStartTrigger struct {
@@ -188,7 +188,7 @@ func (t *trigger) Update(slot uint64, nonce uint64) {
 	}
 
 	isWithEarlyEndOfEpoch := t.currentSlot >= t.nextEpochStartSlot
-	hasMinimumForgeToTrigger := nonce > t.epochStartBlock.Header.Nonce+5
+	hasMinimumForgeToTrigger := nonce > t.epochStartBlock.Header.Nonce+minSlotsToTrigger
 	shouldTriggerEpochStart := (isNormalEpochStart || isWithEarlyEndOfEpoch) && hasMinimumForgeToTrigger
 	if shouldTriggerEpochStart {
 		t.epoch++
