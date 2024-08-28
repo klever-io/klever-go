@@ -1035,7 +1035,7 @@ func TestITOTriggerTxProcessor_RemoveFromWhitelist_ShouldWork(t *testing.T) {
 	assert.Nil(c.t, err)
 
 	err = c.execTx.ProcessTransaction(blk, hash, tx)
-	assert.Equal(t, nil, err)
+	assert.Equal(t, process.ErrInvalidWhitelistAddr, err)
 
 	//Try to buy ITO
 	buyITOContract = transaction.BuyContract{

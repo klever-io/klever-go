@@ -277,8 +277,14 @@ func (i *itoKapp) Buy(sender []byte, tc *transaction.BuyContract) (transaction.T
 		// Check fork cost by token unit
 		value = value.Div(value, big.NewInt(int64(math.Pow10(int(asset.Precision)))))
 	}
-	valueInt := value.Int64()
 
+	if i.forkController.EnableSmartContracts() {
+		if !value.IsInt64() { // check overflow
+			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+		}
+	}
+
+	valueInt := value.Int64()
 	if valueInt <= 0 {
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
@@ -539,8 +545,14 @@ func (i *itoKapp) Config(sender []byte, tc *transaction.ConfigITOContract) (tran
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
-	if !asset.Properties.CanMint || asset.Attributes.IsNFTMintStopped {
-		return transaction.Transaction_AssetCantBeMinted, common.ErrAssetTypeInvalid
+	if i.forkController.EnableSmartContracts() {
+		if !asset.Properties.CanMint || (asset.AssetType == kapps.KDAData_NonFungible && asset.Attributes.IsNFTMintStopped) {
+			return transaction.Transaction_AssetCantBeMinted, common.ErrAssetTypeInvalid
+		}
+	} else {
+		if !asset.Properties.CanMint || asset.Attributes.IsNFTMintStopped {
+			return transaction.Transaction_AssetCantBeMinted, common.ErrAssetTypeInvalid
+		}
 	}
 
 	itoKapp, ito, err := i.GetITO(tc.GetAssetID())
@@ -814,66 +826,10 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 
 	switch tc.GetTriggerType() {
 	case transaction.ITOTriggerContract_SetITOPrices:
-		if tc.GetPackInfo() == nil {
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		}
-
-		if len(tc.GetPackInfo()) > core.MaxPacks {
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		}
-
-		role, err := asset.GetRoleByAddress(sender)
+		status, err := i.SetITOPrices(tc, ito, asset, sender)
 		if err != nil {
-			return transaction.Transaction_AssetError, err
+			return status, err
 		}
-
-		if !role.HasRoleSetITOPrices {
-			return transaction.Transaction_AccountError, common.ErrInvalidValue
-		}
-
-		newPackData := make(map[string]*kapps.PackData, len(tc.GetPackInfo()))
-
-		for key, packData := range tc.GetPackInfo() {
-			if len(packData.GetPacks()) > core.MaxPackItems {
-				return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-			}
-
-			// validate if at least one pack for the given asset exists
-			if len(packData.GetPacks()) == 0 {
-				return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-			}
-
-			//validate if provided pack asset exists
-			_, _, err := i.KAppController.GetKDAKApp().GetKDA([]byte(key))
-			if err != nil {
-				return transaction.Transaction_KAPPError, err
-			}
-
-			newPacks := make([]*kapps.Pack, len(packData.Packs))
-			for index, pack := range packData.Packs {
-				invalidPrice := pack.Price < 0
-				if !i.forkController.KdaFpr() {
-					invalidPrice = pack.Price <= 0
-				}
-
-				if pack.Amount <= 0 || invalidPrice || (ito.MaxAmount > 0 && pack.Amount > ito.MaxAmount) {
-					return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-				}
-
-				newPacks[index] = &kapps.Pack{
-					Amount: pack.Amount,
-					Price:  pack.Price,
-				}
-			}
-
-			sort.SliceStable(newPacks, func(i, j int) bool {
-				return newPacks[i].Amount < newPacks[j].Amount
-			})
-
-			newPackData[key] = &kapps.PackData{Packs: newPacks}
-		}
-
-		ito.PackData = newPackData
 
 		err = i.SetITO(itoKapp, tc.GetAssetID(), ito)
 		if err != nil {
@@ -884,212 +840,69 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 			return transaction.Transaction_SaveAccountError, err
 		}
 	case transaction.ITOTriggerContract_UpdateStatus:
-		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
-			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+		status, err := i.UpdateStatus(tc, kdaKapp, ito, asset, sender)
+		if err != nil {
+			return status, err
 		}
 
-		switch tc.GetStatus() {
-		case transaction.ITOTriggerContract_DefaultITO:
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		case transaction.ITOTriggerContract_ActiveITO:
-			ito.IsActive = true
-
-			updated := false
-			for i, role := range asset.Roles {
-				if bytes.Equal(role.Address, kapps.ITOKAppAddress) {
-					asset.Roles[i] = &kapps.RolesData{
-						Address:             kapps.ITOKAppAddress,
-						HasRoleMint:         true,
-						HasRoleSetITOPrices: true,
-					}
-					updated = true
-					break
-				}
-			}
-			if !updated {
-				asset.Roles = append(asset.Roles, &kapps.RolesData{
-					Address:             kapps.ITOKAppAddress,
-					HasRoleMint:         true,
-					HasRoleSetITOPrices: true,
-				})
-			}
-
-			err = i.KAppController.GetKDAKApp().SetKDA(kdaKapp, tc.GetAssetID(), asset)
-			if err != nil {
-				return transaction.Transaction_KAPPError, err
-			}
-		case transaction.ITOTriggerContract_PausedITO:
-			ito.IsActive = false
-
-			newRoles := make([]*kapps.RolesData, 0)
-
-			for _, role := range asset.Roles {
-				if !bytes.Equal(role.Address, kapps.ITOKAppAddress) {
-					newRoles = append(newRoles, role)
-				}
-			}
-
-			asset.Roles = newRoles
-
-			err = i.KAppController.GetKDAKApp().SetKDA(kdaKapp, tc.GetAssetID(), asset)
-			if err != nil {
-				return transaction.Transaction_KAPPError, err
-			}
-		default:
-			return transaction.Transaction_ParameterInvalid, common.ErrITOStatusInvalid
+		err = i.KAppController.GetKDAKApp().SetKDA(kdaKapp, tc.GetAssetID(), asset)
+		if err != nil {
+			return transaction.Transaction_KAPPError, err
 		}
 
 	case transaction.ITOTriggerContract_UpdateReceiverAddress:
-		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
-			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+		status, err := i.UpdateReceiverAddress(tc, ito, asset, sender)
+		if err != nil {
+			return status, err
 		}
-
-		if len(tc.GetReceiverAddress()) != i.pubkeyConv.Len() {
-			return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
-		}
-
-		ito.ReceiverAddress = tc.GetReceiverAddress()
 	case transaction.ITOTriggerContract_UpdateMaxAmount:
-		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
-			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+		status, err := i.UpdateMaxAmount(tc, ito, asset, sender)
+		if err != nil {
+			return status, err
 		}
-
-		if tc.GetMaxAmount() < 0 {
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		}
-
-		if tc.GetMaxAmount() > 0 && ito.MintedAmount > tc.GetMaxAmount() {
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		}
-
-		ito.MaxAmount = tc.GetMaxAmount()
 	case transaction.ITOTriggerContract_UpdateDefaultLimitPerAddress:
-		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
-			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+		status, err := i.UpdateDefaultLimitPerAddress(tc, ito, asset, sender)
+		if err != nil {
+			return status, err
 		}
-
-		if tc.GetDefaultLimitPerAddress() < 0 || (ito.MaxAmount > 0 && tc.GetDefaultLimitPerAddress() > ito.MaxAmount) {
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		}
-
-		ito.DefaultLimitPerAddress = tc.GetDefaultLimitPerAddress()
 	case transaction.ITOTriggerContract_UpdateTimes:
-		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
-			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+		status, err := i.UpdateTimes(ctx, tc, ito, asset, sender)
+		if err != nil {
+			return status, err
 		}
-
-		if tc.GetEndTime() <= tc.GetStartTime() ||
-			tc.GetStartTime() <= ctx.Block().GetTimestamp() ||
-			tc.GetEndTime() <= ctx.Block().GetTimestamp() {
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		}
-
-		ito.StartTime = tc.GetStartTime()
-		ito.EndTime = tc.GetEndTime()
 	case transaction.ITOTriggerContract_AddToWhitelist:
-		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
-			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
-		}
-
-		if len(tc.GetWhitelistInfo()) == 0 || len(tc.GetWhitelistInfo()) > core.MaxWhitelistSize {
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		}
-
-		newWhitelistAdditions := int32(0)
 		whitelistData := make(map[string]*kapps.WhitelistData)
-		for hexKey, value := range tc.GetWhitelistInfo() {
-			decodedAddress, err := hex.DecodeString(hexKey)
-			if err != nil {
-				return transaction.Transaction_AccountError, process.ErrInvalidWhitelistAddr
-			}
 
-			if len(decodedAddress) != i.pubkeyConv.Len() {
-				return transaction.Transaction_AccountError, process.ErrInvalidWhitelistAddr
-			}
-
-			_, _, err = i.GetITOWhitelistByAddress(tc.GetAssetID(), hexKey)
-			if err != nil && errors.Is(err, common.ErrNotFoundInKApp) {
-				newWhitelistAdditions += 1
-			}
-
-			if value.Limit < 0 {
-				return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-			}
-
-			whitelistData[hexKey] = &kapps.WhitelistData{Limit: ito.GetDefaultLimitPerAddress()}
-			if value.Limit > 0 {
-				whitelistData[hexKey] = &kapps.WhitelistData{Limit: value.Limit}
-			}
+		status, err := i.AddToWhitelist(tc, ito, asset, sender, whitelistData)
+		if err != nil {
+			return status, err
 		}
-
-		ito.WhitelistLen += newWhitelistAdditions
 
 		err = i.SetITOWhitelists(itoKapp, tc.GetAssetID(), whitelistData)
 		if err != nil {
 			return transaction.Transaction_ITOWhiteListError, err
 		}
 	case transaction.ITOTriggerContract_RemoveFromWhitelist:
-		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
-			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
-		}
-
-		if len(tc.GetWhitelistInfo()) == 0 || len(tc.GetWhitelistInfo()) > core.MaxWhitelistSize {
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		}
-
-		whitelistToRemove := int32(0)
 		whitelistData := make(map[string]*kapps.WhitelistData)
-		for hexKey := range tc.GetWhitelistInfo() {
-			decodedAddress, err := hex.DecodeString(hexKey)
-			if err != nil {
-				return transaction.Transaction_AccountError, process.ErrInvalidWhitelistAddr
-			}
 
-			if len(decodedAddress) != i.pubkeyConv.Len() {
-				return transaction.Transaction_AccountError, process.ErrInvalidWhitelistAddr
-			}
-
-			_, _, err = i.GetITOWhitelistByAddress(tc.GetAssetID(), hexKey)
-			if err != nil && errors.Is(err, common.ErrNotFoundInKApp) {
-				whitelistToRemove -= 1
-			}
-
-			whitelistData[hexKey] = nil
+		status, err := i.RemoveFromWhitelist(tc, ito, asset, sender, whitelistData)
+		if err != nil {
+			return status, err
 		}
-
-		ito.WhitelistLen -= whitelistToRemove
 
 		err = i.SetITOWhitelists(itoKapp, tc.GetAssetID(), whitelistData)
 		if err != nil {
 			return transaction.Transaction_ITOWhiteListError, err
 		}
 	case transaction.ITOTriggerContract_UpdateWhitelistTimes:
-		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
-			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+		status, err := i.UpdateWhitelistTimes(ctx, tc, ito, asset, sender)
+		if err != nil {
+			return status, err
 		}
-
-		if tc.GetWhitelistEndTime() <= tc.GetWhitelistStartTime() ||
-			tc.GetWhitelistStartTime() <= ctx.Block().GetTimestamp() ||
-			tc.GetWhitelistEndTime() <= ctx.Block().GetTimestamp() {
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		}
-
-		ito.WhitelistStartTime = tc.GetWhitelistStartTime()
-		ito.WhitelistEndTime = tc.GetWhitelistEndTime()
 	case transaction.ITOTriggerContract_UpdateWhitelistStatus:
-		if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
-			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
-		}
-
-		switch tc.GetWhitelistStatus() {
-		case transaction.ITOTriggerContract_DefaultITO:
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		case transaction.ITOTriggerContract_ActiveITO:
-			ito.IsWhitelistActive = true
-		case transaction.ITOTriggerContract_PausedITO:
-			ito.IsWhitelistActive = false
-		default:
-			return transaction.Transaction_ParameterInvalid, common.ErrITOWhitelistStatusInvalid
+		status, err := i.UpdateWhitelistStatus(tc, ito, asset, sender)
+		if err != nil {
+			return status, err
 		}
 	default:
 		return transaction.Transaction_ParameterInvalid, common.ErrITOTriggerInvalid
@@ -1204,6 +1017,303 @@ func (i *itoKapp) SetPrices(sender []byte, tc *transaction.SetITOPricesContract)
 		ctx.ContractID(),
 		tc.GetAssetID(),
 	))
+
+	return transaction.Transaction_Ok, nil
+}
+
+// Trigger Functions
+
+func (i *itoKapp) SetITOPrices(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	if triggerContract.GetPackInfo() == nil {
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	if len(triggerContract.GetPackInfo()) > core.MaxPacks {
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	role, err := asset.GetRoleByAddress(sender)
+	if err != nil {
+		return transaction.Transaction_AssetError, err
+	}
+
+	if !role.HasRoleSetITOPrices {
+		return transaction.Transaction_AccountError, common.ErrInvalidValue
+	}
+
+	newPackData := make(map[string]*kapps.PackData, len(triggerContract.GetPackInfo()))
+
+	for key, packData := range triggerContract.GetPackInfo() {
+		if len(packData.GetPacks()) > core.MaxPackItems {
+			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+		}
+
+		// validate if at least one pack for the given asset exists
+		if len(packData.GetPacks()) == 0 {
+			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+		}
+
+		//validate if provided pack asset exists
+		_, _, err := i.KAppController.GetKDAKApp().GetKDA([]byte(key))
+		if err != nil {
+			return transaction.Transaction_KAPPError, err
+		}
+
+		newPacks := make([]*kapps.Pack, len(packData.Packs))
+		for index, pack := range packData.Packs {
+			invalidPrice := pack.Price < 0
+			if !i.forkController.KdaFpr() {
+				invalidPrice = pack.Price <= 0
+			}
+
+			if pack.Amount <= 0 || invalidPrice || (ito.MaxAmount > 0 && pack.Amount > ito.MaxAmount) {
+				return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+			}
+
+			newPacks[index] = &kapps.Pack{
+				Amount: pack.Amount,
+				Price:  pack.Price,
+			}
+		}
+
+		sort.SliceStable(newPacks, func(i, j int) bool {
+			return newPacks[i].Amount < newPacks[j].Amount
+		})
+
+		newPackData[key] = &kapps.PackData{Packs: newPacks}
+	}
+
+	ito.PackData = newPackData
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (i *itoKapp) UpdateStatus(triggerContract *transaction.ITOTriggerContract, kdaKapp state.KAppAccountHandler, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+	}
+
+	switch triggerContract.GetStatus() {
+	case transaction.ITOTriggerContract_DefaultITO:
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	case transaction.ITOTriggerContract_ActiveITO:
+		ito.IsActive = true
+		updated := false
+
+		for i, role := range asset.Roles {
+			if bytes.Equal(role.Address, kapps.ITOKAppAddress) {
+				asset.Roles[i] = &kapps.RolesData{
+					Address:             kapps.ITOKAppAddress,
+					HasRoleMint:         true,
+					HasRoleSetITOPrices: true,
+				}
+				updated = true
+				break
+			}
+		}
+		if !updated {
+			asset.Roles = append(asset.Roles, &kapps.RolesData{
+				Address:             kapps.ITOKAppAddress,
+				HasRoleMint:         true,
+				HasRoleSetITOPrices: true,
+			})
+		}
+	case transaction.ITOTriggerContract_PausedITO:
+		ito.IsActive = false
+
+		newRoles := make([]*kapps.RolesData, 0)
+
+		for _, role := range asset.Roles {
+			if !bytes.Equal(role.Address, kapps.ITOKAppAddress) {
+				newRoles = append(newRoles, role)
+			}
+		}
+
+		asset.Roles = newRoles
+
+	default:
+		return transaction.Transaction_ParameterInvalid, common.ErrITOStatusInvalid
+	}
+	return transaction.Transaction_Ok, nil
+}
+
+func (i *itoKapp) UpdateReceiverAddress(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+	}
+
+	if len(triggerContract.GetReceiverAddress()) != i.pubkeyConv.Len() {
+		return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
+	}
+
+	ito.ReceiverAddress = triggerContract.GetReceiverAddress()
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (i *itoKapp) UpdateMaxAmount(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+	}
+
+	if triggerContract.GetMaxAmount() < 0 {
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	if triggerContract.GetMaxAmount() > 0 && ito.MintedAmount > triggerContract.GetMaxAmount() {
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	ito.MaxAmount = triggerContract.GetMaxAmount()
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (i *itoKapp) UpdateDefaultLimitPerAddress(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+	}
+
+	if triggerContract.GetDefaultLimitPerAddress() < 0 || (ito.MaxAmount > 0 && triggerContract.GetDefaultLimitPerAddress() > ito.MaxAmount) {
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	ito.DefaultLimitPerAddress = triggerContract.GetDefaultLimitPerAddress()
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (i *itoKapp) UpdateTimes(ctx kapp.KappContext, triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+	}
+
+	if triggerContract.GetEndTime() <= triggerContract.GetStartTime() ||
+		triggerContract.GetStartTime() <= ctx.Block().GetTimestamp() ||
+		triggerContract.GetEndTime() <= ctx.Block().GetTimestamp() {
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	ito.StartTime = triggerContract.GetStartTime()
+	ito.EndTime = triggerContract.GetEndTime()
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (i *itoKapp) AddToWhitelist(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte, whitelistData map[string]*kapps.WhitelistData) (transaction.Transaction_TXResultCode, error) {
+	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+	}
+
+	if len(triggerContract.GetWhitelistInfo()) == 0 || len(triggerContract.GetWhitelistInfo()) > core.MaxWhitelistSize {
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	newWhitelistAdditions := int32(0)
+
+	for hexKey, value := range triggerContract.GetWhitelistInfo() {
+		decodedAddress, err := hex.DecodeString(hexKey)
+		if err != nil {
+			return transaction.Transaction_AccountError, process.ErrInvalidWhitelistAddr
+		}
+
+		if len(decodedAddress) != i.pubkeyConv.Len() {
+			return transaction.Transaction_AccountError, process.ErrInvalidWhitelistAddr
+		}
+
+		_, _, err = i.GetITOWhitelistByAddress(triggerContract.GetAssetID(), hexKey)
+		if err != nil && errors.Is(err, common.ErrNotFoundInKApp) {
+			newWhitelistAdditions += 1
+		}
+
+		if value.Limit < 0 {
+			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+		}
+
+		whitelistData[hexKey] = &kapps.WhitelistData{Limit: ito.GetDefaultLimitPerAddress()}
+		if value.Limit > 0 {
+			whitelistData[hexKey] = &kapps.WhitelistData{Limit: value.Limit}
+		}
+	}
+
+	ito.WhitelistLen += newWhitelistAdditions
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (i *itoKapp) RemoveFromWhitelist(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte, whitelistData map[string]*kapps.WhitelistData) (transaction.Transaction_TXResultCode, error) {
+	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+	}
+
+	if len(triggerContract.GetWhitelistInfo()) == 0 || len(triggerContract.GetWhitelistInfo()) > core.MaxWhitelistSize {
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	whitelistToRemove := int32(0)
+	for hexKey := range triggerContract.GetWhitelistInfo() {
+		decodedAddress, err := hex.DecodeString(hexKey)
+		if err != nil {
+			return transaction.Transaction_AccountError, process.ErrInvalidWhitelistAddr
+		}
+
+		if len(decodedAddress) != i.pubkeyConv.Len() {
+			return transaction.Transaction_AccountError, process.ErrInvalidWhitelistAddr
+		}
+
+		if i.forkController.EnableSmartContracts() {
+			_, _, err = i.GetITOWhitelistByAddress(triggerContract.GetAssetID(), hexKey)
+			if err != nil {
+				return transaction.Transaction_AccountError, process.ErrInvalidWhitelistAddr
+			}
+			whitelistToRemove += 1
+		} else {
+			_, _, err = i.GetITOWhitelistByAddress(triggerContract.GetAssetID(), hexKey)
+			if err != nil && errors.Is(err, common.ErrNotFoundInKApp) {
+				whitelistToRemove -= 1
+			}
+		}
+
+		whitelistData[hexKey] = nil
+	}
+
+	ito.WhitelistLen -= whitelistToRemove
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (i *itoKapp) UpdateWhitelistTimes(ctx kapp.KappContext, triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+	}
+
+	if triggerContract.GetWhitelistEndTime() <= triggerContract.GetWhitelistStartTime() ||
+		triggerContract.GetWhitelistStartTime() <= ctx.Block().GetTimestamp() ||
+		triggerContract.GetWhitelistEndTime() <= ctx.Block().GetTimestamp() {
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	ito.WhitelistStartTime = triggerContract.GetWhitelistStartTime()
+	ito.WhitelistEndTime = triggerContract.GetWhitelistEndTime()
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (i *itoKapp) UpdateWhitelistStatus(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+	}
+
+	switch triggerContract.GetWhitelistStatus() {
+	case transaction.ITOTriggerContract_DefaultITO:
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	case transaction.ITOTriggerContract_ActiveITO:
+		ito.IsWhitelistActive = true
+	case transaction.ITOTriggerContract_PausedITO:
+		ito.IsWhitelistActive = false
+	default:
+		return transaction.Transaction_ParameterInvalid, common.ErrITOWhitelistStatusInvalid
+	}
 
 	return transaction.Transaction_Ok, nil
 }
