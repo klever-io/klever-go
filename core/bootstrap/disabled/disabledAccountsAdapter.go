@@ -25,6 +25,11 @@ func (a *accountsAdapter) LoadAccount(_ []byte) (state.AccountHandler, error) {
 	return nil, nil
 }
 
+// SaveAccounts -
+func (a *accountsAdapter) SaveAccounts(_ ...state.AccountHandler) error {
+	return nil
+}
+
 // SaveAccount -
 func (a *accountsAdapter) SaveAccount(_ state.AccountHandler) error {
 	return nil

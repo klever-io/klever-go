@@ -1,10 +1,10 @@
 package parsing
 
 import (
+	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/genesis/data"
-	"github.com/klever-io/klever-go/genesis/mock"
 )
 
 func (ap *accountsParser) SetInitialAccounts(initialAccounts []*data.InitialAccount) {

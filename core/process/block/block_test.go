@@ -190,8 +190,7 @@ func createKappsAccountsDB(
 	proposalKapp := loadKAppAccount(adb, kapps.ProposalKAppAddress)
 
 	initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
-	_ = adb.SaveAccount(kdaKapp)
-	_ = adb.SaveAccount(stakingKapp)
+	_ = adb.SaveAccounts(kdaKapp, stakingKapp)
 
 	epochNotifier := &mock.EpochNotifierStub{}
 	forkController, _ := fork.NewForkController(config.EnableEpochs{

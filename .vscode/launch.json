@@ -1,0 +1,53 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch file",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${file}"
+        },
+        {
+            "name": "Launch Package",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${fileDirname}",
+            "cwd": "${workspaceRoot}"
+        },
+        {
+            "name": "KleverGO Debug",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceRoot}/cmd/node",
+            "env": {"DYLD_LIBRARY_PATH":"${workspaceRoot}/kvm/wasmer2"},
+            "cwd": "${workspaceRoot}",
+            "args": ["--log-level=*:DEBUG", "--use-log-view"]
+        },
+        {
+            "name": "KleverGO Debug ImportDB",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceRoot}/cmd/node",
+            "env": {"DYLD_LIBRARY_PATH":"${workspaceRoot}/kvm/wasmer2"},
+            "cwd": "${workspaceRoot}",
+            "args": ["--log-level=*:TRACE,process/block:TRACE,ntp:INFO,debug/p2p:INFO,state:DEBUG,trie:INFO,facade:INFO,sharding/networksharding:INFO,p2p/libp2p:INFO,basichost:INFO,dht:INFO,pubsub:INFO,heartbeat/process:INFO,statistics/machine:INFO,process/rating:INFO,consensus/chronology:INFO", "--use-log-view", "--import-db=./db/old", "--import-db-no-sig-check"]
+        },
+        {
+            "name": "Klever Operator Debug",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            "program": "${workspaceRoot}/cmd/operator",
+            "env": {"DYLD_LIBRARY_PATH":"${workspaceRoot}/kvm/wasmer2"},
+            "cwd": "${workspaceRoot}",
+            "args": ["sc", "run-scenarios", "--path={YOUR FILE HERE}"]
+        }
+    ]
+}

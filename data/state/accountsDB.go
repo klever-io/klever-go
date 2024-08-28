@@ -141,6 +141,17 @@ func (adb *AccountsDB) ImportAccount(account AccountHandler) error {
 	return adb.saveAccountToTrie(account)
 }
 
+// SaveAccounts saves in the trie all changes made to the account.
+func (adb *AccountsDB) SaveAccounts(account ...AccountHandler) error {
+	for _, acc := range account {
+		err := adb.SaveAccount(acc)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SaveAccount saves in the trie all changes made to the account.
 func (adb *AccountsDB) SaveAccount(account AccountHandler) error {
 	adb.mutOp.Lock()

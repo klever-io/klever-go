@@ -55,7 +55,7 @@
             "expect": {
                 "out": [],
                 "status": "57",
-                "message": "str:bad call value token provided",
+                "message": "str:function expects single KDA payment",
                 "logs": "*",
                 "gas": "*",
                 "refund": "*"

@@ -2,7 +2,6 @@ package smartContract
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"math/big"
 	"sort"
@@ -21,7 +20,6 @@ import (
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
-	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
@@ -360,10 +358,6 @@ func (sc *scProcessor) executeSmartContractCall(
 	vmOutput, err = vmExec.RunSmartContractCall(vmInput)
 	sc.wasmVMChangeLocker.RUnlock()
 	if err != nil {
-		if errors.Is(err, vmhost.ErrExecutionPanicked) {
-			userErrorVmOutput.ReturnCode = vmcommon.VMExecutionFailed
-		}
-
 		log.Debug("run smart contract call error", "error", err.Error())
 		return userErrorVmOutput, sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
 	}

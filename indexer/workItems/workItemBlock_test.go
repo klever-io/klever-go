@@ -4,10 +4,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/indexer"
-	"github.com/klever-io/klever-go/indexer/mock"
+	imock "github.com/klever-io/klever-go/indexer/mock"
 	"github.com/klever-io/klever-go/indexer/workItems"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,7 +16,7 @@ import (
 
 func TestItemBlock_SaveNilHeaderShouldRetNil(t *testing.T) {
 	itemBlock := workItems.NewItemBlock(
-		&mock.ElasticProcessorStub{},
+		&imock.ElasticProcessorStub{},
 		&mock.MarshalizerMock{},
 		&indexer.ArgsSaveBlockData{},
 	)
@@ -28,7 +29,7 @@ func TestItemBlock_SaveNilHeaderShouldRetNil(t *testing.T) {
 func TestItemBlock_SaveHeaderShouldErr(t *testing.T) {
 	localErr := errors.New("local err")
 	itemBlock := workItems.NewItemBlock(
-		&mock.ElasticProcessorStub{
+		&imock.ElasticProcessorStub{
 			SaveHeaderCalled: func(header data.HeaderHandler, signer []byte, txsSize int, validators []string) error {
 				return localErr
 			},
@@ -50,7 +51,7 @@ func TestItemBlock_SaveHeaderShouldErr(t *testing.T) {
 func TestItemBlock_SaveTransactionsShouldErr(t *testing.T) {
 	localErr := errors.New("local err")
 	itemBlock := workItems.NewItemBlock(
-		&mock.ElasticProcessorStub{
+		&imock.ElasticProcessorStub{
 			SaveTransactionsCalled: func(header data.HeaderHandler, pool *indexer.Pool) error {
 				return localErr
 			},
@@ -72,7 +73,7 @@ func TestItemBlock_SaveTransactionsShouldErr(t *testing.T) {
 func TestItemBlock_SaveShouldWork(t *testing.T) {
 	countCalled := 0
 	itemBlock := workItems.NewItemBlock(
-		&mock.ElasticProcessorStub{
+		&imock.ElasticProcessorStub{
 			SaveHeaderCalled: func(header data.HeaderHandler, signer []byte, txsSize int, validators []string) error {
 				countCalled++
 				return nil

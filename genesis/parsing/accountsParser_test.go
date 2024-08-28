@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/genesis"
 	"github.com/klever-io/klever-go/genesis/data"
-	"github.com/klever-io/klever-go/genesis/mock"
 	"github.com/klever-io/klever-go/genesis/parsing"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"

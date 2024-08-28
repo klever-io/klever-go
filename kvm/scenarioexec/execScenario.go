@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/klever-io/klever-go/data/state"
+	"github.com/klever-io/klever-go/kapps"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 	scencontroller "github.com/klever-io/klever-go/kvm/scenarioexec/controller"
 	scenfileresolver "github.com/klever-io/klever-go/kvm/scenarioexec/fileresolver"
@@ -173,6 +174,11 @@ func (ae *VMTestExecutor) ExecuteTxStep(step *scenjsonmodel.TxStep) (*vmi.VMOutp
 
 // PutNewAccount Puts a new account in world account map. Overwrites.
 func (ae *VMTestExecutor) PutNewAccount(scenAccount *scenjsonmodel.Account) error {
+	// if address is system account add as KApp
+	if kapps.IsKAppAddress(scenAccount.Address.Value) {
+		return ae.PutNewKAppAccount(scenAccount)
+	}
+
 	worldAccount, err := convertAccount(scenAccount, ae.World)
 	if err != nil {
 		return err
@@ -191,6 +197,16 @@ func (ae *VMTestExecutor) PutNewAccount(scenAccount *scenjsonmodel.Account) erro
 	return ae.World.AccountsCacher.SaveUser(worldAccount)
 }
 
+// PutNewAccount Puts a new account in world account map. Overwrites.
+func (ae *VMTestExecutor) PutNewKAppAccount(scenAccount *scenjsonmodel.Account) error {
+	worldAccount, err := convertKAppAccount(scenAccount, ae.World)
+	if err != nil {
+		return err
+	}
+
+	return ae.World.AccountsCacher.UpdateKapp(worldAccount)
+}
+
 // UpdateAccount Updates an account in world account map.
 func (ae *VMTestExecutor) UpdateAccount(scenAccount *scenjsonmodel.Account) error {
 	worldAccount, err := convertAccount(scenAccount, ae.World)
@@ -205,6 +221,10 @@ func (ae *VMTestExecutor) UpdateAccount(scenAccount *scenjsonmodel.Account) erro
 	existingAccount2, err := ae.World.AccountsAdapter.LoadAccount(scenAccount.Address.Value)
 	if existingAccount2 == nil {
 		return errors.New("account not found. could not update")
+	}
+
+	if err != nil {
+		return err
 	}
 
 	existingAccount := existingAccount2.(state.UserAccountHandler)

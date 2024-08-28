@@ -557,7 +557,8 @@ func (bh *BlockChainHookImpl) IsPayable(sndAddress []byte, recvAddress []byte) (
 
 	userAcc, err := bh.GetUserAccount(recvAddress)
 	if err == common.ErrAccNotFound {
-		return false, nil
+		// if new contract, allow deployer to deposit
+		return true, nil
 	}
 	if err != nil {
 		return false, err

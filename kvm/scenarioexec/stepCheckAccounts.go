@@ -2,6 +2,7 @@ package scenarioexec
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -221,7 +222,7 @@ func (ae *VMTestExecutor) checkAccountKDA(baseErrMsg string, expectedAcct *scenj
 					Original: ae.exprReconstructor.Reconstruct([]byte(tokenName), scenexpressionreconstructor.StrHint),
 				},
 				Instances: []*scenjsonmodel.CheckKDAInstance{},
-				LastNonce: scenjsonmodel.JSONCheckUint64{Value: 0, Original: ""},
+				LastNonce: scenjsonmodel.JSONCheckUint64{Value: 0, Original: "", IsStar: true},
 				Roles:     []string{},
 			}
 		}
@@ -239,19 +240,42 @@ func (ae *VMTestExecutor) checkAccountKDA(baseErrMsg string, expectedAcct *scenj
 					},
 				})
 			}
+
+			royalties := uint32(0)
+			if tokenData.Royalties != nil {
+				royalties = uint32(tokenData.Royalties.TransferFixed)
+			}
+
 			asset := &dkda.KDigitalToken{
 				Value: kda.Balance,
 				TokenMetaData: &dkda.MetaData{
 					Nonce:      instance.Nonce.Value,
 					Creator:    tokenData.OwnerAddress,
 					URIs:       make([][]byte, 0),
-					Royalties:  uint32(tokenData.Royalties.TransferFixed),
+					Royalties:  royalties,
 					Attributes: kda.Metadata,
 				},
 			}
 
-			// if asset is an SFT, should check global metadata SFTGetMeta
-			if tokenData.AssetType == kapps.KDAData_SemiFungible {
+			switch tokenData.AssetType {
+			case kapps.KDAData_NonFungible:
+				// load token name and attributes from TokenMetaData.Attributes if any
+				if len(asset.TokenMetaData.Attributes) > 0 {
+					// try parse "@" name separator
+					data := strings.Split(string(asset.TokenMetaData.Attributes), "@")
+					if len(data) > 1 {
+						asset.TokenMetaData.Name, err = hex.DecodeString(data[0])
+						if err != nil {
+							log.Warn("failed to decode NFT name", "error", err)
+						}
+						asset.TokenMetaData.Attributes, err = hex.DecodeString(data[1])
+						if err != nil {
+							log.Warn("failed to decode NFT attributes", "error", err)
+						}
+					}
+				}
+			case kapps.KDAData_SemiFungible:
+				// if asset is an SFT, should check global metadata SFTGetMeta
 				metaV2, err := ae.World.KAppController.GetSystemAccountKApp().SFTGetMeta(expectedToken.TokenIdentifier.Value, nonce)
 				if err != nil {
 					return err
@@ -260,6 +284,7 @@ func (ae *VMTestExecutor) checkAccountKDA(baseErrMsg string, expectedAcct *scenj
 				if len(metaV2.Metadata.Name) > 0 {
 					asset.TokenMetaData.Name = metaV2.Metadata.Name
 				}
+			default:
 			}
 
 			// instance uris
@@ -333,7 +358,8 @@ func (ae *VMTestExecutor) checkTokenState(
 
 	errors = append(errors, ae.checkTokenInstances(accountAddress, tokenName, expectedToken, accountToken)...)
 
-	if !expectedToken.LastNonce.Check(accountToken.LastNonce) {
+	if !expectedToken.LastNonce.IsUnspecified() &&
+		!expectedToken.LastNonce.Check(accountToken.LastNonce) {
 		errors = append(errors, fmt.Errorf("bad account KDA last nonce. Account: %s. Token: %s. Want: \"%s\". Have: %d",
 			accountAddress,
 			tokenName,

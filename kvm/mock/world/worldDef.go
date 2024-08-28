@@ -301,6 +301,17 @@ func (b *MockWorld) CreateTestAssets() {
 	if err != nil {
 		panic(err)
 	}
+	accs := b.touchKAppAccounts(
+		kapps.StakingKAppAddress,
+		kapps.ProposalKAppAddress,
+		kapps.StakingKAppAddress,
+		kapps.ITOKAppAddress,
+		kapps.MarketKAppAddress,
+		kapps.ValidatorsKAppAddress,
+		kapps.KDAFeesPoolKAppAddress,
+		kapps.SystemAccountKAppAddress,
+	)
+
 	kdaKapp, ok := kdaKappAccount.(state.KAppAccountHandler)
 	if !ok {
 		panic("KDA Kapp account not found")
@@ -314,6 +325,24 @@ func (b *MockWorld) CreateTestAssets() {
 	if err != nil {
 		panic(err)
 	}
+
+	err = b.KAppsAdapter.SaveAccounts(accs...)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (b *MockWorld) touchKAppAccounts(addr ...[]byte) []state.AccountHandler {
+	accounts := make([]state.AccountHandler, 0, len(addr))
+	for _, a := range addr {
+		acc, err := b.KAppsAdapter.LoadAccount(a)
+		if err != nil {
+			panic(err)
+		}
+		accounts = append(accounts, acc)
+	}
+	return accounts
+
 }
 
 func (b *MockWorld) GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, error) {
@@ -332,6 +361,13 @@ func (b *MockWorld) MockTestAsset(asset *scenjsonmodel.KDAData) {
 	}
 
 	assetId := asset.TokenIdentifier.Value
+
+	// check if already exists
+	rawData, err := kdaKapp.DataTrieTracker().RetrieveValue(kdautils.ToKDAKey(assetId, nil))
+	if err == nil && len(rawData) > 0 {
+		// no need to update, this will prevent overwriting existing data in tests
+		return
+	}
 
 	for _, instance := range asset.Instances {
 		assetType := kapps.KDAData_Fungible
@@ -369,11 +405,11 @@ func (b *MockWorld) MockTestAsset(asset *scenjsonmodel.KDAData) {
 			Properties: &kapps.PropertiesData{
 				CanFreeze: true,
 				CanMint:   true,
-				CanBurn:   true,
+				CanBurn:   instance.CanBurn,
 			},
 			Attributes: &kapps.AttributesData{
 				IsPaused:         false,
-				IsNFTMintStopped: true,
+				IsNFTMintStopped: false,
 			},
 		}
 

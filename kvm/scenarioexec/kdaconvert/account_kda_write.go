@@ -2,6 +2,7 @@ package kdaconvert
 
 import (
 	"bytes"
+	"math/big"
 	"strconv"
 
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
@@ -61,6 +62,10 @@ func WriteScenariosKDAToStorage(kdaData []*scenjsonmodel.KDAData, destination st
 			assetID := scenKDAData.TokenIdentifier.Value
 			if assetID == nil {
 				assetID = kdautils.KLVIdentifier
+			}
+
+			if instance.Balance.Value == nil {
+				instance.Balance.Value = big.NewInt(0)
 			}
 
 			userKDA := kapps.UserKDA{

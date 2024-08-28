@@ -28,6 +28,17 @@ func (m *MockAccountsAdapter) LoadAccount(address []byte) (state.AccountHandler,
 	return m.World.AccountsCacher.LoadUser(address)
 }
 
+// SaveAccounts -
+func (m *MockAccountsAdapter) SaveAccounts(accounts ...state.AccountHandler) error {
+	for _, account := range accounts {
+		err := m.World.AccountsCacher.SaveUser(account)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SaveAccount -
 func (m *MockAccountsAdapter) SaveAccount(account state.AccountHandler) error {
 	return m.World.AccountsCacher.SaveUser(account)

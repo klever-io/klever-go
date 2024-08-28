@@ -3,6 +3,7 @@ package process
 import (
 	"testing"
 
+	"github.com/klever-io/klever-go/common/mock"
 	cMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/retriever"
@@ -11,7 +12,6 @@ import (
 	"github.com/klever-io/klever-go/data/trie"
 	"github.com/klever-io/klever-go/data/trie/factory"
 	"github.com/klever-io/klever-go/genesis"
-	"github.com/klever-io/klever-go/genesis/mock"
 	"github.com/klever-io/klever-go/genesis/parsing"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/stretchr/testify/require"
@@ -43,11 +43,8 @@ func createMockArgument(
 		Hasher:                   &mock.HasherMock{},
 		Uint64ByteSliceConverter: &mock.Uint64ByteSliceConverterMock{},
 		DataPool:                 mock.NewPoolsHolderMock(),
-		//TxLogsProcessor:          &mock.TxLogProcessorMock{},
-		//HardForkConfig:           config.HardforkConfig{},
-		TrieStorageManagers: trieStorageManagers,
-		BlockSignKeyGen:     &mock.KeyGenMock{},
-		//ImportStartHandler:       &mock.ImportStartHandlerStub{},
+		TrieStorageManagers:      trieStorageManagers,
+		BlockSignKeyGen:          &mock.KeyGenMock{},
 	}
 
 	var err error
@@ -98,7 +95,7 @@ func createMockArgument(
 	arg.AccountsParser, err = parsing.NewAccountsParser(
 		genesisFilename,
 		arg.PubkeyConv,
-		&mock.KeyGeneratorStub{},
+		&cMock.KeyGeneratorStub{},
 	)
 	require.Nil(t, err)
 

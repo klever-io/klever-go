@@ -100,9 +100,6 @@ var ErrStoreReservedKey = errors.New("cannot write to storage under reserved key
 // ErrCannotWriteProtectedKey signals an attempt to write to a protected key, while storage protection is enforced
 var ErrCannotWriteProtectedKey = errors.New("cannot write to protected key")
 
-// ErrNonPayableFunctionKlv signals that a non-payable function received non-zero call value
-var ErrNonPayableFunctionKlv = errors.New("function does not accept KLV payment")
-
 // ErrNonPayableFunctionKda signals that a non-payable function received non-zero KDA call value
 var ErrNonPayableFunctionKda = errors.New("function does not accept KDA payment")
 

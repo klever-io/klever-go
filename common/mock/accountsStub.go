@@ -55,6 +55,17 @@ func (as *AccountsStub) LoadAccount(address []byte) (state.AccountHandler, error
 	return nil, errAccNotImplemented
 }
 
+// SaveAccount saves in the trie all changes made to the account.
+func (as *AccountsStub) SaveAccounts(account ...state.AccountHandler) error {
+	for _, acc := range account {
+		err := as.SaveAccount(acc)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SaveAccount -
 func (as *AccountsStub) SaveAccount(account state.AccountHandler) error {
 	if as.SaveAccountCalled != nil {

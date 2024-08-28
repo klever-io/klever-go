@@ -17,6 +17,7 @@ type KDAInstance struct {
 	Hash       JSONBytesFromString
 	Uris       JSONValueList
 	Attributes JSONBytesFromTree
+	CanBurn    bool
 }
 
 // KDAData models an account holding an KDA token

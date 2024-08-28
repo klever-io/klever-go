@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	cMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/genesis"
 	"github.com/klever-io/klever-go/genesis/checking"
 	"github.com/klever-io/klever-go/genesis/data"
@@ -32,8 +33,8 @@ func TestNewNodesSetupChecker_NilGenesisParserShouldErr(t *testing.T) {
 	nsc, err := checking.NewNodesSetupChecker(
 		nil,
 		int64(0),
-		mock.NewPubkeyConverterMock(32),
-		&mock.KeyGeneratorStub{},
+		cMock.NewPubkeyConverterMock(32),
+		&cMock.KeyGeneratorStub{},
 	)
 
 	assert.True(t, check.IfNil(nsc))
@@ -46,8 +47,8 @@ func TestNewNodesSetupChecker_InvalidInitialNodePriceShouldErr(t *testing.T) {
 	nsc, err := checking.NewNodesSetupChecker(
 		&mock.AccountsParserStub{},
 		int64(-1),
-		mock.NewPubkeyConverterMock(32),
-		&mock.KeyGeneratorStub{},
+		cMock.NewPubkeyConverterMock(32),
+		&cMock.KeyGeneratorStub{},
 	)
 
 	assert.True(t, check.IfNil(nsc))
@@ -61,7 +62,7 @@ func TestNewNodesSetupChecker_NilValidatorPubkeyConverterShouldErr(t *testing.T)
 		&mock.AccountsParserStub{},
 		int64(0),
 		nil,
-		&mock.KeyGeneratorStub{},
+		&cMock.KeyGeneratorStub{},
 	)
 
 	assert.True(t, check.IfNil(nsc))
@@ -74,7 +75,7 @@ func TestNewNodesSetupChecker_NilKeyGeneratorShouldErr(t *testing.T) {
 	nsc, err := checking.NewNodesSetupChecker(
 		&mock.AccountsParserStub{},
 		int64(0),
-		mock.NewPubkeyConverterMock(32),
+		cMock.NewPubkeyConverterMock(32),
 		nil,
 	)
 
@@ -88,8 +89,8 @@ func TestNewNodesSetupChecker_ShouldWork(t *testing.T) {
 	nsc, err := checking.NewNodesSetupChecker(
 		&mock.AccountsParserStub{},
 		int64(0),
-		mock.NewPubkeyConverterMock(32),
-		&mock.KeyGeneratorStub{},
+		cMock.NewPubkeyConverterMock(32),
+		&cMock.KeyGeneratorStub{},
 	)
 
 	assert.False(t, check.IfNil(nsc))
@@ -112,8 +113,8 @@ func TestNewNodesSetupChecker_CheckNotAValidPubkeyShouldErr(t *testing.T) {
 			},
 		},
 		int64(0),
-		mock.NewPubkeyConverterMock(32),
-		&mock.KeyGeneratorStub{
+		cMock.NewPubkeyConverterMock(32),
+		&cMock.KeyGeneratorStub{
 			CheckPublicKeyValidCalled: func(b []byte) error {
 				return expectedErr
 			},

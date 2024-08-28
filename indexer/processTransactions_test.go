@@ -4,11 +4,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/klever-io/klever-go/common/mock"
 	nodeData "github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/indexer"
 	"github.com/klever-io/klever-go/data/transaction"
-	"github.com/klever-io/klever-go/indexer/mock"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"

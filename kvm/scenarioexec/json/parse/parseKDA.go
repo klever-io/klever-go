@@ -141,6 +141,11 @@ func (p *Parser) tryProcessKDAInstanceField(kvp *orderedjson.OJsonKeyValuePair, 
 		if err != nil {
 			return false, fmt.Errorf("invalid KDA NFT attributes: %w", err)
 		}
+	case "canBurn":
+		targetInstance.CanBurn, err = p.parseBool(kvp.Value)
+		if err != nil {
+			return false, fmt.Errorf("invalid KDA NFT canBurn: %w", err)
+		}
 	default:
 		return false, nil
 	}

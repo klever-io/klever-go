@@ -9,12 +9,13 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 	"github.com/klever-io/klever-go/data"
 	dataBlock "github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/indexer"
 	"github.com/klever-io/klever-go/data/transaction"
-	"github.com/klever-io/klever-go/indexer/mock"
+	imock "github.com/klever-io/klever-go/indexer/mock"
 	"github.com/klever-io/klever-go/indexer/workItems"
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
@@ -40,8 +41,8 @@ func NewDataIndexerArguments() ArgDataIndexer {
 		Marshalizer:        &mock.MarshalizerMock{},
 		NodesCoordinator:   &mock.NodesCoordinatorMock{},
 		EpochStartNotifier: &mock.EpochStartNotifierStub{},
-		DataDispatcher:     &mock.DispatcherMock{},
-		ElasticProcessor:   &mock.ElasticProcessorStub{},
+		DataDispatcher:     &imock.DispatcherMock{},
+		ElasticProcessor:   &imock.ElasticProcessorStub{},
 	}
 }
 
@@ -104,7 +105,7 @@ func TestDataIndexer_SaveBlock(t *testing.T) {
 	called := false
 
 	arguments := NewDataIndexerArguments()
-	arguments.DataDispatcher = &mock.DispatcherMock{
+	arguments.DataDispatcher = &imock.DispatcherMock{
 		AddCalled: func(item workItems.WorkItemHandler) {
 			called = true
 		},

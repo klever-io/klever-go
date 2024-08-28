@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"math/big"
 
+	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/tools/check"
 
 	"github.com/klever-io/klever-go/data/state"
@@ -259,6 +260,15 @@ func (context *VMHooksImpl) ManagedGetMultiKDACallValue(multiCallValueHandle int
 	metering.UseGasAndAddTracedGas(managedGetMultiKDACallValueName, gasToUse)
 
 	kdaTransfers := runtime.GetVMInput().KDATransfers
+	// remove klv transfers if any
+	for i := 0; i < len(kdaTransfers); {
+		if kdaTransfers[i].KDATokenName == nil || bytes.Equal(kdaTransfers[i].KDATokenName, kdautils.KLVIdentifier) {
+			// Remove the element by creating a new slice without it
+			kdaTransfers = append(kdaTransfers[:i], kdaTransfers[i+1:]...)
+		} else {
+			i++
+		}
+	}
 	multiCallBytes := writeKDATransfersToBytes(managedType, kdaTransfers)
 	managedType.ConsumeGasForBytes(multiCallBytes)
 

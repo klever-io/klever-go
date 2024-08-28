@@ -117,6 +117,10 @@ func (b *MockWorld) UpdateAccountFromOutputAccount(modAcct *vmcommon.OutputAccou
 		acct.SetCodeHash(DefaultHasher.Compute(string(modAcct.Code)))
 		acct.SetCode(modAcct.Code)
 		acct.SetCodeMetadata(codeMeta.ToBytes())
+		// update owner if none is set
+		if len(acct.GetOwnerAddress()) == 0 {
+			acct.SetOwnerAddress(modAcct.CodeDeployerAddress)
+		}
 	}
 
 	for _, stu := range modAcct.StorageUpdates {

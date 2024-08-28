@@ -330,7 +330,7 @@ func (k *kdaKapp) Burn(sender []byte, tc *transaction.AssetTriggerContract) (tra
 		kda.BurnedValue += tc.GetAmount()
 		kda.CirculatingSupply -= tc.GetAmount()
 
-		if kda.BurnedValue <= 0 || kda.CirculatingSupply <= 0 {
+		if kda.BurnedValue <= 0 || kda.CirculatingSupply < 0 {
 			// prevent overflow
 			return transaction.Transaction_AssetError, process.ErrSupplyNotValid
 		}

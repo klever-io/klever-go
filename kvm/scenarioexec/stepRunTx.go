@@ -46,7 +46,12 @@ func (ae *VMTestExecutor) executeTx(txIndex string, tx *scenjsonmodel.Transactio
 			return nil, err
 		}
 
-		gasForExecution = tx.GasLimit.Value
+		if !tx.GasLimit.Unspecified {
+			gasForExecution = tx.GasLimit.Value
+		} else {
+			gasForExecution = math.MaxInt64
+		}
+
 		if tx.KDAValue != nil || tx.KLVValue.Value.Cmp(big.NewInt(0)) > 0 {
 			gasConsumed, err := ae.directKDATransferFromTx(tx)
 			if err != nil {

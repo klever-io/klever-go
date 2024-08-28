@@ -17,6 +17,7 @@ func (p *Parser) processCheckKDAData(
 		// simple string representing balance "400,000,000,000"
 		kdaData := scenjsonmodel.CheckKDAData{
 			TokenIdentifier: tokenName,
+			LastNonce:       scenjsonmodel.JSONCheckUint64Unspecified(),
 		}
 		balance, err := p.processCheckBigInt(kdaDataRaw, bigIntUnsignedBytes)
 		if err != nil {
@@ -26,6 +27,7 @@ func (p *Parser) processCheckKDAData(
 			{
 				Nonce:   scenjsonmodel.JSONUint64Zero(),
 				Balance: balance,
+				Creator: scenjsonmodel.JSONCheckBytesUnspecified(),
 			},
 		}
 		return &kdaData, nil
@@ -46,6 +48,7 @@ func (p *Parser) processCheckKDAData(
 func (p *Parser) processCheckKDADataMap(tokenName scenjsonmodel.JSONBytesFromString, kdaDataMap *orderedjson.OJsonMap) (*scenjsonmodel.CheckKDAData, error) {
 	kdaData := scenjsonmodel.CheckKDAData{
 		TokenIdentifier: tokenName,
+		LastNonce:       scenjsonmodel.JSONCheckUint64Unspecified(),
 	}
 	// var err error
 	firstInstance := &scenjsonmodel.CheckKDAInstance{

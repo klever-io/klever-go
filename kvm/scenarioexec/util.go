@@ -43,11 +43,15 @@ func convertAccount(testAcct *scenjsonmodel.Account, world *worldmock.MockWorld)
 	acct.Balance = testAcct.Balance.Value.Int64()
 	acct.Name = testAcct.Username.Value
 	acct.SetCode(testAcct.Code.Value)
-	acct.SetCodeMetadata((&vmcommon.CodeMetadata{
-		Payable:     true,
-		Upgradeable: true,
-		Readable:    true,
-	}).ToBytes())
+	if testAcct.CodeMetadata.Unspecified {
+		acct.SetCodeMetadata((&vmcommon.CodeMetadata{
+			Payable:     true,
+			Upgradeable: true,
+			Readable:    true,
+		}).ToBytes())
+	} else {
+		acct.SetCodeMetadata(testAcct.CodeMetadata.Value)
+	}
 	acct.OwnerAddress = testAcct.Owner.Value
 
 	for _, stkvp := range testAcct.Storage {
@@ -65,6 +69,32 @@ func convertAccount(testAcct *scenjsonmodel.Account, world *worldmock.MockWorld)
 	err = kdaconvert.SetMultiKDARoles(acct, testAcct.KDAData, world)
 	if err != nil {
 		return nil, err
+	}
+
+	return acct, nil
+}
+
+func convertKAppAccount(testAcct *scenjsonmodel.Account, world *worldmock.MockWorld) (state.KAppAccountHandler, error) {
+	storage := make(map[string][]byte)
+	for _, stkvp := range testAcct.Storage {
+		key := string(stkvp.Key.Value)
+		storage[key] = stkvp.Value.Value
+	}
+	if len(testAcct.Address.Value) != 32 {
+		return nil, errors.New("bad test: kapp address should be 32 bytes long")
+	}
+
+	// get account from cacher
+	acct, err := world.AccountsCacher.GetExistingKapp(testAcct.Address.Value)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, stkvp := range testAcct.Storage {
+		err = acct.DataTrieTracker().SaveKeyValue(stkvp.Key.Value, stkvp.Value.Value)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return acct, nil

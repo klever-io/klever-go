@@ -7,6 +7,20 @@ import (
 	"github.com/klever-io/klever-go/core"
 )
 
+// Define the pattern to check against (with ID set to 0x00 since it's variable)
+var expectedPattern = []byte{
+	// Prefix zeros
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 9 bytes
+	// Identifier
+	0x01,
+	// Suffix zeros
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 19 bytes
+	// ID byte (placeholder)
+	0x00,
+	// Suffix
+	0xFF, 0xFF, // 2 bytes
+}
+
 func (kda *KDAData) IsTransferAllowed(sender []byte, destination []byte) bool {
 	if !kda.Properties.LimitTransfer {
 		return true
@@ -85,4 +99,18 @@ func (kda *KDAData) GetTransferRoyaltyByAmount(amount int64, isKdaFprFork bool) 
 	}
 
 	return royaltySum, nil
+}
+
+func IsKAppAddress(address []byte) bool {
+	if len(address) != 32 {
+		return false
+	}
+
+	// Compare prefix
+	if !bytes.Equal(address[:29], expectedPattern[:29]) {
+		return false
+	}
+
+	// Compare suffix
+	return bytes.Equal(address[30:], expectedPattern[30:])
 }

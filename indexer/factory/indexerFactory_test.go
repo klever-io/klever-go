@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/common/mock"
 	indexer "github.com/klever-io/klever-go/indexer"
-	"github.com/klever-io/klever-go/indexer/mock"
 	"github.com/stretchr/testify/require"
 )
 

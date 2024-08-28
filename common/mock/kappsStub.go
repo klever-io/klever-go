@@ -21,6 +21,10 @@ func (k KappsDBMock) LoadAccount(address []byte) (state.AccountHandler, error) {
 	return nil, nil
 }
 
+func (k KappsDBMock) SaveAccounts(accounts ...state.AccountHandler) error {
+	return nil
+}
+
 func (k KappsDBMock) SaveAccount(account state.AccountHandler) error {
 	return nil
 }

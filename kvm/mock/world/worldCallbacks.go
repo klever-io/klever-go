@@ -265,6 +265,10 @@ func (b *MockWorld) IsPayable(sndAddress []byte, rcvAddress []byte) (bool, error
 	}
 
 	account, err := b.AccountsCacher.GetExistingUser(rcvAddress)
+	if err == common.ErrAccNotFound {
+		// if new contract, allow deployer to deposit
+		return true, nil
+	}
 	if err != nil {
 		return false, err
 	}

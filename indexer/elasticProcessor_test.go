@@ -12,13 +12,14 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/esapi"
+	"github.com/klever-io/klever-go/common/mock"
 	nodeData "github.com/klever-io/klever-go/data"
 	dataBlock "github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/indexer"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/indexer/logsevents"
-	"github.com/klever-io/klever-go/indexer/mock"
+	imock "github.com/klever-io/klever-go/indexer/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,7 +58,7 @@ func createMockElasticProcessorArgs() ArgElasticProcessor {
 		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
 		Hasher:                   &mock.HasherMock{},
 		Marshalizer:              &mock.MarshalizerMock{},
-		DBClient:                 &mock.DatabaseWriterStub{},
+		DBClient:                 &imock.DatabaseWriterStub{},
 		IsInImportDBMode:         false,
 		EnabledIndexes: map[string]struct{}{
 			blockIndex: {}, txIndex: {}, accountsIndex: {}, proposalsIndex: {}, accountsHistoryIndex: {}, peersAccountsIndex: {}, kdaPoolsIndex: {},
@@ -73,7 +74,7 @@ func createMockElasticProcessorArgs() ArgElasticProcessor {
 func TestNewElasticProcessorWithKibana(t *testing.T) {
 	args := createMockElasticProcessorArgs()
 	args.UseKibana = true
-	args.DBClient = &mock.DatabaseWriterStub{}
+	args.DBClient = &imock.DatabaseWriterStub{}
 
 	elasticProc, err := NewElasticProcessor(args)
 	require.NoError(t, err)
@@ -84,7 +85,7 @@ func TestElasticProcessor_RemoveHeader(t *testing.T) {
 	called := false
 
 	args := createMockElasticProcessorArgs()
-	args.DBClient = &mock.DatabaseWriterStub{
+	args.DBClient = &imock.DatabaseWriterStub{
 		DoBulkRemoveCalled: func(index string, hashes []string) error {
 			called = true
 			return nil
@@ -106,7 +107,7 @@ func TestElasticseachDatabaseSaveHeader_RequestError(t *testing.T) {
 	}
 	signer := []byte("signer")
 	arguments := createMockElasticProcessorArgs()
-	dbWriter := &mock.DatabaseWriterStub{
+	dbWriter := &imock.DatabaseWriterStub{
 		DoRequestCalled: func(req *esapi.IndexRequest) error {
 			return localErr
 		},
@@ -124,7 +125,7 @@ func TestElasticseachDatabaseSaveHeader_CheckRequestBody(t *testing.T) {
 	signer := []byte("signer")
 	arguments := createMockElasticProcessorArgs()
 
-	dbWriter := &mock.DatabaseWriterStub{
+	dbWriter := &imock.DatabaseWriterStub{
 		DoRequestCalled: func(req *esapi.IndexRequest) error {
 			require.Equal(t, blockIndex, req.Index)
 
@@ -146,7 +147,7 @@ func TestElasticseachDatabaseSaveHeader_CheckRequestBody(t *testing.T) {
 func TestElasticseachSaveTransactions_ShouldReturnErr(t *testing.T) {
 	localErr := errors.New("localErr")
 	arguments := createMockElasticProcessorArgs()
-	dbWriter := &mock.DatabaseWriterStub{
+	dbWriter := &imock.DatabaseWriterStub{
 		DoBulkRequestCalled: func(buff *bytes.Buffer, index string) error {
 			return localErr
 		},

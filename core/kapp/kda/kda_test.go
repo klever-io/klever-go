@@ -104,9 +104,7 @@ func createFullArgumentsForKAppsProcessingMemory() (core.ForkController, kapps.A
 	proposalKapp := loadKAppAccount(kappAccountsDB, kapps.ProposalKAppAddress)
 	atcivePC, _ := proposalKapp.StartProposalsKApp(forkController)
 
-	_ = kappAccountsDB.SaveAccount(kdaKapp)
-	_ = kappAccountsDB.SaveAccount(stakingKapp)
-	_ = kappAccountsDB.SaveAccount(proposalKapp)
+	_ = kappAccountsDB.SaveAccounts(kdaKapp, stakingKapp, proposalKapp)
 
 	return forkController, atcivePC, accCacher
 }
