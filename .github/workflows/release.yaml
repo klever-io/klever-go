@@ -13,6 +13,8 @@ jobs:
       git_pass: ${{ secrets.GIT_PASS }}
 
   build:
+    permissions:
+      contents: write
     needs: [config]
     runs-on: ${{ matrix.os }}
     strategy:
