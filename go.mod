@@ -1,6 +1,6 @@
 module github.com/klever-io/klever-go
 
-go 1.22.0
+go 1.22.1
 
 require (
 	github.com/ElrondNetwork/concurrent-map v0.1.3
@@ -16,7 +16,7 @@ require (
 	github.com/elastic/go-elasticsearch/v8 v8.4.0
 	github.com/fatih/color v1.13.0
 	github.com/gdamore/tcell/v2 v2.5.3
-	github.com/gin-contrib/cors v1.3.1
+	github.com/gin-contrib/cors v1.6.0
 	github.com/gin-contrib/pprof v1.3.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/gizak/termui/v3 v3.1.0
@@ -62,7 +62,7 @@ require (
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bugsnag/panicwrap v1.3.4 // indirect
-	github.com/bytedance/sonic v1.11.0 // indirect
+	github.com/bytedance/sonic v1.11.2 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20230717121745-296ad89f973d // indirect
 	github.com/chenzhuoyu/iasm v0.9.1 // indirect
@@ -88,7 +88,7 @@ require (
 	github.com/go-openapi/swag v0.19.15 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-playground/validator/v10 v10.18.0 // indirect
+	github.com/go-playground/validator/v10 v10.19.0 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
@@ -190,6 +190,7 @@ require (
 	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/tools v0.20.0 // indirect
 	gonum.org/v1/gonum v0.13.0 // indirect
+	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 	lukechampine.com/blake3 v1.2.1 // indirect
 )
 
