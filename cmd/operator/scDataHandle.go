@@ -899,21 +899,21 @@ func encodeUint(v, t string, isNested bool) (string, error) {
 }
 
 func encodeTopLevelUint(v string) (string, error) {
-	rawInt, err := strconv.ParseUint(v, BaseDecimal, Bits64)
+	rawUint, err := strconv.ParseUint(v, BaseDecimal, Bits64)
 	if err != nil {
 		return "", fmt.Errorf("invalid string `%s` to convert to signed integer", v)
 	}
 
 	var encoded string
 	switch {
-	case rawInt <= math.MaxInt8:
-		encoded = fmt.Sprintf("%x", uint8(rawInt))
-	case rawInt <= math.MaxInt16:
-		encoded = fmt.Sprintf("%x", uint16(rawInt))
-	case rawInt <= math.MaxInt32:
-		encoded = fmt.Sprintf("%x", uint32(rawInt))
+	case rawUint <= math.MaxUint8:
+		encoded = fmt.Sprintf("%x", uint8(rawUint))
+	case rawUint <= math.MaxUint16:
+		encoded = fmt.Sprintf("%x", uint16(rawUint))
+	case rawUint <= math.MaxUint32:
+		encoded = fmt.Sprintf("%x", uint32(rawUint))
 	default:
-		encoded = fmt.Sprintf("%x", rawInt)
+		encoded = fmt.Sprintf("%x", rawUint)
 	}
 
 	if len(encoded)%2 != 0 {
