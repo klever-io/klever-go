@@ -625,12 +625,13 @@ func (netMes *networkMessenger) ConnectedAddresses() []string {
 // PeerAddresses returns the peer's addresses or empty slice if the peer is unknown
 func (netMes *networkMessenger) PeerAddresses(pid core.PeerID) []string {
 	h := netMes.p2pHost
-	result := make([]string, 0)
+
+	resultMap := make(map[string]interface{})
 
 	//check if the peer is connected to return it's connected address
 	for _, c := range h.Network().Conns() {
 		if string(c.RemotePeer()) == string(pid.Bytes()) {
-			result = append(result, c.RemoteMultiaddr().String())
+			resultMap[c.RemoteMultiaddr().String()] = nil
 			break
 		}
 	}
@@ -638,7 +639,12 @@ func (netMes *networkMessenger) PeerAddresses(pid core.PeerID) []string {
 	//check in peerstore (maybe it is known but not connected)
 	addresses := h.Peerstore().Addrs(peer.ID(pid.Bytes()))
 	for _, addr := range addresses {
-		result = append(result, addr.String())
+		resultMap[addr.String()] = nil
+	}
+
+	result := make([]string, 0)
+	for key := range resultMap {
+		result = append(result, key)
 	}
 
 	return result
