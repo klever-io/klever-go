@@ -112,9 +112,16 @@ func (n *Node) CreateTransaction(
 	if len(base.SenderUsername) > core.MaxUserNameLength {
 		return nil, nil, common.ErrInvalidSenderUsernameLength
 	}
-	if len(base.DataField) > tools.MegabyteSize {
+
+	totalSize := 0
+	for _, slice := range base.DataField {
+		totalSize += len(slice)
+	}
+
+	if totalSize > tools.MegabyteSize {
 		return nil, nil, common.ErrDataFieldTooBig
 	}
+
 	if len(contracts) == 0 || len(contracts) > core.MaxLengthOfContracts {
 		return nil, nil, common.ErrInvalidContract
 	}

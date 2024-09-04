@@ -7,7 +7,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/network/api/models"
+	"github.com/klever-io/klever-go/tools"
 
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
@@ -114,8 +116,7 @@ func getKAppController(t *testing.T, accAdapter state.AccountsAdapter) kapp.KApp
 	return kAppController
 }
 
-func TestCreateTransaction_ShouldWork(t *testing.T) {
-	t.Parallel()
+func createNode(t *testing.T) (*node.Node, error) {
 
 	accAdapter := getAccAdapter(100)
 	uint64Converter := mock.NewNonceHashConverterMock()
@@ -174,8 +175,16 @@ func TestCreateTransaction_ShouldWork(t *testing.T) {
 		node.WithProposalController(proposalController),
 		node.WithKAppController(kappController),
 	)
-
 	require.Nil(t, err)
+
+	return n, nil
+}
+
+func TestCreateTransaction_ShouldWork(t *testing.T) {
+	t.Parallel()
+
+	n, err := createNode(t)
+	require.NoError(t, err)
 
 	transferContract, _ := json.Marshal(struct {
 		Receiver string
@@ -215,4 +224,32 @@ func TestCreateTransaction_ShouldWork(t *testing.T) {
 	assert.NotNil(t, tx)
 	assert.NotNil(t, txHash)
 	assert.NoError(t, err)
+}
+
+func TestCreateTransaction_ShouldFail(t *testing.T) {
+	t.Parallel()
+
+	n, err := createNode(t)
+	require.NoError(t, err)
+
+	transferContract, _ := json.Marshal(struct {
+		Receiver string
+		Amount   int64
+		Asset    string
+	}{
+		Receiver: createDummyHexAddress(64),
+		Amount:   10,
+		Asset:    "token",
+	})
+
+	byteSlice := make([]byte, tools.MegabyteSize+1)
+
+	baseInfo := &transaction.TXBaseInfo{
+		Sender:    createDummyHexAddress(64),
+		Nonce:     uint64(0),
+		DataField: [][]byte{byteSlice},
+	}
+
+	_, _, err = n.CreateTransaction(0, baseInfo, []json.RawMessage{transferContract}, false)
+	require.Error(t, common.ErrDataFieldTooBig, err)
 }
