@@ -775,6 +775,10 @@ func doEncode(arg string) (string, error) {
 		kv[0] = kv[0][6:]
 	}
 
+	if len(kv) < 2 {
+		return "", fmt.Errorf("invalid encoding type: %s", arg)
+	}
+
 	encoded, err := encodeSingleValue(kv[0], kv[1], isOption)
 	if err != nil {
 		return "", err
