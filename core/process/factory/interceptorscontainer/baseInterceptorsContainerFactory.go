@@ -219,12 +219,6 @@ func (bicf *baseInterceptorsContainerFactory) createOneTrieNodesInterceptor(topi
 
 func (bicf *baseInterceptorsContainerFactory) generateMetachainHeaderInterceptors() error {
 	identifierHdr := common.BlocksTopic
-	//TODO implement other HeaderHandlerProcessValidator that will check the header's nonce
-	// against blockchain's latest nonce - k finality
-	hdrValidator, err := dataValidators.NewNilHeaderValidator()
-	if err != nil {
-		return err
-	}
 
 	hdrFactory, err := interceptorFactory.NewInterceptedBlockDataFactory(bicf.argInterceptorFactory)
 	if err != nil {
@@ -233,7 +227,6 @@ func (bicf *baseInterceptorsContainerFactory) generateMetachainHeaderInterceptor
 
 	argProcessor := &processor.ArgHdrInterceptorProcessor{
 		Headers:          bicf.dataPool.Headers(),
-		HdrValidator:     hdrValidator,
 		BlockBlackList:   bicf.blockBlackList,
 		Marshalizer:      bicf.marshalizer,
 		Hasher:           bicf.hasher,

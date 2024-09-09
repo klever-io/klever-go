@@ -397,11 +397,6 @@ func (ficf *fullSyncInterceptorsContainerFactory) generateMetachainHeaderInterce
 		return nil
 	}
 
-	hdrValidator, err := dataValidators.NewNilHeaderValidator()
-	if err != nil {
-		return err
-	}
-
 	hdrFactory, err := interceptorFactory.NewInterceptedBlockDataFactory(ficf.argInterceptorFactory)
 	if err != nil {
 		return err
@@ -409,7 +404,6 @@ func (ficf *fullSyncInterceptorsContainerFactory) generateMetachainHeaderInterce
 
 	argProcessor := &processor.ArgHdrInterceptorProcessor{
 		Headers:        ficf.dataPool.Headers(),
-		HdrValidator:   hdrValidator,
 		BlockBlackList: ficf.blockBlackList,
 	}
 	hdrProcessor, err := processor.NewHdrInterceptorProcessor(argProcessor)

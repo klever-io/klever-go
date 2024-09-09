@@ -10,7 +10,6 @@ import (
 // ArgHdrInterceptorProcessor is the argument for the interceptor processor used for headers (shard, meta and so on)
 type ArgHdrInterceptorProcessor struct {
 	Headers          retriever.HeadersPool
-	HdrValidator     process.HeaderValidator
 	BlockBlackList   process.TimeCacher
 	Marshalizer      marshal.Marshalizer
 	Hasher           hashing.Hasher

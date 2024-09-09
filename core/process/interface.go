@@ -335,12 +335,6 @@ type HdrValidatorHandler interface {
 	HeaderHandler() data.HeaderHandler
 }
 
-// HeaderValidator can determine if a provided header handler is valid or not from the process point of view
-type HeaderValidator interface {
-	HeaderValidForProcessing(headerHandler HdrValidatorHandler) error
-	IsInterfaceNil() bool
-}
-
 // TxValidator can determine if a provided transaction handler is valid or not from the process point of view
 type TxValidator interface {
 	CheckTxValidity(txHandler TxValidatorHandler) error
