@@ -93,6 +93,9 @@ func (k *kdaKapp) Trigger(sender []byte, tc *transaction.AssetTriggerContract, t
 		if len(tc.GetRole().GetAddress()) != k.pubkeyConv.Len() {
 			return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
 		}
+		if k.forkController.EnableSmartContracts() && len(asset.Roles) > core.MaxAssetRoles {
+			return transaction.Transaction_IteratorLimitReached, common.ErrRoleLimitReached
+		}
 
 		updated := false
 		for i, role := range asset.Roles {

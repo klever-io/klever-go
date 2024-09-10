@@ -715,6 +715,9 @@ var ErrDepositTypeInvalid = errors.New("invalid deposit type")
 // ErrAssetTriggerInvalid signals that an asset trigger is invalid
 var ErrAssetTriggerInvalid = errors.New("invalid asset trigger")
 
+// ErrRoleLimitReached signals that a role limit has been reached
+var ErrRoleLimitReached = errors.New("role limit reached")
+
 // ErrAssetTickerLengthInvalid signals that an asset ticker is invalid
 var ErrAssetTickerLengthInvalid = errors.New("invalid asset ticker length")
 

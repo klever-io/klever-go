@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data/transaction"
@@ -46,6 +47,39 @@ func createDefaultAsset(
 	require.NoError(t, err)
 }
 
+func TestKDATrigger_AssetMaxRole(t *testing.T) {
+	kc, err := createMockControllers()
+	require.NoError(t, err)
+
+	createDefaultAsset(t, kc, transaction.CreateAssetContract_Fungible, 0, 0, 0)
+
+	for i := 0; i <= core.MaxAssetRoles; i++ {
+		sender := fmt.Sprintf("sender_%d", i)
+		validAddress := makeAddress(sender)
+		tc := transaction.AssetTriggerContract{
+			TriggerType: transaction.AssetTriggerContract_AddRole,
+			AssetID:     defaultAssetID,
+			Role: &transaction.RolesInfo{
+				Address:     validAddress,
+				HasRoleMint: true,
+			},
+		}
+		_, err = kc.GetKDAKApp().Trigger(defaultSender, &tc, nil)
+		require.NoError(t, err)
+	}
+	// Add one more role should fail
+	validAddress := makeAddress("sender_21")
+	tc := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_AddRole,
+		AssetID:     defaultAssetID,
+		Role: &transaction.RolesInfo{
+			Address:     validAddress,
+			HasRoleMint: true,
+		},
+	}
+	_, err = kc.GetKDAKApp().Trigger(defaultSender, &tc, nil)
+	require.Equal(t, common.ErrRoleLimitReached, err)
+}
 func TestKDATrigger_MintInvalidAssetShouldFail(t *testing.T) {
 	t.Parallel()
 

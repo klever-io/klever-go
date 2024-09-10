@@ -23,6 +23,9 @@ const PathEpochPlaceholder = "[E]"
 // PathIdentifierPlaceholder represents the placeholder for the identifier in paths
 const PathIdentifierPlaceholder = "[I]"
 
+// Max Assets Roles allowed
+const MaxAssetRoles = 20
+
 // UnVersionedAppString represents the default app version that indicate that the binary wasn't build by setting
 // the appVersion flag
 const UnVersionedAppString = "undefined"
