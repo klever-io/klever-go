@@ -8,6 +8,8 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -824,8 +826,8 @@ func encodeSingleValue(t, v string, isNested bool) (string, error) {
 		Bytes,
 		BoxedBytes, strings.ToLower(BoxedBytes),
 		String, strings.ToLower(String),
-		StrRef,
 		VecU8, strings.ToLower(VecU8),
+		StrRef,
 		SliceU8: // All types of strings
 
 		return encodeString(v, isNested), nil
@@ -833,6 +835,10 @@ func encodeSingleValue(t, v string, isNested bool) (string, error) {
 		return encodeBoolean(v, isNested)
 	case "empty", "0", "e", "E":
 		return "", nil
+	case "file", "code", "wasm":
+		return encodeFile(v)
+	case "hex":
+		return v, nil
 	default:
 		return "", fmt.Errorf("invalid encode type `%s`", t)
 	}
@@ -862,7 +868,7 @@ func encodeTopLevelInt(v string) (string, error) {
 	case rawInt >= math.MinInt32 && rawInt <= math.MaxInt32:
 		encoded = fmt.Sprintf("%08x", uint32(rawInt)) // #nosec G115 - type specific
 	default:
-		encoded = fmt.Sprintf("%16x", uint64(rawInt)) // #nosec G115 - type specific
+		encoded = fmt.Sprintf("%016x", uint64(rawInt)) // #nosec G115 - type specific
 	}
 
 	if len(encoded)%2 != 0 {
@@ -989,6 +995,31 @@ func encodeBoolean(v string, isNested bool) (string, error) {
 	default:
 		return "", fmt.Errorf("invalid boolean to encode, must be `true` or `false`")
 	}
+}
+
+func encodeFile(v string) (string, error) {
+	// v is the path of file
+
+	bytecode, err := os.ReadFile(filepath.Clean(v))
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+
+	// check if the file is a .kleversc.json
+	if isKleverSC := strings.HasSuffix(v, ".kleversc.json"); isKleverSC {
+		kleverJson := struct {
+			Code string `json:"code"`
+		}{}
+
+		err := json.Unmarshal(bytecode, &kleverJson)
+		if err != nil {
+			return "", fmt.Errorf("failed to read file: %w", err)
+		}
+
+		return kleverJson.Code, nil
+	}
+
+	return hex.EncodeToString(bytecode), nil
 }
 
 func encodeBigInt(v string, isNested bool) (string, error) {

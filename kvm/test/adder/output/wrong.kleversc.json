@@ -1,0 +1,9 @@
+{
+    "buildInfo": {},
+    "size": 1173,
+    "code": 1,
+    "report": {
+        "memoryAllocationError": false,
+        "isMemGrow": true
+    }
+}
