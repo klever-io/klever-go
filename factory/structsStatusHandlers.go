@@ -199,8 +199,10 @@ func (shi *statusHandlersInfo) LoadTpsBenchmarkFromStorage(
 
 	okTpsBenchmarks.BlockNumber = persister.GetUint64(metricsMap[core.MetricNonceForTPS])
 	okTpsBenchmarks.SlotNumber = persister.GetUint64(metricsMap[core.MetricCurrentSlot])
+	// #nosec G115 - max tx per block is uint32 value
 	okTpsBenchmarks.LastBlockTxCount = uint32(persister.GetUint64(metricsMap[core.MetricLastBlockTxCount]))
 	okTpsBenchmarks.PeakTPS = float64(persister.GetUint64(metricsMap[core.MetricPeakTPS]))
+	// #nosec G115 - total processed tx count is uint32
 	okTpsBenchmarks.TotalProcessedTxCount = big.NewInt(int64(persister.GetUint64(metricsMap[core.MetricNumProcessedTxsTPSBenchmark])))
 	okTpsBenchmarks.AverageBlockTxCount = persister.GetBigIntFromString(metricsMap[core.MetricAverageBlockTxCount])
 

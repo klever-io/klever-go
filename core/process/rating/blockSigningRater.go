@@ -9,6 +9,7 @@ import (
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/sharding"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 )
 
@@ -126,7 +127,7 @@ func (bsr *BlockSigningRater) computeRating(ratingStep int32, currentRating uint
 		return bsr.maxRating
 	}
 
-	return uint32(newVal)
+	return tools.SafeI64ToU32(newVal)
 }
 
 // IsInterfaceNil returns true if there is no value under the interface
@@ -166,7 +167,7 @@ func (bsr *BlockSigningRater) RevertIncreaseValidator(currentRating uint32, nrRe
 	if decreaseInt < maxDecreaseValue || decreaseInt > 0 {
 		decreaseValue = maxDecreaseValue
 	} else {
-		decreaseValue = int32(decreaseValueBigInt.Int64())
+		decreaseValue = tools.SafeI64ToI32(decreaseValueBigInt.Int64())
 	}
 	return bsr.computeRating(decreaseValue, currentRating)
 }

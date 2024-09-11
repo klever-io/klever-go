@@ -160,7 +160,7 @@ func (sr *subslotStartSlot) initCurrentSlot() bool {
 		}
 		sr.AppStatusHandler().SetStringValue(core.MetricConsensusState, "participant")
 
-		err = sr.MultiSigner().Reset(pubKeys, uint16(selfIndex))
+		err = sr.MultiSigner().Reset(pubKeys, uint16(selfIndex)) // #nosec G115
 		if err != nil {
 			log.Debug("initCurrentSlot.Reset", "error", err.Error())
 
@@ -206,7 +206,7 @@ func (sr *subslotStartSlot) generateNextConsensusGroup(slotIndex int64) error {
 
 	nextConsensusGroup, err := sr.GetNextConsensusGroup(
 		randomSeed,
-		uint64(sr.SlotIndex),
+		tools.SafeI64ToU64(sr.SlotIndex),
 		sr.NodesCoordinator(),
 		currentHeader.GetEpoch(),
 	)

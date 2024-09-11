@@ -852,3 +852,18 @@ var ErrNilTxLogsProcessor = errors.New("nil transaction logs processor")
 
 // ErrNotEnoughGas signals that not enough gas has been provided
 var ErrNotEnoughGas = errors.New("not enough gas was sent in the transaction")
+
+// ErrEstimateGasTooBig signals that an error occurred while estimating gas
+var ErrEstimateGasTooBig = errors.New("error while estimating gas, invalid amount")
+
+// ErrInvalidType signals that an invalid type has been provided
+var ErrInvalidType = errors.New("invalid type")
+
+// ErrUint64Overflow signals that an overflow occurred while adding uint64 values
+var ErrUint64Overflow = errors.New("uint64 overflow")
+
+// ErrInt64Overflow signals that an overflow occurred while adding int64 values
+var ErrInt64Overflow = errors.New("int64 overflow")
+
+// ErrInvalidReceiverAddress signals that an invalid receiver address has been provided
+var ErrInvalidReceiverAddress = errors.New("could not create receiver address from provided parameters")

@@ -149,7 +149,7 @@ func (context *blockchainContext) GetCodeSize(address []byte) (int32, error) {
 	}
 
 	code := context.blockChainHook.GetCode(account)
-	result := int32(len(code))
+	result := int32(len(code)) // #nosec G115
 	return result, nil
 }
 

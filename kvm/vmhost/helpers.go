@@ -31,11 +31,11 @@ func BooleanToInt(b bool) int {
 
 // GuardedGetBytesSlice extracts a subslice from a given slice, guarding against overstepping the bounds.
 func GuardedGetBytesSlice(data []byte, offset int32, length int32) ([]byte, error) {
-	dataLength := uint32(len(data))
+	dataLength := uint32(len(data)) // #nosec G115
 	isOffsetTooSmall := offset < 0
 	isOffsetTooLarge := uint32(offset) > dataLength
 	requestedEnd := math.AddInt32(offset, length)
-	isRequestedEndTooLarge := uint32(requestedEnd) > dataLength
+	isRequestedEndTooLarge := uint32(requestedEnd) > dataLength // #nosec G115
 	isLengthNegative := length < 0
 
 	if isOffsetTooSmall || isOffsetTooLarge || isRequestedEndTooLarge {

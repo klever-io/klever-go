@@ -1,14 +1,11 @@
 package update
 
 import (
-	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/tools/marshal"
 )
-
-var log = logger.GetOrCreate("update")
 
 // MbInfo defines the structure which hold the miniBlock info
 type MbInfo struct {

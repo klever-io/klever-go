@@ -87,7 +87,7 @@ func initAccounts(tx data.TransactionHandler, accCacher state.AccountsCacher, ac
 
 	smartContract, _ := tx.GetRaw().GetContract()[0].GetSmartContract()
 
-	acntSrc.AddToBalance(acntSrcBalance, []byte("KLV"), false)
+	_ = acntSrc.AddToBalance(acntSrcBalance, []byte("KLV"), false)
 
 	var acntDst state.UserAccountHandler
 	if smartContract != nil {

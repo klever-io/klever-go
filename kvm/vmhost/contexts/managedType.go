@@ -255,7 +255,7 @@ func (context *managedTypesContext) ConsumeGasForBytes(bytes []byte) {
 func (context *managedTypesContext) ConsumeGasForThisBigIntNumberOfBytes(byteLen *big.Int) {
 	metering := context.host.Metering()
 
-	gasToUseBigInt := big.NewInt(0).Mul(byteLen, big.NewInt(int64(metering.GasSchedule().BigIntAPICost.CopyPerByteForTooBig)))
+	gasToUseBigInt := big.NewInt(0).Mul(byteLen, big.NewInt(0).SetUint64(metering.GasSchedule().BigIntAPICost.CopyPerByteForTooBig))
 	maxGasBigInt := big.NewInt(0).SetUint64(basicMath.MaxUint64)
 	gasToUse := uint64(basicMath.MaxUint64)
 	if gasToUseBigInt.Cmp(maxGasBigInt) < 0 {
@@ -308,7 +308,7 @@ func (context *managedTypesContext) GetTwoBigInt(handle1 int32, handle2 int32) (
 }
 
 func (context *managedTypesContext) newBigIntNoCopy(value *big.Int) int32 {
-	newHandle := int32(len(context.managedTypesValues.bigIntValues))
+	newHandle := int32(len(context.managedTypesValues.bigIntValues)) // #nosec G115
 	for {
 		if _, ok := context.managedTypesValues.bigIntValues[newHandle]; !ok {
 			break
@@ -415,7 +415,7 @@ func (context *managedTypesContext) PutBigFloat(value *big.Float) (int32, error)
 	if exponent > 65025 || exponent < -65025 {
 		return 0, vmhost.ErrExponentTooBigOrTooSmall
 	}
-	newHandle := int32(len(context.managedTypesValues.bigFloatValues))
+	newHandle := int32(len(context.managedTypesValues.bigFloatValues)) // #nosec G115
 	for {
 		if _, ok := context.managedTypesValues.bigFloatValues[newHandle]; !ok {
 			break
@@ -453,7 +453,7 @@ func (context *managedTypesContext) GetEllipticCurve(handle int32) (*elliptic.Cu
 
 // PutEllipticCurve adds the given elliptic curve to the current ecValues map and returns the handle
 func (context *managedTypesContext) PutEllipticCurve(curve *elliptic.CurveParams) int32 {
-	newHandle := int32(len(context.managedTypesValues.ecValues))
+	newHandle := int32(len(context.managedTypesValues.ecValues)) // #nosec G115
 	for {
 		if _, ok := context.managedTypesValues.ecValues[newHandle]; !ok {
 			break
@@ -470,7 +470,7 @@ func (context *managedTypesContext) GetEllipticCurveSizeOfField(ecHandle int32) 
 	if !ok {
 		return -1
 	}
-	return int32(curve.BitSize)
+	return int32(curve.BitSize) // #nosec G115
 }
 
 // Get100xCurveGasCostMultiplier returns (100*multiplier) to be used with the basic gasCost depending on which curve is used
@@ -536,14 +536,14 @@ func (context *managedTypesContext) GetPrivateKeyByteLengthEC(ecHandle int32) in
 	if !ok {
 		return -1
 	}
-	return int32((curve.N.BitLen() + 7) / 8)
+	return int32((curve.N.BitLen() + 7) / 8) // #nosec G115
 }
 
 // MANAGED BUFFERS
 
 // NewManagedBuffer creates a new empty buffer in the managed buffers map and returns the handle
 func (context *managedTypesContext) NewManagedBuffer() int32 {
-	newHandle := int32(len(context.managedTypesValues.mBufferValues))
+	newHandle := int32(len(context.managedTypesValues.mBufferValues)) // #nosec G115
 	for {
 		if _, ok := context.managedTypesValues.mBufferValues[newHandle]; !ok {
 			break
@@ -602,7 +602,7 @@ func (context *managedTypesContext) GetLength(mBufferHandle int32) int32 {
 	if !ok {
 		return -1
 	}
-	return int32(len(mBuffer))
+	return int32(len(mBuffer)) // #nosec G115
 }
 
 // GetSlice returns a slice of given length beginning at given start position from the managed buffer
@@ -641,6 +641,7 @@ func (context *managedTypesContext) InsertSlice(mBufferHandle int32, startPositi
 	if !ok {
 		return nil, vmhost.ErrNoManagedBufferUnderThisHandle
 	}
+	// #nosec G115
 	if startPosition < 0 || startPosition > int32(len(mBuffer))-1 {
 		return nil, vmhost.ErrBadBounds
 	}
@@ -667,7 +668,7 @@ func (context *managedTypesContext) ReadManagedVecOfManagedBuffers(
 	result := make([][]byte, 0, numBuffers)
 	sumOfItemByteLengths := uint64(0)
 	for i := 0; i < len(managedVecBytes); i += handleLen {
-		itemHandle := int32(binary.BigEndian.Uint32(managedVecBytes[i : i+handleLen]))
+		itemHandle := int32(binary.BigEndian.Uint32(managedVecBytes[i : i+handleLen])) // #nosec G115
 
 		itemBytes, err := context.GetBytes(itemHandle)
 		if err != nil {
@@ -693,7 +694,7 @@ func (context *managedTypesContext) WriteManagedVecOfManagedBuffers(
 	for _, itemBytes := range data {
 		sumOfItemByteLengths += uint64(len(itemBytes))
 		itemHandle := context.NewManagedBufferFromBytes(itemBytes)
-		binary.BigEndian.PutUint32(destinationBytes[dataIndex:dataIndex+handleLen], uint32(itemHandle))
+		binary.BigEndian.PutUint32(destinationBytes[dataIndex:dataIndex+handleLen], uint32(itemHandle)) // #nosec G115
 		dataIndex += handleLen
 	}
 
@@ -704,7 +705,7 @@ func (context *managedTypesContext) WriteManagedVecOfManagedBuffers(
 
 // NewManagedMap creates a new empty managed map in the managed buffers map and returns the handle
 func (context *managedTypesContext) NewManagedMap() int32 {
-	newHandle := int32(len(context.managedTypesValues.mMapValues))
+	newHandle := int32(len(context.managedTypesValues.mMapValues)) // #nosec G115
 	for {
 		if _, ok := context.managedTypesValues.mMapValues[newHandle]; !ok {
 			break

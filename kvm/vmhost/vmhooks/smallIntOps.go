@@ -33,6 +33,7 @@ func (context *VMHooksImpl) SmallIntGetUnsignedArgument(id int32) int64 {
 	metering.UseGasAndAddTracedGas(smallIntGetUnsignedArgumentName, gasToUse)
 
 	args := runtime.Arguments()
+	// #nosec G115
 	if id < 0 || id >= int32(len(args)) {
 		_ = context.WithFault(vmhost.ErrArgIndexOutOfRange, runtime.BaseOpsErrorShouldFailExecution())
 		return 0
@@ -44,7 +45,7 @@ func (context *VMHooksImpl) SmallIntGetUnsignedArgument(id int32) int64 {
 		_ = context.WithFault(vmhost.ErrArgOutOfRange, runtime.BaseOpsErrorShouldFailExecution())
 		return 0
 	}
-	return int64(argBigInt.Uint64())
+	return argBigInt.Int64()
 }
 
 // SmallIntGetSignedArgument VMHooks implementation.
@@ -57,6 +58,7 @@ func (context *VMHooksImpl) SmallIntGetSignedArgument(id int32) int64 {
 	metering.UseGasAndAddTracedGas(smallIntGetSignedArgumentName, gasToUse)
 
 	args := runtime.Arguments()
+	// #nosec G115
 	if id < 0 || id >= int32(len(args)) {
 		_ = context.WithFault(vmhost.ErrArgIndexOutOfRange, runtime.BaseOpsErrorShouldFailExecution())
 		return 0
@@ -80,7 +82,7 @@ func (context *VMHooksImpl) SmallIntFinishUnsigned(value int64) {
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.Int64Finish
 	metering.UseGasAndAddTracedGas(smallIntFinishUnsignedName, gasToUse)
 
-	valueBytes := big.NewInt(0).SetUint64(uint64(value)).Bytes()
+	valueBytes := big.NewInt(0).SetUint64(uint64(value)).Bytes() // #nosec G115 - unsigned value
 	output.Finish(valueBytes)
 }
 
@@ -112,13 +114,13 @@ func (context *VMHooksImpl) SmallIntStorageStoreUnsigned(keyOffset executor.MemP
 		return -1
 	}
 
-	valueBytes := big.NewInt(0).SetUint64(uint64(value)).Bytes()
+	valueBytes := big.NewInt(0).SetUint64(uint64(value)).Bytes() // #nosec G115 - unsigned value
 	storageStatus, err := storage.SetStorage(key, valueBytes)
 	if context.WithFault(err, runtime.BaseOpsErrorShouldFailExecution()) {
 		return -1
 	}
 
-	return int32(storageStatus)
+	return int32(storageStatus) // #nosec G115
 }
 
 // SmallIntStorageStoreSigned VMHooks implementation.
@@ -142,7 +144,7 @@ func (context *VMHooksImpl) SmallIntStorageStoreSigned(keyOffset executor.MemPtr
 		return -1
 	}
 
-	return int32(storageStatus)
+	return int32(storageStatus) // #nosec G115
 }
 
 // SmallIntStorageLoadUnsigned VMHooks implementation.
@@ -177,7 +179,7 @@ func (context *VMHooksImpl) SmallIntStorageLoadUnsigned(keyOffset executor.MemPt
 		return 0
 	}
 
-	return int64(valueBigInt.Uint64())
+	return valueBigInt.Int64()
 }
 
 // SmallIntStorageLoadSigned VMHooks implementation.

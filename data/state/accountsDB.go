@@ -32,7 +32,7 @@ type loadingMeasurements struct {
 func (lm *loadingMeasurements) addMeasurement(size int, duration time.Duration) {
 	lm.Lock()
 	lm.numCalls++
-	lm.size += uint64(size)
+	lm.size += uint64(size) // #nosec G115
 	lm.duration += duration
 	lm.Unlock()
 }

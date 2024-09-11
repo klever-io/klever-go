@@ -42,8 +42,6 @@ const (
 	transferValueGasSchedule = "Transfer"
 )
 
-var zero = big.NewInt(0)
-
 type scProcessor struct {
 	// accounts           state.AccountsAdapter
 	blockChainHook     process.BlockChainHookHandler
@@ -467,7 +465,7 @@ func (sc *scProcessor) computeTotalConsumedGas(
 
 	log.Debug("computeTotalConsumedGas", "consumedGas", consumedGas, "gasLimit", gasLimit)
 
-	return big.NewInt(int64(consumedGas))
+	return big.NewInt(0).SetUint64(consumedGas)
 }
 
 // ProcessIfError creates a smart contract result, consumes the gas and returns the value to the user
@@ -496,7 +494,7 @@ func (sc *scProcessor) processIfErrorWithAddedLogs(
 
 	returnMessage = []byte(returnCode)
 
-	consumedFee := big.NewInt(int64(ctx.GetGasLimit()))
+	consumedFee := big.NewInt(0).SetUint64(ctx.GetGasLimit())
 	// sub consumed gas from context
 	err := ctx.SubGasUsed(consumedFee.Uint64())
 	if err != nil {

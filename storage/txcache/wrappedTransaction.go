@@ -20,6 +20,6 @@ func (wrappedTx *WrappedTransaction) sameAs(another *WrappedTransaction) bool {
 }
 
 // estimateTxGas returns an approximation for the necessary computation units (gas units)
-func estimateTxGas(tx *WrappedTransaction) uint64 {
-	return uint64(tx.Tx.GetTotalFees())
+func estimateTxGas(tx *WrappedTransaction) int64 {
+	return int64(tx.Tx.GetTotalFees()) // #nosec G115
 }

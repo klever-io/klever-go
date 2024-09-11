@@ -43,7 +43,7 @@ func (rh *RequiredDataPool) SetReceivedHash(hash []byte) {
 	hashLength := len(rh.expectedData)
 	for i := 0; i < hashLength; i++ {
 		if bytes.Equal(rh.expectedData[i], hash) {
-			rh.receivedBitmap[i/8] |= 1 << (uint16(i) % 8)
+			rh.receivedBitmap[i/8] |= 1 << (uint16(i) % 8) // #nosec G115
 		}
 	}
 	rh.dataLock.Unlock()

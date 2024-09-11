@@ -15,6 +15,7 @@ import (
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/config"
 	worldhook "github.com/klever-io/klever-go/kvm/mock/world"
+	er "github.com/klever-io/klever-go/kvm/scenarioexec/expression/reconstructor"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/vmhost/hostCore"
 	vmi "github.com/klever-io/klever-go/vmcommon"
@@ -147,10 +148,10 @@ func (pfe *pureFunctionExecutor) checkTxResults(
 
 	// check result
 	if len(output.ReturnData) != len(testCase.expectedResults) {
-		// rec := er.ExprReconstructor{}
-		// return fmt.Errorf("result length mismatch. Want: %s. Have: %s",
-		// 	rec.ReconstructList(testCase.expectedResults, er.NoHint),
-		// 	rec.ReconstructList(output.ReturnData, er.NoHint))
+		rec := er.ExprReconstructor{}
+		return fmt.Errorf("result length mismatch. Want: %s. Have: %s",
+			rec.ReconstructList(testCase.expectedResults, er.NoHint),
+			rec.ReconstructList(output.ReturnData, er.NoHint))
 	}
 	for i, expected := range testCase.expectedResults {
 		wantNum := resultInterpreter(expected)

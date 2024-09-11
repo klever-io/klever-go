@@ -262,7 +262,8 @@ func TestDirectSender_SendDirectToConnectedPeerBufferToLargeShouldErr(t *testing
 	remotePeer := peer.ID("remote peer")
 
 	stream := mock.NewStreamMock()
-	stream.SetProtocol(libp2p.DirectSendID)
+	err := stream.SetProtocol(libp2p.DirectSendID)
+	assert.Nil(t, err)
 
 	cs := createConnStub(stream, id, sk, remotePeer)
 
@@ -283,7 +284,7 @@ func TestDirectSender_SendDirectToConnectedPeerBufferToLargeShouldErr(t *testing
 
 	messageTooLarge := bytes.Repeat([]byte{65}, libp2p.MaxSendBuffSize)
 
-	err := ds.Send("topic", messageTooLarge, core.PeerID(cs.RemotePeer()))
+	err = ds.Send("topic", messageTooLarge, core.PeerID(cs.RemotePeer()))
 
 	assert.True(t, errors.Is(err, p2p.ErrMessageTooLarge))
 }
@@ -368,7 +369,8 @@ func TestDirectSender_SendDirectToConnectedPeerExistingStreamShouldSendToStream(
 	remotePeer := peer.ID("remote peer")
 
 	stream := mock.NewStreamMock()
-	stream.SetProtocol(libp2p.DirectSendID)
+	err := stream.SetProtocol(libp2p.DirectSendID)
+	assert.Nil(t, err)
 
 	cs := createConnStub(stream, id, sk, remotePeer)
 
@@ -394,7 +396,8 @@ func TestDirectSender_SendDirectToConnectedPeerExistingStreamShouldSendToStream(
 
 	data := []byte("data")
 	topic := "topic"
-	err := ds.Send(topic, data, core.PeerID(cs.RemotePeer()))
+	err = ds.Send(topic, data, core.PeerID(cs.RemotePeer()))
+	assert.Nil(t, err)
 
 	select {
 	case <-chanDone:
@@ -403,7 +406,6 @@ func TestDirectSender_SendDirectToConnectedPeerExistingStreamShouldSendToStream(
 		return
 	}
 
-	assert.Nil(t, err)
 	assert.Equal(t, data, receivedMsg.Data)
 	assert.Equal(t, topic, *receivedMsg.Topic)
 }
@@ -428,7 +430,8 @@ func TestDirectSender_SendDirectToConnectedPeerNewStreamShouldSendToStream(t *te
 	remotePeer := peer.ID("remote peer")
 
 	stream := mock.NewStreamMock()
-	stream.SetProtocol(libp2p.DirectSendID)
+	err := stream.SetProtocol(libp2p.DirectSendID)
+	assert.Nil(t, err)
 
 	cs := createConnStub(stream, id, sk, remotePeer)
 
@@ -461,7 +464,7 @@ func TestDirectSender_SendDirectToConnectedPeerNewStreamShouldSendToStream(t *te
 
 	data := []byte("data")
 	topic := "topic"
-	err := ds.Send(topic, data, core.PeerID(cs.RemotePeer()))
+	err = ds.Send(topic, data, core.PeerID(cs.RemotePeer()))
 
 	select {
 	case <-chanDone:
@@ -513,7 +516,8 @@ func TestDirectSender_ReceivedSentMessageShouldCallMessageHandlerTestFullCycle(t
 				return remotePeer
 			},
 		})
-	stream.SetProtocol(libp2p.DirectSendID)
+	err := stream.SetProtocol(libp2p.DirectSendID)
+	assert.Nil(t, err)
 
 	streamHandler(stream)
 

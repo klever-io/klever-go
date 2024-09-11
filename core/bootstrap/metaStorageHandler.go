@@ -121,7 +121,7 @@ func (msh *metaStorageHandler) SaveDataToStorage(components *ComponentsNeededFor
 		return err
 	}
 
-	slotToUseAsKey := int64(components.EpochStartBlock.Header.Slot)
+	slotToUseAsKey := tools.SafeU64ToI64(components.EpochStartBlock.Header.Slot)
 	slotNum := bootstrapStorage.SlotNum{Num: slotToUseAsKey}
 	slotNumBytes, err := msh.marshalizer.Marshal(&slotNum)
 	if err != nil {

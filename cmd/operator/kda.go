@@ -11,6 +11,7 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/network/api/models"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -191,7 +192,7 @@ func subKDA() []*cobra.Command {
 			}
 
 			kdaRequest := models.CreateAssetTXRequest{
-				Type:          uint32(kdaType),
+				Type:          tools.SafeU64ToU32(kdaType),
 				OwnerAddress:  signerAddress,
 				AdminAddress:  adminAddress,
 				Name:          name,
@@ -363,10 +364,10 @@ func subKDA() []*cobra.Command {
 					return fmt.Errorf("invalid withdraw min epochs %s: %w", staking["withdraw"], err)
 				}
 
-				stakingInfo.APR = uint32(apr * math.Pow10(2))
-				stakingInfo.MinEpochsToClaim = uint32(claim)
-				stakingInfo.MinEpochsToUnstake = uint32(unstake)
-				stakingInfo.MinEpochsToWithdraw = uint32(withdraw)
+				stakingInfo.APR = tools.SafeF64ToU32(apr * math.Pow10(2))
+				stakingInfo.MinEpochsToClaim = tools.SafeU64ToU32(claim)
+				stakingInfo.MinEpochsToUnstake = tools.SafeU64ToU32(unstake)
+				stakingInfo.MinEpochsToWithdraw = tools.SafeU64ToU32(withdraw)
 			}
 
 			var kdaPoolInfo *models.KDAPoolInfo
@@ -451,7 +452,7 @@ func subKDA() []*cobra.Command {
 			}
 
 			triggerRequest := models.AssetTriggerTXRequest{
-				TriggerType: uint32(triggerType),
+				TriggerType: tools.SafeU64ToU32(triggerType),
 				AssetID:     kdaID,
 				Amount:      int64(parsedAmount),
 				Receiver:    receiver,

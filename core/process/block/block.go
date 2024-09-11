@@ -148,7 +148,7 @@ func (mp *metaProcessor) ProcessBlock(
 
 	go getMetricsFromHeader(
 		header,
-		uint64(txCounts.GetTotal()),
+		tools.SafeI64ToU64(txCounts.GetTotal()),
 		mp.marshalizer,
 		mp.appStatusHandler,
 	)
@@ -612,6 +612,13 @@ func (mp *metaProcessor) CommitBlock(
 	highestFinalBlockNonce := mp.forkDetector.GetHighestFinalBlockNonce()
 	saveMetricsForCommitBlock(mp.appStatusHandler, header, headerHash, mp.nodesCoordinator, highestFinalBlockNonce)
 
+	go mp.txCounter.displayLogInfo(
+		header,
+		headerHash,
+		mp.appStatusHandler,
+		uint64(mp.slotManager.TimeDuration().Seconds()),
+	)
+
 	headerInfo := &bootstrapStorage.BootstrapHeaderInfo{
 		Epoch: header.GetEpoch(),
 		Nonce: header.GetNonce(),
@@ -799,7 +806,7 @@ func (mp *metaProcessor) applyBodyToHeader(blk *block.Block) error {
 
 	blk.Header.Epoch = mp.epochStartTrigger.Epoch()
 	blk.Header.TrieRoot = mp.getRootHashAccount()
-	blk.Header.TxCount = uint32(len(blk.TxHashes))
+	blk.Header.TxCount = uint32(len(blk.TxHashes)) // #nosec G115
 	blk.Header.TxFees = mp.feeHandler.GetAccumulatedTxFees()
 	blk.Header.TxBurnedFees = mp.feeHandler.GetAccumulatedTxFees() - mp.validatorStatisticsProcessor.LeaderRewards(blk.GetTxFees())
 	blk.Header.KAppFees = mp.feeHandler.GetAccumulatedKAppFees()
@@ -837,7 +844,7 @@ func (mp *metaProcessor) applyBodyToHeader(blk *block.Block) error {
 	if err != nil {
 		return err
 	}
-	mp.blockSizeThrottler.Add(blk.GetSlot(), uint32(len(marshalizedBody)))
+	mp.blockSizeThrottler.Add(blk.GetSlot(), uint32(len(marshalizedBody))) // #nosec G115
 
 	return nil
 }
@@ -1028,7 +1035,7 @@ func (mp *metaProcessor) indexBlock(
 
 	var publicKeys []string
 	for i, validator := range consensusValidators {
-		validatorSigned := (metaBlock.PubKeysBitmap[i/8] & (1 << (uint16(i) % 8))) != 0
+		validatorSigned := (metaBlock.PubKeysBitmap[i/8] & (1 << (uint16(i) % 8))) != 0 // #nosec G115
 		if validatorSigned {
 			publicKeys = append(publicKeys, hex.EncodeToString(validator.PubKey()))
 		}

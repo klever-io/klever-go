@@ -239,6 +239,7 @@ func (qfp *quotaFloodPreventer) ApplyConsensusSize(size int) {
 		)
 		return
 	}
+	// #nosec G115
 	if qfp.increaseThreshold > uint32(size) {
 		log.Debug("consensus size did not reach the threshold for quota flood preventer",
 			"name", qfp.name,
@@ -251,7 +252,7 @@ func (qfp *quotaFloodPreventer) ApplyConsensusSize(size int) {
 	qfp.mutOperation.Lock()
 	defer qfp.mutOperation.Unlock()
 
-	numNodesOverThreshold := float32(uint32(size) - qfp.increaseThreshold)
+	numNodesOverThreshold := float32(uint32(size) - qfp.increaseThreshold) // #nosec G115
 	value := numNodesOverThreshold * qfp.increaseFactor
 	oldComputed := qfp.computedMaxNumMessagesPerPeer
 	qfp.computedMaxNumMessagesPerPeer = qfp.baseMaxNumMessagesPerPeer + uint32(value)

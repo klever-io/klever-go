@@ -1,7 +1,6 @@
 package processorNode
 
 import (
-	"github.com/klever-io/klever-go/common/mock"
 	cMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
@@ -10,10 +9,8 @@ import (
 	"github.com/klever-io/klever-go/crypto/signing"
 	"github.com/klever-io/klever-go/crypto/signing/ed25519"
 	"github.com/klever-io/klever-go/data"
-	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/trie"
-	"github.com/klever-io/klever-go/storage"
 )
 
 func GenerateSkAndPk() (crypto.PrivateKey, crypto.PublicKey, crypto.KeyGenerator) {
@@ -54,31 +51,6 @@ func InitMultiSignerMock() *cMock.BelNevMock {
 		return []byte("partialSign"), nil
 	}
 	return multiSigner
-}
-
-func createMetaDataPools() retriever.PoolsHolder {
-	pools := &mock.PoolsHolderStub{
-		HeadersCalled: func() retriever.HeadersPool {
-			return &mock.HeadersCacherStub{}
-		},
-		BlocksCalled: func() storage.Cacher {
-			return mock.NewCacherStub()
-		},
-		TransactionsCalled: func() retriever.ShardedDataCacherNotifier {
-			return mock.NewShardedDataStub()
-		},
-		UnsignedTransactionsCalled: func() retriever.ShardedDataCacherNotifier {
-			return mock.NewShardedDataStub()
-		},
-		TrieNodesCalled: func() storage.Cacher {
-			return mock.NewCacherStub()
-		},
-		RewardTransactionsCalled: func() retriever.ShardedDataCacherNotifier {
-			return mock.NewShardedDataStub()
-		},
-	}
-
-	return pools
 }
 
 func CreateRatingsData() *rating.RatingsData {

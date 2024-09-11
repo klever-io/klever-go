@@ -25,7 +25,7 @@ func NewSelectorExpandedList(weightList []uint32, hasher hashing.Hasher) (*selec
 		return nil, ErrNilHasher
 	}
 
-	uniqueItems := uint32(len(weightList))
+	uniqueItems := uint32(len(weightList)) // #nosec G115
 	selector := &selectorExpandedList{
 		hasher:      hasher,
 		uniqueItems: uniqueItems,
@@ -62,7 +62,7 @@ func (s *selectorExpandedList) expandList(weightList []uint32) ([]uint32, error)
 		}
 
 		for j := uint32(0); j < weightList[i]; j++ {
-			expandedValidatorList = append(expandedValidatorList, uint32(i))
+			expandedValidatorList = append(expandedValidatorList, uint32(i)) // #nosec G115
 		}
 	}
 

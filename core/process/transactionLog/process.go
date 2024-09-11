@@ -147,7 +147,7 @@ func (tlp *txLogProcessor) SaveLog(txHash []byte, acntSender []byte, tc data.Sma
 
 	txLog := &transaction.Log{
 		Address:    getLogAddressByTx(acntSender, tc),
-		ContractID: int32(contractID),
+		ContractID: int32(contractID), // #nosec G115 - limited contract per TX
 	}
 
 	for _, logEntry := range logEntries {

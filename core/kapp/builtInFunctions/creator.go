@@ -12,9 +12,6 @@ import (
 
 var _ vmcommon.BuiltInFunctionFactory = (*builtInFuncCreator)(nil)
 
-var trueHandler = func() bool { return true }
-var falseHandler = func() bool { return false }
-
 // ArgsCreateBuiltInFunctionContainer defines the input arguments to create built in functions container
 type ArgsCreateBuiltInFunctionContainer struct {
 	AccountsCacher                   state.AccountsCacher

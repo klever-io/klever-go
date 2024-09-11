@@ -281,7 +281,7 @@ func (cm *commonProcessor) receiptToMap(data [][]byte) (map[string]interface{}, 
 		m["assetId"] = string(data[4])
 		m["assetIdReceived"] = string(data[5])
 		m["claimType"] = claimType
-		m["claimTypeString"] = transaction.ClaimContract_EnumClaimType_name[int32(claimType)]
+		m["claimTypeString"] = transaction.ClaimContract_EnumClaimType_name[int32(claimType)] // #nosec G115
 	case ptx.Sell:
 		if len(data) < 3 {
 			return nil, fmt.Errorf("%w: (%d/%d)", ErrInvalidDataMapLen, len(data), 3)

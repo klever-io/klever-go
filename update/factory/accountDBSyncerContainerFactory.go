@@ -99,7 +99,7 @@ func (a *accountDBSyncersContainerFactory) Create() (update.AccountsDBSyncContai
 }
 
 func (a *accountDBSyncersContainerFactory) createUserAccountsSyncer() error {
-	thr, err := throttler.NewNumGoRoutinesThrottler(int32(a.numConcurrentTrieSyncers))
+	thr, err := throttler.NewNumGoRoutinesThrottler(int32(a.numConcurrentTrieSyncers)) // #nosec G115
 	if err != nil {
 		return err
 	}

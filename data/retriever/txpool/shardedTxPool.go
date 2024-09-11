@@ -10,6 +10,7 @@ import (
 	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/txcache"
+	"github.com/klever-io/klever-go/tools"
 )
 
 var _ retriever.ShardedDataCacherNotifier = (*shardedTxPool)(nil)
@@ -42,13 +43,14 @@ func NewShardedTxPool(args ArgShardedTxPool) (*shardedTxPool, error) {
 		return nil, err
 	}
 
-	halfOfSizeInBytes := args.Config.SizeInBytes / 2
+	halfOfSize := args.Config.SizeInBytes / 2
+	halfOfSizeInBytes := tools.SafeU64ToU32(halfOfSize)
 	halfOfCapacity := args.Config.Capacity / 2
 
 	configPrototype := txcache.Config{
 		NumChunks:                     args.Config.Shards,
 		EvictionEnabled:               true,
-		NumBytesThreshold:             uint32(halfOfSizeInBytes),
+		NumBytesThreshold:             halfOfSizeInBytes,
 		CountThreshold:                halfOfCapacity,
 		NumBytesPerSenderThreshold:    args.Config.SizeInBytesPerSender,
 		CountPerSenderThreshold:       args.Config.SizePerSender,

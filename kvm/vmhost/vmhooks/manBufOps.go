@@ -597,6 +597,7 @@ func (context *VMHooksImpl) MBufferGetArgument(id int32, destinationHandle int32
 	metering.UseGasAndAddTracedGas(mBufferGetArgumentName, gasToUse)
 
 	args := runtime.Arguments()
+	// #nosec G115
 	if int32(len(args)) <= id || id < 0 {
 		context.WithFault(vmhost.ErrArgOutOfRange, runtime.BaseOpsErrorShouldFailExecution())
 		return 1

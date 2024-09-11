@@ -15,7 +15,7 @@ func NewSeedRandReader(seed []byte) *seedRandReader {
 	seedHash := sha256.Sum256(seed)
 	seedNumber := binary.BigEndian.Uint64(seedHash[:])
 
-	source := rand.NewSource(int64(seedNumber))
+	source := rand.NewSource(int64(seedNumber)) // #nosec G115
 	// #nosec G404: VM is not used for cryptographic purposes
 	randomizer := rand.New(source)
 

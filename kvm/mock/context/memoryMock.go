@@ -19,7 +19,7 @@ func NewMemoryMock() *MemoryMock {
 
 // Length mocked method
 func (memory *MemoryMock) Length() uint32 {
-	return uint32(len(memory.Contents))
+	return uint32(len(memory.Contents)) // #nosec G115
 }
 
 // Data mocked method

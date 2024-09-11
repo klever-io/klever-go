@@ -1,7 +1,7 @@
 package scencontroller
 
 import (
-	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -27,7 +27,7 @@ func (r *TestRunner) RunSingleJSONTest(contextPath string) error {
 		_ = jsonFile.Close()
 	}()
 
-	byteValue, err := ioutil.ReadAll(jsonFile)
+	byteValue, err := io.ReadAll(jsonFile)
 	if err != nil {
 		return err
 	}

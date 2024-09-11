@@ -238,7 +238,7 @@ func (cache *TxCache) GetBySenderPaginated(sender []byte, page int, pageSize int
 
 // NumBytes gets the approximate number of bytes stored in the cache
 func (cache *TxCache) NumBytes() int {
-	return int(cache.txByHash.numBytes.GetUint64())
+	return int(cache.txByHash.numBytes.GetUint64()) // #nosec G115
 }
 
 // CountTx gets the number of transactions in the cache
@@ -248,7 +248,7 @@ func (cache *TxCache) CountTx() uint64 {
 
 // Len is an alias for CountTx
 func (cache *TxCache) Len() int {
-	return int(cache.CountTx())
+	return int(cache.CountTx()) // #nosec G115
 }
 
 // CountSenders gets the number of senders in the cache

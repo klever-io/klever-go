@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"unicode/utf8"
 
-	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
@@ -21,8 +20,6 @@ import (
 )
 
 var _ kapp.ProposalKapp = (*proposalKapp)(nil)
-
-var log = logger.GetOrCreate("kapp/proposal")
 
 type proposalKapp struct {
 	hasher         hashing.Hasher
@@ -171,53 +168,48 @@ func (p *proposalKapp) SetProposal(proposalKapp state.KAppAccountHandler, propos
 	return nil
 }
 
-func (p *proposalKapp) Create(sender []byte, tc *transaction.ProposalContract) (transaction.Transaction_TXResultCode, error) {
-	ctx := p.KAppController.GetCurrentKAppContext()
-
+func (p *proposalKapp) validateCreateInput(tc *transaction.ProposalContract) error {
 	if len(tc.GetParameters()) > core.MaxProposalsLength {
-		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+		return common.ErrInvalidValue
 	}
 
 	if len(tc.GetDescription()) > core.MaxDescriptionLength {
-		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+		return common.ErrInvalidValue
 	}
 
-	if tc.GetEpochsDuration() >
-		uint32(p.KAppController.GetProposalController().GetParameterUint(kapps.EnumParameter_ProposalMaxEpochsDuration)) ||
+	if uint64(tc.GetEpochsDuration()) >
+		p.KAppController.GetProposalController().GetParameterUint(kapps.EnumParameter_ProposalMaxEpochsDuration) ||
 		len(tc.GetParameters()) == 0 {
-		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+		return common.ErrInvalidValue
 	}
 
-	proposalKapp, proposal, controller, err := p.GetProposal(0)
-	if err != nil {
-		return transaction.Transaction_AccountError, err
-	}
+	return nil
+}
 
-	for parameter, value := range tc.GetParameters() {
+func (p *proposalKapp) validateNewParameters(params map[int32][]byte, controller *kapps.ProposalController) error {
+	for parameter, value := range params {
 		if len(kapps.EnumParameter_name[parameter]) == 0 {
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidParameter
+			return common.ErrInvalidParameter
 		}
 
 		if len(value) == 0 {
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidParameter
+			return common.ErrInvalidValue
 		}
 
 		if !utf8.Valid(value) ||
 			len(value) > core.MaxProposalParamLength {
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidParameter
+			return common.ErrInvalidValue
 		}
 
-		_, err = controller.Validate(kapps.EnumParameter(parameter), value)
-		if err != nil {
-			return transaction.Transaction_ParameterInvalid, err
+		if _, err := controller.Validate(kapps.EnumParameter(parameter), value); err != nil {
+			return err
 		}
 	}
 
-	_, staking, err := p.KAppController.GetKDAKApp().GetStaking(kdautils.KFIIdentifier)
-	if err != nil {
-		return transaction.Transaction_AssetError, err
-	}
+	return nil
+}
 
+func (p *proposalKapp) checkStakingRequirements(staking *kapps.StakingData, sender []byte) (transaction.Transaction_TXResultCode, error) {
 	if staking.TotalStaked < p.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinKFIStakedToEnableProposals) {
 		return transaction.Transaction_MinKFIStakedUnreached, process.ErrMinKFIStaked
 	}
@@ -236,46 +228,69 @@ func (p *proposalKapp) Create(sender []byte, tc *transaction.ProposalContract) (
 		return transaction.Transaction_OutOfFunds, common.ErrBalance
 	}
 
-	proposal.Proposer = make([]byte, len(sender))
-	copy(proposal.Proposer, sender)
-	proposal.TXHash = make([]byte, len(ctx.TxHash()))
-	copy(proposal.TXHash, ctx.TxHash())
-	proposal.ProposalStatus = kapps.ProposalData_ActiveProposal
-	proposal.Parameters = tc.GetParameters()
-	if len(tc.GetDescription()) > 0 {
-		proposal.Description = make([]byte, len(tc.GetDescription()))
-		copy(proposal.Description, tc.GetDescription())
-	}
-	proposal.EpochStart = ctx.Block().GetEpoch()
-	proposal.EpochEnd = ctx.Block().GetEpoch() + tc.GetEpochsDuration()
-	proposal.Voters = make(map[string]*kapps.ProposalData_VoteDetail)
-	proposal.Votes = make(map[int32]int64)
-	proposal.TotalStaked = staking.TotalStaked
+	return transaction.Transaction_Ok, nil
+}
 
-	if controller.ActiveProposals == nil {
-		controller.ActiveProposals = make(map[uint32]*kapps.ActiveProposals)
-	}
+func (p *proposalKapp) Create(sender []byte, tc *transaction.ProposalContract) (transaction.Transaction_TXResultCode, error) {
+	ctx := p.KAppController.GetCurrentKAppContext()
 
-	controller.ProposalCount++
-	if controller.ActiveProposals[proposal.EpochEnd] == nil {
-		controller.ActiveProposals[proposal.EpochEnd] = &kapps.ActiveProposals{ProposalIDs: []uint64{controller.ProposalCount}}
-	} else {
-		controller.ActiveProposals[proposal.EpochEnd].ProposalIDs = append(controller.ActiveProposals[proposal.EpochEnd].ProposalIDs, controller.ProposalCount)
-	}
-
-	err = p.SetProposal(proposalKapp, controller.ProposalCount, proposal, controller)
-	if err != nil {
+	// Validate input parameters
+	if err := p.validateCreateInput(tc); err != nil {
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
+	// Retrieve proposal kapp
+	proposalKapp, proposal, controller, err := p.GetProposal(0)
+	if err != nil {
+		return transaction.Transaction_AccountError, err
+	}
+
+	// Validate new parameters
+	if err := p.validateNewParameters(tc.GetParameters(), controller); err != nil {
+		return transaction.Transaction_ParameterInvalid, err
+	}
+
+	// Retrieve staking
+	_, staking, err := p.KAppController.GetKDAKApp().GetStaking(kdautils.KFIIdentifier)
+	if err != nil {
+		return transaction.Transaction_AssetError, err
+	}
+
+	// Check staking requirements
+	if errCode, err := p.checkStakingRequirements(staking, sender); err != nil {
+		return errCode, err
+	}
+
+	// Finalize and create proposal
+	return p.finalizeProposal(ctx, proposalKapp, proposal, controller, staking, tc, sender)
+
+}
+
+func (p *proposalKapp) finalizeProposal(
+	ctx kapp.KappContext,
+	proposalKapp state.KAppAccountHandler,
+	proposal *kapps.ProposalData,
+	controller *kapps.ProposalController,
+	staking *kapps.StakingData,
+	tc *transaction.ProposalContract,
+	sender []byte,
+) (transaction.Transaction_TXResultCode, error) {
+	// Prepare proposal details
+	copyProposalDetails(ctx, proposal, staking.TotalStaked, tc, sender)
+
+	// Update controller and proposal
+	controller.ProposalCount++
+	updateActiveProposals(controller, proposal)
+
+	if err := p.SetProposal(proposalKapp, controller.ProposalCount, proposal, controller); err != nil {
+		return transaction.Transaction_ParameterInvalid, err
+	}
 	if err := p.accountsCacher.UpdateKapp(proposalKapp); err != nil {
 		return transaction.Transaction_SaveAccountError, err
 	}
 
 	proposalID := []byte(strconv.FormatUint(controller.ProposalCount, 10))
-
 	ctx.SetReturnData([][]byte{proposalID})
-
 	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Proposal,
 		ctx.ContractID(),
@@ -283,6 +298,37 @@ func (p *proposalKapp) Create(sender []byte, tc *transaction.ProposalContract) (
 	))
 
 	return transaction.Transaction_Ok, nil
+}
+
+func copyProposalDetails(
+	ctx kapp.KappContext,
+	proposal *kapps.ProposalData,
+	totalStaked int64,
+	tc *transaction.ProposalContract,
+	sender []byte,
+) {
+	proposal.Proposer = append([]byte(nil), sender...)
+	proposal.TXHash = append([]byte(nil), ctx.TxHash()...)
+	proposal.ProposalStatus = kapps.ProposalData_ActiveProposal
+	proposal.Parameters = tc.GetParameters()
+	proposal.Description = append([]byte(nil), tc.GetDescription()...)
+	proposal.EpochStart = ctx.Block().GetEpoch()
+	proposal.EpochEnd = ctx.Block().GetEpoch() + tc.GetEpochsDuration()
+	proposal.Voters = make(map[string]*kapps.ProposalData_VoteDetail)
+	proposal.Votes = make(map[int32]int64)
+	proposal.TotalStaked = totalStaked
+}
+
+func updateActiveProposals(controller *kapps.ProposalController, proposal *kapps.ProposalData) {
+	if controller.ActiveProposals == nil {
+		controller.ActiveProposals = make(map[uint32]*kapps.ActiveProposals)
+	}
+
+	if controller.ActiveProposals[proposal.EpochEnd] == nil {
+		controller.ActiveProposals[proposal.EpochEnd] = &kapps.ActiveProposals{ProposalIDs: []uint64{controller.ProposalCount}}
+	} else {
+		controller.ActiveProposals[proposal.EpochEnd].ProposalIDs = append(controller.ActiveProposals[proposal.EpochEnd].ProposalIDs, controller.ProposalCount)
+	}
 }
 
 func (p *proposalKapp) Vote(sender []byte, tc *transaction.VoteContract) (transaction.Transaction_TXResultCode, error) {

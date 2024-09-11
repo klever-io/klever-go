@@ -101,7 +101,7 @@ func (ba *Batch) Compress(m marshal.Marshalizer) error {
 	ba.Stream = make([]byte, len(result))
 	copy(ba.Stream, result)
 	ba.IsCompressed = true
-	ba.DataSize = int32(len(data))
+	ba.DataSize = int32(len(data)) // #nosec G115
 	ba.Data = nil
 	return nil
 }

@@ -56,3 +56,7 @@ cmd/backtest/files/*.tar.gz
 cmd/backtest/backups/*/
 cmd/backtest/working/*/
 *.trace*
+
+# CI report
+report.xml
+report.json

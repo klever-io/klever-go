@@ -25,17 +25,6 @@ import (
 
 const MaxGasLimitPerBlock = uint64(100000)
 
-func feeHandlerMock() *mock.FeeHandlerStub {
-	return &mock.FeeHandlerStub{
-		ComputeGasLimitCalled: func(tx process.TransactionCoordinator) uint64 {
-			return 0
-		},
-		MaxGasLimitPerBlockCalled: func() uint64 {
-			return MaxGasLimitPerBlock
-		},
-	}
-}
-
 func shardedDataCacherNotifier() retriever.ShardedDataCacherNotifier {
 	return &commonMock.ShardedDataStub{
 		ShardDataStoreCalled: func(id string) (c storage.Cacher) {

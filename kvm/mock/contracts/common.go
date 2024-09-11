@@ -84,10 +84,10 @@ func (config DirectCallGasTestConfig) GetGasUsedByChild() uint64 {
 
 // ExecuteOnSameContextInMockContracts - calls the corresponding method in VM hooks
 func ExecuteOnSameContextInMockContracts(host vmhost.VMHost, input *vmcommon.ContractCallInput, value *big.Int) int32 {
-	return vmhooks.ExecuteOnSameContextWithTypedArgs(host, int64(input.GasProvided), value, []byte(input.Function), input.RecipientAddr, input.Arguments)
+	return vmhooks.ExecuteOnSameContextWithTypedArgs(host, int64(input.GasProvided), value, []byte(input.Function), input.RecipientAddr, input.Arguments) // #nosec G115 - max gas int64
 }
 
 // ExecuteOnDestContextInMockContracts - calls the corresponding method in VM hooks
 func ExecuteOnDestContextInMockContracts(host vmhost.VMHost, input *vmcommon.ContractCallInput, value *big.Int) int32 {
-	return vmhooks.ExecuteOnDestContextWithTypedArgs(host, int64(input.GasProvided), value, []byte(input.Function), input.RecipientAddr, input.Arguments)
+	return vmhooks.ExecuteOnDestContextWithTypedArgs(host, int64(input.GasProvided), value, []byte(input.Function), input.RecipientAddr, input.Arguments) // #nosec G115 - max gas int64
 }

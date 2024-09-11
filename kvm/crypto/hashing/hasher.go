@@ -4,7 +4,7 @@ package hashing
 import (
 	"crypto/sha256"
 
-	"golang.org/x/crypto/ripemd160"
+	"golang.org/x/crypto/ripemd160" // #nosec G507 (ignoring use of deprecated crypto, legacy mode support only)
 	"golang.org/x/crypto/sha3"
 )
 
@@ -42,7 +42,7 @@ func (h *hasher) Keccak256(data []byte) ([]byte, error) {
 
 // Ripemd160 is a legacy hash and should not be used for new applications
 func (h *hasher) Ripemd160(data []byte) ([]byte, error) {
-	hash := ripemd160.New()
+	hash := ripemd160.New() // #nosec G406 (ignoring weak cryptographic hash, legacy mode support only)
 	_, err := hash.Write(data)
 	if err != nil {
 		return nil, err

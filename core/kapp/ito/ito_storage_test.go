@@ -108,9 +108,7 @@ func createFullArgumentsForKAppsProcessingMemory(enableEpochs config.EnableEpoch
 
 	// add funds to default sender
 	acc := loadUserAccount(userAccountsDB, defaultSender)
-	acc.AddToBalance(100000000000, nil, true, nil)
-	// acc.AddToBalance(100000000000, defaultAssetID, true, nil)
-	// acc.AddToBalance(100000000000, defaultAssetID, false, nil)
+	_ = acc.AddToBalance(100000000000, nil, true, nil)
 
 	// create Default KApps
 	kdaKapp := loadKAppAccount(kappAccountsDB, kapps.KDAKAppAddress)

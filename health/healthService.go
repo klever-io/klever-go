@@ -131,7 +131,8 @@ func (h *healthService) monitorMemory() {
 
 	log.Trace("healthService.monitorMemory()", "heapInUse", tools.ConvertBytes(stats.HeapInuse))
 
-	if int(stats.HeapInuse) > h.config.MemoryUsageToCreateProfiles {
+	// #nosec G115
+	if stats.HeapInuse > uint64(h.config.MemoryUsageToCreateProfiles) {
 		recordObj := newMemoryUsageRecord(stats, h.clock.now(), h.folder)
 		h.records.addRecord(recordObj)
 	}

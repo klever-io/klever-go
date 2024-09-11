@@ -87,7 +87,7 @@ func NewTPSBenchmarkWithInitialData(
 		totalProcessedTxCount: initialTpsBenchmark.TotalProcessedTxCount,
 		averageBlockTxCount:   initialTpsBenchmark.AverageBlockTxCount,
 		statusHandler:         appStatusHandler,
-		initialBlockNumber:    int64(initialTpsBenchmark.BlockNumber),
+		initialBlockNumber:    int64(initialTpsBenchmark.BlockNumber), // #nosec G115 -
 	}, nil
 }
 
@@ -196,12 +196,12 @@ func (s *TpsBenchmark) updateStatistics(b *block.Block) error {
 	totalTxsForTPS := uint64(b.Header.TxCount)
 	totalTxsForCount := uint64(b.Header.TxCount)
 
-	s.lastBlockTxCount = uint32(totalTxsForTPS)
+	s.lastBlockTxCount = uint32(totalTxsForTPS) // #nosec G115 - max TPS is uint32
 
 	s.totalProcessedTxCount.Add(s.totalProcessedTxCount, big.NewInt(0).SetUint64(totalTxsForCount))
 	s.statusHandler.AddUint64(core.MetricNumProcessedTxsTPSBenchmark, totalTxsForCount)
 
-	s.averageBlockTxCount.Quo(s.totalProcessedTxCount, big.NewInt(int64(b.Header.Nonce)))
+	s.averageBlockTxCount.Quo(s.totalProcessedTxCount, big.NewInt(0).SetUint64(b.Header.Nonce))
 
 	currentTPS := float64(totalTxsForTPS / s.slotTime)
 	if currentTPS > s.peakTPS {
@@ -225,7 +225,7 @@ func (s *TpsBenchmark) updateStatistics(b *block.Block) error {
 
 	bigTxCount := big.NewInt(0).SetUint64(shardTotalTxsForCount)
 	newTotalProcessedTxCount := big.NewInt(0).Add(s.statistics.TotalProcessedTxCount(), bigTxCount)
-	slotsPassed := big.NewInt(int64(b.Header.Slot))
+	slotsPassed := big.NewInt(0).SetUint64(b.Header.Slot)
 	newAverageTPS := big.NewInt(0).Quo(newTotalProcessedTxCount, slotsPassed)
 
 	updatedChainStats := &ChainStatistics{
@@ -235,7 +235,7 @@ func (s *TpsBenchmark) updateStatistics(b *block.Block) error {
 
 		averageTPS:       newAverageTPS,
 		peakTPS:          shardPeakTPS,
-		lastBlockTxCount: uint32(shardTotalTxsForTPS),
+		lastBlockTxCount: uint32(shardTotalTxsForTPS), // #nosec G115 - max TPS is uint32
 	}
 
 	log.Debug("TpsBenchmark.updateStatistics",

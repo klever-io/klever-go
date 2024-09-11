@@ -306,7 +306,7 @@ func SortTransactionsBySenderAndNonce(transactions []*txcache.WrappedTransaction
 
 		delta := bytes.Compare(txI.GetSender(), txJ.GetSender())
 		if delta == 0 {
-			delta = int(txI.GetNonce()) - int(txJ.GetNonce())
+			delta = int(txI.GetNonce()) - int(txJ.GetNonce()) // #nosec G115
 		}
 
 		return delta < 0

@@ -65,6 +65,7 @@ func (context *VMHooksImpl) BigIntGetUnsignedArgument(id int32, destinationHandl
 	metering.UseGasAndAddTracedGas(bigIntGetUnsignedArgumentName, gasToUse)
 
 	args := runtime.Arguments()
+	// #nosec G115
 	if int32(len(args)) <= id || id < 0 {
 		return
 	}
@@ -85,6 +86,7 @@ func (context *VMHooksImpl) BigIntGetSignedArgument(id int32, destinationHandle 
 	metering.UseGasAndAddTracedGas(bigIntGetSignedArgumentName, gasToUse)
 
 	args := runtime.Arguments()
+	// #nosec G115
 	if int32(len(args)) <= id || id < 0 {
 		return
 	}
@@ -118,7 +120,7 @@ func (context *VMHooksImpl) BigIntStorageStoreUnsigned(keyOffset executor.MemPtr
 		return -1
 	}
 
-	return int32(storageStatus)
+	return int32(storageStatus) // #nosec G115
 }
 
 // BigIntStorageLoadUnsigned VMHooks implementation.
@@ -150,7 +152,7 @@ func (context *VMHooksImpl) BigIntStorageLoadUnsigned(keyOffset executor.MemPtr,
 	value := managedType.GetBigIntOrCreate(destinationHandle)
 	value.SetBytes(bytes)
 
-	return int32(len(bytes))
+	return int32(len(bytes)) // #nosec G115
 }
 
 // BigIntGetCallValue VMHooks implementation.
@@ -275,7 +277,7 @@ func (context *VMHooksImpl) BigIntUnsignedByteLength(referenceHandle int32) int3
 	}
 
 	bytes := value.Bytes()
-	return int32(len(bytes))
+	return int32(len(bytes)) // #nosec G115
 }
 
 // BigIntSignedByteLength VMHooks implementation.
@@ -294,7 +296,7 @@ func (context *VMHooksImpl) BigIntSignedByteLength(referenceHandle int32) int32 
 	}
 
 	bytes := twos.ToBytes(value)
-	return int32(len(bytes))
+	return int32(len(bytes)) // #nosec G115
 }
 
 // BigIntGetUnsignedBytes VMHooks implementation.
@@ -322,7 +324,7 @@ func (context *VMHooksImpl) BigIntGetUnsignedBytes(referenceHandle int32, byteOf
 	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(len(bytes)))
 	metering.UseAndTraceGas(gasToUse)
 
-	return int32(len(bytes))
+	return int32(len(bytes)) // #nosec G115
 }
 
 // BigIntGetSignedBytes VMHooks implementation.
@@ -350,7 +352,7 @@ func (context *VMHooksImpl) BigIntGetSignedBytes(referenceHandle int32, byteOffs
 	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(len(bytes)))
 	metering.UseAndTraceGas(gasToUse)
 
-	return int32(len(bytes))
+	return int32(len(bytes)) // #nosec G115
 }
 
 // BigIntSetUnsignedBytes VMHooks implementation.
@@ -682,7 +684,7 @@ func (context *VMHooksImpl) BigIntLog2(op1Handle int32) int32 {
 		return -1
 	}
 
-	return int32(a.BitLen() - 1)
+	return int32(a.BitLen() - 1) // #nosec G115
 }
 
 // BigIntAbs VMHooks implementation.
@@ -741,7 +743,7 @@ func (context *VMHooksImpl) BigIntSign(opHandle int32) int32 {
 		return -2
 	}
 	managedType.ConsumeGasForBigIntCopy(a)
-	return int32(a.Sign())
+	return int32(a.Sign()) // #nosec G115
 }
 
 // BigIntCmp VMHooks implementation.
@@ -760,7 +762,7 @@ func (context *VMHooksImpl) BigIntCmp(op1Handle, op2Handle int32) int32 {
 		return -2
 	}
 	managedType.ConsumeGasForBigIntCopy(a, b)
-	return int32(a.Cmp(b))
+	return int32(a.Cmp(b)) // #nosec G115
 }
 
 // BigIntNot VMHooks implementation.

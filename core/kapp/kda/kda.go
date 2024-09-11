@@ -14,6 +14,7 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
 )
@@ -434,9 +435,10 @@ func (k *kdaKapp) Deposit(sender []byte, tc *transaction.DepositContract) (trans
 			continue
 		}
 
+		maxEpochsUnclaimed := tools.SafeI64ToU32(k.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MaxEpochsUnclaimed))
 		//if a fpr is not expired, add it to the valid list
 		if fpr.GetEpoch()+
-			uint32(k.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MaxEpochsUnclaimed)) >=
+			maxEpochsUnclaimed >=
 			ctx.Block().GetEpoch() {
 			validFPRs = append(validFPRs, fpr)
 			continue

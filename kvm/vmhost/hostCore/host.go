@@ -543,7 +543,7 @@ func (host *vmHost) logFromGasTracer(functionName string) {
 					totalGasUsed += usedGas
 				}
 				logGasTrace.Trace("Gas Trace for", "apiName", apiName, "totalGasUsed", totalGasUsed, "numberOfCalls", len(value))
-				totalGasUsedByAPIs += int(totalGasUsed)
+				totalGasUsedByAPIs += int(totalGasUsed) // #nosec G115
 			}
 			logGasTrace.Trace("Gas Trace for", "TotalGasUsedByAPIs", totalGasUsedByAPIs)
 		}

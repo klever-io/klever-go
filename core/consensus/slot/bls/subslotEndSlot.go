@@ -217,7 +217,7 @@ func (sr *subslotEndSlot) doEndSlotJobByLeader() bool {
 	sr.SetProcessingBlock(true)
 
 	shouldNotCommitBlock := sr.ExtendedCalled ||
-		int64(sr.Header.GetSlot()) < sr.SlotManager().Index()
+		sr.Header.GetSlot() < tools.SafeI64ToU64(sr.SlotManager().Index())
 	if shouldNotCommitBlock {
 		log.Debug("canceled slot, extended has been called or slot index has been changed",
 			"slot", sr.SlotManager().Index(),
@@ -327,7 +327,7 @@ func (sr *subslotEndSlot) doEndSlotJobByParticipant(cnsDta *consensus.Message) b
 
 	sr.SetProcessingBlock(true)
 
-	shouldNotCommitBlock := sr.ExtendedCalled || int64(header.GetSlot()) < sr.SlotManager().Index()
+	shouldNotCommitBlock := sr.ExtendedCalled || header.GetSlot() < tools.SafeI64ToU64(sr.SlotManager().Index())
 	if shouldNotCommitBlock {
 		log.Debug("canceled slot, extended has been called or slot index has been changed",
 			"slot", sr.SlotManager().Index(),
@@ -459,7 +459,7 @@ func (sr *subslotEndSlot) checkSignaturesValidity(bitmap []byte) error {
 	}
 
 	for i := 0; i < size; i++ {
-		indexRequired := (bitmap[i/8] & (1 << uint16(i%8))) > 0
+		indexRequired := (bitmap[i/8] & (1 << uint16(i%8))) > 0 // #nosec G115
 		if !indexRequired {
 			continue
 		}
@@ -474,12 +474,12 @@ func (sr *subslotEndSlot) checkSignaturesValidity(bitmap []byte) error {
 			return common.ErrNilSignature
 		}
 
-		signature, err := sr.MultiSigner().SignatureShare(uint16(i))
+		signature, err := sr.MultiSigner().SignatureShare(uint16(i)) // #nosec G115
 		if err != nil {
 			return err
 		}
 
-		err = sr.MultiSigner().VerifySignatureShare(uint16(i), signature, sr.GetData(), bitmap)
+		err = sr.MultiSigner().VerifySignatureShare(uint16(i), signature, sr.GetData(), bitmap) // #nosec G115
 		if err != nil {
 			return err
 		}

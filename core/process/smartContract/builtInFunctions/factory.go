@@ -1,7 +1,6 @@
 package builtInFunctions
 
 import (
-	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
@@ -12,8 +11,6 @@ import (
 	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/klever-io/klever-go/vmcommon"
 )
-
-var log = logger.GetOrCreate("process/smartcontract/builtInFunctions")
 
 // ArgsCreateBuiltInFunctionContainer defines the argument structure to create new built in function container
 type ArgsCreateBuiltInFunctionContainer struct {

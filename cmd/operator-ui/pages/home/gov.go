@@ -42,7 +42,7 @@ func AddCreateProposalForm(app *tview.Application, pages *tview.Pages) *tview.Fo
 		}
 
 		form.AddDropDown("Parameter", options, 0, func(option string, optionIndex int) {
-			param[i] = int32(optionIndex)
+			param[i] = int32(optionIndex) // #nosec G115
 		})
 
 		form.AddInputField("Value", "", 32, nil, func(v string) {
@@ -79,7 +79,7 @@ func AddCreateProposalForm(app *tview.Application, pages *tview.Pages) *tview.Fo
 		}
 
 		hash, err := blockchain.Proposal(address, sendForm.description,
-			parameters, uint32(sendForm.duration))
+			parameters, uint32(sendForm.duration)) // #nosec G115
 
 		ResponseError = err
 		ResponseTX = hash
@@ -119,7 +119,7 @@ func AddVoteForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 	})
 
 	form.AddDropDown("Vote Type", []string{"Yes", "No"}, 0, func(option string, optionIndex int) {
-		sendForm.voteType = uint64(optionIndex)
+		sendForm.voteType = uint64(optionIndex) // #nosec G115
 	})
 
 	form.AddButton("Send", func() {

@@ -64,7 +64,7 @@ func (counts *ConcurrentShardedCountsWithSize) String() string {
 	var builder strings.Builder
 
 	total := counts.GetTotal()
-	totalSize := tools.ConvertBytes(uint64(counts.GetTotalSize()))
+	totalSize := tools.ConvertBytes(tools.SafeI64ToU64(counts.GetTotalSize()))
 	_, _ = fmt.Fprintf(&builder, "Total:%d (%s); ", total, totalSize)
 
 	counts.mutex.RLock()
@@ -80,7 +80,7 @@ func (counts *ConcurrentShardedCountsWithSize) String() string {
 	for _, key := range keys {
 		item := counts.byShard[key]
 		counter := item.counter
-		size := tools.ConvertBytes(uint64(item.sizeInBytes))
+		size := tools.ConvertBytes(tools.SafeI64ToU64(item.sizeInBytes))
 		_, _ = fmt.Fprintf(&builder, "[%s]=%d (%s); ", key, counter, size)
 	}
 

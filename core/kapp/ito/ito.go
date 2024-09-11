@@ -773,7 +773,7 @@ func (i *itoKapp) Config(sender []byte, tc *transaction.ConfigITOContract) (tran
 			}
 		}
 
-		ito.WhitelistLen = int32(len(whitelistData))
+		ito.WhitelistLen = int32(len(whitelistData)) // #nosec G115
 
 		err = i.SetITOWhitelists(itoKapp, tc.GetAssetID(), whitelistData)
 		if err != nil {

@@ -334,7 +334,7 @@ func (context *VMHooksImpl) BigFloatCmp(op1Handle, op2Handle int32) int32 {
 	if context.WithFault(err, runtime.BigFloatAPIErrorShouldFailExecution()) {
 		return -2
 	}
-	return int32(op1.Cmp(op2))
+	return int32(op1.Cmp(op2)) // #nosec G115
 }
 
 // BigFloatAbs VMHooks implementation.
@@ -374,7 +374,7 @@ func (context *VMHooksImpl) BigFloatSign(opHandle int32) int32 {
 	if context.WithFault(err, runtime.BigFloatAPIErrorShouldFailExecution()) {
 		return -2
 	}
-	return int32(op.Sign())
+	return int32(op.Sign()) // #nosec G115
 }
 
 // BigFloatSqrt VMHooks implementation.

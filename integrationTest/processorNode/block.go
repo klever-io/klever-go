@@ -31,7 +31,7 @@ func ProposeBlockWithConsensusSigs(nodes []*ProcessorNode, pubKeys []string, ind
 	bitmap := make([]byte, bitmapSize)
 
 	for i := 0; i < sizeConsensus; i++ {
-		bitmap[i/8] |= 1 << (uint16(i) % 8)
+		bitmap[i/8] |= 1 << (uint16(i) % 8) // #nosec G115
 	}
 
 	var blk = &block.Block{
@@ -66,6 +66,7 @@ func ProposeBlockWithConsensusSigs(nodes []*ProcessorNode, pubKeys []string, ind
 	}
 
 	genesisSlot := uint64(0) //Todo: add it in other place
+	// #nosec G115
 	finalTimestamp := nodes[0].SlotManager.Timestamp().Unix() + int64((slot-genesisSlot)*uint64(nodes[0].SlotManager.TimeDuration().Seconds()))
 	blk.SetTimestamp(finalTimestamp)
 	blk.SetPrevRandSeed(prevRandomness)
@@ -98,9 +99,9 @@ func ProposeBlockWithConsensusSigs(nodes []*ProcessorNode, pubKeys []string, ind
 	}
 
 	for i := 1; i < len(nodes); i++ {
-		msig, _ = nodes[i].MultiSigner.Create(pubKeys, uint16(i))
+		msig, _ = nodes[i].MultiSigner.Create(pubKeys, uint16(i)) // #nosec G115
 		sigShare, _ := msig.CreateSignatureShare(blockHeaderHash, bitmap)
-		_ = msigProposer.StoreSignatureShare(uint16(i), sigShare)
+		_ = msigProposer.StoreSignatureShare(uint16(i), sigShare) // #nosec G115
 	}
 
 	sig, err := msigProposer.AggregateSigs(bitmap)
@@ -127,7 +128,7 @@ func DoConsensusSigningOnBlock(
 		bitmap[i] = 0xFF
 	}
 
-	bitmap[len(consensusNodes)/8] >>= uint8(8 - (len(consensusNodes) % 8))
+	bitmap[len(consensusNodes)/8] >>= uint8(8 - (len(consensusNodes) % 8)) // #nosec G115
 	blockHeader.SetPubKeysBitmap(bitmap)
 
 	// clear signature, as we need to compute it below
@@ -151,9 +152,9 @@ func DoConsensusSigningOnBlock(
 	}
 
 	for i := 1; i < len(consensusNodes); i++ {
-		msig, _ = consensusNodes[i].MultiSigner.Create(pubKeys, uint16(i))
+		msig, _ = consensusNodes[i].MultiSigner.Create(pubKeys, uint16(i)) // #nosec G115
 		sigShare, _ := msig.CreateSignatureShare(blockHeaderHash, bitmap)
-		_ = msigProposer.StoreSignatureShare(uint16(i), sigShare)
+		_ = msigProposer.StoreSignatureShare(uint16(i), sigShare) // #nosec G115
 	}
 
 	sig, err := msigProposer.AggregateSigs(bitmap)
@@ -284,6 +285,7 @@ func (n *ProcessorNode) ProposeBlock(slot uint64, nonce uint64) (data.HeaderHand
 	blk.SetParentHash(TestHasher.Compute(string(buff)))
 
 	genesisSlot := uint64(0) //Todo: add it in other place
+	// #nosec G115
 	finalTimestamp := n.SlotManager.Timestamp().Unix() + int64((slot-genesisSlot)*uint64(n.SlotManager.TimeDuration().Seconds()))
 	blk.SetTimestamp(finalTimestamp)
 

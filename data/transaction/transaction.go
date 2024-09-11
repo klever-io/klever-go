@@ -168,6 +168,7 @@ type TXArgs struct {
 // AddTransaction -
 func (t *Transaction) AddTransaction(txArgs TXArgs) error {
 	var err error
+	// #nosec G115
 	switch TXContract_ContractType(txArgs.Type) {
 	case TXContract_TransferContractType:
 		err = t.addTransfer(txArgs)
@@ -261,7 +262,7 @@ func (t *Transaction) addTransfer(txArgs TXArgs) error {
 
 	receiverAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.Receiver)
 	if err != nil {
-		return errors.New("could not create receiver address from provided param")
+		return common.ErrInvalidReceiverAddress
 	}
 
 	if contractRequest.Amount < 0 {
@@ -277,7 +278,7 @@ func (t *Transaction) addTransfer(txArgs TXArgs) error {
 
 		kda, err := txArgs.NodeHelper.GetAsset(contractRequest.KDA)
 		if err != nil {
-			return errors.New("could not create receiver address from provided param")
+			return common.ErrInvalidReceiverAddress
 		}
 
 		if kda.Royalties != nil {
@@ -317,7 +318,7 @@ func (t *Transaction) addCreateAsset(txArgs TXArgs) error {
 
 	ownerAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.OwnerAddress)
 	if err != nil {
-		return errors.New("could not create receiver address from provided param")
+		return common.ErrInvalidReceiverAddress
 	}
 
 	var isValid bool
@@ -411,7 +412,7 @@ func (t *Transaction) addCreateAsset(txArgs TXArgs) error {
 
 	// create asset
 	contract := &CreateAssetContract{
-		Type:          CreateAssetContract_EnumAssetType(contractRequest.Type),
+		Type:          CreateAssetContract_EnumAssetType(contractRequest.Type), // #nosec G115
 		Name:          []byte(contractRequest.Name),
 		Ticker:        []byte(contractRequest.Ticker),
 		OwnerAddress:  ownerAddress,
@@ -461,7 +462,7 @@ func (t *Transaction) addCreateAsset(txArgs TXArgs) error {
 
 	if contractRequest.Staking != nil {
 		contract.Staking = &StakingInfo{
-			Type:                StakingInfo_InterestType(contractRequest.Staking.InterestType),
+			Type:                StakingInfo_InterestType(contractRequest.Staking.InterestType), // #nosec G115
 			APR:                 contractRequest.Staking.APR,
 			MinEpochsToClaim:    contractRequest.Staking.MinEpochsToClaim,
 			MinEpochsToUnstake:  contractRequest.Staking.MinEpochsToUnstake,
@@ -484,7 +485,7 @@ func (t *Transaction) addAssetTrigger(txArgs TXArgs) error {
 	if len(contractRequest.Receiver) > 0 {
 		receiverAddress, err = txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.Receiver)
 		if err != nil {
-			return errors.New("could not create receiver address from provided param")
+			return common.ErrInvalidReceiverAddress
 		}
 	}
 
@@ -497,7 +498,7 @@ func (t *Transaction) addAssetTrigger(txArgs TXArgs) error {
 		if len(contractRequest.Role.Address) > 0 {
 			roleInfo.Address, err = txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.Role.Address)
 			if err != nil {
-				return errors.New("could not create receiver address from provided param")
+				return common.ErrInvalidReceiverAddress
 			}
 			roleInfo.HasRoleMint = contractRequest.Role.HasRoleMint
 			roleInfo.HasRoleSetITOPrices = contractRequest.Role.HasRoleSetITOPrices
@@ -509,7 +510,7 @@ func (t *Transaction) addAssetTrigger(txArgs TXArgs) error {
 	}
 
 	contract := &AssetTriggerContract{
-		TriggerType: AssetTriggerContract_EnumTriggerType(contractRequest.TriggerType),
+		TriggerType: AssetTriggerContract_EnumTriggerType(contractRequest.TriggerType), // #nosec G115
 		AssetID:     []byte(contractRequest.AssetID),
 		ToAddress:   receiverAddress,
 		Amount:      contractRequest.Amount,
@@ -522,7 +523,7 @@ func (t *Transaction) addAssetTrigger(txArgs TXArgs) error {
 
 	if contractRequest.Staking != nil {
 		contract.Staking = &StakingInfo{
-			Type:                StakingInfo_InterestType(contractRequest.Staking.InterestType),
+			Type:                StakingInfo_InterestType(contractRequest.Staking.InterestType), // #nosec G115
 			APR:                 contractRequest.Staking.APR,
 			MinEpochsToClaim:    contractRequest.Staking.MinEpochsToClaim,
 			MinEpochsToUnstake:  contractRequest.Staking.MinEpochsToUnstake,
@@ -907,7 +908,7 @@ func (t *Transaction) addVote(txArgs TXArgs) error {
 	}
 
 	contract := &VoteContract{
-		Type:       VoteContract_EnumVoteType(contractRequest.Type),
+		Type:       VoteContract_EnumVoteType(contractRequest.Type), // #nosec G115
 		ProposalID: contractRequest.ProposalID,
 		Amount:     contractRequest.Amount,
 	}
@@ -924,7 +925,7 @@ func (t *Transaction) addConfigITO(txArgs TXArgs) error {
 
 	receiverAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.ReceiverAddress)
 	if err != nil {
-		return errors.New("could not create receiver address from provided param")
+		return common.ErrInvalidReceiverAddress
 	}
 
 	packInfo := make(map[string]*PackInfo)
@@ -1021,7 +1022,7 @@ func (t *Transaction) addITOTrigger(txArgs TXArgs) error {
 	if len(contractRequest.ReceiverAddress) > 0 {
 		receiverAddress, err = txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.ReceiverAddress)
 		if err != nil {
-			return errors.New("could not create receiver address from provided param")
+			return common.ErrInvalidReceiverAddress
 		}
 	}
 
@@ -1101,7 +1102,7 @@ func (t *Transaction) addITOTrigger(txArgs TXArgs) error {
 	}
 
 	contract := &ITOTriggerContract{
-		TriggerType:            ITOTriggerContract_EnumITOTriggerType(contractRequest.TriggerType),
+		TriggerType:            ITOTriggerContract_EnumITOTriggerType(contractRequest.TriggerType), // #nosec G115
 		AssetID:                []byte(contractRequest.KDA),
 		ReceiverAddress:        receiverAddress,
 		Status:                 ITOTriggerContract_EnumITOStatus(contractRequest.Status),
@@ -1340,60 +1341,72 @@ func (t *Transaction) addDeposit(txArgs TXArgs) error {
 	return t.PushContract(TXContract_DepositContractType, contract)
 }
 
-// addCustom -
-func (t *Transaction) addSmartContract(txArgs TXArgs) error {
-	contractRequest := models.SmartContractRequest{}
+// Helper function to parse the smart contract request
+func (t *Transaction) parseContractRequest(txArgs TXArgs) (models.SmartContractRequest, error) {
+	var contractRequest models.SmartContractRequest
 	err := json.Unmarshal(txArgs.Contract, &contractRequest)
 	if err != nil {
-		return err
+		return contractRequest, err
 	}
 
-	if SmartContract_SCType(txArgs.Type) != SmartContract_SCDeploy &&
-		len(contractRequest.Address) > txArgs.NodeHelper.GetEncodedAddressLength() {
-		return fmt.Errorf("%w for address", common.ErrInvalidAddressLength)
+	return contractRequest, nil
+}
+
+func getAssetRoyalties(assetName string, value int64, txArgs TXArgs) (int64, int64, error) {
+	kdaRoyalties := int64(0)
+	klvRoyalties := int64(0)
+	kda, err := txArgs.NodeHelper.GetAsset(assetName)
+	if err != nil {
+		return 0, 0, errors.New("invalid asset name provided")
 	}
 
-	parsedAddress := make([]byte, 0)
-	if len(contractRequest.Address) > 0 {
-		parsedAddress, err = txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.Address)
-		if err != nil {
-			return errors.New("could not create receiver address from provided param" + contractRequest.Address)
-		}
+	if kda == nil {
+		return 0, 0, errors.New("could not find asset")
 	}
 
-	callValue := make(map[string]*CallValue)
-	for key, value := range contractRequest.CallValue {
-		kdaRoyalties := int64(0)
-		klvRoyalties := int64(0)
-
-		asset, _, _, err := kdautils.ExtractAssetIDAndNonce([]byte(key))
-		if err != nil {
-			return errors.New("could not extract asset from callValue")
-		}
-
-		assetName := string(asset)
-
-		// check asset for royalties
-		if assetName != "" && assetName != string(kdautils.KLVIdentifier) && assetName != string(kdautils.KFIIdentifier) {
-			kda, err := txArgs.NodeHelper.GetAsset(assetName)
+	if kda.Royalties != nil {
+		if len(kda.Royalties.TransferPercentage) > 0 {
+			kdaRoyalties, err = kda.GetTransferRoyaltyByAmount(value, txArgs.NodeHelper.GetForkController().KdaFpr())
 			if err != nil {
-				return errors.New("invalid asset name provided")
+				return 0, 0, err
 			}
+		}
 
-			if kda == nil {
-				return errors.New("could not find asset")
-			}
+		klvRoyalties = kda.Royalties.TransferFixed
+	}
 
-			if kda.Royalties != nil {
-				if len(kda.Royalties.TransferPercentage) > 0 {
-					kdaRoyalties, err = kda.GetTransferRoyaltyByAmount(value, txArgs.NodeHelper.GetForkController().KdaFpr())
-					if err != nil {
-						return err
-					}
-				}
+	return kdaRoyalties, klvRoyalties, nil
+}
 
-				klvRoyalties = kda.Royalties.TransferFixed
-			}
+// Helper function to calculate royalties for a given asset and value
+func (t *Transaction) calculateRoyalties(txArgs TXArgs, key string, value int64) (int64, int64, error) {
+
+	asset, _, _, err := kdautils.ExtractAssetIDAndNonce([]byte(key))
+	if err != nil {
+		return 0, 0, errors.New("could not extract asset from callValue")
+	}
+
+	assetName := string(asset)
+
+	// check asset for royalties
+	if assetName != "" &&
+		assetName != string(kdautils.KLVIdentifier) &&
+		assetName != string(kdautils.KFIIdentifier) {
+
+		return getAssetRoyalties(assetName, value, txArgs)
+	}
+
+	return 0, 0, nil
+}
+
+// Helper function to construct the call value map
+func (t *Transaction) constructCallValue(txArgs TXArgs, contractRequest models.SmartContractRequest) (map[string]*CallValue, error) {
+	callValue := make(map[string]*CallValue)
+
+	for key, value := range contractRequest.CallValue {
+		kdaRoyalties, klvRoyalties, err := t.calculateRoyalties(txArgs, key, value)
+		if err != nil {
+			return nil, err
 		}
 
 		callValue[key] = &CallValue{
@@ -1401,6 +1414,45 @@ func (t *Transaction) addSmartContract(txArgs TXArgs) error {
 			KDARoyalties: kdaRoyalties,
 			KLVRoyalties: klvRoyalties,
 		}
+	}
+
+	return callValue, nil
+}
+
+// Helper function to validate and parse the smart contract address
+func (t *Transaction) validateAndParseAddress(txArgs TXArgs, contractRequest models.SmartContractRequest) ([]byte, error) {
+	if SmartContract_SCType(txArgs.Type) != SmartContract_SCDeploy && // #nosec G115
+		len(contractRequest.Address) > txArgs.NodeHelper.GetEncodedAddressLength() {
+		return nil, fmt.Errorf("%w for address", common.ErrInvalidAddressLength)
+	}
+
+	if len(contractRequest.Address) == 0 {
+		return make([]byte, 0), nil
+	}
+
+	parsedAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.Address)
+	if err != nil {
+		return nil, common.ErrInvalidReceiverAddress
+	}
+
+	return parsedAddress, nil
+}
+
+// addSmartContract -
+func (t *Transaction) addSmartContract(txArgs TXArgs) error {
+	contractRequest, err := t.parseContractRequest(txArgs)
+	if err != nil {
+		return err
+	}
+
+	parsedAddress, err := t.validateAndParseAddress(txArgs, contractRequest)
+	if err != nil {
+		return err
+	}
+
+	callValue, err := t.constructCallValue(txArgs, contractRequest)
+	if err != nil {
+		return err
 	}
 
 	contract := &SmartContract{
@@ -1419,7 +1471,7 @@ func (t *Transaction) GetContracts() []*TXContract {
 
 // ValidatePermission - for each contract check if TXType match permission
 func (t *Transaction) ValidatePermission(permission []byte) error {
-	if len(permission) > 32 {
+	if len(permission) > core.MaxOperationsSize {
 		return common.ErrInvalidPermission
 	}
 	if t == nil || t.RawData == nil || len(t.RawData.Contract) == 0 {
@@ -1429,6 +1481,7 @@ func (t *Transaction) ValidatePermission(permission []byte) error {
 		value := int32(c.Type)
 		base := value / 8
 		index := value % 8
+		// #nosec G115
 		if int32(len(permission)) <= base ||
 			permission[base]&(1<<index) == 0 {
 			return common.ErrNoPermission

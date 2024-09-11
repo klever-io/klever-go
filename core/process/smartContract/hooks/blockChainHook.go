@@ -524,7 +524,7 @@ func (bh *BlockChainHookImpl) ProcessBuiltInFunction(input *vmcommon.ContractCal
 			&vmcommon.KDATransfer{
 				KDAValue:      big.NewInt(txValueInt),
 				KDATokenName:  receipt.Data[4],
-				KDATokenType:  uint32(tokenType),
+				KDATokenType:  uint32(tokenType), // #nosec G115 - type casting
 				KDATokenNonce: nonce,
 			},
 			vmOutput,

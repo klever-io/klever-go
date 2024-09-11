@@ -19,7 +19,7 @@ func (csir *ConcurrentSafeIntRandomizer) Intn(n int) int {
 	_, _ = rand.Reader.Read(buff)
 	valUint64 := binary.BigEndian.Uint64(buff)
 
-	return int(valUint64 % uint64(n))
+	return int(valUint64 % uint64(n)) // #nosec G115
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

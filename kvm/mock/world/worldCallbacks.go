@@ -24,8 +24,6 @@ var _ process.BlockChainHookHandler = (*MockWorld)(nil)
 // ErrBuiltinFuncWrapperNotInitialized means that the builtin function wrapper was used before initialization.
 var ErrBuiltinFuncWrapperNotInitialized = errors.New("builtin function not found or container not initialized")
 
-var zero = big.NewInt(0)
-
 // NewAddress provides the address for a new account.
 // It looks up the explicit new address mocks, if none found generates one using a fake but realistic algorithm.
 func (b *MockWorld) NewAddress(creatorAddress []byte, creatorNonce uint64, vmType []byte) ([]byte, error) {
@@ -85,7 +83,7 @@ func (b *MockWorld) GetBlockHash(nonce uint64) ([]byte, error) {
 	if nonce > currentNonce {
 		return nil, errors.New("requested nonce is greater than current nonce")
 	}
-	offsetInt32 := int(currentNonce - nonce)
+	offsetInt32 := int(currentNonce - nonce) // #nosec G115
 	if offsetInt32 >= len(b.Blockhashes) {
 		return nil, errors.New("requested nonce is older than the oldest available block nonce")
 	}

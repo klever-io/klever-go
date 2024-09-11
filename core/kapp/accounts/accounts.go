@@ -1585,7 +1585,7 @@ func (a *accountsKapp) UpdatePermission(sender []byte, tc *transaction.UpdateAcc
 			}
 
 			permission = append(permission, &state.Permission{
-				ID:             int32(len(permission)),
+				ID:             int32(len(permission)), // #nosec G115
 				PermissionName: permissionName,
 				Type:           state.Permission_PermissionType(p.Type),
 				Threshold:      p.Threshold,
@@ -1598,7 +1598,7 @@ func (a *accountsKapp) UpdatePermission(sender []byte, tc *transaction.UpdateAcc
 	if !hasOwner {
 		// add owner permission if none has been provided
 		permission = append(permission, &state.Permission{
-			ID:         int32(len(permission)),
+			ID:         int32(len(permission)), // #nosec G115
 			Type:       state.Permission_Owner,
 			Threshold:  1,
 			Operations: make([]byte, 0),

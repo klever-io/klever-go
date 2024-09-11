@@ -142,11 +142,10 @@ func (context *outputContext) CensorVMOutput() {
 	context.outputState.Logs = make([]*vmcommon.LogEntry, 0)
 
 	for _, account := range context.outputState.OutputAccounts {
-		newTransfers := make([]vmcommon.OutputTransfer, 0)
-		for _, existingTransfer := range account.OutputTransfers {
-			newTransfers = append(newTransfers, existingTransfer)
-		}
-		account.OutputTransfers = newTransfers
+		account.OutputTransfers = append(
+			[]vmcommon.OutputTransfer{},
+			account.OutputTransfers...,
+		)
 	}
 
 	logOutput.Trace("state content censored")
@@ -211,6 +210,7 @@ func (context *outputContext) ClearReturnData() {
 // RemoveReturnData removes the return data item located at the specified index
 func (context *outputContext) RemoveReturnData(index uint32) {
 	returnData := context.outputState.ReturnData
+	// #nosec G115
 	if index >= uint32(len(returnData)) {
 		return
 	}

@@ -15,7 +15,6 @@ const maxNumBytesUpperBound = 1_073_741_824 // one GB
 const maxNumItemsPerSenderLowerBound = 1
 const maxNumBytesPerSenderLowerBound = maxNumItemsPerSenderLowerBound * 1
 const maxNumBytesPerSenderUpperBound = 33_554_432 // 32 MB
-const numTxsToPreemptivelyEvictLowerBound = 1
 const numSendersToPreemptivelyEvictLowerBound = 1
 
 // Config holds cache configuration
@@ -75,45 +74,6 @@ func (config *Config) String() string {
 	bytes, err := json.Marshal(config)
 	if err != nil {
 		log.Error("Config.String()", "err", err)
-	}
-
-	return string(bytes)
-}
-
-// ConfigDestinationMe holds cache configuration
-type ConfigDestinationMe struct {
-	Name                        string
-	NumChunks                   uint32
-	MaxNumItems                 uint32
-	MaxNumBytes                 uint32
-	NumItemsToPreemptivelyEvict uint32
-}
-
-func (config *ConfigDestinationMe) verify() error {
-	if len(config.Name) == 0 {
-		return fmt.Errorf("%w: config.Name is invalid", storage.ErrInvalidConfig)
-	}
-	if config.NumChunks < numChunksLowerBound || config.NumChunks > numChunksUpperBound {
-		return fmt.Errorf("%w: config.NumChunks is invalid", storage.ErrInvalidConfig)
-	}
-	if config.MaxNumItems < maxNumItemsLowerBound {
-		return fmt.Errorf("%w: config.MaxNumItems is invalid", storage.ErrInvalidConfig)
-	}
-	if config.MaxNumBytes < maxNumBytesLowerBound || config.MaxNumBytes > maxNumBytesUpperBound {
-		return fmt.Errorf("%w: config.MaxNumBytes is invalid", storage.ErrInvalidConfig)
-	}
-	if config.NumItemsToPreemptivelyEvict < numTxsToPreemptivelyEvictLowerBound {
-		return fmt.Errorf("%w: config.NumItemsToPreemptivelyEvict is invalid", storage.ErrInvalidConfig)
-	}
-
-	return nil
-}
-
-// String returns a readable representation of the object
-func (config *ConfigDestinationMe) String() string {
-	bytes, err := json.Marshal(config)
-	if err != nil {
-		log.Error("ConfigDestinationMe.String()", "err", err)
 	}
 
 	return string(bytes)

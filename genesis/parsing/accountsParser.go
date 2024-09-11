@@ -160,7 +160,7 @@ func (ap *accountsParser) parsePermissionElement(initialAccount *data.InitialAcc
 			return fmt.Errorf("%w for address '%s'",
 				genesis.ErrPermissionThreshold, initialAccount.Address)
 		}
-		p.ID = int32(i)
+		p.ID = int32(i) // #nosec G115
 
 		if len(p.Operations) > 0 {
 			var err error

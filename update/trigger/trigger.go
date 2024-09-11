@@ -16,6 +16,7 @@ import (
 	"github.com/klever-io/klever-go/core/closing"
 	"github.com/klever-io/klever-go/core/consensus/chronology"
 	"github.com/klever-io/klever-go/data/endProcess"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/update"
 )
@@ -440,7 +441,7 @@ func (t *trigger) TriggerReceived(originalPayload []byte, data []byte, pkBytes [
 		return true, fmt.Errorf("%w epoch out of grace period", update.ErrIncorrectHardforkMessage)
 	}
 
-	shouldTrigger, err := t.computeAndSetTrigger(uint32(epoch), originalPayload, withEarlyEndOfEpoch, earlyEndOfEpochSlot)
+	shouldTrigger, err := t.computeAndSetTrigger(tools.SafeI64ToU32(epoch), originalPayload, withEarlyEndOfEpoch, earlyEndOfEpochSlot)
 	if err != nil {
 		log.Debug("received trigger", "status", err)
 		return true, nil

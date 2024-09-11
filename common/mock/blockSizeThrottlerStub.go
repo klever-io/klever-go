@@ -6,12 +6,10 @@ import (
 
 // BlockSizeThrottlerStub -
 type BlockSizeThrottlerStub struct {
-	GetCurrentMaxSizeCalled                           func() uint32
-	AddCalled                                         func(slot uint64, size uint32)
-	SucceedCalled                                     func(slot uint64)
-	ComputeCurrentMaxSizeCalled                       func()
-	getMaxSizeWhenNotSucceedCalled                    func(lastActionMaxSize uint32) uint32
-	getCloserBelowCurrentMaxSizeUsedWithSucceedCalled func(currentMaxSize uint32) uint32
+	GetCurrentMaxSizeCalled     func() uint32
+	AddCalled                   func(slot uint64, size uint32)
+	SucceedCalled               func(slot uint64)
+	ComputeCurrentMaxSizeCalled func()
 }
 
 // GetCurrentMaxSize -
@@ -45,24 +43,6 @@ func (bsts *BlockSizeThrottlerStub) ComputeCurrentMaxSize() {
 		bsts.ComputeCurrentMaxSizeCalled()
 		return
 	}
-}
-
-// getMaxSizeWhenNotSucceed -
-func (bsts *BlockSizeThrottlerStub) getMaxSizeWhenNotSucceed(lastActionMaxSize uint32) uint32 {
-	if bsts.getMaxSizeWhenNotSucceedCalled != nil {
-		return bsts.getMaxSizeWhenNotSucceedCalled(lastActionMaxSize)
-	}
-
-	return uint32(tools.MegabyteSize * 90 / 100)
-}
-
-// getMaxSizeWhenNotSucceed -
-func (bsts *BlockSizeThrottlerStub) getCloserBelowCurrentMaxSizeUsedWithSucceed(lastActionMaxSize uint32) uint32 {
-	if bsts.getCloserBelowCurrentMaxSizeUsedWithSucceedCalled != nil {
-		return bsts.getCloserBelowCurrentMaxSizeUsedWithSucceedCalled(lastActionMaxSize)
-	}
-
-	return uint32(tools.MegabyteSize * 90 / 100)
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

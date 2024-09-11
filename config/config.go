@@ -285,11 +285,11 @@ func LoadGasScheduleConfig(filepath string) (map[string]map[string]uint64, error
 			var costUint64 uint64
 			switch costTyped := cost.(type) {
 			case int:
-				costUint64 = uint64(costTyped)
+				costUint64 = uint64(costTyped) // #nosec G115
 			case int64:
-				costUint64 = uint64(costTyped)
+				costUint64 = uint64(costTyped) // #nosec G115
 			case float64:
-				costUint64 = uint64(costTyped)
+				costUint64 = uint64(costTyped) // #nosec G115
 			default:
 				log.Error("failed to unmarshal gas schedule cost - unknown type", "type", reflect.TypeOf(cost))
 				return nil, fmt.Errorf("failed to unmarshal gas schedule cost - unknown type: %v", reflect.TypeOf(cost))

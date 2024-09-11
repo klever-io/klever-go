@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"sync"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
@@ -22,7 +21,6 @@ type transactionCostEstimator struct {
 	feeHandler     process.EconomicsDataHandler
 	txSimulator    txsimulator.TransactionSimulatorProcessor
 	forkController core.ForkController
-	mutExecution   sync.RWMutex
 }
 
 // NewTransactionCostEstimator will create a new transaction cost estimator

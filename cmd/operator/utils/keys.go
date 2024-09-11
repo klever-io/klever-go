@@ -56,7 +56,7 @@ func GetPassphrase(pwd string, pwdFilePath string) (string, error) {
 
 	if pwd == "*" {
 		fmt.Println("Enter password:")
-		pass, err := term.ReadPassword(int(os.Stdin.Fd()))
+		pass, err := term.ReadPassword(int(os.Stdin.Fd())) // #nosec G115
 		if err != nil {
 			return "", err
 		}
@@ -84,12 +84,12 @@ func GetPassphraseWithConfirm(pwd string, pwdFilePath string) (string, error) {
 
 	if pwd == "*" {
 		fmt.Println("Enter password:")
-		pass, err := term.ReadPassword(int(os.Stdin.Fd()))
+		pass, err := term.ReadPassword(int(os.Stdin.Fd())) // #nosec G115
 		if err != nil {
 			return "", err
 		}
 		fmt.Println("Repeat the password:")
-		repeatPass, err := term.ReadPassword(int(os.Stdin.Fd()))
+		repeatPass, err := term.ReadPassword(int(os.Stdin.Fd())) // #nosec G115
 		if err != nil {
 			return "", err
 		}

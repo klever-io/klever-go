@@ -366,6 +366,10 @@ func (context *meteringContext) GetSCPrepareInitialCost() uint64 {
 // left on the currently running Wasmer instance.
 func (context *meteringContext) BoundGasLimit(value int64) uint64 {
 	gasLeft := context.GasLeft()
+
+	if value < 0 {
+		return 0
+	}
 	limit := uint64(value)
 
 	if gasLeft < limit {

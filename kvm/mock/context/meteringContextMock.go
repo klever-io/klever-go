@@ -12,7 +12,6 @@ var _ vmhost.MeteringContext = (*MeteringContextMock)(nil)
 type MeteringContextMock struct {
 	GasCost           *config.GasCost
 	GasLeftMock       uint64
-	GasLockedMock     uint64
 	GasProvidedMock   uint64
 	GasComputedToLock uint64
 	BlockGasLimitMock uint64
@@ -127,6 +126,10 @@ func (m *MeteringContextMock) GetSCPrepareInitialCost() uint64 {
 // BoundGasLimit mocked method
 func (m *MeteringContextMock) BoundGasLimit(value int64) uint64 {
 	gasLeft := m.GasLeft()
+
+	if value < 0 {
+		return 0
+	}
 	limit := uint64(value)
 
 	if gasLeft < limit {

@@ -143,7 +143,7 @@ func getBitIndexFromHash(h hashing.Hasher, data []byte, size int, wg *sync.WaitG
 
 	hash := h.Compute(string(data))
 	hash64 := binary.BigEndian.Uint64(hash)
-	val := hash64 % uint64(size*bitsInByte)
+	val := hash64 % uint64(size*bitsInByte) // #nosec G115
 
 	ch <- val
 	wg.Done()

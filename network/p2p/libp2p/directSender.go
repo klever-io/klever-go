@@ -60,7 +60,7 @@ func NewDirectSender(
 	}
 
 	ds := &directSender{
-		counter:        uint64(time.Now().UnixNano()),
+		counter:        uint64(time.Now().UnixNano()), // #nosec G115
 		ctx:            ctx,
 		hostP2P:        h,
 		seenMessages:   timecache.NewTimeCache(timeSeenMessages),

@@ -189,7 +189,7 @@ func Execute() {
 	rootCmd.SilenceErrors = true
 	if err := rootCmd.Execute(); err != nil {
 		errMsg := errors.Wrapf(err, "commit: %s, error", appVersion).Error()
-		fmt.Fprintf(os.Stderr, errMsg+"\n")
+		fmt.Fprintf(os.Stderr, "%s\n", errMsg)
 		fmt.Fprintf(os.Stderr, "try adding a `--help` flag\n")
 		os.Exit(1)
 	}

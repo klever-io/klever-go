@@ -450,6 +450,7 @@ func (tsm *trieStorageManager) getSnapshotDb(newDb bool) data.DBWriteCacher {
 		return nil
 	}
 
+	// #nosec G115
 	if uint32(len(tsm.snapshots)) > tsm.maxSnapshots {
 		tsm.removeSnapshot()
 	}

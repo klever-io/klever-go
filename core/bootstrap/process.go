@@ -36,6 +36,7 @@ import (
 	storageFactory "github.com/klever-io/klever-go/storage/factory"
 	"github.com/klever-io/klever-go/storage/storageUnit"
 	"github.com/klever-io/klever-go/storage/timecache"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/klever-io/klever-go/tools/typeConverters"
@@ -230,9 +231,9 @@ func NewEpochStartBootstrap(args ArgsEpochStartBootstrap) (*epochStartBootstrap,
 	if epochStartProvider.generalConfig.Hardfork.AfterHardFork {
 		epochStartProvider.startEpoch = epochStartProvider.generalConfig.Hardfork.StartEpoch
 		epochStartProvider.baseData.lastEpoch = epochStartProvider.startEpoch
-		epochStartProvider.startSlot = int64(epochStartProvider.generalConfig.Hardfork.StartSlot)
+		epochStartProvider.startSlot = tools.SafeU64ToI64(epochStartProvider.generalConfig.Hardfork.StartSlot)
 		epochStartProvider.baseData.lastSlot = epochStartProvider.startSlot
-		epochStartProvider.baseData.epochStartSlot = uint64(epochStartProvider.startSlot)
+		epochStartProvider.baseData.epochStartSlot = tools.SafeI64ToU64(epochStartProvider.startSlot)
 	}
 
 	return epochStartProvider, nil
@@ -264,7 +265,7 @@ func (e *epochStartBootstrap) prepareEpochZero() (Parameters, error) {
 	return parameters, nil
 }
 
-func (e *epochStartBootstrap) isNodeInGenesisNodesConfig() bool {
+func (e *epochStartBootstrap) IsNodeInGenesisNodesConfig() bool {
 	ownPubKey, err := e.publicKey.ToByteArray()
 	if err != nil {
 		return false
@@ -393,7 +394,7 @@ func (e *epochStartBootstrap) computeIfCurrentEpochIsSaved() bool {
 		return true
 	}
 
-	slotsSinceEpochStart := computedSlot - int64(e.baseData.epochStartSlot)
+	slotsSinceEpochStart := computedSlot - tools.SafeU64ToI64(e.baseData.epochStartSlot)
 	log.Debug("epoch start slot", "slot", e.baseData.epochStartSlot, "slotsSinceEpochStart", slotsSinceEpochStart)
 	slotsPerEpoch := float64(e.genesisNodesConfig.GetSlotsPerEpoch())
 	epochEndPlusGracePeriod := slotsPerEpoch * (gracePeriodInPercentage + 1.0)
@@ -617,7 +618,7 @@ func (e *epochStartBootstrap) requestAndProcess() ([]*state.ValidatorInfo, []*st
 }
 
 func (e *epochStartBootstrap) syncUserAccountsState(rootHash []byte) error {
-	thr, err := throttler.NewNumGoRoutinesThrottler(int32(e.numConcurrentTrieSyncers))
+	thr, err := throttler.NewNumGoRoutinesThrottler(int32(e.numConcurrentTrieSyncers)) // #nosec G115
 	if err != nil {
 		return err
 	}
@@ -685,7 +686,7 @@ func (e *epochStartBootstrap) syncValidatorAccountsState(rootHash []byte) error 
 }
 
 func (e *epochStartBootstrap) syncKappAccountsState(rootHash []byte) error {
-	thr, err := throttler.NewNumGoRoutinesThrottler(int32(e.numConcurrentTrieSyncers))
+	thr, err := throttler.NewNumGoRoutinesThrottler(int32(e.numConcurrentTrieSyncers)) // #nosec G115
 	if err != nil {
 		return err
 	}

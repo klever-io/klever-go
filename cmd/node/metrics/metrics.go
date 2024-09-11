@@ -13,6 +13,7 @@ import (
 	mainFactory "github.com/klever-io/klever-go/factory"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/sharding"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 )
 
@@ -76,7 +77,7 @@ func InitMetrics(
 	appStatusHandler.SetStringValue(core.MetricP2PCrossShardObservers, initString)
 	appStatusHandler.SetStringValue(core.MetricP2PUnknownPeers, initString)
 	appStatusHandler.SetUInt64Value(core.MetricNumNodes, uint64(nodesConfig.MinNodes))
-	appStatusHandler.SetUInt64Value(core.MetricStartTime, uint64(nodesConfig.StartTime))
+	appStatusHandler.SetUInt64Value(core.MetricStartTime, tools.SafeI64ToU64(nodesConfig.StartTime))
 	appStatusHandler.SetUInt64Value(core.MetricSlotInterval, nodesConfig.SlotInterval)
 	appStatusHandler.SetUInt64Value(core.MetricMinTransactionVersion, uint64(nodesConfig.MinTransactionVersion))
 	appStatusHandler.SetStringValue(core.MetricTotalSupply, genesisTotalSupply)

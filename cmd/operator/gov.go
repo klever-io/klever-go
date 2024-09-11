@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/klever-io/klever-go/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -25,12 +26,12 @@ func subGov() []*cobra.Command {
 
 			parsedParams := make(map[int32]string)
 			for key, value := range parameters {
-				paramID, err := strconv.ParseInt(key, 10, 32)
+				paramID, err := tools.SafeStringToI32(key)
 				if err != nil {
 					return fmt.Errorf("invalid param (%s): %w", key, err)
 				}
 
-				parsedParams[int32(paramID)] = value
+				parsedParams[paramID] = value
 			}
 
 			return proposal(signerAddress,

@@ -35,7 +35,7 @@ func AddConfigITOForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 	})
 
 	form.AddDropDown("ITO Status", []string{"Default", "Active", "Paused"}, 0, func(option string, optionIndex int) {
-		sendForm.Status = int32(optionIndex)
+		sendForm.Status = int32(optionIndex) // #nosec G115
 	})
 
 	form.AddInputField("ITO Start At (DD/MM/YYYY)", time.Now().Format("02/01/2006"), 20, nil, func(v string) {
@@ -96,7 +96,7 @@ func AddConfigITOForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 	})
 
 	form.AddDropDown("Whitelist Status", []string{"Default", "Active", "Paused"}, 0, func(option string, optionIndex int) {
-		sendForm.WhitelistStatus = int32(optionIndex)
+		sendForm.WhitelistStatus = int32(optionIndex) // #nosec G115
 	})
 
 	form.AddInputField("Whitelist Start At (DD/MM/YYYY)", time.Now().Format("02/01/2006"), 20, nil, func(v string) {
@@ -393,7 +393,7 @@ func AddTriggerITOForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 	}
 
 	form.AddDropDown("Type", types, 0, func(option string, optionIndex int) {
-		sendForm.TriggerType = uint32(optionIndex)
+		sendForm.TriggerType = uint32(optionIndex) // #nosec G115
 	})
 
 	form.AddInputField("KDA", "", 20, nil, func(v string) {
@@ -413,7 +413,7 @@ func AddTriggerITOForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 	})
 
 	form.AddDropDown("ITO Status", []string{"Default", "Active", "Paused"}, 0, func(option string, optionIndex int) {
-		sendForm.Status = int32(optionIndex)
+		sendForm.Status = int32(optionIndex) // #nosec G115
 	})
 
 	form.AddInputField("ITO Start At (DD/MM/YYYY)", time.Now().Format("02/01/2006"), 20, nil, func(v string) {
@@ -474,7 +474,7 @@ func AddTriggerITOForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 	})
 
 	form.AddDropDown("Whitelist Status", []string{"Default", "Active", "Paused"}, 0, func(option string, optionIndex int) {
-		sendForm.WhitelistStatus = int32(optionIndex)
+		sendForm.WhitelistStatus = int32(optionIndex) // #nosec G115
 	})
 
 	form.AddInputField("Whitelist Start At (DD/MM/YYYY)", time.Now().Format("02/01/2006"), 20, nil, func(v string) {

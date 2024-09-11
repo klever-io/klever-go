@@ -219,6 +219,7 @@ func (context *VMHooksImpl) ManagedGetReturnData(resultID int32, resultHandle in
 	metering.UseGasAndAddTracedGas(managedGetReturnDataName, gasToUse)
 
 	returnData := output.ReturnData()
+	// #nosec G115
 	if resultID >= int32(len(returnData)) || resultID < 0 {
 		_ = context.WithFault(vmhost.ErrArgOutOfRange, runtime.BaseOpsErrorShouldFailExecution())
 		return
@@ -315,7 +316,7 @@ func (context *VMHooksImpl) ManagedGetKDABalance(addressHandle int32, tokenIDHan
 		return
 	}
 
-	_, kdaToken, err := blockchain.GetKDAToken(address, tokenID, uint64(nonce))
+	_, kdaToken, err := blockchain.GetKDAToken(address, tokenID, uint64(nonce)) // #nosec G115
 	if err != nil {
 		_ = context.WithFault(vmhost.ErrArgOutOfRange, runtime.BaseOpsErrorShouldFailExecution())
 		return
@@ -428,7 +429,7 @@ func ManagedGetUserKDAWithHost(
 		return
 	}
 
-	_, userKDA, err := blockchain.GetKDAToken(address, ticker, uint64(nonce))
+	_, userKDA, err := blockchain.GetKDAToken(address, ticker, uint64(nonce)) // #nosec G115
 	if err != nil {
 		_ = WithFaultAndHost(host, vmhost.ErrArgOutOfRange, runtime.BaseOpsErrorShouldFailExecution())
 		return
@@ -473,7 +474,7 @@ func ManagedGetKDATokenDataWithHost(
 		return
 	}
 
-	kda, _, err := blockchain.GetKDAToken(address, ticker, uint64(nonce))
+	kda, _, err := blockchain.GetKDAToken(address, ticker, uint64(nonce)) // #nosec G115
 	if err != nil {
 		_ = WithFaultAndHost(host, vmhost.ErrArgOutOfRange, runtime.BaseOpsErrorShouldFailExecution())
 		return
@@ -1021,7 +1022,7 @@ func ManagedGetSftMetadataWithHost(
 		return
 	}
 
-	meta, err := blockchain.GetSFTMeta(ticker, uint64(nonce))
+	meta, err := blockchain.GetSFTMeta(ticker, uint64(nonce)) // #nosec G115
 	if err != nil {
 		_ = WithFaultAndHost(host, vmhost.ErrArgOutOfRange, runtime.BaseOpsErrorShouldFailExecution())
 		return
@@ -1121,9 +1122,10 @@ func isOperationPermitted(permission []byte, ops int64) bool {
 	// Check each bit of ops
 	for i := 0; i < 64; i++ {
 		if ops&(1<<i) != 0 {
-			value := int32(i)
+			value := int32(i) // #nosec G115 - max value is 63
 			base := value / 8
 			index := value % 8
+			// #nosec G115
 			if int32(len(permission)) <= base || permission[base]&(1<<index) == 0 {
 				return false
 			}

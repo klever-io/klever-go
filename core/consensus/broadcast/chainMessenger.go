@@ -207,7 +207,12 @@ func (cm *chainMessenger) BroadcastBlockDataLeader(
 	// delayedBlockBroadcaster
 
 	// go cm.BroadcastBlockAndTransactions(blockBuff, transactions)
-	go cm.BroadcastTransactions(transactions)
+	go func() {
+		err := cm.BroadcastTransactions(transactions)
+		if err != nil {
+			log.Warn("chainMessenger.BroadcastBlockDataLeader", "error", err.Error())
+		}
+	}()
 
 	return nil
 }

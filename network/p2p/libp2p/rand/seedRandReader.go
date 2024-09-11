@@ -23,7 +23,7 @@ func NewSeedRandReader(seed []byte) (*seedRandReader, error) {
 	seedNumber := binary.BigEndian.Uint64(seedHash[:])
 
 	return &seedRandReader{
-		seedNumber: int64(seedNumber),
+		seedNumber: int64(seedNumber), // #nosec G115
 	}, nil
 }
 

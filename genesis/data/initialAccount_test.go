@@ -8,17 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func createMockInitialAccount() *InitialAccount {
-	return &InitialAccount{
-		Address: "address",
-		Balance: 2242,
-		Delegation: &DelegationData{
-			Address: "delegation address",
-			Value:   4442,
-		},
-	}
-}
-
 func TestInitialAccount_AddressBytes(t *testing.T) {
 	t.Parallel()
 

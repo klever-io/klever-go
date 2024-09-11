@@ -8,6 +8,8 @@ import (
 	"github.com/klever-io/klever-go/tools/marshal"
 )
 
+const maxDelayCacheSize = 20
+
 // GetBroadcastMessenger returns a consensus service depending of the given parameter
 func GetBroadcastMessenger(
 	marshalizer marshal.Marshalizer,

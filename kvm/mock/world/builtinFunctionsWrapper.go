@@ -120,11 +120,6 @@ func (bf *BuiltinFunctionsWrapper) GetBuiltinFunctionNames() vmcommon.FunctionNa
 	return bf.Container.Keys()
 }
 
-func (bf *BuiltinFunctionsWrapper) getAccount(address []byte) state.UserAccountHandler {
-	u, _ := bf.World.AccountsCacher.LoadUser(address)
-	return u
-}
-
 func getKAppController(accCacher state.AccountsCacher, forkController core.ForkController) kapp.KAppController {
 	marshalizerMock := &mock.ProtoMarshalizerMock{}
 

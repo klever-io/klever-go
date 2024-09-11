@@ -16,7 +16,6 @@ func GenerateSVGforGraph(callGraph *TestCallGraph, folder string, name string) {
 	gasGraph.PropagateSyncFailures()
 	gasGraph.AssignExecutionRounds(nil)
 	gasGraph.ComputeRemainingGasBeforeCallbacks(nil)
-	gasGraph.ComputeRemainingGasAfterCallbacks()
 	graphviz := ToGraphviz(gasGraph, false)
 	CreateSvgWithLocation(folder, name, graphviz)
 }
@@ -102,14 +101,11 @@ func setNodeAttributes(node *TestCallNode, attrs map[string]string) {
 
 func setEdgeLabel(attrs map[string]string, edge *TestCallEdge, showGasEdgeLabels bool) {
 	attrs["label"] = edge.Label
-	if showGasEdgeLabels && edge.Type != Callback && edge.Type != CallbackCrossShard {
-		attrs["label"] += "\n" +
-			"P" + strconv.Itoa(int(edge.GasLimit)) +
-			"/U" + strconv.Itoa(int(edge.GasUsed))
-		if edge.Type == Async || edge.Type == AsyncCrossShard {
-			attrs["label"] += "/CU" + strconv.Itoa(int(edge.GasUsedByCallback))
-		}
-	}
+
+	attrs["label"] += "\n" +
+		"P" + strconv.Itoa(int(edge.GasLimit)) + // #nosec G115
+		"/U" + strconv.Itoa(int(edge.GasUsed)) // #nosec G115
+
 	attrs["label"] = strconv.Quote(attrs["label"])
 }
 
@@ -121,16 +117,6 @@ func setEdgeAttributes(edge *TestCallEdge, attrs map[string]string) {
 	switch edge.Type {
 	case Sync:
 		attrs["color"] = "blue"
-	case Async:
-		attrs["color"] = "red"
-	case AsyncCrossShard:
-		attrs["color"] = "red"
-		attrs["style"] = "dashed"
-	case Callback:
-		attrs["color"] = "grey"
-	case CallbackCrossShard:
-		attrs["color"] = "grey"
-		attrs["style"] = "dashed"
 	default:
 		attrs["color"] = "black"
 	}
@@ -186,11 +172,10 @@ func setGasLabelForNode(node *TestCallNode, attrs map[string]string) {
 		return
 	}
 
-	gasLimit := strconv.Itoa(int(node.GasLimit))
-	gasUsed := strconv.Itoa(int(node.GasUsed))
-	gasRemaining := strconv.Itoa(int(node.GasRemaining))
-	gasAccumulated := strconv.Itoa(int(node.GasAccumulated))
-	gasLocked := strconv.Itoa(int(node.GasLocked))
+	gasLimit := strconv.Itoa(int(node.GasLimit))             // #nosec G115
+	gasUsed := strconv.Itoa(int(node.GasUsed))               // #nosec G115
+	gasRemaining := strconv.Itoa(int(node.GasRemaining))     // #nosec G115
+	gasAccumulated := strconv.Itoa(int(node.GasAccumulated)) // #nosec G115
 	var xlabel string
 	if node.IsGasLeaf() {
 		if node.WillNotExecute() {
@@ -210,9 +195,6 @@ func setGasLabelForNode(node *TestCallNode, attrs map[string]string) {
 		}
 		xlabel = gasFontStart
 		xlabel += "P" + gasLimit
-		if node.GasLocked != 0 {
-			xlabel += "/L" + gasLocked
-		}
 
 		xlabel += "<br/>R" + gasRemaining
 		if node.GasAccumulated != 0 {

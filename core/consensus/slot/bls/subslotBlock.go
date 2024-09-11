@@ -202,7 +202,7 @@ func (sr *subslotBlock) createHeader() (data.HeaderHandler, error) {
 		prevRandSeed = currentHeader.GetRandSeed()
 	}
 
-	slot := uint64(sr.SlotManager().Index())
+	slot := tools.SafeI64ToU64(sr.SlotManager().Index())
 	hdr := sr.BlockProcessor().CreateNewHeader(slot, nonce)
 	hdr.SetParentHash(prevHash)
 
@@ -354,7 +354,7 @@ func (sr *subslotBlock) computeSubslotProcessingMetric(startTime time.Time, metr
 		return
 	}
 
-	percent := uint64(time.Since(startTime)) * 100 / uint64(subSlotDuration)
+	percent := uint64(time.Since(startTime)) * 100 / tools.SafeI64ToU64(subSlotDuration) // #nosec G115
 	sr.AppStatusHandler().SetUInt64Value(metric, percent)
 }
 
@@ -406,7 +406,7 @@ func (sr *subslotBlock) getSlotInLastCommittedBlock() int64 {
 	slotInLastCommittedBlock := int64(0)
 	currentHeader := sr.Blockchain().GetCurrentBlockHeader()
 	if !check.IfNil(currentHeader) {
-		slotInLastCommittedBlock = int64(currentHeader.GetSlot())
+		slotInLastCommittedBlock = tools.SafeU64ToI64(currentHeader.GetSlot())
 	}
 
 	return slotInLastCommittedBlock

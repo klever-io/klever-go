@@ -2,6 +2,7 @@ package scenarioexec
 
 import (
 	"fmt"
+	"os"
 
 	logger "github.com/klever-io/klever-go-logger"
 	commonMock "github.com/klever-io/klever-go/common/mock"
@@ -18,6 +19,7 @@ import (
 	scenjsonmodel "github.com/klever-io/klever-go/kvm/scenarioexec/model"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/vmhost/hostCore"
+	"github.com/klever-io/klever-go/tools"
 	vmi "github.com/klever-io/klever-go/vmcommon"
 	"github.com/klever-io/klever-go/vmcommon/parsers"
 )
@@ -97,6 +99,18 @@ func (ae *VMTestExecutor) InitVM(scenGasSchedule scenjsonmodel.GasSchedule) erro
 	blockGasLimit := uint64(10000000)
 	kdaTransferParser, _ := parsers.NewKDATransferParser(worldhook.WorldMarshalizer)
 
+	// timeout from environment in ms
+	executionTimeout := uint32(2_000)
+	if value, ok := os.LookupEnv("KVM_EXECUTION_TIMEOUT"); ok {
+		// pase the value to int
+		valueUint, err := tools.SafeStringToU32(value)
+		if err != nil {
+			log.Warn("Failed to parse KVM_EXECUTION_TIMEOUT, using default value")
+		} else {
+			executionTimeout = valueUint
+		}
+	}
+
 	vm, err := hostCore.NewVMHost(
 		ae.World,
 		&vmhost.VMHostParameters{
@@ -111,6 +125,8 @@ func (ae *VMTestExecutor) InitVM(scenGasSchedule scenjsonmodel.GasSchedule) erro
 			Hasher:                   worldhook.DefaultHasher,
 			EpochNotifier:            epochNotifier,
 			ForkController:           forkController,
+
+			TimeOutForSCExecutionInMilliseconds: executionTimeout,
 		})
 	if err != nil {
 		return err

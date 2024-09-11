@@ -106,7 +106,7 @@ func getDirMemSize(dir string) string {
 		size += info.Size()
 	}
 
-	return tools.ConvertBytes(uint64(size))
+	return tools.ConvertBytes(uint64(size)) // #nosec G115
 }
 
 // SaveStatistics generates and saves statistic data on the disk

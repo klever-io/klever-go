@@ -11,8 +11,6 @@ import (
 	"github.com/klever-io/klever-go/core/process/economics"
 	"github.com/klever-io/klever-go/core/process/peer"
 	cryptoMock "github.com/klever-io/klever-go/crypto/mock"
-	"github.com/klever-io/klever-go/data"
-	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kapps"
@@ -85,10 +83,6 @@ func createMockRater() *mock.RaterMock {
 	return rater
 }
 
-func createMockCache() map[string]data.HeaderHandler {
-	return make(map[string]data.HeaderHandler)
-}
-
 func getAccountsMock() *mock.AccountsStub {
 	return &mock.AccountsStub{
 		CommitCalled: func() (bytes []byte, e error) {
@@ -97,17 +91,6 @@ func getAccountsMock() *mock.AccountsStub {
 		LoadAccountCalled: func(address []byte) (handler state.AccountHandler, e error) {
 			return &mock.PeerAccountHandlerMock{}, nil
 		},
-	}
-}
-
-func getHeaderHandler(randSeed []byte) *block.Block {
-	return &block.Block{
-		Header: &block.BlockHeader{
-			Nonce:        2,
-			PrevRandSeed: randSeed,
-			ParentHash:   randSeed,
-		},
-		PubKeysBitmap: randSeed,
 	}
 }
 

@@ -12,7 +12,8 @@ import (
 	"github.com/klever-io/klever-go/tools/marshal"
 )
 
-const delayAfterHardforkMessageBroadcast = time.Second * 5
+// TODO: review with fork trigger heartbeat
+// const delayAfterHardforkMessageBroadcast = time.Second * 5
 
 // ArgHeartbeatSender represents the arguments for the heartbeat sender
 type ArgHeartbeatSender struct {

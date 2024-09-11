@@ -95,7 +95,7 @@ func createFullArgumentsForKAppsProcessingMemory() (core.ForkController, kapps.A
 
 	// add funds to default sender
 	acc := loadUserAccount(userAccountsDB, defaultSender)
-	acc.AddToBalance(100000000000, nil, true, nil)
+	_ = acc.AddToBalance(100000000000, nil, true, nil)
 
 	// create Default KApps
 	kdaKapp := loadKAppAccount(kappAccountsDB, kapps.KDAKAppAddress)

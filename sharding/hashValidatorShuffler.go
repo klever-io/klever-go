@@ -258,8 +258,8 @@ func moveMaxNumNodesToList(
 
 func computeNeededNodes(destination []Validator, source []Validator, maxNumNodes uint32) uint32 {
 	numNeededNodes := uint32(0)
-	numCurrentNodes := uint32(len(destination))
-	numSourceNodes := uint32(len(source))
+	numCurrentNodes := uint32(len(destination)) // #nosec G115
+	numSourceNodes := uint32(len(source))       // #nosec G115
 
 	if maxNumNodes > numCurrentNodes {
 		numNeededNodes = maxNumNodes - numCurrentNodes

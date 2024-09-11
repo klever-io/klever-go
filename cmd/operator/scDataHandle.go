@@ -267,28 +267,28 @@ func (a *vmOutputData) decodeSingleValue(
 	switch valueType {
 	case Int8:
 		decodedValue, err := a.decodeInt(hexRef, HexLength8Bits)
-		return int8(decodedValue), err
+		return int8(decodedValue), err // #nosec G115 - typed && bit length is checked
 	case Int16:
 		decodedValue, err := a.decodeInt(hexRef, HexLength16Bits)
-		return int16(decodedValue), err
+		return int16(decodedValue), err // #nosec G115 - typed && bit length is checked
 	case Int32, Isize:
 		decodedValue, err := a.decodeInt(hexRef, HexLength32Bits)
-		return int32(decodedValue), err
+		return int32(decodedValue), err // #nosec G115 - typed && bit length is checked
 	case Int64:
 		decodedValue, err := a.decodeInt(hexRef, HexLength64Bits)
-		return int64(decodedValue), err
+		return int64(decodedValue), err // #nosec G115 - typed && bit length is checked
 	case Uint8:
 		decodedValue, err := a.decodeUint(hexRef, HexLength8Bits)
-		return uint8(decodedValue), err
+		return uint8(decodedValue), err // #nosec G115 - typed && bit length is checked
 	case Uint16:
 		decodedValue, err := a.decodeUint(hexRef, HexLength16Bits)
-		return uint16(decodedValue), err
+		return uint16(decodedValue), err // #nosec G115 - typed && bit length is checked
 	case Uint32, Usize:
 		decodedValue, err := a.decodeUint(hexRef, HexLength32Bits)
-		return uint32(decodedValue), err
+		return uint32(decodedValue), err // #nosec G115 - typed && bit length is checked
 	case Uint64:
 		decodedValue, err := a.decodeUint(hexRef, HexLength64Bits)
-		return uint64(decodedValue), err
+		return uint64(decodedValue), err // #nosec G115 - typed && bit length is checked
 	case Address:
 		return a.decodeAddress(hexRef)
 	case BigInt:
@@ -394,16 +394,16 @@ func (a *vmOutputData) decodeInt(hexRef *string, bitsHexLen int) (int, error) {
 	switch rawHexLen := len(hexToDecode); {
 	case rawHexLen <= HexLength8Bits:
 		targetValue, err := a.decodeBaseUint(&hexToDecode, Bits8)
-		return int(int8(*targetValue)), err
+		return int(int8(*targetValue)), err // #nosec G115
 	case rawHexLen <= HexLength16Bits:
 		targetValue, err := a.decodeBaseUint(&hexToDecode, Bits16)
-		return int(int16(*targetValue)), err
+		return int(int16(*targetValue)), err // #nosec G115
 	case rawHexLen <= HexLength32Bits:
 		targetValue, err := a.decodeBaseUint(&hexToDecode, Bits32)
-		return int(int32(*targetValue)), err
+		return int(int32(*targetValue)), err // #nosec G115
 	case rawHexLen <= HexLength64Bits:
 		targetValue, err := a.decodeBaseUint(&hexToDecode, Bits64)
-		return int(int64(*targetValue)), err
+		return int(int64(*targetValue)), err // #nosec G115
 	default:
 		return 0, fmt.Errorf("invalid hex string %s to decode to int", hexToDecode)
 	}
@@ -482,7 +482,7 @@ func (a *vmOutputData) handleBigIntTill128(hexRef *string) (*big.Int, error) {
 	}
 
 	if rawValue.Cmp(MaxIntNBits) == 1 {
-		decodedValue := rawValue.Sub(rawValue, new(big.Int).Lsh(one, uint(valueBits)))
+		decodedValue := rawValue.Sub(rawValue, new(big.Int).Lsh(one, uint(valueBits))) // #nosec G115
 		return decodedValue, nil
 	}
 
@@ -563,7 +563,7 @@ func (a *vmOutputData) getFixedTrim(hexRef *string) (int, error) {
 
 	*hexRef = (*hexRef)[LengthHexSizer:]
 
-	return int(*trimRef), err
+	return int(*trimRef), err // #nosec G115
 }
 
 func (a *vmOutputData) decodeList(hexRef *string, valueType string) (interface{}, error) {
@@ -856,13 +856,13 @@ func encodeTopLevelInt(v string) (string, error) {
 	switch {
 	// typecast to uint to correspondent bit size to use 2's complement in negative values
 	case rawInt >= math.MinInt8 && rawInt <= math.MaxInt8:
-		encoded = fmt.Sprintf("%02x", uint8(rawInt))
+		encoded = fmt.Sprintf("%02x", uint8(rawInt)) // #nosec G115 - type specific
 	case rawInt >= math.MinInt16 && rawInt <= math.MaxInt16:
-		encoded = fmt.Sprintf("%04x", uint16(rawInt))
+		encoded = fmt.Sprintf("%04x", uint16(rawInt)) // #nosec G115 - type specific
 	case rawInt >= math.MinInt32 && rawInt <= math.MaxInt32:
-		encoded = fmt.Sprintf("%08x", uint32(rawInt))
+		encoded = fmt.Sprintf("%08x", uint32(rawInt)) // #nosec G115 - type specific
 	default:
-		encoded = fmt.Sprintf("%16x", uint64(rawInt))
+		encoded = fmt.Sprintf("%16x", uint64(rawInt)) // #nosec G115 - type specific
 	}
 
 	if len(encoded)%2 != 0 {
@@ -884,13 +884,13 @@ func encodeNestedInt(v, t string) (string, error) {
 	switch t {
 	// typecast to uint to correspondent bit size to use 2's complement in negative values
 	case Int8:
-		return fmt.Sprintf("%02x", uint8(rawInt)), nil
+		return fmt.Sprintf("%02x", uint8(rawInt)), nil // #nosec G115 - type specific
 	case Int16:
-		return fmt.Sprintf("%04x", uint16(rawInt)), nil
+		return fmt.Sprintf("%04x", uint16(rawInt)), nil // #nosec G115 - type specific
 	case Int32:
-		return fmt.Sprintf("%08x", uint32(rawInt)), nil
+		return fmt.Sprintf("%08x", uint32(rawInt)), nil // #nosec G115 - type specific
 	default:
-		return fmt.Sprintf("%016x", uint64(rawInt)), nil
+		return fmt.Sprintf("%016x", uint64(rawInt)), nil // #nosec G115 - type specific
 	}
 }
 
@@ -911,11 +911,11 @@ func encodeTopLevelUint(v string) (string, error) {
 	var encoded string
 	switch {
 	case rawUint <= math.MaxUint8:
-		encoded = fmt.Sprintf("%x", uint8(rawUint))
+		encoded = fmt.Sprintf("%x", uint8(rawUint)) // #nosec G115 - type specific
 	case rawUint <= math.MaxUint16:
-		encoded = fmt.Sprintf("%x", uint16(rawUint))
+		encoded = fmt.Sprintf("%x", uint16(rawUint)) // #nosec G115 - type specific
 	case rawUint <= math.MaxUint32:
-		encoded = fmt.Sprintf("%x", uint32(rawUint))
+		encoded = fmt.Sprintf("%x", uint32(rawUint)) // #nosec G115 - type specific
 	default:
 		encoded = fmt.Sprintf("%x", rawUint)
 	}
@@ -934,11 +934,20 @@ func encodeNestedUint(v, t string) (string, error) {
 	}
 	switch t {
 	case Int8:
-		return fmt.Sprintf("%02x", uint8(rawInt)), nil
+		if rawInt > math.MaxUint8 {
+			return "", fmt.Errorf("value `%d` overflows uint8", rawInt)
+		}
+		return fmt.Sprintf("%02x", uint8(rawInt)), nil // #nosec G115 - type specific
 	case Int16:
-		return fmt.Sprintf("%04x", uint16(rawInt)), nil
+		if rawInt > math.MaxUint16 {
+			return "", fmt.Errorf("value `%d` overflows uint16", rawInt)
+		}
+		return fmt.Sprintf("%04x", uint16(rawInt)), nil // #nosec G115 - type specific
 	case Int32:
-		return fmt.Sprintf("%08x", uint32(rawInt)), nil
+		if rawInt > math.MaxUint32 {
+			return "", fmt.Errorf("value `%d` overflows uint32", rawInt)
+		}
+		return fmt.Sprintf("%08x", uint32(rawInt)), nil // #nosec G115 - type specific
 	default:
 		return fmt.Sprintf("%016x", rawInt), nil
 	}

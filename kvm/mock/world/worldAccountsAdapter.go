@@ -72,7 +72,7 @@ func (m *MockAccountsAdapter) RevertToSnapshot(snapshotIndex int) error {
 
 // GetNumCheckpoints -
 func (m *MockAccountsAdapter) GetNumCheckpoints() uint32 {
-	return uint32(len(m.Snapshots))
+	return uint32(len(m.Snapshots)) // #nosec G115
 }
 
 // GetCode -

@@ -9,7 +9,7 @@ import (
 func getVMHooksFromContextRawPtr(contextRawPtr unsafe.Pointer) executor.VMHooks {
 	vmHooksPtrPtr := (*uintptr)(contextRawPtr)
 	vmHooksPtr := *vmHooksPtrPtr
-	// #nosec G103: unsafe.Pointer is used to convert to VMHooks pointer
+	// #nosec G103 G115: unsafe.Pointer is used to convert to VMHooks pointer
 	return *(*executor.VMHooks)(unsafe.Pointer(vmHooksPtr))
 }
 

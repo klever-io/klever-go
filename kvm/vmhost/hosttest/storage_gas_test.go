@@ -53,8 +53,8 @@ func loadStorage(t *testing.T, key []byte) {
 			host.Metering().GasSchedule().DynamicStorageLoad.Constant = 10
 
 			accountHandler, _ := world.GetUserAccount(test.ParentAddress)
-			accountHandler.DataTrieTracker().SaveKeyValue(key, value)
-			world.AccountsCacher.SaveAll()
+			_ = accountHandler.DataTrieTracker().SaveKeyValue(key, value)
+			_ = world.AccountsCacher.SaveAll()
 		}).
 		AndAssertResults(func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
 			verify.

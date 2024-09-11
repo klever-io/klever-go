@@ -28,3 +28,6 @@ var ErrSubtractionOverflow = errors.New("uint64 subtraction overflowed")
 
 // ErrNilMarshalizer signals that a nil marshalizer has been provided
 var ErrNilMarshalizer = errors.New("nil marshalizer")
+
+// ErrInvalidFileName signals that an invalid file name has been provided
+var ErrInvalidFileName = errors.New("invalid file name")

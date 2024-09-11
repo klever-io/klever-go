@@ -220,13 +220,18 @@ func pprofHeap(scenario *scenario, step string) {
 
 // convertPprofToHumanReadable converts the ",pprof" file to ".png" and ".txt"
 func convertPprofToHumanReadable(filename string) {
-	cmd := exec.Command("go", "tool", "pprof", "-png", "-output", fmt.Sprintf("%s.png", filename), filename)
-	err := cmd.Run()
+	// ensure arguments
+	filename, err := tools.SanitizePath(filename)
+	if err != nil {
+		panic(fmt.Sprintf("convertPprofToHumanReadable: %v", err))
+	}
+	cmd := exec.Command("go", "tool", "pprof", "-png", "-output", fmt.Sprintf("%s.png", filename), filename) // #nosec G204 - sanitized
+	err = cmd.Run()
 	if err != nil {
 		panic(fmt.Sprintf("convertPprofToHumanReadable: %v", err))
 	}
 
-	cmd = exec.Command("go", "tool", "pprof", "-text", "-output", fmt.Sprintf("%s.txt", filename), filename)
+	cmd = exec.Command("go", "tool", "pprof", "-text", "-output", fmt.Sprintf("%s.txt", filename), filename) // #nosec G204 - sanitized
 	err = cmd.Run()
 	if err != nil {
 		panic(fmt.Sprintf("convertPprofToHumanReadable: %v", err))

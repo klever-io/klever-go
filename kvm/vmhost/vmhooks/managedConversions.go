@@ -32,7 +32,7 @@ func readKDATransfer(
 		return nil, errors.New("invalid KDA transfer object encoding")
 	}
 
-	tokenIdentifierHandle := int32(binary.BigEndian.Uint32(data[0:4]))
+	tokenIdentifierHandle := int32(binary.BigEndian.Uint32(data[0:4])) // #nosec G115
 	tokenIdentifier, err := managedType.GetBytes(tokenIdentifierHandle)
 	if err != nil {
 		return nil, err
@@ -41,7 +41,7 @@ func readKDATransfer(
 
 	nonce := binary.BigEndian.Uint64(data[4:12])
 
-	valueHandle := int32(binary.BigEndian.Uint32(data[12:16]))
+	valueHandle := int32(binary.BigEndian.Uint32(data[12:16])) // #nosec G115
 	value, err := managedType.GetBigInt(valueHandle)
 	if err != nil {
 		return nil, err
@@ -104,9 +104,9 @@ func writeKDATransfer(
 	tokenIdentifierHandle := managedType.NewManagedBufferFromBytes(kdaTransfer.KDATokenName)
 	valueHandle := managedType.NewBigInt(kdaTransfer.KDAValue)
 
-	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(tokenIdentifierHandle))
+	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(tokenIdentifierHandle)) // #nosec G115
 	binary.BigEndian.PutUint64(destinationBytes[4:12], kdaTransfer.KDATokenNonce)
-	binary.BigEndian.PutUint32(destinationBytes[12:16], uint32(valueHandle))
+	binary.BigEndian.PutUint32(destinationBytes[12:16], uint32(valueHandle)) // #nosec G115
 }
 
 // Serializes a kapps.RoyaltySplitData object.
@@ -117,7 +117,7 @@ func writeSplitRoyalties(
 	destinationBytes []byte,
 ) {
 	keyHandle := managedType.NewManagedBufferFromBytes([]byte(key))
-	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(keyHandle))
+	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(keyHandle)) // #nosec G115
 	binary.BigEndian.PutUint32(destinationBytes[4:8], sr.PercentTransferFixed)
 	binary.BigEndian.PutUint32(destinationBytes[8:12], sr.PercentTransferPercentage)
 	binary.BigEndian.PutUint32(destinationBytes[12:16], sr.PercentMarketFixed)
@@ -162,7 +162,7 @@ func writeTransferPercentages(
 ) {
 	amount := big.NewInt(tp.Amount)
 	amountHandle := managedType.NewBigInt(amount)
-	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(amountHandle))
+	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(amountHandle)) // #nosec G115
 	binary.BigEndian.PutUint32(destinationBytes[4:8], tp.Percentage)
 }
 
@@ -204,7 +204,7 @@ func writeLastClaim(
 
 	timestampHandle := managedType.NewBigIntFromInt64(lastClaim.Timestamp)
 
-	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(timestampHandle))
+	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(timestampHandle)) // #nosec G115
 	binary.BigEndian.PutUint32(destinationBytes[4:8], lastClaim.Epoch)
 
 	return destinationBytes
@@ -241,12 +241,12 @@ func writeUserBucket(managedType vmhost.ManagedTypesContext, key string, bucket 
 	valueHandle := managedType.NewBigIntFromInt64(bucket.Value)
 	delegationHandle := managedType.NewManagedBufferFromBytes(bucket.Delegation)
 
-	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(keyHandle))
-	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(stakedAtHandle))
+	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(keyHandle))      // #nosec G115
+	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(stakedAtHandle)) // #nosec G115
 	binary.BigEndian.PutUint32(destinationBytes[8:12], bucket.StakedEpoch)
 	binary.BigEndian.PutUint32(destinationBytes[12:16], bucket.UnstakedEpoch)
-	binary.BigEndian.PutUint32(destinationBytes[16:20], uint32(valueHandle))
-	binary.BigEndian.PutUint32(destinationBytes[20:24], uint32(delegationHandle))
+	binary.BigEndian.PutUint32(destinationBytes[16:20], uint32(valueHandle))      // #nosec G115
+	binary.BigEndian.PutUint32(destinationBytes[20:24], uint32(delegationHandle)) // #nosec G115
 }
 
 // Serializes Royalties a byte slice.
@@ -275,13 +275,13 @@ func writeRoyaltiesToBytes(
 	splitRoyaltiesHandle := managedType.NewManagedBufferFromBytes(writeSplitRoyaltiesToBytes(managedType, royalties.SplitRoyalties))
 	itoFixedHandle := managedType.NewBigIntFromInt64(royalties.ITOFixed)
 
-	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(addressHandle))
-	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(transferPercentageHandle))
-	binary.BigEndian.PutUint32(destinationBytes[8:12], uint32(transferFixedHandle))
+	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(addressHandle))            // #nosec G115
+	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(transferPercentageHandle)) // #nosec G115
+	binary.BigEndian.PutUint32(destinationBytes[8:12], uint32(transferFixedHandle))     // #nosec G115
 	binary.BigEndian.PutUint32(destinationBytes[12:16], royalties.MarketPercentage)
-	binary.BigEndian.PutUint32(destinationBytes[16:20], uint32(marketFixedHandle))
-	binary.BigEndian.PutUint32(destinationBytes[20:24], uint32(splitRoyaltiesHandle))
-	binary.BigEndian.PutUint32(destinationBytes[24:28], uint32(itoFixedHandle))
+	binary.BigEndian.PutUint32(destinationBytes[16:20], uint32(marketFixedHandle))    // #nosec G115
+	binary.BigEndian.PutUint32(destinationBytes[20:24], uint32(splitRoyaltiesHandle)) // #nosec G115
+	binary.BigEndian.PutUint32(destinationBytes[24:28], uint32(itoFixedHandle))       // #nosec G115
 	binary.BigEndian.PutUint32(destinationBytes[28:32], royalties.ITOPercentage)
 
 	return destinationBytes
@@ -308,7 +308,7 @@ func getPropertiesValue(properties *kapps.PropertiesData, tokenType int32) uint3
 	value += encodeBool(properties.LimitTransfer, 7)
 
 	// convert tokenType from int32 into 2bits and add to value bits 30 and 31 masked
-	value += uint32(tokenType) << 30
+	value += uint32(tokenType) << 30 // #nosec G115
 
 	return value
 }
@@ -368,14 +368,14 @@ func writeSFTMeta(managedType vmhost.ManagedTypesContext, meta *kapps.MetaV2) []
 	destinationBytes := make([]byte, SFTMetaLen)
 
 	maxSupplyHandle := managedType.NewBigIntFromInt64(meta.MaxSupply)
-	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(maxSupplyHandle))
+	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(maxSupplyHandle)) // #nosec G115
 
 	circulationSupplyHandle := managedType.NewBigIntFromInt64(meta.Circulation)
-	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(circulationSupplyHandle))
+	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(circulationSupplyHandle)) // #nosec G115
 
 	metadata := writeSFTMetadata(managedType, meta.Metadata)
 	metaHandle := managedType.NewManagedBufferFromBytes(metadata)
-	binary.BigEndian.PutUint32(destinationBytes[8:12], uint32(metaHandle))
+	binary.BigEndian.PutUint32(destinationBytes[8:12], uint32(metaHandle)) // #nosec G115
 
 	return destinationBytes
 }
@@ -389,28 +389,28 @@ func writeSFTMetadata(managedType vmhost.ManagedTypesContext, metadata *kapps.Me
 	destinationBytes := make([]byte, SFTMetadataLen)
 
 	nameHandle := managedType.NewManagedBufferFromBytes(metadata.Name)
-	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(nameHandle))
+	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(nameHandle)) // #nosec G115
 
 	hashHandle := managedType.NewManagedBufferFromBytes(metadata.Hash)
-	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(hashHandle))
+	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(hashHandle)) // #nosec G115
 
 	attriHandle := managedType.NewManagedBufferFromBytes(metadata.Attributes)
-	binary.BigEndian.PutUint32(destinationBytes[8:12], uint32(attriHandle))
+	binary.BigEndian.PutUint32(destinationBytes[8:12], uint32(attriHandle)) // #nosec G115
 
 	return destinationBytes
 }
 
 func writeURIs(managedType vmhost.ManagedTypesContext, key, value string, destinationBytes []byte) {
 	keyHandle := managedType.NewManagedBufferFromBytes([]byte(key))
-	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(keyHandle))
+	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(keyHandle)) // #nosec G115
 
 	valueHandle := managedType.NewManagedBufferFromBytes([]byte(value))
-	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(valueHandle))
+	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(valueHandle)) // #nosec G115
 }
 
 func writeRoles(managedType vmhost.ManagedTypesContext, role *kapps.RolesData, destinationBytes []byte) {
 	addressHandle := managedType.NewManagedBufferFromBytes(role.Address)
-	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(addressHandle))
+	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(addressHandle)) // #nosec G115
 
 	value := uint32(0)
 

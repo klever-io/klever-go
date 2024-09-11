@@ -150,13 +150,13 @@ func (v *VMOutputVerifier) GasUsed(address []byte, gas uint64) *VMOutputVerifier
 	account := v.VmOutput.OutputAccounts[string(address)]
 	errMsg := formatErrorForAccount("GasUsed", address)
 	require.NotNil(v.T, account, errMsg)
-	require.Equal(v.T, int(gas), int(account.GasUsed), errMsg)
+	require.Equal(v.T, gas, account.GasUsed, errMsg)
 	return v
 }
 
 // GasRemaining verifies if GasRemaining of the specified account is the same as the provided one
 func (v *VMOutputVerifier) GasRemaining(gas uint64) *VMOutputVerifier {
-	require.Equal(v.T, int(gas), int(v.VmOutput.GasRemaining), "GasRemaining")
+	require.Equal(v.T, gas, v.VmOutput.GasRemaining, "GasRemaining")
 	return v
 }
 
@@ -438,16 +438,16 @@ func (v *VMOutputVerifier) BytesAddedToStorage(address []byte, bytesAdded int) *
 	account := v.VmOutput.OutputAccounts[string(address)]
 	errMsg := formatErrorForAccount("BytesAddedToStorage", address)
 	require.NotNil(v.T, account, errMsg)
-	require.Equal(v.T, bytesAdded, int(account.BytesAddedToStorage), errMsg)
+	require.Equal(v.T, uint64(bytesAdded), account.BytesAddedToStorage, errMsg) // #nosec G115
 	return v
 }
 
 // BytesDeletedFromStorage verifies the number of bytes deleted from storage
-func (v *VMOutputVerifier) BytesDeletedFromStorage(address []byte, bytesDelted int) *VMOutputVerifier {
+func (v *VMOutputVerifier) BytesDeletedFromStorage(address []byte, bytesDeleted int) *VMOutputVerifier {
 	account := v.VmOutput.OutputAccounts[string(address)]
 	errMsg := formatErrorForAccount("BytesAddedToStorage", address)
 	require.NotNil(v.T, account, errMsg)
-	require.Equal(v.T, bytesDelted, int(account.BytesDeletedFromStorage), errMsg)
+	require.Equal(v.T, uint64(bytesDeleted), account.BytesDeletedFromStorage, errMsg) // #nosec G115
 	return v
 }
 

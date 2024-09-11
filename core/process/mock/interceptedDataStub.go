@@ -17,7 +17,6 @@ func (ids *InterceptedDataStub) Hash() []byte {
 	return []byte("mock hash")
 }
 
-func (ids *InterceptedDataStub) txInterceptedData() {}
 func (ids *InterceptedDataStub) CheckTXSignature() error {
 	return nil
 }

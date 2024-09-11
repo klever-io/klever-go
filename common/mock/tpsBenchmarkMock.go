@@ -4,7 +4,6 @@ import (
 	"math/big"
 	"sync"
 
-	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/statistics"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
@@ -22,8 +21,6 @@ type TpsBenchmarkMock struct {
 	lastBlockTxCount      uint32
 	totalProcessedTxCount *big.Int
 	statistics            statistics.ChainStatistic
-	statusHandler         core.AppStatusHandler
-	initialBlockNumber    int64
 }
 
 // ActiveNodes returns the number of active nodes

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/stretchr/testify/assert"
 )
@@ -61,6 +62,6 @@ func TestTransaction_ValidatePermission(t *testing.T) {
 	err = tx.ValidatePermission(bytes.Repeat([]byte{0xff}, 1))
 	assert.Equal(t, err, common.ErrNoPermission)
 
-	err = tx.ValidatePermission(bytes.Repeat([]byte{0xff}, 32))
+	err = tx.ValidatePermission(bytes.Repeat([]byte{0xff}, core.MaxOperationsSize))
 	assert.Nil(t, err)
 }

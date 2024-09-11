@@ -21,6 +21,7 @@ func (pb *pruningBuffer) add(rootHash []byte) {
 	pb.mutOp.Lock()
 	defer pb.mutOp.Unlock()
 
+	// #nosec G115
 	if uint32(len(pb.buffer)) == pb.size {
 		log.Warn("pruning buffer is full", "rootHash", rootHash)
 		return

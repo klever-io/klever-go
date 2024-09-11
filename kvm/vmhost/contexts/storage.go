@@ -362,15 +362,17 @@ func (context *storageContext) changeStorageUpdate(key []byte, value []byte, sto
 func (context *storageContext) computeGasForSmallerValues(newValueExtraLength int, length int) (uint64, uint64) {
 	metering := context.host.Metering()
 	newValueExtraLength = -newValueExtraLength
-	useGas := math.MulUint64(metering.GasSchedule().BaseOperationCost.PersistPerByte, uint64(length))
+	useGas := math.MulUint64(metering.GasSchedule().BaseOperationCost.PersistPerByte, uint64(length)) // #nosec G115
 	//TODO: Review free gas
-	freeGas := math.MulUint64(metering.GasSchedule().BaseOperationCost.ReleasePerByte, uint64(newValueExtraLength))
+	freeGas := math.MulUint64(metering.GasSchedule().BaseOperationCost.ReleasePerByte, uint64(newValueExtraLength)) // #nosec G115
 	return useGas, freeGas
 }
 
 func (context *storageContext) computeGasForBiggerValues(lengthOldValue int, newValueExtraLength int) (uint64, uint64) {
 	metering := context.host.Metering()
+	// #nosec G115
 	useGas := math.MulUint64(metering.GasSchedule().BaseOperationCost.PersistPerByte, uint64(lengthOldValue))
+	// #nosec G115
 	newValStoreUseGas := math.MulUint64(metering.GasSchedule().BaseOperationCost.StorePerByte, uint64(newValueExtraLength))
 	useGas = math.AddUint64(useGas, newValStoreUseGas)
 	return useGas, 0
@@ -378,6 +380,7 @@ func (context *storageContext) computeGasForBiggerValues(lengthOldValue int, new
 
 func (context *storageContext) storageAdded(length int, key []byte, value []byte) (vmhost.StorageStatus, error) {
 	metering := context.host.Metering()
+	// #nosec G115
 	useGas := math.MulUint64(metering.GasSchedule().BaseOperationCost.StorePerByte, uint64(length))
 	err := metering.UseGasBounded(useGas)
 	if err != nil {
@@ -391,7 +394,7 @@ func (context *storageContext) storageAdded(length int, key []byte, value []byte
 func (context *storageContext) storageDeleted(lengthOldValue int, key []byte) (vmhost.StorageStatus, error) {
 	metering := context.host.Metering()
 	//TODO: review free gas
-	_ = math.MulUint64(metering.GasSchedule().BaseOperationCost.ReleasePerByte, uint64(lengthOldValue))
+	_ = math.MulUint64(metering.GasSchedule().BaseOperationCost.ReleasePerByte, uint64(lengthOldValue)) // #nosec G115
 
 	logStorage.Trace("storage deleted", "key", key)
 	return vmhost.StorageDeleted, nil
@@ -412,6 +415,7 @@ func (context *storageContext) computeGasForUnchangedValue(length int, usedCache
 	metering := context.host.Metering()
 	useGas := uint64(0)
 	if !usedCache {
+		// #nosec G115
 		useGas = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(length))
 	}
 	return useGas
@@ -446,6 +450,7 @@ func (context *storageContext) computeGasForKey(key []byte, usedCache bool) uint
 	extraKeyLenGas := uint64(0)
 	if extraBytes > 0 &&
 		(!usedCache) {
+		// #nosec G115
 		extraKeyLenGas = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(extraBytes))
 	}
 	return extraKeyLenGas
@@ -507,7 +512,7 @@ func computeGasForStorageLoadBasedOnTrieDepth(trieDepth int64, coefficients conf
 			coefficients.Quadratic, coefficients.Linear, coefficients.Constant, trieDepth)
 	}
 
-	if fx < int64(coefficients.MinGasCost) {
+	if uint64(fx) < coefficients.MinGasCost {
 		logStorage.Error("invalid value for gas cost",
 			"quadratic coefficient", coefficients.Quadratic,
 			"linear coefficient", coefficients.Linear,

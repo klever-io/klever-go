@@ -6,21 +6,16 @@ on:
           default: "github.com/klever-io/*"
           required: false
           type: string
-        with_vendor:
-          description: runs go mod vendor
-          default: true
-          required: false
-          type: boolean
-        with_cache:
-          description: activate the go cache
-          default: true
-          required: false
-          type: boolean
         go_version:
           description: Custom GO Version
           required: false
           type: string
           default: ">=1.22"
+        cache_enabled:
+          description: Enable caching of Go modules
+          default: true
+          required: false
+          type: boolean
       secrets:
         git_user:
           required: false
@@ -28,12 +23,10 @@ on:
           required: false
 jobs:
     setup:
-      timeout-minutes: 10
-      env:
-        USER: ${{ secrets.git_user }}
-        TOKEN: ${{ secrets.git_pass }}
-        GO_PRIVATE: ${{ inputs.go_private }}
       runs-on: klever-pipe
+      env:
+        GO_PRIVATE: ${{ inputs.go_private }} # Set the private module env
+
       steps:
         - name: Checkout repository
           uses: actions/checkout@v4
@@ -42,23 +35,22 @@ jobs:
           uses: actions/setup-go@v5
           with:
             go-version: ${{ inputs.go_version }}
+            cache: ${{ inputs.cache_enabled }} 
 
         - name: Configure git for private modules
           if: env.TOKEN != ''
           run: git config --global url."https://${USER}:${TOKEN}@github.com".insteadOf "https://github.com"
 
-        - name: Install modvendor tool
-          if: ${{ inputs.with_vendor }}
-          run: go install github.com/goware/modvendor@latest
-
-        - name: Cache Vendor
-          if: ${{ inputs.with_cache }}
+        - name: Cache Go dependencies
           id: cache_vendor
+          if: ${{ inputs.cache_enabled }}
           uses: actions/cache@v4
           env:
             cache-name: cache-vendor
           with:
-            path: vendor
+            path: |
+              ~/go/pkg/mod
+              ./vendor
             key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
             restore-keys: |
               ${{ runner.os }}-${{ env.cache-name }}-
@@ -71,16 +63,18 @@ jobs:
             go mod tidy
             go mod download
 
+        - name: Generate Vendor and Install modvendor
+          run: |
+            go install github.com/goware/modvendor@latest
+            go mod vendor
+            modvendor -copy="**/*.c **/*.h **/*.proto **/*.a"
+
         # Verify no changes from go mod tidy
         - name: Verify no changes from go mod tidy
           run: |
+            go mod tidy
             if [ -n "$(git status --porcelain)" ]; then
+              echo "Changes found after go mod tidy:"
+              git status --porcelain
               exit 1
             fi
-
-        # Generate vendor
-        - name: Generate vendor and Vendor C files
-          if: ${{ steps.cache_vendor.outputs.cache-hit != 'true' && inputs.with_vendor }}
-          run: |
-            go mod vendor
-            modvendor -copy="**/*.c **/*.h **/*.proto **/*.a"

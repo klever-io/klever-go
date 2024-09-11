@@ -143,7 +143,7 @@ func (m *Monitor) initializeHeartbeatMessagesInfo(pubKeysList []string) error {
 	pubKeysToSave := make(map[string]*heartbeatMessageInfo)
 
 	for _, pubkey := range pubKeysList {
-		e := m.initializeHeartBeatForPK(pubkey, pubKeysToSave, pubKeysListCopy)
+		e := m.initializeHeartBeatForPK(pubkey, pubKeysToSave, &pubKeysListCopy)
 		if e != nil {
 			return e
 		}
@@ -158,7 +158,7 @@ func (m *Monitor) initializeHeartbeatMessagesInfo(pubKeysList []string) error {
 func (m *Monitor) initializeHeartBeatForPK(
 	pubkey string,
 	pubKeysToSave map[string]*heartbeatMessageInfo,
-	pubKeysListCopy []string,
+	pubKeysListCopy *[]string,
 ) error {
 	hbmi, err := m.loadHeartbeatsFromStorer(pubkey)
 	if err != nil { // if pubKey not found in DB, create a new instance
@@ -172,7 +172,7 @@ func (m *Monitor) initializeHeartBeatForPK(
 		pubKeysToSave[pubkey] = hbmi
 	}
 	m.heartbeatMessages[pubkey] = hbmi
-	pubKeysListCopy = append(pubKeysListCopy, pubkey)
+	*pubKeysListCopy = append(*pubKeysListCopy, pubkey)
 	return nil
 }
 
@@ -401,8 +401,8 @@ func (m *Monitor) computeAllHeartbeatMessages() {
 	go m.SaveMultipleHeartbeatMessageInfos(hbChangedStateToInactiveMap)
 
 	m.mutAppStatusHandler.Lock()
-	m.appStatusHandler.SetUInt64Value(core.MetricLiveValidatorNodes, uint64(counterActiveValidators))
-	m.appStatusHandler.SetUInt64Value(core.MetricConnectedNodes, uint64(counterConnectedNodes))
+	m.appStatusHandler.SetUInt64Value(core.MetricLiveValidatorNodes, uint64(counterActiveValidators)) // #nosec G115
+	m.appStatusHandler.SetUInt64Value(core.MetricConnectedNodes, uint64(counterConnectedNodes))       // #nosec G115
 	m.mutAppStatusHandler.Unlock()
 }
 
@@ -592,7 +592,7 @@ func (m *Monitor) getNumInstancesOfPublicKey(pubKeyStr string) uint64 {
 		return 0
 	}
 
-	return uint64(tc.Len())
+	return uint64(tc.Len()) // #nosec G115
 }
 
 // Cleanup will delete all the entries in the heartbeatMessages map

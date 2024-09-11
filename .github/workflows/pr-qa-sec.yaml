@@ -20,38 +20,78 @@ jobs:
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      GOLANGCI_VERSION: ${{ vars.GOLANGCI_VERSION || 'v1.61.0' }} 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ vars.GO_VERSION }}
+          go-version: ${{ vars.GO_VERSION || '1.22' }}
 
-      - name: Cache Vendor
+      - name: Cache Go dependencies
         uses: actions/cache@v4
         env:
           cache-name: cache-vendor
         with:
           fail-on-cache-miss: true
-          path: vendor
+          path: |
+            ~/go/pkg/mod
+            ./vendor
           key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
 
-      - name: Run Gosec Security Scanner
-        uses: securego/gosec@master
-        env:
-          GITHUB_AUTHENTICATION_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: '--fmt sonarqube --out report.json ./...'
+      - name: GoImports Formatter
+        run: |
+          go install golang.org/x/tools/cmd/goimports@latest
+          go mod tidy
+          make goimports
 
-      # - name: SonarQube Go detailed scan
-      #   uses: sonarsource/sonarqube-scan-action@master
-      #   with:
-      #     args: >
-      #       -Dsonar.projectKey=${{ github.event.repository.name }}
-      #       -Dsonar.exclusions=**/*.json,**/*.xml,**/*_test.go,vendor/**,coverage.out
-      #       -Dsonar.test.inclusions="**/*_test.go"
-      #       -Dsonar.externalIssuesReportPaths="report.json"
-      #       -Dsonar.pullrequest.branch=${{ github.ref_name }}
-      #       -Dsonar.pullrequest.base=${{ github.base_ref }}
-      #       -Dsonar.pullrequest.key=${{ github.event.number }}
+      - name: ensure code is buildable
+        run: |
+          go vet -unsafeptr=false $(go list ./... | grep -v /vendor/) 
+
+      - name: Install and Run golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin ${GOLANGCI_VERSION}
+          golangci-lint run > report.xml || exit 1
+
+      - name: Run tests
+        run: "go test -covermode=atomic -coverprofile coverage.out ./..."
+
+      - name: SonarQube Go detailed scan
+        uses: sonarsource/sonarqube-scan-action@master
+        with:
+          args: >
+            -Dsonar.projectKey=${{ github.event.repository.name }}
+            -Dsonar.plugins.downloadOnlyRequired=true
+            -Dsonar.exclusions=**/*.json,**/*.xml,**/*_test.go,vendor/**,coverage.out
+            -Dsonar.test.inclusions="**/*_test.go"
+            -Dsonar.go.coverage.reportPaths=coverage.out
+            -Dsonar.go.golangci-lint.reportPaths=report.xml
+            -Dsonar.branch.name=${{ github.ref_name }}
+        if: github.event_name != 'pull_request'
+  
+      - name: SonarQube Go detailed scan PR
+        uses: sonarsource/sonarqube-scan-action@master
+        with:
+          args: >
+            -Dsonar.projectKey=${{ github.event.repository.name }}
+            -Dsonar.plugins.downloadOnlyRequired=true
+            -Dsonar.exclusions=**/*.json,**/*.xml,**/*_test.go,vendor/**,coverage.out
+            -Dsonar.test.inclusions="**/*_test.go"
+            -Dsonar.go.coverage.reportPaths=coverage.out
+            -Dsonar.go.golangci-lint.reportPaths=report.xml
+            -Dsonar.pullrequest.branch=${{ github.head_ref }}
+            -Dsonar.pullrequest.base=${{ github.base_ref }}
+            -Dsonar.pullrequest.key=${{ github.event.number }}
+        if: github.event_name == 'pull_request'
+
+      - name: SonarQube Quality Gate check
+        id: sonarqube-quality-gate-check
+        uses: sonarsource/sonarqube-quality-gate-action@master
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 

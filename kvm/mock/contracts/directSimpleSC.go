@@ -273,12 +273,12 @@ func kdaTransferToParentMock(instanceMock *mock.InstanceMock, config interface{}
 		}
 
 		arguments := host.Runtime().Arguments()
-		numberOfBackTransfers := uint64(big.NewInt(0).SetBytes(arguments[0]).Int64())
+		numberOfBackTransfers := big.NewInt(0).SetBytes(arguments[0]).Uint64()
 
 		var err error
 		for numCallbacks := uint64(0); numCallbacks < numberOfBackTransfers; numCallbacks++ {
 			transfer := &vmcommon.KDATransfer{
-				KDAValue:      big.NewInt(int64(testConfig.CallbackKDATokensToTransfer)),
+				KDAValue:      big.NewInt(0).SetUint64(testConfig.CallbackKDATokensToTransfer),
 				KDATokenName:  test.KDATestTokenName,
 				KDATokenType:  0,
 				KDATokenNonce: 0,
@@ -288,7 +288,7 @@ func kdaTransferToParentMock(instanceMock *mock.InstanceMock, config interface{}
 				host,
 				test.ParentAddress,
 				[]*vmcommon.KDATransfer{transfer},
-				int64(testConfig.GasProvidedToChild),
+				int64(testConfig.GasProvidedToChild), // #nosec G115 - max int64
 				nil,
 				nil)
 			if ret != 0 {

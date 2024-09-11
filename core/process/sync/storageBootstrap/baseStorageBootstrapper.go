@@ -65,51 +65,51 @@ type storageBootstrapper struct {
 	chainID              string
 }
 
-func (st *storageBootstrapper) loadBlocks() error {
-	var err error
-	var headerInfo *bootstrapStorage.BootstrapData
-
-	minSlot := uint64(0)
+func (st *storageBootstrapper) getMinSlot() uint64 {
 	if !check.IfNil(st.blkc.GetGenesisHeader()) {
-		minSlot = st.blkc.GetGenesisHeader().GetSlot()
+		return st.blkc.GetGenesisHeader().GetSlot()
 	}
 
-	slot := st.bootStorer.GetHighestSlot()
-	if slot <= int64(minSlot) {
-		log.Debug("Load blocks does nothing as start from genesis")
-		err = st.bootStorer.SaveLastSlot(0)
-		log.LogIfError(
-			err,
-			"function", "storageBootstrapper.loadBlocks",
-			"operation", "SaveLastSlot",
-		)
+	return 0
+}
 
-		return process.ErrNotEnoughValidBlocksInStorage
-	}
+// Helper function to handle cases where block loading starts from the genesis block
+func (st *storageBootstrapper) handleStartFromGenesis() error {
+	log.Debug("Load blocks does nothing as start from genesis")
+	err := st.bootStorer.SaveLastSlot(0)
+	log.LogIfError(
+		err,
+		"function", "storageBootstrapper.startFromGenesis",
+		"operation", "SaveLastSlot",
+	)
+
+	return process.ErrNotEnoughValidBlocksInStorage
+}
+
+// Helper function to load and apply blocks
+func (st *storageBootstrapper) loadAndApplyBlocks(slot int64) ([]*bootstrapStorage.BootstrapData, error) {
 	storageHeadersInfo := make([]*bootstrapStorage.BootstrapData, 0)
 
 	log.Debug("Load blocks started...")
 
 	for {
-		headerInfo, err = st.bootStorer.Get(slot)
+		headerInfo, err := st.bootStorer.Get(slot)
 		if err != nil {
-			break
+			return storageHeadersInfo, err
 		}
 
 		if slot == headerInfo.LastSlot {
-			err = sync.ErrCorruptBootstrapFromStorageDb
-			break
+			return storageHeadersInfo, sync.ErrCorruptBootstrapFromStorageDb
 		}
 
 		storageHeadersInfo = append(storageHeadersInfo, headerInfo.Clone())
 
-		if uint64(slot) > st.bootstrapSlotIndex {
+		if tools.SafeI64ToU64(slot) > st.bootstrapSlotIndex {
 			slot = headerInfo.LastSlot
 			continue
 		}
 
-		err = st.applyHeaderInfo(headerInfo)
-		if err != nil {
+		if err := st.applyHeaderInfo(headerInfo); err != nil {
 			slot = headerInfo.LastSlot
 			continue
 		}
@@ -129,26 +129,38 @@ func (st *storageBootstrapper) loadBlocks() error {
 		break
 	}
 
-	if err != nil {
-		log.Warn("bootstrapper", "error", err)
-		st.restoreBlockChainToGenesis()
-		err = st.bootStorer.SaveLastSlot(0)
-		log.LogIfError(
-			err,
-			"function", "storageBootstrapper.loadBlocks",
-			"operation", "SaveLastSlot after restoreBlockChainToGenesis",
-		)
+	// last header info
+	headerInfo := storageHeadersInfo[len(storageHeadersInfo)-1]
 
-		return process.ErrNotEnoughValidBlocksInStorage
-	}
-
-	log.Debug("storageBootstrapper.loadBlocks",
+	log.Debug("storageBootstrapper.loadAndApplyBlocks",
 		"LastHeader", st.displayBoostrapHeaderInfo(headerInfo.LastHeader),
 		"HighestFinalBlockNonce", headerInfo.HighestFinalBlockNonce,
 		"NodesCoordinatorConfigKey", headerInfo.NodesCoordinatorConfigKey,
 		"EpochStartTriggerConfigKey", headerInfo.EpochStartTriggerConfigKey,
 	)
 
+	st.highestNonce = headerInfo.LastHeader.Nonce
+
+	return storageHeadersInfo, nil
+}
+
+// Helper function to handle errors during block loading
+func (st *storageBootstrapper) handleBlockLoadingError(err error) error {
+	log.Warn("bootstrapper", "error", err)
+	st.restoreBlockChainToGenesis()
+
+	saveErr := st.bootStorer.SaveLastSlot(0)
+	log.LogIfError(
+		saveErr,
+		"function", "storageBootstrapper.loadBlocks",
+		"operation", "SaveLastSlot after restoreBlockChainToGenesis",
+	)
+
+	return process.ErrNotEnoughValidBlocksInStorage
+}
+
+// Helper function to clean up storage after loading blocks
+func (st *storageBootstrapper) cleanupStorageAfterBlockLoad(slot int64, storageHeadersInfo []*bootstrapStorage.BootstrapData) {
 	st.cleanupStorageForHigherNonceIfExist()
 
 	for i := 0; i < len(storageHeadersInfo)-1; i++ {
@@ -156,12 +168,30 @@ func (st *storageBootstrapper) loadBlocks() error {
 		st.bootstrapper.cleanupNotarizedStorage(storageHeadersInfo[i].LastHeader.Hash)
 	}
 
-	err = st.bootStorer.SaveLastSlot(slot)
-	if err != nil {
+	if err := st.bootStorer.SaveLastSlot(slot); err != nil {
 		log.Debug("cannot save last slot in storage ", "error", err.Error())
 	}
+}
 
-	st.highestNonce = headerInfo.LastHeader.Nonce
+func (st *storageBootstrapper) loadBlocks() error {
+	minSlot := st.getMinSlot()
+	slot := st.bootStorer.GetHighestSlot()
+
+	if tools.SafeI64ToU64(slot) <= minSlot {
+		return st.handleStartFromGenesis()
+	}
+
+	storageHeadersInfo, err := st.loadAndApplyBlocks(slot)
+	if err != nil {
+		return st.handleBlockLoadingError(err)
+	}
+
+	for i := 0; i < len(storageHeadersInfo)-1; i++ {
+		st.cleanupStorage(storageHeadersInfo[i].LastHeader.Clone())
+		st.bootstrapper.cleanupNotarizedStorage(storageHeadersInfo[i].LastHeader.Hash)
+	}
+
+	st.cleanupStorageAfterBlockLoad(slot, storageHeadersInfo)
 
 	return nil
 }
@@ -252,7 +282,7 @@ func (st *storageBootstrapper) getBootInfos(hdrInfo *bootstrapStorage.BootstrapD
 		return bootInfos, nil
 	}
 
-	lowestNonce := uint64(tools.MaxInt64(int64(highestFinalBlockNonce)-1, 1))
+	lowestNonce := uint64(tools.MaxInt64(int64(highestFinalBlockNonce)-1, 1)) // #nosec G115 - allow for highestFinalBlockNonce = 0
 	for highestBlockNonce > lowestNonce {
 		strHdrI, err := st.bootStorer.Get(lastSlot)
 		if err != nil {

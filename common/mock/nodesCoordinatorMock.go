@@ -38,7 +38,7 @@ func NewNodesCoordinatorMock() *NodesCoordinatorMock {
 			[]byte(fmt.Sprintf("owner%d", v)),
 			[]byte(fmt.Sprintf("pubKey%d", v)),
 			1,
-			uint32(v),
+			uint32(v), // #nosec G115
 		)
 	}
 
@@ -265,7 +265,7 @@ func (ncm *NodesCoordinatorMock) LoadValidators(validators []*state.ValidatorInf
 			validators[v].OwnerAddress,
 			validators[v].PublicKey,
 			1,
-			uint32(v),
+			uint32(v), // #nosec G115
 		)
 	}
 

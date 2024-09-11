@@ -7,9 +7,11 @@ import (
 	"github.com/klever-io/klever-go/common"
 	testscommon "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
 	"github.com/klever-io/klever-go/core/process"
 	notifierMock "github.com/klever-io/klever-go/eventNotifier/mock"
+	"github.com/klever-io/klever-go/eventNotifier/notifier"
 	imock "github.com/klever-io/klever-go/integrationTest/mock"
 	kvmConfig "github.com/klever-io/klever-go/kvm/config"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
@@ -22,10 +24,8 @@ import (
 func makeVMConfig() config.VirtualMachineConfig {
 	return config.VirtualMachineConfig{
 		WasmVMVersions: []config.WasmVMVersionByEpoch{
-			{StartEpoch: 0, Version: "v1.2"},
-			{StartEpoch: 10, Version: "v1.2"},
-			{StartEpoch: 12, Version: "v1.3"},
-			{StartEpoch: 14, Version: "v1.4"},
+			{StartEpoch: 0, Version: "v1.5"},
+			{StartEpoch: 10, Version: "v1.5"}, // only have one version implemented starting at 1.5
 		},
 	}
 }
@@ -171,75 +171,37 @@ func TestVmContainerFactory_Create(t *testing.T) {
 	assert.NotNil(t, acc)
 }
 
-// func TestVmContainerFactory_ResolveWasmVMVersion(t *testing.T) {
-// 	epochNotifierInstance := notifier.NewGenericEpochNotifier()
+func TestVmContainerFactory_ResolveWasmVMVersion(t *testing.T) {
+	epochNotifierInstance := notifier.NewGenericEpochNotifier()
 
-// 	numCalled := 0
-// 	gasScheduleNotifier := notifierMock.NewGasScheduleNotifierMock(kvmConfig.MakeGasMapForTests())
-// 	gasScheduleNotifier.RegisterNotifyHandlerCalled = func(handler core.GasScheduleSubscribeHandler) {
-// 		numCalled++
-// 		handler.GasScheduleChange(gasScheduleNotifier.GasSchedule)
-// 	}
-// 	args := createMockVMAccountsArguments()
-// 	args.GasSchedule = gasScheduleNotifier
-// 	args.EpochNotifier = epochNotifierInstance
-// 	vmf, _ := NewVMContainerFactory(args)
-// 	require.NotNil(t, vmf)
+	numCalled := 0
+	gasScheduleNotifier := notifierMock.NewGasScheduleNotifierMock(kvmConfig.MakeGasMapForTests())
+	gasScheduleNotifier.RegisterNotifyHandlerCalled = func(handler core.GasScheduleSubscribeHandler) {
+		numCalled++
+		handler.GasScheduleChange(gasScheduleNotifier.GasSchedule)
+	}
+	args := createMockVMAccountsArguments()
+	args.GasSchedule = gasScheduleNotifier
+	args.EpochNotifier = epochNotifierInstance
+	vmf, _ := NewVMContainerFactory(args)
+	require.NotNil(t, vmf)
 
-// 	container, err := vmf.Create()
-// 	require.Nil(t, err)
-// 	require.NotNil(t, container)
-// 	defer func() {
-// 		_ = container.Close()
-// 	}()
-// 	require.Equal(t, "v1.2", getWasmVMVersion(t, container))
-// 	require.False(t, isOutOfProcess(t, container))
+	container, err := vmf.Create()
+	require.Nil(t, err)
+	require.NotNil(t, container)
+	defer func() {
+		_ = container.Close()
+	}()
+	require.Equal(t, "v1.5", getWasmVMVersion(t, container))
 
-// 	epochNotifierInstance.CheckEpoch(makeHeaderHandlerStub(1))
-// 	require.Equal(t, "v1.2", getWasmVMVersion(t, container))
-// 	require.False(t, isOutOfProcess(t, container))
+	epochNotifierInstance.CheckEpoch(1)
+	require.Equal(t, "v1.5", getWasmVMVersion(t, container))
 
-// 	epochNotifierInstance.CheckEpoch(makeHeaderHandlerStub(6))
-// 	require.Equal(t, "v1.2", getWasmVMVersion(t, container))
-// 	require.False(t, isOutOfProcess(t, container))
+	epochNotifierInstance.CheckEpoch(999)
+	require.Equal(t, "v1.5", getWasmVMVersion(t, container))
 
-// 	epochNotifierInstance.CheckEpoch(makeHeaderHandlerStub(10))
-// 	require.Equal(t, "v1.2", getWasmVMVersion(t, container))
-// 	require.False(t, isOutOfProcess(t, container))
-
-// 	epochNotifierInstance.CheckEpoch(makeHeaderHandlerStub(11))
-// 	require.Equal(t, "v1.2", getWasmVMVersion(t, container))
-// 	require.False(t, isOutOfProcess(t, container))
-
-// 	epochNotifierInstance.CheckEpoch(makeHeaderHandlerStub(12))
-// 	require.Equal(t, "v1.3", getWasmVMVersion(t, container))
-// 	require.False(t, isOutOfProcess(t, container))
-
-// 	epochNotifierInstance.CheckEpoch(makeHeaderHandlerStub(13))
-// 	require.Equal(t, "v1.3", getWasmVMVersion(t, container))
-// 	require.False(t, isOutOfProcess(t, container))
-
-// 	epochNotifierInstance.CheckEpoch(makeHeaderHandlerStub(20))
-// 	require.Equal(t, "v1.4", getWasmVMVersion(t, container))
-// 	require.False(t, isOutOfProcess(t, container))
-
-// 	require.Equal(t, numCalled, 1)
-// }
-
-// func makeHeaderHandlerStub(epoch uint32) *testscommon.HeaderHandlerStub {
-// 	return &testscommon.HeaderHandlerStub{
-// 		EpochField: epoch,
-// 	}
-// }
-
-// func isOutOfProcess(t testing.TB, container process.VirtualMachinesContainer) bool {
-// 	vm, err := container.Get(common.WasmVirtualMachine)
-// 	require.Nil(t, err)
-// 	require.NotNil(t, vm)
-
-// 	_, ok := vm.(*ipcNodePart1p2.VMDriver)
-// 	return ok
-// }
+	require.Equal(t, numCalled, 1)
+}
 
 func getWasmVMVersion(t testing.TB, container process.VirtualMachinesContainer) string {
 	vm, err := container.Get(common.WasmVirtualMachine)

@@ -65,10 +65,6 @@ func (s *systemAccountKApp) getKApp() (state.KAppAccountHandler, error) {
 	return kapp, nil
 }
 
-func (s *systemAccountKApp) saveKApp(app state.KAppAccountHandler) error {
-	return s.accountsCacher.UpdateKapp(app)
-}
-
 func (s *systemAccountKApp) SetKAppController(controller kapp.KAppController) error {
 	s.KAppController = controller
 

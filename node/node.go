@@ -266,7 +266,6 @@ func (n *Node) StartConsensus() error {
 	}
 
 	chronologyHandler, err := n.createChronologyHandler(
-		n.slotManager,
 		n.appStatusHandler,
 		broadcastMessenger,
 		n.watchdog,
@@ -528,7 +527,7 @@ func (n *Node) sendFromTxAccumulator() {
 			txs = append(txs, tx)
 		}
 
-		atomic.AddUint32(&n.txSentCounter, uint32(len(txs)))
+		atomic.AddUint32(&n.txSentCounter, uint32(len(txs))) // #nosec G115
 
 		n.sendBulkTransactions(txs)
 	}
@@ -618,7 +617,7 @@ func (n *Node) sendBulkTransactionsPack(transactions [][]byte) error {
 		return err
 	}
 
-	atomic.AddInt32(&n.currentSendingGoRoutines, int32(len(packets)))
+	atomic.AddInt32(&n.currentSendingGoRoutines, int32(len(packets))) // #nosec G115
 	for _, buff := range packets {
 		go func(bufferToSend []byte) {
 			log.Trace("node.sendBulkTransactions",
@@ -933,7 +932,6 @@ func (n *Node) createPidInfo(p core.PeerID) core.QueryP2PPeerInfo {
 
 // createChronologyHandler method creates a chronology object
 func (n *Node) createChronologyHandler(
-	sm consensus.SlotManager,
 	appStatusHandler core.AppStatusHandler,
 	broadcastMessenger consensus.BroadcastMessenger,
 	watchdog core.WatchdogTimer,

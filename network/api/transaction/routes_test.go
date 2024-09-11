@@ -24,8 +24,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type transactionResponseData struct {
+	TxResp *api.Transaction `json:"transaction,omitempty"`
+}
+
+type transactionResponse struct {
+	Data  transactionResponseData `json:"data"`
+	Error string                  `json:"error"`
+	Code  string                  `json:"code"`
+}
+
 func init() {
 	gin.SetMode(gin.TestMode)
+}
+
+func TestTransaction_FailsWithWrongFacadeTypeConversion(t *testing.T) {
+	t.Parallel()
+
+	ws := startNodeServerWrongFacade()
+	txHash := strings.Repeat("a", 64)
+	req, _ := http.NewRequest("GET", "/transaction/"+txHash, nil)
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	statusRsp := transactionResponse{}
+	loadResponse(resp.Body, &statusRsp)
+
+	assert.Equal(t, resp.Code, http.StatusInternalServerError)
+	assert.Equal(t, statusRsp.Error, apiErrors.ErrInvalidAppContext.Error())
 }
 
 func startNodeServer(handler tr.FacadeHandler) *gin.Engine {
@@ -64,16 +90,6 @@ func getRoutesConfig() config.APIRoutesConfig {
 			},
 		},
 	}
-}
-
-type transactionResponseData struct {
-	TxResp *api.Transaction `json:"transaction,omitempty"`
-}
-
-type transactionResponse struct {
-	Data  transactionResponseData `json:"data"`
-	Error string                  `json:"error"`
-	Code  string                  `json:"code"`
 }
 
 func loadResponse(rsp io.Reader, destination interface{}) {

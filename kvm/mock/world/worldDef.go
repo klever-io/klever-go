@@ -373,7 +373,7 @@ func (b *MockWorld) MockTestAsset(asset *scenjsonmodel.KDAData) {
 		assetType := kapps.KDAData_Fungible
 		// if explicit type, set it, or adjust based on nonce
 		if instance.AssetType.Value != 0 {
-			assetType = kapps.KDAData_EnumAssetType(instance.AssetType.Value)
+			assetType = kapps.KDAData_EnumAssetType(instance.AssetType.Value) // #nosec G115
 		} else if instance.Nonce.Value != 0 {
 			if instance.Balance.Value.Cmp(big.NewInt(1)) == 1 {
 				assetType = kapps.KDAData_SemiFungible
@@ -400,7 +400,7 @@ func (b *MockWorld) MockTestAsset(asset *scenjsonmodel.KDAData) {
 			MaxSupply:         90000000000000000,
 			IssueDate:         time.Now().Unix(),
 			Royalties: &kapps.RoyaltiesData{
-				TransferFixed: int64(instance.Royalties.Value),
+				TransferFixed: int64(instance.Royalties.Value), // #nosec G115 max royalties int64
 			},
 			Properties: &kapps.PropertiesData{
 				CanFreeze: true,

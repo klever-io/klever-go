@@ -127,7 +127,7 @@ func (listForSender *txListForSender) isCapacityExceeded() bool {
 
 func (listForSender *txListForSender) onAddedTransaction(tx *WrappedTransaction) {
 	listForSender.totalBytes.Add(tx.Size)
-	listForSender.totalFees.Add(int64(estimateTxGas(tx)))
+	listForSender.totalFees.Add(estimateTxGas(tx))
 }
 
 func (listForSender *txListForSender) triggerScoreChange() {
@@ -197,7 +197,7 @@ func (listForSender *txListForSender) onRemovedListElement(element *list.Element
 	value := element.Value.(*WrappedTransaction)
 
 	listForSender.totalBytes.Subtract(value.Size)
-	listForSender.totalFees.Subtract(int64(estimateTxGas(value)))
+	listForSender.totalFees.Subtract(estimateTxGas(value))
 }
 
 // This function should only be used in critical section (listForSender.mutex)
@@ -308,13 +308,13 @@ func (listForSender *txListForSender) getTxHashes() [][]byte {
 
 // This function should only be used in critical section (listForSender.mutex)
 func (listForSender *txListForSender) countTx() uint64 {
-	return uint64(listForSender.items.Len())
+	return uint64(listForSender.items.Len()) // #nosec G115
 }
 
 func (listForSender *txListForSender) countTxWithLock() uint64 {
 	listForSender.mutex.RLock()
 	defer listForSender.mutex.RUnlock()
-	return uint64(listForSender.items.Len())
+	return uint64(listForSender.items.Len()) // #nosec G115
 }
 
 func approximatelyCountTxInLists(lists []*txListForSender) uint64 {

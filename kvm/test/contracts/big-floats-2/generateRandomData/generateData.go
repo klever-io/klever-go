@@ -235,7 +235,7 @@ func generateDataForBigFloatPow() {
 		}
 		hexEncodedExponent := hex.EncodeToString(exponentBytes)
 		_, _ = file.WriteString(hexEncodedExponent)
-		_, _ = file.WriteString(":" + strconv.Itoa(int(gasToUse)) + "\n")
+		_, _ = file.WriteString(":" + strconv.Itoa(int(gasToUse)) + "\n") // #nosec G115
 	}
 	defer func() {
 		_ = file.Close()

@@ -272,7 +272,7 @@ func extractEpochFromDirName(dirName string) (uint32, bool) {
 		return 0, false
 	}
 
-	return uint32(epoch), true
+	return uint32(epoch), true // #nosec G115
 }
 
 // IsInterfaceNil returns true if there is no value under interface

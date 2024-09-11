@@ -1,6 +1,7 @@
 package redundancy
 
 import (
+	"math"
 	"sync"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -107,7 +108,7 @@ func (nr *nodeRedundancy) ResetInactivityIfNeeded(selfPubKey string, consensusMs
 // SetInternalRedundancyLevel set forced internal redundancy level
 func (nr *nodeRedundancy) SetInternalRedundancyLevel(level int64) error {
 	nr.mutNodeRedundancy.Lock()
-	nr.slotsOfInactivity = uint64(level * maxSlotsOfInactivityAccepted)
+	nr.slotsOfInactivity = uint64(level * maxSlotsOfInactivityAccepted) // #nosec G115
 	nr.mutNodeRedundancy.Unlock()
 
 	log.Info("node redundancy forced", "level", level, "IsMainMachineActive", nr.IsMainMachineActive())
@@ -124,6 +125,11 @@ func (nr *nodeRedundancy) isMainMachineActive() bool {
 		return true
 	}
 
+	if nr.slotsOfInactivity > math.MaxInt64 {
+		return false
+	}
+
+	// #nosec G115
 	return int64(nr.slotsOfInactivity) < maxSlotsOfInactivityAccepted*nr.redundancyLevel
 }
 

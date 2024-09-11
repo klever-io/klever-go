@@ -225,7 +225,7 @@ func AddClaimForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 
 	form.AddButton("Send", func() {
 
-		hash, err := blockchain.Claim(address, sendForm.Id, int32(sendForm.ClaimType))
+		hash, err := blockchain.Claim(address, sendForm.Id, int32(sendForm.ClaimType)) // #nosec G115 - type casting
 
 		ResponseError = err
 		ResponseTX = hash
@@ -303,7 +303,7 @@ func AddUpdatePermissionForm(app *tview.Application, pages *tview.Pages) *tview.
 
 	addField := func(i int) {
 		form.AddDropDown("Type", []string{"Owner", "User"}, 0, func(option string, optionIndex int) {
-			results[i].Type = int32(optionIndex)
+			results[i].Type = int32(optionIndex) // #nosec G115
 		})
 
 		form.AddInputField("Name", "", 80, nil, func(v string) {

@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
@@ -15,9 +16,12 @@ import (
 	"github.com/klever-io/klever-go/data/api"
 	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 )
+
+const maxEncodedAddressLength = 62
 
 // GetTransaction gets the transaction based on the given hash. It will search in the cache and the storage and
 // will return the transaction in a format which can be respected by all types of transactions (normal, reward or unsigned)
@@ -34,6 +38,99 @@ func (n *ProcessorNode) GetTransaction(txHash []byte, withResults bool) (*api.Tr
 	return n.getTransactionFromStorage(txHash)
 }
 
+func (n *ProcessorNode) validateCreateTransactionInputs(
+	sender string,
+	senderUsername []byte,
+	dataField [][]byte,
+	contracts []json.RawMessage,
+) error {
+	if check.IfNil(n.AddressPubkeyConverter) {
+		return common.ErrNilPubkeyConverter
+	}
+	if check.IfNil(n.AccountsAdapter) {
+		return common.ErrNilAccountsAdapter
+	}
+	if len(sender) > maxEncodedAddressLength {
+		return fmt.Errorf("%w for sender", common.ErrInvalidAddressLength)
+	}
+	if len(senderUsername) > core.MaxUserNameLength {
+		return common.ErrInvalidSenderUsernameLength
+	}
+	if len(dataField) > tools.MegabyteSize {
+		return common.ErrDataFieldTooBig
+	}
+	if len(contracts) == 0 || len(contracts) > core.MaxLengthOfContracts {
+		return common.ErrInvalidContract
+	}
+
+	return nil
+}
+
+// Helper function to add contracts to the transaction
+func (n *ProcessorNode) addContractsToTransaction(
+	tx *transaction.Transaction,
+	txType uint32,
+	senderAddress []byte,
+	dataField [][]byte,
+	contracts []json.RawMessage,
+	activeParameters map[int32]*kapps.Parameter,
+) error {
+	for _, c := range contracts {
+		txArgs := transaction.TXArgs{
+			Type:             txType,
+			Sender:           senderAddress,
+			Data:             dataField,
+			Contract:         c,
+			NodeHelper:       n.Node,
+			ActiveParameters: activeParameters,
+		}
+
+		if err := tx.AddTransaction(txArgs); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Helper function to compute the transaction cost
+func (n *ProcessorNode) computeTransactionCost(tx *transaction.Transaction) error {
+	cost, err := n.EconomicsData.ComputeTransactionCost(tx, true)
+	if err != nil {
+		return err
+	}
+	tx.RawData.BandwidthFee = cost.BandwidthFee
+	tx.RawData.KAppFee = cost.KAppFee
+
+	// Add up estimated gas into BandwidthFee
+	if cost.GasMultiplier > 0 && cost.GasEstimated > 0 {
+		value := cost.GasEstimated / cost.GasMultiplier
+		if value > math.MaxInt64 {
+			return common.ErrEstimateGasTooBig
+		}
+
+		tx.RawData.BandwidthFee, err = tools.SafeAddI64(
+			tx.RawData.BandwidthFee,
+			value,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Helper function to compute the transaction hash
+func (n *ProcessorNode) computeTransactionHash(tx *transaction.Transaction) ([]byte, error) {
+	txHash, err := tools.CalculateHash(n.InternalMarshalizer, n.Hasher, tx.GetRaw())
+	if err != nil {
+		return nil, err
+	}
+
+	return txHash, nil
+}
+
 // CreateTransaction will return a transaction from all the required fields
 func (n *ProcessorNode) CreateTransaction(
 	txType uint32,
@@ -44,23 +141,8 @@ func (n *ProcessorNode) CreateTransaction(
 	permID int32,
 	contracts []json.RawMessage,
 ) (*transaction.Transaction, []byte, error) {
-	if check.IfNil(n.AddressPubkeyConverter) {
-		return nil, nil, common.ErrNilPubkeyConverter
-	}
-	if check.IfNil(n.AccountsAdapter) {
-		return nil, nil, common.ErrNilAccountsAdapter
-	}
-	if len(sender) > 96 { //todo: add variable in processor node
-		return nil, nil, fmt.Errorf("%w for sender", common.ErrInvalidAddressLength)
-	}
-	if len(senderUsername) > core.MaxUserNameLength {
-		return nil, nil, common.ErrInvalidSenderUsernameLength
-	}
-	if len(dataField) > tools.MegabyteSize {
-		return nil, nil, common.ErrDataFieldTooBig
-	}
-	if len(contracts) == 0 || len(contracts) > core.MaxLengthOfContracts {
-		return nil, nil, common.ErrInvalidContract
+	if err := n.validateCreateTransactionInputs(sender, senderUsername, dataField, contracts); err != nil {
+		return nil, nil, err
 	}
 
 	senderAddress, err := TestAddressPubkeyConverter.Decode(sender)
@@ -77,33 +159,21 @@ func (n *ProcessorNode) CreateTransaction(
 		return nil, nil, err
 	}
 
-	for _, c := range contracts {
-		txArgs := transaction.TXArgs{
-			Type:             txType,
-			Sender:           senderAddress,
-			Data:             dataField,
-			Contract:         c,
-			NodeHelper:       n.Node,
-			ActiveParameters: activeParameters,
-		}
-
-		err = tx.AddTransaction(txArgs)
-		if err != nil {
-			return nil, nil, err
-		}
+	if err := n.addContractsToTransaction(
+		tx,
+		txType,
+		senderAddress,
+		dataField,
+		contracts,
+		activeParameters,
+	); err != nil {
+		return nil, nil, err
 	}
 
 	// add tx version
 	tx.RawData.Version = n.MinTransactionVersion
-	cost, err := n.EconomicsData.ComputeTransactionCost(tx, true)
-	if err != nil {
+	if err := n.computeTransactionCost(tx); err != nil {
 		return nil, nil, err
-	}
-	tx.RawData.BandwidthFee = cost.BandwidthFee
-	tx.RawData.KAppFee = cost.KAppFee
-	// add up estimated gas into BW
-	if cost.GasMultiplier > 0 && cost.GasEstimated > 0 {
-		tx.RawData.BandwidthFee += int64(cost.GasEstimated / cost.GasMultiplier)
 	}
 
 	// review validation
@@ -112,8 +182,7 @@ func (n *ProcessorNode) CreateTransaction(
 		return nil, nil, err
 	}
 
-	var txHash []byte
-	txHash, err = tools.CalculateHash(n.InternalMarshalizer, n.Hasher, tx.GetRaw())
+	txHash, err := n.computeTransactionHash(tx)
 	if err != nil {
 		return nil, nil, err
 	}

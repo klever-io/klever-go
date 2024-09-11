@@ -289,9 +289,9 @@ func (v *validatorsKApp) Register(tc *transaction.CreateValidatorContract) (tran
 	}
 
 	if ctx.Block().GetNonce() == 0 {
-		peerAcc.SetListAndIndex(state.List_elected, uint32(ctx.Block().GetNonce()))
+		peerAcc.SetListAndIndex(state.List_elected, tools.SafeU64ToU32(ctx.Block().GetNonce()))
 	} else {
-		peerAcc.SetListAndIndex(state.List_inactive, uint32(ctx.Block().GetNonce()))
+		peerAcc.SetListAndIndex(state.List_inactive, tools.SafeU64ToU32(ctx.Block().GetNonce()))
 	}
 
 	peerAcc.SetRating(v.ratingsData.StartRating())
@@ -716,7 +716,7 @@ func (v *validatorsKApp) Unjail(sender []byte, tc *transaction.UnjailContract) (
 
 	peerAcc.SetRating(v.ratingsData.StartRating())
 	peerAcc.SetTempRating(v.ratingsData.StartRating())
-	peerAcc.SetListAndIndex(state.List_waiting, uint32(ctx.Block().GetNonce()))
+	peerAcc.SetListAndIndex(state.List_waiting, tools.SafeU64ToU32(ctx.Block().GetNonce()))
 
 	err = v.accountsCacher.UpdatePeer(peerAcc)
 	if err != nil {
@@ -916,10 +916,10 @@ func (v *validatorsKApp) saveUpdatesForList(
 		if isNodeWithLowRating {
 			// if node reach a minnimum rating, should be sent to jail
 			log.Trace("saveUpdatesForList jail validator", "index", index, "addr", addr)
-			peerAcc.SetListAndIndex(state.List_jailed, uint32(index))
+			peerAcc.SetListAndIndex(state.List_jailed, uint32(index)) // #nosec G115
 		} else {
 			// update in KApp, new node position
-			peerAcc.SetListAndIndex(state.List(state.List_value[peerType]), uint32(index))
+			peerAcc.SetListAndIndex(state.List(state.List_value[peerType]), uint32(index)) // #nosec G115
 		}
 
 		err = v.accountsCacher.UpdatePeer(peerAcc)

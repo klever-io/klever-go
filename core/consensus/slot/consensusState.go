@@ -263,7 +263,7 @@ func (cns *ConsensusState) GenerateBitmap(subslotId int) []byte {
 		}
 
 		if isJobDone {
-			bitmap[i/8] |= 1 << (uint16(i) % 8)
+			bitmap[i/8] |= 1 << (uint16(i) % 8) // #nosec G115
 		}
 	}
 

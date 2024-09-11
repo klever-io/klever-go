@@ -9,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/multiformats/go-base36"
 )
 
@@ -123,8 +124,8 @@ func ToBucketID(hasher hashing.Hasher, randSeed, sender, assetID []byte, nonce u
 	contractIndexBuffer := make([]byte, 8)
 	amountBuffer := make([]byte, 8)
 	binary.BigEndian.PutUint64(nonceBuffer, nonce)
-	binary.BigEndian.PutUint64(contractIndexBuffer, uint64(contractIndex))
-	binary.BigEndian.PutUint64(amountBuffer, uint64(amount))
+	binary.BigEndian.PutUint64(contractIndexBuffer, uint64(contractIndex)) // #nosec G115
+	binary.BigEndian.PutUint64(amountBuffer, tools.SafeI64ToU64(amount))
 
 	return hasher.Compute(
 		string(randSeed) +
@@ -139,7 +140,7 @@ func ToMarketID(hasher hashing.Hasher, randSeed, sender []byte, nonce uint64, co
 	nonceBuffer := make([]byte, 8)
 	contractIndexBuffer := make([]byte, 8)
 	binary.BigEndian.PutUint64(nonceBuffer, nonce)
-	binary.BigEndian.PutUint64(contractIndexBuffer, uint64(contractIndex))
+	binary.BigEndian.PutUint64(contractIndexBuffer, uint64(contractIndex)) // #nosec G115
 
 	return hasher.Compute(string(randSeed) + string(sender) + fmt.Sprintf("%x", nonceBuffer) + fmt.Sprintf("%x", contractIndexBuffer))[:marketKeyLength]
 }

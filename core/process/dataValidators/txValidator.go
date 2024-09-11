@@ -112,7 +112,7 @@ func (txv *txValidator) CheckTxValidity(interceptedTx process.TxValidatorHandler
 	accountNonce := accountHandler.GetNonce()
 	txNonce := interceptedTx.Nonce()
 	lowerNonceInTx := txNonce < accountNonce
-	veryHighNonceInTx := txNonce > accountNonce+uint64(txv.maxNonceDeltaAllowed)
+	veryHighNonceInTx := txNonce > accountNonce+uint64(txv.maxNonceDeltaAllowed) // #nosec G115
 	isTxRejected := lowerNonceInTx || veryHighNonceInTx
 	if isTxRejected {
 		return fmt.Errorf("%w lowerNonceInTx: %v, veryHighNonceInTx: %v",

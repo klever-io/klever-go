@@ -111,7 +111,7 @@ func (mdi *MultiDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P, 
 	err = mdi.antifloodHandler.CanProcessMessagesOnTopic(
 		fromConnectedPeer,
 		mdi.topic,
-		uint32(lenMultiData),
+		uint32(lenMultiData), // #nosec G115
 		uint64(len(message.Data())),
 		message.SeqNo(),
 	)

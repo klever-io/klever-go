@@ -9,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/core/consensus"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 )
 
@@ -99,8 +100,8 @@ func (bfd *baseForkDetector) checkBlockBasicValidity(
 		return ErrNilHash
 	}
 
-	slotDif := int64(header.GetSlot()) - int64(bfd.finalCheckpoint().slot)
-	nonceDif := int64(header.GetNonce()) - int64(bfd.finalCheckpoint().nonce)
+	slotDif := tools.SafeU64ToI64(header.GetSlot()) - tools.SafeU64ToI64(bfd.finalCheckpoint().slot)
+	nonceDif := tools.SafeU64ToI64(header.GetNonce()) - tools.SafeU64ToI64(bfd.finalCheckpoint().nonce)
 	//TODO: Analyze if the acceptance of some headers which came for the next slot could generate some attack vectors
 	nextSlot := bfd.slotManager.Index() + 1
 	genesisTimeFromHeader := bfd.computeGenesisTimeFromHeader(header)
@@ -121,7 +122,7 @@ func (bfd *baseForkDetector) checkBlockBasicValidity(
 	if nonceDif < 0 {
 		return ErrLowerNonceInBlock
 	}
-	if int64(header.GetSlot()) > nextSlot {
+	if header.GetSlot() > tools.SafeI64ToU64(nextSlot) {
 		return ErrHigherSlotInBlock
 	}
 	if slotDif < nonceDif {
@@ -152,8 +153,8 @@ func (bfd *baseForkDetector) removeInvalidReceivedHeaders() {
 	for nonce, hdrInfos := range bfd.headers {
 		validHdrInfos := make([]*headerInfo, 0)
 		for i := 0; i < len(hdrInfos); i++ {
-			slotDif := int64(hdrInfos[i].slot) - int64(finalCheckpointSlot)
-			nonceDif := int64(hdrInfos[i].nonce) - int64(finalCheckpointNonce)
+			slotDif := tools.SafeU64ToI64(hdrInfos[i].slot) - tools.SafeU64ToI64(finalCheckpointSlot)
+			nonceDif := tools.SafeU64ToI64(hdrInfos[i].nonce) - tools.SafeU64ToI64(finalCheckpointNonce)
 			hasStateReceived := hdrInfos[i].state == process.BHReceived || hdrInfos[i].state == process.BHReceivedTooLate
 			isReceivedHeaderInvalid := hasStateReceived && slotDif < nonceDif
 			if isReceivedHeaderInvalid {
@@ -589,7 +590,7 @@ func (bfd *baseForkDetector) isHeaderReceivedTooLate(
 	// This condition would avoid a stuck situation, when shards would set as final, block with nonce n received from
 	// meta-chain, because they also received n+1. In the same time meta-chain would be reverted to an older block with
 	// nonce n received it with latency but before n+1. Actually this condition would reject these older blocks.
-	isHeaderReceivedTooLate := int64(header.GetSlot()) < bfd.slotManager.Index()-finality
+	isHeaderReceivedTooLate := tools.SafeU64ToI64(header.GetSlot()) < bfd.slotManager.Index()-finality
 
 	return isHeaderReceivedTooLate
 }
@@ -603,7 +604,7 @@ func (bfd *baseForkDetector) isConsensusStuck() bool {
 		return false
 	}
 
-	slotsDifference := bfd.slotManager.Index() - int64(bfd.lastCheckpoint().slot)
+	slotsDifference := tools.SafeI64ToU64(bfd.slotManager.Index()) - bfd.lastCheckpoint().slot
 	if slotsDifference <= process.MaxSlotsWithoutCommittedBlock {
 		return false
 	}
@@ -616,7 +617,8 @@ func (bfd *baseForkDetector) isConsensusStuck() bool {
 }
 
 func (bfd *baseForkDetector) isSyncing() bool {
-	noncesDifference := int64(bfd.ProbableHighestNonce()) - int64(bfd.lastCheckpoint().nonce)
+	// noncesDifference is used for comparison, allow the difference to be negative
+	noncesDifference := tools.SafeU64ToI64(bfd.ProbableHighestNonce()) - tools.SafeU64ToI64(bfd.lastCheckpoint().nonce)
 	isSyncing := noncesDifference > process.NonceDifferenceWhenSynced
 	if isSyncing {
 		bfd.tmpStuck = time.Now()
@@ -667,8 +669,14 @@ func (bfd *baseForkDetector) cleanupReceivedHeadersHigherThanNonce(nonce uint64)
 }
 
 func (bfd *baseForkDetector) computeGenesisTimeFromHeader(headerHandler data.HeaderHandler) int64 {
-	genesisTime := headerHandler.GetTimestamp() - int64((headerHandler.GetSlot()-bfd.genesisSlot)*uint64(bfd.slotManager.TimeDuration().Seconds()))
-	return genesisTime
+	timeDiff := float64(headerHandler.GetSlot()-bfd.genesisSlot) * bfd.slotManager.TimeDuration().Seconds()
+	// Check for overflow before converting to int64
+	if timeDiff > float64(math.MaxInt64) {
+		// Handle the overflow case (returning negative value)
+		return -1
+	}
+
+	return headerHandler.GetTimestamp() - int64(timeDiff)
 }
 
 func (bfd *baseForkDetector) addHeader(

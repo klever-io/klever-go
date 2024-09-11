@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -115,12 +116,13 @@ func ReadDir(dirname string) ([]os.FileInfo, error) {
 		return nil, err
 	}
 	list, err := f.Readdir(-1)
-	if err = f.Close(); err != nil {
-		return nil, err
-	}
 	if err != nil {
 		return nil, err
 	}
+	if err = f.Close(); err != nil {
+		return nil, err
+	}
+
 	sort.Slice(list, func(i, j int) bool { return list[i].Name() < list[j].Name() })
 	return list, nil
 }
@@ -346,7 +348,7 @@ func DecryptPEMBlock(b *pem.Block, pwd string) (*pem.Block, error) {
 		return nil, fmt.Errorf("invalid data size")
 	}
 	nonce, ciphertext := b.Bytes[:nonceSize], b.Bytes[nonceSize:]
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil) // #nosec G407 false positive
 	if err != nil {
 		return nil, err
 	}
@@ -404,4 +406,27 @@ func StringHash(text string) []byte {
 // PBKDFPass from password and salt
 func PBKDFPass(password, salt []byte) []byte {
 	return pbkdf2.Key(password, salt, 4096, 32, sha1.New)
+}
+
+func isValidFileName(fileName string) bool {
+	validFileName := regexp.MustCompile(`^[a-zA-Z0-9_\-/\\]+(\.[a-zA-Z0-9]+)*$`)
+	return validFileName.MatchString(fileName)
+}
+
+func getAbsolutePath(fileName string) (string, error) {
+	if !isValidFileName(fileName) {
+		return "", ErrInvalidFileName
+	}
+
+	absPath, err := filepath.Abs(fileName)
+	if err != nil {
+		return "", err
+	}
+
+	return absPath, nil
+}
+
+// SanitizePath removes any leading slashes from the path
+func SanitizePath(path string) (string, error) {
+	return getAbsolutePath(path)
 }

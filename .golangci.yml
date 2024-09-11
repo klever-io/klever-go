@@ -1,0 +1,38 @@
+run:
+  timeout: 10m
+  build-tags:
+    - "integration"
+  modules-download-mode: "vendor"
+  issues-exit-code: 0
+
+output:
+  formats: "checkstyle"
+
+linters:
+  enable:
+  - "unused"
+  - "gosec"
+  - "govet"
+  - "staticcheck"
+  - "ineffassign"
+  - "gosimple"
+  - "errcheck"
+
+issues:
+  exclude-rules:
+    # exclude tests from sec linting
+    - path: _test\.go
+      linters:
+        - gosec
+      text: "G404|G115"        # Specify the G404 rule to be excluded
+    - path: cryptoei.go
+      linters:
+        - staticcheck
+      text: "SA1019"  # Ignore SA1019 (deprecated code usage warning. Remove after update to new API)
+    - path: vmCrypto.go
+      linters:
+        - staticcheck
+      text: "SA1019"  # Ignore SA1019 (deprecated code usage warning)
+    - path: "^cmd/operator-ui/.*"
+      linters:
+        - unused

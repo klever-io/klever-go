@@ -243,7 +243,7 @@ func (ae *VMTestExecutor) checkAccountKDA(baseErrMsg string, expectedAcct *scenj
 
 			royalties := uint32(0)
 			if tokenData.Royalties != nil {
-				royalties = uint32(tokenData.Royalties.TransferFixed)
+				royalties = uint32(tokenData.Royalties.TransferFixed) // #nosec G115
 			}
 
 			asset := &dkda.KDigitalToken{
@@ -322,7 +322,7 @@ func (ae *VMTestExecutor) checkAccountKDA(baseErrMsg string, expectedAcct *scenj
 		accountToken := &kdaconvert.MockKDAData{
 			TokenIdentifier: []byte(tokenName),
 			Instances:       userInstances,
-			LastNonce:       uint64(tokenData.MintedValue),
+			LastNonce:       uint64(tokenData.MintedValue), // #nosec G115
 			Roles:           userRoles,
 		}
 

@@ -175,7 +175,7 @@ func convertBlockInfo(testBlockInfo *scenjsonmodel.BlockInfo, currentInfo *world
 	}
 
 	if !testBlockInfo.BlockTimestamp.OriginalEmpty() {
-		currentInfo.BlockTimestamp = int64(testBlockInfo.BlockTimestamp.Value)
+		currentInfo.BlockTimestamp = int64(testBlockInfo.BlockTimestamp.Value) // #nosec G115 - block timestamp max int64
 
 	}
 
@@ -188,6 +188,7 @@ func convertBlockInfo(testBlockInfo *scenjsonmodel.BlockInfo, currentInfo *world
 	}
 
 	if !testBlockInfo.BlockEpoch.OriginalEmpty() {
+		// #nosec G115 - scenario data is trusted
 		currentInfo.BlockEpoch = uint32(testBlockInfo.BlockEpoch.Value)
 	}
 
@@ -287,7 +288,7 @@ func logGasTrace(ae *VMTestExecutor) {
 					totalGasUsed += usedGas
 				}
 				fmt.Println("GasTrace: functionName:", functionName, ",  totalGasUsed:", totalGasUsed, ", numberOfCalls:", len(value))
-				totalGasUsedByAPIs += int(totalGasUsed)
+				totalGasUsedByAPIs += int(totalGasUsed) // #nosec G115
 			}
 			fmt.Println("TotalGasUsedByAPIs: ", totalGasUsedByAPIs)
 		}

@@ -16,6 +16,7 @@ type transactionCounter struct {
 	mutex           sync.RWMutex
 	currentBlockTxs uint64
 	totalTxs        uint64
+	peakTPS         uint64
 }
 
 // NewTransactionCounter returns a new object that keeps track of how many transactions
@@ -25,6 +26,7 @@ func NewTransactionCounter() *transactionCounter {
 		mutex:           sync.RWMutex{},
 		currentBlockTxs: 0,
 		totalTxs:        0,
+		peakTPS:         0,
 	}
 }
 
@@ -37,22 +39,23 @@ func (txc *transactionCounter) getPoolCounts(poolsHolder retriever.PoolsHolder) 
 func (txc *transactionCounter) subtractRestoredTxs(txsNr int) {
 	txc.mutex.Lock()
 	defer txc.mutex.Unlock()
+	// #nosec G115
 	if txc.totalTxs < uint64(txsNr) {
 		txc.totalTxs = 0
 		return
 	}
 
-	txc.totalTxs -= uint64(txsNr)
+	txc.totalTxs -= uint64(txsNr) // #nosec G115
 }
 
 // displayLogInfo writes to the output information about the block and transactions
 func (txc *transactionCounter) displayLogInfo(
 	blck *block.Block,
 	headerHash []byte,
-	dataPool retriever.PoolsHolder,
 	appStatusHandler core.AppStatusHandler,
+	slotDuration uint64,
 ) {
-	dispHeader, dispLines := txc.createDisplayableHeaderAndBlockBody(blck)
+	dispHeader, dispLines := txc.createDisplayableHeaderAndBlockBody(blck, headerHash)
 
 	txc.mutex.RLock()
 	appStatusHandler.SetUInt64Value(core.MetricNumProcessedTxs, txc.totalTxs)
@@ -72,10 +75,29 @@ func (txc *transactionCounter) displayLogInfo(
 	}
 	txc.mutex.RUnlock()
 	log.Debug(message, arguments...)
+
+	numTxs := uint64(blck.GetTxCount())
+	log.Trace("txs info",
+		"slot", blck.GetSlot(),
+		"nonce", blck.GetNonce(),
+		"num txs", numTxs)
+
+	tps := numTxs / slotDuration
+	if tps > txc.peakTPS {
+		txc.peakTPS = tps
+	}
+
+	log.Debug("tps info",
+		"slot", blck.GetSlot(),
+		"nonce", blck.GetNonce(),
+		"num txs", numTxs,
+		"tps", tps,
+		"peak tps", txc.peakTPS)
 }
 
 func (txc *transactionCounter) createDisplayableHeaderAndBlockBody(
 	blck *block.Block,
+	headerHash []byte,
 ) ([]string, []*display.LineData) {
 
 	tableHeader := []string{"Part", "Parameter", "Value"}
@@ -87,7 +109,7 @@ func (txc *transactionCounter) createDisplayableHeaderAndBlockBody(
 			"TxBlock"}),
 	}
 
-	lines := displayHeader(blck)
+	lines := displayHeader(blck, headerHash)
 
 	shardLines := make([]*display.LineData, 0, len(lines)+len(headerLines))
 	shardLines = append(shardLines, headerLines...)

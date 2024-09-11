@@ -70,6 +70,7 @@ func NodesInfoToValidators(nodesInfo []GenesisNodeInfoHandler) ([]Validator, err
 
 	validators := make([]Validator, 0, len(nodesInfo))
 	for index, nodeInfo := range nodesInfo {
+		// #nosec G115
 		validatorObj, err := NewValidator(nodeInfo.AddressBytes(), nodeInfo.PubKeyBytes(), DefaultSelectionChances, uint32(index))
 		if err != nil {
 			return nil, err

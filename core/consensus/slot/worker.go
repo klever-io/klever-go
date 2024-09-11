@@ -257,7 +257,7 @@ func (wrk *Worker) receivedSyncState(isNodeSynchronized bool) {
 
 // ReceivedHeader process the received header, calling each received header handler registered in worker instance
 func (wrk *Worker) ReceivedHeader(headerHandler data.HeaderHandler, _ []byte) {
-	headerCanNotBeProcessed := int64(headerHandler.GetSlot()) != wrk.slotManager.Index()
+	headerCanNotBeProcessed := headerHandler.GetSlot() != tools.SafeI64ToU64(wrk.slotManager.Index())
 	if headerCanNotBeProcessed {
 		return
 	}
@@ -538,7 +538,7 @@ func (wrk *Worker) processReceivedHeaderMetric(cnsDta *consensus.Message) {
 
 	sinceSlotStart := time.Since(wrk.slotManager.Timestamp())
 	percent := sinceSlotStart * 100 / wrk.slotManager.TimeDuration()
-	wrk.appStatusHandler.SetUInt64Value(core.MetricReceivedProposedBlock, uint64(percent))
+	wrk.appStatusHandler.SetUInt64Value(core.MetricReceivedProposedBlock, uint64(percent)) // #nosec G115
 }
 
 func (wrk *Worker) updateNetworkShardingVals(message p2p.MessageP2P, cnsMsg *consensus.Message) {

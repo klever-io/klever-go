@@ -2007,8 +2007,8 @@ func TestExecution_Mocked_OnSameFollowedByOnDest(t *testing.T) {
 			Build()).
 		WithSetup(func(host vmhost.VMHost, world *worldmock.MockWorld) {
 			accountHandler, _ := world.GetUserAccount(test.ParentAddress)
-			accountHandler.DataTrieTracker().SaveKeyValue([]byte("child"), test.ChildData)
-			world.AccountsCacher.SaveAll()
+			_ = accountHandler.DataTrieTracker().SaveKeyValue([]byte("child"), test.ChildData)
+			_ = world.AccountsCacher.SaveAll()
 		}).
 		AndAssertResults(func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
 			verify.Ok().

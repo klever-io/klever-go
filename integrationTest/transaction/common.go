@@ -94,7 +94,7 @@ func createTransaction(
 	}
 
 	return sender.CreateTransaction(
-		uint32(txType.Number()),
+		uint32(txType.Number()), // #nosec G115
 		processorNode.TestAddressPubkeyConverter.Encode(wallet.Address),
 		wallet.Nonce,
 		[]byte("chainID"),

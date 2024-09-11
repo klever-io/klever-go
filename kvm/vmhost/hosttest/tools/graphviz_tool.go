@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	callGraph := test.CreateGraphTestOneAsyncCallNoCallback()
+	callGraph := test.CreateGraphTestSyncCalls()
 
 	graphviz := testcommon.ToGraphviz(callGraph, true)
 	testcommon.CreateSvg("1 call-graph", graphviz)
@@ -25,8 +25,4 @@ func main() {
 	gasGraph.ComputeRemainingGasBeforeCallbacks(nil)
 	graphviz = testcommon.ToGraphviz(gasGraph, false)
 	testcommon.CreateSvg("4 gas-graph-gasbeforecallbacks", graphviz)
-
-	gasGraph.ComputeRemainingGasAfterCallbacks()
-	graphviz = testcommon.ToGraphviz(gasGraph, false)
-	testcommon.CreateSvg("5 gas-graph-gasaftercallbacks-norestore", graphviz)
 }

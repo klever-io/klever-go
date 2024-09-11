@@ -52,6 +52,7 @@ func (context *VMHooksImpl) Sha256(
 	crypto := context.GetCryptoContext()
 	metering := context.GetMeteringContext()
 
+	// #nosec G115
 	memLoadGas := math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(length))
 	gasToUse := math.AddUint64(metering.GasSchedule().CryptoAPICost.SHA256, memLoadGas)
 	metering.UseGasAndAddTracedGas(sha256Name, gasToUse)
@@ -109,6 +110,7 @@ func (context *VMHooksImpl) Keccak256(dataOffset executor.MemPtr, length executo
 	crypto := context.GetCryptoContext()
 	metering := context.GetMeteringContext()
 
+	// #nosec G115
 	memLoadGas := math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(length))
 	gasToUse := math.AddUint64(metering.GasSchedule().CryptoAPICost.Keccak256, memLoadGas)
 	metering.UseGasAndAddTracedGas(keccak256Name, gasToUse)
@@ -166,6 +168,7 @@ func (context *VMHooksImpl) Ripemd160(dataOffset executor.MemPtr, length executo
 	crypto := context.GetCryptoContext()
 	metering := context.GetMeteringContext()
 
+	// #nosec G115
 	memLoadGas := math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(length))
 	gasToUse := math.AddUint64(metering.GasSchedule().CryptoAPICost.Ripemd160, memLoadGas)
 	metering.UseGasAndAddTracedGas(ripemd160Name, gasToUse)
@@ -243,6 +246,7 @@ func (context *VMHooksImpl) VerifyBLS(
 		return 1
 	}
 
+	// #nosec G115
 	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(messageLength))
 	metering.UseAndTraceGas(gasToUse)
 
@@ -340,6 +344,7 @@ func (context *VMHooksImpl) VerifyEd25519(
 		return 1
 	}
 
+	// #nosec G115
 	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(messageLength))
 	metering.UseAndTraceGas(gasToUse)
 
@@ -440,6 +445,7 @@ func (context *VMHooksImpl) VerifyCustomSecp256k1(
 		return 1
 	}
 
+	// #nosec G115
 	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(messageLength))
 	metering.UseAndTraceGas(gasToUse)
 
@@ -462,7 +468,7 @@ func (context *VMHooksImpl) VerifyCustomSecp256k1(
 		return 1
 	}
 
-	invalidSigErr := crypto.VerifySecp256k1(key, message, sig, uint8(hashType))
+	invalidSigErr := crypto.VerifySecp256k1(key, message, sig, uint8(hashType)) // #nosec G115
 	if invalidSigErr != nil {
 		context.WithFault(invalidSigErr, runtime.CryptoAPIErrorShouldFailExecution())
 		return -1
@@ -519,7 +525,7 @@ func ManagedVerifyCustomSecp256k1WithHost(
 	}
 	managedType.ConsumeGasForBytes(sigBytes)
 
-	invalidSigErr := crypto.VerifySecp256k1(keyBytes, msgBytes, sigBytes, uint8(hashType))
+	invalidSigErr := crypto.VerifySecp256k1(keyBytes, msgBytes, sigBytes, uint8(hashType)) // #nosec G115
 	if invalidSigErr != nil {
 		WithFaultAndHost(host, invalidSigErr, runtime.CryptoAPIErrorShouldFailExecution())
 		return -1
@@ -1058,7 +1064,7 @@ func (context *VMHooksImpl) MarshalEC(
 	if context.WithFault(err, runtime.CryptoAPIErrorShouldFailExecution()) {
 		return -1
 	}
-	return int32(len(result))
+	return int32(len(result)) // #nosec G115
 }
 
 // ManagedMarshalEC VMHooks implementation.
@@ -1095,7 +1101,7 @@ func ManagedMarshalECWithHost(
 
 	managedType := host.ManagedTypes()
 	managedType.SetBytes(resultHandle, result)
-	return int32(len(result))
+	return int32(len(result)) // #nosec G115
 }
 
 func commonMarshalEC(
@@ -1157,7 +1163,7 @@ func (context *VMHooksImpl) MarshalCompressedEC(
 	if context.WithFault(err, runtime.CryptoAPIErrorShouldFailExecution()) {
 		return -1
 	}
-	return int32(len(result))
+	return int32(len(result)) // #nosec G115
 }
 
 // ManagedMarshalCompressedEC VMHooks implementation.
@@ -1195,7 +1201,7 @@ func ManagedMarshalCompressedECWithHost(
 	}
 
 	managedType.SetBytes(resultHandle, result)
-	return int32(len(result))
+	return int32(len(result)) // #nosec G115
 }
 
 func commonMarshalCompressedEC(host vmhost.VMHost,
@@ -1376,7 +1382,7 @@ func (context *VMHooksImpl) UnmarshalCompressedEC(
 
 	data, err := context.MemLoad(dataOffset, length)
 	if context.WithFault(err, runtime.CryptoAPIErrorShouldFailExecution()) {
-		return int32(len(data))
+		return int32(len(data)) // #nosec G115
 	}
 
 	host := context.GetVMHost()
@@ -1424,7 +1430,7 @@ func ManagedUnmarshalCompressedECWithHost(
 
 	data, err := managedType.GetBytes(dataHandle)
 	if WithFaultAndHost(host, err, runtime.CryptoAPIErrorShouldFailExecution()) {
-		return int32(len(data))
+		return int32(len(data)) // #nosec G115
 	}
 
 	return commonUnmarshalCompressedEC(host, xResultHandle, yResultHandle, ecHandle, data)
@@ -1484,7 +1490,7 @@ func (context *VMHooksImpl) GenerateKeyEC(
 
 	err = context.MemStore(resultOffset, result)
 	if context.WithFault(err, runtime.CryptoAPIErrorShouldFailExecution()) {
-		return int32(len(result))
+		return int32(len(result)) // #nosec G115
 	}
 
 	return 0
@@ -1544,6 +1550,7 @@ func commonGenerateEC(
 	if curveMultiplier == 250 {
 		curveMultiplier = 500
 	}
+	// #nosec G115
 	gasToUse := metering.GasSchedule().CryptoAPICost.GenerateKeyECC * uint64(curveMultiplier) / 100
 	metering.UseAndTraceGas(gasToUse)
 

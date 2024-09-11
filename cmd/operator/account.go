@@ -309,7 +309,7 @@ func subAccount() []*cobra.Command {
 				}
 			}
 
-			return claim(signerAddress, kdaID, int32(claimType))
+			return claim(signerAddress, kdaID, int32(claimType)) // #nosec G115
 		},
 	}
 	cmdClaim.Flags().StringVar(&kdaID, "id", "KLV", "--id=KDAID-00000")

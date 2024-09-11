@@ -22,8 +22,9 @@ func TestSubscribeTopics(t *testing.T) {
 	wsocket.SubscribeTopics(ws, hub)
 
 	srv := &http.Server{
-		Addr:    ":23456",
-		Handler: ws,
+		Addr:              ":23456",
+		Handler:           ws,
+		ReadHeaderTimeout: 1 * time.Second,
 	}
 
 	go func() {

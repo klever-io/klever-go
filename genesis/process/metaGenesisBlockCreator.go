@@ -311,7 +311,7 @@ func setPermissionToTrie(
 
 			perm := &state.Permission{
 				ID:             p.GetID(),
-				Type:           state.Permission_PermissionType(p.GetType()),
+				Type:           state.Permission_PermissionType(p.GetType()), // #nosec G115
 				PermissionName: p.GetPermissionName(),
 				Threshold:      p.GetThreshold(),
 				Operations:     append([]byte{}, p.GetOperations()...),
@@ -319,7 +319,7 @@ func setPermissionToTrie(
 			}
 			// permission contract
 			permsContracts = append(permsContracts, &transaction.AccPermission{
-				Type:           transaction.AccPermission_AccPermissionType(p.GetType()),
+				Type:           transaction.AccPermission_AccPermissionType(p.GetType()), // #nosec G115
 				PermissionName: perm.PermissionName,
 				Threshold:      perm.Threshold,
 				Operations:     perm.Operations,

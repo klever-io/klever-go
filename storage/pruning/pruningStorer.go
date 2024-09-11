@@ -206,19 +206,19 @@ func initPersistersInEpoch(
 	if args.EnabledDbLookupExtensions {
 		for epoch := int64(args.StartingEpoch); epoch >= 0; epoch-- {
 			log.Debug("initPersistersInEpoch(): createShallowPersisterDataForEpoch", "identifier", args.Identifier, "epoch", epoch, "shardID", shardIDStr)
-			persistersMapByEpoch[uint32(epoch)] = createShallowPersisterDataForEpoch(args, uint32(epoch), shardIDStr)
+			persistersMapByEpoch[uint32(epoch)] = createShallowPersisterDataForEpoch(args, uint32(epoch), shardIDStr) // #nosec G115
 		}
 	}
 
 	// Shallow persister data will be overwritten in case of active persisters
 	for epoch := int64(args.StartingEpoch); epoch >= oldestEpochKeep; epoch-- {
 		log.Debug("initPersistersInEpoch(): createPersisterDataForEpoch", "identifier", args.Identifier, "epoch", epoch, "shardID", shardIDStr)
-		p, err := createPersisterDataForEpoch(args, uint32(epoch), shardIDStr)
+		p, err := createPersisterDataForEpoch(args, uint32(epoch), shardIDStr) // #nosec G115
 		if err != nil {
 			return nil, nil, err
 		}
 
-		persistersMapByEpoch[uint32(epoch)] = p
+		persistersMapByEpoch[uint32(epoch)] = p // #nosec G115
 
 		if epoch < oldestEpochActive {
 			err = p.persister.Close()
@@ -334,6 +334,7 @@ func (ps *PruningStorer) Get(key []byte) ([]byte, error) {
 		// search it in active persisters
 		found := false
 		ps.lock.RLock()
+		// #nosec G115
 		for idx := uint32(0); (idx < ps.numOfActivePersisters) && (idx < uint32(len(ps.activePersisters))); idx++ {
 			if ps.bloomFilter == nil || ps.bloomFilter.MayContain(key) {
 				v, err = ps.activePersisters[idx].persister.Get(key)
@@ -790,7 +791,7 @@ func (ps *PruningStorer) changeEpochWithExisting(epoch uint32) error {
 
 	persisters := make([]*persisterData, 0)
 	for e := int64(epoch); e >= oldestEpochActive; e-- {
-		p, ok := ps.persistersMapByEpoch[uint32(e)]
+		p, ok := ps.persistersMapByEpoch[uint32(e)] // #nosec G115
 		if !ok {
 			ps.lock.RUnlock()
 			return nil
@@ -821,7 +822,7 @@ func (ps *PruningStorer) extendActivePersisters(from uint32, to uint32) error {
 	persisters := make([]*persisterData, 0)
 	ps.lock.RLock()
 	for e := int(to); e >= int(from); e-- {
-		p, ok := ps.persistersMapByEpoch[uint32(e)]
+		p, ok := ps.persistersMapByEpoch[uint32(e)] // #nosec G115
 		if !ok {
 			ps.lock.RUnlock()
 			return nil
@@ -855,6 +856,7 @@ func (ps *PruningStorer) closeAndDestroyPersisters(epoch uint32) error {
 	persistersToDestroy := make([]*persisterData, 0)
 
 	ps.lock.Lock()
+	// #nosec G115
 	if ps.numOfActivePersisters < uint32(len(ps.activePersisters)) {
 		for idx := int(ps.numOfActivePersisters); idx < len(ps.activePersisters); idx++ {
 			persisterToClose := ps.activePersisters[idx]
@@ -866,6 +868,7 @@ func (ps *PruningStorer) closeAndDestroyPersisters(epoch uint32) error {
 		}
 	}
 
+	// #nosec G115
 	if ps.cleanOldEpochsData && uint32(len(ps.persistersMapByEpoch)) > ps.numOfEpochsToKeep {
 		idxToRemove := epoch - ps.numOfEpochsToKeep
 		for {

@@ -1,7 +1,6 @@
 package transaction_test
 
 import (
-	"bytes"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -82,38 +81,6 @@ func createBlockHeader() *block.Block {
 	}
 
 	return &hdr
-}
-
-func createAccountStub(sndAddr, rcvAddr []byte,
-	acntSrc, acntDst state.UserAccountHandler,
-) *commonMock.AccountsStub {
-	adb := commonMock.AccountsStub{}
-
-	adb.LoadAccountCalled = func(address []byte) (state.AccountHandler, error) {
-		if bytes.Equal(address, sndAddr) {
-			return acntSrc, nil
-		}
-
-		if bytes.Equal(address, rcvAddr) {
-			return acntDst, nil
-		}
-
-		return nil, errors.New("failure")
-	}
-
-	adb.GetExistingAccountCalled = func(address []byte) (state.AccountHandler, error) {
-		if bytes.Equal(address, sndAddr) {
-			return acntSrc, nil
-		}
-
-		if bytes.Equal(address, rcvAddr) {
-			return acntDst, nil
-		}
-
-		return nil, errors.New("failure")
-	}
-
-	return &adb
 }
 
 func createProposalController() kapps.ActiveProposalController {
@@ -596,10 +563,10 @@ func TestTxProcessor_GetAccountsOkValsShouldWork(t *testing.T) {
 
 	args := createArgsForTxProcessor()
 	acnt1, _ := args.AccountsCacher.LoadUser(adr1)
-	acnt1.AddToBalance(100_000_000, nil, true)
+	_ = acnt1.AddToBalance(100_000_000, nil, true)
 	acnt2, _ := args.AccountsCacher.LoadUser(adr2)
-	acnt2.AddToBalance(200_000_000, nil, true)
-	args.AccountsCacher.SaveAll()
+	_ = acnt2.AddToBalance(200_000_000, nil, true)
+	_ = args.AccountsCacher.SaveAll()
 
 	execTx := NewTXProcessor(t, args)
 
@@ -618,7 +585,7 @@ func TestTxProcessor_GetSameAccountShouldWork(t *testing.T) {
 	args := createArgsForTxProcessor()
 	_, _ = args.AccountsCacher.LoadUser(adr1)
 	_, _ = args.AccountsCacher.LoadUser(adr2)
-	args.AccountsCacher.SaveAll()
+	_ = args.AccountsCacher.SaveAll()
 	execTx := NewTXProcessor(t, args)
 
 	a1, a2, err := execTx.GetAccounts(adr1, adr1)
@@ -2273,7 +2240,7 @@ func TestTxProcessor_ProcessClaimWrongValsShouldErr(t *testing.T) {
 	_ = loadKAppAccount(args.AccountsCacher, kapps.KDAKAppAddress)
 	_ = loadKAppAccount(args.AccountsCacher, kapps.StakingKAppAddress)
 
-	args.AccountsCacher.SaveAll()
+	_ = args.AccountsCacher.SaveAll()
 	//Claim with invalid type
 	contract := transaction.ClaimContract{
 		ClaimType: 9,
@@ -2519,9 +2486,9 @@ func TestTxProcessor_ProcessClaimAllowanceOkValsShouldWork(t *testing.T) {
 
 	args := createArgsForTxProcessor()
 	acntSrc := loadUserAccount(args.AccountsCacher, testOwnerAddress)
-	acntSrc.AddToBalance(90, nil, true)
-	acntSrc.AddToAllowance(123)
-	args.AccountsCacher.SaveAll()
+	_ = acntSrc.AddToBalance(90, nil, true)
+	_ = acntSrc.AddToAllowance(123)
+	_ = args.AccountsCacher.SaveAll()
 	SetupKappController(t, &args)
 
 	execTx, err := pTX.NewTxProcessor(args)
@@ -2550,8 +2517,8 @@ func TestTxProcessor_ProcessClaimAllowanceKFIShouldFail(t *testing.T) {
 
 	args := createArgsForTxProcessor()
 	acntSrc := loadUserAccount(args.AccountsCacher, testOwnerAddress)
-	acntSrc.AddToBalance(90, nil, true)
-	acntSrc.AddToAllowance(123)
+	_ = acntSrc.AddToBalance(90, nil, true)
+	_ = acntSrc.AddToAllowance(123)
 	err = args.AccountsCacher.SaveAll()
 	assert.Nil(t, err)
 
@@ -4261,7 +4228,7 @@ func TestTxProcessor_ProcessSetAccountNameOkValsShouldWork(t *testing.T) {
 
 	args := createArgsForTxProcessor()
 	acntSrc := loadUserAccount(args.AccountsCacher, testOwnerAddress)
-	acntSrc.AddToBalance(90, nil, true)
+	_ = acntSrc.AddToBalance(90, nil, true)
 	_ = args.AccountsCacher.SaveAll()
 
 	SetupKappController(t, &args)

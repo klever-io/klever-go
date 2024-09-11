@@ -155,7 +155,7 @@ func (boot *baseBootstrap) processReceivedHeader(headerHandler data.HeaderHandle
 		"hash", headerHash,
 	)
 
-	if headerHandler.GetSlot() > uint64(boot.slotManager.Index()) {
+	if headerHandler.GetSlot() > tools.SafeI64ToU64(boot.slotManager.Index()) {
 		log.Trace("Skipping sync received header due to slot mismatch",
 			"slot", headerHandler.GetSlot(),
 			"slotManager.Index", boot.slotManager.Index(),
@@ -308,7 +308,7 @@ func (boot *baseBootstrap) computeNodeState() {
 			"boot.hasLastBlock", boot.hasLastBlock)
 	}
 
-	if !boot.hasStarted && int64(lastSlot) >= boot.slotManager.Index() {
+	if !boot.hasStarted && lastSlot >= tools.SafeI64ToU64(boot.slotManager.Index()) {
 		boot.hasStarted = true
 
 		log.Info("node has started")
@@ -368,7 +368,7 @@ func (boot *baseBootstrap) requestHeadersIfSyncIsStuck() {
 		lastSyncedSlot = currHeader.GetSlot()
 	}
 
-	slotDiff := uint64(boot.slotManager.Index()) - lastSyncedSlot
+	slotDiff := tools.SafeI64ToU64(boot.slotManager.Index()) - lastSyncedSlot
 	if slotDiff <= process.MaxSlotsWithoutNewBlockReceived {
 		return
 	}
@@ -758,7 +758,7 @@ func (boot *baseBootstrap) rollBack(revertUsingForkNonce bool) error {
 
 		_, _ = updateMetricsFromStorage(boot.store, boot.uint64Converter, boot.marshalizer, boot.statusHandler, prevHeader.GetNonce())
 
-		err = boot.bootStorer.SaveLastSlot(int64(prevHeader.GetSlot()))
+		err = boot.bootStorer.SaveLastSlot(tools.SafeU64ToI64(prevHeader.GetSlot()))
 		if err != nil {
 			log.Debug("save last slot in storage",
 				"error", err.Error(),

@@ -309,7 +309,7 @@ func trieNode(data interface{}) (node, error) {
 
 func (ts *trieSyncer) requestNodes() uint32 {
 	ts.mutOperation.RLock()
-	numUnResolvedNodes := uint32(len(ts.nodesForTrie))
+	numUnResolvedNodes := uint32(len(ts.nodesForTrie)) // #nosec G115
 	hashes := make([][]byte, 0)
 	for hash, nodeInfo := range ts.nodesForTrie {
 		if !nodeInfo.received {

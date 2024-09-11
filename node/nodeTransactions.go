@@ -4,8 +4,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
+	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/network/api/models"
 
 	"github.com/klever-io/klever-go/common"
@@ -93,61 +95,62 @@ func (n *Node) TXPool(sender string, page int, pageSize int) ([]*api.Transaction
 	return txs, total, nil
 }
 
-// CreateTransaction will return a transaction from all the required fields
-func (n *Node) CreateTransaction(
-	txType uint32,
-	base *transaction.TXBaseInfo,
-	contracts []json.RawMessage,
-	skipValidate bool,
-) (*transaction.Transaction, []byte, error) {
+// Helper function to validate transaction inputs
+func (n *Node) validateTransactionInputs(base *transaction.TXBaseInfo, contracts []json.RawMessage) error {
 	if check.IfNil(n.addressPubkeyConverter) {
-		return nil, nil, common.ErrNilPubkeyConverter
+		return common.ErrNilPubkeyConverter
 	}
 	if check.IfNil(n.accounts) {
-		return nil, nil, common.ErrNilAccountsAdapter
+		return common.ErrNilAccountsAdapter
 	}
 	if len(base.Sender) > n.encodedAddressLength {
-		return nil, nil, fmt.Errorf("%w for sender", common.ErrInvalidAddressLength)
+		return fmt.Errorf("%w for sender", common.ErrInvalidAddressLength)
 	}
 	if len(base.SenderUsername) > core.MaxUserNameLength {
-		return nil, nil, common.ErrInvalidSenderUsernameLength
+		return common.ErrInvalidSenderUsernameLength
 	}
 
 	totalSize := 0
 	for _, slice := range base.DataField {
 		totalSize += len(slice)
 	}
-
 	if totalSize > tools.MegabyteSize {
-		return nil, nil, common.ErrDataFieldTooBig
+		return common.ErrDataFieldTooBig
 	}
 
 	if len(contracts) == 0 || len(contracts) > core.MaxLengthOfContracts {
-		return nil, nil, common.ErrInvalidContract
+		return common.ErrInvalidContract
 	}
 
-	senderAddress, err := n.addressPubkeyConverter.Decode(base.Sender)
-	if err != nil {
-		return nil, nil, common.ErrBech32ConvertError
-	}
+	return nil
+}
 
+// Helper function to create the base transaction
+func (n *Node) createBaseTransaction(base *transaction.TXBaseInfo, senderAddress []byte) (*transaction.Transaction, error) {
 	tx := transaction.NewBaseTransaction(senderAddress, base.Nonce, base.DataField, 0, 0)
-	err = tx.SetChainID(n.chainID)
+	err := tx.SetChainID(n.chainID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	tx.RawData.PermissionID = base.PermID
+	tx.RawData.Version = n.minTransactionVersion
 
-	activeParameters, err := n.GetProposalParameters()
-	if err != nil {
-		return nil, nil, err
-	}
+	return tx, nil
+}
 
+// Helper function to add contracts to the transaction
+func (n *Node) addContractsToTransaction(
+	tx *transaction.Transaction,
+	txType uint32,
+	base *transaction.TXBaseInfo,
+	contracts []json.RawMessage,
+	activeParameters map[int32]*kapps.Parameter,
+	senderAddress []byte,
+) error {
 	for _, c := range contracts {
 		var contract models.ContractInfo
-
 		if err := json.Unmarshal(c, &contract); err != nil {
-			return nil, nil, err
+			return err
 		}
 
 		contractType := txType
@@ -164,28 +167,38 @@ func (n *Node) CreateTransaction(
 			ActiveParameters: activeParameters,
 		}
 
-		err = tx.AddTransaction(txArgs)
-		if err != nil {
-			return nil, nil, err
+		if err := tx.AddTransaction(txArgs); err != nil {
+			return err
 		}
 	}
 
-	// add tx version
-	tx.RawData.Version = n.minTransactionVersion
+	return nil
+}
 
+// Helper function to compute transaction fees
+func (n *Node) computeTransactionFees(tx *transaction.Transaction, base *transaction.TXBaseInfo) error {
 	cost, err := n.feeHandler.ComputeTransactionCost(tx, true)
 	if err != nil {
-		return tx, nil, err
+		return err
 	}
 
 	tx.RawData.BandwidthFee = cost.BandwidthFee
 	tx.RawData.KAppFee = cost.KAppFee
-	// add up estimated gas into BW
+
+	// Add up estimated gas into BandwidthFee
 	if cost.GasMultiplier > 0 && cost.GasEstimated > 0 {
-		tx.RawData.BandwidthFee += int64(cost.GasEstimated / cost.GasMultiplier)
+		value := cost.GasEstimated / cost.GasMultiplier
+		if value > math.MaxInt64 {
+			return common.ErrEstimateGasTooBig
+		}
+
+		tx.RawData.BandwidthFee, err = tools.SafeAddI64(tx.RawData.BandwidthFee, value)
+		if err != nil {
+			return err
+		}
 	}
 
-	// compute KDAFee if any
+	// Compute KDAFee if any
 	if len(base.KDAFee) > 0 && base.KDAFee != string(kdautils.KLVIdentifier) {
 		tx.RawData.KDAFee = &transaction.Transaction_KDAFee{
 			KDA: []byte(base.KDAFee),
@@ -193,31 +206,76 @@ func (n *Node) CreateTransaction(
 
 		totalFees := tx.RawData.BandwidthFee + tx.RawData.KAppFee
 
-		// check if KDA has a feePool set
+		// Check if KDA has a fee pool set
 		kdaAmount, err := n.kappController.GetKDAFeesPoolKApp().Compute(totalFees, tx.RawData.KDAFee)
 		if err != nil {
-			return nil, nil, err
+			return err
 		}
 
 		if kdaAmount <= 0 {
-			return tx, nil, common.ErrAssetPoolAmountError
+			return common.ErrAssetPoolAmountError
 		}
 
 		tx.RawData.KDAFee.Amount = kdaAmount
 	}
 
-	if skipValidate { // skip validation to only estimate fee
+	return nil
+}
+
+func (n *Node) computeTransactionHash(tx *transaction.Transaction) ([]byte, error) {
+	txHash, err := tools.CalculateHash(n.internalMarshalizer, n.hasher, tx.GetRaw())
+	if err != nil {
+		return nil, err
+	}
+
+	return txHash, nil
+}
+
+// CreateTransaction will return a transaction from all the required fields
+func (n *Node) CreateTransaction(
+	txType uint32,
+	base *transaction.TXBaseInfo,
+	contracts []json.RawMessage,
+	skipValidate bool,
+) (*transaction.Transaction, []byte, error) {
+	if err := n.validateTransactionInputs(base, contracts); err != nil {
+		return nil, nil, err
+	}
+
+	senderAddress, err := n.addressPubkeyConverter.Decode(base.Sender)
+	if err != nil {
+		return nil, nil, common.ErrBech32ConvertError
+	}
+
+	tx, err := n.createBaseTransaction(base, senderAddress)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	activeParameters, err := n.GetProposalParameters()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := n.addContractsToTransaction(tx, txType, base, contracts, activeParameters, senderAddress); err != nil {
+		return nil, nil, err
+	}
+
+	if err := n.computeTransactionFees(tx, base); err != nil {
+		return tx, nil, err
+	}
+
+	// Optionally skip validation and return transaction (only for estimate fee)
+	if skipValidate {
 		return tx, nil, nil
 	}
 
 	// review validation
-	err = n.ValidateTransaction(tx, false)
-	if err != nil {
+	if err := n.ValidateTransaction(tx, false); err != nil {
 		return tx, nil, err
 	}
 
-	var txHash []byte
-	txHash, err = tools.CalculateHash(n.internalMarshalizer, n.hasher, tx.GetRaw())
+	txHash, err := n.computeTransactionHash(tx)
 	if err != nil {
 		return tx, nil, err
 	}

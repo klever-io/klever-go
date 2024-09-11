@@ -14,20 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func setupMEXPair(t *testing.T, owner Address, user Address) (*worldmock.MockWorld, vmhost.VMHost, *MEXSetup) {
-	world, ownerAccount, host, err := prepare(t, owner)
-	require.Nil(t, err)
-
-	userAccount := world.CreateAccount(user, world)
-	userAccount.Balance = big.NewInt(100)
-	mex := NewMEXSetup(t, host, world, ownerAccount, userAccount)
-	mex.Deploy()
-
-	mex.ApplyInitialSetup()
-
-	return world, host, mex
-}
-
 type MEXSetup struct {
 	WKLVToken                []byte
 	MEXToken                 []byte
@@ -41,8 +27,8 @@ type MEXSetup struct {
 	MaxObservationsPerRecord int
 	Code                     []byte
 	UserAccount              *worldmock.Account
-	UserWKLVBalance          uint64
-	UserMEXBalance           uint64
+	UserWKLVBalance          int64
+	UserMEXBalance           int64
 
 	T     *testing.T
 	Host  vmhost.VMHost

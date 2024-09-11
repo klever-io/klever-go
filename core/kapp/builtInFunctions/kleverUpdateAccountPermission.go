@@ -103,6 +103,7 @@ LoopPermissions:
 				base := value / 8
 				index := value % 8
 
+				// #nosec G115
 				if int32(len(permission.Operations)) <= base || permission.Operations[base]&(1<<index) == 0 {
 					continue
 				}

@@ -195,6 +195,7 @@ func (ei *elasticProcessor) initNoKibana(indexTemplates map[string]*bytes.Buffer
 	return nil
 }
 
+// nolint: unused
 func (ei *elasticProcessor) createIndexPolicies(indexPolicies map[string]*bytes.Buffer) error {
 	indexesPolicies := []string{txPolicy, blockPolicy, ratingPolicy, accountsHistoryPolicy}
 	for _, indexPolicyName := range indexesPolicies {
@@ -1781,7 +1782,7 @@ func getTemplateByName(templateName string, templateList map[string]*bytes.Buffe
 func (ei *elasticProcessor) doBulkRequests(index string, buffSlice []*bytes.Buffer) error {
 	var err error
 	for idx := range buffSlice {
-		ctxWithValue := context.WithValue(context.Background(), "key", "req_bulk")
+		ctxWithValue := context.WithValue(context.Background(), contextKey, bulkTopic)
 		err = ei.elasticClient.DoBulkRequest(ctxWithValue, buffSlice[idx], index)
 		if err != nil {
 			return err

@@ -38,17 +38,18 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
-          go-version: ${{ vars.GO_VERSION }}
+          go-version: ${{ vars.GO_VERSION || '1.22' }}
 
-      - name: Cache Vendor
+      - name: Cache Go dependencies
         uses: actions/cache@v4
         env:
           cache-name: cache-vendor
         with:
           fail-on-cache-miss: true
-          path: vendor
-          # In go-setup cache is created in klever-pipe machine (Linux)
-          key: Linux-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
+          path: |
+            ~/go/pkg/mod
+            ./vendor
+          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
           enableCrossOsArchive: true
 
       - name: Build
@@ -92,7 +93,7 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
 
       - name: Configure GCP service account
-        uses: google-github-actions/auth@v0
+        uses: google-github-actions/auth@v2
         with:
           credentials_json: '${{ secrets.GCP_CLOUD_RUN_SA }}'
 

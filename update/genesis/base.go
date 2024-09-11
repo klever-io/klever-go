@@ -83,7 +83,7 @@ func GetTrieType(key string) (Type, error) {
 	if err != nil {
 		return UserAccount, err
 	}
-	accType := Type(accTypeInt64)
+	accType := Type(accTypeInt64) // #nosec G115
 
 	return accType, nil
 }
@@ -115,7 +115,7 @@ func getTrieTypeAndHash(splitString []string) (Type, []byte, error) {
 	if err != nil {
 		return Unknown, nil, err
 	}
-	accType := Type(accTypeInt64)
+	accType := Type(accTypeInt64) // #nosec G115
 
 	decodedHash, err := hex.DecodeString(splitString[2])
 	if err != nil {

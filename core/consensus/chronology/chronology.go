@@ -15,6 +15,7 @@ import (
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/ntp"
 	"github.com/klever-io/klever-go/sharding"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/display"
 )
@@ -203,8 +204,8 @@ func (chr *chronology) initSlot() {
 
 	if hasSubslotsAndGenesisTimePassed {
 		chr.subslotID = chr.subslotHandlers[0].Current()
-		chr.appStatusHandler.SetUInt64Value(core.MetricCurrentSlot, uint64(chr.slotManager.Index()))
-		chr.appStatusHandler.SetUInt64Value(core.MetricCurrentSlotTimestamp, uint64(chr.slotManager.Timestamp().Unix()))
+		chr.appStatusHandler.SetUInt64Value(core.MetricCurrentSlot, tools.SafeI64ToU64(chr.slotManager.Index()))
+		chr.appStatusHandler.SetUInt64Value(core.MetricCurrentSlotTimestamp, tools.SafeI64ToU64(chr.slotManager.Timestamp().Unix()))
 	}
 
 	chr.mutSubslots.RUnlock()

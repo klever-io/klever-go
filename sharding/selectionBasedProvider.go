@@ -77,10 +77,10 @@ func (sbp *SelectionBasedProvider) Get(randomness []byte, numValidators int64, e
 		if sbp.size >= lenExpandedList {
 			return nil, ErrInvalidSampleSize
 		}
-		index = newRandomness % uint64(lenExpandedList-sbp.size)
+		index = newRandomness % uint64(lenExpandedList-sbp.size) // #nosec G115
 		index = sbp.adjustIndex(index)
 		validators = append(validators, expandedElectedList[index])
-		sbp.add(expandedElectedList, int64(index))
+		sbp.add(expandedElectedList, int64(index)) // #nosec G115
 	}
 
 	return validators, nil
@@ -93,7 +93,7 @@ func (sbp *SelectionBasedProvider) clean() {
 
 func (sbp *SelectionBasedProvider) computeRandomnessAsUint64(randomness []byte, index int) uint64 {
 	buffCurrentIndex := make([]byte, 8)
-	binary.BigEndian.PutUint64(buffCurrentIndex, uint64(index))
+	binary.BigEndian.PutUint64(buffCurrentIndex, uint64(index)) // #nosec G115
 
 	indexHash := sbp.hasher.Compute(string(buffCurrentIndex) + string(randomness))
 
@@ -104,10 +104,11 @@ func (sbp *SelectionBasedProvider) computeRandomnessAsUint64(randomness []byte, 
 
 func (sbp *SelectionBasedProvider) adjustIndex(index uint64) uint64 {
 	for _, entry := range sbp.sortedSlice {
+		// #nosec G115
 		if uint64(entry.startIndex) > index {
 			break
 		}
-		index += uint64(entry.numAppearances)
+		index += uint64(entry.numAppearances) // #nosec G115
 	}
 
 	return index

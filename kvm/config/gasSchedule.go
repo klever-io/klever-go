@@ -180,10 +180,10 @@ func convertFromUnsignedToSigned(dynamicStorageLoadUnsigned *DynamicStorageLoadU
 
 func getSignedCoefficient(coefficient uint64, sign uint64) int64 {
 	if sign == isNegativeNumber {
-		return int64(coefficient) * -1
+		return int64(coefficient) * -1 // #nosec G115
 	}
 
-	return int64(coefficient)
+	return int64(coefficient) // #nosec G115
 }
 
 func checkForZeroUint64Fields(arg interface{}) error {

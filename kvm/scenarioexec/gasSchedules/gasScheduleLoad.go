@@ -22,7 +22,7 @@ func LoadGasScheduleConfig(fileContents string) (config.GasScheduleMap, error) {
 		flattenedGasSchedule[libType] = make(map[string]uint64)
 		costsMap := costs.(map[string]interface{})
 		for operationName, cost := range costsMap {
-			flattenedGasSchedule[libType][operationName] = uint64(cost.(int64))
+			flattenedGasSchedule[libType][operationName] = uint64(cost.(int64)) // #nosec G115
 		}
 	}
 

@@ -221,10 +221,6 @@ func (p ProposalParameters) GetInt64(key EnumParameter) int64 {
 	return p[key].Int()
 }
 
-func (p ProposalParameters) GetUint32(key EnumParameter) uint32 {
-	return uint32(p[key].Uint())
-}
-
 func (p *ProposalController) Validate(parameter EnumParameter, value []byte) (reflect.Value, error) {
 	if p.ActiveParameters[int32(parameter)] == nil {
 		return reflect.Value{}, common.ErrInvalidParameter
@@ -325,8 +321,7 @@ func (p *ProposalController) Validate(parameter EnumParameter, value []byte) (re
 func (p *ProposalController) validateConstraints(parameter EnumParameter, value reflect.Value) error {
 	switch parameter {
 	case EnumParameter_LeaderValidatorRewardsPercentage:
-		v := uint32(value.Uint())
-		if v > core.HundredPercent {
+		if value.Uint() > uint64(core.HundredPercent) {
 			return common.ErrInvalidParameter
 		}
 	}
@@ -369,7 +364,7 @@ func (p *ProposalController) GetParameterUint(parameter EnumParameter) uint64 {
 	}
 
 	if value.Kind() == reflect.Int64 {
-		return uint64(value.Int())
+		return uint64(value.Int()) // #nosec G115
 	}
 
 	return value.Uint()

@@ -206,7 +206,7 @@ func checkArguments(arguments ArgNodesCoordinator) error {
 // NodeCoordinator has to get the nodes assignment to shards using the shuffler.
 func (ihgs *indexHashedNodesCoordinator) EpochStartAction(hdr data.HeaderHandler) {
 	newEpoch := hdr.GetEpoch()
-	epochToRemove := int32(newEpoch) - nodeCoordinatorStoredEpochs
+	epochToRemove := int32(newEpoch) - nodeCoordinatorStoredEpochs // #nosec G115
 	needToRemove := epochToRemove >= 0
 	ihgs.currentEpoch = newEpoch
 
@@ -218,6 +218,7 @@ func (ihgs *indexHashedNodesCoordinator) EpochStartAction(hdr data.HeaderHandler
 	ihgs.mutNodesConfig.Lock()
 	if needToRemove {
 		for epoch := range ihgs.nodesConfig {
+			// #nosec G115
 			if epoch <= uint32(epochToRemove) {
 				delete(ihgs.nodesConfig, epoch)
 			}
@@ -316,7 +317,7 @@ func (ihgs *indexHashedNodesCoordinator) registryToNodesCoordinator(
 		}
 
 		// shards without metachain shard
-		epoch32 := uint32(epoch)
+		epoch32 := uint32(epoch) // #nosec G115
 		result[epoch32] = nodesConfig
 		log.Debug("registry to nodes coordinator", "epoch", epoch32)
 		result[epoch32].selector, err = ihgs.createSelector(nodesConfig)
@@ -509,7 +510,7 @@ func (ihgs *indexHashedNodesCoordinator) ComputeConsensusGroup(
 		return validators, nil
 	}
 
-	consensusSize := ihgs.ConsensusGroupSize()
+	consensusSize := uint32(ihgs.ConsensusGroupSize()) // #nosec G115
 	randomness = []byte(fmt.Sprintf("%d-%s", slot, randomness))
 
 	log.Debug("computeValidatorsGroup",
@@ -519,7 +520,7 @@ func (ihgs *indexHashedNodesCoordinator) ComputeConsensusGroup(
 		"consensus size", consensusSize,
 		"electedList list length", len(electedList))
 
-	tempList, err := selectValidators(selector, randomness, uint32(consensusSize), electedList, slot)
+	tempList, err := selectValidators(selector, randomness, consensusSize, electedList, slot)
 	if err != nil {
 		return nil, err
 	}
@@ -564,8 +565,9 @@ func selectValidators(
 		return nil, err
 	}
 
+	electedListLen := uint32(len(electedList)) // #nosec G115
 	// check if the selected indexes are within the range of the elected list
-	if slices.Max(selectedIndexes) > uint32(len(electedList)) || len(electedList) == 0 {
+	if slices.Max(selectedIndexes) > electedListLen || len(electedList) == 0 {
 		return nil, ErrSmallElectedListSize
 	}
 

@@ -14,8 +14,6 @@ import (
 	"github.com/klever-io/klever-go/vmcommon"
 )
 
-var zero = big.NewInt(0)
-
 type kdaTransfer struct {
 	baseAlwaysActiveHandler
 	accountsCacher state.AccountsCacher

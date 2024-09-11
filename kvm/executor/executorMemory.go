@@ -39,8 +39,8 @@ func MemLoadFromMemory(memory Memory, memPtr MemPtr, length MemLength) ([]byte, 
 	requestedEnd := memPtr.Offset(length)
 
 	isOffsetTooSmall := memPtr < 0
-	isOffsetTooLarge := uint32(memPtr) > memoryLength
-	isRequestedEndTooLarge := uint32(requestedEnd) > memoryLength
+	isOffsetTooLarge := uint32(memPtr) > memoryLength             // #nosec G115
+	isRequestedEndTooLarge := uint32(requestedEnd) > memoryLength // #nosec G115
 	isLengthNegative := length < 0
 
 	if isOffsetTooSmall || isOffsetTooLarge {
@@ -52,7 +52,7 @@ func MemLoadFromMemory(memory Memory, memPtr MemPtr, length MemLength) ([]byte, 
 
 	var result []byte
 	if isRequestedEndTooLarge {
-		result = make([]byte, memoryLength-uint32(memPtr))
+		result = make([]byte, memoryLength-uint32(memPtr)) // #nosec G115
 		copy(result, memoryView[memPtr:])
 	} else {
 		result = make([]byte, requestedEnd-memPtr)
@@ -65,7 +65,7 @@ func MemLoadFromMemory(memory Memory, memPtr MemPtr, length MemLength) ([]byte, 
 // MemStoreToMemory is a bridge to the old Memory interface.
 // We are moving away from that, this is to ease the transition.
 func MemStoreToMemory(memory Memory, memPtr MemPtr, data []byte) error {
-	dataLength := int32(len(data))
+	dataLength := int32(len(data)) // #nosec G115
 	if dataLength == 0 {
 		return nil
 	}
@@ -79,7 +79,7 @@ func MemStoreToMemory(memory Memory, memPtr MemPtr, data []byte) error {
 		return ErrMemoryBadBoundsLower
 	}
 
-	isRequestedEndTooLarge := uint32(requestedEnd) > memoryLength
+	isRequestedEndTooLarge := uint32(requestedEnd) > memoryLength // #nosec G115
 	if isRequestedEndTooLarge {
 		return ErrMemoryBadBoundsUpper
 	}

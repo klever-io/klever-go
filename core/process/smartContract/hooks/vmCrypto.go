@@ -2,7 +2,7 @@ package hooks
 
 import (
 	factoryHasher "github.com/klever-io/klever-go/crypto/hashing/factory"
-	"golang.org/x/crypto/ripemd160"
+	"golang.org/x/crypto/ripemd160" // #nosec G507 (ignoring weak cryptographic hash, legacy mode support only)
 )
 
 // VMCryptoHook is a wrapper used in vm implementation
@@ -36,7 +36,7 @@ func (vmch *VMCryptoHook) Keccak256(data []byte) ([]byte, error) {
 
 // Ripemd160 is a legacy hash and should not be used for new applications
 func (vmch *VMCryptoHook) Ripemd160(data []byte) ([]byte, error) {
-	hash := ripemd160.New()
+	hash := ripemd160.New() // #nosec G406 (ignoring weak cryptographic hash, legacy mode support only)
 	_, err := hash.Write(data)
 	if err != nil {
 		return nil, err

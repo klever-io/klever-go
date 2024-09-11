@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/big"
 
-	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
@@ -17,7 +16,6 @@ import (
 const BaseTxSize = core.BaseTxSize
 
 var _ process.EconomicsDataHandler = (*EconomicsData)(nil)
-var log = logger.GetOrCreate("process/economics")
 
 // EconomicsData will store information about economics
 type EconomicsData struct {

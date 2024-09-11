@@ -22,6 +22,7 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/sharding"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/display"
 	"github.com/klever-io/klever-go/tools/marshal"
@@ -98,7 +99,6 @@ func (bp *baseProcessor) SetProposalController(controller kapps.ActiveProposalCo
 func (bp *baseProcessor) checkBlockValidity(
 	headerHandler data.HeaderHandler,
 ) error {
-
 	if check.IfNil(headerHandler) {
 		return process.ErrNilBlockHeader
 	}
@@ -106,31 +106,45 @@ func (bp *baseProcessor) checkBlockValidity(
 	currentBlockHeader := bp.blockChain.GetCurrentBlockHeader()
 
 	if check.IfNil(currentBlockHeader) {
-		if headerHandler.GetNonce() == bp.genesisNonce+1 { // first block after genesis
+		return bp.validateGenesisBlock(headerHandler, currentBlockHeader)
+	}
+
+	if err := bp.validateBlockAgainstCurrentHeader(headerHandler, currentBlockHeader); err != nil {
+		return err
+	}
+
+	return bp.validateBlockAndSlot(headerHandler)
+}
+
+// Helper function to validate the genesis block
+func (bp *baseProcessor) validateGenesisBlock(headerHandler data.HeaderHandler, currentBlockHeader data.HeaderHandler) error {
+	if check.IfNil(currentBlockHeader) {
+		if headerHandler.GetNonce() == bp.genesisNonce+1 {
 			if bytes.Equal(headerHandler.GetParentHash(), bp.blockChain.GetGenesisHeaderHash()) {
 				// TODO: add genesis block verification
 				return nil
 			}
-
 			log.Debug("hash does not match",
 				"local genesis block hash", bp.blockChain.GetGenesisHeaderHash(),
 				"received previous hash", headerHandler.GetParentHash())
-
 			return process.ErrBlockHashDoesNotMatch
 		}
 
 		log.Debug("nonce does not match",
 			"local block nonce", 0,
 			"received nonce", headerHandler.GetNonce())
-
 		return process.ErrWrongNonceInBlock
 	}
 
+	return nil
+}
+
+// Helper function to validate the block against the current block header
+func (bp *baseProcessor) validateBlockAgainstCurrentHeader(headerHandler data.HeaderHandler, currentBlockHeader data.HeaderHandler) error {
 	if headerHandler.GetSlot() <= currentBlockHeader.GetSlot() {
 		log.Debug("slot does not match",
 			"local block slot", currentBlockHeader.GetSlot(),
 			"received block slot", headerHandler.GetSlot())
-
 		return process.ErrLowerSlotInBlock
 	}
 
@@ -138,7 +152,6 @@ func (bp *baseProcessor) checkBlockValidity(
 		log.Debug("nonce does not match",
 			"local block nonce", currentBlockHeader.GetNonce(),
 			"received nonce", headerHandler.GetNonce())
-
 		return process.ErrWrongNonceInBlock
 	}
 
@@ -146,7 +159,6 @@ func (bp *baseProcessor) checkBlockValidity(
 		log.Debug("hash does not match",
 			"local block hash", bp.blockChain.GetCurrentBlockHeaderHash(),
 			"received previous hash", headerHandler.GetParentHash())
-
 		return process.ErrBlockHashDoesNotMatch
 	}
 
@@ -154,12 +166,7 @@ func (bp *baseProcessor) checkBlockValidity(
 		log.Debug("random seed does not match",
 			"local random seed", currentBlockHeader.GetRandSeed(),
 			"received previous random seed", headerHandler.GetPrevRandSeed())
-
 		return process.ErrRandSeedDoesNotMatch
-	}
-
-	if !bp.slotManager.ValidateSlotTimestamp(int64(headerHandler.GetSlot()), headerHandler.GetTimestamp()) {
-		return process.ErrInvalidBlockTimestamp
 	}
 
 	// verification of epoch
@@ -167,6 +174,15 @@ func (bp *baseProcessor) checkBlockValidity(
 		return process.ErrEpochDoesNotMatch
 	}
 
+	return nil
+}
+
+func (bp *baseProcessor) validateBlockAndSlot(headerHandler data.HeaderHandler) error {
+	if !bp.slotManager.ValidateSlotTimestamp(tools.SafeU64ToI64(headerHandler.GetSlot()), headerHandler.GetTimestamp()) {
+		return process.ErrInvalidBlockTimestamp
+	}
+
+	// #nosec G115
 	if headerHandler.GetTxCount() != uint32(len(headerHandler.GetTxHashes())) {
 		log.Error("checkBlockValidity tx count does not match",
 			"count", headerHandler.GetTxCount(),
@@ -180,6 +196,11 @@ func (bp *baseProcessor) checkBlockValidity(
 		return process.ErrInvalidTXFees
 	}
 
+	return bp.validateTxRootHash(headerHandler)
+}
+
+// Helper function to validate transaction root hash
+func (bp *baseProcessor) validateTxRootHash(headerHandler data.HeaderHandler) error {
 	if headerHandler.GetTxRootHash() != nil || headerHandler.GetTxCount() > 0 {
 		txRootHash, err := headerHandler.ComputeRootHash(bp.hasher)
 		if err != nil {
@@ -190,7 +211,6 @@ func (bp *baseProcessor) checkBlockValidity(
 			log.Debug("tx root hash does not match",
 				"header tx root hash", headerHandler.GetTxRootHash(),
 				"computed tx root hash", txRootHash)
-
 			return process.ErrTxRootHashDoesNotMatch
 		}
 	}
@@ -240,16 +260,20 @@ func (bp *baseProcessor) getRootHashKApp() []byte {
 	return rootHash
 }
 
-func displayHeader(headerHandler data.HeaderHandler) []*display.LineData {
+func displayHeader(headerHandler data.HeaderHandler, headerHash []byte) []*display.LineData {
 	return []*display.LineData{
 		display.NewLineData(false, []string{
 			"",
 			"ChainID",
-			logger.DisplayByteSlice(headerHandler.GetChainID())}),
+			string(headerHandler.GetChainID())}),
 		display.NewLineData(false, []string{
 			"",
 			"Epoch",
 			fmt.Sprintf("%d", headerHandler.GetEpoch())}),
+		display.NewLineData(false, []string{
+			"",
+			"IsEpochStart",
+			fmt.Sprintf("%t", headerHandler.GetIsEpochStart())}),
 		display.NewLineData(false, []string{
 			"",
 			"Slot",
@@ -268,6 +292,10 @@ func displayHeader(headerHandler data.HeaderHandler) []*display.LineData {
 			logger.DisplayByteSlice(headerHandler.GetParentHash())}),
 		display.NewLineData(false, []string{
 			"",
+			"Block Hahs",
+			logger.DisplayByteSlice(headerHash)}),
+		display.NewLineData(false, []string{
+			"",
 			"Prev rand seed",
 			logger.DisplayByteSlice(headerHandler.GetPrevRandSeed())}),
 		display.NewLineData(false, []string{
@@ -278,6 +306,10 @@ func displayHeader(headerHandler data.HeaderHandler) []*display.LineData {
 			"",
 			"Signature",
 			logger.DisplayByteSlice(headerHandler.GetSignature())}),
+		display.NewLineData(false, []string{
+			"",
+			"TxRootHash",
+			logger.DisplayByteSlice(headerHandler.GetTxRootHash())}),
 		display.NewLineData(false, []string{
 			"",
 			"Root hash",
@@ -457,7 +489,7 @@ func (bp *baseProcessor) prepareDataForBootStorer(args *bootStorerDataArgs) {
 
 	startTime := time.Now()
 
-	err := bp.bootStorer.Put(int64(args.slot), bootData)
+	err := bp.bootStorer.Put(tools.SafeU64ToI64(args.slot), bootData)
 	if err != nil {
 		log.Warn("cannot save boot data in storage",
 			"error", err.Error())

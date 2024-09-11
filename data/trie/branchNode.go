@@ -445,61 +445,69 @@ func (bn *branchNode) insert(n *leafNode, db data.DBWriteCacher) (bool, node, []
 	return true, bn, oldHash, nil
 }
 
-func (bn *branchNode) delete(key []byte, db data.DBWriteCacher) (bool, node, [][]byte, error) {
-	emptyHashes := make([][]byte, 0)
-	err := bn.isEmptyOrNil()
-	if err != nil {
-		return false, nil, emptyHashes, fmt.Errorf("delete error %w", err)
+// Helper function to validate the input for deletion
+func (bn *branchNode) validateDeleteInput(key []byte) error {
+	if err := bn.isEmptyOrNil(); err != nil {
+		return fmt.Errorf("delete error %w", err)
 	}
+
 	if len(key) == 0 {
-		return false, nil, emptyHashes, ErrValueTooShort
+		return ErrValueTooShort
 	}
+
+	if childPosOutOfRange(key[firstByte]) {
+		return ErrChildPosOutOfRange
+	}
+
+	return nil
+}
+
+// Helper function to get child position and the remaining key
+func (bn *branchNode) getChildPositionAndKey(key []byte) (byte, []byte) {
 	childPos := key[firstByte]
-	if childPosOutOfRange(childPos) {
-		return false, nil, emptyHashes, ErrChildPosOutOfRange
-	}
-	key = key[1:]
-	err = resolveIfCollapsed(bn, childPos, db)
-	if err != nil {
-		return false, nil, emptyHashes, err
+	if len(key) >= 1 {
+		key = key[1:]
 	}
 
-	if bn.children[childPos] == nil {
-		return false, bn, emptyHashes, nil
-	}
+	return childPos, key
+}
 
-	dirty, newNode, oldHashes, err := bn.children[childPos].delete(key, db)
-	if !dirty || err != nil {
-		return false, bn, emptyHashes, err
-	}
-
+// Helper function to handle the dirty state of the node
+func (bn *branchNode) handleDirtyNode(oldHashes [][]byte) [][]byte {
 	if !bn.dirty {
 		oldHashes = append(oldHashes, bn.hash)
 	}
 
 	bn.hash = nil
+
+	return oldHashes
+}
+
+// Helper function to update the reference to the child node
+func (bn *branchNode) updateChildReference(childPos byte, newNode node) {
 	bn.children[childPos] = newNode
 	if newNode == nil {
 		bn.EncodedChildren[childPos] = nil
 	}
+}
 
+// Helper function to reduce the node if there is only one child
+func (bn *branchNode) reduceNodeIfNecessary(oldHashes [][]byte, db data.DBWriteCacher) (bool, node, [][]byte, error) {
 	numChildren, pos := getChildPosition(bn)
 
 	if numChildren == 1 {
-		err = resolveIfCollapsed(bn, byte(pos), db)
-		if err != nil {
-			return false, nil, emptyHashes, err
+		if err := resolveIfCollapsed(bn, byte(pos), db); err != nil {
+			return false, nil, oldHashes, err
 		}
 
-		err = resolveIfCollapsed(bn.children[pos], byte(pos), db)
-		if err != nil {
-			return false, nil, emptyHashes, err
+		if err := resolveIfCollapsed(bn.children[pos], byte(pos), db); err != nil {
+			return false, nil, oldHashes, err
 		}
 
 		var newChildHash bool
-		newNode, newChildHash, err = bn.children[pos].reduceNode(pos)
+		newNode, newChildHash, err := bn.children[pos].reduceNode(pos)
 		if err != nil {
-			return false, nil, emptyHashes, err
+			return false, nil, oldHashes, err
 		}
 
 		if newChildHash && !bn.children[pos].isDirty() {
@@ -509,9 +517,49 @@ func (bn *branchNode) delete(key []byte, db data.DBWriteCacher) (bool, node, [][
 		return true, newNode, oldHashes, nil
 	}
 
-	bn.dirty = dirty
-
+	bn.dirty = true
 	return true, bn, oldHashes, nil
+}
+
+func (bn *branchNode) delete(key []byte, db data.DBWriteCacher) (bool, node, [][]byte, error) {
+	emptyHashes := make([][]byte, 0)
+
+	// Validate inputs
+	if err := bn.validateDeleteInput(key); err != nil {
+		return false, nil, emptyHashes, err
+	}
+
+	childPos, remainingKey := bn.getChildPositionAndKey(key)
+
+	err := resolveIfCollapsed(bn, childPos, db)
+	if err != nil {
+		return false, nil, emptyHashes, err
+	}
+
+	if bn.children[childPos] == nil {
+		return false, bn, emptyHashes, nil
+	}
+
+	// delete child node
+	dirty, newNode, oldHashes, err := bn.children[childPos].delete(remainingKey, db)
+	if !dirty || err != nil {
+		return false, bn, emptyHashes, err
+	}
+
+	// Handle the case where the node becomes dirty
+	oldHashes = bn.handleDirtyNode(oldHashes)
+
+	// Update the child reference and handle collapsing or reducing nodes
+	bn.updateChildReference(childPos, newNode)
+
+	bn.hash = nil
+	bn.children[childPos] = newNode
+	if newNode == nil {
+		bn.EncodedChildren[childPos] = nil
+	}
+
+	// Check if the node can be reduced
+	return bn.reduceNodeIfNecessary(oldHashes, db)
 }
 
 func (bn *branchNode) reduceNode(pos int) (node, bool, error) {

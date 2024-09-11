@@ -346,13 +346,13 @@ func fitStringToWidth(original string, maxWidth int) string {
 func (wr *WidgetsRender) prepareLoads() {
 	cpuLoadPercent := wr.presenter.GetCPULoadPercent()
 	wr.cpuLoad.Title = "CPU load"
-	wr.cpuLoad.Percent = int(cpuLoadPercent)
+	wr.cpuLoad.Percent = int(cpuLoadPercent) // #nosec G115
 
 	memLoadPercent := wr.presenter.GetMemLoadPercent()
 	memTotalMemoryBytes := wr.presenter.GetTotalMem()
 	memUsed := wr.presenter.GetMemUsedByNode()
 	wr.memoryLoad.Title = "Memory load"
-	wr.memoryLoad.Percent = int(memLoadPercent)
+	wr.memoryLoad.Percent = int(memLoadPercent) // #nosec G115
 	str := fmt.Sprintf("%d%% / used: %s / total: %s", memLoadPercent, tools.ConvertBytes(memUsed), tools.ConvertBytes(memTotalMemoryBytes))
 	wr.memoryLoad.Label = fitStringToWidth(str, wr.memoryLoad.Size().X)
 
@@ -360,7 +360,7 @@ func (wr *WidgetsRender) prepareLoads() {
 	recvBps := wr.presenter.GetNetworkRecvBps()
 	recvBpsPeak := wr.presenter.GetNetworkRecvBpsPeak()
 	wr.networkRecv.Title = "Network - received per host:"
-	wr.networkRecv.Percent = int(recvLoad)
+	wr.networkRecv.Percent = int(recvLoad) // #nosec G115
 	str = fmt.Sprintf("%d%% / current: %s/s / peak: %s/s", recvLoad, tools.ConvertBytes(recvBps), tools.ConvertBytes(recvBpsPeak))
 	wr.networkRecv.Label = fitStringToWidth(str, wr.networkRecv.Size().X)
 
@@ -368,7 +368,7 @@ func (wr *WidgetsRender) prepareLoads() {
 	sentBps := wr.presenter.GetNetworkSentBps()
 	sentBpsPeak := wr.presenter.GetNetworkSentBpsPeak()
 	wr.networkSent.Title = "Network - sent per host:"
-	wr.networkSent.Percent = int(sentLoad)
+	wr.networkSent.Percent = int(sentLoad) // #nosec G115
 	str = fmt.Sprintf("%d%% / current: %s/s / peak: %s/s", sentLoad, tools.ConvertBytes(sentBps), tools.ConvertBytes(sentBpsPeak))
 	wr.networkSent.Label = fitStringToWidth(str, wr.networkSent.Size().X)
 

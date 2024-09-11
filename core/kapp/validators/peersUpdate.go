@@ -11,6 +11,7 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/sharding"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 )
 
@@ -435,7 +436,7 @@ func (v *validatorsKApp) UpdateValidatorInfoOnSuccessfulBlock(
 	// compute success validators
 	totalSigned := 0
 	for i := 0; i < len(validatorList); i++ {
-		haveSigned := (signingBitmap[i/8] & (1 << (uint16(i) % 8))) != 0
+		haveSigned := (signingBitmap[i/8] & (1 << (uint16(i) % 8))) != 0 // #nosec G115
 		if haveSigned {
 			totalSigned++
 		}
@@ -444,7 +445,9 @@ func (v *validatorsKApp) UpdateValidatorInfoOnSuccessfulBlock(
 	leaderAccumulatedFees := accumulatedFees
 	validatorAccumulatedFees := int64(0)
 	if totalSigned > 1 {
-		validatorPercent := core.HundredPercent - uint32(v.KAppController.GetProposalController().GetParameterUint(kapps.EnumParameter_LeaderValidatorRewardsPercentage))
+		validatorPercent := core.HundredPercent - tools.SafeU64ToU32(
+			v.KAppController.GetProposalController().GetParameterUint(kapps.EnumParameter_LeaderValidatorRewardsPercentage),
+		)
 		ParsedValidatorPercent := float64(validatorPercent) / float64(core.HundredPercent)
 		validatorAccumulatedFees = int64(float64(accumulatedFees) * ParsedValidatorPercent / float64(totalSigned-1))
 		leaderAccumulatedFees = accumulatedFees - int64(validatorAccumulatedFees*(int64(totalSigned)-1))
@@ -460,7 +463,7 @@ func (v *validatorsKApp) UpdateValidatorInfoOnSuccessfulBlock(
 
 		newRating := peerAcc.GetRating()
 		isLeader := i == 0
-		validatorSigned := (signingBitmap[i/8] & (1 << (uint16(i) % 8))) != 0
+		validatorSigned := (signingBitmap[i/8] & (1 << (uint16(i) % 8))) != 0 // #nosec G115
 		actionType := v.computeValidatorActionType(isLeader, validatorSigned)
 
 		switch actionType {

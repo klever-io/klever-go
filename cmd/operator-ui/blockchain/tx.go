@@ -25,7 +25,7 @@ func buildRequest(
 
 	if len(contracts) > 1 {
 		return json.Marshal(&models.SendTXRequest{
-			Type:      uint32(txType),
+			Type:      uint32(txType), // #nosec G115 - type casting
 			Sender:    fromAddr,
 			Nonce:     txNonce,
 			PermID:    0,
@@ -34,7 +34,7 @@ func buildRequest(
 	}
 
 	return json.Marshal(&models.SendTXRequest{
-		Type:     uint32(txType),
+		Type:     uint32(txType), // #nosec G115 - type casting
 		Sender:   fromAddr,
 		Nonce:    txNonce,
 		PermID:   0,

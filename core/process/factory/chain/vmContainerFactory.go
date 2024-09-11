@@ -282,6 +282,7 @@ func (vmf *vmContainerFactory) createInProcessWasmVMByVersion(version config.Was
 	switch version.Version {
 	case "v1.0":
 		return vmf.createInProcessWasmVMV10()
+	// TODO: Handle additional versions in the future
 	default:
 		return vmf.createInProcessWasmVMV10()
 	}

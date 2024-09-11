@@ -22,7 +22,7 @@ func Proposal(fromAddr, description string, parameters map[int32]string, duratio
 
 func Vote(fromAddr string, proposalID uint64, amount float64, voteType uint64) (string, error) {
 	vote := models.VoteTXRequest{
-		Type:       uint32(voteType),
+		Type:       uint32(voteType), // #nosec G115 - type casting
 		ProposalID: proposalID,
 		Amount:     int64(amount * 1000000),
 	}

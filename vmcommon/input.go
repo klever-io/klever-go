@@ -2,10 +2,12 @@ package vmcommon
 
 import (
 	"bytes"
+	"math"
 	"math/big"
 
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/data/vm"
+	"github.com/klever-io/klever-go/tools"
 )
 
 // VMInput contains the common fields between the 2 types of SC call.
@@ -229,7 +231,9 @@ func (arg Argument) Uint32() uint32 {
 	if arg == nil {
 		return 0
 	}
-	return uint32(big.NewInt(0).SetBytes(arg).Uint64())
+	value := big.NewInt(0).SetBytes(arg).Uint64()
+
+	return tools.SafeU64ToU32(value)
 }
 
 func (arg Argument) Int64() int64 {
@@ -243,7 +247,11 @@ func (arg Argument) Int32() int32 {
 	if arg == nil {
 		return 0
 	}
-	return int32(big.NewInt(0).SetBytes(arg).Int64())
+	value := big.NewInt(0).SetBytes(arg).Uint64()
+	if value > math.MaxInt32 {
+		return math.MaxInt32 // overflow to return max value
+	}
+	return int32(value) // #nosec G115
 }
 
 func (arg Argument) Bool() bool {

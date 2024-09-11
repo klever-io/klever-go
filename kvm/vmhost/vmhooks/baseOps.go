@@ -99,6 +99,7 @@ var logEEI = logger.GetOrCreate("vm/eei")
 
 func getKDATransferFromInputFailIfWrongIndex(host vmhost.VMHost, index int32) *vmcommon.KDATransfer {
 	kdaTransfers := host.Runtime().GetVMInput().KDATransfers
+	// #nosec G115
 	if int32(len(kdaTransfers))-1 < index || index < 0 {
 		WithFaultAndHost(host, vmhost.ErrInvalidTokenIndex, host.Runtime().BaseOpsErrorShouldFailExecution())
 		return nil
@@ -122,7 +123,7 @@ func (context *VMHooksImpl) GetGasLeft() int64 {
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetGasLeft
 	metering.UseGasAndAddTracedGas(getGasLeftName, gasToUse)
 
-	return int64(metering.GasLeft())
+	return int64(metering.GasLeft()) // #nosec G115 - return negative if exceeded MaxInt64
 }
 
 // GetSCAddress VMHooks implementation.
@@ -179,7 +180,7 @@ func (context *VMHooksImpl) IsSmartContract(addressOffset executor.MemPtr) int32
 
 	isSmartContract := blockchain.IsSmartContract(address)
 
-	return int32(vmhost.BooleanToInt(isSmartContract))
+	return int32(vmhost.BooleanToInt(isSmartContract)) // #nosec G115
 }
 
 // SignalError VMHooks implementation.
@@ -190,6 +191,7 @@ func (context *VMHooksImpl) SignalError(messageOffset executor.MemPtr, messageLe
 	metering.StartGasTracing(signalErrorName)
 
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.SignalError
+	// #nosec G115
 	gasToUse += metering.GasSchedule().BaseOperationCost.PersistPerByte * uint64(messageLength)
 
 	err := metering.UseGasBounded(gasToUse)
@@ -238,7 +240,7 @@ func (context *VMHooksImpl) GetBlockHash(nonce int64, resultOffset executor.MemP
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetBlockHash
 	metering.UseGasAndAddTracedGas(blockHashName, gasToUse)
 
-	hash := blockchain.BlockHash(uint64(nonce))
+	hash := blockchain.BlockHash(uint64(nonce)) // #nosec G115
 	err := context.MemStore(resultOffset, hash)
 	if context.WithFault(err, runtime.BaseOpsErrorShouldFailExecution()) {
 		return 1
@@ -270,7 +272,7 @@ func getKDADataFromBlockchainHook(
 		return nil, nil, err
 	}
 
-	kdaToken, userKDA, err := blockchain.GetKDAToken(address, tokenID, uint64(nonce))
+	kdaToken, userKDA, err := blockchain.GetKDAToken(address, tokenID, uint64(nonce)) // #nosec G115
 	if err != nil {
 		return nil, nil, err
 	}
@@ -301,7 +303,7 @@ func (context *VMHooksImpl) GetKDABalance(
 		return -1
 	}
 
-	return int32(len(big.NewInt(userKDA.Balance).Bytes()))
+	return int32(len(big.NewInt(userKDA.Balance).Bytes())) // #nosec G115
 }
 
 // GetKDANFTNameLength VMHooks implementation.
@@ -322,7 +324,7 @@ func (context *VMHooksImpl) GetKDANFTNameLength(
 		return -1
 	}
 
-	return int32(len(kdaData.Name))
+	return int32(len(kdaData.Name)) // #nosec G115
 }
 
 // GetKDANFTURILength VMHooks implementation.
@@ -354,7 +356,7 @@ func (context *VMHooksImpl) GetKDANFTURILength(
 
 	dMap := types.NewDeterministicMap(kdaData.URIs)
 
-	return int32(len(dMap.GetAt(0)))
+	return int32(len(dMap.GetAt(0))) // #nosec G115
 }
 
 // GetKDATokenData VMHooks implementation.
@@ -402,7 +404,7 @@ func (context *VMHooksImpl) GetKDATokenData(
 	}
 
 	// BUG: implement all fields
-	return int32(len(big.NewInt(userKDA.Balance).Bytes()))
+	return int32(len(big.NewInt(userKDA.Balance).Bytes())) // #nosec G115
 }
 
 // ValidateTokenIdentifier VMHooks implementation.
@@ -526,6 +528,7 @@ func (context *VMHooksImpl) extractIndirectContractCallArguments(
 		return nil, err
 	}
 
+	// #nosec G115
 	gasToUse := math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
 	metering.UseAndTraceGas(gasToUse)
 
@@ -653,6 +656,7 @@ func (context *VMHooksImpl) UpgradeContract(
 		dataOffset,
 	)
 
+	// #nosec G115
 	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
 	metering.UseAndTraceGas(gasToUse)
 
@@ -666,6 +670,7 @@ func (context *VMHooksImpl) UpgradeContract(
 	}
 
 	gasSchedule := metering.GasSchedule()
+	// #nosec G115
 	gasToUse = math.MulUint64(gasSchedule.BaseOperationCost.DataCopyPerByte, uint64(length))
 	metering.UseAndTraceGas(gasToUse)
 
@@ -715,6 +720,7 @@ func (context *VMHooksImpl) UpgradeFromSourceContract(
 		dataOffset,
 	)
 
+	// #nosec G115
 	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
 	metering.UseAndTraceGas(gasToUse)
 
@@ -772,7 +778,7 @@ func upgradeContract(
 	metering := host.Metering()
 	gasSchedule := metering.GasSchedule()
 	minCallCost := math.MulUint64(2, gasSchedule.BaseOpsAPICost.ExecuteOnDestContext)
-	if uint64(gasLimit) < minCallCost {
+	if gasLimit < 0 || uint64(gasLimit) < minCallCost {
 		runtime.SetRuntimeBreakpointValue(vmhost.BreakpointOutOfGas)
 		return
 	}
@@ -830,6 +836,7 @@ func (context *VMHooksImpl) DeleteContract(
 		dataOffset,
 	)
 
+	// #nosec G115
 	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
 	metering.UseAndTraceGas(gasToUse)
 
@@ -860,7 +867,7 @@ func deleteContract(
 	metering := host.Metering()
 	gasSchedule := metering.GasSchedule()
 	minCallCost := math.MulUint64(2, gasSchedule.BaseOpsAPICost.ExecuteOnDestContext)
-	if uint64(gasLimit) < minCallCost {
+	if gasLimit < 0 || uint64(gasLimit) < minCallCost {
 		runtime.SetRuntimeBreakpointValue(vmhost.BreakpointOutOfGas)
 		return
 	}
@@ -897,12 +904,13 @@ func (context *VMHooksImpl) GetArgumentLength(id int32) int32 {
 	metering.UseGasAndAddTracedGas(getArgumentLengthName, gasToUse)
 
 	args := runtime.Arguments()
+	// #nosec G115
 	if id < 0 || int32(len(args)) <= id {
 		context.WithFault(vmhost.ErrInvalidArgument, runtime.BaseOpsErrorShouldFailExecution())
 		return -1
 	}
 
-	return int32(len(args[id]))
+	return int32(len(args[id])) // #nosec G115
 }
 
 // GetArgument VMHooks implementation.
@@ -915,6 +923,7 @@ func (context *VMHooksImpl) GetArgument(id int32, argOffset executor.MemPtr) int
 	metering.UseGasAndAddTracedGas(getArgumentName, gasToUse)
 
 	args := runtime.Arguments()
+	// #nosec G115
 	if id < 0 || int32(len(args)) <= id {
 		context.WithFault(vmhost.ErrInvalidArgument, runtime.BaseOpsErrorShouldFailExecution())
 		return -1
@@ -925,7 +934,7 @@ func (context *VMHooksImpl) GetArgument(id int32, argOffset executor.MemPtr) int
 		return -1
 	}
 
-	return int32(len(args[id]))
+	return int32(len(args[id])) // #nosec G115
 }
 
 // GetFunction VMHooks implementation.
@@ -943,7 +952,7 @@ func (context *VMHooksImpl) GetFunction(functionOffset executor.MemPtr) int32 {
 		return -1
 	}
 
-	return int32(len(function))
+	return int32(len(function)) // #nosec G115
 }
 
 // GetNumArguments VMHooks implementation.
@@ -956,7 +965,7 @@ func (context *VMHooksImpl) GetNumArguments() int32 {
 	metering.UseGasAndAddTracedGas(getNumArgumentsName, gasToUse)
 
 	args := runtime.Arguments()
-	return int32(len(args))
+	return int32(len(args)) // #nosec G115
 }
 
 // StorageStore VMHooks implementation.
@@ -1014,7 +1023,7 @@ func StorageStoreWithTypedArgs(host vmhost.VMHost, key []byte, data []byte) int3
 		return -1
 	}
 
-	return int32(storageStatus)
+	return int32(storageStatus) // #nosec G115
 }
 
 // StorageLoadLength VMHooks implementation.
@@ -1043,7 +1052,7 @@ func (context *VMHooksImpl) StorageLoadLength(keyOffset executor.MemPtr, keyLeng
 		return -1
 	}
 
-	return int32(len(data))
+	return int32(len(data)) // #nosec G115
 }
 
 // StorageLoadFromAddress VMHooks implementation.
@@ -1094,7 +1103,7 @@ func (context *VMHooksImpl) StorageLoadFromAddressWithHost(
 		return -1
 	}
 
-	return int32(len(data))
+	return int32(len(data)) // #nosec G115
 }
 
 // StorageLoadFromAddressWithTypedArgs - storageLoadFromAddress with args already read from memory
@@ -1148,7 +1157,7 @@ func (context *VMHooksImpl) StorageLoadWithHost(host vmhost.VMHost, keyOffset ex
 		return -1
 	}
 
-	return int32(len(data))
+	return int32(len(data)) // #nosec G115
 }
 
 // StorageLoadWithWithTypedArgs - storageLoad with args already read from memory
@@ -1211,7 +1220,7 @@ func SetStorageLockWithTypedArgs(host vmhost.VMHost, key []byte, lockTimestamp i
 	if WithFaultAndHost(host, err, runtime.BaseOpsErrorShouldFailExecution()) {
 		return -1
 	}
-	return int32(storageStatus)
+	return int32(storageStatus) // #nosec G115
 }
 
 // GetStorageLock VMHooks implementation.
@@ -1326,7 +1335,7 @@ func (context *VMHooksImpl) GetCallValue(resultOffset executor.MemPtr) int32 {
 		return -1
 	}
 
-	return int32(len(value))
+	return int32(len(value)) // #nosec G115
 }
 
 // GetKDAValue VMHooks implementation.
@@ -1361,7 +1370,7 @@ func (context *VMHooksImpl) GetKDAValueByIndex(resultOffset executor.MemPtr, ind
 		return -1
 	}
 
-	return int32(len(value))
+	return int32(len(value)) // #nosec G115
 }
 
 // GetKDATokenName VMHooks implementation.
@@ -1394,7 +1403,7 @@ func (context *VMHooksImpl) GetKDATokenNameByIndex(resultOffset executor.MemPtr,
 		return -1
 	}
 
-	return int32(len(tokenName))
+	return int32(len(tokenName)) // #nosec G115
 }
 
 // GetKDATokenNonce VMHooks implementation.
@@ -1416,11 +1425,11 @@ func (context *VMHooksImpl) GetKDATokenNonceByIndex(index int32) int64 {
 	metering.UseGasAndAddTracedGas(getKDATokenNonceByIndexName, gasToUse)
 
 	kdaTransfer := getKDATransferFromInputFailIfWrongIndex(context.GetVMHost(), index)
-	nonce := uint64(0)
+	nonce := int64(0)
 	if kdaTransfer != nil {
-		nonce = kdaTransfer.KDATokenNonce
+		nonce = int64(kdaTransfer.KDATokenNonce) // #nosec G115
 	}
-	return int64(nonce)
+	return nonce
 }
 
 // GetKDATokenType VMHooks implementation.
@@ -1443,7 +1452,7 @@ func (context *VMHooksImpl) GetKDATokenTypeByIndex(index int32) int32 {
 
 	kdaTransfer := getKDATransferFromInputFailIfWrongIndex(context.GetVMHost(), index)
 	if kdaTransfer != nil {
-		return int32(kdaTransfer.KDATokenType)
+		return int32(kdaTransfer.KDATokenType) // #nosec G115
 	}
 	return 0
 }
@@ -1457,7 +1466,7 @@ func (context *VMHooksImpl) GetNumKDATransfers() int32 {
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetCallValue
 	metering.UseGasAndAddTracedGas(getNumKDATransfersName, gasToUse)
 
-	return int32(len(runtime.GetVMInput().KDATransfers))
+	return int32(len(runtime.GetVMInput().KDATransfers)) // #nosec G115
 }
 
 // GetCallValueByTokenName VMHooks implementation.
@@ -1487,8 +1496,7 @@ func (context *VMHooksImpl) GetCallValueByTokenName(
 		return -1
 	}
 
-	return int32(len(value))
-
+	return int32(len(value)) // #nosec G115
 }
 
 // GetCallValueTokenName VMHooks implementation.
@@ -1536,7 +1544,7 @@ func (context *VMHooksImpl) GetCallValueTokenNameByIndex(
 		return -1
 	}
 
-	return int32(len(tokenName))
+	return int32(len(tokenName)) // #nosec G115
 }
 
 // WriteLog VMHooks implementation.
@@ -1553,6 +1561,7 @@ func (context *VMHooksImpl) WriteLog(
 	metering := context.GetMeteringContext()
 
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.Log
+	// #nosec G115
 	gas := math.MulUint64(metering.GasSchedule().BaseOperationCost.PersistPerByte, uint64(numTopics*vmhost.HashLen+dataLength))
 	gasToUse = math.AddUint64(gasToUse, gas)
 	metering.UseGasAndAddTracedGas(writeLogName, gasToUse)
@@ -1612,7 +1621,7 @@ func (context *VMHooksImpl) WriteEventLog(
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.Log
 	gasForData := math.MulUint64(
 		metering.GasSchedule().BaseOperationCost.DataCopyPerByte,
-		uint64(topicDataTotalLen+dataLength))
+		uint64(topicDataTotalLen+dataLength)) // #nosec G115
 	gasToUse = math.AddUint64(gasToUse, gasForData)
 	metering.UseGasAndAddTracedGas(writeEventLogName, gasToUse)
 
@@ -1628,7 +1637,7 @@ func (context *VMHooksImpl) GetBlockTimestamp() int64 {
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetBlockTimeStamp
 	metering.UseGasAndAddTracedGas(getBlockTimestampName, gasToUse)
 
-	return int64(blockchain.CurrentTimeStamp())
+	return int64(blockchain.CurrentTimeStamp()) // #nosec G115
 }
 
 // GetBlockNonce VMHooks implementation.
@@ -1640,7 +1649,7 @@ func (context *VMHooksImpl) GetBlockNonce() int64 {
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetBlockNonce
 	metering.UseGasAndAddTracedGas(getBlockNonceName, gasToUse)
 
-	return int64(blockchain.CurrentNonce())
+	return int64(blockchain.CurrentNonce()) // #nosec G115
 }
 
 // GetBlockRound VMHooks implementation.
@@ -1652,7 +1661,7 @@ func (context *VMHooksImpl) GetBlockRound() int64 {
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetBlockRound
 	metering.UseGasAndAddTracedGas(getBlockRoundName, gasToUse)
 
-	return int64(blockchain.CurrentSlot())
+	return int64(blockchain.CurrentSlot()) // #nosec G115
 }
 
 // GetBlockEpoch VMHooks implementation.
@@ -1718,7 +1727,7 @@ func (context *VMHooksImpl) GetPrevBlockNonce() int64 {
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetBlockNonce
 	metering.UseGasAndAddTracedGas(getPrevBlockNonceName, gasToUse)
 
-	return int64(blockchain.LastNonce())
+	return int64(blockchain.LastNonce()) // #nosec G115
 }
 
 // GetPrevBlockRound VMHooks implementation.
@@ -1730,7 +1739,7 @@ func (context *VMHooksImpl) GetPrevBlockRound() int64 {
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetBlockRound
 	metering.UseGasAndAddTracedGas(getPrevBlockRoundName, gasToUse)
 
-	return int64(blockchain.LastSlot())
+	return int64(blockchain.LastSlot()) // #nosec G115
 }
 
 // GetPrevBlockEpoch VMHooks implementation.
@@ -1769,6 +1778,7 @@ func (context *VMHooksImpl) Finish(pointer executor.MemPtr, length executor.MemL
 	metering.StartGasTracing(returnDataName)
 
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.Finish
+	// #nosec G115
 	gas := math.MulUint64(metering.GasSchedule().BaseOperationCost.PersistPerByte, uint64(length))
 	gasToUse = math.AddUint64(gasToUse, gas)
 	err := metering.UseGasBounded(gasToUse)
@@ -2162,6 +2172,7 @@ func (context *VMHooksImpl) createContractWithHost(
 		dataOffset,
 	)
 
+	// #nosec G115
 	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
 	metering.UseAndTraceGas(gasToUse)
 
@@ -2226,6 +2237,7 @@ func (context *VMHooksImpl) DeployFromSourceContract(
 		dataOffset,
 	)
 
+	// #nosec G115
 	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
 	metering.UseAndTraceGas(gasToUse)
 
@@ -2319,7 +2331,7 @@ func (context *VMHooksImpl) GetNumReturnData() int32 {
 	metering.UseGasAndAddTracedGas(getNumReturnDataName, gasToUse)
 
 	returnData := output.ReturnData()
-	return int32(len(returnData))
+	return int32(len(returnData)) // #nosec G115
 }
 
 // GetReturnDataSize VMHooks implementation.
@@ -2333,12 +2345,13 @@ func (context *VMHooksImpl) GetReturnDataSize(resultID int32) int32 {
 	metering.UseGasAndAddTracedGas(getReturnDataSizeName, gasToUse)
 
 	returnData := output.ReturnData()
+	// #nosec G115
 	if resultID >= int32(len(returnData)) || resultID < 0 {
 		context.WithFault(vmhost.ErrInvalidArgument, runtime.BaseOpsErrorShouldFailExecution())
 		return 0
 	}
 
-	return int32(len(returnData[resultID]))
+	return int32(len(returnData[resultID])) // #nosec G115
 }
 
 // GetReturnData VMHooks implementation.
@@ -2357,7 +2370,7 @@ func (context *VMHooksImpl) GetReturnData(resultID int32, dataOffset executor.Me
 		return 0
 	}
 
-	return int32(len(result))
+	return int32(len(result)) // #nosec G115
 }
 
 func GetReturnDataWithHostAndTypedArgs(host vmhost.VMHost, resultID int32) []byte {
@@ -2368,6 +2381,7 @@ func GetReturnDataWithHostAndTypedArgs(host vmhost.VMHost, resultID int32) []byt
 	metering.UseGasAndAddTracedGas(getReturnDataName, gasToUse)
 
 	returnData := output.ReturnData()
+	// #nosec G115
 	if resultID >= int32(len(returnData)) || resultID < 0 {
 		WithFaultAndHost(host, vmhost.ErrInvalidArgument, host.Runtime().BaseOpsErrorShouldFailExecution())
 		return nil
@@ -2410,8 +2424,9 @@ func DeleteFromReturnDataWithHost(host vmhost.VMHost, resultID int32) {
 	metering.UseGasAndAddTracedGas(deleteFromReturnDataName, gasToUse)
 
 	returnData := output.ReturnData()
+	// #nosec G115
 	if resultID < int32(len(returnData)) {
-		output.RemoveReturnData(uint32(resultID))
+		output.RemoveReturnData(uint32(resultID)) // #nosec G115
 	}
 }
 
@@ -2511,7 +2526,7 @@ func createInt32Array(rawData []byte, numIntegers int32) []int32 {
 	for cursor := 0; cursor < len(rawData); cursor += 4 {
 		rawInt := rawData[cursor : cursor+4]
 		actualInt := binary.LittleEndian.Uint32(rawInt)
-		integers[index] = int32(actualInt)
+		integers[index] = int32(actualInt) // #nosec G115
 		index++
 	}
 	return integers

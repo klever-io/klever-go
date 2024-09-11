@@ -216,7 +216,7 @@ func (ldp *latestDataProvider) GetLastEpochFromDirNames(epochDirs []string) (uin
 			return 0, err
 		}
 
-		epochsInDirName = append(epochsInDirName, uint32(epoch))
+		epochsInDirName = append(epochsInDirName, uint32(epoch)) // #nosec G115
 	}
 
 	sort.Slice(epochsInDirName, func(i, j int) bool {

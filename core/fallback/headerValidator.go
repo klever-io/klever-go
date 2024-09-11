@@ -7,6 +7,7 @@ import (
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/retriever"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
 )
@@ -61,7 +62,7 @@ func (fhv *fallbackHeaderValidator) ShouldApplyFallbackValidation(headerHandler 
 		return false
 	}
 
-	isRoundTooOld := int64(headerHandler.GetSlot())-int64(previousHeader.GetSlot()) >= core.MaxSlotsWithoutCommittedStartInEpochBlock
+	isRoundTooOld := tools.SafeU64ToI64(headerHandler.GetSlot())-tools.SafeU64ToI64(previousHeader.GetSlot()) >= core.MaxSlotsWithoutCommittedStartInEpochBlock
 	return isRoundTooOld
 }
 

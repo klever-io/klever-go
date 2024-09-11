@@ -240,7 +240,7 @@ func Test_Trigger_SetITOPrices_InvalidPriceShouldErr(t *testing.T) {
 
 	ito := &kapps.ITOData{}
 
-	itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
 		GetKDAKAppCalled: func() kapp.KDAKapp {
 			return &vmStub.KDAKappStub{
 				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
@@ -279,7 +279,7 @@ func Test_Trigger_SetITOPrices_ShouldWork(t *testing.T) {
 
 	ito := &kapps.ITOData{}
 
-	itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
 		GetKDAKAppCalled: func() kapp.KDAKapp {
 			return &vmStub.KDAKappStub{
 				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
@@ -358,7 +358,7 @@ func Test_Trigger_RemoveFromWhitelist_BeforeSmartContractFork_ShouldWork(t *test
 		},
 	}
 
-	itoKapp.SetAccountsCacher(accCacher)
+	_ = itoKapp.SetAccountsCacher(accCacher)
 
 	whitelist := make(map[string]*kapps.WhitelistData)
 	status, err := itoKapp.RemoveFromWhitelist(triggerContract, ito, asset, []byte(mockSender), whitelist)
@@ -422,7 +422,7 @@ func Test_Trigger_RemoveFromWhitelist_BeforeSmartContractFork_CantRemoveWhitelis
 		},
 	}
 
-	itoKapp.SetAccountsCacher(accCacher)
+	_ = itoKapp.SetAccountsCacher(accCacher)
 
 	whitelist := make(map[string]*kapps.WhitelistData)
 	status, err := itoKapp.RemoveFromWhitelist(triggerContract, ito, asset, []byte(mockSender), whitelist)
@@ -494,7 +494,7 @@ func Test_Trigger_RemoveFromWhitelist_AfterSmartContractFork_ShouldWork(t *testi
 		},
 	}
 
-	itoKapp.SetAccountsCacher(accCacher)
+	_ = itoKapp.SetAccountsCacher(accCacher)
 
 	whitelist := make(map[string]*kapps.WhitelistData)
 	status, err := itoKapp.RemoveFromWhitelist(triggerContract, ito, asset, []byte(mockSender), whitelist)
@@ -558,7 +558,7 @@ func Test_Trigger_RemoveFromWhitelist_AfterSmartContractFork_CantRemoveWhitelist
 		},
 	}
 
-	itoKapp.SetAccountsCacher(accCacher)
+	_ = itoKapp.SetAccountsCacher(accCacher)
 
 	whitelist := make(map[string]*kapps.WhitelistData)
 	status, err := itoKapp.RemoveFromWhitelist(triggerContract, ito, asset, []byte(mockSender), whitelist)

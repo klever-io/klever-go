@@ -2,20 +2,15 @@ package process
 
 import (
 	"fmt"
-	"path"
 
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
-	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/blockchain"
 	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/genesis"
-	"github.com/klever-io/klever-go/storage"
-	"github.com/klever-io/klever-go/storage/factory"
-	"github.com/klever-io/klever-go/storage/storageUnit"
 	"github.com/klever-io/klever-go/tools/check"
 )
 
@@ -41,21 +36,6 @@ func NewGenesisBlockCreator(arg ArgsGenesisBlockCreator) (*genesisBlockCreator, 
 
 func getGenesisBlocksSlotNonceEpoch(arg ArgsGenesisBlockCreator) (uint64, uint64, uint32) {
 	return 0, 0, 0
-}
-
-func createStorer(storageConfig config.StorageConfig, folder string) (storage.Storer, error) {
-	dbConfig := factory.GetDBFromConfig(storageConfig.DB)
-	dbConfig.FilePath = path.Join(folder, storageConfig.DB.FilePath)
-	store, err := storageUnit.NewStorageUnitFromConf(
-		factory.GetCacherFromConfig(storageConfig.Cache),
-		dbConfig,
-		factory.GetBloomFromConfig(storageConfig.Bloom),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return store, nil
 }
 
 func checkArgumentsForBlockCreator(arg ArgsGenesisBlockCreator) error {

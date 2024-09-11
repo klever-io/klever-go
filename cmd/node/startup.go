@@ -141,7 +141,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 			IsImportDBMode:         len(importDbDirectoryValue) > 0,
 			ImportDBWorkingDir:     importDbDirectoryValue,
 			ImportDbNoSigCheckFlag: ctx.GlobalBool(importDbNoSigCheck.Name),
-			ImportDBStartInEpoch:   uint32(ctx.GlobalUint64(importDbStartInEpoch.Name)),
+			ImportDBStartInEpoch:   tools.SafeU64ToU32(ctx.GlobalUint64(importDbStartInEpoch.Name)),
 		}
 		cfg.ImportDbConfig = importDBConfigs
 	}
@@ -363,7 +363,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 	sm, err := slot.NewSlotManager(
 		time.Unix(genesisNodesConfig.StartTime, 0),
 		syncer.CurrentTime(),
-		time.Duration(genesisNodesConfig.SlotInterval)*time.Millisecond,
+		time.Duration(genesisNodesConfig.SlotInterval)*time.Millisecond, // #nosec G115
 		syncer,
 		startSlot,
 	)
@@ -714,6 +714,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 	}
 
 	log.Trace("creating time cache for requested items components")
+	// #nosec G115
 	requestedItemsHandler := timecache.NewTimeCache(time.Duration(uint64(time.Millisecond) * genesisNodesConfig.SlotInterval))
 
 	whiteListCache, err := storageUnit.NewCache(storageFactory.GetCacherFromConfig(cfg.WhiteListPool))
@@ -898,7 +899,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		fallbackHeaderValidator,
 		nodeRedundancy,
 		importDBConfigs.IsImportDBMode,
-		uint32(ctx.GlobalUint64(syncUntil.Name)),
+		tools.SafeU64ToU32(ctx.GlobalUint64(syncUntil.Name)),
 		ctx.GlobalBool(startWithInSync.Name),
 	)
 	if err != nil {

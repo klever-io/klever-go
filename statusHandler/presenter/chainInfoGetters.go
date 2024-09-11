@@ -109,15 +109,16 @@ func (psh *PresenterStatusHandler) CalculateSynchronizationSpeed(numMilliseconds
 		return 0
 	}
 
-	slotsPerSecond := int64(currentSynchronizedSlot - psh.oldSlot)
-	if slotsPerSecond < 0 {
+	slotsPerSecond := currentSynchronizedSlot - psh.oldSlot
+	if currentSynchronizedSlot < psh.oldSlot {
+		// adjust to zero if slot older than current slot
 		slotsPerSecond = 0
 	}
 
 	if len(psh.synchronizationSpeedHistory) >= maxSpeedHistorySaved {
 		psh.synchronizationSpeedHistory = psh.synchronizationSpeedHistory[1:len(psh.synchronizationSpeedHistory)]
 	}
-	psh.synchronizationSpeedHistory = append(psh.synchronizationSpeedHistory, uint64(slotsPerSecond))
+	psh.synchronizationSpeedHistory = append(psh.synchronizationSpeedHistory, slotsPerSecond)
 
 	psh.oldSlot = currentSynchronizedSlot
 
@@ -135,7 +136,7 @@ func (psh *PresenterStatusHandler) CalculateSynchronizationSpeed(numMilliseconds
 
 		numSyncedBlocks += psh.synchronizationSpeedHistory[lastIndex]
 		lastIndex--
-		cumulatedTime += uint64(numMillisecondsRefreshTime)
+		cumulatedTime += uint64(numMillisecondsRefreshTime) // #nosec G115
 	}
 	if cumulatedTime == 0 || numSyncedBlocks == 0 {
 		return 0
@@ -169,7 +170,7 @@ func (psh *PresenterStatusHandler) GetEpochInfo() (uint64, uint64, int, string) 
 	}
 	secondsRemainedInEpoch := slotsRemained * slotInterval / 1000
 
-	remainingTime := tools.SecondsToHourMinSec(int(secondsRemainedInEpoch))
+	remainingTime := tools.SecondsToHourMinSec(int(secondsRemainedInEpoch)) // #nosec G115
 
 	epochLoadPercent := 100 - int(float64(slotsRemained)/float64(slotsPerEpoch)*100.0)
 

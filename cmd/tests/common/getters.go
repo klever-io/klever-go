@@ -114,6 +114,7 @@ func GetRemainingTimeToEpoch(plusEpoch uint64) (time.Duration, error) {
 		return GetRemainingTimeToEpoch(plusEpoch)
 	}
 
+	// #nosec G115
 	return time.Duration(slotsRemained*resp.Data.Overview.SlotDuration) * time.Millisecond, nil
 }
 

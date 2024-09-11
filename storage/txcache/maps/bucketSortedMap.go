@@ -199,7 +199,7 @@ func (sortedMap *BucketSortedMap) getSortedSnapshot(fillSnapshot func(scoreChunk
 
 	for _, chunk := range scoreChunks {
 		chunk.mutex.RLock()
-		counter += uint32(len(chunk.items))
+		counter += uint32(len(chunk.items)) // #nosec G115
 	}
 
 	snapshot := make([]BucketSortedMapItem, counter)
@@ -318,7 +318,7 @@ func (chunk *MapChunk) countItems() uint32 {
 	chunk.mutex.RLock()
 	defer chunk.mutex.RUnlock()
 
-	return uint32(len(chunk.items))
+	return uint32(len(chunk.items)) // #nosec G115
 }
 
 func (chunk *MapChunk) forEachItem(callback SortedMapIterCb) {

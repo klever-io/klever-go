@@ -12,7 +12,7 @@ var log = logger.GetOrCreate("statistics/machine")
 // GetCurrentProcess returns details about the current process
 func GetCurrentProcess() (*process.Process, error) {
 	checkPid := os.Getpid()
-	ret, err := process.NewProcess(int32(checkPid))
+	ret, err := process.NewProcess(int32(checkPid)) // #nosec G115
 	if err != nil {
 		return nil, err
 	}

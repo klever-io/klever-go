@@ -1,5 +1,7 @@
 package mock
 
+import "github.com/klever-io/klever-go/tools"
+
 // RaterMock -
 type RaterMock struct {
 	StartRating       uint32
@@ -37,7 +39,7 @@ func GetNewMockRater() *RaterMock {
 	}
 	raterMock.RevertIncreaseProposerCalled = func(rating uint32, nrReverts uint32) uint32 {
 		ratingStep := raterMock.IncreaseValidator
-		computedStep := -ratingStep * int32(nrReverts)
+		computedStep := -ratingStep * tools.SafeU32ToI32(nrReverts)
 		return raterMock.computeRating(rating, computedStep)
 	}
 	raterMock.ComputeDecreaseProposerCalled = func(rating uint32, consecutiveMissedBlocks uint32) uint32 {
@@ -67,7 +69,7 @@ func (rm *RaterMock) computeRating(rating uint32, ratingStep int32) uint32 {
 		return rm.MaxRating
 	}
 
-	return uint32(newVal)
+	return tools.SafeI64ToU32(newVal)
 }
 
 // GetRating -

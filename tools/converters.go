@@ -14,6 +14,18 @@ import (
 const MegabyteSize = 1024 * 1024
 
 // ConvertBytes converts the input bytes in a readable string using multipliers (k, M, G)
+func ConvertBytesInt(bytes int64) string {
+	var preSign string
+	// apply sign
+	if bytes < 0 {
+		bytes = -bytes
+		preSign = "-"
+	}
+
+	return preSign + ConvertBytes(uint64(bytes)) // #nosec G115
+}
+
+// ConvertBytes converts the input bytes in a readable string using multipliers (k, M, G)
 func ConvertBytes(bytes uint64) string {
 	if bytes < 1024 {
 		return fmt.Sprintf("%d B", bytes)

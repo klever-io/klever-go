@@ -78,12 +78,12 @@ func CreateNodesWithNodesCoordinatorAndHeaderSigVerifier(numOfNodes int, numCons
 			return electedValidatorsList, eligibleValidatorsList, nil
 		},
 		MinNumberOfNodesCalled: func() uint32 {
-			return uint32(numOfNodes)
+			return uint32(numOfNodes) // #nosec G115
 		},
 	}
 
 	shufflerArgs := &sharding.NodesShufflerArgs{
-		Nodes:                uint32(numOfNodes),
+		Nodes:                uint32(numOfNodes), // #nosec G115
 		MaxNodesEnableConfig: []config.MaxNodesChangeConfig{{}},
 	}
 
@@ -127,7 +127,7 @@ func CreateNodesWithNodesCoordinatorAndHeaderSigVerifier(numOfNodes int, numCons
 			blkSignPkList,
 			blkSignKeys[i].Sk,
 			blockKeyGen,
-			uint16(i),
+			uint16(i), // #nosec G115
 		)
 		if err != nil {
 			fmt.Println("error multisig")
@@ -358,12 +358,12 @@ func CreateNodesWithTxSetup(numOfNodes int, numConsensusSize int, mainConfig con
 			return electedValidatorsList, eligibleValidatorsList, nil
 		},
 		MinNumberOfNodesCalled: func() uint32 {
-			return uint32(numOfNodes)
+			return uint32(numOfNodes) // #nosec G115
 		},
 	}
 
 	shufflerArgs := &sharding.NodesShufflerArgs{
-		Nodes:                uint32(numOfNodes),
+		Nodes:                uint32(numOfNodes), // #nosec G115
 		MaxNodesEnableConfig: []config.MaxNodesChangeConfig{{}},
 	}
 
@@ -548,7 +548,7 @@ func NewTestProcessorNodeWithTxSetup(
 		blockSignPubkeyList,
 		blockSignKeyPair.Sk,
 		&mock.KeyGenMock{},
-		uint16(keyIndex),
+		uint16(keyIndex), // #nosec G115
 	)
 	if err != nil {
 		return nil, err
@@ -703,7 +703,7 @@ func NewTestProcessorNodeWithCustomNodesCoordinator(
 		blockSignPubkeyList,
 		blockSignKeyPair.Sk,
 		keyGen,
-		uint16(keyIndex),
+		uint16(keyIndex), // #nosec G115
 	)
 	if err != nil {
 		return nil, err

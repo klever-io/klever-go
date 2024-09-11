@@ -21,8 +21,7 @@ func newSCDeploysProcessor(pubKeyConverter core.PubkeyConverter) *scDeploysProce
 }
 
 func (sdp *scDeploysProcessor) processEvent(args *argsProcessEvent) argOutputProcessEvent {
-	eventIdentifier := string(args.event.GetIdentifier())
-	_, ok := sdp.scDeploysIdentifiers[eventIdentifier]
+	_, ok := sdp.scDeploysIdentifiers[string(args.event.GetIdentifier())]
 	if !ok {
 		return argOutputProcessEvent{}
 	}
@@ -38,7 +37,7 @@ func (sdp *scDeploysProcessor) processEvent(args *argsProcessEvent) argOutputPro
 	args.scDeploys[scAddress] = &data.ScDeployInfo{
 		TxHash:    args.txHashHexEncoded,
 		Creator:   sdp.pubKeyConverter.Encode(topics[1]),
-		Timestamp: uint64(args.timestamp),
+		Timestamp: uint64(args.timestamp), // #nosec G115
 	}
 
 	return argOutputProcessEvent{

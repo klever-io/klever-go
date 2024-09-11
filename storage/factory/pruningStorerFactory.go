@@ -225,7 +225,9 @@ func (psf *StorageServiceFactory) setupDbLookupExtensions(chainStorer *retriever
 
 func (psf *StorageServiceFactory) createPruningStorerArgs(storageConfig config.StorageConfig) *pruning.StorerArgs {
 	cleanOldEpochsData := psf.generalConfig.StoragePruning.CleanOldEpochsData
+	// #nosec G115 - we are not using the value from the config directly
 	numOfEpochsToKeep := uint32(psf.generalConfig.StoragePruning.NumEpochsToKeep)
+	// #nosec G115 - we are not using the value from the config directly
 	numOfActivePersisters := uint32(psf.generalConfig.StoragePruning.NumActivePersisters)
 	pruningEnabled := psf.generalConfig.StoragePruning.Enabled
 	dbPath := filepath.Join(psf.pathManager.PathForEpoch(psf.currentEpoch, storageConfig.DB.FilePath))

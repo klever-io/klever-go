@@ -132,6 +132,7 @@ func (bnm *BelNevMock) CommitmentHash(index uint16) ([]byte, error) {
 // StoreCommitment adds a commitment to the list on the specified position
 func (bnm *BelNevMock) StoreCommitment(index uint16, value []byte) error {
 	if bnm.StoreCommitmentMock == nil {
+		// #nosec G115
 		if index >= uint16(len(bnm.commitments)) {
 			return crypto.ErrIndexOutOfBounds
 		}
@@ -147,6 +148,7 @@ func (bnm *BelNevMock) StoreCommitment(index uint16, value []byte) error {
 // Commitment returns the commitment from the list with the specified position
 func (bnm *BelNevMock) Commitment(index uint16) ([]byte, error) {
 	if bnm.CommitmentMock == nil {
+		// #nosec G115
 		if index >= uint16(len(bnm.commitments)) {
 			return nil, crypto.ErrIndexOutOfBounds
 		}
@@ -177,6 +179,7 @@ func (bnm *BelNevMock) CreateSignatureShare(msg []byte, bitmap []byte) ([]byte, 
 
 // StoreSignatureShare adds the partial signature of the signer with specified position
 func (bnm *BelNevMock) StoreSignatureShare(index uint16, sig []byte) error {
+	// #nosec G115
 	if index >= uint16(len(bnm.pubkeys)) {
 		return crypto.ErrIndexOutOfBounds
 	}
@@ -214,6 +217,7 @@ func (bnm *BelNevMock) AggregateSigs(bitmap []byte) ([]byte, error) {
 // SignatureShare -
 func (bnm *BelNevMock) SignatureShare(index uint16) ([]byte, error) {
 	if bnm.SignatureShareMock == nil {
+		// #nosec G115
 		if index >= uint16(len(bnm.sigs)) {
 			return nil, crypto.ErrIndexOutOfBounds
 		}

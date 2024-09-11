@@ -49,7 +49,7 @@ func AddSellForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 	})
 
 	form.AddDropDown("Type", []string{"BuyItNow", "Auction"}, 0, func(option string, optionIndex int) {
-		sendForm.mktType = int32(optionIndex)
+		sendForm.mktType = int32(optionIndex) // #nosec G115
 	})
 
 	form.AddInputField("End At (DD/MM/YYYY)", time.Now().Add(7*24*time.Hour).Format("02/01/2006"), 20, nil, func(v string) {
@@ -119,7 +119,7 @@ func AddBuyForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 	})
 
 	form.AddDropDown("Type", []string{"ITOBuy", "MarketBuy"}, 1, func(option string, optionIndex int) {
-		sendForm.buyType = int32(optionIndex)
+		sendForm.buyType = int32(optionIndex) // #nosec G115
 	})
 
 	form.AddButton("Send", func() {

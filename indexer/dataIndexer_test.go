@@ -24,18 +24,6 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-func newTestMetaBlock() *dataBlock.Block {
-	return &dataBlock.Block{
-		Header: &dataBlock.BlockHeader{
-			Nonce:        10,
-			IsEpochStart: true,
-			Slot:         2,
-			TxCount:      100,
-		},
-		ProducerSignature: []byte("signature"),
-	}
-}
-
 func NewDataIndexerArguments() ArgDataIndexer {
 	return ArgDataIndexer{
 		Marshalizer:        &mock.MarshalizerMock{},
@@ -223,9 +211,9 @@ func createTransactionMock(contract protoreflect.ProtoMessage, txType transactio
 		Sender: sender,
 	}
 
-	tx.PushContract(txType, contract)
+	err := tx.PushContract(txType, contract)
 
-	return &tx, nil
+	return &tx, err
 }
 
 // nolint

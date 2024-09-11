@@ -144,14 +144,14 @@ func (a *Account) AddToBalance(value int64, assetID []byte, _ bool, userKDAopts 
 	return a.SetUserKDA(assetID, nil, userKDA)
 }
 
-func (a *Account) SetTokenBalanceUint64(tokenIdentifier []byte, nonce uint64, balance uint64) error {
+func (a *Account) SetTokenBalanceUint64(tokenIdentifier []byte, nonce uint64, balance int64) error {
 	if balance < 0 {
 		return common.ErrInvalidValue
 	}
 
 	if len(tokenIdentifier) == 0 ||
 		bytes.Equal(tokenIdentifier, kdautils.KLVIdentifier) {
-		a.Balance = big.NewInt(int64(balance))
+		a.Balance = big.NewInt(balance)
 		return nil
 	}
 
@@ -171,7 +171,7 @@ func (a *Account) GetTokenBalanceUint64(tokenIdentifier []byte, nonce uint64) (u
 		return 0, err
 	}
 
-	return uint64(kda.Balance), nil
+	return uint64(kda.Balance), nil // #nosec G115
 }
 
 func (a *Account) SubFromBalance(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/network/api/models"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/spf13/cobra"
 )
 
@@ -192,7 +193,7 @@ func subKapps() []*cobra.Command {
 			}
 
 			triggerRequest := models.ITOTriggerTXRequest{
-				TriggerType:            uint32(triggerType),
+				TriggerType:            tools.SafeU64ToU32(triggerType),
 				KDA:                    kda,
 				ReceiverAddress:        receiver,
 				Status:                 status,

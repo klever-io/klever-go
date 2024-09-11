@@ -205,7 +205,7 @@ const MaxProposalParamLength = 50
 const MaxDescriptionLength = 1000
 
 // MaxOperationsSize defines max operations size
-const MaxOperationsSize = 50
+const MaxOperationsSize = 30
 
 // MaxTransferRoyalties defines max transfer royalties size
 const MaxTransferRoyalties = 20

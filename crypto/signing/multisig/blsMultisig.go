@@ -60,11 +60,12 @@ func NewBLSMultisig(
 	if check.IfNil(keyGen) {
 		return nil, crypto.ErrNilKeyGenerator
 	}
+	// #nosec G115
 	if ownIndex >= uint16(len(pubKeys)) {
 		return nil, crypto.ErrIndexOutOfBounds
 	}
 
-	sizeConsensus := uint16(len(pubKeys))
+	sizeConsensus := uint16(len(pubKeys)) // #nosec G115
 	sigShares := make([][]byte, sizeConsensus)
 	pk, err := convertStringsToPubKeys(pubKeys, keyGen)
 
@@ -94,11 +95,12 @@ func (bms *blsMultiSigner) Reset(pubKeys []string, index uint16) error {
 		return crypto.ErrNilPublicKeys
 	}
 
+	// #nosec G115
 	if index >= uint16(len(pubKeys)) {
 		return crypto.ErrIndexOutOfBounds
 	}
 
-	sizeConsensus := uint16(len(pubKeys))
+	sizeConsensus := uint16(len(pubKeys)) // #nosec G115
 	sigShares := make([][]byte, sizeConsensus)
 	pk, err := convertStringsToPubKeys(pubKeys, bms.keyGen)
 
@@ -150,12 +152,12 @@ func (bms *blsMultiSigner) CreateSignatureShare(message []byte, _ []byte) ([]byt
 
 // not concurrent safe, should be used under RLock mutex
 func (bms *blsMultiSigner) isIndexInBitmap(index uint16, bitmap []byte) error {
-	indexOutOfBounds := index >= uint16(len(bms.data.pubKeys))
+	indexOutOfBounds := index >= uint16(len(bms.data.pubKeys)) // #nosec G115
 	if indexOutOfBounds {
 		return crypto.ErrIndexOutOfBounds
 	}
 
-	indexNotInBitmap := bitmap[index/8]&(1<<uint8(index%8)) == 0
+	indexNotInBitmap := bitmap[index/8]&(1<<uint8(index%8)) == 0 // #nosec G115 - index%8 is always < 8
 	if indexNotInBitmap {
 		return crypto.ErrIndexNotSelected
 	}
@@ -173,7 +175,7 @@ func (bms *blsMultiSigner) VerifySignatureShare(index uint16, sig []byte, messag
 	bms.mutSigData.RLock()
 	defer bms.mutSigData.RUnlock()
 
-	indexOutOfBounds := index >= uint16(len(bms.data.pubKeys))
+	indexOutOfBounds := index >= uint16(len(bms.data.pubKeys)) // #nosec G115
 	if indexOutOfBounds {
 		return crypto.ErrIndexOutOfBounds
 	}
@@ -239,7 +241,7 @@ func (bms *blsMultiSigner) AggregateSigs(bitmap []byte) ([]byte, error) {
 	pubKeysSigners := make([]crypto.PublicKey, 0, len(bms.data.sigShares))
 
 	for i := range bms.data.sigShares {
-		err := bms.isIndexInBitmap(uint16(i), bitmap)
+		err := bms.isIndexInBitmap(uint16(i), bitmap) // #nosec G115
 		if err != nil {
 			continue
 		}
@@ -283,7 +285,7 @@ func (bms *blsMultiSigner) Verify(message []byte, bitmap []byte) error {
 
 	pubKeys := make([]crypto.PublicKey, 0)
 	for i := range bms.data.pubKeys {
-		err := bms.isIndexInBitmap(uint16(i), bitmap)
+		err := bms.isIndexInBitmap(uint16(i), bitmap) // #nosec G115
 		if err != nil {
 			continue
 		}

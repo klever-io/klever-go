@@ -3,6 +3,7 @@ package txcache
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
 	"strings"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -131,10 +132,11 @@ func (cache *TxCache) diagnoseShallowly() {
 	sw.Start("diagnose")
 
 	sizeInBytes := cache.NumBytes()
-	numTxsEstimate := int(cache.CountTx())
+	numTxsEstimate := int(cache.CountTx()) // #nosec G115
 	numTxsInChunks := cache.txByHash.backingMap.Count()
 	txsKeys := cache.txByHash.backingMap.Keys()
-	numSendersEstimate := uint32(cache.CountSenders())
+	// check possible overflow and set to max
+	numSendersEstimate := tools.SafeU64ToU32(cache.CountSenders())
 	numSendersInChunks := cache.txListBySender.backingMap.Count()
 	numSendersInScoreChunks := cache.txListBySender.backingMap.CountSorted()
 	sendersKeys := cache.txListBySender.backingMap.Keys()
@@ -172,9 +174,9 @@ func (cache *TxCache) diagnoseDeeply() {
 }
 
 type internalConsistencyJournal struct {
-	numInMapByHash        int
-	numInMapBySender      int
-	numMissingInMapByHash int
+	numInMapByHash        int64
+	numInMapBySender      int64
+	numMissingInMapByHash int64
 }
 
 func (journal *internalConsistencyJournal) isFine() bool {
@@ -191,11 +193,11 @@ func (cache *TxCache) checkInternalConsistency() internalConsistencyJournal {
 
 	senders := internalMapBySender.getSnapshotAscending()
 	numInMapByHash := len(internalMapByHash.keys())
-	numInMapBySender := 0
-	numMissingInMapByHash := 0
+	numInMapBySender := uint64(0)
+	numMissingInMapByHash := int64(0)
 
 	for _, sender := range senders {
-		numInMapBySender += int(sender.countTx())
+		numInMapBySender += sender.countTx()
 
 		for _, hash := range sender.getTxHashes() {
 			_, ok := internalMapByHash.getTx(string(hash))
@@ -205,9 +207,14 @@ func (cache *TxCache) checkInternalConsistency() internalConsistencyJournal {
 		}
 	}
 
+	if numInMapBySender > math.MaxInt64 {
+		log.Error("TxCache.checkInternalConsistency() numInMapBySender overflow", "name", cache.name, "numInMapBySender", numInMapBySender)
+		numInMapBySender = math.MaxInt64
+	}
+
 	return internalConsistencyJournal{
-		numInMapByHash:        numInMapByHash,
-		numInMapBySender:      numInMapBySender,
+		numInMapByHash:        int64(numInMapByHash),
+		numInMapBySender:      int64(numInMapBySender), // #nosec G115 - value checked
 		numMissingInMapByHash: numMissingInMapByHash,
 	}
 }
@@ -233,10 +240,14 @@ func (cache *TxCache) displaySendersSummary() {
 		score := sender.getLastComputedScore()
 		numTxs := sender.countTxWithLock()
 
-		lowestTxNonce := -1
+		lowestTxNonce := int64(-1)
 		lowestTx := sender.getLowestNonceTx()
 		if lowestTx != nil {
-			lowestTxNonce = int(lowestTx.Tx.GetNonce())
+			value := lowestTx.Tx.GetNonce()
+			if value > math.MaxInt64 {
+				log.Error("TxCache.displaySendersSummary() nonce overflow", "name", cache.name, "nonce", value)
+			}
+			lowestTxNonce = tools.SafeU64ToI64(value)
 		}
 
 		_, _ = fmt.Fprintf(&builder, "[#%d (%d)] %s [%t / %d vs %d] txs = %d, !%d\n", i, score, address, accountNonceKnown, accountNonce, lowestTxNonce, numTxs, numFailedSelections)

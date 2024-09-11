@@ -58,18 +58,22 @@ func (c *BigIntCaster) Unmarshal(buf []byte) (*big.Int, error) {
 	case 1:
 		return nil, nil
 	case 2:
+		// #nosec G602 - case len == 2 ensure buf[1] is not nil
 		if buf[1] == 0 {
 			return big.NewInt(0), nil
 		}
 
 	}
+	// #nosec G602 - len checked above
 	ret := new(big.Int).SetBytes(buf[1:])
+	// #nosec G602 - len checked above
 	switch buf[0] {
 	case 0:
 
 	case 1:
 		ret = ret.Neg(ret)
 	default:
+		// #nosec G602 - len checked above
 		return nil, fmt.Errorf("invalid sign byte %x", buf[0])
 	}
 

@@ -10,6 +10,7 @@ var _ data.HeaderHandler = (*HeaderHandlerStub)(nil)
 
 // HeaderHandlerStub --
 type HeaderHandlerStub struct {
+	EpochField                  uint32
 	GetPrevRandSeedCalled       func() []byte
 	SetPrevRandSeedCalled       func([]byte)
 	GetRandSeedCalled           func() []byte
@@ -164,7 +165,7 @@ func (hhs *HeaderHandlerStub) GetEpoch() uint32 {
 		return hhs.GetEpochCaled()
 	}
 
-	return 0
+	return hhs.EpochField
 }
 
 // GetSlot -

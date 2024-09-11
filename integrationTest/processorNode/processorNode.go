@@ -22,7 +22,6 @@ import (
 	"github.com/klever-io/klever-go/core/bootstrap/disabled"
 	"github.com/klever-io/klever-go/core/consensus"
 	broadcastFactory "github.com/klever-io/klever-go/core/consensus/broadcast"
-	"github.com/klever-io/klever-go/core/consensus/chronology"
 	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/kapp"
 	kappDisabled "github.com/klever-io/klever-go/core/kapp/disabled"
@@ -101,7 +100,6 @@ const SendTransactionsPipe = "send transactions pipe"
 
 // SoftRestartMessage is the custom message used when the node does a soft restart operation
 var SoftRestartMessage = "Shuffled out - soft restart"
-var numSecondsBetweenPrints = 20
 
 // Option represents a functional configuration parameter that can operate
 // over the None struct.
@@ -395,33 +393,32 @@ func (n *ProcessorNode) createPidInfo(p core.PeerID) core.QueryP2PPeerInfo {
 	return result
 }
 
-// createChronologyHandler method creates a chronology object
-func (n *ProcessorNode) createChronologyHandler(
-	sm consensus.SlotManager,
-	appStatusHandler core.AppStatusHandler,
-	broadcastMessenger consensus.BroadcastMessenger,
-	watchdog core.WatchdogTimer,
-) (consensus.ChronologyHandler, error) {
-	chr, err := chronology.NewChronology(
-		n.SlotManager,
-		n.Blkc,
-		n.NodesCoordinator,
-		n.BlockProcessor,
-		broadcastMessenger,
-		n.SyncTimer,
-		watchdog,
-	)
-	if err != nil {
-		return nil, err
-	}
+// // createChronologyHandler method creates a chronology object
+// func (n *ProcessorNode) createChronologyHandler(
+// 	appStatusHandler core.AppStatusHandler,
+// 	broadcastMessenger consensus.BroadcastMessenger,
+// 	watchdog core.WatchdogTimer,
+// ) (consensus.ChronologyHandler, error) {
+// 	chr, err := chronology.NewChronology(
+// 		n.SlotManager,
+// 		n.Blkc,
+// 		n.NodesCoordinator,
+// 		n.BlockProcessor,
+// 		broadcastMessenger,
+// 		n.SyncTimer,
+// 		watchdog,
+// 	)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	err = chr.SetAppStatusHandler(appStatusHandler)
-	if err != nil {
-		return nil, err
-	}
+// 	err = chr.SetAppStatusHandler(appStatusHandler)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	return chr, nil
-}
+// 	return chr, nil
+// }
 
 // IsInterfaceNil returns true if there is no value under the interface
 func (n *ProcessorNode) IsInterfaceNil() bool {

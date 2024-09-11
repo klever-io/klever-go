@@ -20,6 +20,7 @@ import (
 	"github.com/klever-io/klever-go/storage/leveldb"
 	"github.com/klever-io/klever-go/storage/lrucache"
 	"github.com/klever-io/klever-go/storage/memorydb"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 )
 
@@ -402,7 +403,8 @@ func NewCache(config CacheConfig) (storage.Cacher, error) {
 
 		cacher, err = lrucache.NewCache(int(capacity))
 	case SizeLRUCache:
-		if sizeInBytes < minimumSizeForLRUCache {
+		value := tools.SafeU64ToI64(sizeInBytes)
+		if value < minimumSizeForLRUCache {
 			return nil, fmt.Errorf("%w, provided %d, minimum %d",
 				storage.ErrLRUCacheInvalidSize,
 				sizeInBytes,
@@ -410,7 +412,7 @@ func NewCache(config CacheConfig) (storage.Cacher, error) {
 			)
 		}
 
-		cacher, err = lrucache.NewCacheWithSizeInBytes(int(capacity), int64(sizeInBytes))
+		cacher, err = lrucache.NewCacheWithSizeInBytes(int(capacity), value)
 	case FIFOShardedCache:
 		cacher, err = fifocache.NewShardedCache(int(capacity), int(shards))
 		if err != nil {

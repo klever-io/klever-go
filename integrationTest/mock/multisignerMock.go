@@ -43,7 +43,7 @@ func (mm *MultisignerMock) Create(pubKeys []string, index uint16) (crypto.MultiS
 		return mm.CreateCalled(pubKeys, index)
 	}
 
-	multiSig := NewMultiSigner(uint32(len(pubKeys)))
+	multiSig := NewMultiSigner(uint32(len(pubKeys))) // #nosec G115
 
 	multiSig.selfId = index
 	multiSig.pubkeys = pubKeys
@@ -103,6 +103,7 @@ func (mm *MultisignerMock) StoreSignatureShare(index uint16, sig []byte) error {
 		return mm.StoreSignatureShareCalled(index, sig)
 	}
 
+	// #nosec G115
 	if index >= uint16(len(mm.pubkeys)) {
 		return crypto.ErrIndexOutOfBounds
 	}
@@ -135,6 +136,7 @@ func (mm *MultisignerMock) SignatureShare(index uint16) ([]byte, error) {
 		return mm.SignatureShareCalled(index)
 	}
 
+	// #nosec G115
 	if index >= uint16(len(mm.sigs)) {
 		return nil, crypto.ErrIndexOutOfBounds
 	}

@@ -44,7 +44,7 @@ func AddDepositForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 
 	form.AddButton("Send", func() {
 		hash, err := blockchain.Deposit(address, sendForm.amount, models.DepositTXRequest{
-			DepositType: int32(sendForm.depositType),
+			DepositType: int32(sendForm.depositType), // #nosec G115
 			KDA:         sendForm.kda,
 			CurrencyID:  sendForm.currencyID,
 		})
@@ -79,7 +79,7 @@ func AddCreateForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 	})
 
 	form.AddDropDown("Type", []string{"Fungible", "NonFungible"}, 0, func(option string, optionIndex int) {
-		sendForm.Type = uint32(optionIndex)
+		sendForm.Type = uint32(optionIndex) // #nosec G115
 	})
 
 	form.AddInputField("Owner Address", "", 80, nil, func(v string) {
@@ -96,7 +96,7 @@ func AddCreateForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 			return
 		}
 
-		sendForm.Precision = uint32(parsed)
+		sendForm.Precision = uint32(parsed) // #nosec G115
 	})
 
 	form.AddInputField("Max Supply", "", 20, nil, func(v string) {
@@ -154,7 +154,7 @@ func AddCreateForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 	form.AddTextView("[white]Staking: ", "", 0, 1, true, false)
 
 	form.AddDropDown("Interest Type", []string{"APR", "FPR"}, 0, func(option string, optionIndex int) {
-		sendForm.Staking.InterestType = uint32(optionIndex)
+		sendForm.Staking.InterestType = uint32(optionIndex) // #nosec G115
 	})
 
 	form.AddInputField("APR Percentage", "", 20, nil, func(v string) {
@@ -172,7 +172,7 @@ func AddCreateForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 			return
 		}
 
-		sendForm.Staking.MinEpochsToUnstake = uint32(parsed)
+		sendForm.Staking.MinEpochsToUnstake = uint32(parsed) // #nosec G115
 	})
 
 	form.AddInputField("Epochs To Withdraw", "", 20, nil, func(v string) {
@@ -181,7 +181,7 @@ func AddCreateForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 			return
 		}
 
-		sendForm.Staking.MinEpochsToWithdraw = uint32(parsed)
+		sendForm.Staking.MinEpochsToWithdraw = uint32(parsed) // #nosec G115
 	})
 
 	form.AddInputField("Epochs To Claim", "", 20, nil, func(v string) {
@@ -190,7 +190,7 @@ func AddCreateForm(app *tview.Application, pages *tview.Pages) *tview.Form {
 			return
 		}
 
-		sendForm.Staking.MinEpochsToClaim = uint32(parsed)
+		sendForm.Staking.MinEpochsToClaim = uint32(parsed) // #nosec G115
 	})
 
 	form.AddTextView("[white]Attributes: ", "", 0, 1, true, false)
@@ -354,7 +354,7 @@ func AddAssetTriggerForm(app *tview.Application, pages *tview.Pages) *tview.Form
 	}
 
 	form.AddDropDown("Type", types, 0, func(option string, optionIndex int) {
-		sendForm.TriggerType = uint32(optionIndex)
+		sendForm.TriggerType = uint32(optionIndex) // #nosec G115
 	})
 
 	form.AddInputField("Asset Id", "", 30, nil, func(v string) {
@@ -385,7 +385,7 @@ func AddAssetTriggerForm(app *tview.Application, pages *tview.Pages) *tview.Form
 	form.AddTextView("[white]Staking: ", "", 0, 1, true, false)
 
 	form.AddDropDown("Interest Type", []string{"APR", "FPR"}, 0, func(option string, optionIndex int) {
-		sendForm.Staking.InterestType = uint32(optionIndex)
+		sendForm.Staking.InterestType = uint32(optionIndex) // #nosec G115
 	})
 
 	form.AddInputField("APR Percentage", "", 20, nil, func(v string) {
@@ -403,7 +403,7 @@ func AddAssetTriggerForm(app *tview.Application, pages *tview.Pages) *tview.Form
 			return
 		}
 
-		sendForm.Staking.MinEpochsToUnstake = uint32(parsed)
+		sendForm.Staking.MinEpochsToUnstake = uint32(parsed) // #nosec G115
 	})
 
 	form.AddInputField("Epochs To Withdraw", "", 20, nil, func(v string) {
@@ -412,7 +412,7 @@ func AddAssetTriggerForm(app *tview.Application, pages *tview.Pages) *tview.Form
 			return
 		}
 
-		sendForm.Staking.MinEpochsToWithdraw = uint32(parsed)
+		sendForm.Staking.MinEpochsToWithdraw = uint32(parsed) // #nosec G115
 	})
 
 	form.AddInputField("Epochs To Claim", "", 20, nil, func(v string) {
@@ -421,7 +421,7 @@ func AddAssetTriggerForm(app *tview.Application, pages *tview.Pages) *tview.Form
 			return
 		}
 
-		sendForm.Staking.MinEpochsToClaim = uint32(parsed)
+		sendForm.Staking.MinEpochsToClaim = uint32(parsed) // #nosec G115
 	})
 
 	form.AddTextView("[white]KDA Pool: ", "", 0, 1, true, false)

@@ -8,7 +8,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
@@ -24,8 +23,6 @@ import (
 )
 
 var _ kapp.MarketKapp = (*marketKapp)(nil)
-
-var log = logger.GetOrCreate("kapp/market")
 
 type marketKapp struct {
 	hasher         hashing.Hasher

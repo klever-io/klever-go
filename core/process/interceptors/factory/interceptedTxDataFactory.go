@@ -1,7 +1,6 @@
 package factory
 
 import (
-	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
@@ -14,8 +13,6 @@ import (
 )
 
 var _ process.InterceptedDataFactory = (*interceptedTxDataFactory)(nil)
-
-var log = logger.GetOrCreate("interceptors/factory")
 
 type interceptedTxDataFactory struct {
 	protoMarshalizer            marshal.Marshalizer

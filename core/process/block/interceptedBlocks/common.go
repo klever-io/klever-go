@@ -7,23 +7,6 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 )
 
-func checkBlockHeaderArgument(arg *ArgInterceptedBlockHeader) error {
-	if arg == nil {
-		return process.ErrNilArgumentStruct
-	}
-	if len(arg.HdrBuff) == 0 {
-		return process.ErrNilBuffer
-	}
-	if check.IfNil(arg.Marshalizer) {
-		return process.ErrNilMarshalizer
-	}
-	if check.IfNil(arg.Hasher) {
-		return common.ErrNilHasher
-	}
-
-	return nil
-}
-
 func checkBlockArgument(arg *ArgInterceptedBlock) error {
 	if arg == nil {
 		return process.ErrNilArgumentStruct
