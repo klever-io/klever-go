@@ -464,7 +464,7 @@ func TestCheckConsensusMessageValidity_NodeIsNotEligible(t *testing.T) {
 		Header: headerBytes, BlockHeaderHash: headerHash, PubKey: pubKey, Signature: sig,
 	}
 	err := cmv.CheckConsensusMessageValidity(cnsMsg, "")
-	assert.True(t, errors.Is(err, slot.ErrNodeIsNotInElectedList))
+	assert.True(t, errors.Is(err, slot.ErrNodeIsNotInConsensusGroup))
 }
 
 func TestCheckConsensusMessageValidity_ErrMessageForFutureSlot(t *testing.T) {

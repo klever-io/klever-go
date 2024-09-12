@@ -524,7 +524,7 @@ func TestWorker_ProcessReceivedMessageRedundancyNodeShouldResetInactivityIfNeede
 	assert.True(t, wasCalled)
 }
 
-func TestWorker_ProcessReceivedMessageNodeNotInElectedListShouldErr(t *testing.T) {
+func TestWorker_ProcessReceivedMessageNodeNotInConsensusGroupShouldErr(t *testing.T) {
 	t.Parallel()
 	wrk := *initWorker()
 	hdr := &block.Block{Header: &block.BlockHeader{ChainID: chainID}}
@@ -550,7 +550,7 @@ func TestWorker_ProcessReceivedMessageNodeNotInElectedListShouldErr(t *testing.T
 	time.Sleep(time.Second)
 
 	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader]))
-	assert.True(t, errors.Is(err, slot.ErrNodeIsNotInElectedList))
+	assert.True(t, errors.Is(err, slot.ErrNodeIsNotInConsensusGroup))
 }
 
 func TestWorker_ProcessReceivedMessageComputeReceivedProposedBlockMetric(t *testing.T) {

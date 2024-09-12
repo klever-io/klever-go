@@ -45,6 +45,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ inputs.go_version }}
+          cache: false
 
       - name: Cache Go dependencies
         uses: actions/cache@v4
@@ -85,6 +86,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ inputs.go_version }}
+          cache: false
 
       - name: Cache Go dependencies
         uses: actions/cache@v4
@@ -113,6 +115,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ inputs.go_version }}
+          cache: false
 
       - name: Cache Go dependencies
         uses: actions/cache@v4
@@ -141,6 +144,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ inputs.go_version }}
+          cache: false
 
       - name: Cache Go dependencies
         uses: actions/cache@v4

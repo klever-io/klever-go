@@ -15,6 +15,7 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -67,6 +68,7 @@ func createMockArguments() peer.ArgValidatorStatisticsProcessor {
 		MaxComputableSlots: 1000,
 		NodesSetup:         &mock.NodesSetupStub{},
 		EpochNotifier:      &mock.EpochNotifierStub{},
+		VKApp:              &mock.ValidatorsKAppStub{},
 	}
 	return arguments
 }
@@ -138,15 +140,14 @@ func TestNewValidatorStatisticsProcessor_NilStorageShouldErr(t *testing.T) {
 	assert.Equal(t, common.ErrNilStorage, err)
 }
 
-func TestNewValidatorStatisticsProcessor_ZeroMaxComputableSlotsShouldErr(t *testing.T) {
+func TestNewValidatorStatisticsProcessor_ZeroMaxComputableSlotsUseDefault(t *testing.T) {
 	t.Parallel()
 
 	arguments := createMockArguments()
 	arguments.MaxComputableSlots = 0
 	validatorStatistics, err := peer.NewValidatorStatisticsProcessor(arguments)
-
-	assert.Nil(t, validatorStatistics)
-	assert.Equal(t, common.ErrZeroMaxComputableSlots, err)
+	require.Nil(t, err)
+	assert.Equal(t, process.DefaultMaxComputableSlots, validatorStatistics.MaxComputableSlots())
 }
 
 func TestNewValidatorStatisticsProcessor_NilRaterShouldErr(t *testing.T) {

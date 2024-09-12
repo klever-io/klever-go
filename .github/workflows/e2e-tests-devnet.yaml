@@ -21,6 +21,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ vars.GO_VERSION || '1.22' }}
+          cache: false
 
       - name: Cache Go dependencies
         uses: actions/cache@v4

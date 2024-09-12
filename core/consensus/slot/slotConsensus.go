@@ -49,13 +49,6 @@ func (rcns *slotConsensus) SelfConsensusGroupIndex() (int, error) {
 	return rcns.ConsensusGroupIndex(rcns.selfPubKey)
 }
 
-// SetElectedList sets the elected list ID's
-func (rcns *slotConsensus) SetElectedList(electedList map[string]struct{}) {
-	rcns.mutElected.Lock()
-	rcns.electedNodes = electedList
-	rcns.mutElected.Unlock()
-}
-
 // ConsensusGroup returns the consensus group ID's
 func (rcns *slotConsensus) ConsensusGroup() []string {
 	return rcns.consensusGroup
@@ -63,6 +56,14 @@ func (rcns *slotConsensus) ConsensusGroup() []string {
 
 // SetConsensusGroup sets the consensus group ID's
 func (rcns *slotConsensus) SetConsensusGroup(consensusGroup []string) {
+	// update elected nodes
+	rcns.mutElected.Lock()
+	rcns.electedNodes = make(map[string]struct{})
+	for _, v := range consensusGroup {
+		rcns.electedNodes[v] = struct{}{}
+	}
+	rcns.mutElected.Unlock()
+
 	rcns.consensusGroup = consensusGroup
 
 	rcns.mut.Lock()
@@ -143,17 +144,6 @@ func (rcns *slotConsensus) SetSelfJobDone(subslotId int, value bool) error {
 
 // IsNodeInConsensusGroup method checks if the node is part of consensus group of the current slot
 func (rcns *slotConsensus) IsNodeInConsensusGroup(node string) bool {
-	for i := 0; i < len(rcns.consensusGroup); i++ {
-		if rcns.consensusGroup[i] == node {
-			return true
-		}
-	}
-
-	return false
-}
-
-// IsNodeInElectedList method checks if the node is part of the elected list
-func (rcns *slotConsensus) IsNodeInElectedList(node string) bool {
 	rcns.mutElected.RLock()
 	_, ok := rcns.electedNodes[node]
 	rcns.mutElected.RUnlock()

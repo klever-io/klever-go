@@ -252,8 +252,9 @@ func (sr *subslotSignature) areSignaturesCollected(threshold int) (bool, int) {
 func (sr *subslotSignature) getNumOfSignaturesCollected() int {
 	n := 0
 
-	for i := 0; i < len(sr.ConsensusGroup()); i++ {
-		node := sr.ConsensusGroup()[i]
+	consensusGroup := sr.ConsensusGroup()
+	for i := 0; i < len(consensusGroup); i++ {
+		node := consensusGroup[i]
 
 		isSignJobDone, err := sr.JobDone(node, sr.Current())
 		if err != nil {

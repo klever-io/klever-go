@@ -97,10 +97,10 @@ func (cmv *consensusMessageValidator) checkConsensusMessageValidity(cnsMsg *cons
 			len(cnsMsg.Signature))
 	}
 
-	isNodeInElectedList := cmv.consensusState.IsNodeInElectedList(string(cnsMsg.PubKey))
-	if !isNodeInElectedList {
+	isNodeInConsensusGroup := cmv.consensusState.IsNodeInConsensusGroup(string(cnsMsg.PubKey))
+	if !isNodeInConsensusGroup {
 		return fmt.Errorf("%w : received message from consensus topic has an invalid public key: %s",
-			ErrNodeIsNotInElectedList,
+			ErrNodeIsNotInConsensusGroup,
 			logger.DisplayByteSlice(cnsMsg.PubKey))
 	}
 

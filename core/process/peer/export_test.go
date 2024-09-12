@@ -14,6 +14,11 @@ func (vs *validatorStatistics) CheckForMissedBlocks(
 	return vs.checkForMissedBlocks(currentHeaderSlot, previousHeaderSlot, prevRandSeed, epoch)
 }
 
+// MaxComputableSlots -
+func (vs *validatorStatistics) MaxComputableSlots() uint64 {
+	return vs.maxComputableSlots
+}
+
 // LoadPeerAccount -
 func (vs *validatorStatistics) LoadPeerAccount(address []byte) (state.PeerAccountHandler, error) {
 	return vs.loadPeerAccount(address)

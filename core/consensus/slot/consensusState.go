@@ -245,8 +245,9 @@ func (cns *ConsensusState) CanProcessReceivedMessage(cnsDta *consensus.Message, 
 // GenerateBitmap method generates a bitmap, for a given subslot, in which each node will be marked with 1
 // if its job has been done
 func (cns *ConsensusState) GenerateBitmap(subslotId int) []byte {
+	consensusGroup := cns.ConsensusGroup()
 	// generate bitmap according to set commitment hashes
-	sizeConsensus := len(cns.ConsensusGroup())
+	sizeConsensus := len(consensusGroup)
 
 	bitmapSize := sizeConsensus / 8
 	if sizeConsensus%8 != 0 {
@@ -255,7 +256,7 @@ func (cns *ConsensusState) GenerateBitmap(subslotId int) []byte {
 	bitmap := make([]byte, bitmapSize)
 
 	for i := 0; i < sizeConsensus; i++ {
-		pubKey := cns.ConsensusGroup()[i]
+		pubKey := consensusGroup[i]
 		isJobDone, err := cns.JobDone(pubKey, subslotId)
 		if err != nil {
 			log.Debug("JobDone", "error", err.Error())

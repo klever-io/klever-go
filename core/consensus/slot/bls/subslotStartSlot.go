@@ -234,18 +234,8 @@ func (sr *subslotStartSlot) EpochStartPrepare(metaHdr data.HeaderHandler) {
 
 // EpochStartAction is called upon a start of epoch event.
 func (sr *subslotStartSlot) EpochStartAction(hdr data.HeaderHandler) {
-	log.Trace(fmt.Sprintf("epoch %d start action in consensus", hdr.GetEpoch()))
+	log.Debug(fmt.Sprintf("epoch %d start action in consensus", hdr.GetEpoch()))
 
-	sr.changeEpoch(hdr.GetEpoch())
-}
-
-func (sr *subslotStartSlot) changeEpoch(currentEpoch uint32) {
-	epochNodes, err := sr.NodesCoordinator().GetConsensusWhitelistedNodes(currentEpoch)
-	if err != nil {
-		panic(fmt.Sprintf("consensus changing epoch failed with error %s", err.Error()))
-	}
-
-	sr.SetElectedList(epochNodes)
 }
 
 // NotifyOrder returns the notification order for a start of epoch event

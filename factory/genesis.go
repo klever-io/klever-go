@@ -12,7 +12,7 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 )
 
-func generateGenesisHeadersAndApplyInitialBalances(args *processComponentsFactoryArgs, workingDir string) (data.HeaderHandler, error) {
+func generateGenesisHeadersAndApplyInitialBalances(args *ProcessComponentsFactoryArgs, workingDir string) (data.HeaderHandler, error) {
 	coreComponents := args.coreData
 	stateComponents := args.state
 	dataComponents := args.data
@@ -58,7 +58,7 @@ func generateGenesisHeadersAndApplyInitialBalances(args *processComponentsFactor
 	return gbc.CreateGenesisBlock()
 }
 
-func prepareGenesisBlock(args *processComponentsFactoryArgs, genesisBlock data.HeaderHandler) error {
+func prepareGenesisBlock(args *ProcessComponentsFactoryArgs, genesisBlock data.HeaderHandler) error {
 	if check.IfNil(genesisBlock) {
 		return errors.New("genesis block does not exist")
 	}

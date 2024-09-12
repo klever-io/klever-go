@@ -64,7 +64,7 @@ import (
 // timeSpanForBadHeaders is the expiry time for an added block header hash
 var timeSpanForBadHeaders = time.Minute * 2
 
-type processComponentsFactoryArgs struct {
+type ProcessComponentsFactoryArgs struct {
 	coreComponents            *CoreComponentsFactoryArgs
 	accountsParser            genesis.AccountsParser
 	economicsData             process.EconomicsDataHandler
@@ -142,7 +142,7 @@ func NewProcessComponentsFactoryArgs(
 	cacher state.AccountsCacher,
 	forkController core.ForkController,
 	txLogProcessor process.TransactionLogProcessor,
-) *processComponentsFactoryArgs {
+) *ProcessComponentsFactoryArgs {
 
 	minSizeInBytes := mainConfig.BlockSizeThrottle.MinSizeInBytes
 	maxSizeInBytes := mainConfig.BlockSizeThrottle.MaxSizeInBytes
@@ -156,7 +156,7 @@ func NewProcessComponentsFactoryArgs(
 
 	}
 
-	return &processComponentsFactoryArgs{
+	return &ProcessComponentsFactoryArgs{
 		coreComponents:            coreComponents,
 		accountsParser:            accountsParser,
 		economicsData:             economicsData,
@@ -221,8 +221,7 @@ type Process struct {
 	ForkController          core.ForkController
 }
 
-// ProcessComponentsFactory creates the process components
-func ProcessComponentsFactory(args *processComponentsFactoryArgs) (*Process, error) {
+func createHeaderSigVerifier(args *ProcessComponentsFactoryArgs) (*headerCheck.HeaderSigVerifier, error) {
 	argsHeaderSig := &headerCheck.ArgsHeaderSigVerifier{
 		Marshalizer:             args.coreData.InternalMarshalizer,
 		Hasher:                  args.coreData.Hasher,
@@ -232,27 +231,25 @@ func ProcessComponentsFactory(args *processComponentsFactoryArgs) (*Process, err
 		KeyGen:                  args.crypto.BlockSignKeyGen,
 		FallbackHeaderValidator: args.fallbackHeaderValidator,
 	}
-	headerSigVerifier, err := headerCheck.NewHeaderSigVerifier(argsHeaderSig)
-	if err != nil {
-		return nil, err
-	}
 
+	return headerCheck.NewHeaderSigVerifier(argsHeaderSig)
+}
+
+func createHeaderIntegrityVerifier(args *ProcessComponentsFactoryArgs) (HeaderIntegrityVerifierHandler, error) {
 	versionsCache, err := createCache(args.mainConfig.Versions.Cache)
 	if err != nil {
 		return nil, err
 	}
 
-	// Header Integrity Verifier
-	headerIntegrityVerifier, err := headerCheck.NewHeaderIntegrityVerifier(
+	return headerCheck.NewHeaderIntegrityVerifier(
 		[]byte(args.nodesConfig.ChainID),
 		args.mainConfig.Versions.VersionsByEpochs,
 		args.mainConfig.Versions.DefaultVersion,
 		versionsCache,
 	)
-	if err != nil {
-		return nil, err
-	}
+}
 
+func createResolversFinder(args *ProcessComponentsFactoryArgs) (retriever.ResolversFinder, error) {
 	resolversContainerFactory, err := newResolverContainerFactory(
 		args.data,
 		args.coreData,
@@ -273,22 +270,10 @@ func ProcessComponentsFactory(args *processComponentsFactoryArgs) (*Process, err
 		return nil, err
 	}
 
-	resolversFinder, err := containers.NewResolversFinder(resolversContainer)
-	if err != nil {
-		return nil, err
-	}
+	return containers.NewResolversFinder(resolversContainer)
+}
 
-	requestHandler, err := requestHandlers.NewResolverRequestHandler(
-		resolversFinder,
-		args.requestedItemsHandler,
-		args.whiteListHandler,
-		maxTxsToRequest,
-		time.Second,
-	)
-	if err != nil {
-		return nil, err
-	}
-
+func setupGenesis(args *ProcessComponentsFactoryArgs) (data.HeaderHandler, error) {
 	genesisBlock, err := generateGenesisHeadersAndApplyInitialBalances(args, args.workingDir)
 	if err != nil {
 		return nil, err
@@ -309,17 +294,16 @@ func ProcessComponentsFactory(args *processComponentsFactoryArgs) (*Process, err
 		args.indexer.UpdateProposalsAndParameters([]string{})
 	}
 
-	err = args.data.Blkc.SetGenesisHeader(genesisBlock)
-	if err != nil {
-		return nil, err
-	}
+	return genesisBlock, args.data.Blkc.SetGenesisHeader(genesisBlock)
+}
 
-	validatorStatisticsProcessor, err := newValidatorStatisticsProcessor(args)
-	if err != nil {
-		return nil, err
-	}
-
+func createValidatorsProvider(args *ProcessComponentsFactoryArgs, validatorStatisticsProcessor process.ValidatorStatisticsProcessor) (process.ValidatorsProvider, error) {
 	cacheRefreshIntervalInSec := args.mainConfig.ValidatorStatistics.CacheRefreshIntervalInSec
+	// default value for cache refresh interval to 60 seconds
+	if cacheRefreshIntervalInSec == 0 {
+		cacheRefreshIntervalInSec = 60
+	}
+
 	cacheRefreshDuration := time.Duration(cacheRefreshIntervalInSec) * time.Second
 	argVSP := peer.ArgValidatorsProvider{
 		NodesCoordinator:                  args.nodesCoordinator,
@@ -331,18 +315,23 @@ func ProcessComponentsFactory(args *processComponentsFactoryArgs) (*Process, err
 		PubKeyConverter:                   args.validatorPubkeyConverter,
 	}
 
-	validatorsProvider, err := peer.NewValidatorsProvider(argVSP)
+	return peer.NewValidatorsProvider(argVSP)
+}
+
+func createBaseProcessor(
+	args *ProcessComponentsFactoryArgs,
+	requestHandler process.RequestHandler,
+	resolversFinder retriever.ResolversFinder,
+	headerSigVerifier HeaderSigVerifierHandler,
+	headerIntegrityVerifier HeaderIntegrityVerifierHandler,
+	epochStartTrigger eventNotifier.TriggerHandler,
+) (*Process, error) {
+	validatorStatisticsProcessor, err := newValidatorStatisticsProcessor(args)
 	if err != nil {
 		return nil, err
 	}
 
-	epochStartTrigger, err := newEpochStartTrigger(args, requestHandler)
-	if err != nil {
-		return nil, err
-	}
-	requestHandler.SetEpoch(epochStartTrigger.Epoch())
-
-	err = retriever.SetEpochHandlerToHdrResolver(resolversContainer, epochStartTrigger)
+	validatorsProvider, err := createValidatorsProvider(args, validatorStatisticsProcessor)
 	if err != nil {
 		return nil, err
 	}
@@ -353,11 +342,6 @@ func ProcessComponentsFactory(args *processComponentsFactoryArgs) (*Process, err
 	}
 
 	log.Debug("Validator Stats created", "validatorStatsRootHash", validatorStatsRootHash)
-
-	err = prepareGenesisBlock(args, genesisBlock)
-	if err != nil {
-		return nil, err
-	}
 
 	interceptorContainerFactory, blackListHandler, err := newInterceptorContainerFactory(
 		args.nodesCoordinator,
@@ -452,6 +436,58 @@ func ProcessComponentsFactory(args *processComponentsFactoryArgs) (*Process, err
 	}, nil
 }
 
+// ProcessComponentsFactory creates the process components
+func ProcessComponentsFactory(args *ProcessComponentsFactoryArgs) (*Process, error) {
+	headerSigVerifier, err := createHeaderSigVerifier(args)
+	if err != nil {
+		return nil, err
+	}
+
+	headerIntegrityVerifier, err := createHeaderIntegrityVerifier(args)
+	if err != nil {
+		return nil, err
+	}
+
+	resolversFinder, err := createResolversFinder(args)
+	if err != nil {
+		return nil, err
+	}
+
+	requestHandler, err := requestHandlers.NewResolverRequestHandler(
+		resolversFinder,
+		args.requestedItemsHandler,
+		args.whiteListHandler,
+		maxTxsToRequest,
+		time.Second,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	genesisBlock, err := setupGenesis(args)
+	if err != nil {
+		return nil, err
+	}
+
+	epochStartTrigger, err := newEpochStartTrigger(args)
+	if err != nil {
+		return nil, err
+	}
+	requestHandler.SetEpoch(epochStartTrigger.Epoch())
+
+	err = retriever.SetEpochHandlerToHdrResolver(resolversFinder, epochStartTrigger)
+	if err != nil {
+		return nil, err
+	}
+
+	err = prepareGenesisBlock(args, genesisBlock)
+	if err != nil {
+		return nil, err
+	}
+
+	return createBaseProcessor(args, requestHandler, resolversFinder, headerSigVerifier, headerIntegrityVerifier, epochStartTrigger)
+}
+
 func newResolverContainerFactory(
 	data *DataComponents,
 	coreData *CoreComponents,
@@ -469,7 +505,6 @@ func newResolverContainerFactory(
 		return newStorageResolver(
 			coreData,
 			network,
-			storageResolverImportPath,
 			config,
 			currentEpoch,
 			chanGracefullyClose,
@@ -489,7 +524,6 @@ func newResolverContainerFactory(
 func newStorageResolver(
 	coreData *CoreComponents,
 	network *NetworkComponents,
-	storageResolverImportPath string,
 	config *config.Config,
 	currentEpoch uint32,
 	chanGracefullyClose chan endProcess.ArgEndProcess,
@@ -556,10 +590,12 @@ func newMetaResolverContainerFactory(
 		OutputAntifloodHandler:     network.OutputAntifloodHandler,
 		NumConcurrentResolvingJobs: numConcurrentResolverJobs,
 	}
+
 	resolversContainerFactory, err := resolverscontainer.NewMetaResolversContainerFactory(resolversContainerFactoryArgs)
 	if err != nil {
 		return nil, err
 	}
+
 	return resolversContainerFactory, nil
 }
 
@@ -709,7 +745,7 @@ func PrepareOpenTopics(
 }
 
 func newValidatorStatisticsProcessor(
-	processComponents *processComponentsFactoryArgs,
+	processComponents *ProcessComponentsFactoryArgs,
 ) (process.ValidatorStatisticsProcessor, error) {
 
 	storageService := processComponents.data.Store
@@ -745,7 +781,7 @@ func newValidatorStatisticsProcessor(
 }
 
 func newBlockProcessor(
-	processArgs *processComponentsFactoryArgs,
+	processArgs *ProcessComponentsFactoryArgs,
 	requestHandler process.RequestHandler,
 	forkDetector process.ForkDetector,
 	epochStartTrigger eventNotifier.TriggerHandler,
@@ -871,7 +907,7 @@ func newBlockProcessor(
 		return nil, nil, err
 	}
 
-	err = createMetaTxSimulatorProcessor(txSimulatorProcessorArgs, processArgs, argsNewSCProcessor, kdaTransferParser, forkDetector, gasScheduleNotifier)
+	err = createMetaTxSimulatorProcessor(txSimulatorProcessorArgs, processArgs, argsNewSCProcessor, kdaTransferParser, gasScheduleNotifier)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1049,7 +1085,7 @@ func unmarshalUserAccount(address []byte, userAccountsBytes []byte, marshalizer 
 	return userAccount, nil
 }
 
-func indexGenesisBlock(args *processComponentsFactoryArgs, genesisBlockHeader data.HeaderHandler) error {
+func indexGenesisBlock(args *ProcessComponentsFactoryArgs, genesisBlockHeader data.HeaderHandler) error {
 	// In Elastic Indexer, only index the chain block
 	genesisBlockHash, err := tools.CalculateHash(args.coreData.InternalMarshalizer, args.coreData.Hasher, genesisBlockHeader.GetBlockHeader())
 	if err != nil {
@@ -1092,8 +1128,7 @@ func indexGenesisBlock(args *processComponentsFactoryArgs, genesisBlockHeader da
 }
 
 func newEpochStartTrigger(
-	args *processComponentsFactoryArgs,
-	requestHandler process.RequestHandler,
+	args *ProcessComponentsFactoryArgs,
 ) (eventNotifier.TriggerHandler, error) {
 
 	argEpochStart := &epochStart.ArgsNewEpochStartTrigger{
@@ -1122,10 +1157,9 @@ func newEpochStartTrigger(
 
 func createMetaTxSimulatorProcessor(
 	txSimulatorProcessorArgs *txsimulator.ArgsTxSimulator,
-	processArgs *processComponentsFactoryArgs,
+	processArgs *ProcessComponentsFactoryArgs,
 	scProcArgs smartContract.ArgsNewSmartContractProcessor,
 	kdaTransferParser vmcommon.KDATransferParser,
-	forkDetector process.ForkDetector,
 	gasScheduleNotifier core.GasScheduleNotifier,
 ) error {
 

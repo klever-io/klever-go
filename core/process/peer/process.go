@@ -80,9 +80,6 @@ func NewValidatorStatisticsProcessor(arguments ArgValidatorStatisticsProcessor) 
 	if check.IfNil(arguments.Marshalizer) {
 		return nil, process.ErrNilMarshalizer
 	}
-	if arguments.MaxComputableSlots == 0 {
-		return nil, common.ErrZeroMaxComputableSlots
-	}
 	if check.IfNil(arguments.Rater) {
 		return nil, common.ErrNilRater
 	}
@@ -97,6 +94,11 @@ func NewValidatorStatisticsProcessor(arguments ArgValidatorStatisticsProcessor) 
 	}
 	if check.IfNil(arguments.VKApp) {
 		return nil, common.ErrNilKAppValidator
+	}
+
+	// default value for maxComputableSlots to 100
+	if arguments.MaxComputableSlots == 0 {
+		arguments.MaxComputableSlots = process.DefaultMaxComputableSlots
 	}
 
 	arguments.VKApp.SetRater(arguments.Rater)

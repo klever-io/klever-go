@@ -70,6 +70,9 @@ const EpochChangeGracePeriod = 1
 // timeout now will be slotManager.TimeDuration() * TimeDurationMultiplierForProcessBlockWhenSync
 const TimeDurationMultiplierForProcessBlockWhenSync = time.Duration(4)
 
+// DefaultMaxComputableSlots defines the default maximum number of computable slots
+const DefaultMaxComputableSlots = uint64(100)
+
 // TransactionType specifies the type of the transaction
 type TransactionType int
 

@@ -160,10 +160,6 @@ func (wrk *Worker) CheckSelfState(cnsDta *consensus.Message) error {
 	return wrk.checkSelfState(cnsDta)
 }
 
-func (rcns *SlotConsensus) ElectedList() map[string]struct{} {
-	return rcns.electedNodes
-}
-
 func (wrk *Worker) AppStatusHandler() core.AppStatusHandler {
 	return wrk.appStatusHandler
 }

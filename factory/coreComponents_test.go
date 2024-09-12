@@ -159,6 +159,7 @@ func getCoreArgs() factory.CoreComponentsFactoryArgs {
 				Type: testHasher,
 			},
 		},
-		ChainID: []byte("chainID"),
+		ChainID:               []byte("chainID"),
+		MinTransactionVersion: 1,
 	}
 }

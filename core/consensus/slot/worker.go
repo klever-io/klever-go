@@ -435,7 +435,6 @@ func (wrk *Worker) shouldBlacklistPeer(err error) bool {
 	if err == nil ||
 		errors.Is(err, ErrMessageForPastSlot) ||
 		errors.Is(err, ErrMessageForFutureSlot) ||
-		errors.Is(err, ErrNodeIsNotInElectedList) ||
 		errors.Is(err, crypto.ErrPIDMismatch) ||
 		errors.Is(err, crypto.ErrSignatureMismatch) ||
 		errors.Is(err, sharding.ErrEpochNodesConfigDoesNotExist) ||

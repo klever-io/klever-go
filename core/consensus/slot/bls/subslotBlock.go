@@ -383,8 +383,10 @@ func (sr *subslotBlock) doBlockConsensusCheck() bool {
 func (sr *subslotBlock) isBlockReceived(threshold int) bool {
 	n := 0
 
-	for i := 0; i < len(sr.ConsensusGroup()); i++ {
-		node := sr.ConsensusGroup()[i]
+	consensusGroup := sr.ConsensusGroup()
+
+	for i := 0; i < len(consensusGroup); i++ {
+		node := consensusGroup[i]
 		isJobDone, err := sr.JobDone(node, sr.Current())
 		if err != nil {
 			log.Debug("isBlockReceived.JobDone",

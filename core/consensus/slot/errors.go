@@ -116,8 +116,8 @@ var ErrHeaderkHashNotMatch = errors.New("invalid header hash")
 // ErrNodeIsNotInEligibleList is raised when a node is not in eligible list
 var ErrNodeIsNotInEligibleList = errors.New("node is not in eligible list")
 
-// ErrNodeIsNotInElectedList is raised when a node is not in eligible list
-var ErrNodeIsNotInElectedList = errors.New("node is not in elected list")
+// ErrNodeIsNotInConsensusGroup is raised when a node is not in consensus group
+var ErrNodeIsNotInConsensusGroup = errors.New("node is not in consensus group")
 
 // ErrMessageForFutureSlot is raised when message is for future slot
 var ErrMessageForFutureSlot = errors.New("message is for future slot")

@@ -10,7 +10,7 @@ on:
           description: Custom GO Version
           required: false
           type: string
-          default: ">=1.22"
+          default: "1.22"
         cache_enabled:
           description: Enable caching of Go modules
           default: true
@@ -35,7 +35,7 @@ jobs:
           uses: actions/setup-go@v5
           with:
             go-version: ${{ inputs.go_version }}
-            cache: ${{ inputs.cache_enabled }} 
+            cache: false
 
         - name: Configure git for private modules
           if: env.TOKEN != ''

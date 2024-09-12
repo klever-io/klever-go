@@ -111,27 +111,6 @@ func TestSlotConsensus_IndexSelfConsensusGroupNotFound(t *testing.T) {
 	assert.Equal(t, slot.ErrNotFoundInConsensus, err)
 }
 
-func TestSlotConsensus_SetEligibleListShouldChangeTheEligibleList(t *testing.T) {
-	t.Parallel()
-
-	rcns := *initSlotConsensus()
-	eligibleList := []string{"4", "5", "6"}
-
-	eligibleNodesKeys := make(map[string]struct{})
-	for _, key := range eligibleList {
-		eligibleNodesKeys[key] = struct{}{}
-	}
-
-	rcns.SetElectedList(eligibleNodesKeys)
-
-	_, ok := rcns.ElectedList()["4"]
-	assert.True(t, ok)
-	_, ok = rcns.ElectedList()["5"]
-	assert.True(t, ok)
-	_, ok = rcns.ElectedList()["6"]
-	assert.True(t, ok)
-}
-
 func TestSlotConsensus_SetConsensusGroupShouldChangeTheConsensusGroup(t *testing.T) {
 	t.Parallel()
 
@@ -230,15 +209,6 @@ func TestSlotConsensus_IsNodeInConsensusGroup(t *testing.T) {
 
 	assert.Equal(t, false, rcns.IsNodeInConsensusGroup("4"))
 	assert.Equal(t, true, rcns.IsNodeInConsensusGroup(rcns.SelfPubKey()))
-}
-
-func TestSlotConsensus_IsNodeInEligibleList(t *testing.T) {
-	t.Parallel()
-
-	rcns := *initSlotConsensus()
-
-	assert.Equal(t, false, rcns.IsNodeInElectedList("4"))
-	assert.Equal(t, true, rcns.IsNodeInElectedList(rcns.SelfPubKey()))
 }
 
 func TestSlotConsensus_ComputeSize(t *testing.T) {
