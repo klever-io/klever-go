@@ -83,7 +83,7 @@ newkey:
 ###         BUILD        ###
 ############################
 
-.PHONY: build build-validator build-seenode build-operator build-keygenerator build-batch docker-build docker-build-alpine
+.PHONY: build build-validator build-seenode build-operator build-keygenerator build-batch docker-build
 build: build-validator build-seenode build-operator build-keygenerator
 
 build-validator:
@@ -114,10 +114,6 @@ docker-push:
 
 docker-build-validator: docker-vendor
 	docker build --build-arg arg_version=${VERSION} -t kleverapp/klever-go:val-${FOR_DEV}${VERSION}${FOR_TESTNET} -f Dockerfile.validator .
-
-# validator only app with Alpine Docker image
-docker-build-alpine: docker-vendor
-	docker build --build-arg arg_version=${VERSION} -t kleverapp/klever-go:val-${FOR_DEV}${VERSION}${FOR_TESTNET}-alpine -t kleverapp/klever-go:val-${FOR_DEV}latest${FOR_TESTNET}-alpine -f Dockerfile.alpine .
 
 vm-generate-rs:
 	cd kvm/vmhost/vmhooks && go run generate/cmd/eiGenMain.go

@@ -2,7 +2,7 @@ name: QA Sec
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize]
+    types: [opened, reopened, synchronize, ready_for_review]
   push:
     branches: [master, main, develop]
   workflow_dispatch:
@@ -10,6 +10,8 @@ on:
 jobs:
   config:
     uses: ./.github/workflows/go-setup.yaml
+    # Only apply the draft condition for pull_request events
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     secrets:
       git_user: ${{ secrets.GIT_USER }}
       git_pass: ${{ secrets.GIT_PASS }}
