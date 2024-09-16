@@ -73,7 +73,78 @@ func (v *kdaFeesPoolKApp) UpdatePool(poolID []byte, assetOwner []byte, sender []
 		return transaction.Transaction_KAPPError, err
 	}
 
+	ctx := v.KAppController.GetCurrentKAppContext()
+
+	// add receipt
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.UpdateKDAPool,
+		ctx.ContractID(),
+		poolID,
+	))
+
 	return transaction.Transaction_Ok, nil
+}
+
+// ChangePoolOwner -
+func (v *kdaFeesPoolKApp) ChangePoolOwner(assetID []byte, sender []byte, newOwner []byte) (transaction.Transaction_TXResultCode, error) {
+	ctx := v.KAppController.GetCurrentKAppContext()
+
+	app, err := v.getKApp()
+	if err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
+	pool, err := v.getPool(app, assetID)
+	if err != nil {
+		if err == common.ErrAssetPoolNotFound {
+			return transaction.Transaction_Ok, nil
+		}
+		return transaction.Transaction_KAPPError, err
+	}
+
+	if !bytes.Equal(sender, pool.OwnerAddress) {
+		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+	}
+
+	if len(newOwner) != v.pubkeyConv.Len() {
+		return transaction.Transaction_ParameterInvalid, common.ErrAssetPoolInvalidAddress
+	}
+
+	pool.OwnerAddress = newOwner
+
+	err = v.setPool(app, assetID, pool)
+	if err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
+	err = v.saveKApp(app)
+	if err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
+	// add receipts
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.UpdateKDAPool,
+		ctx.ContractID(),
+		assetID,
+	))
+
+	return transaction.Transaction_Ok, nil
+}
+
+// GetPoolOwner -
+func (v *kdaFeesPoolKApp) GetPoolOwner(assetID []byte) ([]byte, error) {
+	app, err := v.getKApp()
+	if err != nil {
+		return nil, err
+	}
+
+	pool, err := v.getPool(app, assetID)
+	if err != nil {
+		return nil, err
+	}
+
+	return pool.OwnerAddress, nil
 }
 
 // Deposit -

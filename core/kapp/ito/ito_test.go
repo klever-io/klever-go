@@ -11,7 +11,6 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/fork"
 	"github.com/klever-io/klever-go/core/kapp"
-	"github.com/klever-io/klever-go/core/kapp/ito/stub"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
@@ -344,7 +343,7 @@ func Test_Trigger_RemoveFromWhitelist_BeforeSmartContractFork_ShouldWork(t *test
 	})
 	require.NoError(t, err)
 
-	accCacher := &stub.AccountsCacherStub{
+	accCacher := &mock.AccountsCacherStub{
 		GetExistingKappCalled: func(address []byte) (state.KAppAccountHandler, error) {
 			return &mock.KAppAccountHandlerStub{
 				DataTrieTrackerCalled: func() state.DataTrieTracker {
@@ -408,7 +407,7 @@ func Test_Trigger_RemoveFromWhitelist_BeforeSmartContractFork_CantRemoveWhitelis
 		WhitelistLen: 2,
 	}
 
-	accCacher := &stub.AccountsCacherStub{
+	accCacher := &mock.AccountsCacherStub{
 		GetExistingKappCalled: func(address []byte) (state.KAppAccountHandler, error) {
 			return &mock.KAppAccountHandlerStub{
 				DataTrieTrackerCalled: func() state.DataTrieTracker {
@@ -480,7 +479,7 @@ func Test_Trigger_RemoveFromWhitelist_AfterSmartContractFork_ShouldWork(t *testi
 	})
 	require.NoError(t, err)
 
-	accCacher := &stub.AccountsCacherStub{
+	accCacher := &mock.AccountsCacherStub{
 		GetExistingKappCalled: func(address []byte) (state.KAppAccountHandler, error) {
 			return &mock.KAppAccountHandlerStub{
 				DataTrieTrackerCalled: func() state.DataTrieTracker {
@@ -544,7 +543,7 @@ func Test_Trigger_RemoveFromWhitelist_AfterSmartContractFork_CantRemoveWhitelist
 		WhitelistLen: 2,
 	}
 
-	accCacher := &stub.AccountsCacherStub{
+	accCacher := &mock.AccountsCacherStub{
 		GetExistingKappCalled: func(address []byte) (state.KAppAccountHandler, error) {
 			return &mock.KAppAccountHandlerStub{
 				DataTrieTrackerCalled: func() state.DataTrieTracker {

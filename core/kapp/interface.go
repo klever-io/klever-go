@@ -69,6 +69,8 @@ type KDAFeesPoolKapp interface {
 	Compute(klvAmount int64, info data.KDAFeeHandler) (int64, error)
 	Swap(sender state.UserAccountHandler, klvAmount int64, info data.KDAFeeHandler) error
 	Validate(klvFee int64, info data.KDAFeeHandler) error
+	ChangePoolOwner(poolID []byte, sender []byte, newOwner []byte) (transaction.Transaction_TXResultCode, error)
+	GetPoolOwner(assetID []byte) ([]byte, error)
 	UpdatePool(poolID []byte, assetOwner []byte, sender []byte, info *transaction.KDAPoolInfo) (transaction.Transaction_TXResultCode, error)
 	Deposit(sender []byte, tc *transaction.DepositContract) (transaction.Transaction_TXResultCode, error)
 	Withdraw(sender []byte, tc *transaction.WithdrawContract) (transaction.Transaction_TXResultCode, error)

@@ -23,7 +23,9 @@ import (
 )
 
 var sender = "sender"
+var otherSender = "otherSender"
 var defaultSender []byte = makeAddress(sender)
+var defaultOtherSender []byte = makeAddress(otherSender)
 
 func makeAddress(prefix string) []byte {
 	addr := make([]byte, 32)

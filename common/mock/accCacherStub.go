@@ -1,4 +1,4 @@
-package stub
+package mock
 
 import "github.com/klever-io/klever-go/data/state"
 

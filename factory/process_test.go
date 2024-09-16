@@ -9,7 +9,6 @@ import (
 	"github.com/klever-io/klever-go/core"
 	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/fork"
-	"github.com/klever-io/klever-go/core/kapp/ito/stub"
 	"github.com/klever-io/klever-go/core/process/economics"
 	"github.com/klever-io/klever-go/core/process/transactionLog"
 	"github.com/klever-io/klever-go/core/statistics"
@@ -160,7 +159,7 @@ func createMockArguments() *factory.ProcessComponentsFactoryArgs {
 		SaveInStorageEnabled: false,
 	})
 
-	accCacher := &stub.AccountsCacherStub{}
+	accCacher := &mock.AccountsCacherStub{}
 
 	slotInterval := uint64(4)
 	tpsBenchmark, _ := statistics.NewTPSBenchmark(slotInterval)
