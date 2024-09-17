@@ -1,0 +1,50 @@
+name: End-To-End Tests
+
+on: 
+  workflow_dispatch:
+    inputs:
+          environment:
+            description: 'Choose the environment'
+            required: true
+            default: 'DevNet'
+            type: choice
+            options:
+              - TestNet
+              - DevNet
+
+jobs:
+  e2e-tests:
+    runs-on: ubuntu-latest
+    env:
+      E2E_NODE_URL: ${{ secrets.E2E_DEVNET_NODE_URL }}
+      E2E_PROXY_URL: ${{ secrets.E2E_DEVNET_PROXY_URL }}
+      E2E_PRIVATE_KEYS: ${{ secrets.E2E_DEVNET_PRIVATE_KEYS }}
+      GO_VERSION: ${{ vars.GO_VERSION || '1.22' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Go Setup
+        uses: ./.github/actions/go-setup-action
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Set secret and URL based on input
+        id: set_env
+        run: |
+          if [[ "${{ github.event.inputs.environment }}" == "DevNet" ]]; then
+            echo "E2E_NODE_URL=${{ secrets.E2E_DEVNET_NODE_URL }}" >> $GITHUB_ENV
+            echo "E2E_PROXY_URL=${{ secrets.E2E_DEVNET_PROXY_URL }}" >> $GITHUB_ENV
+            echo "E2E_PRIVATE_KEYS=${{ secrets.E2E_DEVNET_PRIVATE_KEYS }}" >> $GITHUB_ENV
+          elif [[ "${{ github.event.inputs.environment }}" == "TestNet" ]]; then
+            echo "E2E_NODE_URL=${{ secrets.E2E_TESTNET_NODE_URL }}" >> $GITHUB_ENV
+            echo "E2E_PROXY_URL=${{ secrets.E2E_TESTNET_PROXY_URL }}" >> $GITHUB_ENV
+            echo "E2E_PRIVATE_KEYS=${{ secrets.E2E_TESTNET_PRIVATE_KEYS }}" >> $GITHUB_ENV
+          else
+            echo "Invalid environment selected"
+            exit 1
+          fi
+
+      - name: Run End-To-End Tests
+        run: |
+          make e2e-tests

@@ -8,62 +8,100 @@ on:
   workflow_dispatch:
 
 jobs:
-  config:
-    uses: ./.github/workflows/go-setup.yaml
-    # Only apply the draft condition for pull_request events
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+  setup-and-lint:
+    uses: ./.github/workflows/go-setup-lint.yaml
+    with:
+      go-version: ${{ vars.GO_VERSION || '1.22' }}
+      golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'v1.61.0' }}
     secrets:
-      git_user: ${{ secrets.GIT_USER }}
-      git_pass: ${{ secrets.GIT_PASS }}
+      git-user: ${{ secrets.GIT_USER }}
+      git-pass: ${{ secrets.GIT_PASS }}
 
-  analysis:
-    needs: [config]
-    runs-on: klever-pipe
-    env:
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-      GOLANGCI_VERSION: ${{ vars.GOLANGCI_VERSION || 'v1.61.0' }} 
+  test:
+    needs: setup-and-lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Go Setup
+        uses: ./.github/actions/go-setup-action
+        with:
+          go-version: ${{ vars.GO_VERSION || '1.22' }}
+
+      - name: Run tests
+        id: run-tests
+        continue-on-error: true
+        run: |
+          set +e  # Disable immediate exit on error
+          go test -covermode=atomic -coverprofile=coverage.out -json ./... > test-output.json
+          echo "test_exit_code=$?" >> $GITHUB_OUTPUT
+
+
+      - name: Generate coverage summary
+        id: coverage
+        run: |
+          if [ -f coverage.out ]; then
+            go tool cover -func=coverage.out > coverage-summary.txt
+            COVERAGE=$(grep "total:" coverage-summary.txt | awk '{print $3}')
+            echo "total=$COVERAGE" >> $GITHUB_OUTPUT
+          else
+            echo "No coverage data generated" > coverage-summary.txt
+            echo "total=0.0%" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Process test output
+        run: |
+          if [ ! -f test-output.json ]; then
+            echo '{"Time":"","Action":"fail","Package":"","Test":"","Elapsed":0}' > test-output.json
+          fi
+          jq -r ' select(.Action=="fail") | "\(.Package) - \(.Test): \(.Action)"' test-output.json
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts
+          path: |
+            coverage.out
+            test-output.json
+            coverage-summary.txt
+          retention-days: 1
+          overwrite: true
+
+    outputs:
+      coverage: ${{ steps.coverage.outputs.total }}
+      test_exit_code: ${{ steps.run-tests.outputs.test_exit_code }}
+
+  sonarqube:
+    needs: [setup-and-lint, test]
+    runs-on: ubuntu-latest
+    if: always()
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+
+      - name: Download lint results
+        uses: actions/download-artifact@v4
         with:
-          go-version: ${{ vars.GO_VERSION || '1.22' }}
-          cache: false
+          name: lint-results
 
-      - name: Cache Go dependencies
-        uses: actions/cache@v4
-        env:
-          cache-name: cache-vendor
+      - name: Download test results
+        uses: actions/download-artifact@v4
         with:
-          fail-on-cache-miss: true
-          path: |
-            ~/go/pkg/mod
-            ./vendor
-          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
+          name: test-artifacts
 
-      - name: GoImports Formatter
-        run: |
-          go install golang.org/x/tools/cmd/goimports@latest
-          go mod tidy
-          make goimports
+      - uses: twingate/github-action@v1
+        with:
+          service-key: ${{ secrets.TWINGATE_SERVICE_ACCOUNT }}
 
-      - name: ensure code is buildable
-        run: |
-          go vet -unsafeptr=false $(go list ./... | grep -v /vendor/) 
-
-      - name: Install and Run golangci-lint
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin ${GOLANGCI_VERSION}
-          golangci-lint run > report.xml || exit 1
-
-      - name: Run tests
-        run: "go test -covermode=atomic -coverprofile coverage.out ./..."
-
-      - name: SonarQube Go detailed scan
+      - name: SonarQube Scan
         uses: sonarsource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         with:
           args: >
             -Dsonar.projectKey=${{ github.event.repository.name }}
@@ -71,12 +109,16 @@ jobs:
             -Dsonar.exclusions=**/*.json,**/*.xml,**/*_test.go,vendor/**,coverage.out
             -Dsonar.test.inclusions="**/*_test.go"
             -Dsonar.go.coverage.reportPaths=coverage.out
-            -Dsonar.go.golangci-lint.reportPaths=report.xml
+            -Dsonar.go.tests.reportPaths=test-output.json
+            -Dsonar.go.golangci-lint.reportPaths=golangci-report.xml
             -Dsonar.branch.name=${{ github.ref_name }}
         if: github.event_name != 'pull_request'
-  
+
       - name: SonarQube Go detailed scan PR
         uses: sonarsource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         with:
           args: >
             -Dsonar.projectKey=${{ github.event.repository.name }}
@@ -84,17 +126,195 @@ jobs:
             -Dsonar.exclusions=**/*.json,**/*.xml,**/*_test.go,vendor/**,coverage.out
             -Dsonar.test.inclusions="**/*_test.go"
             -Dsonar.go.coverage.reportPaths=coverage.out
-            -Dsonar.go.golangci-lint.reportPaths=report.xml
+            -Dsonar.go.tests.reportPaths=test-output.json
+            -Dsonar.go.golangci-lint.reportPaths=golangci-report.xml
             -Dsonar.pullrequest.branch=${{ github.head_ref }}
             -Dsonar.pullrequest.base=${{ github.base_ref }}
             -Dsonar.pullrequest.key=${{ github.event.number }}
         if: github.event_name == 'pull_request'
 
       - name: SonarQube Quality Gate check
-        id: sonarqube-quality-gate-check
         uses: sonarsource/sonarqube-quality-gate-action@master
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
+  notify:
+    needs: [setup-and-lint, test, sonarqube]
+    runs-on: ubuntu-latest
+    if: always()
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine job statuses
+        id: job-status
+        run: |
+          echo "sonarqube_status=${{ needs.sonarqube.result == 'success' && '✅' || '❌' }}" >> $GITHUB_OUTPUT
+          echo "test_status=${{ needs.test.outputs.test_exit_code == '0' && '✅' || '❌' }}" >> $GITHUB_OUTPUT
+          if [[ "${{ needs.sonarqube.result }}" == "failure" || "${{ needs.test.outputs.test_exit_code }}" == "1" || "${{ needs.setup-and-lint.result }}" == "failure" ]]; then
+            echo "overall_status=Failure" >> $GITHUB_OUTPUT
+            echo "color=#FF0000" >> $GITHUB_OUTPUT
+            echo "icon=❌" >> $GITHUB_OUTPUT
+          else
+            echo "overall_status=Success" >> $GITHUB_OUTPUT
+            echo "color=#36a64f" >> $GITHUB_OUTPUT
+            echo "icon=✅" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get event context
+        id: context
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "name=${{ github.event.sender.login }}" >> $GITHUB_OUTPUT
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "event_title=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
+            echo "changed_files=${{ github.event.pull_request.changed_files }}" >> $GITHUB_OUTPUT
+            echo "additions=${{ github.event.pull_request.additions }}" >> $GITHUB_OUTPUT
+            echo "deletions=${{ github.event.pull_request.deletions }}" >> $GITHUB_OUTPUT
+
+            # Get file list for PR
+            pr_files=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --jq '.[].filename')
+            echo "file_list<<EOF" >> $GITHUB_OUTPUT
+            echo "$pr_files" | head -n 10 >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+
+            echo "REPORT_URL=${{ secrets.SONAR_HOST_URL }}/dashboard?id=klever-go&pullRequest=${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+            echo "REVIEW_URL=${{ github.event.pull_request.html_url }}/files" >> $GITHUB_ENV
+            echo "REVIEW_TEXT=Review PR" >> $GITHUB_ENV
+          else
+            echo "event_title=${{ github.event.head_commit.message }}" >> $GITHUB_OUTPUT
+            
+            # Use GitHub API to get commit details
+            commit_data=$(gh api repos/${{ github.repository }}/commits/${{ github.sha }} --jq '{files:.files}')
+            
+            changed_files=$(echo $commit_data | jq '.files | length')
+            echo "changed_files=$changed_files" >> $GITHUB_OUTPUT
+            
+            echo "file_list<<EOF" >> $GITHUB_OUTPUT
+            echo $commit_data | jq -r '.files[].filename' | head -n 10 >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            
+            additions=$(echo $commit_data | jq '[.files[].additions] | add')
+            deletions=$(echo $commit_data | jq '[.files[].deletions] | add')
+            echo "additions=$additions" >> $GITHUB_OUTPUT
+            echo "deletions=$deletions" >> $GITHUB_OUTPUT
+
+            echo "REPORT_URL=${{ secrets.SONAR_HOST_URL }}/dashboard?id=klever-go&branch=${{ github.ref_name }}" >> $GITHUB_ENV
+            echo "REVIEW_URL=${{ github.event.repository.html_url }}/commits/${{ github.ref_name }}" >> $GITHUB_ENV
+            echo "REVIEW_TEXT=View Commits" >> $GITHUB_ENV
+          fi
+
+      - name: Slack Notification
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '
+            {
+              "text": "🚀 CI/CD Pipeline ${{ steps.job-status.outputs.icon }} Update for ${{ github.repository }}",
+              "attachments": [
+                {
+                  "color": "${{ steps.job-status.outputs.color }}",
+                  "blocks": [
+                    {
+                      "type": "section",
+                      "fields": [
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Status:*\n${{ steps.job-status.outputs.overall_status }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Branch:*\n${{ github.ref_name || github.ref }}"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "section",
+                      "fields": [
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Event:*\n${{ github.event_name }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Author:*\n${{ github.event.sender.login }}"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*${{ github.event_name == 'pull_request' && 'PR Title' || 'Commit Message' }}:*\n${{ steps.context.outputs.event_title }}"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*Changes:*\n• Files changed: ${{ steps.context.outputs.changed_files }} (+${{ steps.context.outputs.additions }}/-${{ steps.context.outputs.deletions }})\n• First 10 changed files:\n```${{ steps.context.outputs.file_list }}```"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*Job Results:*\n• SonarQube: ${{ steps.job-status.outputs.sonarqube_status }}\n• Tests: ${{ steps.job-status.outputs.test_status }}\n• Project Coverage: ${{ needs.test.outputs.coverage }}\n"
+                      }
+                    },
+                    {
+                      "type": "actions",
+                      "elements": [
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "View Actions Run"
+                          },
+                          "url": "${{ github.event.repository.html_url }}/actions/runs/${{ github.run_id }}"
+                        },
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "View SonarQube Report"
+                          },
+                          "url": "${{ env.REPORT_URL }}"
+                        },
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "${{ env.REVIEW_TEXT }}"
+                          },
+                          "url": "${{ env.REVIEW_URL }}",
+                          "style": "primary"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "context",
+                      "elements": [
+                        {
+                          "type": "mrkdwn",
+                          "text": "Need help? <${{ github.event.repository.html_url }}/issues/new|Create an issue>"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }' ${{ secrets.SLACK_WEBHOOK_URL }}
+        env:
+          # build Sonar URL based on the event type
+          SONAR_URL: ${{ secrets.SONAR_HOST_URL }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          REPORT_URL: ${{ env.REPORT_URL }}
+          REVIEW_URL: ${{ env.REVIEW_URL }}
+          REVIEW_TEXT: ${{ env.REVIEW_TEXT }}

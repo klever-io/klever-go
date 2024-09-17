@@ -29,75 +29,32 @@ on:
         type: boolean
         default: true
 
+env:
+  GO_VERSION: ${{ inputs.go_version }}
+  GOLANGCI_VERSION: ${{ vars.GOLANGCI_VERSION || 'v1.61.0' }}
+
 jobs:
-  config:
-    uses: ./.github/workflows/go-setup.yaml
+  setup-and-lint:
+    uses: ./.github/workflows/go-setup-lint.yaml
+    with:
+      go-version: ${{ inputs.go_version }}
+      golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'v1.61.0' }}
     secrets:
-      git_user: ${{ secrets.GIT_USER }}
-      git_pass: ${{ secrets.GIT_PASS }}
-
-  validate:
-    needs: [config]
-    runs-on: klever-pipe
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ inputs.go_version }}
-          cache: false
-
-      - name: Cache Go dependencies
-        uses: actions/cache@v4
-        env:
-          cache-name: cache-vendor
-        with:
-          fail-on-cache-miss: true
-          path: |
-            ~/go/pkg/mod
-            ./vendor
-          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
-
-      - name: GoImports Formatter
-        run: |
-          go install golang.org/x/tools/cmd/goimports@latest
-          go mod tidy
-          make goimports
-
-      # If there are any diffs from goimports or go mod tidy, fail.
-      - name: Verify no changes from goimports and go mod tidy
-        run: |
-          if [ -n "$(git status --porcelain)" ]; then
-            exit 1
-          fi
-
-      - name: ensure code is buildable
-        run: |
-          go vet -unsafeptr=false $(go list ./... | grep -v /vendor/) 
-
+      git-user: ${{ secrets.GIT_USER }}
+      git-pass: ${{ secrets.GIT_PASS }}
 
   unit-tests:
-    needs: [validate]
     if: ${{ inputs.run_unit_tests }}
-    runs-on: klever-pipe
+    needs: [setup-and-lint]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ inputs.go_version }}
-          cache: false
 
-      - name: Cache Go dependencies
-        uses: actions/cache@v4
-        env:
-          cache-name: cache-vendor
+      - name: Go Setup
+        uses: ./.github/actions/go-setup-action
         with:
-          fail-on-cache-miss: true
-          path: |
-            ~/go/pkg/mod
-            ./vendor
-          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
+          go-version: ${{ env.GO_VERSION }}
 
       - name: ensure all unit test is passing
         env:
@@ -106,27 +63,17 @@ jobs:
           make tests-unit
   
   integration-tests:
-    needs: [validate]
     if: ${{ inputs.run_integration_tests }}
-    runs-on: klever-pipe
+    needs: [setup-and-lint]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ inputs.go_version }}
-          cache: false
 
-      - name: Cache Go dependencies
-        uses: actions/cache@v4
-        env:
-          cache-name: cache-vendor
+      - name: Go Setup
+        uses: ./.github/actions/go-setup-action
         with:
-          fail-on-cache-miss: true
-          path: |
-            ~/go/pkg/mod
-            ./vendor
-          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
+          go-version: ${{ env.GO_VERSION }}
 
       - name: integration tests
         env:
@@ -135,27 +82,17 @@ jobs:
           make tests-integration
 
   kvm-tests:
-    needs: [validate]
     if: ${{ inputs.run_kvm_tests }}
-    runs-on: klever-pipe
+    needs: [setup-and-lint]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ inputs.go_version }}
-          cache: false
 
-      - name: Cache Go dependencies
-        uses: actions/cache@v4
-        env:
-          cache-name: cache-vendor
+      - name: Go Setup
+        uses: ./.github/actions/go-setup-action
         with:
-          fail-on-cache-miss: true
-          path: |
-            ~/go/pkg/mod
-            ./vendor
-          key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
+          go-version: ${{ env.GO_VERSION }}
 
       - name: ensure all unit test is passing
         env:

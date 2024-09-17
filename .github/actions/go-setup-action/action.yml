@@ -1,0 +1,76 @@
+name: 'Go Setup Action'
+description: 'Sets up Go environment with private modules support and caching'
+inputs:
+  go-version:
+    description: 'The Go version to use'
+    required: false
+    default: '1.22'
+  go-private:
+    description: 'Private go modules'
+    required: false
+    default: 'github.com/klever-io/*'
+  cache-enabled:
+    description: 'Enable caching of Go modules'
+    required: false
+    default: 'true'
+  git-user:
+    description: 'Git username for private modules'
+    required: false
+  git-pass:
+    description: 'Git password or token for private modules'
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Golang
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: false
+
+    - name: Configure git for private modules
+      if: inputs.git-user != '' && inputs.git-pass != ''
+      shell: bash
+      run: |
+        git config --global url."https://${{ inputs.git-user }}:${{ inputs.git-pass }}@github.com".insteadOf "https://github.com"
+
+    - name: Cache Go dependencies
+      id: cache_vendor
+      if: inputs.cache-enabled == 'true'
+      uses: actions/cache@v4
+      env:
+        cache-name: go-cache-vendor
+      with:
+        path: |
+          ~/go/pkg/mod
+          ./vendor
+        key: ${{ runner.os }}-${{ env.cache-name }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ env.cache-name }}-
+        enableCrossOsArchive: true
+
+    - name: Resolve package to module & Download dependencies
+      if: ${{ steps.cache_vendor.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: |
+        go mod tidy
+        go mod download
+
+    - name: Generate Vendor and Install modvendor
+      if: ${{ steps.cache_vendor.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: |
+        go install github.com/goware/modvendor@latest
+        go mod vendor
+        modvendor -copy="**/*.c **/*.h **/*.proto **/*.a"
+
+    - name: Verify no changes from go mod tidy
+      shell: bash
+      run: |
+        go mod tidy
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "Changes found after go mod tidy:"
+          git status --porcelain
+          exit 1
+        fi

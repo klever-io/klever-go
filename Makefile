@@ -107,13 +107,13 @@ docker-vendor:
 
 docker-build: docker-vendor
 	echo "Building docker image for version ${VERSION}"
-	docker build --build-arg arg_version=${VERSION} -t kleverapp/klever-go:${FOR_DEV}${VERSION}${FOR_TESTNET} -t kleverapp/klever-go:${FOR_DEV}latest${FOR_TESTNET} .
+	docker build --no-cache --pull --build-arg arg_version=${VERSION} -t kleverapp/klever-go:${FOR_DEV}${VERSION}${FOR_TESTNET} -t kleverapp/klever-go:${FOR_DEV}latest${FOR_TESTNET} .
 
 docker-push:
 	docker push kleverapp/klever-go:${FOR_DEV}${VERSION}${FOR_TESTNET}
 
 docker-build-validator: docker-vendor
-	docker build --build-arg arg_version=${VERSION} -t kleverapp/klever-go:val-${FOR_DEV}${VERSION}${FOR_TESTNET} -f Dockerfile.validator .
+	docker build --no-cache --pull --build-arg arg_version=${VERSION} -t kleverapp/klever-go:val-${FOR_DEV}${VERSION}${FOR_TESTNET} -f Dockerfile.validator .
 
 vm-generate-rs:
 	cd kvm/vmhost/vmhooks && go run generate/cmd/eiGenMain.go
