@@ -271,3 +271,135 @@ func TestRewards_ValidatorRewards_RemainFees(t *testing.T) {
 	assert.Equal(t, int64(33), c.GetAllowance(userC))
 	assert.Equal(t, int64(1), c.GetAllowance(testReferralAddress))
 }
+
+func Test_ValidatorRewards_Comission_20(t *testing.T) {
+	initialBalance := int64(100_000_000_000)
+
+	c := NewController(t)
+	// we want to create a user to delegate to validator A only because we don't want this validator get any remaining Fees
+	c.AddUser(userA, initialBalance, kdautils.KLVIdentifier)
+	c.AddUser(validatorA, initialBalance, kdautils.KLVIdentifier)
+
+	blk := c.CreateBlockHeader(0, 1, 1)
+
+	freezeContract := transaction.FreezeContract{
+		AssetID: kdautils.KLVIdentifier,
+		Amount:  MinFreezeAmount,
+	}
+
+	//Validator A Self Stake
+	freezeTx, _ := createTransactionMock(&freezeContract, transaction.TXContract_FreezeContractType, validatorA, 0)
+	_, freezeHashTx, err := c.execTx.PreProcessTransaction(freezeTx)
+	require.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, freezeHashTx, freezeTx)
+	require.Equal(c.t, nil, err)
+
+	createValidatorContract := transaction.CreateValidatorContract{
+		OwnerAddress: validatorA,
+		Config: &transaction.ValidatorConfig{
+			BLSPublicKey:        peerAddressA,
+			RewardAddress:       testReferralAddress,
+			CanDelegate:         true,
+			MaxDelegationAmount: 100_000_000_000,
+			Commission:          20, // 20 Represents a comission of 0.2%
+		},
+	}
+
+	createValidatorTx, _ := createTransactionMock(&createValidatorContract, transaction.TXContract_CreateValidatorContractType, validatorA, 0)
+	_, createValidatorTxHash, err := c.execTx.PreProcessTransaction(createValidatorTx)
+	require.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, createValidatorTxHash, createValidatorTx)
+	require.Equal(c.t, nil, err)
+
+	blk = c.CreateBlockHeader(0, 1, 2)
+
+	//User A Freezes and delegate the bucket to Validator A
+	bucketUserA := c.RunFreezeTX(blk, userA, freezeContract.AssetID, freezeContract.Amount)
+	blk = c.CreateBlockHeader(0, 1, 3)
+	c.RunDelegateTX(blk, userA, bucketUserA, validatorA)
+
+	rewardsA := int64(1_000_000) // 1 KLV of reward
+	c.AddFeesToPeer(peerAddressA, rewardsA)
+
+	validatorInfo := []*state.ValidatorInfo{{OwnerAddress: validatorA, PublicKey: peerAddressA}}
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo)
+	require.Equal(c.t, nil, err)
+
+	expectedValidatorReward := int64(2000)
+
+	assert.Equal(t, expectedValidatorReward, c.GetAllowance(testReferralAddress)) // 2000 is 0.2% of 1000000
+	assert.Equal(t, rewardsA-expectedValidatorReward, c.GetAllowance(userA))      // userA receives 998000
+
+	rewardsB := int64(100)
+
+	c.AddFeesToPeer(peerAddressA, rewardsB)
+
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(4, validatorInfo)
+	require.Equal(c.t, nil, err)
+
+	assert.Equal(t, expectedValidatorReward, c.GetAllowance(testReferralAddress))     // validatorA receives 0 because can't get fraction of klv
+	assert.Equal(t, rewardsA+rewardsB-expectedValidatorReward, c.GetAllowance(userA)) // userA receives 100
+}
+
+func Test_ValidatorRewards_Comission_2000(t *testing.T) {
+	initialBalance := int64(100_000_000_000)
+
+	c := NewController(t)
+	// we want to create a user to delegate to validator A only because we don't want this validator get any remaining Fees
+	c.AddUser(userA, initialBalance, kdautils.KLVIdentifier)
+	c.AddUser(validatorA, initialBalance, kdautils.KLVIdentifier)
+
+	blk := c.CreateBlockHeader(0, 1, 1)
+
+	freezeContract := transaction.FreezeContract{
+		AssetID: kdautils.KLVIdentifier,
+		Amount:  MinFreezeAmount,
+	}
+
+	//Validator A Self Stake
+	freezeTx, _ := createTransactionMock(&freezeContract, transaction.TXContract_FreezeContractType, validatorA, 0)
+	_, freezeHashTx, err := c.execTx.PreProcessTransaction(freezeTx)
+	require.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, freezeHashTx, freezeTx)
+	require.Equal(c.t, nil, err)
+
+	createValidatorContract := transaction.CreateValidatorContract{
+		OwnerAddress: validatorA,
+		Config: &transaction.ValidatorConfig{
+			BLSPublicKey:        peerAddressA,
+			RewardAddress:       testReferralAddress,
+			CanDelegate:         true,
+			MaxDelegationAmount: 100_000_000_000,
+			Commission:          2000, // 2000 Represents a comission of 20%
+		},
+	}
+
+	createValidatorTx, _ := createTransactionMock(&createValidatorContract, transaction.TXContract_CreateValidatorContractType, validatorA, 0)
+	_, createValidatorTxHash, err := c.execTx.PreProcessTransaction(createValidatorTx)
+	require.Nil(c.t, err)
+
+	err = c.execTx.ProcessTransaction(blk, createValidatorTxHash, createValidatorTx)
+	require.Equal(c.t, nil, err)
+
+	blk = c.CreateBlockHeader(0, 1, 2)
+
+	//User A Freezes and delegate the bucket to Validator A
+	bucketUserA := c.RunFreezeTX(blk, userA, freezeContract.AssetID, freezeContract.Amount)
+	blk = c.CreateBlockHeader(0, 1, 3)
+	c.RunDelegateTX(blk, userA, bucketUserA, validatorA)
+
+	rewardsA := int64(1_000_000) // 1 KLV of reward
+	c.AddFeesToPeer(peerAddressA, rewardsA)
+
+	validatorInfo := []*state.ValidatorInfo{{OwnerAddress: validatorA, PublicKey: peerAddressA}}
+	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo)
+	require.Equal(c.t, nil, err)
+
+	expectedValidatorReward := int64(200000)
+
+	assert.Equal(t, expectedValidatorReward, c.GetAllowance(testReferralAddress)) // 200000 is 20% of 1000000
+	assert.Equal(t, rewardsA-expectedValidatorReward, c.GetAllowance(userA))      // userA receives 800000
+}
