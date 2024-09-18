@@ -10,6 +10,7 @@ on:
 jobs:
   setup-and-lint:
     uses: ./.github/workflows/go-setup-lint.yaml
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     with:
       go-version: ${{ vars.GO_VERSION || '1.22' }}
       golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'v1.61.0' }}

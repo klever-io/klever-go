@@ -49,21 +49,11 @@ jobs:
           go install golang.org/x/tools/cmd/goimports@latest
           go mod tidy
           make goimports
-
-      - name: Get changed Go files
-        id: changed-files
-        uses: tj-actions/changed-files@v41
-        with:
-          files: |
-            **/*.go
-          files_ignore: |
-            vendor/**
-            **/testdata/**
   
-      - name: Run go vet on changed files
-        if: steps.changed-files.outputs.any_changed == 'true'
+      - name: Ensure code is buildable
         run: |
-          go vet ${{ steps.changed-files.outputs.all_changed_files }}
+          go list ./... | grep -v /vendor/ | xargs -n 1 -P 4 go vet -unsafeptr=false
+
 
       - name: Install and Run golangci-lint
         run: |

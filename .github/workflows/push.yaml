@@ -30,10 +30,6 @@ jobs:
         with:
           go-version: ${{ vars.GO_VERSION || '1.22' }}
 
-      - name: Ensure code is buildable
-        run: |
-          go list ./... | grep -v /vendor/ | xargs -n 1 -P 4 go vet -unsafeptr=false 
-
       - name: Build
         run: |
           make build-operator
