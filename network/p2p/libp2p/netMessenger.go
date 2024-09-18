@@ -12,6 +12,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	logging "github.com/ipfs/go-log"
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/common/types"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/throttler"
@@ -643,9 +644,10 @@ func (netMes *networkMessenger) PeerAddresses(pid core.PeerID) []string {
 	}
 
 	result := make([]string, 0)
-	for key := range resultMap {
+	_ = types.NewDeterministicMap(resultMap).Each(func(key string, value interface{}) error {
 		result = append(result, key)
-	}
+		return nil
+	})
 
 	return result
 }

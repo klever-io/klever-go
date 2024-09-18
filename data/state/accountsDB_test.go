@@ -186,14 +186,12 @@ func TestAccountsDB_SetStateCheckpointSavesNumCheckpoints(t *testing.T) {
 		&mock.HasherMock{},
 		&mock.MarshalizerMock{},
 		&mock.AccountsFactoryStub{},
-		core.Normal,
+		core.ImportDb,
 	)
 
 	for i := 0; i < numCheckpoints; i++ {
 		adb.SetStateCheckpoint([]byte("rootHash"), context.Background())
 	}
-
-	time.Sleep(time.Second * 2)
 
 	val, err := db.Get(numCheckpointsKey)
 	assert.Nil(t, err)

@@ -2,6 +2,8 @@ package maps
 
 import (
 	"sync"
+
+	"github.com/klever-io/klever-go/common/types"
 )
 
 // BucketSortedMap is
@@ -216,10 +218,11 @@ func (sortedMap *BucketSortedMap) getSortedSnapshot(fillSnapshot func(scoreChunk
 func (sortedMap *BucketSortedMap) fillSnapshotAscending(scoreChunks []*MapChunk, snapshot []BucketSortedMapItem) {
 	i := 0
 	for _, chunk := range scoreChunks {
-		for _, item := range chunk.items {
-			snapshot[i] = item
+		_ = types.NewDeterministicMap(chunk.items).Each(func(key string, value BucketSortedMapItem) error {
+			snapshot[i] = value
 			i++
-		}
+			return nil
+		})
 	}
 }
 
