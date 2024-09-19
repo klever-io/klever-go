@@ -104,15 +104,9 @@ func (b *builtInFuncCreator) BuiltInFunctionContainer() vmcommon.BuiltInFunction
 func (b *builtInFuncCreator) CreateBuiltInFunctionContainer() error {
 	b.builtInFunctions = NewBuiltInFunctionContainer()
 	var newFunc vmcommon.BuiltinFunction
-	newFunc, err := NewKDATransferFunc(
-		b.gasConfig.BuiltInCost.Transfer,
-		b.marshaller,
-		b.accountsCacher,
-		b.forkController,
-		b.kappController)
-	if err != nil {
-		return err
-	}
+	var err error
+
+	newFunc = NewKDATransferFunc(b.gasConfig.BuiltInCost.Transfer, b.kappController)
 	err = b.builtInFunctions.Add(core.BuiltInFunctionTransfer, newFunc)
 	if err != nil {
 		return err
