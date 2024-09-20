@@ -3,7 +3,6 @@ package txcostestimator
 import (
 	"fmt"
 	"math"
-	"math/big"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
@@ -88,14 +87,7 @@ func (tce *transactionCostEstimator) EstimateTransactionGas(tx *transaction.Tran
 		}, nil
 	}
 
-	totalGasConsumed := big.NewInt(0)
-	for _, log := range res.VMOutput.Logs {
-		if string(log.Identifier) == core.TotalConsumedGasString {
-			if len(log.Topics) > 0 {
-				totalGasConsumed.Add(totalGasConsumed, big.NewInt(0).SetBytes(log.Topics[0]))
-			}
-		}
-	}
+	totalGasConsumed := res.VMOutput.ComputeTotalGasConsumed()
 
 	return &transaction.CostResponse{
 		KAppFee:       tx.GetKAppFee(),

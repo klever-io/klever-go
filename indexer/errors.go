@@ -43,9 +43,6 @@ var ErrNilKAppController = errors.New("nil kapp controller")
 // ErrEmptyEnabledIndexes signals that an empty slice of enables indexes has been provided
 var ErrEmptyEnabledIndexes = errors.New("empty enabled indexes slice")
 
-// ErrNilShardCoordinator signals that a nil shard coordinator was provided
-var ErrNilShardCoordinator = errors.New("nil shard coordinator")
-
 // ErrCannotFindAccountInDb -
 var ErrCannotFindAccountInDb = errors.New("cannot find account in database")
 

@@ -397,9 +397,6 @@ var ErrNilForkController = errors.New("nil ForkController")
 // ErrNilEpochStartTrigger signals that a nil start of epoch trigger was provided
 var ErrNilEpochStartTrigger = errors.New("nil start of epoch trigger")
 
-// ErrNilValidityAttester signals that a nil validity attester has been provided
-var ErrNilValidityAttester = errors.New("nil validity attester")
-
 // ErrNilSingleSigner is raised when a valid singleSigner is expected but nil used
 var ErrNilSingleSigner = errors.New("singleSigner is nil")
 

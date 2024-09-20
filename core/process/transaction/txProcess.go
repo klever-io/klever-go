@@ -280,15 +280,10 @@ func cloneReceipts(tx *transaction.Transaction) []*transaction.Transaction_Recei
 
 // ProcessTransaction modifies the account states in respect with the transaction data
 func (txProc *txProcessor) ProcessTransaction(block *block.Block, txHash []byte, tx *transaction.Transaction) error {
-	if check.IfNil(tx) {
-		return process.ErrNilTransaction
+	bkpReceipts, err := txProc.validateAndPrepareTransaction(tx)
+	if err != nil {
+		return err
 	}
-
-	txProc.accountsCacher.ResetAll(
-		txProc.forkController.ProcessorFlowITOPrice(),
-	)
-
-	bkpReceipts := cloneReceipts(tx)
 
 	ownerAcc, err := txProc.accountsCacher.GetExistingUser(tx.GetSender())
 	if err != nil {
@@ -320,80 +315,8 @@ func (txProc *txProcessor) ProcessTransaction(block *block.Block, txHash []byte,
 	})
 
 	if kAppFeeErr == nil {
-		var err error
-		for i, contract := range tx.RawData.Contract {
-			ctx.SetContractID(i)
-			txProc.kApps.SetCurrentKAppContext(ctx)
-
-			switch contract.Type {
-			case transaction.TXContract_TransferContractType:
-				err = txProc.transferContract(ctx, tx)
-			case transaction.TXContract_CreateAssetContractType:
-				err = txProc.createAssetContract(ctx, tx)
-			case transaction.TXContract_AssetTriggerContractType:
-				err = txProc.assetTriggerContract(ctx, tx)
-			case transaction.TXContract_CreateValidatorContractType:
-				err = txProc.createValidatorContract(ctx, tx)
-			case transaction.TXContract_ValidatorConfigContractType:
-				err = txProc.validatorConfigContract(ctx, tx)
-			case transaction.TXContract_FreezeContractType:
-				err = txProc.freezeContract(ctx, tx)
-			case transaction.TXContract_UnfreezeContractType:
-				err = txProc.unfreezeContract(ctx, tx)
-			case transaction.TXContract_DelegateContractType:
-				err = txProc.delegateContract(ctx, tx)
-			case transaction.TXContract_UndelegateContractType:
-				err = txProc.undelegateContract(ctx, tx)
-			case transaction.TXContract_WithdrawContractType:
-				err = txProc.withdrawContract(ctx, tx)
-			case transaction.TXContract_ClaimContractType:
-				err = txProc.claimContract(ctx, tx)
-			case transaction.TXContract_UnjailContractType:
-				err = txProc.unjailContract(ctx, tx)
-			case transaction.TXContract_SetAccountNameContractType:
-				err = txProc.setAccountNameContract(ctx, tx)
-			case transaction.TXContract_ProposalContractType:
-				err = txProc.proposalContract(ctx, tx)
-			case transaction.TXContract_VoteContractType:
-				err = txProc.voteContract(ctx, tx)
-			case transaction.TXContract_ConfigITOContractType:
-				err = txProc.configITOContract(ctx, tx)
-			case transaction.TXContract_SetITOPricesContractType:
-				err = txProc.setITOPricesContract(ctx, tx)
-			case transaction.TXContract_BuyContractType:
-				err = txProc.buyContract(ctx, tx)
-			case transaction.TXContract_SellContractType:
-				err = txProc.sellContract(ctx, tx)
-			case transaction.TXContract_CancelMarketOrderContractType:
-				err = txProc.cancelMarketOrderContract(ctx, tx)
-			case transaction.TXContract_CreateMarketplaceContractType:
-				err = txProc.createMarketplaceContract(ctx, tx)
-			case transaction.TXContract_ConfigMarketplaceContractType:
-				err = txProc.configMarketplaceContract(ctx, tx)
-			case transaction.TXContract_UpdateAccountPermissionContractType:
-				err = txProc.updateAccountPermission(ctx, tx)
-			case transaction.TXContract_DepositContractType:
-				err = txProc.depositContract(ctx, tx)
-			case transaction.TXContract_ITOTriggerContractType:
-				err = txProc.itoTriggerContract(ctx, tx)
-			case transaction.TXContract_SmartContractType:
-				err = txProc.smartContract(ctx, ownerAcc, tx)
-			default:
-				tx.ResultCode = transaction.Transaction_ContractNotFound
-				err = process.ErrInvalidTransactionType
-			}
-			if err != nil {
-				kAppFeeErr = err
-				break
-			}
-		}
-
-		if kAppFeeErr == nil {
-			kAppFeeErr = txProc.accountsCacher.SaveAll()
-			if kAppFeeErr != nil {
-				tx.ResultCode = transaction.Transaction_SaveAccountError
-			}
-		}
+		// execute contracts
+		kAppFeeErr = txProc.processContracts(ctx, ownerAcc, tx)
 	}
 
 	txProc.accountsCacher.ResetAll(
@@ -424,6 +347,97 @@ func (txProc *txProcessor) ProcessTransaction(block *block.Block, txHash []byte,
 	txProc.kApps.SetCurrentKAppContext(disabled.NewDisabledKappContext())
 
 	return nil
+}
+
+func (txProc *txProcessor) validateAndPrepareTransaction(tx *transaction.Transaction) ([]*transaction.Transaction_Receipt, error) {
+	if check.IfNil(tx) {
+		return nil, process.ErrNilTransaction
+	}
+
+	txProc.accountsCacher.ResetAll(
+		txProc.forkController.ProcessorFlowITOPrice(),
+	)
+
+	return cloneReceipts(tx), nil
+}
+
+func (txProc *txProcessor) processContracts(ctx kapp.KappContext, ownerAcc state.UserAccountHandler, tx *transaction.Transaction) error {
+	var kAppFeeErr, err error
+	for i, contract := range tx.RawData.Contract {
+		ctx.SetContractID(i)
+		txProc.kApps.SetCurrentKAppContext(ctx)
+
+		switch contract.Type {
+		case transaction.TXContract_TransferContractType:
+			err = txProc.transferContract(ctx, tx)
+		case transaction.TXContract_CreateAssetContractType:
+			err = txProc.createAssetContract(ctx, tx)
+		case transaction.TXContract_AssetTriggerContractType:
+			err = txProc.assetTriggerContract(ctx, tx)
+		case transaction.TXContract_CreateValidatorContractType:
+			err = txProc.createValidatorContract(ctx, tx)
+		case transaction.TXContract_ValidatorConfigContractType:
+			err = txProc.validatorConfigContract(ctx, tx)
+		case transaction.TXContract_FreezeContractType:
+			err = txProc.freezeContract(ctx, tx)
+		case transaction.TXContract_UnfreezeContractType:
+			err = txProc.unfreezeContract(ctx, tx)
+		case transaction.TXContract_DelegateContractType:
+			err = txProc.delegateContract(ctx, tx)
+		case transaction.TXContract_UndelegateContractType:
+			err = txProc.undelegateContract(ctx, tx)
+		case transaction.TXContract_WithdrawContractType:
+			err = txProc.withdrawContract(ctx, tx)
+		case transaction.TXContract_ClaimContractType:
+			err = txProc.claimContract(ctx, tx)
+		case transaction.TXContract_UnjailContractType:
+			err = txProc.unjailContract(ctx, tx)
+		case transaction.TXContract_SetAccountNameContractType:
+			err = txProc.setAccountNameContract(ctx, tx)
+		case transaction.TXContract_ProposalContractType:
+			err = txProc.proposalContract(ctx, tx)
+		case transaction.TXContract_VoteContractType:
+			err = txProc.voteContract(ctx, tx)
+		case transaction.TXContract_ConfigITOContractType:
+			err = txProc.configITOContract(ctx, tx)
+		case transaction.TXContract_SetITOPricesContractType:
+			err = txProc.setITOPricesContract(ctx, tx)
+		case transaction.TXContract_BuyContractType:
+			err = txProc.buyContract(ctx, tx)
+		case transaction.TXContract_SellContractType:
+			err = txProc.sellContract(ctx, tx)
+		case transaction.TXContract_CancelMarketOrderContractType:
+			err = txProc.cancelMarketOrderContract(ctx, tx)
+		case transaction.TXContract_CreateMarketplaceContractType:
+			err = txProc.createMarketplaceContract(ctx, tx)
+		case transaction.TXContract_ConfigMarketplaceContractType:
+			err = txProc.configMarketplaceContract(ctx, tx)
+		case transaction.TXContract_UpdateAccountPermissionContractType:
+			err = txProc.updateAccountPermission(ctx, tx)
+		case transaction.TXContract_DepositContractType:
+			err = txProc.depositContract(ctx, tx)
+		case transaction.TXContract_ITOTriggerContractType:
+			err = txProc.itoTriggerContract(ctx, tx)
+		case transaction.TXContract_SmartContractType:
+			err = txProc.smartContract(ctx, ownerAcc, tx)
+		default:
+			tx.ResultCode = transaction.Transaction_ContractNotFound
+			err = process.ErrInvalidTransactionType
+		}
+		if err != nil {
+			kAppFeeErr = err
+			break
+		}
+	}
+
+	if kAppFeeErr == nil {
+		kAppFeeErr = txProc.accountsCacher.SaveAll()
+		if kAppFeeErr != nil {
+			tx.ResultCode = transaction.Transaction_SaveAccountError
+		}
+	}
+
+	return kAppFeeErr
 }
 
 func (txProc *txProcessor) transferContract(ctx kapp.KappContext, tx *transaction.Transaction) error {

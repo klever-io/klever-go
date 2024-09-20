@@ -2,12 +2,12 @@ package economics
 
 import (
 	"fmt"
-	"math/big"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/txsimulator"
+	"github.com/klever-io/klever-go/core/process/txsimulator/data"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/tools/check"
@@ -94,9 +94,8 @@ func (ed *EconomicsData) SetTXSimulatorProcessor(txSimulatorProcessor txsimulato
 
 // EstimateTransactionGas will calculate how many gas units a transaction will consume
 func (ed *EconomicsData) ComputeTransactionCost(tx process.TransactionWithFeeHandler, simulateSC bool) (*transaction.CostResponse, error) {
-	// check if controller is initialized
-	if check.IfNil(ed.proposalController) {
-		return nil, process.ErrProposalNotInitialized
+	if err := ed.validateProposalController(); err != nil {
+		return nil, err
 	}
 
 	cost := &transaction.CostResponse{
@@ -106,12 +105,39 @@ func (ed *EconomicsData) ComputeTransactionCost(tx process.TransactionWithFeeHan
 
 	gasMultiplier := ed.proposalController.GetParameterUint(kapps.EnumParameter_GasMultiplier)
 
+	hasSC, err := ed.processContracts(tx, cost)
+	if err != nil {
+		return nil, err
+	}
+
+	if simulateSC && hasSC {
+		estimatedGas, err := ed.simulateSmartContract(tx, gasMultiplier)
+		if err != nil {
+			return nil, err
+		}
+		cost.GasEstimated = estimatedGas
+	}
+
+	ed.applyFeePerDataByte(cost)
+
+	cost.GasMultiplier = gasMultiplier
+
+	return cost, nil
+}
+
+func (ed *EconomicsData) validateProposalController() error {
+	if check.IfNil(ed.proposalController) {
+		return process.ErrProposalNotInitialized
+	}
+	return nil
+}
+
+func (ed *EconomicsData) processContracts(tx process.TransactionWithFeeHandler, cost *transaction.CostResponse) (bool, error) {
 	hasSC := false
-	estimatedGas := uint64(0)
 	for _, c := range tx.GetContracts() {
 		feeType, ok := ContractEnum[c.Type]
 		if !ok {
-			return nil, process.ErrInvalidTransactionType
+			return hasSC, process.ErrInvalidTransactionType
 		}
 
 		value := ed.proposalController.GetParameterInt(feeType)
@@ -119,52 +145,49 @@ func (ed *EconomicsData) ComputeTransactionCost(tx process.TransactionWithFeeHan
 		cost.KAppFee += value
 		cost.BandwidthFee += BaseTxSize
 
-		if simulateSC &&
-			c.Type == transaction.TXContract_SmartContractType {
+		if c.Type == transaction.TXContract_SmartContractType {
 			hasSC = true
 		}
 	}
 
-	if hasSC {
-		res, err := ed.txSimulatorProcessor.ProcessTx(tx.GetTransaction())
-		if err != nil {
-			return nil, err
-		}
-
-		if res.FailReason != "" {
-			if res.VMOutput != nil && res.VMOutput.ReturnMessage != "" {
-				return nil, fmt.Errorf("%w: %s - (%s)", process.ErrInvalidArgument, res.FailReason, res.VMOutput.ReturnMessage)
-			}
-
-			return nil, fmt.Errorf("%w: %s", process.ErrInvalidArgument, res.FailReason)
-		}
-
-		if res.VMOutput == nil {
-			return nil, process.ErrNilVMOutput
-		}
-
-		totalGasConsumed := big.NewInt(0)
-		for _, log := range res.VMOutput.Logs {
-			if string(log.Identifier) == core.TotalConsumedGasString {
-				if len(log.Topics) > 0 {
-					totalGasConsumed.Add(totalGasConsumed, big.NewInt(0).SetBytes(log.Topics[0]))
-				}
-			}
-		}
-
-		// increase 1 BW for minimum gas consumed to prevent `memory limit reached` error
-		estimatedGas += totalGasConsumed.Uint64() + gasMultiplier
+	if hasSC && len(tx.GetContracts()) > 1 {
+		return hasSC, process.ErrSmartContractFailMaxContracts
 	}
 
+	return hasSC, nil
+}
+
+func (ed *EconomicsData) simulateSmartContract(tx process.TransactionWithFeeHandler, gasMultiplier uint64) (uint64, error) {
+	res, err := ed.txSimulatorProcessor.ProcessTx(tx.GetTransaction())
+	if err != nil {
+		return 0, err
+	}
+
+	if res.FailReason != "" {
+		return 0, ed.handleSimulationFailure(res)
+	}
+
+	if res.VMOutput == nil {
+		return 0, process.ErrNilVMOutput
+	}
+
+	totalGasConsumed := res.VMOutput.ComputeTotalGasConsumed()
+
+	// increase 1 BW for minimum gas consumed to prevent `memory limit reached` error
+	return totalGasConsumed.Uint64() + gasMultiplier, nil
+}
+
+func (ed *EconomicsData) handleSimulationFailure(res *data.SimulationResults) error {
+	if res.VMOutput != nil && res.VMOutput.ReturnMessage != "" {
+		return fmt.Errorf("%w: %s - (%s)", process.ErrInvalidArgument, res.FailReason, res.VMOutput.ReturnMessage)
+	}
+
+	return fmt.Errorf("%w: %s", process.ErrInvalidArgument, res.FailReason)
+}
+
+func (ed *EconomicsData) applyFeePerDataByte(cost *transaction.CostResponse) {
 	feePerDataByte := ed.proposalController.GetParameterInt(kapps.EnumParameter_FeePerDataByte)
-
 	cost.BandwidthFee *= feePerDataByte
-
-	cost.GasEstimated = estimatedGas
-
-	cost.GasMultiplier = gasMultiplier
-
-	return cost, nil
 }
 
 // EpochConfirmed is called whenever a new epoch is confirmed

@@ -319,3 +319,15 @@ jobs:
           REPORT_URL: ${{ env.REPORT_URL }}
           REVIEW_URL: ${{ env.REVIEW_URL }}
           REVIEW_TEXT: ${{ env.REVIEW_TEXT }}
+
+
+  result-check:
+    needs: [sonarqube, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for failed jobs
+        run: |
+          if [[ "${{ needs.sonarqube.result }}" == "failure" || "${{ needs.test.outputs.test_exit_code }}" == "1" ]]; then
+            echo "One or more jobs failed. Exiting with status 1."
+            exit 1
+          fi

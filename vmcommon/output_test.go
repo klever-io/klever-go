@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data/vm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,4 +78,147 @@ func TestOutputContext_MergeCompleteAccounts(t *testing.T) {
 
 	left.MergeOutputAccounts(right)
 	require.Equal(t, expected, left)
+}
+
+func TestOutputTransfer_Clone(t *testing.T) {
+	original := &OutputTransfer{
+		Index:         1,
+		SenderAddress: []byte("sender"),
+		RcvAddr:       []byte("receiver"),
+		KDATransfers: KDATransfer{
+			KDAValue: big.NewInt(100),
+		},
+	}
+
+	cloned := original.Clone()
+
+	assert.Equal(t, original.Index, cloned.Index)
+	assert.Equal(t, original.SenderAddress, cloned.SenderAddress)
+	assert.Equal(t, original.RcvAddr, cloned.RcvAddr)
+	assert.Equal(t, original.KDATransfers.KDAValue, cloned.KDATransfers.KDAValue)
+
+	// Modify cloned to ensure it's a deep copy
+	cloned.Index = 2
+	cloned.SenderAddress[0] = 'S'
+	cloned.RcvAddr[0] = 'R'
+	cloned.KDATransfers.KDAValue.SetInt64(200)
+
+	assert.NotEqual(t, original.Index, cloned.Index)
+	assert.NotEqual(t, original.SenderAddress, cloned.SenderAddress)
+	assert.NotEqual(t, original.RcvAddr, cloned.RcvAddr)
+	assert.NotEqual(t, original.KDATransfers.KDAValue, cloned.KDATransfers.KDAValue)
+}
+
+func TestFormatLogDataForCall(t *testing.T) {
+	callType := "sc_call"
+	functionName := "transfer"
+	functionArgs := [][]byte{[]byte("arg1"), []byte("arg2")}
+
+	result := FormatLogDataForCall(callType, functionName, functionArgs)
+
+	assert.Equal(t, 4, len(result))
+	assert.Equal(t, []byte(callType), result[0])
+	assert.Equal(t, []byte(functionName), result[1])
+	assert.Equal(t, functionArgs[0], result[2])
+	assert.Equal(t, functionArgs[1], result[3])
+}
+
+type mockNextOutputTransferIndexProvider struct {
+	crtIndex uint32
+}
+
+func (m *mockNextOutputTransferIndexProvider) GetCrtTransferIndex() uint32 {
+	return m.crtIndex
+}
+
+func (m *mockNextOutputTransferIndexProvider) SetCrtTransferIndex(index uint32) {
+	m.crtIndex = index
+}
+
+func (m *mockNextOutputTransferIndexProvider) NextOutputTransferIndex() uint32 {
+	index := m.crtIndex
+	m.crtIndex++
+	return index
+}
+
+func (m *mockNextOutputTransferIndexProvider) IsInterfaceNil() bool {
+	return m == nil
+}
+
+func TestVMOutput_ReindexTransfers(t *testing.T) {
+	vmOutput := &VMOutput{
+		OutputAccounts: map[string]*OutputAccount{
+			"acc1": {
+				OutputTransfers: []OutputTransfer{
+					{Index: 1},
+					{Index: 2},
+				},
+			},
+			"acc2": {
+				OutputTransfers: []OutputTransfer{
+					{Index: 3},
+				},
+			},
+		},
+	}
+	mockIndexer := &mockNextOutputTransferIndexProvider{crtIndex: 10}
+
+	err := vmOutput.ReindexTransfers(mockIndexer)
+	require.NoError(t, err)
+
+	assert.Equal(t, uint32(10), vmOutput.OutputAccounts["acc1"].OutputTransfers[0].Index)
+	assert.Equal(t, uint32(11), vmOutput.OutputAccounts["acc1"].OutputTransfers[1].Index)
+	assert.Equal(t, uint32(12), vmOutput.OutputAccounts["acc2"].OutputTransfers[0].Index)
+	assert.Equal(t, uint32(13), mockIndexer.GetCrtTransferIndex())
+}
+
+func TestVMOutput_GetNextAvailableOutputTransferIndex(t *testing.T) {
+	vmOutput := &VMOutput{
+		OutputAccounts: map[string]*OutputAccount{
+			"acc1": {
+				OutputTransfers: []OutputTransfer{
+					{Index: 1},
+					{Index: 3},
+				},
+			},
+			"acc2": {
+				OutputTransfers: []OutputTransfer{
+					{Index: 2},
+				},
+			},
+		},
+	}
+
+	nextIndex := vmOutput.GetNextAvailableOutputTransferIndex()
+	assert.Equal(t, uint32(4), nextIndex)
+}
+
+func TestVMOutput_ComputeTotalGasConsumed(t *testing.T) {
+	vmOutput := &VMOutput{
+		Logs: []*LogEntry{
+			{
+				Identifier: []byte(core.TotalConsumedGasString),
+				Topics:     [][]byte{big.NewInt(100).Bytes()},
+			},
+			{
+				Identifier: []byte(core.TotalConsumedGasString),
+				Topics:     [][]byte{big.NewInt(50).Bytes()},
+			},
+			{
+				Identifier: []byte("other"),
+				Topics:     [][]byte{big.NewInt(1000).Bytes()},
+			},
+		},
+	}
+
+	totalGas := vmOutput.ComputeTotalGasConsumed()
+	assert.Equal(t, big.NewInt(150), totalGas)
+}
+
+func TestVMOutput_IsInterfaceNil(t *testing.T) {
+	var vmOutput *VMOutput = nil
+	assert.True(t, vmOutput.IsInterfaceNil())
+
+	vmOutput = &VMOutput{}
+	assert.False(t, vmOutput.IsInterfaceNil())
 }

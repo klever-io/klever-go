@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/tools/check"
 
 	"github.com/klever-io/klever-go/data/vm"
@@ -259,4 +260,23 @@ func (vmOutput *VMOutput) GetNextAvailableOutputTransferIndex() uint32 {
 	}
 
 	return maxTransferIndex + 1
+}
+
+// ComputeTotalGasConsumed returns the total gas consumed by SC execution from logs
+func (vmOutput *VMOutput) ComputeTotalGasConsumed() *big.Int {
+	totalGasConsumed := big.NewInt(0)
+	for _, log := range vmOutput.Logs {
+		if string(log.Identifier) == core.TotalConsumedGasString {
+			if len(log.Topics) > 0 {
+				totalGasConsumed.Add(totalGasConsumed, big.NewInt(0).SetBytes(log.Topics[0]))
+			}
+		}
+	}
+
+	return totalGasConsumed
+}
+
+// IsInterfaceNil returns true if there is no value under the interface
+func (vmOutput *VMOutput) IsInterfaceNil() bool {
+	return vmOutput == nil
 }

@@ -1269,8 +1269,8 @@ func createMetaTxSimulatorProcessor(
 		EconomicsFee:    processArgs.economicsData,
 		ForkController:  processArgs.forkController,
 		KAppsController: processArgs.state.KAppControllerSimulator,
+		VMOutputCacher:  scProcArgs.VMOutputCacher,
 	}
-
 	//Add the meta tx processor to the tx simulator processor args for the simulator instantiation
 	txSimulatorProcessorArgs.TransactionProcessor, err = transaction.NewSimulateTxProcessor(argsNewMetaTx)
 	if err != nil {

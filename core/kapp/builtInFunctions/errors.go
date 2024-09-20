@@ -23,9 +23,6 @@ var ErrInvalidRcvAddr = errors.New("invalid receiver address")
 // ErrNegativeValue signals that a negative value has been detected and it is not allowed
 var ErrNegativeValue = errors.New("negative value")
 
-// ErrNilShardCoordinator signals that an operation has been attempted to or with a nil shard coordinator
-var ErrNilShardCoordinator = errors.New("nil shard coordinator")
-
 // ErrWrongTypeAssertion signals that an type assertion failed
 var ErrWrongTypeAssertion = errors.New("wrong type assertion")
 

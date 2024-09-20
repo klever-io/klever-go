@@ -17,9 +17,6 @@ var ErrNotSynced = errors.New("not synced")
 // ErrNilTrieSyncers signals that trie syncers container is nil
 var ErrNilTrieSyncers = errors.New("nil trie syncers")
 
-// ErrNilHeaderValidator signals that nil header validator has been provided
-var ErrNilHeaderValidator = errors.New("nil header validator")
-
 // ErrNilHeaderSyncHandler signals that nil header sync handler was provided
 var ErrNilHeaderSyncHandler = errors.New("nil header sync handler")
 
@@ -143,14 +140,8 @@ var ErrNilEpochStartMetaBlock = errors.New("nil epoch start metaBlock was provid
 // ErrPostProcessTransactionNotFound signals that the given transaction was not found in post process map
 var ErrPostProcessTransactionNotFound = errors.New("transaction was not found in post process map")
 
-// ErrNilBlockBody signals that a nil block body has been provided
-var ErrNilBlockBody = errors.New("nil block body")
-
 // ErrNilHeaderHandler signals that a nil header handler has been provided
 var ErrNilHeaderHandler = errors.New("nil header handler")
-
-// ErrInvalidMiniBlockType signals that an invalid miniBlock type has been provided
-var ErrInvalidMiniBlockType = errors.New("invalid miniBlock type")
 
 // ErrInvalidMaxHardCapForMissingNodes signals that the maximum hardcap value for missing nodes is invalid
 var ErrInvalidMaxHardCapForMissingNodes = errors.New("invalid max hardcap for missing nodes")

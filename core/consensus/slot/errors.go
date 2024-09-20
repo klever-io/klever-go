@@ -101,9 +101,6 @@ var ErrInvalidMessage = errors.New("invalid message")
 // ErrInvalidHeaderSize signals that an invalid header size has been received from consensus topic
 var ErrInvalidHeaderSize = errors.New("invalid header size")
 
-// ErrInvalidBodySize signals that an invalid body size has been received from consensus topic
-var ErrInvalidBodySize = errors.New("invalid body size")
-
 // ErrInvalidMessageType signals that an invalid message type has been received from consensus topic
 var ErrInvalidMessageType = errors.New("invalid message type")
 
