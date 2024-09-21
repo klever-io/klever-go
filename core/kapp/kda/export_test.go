@@ -8,6 +8,7 @@ import (
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core/fork"
 	"github.com/klever-io/klever-go/core/kapp"
+	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
@@ -22,7 +23,11 @@ func ProcessRoyaltiesTransferPercentage(tp []*transaction.RoyaltyInfo) ([]*kapps
 	return processRoyaltiesTransferPercentage(tp)
 }
 
-func NewKDAKappForTests() *kdaKapp {
+type KDAKappForTests struct {
+	*kdaKapp
+}
+
+func NewKDAKappForTests() *KDAKappForTests {
 	mockMarshalizer := &mock.MarshalizerMock{}
 
 	kappController := &stub.KAppControllerStub{
@@ -31,7 +36,7 @@ func NewKDAKappForTests() *kdaKapp {
 				OriginalSender: nil,
 				ContractID:     0,
 				ContractType:   -1,
-				Block:          nil,
+				Block:          &block.Block{Header: &block.BlockHeader{}},
 			})
 		},
 		GetKDAKAppCalled: func() kapp.KDAKapp {
@@ -54,6 +59,13 @@ func NewKDAKappForTests() *kdaKapp {
 				},
 			}
 		},
+		GetSystemAccountsCalled: func() kapp.SystemAccountKapp {
+			return &mock.SystemAccountKappStub{
+				SFTSetMetadataCalled: func(asset, nonce []byte, args [][]byte) error {
+					return nil
+				},
+			}
+		},
 	}
 
 	epochNotifier := &mock.EpochNotifierStub{}
@@ -62,16 +74,22 @@ func NewKDAKappForTests() *kdaKapp {
 		epochNotifier,
 	)
 
-	return &kdaKapp{
-		accountsCacher: &mock.AccountsCacherStub{},
-		marshalizer:    mockMarshalizer,
-		KAppController: kappController,
-		forkController: forkController,
-		pubkeyConv:     mock.NewPubkeyConverterMock(32),
+	return &KDAKappForTests{
+		&kdaKapp{
+			accountsCacher: &mock.AccountsCacherStub{},
+			marshalizer:    mockMarshalizer,
+			KAppController: kappController,
+			forkController: forkController,
+			pubkeyConv:     mock.NewPubkeyConverterMock(32),
+		},
 	}
 }
 
-func (k *kdaKapp) ProcessTriggerType(
+func (k *KDAKappForTests) GetAccountsCacher() *mock.AccountsCacherStub {
+	return k.accountsCacher.(*mock.AccountsCacherStub)
+}
+
+func (k *KDAKappForTests) ProcessTriggerType(
 	sender []byte,
 	tc *transaction.AssetTriggerContract,
 	kdaKApp state.KAppAccountHandler,
@@ -82,7 +100,7 @@ func (k *kdaKapp) ProcessTriggerType(
 	return k.processTriggerType(sender, tc, kdaKApp, assetID, asset, txData)
 }
 
-func (k *kdaKapp) HandleRemoveRole(
+func (k *KDAKappForTests) HandleRemoveRole(
 	sender []byte,
 	tc *transaction.AssetTriggerContract,
 	kdaKApp state.KAppAccountHandler,
@@ -92,7 +110,7 @@ func (k *kdaKapp) HandleRemoveRole(
 	return k.handleRemoveRole(sender, tc, kdaKApp, assetID, asset)
 }
 
-func (k *kdaKapp) HandleAddRole(
+func (k *KDAKappForTests) HandleAddRole(
 	sender []byte,
 	tc *transaction.AssetTriggerContract,
 	kdaKApp state.KAppAccountHandler,
@@ -100,4 +118,93 @@ func (k *kdaKapp) HandleAddRole(
 	asset *kapps.KDAData,
 ) (transaction.Transaction_TXResultCode, error) {
 	return k.handleAddRole(sender, tc, kdaKApp, assetID, asset)
+}
+
+func (k *KDAKappForTests) HandlePauseOrResume(
+	sender []byte,
+	tc *transaction.AssetTriggerContract,
+	kdaKApp state.KAppAccountHandler,
+	assetID [][]byte,
+	asset *kapps.KDAData,
+) (transaction.Transaction_TXResultCode, error) {
+	return k.handlePauseOrResume(sender, tc, kdaKApp, assetID, asset)
+}
+
+func (k *KDAKappForTests) UpdateMetadata(
+	sender []byte,
+	tc *transaction.AssetTriggerContract,
+	kdaKApp state.KAppAccountHandler,
+	assetID [][]byte,
+	asset *kapps.KDAData,
+	txdata [][]byte,
+) (transaction.Transaction_TXResultCode, error) {
+	return k.updateMetadata(sender, tc, kdaKApp, assetID, asset, txdata)
+}
+
+func (k *KDAKappForTests) HandleStopNFTMint(
+	sender []byte,
+	kdaKApp state.KAppAccountHandler,
+	assetID [][]byte,
+	asset *kapps.KDAData,
+) (transaction.Transaction_TXResultCode, error) {
+	return k.handleStopNFTMint(sender, kdaKApp, assetID, asset)
+}
+
+func (k *KDAKappForTests) HandleUpdateLogo(
+	sender []byte,
+	tc *transaction.AssetTriggerContract,
+	kdaKApp state.KAppAccountHandler,
+	assetID [][]byte,
+	asset *kapps.KDAData,
+) (transaction.Transaction_TXResultCode, error) {
+	return k.handleUpdateLogo(sender, tc, kdaKApp, assetID, asset)
+}
+
+func (k *KDAKappForTests) HandleStopRoyaltiesChange(
+	sender []byte,
+	kdaKApp state.KAppAccountHandler,
+	assetID [][]byte,
+	asset *kapps.KDAData,
+) (transaction.Transaction_TXResultCode, error) {
+	return k.handleStopRoyaltiesChange(sender, kdaKApp, assetID, asset)
+}
+
+func (k *KDAKappForTests) UpdateRoyaltiesReceiver(
+	sender []byte,
+	tc *transaction.AssetTriggerContract,
+	kdaKApp state.KAppAccountHandler,
+	assetID [][]byte,
+	asset *kapps.KDAData,
+) (transaction.Transaction_TXResultCode, error) {
+	return k.updateRoyaltiesReceiver(sender, tc, kdaKApp, assetID, asset)
+}
+
+func (k *KDAKappForTests) UpdateStaking(
+	sender []byte,
+	tc *transaction.AssetTriggerContract,
+	kdaKApp state.KAppAccountHandler,
+	assetID [][]byte,
+	asset *kapps.KDAData,
+) (transaction.Transaction_TXResultCode, error) {
+	return k.updateStaking(sender, tc, kdaKApp, assetID, asset)
+}
+
+func (k *KDAKappForTests) UpdateRoyalties(
+	sender []byte,
+	tc *transaction.AssetTriggerContract,
+	kdaKApp state.KAppAccountHandler,
+	assetID [][]byte,
+	asset *kapps.KDAData,
+) (transaction.Transaction_TXResultCode, error) {
+	return k.updateRoyalties(sender, tc, kdaKApp, assetID, asset)
+}
+
+func (k *KDAKappForTests) HandleUpdateURIs(
+	sender []byte,
+	tc *transaction.AssetTriggerContract,
+	kdaKApp state.KAppAccountHandler,
+	assetID [][]byte,
+	asset *kapps.KDAData,
+) (transaction.Transaction_TXResultCode, error) {
+	return k.handleUpdateURIs(sender, tc, kdaKApp, assetID, asset)
 }

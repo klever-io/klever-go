@@ -360,6 +360,10 @@ func (k *kdaKapp) handleStopNFTMint(sender []byte, kdaKApp state.KAppAccountHand
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
+	if k.forkController.EnableSmartContracts() && !k.TokeTypeHasNonce(asset.AssetType) {
+		return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
+	}
+
 	if asset.Attributes.IsNFTMintStopped {
 		return transaction.Transaction_NFTMintStopped, common.ErrAssetTriggerInvalid
 	}
@@ -454,6 +458,10 @@ func (k *kdaKapp) updateStaking(sender []byte, tc *transaction.AssetTriggerContr
 	stakingKapp, staking, err := k.GetStaking(asset.ID)
 	if err != nil {
 		return transaction.Transaction_AssetError, err
+	}
+
+	if staking == nil {
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if staking.InterestType != kapps.StakingData_EnumInterestType(tc.GetStaking().GetType()) {
@@ -684,8 +692,8 @@ func (k *kdaKapp) processSplitRoyalties(tc *transaction.AssetTriggerContract) (m
 }
 
 func processErrorCode(err error) (transaction.Transaction_TXResultCode, error) {
-	if err == process.ErrInvalidValue {
-		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	if err == common.ErrInvalidValue {
+		return transaction.Transaction_ParameterInvalid, err
 	}
 
 	return transaction.Transaction_AccountError, err
@@ -751,6 +759,10 @@ func (k *kdaKapp) updateKDAFeePool(sender []byte, tc *transaction.AssetTriggerCo
 func (k *kdaKapp) handleStopNFTMetadataChange(sender []byte, tc *transaction.AssetTriggerContract, kdaKApp state.KAppAccountHandler, assetID [][]byte, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
 	if !k.isOwnerOrAdmin(sender, asset) {
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+	}
+
+	if k.forkController.EnableSmartContracts() && !k.TokeTypeHasNonce(asset.AssetType) {
+		return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
 	}
 
 	if asset.Attributes.IsNFTMetadataChangeStopped {
