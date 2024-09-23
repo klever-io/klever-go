@@ -47,4 +47,4 @@ jobs:
 
       - name: Run End-To-End Tests
         run: |
-          make e2e-tests
+          make tests-e2e

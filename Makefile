@@ -44,6 +44,10 @@ ifdef VERBOSE
 VERBOSE=-v
 endif
 
+ifndef LOG
+LOG=*:INFO
+endif
+
 GOCMD=go
 GORUN=$(GOCMD) run -exec $(ENV_FLAG) -ldflags="$(ldflags)"
 GOBUILD=$(GOCMD) build -ldflags="$(ldflags)"
@@ -54,7 +58,7 @@ GOBUILD=$(GOCMD) build -ldflags="$(ldflags)"
 ############################
 .PHONY: all debug trace redundancy seednode
 all:
-	$(GORUN) ./cmd/node --log-level=*:INFO --use-log-view
+	$(GORUN) ./cmd/node --log-level="${LOG}"--use-log-view
 
 # run node in debug mode
 debug:
@@ -65,11 +69,13 @@ trace:
 	$(GORUN) ./cmd/node --log-level=*:TRACE,ntp:INFO,debug/p2p:INFO,state:DEBUG,trie:INFO,facade:INFO,sharding/networksharding:INFO,p2p/libp2p:INFO,basichost:INFO,dht:INFO,pubsub:INFO,heartbeat/process:INFO,statistics/machine:INFO,process/rating:INFO,consensus/chronology:INFO --use-log-view --log-save
 
 redundancy:
-	$(GORUN) ./cmd/node --log-level=*:INFO --redundancy-level=1 --working-directory=./db/db1  --p2p-seed=node1 --rest-api-interface=127.0.0.1:8091 --use-log-view #--log-save
+	$(GORUN) ./cmd/node --log-level="${LOG}" --redundancy-level=1 --working-directory=./db/db1  --p2p-seed=node1 --rest-api-interface=127.0.0.1:8091 --use-log-view #--log-save
 
 seednode:
 	$(GORUN) ./cmd/seednode --log-level=*:DEBUG --rest-api-interface=8081
 
+import-from-localdb:
+	$(GORUN) ./cmd/node --log-level="${LOG}" --use-log-view --import-db=./db/local --import-db-no-sig-check
 
 ############################
 ###       Key Tools      ###
@@ -83,7 +89,7 @@ newkey:
 ###         BUILD        ###
 ############################
 
-.PHONY: build build-validator build-seenode build-operator build-keygenerator build-batch docker-build
+.PHONY: build build-validator build-seenode build-operator build-keygenerator docker-build
 build: build-validator build-seenode build-operator build-keygenerator
 
 build-validator:
@@ -97,9 +103,6 @@ build-operator:
 
 build-keygenerator:
 	$(GOBUILD) -o ./bin/keygenerator ./cmd/keygenerator
-
-build-batch:
-	CGO_ENABLED=0 go build -a -tags netgo -ldflags '-w -extldflags "-static"' -o ./bin/batchsend ./cmd/batchsend
 
 docker-vendor:
 	go mod vendor
@@ -158,19 +161,13 @@ node2:
 node3:
 	$(GORUN) ./cmd/node --log-level=*:TRACE,ntp:INFO,debug/p2p:TRACE,facade:INFO,sharding/networksharding:INFO,p2p/libp2p:TRACE,basichost:INFO,dht:INFO,pubsub:INFO,heartbeat/process:INFO,statistics/machine:INFO,process/rating:INFO,consensus/chronology:INFO --validator-key-pem-file=./config/node/validatorKey3.pem --working-directory=./db/db3  --p2p-seed=node3 --rest-api-interface=127.0.0.1:8093 --use-log-view #--log-save
 
-############################
-###       BackTest       ###
-############################
-
-backtest:
-	go run ./cmd/backtest --generate
-
-singlebacktest:
-	$(GORUN) ./cmd/node --log-level=*:INFO --use-log-view --import-db=./db/local --import-db-no-sig-check
 
 ############################
 ###  Integration Tests   ###
 ############################
+
+.PHONY: tests tests-unit tests-integration tests-kvm tests-e2e
+tests: tests-unit tests-integration tests-kvm tests-e2e
 
 tests-unit:
 	go clean -testcache
@@ -185,21 +182,11 @@ tests-kvm:
 	go test ${VERBOSE} -timeout 1500s ./kvm/...
 
 tests-e2e:
-	go run ./cmd/tests --node="${E2E_NODE_URL}" --proxy="${E2E_PROXY_URL}"
+	if [ ! -d klever-go-e2e ]; then git clone git@github.com:klever-io/klever-go-e2e.git; fi
+	cd klever-go-e2e && go mod tidy && make build && cd ..
+	klever-go-e2e/bin/klever-go-e2e --node="${E2E_NODE_URL}" --proxy="${E2E_PROXY_URL}"
 
-ifndef LOG
-LOG=*:INFO
-endif
+
 
 connector:
 	go run ./cmd/connector/main.go node --address="${NODE}" --log-level="${LOG}"
-
-############################
-###  Functional Tests    ###
-############################
-
-functional:
-	go run ./cmd/tests --key-file="./walletKey.pem"
-
-ui:
-	go run ./cmd/operator-ui
