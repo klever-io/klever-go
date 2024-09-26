@@ -1,0 +1,637 @@
+package validators
+
+import (
+	"encoding/hex"
+	"errors"
+	"testing"
+
+	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/kapp"
+	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/data/state"
+	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/kvm/mock/stub"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func createMockArgs() *ArgsNewValidatorKApp {
+	return &ArgsNewValidatorKApp{
+		Marshalizer:    &mock.MarshalizerMock{},
+		PubkeyConv:     mock.NewPubkeyConverterMock(32),
+		ForkController: mock.NewForkControllerStub(),
+		RatingsData:    &mock.RatingsInfoMock{},
+	}
+}
+
+func makeAddress(prefix string) []byte {
+	addr := make([]byte, 32)
+	copy(addr, []byte(prefix))
+	return addr
+}
+
+func TestNewValidatorKApp(t *testing.T) {
+	t.Run("Successful Initialization", func(t *testing.T) {
+		args := createMockArgs()
+
+		v, err := NewValidatorKApp(args)
+		assert.NoError(t, err)
+		assert.NotNil(t, v)
+	})
+
+	t.Run("Nil Marshalizer", func(t *testing.T) {
+		args := createMockArgs()
+		args.Marshalizer = nil
+
+		v, err := NewValidatorKApp(args)
+		assert.Equal(t, common.ErrNilMarshalizer, err)
+		assert.Nil(t, v)
+	})
+
+	t.Run("Nil Pubkey Converter", func(t *testing.T) {
+		args := createMockArgs()
+		args.PubkeyConv = nil
+
+		v, err := NewValidatorKApp(args)
+		assert.Equal(t, common.ErrNilPubkeyConverter, err)
+		assert.Nil(t, v)
+	})
+
+	t.Run("Nil Ratings Data", func(t *testing.T) {
+		args := createMockArgs()
+		args.RatingsData = nil
+
+		v, err := NewValidatorKApp(args)
+		assert.Equal(t, common.ErrNilRater, err)
+		assert.Nil(t, v)
+	})
+
+	t.Run("Nil Fork Controller", func(t *testing.T) {
+		args := createMockArgs()
+		args.ForkController = nil
+
+		v, err := NewValidatorKApp(args)
+		assert.Equal(t, common.ErrNilForkController, err)
+		assert.Nil(t, v)
+	})
+}
+
+func TestValidatorsKApp_Register(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Successful registration", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+
+		tc := &transaction.CreateValidatorContract{
+			OwnerAddress: makeAddress("owner"),
+			Config: &transaction.ValidatorConfig{
+				RewardAddress:       makeAddress("reward"),
+				Commission:          1000, // 10%
+				MaxDelegationAmount: 1000000,
+				BLSPublicKey:        []byte("blspubkey"),
+			},
+		}
+
+		addStorageCacher(v)
+		addContext(v)
+
+		resultCode, err := v.Register(tc)
+
+		assert.Equal(t, transaction.Transaction_Ok, resultCode)
+		assert.Nil(t, err)
+
+		// Verify that the validator was registered
+		app, _ := v.getKApp()
+		val, err := v.getValidator(app, tc.OwnerAddress)
+		assert.Nil(t, err)
+		assert.Equal(t, tc.Config.RewardAddress, val.RewardsAddress)
+		assert.Equal(t, tc.Config.Commission, val.Commission)
+		assert.Equal(t, tc.Config.MaxDelegationAmount, val.MaxDelegation)
+		assert.Equal(t, tc.Config.BLSPublicKey, val.BlsPubKey)
+	})
+
+	t.Run("Invalid owner address", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+
+		tc := &transaction.CreateValidatorContract{
+			OwnerAddress: []byte("invalid"),
+			Config: &transaction.ValidatorConfig{
+				RewardAddress: []byte("reward"),
+				Commission:    1000,
+				BLSPublicKey:  []byte("blspubkey"),
+			},
+		}
+		addContext(v)
+
+		resultCode, err := v.Register(tc)
+
+		assert.Equal(t, transaction.Transaction_AccountError, resultCode)
+		assert.Equal(t, process.ErrInvalidRcvAddr, err)
+	})
+
+	t.Run("Invalid commission", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+
+		tc := &transaction.CreateValidatorContract{
+			OwnerAddress: makeAddress("owner"),
+			Config: &transaction.ValidatorConfig{
+				RewardAddress: makeAddress("reward"),
+				Commission:    20000, // 200%
+				BLSPublicKey:  []byte("blspubkey"),
+			},
+		}
+		addContext(v)
+
+		resultCode, err := v.Register(tc)
+
+		assert.Equal(t, transaction.Transaction_CommissionTooHigh, resultCode)
+		assert.Equal(t, common.ErrInvalidValue, err)
+	})
+
+	t.Run("Validator already registered", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+
+		tc := &transaction.CreateValidatorContract{
+			OwnerAddress: makeAddress("owner"),
+			Config: &transaction.ValidatorConfig{
+				RewardAddress: makeAddress("reward"),
+				Commission:    1000,
+				BLSPublicKey:  []byte("blspubkey"),
+			},
+		}
+
+		addStorageCacher(v)
+		addContext(v)
+
+		// Register once
+		_, err := v.Register(tc)
+		assert.NoError(t, err)
+
+		// Try to register again
+		resultCode, err := v.Register(tc)
+
+		assert.Equal(t, transaction.Transaction_AccountError, resultCode)
+		assert.Equal(t, common.ErrAccountValidatorSet, err)
+	})
+}
+
+func TestValidatorsKApp_UpdateValidator(t *testing.T) {
+	t.Parallel()
+
+	ownerAddress := makeAddress("owner")
+
+	t.Run("Successful update", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+		addStorageCacher(v)
+
+		// First, register a validator
+		registerValidator(t, v, ownerAddress, []byte("blspubkey"))
+
+		tc := &transaction.ValidatorConfigContract{
+			Config: &transaction.ValidatorConfig{
+				RewardAddress: makeAddress("newreward"),
+				Commission:    2000, // 20%
+				BLSPublicKey:  []byte("newblspubkey"),
+			},
+		}
+
+		resultCode, err := v.UpdateValidator(ownerAddress, tc)
+		assert.Equal(t, transaction.Transaction_Ok, resultCode)
+		assert.Nil(t, err)
+
+		// Verify that the validator was updated
+		app, _ := v.getKApp()
+		val, err := v.getValidator(app, ownerAddress)
+		assert.Nil(t, err)
+		assert.Equal(t, tc.Config.RewardAddress, val.RewardsAddress)
+		assert.Equal(t, tc.Config.Commission, val.Commission)
+		assert.Equal(t, tc.Config.BLSPublicKey, val.BlsPubKey)
+	})
+
+	t.Run("Update non-existent validator", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+		addStorageCacher(v)
+		addContext(v)
+
+		tc := &transaction.ValidatorConfigContract{
+			Config: &transaction.ValidatorConfig{
+				RewardAddress: makeAddress("newreward"),
+				Commission:    2000,
+			},
+		}
+
+		resultCode, err := v.UpdateValidator([]byte("nonexistent"), tc)
+
+		assert.Equal(t, transaction.Transaction_AccountError, resultCode)
+		assert.Equal(t, common.ErrValidatorNotFound, err)
+	})
+
+	t.Run("Invalid commission", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+		addStorageCacher(v)
+
+		registerValidator(t, v, ownerAddress, []byte("blspubkey"))
+
+		tc := &transaction.ValidatorConfigContract{
+			Config: &transaction.ValidatorConfig{
+				Commission: 20000, // 200%
+			},
+		}
+
+		resultCode, err := v.UpdateValidator(ownerAddress, tc)
+
+		assert.Equal(t, transaction.Transaction_CommissionTooHigh, resultCode)
+		assert.Equal(t, common.ErrInvalidValue, err)
+		// Verify that the validator was not updated
+		app, _ := v.getKApp()
+		val, err := v.getValidator(app, ownerAddress)
+		assert.Nil(t, err)
+		assert.Equal(t, uint32(1000), val.Commission)
+	})
+}
+
+func TestValidatorsKApp_Delegate(t *testing.T) {
+	t.Parallel()
+
+	validatorAddress := makeAddress("validator")
+
+	t.Run("Successful delegation", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+		addStorageCacher(v)
+
+		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
+
+		bucketID := hex.EncodeToString([]byte("bucket1"))
+
+		tc := &transaction.DelegateContract{
+			ToAddress: validatorAddress,
+			BucketID:  []byte("bucket1"),
+		}
+
+		// Setup mock account
+		senderAcc := &mock.UserAccountHandlerStub{
+			GetBucketsCalled: func(_ []byte, _ bool) map[string]*kapps.UserBucket {
+				return map[string]*kapps.UserBucket{
+					bucketID: {
+						Value:         1000,
+						UnstakedEpoch: core.DefaultUnstakedEpoch,
+					},
+				}
+			},
+		}
+		v.accountsCacher.(*mock.AccountsCacherStub).GetExistingUserCalled = func(address []byte) (state.UserAccountHandler, error) {
+			return senderAcc, nil
+		}
+
+		resultCode, update, err := v.Delegate([]byte("sender"), 1000, 1, tc)
+
+		assert.Equal(t, transaction.Transaction_Ok, resultCode)
+		assert.Nil(t, err)
+		assert.Len(t, update, 1)
+		assert.Equal(t, validatorAddress, update[0])
+
+		// Verify delegation
+		app, _ := v.getKApp()
+		pd, _ := v.getValidatorBuckets(app, validatorAddress)
+		assert.Len(t, pd.Buckets, 1)
+		assert.Equal(t, int64(1000), pd.Buckets[bucketID].Value)
+	})
+
+	t.Run("Delegation to non-existent validator", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+		addStorageCacher(v)
+
+		tc := &transaction.DelegateContract{
+			ToAddress: []byte("nonexistent"),
+			BucketID:  []byte("bucket1"),
+		}
+
+		// Setup mock account
+		senderAcc := &mock.UserAccountHandlerStub{
+			GetBucketsCalled: func(_ []byte, _ bool) map[string]*kapps.UserBucket {
+				return map[string]*kapps.UserBucket{}
+			},
+		}
+		v.accountsCacher.(*mock.AccountsCacherStub).GetExistingUserCalled = func(address []byte) (state.UserAccountHandler, error) {
+			return senderAcc, nil
+		}
+
+		resultCode, update, err := v.Delegate([]byte("sender"), 1000, 1, tc)
+
+		assert.Equal(t, transaction.Transaction_AccountError, resultCode)
+		assert.Equal(t, common.ErrValidatorNotFound, err)
+		assert.Len(t, update, 0)
+	})
+
+	t.Run("Invalid bucket", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+		addStorageCacher(v)
+
+		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
+
+		tc := &transaction.DelegateContract{
+			ToAddress: validatorAddress,
+			BucketID:  []byte("invalidbucket"),
+		}
+
+		// Setup mock account with no buckets
+		senderAcc := &mock.UserAccountHandlerStub{
+			GetBucketsCalled: func(_ []byte, _ bool) map[string]*kapps.UserBucket {
+				return map[string]*kapps.UserBucket{}
+			},
+		}
+		v.accountsCacher.(*mock.AccountsCacherStub).GetExistingUserCalled = func(address []byte) (state.UserAccountHandler, error) {
+			return senderAcc, nil
+		}
+
+		resultCode, update, err := v.Delegate([]byte("sender"), 1000, 1, tc)
+
+		assert.Equal(t, transaction.Transaction_BucketIDInvalid, resultCode)
+		assert.Equal(t, common.ErrInvalidValue, err)
+		assert.Len(t, update, 0)
+	})
+}
+
+func TestValidatorsKApp_Undelegate(t *testing.T) {
+	t.Parallel()
+
+	validatorAddress := makeAddress("validator")
+
+	t.Run("Successful undelegation", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+		addStorageCacher(v)
+
+		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
+		// First, delegate
+		delegateBucket(t, v, validatorAddress, []byte("sender"), []byte("bucket1"), 1000)
+
+		tc := &transaction.UndelegateContract{
+			BucketID: []byte("bucket1"),
+		}
+
+		resultCode, err := v.Undelegate(2, validatorAddress, []byte("sender"), tc)
+
+		assert.Equal(t, transaction.Transaction_Ok, resultCode)
+		assert.Nil(t, err)
+
+		// Verify undelegation
+		app, _ := v.getKApp()
+		pd, err := v.getValidatorBuckets(app, validatorAddress)
+		assert.Nil(t, err)
+		assert.Equal(t, uint32(2), pd.Buckets[hex.EncodeToString(tc.BucketID)].UndelegatedEpoch)
+	})
+
+	t.Run("Successful undelegation same epoch", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+		addStorageCacher(v)
+
+		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
+		// First, delegate
+		delegateBucket(t, v, validatorAddress, []byte("sender"), []byte("bucket1"), 1000)
+
+		tc := &transaction.UndelegateContract{
+			BucketID: []byte("bucket1"),
+		}
+
+		resultCode, err := v.Undelegate(1, validatorAddress, []byte("sender"), tc)
+
+		assert.Equal(t, transaction.Transaction_Ok, resultCode)
+		assert.Nil(t, err)
+
+		// Verify undelegation, bucket should be removed
+		app, _ := v.getKApp()
+		pd, err := v.getValidatorBuckets(app, validatorAddress)
+		assert.Nil(t, err)
+		assert.Len(t, pd.Buckets, 0)
+	})
+
+	t.Run("Undelegate non-existent bucket", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+		addStorageCacher(v)
+
+		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
+
+		tc := &transaction.UndelegateContract{
+			BucketID: []byte("nonexistent"),
+		}
+
+		resultCode, err := v.Undelegate(1, validatorAddress, []byte("sender"), tc)
+
+		assert.Equal(t, transaction.Transaction_Fail, resultCode)
+		assert.Equal(t, common.ErrInvalidValue, err)
+	})
+}
+
+func TestValidatorsKApp_GetValidatorsInfo(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Get info for multiple validators", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+		addStorageCacher(v)
+
+		v1 := makeAddress("validator1")
+		v2 := makeAddress("validator2")
+
+		registerValidator(t, v, v1, []byte("blspubkey1"))
+		registerValidator(t, v, v2, []byte("blspubkey2"))
+
+		validators := [][]byte{v1, v2}
+
+		validatorsInfo, err := v.GetValidatorsInfo(validators)
+
+		assert.Nil(t, err)
+		assert.Len(t, validatorsInfo, 2)
+		assert.Equal(t, []byte("blspubkey1"), validatorsInfo[0].(*ValidatorAccountInfo).BlsPubKey)
+		assert.Equal(t, []byte("blspubkey2"), validatorsInfo[1].(*ValidatorAccountInfo).BlsPubKey)
+	})
+
+	t.Run("Get info for non-existent validator", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+		addStorageCacher(v)
+
+		validators := [][]byte{[]byte("nonexistent")}
+
+		validatorsInfo, err := v.GetValidatorsInfo(validators)
+
+		assert.Equal(t, common.ErrValidatorNotFound, err)
+		assert.Nil(t, validatorsInfo)
+	})
+}
+
+func TestValidatorsKApp_Unjail(t *testing.T) {
+	t.Parallel()
+
+	validatorAddress := makeAddress("validator")
+
+	t.Run("Successful unjail", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+		addStorageCacher(v)
+		addContext(v)
+
+		// Register and jail the validator
+		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
+		jailValidator(t, v, validatorAddress)
+
+		tc := &transaction.UnjailContract{}
+
+		resultCode, err := v.Unjail(validatorAddress, tc)
+
+		assert.Equal(t, transaction.Transaction_Ok, resultCode)
+		assert.Nil(t, err)
+
+		// Verify that the validator has been unjailed
+		peerAcc, err := v.loadPeerAccount([]byte("blspubkey"))
+		assert.Nil(t, err)
+		assert.Equal(t, state.List_waiting, peerAcc.GetList())
+		assert.Equal(t, v.ratingsData.StartRating(), peerAcc.GetRating())
+		assert.Equal(t, v.ratingsData.StartRating(), peerAcc.GetTempRating())
+	})
+
+	t.Run("Unjail non-jailed validator", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+		addStorageCacher(v)
+		addContext(v)
+
+		// Register the validator (not jailed)
+		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
+
+		tc := &transaction.UnjailContract{}
+
+		resultCode, err := v.Unjail(validatorAddress, tc)
+
+		assert.Equal(t, transaction.Transaction_AccountError, resultCode)
+		assert.Equal(t, common.ErrInvalidPeerList, err)
+	})
+
+	t.Run("Error loading peer account", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(v)
+		addStorageCacher(v)
+		addContext(v)
+
+		// Register the validator
+		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
+
+		// Mock an error when loading the peer account
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadPeerCalled = func(address []byte) (state.PeerAccountHandler, error) {
+			return nil, errors.New("peer account loading error")
+		}
+
+		tc := &transaction.UnjailContract{}
+
+		resultCode, err := v.Unjail(validatorAddress, tc)
+
+		assert.Equal(t, transaction.Transaction_AccountError, resultCode)
+		assert.Equal(t, "peer account loading error", err.Error())
+	})
+}
+
+func addContext(v *validatorsKApp) {
+	ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
+		ContractID:     0,
+		Block:          &block.Block{Header: &block.BlockHeader{Nonce: 1}},
+		TxHash:         make([]byte, 32),
+		IsScSimulation: true,
+	})
+	v.KAppController = &stub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			return ctx
+		},
+	}
+}
+
+func addStorageCacher(v *validatorsKApp) {
+	rawData := make(map[string][]byte)
+	v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+		return &mock.KAppAccountHandlerStub{
+			GetStorageCalled: func(key []byte) []byte {
+				return rawData[string(key)]
+			},
+			SetStorageCalled: func(key []byte, value []byte) error {
+				rawData[string(key)] = value
+				return nil
+			},
+		}, nil
+	}
+}
+
+// Helper function to register a validator for testing
+func registerValidator(t *testing.T, v *validatorsKApp, owner, blsPubKey []byte) {
+	tc := &transaction.CreateValidatorContract{
+		OwnerAddress: owner,
+		Config: &transaction.ValidatorConfig{
+			RewardAddress: owner,
+			Commission:    1000,
+			BLSPublicKey:  blsPubKey,
+			CanDelegate:   true,
+		},
+	}
+
+	addContext(v)
+
+	// Register once
+	_, err := v.Register(tc)
+	assert.NoError(t, err)
+}
+
+func delegateBucket(t *testing.T, v *validatorsKApp, validator, sender, bucketID []byte, amount int64) {
+	tc := &transaction.DelegateContract{
+		ToAddress: validator,
+		BucketID:  bucketID,
+	}
+
+	// Setup mock account
+	senderAcc := &mock.UserAccountHandlerStub{
+		GetBucketsCalled: func(_ []byte, _ bool) map[string]*kapps.UserBucket {
+			return map[string]*kapps.UserBucket{
+				hex.EncodeToString(bucketID): {
+					Value:         amount,
+					UnstakedEpoch: core.DefaultUnstakedEpoch,
+				},
+			}
+		},
+	}
+	v.accountsCacher.(*mock.AccountsCacherStub).GetExistingUserCalled = func(address []byte) (state.UserAccountHandler, error) {
+		return senderAcc, nil
+	}
+
+	_, _, err := v.Delegate([]byte("sender"), 1000, 1, tc)
+	assert.NoError(t, err)
+}
+
+// Helper function to jail a validator for testing
+func jailValidator(t *testing.T, v *validatorsKApp, validatorAddress []byte) {
+	app, err := v.getKApp()
+	require.Nil(t, err)
+
+	val, err := v.getValidator(app, validatorAddress)
+	require.Nil(t, err)
+
+	peerAcc, err := v.loadPeerAccount(val.BlsPubKey)
+	require.Nil(t, err)
+
+	peerAcc.SetListAndIndex(state.List_jailed, 0)
+	err = v.accountsCacher.UpdatePeer(peerAcc)
+	require.Nil(t, err)
+}

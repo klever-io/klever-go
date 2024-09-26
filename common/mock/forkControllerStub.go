@@ -15,7 +15,24 @@ type ForkControllerStub struct {
 }
 
 func NewForkControllerStub() *ForkControllerStub {
-	return &ForkControllerStub{}
+	// default values all true
+	f := &ForkControllerStub{}
+	f.SetAll(true)
+
+	return f
+}
+
+// SetAll sets all values
+func (s *ForkControllerStub) SetAll(value bool) {
+	s.ProcessorFlowITOPriceValue = value
+	s.ClaimKFIValue = value
+	s.FixStakingBucketsValue = value
+	s.KdaFprValue = value
+	s.BigBucketsComputeValue = value
+	s.FPRComputeAndKdaFeeFlowValue = value
+	s.FixDelegationSameEpochValue = value
+	s.EnableSmartContractsValue = value
+	s.LastConfirmedEpoch = 0
 }
 
 // ProcessorFlowITOPrice returns the stubbed value

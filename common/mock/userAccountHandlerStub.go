@@ -26,6 +26,7 @@ type UserAccountHandlerStub struct {
 	DataTrieCalled           func() data.Trie
 	DataTrieTrackerCalled    func() state.DataTrieTracker
 	GetUserKDACalled         func(assetID []byte, nonce []byte, _ bool) (*kapps.UserKDA, error)
+	GetBucketsCalled         func(assetID []byte, cdd bool) map[string]*kapps.UserBucket
 }
 
 // AddToBalance implements state.UserAccountHandler.
@@ -85,7 +86,11 @@ func (k *UserAccountHandlerStub) GetBalanceWithNonce(assetID []byte, nonce []byt
 
 // GetBuckets implements state.UserAccountHandler.
 func (k *UserAccountHandlerStub) GetBuckets(assetID []byte, cdd bool) map[string]*kapps.UserBucket {
-	panic("unimplemented")
+	if k.GetBucketsCalled != nil {
+		return k.GetBucketsCalled(assetID, cdd)
+	}
+
+	return nil
 }
 
 // GetCodeHash implements state.UserAccountHandler.

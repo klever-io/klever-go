@@ -9,6 +9,8 @@ import (
 
 // KAppAccountHandlerStub -
 type KAppAccountHandlerStub struct {
+	GetStorageCalled         func(key []byte) []byte
+	SetStorageCalled         func(key []byte, value []byte) error
 	SetRootHashCalled        func([]byte)
 	GetRootHashCalled        func() []byte
 	SetNameCalled            func(userName []byte)
@@ -29,10 +31,18 @@ func (k *KAppAccountHandlerStub) GetUserKDA(assetID []byte, nonce []byte, _ bool
 }
 
 func (k *KAppAccountHandlerStub) GetStorage(key []byte) []byte {
+	if k.GetStorageCalled != nil {
+		return k.GetStorageCalled(key)
+	}
+
 	return nil
 }
 
 func (k *KAppAccountHandlerStub) SetStorage(key []byte, value []byte) error {
+	if k.SetStorageCalled != nil {
+		return k.SetStorageCalled(key, value)
+	}
+
 	return nil
 }
 

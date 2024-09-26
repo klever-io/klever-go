@@ -101,30 +101,34 @@ func (v *validatorsKApp) UpdateMissedBlocksCounters(mb map[string]kapp.RateChang
 	}
 
 	for addr, slotCounters := range mb {
-		val, err := v.getValidator(app, []byte(addr))
-		if err != nil {
-			return err
-		}
-
-		peerAcc, err := v.loadPeerAccount(val.BlsPubKey)
-		if err != nil {
-			return err
-		}
-
-		if slotCounters.Leader > 0 {
-			peerAcc.DecreaseLeaderSuccessRate(slotCounters.Leader)
-		}
-		if slotCounters.Validator > 0 {
-			peerAcc.DecreaseLeaderSuccessRate(slotCounters.Validator)
-		}
-
-		err = v.accountsCacher.UpdatePeer(peerAcc)
+		err = v.decreasePeerCounter(app, []byte(addr), slotCounters)
 		if err != nil {
 			return err
 		}
 	}
 
 	return v.accountsCacher.SaveAll()
+}
+
+func (v *validatorsKApp) decreasePeerCounter(app state.KAppAccountHandler, addr []byte, slotCounters kapp.RateChange) error {
+	peerAcc, err := v.getPeerAccount(addr, app)
+	if err != nil {
+		return err
+	}
+
+	if slotCounters.Leader > 0 {
+		peerAcc.DecreaseLeaderSuccessRate(slotCounters.Leader)
+	}
+
+	if slotCounters.Validator > 0 {
+		if v.forkController.EnableSmartContracts() {
+			peerAcc.DecreaseValidatorSuccessRate(slotCounters.Validator)
+		} else {
+			peerAcc.DecreaseLeaderSuccessRate(slotCounters.Validator)
+		}
+	}
+
+	return v.accountsCacher.UpdatePeer(peerAcc)
 }
 
 func (v *validatorsKApp) SaveUpdatesForNodesMap(
@@ -148,57 +152,87 @@ func (v *validatorsKApp) SaveUpdatesForNodesMap(
 	return nodeForcedToRemain, v.accountsCacher.SaveAll()
 }
 
+// DecreaseAll applies penalties to all validators for a series of missed slots.
+// It calculates and applies rating decreases for both leader and validator roles.
+//
+// Parameters:
+//   - validators: Slice of all elected validators (both leaders and participants)
+//   - missedSlots: Number of consecutive slots that were missed
+//   - consensusGroupSize: Total number of validators in the consensus group
+//
+// This function is typically called when a significant number of slots (e.g., >100) have been missed in sequence.
 func (v *validatorsKApp) DecreaseAll(
 	validators [][]byte,
 	missedSlots uint64,
 	consensusGroupSize int,
 ) error {
+	// Persist current state before applying changes
 	err := v.accountsCacher.SaveAll()
 	if err != nil {
 		return err
 	}
 
 	validatorsCount := len(validators)
+	// Calculate the average number of missed participation per validator
 	percentageSlotMissedFromTotalValidators := float64(missedSlots) / float64(validatorsCount)
+	// Estimate the number of times each validator should have been a leader during missed slots
+	// Adding (1 - math.SmallestNonzeroFloat64) ensures rounding up to at least 1
 	leaderAppearances := uint32(percentageSlotMissedFromTotalValidators + 1 - math.SmallestNonzeroFloat64)
-	consensusGroupAppearances := uint32(float64(consensusGroupSize)*percentageSlotMissedFromTotalValidators +
+	// Estimate the total number of times each validator should have participated in consensus as validator
+	// Adding (1 - math.SmallestNonzeroFloat64) ensures rounding up to at least 1
+	consensusGroupSizeValidators := consensusGroupSize
+	if v.forkController.EnableSmartContracts() {
+		consensusGroupSizeValidators -= 1
+	}
+	consensusGroupAppearances := uint32(float64(consensusGroupSizeValidators)*percentageSlotMissedFromTotalValidators +
 		1 - math.SmallestNonzeroFloat64)
 	ratingDifference := uint32(0)
 
+	// Apply penalties to each validator
 	for i, validator := range validators {
 		peerAcc, err := v.loadPeerAccount(validator)
 		if err != nil {
 			return err
 		}
 
+		// Decrease success rates for both leader and validator roles
 		peerAcc.DecreaseLeaderSuccessRate(leaderAppearances)
 		peerAcc.DecreaseValidatorSuccessRate(consensusGroupAppearances)
 
 		currentTempRating := peerAcc.GetTempRating()
+		// Apply rating decrease for missed leader opportunities
 		for ct := uint32(0); ct < leaderAppearances; ct++ {
 			currentTempRating = v.rater.ComputeDecreaseProposer(currentTempRating, 0)
 		}
 
+		// Apply rating decrease for missed validator opportunities
 		for ct := uint32(0); ct < consensusGroupAppearances; ct++ {
 			currentTempRating = v.rater.ComputeDecreaseValidator(currentTempRating)
 		}
 
+		// Calculate rating difference (for logging purposes)
 		if i == 0 {
 			ratingDifference = peerAcc.GetTempRating() - currentTempRating
 		}
 
+		// Update the validator's temporary rating
 		peerAcc.SetTempRating(currentTempRating)
+		// Check if the validator should be jailed due to low rating
 		v.jailValidatorIfBadRating(peerAcc)
+		// Persist the updated peer account
 		err = v.accountsCacher.UpdatePeer(peerAcc)
 		if err != nil {
 			return err
 		}
 
+		// Log or display updated validator information
 		v.display(validator, peerAcc)
 	}
 
+	// Log summary of applied penalties
 	log.Trace(fmt.Sprintf("Decrease leader: %v, decrease validator: %v, ratingDifference: %v", leaderAppearances, consensusGroupAppearances, ratingDifference))
 
+	// Persist all changes
 	return v.accountsCacher.SaveAll()
 }
 
@@ -213,12 +247,7 @@ func (v *validatorsKApp) DecreaseTempRating(validator []byte, isProposer bool) e
 		return err
 	}
 
-	val, err := v.getValidator(app, validator)
-	if err != nil {
-		return err
-	}
-
-	peerAcc, err := v.loadPeerAccount(val.BlsPubKey)
+	peerAcc, err := v.getPeerAccount(validator, app)
 	if err != nil {
 		return err
 	}

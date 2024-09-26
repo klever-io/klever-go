@@ -76,6 +76,10 @@ func NewValidatorKApp(
 		return nil, common.ErrNilRater
 	}
 
+	if check.IfNil(args.ForkController) {
+		return nil, common.ErrNilForkController
+	}
+
 	v := &validatorsKApp{
 		marshalizer:    args.Marshalizer,
 		addressLen:     args.PubkeyConv.Len(),
@@ -897,32 +901,16 @@ func (v *validatorsKApp) saveUpdatesForList(
 		return false, err
 	}
 
-	nodeForcedToStay := false
+	var nodeForcedToStay bool
 	for index, addr := range addrs {
-
-		val, err := v.getValidator(app, []byte(addr))
-		if err != nil {
-			return false, err
-		}
-
-		peerAcc, err := v.loadPeerAccount(val.BlsPubKey)
+		peerAcc, err := v.getPeerAccount(addr, app)
 		if err != nil {
 			return false, err
 		}
 
 		// if node have been elected by NC algo... and unstake (moved to waiting list), it should leave consensus...
-		isNodeLeaving := (peerType == state.List_eligible.String() || peerType == state.List_elected.String()) && peerAcc.GetList() == state.List_waiting
-		isNodeWithLowRating := v.isValidatorWithLowRating(peerAcc)
-		if isNodeWithLowRating {
-			// if node reach a minnimum rating, should be sent to jail
-			log.Trace("saveUpdatesForList jail validator", "index", index, "addr", addr)
-			peerAcc.SetListAndIndex(state.List_jailed, uint32(index)) // #nosec G115
-		} else {
-			// update in KApp, new node position
-			peerAcc.SetListAndIndex(state.List(state.List_value[peerType]), uint32(index)) // #nosec G115
-		}
-
-		err = v.accountsCacher.UpdatePeer(peerAcc)
+		isNodeLeaving := isNodeLeavingConsensus(peerType, peerAcc)
+		err = v.processValidator(index, addr, peerType, peerAcc)
 		if err != nil {
 			return false, err
 		}
@@ -931,6 +919,44 @@ func (v *validatorsKApp) saveUpdatesForList(
 	}
 
 	return nodeForcedToStay, nil
+}
+
+// Refactored method to process each validator
+func (v *validatorsKApp) getPeerAccount(
+	addr []byte,
+	app state.KAppAccountHandler,
+) (state.PeerAccountHandler, error) {
+	val, err := v.getValidator(app, addr)
+	if err != nil {
+		return nil, err
+	}
+
+	return v.loadPeerAccount(val.BlsPubKey)
+}
+
+// Helper function to check if the node is leaving consensus
+func isNodeLeavingConsensus(peerType string, peerAcc state.PeerAccountHandler) bool {
+	return (peerType == state.List_eligible.String() || peerType == state.List_elected.String()) &&
+		peerAcc.GetList() == state.List_waiting
+}
+
+func (v *validatorsKApp) processValidator(
+	index int,
+	addr []byte,
+	peerType string,
+	peerAcc state.PeerAccountHandler,
+) error {
+	isNodeWithLowRating := v.isValidatorWithLowRating(peerAcc)
+	if isNodeWithLowRating {
+		// if node reach a minimum rating, should be sent to jail
+		log.Trace("saveUpdatesForList jail validator", "index", index, "addr", addr)
+		peerAcc.SetListAndIndex(state.List_jailed, uint32(index)) // #nosec G115
+	} else {
+		// update in KApp, new node position
+		peerAcc.SetListAndIndex(state.List(state.List_value[peerType]), uint32(index)) // #nosec G115
+	}
+
+	return v.accountsCacher.UpdatePeer(peerAcc)
 }
 
 func (v *validatorsKApp) verifySignaturesBelowSignedThreshold(

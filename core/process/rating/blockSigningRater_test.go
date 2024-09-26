@@ -13,15 +13,14 @@ import (
 )
 
 const (
-	validatorIncreaseRatingStep         = int32(1)
-	validatorDecreaseRatingStep         = int32(-2)
-	proposerIncreaseRatingStep          = int32(2)
-	proposerDecreaseRatingStep          = int32(-4)
-	minRating                           = uint32(1)
-	maxRating                           = uint32(100)
-	startRating                         = uint32(50)
-	consecutiveMissedBlocksPenaltyMeta  = 1.2
-	consecutiveMissedBlocksPenaltyShard = 1.1
+	validatorIncreaseRatingStep        = int32(1)
+	validatorDecreaseRatingStep        = int32(-2)
+	proposerIncreaseRatingStep         = int32(2)
+	proposerDecreaseRatingStep         = int32(-4)
+	minRating                          = uint32(1)
+	maxRating                          = uint32(100)
+	startRating                        = uint32(50)
+	consecutiveMissedBlocksPenaltyMeta = 1.2
 )
 
 func createDefaultChances() []process.SelectionChance {
