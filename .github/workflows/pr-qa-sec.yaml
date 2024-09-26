@@ -77,7 +77,9 @@ jobs:
   sonarqube:
     needs: [setup-and-lint, test]
     runs-on: ubuntu-latest
-    if: always()
+    if: |
+      always() &&
+      github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -144,7 +146,9 @@ jobs:
   notify:
     needs: [setup-and-lint, test, sonarqube]
     runs-on: ubuntu-latest
-    if: always()
+    if: |
+      always() &&
+      github.event_name != 'pull_request' || github.event.pull_request.draft == false
     permissions:
       contents: read
       pull-requests: read

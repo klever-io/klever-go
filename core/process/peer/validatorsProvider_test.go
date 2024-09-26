@@ -2,12 +2,14 @@ package peer
 
 import (
 	"context"
+	"encoding/hex"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
 	cryptoMock "github.com/klever-io/klever-go/crypto/mock"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/tools/check"
@@ -102,6 +104,161 @@ func TestValidatorsProvider_Cancel_startRefreshProcess(t *testing.T) {
 	currentFinished = finished
 	mutFinished.Unlock()
 	assert.True(t, currentFinished)
+}
+
+func TestValidatorsProvider_GetLatestValidators(t *testing.T) {
+	t.Parallel()
+
+	t.Run("should return cached validators if cache is fresh", func(t *testing.T) {
+		arg := createDefaultValidatorsProviderArg()
+		vp, _ := NewValidatorsProvider(arg)
+
+		// Manually set cache and last update time
+		vp.cache = map[string]*state.ValidatorApiResponse{
+			"validator1": {ValidatorStatus: "eligible"},
+		}
+		vp.lastCacheUpdate = time.Now()
+
+		validators := vp.GetLatestValidators()
+		assert.Len(t, validators, 1)
+		assert.Equal(t, "eligible", validators["validator1"].ValidatorStatus)
+	})
+
+	t.Run("should update cache if it's stale", func(t *testing.T) {
+		arg := createDefaultValidatorsProviderArg()
+		arg.CacheRefreshIntervalDurationInSec = time.Millisecond
+		arg.ValidatorStatistics = &mock.ValidatorStatisticsProcessorStub{
+			LastFinalizedRootHashCalled: func() []byte {
+				return []byte("rootHash")
+			},
+			GetValidatorInfoForRootHashCalled: func(rootHash []byte) ([]*state.ValidatorInfo, error) {
+				return []*state.ValidatorInfo{
+					{PublicKey: []byte("validator2"), List: string(core.EligibleList)},
+				}, nil
+			},
+		}
+		vp, _ := NewValidatorsProvider(arg)
+
+		// Set an old cache
+		vp.cache = map[string]*state.ValidatorApiResponse{
+			"validator1": {ValidatorStatus: "eligible"},
+		}
+		vp.lastCacheUpdate = time.Now().Add(-time.Hour)
+
+		time.Sleep(time.Millisecond * 10) // Ensure cache refresh interval has passed
+
+		validators := vp.GetLatestValidators()
+		assert.Len(t, validators, 1)
+		assert.Contains(t, validators, hex.EncodeToString([]byte("validator2")))
+	})
+}
+
+func TestValidatorsProvider_GetLatestPeers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("should return nil if no finalized root hash", func(t *testing.T) {
+		arg := createDefaultValidatorsProviderArg()
+		arg.ValidatorStatistics = &mock.ValidatorStatisticsProcessorStub{
+			LastFinalizedRootHashCalled: func() []byte {
+				return nil
+			},
+		}
+		vp, _ := NewValidatorsProvider(arg)
+
+		peers := vp.GetLatestPeers()
+		assert.Nil(t, peers)
+	})
+
+	t.Run("should return peers from validator statistics", func(t *testing.T) {
+		arg := createDefaultValidatorsProviderArg()
+		arg.ValidatorStatistics = &mock.ValidatorStatisticsProcessorStub{
+			LastFinalizedRootHashCalled: func() []byte {
+				return []byte("rootHash")
+			},
+			ListPeerAccountsCalled: func(rootHash []byte) ([]state.PeerAccountHandler, error) {
+				return []state.PeerAccountHandler{
+					state.NewEmptyPeerAccount(),
+					state.NewEmptyPeerAccount(),
+				}, nil
+			},
+		}
+		vp, _ := NewValidatorsProvider(arg)
+
+		peers := vp.GetLatestPeers()
+		assert.Len(t, peers, 2)
+	})
+}
+
+func TestValidatorsProvider_UpdateCache(t *testing.T) {
+	t.Parallel()
+
+	t.Run("should not update cache if no finalized root hash", func(t *testing.T) {
+		arg := createDefaultValidatorsProviderArg()
+		arg.ValidatorStatistics = &mock.ValidatorStatisticsProcessorStub{
+			LastFinalizedRootHashCalled: func() []byte {
+				return nil
+			},
+		}
+		vp, _ := NewValidatorsProvider(arg)
+
+		vp.updateCache()
+		assert.Empty(t, vp.cache)
+	})
+
+	t.Run("should update cache with new validator info", func(t *testing.T) {
+		arg := createDefaultValidatorsProviderArg()
+		arg.ValidatorStatistics = &mock.ValidatorStatisticsProcessorStub{
+			LastFinalizedRootHashCalled: func() []byte {
+				return []byte("rootHash")
+			},
+			GetValidatorInfoForRootHashCalled: func(rootHash []byte) ([]*state.ValidatorInfo, error) {
+				return []*state.ValidatorInfo{
+					{PublicKey: []byte("validator1"), List: string(core.EligibleList)},
+				}, nil
+			},
+		}
+		vp, _ := NewValidatorsProvider(arg)
+
+		vp.updateCache()
+		assert.Len(t, vp.cache, 1)
+		assert.Contains(t, vp.cache, hex.EncodeToString([]byte("validator1")))
+	})
+}
+
+func TestValidatorsProvider_CreateNewCache(t *testing.T) {
+	t.Parallel()
+
+	t.Run("should create cache with different validator types", func(t *testing.T) {
+		arg := createDefaultValidatorsProviderArg()
+		arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+			GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+				return [][]byte{[]byte("elected")}, nil
+			},
+			GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
+				return [][]byte{[]byte("eligible")}, nil
+			},
+		}
+		vp, _ := NewValidatorsProvider(arg)
+
+		cache := vp.createNewCache(0, []*state.ValidatorInfo{
+			{PublicKey: []byte("elected"), List: string(core.ElectedList)},
+			{PublicKey: []byte("eligible"), List: string(core.EligibleList)},
+		})
+
+		assert.Len(t, cache, 2)
+		assert.Equal(t, string(core.ElectedList), cache[hex.EncodeToString([]byte("elected"))].ValidatorStatus)
+		assert.Equal(t, string(core.EligibleList), cache[hex.EncodeToString([]byte("eligible"))].ValidatorStatus)
+	})
+}
+
+func TestValidatorsProvider_Close(t *testing.T) {
+	t.Parallel()
+
+	arg := createDefaultValidatorsProviderArg()
+	vp, _ := NewValidatorsProvider(arg)
+
+	err := vp.Close()
+	assert.Nil(t, err)
 }
 
 func createDefaultValidatorsProviderArg() ArgValidatorsProvider {

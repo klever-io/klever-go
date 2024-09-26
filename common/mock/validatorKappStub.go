@@ -8,6 +8,8 @@ import (
 )
 
 type ValidatorsKAppStub struct {
+	ResetValidatorStatisticsAtNewEpochCalled func([]*state.ValidatorInfo) ([]*state.ValidatorInfo, error)
+	ProcessRatingsEndOfEpochCalled           func([]*state.ValidatorInfo) error
 }
 
 // SetKAppController sets the KApp controller.
@@ -95,13 +97,19 @@ func (v *ValidatorsKAppStub) UpdateMissedBlocksCounters(mb map[string]kapp.RateC
 
 // ResetValidatorStatisticsAtNewEpoch resets the validator statistics at the new epoch.
 func (v *ValidatorsKAppStub) ResetValidatorStatisticsAtNewEpoch(vInfos []*state.ValidatorInfo) ([]*state.ValidatorInfo, error) {
-	// Stub implementation
+	if v.ResetValidatorStatisticsAtNewEpochCalled != nil {
+		return v.ResetValidatorStatisticsAtNewEpochCalled(vInfos)
+	}
+
 	return nil, nil
 }
 
 // ProcessRatingsEndOfEpoch processes ratings at the end of the epoch.
 func (v *ValidatorsKAppStub) ProcessRatingsEndOfEpoch(validatorInfos []*state.ValidatorInfo) error {
-	// Stub implementation
+	if v.ProcessRatingsEndOfEpochCalled != nil {
+		return v.ProcessRatingsEndOfEpochCalled(validatorInfos)
+	}
+
 	return nil
 }
 

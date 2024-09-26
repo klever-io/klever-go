@@ -4,13 +4,16 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/eventNotifier"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewPeerTypeProvider_NilNodesCoordinator(t *testing.T) {
@@ -215,4 +218,102 @@ func createDefaultArgPeerTypeProvider() ArgPeerTypeProvider {
 		StartEpoch:              0,
 		EpochStartEventNotifier: &mock.EpochStartNotifierStub{},
 	}
+}
+
+func TestPeerTypeProvider_EpochStartEventHandler(t *testing.T) {
+	t.Parallel()
+
+	arg := createDefaultArgPeerTypeProvider()
+	ptp, _ := NewPeerTypeProvider(arg)
+
+	handler := ptp.epochStartEventHandler()
+	require.NotNil(t, handler)
+
+	// Check if the cache was updated
+	ptp.mutCache.RLock()
+	cacheLen := len(ptp.cache)
+	ptp.mutCache.RUnlock()
+
+	assert.Equal(t, cacheLen, 0)
+
+	// change elected list
+	ptp.nodesCoordinator.(*mock.NodesCoordinatorMock).GetAllElectedValidatorsKeysCalled = func() ([][]byte, error) {
+		return [][]byte{[]byte("pk1")}, nil
+	}
+
+	header := &block.Block{Header: &block.BlockHeader{
+		Nonce: 100,
+		Epoch: 1,
+	}}
+
+	handler.EpochStartAction(header)
+
+	// Allow some time for the goroutine to execute
+	time.Sleep(time.Millisecond * 100)
+
+	// Check if the cache was updated
+	ptp.mutCache.RLock()
+	cacheLen = len(ptp.cache)
+	ptp.mutCache.RUnlock()
+
+	assert.Greater(t, cacheLen, 0)
+}
+
+func TestPeerTypeProvider_CreateNewCacheScenarios(t *testing.T) {
+	t.Parallel()
+
+	arg := createDefaultArgPeerTypeProvider()
+
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte("elected1"), []byte("elected2")}, nil
+		},
+		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte("eligible1"), []byte("elected1")}, nil
+		},
+	}
+	ptp, _ := NewPeerTypeProvider(arg)
+
+	cache := ptp.createNewCache(0)
+	assert.Len(t, cache, 3)
+	assert.Equal(t, core.EligibleList, cache["elected1"].pType) // elected1 is also eligible as it have been updated in the eligible list
+	assert.Equal(t, core.ElectedList, cache["elected2"].pType)
+	assert.Equal(t, core.EligibleList, cache["eligible1"].pType)
+}
+
+func TestPeerTypeProvider_GetAllPeerTypeInfos(t *testing.T) {
+	t.Parallel()
+
+	arg := createDefaultArgPeerTypeProvider()
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+
+	// Manually populate the cache with some test data
+	ptp.cache = map[string]*peerListAndShard{
+		"pk1": {pType: core.ElectedList, pShard: 0},
+		"pk2": {pType: core.EligibleList, pShard: 1},
+		"pk3": {pType: core.WaitingList, pShard: 2},
+		"pk4": {pType: core.ObserverList, pShard: 3},
+	}
+
+	peerTypeInfos := ptp.GetAllPeerTypeInfos()
+
+	assert.Equal(t, 4, len(peerTypeInfos), "Should return 4 peer type infos")
+
+	// Create a map for easier assertion
+	peerTypeInfoMap := make(map[string]*state.PeerTypeInfo)
+	for _, pti := range peerTypeInfos {
+		peerTypeInfoMap[pti.PublicKey] = pti
+	}
+
+	// Assert each peer type info
+	assert.Equal(t, &state.PeerTypeInfo{PublicKey: "pk1", PeerType: string(core.ElectedList), ShardId: 0}, peerTypeInfoMap["pk1"])
+	assert.Equal(t, &state.PeerTypeInfo{PublicKey: "pk2", PeerType: string(core.EligibleList), ShardId: 0}, peerTypeInfoMap["pk2"])
+	assert.Equal(t, &state.PeerTypeInfo{PublicKey: "pk3", PeerType: string(core.WaitingList), ShardId: 0}, peerTypeInfoMap["pk3"])
+	assert.Equal(t, &state.PeerTypeInfo{PublicKey: "pk4", PeerType: string(core.ObserverList), ShardId: 0}, peerTypeInfoMap["pk4"])
+
+	// Test with empty cache
+	ptp.cache = make(map[string]*peerListAndShard)
+	emptyPeerTypeInfos := ptp.GetAllPeerTypeInfos()
+	assert.Empty(t, emptyPeerTypeInfos, "Should return empty slice for empty cache")
 }

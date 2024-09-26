@@ -188,7 +188,7 @@ func (vs *validatorStatistics) UpdatePeerState(header data.HeaderHandler, previo
 	vs.missedBlocksCounters.reset()
 	vs.mutValidatorStatistics.Unlock()
 
-	epoch := computeEpoch(header)
+	epoch := ComputeEpoch(header)
 	err := vs.checkForMissedBlocks(
 		header.GetSlot(),
 		previousHeader.GetSlot(),
@@ -209,7 +209,7 @@ func (vs *validatorStatistics) UpdatePeerState(header data.HeaderHandler, previo
 	}
 	log.Trace("Increasing", "slot", previousHeader.GetSlot(), "prevRandSeed", previousHeader.GetPrevRandSeed())
 
-	consensusGroupEpoch := computeEpoch(previousHeader)
+	consensusGroupEpoch := ComputeEpoch(previousHeader)
 	consensusGroup, err := vs.nodesCoordinator.ComputeConsensusGroup(
 		previousHeader.GetPrevRandSeed(),
 		previousHeader.GetSlot(),
@@ -241,11 +241,16 @@ func (vs *validatorStatistics) UpdatePeerState(header data.HeaderHandler, previo
 	return rootHash, nil
 }
 
-func computeEpoch(header data.HeaderHandler) uint32 {
-	// TODO: change if start of epoch block needs to be validated by the new epoch nodes
-	// previous block was proposed by the consensus group of the previous epoch
-	epoch := header.GetEpoch()
-	if header.GetIsEpochStart() && epoch > 0 {
+func ComputeEpoch(currentHeader data.HeaderHandler) uint32 {
+	// If it is epoch start the Block is proposed by the consensus group of the previous epoch
+	// so we need to decrease the epoch
+	// If the epoch is 0 we don't need to decrease it (Genesis block)
+	epoch := currentHeader.GetEpoch()
+	if currentHeader.GetIsEpochStart() && epoch > 0 {
+		// we always decrease the epoch by 1
+		// blockchain ensures that every epoch have at least one block
+		// eventNotifier/EpochStart const minSlotsToTrigger = uint64(5)
+		// so we can safely decrease the epoch by 1 ()
 		epoch = epoch - 1
 	}
 
@@ -521,6 +526,10 @@ func (vs *validatorStatistics) computeDecrease(
 		swInner.Stop("ComputeValidatorsGroup")
 		if err != nil {
 			return err
+		}
+
+		if len(consensusGroup) == 0 {
+			return process.ErrEmptyConsensusGroup
 		}
 
 		leaderPK := tools.GetTrimmedPk(vs.pubkeyConv.Encode(consensusGroup[0].PubKey()))
