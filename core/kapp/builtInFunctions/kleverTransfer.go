@@ -26,7 +26,7 @@ type kdaTransfer struct {
 func NewKDATransferFunc(
 	funcGasCost uint64,
 	kappController kapp.KAppController,
-) (*kdaTransfer) {
+) *kdaTransfer {
 	e := &kdaTransfer{
 		funcGasCost:    funcGasCost,
 		payableHandler: &disabledPayableHandler{},

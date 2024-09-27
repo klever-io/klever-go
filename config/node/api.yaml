@@ -82,6 +82,8 @@ apiPackages:
         secured: true
       - name: /enable-epochs
         open: true
+      - name: /heartbeatstatus
+        open: true
   log:
     routes:
       - name: /log

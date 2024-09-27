@@ -451,7 +451,7 @@ func setRedundancy(c *gin.Context) {
 // @Tags Node
 // @Produce json
 // @Success 200 object shared.GenericAPIResponse "ok"
-// @Router /node/enable-epochs [post]
+// @Router /node/enable-epochs [get]
 // getEnableEpochs is the endpoint which will return the node enable epochs configuration in JSON format
 func getEnableEpochs(c *gin.Context) {
 	facade, ok := getFacade(c)

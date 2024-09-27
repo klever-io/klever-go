@@ -59,19 +59,19 @@ func TestGetTokenIdentifier(t *testing.T) {
 	tokenName := "TTS"
 	tiBytes := []byte(tokenName)
 
-	t.Run("with nonce 0 (fungible token)", func (t *testing.T) {
+	t.Run("with nonce 0 (fungible token)", func(t *testing.T) {
 		identifier := builtInFunctions.GetTokenIdentifier(&vmcommon.KDATransfer{
-			KDATokenName: tiBytes,
+			KDATokenName:  tiBytes,
 			KDATokenNonce: 0,
 		})
 
 		require.True(t, bytes.Equal(tiBytes, identifier))
 	})
 
-	t.Run("with nonce greater than 0 (non/semi fungible token)", func (t *testing.T) {
+	t.Run("with nonce greater than 0 (non/semi fungible token)", func(t *testing.T) {
 		nonce := 8
 		identifier := builtInFunctions.GetTokenIdentifier(&vmcommon.KDATransfer{
-			KDATokenName: tiBytes,
+			KDATokenName:  tiBytes,
 			KDATokenNonce: uint64(nonce),
 		})
 
