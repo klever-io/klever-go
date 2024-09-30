@@ -3,6 +3,8 @@ package vmcommon
 import (
 	"math/big"
 
+	"github.com/klever-io/klever-go/data/transaction"
+
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/closing"
 	"github.com/klever-io/klever-go/data/state"
@@ -107,6 +109,9 @@ type BlockchainHook interface {
 
 	// TransferValueOnly transfers KLV from one account to another
 	TransferValueOnly(destination []byte, sender []byte, value *big.Int) error
+
+	// KDATransfer transfers KDA from one account to another
+	KDATransfer(sender []byte, tc *transaction.TransferContract) error
 
 	// IncreaseNonce increase the nonce of given address
 	IncreaseNonce(address []byte) error

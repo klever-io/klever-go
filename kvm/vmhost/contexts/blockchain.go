@@ -1,10 +1,8 @@
 package contexts
 
 import (
-	"fmt"
 	"math/big"
 
-	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
@@ -324,19 +322,7 @@ func (context *blockchainContext) IncreaseNonce(address []byte) {
 // KDATransfer transfers value from sender to destination
 // This function is used only during deploy smart contract prior the init function is triggered
 func (context *blockchainContext) KDATransfer(sender []byte, tc *transaction.TransferContract) error {
-	bchh, ok := context.blockChainHook.(process.BlockChainHookHandler)
-	if !ok {
-		return fmt.Errorf("blockchain hook is not a process.BlockChainHookHandler")
-	}
-
-	accKapp := bchh.GetKAppController().GetAccountsKApp()
-
-	resultCode, err := accKapp.Transfer(transaction.TXContract_TransferContractType, sender, tc)
-	if err != nil {
-		return fmt.Errorf("result code: %d, %v", resultCode, err)
-	}
-
-	return nil
+	return context.blockChainHook.KDATransfer(sender, tc)
 }
 
 // ClearCompiledCodes cleans the compiled codes cache

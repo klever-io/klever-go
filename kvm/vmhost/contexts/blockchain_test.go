@@ -2,13 +2,16 @@ package contexts
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 
+	"github.com/klever-io/klever-go/data/transaction"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/vmcommon"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -323,6 +326,35 @@ func TestBlockchainContext_IsPayable(t *testing.T) {
 	isPayable, err := bc.IsPayable(nil, []byte("test"))
 	require.Nil(t, err)
 	require.True(t, isPayable)
+}
+
+func TestBlockchainContext_KDATransfer(t *testing.T) {
+	t.Parallel()
+	t.Run("Should call KDATransfer Hook", func(t *testing.T) {
+		host := &contextmock.VMHostMock{}
+		stub := &contextmock.BlockchainHookStub{}
+		bc, _ := NewBlockchainContext(host, stub)
+		called := false
+		stub.KDATransferCalled = func(sender []byte, tc *transaction.TransferContract) error {
+			called = true
+			return nil
+		}
+		err := bc.KDATransfer([]byte("sender"), &transaction.TransferContract{})
+		assert.Nil(t, err)
+		assert.True(t, called)
+	})
+
+	t.Run("Should propagate errors", func(t *testing.T) {
+		host := &contextmock.VMHostMock{}
+		stub := &contextmock.BlockchainHookStub{}
+		bc, _ := NewBlockchainContext(host, stub)
+		stub.KDATransferCalled = func(sender []byte, tc *transaction.TransferContract) error {
+			return fmt.Errorf("KDATransfer error")
+		}
+		err := bc.KDATransfer([]byte("sender"), &transaction.TransferContract{})
+		assert.NotNil(t, err)
+		assert.Equal(t, "KDATransfer error", err.Error())
+	})
 }
 
 func TestBlockchainContext_Getters(t *testing.T) {

@@ -645,6 +645,7 @@ type BlockChainHookHandler interface {
 	RevertToSnapshot(snapshot int) error
 	ExecuteSmartContractCallOnOtherVM(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error)
 	TransferValueOnly(destination []byte, sender []byte, value *big.Int) error
+	KDATransfer(sender []byte, tc *transaction.TransferContract) error
 	IncreaseNonce(address []byte) error
 	Close() error
 	FilterCodeMetadataForUpgrade(input []byte) ([]byte, error)

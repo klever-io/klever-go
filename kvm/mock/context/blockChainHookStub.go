@@ -272,7 +272,7 @@ func (b *BlockchainHookStub) GetCompiledCode(codeHash []byte) (bool, []byte) {
 
 func (b *BlockchainHookStub) KDATransfer(sender []byte, tc *transaction.TransferContract) error {
 	if b.KDATransferCalled != nil {
-		return b.KDATransfer(sender, tc)
+		return b.KDATransferCalled(sender, tc)
 	}
 
 	return nil

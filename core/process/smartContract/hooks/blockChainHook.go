@@ -763,18 +763,15 @@ func (bh *BlockChainHookImpl) TransferValueOnly(destination []byte, sender []byt
 		Amount:    value.Int64(),
 	}
 
-	resultCode, err := bh.kappController.GetAccountsKApp().Transfer(
-		transaction.TXContract_TransferContractType,
-		sender,
-		tc,
-	)
-	if err != nil {
-		return err
-	}
+	return bh.KDATransfer(sender, tc)
+}
 
-	if resultCode != transaction.Transaction_Ok {
-		err = fmt.Errorf("KDA Transfer error: %s", resultCode.String())
-		return err
+func (bh *BlockChainHookImpl) KDATransfer(sender []byte, tc *transaction.TransferContract) error {
+	accKapp := bh.GetKAppController().GetAccountsKApp()
+
+	resultCode, err := accKapp.Transfer(transaction.TXContract_TransferContractType, sender, tc)
+	if err != nil || resultCode != transaction.Transaction_Ok {
+		return fmt.Errorf("result code: %d, %v", resultCode, err)
 	}
 
 	return nil

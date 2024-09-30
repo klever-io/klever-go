@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"strconv"
 
+	"github.com/klever-io/klever-go/data/transaction"
+
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 
 	"github.com/klever-io/klever-go/common"
@@ -297,19 +299,28 @@ func (b *MockWorld) ClearCompiledCodes() {
 
 // TransferValueOnly -
 func (b *MockWorld) TransferValueOnly(to []byte, from []byte, value *big.Int) error {
-	fromAccount, err := b.AccountsCacher.LoadUser(from)
+	tc := &transaction.TransferContract{
+		ToAddress: to,
+		AssetID:   kdautils.KLVIdentifier,
+		Amount:    value.Int64(),
+	}
+	return b.KDATransfer(from, tc)
+}
+
+func (b *MockWorld) KDATransfer(sender []byte, tc *transaction.TransferContract) error {
+	fromAccount, err := b.AccountsCacher.LoadUser(sender)
 	if err != nil {
 		return err
 	}
-	toAccount, err := b.AccountsCacher.LoadUser(to)
+	toAccount, err := b.AccountsCacher.LoadUser(tc.ToAddress)
 	if err != nil {
 		return err
 	}
-	err = fromAccount.SubFromBalance(value.Int64(), nil, true)
+	err = fromAccount.SubFromBalance(tc.Amount, tc.AssetID, true)
 	if err != nil {
 		return err
 	}
-	err = toAccount.AddToBalance(value.Int64(), nil, true)
+	err = toAccount.AddToBalance(tc.Amount, tc.AssetID, true)
 	if err != nil {
 		return err
 	}
