@@ -1,6 +1,7 @@
 package vmcommon
 
 import (
+	"bytes"
 	"math/big"
 
 	"github.com/klever-io/klever-go/core"
@@ -16,6 +17,11 @@ const identifierMaxLength = tickerMaxLength + additionalRandomCharsLength + 1
 
 // ValidateToken - validates the token ID
 func ValidateToken(tokenID []byte) bool {
+	// official tokens
+	if bytes.Equal(tokenID, kdautils.KLVIdentifier) || bytes.Equal(tokenID, kdautils.KFIIdentifier) {
+		return true
+	}
+
 	tokenIDLen := len(tokenID)
 	if tokenIDLen < identifierMinLength || tokenIDLen > identifierMaxLength {
 		return false

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestElrondEI_validateToken(t *testing.T) {
+func TestVMCommon_validateToken(t *testing.T) {
 	var result bool
 	result = ValidateToken([]byte("KLVRIDEFL-08d8e"))
 	assert.False(t, result)
@@ -36,6 +36,10 @@ func TestElrondEI_validateToken(t *testing.T) {
 	assert.False(t, result)
 	result = ValidateToken([]byte("ALCCCCCCCCC-6258"))
 	assert.False(t, result)
+	result = ValidateToken([]byte("KLVA"))
+	assert.False(t, result)
+	result = ValidateToken([]byte("KFIA"))
+	assert.False(t, result)
 
 	result = ValidateToken([]byte("KLVRIDEF2-08d8"))
 	assert.True(t, result)
@@ -46,6 +50,10 @@ func TestElrondEI_validateToken(t *testing.T) {
 	result = ValidateToken([]byte("ALC123-6258"))
 	assert.True(t, result)
 	result = ValidateToken([]byte("12345-6258"))
+	assert.True(t, result)
+	result = ValidateToken([]byte("KLV"))
+	assert.True(t, result)
+	result = ValidateToken([]byte("KFI"))
 	assert.True(t, result)
 }
 
