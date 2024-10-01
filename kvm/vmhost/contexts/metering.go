@@ -436,7 +436,7 @@ func (context *meteringContext) deductInitialGas(
 	initialCost := math.AddUint64(baseCost, codeCost)
 
 	if initialCost > context.gasForExecution {
-		logMetering.Trace("initialCost", initialCost, "context.gasForExecution", context.gasForExecution)
+		logMetering.Trace("Not enough gas", "initialCost", initialCost, "context.gasForExecution", context.gasForExecution)
 		return vmhost.ErrNotEnoughGas
 	}
 
