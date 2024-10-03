@@ -4,6 +4,7 @@
 package transaction
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -1865,4 +1866,14 @@ func (t *Transaction) Size() int {
 
 func (t *Transaction) CheckIntegrity() error {
 	panic("NOT IMPLEMENTED")
+}
+
+func (t *Transaction) AddSignature(signature []byte) {
+	// check if signature already exists
+	for _, sig := range t.Signature {
+		if bytes.Equal(sig, signature) {
+			return
+		}
+	}
+	t.Signature = append(t.Signature, signature)
 }

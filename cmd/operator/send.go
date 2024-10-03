@@ -95,16 +95,18 @@ func signAndBroadcast(tx *transaction.Transaction) (string, error) {
 		return "", err
 	}
 
-	// multisign option
+	// Multisign option
 	txSingleSigner := &singlesig.Ed25519Signer{}
-	for _, key := range multiSignKeys {
 
+	// add multi sign keys
+	for _, key := range multiSignKeys {
 		signature, err := txSingleSigner.Sign(key, hash)
 		if err != nil {
 			return "", err
 		}
 
-		tx.Signature = append(tx.Signature, []byte(signature))
+		// add signature and check duplicates
+		tx.AddSignature(signature)
 	}
 
 	hashSt := hex.EncodeToString(hash)
