@@ -36,6 +36,7 @@ var marshalizer = &marshal.ProtoMarshalizer{}
 
 var defaultTicker []byte = []byte("KDA")
 var defaultAssetID []byte = []byte("KDA-3W0I")
+
 var defaultWhitelistLen = int32(2)
 
 func makeAddress(prefix string) []byte {
@@ -201,6 +202,7 @@ func createDefaultITO(
 	t *testing.T,
 	kc kapp.KAppController,
 	currency string,
+	assetId []byte,
 ) {
 	packs := make(map[string]*transaction.PackInfo, 0)
 
@@ -228,7 +230,7 @@ func createDefaultITO(
 	}
 
 	tc := &transaction.ConfigITOContract{
-		AssetID:                defaultAssetID,
+		AssetID:                assetId,
 		ReceiverAddress:        defaultSender,
 		Status:                 transaction.ConfigITOContract_ActiveITO,
 		PackInfo:               packs,
@@ -286,7 +288,7 @@ func TestITO_RemoveAddressFromWhitelist_BeforeSCFork(t *testing.T) {
 	createAsset(t, kc, defaultTicker, transaction.CreateAssetContract_Fungible, 6, 0, 1_000_000)
 
 	// default ito create 2 whitelist
-	createDefaultITO(t, kc, asset)
+	createDefaultITO(t, kc, asset, defaultAssetID)
 
 	ito := GetIto(t, kc, defaultAssetID)
 	assert.Equal(t, defaultWhitelistLen, ito.WhitelistLen)
@@ -329,7 +331,7 @@ func TestITO_RemoveAddressFromWhitelist_AfterSCFork(t *testing.T) {
 	createAsset(t, kc, defaultTicker, transaction.CreateAssetContract_Fungible, 6, 0, 1_000_000)
 
 	// default ito create 2 whitelist
-	createDefaultITO(t, kc, asset)
+	createDefaultITO(t, kc, asset, defaultAssetID)
 
 	ito := GetIto(t, kc, defaultAssetID)
 	assert.Equal(t, defaultWhitelistLen, ito.WhitelistLen)

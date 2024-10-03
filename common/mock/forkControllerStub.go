@@ -1,5 +1,7 @@
 package mock
 
+import "github.com/klever-io/klever-go/config"
+
 // ForkControllerStub is a stub implementation of the ForkController for testing purposes
 type ForkControllerStub struct {
 	ProcessorFlowITOPriceValue   bool
@@ -32,6 +34,19 @@ func (s *ForkControllerStub) SetAll(value bool) {
 	s.FPRComputeAndKdaFeeFlowValue = value
 	s.FixDelegationSameEpochValue = value
 	s.EnableSmartContractsValue = value
+	s.LastConfirmedEpoch = 0
+}
+
+// SetByConfig sets values based in the EnableEpochs config
+func (s *ForkControllerStub) SetByConfig(config config.EnableEpochs) {
+	s.ProcessorFlowITOPriceValue = config.ProcessorFlowITOPrice == 0
+	s.ClaimKFIValue = config.ClaimKFI == 0
+	s.FixStakingBucketsValue = config.FixStakingBuckets == 0
+	s.KdaFprValue = config.KdaFpr == 0
+	s.BigBucketsComputeValue = config.BigBucketsCompute == 0
+	s.FPRComputeAndKdaFeeFlowValue = config.FPRComputeAndKdaFeeFlow == 0
+	s.FixDelegationSameEpochValue = config.FixDelegationSameEpoch == 0
+	s.EnableSmartContractsValue = config.SmartContracts == 0
 	s.LastConfirmedEpoch = 0
 }
 

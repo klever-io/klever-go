@@ -6,7 +6,6 @@ import (
 	"errors"
 	"sort"
 	"strconv"
-	"unicode/utf8"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
@@ -27,76 +26,9 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 		return transaction.Transaction_ContractInvalid, err
 	}
 
-	var isValid bool
-
-	if k.forkController.EnableSmartContracts() {
-		isValid = kdautils.IsAssetNameHumanReadable(tc.Name)
-	} else {
-		isValid = kdautils.IsAssetNameHumanReadableOld(tc.Name)
-	}
-
-	if !isValid {
-		return transaction.Transaction_ContractInvalid, process.ErrTokenNameNotHumanReadable
-	}
-
-	if !kdautils.IsTickerValid(tc.Ticker) {
-		return transaction.Transaction_ContractInvalid, process.ErrTickerNameNotValid
-	}
-
-	if len(tc.GetOwnerAddress()) != k.pubkeyConv.Len() {
-		return transaction.Transaction_AccountError, process.ErrInvalidOwnerAddr
-	}
-
-	if len(tc.GetAdminAddress()) > 0 {
-		if !k.forkController.EnableSmartContracts() {
-			return transaction.Transaction_ParameterInvalid, process.ErrInvalidAdminAddr
-		}
-
-		if len(tc.GetAdminAddress()) != k.pubkeyConv.Len() {
-			return transaction.Transaction_AccountError, process.ErrInvalidAdminAddr
-		}
-	}
-
-	// MaxSupply == 0 = infinite supply
-	if tc.GetMaxSupply() < 0 {
-		return transaction.Transaction_ParameterInvalid, process.ErrSupplyNotValid
-	}
-
-	assetIdentifier := kda.CreateNewAssetIdentifier(k.hasher, ctx.Block().GetRandSeed(), sender, ctx.TxNonce(), tc.GetTicker())
-
-	// validate if asset already exists
-	_, _, err = k.GetKDA(assetIdentifier)
-	if err == nil {
-		return transaction.Transaction_AssetError, common.ErrAssetAlreadyExists
-	}
-	if !errors.Is(err, common.ErrAssetNotFound) {
-		return transaction.Transaction_AssetError, err
-	}
-
-	roles, result, err := k.parseRoles(tc.GetRoles())
+	assetIdentifier, roles, status, err := k.ValidateCreateAsset(ctx, sender, tc)
 	if err != nil {
-		return result, err
-	}
-
-	if len(kapps.KDAData_EnumAssetType_name[int32(tc.GetType())]) == 0 {
-		return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
-	}
-
-	if !utf8.ValidString(tc.GetLogo()) || len(tc.GetLogo()) > core.MaxLogoURISize {
-		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-	}
-
-	if len(tc.GetURIs()) > core.MaxURIMapSize {
-		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-	}
-
-	for key, uri := range tc.GetURIs() {
-		if !utf8.ValidString(key) ||
-			!utf8.ValidString(uri) ||
-			len(key) > core.MaxURIKeySize ||
-			len(uri) > core.MaxURIValueSize {
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		}
+		return status, err
 	}
 
 	asset := kapps.KDAData{
@@ -184,6 +116,44 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 	ctx.SetReturnData([][]byte{asset.ID})
 
 	return transaction.Transaction_Ok, nil
+}
+
+func (k *kdaKapp) ValidateCreateAsset(ctx kapp.KappContext, sender []byte, tc *transaction.CreateAssetContract) ([]byte, []*kapps.RolesData, transaction.Transaction_TXResultCode, error) {
+	status, err := kda.ValidateCreateAsset(tc, k.forkController, k.pubkeyConv)
+	if err != nil {
+		return nil, nil, status, err
+	}
+
+	contractID := 0
+	if k.forkController.EnableSmartContracts() {
+		contractID = ctx.ContractID()
+	}
+	assetIdentifier := kda.CreateNewAssetIdentifier(k.hasher, ctx.Block().GetRandSeed(), sender, ctx.TxNonce(), tc.GetTicker(), contractID)
+
+	// validate if asset already exists
+	_, _, err = k.GetKDA(assetIdentifier)
+	if err == nil {
+		return nil, nil, transaction.Transaction_AssetError, common.ErrAssetAlreadyExists
+	}
+	if !errors.Is(err, common.ErrAssetNotFound) {
+		return nil, nil, transaction.Transaction_AssetError, err
+	}
+
+	roles, status, err := k.parseRoles(tc.GetRoles())
+	if err != nil {
+		return nil, nil, status, err
+	}
+
+	if len(kapps.KDAData_EnumAssetType_name[int32(tc.GetType())]) == 0 {
+		return nil, nil, transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
+	}
+
+	status, err = kda.ValitadeLogoAndUri(tc)
+	if err != nil {
+		return nil, nil, status, err
+	}
+
+	return assetIdentifier, roles, transaction.Transaction_Ok, nil
 }
 
 func (k *kdaKapp) createNFT(tc *transaction.CreateAssetContract, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {

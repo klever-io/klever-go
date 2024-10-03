@@ -1282,7 +1282,7 @@ func TestTxProcessor_ProcessCreateAssetOkValsShouldWork(t *testing.T) {
 	ownerAcc := loadUserAccount(args.AccountsCacher, contract.GetOwnerAddress())
 	kdaKapp := loadKAppAccount(args.AccountsCacher, kapps.KDAKAppAddress)
 
-	assetIdentifier := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), contract.GetOwnerAddress(), ownerAcc.GetNonce(), contract.GetTicker())
+	assetIdentifier := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), contract.GetOwnerAddress(), ownerAcc.GetNonce(), contract.GetTicker(), 0)
 	kdaKey := kdautils.ToKDAKey(assetIdentifier, nil)
 
 	userKDABytes, err := ownerAcc.DataTrieTracker().RetrieveValue(kdaKey)
@@ -1341,7 +1341,7 @@ func TestTxProcessor_ProcessTransferAssetOkValsShouldWork(t *testing.T) {
 	err = execTx.ProcessTransaction(block, hash, tx)
 	assert.Nil(t, err)
 
-	assetIdentifier := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), contract.GetOwnerAddress(), ownAcc.GetNonce(), contract.GetTicker())
+	assetIdentifier := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), contract.GetOwnerAddress(), ownAcc.GetNonce(), contract.GetTicker(), 0)
 
 	transferContract := transaction.TransferContract{
 		ToAddress: testToAddress,
@@ -1597,7 +1597,7 @@ func TestTxProcessor_ProcessFreezeAndUnfreezeOkValsShouldWork(t *testing.T) {
 	err = execTx.ProcessTransaction(block, hash, tx)
 	assert.Nil(t, err)
 
-	assetIdentifier := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), contract.GetOwnerAddress(), ownerAcc.GetNonce(), contract.GetTicker())
+	assetIdentifier := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), contract.GetOwnerAddress(), ownerAcc.GetNonce(), contract.GetTicker(), 0)
 
 	freezeContract := transaction.FreezeContract{
 		AssetID: kdautils.KLVIdentifier,
@@ -2600,7 +2600,7 @@ func TestTxProcessor_ProcessAssetTriggerWrongValsShouldErr(t *testing.T) {
 	err = execTx.ProcessTransaction(block, hash, tx)
 	assert.Nil(t, err)
 
-	assetID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), kdaContract.GetOwnerAddress(), ownerAcc.GetNonce(), kdaContract.GetTicker())
+	assetID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), kdaContract.GetOwnerAddress(), ownerAcc.GetNonce(), kdaContract.GetTicker(), 0)
 
 	//Asset Trigger with wrong type
 	contract := transaction.AssetTriggerContract{
@@ -3062,7 +3062,7 @@ func TestTxProcessor_ProcessAssetTriggerOkValsShouldWork(t *testing.T) {
 	err = execTx.ProcessTransaction(block, hash, fungibleTX)
 	assert.Nil(t, err)
 
-	fungibleID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), fungibleContract.GetTicker())
+	fungibleID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), fungibleContract.GetTicker(), 0)
 
 	_, hash, err = execTx.PreProcessTransaction(nftTX)
 	assert.Nil(t, err)
@@ -3070,7 +3070,7 @@ func TestTxProcessor_ProcessAssetTriggerOkValsShouldWork(t *testing.T) {
 	err = execTx.ProcessTransaction(block, hash, nftTX)
 	assert.Nil(t, err)
 
-	nftID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), nftContract.GetTicker())
+	nftID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), nftContract.GetTicker(), 0)
 
 	//MINT FUNGIBLE ######################################################
 
@@ -3661,7 +3661,7 @@ func TestTxProcessor_ProcessAssetTriggerOkValsWithAdminShouldWork(t *testing.T) 
 	err = execTx.ProcessTransaction(block, hash, fungibleTX)
 	assert.Nil(t, err)
 
-	fungibleID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), fungibleContract.GetTicker())
+	fungibleID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), fungibleContract.GetTicker(), 0)
 
 	_, hash, err = execTx.PreProcessTransaction(nftTX)
 	assert.Nil(t, err)
@@ -3669,7 +3669,7 @@ func TestTxProcessor_ProcessAssetTriggerOkValsWithAdminShouldWork(t *testing.T) 
 	err = execTx.ProcessTransaction(block, hash, nftTX)
 	assert.Nil(t, err)
 
-	nftID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), nftContract.GetTicker())
+	nftID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), nftContract.GetTicker(), 0)
 
 	//MINT FUNGIBLE ######################################################
 
@@ -4663,7 +4663,7 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOWrongValsShouldErr(t *testing.T) {
 	err = execTx.ProcessTransaction(block, hash, tx)
 	assert.Nil(t, err)
 
-	assetID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), kdaContract.GetOwnerAddress(), ownerAcc.GetNonce(), kdaContract.GetTicker())
+	assetID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), kdaContract.GetOwnerAddress(), ownerAcc.GetNonce(), kdaContract.GetTicker(), 0)
 
 	//ConfigITO with invalid asset
 	contract := transaction.ConfigITOContract{
@@ -5212,7 +5212,7 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOOkValsShouldWork(t *testing.T) {
 	err = execTx.ProcessTransaction(block, hash, fungibleTX)
 	assert.Nil(t, err)
 
-	fungibleID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), fungibleContract.GetTicker())
+	fungibleID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), fungibleContract.GetTicker(), 0)
 
 	_, hash, err = execTx.PreProcessTransaction(nftTX)
 	assert.Nil(t, err)
@@ -5220,7 +5220,7 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOOkValsShouldWork(t *testing.T) {
 	err = execTx.ProcessTransaction(block, hash, nftTX)
 	assert.Nil(t, err)
 
-	nftID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), nftContract.GetTicker())
+	nftID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), nftContract.GetTicker(), 0)
 
 	nftITOKey := kdautils.ToITOKey(nftID)
 	fungibleITOKey := kdautils.ToITOKey(fungibleID)
@@ -5556,7 +5556,7 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOWithAdminOkValsShouldWork(t *testi
 	err = execTx.ProcessTransaction(block, hash, fungibleTX)
 	assert.Nil(t, err)
 
-	fungibleID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), fungibleContract.GetTicker())
+	fungibleID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), fungibleContract.GetTicker(), 0)
 
 	_, hash, err = execTx.PreProcessTransaction(nftTX)
 	assert.Nil(t, err)
@@ -5564,7 +5564,7 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOWithAdminOkValsShouldWork(t *testi
 	err = execTx.ProcessTransaction(block, hash, nftTX)
 	assert.Nil(t, err)
 
-	nftID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), nftContract.GetTicker())
+	nftID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), nftContract.GetTicker(), 0)
 
 	nftITOKey := kdautils.ToITOKey(nftID)
 	fungibleITOKey := kdautils.ToITOKey(fungibleID)
@@ -5884,7 +5884,7 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketWrongValsShouldErr(t *testin
 	err = execTx.ProcessTransaction(block, hash, tx)
 	assert.Nil(t, err)
 
-	assetID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), kdaContract.GetOwnerAddress(), ownerAcc.GetNonce(), kdaContract.GetTicker())
+	assetID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), kdaContract.GetOwnerAddress(), ownerAcc.GetNonce(), kdaContract.GetTicker(), 0)
 
 	//Mint NFT to test
 
@@ -6253,7 +6253,7 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketOkValsShouldWork(t *testing.
 	err = execTx.ProcessTransaction(block, hash, nftTX)
 	assert.Nil(t, err)
 
-	nftID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), nftContract.GetTicker())
+	nftID := kda.CreateNewAssetIdentifier(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), nftContract.GetTicker(), 0)
 
 	//MINT NFT ######################################################
 
