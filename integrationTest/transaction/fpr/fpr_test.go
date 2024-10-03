@@ -51,7 +51,7 @@ func TestTransaction_TransactionFPR(t *testing.T) {
 		transaction.TXContract_CreateAssetContractType,
 		models.CreateAssetTXRequest{
 			Type:          0,
-			Name:          "FPR Test",
+			Name:          "FPRTest",
 			Ticker:        "FPR",
 			OwnerAddress:  senderAddress,
 			Precision:     6,

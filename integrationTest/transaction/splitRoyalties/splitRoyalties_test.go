@@ -55,7 +55,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferPercentage_ShouldWork(t *te
 
 	splitRoyaltiesContract := models.CreateAssetTXRequest{
 		Type:          uint32(kapps.KDAData_Fungible), // Fungible
-		Name:          "Split Royalties",
+		Name:          "SplitRoyalties",
 		Ticker:        "SRT",
 		OwnerAddress:  senderAddress,
 		InitialSupply: 1_000_000,
@@ -191,7 +191,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferFixed_ShouldWork(t *testing
 
 	splitRoyaltiesContract := models.CreateAssetTXRequest{
 		Type:          uint32(kapps.KDAData_Fungible), // Fungible
-		Name:          "Split Royalties",
+		Name:          "SplitRoyalties",
 		Ticker:        "SRT",
 		OwnerAddress:  senderAddress,
 		InitialSupply: 1_000_000,
@@ -316,7 +316,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferFixedAndPercentage_ShouldWo
 
 	splitRoyaltiesContract := models.CreateAssetTXRequest{
 		Type:          uint32(kapps.KDAData_Fungible), // Fungible
-		Name:          "Split Royalties",
+		Name:          "SplitRoyalties",
 		Ticker:        "SRT",
 		OwnerAddress:  senderAddress,
 		InitialSupply: 1_000_000,
@@ -456,7 +456,7 @@ func TestTransaction_SplitRoyalties_NFT_TransferFixed_ShouldWork(t *testing.T) {
 
 	splitRoyaltiesContract := models.CreateAssetTXRequest{
 		Type:         uint32(kapps.KDAData_NonFungible),
-		Name:         "Split Royalties",
+		Name:         "SplitRoyalties",
 		Ticker:       "SRT",
 		OwnerAddress: senderAddress,
 		MaxSupply:    10_000,
@@ -606,7 +606,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketPercentage_ShouldWork(t *testing.T
 
 	splitRoyaltiesContract := models.CreateAssetTXRequest{
 		Type:         uint32(kapps.KDAData_NonFungible),
-		Name:         "Split Royalties",
+		Name:         "SplitRoyalties",
 		Ticker:       "SRT",
 		OwnerAddress: senderAddress,
 		MaxSupply:    10_000,

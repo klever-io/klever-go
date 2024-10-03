@@ -214,6 +214,22 @@ func (ae *VMTestExecutor) directKDATransferFromTx(tx *scenjsonmodel.Transaction)
 		transfers = append(transfers, transfer)
 	}
 
+	runtime := ae.vmHost.Runtime()
+	metering := ae.vmHost.Metering()
+
+	oneTransferCost := metering.GasSchedule().BuiltInCost.Transfer
+	gasProvided := oneTransferCost * uint64(len(transfers))
+	input := &vmcommon.ContractCallInput{
+		RecipientAddr: tx.To.Value,
+		VMInput: vmcommon.VMInput{
+			CallerAddr:  tx.From.Value,
+			GasProvided: gasProvided,
+		},
+	}
+
+	runtime.SetVMInput(input)
+	metering.InitStateFromContractCallInput(&input.VMInput)
+
 	args := vmhost.KDATransfersArgs{
 		Destination:    tx.To.Value,
 		OriginalCaller: tx.From.Value,

@@ -103,6 +103,10 @@ func (e *kdaTransfer) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput
 
 	// Builtin cost by number of TX executed
 	totalCost := e.funcGasCost * uint64(len(vmInput.KDATransfers))
+	if totalCost > vmInput.GasProvided {
+		return nil, common.ErrNotEnoughGas
+	}
+
 	gasRemaining := computeGasRemaining(vmInput.GasProvided, totalCost)
 	vmOutput := &vmcommon.VMOutput{
 		GasRemaining:   gasRemaining,

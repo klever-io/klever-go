@@ -56,7 +56,7 @@ func TestTransaction_KDAFeePoolFlow_ShouldWork(t *testing.T) {
 		transaction.TXContract_CreateAssetContractType,
 		models.CreateAssetTXRequest{
 			Type:          0,
-			Name:          "KDA FEE POOL",
+			Name:          "kdaFeePool",
 			Ticker:        "KFP",
 			OwnerAddress:  senderAddress,
 			Precision:     6,
@@ -368,7 +368,7 @@ func TestTransaction_CreateKDAPool_InvalidRatio(t *testing.T) {
 		transaction.TXContract_CreateAssetContractType,
 		models.CreateAssetTXRequest{
 			Type:          0,
-			Name:          "KDA FEE POOL",
+			Name:          "kdaFeePool",
 			Ticker:        "KFP",
 			OwnerAddress:  senderAddress,
 			Precision:     6,

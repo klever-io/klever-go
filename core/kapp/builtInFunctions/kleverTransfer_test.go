@@ -270,7 +270,54 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 		)
 	})
 
-	t.Run("sucessful transfers", func(t *testing.T) {
+	t.Run("not enough gas provided", func(t *testing.T) {
+		kdaTransferInstance := builtInFunctions.NewKDATransferFunc(
+			funcGasCost,
+			&stub.KAppControllerStub{
+				GetAccountsKAppCalled: func() kapp.AccountsKapp {
+					return &stub.KAppAccountsStub{
+						TransferCalled: func(
+							cType transaction.TXContract_ContractType,
+							sender []byte,
+							tc *transaction.TransferContract,
+						) (transaction.Transaction_TXResultCode, error) {
+							return transaction.Transaction_Ok, nil
+						},
+					}
+				},
+			},
+		)
+
+		kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
+
+		transfers := []*vmcommon.KDATransfer{
+			{
+				KDATokenName:  []byte("FTSucess"),
+				KDAValue:      big.NewInt(1000),
+				KDATokenNonce: 0,
+			},
+			{
+				KDATokenName:  []byte("SFTOrNFTSucess"),
+				KDAValue:      big.NewInt(10),
+				KDATokenNonce: 8,
+			},
+		}
+
+		vmInputFT := vmInputTransferCreation(transfers, funcGasCost)
+
+		vmOutput, err := kdaTransferInstance.ProcessBuiltinFunction(vmInputFT)
+
+		require.Nil(t, vmOutput, "vmOutput should be nil")
+		require.Error(t, err, "kleverTransfer ProcessBuiltinFunction should return not nil error")
+		require.ErrorIs(
+			t,
+			err,
+			common.ErrNotEnoughGas,
+			"error should be ErrOutOfGas from `common` package",
+		)
+	})
+
+	t.Run("successful transfers", func(t *testing.T) {
 		kdaTransferInstance := builtInFunctions.NewKDATransferFunc(
 			funcGasCost,
 			&stub.KAppControllerStub{
@@ -317,7 +364,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 			},
 		}
 
-		vmInputFT := vmInputTransferCreation(transfers, funcGasCost)
+		vmInputFT := vmInputTransferCreation(transfers, funcGasCost*uint64(len(transfers)))
 
 		vmOutput, err := kdaTransferInstance.ProcessBuiltinFunction(vmInputFT)
 
