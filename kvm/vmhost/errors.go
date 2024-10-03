@@ -176,8 +176,8 @@ var ErrNoBigIntUnderThisHandle = errors.New("no bigInt under the given handle")
 // ErrNoBigFloatUnderThisHandle signals that there is no bigInt for the given handle
 var ErrNoBigFloatUnderThisHandle = errors.New("no bigFloat under the given handle")
 
-// ErrPositiveExponent signals that the exponent is greater or equal to 0
-var ErrPositiveExponent = errors.New("exponent must be negative")
+// ErrPositiveExponent signals that the exponent is greater than 0
+var ErrPositiveExponent = errors.New("exponent must be negative or zero")
 
 // ErrLengthOfBufferNotCorrect signals that length of the buffer is not correct
 var ErrLengthOfBufferNotCorrect = errors.New("length of buffer is not correct")

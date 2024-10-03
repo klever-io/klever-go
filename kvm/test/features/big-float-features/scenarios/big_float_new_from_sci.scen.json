@@ -96,7 +96,7 @@
             "expect": {
                 "out": [],
                 "status": "62",
-                "message": "str:exponent must be negative"
+                "message": "str:exponent must be negative or zero"
             }
         }
     ]
