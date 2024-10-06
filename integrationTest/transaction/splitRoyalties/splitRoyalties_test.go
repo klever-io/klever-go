@@ -826,7 +826,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixed_ShouldWork(t *testing.T) {
 
 	splitRoyaltiesContract := models.CreateAssetTXRequest{
 		Type:         uint32(kapps.KDAData_NonFungible),
-		Name:         "Split Royalties",
+		Name:         "SplitRoyalties",
 		Ticker:       "SRT",
 		OwnerAddress: senderAddress,
 		MaxSupply:    10_000,
@@ -1046,7 +1046,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixedAndPercentage_ShouldWork(t *t
 
 	splitRoyaltiesContract := models.CreateAssetTXRequest{
 		Type:         uint32(kapps.KDAData_NonFungible),
-		Name:         "Split Royalties",
+		Name:         "SplitRoyalties",
 		Ticker:       "SRT",
 		OwnerAddress: senderAddress,
 		MaxSupply:    10_000,

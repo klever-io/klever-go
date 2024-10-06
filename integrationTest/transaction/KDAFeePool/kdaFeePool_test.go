@@ -458,7 +458,7 @@ func TestTransaction_DepositKDAFeePool_ZeroDepositAmount(t *testing.T) {
 		transaction.TXContract_CreateAssetContractType,
 		models.CreateAssetTXRequest{
 			Type:          0,
-			Name:          "KDA FEE POOL",
+			Name:          "KdaFeePool",
 			Ticker:        "KFP",
 			OwnerAddress:  senderAddress,
 			Precision:     6,
@@ -577,7 +577,7 @@ func TestTransaction_DepositKDAFeePool_WrongDepositAmount(t *testing.T) {
 		transaction.TXContract_CreateAssetContractType,
 		models.CreateAssetTXRequest{
 			Type:          0,
-			Name:          "KDA FEE POOL",
+			Name:          "KdaFeePool",
 			Ticker:        "KFP",
 			OwnerAddress:  senderAddress,
 			Precision:     6,
@@ -706,7 +706,7 @@ func TestTransaction_WithdrawKdaPool_InvalidAmount(t *testing.T) {
 		transaction.TXContract_CreateAssetContractType,
 		models.CreateAssetTXRequest{
 			Type:          0,
-			Name:          "KDA FEE POOL",
+			Name:          "KdaFeePool",
 			Ticker:        "KFP",
 			OwnerAddress:  senderAddress,
 			Precision:     6,
