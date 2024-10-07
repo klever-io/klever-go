@@ -329,10 +329,11 @@ message BuyContract {
         ITOBuy    = 0;
         MarketBuy = 1;
     }
-    EnumBuyType BuyType    = 1 [json_name = "buyType"];
-    bytes       ID         = 2 [json_name = "id"];
-    bytes       CurrencyID = 3 [json_name = "currencyId"];
-    int64       Amount     = 4 [json_name = "amount"];
+    EnumBuyType BuyType            = 1 [json_name = "buyType"];
+    bytes       ID                 = 2 [json_name = "id"];
+    bytes       CurrencyID         = 3 [json_name = "currencyId"];
+    int64       Amount             = 4 [json_name = "amount"];
+    int64       CurrencyAmount     = 5 [json_name = "currencyAmount"];
 }
 
 // SellContract holds the data for a sell transaction

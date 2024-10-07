@@ -407,11 +407,12 @@ type PackItem struct {
 
 // -- BuyContract
 type BuyContract struct {
-	BuyType    string    `json:"buyType,omitempty"`
-	ID         string    `json:"id,omitempty"`
-	CurrencyID string    `json:"currencyID,omitempty"`
-	Amount     int64     `json:"amount,omitempty"`
-	AssetType  AssetType `json:"assetType,omitempty"`
+	BuyType        string    `json:"buyType,omitempty"`
+	ID             string    `json:"id,omitempty"`
+	CurrencyID     string    `json:"currencyID,omitempty"`
+	Amount         int64     `json:"amount,omitempty"`
+	CurrencyAmount int64     `json:"currencyAmount,omitempty"`
+	AssetType      AssetType `json:"assetType,omitempty"`
 }
 
 // -- SellContract

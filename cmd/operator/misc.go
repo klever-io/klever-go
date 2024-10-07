@@ -125,8 +125,13 @@ func newITOTrigger(fromAddr string, itoTrigger models.ITOTriggerTXRequest) error
 	return err
 }
 
-func buy(fromAddr, id, currency string, amount float64, buyType int32, message string) error {
+func buy(fromAddr, id, currency string, amount float64, currencyAmount float64, buyType int32, message string) error {
 	parsedAmount := amount
+	parsedCurrencyAmount := currencyAmount
+
+	if currency == "" {
+		currency = "KLV"
+	}
 
 	if buyType == 0 {
 		kda, err := getAssetData(id)
@@ -134,9 +139,16 @@ func buy(fromAddr, id, currency string, amount float64, buyType int32, message s
 			return err
 		}
 
+		currencyKDA, err := getAssetData(currency)
+		if err != nil {
+			return err
+		}
+
 		if kda.AssetType != kapps.KDAData_NonFungible {
 			parsedAmount = amount * math.Pow10(int(kda.Precision))
 		}
+
+		parsedCurrencyAmount = currencyAmount * math.Pow10(int(currencyKDA.Precision))
 	} else {
 		kda, err := getAssetData(currency)
 		if err != nil {
@@ -147,10 +159,11 @@ func buy(fromAddr, id, currency string, amount float64, buyType int32, message s
 	}
 
 	buy := models.BuyTXRequest{
-		BuyType:    buyType,
-		ID:         id,
-		CurrencyID: currency,
-		Amount:     int64(parsedAmount),
+		BuyType:        buyType,
+		ID:             id,
+		CurrencyID:     currency,
+		Amount:         int64(parsedAmount),
+		CurrencyAmount: int64(parsedCurrencyAmount),
 	}
 
 	data, err := buildRequest(transaction.TXContract_BuyContractType, fromAddr, []interface{}{buy})

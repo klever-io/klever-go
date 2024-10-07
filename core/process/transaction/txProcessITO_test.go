@@ -129,12 +129,13 @@ func (c *Controller) RunTriggerITOTX(blk *block.Block, ownerAddress []byte, ITOT
 	require.Nil(c.t, err)
 }
 
-func (c *Controller) RunBuyITOTX(ownerAddress []byte, amount int64) {
+func (c *Controller) RunBuyITOTX(ownerAddress []byte, amount int64, currencyAmount int64) {
 	buyITOContract := transaction.BuyContract{
-		BuyType:    transaction.BuyContract_ITOBuy,
-		ID:         assetITOIdentifier,
-		CurrencyID: kdautils.KLVIdentifier,
-		Amount:     amount,
+		BuyType:        transaction.BuyContract_ITOBuy,
+		ID:             assetITOIdentifier,
+		CurrencyID:     kdautils.KLVIdentifier,
+		Amount:         amount,
+		CurrencyAmount: currencyAmount,
 	}
 
 	tx, _ := createTransactionMock(&buyITOContract, transaction.TXContract_BuyContractType, ownerAddress, 0)
@@ -242,6 +243,7 @@ func TestITOTriggerTxProcessor_SetITOPrices_ShouldErr(t *testing.T) {
 
 func TestITOTriggerTxProcessor_SetITOPrices_ShouldWork(t *testing.T) {
 	c := NewController(t)
+
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
@@ -271,7 +273,7 @@ func TestITOTriggerTxProcessor_SetITOPrices_ShouldWork(t *testing.T) {
 	assert.Equal(t, nil, err)
 
 	//Buy ITO with other account
-	c.RunBuyITOTX(receiver, 1)
+	c.RunBuyITOTX(receiver, 1, 10)
 	//Check buyer's klv balance - (initial balanace - pack price)
 	c.CheckBalance(receiver, kdautils.KLVIdentifier, 1_000_000-10)
 	//Check buyer's asset balance
@@ -360,7 +362,7 @@ func TestITOTriggerTxProcessor_UpdateStatus_ShouldWork(t *testing.T) {
 	assert.Equal(t, nil, err)
 
 	//Make ito buy after it's active
-	c.RunBuyITOTX(receiver, 1)
+	c.RunBuyITOTX(receiver, 1, 1)
 
 	//Check buyer's asset balance
 	c.CheckBalance(receiver, assetITOIdentifier, 1)
@@ -454,7 +456,7 @@ func TestITOTriggerTxProcessor_UpdateReceiverAddress_ShouldWork(t *testing.T) {
 	c.RunConfigITOTX(blk, sender, sender, assetITOIdentifier, 1000, 10)
 
 	//Buy ITO
-	c.RunBuyITOTX(buyerAddress, 1)
+	c.RunBuyITOTX(buyerAddress, 1, 1)
 	//Check receiver address balance (initial balance + pack price)
 	c.CheckBalance(sender, kdautils.KLVIdentifier, 1_000_000+1)
 
@@ -481,7 +483,7 @@ func TestITOTriggerTxProcessor_UpdateReceiverAddress_ShouldWork(t *testing.T) {
 	assert.Equal(t, nil, err)
 
 	//Buy ITO
-	c.RunBuyITOTX(buyerAddress, 1)
+	c.RunBuyITOTX(buyerAddress, 1, 1)
 	//Check receiver address balance (initial balance + pack price)
 	c.CheckBalance(newReceiverAddress, kdautils.KLVIdentifier, 1)
 	//Check old receiver address (same balance)
@@ -490,6 +492,7 @@ func TestITOTriggerTxProcessor_UpdateReceiverAddress_ShouldWork(t *testing.T) {
 
 func TestITOTriggerTxProcessor_UpdateMaxAmount_ShouldErr(t *testing.T) {
 	c := NewController(t)
+
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
 	blk := createBlockHeader()
@@ -527,7 +530,7 @@ func TestITOTriggerTxProcessor_UpdateMaxAmount_ShouldErr(t *testing.T) {
 	//Invalid Value - Surpass minted amount
 
 	//Run Buy ITO
-	c.RunBuyITOTX(sender, 100)
+	c.RunBuyITOTX(sender, 100, 100)
 
 	ITOTriggerContract = transaction.ITOTriggerContract{
 		TriggerType: transaction.ITOTriggerContract_UpdateMaxAmount,
@@ -546,6 +549,7 @@ func TestITOTriggerTxProcessor_UpdateMaxAmount_ShouldErr(t *testing.T) {
 
 func TestITOTriggerTxProcessor_UpdateMaxAmount_ShouldWork(t *testing.T) {
 	c := NewController(t)
+
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
@@ -576,10 +580,11 @@ func TestITOTriggerTxProcessor_UpdateMaxAmount_ShouldWork(t *testing.T) {
 
 	// Try to buy new max amount
 	buyITOContract := transaction.BuyContract{
-		BuyType:    transaction.BuyContract_ITOBuy,
-		ID:         assetITOIdentifier,
-		CurrencyID: kdautils.KLVIdentifier,
-		Amount:     12,
+		BuyType:        transaction.BuyContract_ITOBuy,
+		ID:             assetITOIdentifier,
+		CurrencyID:     kdautils.KLVIdentifier,
+		Amount:         12,
+		CurrencyAmount: 12,
 	}
 
 	tx, _ = createTransactionMock(&buyITOContract, transaction.TXContract_BuyContractType, receiver, 0)
@@ -630,6 +635,7 @@ func TestITOTriggerTxProcessor_UpdateDefaultLimitPerAddress_ShouldErr(t *testing
 
 func TestITOTriggerTxProcessor_UpdateDefaultLimitPerAddress_ShouldWork(t *testing.T) {
 	c := NewController(t)
+
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
@@ -676,10 +682,11 @@ func TestITOTriggerTxProcessor_UpdateDefaultLimitPerAddress_ShouldWork(t *testin
 
 	//Try to buy with default limit quantity
 	buyITOContract := transaction.BuyContract{
-		BuyType:    transaction.BuyContract_ITOBuy,
-		ID:         assetITOIdentifier,
-		CurrencyID: kdautils.KLVIdentifier,
-		Amount:     12,
+		BuyType:        transaction.BuyContract_ITOBuy,
+		ID:             assetITOIdentifier,
+		CurrencyID:     kdautils.KLVIdentifier,
+		Amount:         12,
+		CurrencyAmount: 12,
 	}
 
 	tx, _ = createTransactionMock(&buyITOContract, transaction.TXContract_BuyContractType, receiver, 0)
@@ -691,10 +698,11 @@ func TestITOTriggerTxProcessor_UpdateDefaultLimitPerAddress_ShouldWork(t *testin
 
 	//Try to buy a higher amount than the default limit
 	buyITOContract = transaction.BuyContract{
-		BuyType:    transaction.BuyContract_ITOBuy,
-		ID:         assetITOIdentifier,
-		CurrencyID: kdautils.KLVIdentifier,
-		Amount:     13,
+		BuyType:        transaction.BuyContract_ITOBuy,
+		ID:             assetITOIdentifier,
+		CurrencyID:     kdautils.KLVIdentifier,
+		Amount:         13,
+		CurrencyAmount: 13,
 	}
 
 	tx, _ = createTransactionMock(&buyITOContract, transaction.TXContract_BuyContractType, receiver, 0)
@@ -858,6 +866,7 @@ func TestITOTriggerTxProcessor_AddToWhitelist_ShouldErr(t *testing.T) {
 
 func TestITOTriggerTxProcessor_AddToWhitelist_ShouldWork(t *testing.T) {
 	c := NewController(t)
+
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
@@ -912,10 +921,11 @@ func TestITOTriggerTxProcessor_AddToWhitelist_ShouldWork(t *testing.T) {
 
 	//Try to buy beign in the whitelist
 	buyITOContract = transaction.BuyContract{
-		BuyType:    transaction.BuyContract_ITOBuy,
-		ID:         assetITOIdentifier,
-		CurrencyID: kdautils.KLVIdentifier,
-		Amount:     12,
+		BuyType:        transaction.BuyContract_ITOBuy,
+		ID:             assetITOIdentifier,
+		CurrencyID:     kdautils.KLVIdentifier,
+		Amount:         12,
+		CurrencyAmount: 12,
 	}
 
 	tx, _ = createTransactionMock(&buyITOContract, transaction.TXContract_BuyContractType, receiver, 0)
@@ -978,6 +988,7 @@ func TestITOTriggerTxProcessor_RemoveFromWhitelist_ShouldErr(t *testing.T) {
 
 func TestITOTriggerTxProcessor_RemoveFromWhitelist_ShouldWork(t *testing.T) {
 	c := NewController(t)
+
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
@@ -1002,10 +1013,11 @@ func TestITOTriggerTxProcessor_RemoveFromWhitelist_ShouldWork(t *testing.T) {
 
 	//Buy ITO
 	buyITOContract := transaction.BuyContract{
-		BuyType:    transaction.BuyContract_ITOBuy,
-		ID:         assetITOIdentifier,
-		CurrencyID: kdautils.KLVIdentifier,
-		Amount:     1,
+		BuyType:        transaction.BuyContract_ITOBuy,
+		ID:             assetITOIdentifier,
+		CurrencyID:     kdautils.KLVIdentifier,
+		Amount:         1,
+		CurrencyAmount: 1,
 	}
 
 	tx, _ := createTransactionMock(&buyITOContract, transaction.TXContract_BuyContractType, receiver, 0)
@@ -1032,17 +1044,18 @@ func TestITOTriggerTxProcessor_RemoveFromWhitelist_ShouldWork(t *testing.T) {
 	// Same RemoveFromWhitelist with asset admin address
 	tx, _ = createTransactionMock(&ITOTriggerContract, transaction.TXContract_ITOTriggerContractType, admin, 0)
 	_, hash, err = c.execTx.PreProcessTransaction(tx)
-	assert.Nil(c.t, err)
+	assert.Nil(t, err)
 
 	err = c.execTx.ProcessTransaction(blk, hash, tx)
 	assert.Equal(t, process.ErrInvalidWhitelistAddr, err)
 
 	//Try to buy ITO
 	buyITOContract = transaction.BuyContract{
-		BuyType:    transaction.BuyContract_ITOBuy,
-		ID:         assetITOIdentifier,
-		CurrencyID: kdautils.KLVIdentifier,
-		Amount:     1,
+		BuyType:        transaction.BuyContract_ITOBuy,
+		ID:             assetITOIdentifier,
+		CurrencyID:     kdautils.KLVIdentifier,
+		Amount:         1,
+		CurrencyAmount: 1,
 	}
 
 	tx, _ = createTransactionMock(&buyITOContract, transaction.TXContract_BuyContractType, receiver, 0)
@@ -1110,6 +1123,7 @@ func TestITOTriggerTxProcessor_UpdateWhitelistTimes_ShouldErr(t *testing.T) {
 
 func TestITOTriggerTxProcessor_UpdateWhitelistTimes_ShouldWork(t *testing.T) {
 	c := NewController(t)
+
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
@@ -1133,10 +1147,11 @@ func TestITOTriggerTxProcessor_UpdateWhitelistTimes_ShouldWork(t *testing.T) {
 
 	//Try to buy ITO - Active but out of time
 	buyITOContract := transaction.BuyContract{
-		BuyType:    transaction.BuyContract_ITOBuy,
-		ID:         assetITOIdentifier,
-		CurrencyID: kdautils.KLVIdentifier,
-		Amount:     1,
+		BuyType:        transaction.BuyContract_ITOBuy,
+		ID:             assetITOIdentifier,
+		CurrencyID:     kdautils.KLVIdentifier,
+		Amount:         1,
+		CurrencyAmount: 1,
 	}
 
 	tx, _ := createTransactionMock(&buyITOContract, transaction.TXContract_BuyContractType, receiver, 0)
@@ -1171,10 +1186,11 @@ func TestITOTriggerTxProcessor_UpdateWhitelistTimes_ShouldWork(t *testing.T) {
 
 	//Buy ITO in time
 	buyITOContract = transaction.BuyContract{
-		BuyType:    transaction.BuyContract_ITOBuy,
-		ID:         assetITOIdentifier,
-		CurrencyID: kdautils.KLVIdentifier,
-		Amount:     1,
+		BuyType:        transaction.BuyContract_ITOBuy,
+		ID:             assetITOIdentifier,
+		CurrencyID:     kdautils.KLVIdentifier,
+		Amount:         1,
+		CurrencyAmount: 1,
 	}
 
 	activateWhitelistBlk := c.CreateBlockHeader(time.Now().AddDate(0, 0, 3).Unix(), 2, 2)
@@ -1239,6 +1255,7 @@ func TestITOTriggerTxProcessor_UpdateWhitelistStatus_ShouldErr(t *testing.T) {
 
 func TestITOTriggerTxProcessor_UpdateWhitelistStatus_ShouldWork(t *testing.T) {
 	c := NewController(t)
+
 	c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(admin, 1_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 1_000_000, kdautils.KLVIdentifier)
@@ -1294,10 +1311,11 @@ func TestITOTriggerTxProcessor_UpdateWhitelistStatus_ShouldWork(t *testing.T) {
 
 	//Try to buy ITO
 	buyITOContract = transaction.BuyContract{
-		BuyType:    transaction.BuyContract_ITOBuy,
-		ID:         assetITOIdentifier,
-		CurrencyID: kdautils.KLVIdentifier,
-		Amount:     1,
+		BuyType:        transaction.BuyContract_ITOBuy,
+		ID:             assetITOIdentifier,
+		CurrencyID:     kdautils.KLVIdentifier,
+		Amount:         1,
+		CurrencyAmount: 1,
 	}
 
 	tx, _ = createTransactionMock(&buyITOContract, transaction.TXContract_BuyContractType, receiver, 0)
@@ -1310,6 +1328,7 @@ func TestITOTriggerTxProcessor_UpdateWhitelistStatus_ShouldWork(t *testing.T) {
 
 func TestITOTriggerTxProcessor_BuyRoyalties_ShouldWork(t *testing.T) {
 	c := NewController(t)
+
 	c.AddUser(sender, 10_000_000_000, kdautils.KLVIdentifier)
 	c.AddUser(admin, 10_000_000_000, kdautils.KLVIdentifier)
 	c.AddUser(receiver, 10_000_000_000, kdautils.KLVIdentifier)
@@ -1339,7 +1358,7 @@ func TestITOTriggerTxProcessor_BuyRoyalties_ShouldWork(t *testing.T) {
 	assert.Equal(t, nil, err)
 
 	//Buy ITO with other account
-	c.RunBuyITOTX(receiver, 1)
+	c.RunBuyITOTX(receiver, 1, 1000000000)
 	//Check buyer's klv balance - (initial balanace - pack price - royalty fixed)
 	c.CheckBalance(receiver, kdautils.KLVIdentifier, 10_000_000_000-1_000_000_000-10_000)
 	//Check buyer's asset balance

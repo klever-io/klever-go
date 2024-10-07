@@ -9,11 +9,12 @@ operator kapps buy [flags]
 ### Options
 
 ```
-      --amount float   set a buy amount
-  -h, --help           help for buy
-      --id string      set a buy ID
-      --kda string     set a KDA ID
-      --type int32     set a buy type
+      --amount float           set a buy amount
+      --currencyAmount float   set the fixed kda amount for buy ito
+  -h, --help                   help for buy
+      --id string              set a buy ID
+      --kda string             set a KDA ID
+      --type int32             set a buy type
 ```
 
 ### Options inherited from parent commands

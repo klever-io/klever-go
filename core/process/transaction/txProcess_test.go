@@ -5332,6 +5332,7 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOOkValsShouldWork(t *testing.T) {
 		ProcessorFlowITOPrice: 0,
 		FixStakingBuckets:     0,
 		KdaFpr:                1000,
+		SmartContracts:        1000,
 	}, epochNotifier)
 
 	argsKappTemp := kappcontroller.ArgsNewKApp{
@@ -5391,10 +5392,11 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOOkValsShouldWork(t *testing.T) {
 	//BUY NFT ITO ######################################################
 
 	nftBuyITO := transaction.BuyContract{
-		BuyType:    transaction.BuyContract_ITOBuy,
-		ID:         nftID,
-		CurrencyID: kdautils.KLVIdentifier,
-		Amount:     5,
+		BuyType:        transaction.BuyContract_ITOBuy,
+		ID:             nftID,
+		CurrencyID:     kdautils.KLVIdentifier,
+		Amount:         5,
+		CurrencyAmount: 200,
 	}
 
 	nftBuyTX, _ := createTransactionMock(&nftBuyITO, transaction.TXContract_BuyContractType, testOwnerAddress, 0)
@@ -5432,10 +5434,11 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOOkValsShouldWork(t *testing.T) {
 	//BUY FUNGIBLE ITO ######################################################
 
 	fungibleBuyITO := transaction.BuyContract{
-		BuyType:    transaction.BuyContract_ITOBuy,
-		ID:         fungibleID,
-		CurrencyID: kdautils.KLVIdentifier,
-		Amount:     680_000_000,
+		BuyType:        transaction.BuyContract_ITOBuy,
+		ID:             fungibleID,
+		CurrencyID:     kdautils.KLVIdentifier,
+		Amount:         680_000_000,
+		CurrencyAmount: 272_000_000,
 	}
 
 	fungibleBuyTX, _ := createTransactionMock(&fungibleBuyITO, transaction.TXContract_BuyContractType, testOwnerAddress, 0)
@@ -5735,10 +5738,11 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOWithAdminOkValsShouldWork(t *testi
 	//BUY NFT ITO ######################################################
 
 	nftBuyITO := transaction.BuyContract{
-		BuyType:    transaction.BuyContract_ITOBuy,
-		ID:         nftID,
-		CurrencyID: kdautils.KLVIdentifier,
-		Amount:     5,
+		BuyType:        transaction.BuyContract_ITOBuy,
+		ID:             nftID,
+		CurrencyID:     kdautils.KLVIdentifier,
+		Amount:         5,
+		CurrencyAmount: 200,
 	}
 
 	nftBuyTX, _ := createTransactionMock(&nftBuyITO, transaction.TXContract_BuyContractType, testAdminAddress, 0)
@@ -5776,10 +5780,11 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOWithAdminOkValsShouldWork(t *testi
 	//BUY FUNGIBLE ITO ######################################################
 
 	fungibleBuyITO := transaction.BuyContract{
-		BuyType:    transaction.BuyContract_ITOBuy,
-		ID:         fungibleID,
-		CurrencyID: kdautils.KLVIdentifier,
-		Amount:     680_000_000,
+		BuyType:        transaction.BuyContract_ITOBuy,
+		ID:             fungibleID,
+		CurrencyID:     kdautils.KLVIdentifier,
+		Amount:         680_000_000,
+		CurrencyAmount: 272_000_000,
 	}
 
 	fungibleBuyTX, _ := createTransactionMock(&fungibleBuyITO, transaction.TXContract_BuyContractType, testAdminAddress, 0)

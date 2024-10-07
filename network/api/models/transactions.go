@@ -282,10 +282,11 @@ type PackItemRequest struct {
 
 // BuyTXRequest -
 type BuyTXRequest struct {
-	BuyType    int32  `form:"buyType" json:"buyType"`
-	ID         string `form:"id" json:"id"`
-	CurrencyID string `form:"currencyId" json:"currencyId"`
-	Amount     int64  `form:"amount" json:"amount"`
+	BuyType        int32  `form:"buyType" json:"buyType"`
+	ID             string `form:"id" json:"id"`
+	CurrencyID     string `form:"currencyId" json:"currencyId"`
+	Amount         int64  `form:"amount" json:"amount"`
+	CurrencyAmount int64  `form:"currencyAmount" json:"currencyAmount"`
 }
 
 // SellTXRequest -

@@ -361,6 +361,98 @@ func TestITO_RemoveAddressFromWhitelist_AfterSCFork(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestITO_BuyITO_ShouldWork_BeforeFork(t *testing.T) {
+	kc, err := createMockControllers(config.EnableEpochs{
+		SmartContracts: 100_000,
+	})
+
+	require.NoError(t, err)
+	itoTicker := []byte("ITO")
+	itoAsset := "ITO-1PUA"
+
+	createAsset(t, kc, itoTicker, transaction.CreateAssetContract_Fungible, 8, 100_000, 100_000)
+	createAsset(t, kc, defaultTicker, transaction.CreateAssetContract_Fungible, 8, 10_000_000, 10_000_000)
+
+	packs := make(map[string]*transaction.PackInfo, 0)
+	packsAsset := make([]*transaction.PackItem, 0)
+	packsAsset = append(packsAsset, &transaction.PackItem{
+		Amount: 100,
+		Price:  50,
+	})
+	packs["KDA-3W0I"] = &transaction.PackInfo{
+		Packs: packsAsset,
+	}
+
+	tc := &transaction.ConfigITOContract{
+		AssetID:                []byte(itoAsset),
+		ReceiverAddress:        defaultSender,
+		Status:                 transaction.ConfigITOContract_ActiveITO,
+		PackInfo:               packs,
+		DefaultLimitPerAddress: 10_000_000,
+		WhitelistStatus:        transaction.ConfigITOContract_PausedITO,
+	}
+
+	_, err = kc.GetITOKApp().Config(defaultSender, tc)
+	require.NoError(t, err)
+
+	bc := &transaction.BuyContract{
+		CurrencyID: []byte(defaultAssetID),
+		ID:         []byte(itoAsset),
+		Amount:     100,
+	}
+
+	status, err := kc.GetITOKApp().Buy(defaultSender, bc)
+	require.Error(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, status)
+
+}
+
+func TestITO_BuyITO_KdaAmount_AfterFork(t *testing.T) {
+	kc, err := createMockControllers(config.EnableEpochs{
+		SmartContracts: 0,
+	})
+	require.NoError(t, err)
+
+	itoTicker := []byte("ITO")
+	itoAsset := "ITO-1PUA"
+
+	createAsset(t, kc, itoTicker, transaction.CreateAssetContract_Fungible, 6, 0, 100_000_000)
+	createAsset(t, kc, defaultTicker, transaction.CreateAssetContract_Fungible, 6, 10_000_000, 10_000_000)
+
+	packs := make(map[string]*transaction.PackInfo, 0)
+	packsAsset := make([]*transaction.PackItem, 0)
+	packsAsset = append(packsAsset, &transaction.PackItem{
+		Amount: 1000000,
+		Price:  1000000,
+	})
+	packs["KDA-3W0I"] = &transaction.PackInfo{
+		Packs: packsAsset,
+	}
+
+	tc := &transaction.ConfigITOContract{
+		AssetID:                []byte(itoAsset),
+		ReceiverAddress:        defaultSender,
+		Status:                 transaction.ConfigITOContract_ActiveITO,
+		PackInfo:               packs,
+		DefaultLimitPerAddress: 10_000_000,
+		WhitelistStatus:        transaction.ConfigITOContract_PausedITO,
+	}
+
+	_, err = kc.GetITOKApp().Config(defaultSender, tc)
+	require.NoError(t, err)
+
+	// 100 KDA FOR  5000 KLV
+	bc := &transaction.BuyContract{
+		CurrencyID:     []byte(defaultAssetID),
+		ID:             []byte(itoAsset),
+		Amount:         1000000, // Amount in ITO KDA (1 ITO-1PUA)
+		CurrencyAmount: 1000000, // now, need to send kda amount you want to spend(1 KDA-3W0I)
+	}
+
+	_, err = kc.GetITOKApp().Buy(defaultSender, bc)
+	require.NoError(t, err)
+}
+
 func TestITO_BuyOverflow_AfterSCFork(t *testing.T) {
 	kc, err := createMockControllers(config.EnableEpochs{
 		SmartContracts: 0,

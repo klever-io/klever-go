@@ -1169,10 +1169,11 @@ func (t *Transaction) addBuy(txArgs TXArgs) error {
 	}
 
 	contract := &BuyContract{
-		BuyType:    BuyContract_EnumBuyType(contractRequest.BuyType),
-		ID:         id,
-		CurrencyID: []byte(contractRequest.CurrencyID),
-		Amount:     contractRequest.Amount,
+		BuyType:        BuyContract_EnumBuyType(contractRequest.BuyType),
+		ID:             id,
+		CurrencyID:     []byte(contractRequest.CurrencyID),
+		Amount:         contractRequest.Amount,
+		CurrencyAmount: contractRequest.CurrencyAmount,
 	}
 
 	return t.PushContract(TXContract_BuyContractType, contract)

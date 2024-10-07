@@ -30,6 +30,7 @@ func subKapps() []*cobra.Command {
 		kda                string
 		currency           string
 		amount             float64
+		currencyAmount     float64
 		price              float64
 		reservePrice       float64
 		maxAmount          float64
@@ -249,12 +250,13 @@ func subKapps() []*cobra.Command {
 		Use:   "buy",
 		Short: "buy transaction",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return buy(signerAddress, ID, kda, amount, buyType, "")
+			return buy(signerAddress, ID, kda, amount, currencyAmount, buyType, "")
 		},
 	}
 	cmdBuy.Flags().StringVar(&ID, "id", "", "set a buy ID")
 	cmdBuy.Flags().StringVar(&kda, "kda", "", "set a KDA ID")
 	cmdBuy.Flags().Float64Var(&amount, "amount", 0, "set a buy amount")
+	cmdBuy.Flags().Float64Var(&currencyAmount, "currencyAmount", 0, "set the fixed kda amount for buy ito")
 	cmdBuy.Flags().Int32Var(&buyType, "type", 0, "set a buy type")
 
 	cmdSell := &cobra.Command{

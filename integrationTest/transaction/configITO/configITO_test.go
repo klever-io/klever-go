@@ -546,10 +546,11 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 		buyerWalletNotInWhitelist,
 		transaction.TXContract_BuyContractType,
 		&models.BuyTXRequest{
-			BuyType:    int32(*transaction.BuyContract_ITOBuy.Enum()),
-			ID:         assetIdentifierGenerated,
-			CurrencyID: string(kdautils.KLVIdentifier),
-			Amount:     1,
+			BuyType:        int32(*transaction.BuyContract_ITOBuy.Enum()),
+			ID:             assetIdentifierGenerated,
+			CurrencyID:     string(kdautils.KLVIdentifier),
+			Amount:         1,
+			CurrencyAmount: 1,
 		},
 	)
 	require.Nil(t, err)
@@ -561,10 +562,11 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 		buyerWalletInWhitelist1,
 		transaction.TXContract_BuyContractType,
 		&models.BuyTXRequest{
-			BuyType:    int32(*transaction.BuyContract_ITOBuy.Enum()),
-			ID:         assetIdentifierGenerated,
-			CurrencyID: string(kdautils.KLVIdentifier),
-			Amount:     1,
+			BuyType:        int32(*transaction.BuyContract_ITOBuy.Enum()),
+			ID:             assetIdentifierGenerated,
+			CurrencyID:     string(kdautils.KLVIdentifier),
+			Amount:         1,
+			CurrencyAmount: 1,
 		},
 	)
 	require.Nil(t, err)
@@ -575,10 +577,11 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 		buyerWalletInWhitelist1,
 		transaction.TXContract_BuyContractType,
 		&models.BuyTXRequest{
-			BuyType:    int32(*transaction.BuyContract_ITOBuy.Enum()),
-			ID:         assetIdentifierGenerated,
-			CurrencyID: string(kdautils.KLVIdentifier),
-			Amount:     1,
+			BuyType:        int32(*transaction.BuyContract_ITOBuy.Enum()),
+			ID:             assetIdentifierGenerated,
+			CurrencyID:     string(kdautils.KLVIdentifier),
+			Amount:         1,
+			CurrencyAmount: 1,
 		},
 	)
 	require.Nil(t, err)
