@@ -46,7 +46,7 @@ func NewMetaResolversContainerFactory(
 		return nil, err
 	}
 
-	base.intraShardTopic = common.ConsensusTopic
+	base.consensusTopic = common.ConsensusTopic
 
 	return &metaResolversContainerFactory{
 		baseResolversContainerFactory: base,
@@ -94,7 +94,7 @@ func (mrcf *metaResolversContainerFactory) createChainHeaderResolver(
 ) (retriever.Resolver, error) {
 	hdrStorer := mrcf.store.GetStorer(retriever.BlockUnit)
 
-	resolverSender, err := mrcf.createOneResolverSender(identifier, EmptyExcludePeersOnTopic)
+	resolverSender, err := mrcf.createOneResolverSender(identifier)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +129,7 @@ func (mrcf *metaResolversContainerFactory) generateTrieNodesResolvers() error {
 	resolversSlice := make([]retriever.Resolver, 0)
 
 	identifierTrieNodes := common.AccountTrieNodesTopic
-	resolver, err := mrcf.createTrieNodesResolver(identifierTrieNodes, triesFactory.UserAccountTrie, 0, numIntraShardPeers+numCrossShardPeers)
+	resolver, err := mrcf.createTrieNodesResolver(identifierTrieNodes, triesFactory.UserAccountTrie, 0, numConsensusPeers+numCommonPeers)
 	if err != nil {
 		return err
 	}
@@ -138,7 +138,7 @@ func (mrcf *metaResolversContainerFactory) generateTrieNodesResolvers() error {
 	keys = append(keys, identifierTrieNodes)
 
 	identifierTrieNodes = common.ValidatorTrieNodesTopic
-	resolver, err = mrcf.createTrieNodesResolver(identifierTrieNodes, triesFactory.PeerAccountTrie, 0, numIntraShardPeers+numCrossShardPeers)
+	resolver, err = mrcf.createTrieNodesResolver(identifierTrieNodes, triesFactory.PeerAccountTrie, 0, numConsensusPeers+numCommonPeers)
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func (mrcf *metaResolversContainerFactory) generateTrieNodesResolvers() error {
 	keys = append(keys, identifierTrieNodes)
 
 	identifierTrieNodes = common.KappTrieNodesTopic
-	resolver, err = mrcf.createTrieNodesResolver(identifierTrieNodes, triesFactory.KAppAccountTrie, 0, numIntraShardPeers+numCrossShardPeers)
+	resolver, err = mrcf.createTrieNodesResolver(identifierTrieNodes, triesFactory.KAppAccountTrie, 0, numConsensusPeers+numCommonPeers)
 	if err != nil {
 		return err
 	}

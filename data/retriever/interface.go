@@ -278,7 +278,7 @@ type TrieDataGetter interface {
 // PeerListCreator is used to create a peer list
 type PeerListCreator interface {
 	PeerList() []core.PeerID
-	IntraShardPeerList() []core.PeerID
+	ConsensusPeerList() []core.PeerID
 	IsInterfaceNil() bool
 }
 

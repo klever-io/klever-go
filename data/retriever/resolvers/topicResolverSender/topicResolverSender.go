@@ -27,14 +27,14 @@ var log = logger.GetOrCreate("data/retriever/resolverstopicresolversender")
 
 // ArgTopicResolverSender is the argument structure used to create new TopicResolverSender instance
 type ArgTopicResolverSender struct {
-	Messenger          retriever.MessageHandler
-	TopicName          string
-	PeerListCreator    retriever.PeerListCreator
-	Marshalizer        marshal.Marshalizer
-	Randomizer         retriever.IntRandomizer
-	OutputAntiflooder  retriever.P2PAntifloodHandler
-	NumIntraShardPeers int
-	NumCrossShardPeers int
+	Messenger         retriever.MessageHandler
+	TopicName         string
+	PeerListCreator   retriever.PeerListCreator
+	Marshalizer       marshal.Marshalizer
+	Randomizer        retriever.IntRandomizer
+	OutputAntiflooder retriever.P2PAntifloodHandler
+	NumConsensusPeers int
+	NumCommonPeers    int
 }
 
 type topicResolverSender struct {
@@ -45,8 +45,8 @@ type topicResolverSender struct {
 	randomizer              retriever.IntRandomizer
 	outputAntiflooder       retriever.P2PAntifloodHandler
 	mutNumPeersToQuery      sync.RWMutex
-	numIntraShardPeers      int
-	numCrossShardPeers      int
+	numConsensusPeers       int
+	numCommonPeers          int
 	mutResolverDebugHandler sync.RWMutex
 	resolverDebugHandler    retriever.ResolverDebugHandler
 }
@@ -68,28 +68,28 @@ func NewTopicResolverSender(arg ArgTopicResolverSender) (*topicResolverSender, e
 	if check.IfNil(arg.OutputAntiflooder) {
 		return nil, common.ErrNilAntifloodHandler
 	}
-	if arg.NumIntraShardPeers < 0 {
-		return nil, fmt.Errorf("%w for NumIntraShardPeers as the value should be greater or equal than 0",
+	if arg.NumConsensusPeers < 0 {
+		return nil, fmt.Errorf("%w for NumConsensusPeers as the value should be greater or equal than 0",
 			common.ErrInvalidValue)
 	}
-	if arg.NumCrossShardPeers < 0 {
-		return nil, fmt.Errorf("%w for NumCrossShardPeers as the value should be greater or equal than 0",
+	if arg.NumCommonPeers < 0 {
+		return nil, fmt.Errorf("%w for NumCommonPeers as the value should be greater or equal than 0",
 			common.ErrInvalidValue)
 	}
-	if arg.NumCrossShardPeers+arg.NumIntraShardPeers < minPeersToQuery {
-		return nil, fmt.Errorf("%w for NumCrossShardPeers, NumIntraShardPeers as their sum should be greater or equal than %d",
+	if arg.NumCommonPeers+arg.NumConsensusPeers < minPeersToQuery {
+		return nil, fmt.Errorf("%w for NumCommonPeers, NumConsensusPeers as their sum should be greater or equal than %d",
 			common.ErrInvalidValue, minPeersToQuery)
 	}
 
 	resolver := &topicResolverSender{
-		messenger:          arg.Messenger,
-		topicName:          arg.TopicName,
-		peerListCreator:    arg.PeerListCreator,
-		marshalizer:        arg.Marshalizer,
-		randomizer:         arg.Randomizer,
-		outputAntiflooder:  arg.OutputAntiflooder,
-		numIntraShardPeers: arg.NumIntraShardPeers,
-		numCrossShardPeers: arg.NumCrossShardPeers,
+		messenger:         arg.Messenger,
+		topicName:         arg.TopicName,
+		peerListCreator:   arg.PeerListCreator,
+		marshalizer:       arg.Marshalizer,
+		randomizer:        arg.Randomizer,
+		outputAntiflooder: arg.OutputAntiflooder,
+		numConsensusPeers: arg.NumConsensusPeers,
+		numCommonPeers:    arg.NumCommonPeers,
 	}
 	resolver.resolverDebugHandler = resolverDebug.NewDisabledInterceptorResolver()
 
@@ -106,26 +106,26 @@ func (trs *topicResolverSender) SendOnRequestTopic(rd *retriever.RequestData, or
 
 	topicToSendRequest := trs.topicName + topicRequestSuffix
 
-	crossPeers := trs.peerListCreator.PeerList()
-	numSentCross := trs.sendOnTopic(crossPeers, topicToSendRequest, buff, trs.numCrossShardPeers, "cross peer")
+	commonPeers := trs.peerListCreator.PeerList()
+	numSentCommon := trs.sendOnTopic(commonPeers, topicToSendRequest, buff, trs.numCommonPeers, "common peer")
 
-	intraPeers := trs.peerListCreator.IntraShardPeerList()
-	numSentIntra := trs.sendOnTopic(intraPeers, topicToSendRequest, buff, trs.numIntraShardPeers, "intra peer")
+	consensusPeers := trs.peerListCreator.ConsensusPeerList()
+	numSentConsensus := trs.sendOnTopic(consensusPeers, topicToSendRequest, buff, trs.numConsensusPeers, "consensus peer")
 
-	trs.callDebugHandler(originalHashes, numSentIntra, numSentCross)
+	trs.callDebugHandler(originalHashes, numSentConsensus, numSentCommon)
 
-	if numSentCross+numSentIntra == 0 {
-		return fmt.Errorf("%w, topic: %s, crossPeers: %d, intraPeers: %d",
+	if numSentCommon+numSentConsensus == 0 {
+		return fmt.Errorf("%w, topic: %s, commonPeers: %d, consensusPeers: %d",
 			common.ErrSendRequest,
 			trs.topicName,
-			len(crossPeers),
-			len(intraPeers))
+			len(commonPeers),
+			len(consensusPeers))
 	}
 
 	return nil
 }
 
-// SendOnRequestTopic is used to send request data over channels (topics) to other peers
+// SendOnRequestTopicTo is used to send request data over channels (topics) to other peers
 // This method only sends the request, the received data should be handled by interceptors
 func (trs *topicResolverSender) SendOnRequestTopicTo(rd *retriever.RequestData, originalHashes [][]byte, peer core.PeerID) error {
 	buff, err := trs.marshalizer.Marshal(rd)
@@ -137,23 +137,23 @@ func (trs *topicResolverSender) SendOnRequestTopicTo(rd *retriever.RequestData, 
 
 	numSentDirect := trs.sendOnTopic([]core.PeerID{peer}, topicToSendRequest, buff, 1, "direct peer")
 
-	intraPeers := trs.peerListCreator.IntraShardPeerList()
+	consensusPeers := trs.peerListCreator.ConsensusPeerList()
 	// remove origin peer
-	for index := range intraPeers {
-		if bytes.Equal(intraPeers[index].Bytes(), peer.Bytes()) {
-			intraPeers = append(intraPeers[:index], intraPeers[index+1:]...)
+	for index := range consensusPeers {
+		if bytes.Equal(consensusPeers[index].Bytes(), peer.Bytes()) {
+			consensusPeers = append(consensusPeers[:index], consensusPeers[index+1:]...)
 			break
 		}
 	}
 
-	numIntraShardPeers := trs.numIntraShardPeers
+	numConsensusPeers := trs.numConsensusPeers
 	if numSentDirect > 0 {
 		// if sent to origin, remove one from max to send
-		numIntraShardPeers = numIntraShardPeers - 1
+		numConsensusPeers = numConsensusPeers - 1
 	}
-	numSentIntra := trs.sendOnTopic(intraPeers, topicToSendRequest, buff, numIntraShardPeers, "intra peer")
+	numSentConsensus := trs.sendOnTopic(consensusPeers, topicToSendRequest, buff, numConsensusPeers, "consensus peer")
 
-	trs.callDebugHandler(originalHashes, numSentDirect+numSentIntra, 0)
+	trs.callDebugHandler(originalHashes, numSentDirect+numSentConsensus, 0)
 
 	if numSentDirect == 0 {
 		return fmt.Errorf("%w, topic: %s, directPeer: %s",
@@ -165,11 +165,11 @@ func (trs *topicResolverSender) SendOnRequestTopicTo(rd *retriever.RequestData, 
 	return nil
 }
 
-func (trs *topicResolverSender) callDebugHandler(originalHashes [][]byte, numSentIntra int, numSentCross int) {
+func (trs *topicResolverSender) callDebugHandler(originalHashes [][]byte, numSentConsensus int, numSentCommon int) {
 	trs.mutResolverDebugHandler.RLock()
 	defer trs.mutResolverDebugHandler.RUnlock()
 
-	trs.resolverDebugHandler.LogRequestedData(trs.topicName, originalHashes, numSentIntra, numSentCross)
+	trs.resolverDebugHandler.LogRequestedData(trs.topicName, originalHashes, numSentConsensus, numSentCommon)
 }
 
 func createIndexList(listLength int) []int {
@@ -265,20 +265,20 @@ func (trs *topicResolverSender) RequestTopic() string {
 	return trs.topicName + topicRequestSuffix
 }
 
-// SetNumPeersToQuery will set the number of intra shard and cross shard number of peers to query
-func (trs *topicResolverSender) SetNumPeersToQuery(intra int, cross int) {
+// SetNumPeersToQuery will set the number of consensus and common number of peers to query
+func (trs *topicResolverSender) SetNumPeersToQuery(consensus int, common int) {
 	trs.mutNumPeersToQuery.Lock()
-	trs.numIntraShardPeers = intra
-	trs.numCrossShardPeers = cross
+	trs.numConsensusPeers = consensus
+	trs.numCommonPeers = common
 	trs.mutNumPeersToQuery.Unlock()
 }
 
-// NumPeersToQuery will return the number of intra shard and cross shard number of peer to query
+// NumPeersToQuery will return the number of consensus and common number of peer to query
 func (trs *topicResolverSender) NumPeersToQuery() (int, int) {
 	trs.mutNumPeersToQuery.RLock()
 	defer trs.mutNumPeersToQuery.RUnlock()
 
-	return trs.numIntraShardPeers, trs.numCrossShardPeers
+	return trs.numConsensusPeers, trs.numCommonPeers
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

@@ -6,8 +6,8 @@ import (
 
 // PeerListCreatorStub -
 type PeerListCreatorStub struct {
-	PeerListCalled           func() []core.PeerID
-	IntraShardPeerListCalled func() []core.PeerID
+	PeerListCalled          func() []core.PeerID
+	ConsensusPeerListCalled func() []core.PeerID
 }
 
 // PeerList -
@@ -16,8 +16,8 @@ func (p *PeerListCreatorStub) PeerList() []core.PeerID {
 }
 
 // IntraShardPeerList -
-func (p *PeerListCreatorStub) IntraShardPeerList() []core.PeerID {
-	return p.IntraShardPeerListCalled()
+func (p *PeerListCreatorStub) ConsensusPeerList() []core.PeerID {
+	return p.ConsensusPeerListCalled()
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

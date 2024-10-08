@@ -14,11 +14,8 @@ import (
 	"github.com/klever-io/klever-go/tools/typeConverters"
 )
 
-// EmptyExcludePeersOnTopic is an empty topic
-const EmptyExcludePeersOnTopic = ""
-
-const numCrossShardPeers = 2
-const numIntraShardPeers = 1
+const numCommonPeers = 2
+const numConsensusPeers = 1
 
 type baseResolversContainerFactory struct {
 	container                retriever.ResolversContainer
@@ -33,7 +30,7 @@ type baseResolversContainerFactory struct {
 	inputAntifloodHandler    process.P2PAntifloodHandler
 	outputAntifloodHandler   process.P2PAntifloodHandler
 	throttler                retriever.ResolverThrottler
-	intraShardTopic          string
+	consensusTopic           string
 }
 
 func (brcf *baseResolversContainerFactory) checkParams() error {
@@ -78,9 +75,8 @@ func (brcf *baseResolversContainerFactory) generateTxResolvers(
 ) error {
 
 	identifierTx := topic
-	excludePeersFromTopic := ""
 
-	resolver, err := brcf.createTxResolver(identifierTx, excludePeersFromTopic, unit, dataPool)
+	resolver, err := brcf.createTxResolver(identifierTx, unit, dataPool)
 	if err != nil {
 		return err
 	}
@@ -90,14 +86,13 @@ func (brcf *baseResolversContainerFactory) generateTxResolvers(
 
 func (brcf *baseResolversContainerFactory) createTxResolver(
 	topic string,
-	excludedTopic string,
 	unit retriever.UnitType,
 	dataPool retriever.ShardedDataCacherNotifier,
 ) (retriever.Resolver, error) {
 
 	txStorer := brcf.store.GetStorer(unit)
 
-	resolverSender, err := brcf.createOneResolverSender(topic, excludedTopic)
+	resolverSender, err := brcf.createOneResolverSender(topic)
 	if err != nil {
 		return nil, err
 	}
@@ -126,32 +121,30 @@ func (brcf *baseResolversContainerFactory) createTxResolver(
 
 func (brcf *baseResolversContainerFactory) createOneResolverSender(
 	topic string,
-	excludedTopic string,
 ) (retriever.TopicResolverSender, error) {
-	return brcf.createOneResolverSenderWithSpecifiedNumRequests(topic, excludedTopic, numCrossShardPeers, numIntraShardPeers)
+	return brcf.createOneResolverSenderWithSpecifiedNumRequests(topic, numCommonPeers, numConsensusPeers)
 }
 
 func (brcf *baseResolversContainerFactory) createOneResolverSenderWithSpecifiedNumRequests(
 	topic string,
-	excludedTopic string,
-	numCrossShard int,
-	numIntraShard int,
+	numCommon int,
+	numConsensus int,
 ) (retriever.TopicResolverSender, error) {
 
-	peerListCreator, err := topicResolverSender.NewDiffPeerListCreator(brcf.messenger, topic, brcf.intraShardTopic, excludedTopic)
+	peerListCreator, err := topicResolverSender.NewPeerListCreator(brcf.messenger, topic, brcf.consensusTopic)
 	if err != nil {
 		return nil, err
 	}
 
 	arg := topicResolverSender.ArgTopicResolverSender{
-		Messenger:          brcf.messenger,
-		TopicName:          topic,
-		PeerListCreator:    peerListCreator,
-		Marshalizer:        brcf.marshalizer,
-		Randomizer:         brcf.intRandomizer,
-		OutputAntiflooder:  brcf.outputAntifloodHandler,
-		NumCrossShardPeers: numCrossShard,
-		NumIntraShardPeers: numIntraShard,
+		Messenger:         brcf.messenger,
+		TopicName:         topic,
+		PeerListCreator:   peerListCreator,
+		Marshalizer:       brcf.marshalizer,
+		Randomizer:        brcf.intRandomizer,
+		OutputAntiflooder: brcf.outputAntifloodHandler,
+		NumCommonPeers:    numCommon,
+		NumConsensusPeers: numConsensus,
 	}
 
 	resolverSender, err := topicResolverSender.NewTopicResolverSender(arg)
@@ -165,14 +158,13 @@ func (brcf *baseResolversContainerFactory) createOneResolverSenderWithSpecifiedN
 func (brcf *baseResolversContainerFactory) createTrieNodesResolver(
 	topic string,
 	trieID string,
-	numCrossShard int,
-	numIntraShard int,
+	numCommon int,
+	numConsensus int,
 ) (retriever.Resolver, error) {
 	resolverSender, err := brcf.createOneResolverSenderWithSpecifiedNumRequests(
 		topic,
-		EmptyExcludePeersOnTopic,
-		numCrossShard,
-		numIntraShard,
+		numCommon,
+		numConsensus,
 	)
 	if err != nil {
 		return nil, err

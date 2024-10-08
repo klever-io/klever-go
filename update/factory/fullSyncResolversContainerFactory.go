@@ -4,7 +4,6 @@ import (
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core/throttler"
 	"github.com/klever-io/klever-go/data/retriever"
-	factoryDataRetriever "github.com/klever-io/klever-go/data/retriever/factory/resolverscontainer"
 	"github.com/klever-io/klever-go/data/retriever/resolvers"
 	"github.com/klever-io/klever-go/data/retriever/resolvers/topicResolverSender"
 	"github.com/klever-io/klever-go/data/state"
@@ -125,25 +124,24 @@ func (rcf *resolversContainerFactory) createTrieNodesResolver(baseTopic string, 
 	//for each resolver we create a pseudo-intra shard topic as to make at least of half of the requests target the proper peers
 
 	targetConsensusStopic := common.ConsensusTopic
-	peerListCreator, err := topicResolverSender.NewDiffPeerListCreator(
+	peerListCreator, err := topicResolverSender.NewPeerListCreator(
 		rcf.messenger,
 		baseTopic,
 		targetConsensusStopic,
-		factoryDataRetriever.EmptyExcludePeersOnTopic,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	arg := topicResolverSender.ArgTopicResolverSender{
-		Messenger:          rcf.messenger,
-		TopicName:          baseTopic,
-		PeerListCreator:    peerListCreator,
-		Marshalizer:        rcf.marshalizer,
-		Randomizer:         rcf.intRandomizer,
-		OutputAntiflooder:  rcf.outputAntifloodHandler,
-		NumCrossShardPeers: numCrossShardPeers,
-		NumIntraShardPeers: numIntraShardPeers,
+		Messenger:         rcf.messenger,
+		TopicName:         baseTopic,
+		PeerListCreator:   peerListCreator,
+		Marshalizer:       rcf.marshalizer,
+		Randomizer:        rcf.intRandomizer,
+		OutputAntiflooder: rcf.outputAntifloodHandler,
+		NumCommonPeers:    numCrossShardPeers,
+		NumConsensusPeers: numIntraShardPeers,
 	}
 	resolverSender, err := topicResolverSender.NewTopicResolverSender(arg)
 	if err != nil {

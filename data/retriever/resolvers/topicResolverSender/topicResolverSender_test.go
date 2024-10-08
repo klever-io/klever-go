@@ -3,6 +3,7 @@ package topicResolverSender_test
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -19,14 +20,14 @@ var defaultHashes = [][]byte{[]byte("hash")}
 
 func createMockArgTopicResolverSender() topicResolverSender.ArgTopicResolverSender {
 	return topicResolverSender.ArgTopicResolverSender{
-		Messenger:          &mock.MessageHandlerStub{},
-		TopicName:          "topic",
-		PeerListCreator:    &mock.PeerListCreatorStub{},
-		Marshalizer:        &mock.MarshalizerMock{},
-		Randomizer:         &mock.IntRandomizerStub{},
-		OutputAntiflooder:  &mock.P2PAntifloodHandlerStub{},
-		NumIntraShardPeers: 2,
-		NumCrossShardPeers: 2,
+		Messenger:         &mock.MessageHandlerStub{},
+		TopicName:         "topic",
+		PeerListCreator:   &mock.PeerListCreatorStub{},
+		Marshalizer:       &mock.MarshalizerMock{},
+		Randomizer:        &mock.IntRandomizerStub{},
+		OutputAntiflooder: &mock.P2PAntifloodHandlerStub{},
+		NumConsensusPeers: 2,
+		NumCommonPeers:    2,
 	}
 }
 
@@ -91,8 +92,8 @@ func TestNewTopicResolverSender_InvalidNumIntraShardPeersShouldErr(t *testing.T)
 	t.Parallel()
 
 	arg := createMockArgTopicResolverSender()
-	arg.NumIntraShardPeers = -1
-	arg.NumCrossShardPeers = 100
+	arg.NumConsensusPeers = -1
+	arg.NumCommonPeers = 100
 	trs, err := topicResolverSender.NewTopicResolverSender(arg)
 
 	assert.True(t, check.IfNil(trs))
@@ -103,8 +104,8 @@ func TestNewTopicResolverSender_InvalidNumCrossShardPeersShouldErr(t *testing.T)
 	t.Parallel()
 
 	arg := createMockArgTopicResolverSender()
-	arg.NumCrossShardPeers = -1
-	arg.NumIntraShardPeers = 100
+	arg.NumCommonPeers = -1
+	arg.NumConsensusPeers = 100
 	trs, err := topicResolverSender.NewTopicResolverSender(arg)
 
 	assert.True(t, check.IfNil(trs))
@@ -115,8 +116,8 @@ func TestNewTopicResolverSender_InvalidNumberOfPeersShouldErr(t *testing.T) {
 	t.Parallel()
 
 	arg := createMockArgTopicResolverSender()
-	arg.NumIntraShardPeers = 1
-	arg.NumCrossShardPeers = 0
+	arg.NumConsensusPeers = 1
+	arg.NumCommonPeers = 0
 	trs, err := topicResolverSender.NewTopicResolverSender(arg)
 
 	assert.True(t, check.IfNil(trs))
@@ -137,11 +138,130 @@ func TestNewTopicResolverSender_OkValsWithNumZeroShouldWork(t *testing.T) {
 	t.Parallel()
 
 	arg := createMockArgTopicResolverSender()
-	arg.NumIntraShardPeers = 0
+	arg.NumConsensusPeers = 0
 	trs, err := topicResolverSender.NewTopicResolverSender(arg)
 
 	assert.False(t, check.IfNil(trs))
 	assert.Nil(t, err)
+}
+
+//------- SendOnRequestTopicTo
+
+func TestTopicResolverSender_SendOnRequestTopicToMarshalizerFailsShouldErr(t *testing.T) {
+	t.Parallel()
+
+	errExpected := errors.New("expected error")
+	pID := core.PeerID("peer1")
+
+	arg := createMockArgTopicResolverSender()
+	arg.Marshalizer = &mock.MarshalizerStub{
+		MarshalCalled: func(obj interface{}) (bytes []byte, e error) {
+			return nil, errExpected
+		},
+	}
+	trs, _ := topicResolverSender.NewTopicResolverSender(arg)
+
+	err := trs.SendOnRequestTopicTo(&retriever.RequestData{}, defaultHashes, pID)
+
+	assert.Equal(t, errExpected, err)
+}
+
+func TestTopicResolverSender_SendOnRequestTopicToShouldWork(t *testing.T) {
+	t.Parallel()
+
+	pID1 := core.PeerID("peer1")
+	pID2 := core.PeerID("peer2")
+	sentToPid1 := false
+	sentToPid2 := false
+
+	arg := createMockArgTopicResolverSender()
+	arg.Messenger = &mock.MessageHandlerStub{
+		SendToConnectedPeerCalled: func(topic string, buff []byte, peerID core.PeerID) error {
+			if bytes.Equal(peerID.Bytes(), pID1.Bytes()) {
+				sentToPid1 = true
+			}
+			if bytes.Equal(peerID.Bytes(), pID2.Bytes()) {
+				sentToPid2 = true
+			}
+
+			return nil
+		},
+	}
+	arg.PeerListCreator = &mock.PeerListCreatorStub{
+		ConsensusPeerListCalled: func() []core.PeerID {
+			return []core.PeerID{pID2}
+		},
+	}
+	trs, _ := topicResolverSender.NewTopicResolverSender(arg)
+
+	err := trs.SendOnRequestTopicTo(&retriever.RequestData{}, defaultHashes, pID1)
+
+	assert.Nil(t, err)
+	assert.True(t, sentToPid1)
+	assert.True(t, sentToPid2)
+}
+
+// by default, SendOnRequestTopicTo not only sends to the provided peer but also to the consensus peers
+// this test ensures that even if the provided is in the consensus list, it should not send twice
+func TestTopicResolverSender_SendOnRequestTopicToShouldNotSendTwice(t *testing.T) {
+	t.Parallel()
+
+	pID1 := core.PeerID("peer1")
+	pID2 := core.PeerID("peer2")
+	sentToPid1 := 0
+	sentToPid2 := 0
+
+	arg := createMockArgTopicResolverSender()
+	arg.Messenger = &mock.MessageHandlerStub{
+		SendToConnectedPeerCalled: func(topic string, buff []byte, peerID core.PeerID) error {
+			if bytes.Equal(peerID.Bytes(), pID1.Bytes()) {
+				sentToPid1 += 1
+			}
+			if bytes.Equal(peerID.Bytes(), pID2.Bytes()) {
+				sentToPid2 += 1
+			}
+
+			return nil
+		},
+	}
+	arg.PeerListCreator = &mock.PeerListCreatorStub{
+		ConsensusPeerListCalled: func() []core.PeerID {
+			return []core.PeerID{pID2, pID1}
+		},
+	}
+	trs, _ := topicResolverSender.NewTopicResolverSender(arg)
+
+	err := trs.SendOnRequestTopicTo(&retriever.RequestData{}, defaultHashes, pID1)
+
+	assert.Nil(t, err)
+	assert.Equal(t, sentToPid1, 1)
+	assert.Equal(t, sentToPid2, 1)
+}
+
+func TestTopicResolverSender_SendOnRequestTopicToShouldHandleError(t *testing.T) {
+	t.Parallel()
+
+	errExpected := errors.New("expected error")
+	pID1 := core.PeerID("peer1")
+	pID2 := core.PeerID("peer2")
+
+	arg := createMockArgTopicResolverSender()
+	arg.Messenger = &mock.MessageHandlerStub{
+		SendToConnectedPeerCalled: func(topic string, buff []byte, peerID core.PeerID) error {
+			return errExpected
+		},
+	}
+	arg.PeerListCreator = &mock.PeerListCreatorStub{
+		ConsensusPeerListCalled: func() []core.PeerID {
+			return []core.PeerID{pID2, pID1}
+		},
+	}
+	trs, _ := topicResolverSender.NewTopicResolverSender(arg)
+
+	err := trs.SendOnRequestTopicTo(&retriever.RequestData{}, defaultHashes, pID1)
+
+	assert.NotNil(t, err)
+	assert.True(t, strings.Contains(err.Error(), "errors during the sending"))
 }
 
 //------- SendOnRequestTopic
@@ -172,7 +292,7 @@ func TestTopicResolverSender_SendOnRequestTopicNoOneToSendShouldErr(t *testing.T
 		PeerListCalled: func() []core.PeerID {
 			return make([]core.PeerID, 0)
 		},
-		IntraShardPeerListCalled: func() []core.PeerID {
+		ConsensusPeerListCalled: func() []core.PeerID {
 			return make([]core.PeerID, 0)
 		},
 	}
@@ -208,7 +328,7 @@ func TestTopicResolverSender_SendOnRequestTopicShouldWork(t *testing.T) {
 		PeerListCalled: func() []core.PeerID {
 			return []core.PeerID{pID1}
 		},
-		IntraShardPeerListCalled: func() []core.PeerID {
+		ConsensusPeerListCalled: func() []core.PeerID {
 			return []core.PeerID{pID2}
 		},
 	}
@@ -239,7 +359,7 @@ func TestTopicResolverSender_SendOnRequestShouldStopAfterSendingToRequiredNum(t 
 		PeerListCalled: func() []core.PeerID {
 			return pIDs
 		},
-		IntraShardPeerListCalled: func() []core.PeerID {
+		ConsensusPeerListCalled: func() []core.PeerID {
 			return pIDs
 		},
 	}
@@ -248,7 +368,7 @@ func TestTopicResolverSender_SendOnRequestShouldStopAfterSendingToRequiredNum(t 
 	err := trs.SendOnRequestTopic(&retriever.RequestData{}, defaultHashes)
 
 	assert.Nil(t, err)
-	assert.Equal(t, arg.NumCrossShardPeers+arg.NumIntraShardPeers, numSent)
+	assert.Equal(t, arg.NumCommonPeers+arg.NumConsensusPeers, numSent)
 }
 
 func TestTopicResolverSender_SendOnRequestTopicErrorsShouldReturnError(t *testing.T) {
@@ -272,7 +392,7 @@ func TestTopicResolverSender_SendOnRequestTopicErrorsShouldReturnError(t *testin
 		PeerListCalled: func() []core.PeerID {
 			return []core.PeerID{pID1}
 		},
-		IntraShardPeerListCalled: func() []core.PeerID {
+		ConsensusPeerListCalled: func() []core.PeerID {
 			return make([]core.PeerID, 0)
 		},
 	}
