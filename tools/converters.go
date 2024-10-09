@@ -3,8 +3,11 @@ package tools
 import (
 	"fmt"
 	"math"
+	"math/big"
 	"strconv"
 
+	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
@@ -93,4 +96,22 @@ func SecondsToHourMinSec(input int) string {
 	}
 
 	return result
+}
+
+func ComputePercentageI64(value int64, percentage int64, checkOverflow bool) (int64, error) {
+	if !checkOverflow {
+		return int64(float64(value) * float64(percentage) / float64(core.HundredPercent)), nil
+	}
+
+	valueBig := big.NewInt(value)
+	percentageBig := big.NewInt(percentage)
+
+	result := new(big.Int).Mul(valueBig, percentageBig)
+	result.Div(result, big.NewInt(int64(core.HundredPercent)))
+
+	if !result.IsInt64() { // check overflow
+		return 0, common.ErrInt64Overflow
+	}
+
+	return result.Int64(), nil
 }

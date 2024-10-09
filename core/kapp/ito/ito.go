@@ -18,6 +18,7 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
 	"google.golang.org/protobuf/proto"
@@ -233,7 +234,10 @@ func (i *itoKapp) Buy(sender []byte, tc *transaction.BuyContract) (transaction.T
 		return status, err
 	}
 
-	royaltiesPercentAmount := int64(float64(valueInt) * float64(asset.Royalties.ITOPercentage) / float64(core.HundredPercent))
+	royaltiesPercentAmount, err := tools.ComputePercentageI64(valueInt, int64(asset.Royalties.ITOPercentage), i.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_ParameterInvalid, err
+	}
 	itoOwnerAmount := valueInt - royaltiesPercentAmount
 
 	//Compute ITO Percent Royalties
@@ -284,19 +288,9 @@ func (i *itoKapp) Buy(sender []byte, tc *transaction.BuyContract) (transaction.T
 
 	initialMintValue := asset.MintedValue
 
-	//Need to change the Sender to ITOKAppAddress to mint in the behalf of the ito contract
-	resultCode, err := i.KAppController.GetKDAKApp().Mint(kapps.ITOKAppAddress, &transaction.AssetTriggerContract{AssetID: assetID, Amount: tc.GetAmount(), ToAddress: sender})
+	status, err = i.BuyITOMint(ctx, itoKapp, ito, assetID, sender, tc)
 	if err != nil {
-		return resultCode, err
-	}
-
-	err = i.SetITO(itoKapp, assetID, ito)
-	if err != nil {
-		return transaction.Transaction_ITOKAPPError, err
-	}
-
-	if err := i.accountsCacher.UpdateKapp(itoKapp); err != nil {
-		return transaction.Transaction_SaveAccountError, err
+		return status, err
 	}
 
 	ctx.Receipts().Add(txProcess.NewReceipt(
@@ -418,35 +412,11 @@ func (i *itoKapp) ComputeITOPercentBuyRoyalties(ctx kapp.KappContext, asset *kap
 
 	royaltiesITOPercentageToPay := royaltiesPercentAmount
 	for key, value := range asset.Royalties.SplitRoyalties {
-		status, splitRoyalty, err := i.GetSplitRoyalties(key)
+		status, err := i.computeSplitRoyalties(ctx, key, currencyID, ownerAcc,
+			royaltiesPercentAmount, int64(value.PercentITOPercentage), &royaltiesITOPercentageToPay)
 		if err != nil {
 			return status, err
 		}
-
-		splitToPay := int64(float64(royaltiesPercentAmount) * float64(value.PercentITOPercentage) / float64(core.HundredPercent))
-		royaltiesITOPercentageToPay -= splitToPay
-
-		err = splitRoyalty.AddToBalance(splitToPay, currencyID, i.forkController.EnableSmartContracts())
-		if err != nil {
-			return transaction.Transaction_BalanceError, err
-		}
-
-		if err := i.accountsCacher.UpdateUser(splitRoyalty); err != nil {
-			return transaction.Transaction_SaveAccountError, err
-		}
-
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			ownerAcc.AddressBytes(),
-			splitRoyalty.AddressBytes(),
-			[]byte(strconv.FormatInt(splitToPay, 10)),
-			currencyID,
-			nil,
-			[]byte{byte(kapps.KDAData_Fungible)},
-			nil,
-			nil,
-		))
 	}
 
 	if royaltiesITOPercentageToPay <= 0 {
@@ -512,35 +482,11 @@ func (i *itoKapp) ComputeITOFixedBuyRoyalties(ctx kapp.KappContext, asset *kapps
 
 	royaltiesITOFixedToPay := asset.Royalties.ITOFixed
 	for key, value := range asset.Royalties.SplitRoyalties {
-		status, splitRoyalty, err := i.GetSplitRoyalties(key)
+		status, err := i.computeSplitRoyalties(ctx, key, kdautils.KLVIdentifier, ownerAcc,
+			asset.Royalties.ITOFixed, int64(value.PercentITOFixed), &royaltiesITOFixedToPay)
 		if err != nil {
 			return status, err
 		}
-
-		splitToPay := int64(float64(asset.Royalties.ITOFixed) * float64(value.PercentITOFixed) / float64(core.HundredPercent))
-		royaltiesITOFixedToPay -= splitToPay
-
-		err = splitRoyalty.AddToBalance(splitToPay, kdautils.KLVIdentifier, i.forkController.EnableSmartContracts())
-		if err != nil {
-			return transaction.Transaction_BalanceError, err
-		}
-
-		if err := i.accountsCacher.UpdateUser(splitRoyalty); err != nil {
-			return transaction.Transaction_SaveAccountError, err
-		}
-
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			ownerAcc.AddressBytes(),
-			splitRoyalty.AddressBytes(),
-			[]byte(strconv.FormatInt(splitToPay, 10)),
-			kdautils.KLVIdentifier,
-			nil,
-			[]byte{byte(kapps.KDAData_Fungible)},
-			nil,
-			nil,
-		))
 	}
 
 	if royaltiesITOFixedToPay <= 0 {
@@ -577,18 +523,65 @@ func (i *itoKapp) ComputeITOFixedBuyRoyalties(ctx kapp.KappContext, asset *kapps
 	return transaction.Transaction_Ok, nil
 }
 
-func (i *itoKapp) GetSplitRoyalties(address string) (transaction.Transaction_TXResultCode, state.UserAccountHandler, error) {
+func (i *itoKapp) computeSplitRoyalties(ctx kapp.KappContext, address string, assetID []byte, acntSrc state.UserAccountHandler, value int64, percentage int64, royaltiesToPay *int64) (transaction.Transaction_TXResultCode, error) {
 	decodedAddress, err := hex.DecodeString(address)
 	if err != nil {
-		return transaction.Transaction_LoadAccountError, nil, err
+		return transaction.Transaction_LoadAccountError, err
 	}
 
 	splitRoyalty, err := i.LoadUserAccount(decodedAddress)
 	if err != nil {
-		return transaction.Transaction_LoadAccountError, nil, err
+		return transaction.Transaction_LoadAccountError, err
 	}
 
-	return transaction.Transaction_Ok, splitRoyalty, nil
+	splitToPay, err := tools.ComputePercentageI64(value, percentage, i.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_ParameterInvalid, err
+	}
+	*royaltiesToPay -= splitToPay
+
+	err = splitRoyalty.AddToBalance(splitToPay, assetID, i.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_BalanceError, err
+	}
+
+	if err := i.accountsCacher.UpdateUser(splitRoyalty); err != nil {
+		return transaction.Transaction_SaveAccountError, err
+	}
+
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.Transfer,
+		ctx.ContractID(),
+		acntSrc.AddressBytes(),
+		splitRoyalty.AddressBytes(),
+		[]byte(strconv.FormatInt(splitToPay, 10)),
+		assetID,
+		nil,
+		[]byte{byte(kapps.KDAData_Fungible)},
+		nil,
+		nil,
+	))
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (i *itoKapp) BuyITOMint(ctx kapp.KappContext, itoKapp state.KAppAccountHandler, ito *kapps.ITOData, assetID []byte, sender []byte, tc *transaction.BuyContract) (transaction.Transaction_TXResultCode, error) {
+	// Need to change the Sender to ITOKAppAddress to mint in the behalf of the ito contract
+	resultCode, err := i.KAppController.GetKDAKApp().Mint(kapps.ITOKAppAddress, &transaction.AssetTriggerContract{AssetID: assetID, Amount: tc.GetAmount(), ToAddress: sender})
+	if err != nil {
+		return resultCode, err
+	}
+
+	err = i.SetITO(itoKapp, assetID, ito)
+	if err != nil {
+		return transaction.Transaction_ITOKAPPError, err
+	}
+
+	if err := i.accountsCacher.UpdateKapp(itoKapp); err != nil {
+		return transaction.Transaction_SaveAccountError, err
+	}
+
+	return transaction.Transaction_Ok, nil
 }
 
 func (i *itoKapp) Config(sender []byte, tc *transaction.ConfigITOContract) (transaction.Transaction_TXResultCode, error) {

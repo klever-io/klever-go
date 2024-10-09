@@ -18,6 +18,7 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
 )
@@ -192,7 +193,7 @@ func (a *accountsKapp) loadKDA(kdaID []byte) ([]byte, []byte, *kapps.KDAData, tr
 
 	var internalID []byte
 	if len(parsedKDA) > 1 {
-		if !a.TokeTypeHasNonce(kda.AssetType) || len(parsedKDA) != 2 {
+		if !a.TokenTypeHasNonce(kda.AssetType) || len(parsedKDA) != 2 {
 			return nil, nil, nil, transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 
@@ -230,6 +231,46 @@ func (a *accountsKapp) computeRoyalties(kda *kapps.KDAData, amountToTransfer int
 	return klvRoyalties, assetRoyalties, nil
 }
 
+func (a *accountsKapp) computeSplitRoyalties(address string, assetID []byte, assetType kapps.KDAData_EnumAssetType, acntSrc state.UserAccountHandler, value int64, percentage int64, royaltiesToPay *int64) (transaction.Transaction_TXResultCode, error) {
+	decodedAddress, err := hex.DecodeString(address)
+	if err != nil {
+		return transaction.Transaction_LoadAccountError, err
+	}
+
+	splitRoyalty, err := a.LoadUserAccount(decodedAddress)
+	if err != nil {
+		return transaction.Transaction_LoadAccountError, err
+	}
+
+	splitToPay, err := tools.ComputePercentageI64(value, percentage, a.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_ParameterInvalid, err
+	}
+	*royaltiesToPay -= splitToPay
+
+	err = splitRoyalty.AddToBalance(splitToPay, assetID, a.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_BalanceError, err
+	}
+
+	if err := a.accountsCacher.UpdateUser(splitRoyalty); err != nil {
+		return transaction.Transaction_SaveAccountError, err
+	}
+
+	a.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
+		txProcess.Transfer,
+		a.KAppController.GetCurrentKAppContext().ContractID(),
+		acntSrc.AddressBytes(),
+		splitRoyalty.AddressBytes(),
+		[]byte(strconv.FormatInt(splitToPay, 10)),
+		assetID,
+		nil,
+		[]byte{byte(assetType)},
+	))
+
+	return transaction.Transaction_Ok, nil
+}
+
 func (a *accountsKapp) processFixedRoyaltiesTransfer(cType transaction.TXContract_ContractType, tc *transaction.TransferContract, acntSrc, acntDst state.UserAccountHandler, kda *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
 	if cType != transaction.TXContract_TransferContractType ||
 		kda.Royalties == nil ||
@@ -257,175 +298,132 @@ func (a *accountsKapp) processFixedRoyaltiesTransfer(cType transaction.TXContrac
 
 	royaltiesFixedToPay := kda.Royalties.TransferFixed
 	for key, value := range kda.Royalties.SplitRoyalties {
-
-		decodedAddress, err := hex.DecodeString(key)
+		status, err := a.computeSplitRoyalties(key, kdautils.KLVIdentifier, kapps.KDAData_Fungible, acntSrc, kda.Royalties.TransferFixed, int64(value.PercentTransferFixed), &royaltiesFixedToPay)
 		if err != nil {
-			return transaction.Transaction_LoadAccountError, err
+			return status, err
 		}
-
-		splitRoyalty, err := a.LoadUserAccount(decodedAddress)
-		if err != nil {
-			return transaction.Transaction_LoadAccountError, err
-		}
-
-		splitToPay := int64(float64(kda.Royalties.TransferFixed) * float64(value.PercentTransferFixed) / float64(core.HundredPercent))
-		royaltiesFixedToPay -= splitToPay
-
-		err = splitRoyalty.AddToBalance(splitToPay, kdautils.KLVIdentifier, a.forkController.EnableSmartContracts())
-		if err != nil {
-			return transaction.Transaction_BalanceError, err
-		}
-
-		if err := a.accountsCacher.UpdateUser(splitRoyalty); err != nil {
-			return transaction.Transaction_SaveAccountError, err
-		}
-
-		a.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			a.KAppController.GetCurrentKAppContext().ContractID(),
-			acntSrc.AddressBytes(),
-			splitRoyalty.AddressBytes(),
-			[]byte(strconv.FormatInt(splitToPay, 10)),
-			kdautils.KLVIdentifier,
-			nil,
-			[]byte{byte(kapps.KDAData_Fungible)},
-		))
-
 	}
 
-	if royaltiesFixedToPay > 0 {
-		royaltyOwner, err := a.LoadUserAccount(kda.Royalties.Address)
-		if !a.forkController.KdaFpr() {
-			royaltyOwner, err = a.GetExistingUserAccount(kda.OwnerAddress)
-		}
-		if err != nil {
-			return transaction.Transaction_LoadAccountError, err
-		}
-
-		err = royaltyOwner.AddToBalance(royaltiesFixedToPay, kdautils.KLVIdentifier, a.forkController.EnableSmartContracts())
-		if err != nil {
-			return transaction.Transaction_BalanceError, err
-		}
-
-		if err := a.accountsCacher.UpdateUser(royaltyOwner); err != nil {
-			return transaction.Transaction_SaveAccountError, err
-		}
-
-		a.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			a.KAppController.GetCurrentKAppContext().ContractID(),
-			acntSrc.AddressBytes(),
-			royaltyOwner.AddressBytes(),
-			[]byte(strconv.FormatInt(royaltiesFixedToPay, 10)),
-			kdautils.KLVIdentifier,
-			nil,
-			[]byte{byte(kapps.KDAData_Fungible)},
-		))
+	if royaltiesFixedToPay <= 0 {
+		return transaction.Transaction_Ok, nil
 	}
+
+	royaltyOwner, err := a.LoadUserAccount(kda.Royalties.Address)
+	if !a.forkController.KdaFpr() {
+		royaltyOwner, err = a.GetExistingUserAccount(kda.OwnerAddress)
+	}
+	if err != nil {
+		return transaction.Transaction_LoadAccountError, err
+	}
+
+	err = royaltyOwner.AddToBalance(royaltiesFixedToPay, kdautils.KLVIdentifier, a.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_BalanceError, err
+	}
+
+	if err := a.accountsCacher.UpdateUser(royaltyOwner); err != nil {
+		return transaction.Transaction_SaveAccountError, err
+	}
+
+	a.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
+		txProcess.Transfer,
+		a.KAppController.GetCurrentKAppContext().ContractID(),
+		acntSrc.AddressBytes(),
+		royaltyOwner.AddressBytes(),
+		[]byte(strconv.FormatInt(royaltiesFixedToPay, 10)),
+		kdautils.KLVIdentifier,
+		nil,
+		[]byte{byte(kapps.KDAData_Fungible)},
+	))
 
 	return transaction.Transaction_Ok, nil
 }
 
-func (a *accountsKapp) processPercentageRoyaltiesTransfer(ctType transaction.TXContract_ContractType, tc *transaction.TransferContract, assetID, internalID []byte, acntSrc, acntDst state.UserAccountHandler, kda *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+func (a *accountsKapp) validatePercentageRoyaltiesTransfer(ctType transaction.TXContract_ContractType, tc *transaction.TransferContract, kda *kapps.KDAData, acntSrc state.UserAccountHandler, assetID []byte) (int64, transaction.Transaction_TXResultCode, error) {
 	if ctType != transaction.TXContract_TransferContractType ||
 		kda.Royalties == nil ||
 		len(kda.Royalties.TransferPercentage) <= 0 {
-		return transaction.Transaction_Ok, nil
+		return 0, transaction.Transaction_Ok, nil
 	}
 
 	value := tc.GetAmount()
 	if value <= 0 {
-		return transaction.Transaction_ContractInvalid, common.ErrInvalidValue
+		return 0, transaction.Transaction_ContractInvalid, common.ErrInvalidValue
 	}
 
 	royaltyAmount := int64(0)
 	var err error
+
 	if kda.Royalties != nil && len(kda.Royalties.TransferPercentage) > 0 {
 		royaltyAmount, err = kda.GetTransferRoyaltyByAmount(value, a.forkController.KdaFpr())
 		if err != nil {
-			return transaction.Transaction_AccountError, err
+			return 0, transaction.Transaction_AccountError, err
 		}
 	}
 
 	balance := acntSrc.GetBalance(assetID, a.forkController.EnableSmartContracts())
 	if balance < value+royaltyAmount {
-		return transaction.Transaction_OutOfFunds, process.ErrInsufficientFunds
+		return 0, transaction.Transaction_OutOfFunds, process.ErrInsufficientFunds
 	}
 
-	if royaltyAmount > 0 {
-		if royaltyAmount != tc.GetKDARoyalties() {
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		}
+	return royaltyAmount, transaction.Transaction_Ok, nil
+}
 
-		royaltiesToPay := royaltyAmount
-		for key, value := range kda.Royalties.SplitRoyalties {
+func (a *accountsKapp) processPercentageRoyaltiesTransfer(ctType transaction.TXContract_ContractType, tc *transaction.TransferContract, assetID, internalID []byte, acntSrc, acntDst state.UserAccountHandler, kda *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	royaltyAmount, status, err := a.validatePercentageRoyaltiesTransfer(ctType, tc, kda, acntSrc, assetID)
+	if err != nil {
+		return status, err
+	}
 
-			decodedAddress, err := hex.DecodeString(key)
-			if err != nil {
-				return transaction.Transaction_LoadAccountError, err
-			}
+	if royaltyAmount <= 0 {
+		return transaction.Transaction_Ok, nil
+	}
 
-			splitRoyalty, err := a.LoadUserAccount(decodedAddress)
-			if err != nil {
-				return transaction.Transaction_LoadAccountError, err
-			}
+	if royaltyAmount != tc.GetKDARoyalties() {
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
 
-			splitToPay := int64(float64(royaltyAmount) * float64(value.PercentTransferPercentage) / float64(core.HundredPercent))
-			royaltiesToPay -= splitToPay
-
-			err = splitRoyalty.AddToBalance(splitToPay, assetID, a.forkController.EnableSmartContracts())
-			if err != nil {
-				return transaction.Transaction_BalanceError, err
-			}
-
-			if err := a.accountsCacher.UpdateUser(splitRoyalty); err != nil {
-				return transaction.Transaction_SaveAccountError, err
-			}
-
-			a.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
-				txProcess.Transfer,
-				a.KAppController.GetCurrentKAppContext().ContractID(),
-				acntSrc.AddressBytes(),
-				splitRoyalty.AddressBytes(),
-				[]byte(strconv.FormatInt(splitToPay, 10)),
-				assetID,
-				nil,
-				[]byte{byte(kda.AssetType)},
-			))
-		}
-
-		if royaltiesToPay > 0 {
-			royaltyReceiver, err := a.LoadUserAccount(kda.Royalties.Address)
-			if err != nil {
-				return transaction.Transaction_LoadAccountError, err
-			}
-
-			err = acntSrc.SubFromBalance(royaltyAmount, assetID, a.forkController.EnableSmartContracts())
-			if err != nil {
-				return transaction.Transaction_BalanceError, err
-			}
-
-			err = royaltyReceiver.AddToBalance(royaltiesToPay, assetID, a.forkController.EnableSmartContracts())
-			if err != nil {
-				return transaction.Transaction_BalanceError, err
-			}
-
-			if err := a.accountsCacher.UpdateUser(royaltyReceiver); err != nil {
-				return transaction.Transaction_SaveAccountError, err
-			}
-
-			a.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
-				txProcess.Transfer,
-				a.KAppController.GetCurrentKAppContext().ContractID(),
-				acntSrc.AddressBytes(),
-				royaltyReceiver.AddressBytes(),
-				[]byte(strconv.FormatInt(royaltiesToPay, 10)),
-				assetID,
-				internalID,
-				[]byte{byte(kda.AssetType)},
-			))
+	royaltiesToPay := royaltyAmount
+	for key, value := range kda.Royalties.SplitRoyalties {
+		status, err := a.computeSplitRoyalties(key, assetID, kda.AssetType, acntSrc, royaltyAmount, int64(value.PercentTransferPercentage), &royaltiesToPay)
+		if err != nil {
+			return status, err
 		}
 	}
+
+	if royaltiesToPay <= 0 {
+		return transaction.Transaction_Ok, nil
+	}
+
+	royaltyReceiver, err := a.LoadUserAccount(kda.Royalties.Address)
+	if err != nil {
+		return transaction.Transaction_LoadAccountError, err
+	}
+
+	err = acntSrc.SubFromBalance(royaltyAmount, assetID, a.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_BalanceError, err
+	}
+
+	err = royaltyReceiver.AddToBalance(royaltiesToPay, assetID, a.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_BalanceError, err
+	}
+
+	if err := a.accountsCacher.UpdateUser(royaltyReceiver); err != nil {
+		return transaction.Transaction_SaveAccountError, err
+	}
+
+	a.KAppController.GetCurrentKAppContext().Receipts().Add(txProcess.NewReceipt(
+		txProcess.Transfer,
+		a.KAppController.GetCurrentKAppContext().ContractID(),
+		acntSrc.AddressBytes(),
+		royaltyReceiver.AddressBytes(),
+		[]byte(strconv.FormatInt(royaltiesToPay, 10)),
+		assetID,
+		internalID,
+		[]byte{byte(kda.AssetType)},
+	))
 
 	return transaction.Transaction_Ok, nil
 }
@@ -1627,7 +1625,7 @@ func (a *accountsKapp) UpdatePermission(sender []byte, tc *transaction.UpdateAcc
 	return transaction.Transaction_Ok, nil
 }
 
-func (a *accountsKapp) TokeTypeHasNonce(tokenType kapps.KDAData_EnumAssetType) bool {
+func (a *accountsKapp) TokenTypeHasNonce(tokenType kapps.KDAData_EnumAssetType) bool {
 	if a.forkController.EnableSmartContracts() {
 		return tokenType == kapps.KDAData_NonFungible ||
 			tokenType == kapps.KDAData_SemiFungible

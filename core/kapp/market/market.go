@@ -18,6 +18,7 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
 )
@@ -347,6 +348,220 @@ func (m *marketKapp) Buy(sender []byte, tc *transaction.BuyContract) (transactio
 	return transaction.Transaction_Ok, nil
 }
 
+func (m *marketKapp) computeReferralAmount(ctx kapp.KappContext, marketOrder *kapps.MarketOrderData, referralAmount int64, currencyID []byte) (transaction.Transaction_TXResultCode, error) {
+	if referralAmount <= 0 {
+		return transaction.Transaction_Ok, nil
+	}
+
+	_, marketplace, err := m.GetMarketplace(marketOrder.MarketplaceID)
+	if err != nil {
+		return transaction.Transaction_ParameterInvalid, err
+	}
+
+	referralAcc, err := m.LoadUserAccount(marketplace.ReferralAddress)
+	if err != nil {
+		return transaction.Transaction_LoadAccountError, err
+	}
+
+	err = referralAcc.AddToBalance(referralAmount, currencyID, m.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_BalanceError, err
+	}
+
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.Transfer,
+		ctx.ContractID(),
+		kapps.MarketKAppAddress,
+		referralAcc.AddressBytes(),
+		[]byte(strconv.FormatInt(referralAmount, 10)),
+		currencyID,
+		nil,
+		[]byte{byte(kapps.KDAData_Fungible)},
+		marketOrder.MarketplaceID,
+		marketOrder.ID,
+	))
+
+	if err := m.accountsCacher.UpdateUser(referralAcc); err != nil {
+		return transaction.Transaction_SaveAccountError, err
+	}
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (m *marketKapp) computeSplitRoyalties(ctx kapp.KappContext, address string, marketOrder *kapps.MarketOrderData, currencyID []byte, value int64, percentage int64, royaltiesToPay *int64) (transaction.Transaction_TXResultCode, error) {
+	decodedAddress, err := hex.DecodeString(address)
+	if err != nil {
+		return transaction.Transaction_LoadAccountError, err
+	}
+
+	splitRoyalty, err := m.LoadUserAccount(decodedAddress)
+	if err != nil {
+		return transaction.Transaction_LoadAccountError, err
+	}
+
+	splitToPay, err := tools.ComputePercentageI64(value, percentage, m.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_ParameterInvalid, err
+	}
+	*royaltiesToPay -= splitToPay
+
+	err = splitRoyalty.AddToBalance(splitToPay, currencyID, m.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_BalanceError, err
+	}
+
+	if err := m.accountsCacher.UpdateUser(splitRoyalty); err != nil {
+		return transaction.Transaction_SaveAccountError, err
+	}
+
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.Transfer,
+		ctx.ContractID(),
+		kapps.MarketKAppAddress,
+		splitRoyalty.AddressBytes(),
+		[]byte(strconv.FormatInt(splitToPay, 10)),
+		currencyID,
+		nil,
+		[]byte{byte(kapps.KDAData_Fungible)},
+		marketOrder.MarketplaceID,
+		marketOrder.ID,
+	))
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (m *marketKapp) computeRoyaltiesFixedDeposit(ctx kapp.KappContext, marketOrder *kapps.MarketOrderData, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	if marketOrder.RoyaltiesFixedDeposit <= 0 {
+		return transaction.Transaction_Ok, nil
+	}
+
+	royaltiesMarketFixedToPay := marketOrder.RoyaltiesFixedDeposit
+	for key, value := range asset.Royalties.SplitRoyalties {
+		status, err := m.computeSplitRoyalties(ctx, key, marketOrder, kdautils.KLVIdentifier, marketOrder.RoyaltiesFixedDeposit, int64(value.PercentMarketFixed), &royaltiesMarketFixedToPay)
+		if err != nil {
+			return status, err
+		}
+	}
+
+	if royaltiesMarketFixedToPay <= 0 {
+		return transaction.Transaction_Ok, nil
+	}
+
+	kdaOwner, err := m.LoadUserAccount(asset.Royalties.Address)
+	if err != nil {
+		return transaction.Transaction_LoadAccountError, err
+	}
+
+	err = kdaOwner.AddToBalance(royaltiesMarketFixedToPay, kdautils.KLVIdentifier, m.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_BalanceError, err
+	}
+
+	if err := m.accountsCacher.UpdateUser(kdaOwner); err != nil {
+		return transaction.Transaction_SaveAccountError, err
+	}
+
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.Transfer,
+		ctx.ContractID(),
+		kapps.MarketKAppAddress,
+		kdaOwner.AddressBytes(),
+		[]byte(strconv.FormatInt(royaltiesMarketFixedToPay, 10)),
+		kdautils.KLVIdentifier,
+		nil,
+		[]byte{byte(kapps.KDAData_Fungible)},
+		marketOrder.MarketplaceID,
+		marketOrder.ID,
+	))
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (m *marketKapp) computeRoyaltiesAmount(ctx kapp.KappContext, marketOrder *kapps.MarketOrderData, asset *kapps.KDAData, currencyID []byte, royaltiesAmount int64) (transaction.Transaction_TXResultCode, error) {
+	if royaltiesAmount <= 0 {
+		return transaction.Transaction_Ok, nil
+	}
+
+	royaltiesMarketPercentageToPay := royaltiesAmount
+	for key, value := range asset.Royalties.SplitRoyalties {
+		status, err := m.computeSplitRoyalties(ctx, key, marketOrder, currencyID, royaltiesAmount, int64(value.PercentMarketPercentage), &royaltiesMarketPercentageToPay)
+		if err != nil {
+			return status, err
+		}
+	}
+
+	if royaltiesMarketPercentageToPay <= 0 {
+		return transaction.Transaction_Ok, nil
+	}
+
+	kdaOwner, err := m.GetExistingUserAccount(asset.Royalties.Address)
+	if !m.forkController.KdaFpr() {
+		kdaOwner, err = m.GetExistingUserAccount(asset.OwnerAddress)
+	}
+	if err != nil {
+		return transaction.Transaction_LoadAccountError, err
+	}
+
+	err = kdaOwner.AddToBalance(royaltiesMarketPercentageToPay, currencyID, m.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_BalanceError, err
+	}
+
+	if err := m.accountsCacher.UpdateUser(kdaOwner); err != nil {
+		return transaction.Transaction_SaveAccountError, err
+	}
+
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.Transfer,
+		ctx.ContractID(),
+		kapps.MarketKAppAddress,
+		kdaOwner.AddressBytes(),
+		[]byte(strconv.FormatInt(royaltiesMarketPercentageToPay, 10)),
+		currencyID,
+		nil,
+		[]byte{byte(kapps.KDAData_Fungible)},
+		marketOrder.MarketplaceID,
+		marketOrder.ID,
+	))
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (m *marketKapp) computeMarketOwnerAmount(ctx kapp.KappContext, marketOrder *kapps.MarketOrderData, currencyID []byte, marketOwnerAmount int64) (transaction.Transaction_TXResultCode, error) {
+	if marketOwnerAmount <= 0 {
+		return transaction.Transaction_Ok, nil
+	}
+
+	marketOwnerAcc, err := m.LoadUserAccount(marketOrder.OwnerAddress)
+	if err != nil {
+		return transaction.Transaction_LoadAccountError, err
+	}
+
+	err = marketOwnerAcc.AddToBalance(marketOwnerAmount, currencyID, m.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_BalanceError, err
+	}
+
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.Transfer,
+		ctx.ContractID(),
+		kapps.MarketKAppAddress,
+		marketOwnerAcc.AddressBytes(),
+		[]byte(strconv.FormatInt(marketOwnerAmount, 10)),
+		currencyID,
+		nil,
+		[]byte{byte(kapps.KDAData_Fungible)},
+		marketOrder.MarketplaceID,
+		marketOrder.ID,
+	))
+
+	if err := m.accountsCacher.UpdateUser(marketOwnerAcc); err != nil {
+		return transaction.Transaction_SaveAccountError, err
+	}
+
+	return transaction.Transaction_Ok, nil
+}
+
 func (m *marketKapp) executeBuyMarket(bidderAcc state.UserAccountHandler, marketKapp state.KAppAccountHandler, marketOrder *kapps.MarketOrderData, currencyID []byte) (transaction.Transaction_TXResultCode, error) {
 	ctx := m.KAppController.GetCurrentKAppContext()
 
@@ -355,216 +570,34 @@ func (m *marketKapp) executeBuyMarket(bidderAcc state.UserAccountHandler, market
 		return transaction.Transaction_KAPPError, err
 	}
 
-	referralAmount := int64(float64(marketOrder.CurrentBid) * float64(marketOrder.ReferralPercentage) / float64(core.HundredPercent))
-	royaltiesAmount := int64(float64(marketOrder.CurrentBid) * float64(asset.Royalties.MarketPercentage) / float64(core.HundredPercent))
+	referralAmount, err := tools.ComputePercentageI64(marketOrder.CurrentBid, int64(marketOrder.ReferralPercentage), m.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_ParameterInvalid, err
+	}
+	royaltiesAmount, err := tools.ComputePercentageI64(marketOrder.CurrentBid, int64(asset.Royalties.MarketPercentage), m.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_ParameterInvalid, err
+	}
 	marketOwnerAmount := marketOrder.CurrentBid - referralAmount - royaltiesAmount
 
-	if referralAmount > 0 {
-		_, marketplace, err := m.GetMarketplace(marketOrder.MarketplaceID)
-		if err != nil {
-			return transaction.Transaction_ParameterInvalid, err
-		}
-
-		referralAcc, err := m.LoadUserAccount(marketplace.ReferralAddress)
-		if err != nil {
-			return transaction.Transaction_LoadAccountError, err
-		}
-
-		err = referralAcc.AddToBalance(referralAmount, currencyID, m.forkController.EnableSmartContracts())
-		if err != nil {
-			return transaction.Transaction_BalanceError, err
-		}
-
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			kapps.MarketKAppAddress,
-			referralAcc.AddressBytes(),
-			[]byte(strconv.FormatInt(referralAmount, 10)),
-			currencyID,
-			nil,
-			[]byte{byte(kapps.KDAData_Fungible)},
-			marketOrder.MarketplaceID,
-			marketOrder.ID,
-		))
-
-		if err := m.accountsCacher.UpdateUser(referralAcc); err != nil {
-			return transaction.Transaction_SaveAccountError, err
-		}
+	status, err := m.computeReferralAmount(ctx, marketOrder, referralAmount, currencyID)
+	if err != nil {
+		return status, err
 	}
 
-	if marketOrder.RoyaltiesFixedDeposit > 0 {
-		royaltiesMarketFixedToPay := marketOrder.RoyaltiesFixedDeposit
-		for key, value := range asset.Royalties.SplitRoyalties {
-
-			decodedAddress, err := hex.DecodeString(key)
-			if err != nil {
-				return transaction.Transaction_LoadAccountError, err
-			}
-
-			splitRoyalty, err := m.LoadUserAccount(decodedAddress)
-			if err != nil {
-				return transaction.Transaction_LoadAccountError, err
-			}
-
-			splitToPay := int64(float64(marketOrder.RoyaltiesFixedDeposit) * float64(value.PercentMarketFixed) / float64(core.HundredPercent))
-			royaltiesMarketFixedToPay -= splitToPay
-
-			err = splitRoyalty.AddToBalance(splitToPay, kdautils.KLVIdentifier, m.forkController.EnableSmartContracts())
-			if err != nil {
-				return transaction.Transaction_BalanceError, err
-			}
-
-			if err := m.accountsCacher.UpdateUser(splitRoyalty); err != nil {
-				return transaction.Transaction_SaveAccountError, err
-			}
-
-			ctx.Receipts().Add(txProcess.NewReceipt(
-				txProcess.Transfer,
-				ctx.ContractID(),
-				kapps.MarketKAppAddress,
-				splitRoyalty.AddressBytes(),
-				[]byte(strconv.FormatInt(splitToPay, 10)),
-				kdautils.KLVIdentifier,
-				nil,
-				[]byte{byte(kapps.KDAData_Fungible)},
-				marketOrder.MarketplaceID,
-				marketOrder.ID,
-			))
-		}
-
-		if royaltiesMarketFixedToPay > 0 {
-			kdaOwner, err := m.LoadUserAccount(asset.Royalties.Address)
-			if err != nil {
-				return transaction.Transaction_LoadAccountError, err
-			}
-
-			err = kdaOwner.AddToBalance(royaltiesMarketFixedToPay, kdautils.KLVIdentifier, m.forkController.EnableSmartContracts())
-			if err != nil {
-				return transaction.Transaction_BalanceError, err
-			}
-
-			if err := m.accountsCacher.UpdateUser(kdaOwner); err != nil {
-				return transaction.Transaction_SaveAccountError, err
-			}
-
-			ctx.Receipts().Add(txProcess.NewReceipt(
-				txProcess.Transfer,
-				ctx.ContractID(),
-				kapps.MarketKAppAddress,
-				kdaOwner.AddressBytes(),
-				[]byte(strconv.FormatInt(royaltiesMarketFixedToPay, 10)),
-				kdautils.KLVIdentifier,
-				nil,
-				[]byte{byte(kapps.KDAData_Fungible)},
-				marketOrder.MarketplaceID,
-				marketOrder.ID,
-			))
-		}
-
+	status, err = m.computeRoyaltiesFixedDeposit(ctx, marketOrder, asset)
+	if err != nil {
+		return status, err
 	}
 
-	if royaltiesAmount > 0 {
-		royaltiesMarketPercentageToPay := royaltiesAmount
-		for key, value := range asset.Royalties.SplitRoyalties {
-
-			decodedAddress, err := hex.DecodeString(key)
-			if err != nil {
-				return transaction.Transaction_LoadAccountError, err
-			}
-
-			splitRoyalty, err := m.GetExistingUserAccount(decodedAddress)
-			if err != nil {
-				return transaction.Transaction_LoadAccountError, err
-			}
-
-			splitToPay := int64(float64(royaltiesAmount) * float64(value.PercentMarketPercentage) / float64(core.HundredPercent))
-			royaltiesMarketPercentageToPay -= splitToPay
-
-			err = splitRoyalty.AddToBalance(splitToPay, currencyID, m.forkController.EnableSmartContracts())
-			if err != nil {
-				return transaction.Transaction_BalanceError, err
-			}
-
-			if err := m.accountsCacher.UpdateUser(splitRoyalty); err != nil {
-				return transaction.Transaction_SaveAccountError, err
-			}
-
-			ctx.Receipts().Add(txProcess.NewReceipt(
-				txProcess.Transfer,
-				ctx.ContractID(),
-				kapps.MarketKAppAddress,
-				splitRoyalty.AddressBytes(),
-				[]byte(strconv.FormatInt(splitToPay, 10)),
-				currencyID,
-				nil,
-				[]byte{byte(kapps.KDAData_Fungible)},
-				marketOrder.MarketplaceID,
-				marketOrder.ID,
-			))
-		}
-
-		if royaltiesMarketPercentageToPay > 0 {
-			kdaOwner, err := m.GetExistingUserAccount(asset.Royalties.Address)
-			if !m.forkController.KdaFpr() {
-				kdaOwner, err = m.GetExistingUserAccount(asset.OwnerAddress)
-			}
-			if err != nil {
-				return transaction.Transaction_LoadAccountError, err
-			}
-
-			err = kdaOwner.AddToBalance(royaltiesMarketPercentageToPay, currencyID, m.forkController.EnableSmartContracts())
-			if err != nil {
-				return transaction.Transaction_BalanceError, err
-			}
-
-			if err := m.accountsCacher.UpdateUser(kdaOwner); err != nil {
-				return transaction.Transaction_SaveAccountError, err
-			}
-
-			ctx.Receipts().Add(txProcess.NewReceipt(
-				txProcess.Transfer,
-				ctx.ContractID(),
-				kapps.MarketKAppAddress,
-				kdaOwner.AddressBytes(),
-				[]byte(strconv.FormatInt(royaltiesMarketPercentageToPay, 10)),
-				currencyID,
-				nil,
-				[]byte{byte(kapps.KDAData_Fungible)},
-				marketOrder.MarketplaceID,
-				marketOrder.ID,
-			))
-		}
-
+	status, err = m.computeRoyaltiesAmount(ctx, marketOrder, asset, currencyID, royaltiesAmount)
+	if err != nil {
+		return status, err
 	}
 
-	if marketOwnerAmount > 0 {
-		marketOwnerAcc, err := m.LoadUserAccount(marketOrder.OwnerAddress)
-		if err != nil {
-			return transaction.Transaction_LoadAccountError, err
-		}
-
-		err = marketOwnerAcc.AddToBalance(marketOwnerAmount, currencyID, m.forkController.EnableSmartContracts())
-		if err != nil {
-			return transaction.Transaction_BalanceError, err
-		}
-
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			kapps.MarketKAppAddress,
-			marketOwnerAcc.AddressBytes(),
-			[]byte(strconv.FormatInt(marketOwnerAmount, 10)),
-			currencyID,
-			nil,
-			[]byte{byte(kapps.KDAData_Fungible)},
-			marketOrder.MarketplaceID,
-			marketOrder.ID,
-		))
-
-		if err := m.accountsCacher.UpdateUser(marketOwnerAcc); err != nil {
-			return transaction.Transaction_SaveAccountError, err
-		}
+	status, err = m.computeMarketOwnerAmount(ctx, marketOrder, currencyID, marketOwnerAmount)
+	if err != nil {
+		return status, err
 	}
 
 	data, err := marketKapp.SubInternalKDA(marketOrder.CollectionID, marketOrder.AssetID)

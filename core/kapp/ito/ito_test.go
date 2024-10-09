@@ -777,51 +777,6 @@ func Test_Trigger_RemoveFromWhitelist_AfterSmartContractFork_CantRemoveWhitelist
 	assert.Equal(t, transaction.Transaction_AccountError, status)
 }
 
-func Test_GetSplitRoyalties_InvalidAddressError(t *testing.T) {
-	itoKapp := setupITOKapp(t, config.EnableEpochs{
-		SmartContracts: 0,
-	})
-	status, _, err := itoKapp.GetSplitRoyalties("non-valid-address")
-	require.Error(t, err)
-	assert.Equal(t, transaction.Transaction_LoadAccountError, status)
-}
-
-func Test_GetSplitRoyalties_InvalidUserError(t *testing.T) {
-	itoKapp := setupITOKapp(t, config.EnableEpochs{
-		SmartContracts: 0,
-	})
-
-	accCacher := &mock.AccountsCacherStub{
-		LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
-			return nil, mockError
-		},
-	}
-
-	_ = itoKapp.SetAccountsCacher(accCacher)
-
-	status, _, err := itoKapp.GetSplitRoyalties(hex.EncodeToString(makeAddress("existing-address")))
-	require.Error(t, err)
-	assert.Equal(t, transaction.Transaction_LoadAccountError, status)
-}
-
-func Test_GetSplitRoyalties_ShouldWork(t *testing.T) {
-	itoKapp := setupITOKapp(t, config.EnableEpochs{
-		SmartContracts: 0,
-	})
-
-	accCacher := &mock.AccountsCacherStub{
-		LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
-			return &mock.AccountWrapMock{}, nil
-		},
-	}
-
-	_ = itoKapp.SetAccountsCacher(accCacher)
-
-	status, _, err := itoKapp.GetSplitRoyalties(hex.EncodeToString(makeAddress("existing-address")))
-	require.NoError(t, err)
-	assert.Equal(t, transaction.Transaction_Ok, status)
-}
-
 func Test_BuyIto_BeforeSmartContractFork_ShouldWork(t *testing.T) {
 	itoKapp := setupITOKapp(t, config.EnableEpochs{
 		SmartContracts: 100_00,
