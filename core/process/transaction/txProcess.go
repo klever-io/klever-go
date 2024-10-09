@@ -795,6 +795,10 @@ func (txProc *txProcessor) depositContract(ctx kapp.KappContext, tx *transaction
 }
 
 func (txProc *txProcessor) smartContract(ctx kapp.KappContext, owner state.UserAccountHandler, tx *transaction.Transaction) error {
+	if err := txProc.validateSCTransaction(ctx, tx); err != nil {
+		return err
+	}
+
 	tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
 	if err != nil {
 		tx.ResultCode = transaction.Transaction_ContractInvalid
@@ -803,54 +807,77 @@ func (txProc *txProcessor) smartContract(ctx kapp.KappContext, owner state.UserA
 
 	switch tc.GetType() {
 	case transaction.SmartContract_SCDeploy:
-		sw := tools.NewStopWatch()
-		sw.Start("deploy")
-		returnCode, err := txProc.scProcessor.DeploySmartContract(ctx, tc)
-		if err != nil || returnCode != vmcommon.Ok {
-			tx.ResultCode = returnCode.ResultCode()
-			if err == nil {
-				err = fmt.Errorf("%w: %s", process.ErrSmartContractDeploymentFailed, returnCode.String())
-			}
-			logSC.Debug("error deploying smart contract", "error", err, "returnCode", returnCode)
-			return err
-		}
-
-		sw.Stop("deploy")
-		duration := sw.GetMeasurement("deploy")
-		logSC.Trace("deploy smart contract", "duration", duration)
-
-		tx.ResultCode = transaction.Transaction_Ok
-		return nil
+		return txProc.deploySC(ctx, tc, tx)
 	case transaction.SmartContract_SCInvoke:
-		sw := tools.NewStopWatch()
-		sw.Start("execute")
-
-		destAcc, err := txProc.accountsCacher.GetExistingUser(tc.GetAddress())
-		if err != nil {
-			tx.ResultCode = transaction.Transaction_AccountError
-			return err
-		}
-
-		returnCode, err := txProc.scProcessor.ExecuteSmartContractTransaction(ctx, tc, owner, destAcc)
-		if err != nil || returnCode != vmcommon.Ok {
-			tx.ResultCode = returnCode.ResultCode()
-			if err == nil {
-				err = fmt.Errorf("%w: %s", process.ErrSmartContractInvokeFailed, returnCode.String())
-			}
-			logSC.Debug("error invoke smart contract", "error", err, "returnCode", returnCode)
-			return err
-		}
-
-		sw.Stop("execute")
-		duration := sw.GetMeasurement("execute")
-		logSC.Trace("execute smart contract", "duration", duration)
-
-		tx.ResultCode = transaction.Transaction_Ok
-		return nil
+		return txProc.invokeSC(ctx, owner, tx, tc)
 	default:
 		tx.ResultCode = transaction.Transaction_ParameterInvalid
 		err = common.ErrSmartContractTypeInvalid
 	}
 
 	return err
+}
+
+func (txProc *txProcessor) invokeSC(ctx kapp.KappContext, owner state.UserAccountHandler, tx *transaction.Transaction, tc *transaction.SmartContract) error {
+	sw := tools.NewStopWatch()
+	sw.Start("execute")
+
+	destAcc, err := txProc.accountsCacher.GetExistingUser(tc.GetAddress())
+	if err != nil {
+		tx.ResultCode = transaction.Transaction_AccountError
+		return err
+	}
+
+	returnCode, err := txProc.scProcessor.ExecuteSmartContractTransaction(ctx, tc, owner, destAcc)
+	if err != nil || returnCode != vmcommon.Ok {
+		tx.ResultCode = returnCode.ResultCode()
+		if err == nil {
+			err = fmt.Errorf("%w: %s", process.ErrSmartContractInvokeFailed, returnCode.String())
+		}
+		logSC.Debug("error invoke smart contract", "error", err, "returnCode", returnCode)
+		return err
+	}
+
+	sw.Stop("execute")
+	duration := sw.GetMeasurement("execute")
+	logSC.Trace("execute smart contract", "duration", duration)
+
+	tx.ResultCode = transaction.Transaction_Ok
+	return nil
+}
+
+func (txProc *txProcessor) deploySC(ctx kapp.KappContext, tc *transaction.SmartContract, tx *transaction.Transaction) error {
+	sw := tools.NewStopWatch()
+	sw.Start("deploy")
+	returnCode, err := txProc.scProcessor.DeploySmartContract(ctx, tc)
+	if err != nil || returnCode != vmcommon.Ok {
+		tx.ResultCode = returnCode.ResultCode()
+		if err == nil {
+			err = fmt.Errorf("%w: %s", process.ErrSmartContractDeploymentFailed, returnCode.String())
+		}
+		logSC.Debug("error deploying smart contract", "error", err, "returnCode", returnCode)
+		return err
+	}
+
+	sw.Stop("deploy")
+	duration := sw.GetMeasurement("deploy")
+	logSC.Trace("deploy smart contract", "duration", duration)
+
+	tx.ResultCode = transaction.Transaction_Ok
+	return nil
+}
+
+func (txProc *txProcessor) validateSCTransaction(ctx kapp.KappContext, tx *transaction.Transaction) error {
+	// ignore smart contract execution if the fork is inactive
+	if !txProc.forkController.EnableSmartContracts() {
+		tx.ResultCode = transaction.Transaction_ContractNotFound
+		return process.ErrInvalidTransactionType
+	}
+
+	// Smart contract execution depends on ExecData. In deployment the `data` is a wasm file, in invoke `data` is a function call
+	if ctx.GetExecData() == nil {
+		tx.ResultCode = transaction.Transaction_ContractInvalid
+		return process.ErrInvalidContractOrRawDataSize
+	}
+	return nil
 }

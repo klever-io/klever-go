@@ -3,6 +3,8 @@ package transaction
 import (
 	"math/big"
 
+	"github.com/klever-io/klever-go/core"
+
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/crypto/hashing"
@@ -53,4 +55,36 @@ func NilSimulateTxProcessorExportTest() *SimulateTxProcessorExportTest {
 	return &SimulateTxProcessorExportTest{
 		simulateTxProcessor: nil,
 	}
+}
+
+type TxProcessorExportTest struct {
+	*txProcessor
+}
+
+func NewTxProcessorExportTest() *TxProcessorExportTest {
+	return &TxProcessorExportTest{
+		txProcessor: &txProcessor{
+			baseTxProcessor: &baseTxProcessor{},
+		},
+	}
+}
+
+func (txProc *TxProcessorExportTest) ValidateSCTransaction(ctx kapp.KappContext, tx *transaction.Transaction) error {
+	return txProc.validateSCTransaction(ctx, tx)
+}
+
+func (txProc *TxProcessorExportTest) SmartContract(ctx kapp.KappContext, owner state.UserAccountHandler, tx *transaction.Transaction) error {
+	return txProc.smartContract(ctx, owner, tx)
+}
+
+func (txProc *TxProcessorExportTest) SetForkController(forkController core.ForkController) {
+	txProc.forkController = forkController
+}
+
+func (txProc *TxProcessorExportTest) SetSCProcessor(scProcessor process.SmartContractProcessor) {
+	txProc.scProcessor = scProcessor
+}
+
+func (txProc *TxProcessorExportTest) SetAccountsCacher(accountsCacher state.AccountsCacher) {
+	txProc.accountsCacher = accountsCacher
 }
