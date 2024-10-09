@@ -423,7 +423,7 @@ func (boot *baseBootstrap) removeHeadersHigherThanNonceFromPool(nonce uint64) {
 			continue
 		}
 
-		boot.headers.RemoveHeaderByNonce(nonce)
+		boot.headers.RemoveHeaderByNonce(currentNonce)
 	}
 
 	boot.requestHandler.ResetRequests()
