@@ -12,6 +12,8 @@ import (
 
 // EconomicsHandlerStub -
 type EconomicsHandlerStub struct {
+	MaxGasLimitPerBlockValue               uint64
+	MaxGasLimitPerTxValue                  uint64
 	ComputeTransactionCostCalled           func(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error)
 	GetTransactionFeeCalled                func(tx process.TransactionWithFeeHandler) int64
 	CheckValidityTxValuesCalled            func(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error)
@@ -133,6 +135,14 @@ func (e *EconomicsHandlerStub) IsInterfaceNil() bool {
 
 func (e *EconomicsHandlerStub) ComputeGasLimit(tx data.TransactionHandler) uint64 {
 	return 0
+}
+
+func (e *EconomicsHandlerStub) MaxGasLimitPerBlock() uint64 {
+	return e.MaxGasLimitPerBlockValue
+}
+
+func (e *EconomicsHandlerStub) MaxGasLimitPerTX() uint64 {
+	return e.MaxGasLimitPerTxValue
 }
 
 func (e *EconomicsHandlerStub) SetTXSimulatorProcessor(txSimulatorProcessor txsimulator.TransactionSimulatorProcessor) error {

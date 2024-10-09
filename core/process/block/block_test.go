@@ -3,7 +3,9 @@ package block_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -447,6 +449,50 @@ func TestNewMetaProcessor_NilBlockSizeThrottlerShouldErr(t *testing.T) {
 
 	be, err := blproc.NewMetaProcessor(arguments)
 	assert.Equal(t, process.ErrNilBlockSizeThrottler, err)
+	assert.Nil(t, be)
+}
+
+func TestNewMetaProcessor_NilDataPoolHeaderShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	arguments.DataPool.(*mock.PoolsHolderStub).HeadersCalled = nil
+
+	be, err := blproc.NewMetaProcessor(arguments)
+	assert.Equal(t, common.ErrNilHeadersDataPool, err)
+	assert.Nil(t, be)
+}
+
+func TestNewMetaProcessor_NilEconomicsDataShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	arguments.EconomicsData = nil
+
+	be, err := blproc.NewMetaProcessor(arguments)
+	assert.Equal(t, common.ErrNilEconomicsData, err)
+	assert.Nil(t, be)
+}
+
+func TestNewMetaProcessor_NilValidatorStatisticsProcessorShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	arguments.ValidatorStatisticsProcessor = nil
+
+	be, err := blproc.NewMetaProcessor(arguments)
+	assert.Equal(t, common.ErrNilValidatorStatistics, err)
+	assert.Nil(t, be)
+}
+
+func TestNewMetaProcessor_NilKAppControllerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	arguments.KAppController = nil
+
+	be, err := blproc.NewMetaProcessor(arguments)
+	assert.Equal(t, common.ErrKAppController, err)
 	assert.Nil(t, be)
 }
 
@@ -1053,6 +1099,162 @@ func TestMetaProcessor_CreateAndProcessBlockCallsProcessAfterFirstEpoch(t *testi
 	err = mp.ProcessBlock(headerHandler, func() time.Duration { return time.Second })
 	assert.Nil(t, err)
 	assert.True(t, toggleCalled, calledUpdateValidatorsStatus)
+}
+
+func TestMetaProcessor_ProcessProposalEndOfEpoch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		blk    *block.Block
+		perset func(*kapps.ProposalController, state.KAppAccountHandler, *blproc.MetaProcessorForTests) ([]byte, error)
+		check  map[int32][]byte
+		err    interface{}
+	}{
+		{
+			name: "Error ProposalController",
+			blk:  &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1}},
+			perset: func(pc *kapps.ProposalController, _ state.KAppAccountHandler, _ *blproc.MetaProcessorForTests) ([]byte, error) {
+				// set proposal controller with invalid data
+				return []byte("invalid"), nil
+			},
+			err: "cannot parse invalid wire-format data",
+		},
+		{
+			name: "No Active Proposals",
+			blk:  &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1}},
+			perset: func(pc *kapps.ProposalController, _ state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
+				// set proposal controller with valid data no active proposals/params
+				return mp.GetMarshalizer().Marshal(&kapps.ProposalController{})
+			},
+			err: nil,
+		},
+		{
+			name: "Error Invalida Proposal Data",
+			blk:  &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1, Epoch: 1}},
+			perset: func(pc *kapps.ProposalController, kApp state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
+				// set proposal 1
+				mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{})
+
+				// set proposal controller with valid data active proposals/params
+				return mp.GetMarshalizer().Marshal(&kapps.ProposalController{
+					ActiveProposals: map[uint32]*kapps.ActiveProposals{
+						1: {ProposalIDs: []uint64{1}},
+					},
+				})
+			},
+			err: common.ErrEmptyString,
+		},
+		{
+			name: "Proposal Denied",
+			blk:  &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1, Epoch: 1}},
+			perset: func(pc *kapps.ProposalController, kApp state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
+				// set proposal 1
+				mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{Parameters: map[int32][]byte{1: []byte("1234")}})
+
+				// set proposal controller with valid data active proposals/params
+				return mp.GetMarshalizer().Marshal(&kapps.ProposalController{
+					ActiveProposals: map[uint32]*kapps.ActiveProposals{
+						1: {ProposalIDs: []uint64{1}},
+					},
+				})
+			},
+			check: map[int32][]byte{1: []byte("50000000000")},
+			err:   nil,
+		},
+		{
+			name: "Proposal Approved",
+			blk:  &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1, Epoch: 1}},
+			perset: func(pc *kapps.ProposalController, kApp state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
+				// set proposal 1
+				mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{Parameters: map[int32][]byte{1: []byte("1234")}, Votes: map[int32]int64{int32(kapps.ProposalData_VoteDetail_Yes): 10}})
+
+				// set proposal controller with valid data active proposals/params
+				return mp.GetMarshalizer().Marshal(&kapps.ProposalController{
+					ActiveProposals: map[uint32]*kapps.ActiveProposals{
+						1: {ProposalIDs: []uint64{1}},
+					},
+				})
+			},
+			check: map[int32][]byte{1: []byte("1234")},
+			err:   nil,
+		},
+		{
+			name: "Proposal Approved InvalidValue",
+			blk:  &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1, Epoch: 1}},
+			perset: func(pc *kapps.ProposalController, kApp state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
+				// set proposal 1
+				mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{Parameters: map[int32][]byte{1: []byte("invalid")}, Votes: map[int32]int64{int32(kapps.ProposalData_VoteDetail_Yes): 10}})
+
+				// set proposal controller with valid data active proposals/params
+				return mp.GetMarshalizer().Marshal(&kapps.ProposalController{
+					ActiveProposals: map[uint32]*kapps.ActiveProposals{
+						1: {ProposalIDs: []uint64{1}},
+					},
+				})
+			},
+			check: map[int32][]byte{1: []byte("50000000000")},
+			err:   "strconv.ParseInt: parsing \"invalid\": invalid syntax",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			arguments := createMockMetaArguments()
+			mpp, err := blproc.NewMetaProcessor(arguments)
+			require.NoError(t, err)
+			mp := blproc.NewMetaProcessorForTests(mpp)
+
+			SetProposal(t, mp, tt.perset)
+
+			err = mp.ProcessProposalsEndOfEpoch(tt.blk)
+			if tt.err != nil {
+				if str, ok := tt.err.(string); ok {
+					assert.True(t, strings.Contains(err.Error(), str), fmt.Sprintf("expected %s to contain %s", err.Error(), str))
+				} else {
+					assert.Equal(t, tt.err, err, "expected error equal")
+				}
+			} else {
+				assert.Nil(t, err, "expected no error")
+			}
+
+			for k, v := range tt.check {
+				assert.Equal(t, v, mp.GetActiveParameters()[k].Value)
+			}
+		})
+	}
+}
+
+func SetProposal(
+	t *testing.T,
+	mp *blproc.MetaProcessorForTests,
+	exec func(*kapps.ProposalController, state.KAppAccountHandler, *blproc.MetaProcessorForTests) ([]byte, error),
+) {
+	adapter := mp.GetKAppAdapter()
+
+	acnt, err := adapter.LoadAccount(kapps.ProposalKAppAddress)
+	require.NoError(t, err)
+
+	proposalKApp, ok := acnt.(state.KAppAccountHandler)
+	if !ok {
+		t.Error("could not load proposal kapp")
+	}
+
+	controllerBytes, err := proposalKApp.DataTrieTracker().RetrieveValue(kdautils.ProposalControllerKey)
+	require.NoError(t, err)
+
+	currentProposal := &kapps.ProposalController{}
+	err = mp.GetMarshalizer().Unmarshal(currentProposal, controllerBytes)
+	require.NoError(t, err)
+
+	result, err := exec(currentProposal, proposalKApp, mp)
+	require.NoError(t, err)
+
+	err = proposalKApp.DataTrieTracker().SaveKeyValue(kdautils.ProposalControllerKey, result)
+	require.NoError(t, err)
+
+	// set proposal controller
+	adapter.SaveAccount(proposalKApp)
 }
 
 func createShardedDataChacherNotifier(

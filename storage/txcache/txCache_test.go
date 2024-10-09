@@ -245,7 +245,7 @@ func Test_SelectTransactions_Dummy(t *testing.T) {
 	cache.AddTx(createTx([]byte("hash-bob-5"), "bob", 5, 1))
 	cache.AddTx(createTx([]byte("hash-carol-1"), "carol", 1, 1))
 
-	sorted := cache.SelectTransactions(10, 2)
+	sorted := cache.SelectTransactions(10, 2, math.MaxUint64)
 	require.Len(t, sorted, 8)
 }
 
@@ -270,7 +270,7 @@ func Test_SelectTransactions(t *testing.T) {
 
 	require.Equal(t, uint64(nTotalTransactions), cache.CountTx())
 
-	sorted := cache.SelectTransactions(nRequestedTransactions, 2)
+	sorted := cache.SelectTransactions(nRequestedTransactions, 2, math.MaxUint64)
 
 	require.Len(t, sorted, tools.MinInt(nRequestedTransactions, nTotalTransactions))
 
@@ -501,7 +501,7 @@ func TestTxCache_ConcurrentMutationAndSelection(t *testing.T) {
 	go func() {
 		for i := 0; i < 100; i++ {
 			fmt.Println("Selection", i)
-			cache.SelectTransactions(100, 100)
+			cache.SelectTransactions(100, 100, math.MaxUint64)
 		}
 
 		wg.Done()

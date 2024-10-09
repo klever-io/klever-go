@@ -1,9 +1,11 @@
 package preprocess
 
 import (
+	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/storage/txcache"
 )
 
 func NewTransactionsTest(txs *transactions) *Transactions {
@@ -79,4 +81,19 @@ func (txs *Transactions) GetTxInfoForCurrentBlock(txHash []byte) data.Transactio
 	}
 
 	return txInfo.tx
+}
+
+func (txs *Transactions) PreFilterTransactionsWithPriority(
+	transactions []*txcache.WrappedTransaction,
+	gasBandwidth uint64,
+) ([]*txcache.WrappedTransaction, []*txcache.WrappedTransaction) {
+	return txs.preFilterTransactionsWithPriority(transactions, gasBandwidth)
+}
+
+func (txs *Transactions) GetTXProcessor() process.TransactionProcessor {
+	return txs.txProcessor
+}
+
+func (txs *Transactions) GetEconomicsFee() process.EconomicsDataHandler {
+	return txs.economicsFee
 }

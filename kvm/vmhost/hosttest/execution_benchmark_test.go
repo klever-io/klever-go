@@ -266,7 +266,6 @@ func prepare(tb testing.TB, ownerAddress []byte) (*worldmock.MockWorld, *worldmo
 		mockWorld,
 		&vmhost.VMHostParameters{
 			VMType:                   testcommon.DefaultVMType,
-			BlockGasLimit:            uint64(1000),
 			GasSchedule:              gasMap,
 			BuiltInFuncContainer:     mockWorld.BuiltinFuncs.Container,
 			ProtectedKeyPrefix:       protectedKeys,

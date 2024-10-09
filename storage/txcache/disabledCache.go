@@ -26,7 +26,7 @@ func (cache *DisabledCache) GetByTxHash(_ []byte) (*WrappedTransaction, bool) {
 }
 
 // SelectTransactions returns an empty slice
-func (cache *DisabledCache) SelectTransactions(_ int, _ int) []*WrappedTransaction {
+func (cache *DisabledCache) SelectTransactions(_ int, _ int, _ uint64) []*WrappedTransaction {
 	return make([]*WrappedTransaction, 0)
 }
 

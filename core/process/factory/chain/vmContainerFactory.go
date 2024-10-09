@@ -29,7 +29,6 @@ type vmContainerFactory struct {
 	config             config.VirtualMachineConfig
 	blockChainHook     process.BlockChainHookHandler
 	cryptoHook         vmcommon.CryptoHook
-	blockGasLimit      uint64
 	gasSchedule        core.GasScheduleNotifier
 	builtinFunctions   vmcommon.BuiltInFunctionContainer
 	epochNotifier      process.EpochNotifier
@@ -44,7 +43,6 @@ type vmContainerFactory struct {
 // ArgVMContainerFactory defines the arguments needed to the new VM factory
 type ArgVMContainerFactory struct {
 	Config             config.VirtualMachineConfig
-	BlockGasLimit      uint64
 	GasSchedule        core.GasScheduleNotifier
 	EpochNotifier      process.EpochNotifier
 	ForkController     core.ForkController
@@ -87,7 +85,6 @@ func NewVMContainerFactory(args ArgVMContainerFactory) (*vmContainerFactory, err
 		config:             args.Config,
 		blockChainHook:     args.BlockChainHook,
 		cryptoHook:         cryptoHook,
-		blockGasLimit:      args.BlockGasLimit,
 		gasSchedule:        args.GasSchedule,
 		builtinFunctions:   args.BuiltInFunctions,
 		epochNotifier:      args.EpochNotifier,
@@ -298,7 +295,6 @@ func (vmf *vmContainerFactory) createInProcessWasmVMV10() (vmcommon.VMExecutionH
 
 	hostParameters := &wasmvm10.VMHostParameters{
 		VMType:                              common.WasmVirtualMachine,
-		BlockGasLimit:                       vmf.blockGasLimit,
 		GasSchedule:                         vmf.gasSchedule.LatestGasSchedule(),
 		BuiltInFuncContainer:                vmf.builtinFunctions,
 		ProtectedKeyPrefix:                  protectedKeys,

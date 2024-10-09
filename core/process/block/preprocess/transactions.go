@@ -298,13 +298,60 @@ func (txs *transactions) IsInterfaceNil() bool {
 	return txs == nil
 }
 
-// SortTransactionsBySenderAndNonce sorts the provided transactions and hashes simultaneously
-func SortTransactionsBySenderAndNonce(transactions []*txcache.WrappedTransaction) {
+// this function is used to compute the transactions to be included in the block
+// it sorts the transactions by sender and nonce with randomness and returns the selected transactions
+// transactions are selected based on the gas bandwidth available
+func (txs *transactions) ComputeSortedTxs(
+	gasBandwidth uint64,
+	randomness []byte,
+) ([]*txcache.WrappedTransaction, error) {
+	txCache, err := txs.getTXPool()
+	if err != nil {
+		return nil, err
+	}
+
+	// select transactions from the pool based on max number of transactions to select and max gas bandwidth per sender
+	selectedTXs := txCache.SelectTransactions(process.MaxNumOfTxsToSelect, process.NumTxPerBatchForFillingBlock, core.MaxGasBandwidthPerBatchPerSender)
+	// pre-filter transactions prioritizing the move balance operations
+	// reaming transactions are not used in this step
+	selectedTxs, _ := txs.preFilterTransactionsWithPriority(selectedTXs, gasBandwidth)
+	txs.sortTransactionsBySenderAndNonce(selectedTxs, randomness)
+
+	return selectedTxs, nil
+}
+
+func (txs *transactions) getTXPool() (*txcache.TxCache, error) {
+	txPool := txs.txPool.ShardDataStore("0")
+	if check.IfNil(txPool) {
+		log.Debug("CreateAndProcessBlock", "error", common.ErrNilTxDataPool.Error())
+		return nil, common.ErrNilTxDataPool
+	}
+
+	txCache, isTxCache := txPool.(*txcache.TxCache)
+	if !isTxCache {
+		log.Debug("CreateAndProcessBlock", "error", common.ErrWrongTypeAssertion.Error())
+		return nil, common.ErrWrongTypeAssertion
+	}
+
+	return txCache, nil
+}
+
+// sortTransactionsBySenderAndNonce sorts the provided transactions and hashes simultaneously
+func (txs *transactions) sortTransactionsBySenderAndNonce(transactions []*txcache.WrappedTransaction, randomness []byte) {
+	// make sure randomness is 32bytes and uniform
+	randSeed := txs.hasher.Compute(string(randomness))
+	xoredAddresses := make(map[string][]byte)
+
+	for _, tx := range transactions {
+		xoredBytes := xorBytes(tx.Tx.GetSender(), randSeed)
+		xoredAddresses[string(tx.Tx.GetSender())] = txs.hasher.Compute(string(xoredBytes))
+	}
+
 	sorter := func(i, j int) bool {
 		txI := transactions[i].Tx
 		txJ := transactions[j].Tx
 
-		delta := bytes.Compare(txI.GetSender(), txJ.GetSender())
+		delta := bytes.Compare(xoredAddresses[string(txI.GetSender())], xoredAddresses[string(txJ.GetSender())])
 		if delta == 0 {
 			delta = int(txI.GetNonce()) - int(txJ.GetNonce()) // #nosec G115
 		}
@@ -313,6 +360,106 @@ func SortTransactionsBySenderAndNonce(transactions []*txcache.WrappedTransaction
 	}
 
 	sort.Slice(transactions, sorter)
+}
+
+// parameters need to be of the same len, otherwise it will panic (if second slice shorter)
+func xorBytes(a, b []byte) []byte {
+	res := make([]byte, len(a))
+	for i := range a {
+		res[i] = a[i] ^ b[i]
+	}
+	return res
+}
+
+// preFilterTransactions filters the transactions prioritizing the move balance operations
+func (txs *transactions) preFilterTransactionsWithPriority(
+	transactions []*txcache.WrappedTransaction,
+	gasBandwidth uint64,
+) ([]*txcache.WrappedTransaction, []*txcache.WrappedTransaction) {
+	selectedTxs, skippedTxs, gasEstimation := txs.filterNoDataTXs(transactions)
+
+	return txs.prefilterTransactions(selectedTxs, skippedTxs, gasEstimation, gasBandwidth)
+}
+
+func (txs *transactions) filterNoDataTXs(transactions []*txcache.WrappedTransaction) ([]*txcache.WrappedTransaction, []*txcache.WrappedTransaction, uint64) {
+	selectedTxs := make([]*txcache.WrappedTransaction, 0, len(transactions))
+	skippedTxs := make([]*txcache.WrappedTransaction, 0, len(transactions))
+	skippedAddresses := make(map[string]struct{})
+
+	skipped := 0
+	gasEstimation := uint64(0)
+	for i, tx := range transactions {
+		// prioritize no data TX (mostly move balance operations)
+		// and don't care about gas cost for them
+		if len(tx.Tx.GetData()) > 0 {
+			skippedTxs = append(skippedTxs, transactions[i])
+			skippedAddresses[string(tx.Tx.GetSender())] = struct{}{}
+			skipped++
+			continue
+		}
+
+		// once address is marked to be skipped, all its transactions next will be skipped
+		if shouldSkipTransactionIfMarkedAddress(tx, skippedAddresses) {
+			skippedTxs = append(skippedTxs, transactions[i])
+			continue
+		}
+
+		selectedTxs = append(selectedTxs, transactions[i])
+		// base protocol TX have a hardcoded minimum gas limit
+		// to compute the gas estimation for the block filling only
+		gasEstimation += core.MinGasLimit
+	}
+	return selectedTxs, skippedTxs, gasEstimation
+}
+
+func shouldSkipTransactionIfMarkedAddress(tx *txcache.WrappedTransaction, addressesToSkip map[string]struct{}) bool {
+	_, ok := addressesToSkip[string(tx.Tx.GetSender())]
+	return ok
+}
+
+func (txs *transactions) prefilterTransactions(
+	initialTxs []*txcache.WrappedTransaction,
+	additionalTxs []*txcache.WrappedTransaction,
+	initialTxsGasEstimation uint64,
+	gasBandwidth uint64,
+) ([]*txcache.WrappedTransaction, []*txcache.WrappedTransaction) {
+
+	selectedTxs, remainingTxs, gasEstimation := txs.addTxsWithinBandwidth(initialTxs, additionalTxs, initialTxsGasEstimation, gasBandwidth)
+
+	log.Debug("preFilterTransactions estimation",
+		"initialTxs", len(initialTxs),
+		"gasCost initialTxs", initialTxsGasEstimation,
+		"additionalTxs", len(additionalTxs),
+		"gasCostEstimation", gasEstimation,
+		"selected", len(selectedTxs),
+		"skipped", len(remainingTxs))
+
+	return selectedTxs, remainingTxs
+}
+
+func (txs *transactions) addTxsWithinBandwidth(
+	initialTxs []*txcache.WrappedTransaction,
+	additionalTxs []*txcache.WrappedTransaction,
+	initialTxsGasEstimation uint64,
+	totalGasBandwidth uint64,
+) ([]*txcache.WrappedTransaction, []*txcache.WrappedTransaction, uint64) {
+	remainingTxs := make([]*txcache.WrappedTransaction, 0, len(additionalTxs))
+	resultedTxs := make([]*txcache.WrappedTransaction, 0, len(initialTxs))
+	resultedTxs = append(resultedTxs, initialTxs...)
+
+	gasEstimation := initialTxsGasEstimation
+	for i, tx := range additionalTxs {
+		// use gasProvided by TX
+		gasProvided := tx.Tx.GetGasLimit()
+		if gasEstimation+gasProvided > totalGasBandwidth {
+			remainingTxs = append(remainingTxs, additionalTxs[i:]...)
+			break
+		}
+
+		resultedTxs = append(resultedTxs, additionalTxs[i])
+		gasEstimation += gasProvided
+	}
+	return resultedTxs, remainingTxs, gasEstimation
 }
 
 // RequestBlockTransactions request for transactions if missing from a block.Body
@@ -424,21 +571,17 @@ func (txs *transactions) ProcessBlockTransactions(
 // CreateAndProcessBlock -
 func (txs *transactions) CreateAndProcessBlockTransactions(blk *block.Block, haveTime func() bool) ([][]byte, int, error) {
 	startTime := time.Now()
-	txPool := txs.txPool.ShardDataStore("0")
 
-	if check.IfNil(txPool) {
-		log.Debug("CreateAndProcessBlock", "error", common.ErrNilTxDataPool.Error())
-		return nil, 0, common.ErrNilTxDataPool
+	// get block gas limit from network economics
+	gasBandwidth := txs.economicsFee.MaxGasLimitPerBlock()
+
+	// get transactions from pool and sort them by sender and nonce with randomness
+	// limiting the number of transactions to be processed
+	selectedTXs, err := txs.ComputeSortedTxs(gasBandwidth, blk.GetRandSeed())
+	if err != nil {
+		log.Debug("computeSortedTxs", "error", err.Error())
+		return nil, 0, nil
 	}
-	txCache, isTxCache := txPool.(*txcache.TxCache)
-	if !isTxCache {
-		log.Debug("CreateAndProcessBlock", "error", common.ErrWrongTypeAssertion.Error())
-		return nil, 0, common.ErrWrongTypeAssertion
-	}
-
-	selectedTXs := txCache.SelectTransactions(process.MaxNumOfTxsToSelect, process.NumTxPerBatchForFillingBlock)
-	SortTransactionsBySenderAndNonce(selectedTXs)
-
 	elapsedTime := time.Since(startTime)
 
 	if len(selectedTXs) == 0 {
@@ -514,8 +657,6 @@ func (txs *transactions) createAndProcessBlock(
 		tx.PrepareForProcessing()
 
 		txHash := sortedTxs[index].TxHash
-		// TODO: check acc TX size thorttler
-
 		if len(senderAddressToSkip) > 0 {
 			if bytes.Equal(senderAddressToSkip, tx.GetSender()) {
 				numTxsSkipped++
@@ -648,12 +789,12 @@ func (txs *transactions) notifyTransactionProviderIfNeeded() {
 
 	txShardPool := txs.txPool.ShardDataStore("0")
 	if check.IfNil(txShardPool) {
-		log.Trace("notifyTransactionProviderIfNeeded", "error", common.ErrNilTxDataPool)
+		log.Error("notifyTransactionProviderIfNeeded txShardPool", "error", common.ErrNilTxDataPool)
 		return
 	}
 	sortedTransactionsProvider, ok := txShardPool.(TxCache)
 	if !ok {
-		log.Trace("notifyTransactionProviderIfNeeded", "error", common.ErrWrongTypeAssertion)
+		log.Error("notifyTransactionProviderIfNeeded sortedTransactionsProvider", "error", common.ErrWrongTypeAssertion)
 	}
 
 	for senderAddress := range txs.accountsInfo {

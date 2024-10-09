@@ -37,7 +37,6 @@ func makeHostParameters() *vmhost.VMHostParameters {
 
 	return &vmhost.VMHostParameters{
 		VMType:               testcommon.DefaultVMType,
-		BlockGasLimit:        uint64(1000),
 		KDATransferParser:    kdaTransferParser,
 		BuiltInFuncContainer: builtInFunctions.NewBuiltInFunctionContainer(),
 		EpochNotifier:        epochNotifier,

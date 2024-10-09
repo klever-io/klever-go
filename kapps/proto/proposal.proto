@@ -62,6 +62,8 @@ enum EnumParameter {
     KAppFeeDeposit                   = 36;
     KAppFeeSmartContract             = 37;
     GasMultiplier                    = 38;
+    MaxGasPerBlock                   = 39;
+    MaxGasPerTX                      = 40;
 }
 
 message ProposalController {

@@ -96,7 +96,6 @@ func (ae *VMTestExecutor) InitVM(scenGasSchedule scenjsonmodel.GasSchedule) erro
 		[]byte(kapps.KDAPrefix),
 	}
 
-	blockGasLimit := uint64(10000000)
 	kdaTransferParser, _ := parsers.NewKDATransferParser(worldhook.WorldMarshalizer)
 
 	// timeout from environment in ms
@@ -116,7 +115,6 @@ func (ae *VMTestExecutor) InitVM(scenGasSchedule scenjsonmodel.GasSchedule) erro
 		&vmhost.VMHostParameters{
 			VMType:                   TestVMType,
 			OverrideVMExecutor:       ae.OverrideVMExecutor,
-			BlockGasLimit:            blockGasLimit,
 			GasSchedule:              gasSchedule,
 			BuiltInFuncContainer:     ae.World.BuiltinFuncs.Container,
 			ProtectedKeyPrefix:       protectedKeys,

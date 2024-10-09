@@ -147,7 +147,6 @@ type CodeDeployInput struct {
 type VMHostParameters struct {
 	VMType                              []byte
 	OverrideVMExecutor                  executor.ExecutorAbstractFactory
-	BlockGasLimit                       uint64
 	GasSchedule                         config.GasScheduleMap
 	BuiltInFuncContainer                vmcommon.BuiltInFunctionContainer
 	KDATransferParser                   vmcommon.KDATransferParser

@@ -10,6 +10,8 @@ import (
 
 // FeeHandlerStub -
 type FeeHandlerStub struct {
+	MaxGasLimitPerBlockValue     uint64
+	MaxGasLimitPerTxValue        uint64
 	CheckValidityTxValuesCalled  func(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error)
 	ComputeTransactionCostCalled func(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error)
 	EpochConfirmedCalled         func(epoch uint32)
@@ -53,6 +55,14 @@ func (fhs *FeeHandlerStub) ComputeGasLimit(tx data.TransactionHandler) uint64 {
 // LeaderPercentage returns the leader percentage
 func (fhs *FeeHandlerStub) LeaderPercentage() float64 {
 	return 0
+}
+
+func (fhs *FeeHandlerStub) MaxGasLimitPerBlock() uint64 {
+	return fhs.MaxGasLimitPerBlockValue
+}
+
+func (fhs *FeeHandlerStub) MaxGasLimitPerTX() uint64 {
+	return fhs.MaxGasLimitPerTxValue
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

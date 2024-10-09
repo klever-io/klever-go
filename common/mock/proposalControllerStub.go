@@ -7,21 +7,12 @@ import (
 )
 
 type ProposalControllerStub struct {
-	GetParametersCalled       func() (kapps.ProposalParameters, error)
-	GetActiveParametersCalled func() map[int32]*kapps.Parameter
-	GetParameterCalled        func(kapps.EnumParameter) (reflect.Value, error)
-	GetParameterIntCalled     func(kapps.EnumParameter) int64
-	GetParameterUintCalled    func(kapps.EnumParameter) uint64
-	UpdateParametersCalled    func(map[int32]*kapps.Parameter)
-	IsInterfaceNilCalled      func() bool
-}
-
-func (stub *ProposalControllerStub) GetParameters() (kapps.ProposalParameters, error) {
-	if stub.GetParametersCalled != nil {
-		return stub.GetParametersCalled()
-	}
-
-	return kapps.ProposalParameters{}, nil
+	GetActiveParametersCalled   func() map[int32]*kapps.Parameter
+	GetParameterIntCalled       func(kapps.EnumParameter) int64
+	GetParameterUintCalled      func(kapps.EnumParameter) uint64
+	ParseParamAndValidateCalled func(parameter kapps.EnumParameter, value []byte) (reflect.Value, error)
+	UpdateParametersCalled      func(map[int32]*kapps.Parameter)
+	IsInterfaceNilCalled        func() bool
 }
 
 func (stub *ProposalControllerStub) GetActiveParameters() map[int32]*kapps.Parameter {
@@ -30,14 +21,6 @@ func (stub *ProposalControllerStub) GetActiveParameters() map[int32]*kapps.Param
 	}
 
 	return nil
-}
-
-func (stub *ProposalControllerStub) GetParameter(param kapps.EnumParameter) (reflect.Value, error) {
-	if stub.GetParameterCalled != nil {
-		return stub.GetParameterCalled(param)
-	}
-
-	return reflect.Value{}, nil
 }
 
 func (stub *ProposalControllerStub) GetParameterInt(param kapps.EnumParameter) int64 {
@@ -54,6 +37,14 @@ func (stub *ProposalControllerStub) GetParameterUint(param kapps.EnumParameter) 
 	}
 
 	return 0
+}
+
+func (stub *ProposalControllerStub) ParseParamAndValidate(param kapps.EnumParameter, value []byte) (reflect.Value, error) {
+	if stub.ParseParamAndValidateCalled != nil {
+		return stub.ParseParamAndValidateCalled(param, value)
+	}
+
+	return reflect.Value{}, nil
 }
 
 func (stub *ProposalControllerStub) UpdateParameters(params map[int32]*kapps.Parameter) {

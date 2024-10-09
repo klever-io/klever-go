@@ -1152,106 +1152,106 @@ func (mp *metaProcessor) epochStartNativeStakingKapps(blk data.HeaderHandler) er
 func (mp *metaProcessor) processProposalsEndOfEpoch(headerHandler data.HeaderHandler) error {
 	log.Debug("Started Proposals Processing")
 
-	proposalKapp, controller, err := mp.getProposalController()
+	proposalKApp, controller, err := mp.getProposalController()
 	if err != nil {
 		return err
 	}
 
+	// check if there are active proposals for the current epoch
 	if controller.ActiveProposals[headerHandler.GetEpoch()] == nil {
 		return nil
 	}
 
+	// retrieve staking data
 	_, _, kfi, err := mp.getNativeStakingKApps()
 	if err != nil {
 		return err
 	}
 
-	var proposalsToUpdate []string
-	for _, proposalID := range controller.ActiveProposals[headerHandler.GetEpoch()].ProposalIDs {
-		proposal, err := mp.getProposalKApp(proposalKapp, proposalID)
-		if err != nil {
-			return err
-		}
-
-		proposal.ProposalStatus = kapps.ProposalData_DeniedProposal
-		if proposal.Votes[int32(kapps.ProposalData_VoteDetail_Yes)] > kfi.TotalStaked/2 {
-			proposal.ProposalStatus = kapps.ProposalData_ApprovedProposal
-		}
-
-		proposal.TotalStaked = kfi.TotalStaked
-
-		if proposal.ProposalStatus == kapps.ProposalData_ApprovedProposal {
-			for parameter, value := range proposal.Parameters {
-				_, err := controller.Validate(kapps.EnumParameter(parameter), value)
-				if err != nil {
-					return err
-				}
-
-				switch kapps.EnumParameter(parameter) {
-				case kapps.EnumParameter_FeePerDataByte,
-					kapps.EnumParameter_KAppFeeCreateAsset,
-					kapps.EnumParameter_KAppFeeCreateValidator,
-					kapps.EnumParameter_KAppFeeTransfer,
-					kapps.EnumParameter_KAppFeeAssetTrigger,
-					kapps.EnumParameter_KAppFeeValidatorConfig,
-					kapps.EnumParameter_KAppFeeFreeze,
-					kapps.EnumParameter_KAppFeeUnfreeze,
-					kapps.EnumParameter_KAppFeeDelegate,
-					kapps.EnumParameter_KAppFeeUndelegate,
-					kapps.EnumParameter_KAppFeeWithdraw,
-					kapps.EnumParameter_KAppFeeClaim,
-					kapps.EnumParameter_KAppFeeUnjail,
-					kapps.EnumParameter_KAppFeeSetAccountName,
-					kapps.EnumParameter_KAppFeeProposal,
-					kapps.EnumParameter_KAppFeeVote,
-					kapps.EnumParameter_KAppFeeConfigITO,
-					kapps.EnumParameter_KAppFeeSetITOPrices,
-					kapps.EnumParameter_KAppFeeBuy,
-					kapps.EnumParameter_KAppFeeSell,
-					kapps.EnumParameter_KAppFeeCancelMarketOrder,
-					kapps.EnumParameter_KAppFeeCreateMarketplace,
-					kapps.EnumParameter_KAppFeeConfigMarketplace,
-					kapps.EnumParameter_KAppFeeUpdateAccountPermission,
-					kapps.EnumParameter_GasMultiplier:
-				//Nothing to do, these ones are executed once an epoch and they get the parameters
-				//directly from the proposalKApp or blockProcessor activeParams instance
-				case kapps.EnumParameter_MaxEpochsUnclaimed,
-					kapps.EnumParameter_MinSelfDelegatedAmount,
-					kapps.EnumParameter_MinTotalDelegatedAmount,
-					kapps.EnumParameter_BlockRewards,
-					kapps.EnumParameter_StakingRewards,
-					kapps.EnumParameter_MaxNFTMintBatch,
-					kapps.EnumParameter_MinKFIStakedToEnableProposals,
-					kapps.EnumParameter_MinKLVBucketAmount,
-					kapps.EnumParameter_MaxBucketSize,
-					kapps.EnumParameter_LeaderValidatorRewardsPercentage,
-					kapps.EnumParameter_ProposalMaxEpochsDuration:
-				default:
-					return common.ErrInvalidParameter
-				}
-
-				controller.ActiveParameters[parameter].Value = make([]byte, len(value))
-				copy(controller.ActiveParameters[parameter].Value, value)
-			}
-
-		}
-
-		proposalsToUpdate = append(proposalsToUpdate, strconv.FormatUint(proposalID, 10))
-		err = mp.setProposalKApp(proposalKapp, proposalID, proposal)
-		if err != nil {
-			return err
-		}
-	}
-
-	mp.indexer.UpdateProposalsAndParameters(proposalsToUpdate)
-	delete(controller.ActiveProposals, headerHandler.GetEpoch())
-	err = mp.setProposalController(proposalKapp, controller)
+	proposalsToUpdate, err := mp.processAllProposals(proposalKApp, controller, kfi, headerHandler)
 	if err != nil {
 		return err
 	}
 
-	err = mp.accountsDB[state.KAppAccountsState].SaveAccount(proposalKapp)
+	mp.indexer.UpdateProposalsAndParameters(proposalsToUpdate)
+	delete(controller.ActiveProposals, headerHandler.GetEpoch())
+
+	return mp.finalizeProposalUpdates(proposalKApp, controller)
+}
+
+func (mp *metaProcessor) processAllProposals(proposalKApp state.KAppAccountHandler, controller *kapps.ProposalController, kfi *kapps.StakingData, headerHandler data.HeaderHandler) ([]string, error) {
+	proposalIDs := controller.ActiveProposals[headerHandler.GetEpoch()].ProposalIDs
+
+	var proposalsToUpdate []string
+	for _, proposalID := range proposalIDs {
+		proposal, err := mp.processSingleProposal(proposalKApp, controller, kfi, proposalID)
+		if err != nil {
+			return nil, err
+		}
+
+		proposalsToUpdate = append(proposalsToUpdate, strconv.FormatUint(proposalID, 10))
+
+		if err := mp.setProposalKApp(proposalKApp, proposalID, proposal); err != nil {
+			return nil, err
+		}
+	}
+
+	return proposalsToUpdate, nil
+}
+
+func (mp *metaProcessor) processSingleProposal(proposalKApp state.KAppAccountHandler, controller *kapps.ProposalController, kfi *kapps.StakingData, proposalID uint64) (*kapps.ProposalData, error) {
+	proposal, err := mp.getProposalKApp(proposalKApp, proposalID)
 	if err != nil {
+		return nil, err
+	}
+
+	proposal.ProposalStatus = mp.determineProposalStatus(proposal, kfi)
+	proposal.TotalStaked = kfi.TotalStaked
+
+	// Update parameters if proposal is approved
+	if proposal.ProposalStatus == kapps.ProposalData_ApprovedProposal {
+		if err := mp.updateApprovedProposalParameters(proposal, controller); err != nil {
+			return nil, err
+		}
+	}
+
+	return proposal, nil
+}
+
+func (mp *metaProcessor) determineProposalStatus(proposal *kapps.ProposalData, kfi *kapps.StakingData) kapps.ProposalData_EnumProposalStatus {
+	if proposal.Votes[int32(kapps.ProposalData_VoteDetail_Yes)] > kfi.TotalStaked/2 {
+		return kapps.ProposalData_ApprovedProposal
+	}
+	return kapps.ProposalData_DeniedProposal
+}
+
+func (mp *metaProcessor) updateApprovedProposalParameters(proposal *kapps.ProposalData, controller *kapps.ProposalController) error {
+	for parameter, value := range proposal.Parameters {
+		if err := mp.validateAndApplyParameter(parameter, value, controller); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (mp *metaProcessor) validateAndApplyParameter(parameter int32, value []byte, controller *kapps.ProposalController) error {
+	_, err := controller.ParseParamAndValidate(kapps.EnumParameter(parameter), value)
+	if err != nil {
+		return err
+	}
+
+	controller.ActiveParameters[parameter].Value = make([]byte, len(value))
+	copy(controller.ActiveParameters[parameter].Value, value)
+
+	return nil
+}
+
+func (mp *metaProcessor) finalizeProposalUpdates(proposalKApp state.KAppAccountHandler, controller *kapps.ProposalController) error {
+	if err := mp.setProposalController(proposalKApp, controller); err != nil {
+		return err
+	}
+
+	if err := mp.accountsDB[state.KAppAccountsState].SaveAccount(proposalKApp); err != nil {
 		return err
 	}
 

@@ -2,6 +2,7 @@ package txcostestimator
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -16,7 +17,7 @@ import (
 
 func newMockTransactionCostEstimator() *transactionCostEstimator {
 	accCacher := &mock.AccountsCacherStub{}
-	feeHandler := &mock.FeeHandlerStub{}
+	feeHandler := &mock.FeeHandlerStub{MaxGasLimitPerTxValue: math.MaxInt64}
 	forkController := &mock.ForkControllerStub{}
 	txSimulator := &mock.TransactionSimulatorProcessorStub{}
 

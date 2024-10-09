@@ -362,6 +362,25 @@ func TestIsInterfaceNil(t *testing.T) {
 	})
 }
 
+func TestGasParams(t *testing.T) {
+	ed := newMockEconomicsData()
+	ed.proposalController.UpdateParameters(map[int32]*kapps.Parameter{
+		int32(kapps.EnumParameter_MaxGasPerBlock): {Type: kapps.EnumType_Int64, Value: []byte("1")},
+		int32(kapps.EnumParameter_MaxGasPerTX):    {Type: kapps.EnumType_Int64, Value: []byte("1")},
+	})
+
+	assert.Equal(t, uint64(1), ed.MaxGasLimitPerTX())
+	assert.Equal(t, uint64(1), ed.MaxGasLimitPerBlock())
+
+	ed.proposalController.UpdateParameters(map[int32]*kapps.Parameter{
+		int32(kapps.EnumParameter_MaxGasPerBlock): {Type: kapps.EnumType_Int64, Value: []byte("2")},
+		int32(kapps.EnumParameter_MaxGasPerTX):    {Type: kapps.EnumType_Int64, Value: []byte("2")},
+	})
+
+	assert.Equal(t, uint64(2), ed.MaxGasLimitPerTX())
+	assert.Equal(t, uint64(2), ed.MaxGasLimitPerBlock())
+}
+
 // Test EpochConfirmed
 func TestEpochConfirmed(t *testing.T) {
 	ed := newMockEconomicsData()

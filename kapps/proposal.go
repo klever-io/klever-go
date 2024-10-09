@@ -2,7 +2,6 @@ package kapps
 
 import (
 	reflect "reflect"
-	strconv "strconv"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
@@ -14,11 +13,10 @@ type activeProposalController struct {
 
 type ActiveProposalController interface {
 	IsInterfaceNil() bool
-	GetParameters() (ProposalParameters, error)
 	GetActiveParameters() map[int32]*Parameter
-	GetParameter(parameter EnumParameter) (reflect.Value, error)
 	GetParameterInt(parameter EnumParameter) int64
 	GetParameterUint(parameter EnumParameter) uint64
+	ParseParamAndValidate(parameter EnumParameter, value []byte) (reflect.Value, error)
 	UpdateParameters(map[int32]*Parameter)
 }
 
@@ -207,9 +205,20 @@ func InitialProposalParameters(forks core.ForkController) map[int32]*Parameter {
 		}
 
 		activeParameters[int32(EnumParameter_GasMultiplier)] = &Parameter{
-			Type:  EnumType_Uint64,
+			Type:  EnumType_Int64,
 			Value: []byte("10"), //10
 		}
+
+		activeParameters[int32(EnumParameter_MaxGasPerBlock)] = &Parameter{
+			Type:  EnumType_Int64,
+			Value: []byte("1500000000"), // 1_500_000_000
+		}
+
+		activeParameters[int32(EnumParameter_MaxGasPerTX)] = &Parameter{
+			Type:  EnumType_Int64,
+			Value: []byte("100000000"), // 100_000_000
+		}
+
 	}
 
 	return activeParameters
@@ -217,102 +226,35 @@ func InitialProposalParameters(forks core.ForkController) map[int32]*Parameter {
 
 type ProposalParameters map[EnumParameter]reflect.Value
 
-func (p ProposalParameters) GetInt64(key EnumParameter) int64 {
-	return p[key].Int()
-}
-
-func (p *ProposalController) Validate(parameter EnumParameter, value []byte) (reflect.Value, error) {
-	if p.ActiveParameters[int32(parameter)] == nil {
+func (p *ProposalController) ParseParam(parameter EnumParameter, value []byte) (reflect.Value, error) {
+	param := p.ActiveParameters[int32(parameter)]
+	if param == nil {
 		return reflect.Value{}, common.ErrInvalidParameter
 	}
 
-	var result reflect.Value
-	switch EnumType(p.ActiveParameters[int32(parameter)].Type) {
-	case EnumType_Bool:
-		v, err := strconv.ParseBool(string(value))
-		if err != nil {
-			return result, err
-		}
-		result = reflect.ValueOf(v)
-	case EnumType_Int8:
-		v, err := strconv.ParseInt(string(value), 10, 8)
-		if err != nil {
-			return result, err
-		}
-		result = reflect.ValueOf(v)
-	case EnumType_Int16:
-		v, err := strconv.ParseInt(string(value), 10, 16)
-		if err != nil {
-			return result, err
-		}
-		result = reflect.ValueOf(v)
-	case EnumType_Int32:
-		v, err := strconv.ParseInt(string(value), 10, 32)
-		if err != nil {
-			return result, err
-		}
-		result = reflect.ValueOf(v)
-	case EnumType_Int64:
-		v, err := strconv.ParseInt(string(value), 10, 64)
-
-		if err != nil {
-			return result, err
-		}
-		result = reflect.ValueOf(v)
-	case EnumType_Uint8:
-		v, err := strconv.ParseUint(string(value), 10, 8)
-		if err != nil {
-			return result, err
-		}
-		result = reflect.ValueOf(v)
-	case EnumType_Uint16:
-		v, err := strconv.ParseUint(string(value), 10, 16)
-		if err != nil {
-			return result, err
-		}
-		result = reflect.ValueOf(v)
-	case EnumType_Uint32:
-		v, err := strconv.ParseUint(string(value), 10, 32)
-		if err != nil {
-			return result, err
-		}
-		result = reflect.ValueOf(v)
-	case EnumType_Uint64:
-		v, err := strconv.ParseUint(string(value), 10, 64)
-		if err != nil {
-			return result, err
-		}
-		result = reflect.ValueOf(v)
-	case EnumType_Float32:
-		v, err := strconv.ParseFloat(string(value), 32)
-		if err != nil {
-			return result, err
-		}
-		result = reflect.ValueOf(v)
-	case EnumType_Float64:
-		v, err := strconv.ParseFloat(string(value), 64)
-		if err != nil {
-			return result, err
-		}
-		result = reflect.ValueOf(v)
-	case EnumType_Complex64:
-		v, err := strconv.ParseComplex(string(value), 64)
-		if err != nil {
-			return result, err
-		}
-		result = reflect.ValueOf(v)
-	case EnumType_Complex128:
-		v, err := strconv.ParseComplex(string(value), 128)
-		if err != nil {
-			return result, err
-		}
-		result = reflect.ValueOf(v)
-	case EnumType_String:
-		result = reflect.ValueOf(string(value))
-	case EnumType_Bytes:
-		result = reflect.ValueOf(value)
-	default:
+	parser, ok := parsers[EnumType(param.Type)]
+	if !ok {
 		return reflect.Value{}, common.ErrInvalidParameter
+	}
+
+	return parser(value)
+}
+
+// ParseAndValidate parses the value and validates it against the constraints
+func (p *ProposalController) ParseParamAndValidate(parameter EnumParameter, value []byte) (reflect.Value, error) {
+	param := p.ActiveParameters[int32(parameter)]
+	if param == nil {
+		return reflect.Value{}, common.ErrInvalidParameter
+	}
+
+	parser, ok := parsers[EnumType(param.Type)]
+	if !ok {
+		return reflect.Value{}, common.ErrInvalidParameter
+	}
+
+	result, err := parser(value)
+	if err != nil {
+		return reflect.Value{}, err
 	}
 
 	return result, p.validateConstraints(parameter, result)
@@ -324,18 +266,21 @@ func (p *ProposalController) validateConstraints(parameter EnumParameter, value 
 		if value.Uint() > uint64(core.HundredPercent) {
 			return common.ErrInvalidParameter
 		}
+	case EnumParameter_GasMultiplier:
+		if value.Int() < 1 {
+			return common.ErrInvalidParameter
+		}
+	case EnumParameter_MaxGasPerBlock:
+		if value.Int() < core.MinGasLimit {
+			return common.ErrInvalidParameter
+		}
+	case EnumParameter_MaxGasPerTX:
+		if value.Int() < core.MinGasLimit || value.Int() > core.MaxGasBandwidthPerBatchPerSender {
+			return common.ErrInvalidParameter
+		}
 	}
 
 	return nil
-}
-
-func (p *ProposalController) GetParameter(parameter EnumParameter) (reflect.Value, error) {
-	parameterValue, ok := p.ActiveParameters[int32(parameter)]
-	if !ok {
-		return reflect.Value{}, common.ErrInvalidParameter
-	}
-
-	return p.Validate(parameter, parameterValue.GetValue())
 }
 
 func (p *ProposalController) GetParameterInt(parameter EnumParameter) int64 {
@@ -344,7 +289,7 @@ func (p *ProposalController) GetParameterInt(parameter EnumParameter) int64 {
 		return 0
 	}
 
-	value, err := p.Validate(parameter, parameterValue.GetValue())
+	value, err := p.ParseParam(parameter, parameterValue.GetValue())
 	if err != nil {
 		return 0
 	}
@@ -352,13 +297,15 @@ func (p *ProposalController) GetParameterInt(parameter EnumParameter) int64 {
 	return value.Int()
 }
 
+// GetParameterUint returns the parameter value as uint64
+// if the parameter is not found or does not match constrains it returns 0
 func (p *ProposalController) GetParameterUint(parameter EnumParameter) uint64 {
 	parameterValue, ok := p.ActiveParameters[int32(parameter)]
 	if !ok {
 		return 0
 	}
 
-	value, err := p.Validate(parameter, parameterValue.GetValue())
+	value, err := p.ParseParam(parameter, parameterValue.GetValue())
 	if err != nil {
 		return 0
 	}
@@ -368,20 +315,6 @@ func (p *ProposalController) GetParameterUint(parameter EnumParameter) uint64 {
 	}
 
 	return value.Uint()
-}
-
-func (p *ProposalController) GetParameters() (ProposalParameters, error) {
-	parameters := make(ProposalParameters, len(p.ActiveParameters))
-	for i := range p.ActiveParameters {
-		value, err := p.Validate(EnumParameter(i), p.ActiveParameters[i].Value)
-		if err != nil {
-			return nil, err
-		}
-
-		parameters[EnumParameter(i)] = value
-	}
-
-	return parameters, nil
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

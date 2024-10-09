@@ -276,7 +276,6 @@ type MeteringContext interface {
 	GetGasProvided() uint64
 	GetSCPrepareInitialCost() uint64
 	BoundGasLimit(value int64) uint64
-	BlockGasLimit() uint64
 	DeductInitialGasForExecution(contract []byte) error
 	DeductInitialGasForDirectDeployment(input CodeDeployInput) error
 	DeductInitialGasForIndirectDeployment(input CodeDeployInput) error

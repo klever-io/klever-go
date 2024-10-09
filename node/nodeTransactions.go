@@ -192,6 +192,7 @@ func (n *Node) computeTransactionFees(tx *transaction.Transaction, base *transac
 			return common.ErrEstimateGasTooBig
 		}
 
+		// Add FreeBandwidth to BandwidthFee to cover SC execution costs
 		tx.RawData.BandwidthFee, err = tools.SafeAddI64(tx.RawData.BandwidthFee, value)
 		if err != nil {
 			return err

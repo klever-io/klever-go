@@ -130,7 +130,7 @@ func NewVMHost(
 		return nil, err
 	}
 
-	host.meteringContext, err = contexts.NewMeteringContext(host, hostParameters.GasSchedule, hostParameters.BlockGasLimit)
+	host.meteringContext, err = contexts.NewMeteringContext(host, hostParameters.GasSchedule)
 	if err != nil {
 		return nil, err
 	}

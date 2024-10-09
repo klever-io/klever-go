@@ -34,7 +34,6 @@ func createMockVMAccountsArguments() ArgVMContainerFactory {
 	kdaTransferParser, _ := parsers.NewKDATransferParser(&mock.MarshalizerMock{})
 	return ArgVMContainerFactory{
 		Config:        makeVMConfig(),
-		BlockGasLimit: 10000,
 		GasSchedule:   notifierMock.NewGasScheduleNotifierMock(kvmConfig.MakeGasMapForTests()),
 		EpochNotifier: &testscommon.EpochNotifierStub{},
 		// EnableEpochsHandler: &testscommon.EnableEpochsHandlerStub{},

@@ -1,6 +1,11 @@
 package preprocess_test
 
 import (
+	"bytes"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -16,6 +21,7 @@ import (
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/retriever"
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/txcache"
@@ -278,6 +284,30 @@ func TestTxsPreprocessor_NewTransactionPreprocessorNilKApps(t *testing.T) {
 	assert.Equal(t, common.ErrNilKAppAccountsAdapter, err)
 }
 
+func TestTxsPreprocessor_NewTransactionPreprocessorNilPeers(t *testing.T) {
+	t.Parallel()
+
+	tdp := initDataPool()
+	requestTransaction := func(txHashes [][]byte) {}
+	txs, err := preprocess.NewTransactionPreprocessor(
+		tdp.Transactions(),
+		&commonMock.ChainStorerMock{},
+		&commonMock.HasherMock{},
+		&commonMock.MarshalizerMock{},
+		&mock.TxProcessorMock{},
+		&commonMock.AccountsStub{},
+		&commonMock.AccountsStub{},
+		nil,
+		requestTransaction,
+		&commonMock.FeeHandlerStub{},
+		createMockPubkeyConverter(),
+		newForkController(),
+	)
+
+	assert.Nil(t, txs)
+	assert.Equal(t, common.ErrNilPeerAccountsAdapter, err)
+}
+
 func TestTxsPreprocessor_NewTransactionPreprocessorNilRequestFunc(t *testing.T) {
 	t.Parallel()
 
@@ -299,6 +329,30 @@ func TestTxsPreprocessor_NewTransactionPreprocessorNilRequestFunc(t *testing.T) 
 
 	assert.Nil(t, txs)
 	assert.Equal(t, common.ErrNilRequestHandler, err)
+}
+
+func TestTxsPreprocessor_NewTransactionPreprocessorNilFeeHandler(t *testing.T) {
+	t.Parallel()
+
+	tdp := initDataPool()
+	requestTransaction := func(txHashes [][]byte) {}
+	txs, err := preprocess.NewTransactionPreprocessor(
+		tdp.Transactions(),
+		&commonMock.ChainStorerMock{},
+		&commonMock.HasherMock{},
+		&commonMock.MarshalizerMock{},
+		&mock.TxProcessorMock{},
+		&commonMock.AccountsStub{},
+		&commonMock.AccountsStub{},
+		&commonMock.AccountsStub{},
+		requestTransaction,
+		nil,
+		createMockPubkeyConverter(),
+		newForkController(),
+	)
+
+	assert.Nil(t, txs)
+	assert.Equal(t, process.ErrNilEconomicsFeeHandler, err)
 }
 
 func TestTxsPreprocessor_NewTransactionPreprocessorNilPubkeyConverter(t *testing.T) {
@@ -323,6 +377,31 @@ func TestTxsPreprocessor_NewTransactionPreprocessorNilPubkeyConverter(t *testing
 
 	assert.Nil(t, txs)
 	assert.Equal(t, common.ErrNilPubkeyConverter, err)
+}
+
+func TestTxsPreprocessor_NewTransactionPreprocessorNilForkController(t *testing.T) {
+	t.Parallel()
+
+	tdp := initDataPool()
+
+	requestTransaction := func(txHashes [][]byte) {}
+	txs, err := preprocess.NewTransactionPreprocessor(
+		tdp.Transactions(),
+		&commonMock.ChainStorerMock{},
+		&commonMock.HasherMock{},
+		&commonMock.MarshalizerMock{},
+		&mock.TxProcessorMock{},
+		&commonMock.AccountsStub{},
+		&commonMock.AccountsStub{},
+		&commonMock.AccountsStub{},
+		requestTransaction,
+		&commonMock.FeeHandlerStub{},
+		createMockPubkeyConverter(),
+		nil,
+	)
+
+	assert.Nil(t, txs)
+	assert.Equal(t, common.ErrNilForkController, err)
 }
 
 func TestTxsPreprocessor_NewTransactionPreprocessorOkValsShouldWork(t *testing.T) {
@@ -540,4 +619,377 @@ func TestTransactions_IsDataPrepared_NumMissingTxsGreaterThanZeroShouldWork(t *t
 
 	err := txs.IsDataPrepared(2, haveTime)
 	assert.Nil(t, err)
+}
+
+func createTxWithParams(hash []byte, sender []byte, nonce uint64, dataLen int, fees int64) *txcache.WrappedTransaction {
+	tx := transaction.NewBaseTransaction(sender, nonce, [][]byte{make([]byte, dataLen)}, fees, 1_000_000)
+	if dataLen > 0 {
+		tx.GasLimit = uint64(dataLen) * 1000
+	}
+
+	return &txcache.WrappedTransaction{
+		Tx:     tx,
+		TxHash: hash,
+	}
+}
+
+func createFakeSenderAddress(senderTag int) []byte {
+	bytes := make([]byte, 32)
+	binary.LittleEndian.PutUint64(bytes, uint64(senderTag))
+	binary.LittleEndian.PutUint64(bytes[24:], uint64(senderTag))
+	return bytes
+}
+
+func createFakeTxHash(fakeSenderAddress []byte, nonce int) []byte {
+	bytes := make([]byte, 32)
+	copy(bytes, fakeSenderAddress)
+	binary.LittleEndian.PutUint64(bytes[8:], uint64(nonce))
+	binary.LittleEndian.PutUint64(bytes[16:], uint64(nonce))
+	return bytes
+}
+
+func TestTransactions_ComputeSortedTxs_TXPoolError(t *testing.T) {
+	t.Parallel()
+
+	gasBandwidth := uint64(1000000)
+	randomness := make([]byte, 32) // 0x000000..00
+
+	poolHolders := &commonMock.PoolsHolderStub{
+		TransactionsCalled: func() retriever.ShardedDataCacherNotifier {
+			return &commonMock.ShardedDataStub{
+				ShardDataStoreCalled: func(id string) (c storage.Cacher) {
+					return nil
+				},
+			}
+		},
+	}
+	txs := createGoodPreprocessor(poolHolders)
+	// nil pool should return an error
+	_, err := txs.ComputeSortedTxs(gasBandwidth, randomness)
+	assert.Equal(t, common.ErrNilTxDataPool, err)
+
+	poolHolders = &commonMock.PoolsHolderStub{
+		TransactionsCalled: func() retriever.ShardedDataCacherNotifier {
+			return shardedDataCacherNotifier()
+		},
+	}
+	txs = createGoodPreprocessor(poolHolders)
+	// cast txcache.TxCache error
+	_, err = txs.ComputeSortedTxs(gasBandwidth, randomness)
+	assert.Equal(t, common.ErrWrongTypeAssertion, err)
+
+}
+
+func TestTransactions_ComputeSortedTxs_NoDataTransactions(t *testing.T) {
+	t.Parallel()
+
+	config := txcache.Config{
+		Name:                          "untitled",
+		NumChunks:                     16,
+		CountThreshold:                100_000,
+		CountPerSenderThreshold:       math.MaxUint32,
+		NumSendersToPreemptivelyEvict: 200,
+		NumBytesThreshold:             1_073_741_824,
+		NumBytesPerSenderThreshold:    33_554_432,
+	}
+
+	cache, err := txcache.NewTxCache(config)
+
+	// add 100 senders with 1000 txs each
+	for i := 0; i < 10; i++ {
+		sender := createFakeSenderAddress(i)
+		for j := 1; j < 10001; j++ {
+			hash := createFakeTxHash(sender, j)
+			tx := createTxWithParams(hash, sender, uint64(j), 0, 1000)
+			cache.AddTx(tx)
+		}
+	}
+
+	poolHolders := &commonMock.PoolsHolderStub{
+		TransactionsCalled: func() retriever.ShardedDataCacherNotifier {
+			return &commonMock.ShardedDataStub{
+				ShardDataStoreCalled: func(id string) (c storage.Cacher) {
+					return cache
+				},
+			}
+		},
+	}
+	txs := createGoodPreprocessor(poolHolders)
+
+	gasBandwidth := uint64(1000000)
+	randomness := make([]byte, 32) // 0x000000..00
+
+	sortedTxs, err := txs.ComputeSortedTxs(gasBandwidth, randomness)
+	assert.Nil(t, err)
+
+	// should select 12000 transactions (max block size)
+	assert.Len(t, sortedTxs, 12000)
+
+	// check sender order and nonce with randomness 0x000000..00
+	// Check if transactions are sorted by sender and nonce with randomness
+	validateTxOrder(t, sortedTxs)
+
+	// for 10 sender, it should change every 1200 txs
+	sendersOrder := []int{6, 0, 9, 3, 8, 1, 7, 5, 4, 2}
+	for i, tx := range sortedTxs {
+		sender := tx.Tx.GetRaw().Sender
+		senderTag := binary.LittleEndian.Uint64(sender)
+		idx := int(i / 1200)
+		assert.Equal(t, sendersOrder[idx], int(senderTag), fmt.Sprintf("Senders should be in order: %d(%d/%d)", idx, sendersOrder[idx], senderTag))
+	}
+}
+
+func TestTransactions_ComputeSortedTxs_GasTransactions(t *testing.T) {
+	t.Parallel()
+
+	config := txcache.Config{
+		Name:                          "untitled",
+		NumChunks:                     16,
+		CountThreshold:                100_000,
+		CountPerSenderThreshold:       math.MaxUint32,
+		NumSendersToPreemptivelyEvict: 200,
+		NumBytesThreshold:             1_073_741_824,
+		NumBytesPerSenderThreshold:    33_554_432,
+	}
+
+	cache, err := txcache.NewTxCache(config)
+
+	// add 100 senders with 1000 txs each
+	for i := 0; i < 100; i++ {
+		sender := createFakeSenderAddress(i)
+		for j := 1; j < 1001; j++ {
+			hash := createFakeTxHash(sender, j)
+			tx := createTxWithParams(hash, sender, uint64(j), 100, 1000)
+			cache.AddTx(tx)
+		}
+	}
+
+	poolHolders := &commonMock.PoolsHolderStub{
+		TransactionsCalled: func() retriever.ShardedDataCacherNotifier {
+			return &commonMock.ShardedDataStub{
+				ShardDataStoreCalled: func(id string) (c storage.Cacher) {
+					return cache
+				},
+			}
+		},
+	}
+	txs := createGoodPreprocessor(poolHolders)
+
+	gasBandwidth := uint64(100_000_000)
+	randomness := make([]byte, 32) // 0x000000..00
+
+	sortedTxs, err := txs.ComputeSortedTxs(gasBandwidth, randomness)
+	assert.Nil(t, err)
+
+	// as transaction has data, the gas limit should applied
+	// each TX has 100 gas per byte, so 100 * 1000 = 100_000 gas per TX
+	// 100_000_000 limit should allow 1000 TXs
+	fmt.Println(len(sortedTxs))
+	assert.Len(t, sortedTxs, 1000)
+
+	// check sender order and nonce with randomness 0x000000..00
+	// Check if transactions are sorted by sender and nonce with randomness
+	validateTxOrder(t, sortedTxs)
+}
+
+func validateTxOrder(t *testing.T, sortedTxs []*txcache.WrappedTransaction) {
+	lastSender := sortedTxs[0].Tx.GetRaw().Sender
+	lastNonce := sortedTxs[0].Tx.GetRaw().Nonce
+	for i := 1; i < len(sortedTxs); i++ {
+		currentSender := sortedTxs[i].Tx.GetRaw().Sender
+		currentNonce := sortedTxs[i].Tx.GetRaw().Nonce
+
+		if bytes.Equal(currentSender, lastSender) {
+			assert.Equal(t, currentNonce, lastNonce+1, "Nonce should have no gap for the same sender")
+		}
+
+		lastSender = currentSender
+		lastNonce = currentNonce
+	}
+}
+
+func TestTransactions_PreFilterTransactionsWithPriority(t *testing.T) {
+	t.Parallel()
+
+	dataPool := initDataPool()
+	txs := createGoodPreprocessor(dataPool)
+
+	// Create a set of test transactions
+	transactions := []*txcache.WrappedTransaction{
+		{Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 0, Nonce: 1, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000}},
+		{Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 2, Sender: []byte("addr1"), Data: [][]byte{[]byte("data")}}, GasLimit: 100000}},
+		{Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 2, Nonce: 3, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000}},
+		{Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 3, Nonce: 1, Sender: []byte("addr2"), Data: [][]byte{}}, GasLimit: 50000}},
+		{Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 4, Nonce: 2, Sender: []byte("addr2"), Data: [][]byte{[]byte("data")}}, GasLimit: 125000}},
+	}
+
+	gasBandwidth := uint64(200000)
+
+	selectedTxs, skippedTxs := txs.PreFilterTransactionsWithPriority(transactions, gasBandwidth)
+
+	// Assert the number of selected and skipped transactions
+	assert.Len(t, selectedTxs, 3, "Expected 3 selected transactions")
+	assert.Len(t, skippedTxs, 2, "Expected 2 skipped transactions")
+
+	shouldSelect := []uint32{0, 3, 1}
+	shouldSkip := []uint32{2, 4}
+	for i, tx := range selectedTxs {
+		assert.Equal(t, shouldSelect[i], tx.Tx.GetRaw().Version, "Unexpected transaction selected")
+	}
+
+	for i, tx := range skippedTxs {
+		assert.Equal(t, shouldSkip[i], tx.Tx.GetRaw().Version, "Unexpected transaction skipped")
+	}
+
+	// Check that selected transactions respect the gas bandwidth
+	totalGasSelected := uint64(0)
+	for _, tx := range selectedTxs {
+		totalGasSelected += tx.Tx.GetGasLimit()
+	}
+	assert.LessOrEqual(t, totalGasSelected, gasBandwidth, "Total gas of selected transactions should not exceed gasBandwidth")
+
+	// Test with a smaller gasBandwidth
+	smallerGasBandwidth := uint64(50000)
+	selectedTxsSmall, skippedTxsSmall := txs.PreFilterTransactionsWithPriority(transactions, smallerGasBandwidth)
+
+	// even tho the we have a small gas bandwidth, we should still select the first 2 transactions
+	// as they have no data field and are priority transactions
+	assert.Len(t, selectedTxsSmall, 2, "Expected 2 selected transactions with smaller gasBandwidth")
+	assert.Len(t, skippedTxsSmall, 3, "Expected 3 skipped transactions with smaller gasBandwidth")
+
+	// check that selected transaction has no data field
+	for _, tx := range selectedTxsSmall {
+		assert.Len(t, tx.Tx.GetRaw().Data, 0, "Selected transaction should have no data field")
+	}
+}
+
+func createCacheWithTransactions(transactions []*txcache.WrappedTransaction) *commonMock.PoolsHolderStub {
+	config := txcache.Config{
+		Name:                          "untitled",
+		NumChunks:                     16,
+		CountThreshold:                100_000,
+		CountPerSenderThreshold:       math.MaxUint32,
+		NumSendersToPreemptivelyEvict: 200,
+		NumBytesThreshold:             1_073_741_824,
+		NumBytesPerSenderThreshold:    33_554_432,
+	}
+
+	cache, _ := txcache.NewTxCache(config)
+
+	for _, tx := range transactions {
+		cache.AddTx(tx)
+	}
+
+	return &commonMock.PoolsHolderStub{
+		TransactionsCalled: func() retriever.ShardedDataCacherNotifier {
+			return &commonMock.ShardedDataStub{
+				ShardDataStoreCalled: func(id string) (c storage.Cacher) {
+					return cache
+				},
+			}
+		},
+	}
+}
+
+func TestTransactions_ProcessBlockTransactions(t *testing.T) {
+	t.Parallel()
+
+	poolHolders := createCacheWithTransactions([]*txcache.WrappedTransaction{
+		{TxHash: []byte("TX1"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 0, Nonce: 1, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000}},
+		{TxHash: []byte("TX2"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 2, Sender: []byte("addr1"), Data: [][]byte{[]byte("data")}}, GasLimit: 100000}},
+		{TxHash: []byte("TX3"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 2, Nonce: 3, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000}},
+		{TxHash: []byte("TX4"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 3, Nonce: 1, Sender: []byte("addr2"), Data: [][]byte{}}, GasLimit: 50000}},
+		{TxHash: []byte("TX5"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 4, Nonce: 2, Sender: []byte("addr2"), Data: [][]byte{[]byte("data")}}, GasLimit: 125000}},
+	})
+
+	txs := createGoodPreprocessor(poolHolders)
+
+	// Create a mock block with transactions
+	blk := &block.Block{
+		TxHashes: [][]byte{
+			[]byte("TX1"),
+			[]byte("TX2"),
+			[]byte("TX5"),
+		},
+	}
+
+	haveTime := func() bool { return true }
+
+	// mock TXProcessor
+	txs.GetTXProcessor().(*mock.TxProcessorMock).ProcessTransactionCalled = func(blk *block.Block, txHash []byte, transaction *transaction.Transaction) error {
+		return nil
+	}
+
+	processedTxHashes, numProcessed, err := txs.ProcessBlockTransactions(blk, haveTime)
+	assert.Nil(t, err)
+	assert.Equal(t, blk.TxHashes, processedTxHashes)
+	assert.Equal(t, 3, numProcessed)
+}
+
+func TestTransactions_CreateAndProcessBlockTransactions(t *testing.T) {
+	t.Parallel()
+
+	poolHolders := createCacheWithTransactions([]*txcache.WrappedTransaction{
+		{TxHash: []byte("TX1"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 0, Nonce: 1, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000}},
+		{TxHash: []byte("TX2"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 2, Sender: []byte("addr1"), Data: [][]byte{[]byte("data")}}, GasLimit: 100000}},
+		{TxHash: []byte("TX3"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 2, Nonce: 3, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000}},
+		{TxHash: []byte("TX4"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 3, Nonce: 1, Sender: []byte("addr2"), Data: [][]byte{}}, GasLimit: 50000}},
+		{TxHash: []byte("TX5"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 4, Nonce: 2, Sender: []byte("addr2"), Data: [][]byte{[]byte("data")}}, GasLimit: 125000}},
+		{TxHash: []byte("TX6"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 5, Nonce: 1, Sender: []byte("addr3"), Data: [][]byte{}}, GasLimit: 50000}},
+	})
+
+	txs := createGoodPreprocessor(poolHolders)
+
+	// Create a mock block with transactions
+	blk := &block.Block{Header: &block.BlockHeader{Nonce: 1, RandSeed: []byte("rand_seed")}}
+
+	haveTime := func() bool { return true }
+
+	// mock TXProcessor
+	txs.GetTXProcessor().(*mock.TxProcessorMock).ProcessTransactionCalled = func(blk *block.Block, txHash []byte, transaction *transaction.Transaction) error {
+		return nil
+	}
+	txs.GetEconomicsFee().(*commonMock.FeeHandlerStub).MaxGasLimitPerBlockValue = 300_000
+
+	processedTxHashes, numProcessed, err := txs.CreateAndProcessBlockTransactions(blk, haveTime)
+	assert.Nil(t, err)
+	assert.LessOrEqual(t, numProcessed, 5)
+
+	// Remove Bad TXs TX4
+	// mock TXProcessor
+	txs.GetTXProcessor().(*mock.TxProcessorMock).PreProcessTransactionCalled = func(transaction *transaction.Transaction) (state.UserAccountHandler, []byte, error) {
+		if transaction.RawData.Version == 3 {
+			return nil, nil, errors.New("bad tx")
+		}
+
+		return nil, nil, nil
+	}
+
+	processedTxHashes, numProcessed, err = txs.CreateAndProcessBlockTransactions(blk, haveTime)
+	assert.Nil(t, err)
+	assert.LessOrEqual(t, numProcessed, 4)
+
+	// error on `ComputeSortedTxs` should return with no selections, only happen if pool is corrupted
+	dataPool := initDataPool()
+	txs = createGoodPreprocessor(dataPool)
+	processedTxHashes, numProcessed, err = txs.CreateAndProcessBlockTransactions(blk, haveTime)
+	assert.Nil(t, err)
+	assert.Nil(t, processedTxHashes)
+	assert.Equal(t, 0, numProcessed)
+
+	// no error but no transactions to process
+	poolHolders = createCacheWithTransactions([]*txcache.WrappedTransaction{})
+	txs = createGoodPreprocessor(poolHolders)
+	processedTxHashes, numProcessed, err = txs.CreateAndProcessBlockTransactions(blk, haveTime)
+	assert.Nil(t, err)
+	assert.Nil(t, processedTxHashes)
+	assert.Equal(t, 0, numProcessed)
+
+	// select TX, but no time to process
+	poolHolders = createCacheWithTransactions([]*txcache.WrappedTransaction{
+		{TxHash: []byte("TX1"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 0, Nonce: 1, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000}},
+	})
+	txs = createGoodPreprocessor(poolHolders)
+	haveNoTime := func() bool { return false }
+	processedTxHashes, numProcessed, err = txs.CreateAndProcessBlockTransactions(blk, haveNoTime)
 }

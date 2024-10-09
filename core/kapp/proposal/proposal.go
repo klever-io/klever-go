@@ -201,7 +201,7 @@ func (p *proposalKapp) validateNewParameters(params map[int32][]byte, controller
 			return common.ErrInvalidValue
 		}
 
-		if _, err := controller.Validate(kapps.EnumParameter(parameter), value); err != nil {
+		if _, err := controller.ParseParamAndValidate(kapps.EnumParameter(parameter), value); err != nil {
 			return err
 		}
 	}

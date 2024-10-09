@@ -55,7 +55,6 @@ func NewTestHostBuilder(tb testing.TB) *TestHostBuilder {
 		tb: tb,
 		vmHostParameters: &vmhost.VMHostParameters{
 			VMType:                   DefaultVMType,
-			BlockGasLimit:            uint64(1000),
 			GasSchedule:              nil,
 			BuiltInFuncContainer:     nil,
 			ProtectedKeyPrefix:       protectedKeys,

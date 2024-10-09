@@ -17,7 +17,6 @@ type meteringContext struct {
 	host               vmhost.VMHost
 	stateStack         []*meteringContext
 	gasSchedule        *config.GasCost
-	blockGasLimit      uint64
 	initialGasProvided uint64
 	initialCost        uint64
 	gasForExecution    uint64
@@ -32,7 +31,6 @@ type meteringContext struct {
 func NewMeteringContext(
 	host vmhost.VMHost,
 	gasMap config.GasScheduleMap,
-	blockGasLimit uint64,
 ) (*meteringContext, error) {
 	if check.IfNil(host) {
 		return nil, vmhost.ErrNilVMHost
@@ -47,7 +45,6 @@ func NewMeteringContext(
 		host:              host,
 		stateStack:        make([]*meteringContext, 0),
 		gasSchedule:       gasSchedule,
-		blockGasLimit:     blockGasLimit,
 		gasUsedByAccounts: make(map[string]uint64),
 		restoreGasEnabled: true,
 	}
@@ -387,11 +384,6 @@ func (context *meteringContext) UseGasBounded(gasToUse uint64) error {
 	context.UseGas(gasToUse)
 	context.traceGas(gasToUse)
 	return nil
-}
-
-// BlockGasLimit returns the maximum amount of gas allowed to be consumed in a block.
-func (context *meteringContext) BlockGasLimit() uint64 {
-	return context.blockGasLimit
 }
 
 // DeductInitialGasForExecution deducts gas for compilation

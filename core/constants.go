@@ -279,3 +279,9 @@ const MaxCallValueSize = 50
 
 // PubKeyLen defines the length of a public key
 const PubKeyLen = 32
+
+// MinGasLimit defines the value that a basic protocol transaction compared to a sc transaction should have for block gas limitation
+const MinGasLimit = 50_000
+
+// MaxGasBandwidthPerBatchPerSender defines the maximum gas bandwidth that should be selected for a sender per batch from the cache
+const MaxGasBandwidthPerBatchPerSender = 50_000_000

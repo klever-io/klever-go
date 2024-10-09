@@ -2,7 +2,6 @@ package transaction
 
 import (
 	"fmt"
-	"math"
 	"math/big"
 
 	"github.com/klever-io/klever-go/common"
@@ -167,7 +166,7 @@ func (txProc *simulateTxProcessor) validateAndPrepareTransaction(tx *transaction
 	}
 
 	txProc.accountsCacher.ResetAll(true)
-	tx.GasLimit = math.MaxInt64
+	tx.GasLimit = txProc.economicsFee.MaxGasLimitPerTX()
 
 	return nil
 }
@@ -251,7 +250,7 @@ func (txProc *simulateTxProcessor) processContracts(ctx kapp.KappContext, ownerA
 		totalConsumedGas = totalConsumedGas.Add(totalConsumedGas, consumedGas)
 
 		// check if the total consumed gas exceeds max gas limit
-		maxGasBigInt := big.NewInt(0).SetUint64(math.MaxUint64)
+		maxGasBigInt := big.NewInt(0).SetUint64(txProc.economicsFee.MaxGasLimitPerTX())
 		if totalConsumedGas.Cmp(maxGasBigInt) > 0 {
 			tx.ResultCode = transaction.Transaction_VMOutOfGas
 			return process.ErrInvalidMaxGasLimitPerTx

@@ -1,6 +1,8 @@
 package disabled
 
 import (
+	"math"
+
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/txsimulator"
 	"github.com/klever-io/klever-go/data"
@@ -38,6 +40,14 @@ func (fh *FeeHandler) ComputeGasLimit(tx data.TransactionHandler) uint64 {
 // LeaderPercentage returns the leader percentage
 func (fh *FeeHandler) LeaderPercentage() float64 {
 	return 0
+}
+
+func (fh *FeeHandler) MaxGasLimitPerBlock() uint64 {
+	return math.MaxUint64
+}
+
+func (fh *FeeHandler) MaxGasLimitPerTX() uint64 {
+	return math.MaxUint64
 }
 
 // ComputeTransactionCost will calculate how many gas units a transaction will consume

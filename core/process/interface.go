@@ -492,6 +492,8 @@ type EconomicsDataHandler interface {
 	ComputeTransactionCost(tx TransactionWithFeeHandler, simulateSC bool) (*transaction.CostResponse, error)
 	CheckValidityTxValues(tx TransactionWithFeeHandler) (*transaction.CostResponse, error)
 	LeaderPercentage() float64
+	MaxGasLimitPerBlock() uint64
+	MaxGasLimitPerTX() uint64
 	IsInterfaceNil() bool
 }
 

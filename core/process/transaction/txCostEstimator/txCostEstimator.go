@@ -2,7 +2,6 @@ package txcostestimator
 
 import (
 	"fmt"
-	"math"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
@@ -102,9 +101,10 @@ func (tce *transactionCostEstimator) addMissingFieldsIfNeeded(tx *transaction.Tr
 	if len(tx.Signature) == 0 {
 		tx.Signature = [][]byte{[]byte(dummySignature)}
 	}
+
 	if tx.GasLimit == 0 {
 		//add max gas limit for estimated calculation
-		tx.GasLimit = math.MaxInt64
+		tx.GasLimit = tce.feeHandler.MaxGasLimitPerTX()
 	}
 }
 

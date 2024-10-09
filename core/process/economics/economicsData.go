@@ -218,6 +218,18 @@ func (ed *EconomicsData) LeaderPercentage() float64 {
 	return ed.leaderPercentage
 }
 
+func (ed *EconomicsData) MaxGasLimitPerBlock() uint64 {
+	maxGasPerBlock := ed.proposalController.GetParameterUint(kapps.EnumParameter_MaxGasPerBlock)
+
+	return maxGasPerBlock
+}
+
+func (ed *EconomicsData) MaxGasLimitPerTX() uint64 {
+	maxGasPerTx := ed.proposalController.GetParameterUint(kapps.EnumParameter_MaxGasPerTX)
+
+	return maxGasPerTx
+}
+
 // IsInterfaceNil returns true if there is no value under the interface
 func (ed *EconomicsData) IsInterfaceNil() bool {
 	return ed == nil
