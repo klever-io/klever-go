@@ -14,7 +14,7 @@ const (
 	// It is like a SCCall, but without a sender and with infinite gas.
 	ScQuery
 
-	// Transfer is an ERD transfer transaction without calling a smart contract
+	// Transfer is an KDA transfer transaction without calling a smart contract
 	Transfer
 
 	// ScUpgrade describes a transaction that upgrades an existing contract

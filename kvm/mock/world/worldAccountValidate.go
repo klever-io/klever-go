@@ -12,6 +12,9 @@ const SCAddressNumLeadingZeros = 8
 // IsSmartContractAddress verifies the address format.
 // Smart contract addresses start with 8 bytes of 0.
 func IsSmartContractAddress(address []byte) bool {
+	if len(address) < 10 {
+		return false
+	}
 	leadingZeros := make([]byte, SCAddressNumLeadingZeros)
 	return bytes.Equal(address[:SCAddressNumLeadingZeros], leadingZeros)
 }

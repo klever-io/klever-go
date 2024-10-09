@@ -542,10 +542,18 @@ func (bh *BlockChainHookImpl) processMaxBuiltInCounters(input *vmcommon.Contract
 
 // IsSmartContract returns whether the address points to a smart contract
 func (bh *BlockChainHookImpl) IsSmartContract(address []byte) bool {
-	return core.IsSmartContractAddress(address)
+	if !core.IsSmartContractAddress(address) {
+		return false
+	}
+	scAccount, err := bh.GetUserAccount(address)
+	if err != nil { // common.ErrAccNotFound
+		return false
+	}
+	// check if the account has code
+	return len(bh.accountsCacher.GetCode(scAccount.GetCodeHash())) > 0
 }
 
-// IsPayable checks whether the provided address can receive ERD or not
+// IsPayable checks whether the provided address can receive KDA or not
 func (bh *BlockChainHookImpl) IsPayable(sndAddress []byte, recvAddress []byte) (bool, error) {
 	if core.IsSystemAccountAddress(recvAddress) {
 		return false, nil

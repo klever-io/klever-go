@@ -107,7 +107,7 @@ func validate(addr []byte, code []byte) error {
 			hex.EncodeToString(addr))
 	}
 
-	scAddress := core.IsSmartContractAddress(addr)
+	scAddress := worldmock.IsSmartContractAddress(addr)
 	if len(code) > 0 {
 		if !scAddress {
 			return fmt.Errorf(

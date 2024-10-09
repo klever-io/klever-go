@@ -80,7 +80,7 @@ type BlockchainHook interface {
 	// IsSmartContract returns whether the address points to a smart contract
 	IsSmartContract(address []byte) bool
 
-	// IsPayable checks weather the provided address can receive ERD or not
+	// IsPayable checks weather the provided address can receive KDA or not
 	IsPayable(sndAddress []byte, recvAddress []byte) (bool, error)
 
 	// SaveCompiledCode saves to cache and storage the compiled code

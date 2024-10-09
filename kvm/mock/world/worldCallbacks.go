@@ -11,7 +11,6 @@ import (
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 
 	"github.com/klever-io/klever-go/common"
-	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data"
@@ -255,7 +254,7 @@ func (b *MockWorld) GetCode(acc state.UserAccountHandler) []byte {
 
 // IsSmartContract -
 func (b *MockWorld) IsSmartContract(address []byte) bool {
-	return core.IsSmartContractAddress(address)
+	return IsSmartContractAddress(address)
 }
 
 // IsPayable -
@@ -274,7 +273,7 @@ func (b *MockWorld) IsPayable(sndAddress []byte, rcvAddress []byte) (bool, error
 	}
 
 	metadata := vmcommon.CodeMetadataFromBytes(account.GetCodeMetadata())
-	if core.IsSmartContractAddress(sndAddress) {
+	if IsSmartContractAddress(sndAddress) {
 		return metadata.PayableBySC, nil
 	}
 

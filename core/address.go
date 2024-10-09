@@ -2,6 +2,8 @@ package core
 
 import (
 	"bytes"
+
+	"github.com/klever-io/klever-go/common"
 )
 
 // SystemAccountAddress is the hard-coded address in which we save global settings on all shards
@@ -39,7 +41,8 @@ func IsSmartContractAddress(rcvAddress []byte) bool {
 
 	numOfZeros := NumInitCharactersForScAddress - VMTypeLen
 	isSCAddress := bytes.Equal(rcvAddress[:numOfZeros], make([]byte, numOfZeros))
-	return isSCAddress
+	isValidVMType := bytes.Equal(rcvAddress[numOfZeros:NumInitCharactersForScAddress], common.WasmVirtualMachine)
+	return isSCAddress && isValidVMType
 }
 
 // IsEmptyAddress returns whether an address is empty

@@ -1,6 +1,8 @@
 package hooks
 
 import (
+	"encoding/hex"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -312,4 +314,94 @@ func TestBlockChainHookImpl_TransferValueOnly(t *testing.T) {
 		assert.ErrorContains(t, errKda, "result code: 4, invalid value provided")
 		assert.Equal(t, errKda.Error(), errTransfer.Error())
 	})
+}
+
+func TestBlockChainHookImpl_IsSmartContract(t *testing.T) {
+	// Test cases
+	tests := []struct {
+		name          string
+		args          string
+		want          bool
+		accountExists bool
+		codeExists    bool
+	}{
+		{
+			name:          "Should fail for invalid length",
+			args:          "12345",
+			want:          false,
+			accountExists: false,
+			codeExists:    false,
+		},
+		{
+			name:          "Should fail for not enough leading zeros",
+			args:          "000000000001000000005fed9c659422cd8429ce92f8973bba2a9fb51e0eb3a1",
+			want:          false,
+			accountExists: false,
+			codeExists:    false,
+		},
+		{
+			name:          "Should fail for invalid VM type",
+			args:          "000000000000000006005fed9c659422cd8429ce92f8973bba2a9fb51e0eb3a1",
+			want:          false,
+			accountExists: false,
+			codeExists:    false,
+		},
+		{
+			name:          "Should be a valid address, but fail for not existing account",
+			args:          "000000000000000005005fed9c659422cd8429ce92f8973bba2a9fb51e0eb3a1",
+			want:          false,
+			accountExists: false,
+			codeExists:    false,
+		},
+		{
+			name:          "Should be a valid empty address, but fail for not existing account",
+			args:          "0000000000000000000000000000000000000000000000000000000000000000",
+			want:          false,
+			accountExists: false,
+			codeExists:    false,
+		},
+		{
+			name:          "Should be a valid address, existing account, but fail for empty code",
+			args:          "000000000000000005005fed9c659422cd8429ce92f8973bba2a9fb51e0eb3a1",
+			want:          false,
+			accountExists: true,
+			codeExists:    false,
+		},
+		{
+			name:          "Should be a valid address, existing account, existing code and pass",
+			args:          "000000000000000005005fed9c659422cd8429ce92f8973bba2a9fb51e0eb3a1",
+			want:          true,
+			accountExists: true,
+			codeExists:    true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// stub initialization
+			cacherStub := &commonMock.AccountsCacherStub{}
+			h := &BlockChainHookImpl{accountsCacher: cacherStub}
+			cacherStub.GetExistingUserCalled = func(address []byte) (state.UserAccountHandler, error) {
+				if !tt.accountExists {
+					return nil, fmt.Errorf("account not found")
+				}
+				accountStub := &commonMock.UserAccountHandlerStub{}
+				accountStub.GetCodeHashCalled = func() []byte {
+					return []byte("codeHash")
+				}
+				return accountStub, nil
+			}
+			cacherStub.GetCodeCalled = func(codeHash []byte) []byte {
+				if !tt.codeExists {
+					return []byte{}
+				}
+				return []byte("code")
+			}
+
+			// perform test
+			address, _ := hex.DecodeString(tt.args)
+			if got := h.IsSmartContract(address); got != tt.want {
+				t.Errorf("IsSmartContract() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }
