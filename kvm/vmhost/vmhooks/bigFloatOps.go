@@ -424,6 +424,11 @@ func (context *VMHooksImpl) BigFloatPow(destinationHandle, opHandle, exponent in
 		return
 	}
 
+	if exponent < 0 {
+		_ = context.WithFault(vmhost.ErrBadLowerBounds, runtime.BigFloatAPIErrorShouldFailExecution())
+		return
+	}
+
 	opBigInt := big.NewInt(0)
 	op.Int(opBigInt)
 	op2BigInt := big.NewInt(int64(exponent))
