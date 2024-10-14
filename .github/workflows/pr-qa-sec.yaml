@@ -101,12 +101,12 @@ jobs:
         with:
           name: test-artifacts
 
-      - uses: twingate/github-action@v1
+      - uses: twingate/github-action@V1.1
         with:
           service-key: ${{ secrets.TWINGATE_SERVICE_ACCOUNT }}
 
       - name: SonarQube Scan
-        uses: sonarsource/sonarqube-scan-action@master
+        uses: sonarsource/sonarqube-scan-action@v2.3.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -123,7 +123,7 @@ jobs:
         if: github.event_name != 'pull_request'
 
       - name: SonarQube Go detailed scan PR
-        uses: sonarsource/sonarqube-scan-action@master
+        uses: sonarsource/sonarqube-scan-action@v2.3.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
