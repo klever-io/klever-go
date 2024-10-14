@@ -3,11 +3,15 @@ package transaction
 import (
 	"math/big"
 
+	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
-
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/crypto/hashing"
+	"github.com/klever-io/klever-go/crypto/signing"
+	"github.com/klever-io/klever-go/crypto/signing/ed25519"
+	"github.com/klever-io/klever-go/crypto/signing/ed25519/singlesig"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/storage"
@@ -62,9 +66,15 @@ type TxProcessorExportTest struct {
 }
 
 func NewTxProcessorExportTest() *TxProcessorExportTest {
+	keyGen := signing.NewKeyGenerator(ed25519.NewEd25519())
+	txSingleSigner := &singlesig.Ed25519Signer{}
+
 	return &TxProcessorExportTest{
 		txProcessor: &txProcessor{
-			baseTxProcessor: &baseTxProcessor{},
+			baseTxProcessor: &baseTxProcessor{
+				keyGen:       keyGen,
+				singleSigner: txSingleSigner,
+			},
 		},
 	}
 }
@@ -87,4 +97,28 @@ func (txProc *TxProcessorExportTest) SetSCProcessor(scProcessor process.SmartCon
 
 func (txProc *TxProcessorExportTest) SetAccountsCacher(accountsCacher state.AccountsCacher) {
 	txProc.accountsCacher = accountsCacher
+}
+
+func (txProc *TxProcessorExportTest) GetAccountsCacher() *mock.AccountsCacherStub {
+	return txProc.accountsCacher.(*mock.AccountsCacherStub)
+}
+
+func (txProc *TxProcessorExportTest) CheckTxValues(tx *transaction.Transaction, acntSnd state.UserAccountHandler, txHash []byte) error {
+	return txProc.checkTxValues(tx, acntSnd, txHash)
+}
+
+func (txProc *TxProcessorExportTest) SetEconomicsFee(economicsFee process.EconomicsDataHandler) {
+	txProc.economicsFee = economicsFee
+}
+
+func (txProc *TxProcessorExportTest) GetEconomicsFee() *mock.EconomicsHandlerStub {
+	return txProc.economicsFee.(*mock.EconomicsHandlerStub)
+}
+
+func (txProc *TxProcessorExportTest) ValidatePermission(tx *transaction.Transaction, permission *state.Permission, txHash []byte) ([][]byte, error) {
+	return txProc.validatePermission(tx, permission, txHash)
+}
+
+func (txProc *TxProcessorExportTest) SingleSigner() crypto.SingleSigner {
+	return txProc.singleSigner
 }

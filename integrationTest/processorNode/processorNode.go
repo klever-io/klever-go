@@ -969,7 +969,7 @@ func (n *ProcessorNode) initBlockProcessor() error {
 		Hasher:         TestHasher,
 		Marshalizer:    TestMarshalizer,
 		PubkeyConv:     TestAddressPubkeyConverter,
-		KeyGen:         n.NodeAccount.KeygenBlockSign,
+		KeyGen:         n.NodeAccount.KeygenTxSign,
 		SingleSigner:   &singlesig.Ed25519Signer{},
 		EconomicsFee:   n.EconomicsData,
 		TxFeeHandler:   txFeeHandler,

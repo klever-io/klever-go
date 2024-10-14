@@ -65,124 +65,181 @@ func (txProc *baseTxProcessor) GetAccounts(
 	return acntSrc, acntDst, nil
 }
 
-func (txProc *baseTxProcessor) checkTxValues(tx *transaction.Transaction, acntSnd state.UserAccountHandler, txHash []byte) error {
-	if acntSnd.GetNonce() < tx.GetNonce() {
+func (txProc *baseTxProcessor) validateNonce(acnt state.UserAccountHandler, tx *transaction.Transaction) error {
+	if acnt.GetNonce() < tx.GetNonce() {
 		return process.ErrHigherNonceInTransaction
 	}
-	if acntSnd.GetNonce() > tx.GetNonce() {
+	if acnt.GetNonce() > tx.GetNonce() {
 		return process.ErrLowerNonceInTransaction
 	}
 
-	// get permission
-	permission, ok, err := acntSnd.GetPermission(tx.RawData.PermissionID)
+	return nil
+}
+
+func (txProc *baseTxProcessor) validatePermission(tx *transaction.Transaction, permission *state.Permission, txHash []byte) ([][]byte, error) {
+	if permission.Type != state.Permission_Owner {
+		err := tx.ValidatePermission(permission.Operations)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	signersPub, err := txProc.loadSignerPublicKeys(permission.Signers)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load signer public keys: %w", err)
+	}
+
+	signedBy, signWeight, err := txProc.verifySignatures(tx, permission, signersPub, txHash)
+
+	if signWeight < permission.Threshold {
+		return nil, fmt.Errorf("%w: (%d/%d)", common.ErrSignatureThreshold, signWeight, permission.Threshold)
+	}
+
+	return signedBy, nil
+}
+
+// loadSignerPublicKeys loads public keys for all signers in the permission
+func (txProc *baseTxProcessor) loadSignerPublicKeys(signers []*state.Key) (map[string]crypto.PublicKey, error) {
+	signersPub := make(map[string]crypto.PublicKey)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	errChan := make(chan error, len(signers))
+
+	for _, signer := range signers {
+		wg.Add(1)
+		go func(addrPub []byte) {
+			defer wg.Done()
+			senderPubKey, err := txProc.keyGen.PublicKeyFromByteArray(addrPub)
+			if err != nil {
+				errChan <- fmt.Errorf("invalid signer address: %w", err)
+				return
+			}
+			mu.Lock()
+			signersPub[string(addrPub)] = senderPubKey
+			mu.Unlock()
+		}(signer.Address)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	if err := <-errChan; err != nil {
+		return nil, err
+	}
+
+	return signersPub, nil
+}
+
+// verifySignatures checks all signatures against the provided public keys
+func (txProc *baseTxProcessor) verifySignatures(tx *transaction.Transaction, permission *state.Permission, signersPub map[string]crypto.PublicKey, txHash []byte) ([][]byte, int64, error) {
+	var signedBy [][]byte
+	var signWeight int64
+
+	for _, signature := range tx.Signature {
+		match := false
+		for _, signer := range permission.Signers {
+			pub, ok := signersPub[string(signer.Address)]
+			if !ok {
+				continue
+			}
+			if txProc.singleSigner.Verify(pub, txHash, signature) == nil {
+				signedBy = append(signedBy, signer.Address)
+				signedBy = append(signedBy, []byte(fmt.Sprintf("%d", signer.Weight)))
+				signWeight += signer.Weight
+				match = true
+				// remove the signer from the map to avoid duplicate signatures
+				delete(signersPub, string(signer.Address))
+				break
+			}
+		}
+		if !match {
+			return nil, 0, common.ErrInvalidSignature
+		}
+	}
+
+	return signedBy, signWeight, nil
+}
+
+func (txProc *baseTxProcessor) checkTxValues(tx *transaction.Transaction, acntSnd state.UserAccountHandler, txHash []byte) error {
+	if err := txProc.validateNonce(acntSnd, tx); err != nil {
+		return err
+	}
+
+	permission, _, err := acntSnd.GetPermission(tx.RawData.PermissionID)
 	if err != nil {
 		return err
 	}
 
-	tx.Receipts = make([]*transaction.Transaction_Receipt, 0)
-	signedBy := make([][]byte, 0)
-
-	if !ok {
-		for _, signer := range permission.Signers {
-			signedBy = append(signedBy, signer.Address)
-			signedBy = append(signedBy, []byte(fmt.Sprintf("%d", signer.Weight)))
-		}
+	signedBy, err := txProc.validatePermission(tx, permission, txHash)
+	if err != nil {
+		return err
 	}
 
-	if ok {
-		if permission.Type != state.Permission_Owner {
-			err = tx.ValidatePermission(permission.Operations)
-			if err != nil {
-				return err
-			}
-		}
-
-		signersPub := make(map[string]crypto.PublicKey)
-		wait := sync.WaitGroup{}
-		var mu sync.Mutex
-		var loadErr error
-		for _, signer := range permission.Signers {
-			wait.Add(1)
-			go func(addrPub string, wg *sync.WaitGroup, sig map[string]crypto.PublicKey, mut *sync.Mutex) {
-				defer wg.Done()
-				senderPubKey, err := txProc.keyGen.PublicKeyFromByteArray([]byte(addrPub))
-				if err != nil {
-					// signer address is invalid
-					loadErr = err
-					return
-				}
-				mut.Lock()
-				sig[addrPub] = senderPubKey
-				mut.Unlock()
-			}(string(signer.Address), &wait, signersPub, &mu)
-		}
-		wait.Wait()
-		if loadErr != nil {
-			return loadErr
-		}
-
-		signWeight := int64(0)
-		for _, s1 := range tx.Signature {
-			// check keys
-			match := false
-			for _, signer := range permission.Signers {
-				pub := signersPub[string(signer.Address)]
-				if txProc.singleSigner.Verify(pub, txHash, s1) == nil {
-					signedBy = append(signedBy, signer.Address)
-					signedBy = append(signedBy, []byte(fmt.Sprintf("%d", signer.Weight)))
-					signWeight += signer.Weight
-					match = true
-				}
-			}
-			if !match {
-				// no signer found in account permission for this signature
-				return common.ErrInvalidSignature
-			}
-		}
-		// check threshold
-		if signWeight < permission.Threshold {
-			return fmt.Errorf("%w: (%d/%d)", common.ErrSignatureThreshold, signWeight, permission.Threshold)
-		}
+	// clear receipts and add the receipt signed by
+	tx.Receipts = []*transaction.Transaction_Receipt{
+		NewReceipt(
+			SignedBy,
+			defaultTXContractID,
+			signedBy...,
+		),
 	}
 
-	tx.Receipts = append(tx.Receipts, NewReceipt(
-		SignedBy,
-		defaultTXContractID,
-		signedBy...,
-	))
-
+	// check if the transaction fee is valid based on contract types and network params
 	computedCost, err := txProc.economicsFee.CheckValidityTxValues(tx)
 	if err != nil {
 		return err
 	}
 
+	// check if the account has enough balance to pay the fees
+	if err := txProc.CheckPaymentFeeBalance(tx, acntSnd); err != nil {
+		return err
+	}
+
+	return txProc.UpdateTXGas(tx, computedCost)
+}
+
+func (txProc *baseTxProcessor) CheckPaymentFeeBalance(tx *transaction.Transaction, acntSnd state.UserAccountHandler) error {
 	// check balance and fee
 	totalFees := tx.GetBandwidthFee() + tx.GetKAppFee()
 
-	var assetID []byte
-	if txProc.forkController.FPRComputeAndKdaFeeFlow() {
-		// check if user is paying with kdaFee and if the pool have enough balance to pay the fees
-		kdaFee := tx.GetRawData().GetKDAFee().GetKDA()
-		if len(kdaFee) > 0 && string(kdaFee) != string(kdautils.KLVIdentifier) {
-			totalFeesKDA, err := txProc.kApps.GetKDAFeesPoolKApp().Compute(totalFees, tx.GetRawData().GetKDAFee())
-			if err != nil {
-				return process.ErrComputeKDAFeeError
-			}
-			assetID = kdaFee
-			totalFees = totalFeesKDA
-		}
+	assetID, kdaFees, err := txProc.computeKDAFees(tx, totalFees)
+	if err != nil {
+		return err
 	}
 
 	// check if account has balance (KLV or KDA)
 	accountAssetBalance := acntSnd.GetBalance(assetID, txProc.forkController.EnableSmartContracts())
-	if accountAssetBalance < totalFees {
+	if accountAssetBalance < kdaFees {
 		return fmt.Errorf("%w, has: %d, wanted: %d",
 			process.ErrInsufficientFee,
 			accountAssetBalance,
-			totalFees,
+			kdaFees,
 		)
 	}
 
+	return nil
+}
+
+func (txProc *baseTxProcessor) computeKDAFees(tx *transaction.Transaction, totalFees int64) ([]byte, int64, error) {
+	if !txProc.forkController.FPRComputeAndKdaFeeFlow() {
+		return nil, totalFees, nil
+	}
+
+	// check if user is paying with kdaFee and if the pool have enough balance to pay the fees
+	kdaFee := tx.GetRawData().GetKDAFee().GetKDA()
+	if len(kdaFee) > 0 && string(kdaFee) != string(kdautils.KLVIdentifier) {
+		totalFeesKDA, err := txProc.kApps.GetKDAFeesPoolKApp().Compute(totalFees, tx.GetRawData().GetKDAFee())
+		if err != nil {
+			return nil, totalFees, process.ErrComputeKDAFeeError
+		}
+
+		return kdaFee, totalFeesKDA, nil
+	}
+
+	return nil, totalFees, nil
+}
+
+func (txProc *baseTxProcessor) UpdateTXGas(tx *transaction.Transaction, computedCost *transaction.CostResponse) error {
 	// update free bandwidth fee
 	freeBandwidth := tx.GetBandwidthFee() - computedCost.BandwidthFee
 	if freeBandwidth < 0 {
@@ -196,6 +253,15 @@ func (txProc *baseTxProcessor) checkTxValues(tx *transaction.Transaction, acntSn
 	tx.GasMultiplier = uint64(computedCost.GasMultiplier)
 
 	log.Trace("freeBandwidth", "freeBandwidth", freeBandwidth, "gasLimit", tx.GasLimit, "gasMultiplier", tx.GasMultiplier)
+
+	// validate gas limit
+	if tx.GasLimit > txProc.economicsFee.MaxGasLimitPerTX() {
+		return fmt.Errorf("%w, gasLimit: %d, maxGasLimit: %d",
+			process.ErrInvalidMaxGasLimitPerTx,
+			tx.GasLimit,
+			txProc.economicsFee.MaxGasLimitPerTX(),
+		)
+	}
 
 	return nil
 }
