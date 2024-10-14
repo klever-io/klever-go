@@ -22,6 +22,7 @@ const UserBucketsLen = 24
 const SFTMetaLen = 12
 const SFTMetadataLen = 12
 const URIsDataLen = 8
+const LastClaimLen = 8
 
 // Deserializes a *transaction.TXContract object.
 func readKDATransfer(
@@ -193,7 +194,7 @@ func writeLastClaim(
 	managedType vmhost.ManagedTypesContext,
 	lastClaim *kapps.LastClaim,
 ) []byte {
-	destinationBytes := make([]byte, RoyaltiesLen)
+	destinationBytes := make([]byte, LastClaimLen)
 
 	if lastClaim == nil {
 		lastClaim = &kapps.LastClaim{
