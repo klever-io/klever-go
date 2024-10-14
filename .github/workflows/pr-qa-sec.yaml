@@ -35,9 +35,14 @@ jobs:
         continue-on-error: true
         run: |
           set +e  # Disable immediate exit on error
-          go test -covermode=atomic -coverprofile=coverage.out -json ./... > test-output.json
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "Running full tests..."
+            go test -covermode=atomic -coverprofile=coverage.out -json ./... > test-output.json
+          else
+            echo "Running short tests..."
+            go test -short -covermode=atomic -coverprofile=coverage.out -json ./... > test-output.json
+          fi
           echo "test_exit_code=$?" >> $GITHUB_OUTPUT
-
 
       - name: Generate coverage summary
         id: coverage

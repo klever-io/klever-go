@@ -10,7 +10,6 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0
-	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/dustinkirkland/golang-petname v0.0.0-20191129215211-8e5a1ed0cff0
 	github.com/elastic/go-elasticsearch/v8 v8.4.0
 	github.com/fatih/color v1.13.0
@@ -26,6 +25,7 @@ require (
 	github.com/herumi/bls-go-binary v1.28.2
 	github.com/ipfs/go-log v1.0.5
 	github.com/jbenet/goprocess v0.1.4
+	github.com/keygen-sh/machineid v1.1.1
 	github.com/klever-io/klever-go-logger v1.3.1
 	github.com/libp2p/go-libp2p v0.33.2
 	github.com/libp2p/go-libp2p-kad-dht v0.25.2

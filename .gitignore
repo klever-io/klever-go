@@ -51,11 +51,7 @@ stats/*
 *.env*
 seednode
 *.log
-
-# Backup test files
-cmd/backtest/files/*.tar.gz
-cmd/backtest/backups/*/
-cmd/backtest/working/*/
+test-output.json
 *.trace*
 
 # CI report

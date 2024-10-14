@@ -1,9 +1,49 @@
+# Version control
 .git
+.gitignore
+
+# Build artifacts
+bin/
+build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test files
+*_test.go
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Sensitive or environment-specific files
+.env
+*.pem
+*.pem*
+*.key
+*_rsa
+
+# Docker files (to prevent recursion)
+Dockerfile
+.dockerignore
+
+# Any other sensitive or unnecessary directories/files
+secrets/
+tmp/
 .cache
 *.tar*
-*.pem*
-*.log
-bin/
-logs/
+*.zip
 dbs/
 db/

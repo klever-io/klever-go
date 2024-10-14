@@ -52,7 +52,7 @@ jobs:
   
       - name: Ensure code is buildable
         run: |
-          go list ./... | grep -v /vendor/ | xargs -n 1 -P 4 go vet -unsafeptr=false
+          go vet -unsafeptr=false $(go list ./... | grep -v /vendor/) 
 
 
       - name: Install and Run golangci-lint

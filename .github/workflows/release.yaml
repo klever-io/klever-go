@@ -100,9 +100,11 @@ jobs:
         with:
           path: 'bin/klevergo-operator${{ matrix.extension }}'
           destination: 'kleverchain-public/koperator/${{ matrix.name }}/${{ env.VERSION }}'
+          predefinedAcl: 'publicRead'
 
       - name: Upload node files to bucket
         uses: 'google-github-actions/upload-cloud-storage@v2'
         with:
           path: 'bin/klevergo-node${{ matrix.extension }}'
           destination: 'kleverchain-public/knode/${{ matrix.name }}/${{ env.VERSION }}'
+          predefinedAcl: 'publicRead'

@@ -58,7 +58,7 @@ GOBUILD=$(GOCMD) build -ldflags="$(ldflags)"
 ############################
 .PHONY: all debug trace redundancy seednode
 all:
-	$(GORUN) ./cmd/node --log-level="${LOG}"--use-log-view
+	$(GORUN) ./cmd/node --log-level="${LOG}" --use-log-view
 
 # run node in debug mode
 debug:
@@ -110,13 +110,13 @@ docker-vendor:
 
 docker-build: docker-vendor
 	echo "Building docker image for version ${VERSION}"
-	docker build --no-cache --pull --build-arg arg_version=${VERSION} -t kleverapp/klever-go:${FOR_DEV}${VERSION}${FOR_TESTNET} -t kleverapp/klever-go:${FOR_DEV}latest${FOR_TESTNET} .
+	DOCKER_BUILDKIT=1 docker build --no-cache --pull --build-arg arg_version=${VERSION} -t kleverapp/klever-go:${FOR_DEV}${VERSION}${FOR_TESTNET} -t kleverapp/klever-go:${FOR_DEV}latest${FOR_TESTNET} -f docker/Dockerfile .
 
 docker-push:
 	docker push kleverapp/klever-go:${FOR_DEV}${VERSION}${FOR_TESTNET}
 
 docker-build-validator: docker-vendor
-	docker build --no-cache --pull --build-arg arg_version=${VERSION} -t kleverapp/klever-go:val-${FOR_DEV}${VERSION}${FOR_TESTNET} -f Dockerfile.validator .
+	DOCKER_BUILDKIT=1 docker build --no-cache --pull --build-arg arg_version=${VERSION} -t kleverapp/klever-go:val-${FOR_DEV}${VERSION}${FOR_TESTNET} -f docker/Dockerfile.validator .
 
 vm-generate-rs:
 	cd kvm/vmhost/vmhooks && go run generate/cmd/eiGenMain.go

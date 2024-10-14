@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/bugsnag/bugsnag-go/v2"
-	"github.com/denisbrodbeck/machineid"
+	"github.com/keygen-sh/machineid"
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common/facade"
 	"github.com/klever-io/klever-go/core"
