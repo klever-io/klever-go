@@ -55,14 +55,10 @@ func ValidateCreateAsset(tc *transaction.CreateAssetContract, forkController cor
 		return transaction.Transaction_AccountError, process.ErrInvalidOwnerAddr
 	}
 
-	if len(tc.GetAdminAddress()) > 0 {
-		if !forkController.EnableSmartContracts() {
-			return transaction.Transaction_ParameterInvalid, process.ErrInvalidAdminAddr
-		}
-
-		if len(tc.GetAdminAddress()) != pubkeyConv.Len() {
-			return transaction.Transaction_AccountError, process.ErrInvalidAdminAddr
-		}
+	if forkController.EnableSmartContracts() &&
+		len(tc.GetAdminAddress()) > 0 &&
+		len(tc.GetAdminAddress()) != pubkeyConv.Len() {
+		return transaction.Transaction_AccountError, process.ErrInvalidAdminAddr
 	}
 
 	if tc.GetMaxSupply() < 0 {

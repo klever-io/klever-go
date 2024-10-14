@@ -20,8 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var inactiveFork = uint32(1)
-
 func makeAddress(prefix string) []byte {
 	addr := make([]byte, 32)
 	copy(addr, []byte(prefix))
@@ -166,22 +164,6 @@ func Test_CreateKDA(t *testing.T) {
 			Status: transaction.Transaction_AccountError,
 		},
 		{
-			Description: "Invalid admin address because smartContract fork is desactivated",
-			TransactionContract: &transaction.CreateAssetContract{
-				OwnerAddress: makeAddress("valid"),
-				AdminAddress: []byte{0},
-				Name:         []byte("KDA"),
-				Ticker:       []byte("KDA"),
-				Type:         transaction.CreateAssetContract_Fungible,
-				Royalties:    &transaction.RoyaltiesInfo{},
-			},
-			Fork: &config.EnableEpochs{
-				SmartContracts: inactiveFork,
-			},
-			Error:  process.ErrInvalidAdminAddr,
-			Status: transaction.Transaction_ParameterInvalid,
-		},
-		{
 			Description: "Invalid max supply",
 			TransactionContract: &transaction.CreateAssetContract{
 				OwnerAddress: makeAddress("valid"),
@@ -297,6 +279,28 @@ func Test_CreateKDA(t *testing.T) {
 			AccCacher: validAccCacher,
 			Error:     common.ErrInvalidValue,
 			Status:    transaction.Transaction_ParameterInvalid,
+		},
+		{
+			Description: "invalid admin address",
+			TransactionContract: &transaction.CreateAssetContract{
+				OwnerAddress:  makeAddress("valid"),
+				AdminAddress:  []byte("invalid"),
+				Name:          []byte("KDA"),
+				Ticker:        []byte("KDA"),
+				InitialSupply: 0,
+				Properties: &transaction.PropertiesInfo{
+					CanMint: true,
+				},
+				MaxSupply: 100000000,
+				Precision: 6,
+				Type:      transaction.CreateAssetContract_Fungible,
+				Royalties: &transaction.RoyaltiesInfo{},
+				Logo:      "",
+				URIs:      genUris(1, strings.Repeat("a", core.MaxURIValueSize)),
+			},
+			AccCacher: validAccCacher,
+			Error:     process.ErrInvalidAdminAddr,
+			Status:    transaction.Transaction_AccountError,
 		},
 	}
 
