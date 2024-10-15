@@ -578,7 +578,8 @@ func TransferKDANFTExecuteWithTypedArgs(
 			return 1
 		}
 
-		contractCallInput.KDATransfers = transfers
+		contractCallInput.KDATransfers = append(contractCallInput.KDATransfers, transfers...)
+
 	}
 
 	snapshotBeforeTransfer := host.Blockchain().GetSnapshot()
