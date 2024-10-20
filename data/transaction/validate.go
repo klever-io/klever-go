@@ -547,7 +547,7 @@ func (tc *BuyContract) Validate() error {
 		return errors.New("invalid pack id")
 	}
 
-	if tc.GetAmount() <= 0 {
+	if tc.GetAmount() < 0 {
 		return errors.New("invalid amount")
 	}
 
