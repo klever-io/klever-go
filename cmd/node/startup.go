@@ -484,6 +484,11 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 
 	epochStartNotifier := notifier.NewEpochStartSubscriptionHandler()
 
+	forkController, err := fork.NewForkController(cfg.EnableEpochs, epochNotifier)
+	if err != nil {
+		return err
+	}
+
 	// epoch bootstrapper
 	epochStartBootstrapArgs := bootstrap.ArgsEpochStartBootstrap{
 		PublicKey:                 cryptoParams.PublicKey,
@@ -512,6 +517,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		HeaderIntegrityVerifier:   headerIntegrityVerifier,
 		TxSignHasher:              coreComponents.TxSignHasher,
 		EpochNotifier:             epochNotifier,
+		ForkController:            forkController,
 	}
 
 	var bootstrapper bootstrap.EpochStartBootstrapper
@@ -549,11 +555,6 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 	processingMode := core.Normal
 	if importDBConfigs.IsImportDBMode {
 		processingMode = core.ImportDb
-	}
-
-	forkController, err := fork.NewForkController(cfg.EnableEpochs, epochNotifier)
-	if err != nil {
-		return err
 	}
 
 	log.Trace("creating state components")
