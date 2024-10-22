@@ -20,23 +20,27 @@ type metaInterceptorsContainerFactory struct {
 func NewMetaInterceptorsContainerFactory(
 	args MetaInterceptorsContainerFactoryArgs,
 ) (*metaInterceptorsContainerFactory, error) {
+
 	err := checkBaseParams(
-		args.Accounts,
-		args.ProtoMarshalizer,
-		args.TxSignMarshalizer,
-		args.Hasher,
-		args.Store,
-		args.DataPool,
-		args.Messenger,
-		args.MultiSigner,
-		args.NodesCoordinator,
-		args.BlackList,
-		args.AntifloodHandler,
-		args.WhiteListHandler,
-		args.WhiteListerVerifiedTxs,
-		args.AddressPubkeyConverter,
-		args.KAppController,
-		args.MaxTxNonceDeltaAllowed,
+		&MetaInterceptorsContainerFactoryArgs{
+			Accounts:               args.Accounts,
+			ProtoMarshalizer:       args.ProtoMarshalizer,
+			TxSignMarshalizer:      args.TxSignMarshalizer,
+			Hasher:                 args.Hasher,
+			Store:                  args.Store,
+			DataPool:               args.DataPool,
+			Messenger:              args.Messenger,
+			MultiSigner:            args.MultiSigner,
+			NodesCoordinator:       args.NodesCoordinator,
+			BlackList:              args.BlackList,
+			AntifloodHandler:       args.AntifloodHandler,
+			WhiteListHandler:       args.WhiteListHandler,
+			WhiteListerVerifiedTxs: args.WhiteListerVerifiedTxs,
+			AddressPubkeyConverter: args.AddressPubkeyConverter,
+			KAppController:         args.KAppController,
+			MaxTxNonceDeltaAllowed: args.MaxTxNonceDeltaAllowed,
+			ForkController:         args.ForkController,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -96,6 +100,7 @@ func NewMetaInterceptorsContainerFactory(
 		TxSignHasher:              args.TxSignHasher,
 		EpochNotifier:             args.EpochNotifier,
 		FeeHandler:                args.TxFeeHandler,
+		ForkController:            args.ForkController,
 	}
 
 	container := containers.NewInterceptorsContainer()
@@ -117,6 +122,7 @@ func NewMetaInterceptorsContainerFactory(
 		whiteListerVerifiedTxs: args.WhiteListerVerifiedTxs,
 		addressPubkeyConverter: args.AddressPubkeyConverter,
 		kAppController:         args.KAppController,
+		forkController:         args.ForkController,
 	}
 
 	icf := &metaInterceptorsContainerFactory{

@@ -72,4 +72,5 @@ type MetaInterceptorsContainerFactoryArgs struct {
 	EpochNotifier             process.EpochNotifier
 	TxFeeHandler              process.EconomicsDataHandler
 	KAppController            kapp.KAppController
+	ForkController            core.ForkController
 }

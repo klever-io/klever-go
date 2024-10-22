@@ -425,5 +425,6 @@ func getArgumentsMeta() interceptorscontainer.MetaInterceptorsContainerFactoryAr
 		TxSignHasher:           mock.HasherMock{},
 		EpochNotifier:          &mock.EpochNotifierStub{},
 		KAppController:         kAppController,
+		ForkController:         forkController,
 	}
 }

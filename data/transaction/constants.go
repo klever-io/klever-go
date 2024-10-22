@@ -1,0 +1,28 @@
+package transaction
+
+var ContractMaxSizes = map[TXContract_ContractType]int{
+	TXContract_TransferContractType:                250,
+	TXContract_CreateAssetContractType:             22000,
+	TXContract_CreateValidatorContractType:         7000,
+	TXContract_ValidatorConfigContractType:         6900,
+	TXContract_FreezeContractType:                  80,
+	TXContract_UnfreezeContractType:                120,
+	TXContract_DelegateContractType:                200,
+	TXContract_UndelegateContractType:              120,
+	TXContract_WithdrawContractType:                150,
+	TXContract_ClaimContractType:                   90,
+	TXContract_AssetTriggerContractType:            14000,
+	TXContract_SetAccountNameContractType:          240,
+	TXContract_ProposalContractType:                3200,
+	TXContract_VoteContractType:                    100,
+	TXContract_ConfigITOContractType:               1100000,
+	TXContract_BuyContractType:                     160,
+	TXContract_SellContractType:                    260,
+	TXContract_CancelMarketOrderContractType:       90,
+	TXContract_CreateMarketplaceContractType:       400,
+	TXContract_ConfigMarketplaceContractType:       400,
+	TXContract_UpdateAccountPermissionContractType: 36000,
+	TXContract_DepositContractType:                 160,
+	TXContract_ITOTriggerContractType:              1100000,
+	TXContract_SmartContractType:                   3500,
+}

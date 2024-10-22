@@ -91,6 +91,7 @@ func (t *TXContract) Validate() error {
 	if err != nil {
 		return err
 	}
+
 	return tc.Validate()
 }
 
@@ -745,4 +746,13 @@ func (tc *SmartContract) Validate() error {
 	}
 
 	return nil
+}
+
+func IsContractSizeValid(contract []byte, contractType uint32) bool {
+	// #nosec G115
+	contractSize, ok := ContractMaxSizes[TXContract_ContractType(contractType)]
+	if !ok {
+		return false
+	}
+	return len(contract) <= contractSize
 }

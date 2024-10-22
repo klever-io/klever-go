@@ -32,4 +32,5 @@ type ArgInterceptedDataFactory struct {
 	TxSignHasher              hashing.Hasher
 	EpochNotifier             process.EpochNotifier
 	FeeHandler                process.EconomicsDataHandler
+	ForkController            core.ForkController
 }

@@ -43,6 +43,7 @@ type ArgsEpochStartInterceptorContainer struct {
 	EnableSignTxWithHashEpoch uint32
 	TxSignHasher              hashing.Hasher
 	EpochNotifier             process.EpochNotifier
+	ForkController            core.ForkController
 }
 
 // NewEpochStartInterceptorsContainer will return a real interceptors container factory, but with many disabled components
@@ -92,6 +93,7 @@ func NewEpochStartInterceptorsContainer(args ArgsEpochStartInterceptorContainer)
 		TxSignHasher:              args.TxSignHasher,
 		EpochNotifier:             args.EpochNotifier,
 		KAppController:            kAppController,
+		ForkController:            args.ForkController,
 	}
 
 	interceptorsContainerFactory, err := interceptorscontainer.NewMetaInterceptorsContainerFactory(containerFactoryArgs)

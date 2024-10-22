@@ -130,7 +130,8 @@ type epochStartBootstrap struct {
 	nodeType           core.NodeType
 	startEpoch         uint32
 
-	chRcvHdrHash chan bool
+	chRcvHdrHash   chan bool
+	forkController core.ForkController
 }
 
 type baseDataInStorage struct {
@@ -168,6 +169,7 @@ type ArgsEpochStartBootstrap struct {
 	HeaderIntegrityVerifier   process.HeaderIntegrityVerifier
 	TxSignHasher              hashing.Hasher
 	EpochNotifier             process.EpochNotifier
+	ForkController            core.ForkController
 }
 
 // NewEpochStartBootstrap will return a new instance of epochStartBootstrap
@@ -208,6 +210,7 @@ func NewEpochStartBootstrap(args ArgsEpochStartBootstrap) (*epochStartBootstrap,
 		numConcurrentTrieSyncers:  args.GeneralConfig.TrieSync.NumConcurrentTrieSyncers,
 		maxHardCapForMissingNodes: args.GeneralConfig.TrieSync.MaxHardCapForMissingNodes,
 		chRcvHdrHash:              make(chan bool),
+		forkController:            args.ForkController,
 	}
 
 	whiteListCache, err := storageUnit.NewCache(storageFactory.GetCacherFromConfig(epochStartProvider.generalConfig.WhiteListPool))
@@ -478,6 +481,7 @@ func (e *epochStartBootstrap) createSyncers() error {
 		HeaderIntegrityVerifier: e.headerIntegrityVerifier,
 		TxSignHasher:            e.txSignHasher,
 		EpochNotifier:           e.epochNotifier,
+		ForkController:          e.forkController,
 	}
 
 	e.interceptorContainer, err = factoryInterceptors.NewEpochStartInterceptorsContainer(args)

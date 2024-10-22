@@ -228,6 +228,9 @@ var ErrNilTxFeeHandler = errors.New("nil tx fee handler")
 // ErrNilTransactionVersionChecker signals that provided transaction version checker is nil
 var ErrNilTransactionVersionChecker = errors.New("nil transaction version checker")
 
+// ErrNilForkController signals that provided fork controller is nil
+var ErrNilForkController = errors.New("nil fork controller")
+
 // ErrNilAddressContainer signals that an operation has been attempted to or with a nil AddressContainer implementation
 var ErrNilAddressContainer = errors.New("nil AddressContainer")
 

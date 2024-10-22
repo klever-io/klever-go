@@ -169,6 +169,7 @@ type TXArgs struct {
 // AddTransaction -
 func (t *Transaction) AddTransaction(txArgs TXArgs) error {
 	var err error
+
 	// #nosec G115
 	switch TXContract_ContractType(txArgs.Type) {
 	case TXContract_TransferContractType:
@@ -225,6 +226,10 @@ func (t *Transaction) AddTransaction(txArgs TXArgs) error {
 		err = t.addSmartContract(txArgs)
 	default:
 		return common.ErrInvalidTransactionType
+	}
+
+	if !IsContractSizeValid(txArgs.Contract, txArgs.Type) {
+		return common.ErrInvalidContractSize
 	}
 
 	return err

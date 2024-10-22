@@ -33,93 +33,110 @@ type InterceptedTransaction struct {
 	whiteListerVerifiedTxs process.WhiteListHandler
 	feeHandler             process.EconomicsDataHandler
 	txVersionChecker       process.TxVersionCheckerHandler
+	forkController         core.ForkController
 	chainID                []byte
+}
+
+type InterceptedTransactionArgs struct {
+	TxBuff                 []byte
+	ProtoMarshalizer       marshal.Marshalizer
+	SignMarshalizer        marshal.Marshalizer
+	Hasher                 hashing.Hasher
+	KeyGen                 crypto.KeyGenerator
+	Signer                 crypto.SingleSigner
+	PubkeyConv             core.PubkeyConverter
+	WhiteListerVerifiedTxs process.WhiteListHandler
+	ChainID                []byte
+	TxSignHasher           hashing.Hasher
+	FeeHandler             process.EconomicsDataHandler
+	TxVersionChecker       process.TxVersionCheckerHandler
+	ForkController         core.ForkController
 }
 
 // NewInterceptedTransaction returns a new instance of InterceptedTransaction
 func NewInterceptedTransaction(
-	txBuff []byte,
-	protoMarshalizer marshal.Marshalizer,
-	signMarshalizer marshal.Marshalizer,
-	hasher hashing.Hasher,
-	keyGen crypto.KeyGenerator,
-	signer crypto.SingleSigner,
-	pubkeyConv core.PubkeyConverter,
-	whiteListerVerifiedTxs process.WhiteListHandler,
-	chainID []byte,
-	txSignHasher hashing.Hasher,
-	feeHandler process.EconomicsDataHandler,
-	txVersionChecker process.TxVersionCheckerHandler,
+	args *InterceptedTransactionArgs,
 ) (*InterceptedTransaction, error) {
-
-	if txBuff == nil {
-		return nil, process.ErrNilBuffer
-	}
-	if check.IfNil(protoMarshalizer) {
-		return nil, process.ErrNilMarshalizer
-	}
-	if check.IfNil(signMarshalizer) {
-		return nil, process.ErrNilMarshalizer
-	}
-	if check.IfNil(hasher) {
-		return nil, common.ErrNilHasher
-	}
-	if check.IfNil(keyGen) {
-		return nil, common.ErrNilKeyGen
-	}
-	if check.IfNil(signer) {
-		return nil, common.ErrNilSingleSigner
-	}
-	if check.IfNil(pubkeyConv) {
-		return nil, common.ErrNilPubkeyConverter
-	}
-	if check.IfNil(whiteListerVerifiedTxs) {
-		return nil, process.ErrNilWhiteListHandler
-	}
-	if len(chainID) == 0 {
-		return nil, process.ErrInvalidChainID
-	}
-	if check.IfNil(txSignHasher) {
-		return nil, common.ErrNilHasher
-	}
-	if check.IfNil(feeHandler) {
-		return nil, process.ErrNilEconomicsFeeHandler
-	}
-	if check.IfNil(txVersionChecker) {
-		return nil, process.ErrNilTransactionVersionChecker
+	err := ValidateInterceptedTransactionArgs(args)
+	if err != nil {
+		return nil, err
 	}
 
-	tx, err := createTx(protoMarshalizer, txBuff)
+	tx, err := createTx(args.ProtoMarshalizer, args.TxBuff)
 	if err != nil {
 		return nil, err
 	}
 
 	inTx := &InterceptedTransaction{
 		tx:                     tx,
-		protoMarshalizer:       protoMarshalizer,
-		signMarshalizer:        signMarshalizer,
-		hasher:                 hasher,
-		singleSigner:           signer,
-		pubkeyConv:             pubkeyConv,
-		keyGen:                 keyGen,
-		whiteListerVerifiedTxs: whiteListerVerifiedTxs,
-		chainID:                chainID,
-		txSignHasher:           txSignHasher,
-		feeHandler:             feeHandler,
-		txVersionChecker:       txVersionChecker,
+		protoMarshalizer:       args.ProtoMarshalizer,
+		signMarshalizer:        args.SignMarshalizer,
+		hasher:                 args.Hasher,
+		singleSigner:           args.Signer,
+		pubkeyConv:             args.PubkeyConv,
+		keyGen:                 args.KeyGen,
+		whiteListerVerifiedTxs: args.WhiteListerVerifiedTxs,
+		chainID:                args.ChainID,
+		txSignHasher:           args.TxSignHasher,
+		feeHandler:             args.FeeHandler,
+		txVersionChecker:       args.TxVersionChecker,
+		forkController:         args.ForkController,
 	}
 
-	txHeader, err := signMarshalizer.Marshal(tx.GetRaw())
+	txHeader, err := args.SignMarshalizer.Marshal(tx.GetRaw())
 	if err != nil {
 		return nil, err
 	}
 
-	err = inTx.processFields(txBuff, txHeader)
+	err = inTx.processFields(args.TxBuff, txHeader)
 	if err != nil {
 		return nil, err
 	}
 
 	return inTx, nil
+}
+
+func ValidateInterceptedTransactionArgs(args *InterceptedTransactionArgs) error {
+	if args.TxBuff == nil {
+		return process.ErrNilBuffer
+	}
+	if check.IfNil(args.ProtoMarshalizer) {
+		return process.ErrNilMarshalizer
+	}
+	if check.IfNil(args.SignMarshalizer) {
+		return process.ErrNilMarshalizer
+	}
+	if check.IfNil(args.Hasher) {
+		return common.ErrNilHasher
+	}
+	if check.IfNil(args.KeyGen) {
+		return common.ErrNilKeyGen
+	}
+	if check.IfNil(args.Signer) {
+		return common.ErrNilSingleSigner
+	}
+	if check.IfNil(args.PubkeyConv) {
+		return common.ErrNilPubkeyConverter
+	}
+	if check.IfNil(args.WhiteListerVerifiedTxs) {
+		return process.ErrNilWhiteListHandler
+	}
+	if len(args.ChainID) == 0 {
+		return process.ErrInvalidChainID
+	}
+	if check.IfNil(args.TxSignHasher) {
+		return common.ErrNilHasher
+	}
+	if check.IfNil(args.FeeHandler) {
+		return process.ErrNilEconomicsFeeHandler
+	}
+	if check.IfNil(args.TxVersionChecker) {
+		return process.ErrNilTransactionVersionChecker
+	}
+	if check.IfNil(args.ForkController) {
+		return process.ErrNilForkController
+	}
+	return nil
 }
 
 func createTx(marshalizer marshal.Marshalizer, txBuff []byte) (*transaction.Transaction, error) {
@@ -189,6 +206,13 @@ func (inTx *InterceptedTransaction) integrity(tx *transaction.Transaction) error
 		return process.ErrInvalidTransactionNoContract
 	}
 
+	// Validate Transaction Size
+	if inTx.forkController.EnableSmartContracts() {
+		err = inTx.validateTransactionSize(tx)
+		if err != nil {
+			return err
+		}
+	}
 	if err := tx.Validate(); err != nil {
 		return err
 	}
@@ -289,4 +313,34 @@ func (inTx *InterceptedTransaction) Identifiers() [][]byte {
 // IsInterfaceNil returns true if there is no value under the interface
 func (inTx *InterceptedTransaction) IsInterfaceNil() bool {
 	return inTx == nil
+}
+
+func (inTx InterceptedTransaction) validateTransactionSize(tx *transaction.Transaction) error {
+	dataSize := 0
+	for _, data := range tx.GetRawData().Data {
+		dataSize += len(data)
+	}
+
+	if dataSize >= core.MegabyteSize {
+		return common.ErrDataFieldTooBig
+	}
+
+	contractsSize := 0
+	for _, contract := range tx.GetContracts() {
+		// #nosec G115
+		if !transaction.IsContractSizeValid(contract.GetParameter().Value, uint32(contract.GetType())) {
+			return common.ErrInvalidContractSize
+		}
+		contractsSize += len(contract.GetParameter().Value)
+	}
+	txSize, err := inTx.protoMarshalizer.Marshal(tx.RawData)
+	if err != nil {
+		return err
+	}
+
+	if len(txSize)-contractsSize-dataSize >= core.MaxTxSize {
+		return common.ErrInvalidTransactionSize
+	}
+
+	return nil
 }

@@ -332,18 +332,21 @@ func (n *ProcessorNode) commonTransactionValidation(
 	}
 
 	intTx, err := procTx.NewInterceptedTransaction(
-		marshalizedTx,
-		n.InternalMarshalizer,
-		n.TxSignMarshalizer,
-		n.Hasher,
-		n.NodeAccount.KeygenTxSign,
-		txSingleSigner,
-		n.AddressPubkeyConverter,
-		whiteListerVerifiedTxs,
-		n.ChainID,
-		n.TxSignHasher,
-		n.FeeHandler,
-		versioning.NewTxVersionChecker(n.MinTransactionVersion),
+		&procTx.InterceptedTransactionArgs{
+			TxBuff:                 marshalizedTx,
+			ProtoMarshalizer:       n.InternalMarshalizer,
+			SignMarshalizer:        n.TxSignMarshalizer,
+			Hasher:                 n.Hasher,
+			KeyGen:                 n.NodeAccount.KeygenTxSign,
+			Signer:                 txSingleSigner,
+			PubkeyConv:             n.AddressPubkeyConverter,
+			WhiteListerVerifiedTxs: whiteListerVerifiedTxs,
+			ChainID:                n.ChainID,
+			TxSignHasher:           n.TxSignHasher,
+			FeeHandler:             n.FeeHandler,
+			TxVersionChecker:       versioning.NewTxVersionChecker(n.MinTransactionVersion),
+			ForkController:         n.ForkController,
+		},
 	)
 	if err != nil {
 		return nil, nil, err

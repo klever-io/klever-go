@@ -708,18 +708,21 @@ func (n *Node) commonTransactionValidation(
 	}
 
 	intTx, err := procTx.NewInterceptedTransaction(
-		marshalizedTx,
-		n.internalMarshalizer,
-		n.txSignMarshalizer,
-		n.hasher,
-		n.keyGenForAccounts,
-		txSingleSigner,
-		n.addressPubkeyConverter,
-		whiteListerVerifiedTxs,
-		n.chainID,
-		n.txSignHasher,
-		n.feeHandler,
-		versioning.NewTxVersionChecker(n.minTransactionVersion),
+		&procTx.InterceptedTransactionArgs{
+			TxBuff:                 marshalizedTx,
+			ProtoMarshalizer:       n.internalMarshalizer,
+			SignMarshalizer:        n.txSignMarshalizer,
+			Hasher:                 n.hasher,
+			KeyGen:                 n.keyGenForAccounts,
+			Signer:                 txSingleSigner,
+			PubkeyConv:             n.addressPubkeyConverter,
+			WhiteListerVerifiedTxs: whiteListerVerifiedTxs,
+			ChainID:                n.chainID,
+			TxSignHasher:           n.txSignHasher,
+			FeeHandler:             n.feeHandler,
+			TxVersionChecker:       versioning.NewTxVersionChecker(n.minTransactionVersion),
+			ForkController:         n.forkController,
+		},
 	)
 	if err != nil {
 		return nil, nil, err
@@ -747,7 +750,6 @@ func (n *Node) commonTransactionValidation(
 
 // ValidateTransaction will validate a transaction
 func (n *Node) ValidateTransaction(tx *transaction.Transaction, checkSignature bool) error {
-
 	txValidator, intTx, err := n.commonTransactionValidation(tx, n.whiteListerVerifiedTxs, n.whiteListRequest, checkSignature)
 	if err != nil {
 		return err

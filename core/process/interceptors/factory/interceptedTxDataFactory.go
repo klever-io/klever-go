@@ -29,6 +29,7 @@ type interceptedTxDataFactory struct {
 	//epochStartTrigger           process.EpochStartTriggerHandler
 	txSignHasher     hashing.Hasher
 	txVersionChecker process.TxVersionCheckerHandler
+	forkController   core.ForkController
 }
 
 // NewInterceptedTxDataFactory creates an instance of interceptedTxDataFactory
@@ -75,6 +76,9 @@ func NewInterceptedTxDataFactory(argument *ArgInterceptedDataFactory) (*intercep
 	if check.IfNil(argument.EpochNotifier) {
 		return nil, common.ErrNilEpochNotifier
 	}
+	if check.IfNil(argument.ForkController) {
+		return nil, common.ErrNilForkController
+	}
 
 	itdf := &interceptedTxDataFactory{
 		protoMarshalizer:       argument.ProtoMarshalizer,
@@ -91,6 +95,7 @@ func NewInterceptedTxDataFactory(argument *ArgInterceptedDataFactory) (*intercep
 		txVersionChecker:            versioning.NewTxVersionChecker(argument.MinTransactionVersion),
 		enableSignedTxWithHashEpoch: argument.EnableSignTxWithHashEpoch,
 		txSignHasher:                argument.TxSignHasher,
+		forkController:              argument.ForkController,
 	}
 
 	argument.EpochNotifier.RegisterNotifyHandler(itdf)
@@ -101,18 +106,21 @@ func NewInterceptedTxDataFactory(argument *ArgInterceptedDataFactory) (*intercep
 // Create creates instances of InterceptedData by unmarshalling provided buffer
 func (itdf *interceptedTxDataFactory) Create(buff []byte) (process.InterceptedData, error) {
 	return transaction.NewInterceptedTransaction(
-		buff,
-		itdf.protoMarshalizer,
-		itdf.signMarshalizer,
-		itdf.hasher,
-		itdf.keyGen,
-		itdf.singleSigner,
-		itdf.pubkeyConverter,
-		itdf.whiteListerVerifiedTxs,
-		itdf.chainID,
-		itdf.txSignHasher,
-		itdf.feeHandler,
-		itdf.txVersionChecker,
+		&transaction.InterceptedTransactionArgs{
+			TxBuff:                 buff,
+			ProtoMarshalizer:       itdf.protoMarshalizer,
+			SignMarshalizer:        itdf.signMarshalizer,
+			Hasher:                 itdf.hasher,
+			KeyGen:                 itdf.keyGen,
+			Signer:                 itdf.singleSigner,
+			PubkeyConv:             itdf.pubkeyConverter,
+			WhiteListerVerifiedTxs: itdf.whiteListerVerifiedTxs,
+			ChainID:                itdf.chainID,
+			TxSignHasher:           itdf.txSignHasher,
+			FeeHandler:             itdf.feeHandler,
+			TxVersionChecker:       itdf.txVersionChecker,
+			ForkController:         itdf.forkController,
+		},
 	)
 }
 

@@ -106,6 +106,23 @@ type ProcessComponentsFactoryArgs struct {
 	forkController            core.ForkController
 }
 
+type MetaInterceptorContainerFactoryArgs struct {
+	nodesCoordinator        sharding.NodesCoordinator
+	data                    *DataComponents
+	dataCore                *CoreComponents
+	crypto                  *CryptoComponents
+	network                 *NetworkComponents
+	state                   *StateComponents
+	economics               process.EconomicsDataHandler
+	headerSigVerifier       HeaderSigVerifierHandler
+	headerIntegrityVerifier HeaderIntegrityVerifierHandler
+	epochStartTrigger       process.EpochStartTriggerHandler
+	whiteListHandler        process.WhiteListHandler
+	whiteListerVerifiedTxs  process.WhiteListHandler
+	epochNotifier           process.EpochNotifier
+	forkController          core.ForkController
+}
+
 // NewProcessComponentsFactoryArgs initializes the arguments necessary for creating the process components
 func NewProcessComponentsFactoryArgs(
 	coreComponents *CoreComponentsFactoryArgs,
@@ -344,19 +361,22 @@ func createBaseProcessor(
 	log.Debug("Validator Stats created", "validatorStatsRootHash", validatorStatsRootHash)
 
 	interceptorContainerFactory, blackListHandler, err := newInterceptorContainerFactory(
-		args.nodesCoordinator,
-		args.data,
-		args.coreData,
-		args.crypto,
-		args.state,
-		args.network,
-		args.economicsData,
-		headerSigVerifier,
-		headerIntegrityVerifier,
-		epochStartTrigger,
-		args.whiteListHandler,
-		args.whiteListerVerifiedTxs,
-		args.epochNotifier,
+		&InterceptorContainerFactoryArgs{
+			args.nodesCoordinator,
+			args.data,
+			args.coreData,
+			args.crypto,
+			args.state,
+			args.network,
+			args.economicsData,
+			headerSigVerifier,
+			headerIntegrityVerifier,
+			epochStartTrigger,
+			args.whiteListHandler,
+			args.whiteListerVerifiedTxs,
+			args.epochNotifier,
+			args.forkController,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -599,83 +619,79 @@ func newMetaResolverContainerFactory(
 	return resolversContainerFactory, nil
 }
 
-func newInterceptorContainerFactory(
-	nodesCoordinator sharding.NodesCoordinator,
-	data *DataComponents,
-	coreData *CoreComponents,
-	crypto *CryptoComponents,
-	state *StateComponents,
-	network *NetworkComponents,
-	economics process.EconomicsDataHandler,
-	headerSigVerifier HeaderSigVerifierHandler,
-	headerIntegrityVerifier HeaderIntegrityVerifierHandler,
-	epochStartTrigger process.EpochStartTriggerHandler,
-	whiteListHandler process.WhiteListHandler,
-	whiteListerVerifiedTxs process.WhiteListHandler,
-	epochNotifier process.EpochNotifier,
-) (process.InterceptorsContainerFactory, process.TimeCacher, error) {
+type InterceptorContainerFactoryArgs struct {
+	nodesCoordinator        sharding.NodesCoordinator
+	data                    *DataComponents
+	coreData                *CoreComponents
+	crypto                  *CryptoComponents
+	state                   *StateComponents
+	network                 *NetworkComponents
+	economics               process.EconomicsDataHandler
+	headerSigVerifier       HeaderSigVerifierHandler
+	headerIntegrityVerifier HeaderIntegrityVerifierHandler
+	epochStartTrigger       process.EpochStartTriggerHandler
+	whiteListHandler        process.WhiteListHandler
+	whiteListerVerifiedTxs  process.WhiteListHandler
+	epochNotifier           process.EpochNotifier
+	forkController          core.ForkController
+}
 
+func newInterceptorContainerFactory(
+	args *InterceptorContainerFactoryArgs,
+) (process.InterceptorsContainerFactory, process.TimeCacher, error) {
 	return newMetaInterceptorContainerFactory(
-		nodesCoordinator,
-		data,
-		coreData,
-		crypto,
-		network,
-		state,
-		economics,
-		headerSigVerifier,
-		headerIntegrityVerifier,
-		epochStartTrigger,
-		whiteListHandler,
-		whiteListerVerifiedTxs,
-		epochNotifier,
+		&MetaInterceptorContainerFactoryArgs{
+			args.nodesCoordinator,
+			args.data,
+			args.coreData,
+			args.crypto,
+			args.network,
+			args.state,
+			args.economics,
+			args.headerSigVerifier,
+			args.headerIntegrityVerifier,
+			args.epochStartTrigger,
+			args.whiteListHandler,
+			args.whiteListerVerifiedTxs,
+			args.epochNotifier,
+			args.forkController,
+		},
 	)
 }
 
 func newMetaInterceptorContainerFactory(
-	nodesCoordinator sharding.NodesCoordinator,
-	data *DataComponents,
-	dataCore *CoreComponents,
-	crypto *CryptoComponents,
-	network *NetworkComponents,
-	state *StateComponents,
-	economics process.EconomicsDataHandler,
-	headerSigVerifier HeaderSigVerifierHandler,
-	headerIntegrityVerifier HeaderIntegrityVerifierHandler,
-	epochStartTrigger process.EpochStartTriggerHandler,
-	whiteListHandler process.WhiteListHandler,
-	whiteListerVerifiedTxs process.WhiteListHandler,
-	epochNotifier process.EpochNotifier,
+	args *MetaInterceptorContainerFactoryArgs,
 ) (process.InterceptorsContainerFactory, process.TimeCacher, error) {
 	headerBlackList := timecache.NewTimeCache(timeSpanForBadHeaders)
 	metaInterceptorsContainerFactoryArgs := interceptorscontainer.MetaInterceptorsContainerFactoryArgs{
-		NodesCoordinator:        nodesCoordinator,
-		Messenger:               network.NetMessenger,
-		Store:                   data.Store,
-		ProtoMarshalizer:        dataCore.InternalMarshalizer,
-		TxSignMarshalizer:       dataCore.TxSignMarshalizer,
-		Hasher:                  dataCore.Hasher,
-		MultiSigner:             crypto.MultiSigner,
-		DataPool:                data.Datapool,
-		Accounts:                state.AccountsAdapter,
-		AddressPubkeyConverter:  state.AddressPubkeyConverter,
-		SingleSigner:            crypto.TxSingleSigner,
-		BlockSingleSigner:       crypto.SingleSigner,
-		KeyGen:                  crypto.TxSignKeyGen,
-		BlockKeyGen:             crypto.BlockSignKeyGen,
-		TxFeeHandler:            economics,
+		NodesCoordinator:        args.nodesCoordinator,
+		Messenger:               args.network.NetMessenger,
+		Store:                   args.data.Store,
+		ProtoMarshalizer:        args.dataCore.InternalMarshalizer,
+		TxSignMarshalizer:       args.dataCore.TxSignMarshalizer,
+		Hasher:                  args.dataCore.Hasher,
+		MultiSigner:             args.crypto.MultiSigner,
+		DataPool:                args.data.Datapool,
+		Accounts:                args.state.AccountsAdapter,
+		AddressPubkeyConverter:  args.state.AddressPubkeyConverter,
+		SingleSigner:            args.crypto.TxSingleSigner,
+		BlockSingleSigner:       args.crypto.SingleSigner,
+		KeyGen:                  args.crypto.TxSignKeyGen,
+		BlockKeyGen:             args.crypto.BlockSignKeyGen,
+		TxFeeHandler:            args.economics,
 		BlackList:               headerBlackList,
-		HeaderSigVerifier:       headerSigVerifier,
-		HeaderIntegrityVerifier: headerIntegrityVerifier,
-		WhiteListHandler:        whiteListHandler,
-		WhiteListerVerifiedTxs:  whiteListerVerifiedTxs,
-		AntifloodHandler:        network.InputAntifloodHandler,
-		EpochStartTrigger:       epochStartTrigger,
-		ChainID:                 dataCore.ChainID,
-		MinTransactionVersion:   dataCore.MinTransactionVersion,
-		TxSignHasher:            dataCore.TxSignHasher,
-		EpochNotifier:           epochNotifier,
-		KAppController:          state.KAppController,
+		HeaderSigVerifier:       args.headerSigVerifier,
+		HeaderIntegrityVerifier: args.headerIntegrityVerifier,
+		WhiteListHandler:        args.whiteListHandler,
+		WhiteListerVerifiedTxs:  args.whiteListerVerifiedTxs,
+		AntifloodHandler:        args.network.InputAntifloodHandler,
+		EpochStartTrigger:       args.epochStartTrigger,
+		ChainID:                 args.dataCore.ChainID,
+		MinTransactionVersion:   args.dataCore.MinTransactionVersion,
+		TxSignHasher:            args.dataCore.TxSignHasher,
+		EpochNotifier:           args.epochNotifier,
+		KAppController:          args.state.KAppController,
+		ForkController:          args.forkController,
 	}
 	interceptorContainerFactory, err := interceptorscontainer.NewMetaInterceptorsContainerFactory(metaInterceptorsContainerFactoryArgs)
 	if err != nil {

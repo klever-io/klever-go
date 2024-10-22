@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"testing"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -67,7 +68,7 @@ func createFreeTxFeeHandler() *mock.FeeHandlerStub {
 	}
 }
 
-func createInterceptedTxFromPlainTx(tx *dataTransaction.Transaction, txFeeHandler process.EconomicsDataHandler, chainID []byte, minTxVersion uint32) (*transaction.InterceptedTransaction, error) {
+func createInterceptedTxFromPlainTx(tx *dataTransaction.Transaction, txFeeHandler process.EconomicsDataHandler, chainID []byte, minTxVersion uint32, forkController core.ForkController) (*transaction.InterceptedTransaction, error) {
 	marshalizer := &mock.MarshalizerMock{}
 	txBuff, err := marshalizer.Marshal(tx)
 	if err != nil {
@@ -75,22 +76,25 @@ func createInterceptedTxFromPlainTx(tx *dataTransaction.Transaction, txFeeHandle
 	}
 
 	return transaction.NewInterceptedTransaction(
-		txBuff,
-		marshalizer,
-		marshalizer,
-		mock.HasherMock{},
-		createKeyGenMock(),
-		createDummySigner(),
-		&mock.PubkeyConverterStub{
-			LenCalled: func() int {
-				return 32
+		&transaction.InterceptedTransactionArgs{
+			txBuff,
+			marshalizer,
+			marshalizer,
+			mock.HasherMock{},
+			createKeyGenMock(),
+			createDummySigner(),
+			&mock.PubkeyConverterStub{
+				LenCalled: func() int {
+					return 32
+				},
 			},
+			&mock.WhiteListHandlerStub{},
+			chainID,
+			mock.HasherMock{},
+			txFeeHandler,
+			versioning.NewTxVersionChecker(minTxVersion),
+			forkController,
 		},
-		&mock.WhiteListHandlerStub{},
-		chainID,
-		mock.HasherMock{},
-		txFeeHandler,
-		versioning.NewTxVersionChecker(minTxVersion),
 	)
 }
 
@@ -100,18 +104,21 @@ func TestNewInterceptedTransaction_NilBufferShouldErr(t *testing.T) {
 	t.Parallel()
 
 	txi, err := transaction.NewInterceptedTransaction(
-		nil,
-		&mock.MarshalizerMock{},
-		&mock.MarshalizerMock{},
-		mock.HasherMock{},
-		&cryptoMock.SingleSignKeyGenMock{},
-		&cryptoMock.SignerMock{},
-		createMockPubkeyConverter(),
-		&mock.WhiteListHandlerStub{},
-		[]byte("chainID"),
-		mock.HasherMock{},
-		createFreeTxFeeHandler(),
-		nil,
+		&transaction.InterceptedTransactionArgs{
+			nil,
+			&mock.MarshalizerMock{},
+			&mock.MarshalizerMock{},
+			mock.HasherMock{},
+			&cryptoMock.SingleSignKeyGenMock{},
+			&cryptoMock.SignerMock{},
+			createMockPubkeyConverter(),
+			&mock.WhiteListHandlerStub{},
+			[]byte("chainID"),
+			mock.HasherMock{},
+			createFreeTxFeeHandler(),
+			nil,
+			&mock.ForkControllerStub{},
+		},
 	)
 
 	assert.Nil(t, txi)
@@ -122,18 +129,21 @@ func TestNewInterceptedTransaction_NilMarshalizerShouldErr(t *testing.T) {
 	t.Parallel()
 
 	txi, err := transaction.NewInterceptedTransaction(
-		make([]byte, 0),
-		nil,
-		&mock.MarshalizerMock{},
-		mock.HasherMock{},
-		&cryptoMock.SingleSignKeyGenMock{},
-		&cryptoMock.SignerMock{},
-		createMockPubkeyConverter(),
-		&mock.WhiteListHandlerStub{},
-		[]byte("chainID"),
-		mock.HasherMock{},
-		createFreeTxFeeHandler(),
-		nil,
+		&transaction.InterceptedTransactionArgs{
+			make([]byte, 0),
+			nil,
+			&mock.MarshalizerMock{},
+			mock.HasherMock{},
+			&cryptoMock.SingleSignKeyGenMock{},
+			&cryptoMock.SignerMock{},
+			createMockPubkeyConverter(),
+			&mock.WhiteListHandlerStub{},
+			[]byte("chainID"),
+			mock.HasherMock{},
+			createFreeTxFeeHandler(),
+			nil,
+			&mock.ForkControllerStub{},
+		},
 	)
 
 	assert.Nil(t, txi)
@@ -144,18 +154,21 @@ func TestNewInterceptedTransaction_NilSignMarshalizerShouldErr(t *testing.T) {
 	t.Parallel()
 
 	txi, err := transaction.NewInterceptedTransaction(
-		make([]byte, 0),
-		&mock.MarshalizerMock{},
-		nil,
-		mock.HasherMock{},
-		&cryptoMock.SingleSignKeyGenMock{},
-		&cryptoMock.SignerMock{},
-		createMockPubkeyConverter(),
-		&mock.WhiteListHandlerStub{},
-		[]byte("chainID"),
-		mock.HasherMock{},
-		createFreeTxFeeHandler(),
-		nil,
+		&transaction.InterceptedTransactionArgs{
+			make([]byte, 0),
+			&mock.MarshalizerMock{},
+			nil,
+			mock.HasherMock{},
+			&cryptoMock.SingleSignKeyGenMock{},
+			&cryptoMock.SignerMock{},
+			createMockPubkeyConverter(),
+			&mock.WhiteListHandlerStub{},
+			[]byte("chainID"),
+			mock.HasherMock{},
+			createFreeTxFeeHandler(),
+			nil,
+			&mock.ForkControllerStub{},
+		},
 	)
 
 	assert.Nil(t, txi)
@@ -166,18 +179,21 @@ func TestNewInterceptedTransaction_NilHasherShouldErr(t *testing.T) {
 	t.Parallel()
 
 	txi, err := transaction.NewInterceptedTransaction(
-		make([]byte, 0),
-		&mock.MarshalizerMock{},
-		&mock.MarshalizerMock{},
-		nil,
-		&cryptoMock.SingleSignKeyGenMock{},
-		&cryptoMock.SignerMock{},
-		createMockPubkeyConverter(),
-		&mock.WhiteListHandlerStub{},
-		[]byte("chainID"),
-		mock.HasherMock{},
-		createFreeTxFeeHandler(),
-		nil,
+		&transaction.InterceptedTransactionArgs{
+			make([]byte, 0),
+			&mock.MarshalizerMock{},
+			&mock.MarshalizerMock{},
+			nil,
+			&cryptoMock.SingleSignKeyGenMock{},
+			&cryptoMock.SignerMock{},
+			createMockPubkeyConverter(),
+			&mock.WhiteListHandlerStub{},
+			[]byte("chainID"),
+			mock.HasherMock{},
+			createFreeTxFeeHandler(),
+			nil,
+			&mock.ForkControllerStub{},
+		},
 	)
 
 	assert.Nil(t, txi)
@@ -188,18 +204,21 @@ func TestNewInterceptedTransaction_NilKeyGenShouldErr(t *testing.T) {
 	t.Parallel()
 
 	txi, err := transaction.NewInterceptedTransaction(
-		make([]byte, 0),
-		&mock.MarshalizerMock{},
-		&mock.MarshalizerMock{},
-		mock.HasherMock{},
-		nil,
-		&cryptoMock.SignerMock{},
-		createMockPubkeyConverter(),
-		&mock.WhiteListHandlerStub{},
-		[]byte("chainID"),
-		mock.HasherMock{},
-		createFreeTxFeeHandler(),
-		nil,
+		&transaction.InterceptedTransactionArgs{
+			make([]byte, 0),
+			&mock.MarshalizerMock{},
+			&mock.MarshalizerMock{},
+			mock.HasherMock{},
+			nil,
+			&cryptoMock.SignerMock{},
+			createMockPubkeyConverter(),
+			&mock.WhiteListHandlerStub{},
+			[]byte("chainID"),
+			mock.HasherMock{},
+			createFreeTxFeeHandler(),
+			nil,
+			&mock.ForkControllerStub{},
+		},
 	)
 
 	assert.Nil(t, txi)
@@ -210,18 +229,21 @@ func TestNewInterceptedTransaction_NilSignerShouldErr(t *testing.T) {
 	t.Parallel()
 
 	txi, err := transaction.NewInterceptedTransaction(
-		make([]byte, 0),
-		&mock.MarshalizerMock{},
-		&mock.MarshalizerMock{},
-		mock.HasherMock{},
-		&cryptoMock.SingleSignKeyGenMock{},
-		nil,
-		createMockPubkeyConverter(),
-		&mock.WhiteListHandlerStub{},
-		[]byte("chainID"),
-		mock.HasherMock{},
-		createFreeTxFeeHandler(),
-		nil,
+		&transaction.InterceptedTransactionArgs{
+			make([]byte, 0),
+			&mock.MarshalizerMock{},
+			&mock.MarshalizerMock{},
+			mock.HasherMock{},
+			&cryptoMock.SingleSignKeyGenMock{},
+			nil,
+			createMockPubkeyConverter(),
+			&mock.WhiteListHandlerStub{},
+			[]byte("chainID"),
+			mock.HasherMock{},
+			createFreeTxFeeHandler(),
+			nil,
+			&mock.ForkControllerStub{},
+		},
 	)
 
 	assert.Nil(t, txi)
@@ -232,18 +254,21 @@ func TestNewInterceptedTransaction_NilPubkeyConverterShouldErr(t *testing.T) {
 	t.Parallel()
 
 	txi, err := transaction.NewInterceptedTransaction(
-		make([]byte, 0),
-		&mock.MarshalizerMock{},
-		&mock.MarshalizerMock{},
-		mock.HasherMock{},
-		&cryptoMock.SingleSignKeyGenMock{},
-		&cryptoMock.SignerMock{},
-		nil,
-		&mock.WhiteListHandlerStub{},
-		[]byte("chainID"),
-		mock.HasherMock{},
-		createFreeTxFeeHandler(),
-		nil,
+		&transaction.InterceptedTransactionArgs{
+			make([]byte, 0),
+			&mock.MarshalizerMock{},
+			&mock.MarshalizerMock{},
+			mock.HasherMock{},
+			&cryptoMock.SingleSignKeyGenMock{},
+			&cryptoMock.SignerMock{},
+			nil,
+			&mock.WhiteListHandlerStub{},
+			[]byte("chainID"),
+			mock.HasherMock{},
+			createFreeTxFeeHandler(),
+			nil,
+			&mock.ForkControllerStub{},
+		},
 	)
 
 	assert.Nil(t, txi)
@@ -254,18 +279,21 @@ func TestNewInterceptedTransaction_NilWhiteListerVerifiedTxsShouldErr(t *testing
 	t.Parallel()
 
 	txi, err := transaction.NewInterceptedTransaction(
-		make([]byte, 0),
-		&mock.MarshalizerMock{},
-		&mock.MarshalizerMock{},
-		mock.HasherMock{},
-		&cryptoMock.SingleSignKeyGenMock{},
-		&cryptoMock.SignerMock{},
-		createMockPubkeyConverter(),
-		nil,
-		[]byte("chainID"),
-		mock.HasherMock{},
-		createFreeTxFeeHandler(),
-		nil,
+		&transaction.InterceptedTransactionArgs{
+			make([]byte, 0),
+			&mock.MarshalizerMock{},
+			&mock.MarshalizerMock{},
+			mock.HasherMock{},
+			&cryptoMock.SingleSignKeyGenMock{},
+			&cryptoMock.SignerMock{},
+			createMockPubkeyConverter(),
+			nil,
+			[]byte("chainID"),
+			mock.HasherMock{},
+			createFreeTxFeeHandler(),
+			nil,
+			&mock.ForkControllerStub{},
+		},
 	)
 
 	assert.Nil(t, txi)
@@ -276,18 +304,21 @@ func TestNewInterceptedTransaction_InvalidChainIDShouldErr(t *testing.T) {
 	t.Parallel()
 
 	txi, err := transaction.NewInterceptedTransaction(
-		make([]byte, 0),
-		&mock.MarshalizerMock{},
-		&mock.MarshalizerMock{},
-		mock.HasherMock{},
-		&cryptoMock.SingleSignKeyGenMock{},
-		&cryptoMock.SignerMock{},
-		createMockPubkeyConverter(),
-		&mock.WhiteListHandlerStub{},
-		nil,
-		mock.HasherMock{},
-		createFreeTxFeeHandler(),
-		nil,
+		&transaction.InterceptedTransactionArgs{
+			make([]byte, 0),
+			&mock.MarshalizerMock{},
+			&mock.MarshalizerMock{},
+			mock.HasherMock{},
+			&cryptoMock.SingleSignKeyGenMock{},
+			&cryptoMock.SignerMock{},
+			createMockPubkeyConverter(),
+			&mock.WhiteListHandlerStub{},
+			nil,
+			mock.HasherMock{},
+			createFreeTxFeeHandler(),
+			nil,
+			&mock.ForkControllerStub{},
+		},
 	)
 
 	assert.Nil(t, txi)
@@ -298,18 +329,21 @@ func TestNewInterceptedTransaction_NilTxSignHasherShouldErr(t *testing.T) {
 	t.Parallel()
 
 	txi, err := transaction.NewInterceptedTransaction(
-		make([]byte, 0),
-		&mock.MarshalizerMock{},
-		&mock.MarshalizerMock{},
-		mock.HasherMock{},
-		&cryptoMock.SingleSignKeyGenMock{},
-		&cryptoMock.SignerMock{},
-		createMockPubkeyConverter(),
-		&mock.WhiteListHandlerStub{},
-		[]byte("chainID"),
-		nil,
-		createFreeTxFeeHandler(),
-		nil,
+		&transaction.InterceptedTransactionArgs{
+			make([]byte, 0),
+			&mock.MarshalizerMock{},
+			&mock.MarshalizerMock{},
+			mock.HasherMock{},
+			&cryptoMock.SingleSignKeyGenMock{},
+			&cryptoMock.SignerMock{},
+			createMockPubkeyConverter(),
+			&mock.WhiteListHandlerStub{},
+			[]byte("chainID"),
+			nil,
+			createFreeTxFeeHandler(),
+			nil,
+			&mock.ForkControllerStub{},
+		},
 	)
 
 	assert.Nil(t, txi)
@@ -320,22 +354,75 @@ func TestNewInterceptedTransaction_NilTxFeeHandlerShouldErr(t *testing.T) {
 	t.Parallel()
 
 	txi, err := transaction.NewInterceptedTransaction(
-		make([]byte, 0),
-		&mock.MarshalizerMock{},
-		&mock.MarshalizerMock{},
-		mock.HasherMock{},
-		&cryptoMock.SingleSignKeyGenMock{},
-		&cryptoMock.SignerMock{},
-		createMockPubkeyConverter(),
-		&mock.WhiteListHandlerStub{},
-		[]byte("chainID"),
-		mock.HasherMock{},
-		nil,
-		nil,
+		&transaction.InterceptedTransactionArgs{
+			make([]byte, 0),
+			&mock.MarshalizerMock{},
+			&mock.MarshalizerMock{},
+			mock.HasherMock{},
+			&cryptoMock.SingleSignKeyGenMock{},
+			&cryptoMock.SignerMock{},
+			createMockPubkeyConverter(),
+			&mock.WhiteListHandlerStub{},
+			[]byte("chainID"),
+			mock.HasherMock{},
+			nil,
+			nil,
+			&mock.ForkControllerStub{},
+		},
 	)
 
 	assert.Nil(t, txi)
 	assert.Equal(t, process.ErrNilEconomicsFeeHandler, err)
+}
+
+func TestNewInterceptedTransaction_NilTxVersionCheckerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	txi, err := transaction.NewInterceptedTransaction(
+		&transaction.InterceptedTransactionArgs{
+			make([]byte, 0),
+			&mock.MarshalizerMock{},
+			&mock.MarshalizerMock{},
+			mock.HasherMock{},
+			&cryptoMock.SingleSignKeyGenMock{},
+			&cryptoMock.SignerMock{},
+			createMockPubkeyConverter(),
+			&mock.WhiteListHandlerStub{},
+			[]byte("chainID"),
+			mock.HasherMock{},
+			createFreeTxFeeHandler(),
+			nil,
+			&mock.ForkControllerStub{},
+		},
+	)
+
+	assert.Nil(t, txi)
+	assert.Equal(t, process.ErrNilTransactionVersionChecker, err)
+}
+
+func TestNewInterceptedTransaction_NilForkControllerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	txi, err := transaction.NewInterceptedTransaction(
+		&transaction.InterceptedTransactionArgs{
+			make([]byte, 0),
+			&mock.MarshalizerMock{},
+			&mock.MarshalizerMock{},
+			mock.HasherMock{},
+			&cryptoMock.SingleSignKeyGenMock{},
+			&cryptoMock.SignerMock{},
+			createMockPubkeyConverter(),
+			&mock.WhiteListHandlerStub{},
+			[]byte("chainID"),
+			mock.HasherMock{},
+			createFreeTxFeeHandler(),
+			versioning.NewTxVersionChecker(1),
+			nil,
+		},
+	)
+
+	assert.Nil(t, txi)
+	assert.Equal(t, process.ErrNilForkController, err)
 }
 
 func TestNewInterceptedTransaction_UnmarshalingTxFailsShouldErr(t *testing.T) {
@@ -344,22 +431,25 @@ func TestNewInterceptedTransaction_UnmarshalingTxFailsShouldErr(t *testing.T) {
 	errExpected := errors.New("expected error")
 
 	txi, err := transaction.NewInterceptedTransaction(
-		make([]byte, 0),
-		&mock.MarshalizerStub{
-			UnmarshalCalled: func(obj interface{}, buff []byte) error {
-				return errExpected
+		&transaction.InterceptedTransactionArgs{
+			make([]byte, 0),
+			&mock.MarshalizerStub{
+				UnmarshalCalled: func(obj interface{}, buff []byte) error {
+					return errExpected
+				},
 			},
+			&mock.MarshalizerMock{},
+			mock.HasherMock{},
+			&cryptoMock.SingleSignKeyGenMock{},
+			&cryptoMock.SignerMock{},
+			createMockPubkeyConverter(),
+			&mock.WhiteListHandlerStub{},
+			[]byte("chainID"),
+			mock.HasherMock{},
+			createFreeTxFeeHandler(),
+			versioning.NewTxVersionChecker(1),
+			&mock.ForkControllerStub{},
 		},
-		&mock.MarshalizerMock{},
-		mock.HasherMock{},
-		&cryptoMock.SingleSignKeyGenMock{},
-		&cryptoMock.SignerMock{},
-		createMockPubkeyConverter(),
-		&mock.WhiteListHandlerStub{},
-		[]byte("chainID"),
-		mock.HasherMock{},
-		createFreeTxFeeHandler(),
-		versioning.NewTxVersionChecker(1),
 	)
 
 	assert.Nil(t, txi)
@@ -373,7 +463,7 @@ func TestNewInterceptedTransaction_ShouldWork(t *testing.T) {
 	chainID := []byte("chain")
 	tx := dataTransaction.NewBaseTransaction(senderAddress, 0, [][]byte{[]byte("data")}, 1, 100)
 
-	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion)
+	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion, &mock.ForkControllerStub{})
 
 	assert.False(t, check.IfNil(txi))
 	assert.Nil(t, err)
@@ -394,7 +484,7 @@ func TestInterceptedTransaction_CheckValidityNilSenderAddressShouldErr(t *testin
 	assert.Nil(t, err)
 	tx.RawData.Sender = nil
 
-	txi, _ := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion)
+	txi, _ := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion, &mock.ForkControllerStub{})
 
 	err = txi.CheckValidity()
 	assert.Equal(t, process.ErrInvalidSndAddr, err)
@@ -409,7 +499,7 @@ func TestInterceptedTransaction_CheckContractShouldErr(t *testing.T) {
 	tx.Signature = append(tx.Signature, sigOk)
 	_ = tx.SetChainID(chainID)
 
-	txi, _ := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion)
+	txi, _ := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion, &mock.ForkControllerStub{})
 
 	err := txi.CheckValidity()
 	assert.Equal(t, process.ErrInvalidTransactionNoContract, err)
@@ -427,7 +517,7 @@ func TestInterceptedTransaction_CheckValidityInvalidSenderAddressShouldErr(t *te
 	err := AddTransfer(tx, createMockPubkeyConverter(), append(senderAddress, 0), recvAddress, token, 10)
 	assert.Nil(t, err)
 
-	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion)
+	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion, &mock.ForkControllerStub{})
 	assert.Nil(t, err)
 
 	err = txi.CheckValidity()
@@ -444,7 +534,7 @@ func TestInterceptedTransaction_CheckValidityInvalidSenderShouldErr(t *testing.T
 	_ = tx.SetChainID(chainID)
 	_ = AddTransfer(tx, createMockPubkeyConverter(), []byte(""), recvAddress, token, 10)
 
-	txi, _ := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion)
+	txi, _ := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion, &mock.ForkControllerStub{})
 
 	err := txi.CheckValidity()
 
@@ -463,7 +553,7 @@ func TestInterceptedTransaction_CheckValidityWrongChainIDShouldErr(t *testing.T)
 	assert.Nil(t, err)
 
 	correctChainID := []byte("correct")
-	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), correctChainID, minTxVersion)
+	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), correctChainID, minTxVersion, &mock.ForkControllerStub{})
 	assert.Nil(t, err)
 
 	err = txi.CheckValidity()
@@ -477,7 +567,7 @@ func TestInterceptedTransaction_CheckValidityInvalidVersionShouldErr(t *testing.
 	tx := dataTransaction.NewBaseTransaction(senderAddress, 0, [][]byte{[]byte("data")}, 1, 100)
 
 	correctChainID := []byte("correct")
-	txi, _ := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), correctChainID, minTxVersion)
+	txi, _ := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), correctChainID, minTxVersion, &mock.ForkControllerStub{})
 
 	err := txi.CheckValidity()
 	_ = err
@@ -494,7 +584,7 @@ func TestInterceptedTransaction_TransactionWithNilChainIDShouldErr(t *testing.T)
 	err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 10)
 	assert.Nil(t, err)
 
-	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion)
+	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion, &mock.ForkControllerStub{})
 	assert.Nil(t, err)
 
 	err = txi.CheckValidity()
@@ -512,11 +602,64 @@ func TestInterceptedTransaction_CheckValidityOkValsShouldWork(t *testing.T) {
 	err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 10)
 	assert.Nil(t, err)
 
-	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion)
+	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion, &mock.ForkControllerStub{})
 	assert.Nil(t, err)
 
 	err = txi.CheckValidity()
 	assert.Nil(t, err)
+}
+
+func TestInterceptedTransaction_CheckSizeValidityShouldWork(t *testing.T) {
+	t.Parallel()
+
+	chainId := make([]byte, core.MaxLengthForAssetTicker)
+
+	tx := dataTransaction.NewBaseTransaction(senderAddress, math.MaxInt64, [][]byte{}, math.MaxInt64, math.MaxInt64)
+	tx.RawData.KDAFee = &dataTransaction.Transaction_KDAFee{
+		KDA:    make([]byte, core.MaxLengthForAssetTicker),
+		Amount: math.MaxInt64,
+	}
+	tx.SetChainID(chainId)
+	tx.RawData.PermissionID = math.MaxInt32
+	tx.Signature = append(tx.Signature, sigOk)
+
+	err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 10)
+	assert.Nil(t, err)
+
+	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainId, 1, &mock.ForkControllerStub{
+		EnableSmartContractsValue: true,
+	})
+	assert.Nil(t, err)
+
+	err = txi.CheckValidity()
+	assert.Nil(t, err)
+}
+
+func TestInterceptedTransaction_CheckSizeValidityShoulFail(t *testing.T) {
+	t.Parallel()
+
+	chainId := make([]byte, core.MaxTxSize+1)
+
+	tx := dataTransaction.NewBaseTransaction(senderAddress, math.MaxInt64, [][]byte{}, math.MaxInt64, math.MaxInt64)
+	tx.RawData.KDAFee = &dataTransaction.Transaction_KDAFee{
+		KDA:    make([]byte, core.MaxLengthForAssetTicker),
+		Amount: math.MaxInt64,
+	}
+	tx.SetChainID(chainId)
+	tx.RawData.PermissionID = math.MaxInt32
+	tx.Signature = append(tx.Signature, sigOk)
+
+	err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 10)
+	assert.Nil(t, err)
+
+	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainId, 1, &mock.ForkControllerStub{
+		EnableSmartContractsValue: true,
+	})
+	assert.Nil(t, err)
+
+	err = txi.CheckValidity()
+	require.NotNil(t, err)
+	assert.Equal(t, common.ErrInvalidTransactionSize, err)
 }
 
 func TestInterceptedTransaction_OkValsGettersShouldWork(t *testing.T) {
@@ -530,7 +673,7 @@ func TestInterceptedTransaction_OkValsGettersShouldWork(t *testing.T) {
 	err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 10)
 	assert.Nil(t, err)
 
-	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion)
+	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion, &mock.ForkControllerStub{})
 	assert.Nil(t, err)
 
 	assert.Equal(t, tx, txi.Transaction())
@@ -547,7 +690,7 @@ func TestInterceptedTransaction_GetSenderAddress(t *testing.T) {
 	err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 10)
 	assert.Nil(t, err)
 
-	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion)
+	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion, &mock.ForkControllerStub{})
 	assert.Nil(t, err)
 	result := txi.SenderAddress()
 	assert.NotNil(t, result)
@@ -588,18 +731,21 @@ func TestInterceptedTransaction_Fee(t *testing.T) {
 	txBuff, _ := marshalizer.Marshal(tx)
 
 	txin, err := transaction.NewInterceptedTransaction(
-		txBuff,
-		marshalizer,
-		marshalizer,
-		mock.HasherMock{},
-		createKeyGenMock(),
-		createDummySigner(),
-		&mock.PubkeyConverterStub{},
-		&mock.WhiteListHandlerStub{},
-		[]byte("T"),
-		mock.HasherMock{},
-		createFreeTxFeeHandler(),
-		versioning.NewTxVersionChecker(1),
+		&transaction.InterceptedTransactionArgs{
+			txBuff,
+			marshalizer,
+			marshalizer,
+			mock.HasherMock{},
+			createKeyGenMock(),
+			createDummySigner(),
+			&mock.PubkeyConverterStub{},
+			&mock.WhiteListHandlerStub{},
+			[]byte("T"),
+			mock.HasherMock{},
+			createFreeTxFeeHandler(),
+			versioning.NewTxVersionChecker(1),
+			&mock.ForkControllerStub{},
+		},
 	)
 	require.Nil(t, err)
 
@@ -621,18 +767,21 @@ func TestInterceptedTransaction_String(t *testing.T) {
 	txBuff, _ := marshalizer.Marshal(tx)
 
 	txin, err := transaction.NewInterceptedTransaction(
-		txBuff,
-		marshalizer,
-		marshalizer,
-		mock.HasherMock{},
-		createKeyGenMock(),
-		createDummySigner(),
-		&mock.PubkeyConverterStub{},
-		&mock.WhiteListHandlerStub{},
-		[]byte("T"),
-		mock.HasherMock{},
-		createFreeTxFeeHandler(),
-		versioning.NewTxVersionChecker(1),
+		&transaction.InterceptedTransactionArgs{
+			txBuff,
+			marshalizer,
+			marshalizer,
+			mock.HasherMock{},
+			createKeyGenMock(),
+			createDummySigner(),
+			&mock.PubkeyConverterStub{},
+			&mock.WhiteListHandlerStub{},
+			[]byte("T"),
+			mock.HasherMock{},
+			createFreeTxFeeHandler(),
+			versioning.NewTxVersionChecker(1),
+			&mock.ForkControllerStub{},
+		},
 	)
 	require.Nil(t, err)
 

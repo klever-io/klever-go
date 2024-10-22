@@ -39,67 +39,56 @@ type baseInterceptorsContainerFactory struct {
 	whiteListerVerifiedTxs process.WhiteListHandler
 	addressPubkeyConverter core.PubkeyConverter
 	kAppController         kapp.KAppController
+	forkController         core.ForkController
 }
 
 func checkBaseParams(
-	accounts state.AccountsAdapter,
-	marshalizer marshal.Marshalizer,
-	signMarshalizer marshal.Marshalizer,
-	hasher hashing.Hasher,
-	store retriever.StorageService,
-	dataPool retriever.PoolsHolder,
-	messenger process.TopicHandler,
-	multiSigner crypto.MultiSigner,
-	nodesCoordinator sharding.NodesCoordinator,
-	blackList process.TimeCacher,
-	antifloodHandler process.P2PAntifloodHandler,
-	whiteListHandler process.WhiteListHandler,
-	whiteListerVerifiedTxs process.WhiteListHandler,
-	addressPubkeyConverter core.PubkeyConverter,
-	kAppController kapp.KAppController,
-	maxTxNonceDeltaAllowed int,
+	args *MetaInterceptorsContainerFactoryArgs,
 ) error {
-	if check.IfNil(messenger) {
+	if check.IfNil(args.Messenger) {
 		return common.ErrNilMessenger
 	}
-	if check.IfNil(store) {
+	if check.IfNil(args.Store) {
 		return common.ErrNilStore
 	}
-	if check.IfNil(marshalizer) || check.IfNil(signMarshalizer) {
+	if check.IfNil(args.ProtoMarshalizer) || check.IfNil(args.TxSignMarshalizer) {
 		return common.ErrNilMarshalizer
 	}
-	if check.IfNil(hasher) {
+	if check.IfNil(args.Hasher) {
 		return common.ErrNilHasher
 	}
-	if check.IfNil(multiSigner) {
+	if check.IfNil(args.MultiSigner) {
 		return common.ErrNilMultiSigVerifier
 	}
-	if check.IfNil(dataPool) {
+	if check.IfNil(args.DataPool) {
 		return common.ErrNilDataPoolHolder
 	}
-	if check.IfNil(nodesCoordinator) {
+	if check.IfNil(args.NodesCoordinator) {
 		return common.ErrNilNodesCoordinator
 	}
-	if check.IfNil(accounts) {
+	if check.IfNil(args.Accounts) {
 		return common.ErrNilAccountsAdapter
 	}
-	if check.IfNil(blackList) {
+	if check.IfNil(args.BlackList) {
 		return process.ErrNilBlackListCacher
 	}
-	if check.IfNil(antifloodHandler) {
+	if check.IfNil(args.AntifloodHandler) {
 		return common.ErrNilAntifloodHandler
 	}
-	if check.IfNil(whiteListHandler) {
+	if check.IfNil(args.WhiteListHandler) {
 		return common.ErrNilWhiteListHandler
 	}
-	if check.IfNil(whiteListerVerifiedTxs) {
+	if check.IfNil(args.WhiteListerVerifiedTxs) {
 		return process.ErrNilWhiteListHandler
 	}
-	if check.IfNil(addressPubkeyConverter) {
+	if check.IfNil(args.AddressPubkeyConverter) {
 		return common.ErrNilPubkeyConverter
 	}
-	if check.IfNil(kAppController) {
+	if check.IfNil(args.KAppController) {
 		return common.ErrNilKAppController
+	}
+	if check.IfNil(args.ForkController) {
+		return common.ErrNilForkController
 	}
 
 	return nil

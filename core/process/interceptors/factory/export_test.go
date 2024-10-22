@@ -69,5 +69,6 @@ func createMockArgument() *ArgInterceptedDataFactory {
 		MinTransactionVersion:   1,
 		TxSignHasher:            mock.HasherMock{},
 		EpochNotifier:           &mock.EpochNotifierStub{},
+		ForkController:          mock.NewForkControllerStub(),
 	}
 }

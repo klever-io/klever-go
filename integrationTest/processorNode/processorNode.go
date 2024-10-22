@@ -800,6 +800,7 @@ func (n *ProcessorNode) initInterceptors(heartbeatPk string) error {
 				return nil, nil
 			},
 		},
+		ForkController: n.ForkController,
 	}
 
 	interceptorContainer, err := interceptorscontainer.NewMetaInterceptorsContainerFactory(interceptorContainerArgs)

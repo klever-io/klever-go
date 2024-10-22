@@ -11,6 +11,7 @@ import (
 	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
 	cryptoMock "github.com/klever-io/klever-go/crypto/mock"
 	"github.com/klever-io/klever-go/data/retriever"
+	"github.com/klever-io/klever-go/sharding"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
@@ -131,6 +132,7 @@ func createMockEpochStartBootstrapArgs() ArgsEpochStartBootstrap {
 		HeaderIntegrityVerifier:   &mock.HeaderIntegrityVerifierStub{},
 		TxSignHasher:              &mock.HasherMock{},
 		EpochNotifier:             &mock.EpochNotifierStub{},
+		ForkController:            &mock.ForkControllerStub{},
 	}
 }
 
@@ -144,6 +146,116 @@ func TestNewEpochStartBootstrap(t *testing.T) {
 	assert.False(t, check.IfNil(epochStartProvider))
 }
 
+func TestNewEpochStartBootstrap_NilPathManagerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.PathManager = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilPathManager))
+}
+
+func TestNewEpochStartBootstrap_NilMessengerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.Messenger = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilMessenger))
+}
+
+func TestNewEpochStartBootstrap_NilPublicKeyShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.PublicKey = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, sharding.ErrNilPubKey))
+}
+
+func TestNewEpochStartBootstrap_NilMarshalizerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.Marshalizer = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilMarshalizer))
+}
+
+func TestNewEpochStartBootstrap_NilBlockKeyGenShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.BlockKeyGen = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilBlockKeyGen))
+}
+
+func TestNewEpochStartBootstrap_NilKeyGenShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.KeyGen = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilKeyGen))
+}
+
+func TestNewEpochStartBootstrap_NilSingleSignerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.SingleSigner = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilSingleSigner))
+}
+
+func TestNewEpochStartBootstrap_NilBlockSingleSignerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.BlockSingleSigner = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilBlockSingleSigner))
+}
+
+func TestNewEpochStartBootstrap_NilTxSignMarshalizerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.TxSignMarshalizer = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilTxSignMarshalizer))
+}
+
+func TestNewEpochStartBootstrap_NilGenesisNodesConfigShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.GenesisNodesConfig = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilGenesisNodesConfig))
+}
+
 func TestNewEpochStartBootstrap_NilTxSignHasherShouldErr(t *testing.T) {
 	t.Parallel()
 
@@ -155,6 +267,127 @@ func TestNewEpochStartBootstrap_NilTxSignHasherShouldErr(t *testing.T) {
 	assert.True(t, errors.Is(err, common.ErrNilHasher))
 }
 
+func TestNewEpochStartBootstrap_InvalidDefaultDBPathShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.DefaultDBPath = ""
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrInvalidDefaultDBPath))
+}
+
+func TestNewEpochStartBootstrap_NilPubkeyConverterShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.AddressPubkeyConverter = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilPubkeyConverter))
+}
+
+func TestNewEpochStartBootstrap_InvalidDefaultEpochStringShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.DefaultEpochString = ""
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrInvalidDefaultEpochString))
+}
+
+func TestNewEpochStartBootstrap_InvalidWorkingDirShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.WorkingDir = ""
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrInvalidWorkingDir))
+}
+
+func TestNewEpochStartBootstrap_NilSlotManagerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.SlotManager = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilSlotManager))
+}
+
+func TestNewEpochStartBootstrap_NilStorageUnitOpenerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.StorageUnitOpener = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilStorageUnitOpener))
+}
+
+func TestNewEpochStartBootstrap_NilLatestStorageDataProviderShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.LatestStorageDataProvider = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilLatestStorageDataProvider))
+}
+
+func TestNewEpochStartBootstrap_NilUint64ConverterShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.Uint64Converter = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilUint64Converter))
+}
+
+func TestNewEpochStartBootstrap_NilNodeShufflerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.NodeShuffler = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilShuffler))
+}
+
+func TestNewEpochStartBootstrap_NilStatusHandlerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.StatusHandler = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilStatusHandler))
+}
+
+func TestNewEpochStartBootstrap_NilHeaderIntegrityVerifierShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.HeaderIntegrityVerifier = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilHeaderIntegrityVerifier))
+}
+
 func TestNewEpochStartBootstrap_NilEpochNotifierShouldErr(t *testing.T) {
 	t.Parallel()
 
@@ -164,6 +397,17 @@ func TestNewEpochStartBootstrap_NilEpochNotifierShouldErr(t *testing.T) {
 	epochStartProvider, err := NewEpochStartBootstrap(args)
 	assert.Nil(t, epochStartProvider)
 	assert.True(t, errors.Is(err, common.ErrNilEpochNotifier))
+}
+
+func TestNewEpochStartBootstrap_NilForkControllerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	args.ForkController = nil
+
+	epochStartProvider, err := NewEpochStartBootstrap(args)
+	assert.Nil(t, epochStartProvider)
+	assert.True(t, errors.Is(err, common.ErrNilForkController))
 }
 
 func TestIsStartInEpochZero(t *testing.T) {

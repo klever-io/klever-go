@@ -174,6 +174,7 @@ func createNode(t *testing.T) (*node.Node, error) {
 		node.WithChainID([]byte("chainID")),
 		node.WithProposalController(proposalController),
 		node.WithKAppController(kappController),
+		node.WithForkController(forkController),
 	)
 	require.Nil(t, err)
 

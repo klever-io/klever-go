@@ -864,3 +864,9 @@ var ErrInt64Overflow = errors.New("int64 overflow")
 
 // ErrInvalidReceiverAddress signals that an invalid receiver address has been provided
 var ErrInvalidReceiverAddress = errors.New("could not create receiver address from provided parameters")
+
+// ErrInvalidContracSize signals contract size is too big
+var ErrInvalidContractSize = errors.New("contract size is too big")
+
+// ErrInvalidTransactionSize signals transaction size is too big
+var ErrInvalidTransactionSize = errors.New("transaction size is too big")
