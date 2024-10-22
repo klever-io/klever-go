@@ -75,6 +75,11 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 		asset.Royalties.Address = tc.GetRoyalties().GetAddress()
 	}
 
+	// validate max transfer percentage
+	if err := validateRoyaltiesTransferLimit(tc.GetRoyalties()); err != nil {
+		return transaction.Transaction_ParameterInvalid, err
+	}
+
 	switch asset.AssetType {
 	case kapps.KDAData_NonFungible,
 		kapps.KDAData_SemiFungible:
@@ -99,12 +104,23 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 		asset.ID,
 	))
 
+	resultCode, err := k.updateAsset(assetIdentifier, &asset)
+	if err != nil {
+		return resultCode, err
+	}
+
+	ctx.SetReturnData([][]byte{asset.ID})
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (k kdaKapp) updateAsset(assetID []byte, assetData *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
 	kdaKapp, _, err := k.GetKDA(nil)
 	if err != nil {
 		return transaction.Transaction_KAPPError, err
 	}
 
-	err = k.SetKDA(kdaKapp, assetIdentifier, &asset)
+	err = k.SetKDA(kdaKapp, assetID, assetData)
 	if err != nil {
 		return transaction.Transaction_KAPPError, err
 	}
@@ -112,8 +128,6 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 	if err := k.accountsCacher.UpdateKapp(kdaKapp); err != nil {
 		return transaction.Transaction_SaveAccountError, err
 	}
-
-	ctx.SetReturnData([][]byte{asset.ID})
 
 	return transaction.Transaction_Ok, nil
 }
@@ -148,7 +162,7 @@ func (k *kdaKapp) ValidateCreateAsset(ctx kapp.KappContext, sender []byte, tc *t
 		return nil, nil, transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
 	}
 
-	status, err = kda.ValitadeLogoAndUri(tc)
+	status, err = kda.ValidateLogoAndUri(tc)
 	if err != nil {
 		return nil, nil, status, err
 	}

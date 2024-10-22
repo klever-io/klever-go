@@ -7,7 +7,6 @@ import (
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
-	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/transaction"
 	"github.com/klever-io/klever-go/crypto"
@@ -210,16 +209,6 @@ func TestValidatePermission(t *testing.T) {
 		}
 	}
 
-	addOperation := func(contractTypes ...dt.TXContract_ContractType) []byte {
-		result := make([]byte, core.MaxOperationsSize)
-		for _, ct := range contractTypes {
-			base := ct / 8
-			index := ct % 8
-			result[base] |= 1 << index
-		}
-		return result
-	}
-
 	transferContract := &dt.TXContract{Type: dt.TXContract_TransferContractType}
 	assetContract := &dt.TXContract{Type: dt.TXContract_AssetTriggerContractType}
 
@@ -294,7 +283,7 @@ func TestValidatePermission(t *testing.T) {
 				Type:       state.Permission_User,
 				Threshold:  1,
 				Signers:    []*state.Key{{Address: defaultSenderPubKey, Weight: 1}},
-				Operations: addOperation(dt.TXContract_TransferContractType),
+				Operations: dt.EncodeContractPermissions(dt.TXContract_TransferContractType),
 			},
 			txHash: []byte{1},
 			preSetup: func(txProc *transaction.TxProcessorExportTest, tx *dt.Transaction) {
@@ -309,7 +298,7 @@ func TestValidatePermission(t *testing.T) {
 				Type:       state.Permission_User,
 				Threshold:  1,
 				Signers:    []*state.Key{{Address: defaultSenderPubKey, Weight: 1}},
-				Operations: addOperation(dt.TXContract_TransferContractType),
+				Operations: dt.EncodeContractPermissions(dt.TXContract_TransferContractType),
 			},
 			txHash: []byte{1},
 			preSetup: func(txProc *transaction.TxProcessorExportTest, tx *dt.Transaction) {
@@ -376,7 +365,7 @@ func TestValidatePermission(t *testing.T) {
 				scenario.preSetup(txProc, scenario.tx)
 			}
 
-			_, err := txProc.ValidatePermission(scenario.tx, scenario.permission, scenario.txHash)
+			_, err := txProc.ValidatePermissionOperation(scenario.tx, scenario.permission, scenario.txHash)
 			assert.Equal(t, scenario.ExpectedError, err)
 		})
 	}

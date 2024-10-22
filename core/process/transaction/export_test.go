@@ -115,7 +115,7 @@ func (txProc *TxProcessorExportTest) GetEconomicsFee() *mock.EconomicsHandlerStu
 	return txProc.economicsFee.(*mock.EconomicsHandlerStub)
 }
 
-func (txProc *TxProcessorExportTest) ValidatePermission(tx *transaction.Transaction, permission *state.Permission, txHash []byte) ([][]byte, error) {
+func (txProc *TxProcessorExportTest) ValidatePermissionOperation(tx *transaction.Transaction, permission *state.Permission, txHash []byte) ([][]byte, error) {
 	return txProc.validatePermission(tx, permission, txHash)
 }
 

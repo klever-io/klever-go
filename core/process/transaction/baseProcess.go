@@ -78,7 +78,7 @@ func (txProc *baseTxProcessor) validateNonce(acnt state.UserAccountHandler, tx *
 
 func (txProc *baseTxProcessor) validatePermission(tx *transaction.Transaction, permission *state.Permission, txHash []byte) ([][]byte, error) {
 	if permission.Type != state.Permission_Owner {
-		err := tx.ValidatePermission(permission.Operations)
+		err := tx.ValidatePermissionOperation(permission.Operations)
 		if err != nil {
 			return nil, err
 		}

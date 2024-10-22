@@ -68,14 +68,14 @@ func (e *kleverUpdateAccountPermission) ProcessBuiltinFunction(vmInput *vmcommon
 	e.mutExecution.RLock()
 	defer e.mutExecution.RUnlock()
 
-	address := vmInput.NextArg()
-
-	contract, err := e.getUpdateAccountPermissionContract(vmInput)
+	err := checkBasicKDAArguments(vmInput)
 	if err != nil {
 		return nil, err
 	}
 
-	err = checkBasicKDAArguments(vmInput)
+	address := vmInput.NextArg()
+
+	contract, err := e.getUpdateAccountPermissionContract(vmInput)
 	if err != nil {
 		return nil, err
 	}
@@ -88,35 +88,7 @@ func (e *kleverUpdateAccountPermission) ProcessBuiltinFunction(vmInput *vmcommon
 		return nil, err
 	}
 
-	has := false
-	permissions := acc.GetPermissions()
-
-LoopPermissions:
-	for _, permission := range permissions {
-		for _, signer := range permission.Signers {
-			if !bytes.Equal(signer.Address, vmInput.RecipientAddr) {
-				continue
-			}
-
-			if permission.Type != state.Permission_Owner {
-				value := int32(transaction.TXContract_UpdateAccountPermissionContractType)
-				base := value / 8
-				index := value % 8
-
-				// #nosec G115
-				if int32(len(permission.Operations)) <= base || permission.Operations[base]&(1<<index) == 0 {
-					continue
-				}
-			}
-
-			if permission.Threshold >= signer.Weight {
-				has = true
-				break LoopPermissions
-			}
-		}
-	}
-
-	if !has {
+	if !e.contractHasValidPermission(acc.GetPermissions(), vmInput.RecipientAddr) {
 		return nil, errors.New("invalid permission operation")
 	}
 
@@ -136,6 +108,26 @@ LoopPermissions:
 	return vmOutput, nil
 }
 
+// contractHasValidPermission checks if the contract has valid permission to update account permission
+// we don't have information of witch contract permID to check, so we are checking over all permissions
+// of the account where Contract is a signer with the required threshold
+func (e *kleverUpdateAccountPermission) contractHasValidPermission(permissions []*state.Permission, recipientAddr []byte) bool {
+	for _, permission := range permissions {
+		for _, signer := range permission.Signers {
+			if !bytes.Equal(signer.Address, recipientAddr) {
+				continue
+			}
+
+			if signer.Weight >= permission.Threshold &&
+				permission.CheckPermissionGrantedForContracts(transaction.TXContract_UpdateAccountPermissionContractType) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // getUpdateAccountPermissionContract convert the arguments to an UpdateAccountPermissionContract
 func (e *kleverUpdateAccountPermission) getUpdateAccountPermissionContract(vmInput *vmcommon.ContractCallInput) (*transaction.UpdateAccountPermissionContract, error) {
 	if len(vmInput.Arguments) < core.MinLenArgumentsUpdateAccountPermission {
@@ -146,7 +138,7 @@ func (e *kleverUpdateAccountPermission) getUpdateAccountPermissionContract(vmInp
 
 	permissions, err := DecodeAccountPermissionData(permissionsBytes)
 	if err != nil {
-		return nil, err
+		return nil, ErrInvalidArguments
 	}
 
 	contract := &transaction.UpdateAccountPermissionContract{

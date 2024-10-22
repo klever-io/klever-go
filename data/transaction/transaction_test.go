@@ -50,18 +50,18 @@ func TestTransaction_ValidatePermission(t *testing.T) {
 		tx.RawData.Contract = append(tx.RawData.Contract, &transaction.TXContract{Type: ct})
 	}
 
-	err := tx.ValidatePermission(bytes.Repeat([]byte{0xff}, 33))
+	err := tx.ValidatePermissionOperation(bytes.Repeat([]byte{0xff}, 33))
 	assert.Equal(t, err, common.ErrInvalidPermission)
 
-	err = tx.ValidatePermission(nil)
+	err = tx.ValidatePermissionOperation(nil)
 	assert.Equal(t, err, common.ErrNoPermission)
 
-	err = tx.ValidatePermission(bytes.Repeat([]byte{0xff}, 0))
+	err = tx.ValidatePermissionOperation(bytes.Repeat([]byte{0xff}, 0))
 	assert.Equal(t, err, common.ErrNoPermission)
 
-	err = tx.ValidatePermission(bytes.Repeat([]byte{0xff}, 1))
+	err = tx.ValidatePermissionOperation(bytes.Repeat([]byte{0xff}, 1))
 	assert.Equal(t, err, common.ErrNoPermission)
 
-	err = tx.ValidatePermission(bytes.Repeat([]byte{0xff}, core.MaxOperationsSize))
+	err = tx.ValidatePermissionOperation(bytes.Repeat([]byte{0xff}, core.MaxOperationsSize))
 	assert.Nil(t, err)
 }

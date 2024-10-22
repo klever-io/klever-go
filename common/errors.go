@@ -870,3 +870,6 @@ var ErrInvalidContractSize = errors.New("contract size is too big")
 
 // ErrInvalidTransactionSize signals transaction size is too big
 var ErrInvalidTransactionSize = errors.New("transaction size is too big")
+
+// ErrMaxBytesExceeded signals that max bytes exceeded for decode buffer
+var ErrMaxBytesExceeded = errors.New("max bytes exceeded")

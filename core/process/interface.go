@@ -350,7 +350,7 @@ type TxValidatorHandler interface {
 	Fee() int64
 	KDAFee() data.KDAFeeHandler
 	PermissionID() int32
-	ValidatePermission([]byte) error
+	ValidatePermissionOperation([]byte) error
 	Signature() [][]byte
 }
 

@@ -178,7 +178,7 @@ func (txv *txValidator) CheckTxValidity(interceptedTx process.TxValidatorHandler
 	// check if permission is allowed by TX
 	if permission.Type != state.Permission_Owner {
 		// check on TX
-		err = interceptedTx.ValidatePermission(permission.Operations)
+		err = interceptedTx.ValidatePermissionOperation(permission.Operations)
 		if err != nil {
 			return err
 		}

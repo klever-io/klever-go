@@ -34,7 +34,7 @@ func (iths *InterceptedTxHandlerStub) Signature() [][]byte {
 }
 
 // ValidatePermission -
-func (iths *InterceptedTxHandlerStub) ValidatePermission([]byte) error {
+func (iths *InterceptedTxHandlerStub) ValidatePermissionOperation([]byte) error {
 	return nil
 }
 

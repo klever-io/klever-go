@@ -247,10 +247,10 @@ func (inTx *InterceptedTransaction) PermissionID() int32 {
 	return 0
 }
 
-// ValidatePermission -
-func (inTx *InterceptedTransaction) ValidatePermission(permission []byte) error {
+// ValidatePermissionOperation -
+func (inTx *InterceptedTransaction) ValidatePermissionOperation(permission []byte) error {
 	if inTx.tx != nil {
-		return inTx.tx.ValidatePermission(permission)
+		return inTx.tx.ValidatePermissionOperation(permission)
 	}
 	return common.ErrInvalidTransactionType
 }

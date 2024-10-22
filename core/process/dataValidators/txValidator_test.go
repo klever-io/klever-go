@@ -19,6 +19,7 @@ import (
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/data/state"
+	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/memorydb"
 	"github.com/klever-io/klever-go/storage/storageUnit"
@@ -111,6 +112,9 @@ func generateTxValidator() process.TxValidator {
 		mock.NewPubkeyConverterMock(32),
 		&cryptoMock.SingleSignerStub{
 			VerifyCalled: func(public crypto.PublicKey, msg, sig []byte) error {
+				if bytes.Equal(sig, []byte("invalidSignature")) {
+					return common.ErrInvalidSignature
+				}
 				return nil
 			},
 		},
@@ -199,6 +203,44 @@ func TestTxValidator_NewValidatorNilWhiteListHandlerShouldErr(t *testing.T) {
 	assert.Equal(t, common.ErrNilWhiteListHandler, err)
 }
 
+func TestNewTxValidator_NilTxStorerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	txValidator, err := dataValidators.NewTxValidator(
+		getAccAdapter(0),
+		nil,
+		getTxPoolsHolder(),
+		&mock.WhiteListHandlerStub{},
+		mock.NewPubkeyConverterMock(32),
+		&cryptoMock.SingleSignerStub{},
+		&cryptoMock.KeyGenMock{},
+		getKAppController(),
+		core.MaxTxNonceDeltaAllowed,
+	)
+
+	assert.Nil(t, txValidator)
+	assert.Equal(t, process.ErrNilStorage, err)
+}
+
+func TestNewTxValidator_NilDataPoolShouldErr(t *testing.T) {
+	t.Parallel()
+
+	txValidator, err := dataValidators.NewTxValidator(
+		getAccAdapter(0),
+		storageTest,
+		nil,
+		&mock.WhiteListHandlerStub{},
+		mock.NewPubkeyConverterMock(32),
+		&cryptoMock.SingleSignerStub{},
+		&cryptoMock.KeyGenMock{},
+		getKAppController(),
+		core.MaxTxNonceDeltaAllowed,
+	)
+
+	assert.Nil(t, txValidator)
+	assert.Equal(t, common.ErrNilDataPoolHolder, err)
+}
+
 func TestNewTxValidator_NilPubkeyConverterShouldErr(t *testing.T) {
 	t.Parallel()
 
@@ -217,6 +259,63 @@ func TestNewTxValidator_NilPubkeyConverterShouldErr(t *testing.T) {
 
 	assert.Nil(t, txValidator)
 	assert.True(t, errors.Is(err, common.ErrNilPubkeyConverter))
+}
+
+func TestNewTxValidator_NilSingleSignerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	txValidator, err := dataValidators.NewTxValidator(
+		getAccAdapter(0),
+		storageTest,
+		getTxPoolsHolder(),
+		&mock.WhiteListHandlerStub{},
+		mock.NewPubkeyConverterMock(32),
+		nil,
+		&cryptoMock.KeyGenMock{},
+		getKAppController(),
+		core.MaxTxNonceDeltaAllowed,
+	)
+
+	assert.Nil(t, txValidator)
+	assert.Equal(t, common.ErrNilSingleSigner, err)
+}
+
+func TestNewTxValidator_NilKeyGenShouldErr(t *testing.T) {
+	t.Parallel()
+
+	txValidator, err := dataValidators.NewTxValidator(
+		getAccAdapter(0),
+		storageTest,
+		getTxPoolsHolder(),
+		&mock.WhiteListHandlerStub{},
+		mock.NewPubkeyConverterMock(32),
+		&cryptoMock.SingleSignerStub{},
+		nil,
+		getKAppController(),
+		core.MaxTxNonceDeltaAllowed,
+	)
+
+	assert.Nil(t, txValidator)
+	assert.Equal(t, common.ErrNilKeyGen, err)
+}
+
+func TestNewTxValidator_NilKAppControllerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	txValidator, err := dataValidators.NewTxValidator(
+		getAccAdapter(0),
+		storageTest,
+		getTxPoolsHolder(),
+		&mock.WhiteListHandlerStub{},
+		mock.NewPubkeyConverterMock(32),
+		&cryptoMock.SingleSignerStub{},
+		&cryptoMock.KeyGenMock{},
+		nil,
+		core.MaxTxNonceDeltaAllowed,
+	)
+
+	assert.Nil(t, txValidator)
+	assert.Equal(t, common.ErrNilKAppController, err)
 }
 
 func TestNewTxValidator_ShouldWork(t *testing.T) {
@@ -384,7 +483,326 @@ func TestTxValidator_CheckTxValidityTxIsOkShouldReturnTrue(t *testing.T) {
 	assert.Nil(t, result)
 }
 
-//------- IsInterfaceNil
+func TestTxValidator_CheckTxWhiteList_ShouldReturnNilForWhitelistedTx(t *testing.T) {
+	t.Parallel()
+
+	adb := getAccAdapter(0)
+	txValidator, _ := dataValidators.NewTxValidator(
+		adb,
+		storageTest,
+		getTxPoolsHolder(),
+		&mock.WhiteListHandlerStub{
+			IsWhiteListedCalled: func(interceptedData process.InterceptedData) bool {
+				return true
+			},
+		},
+		mock.NewPubkeyConverterMock(32),
+		&cryptoMock.SingleSignerStub{},
+		&cryptoMock.KeyGenMock{},
+		getKAppController(),
+		core.MaxTxNonceDeltaAllowed,
+	)
+
+	whitelistedTx := &mock.InterceptedDataStub{}
+
+	err := txValidator.CheckTxWhiteList(whitelistedTx)
+	assert.Nil(t, err)
+}
+
+func TestTxValidator_CheckTxValidity_DisabledAccountShouldReturnNil(t *testing.T) {
+	t.Parallel()
+
+	adb := getAccAdapter(0)
+	txValidator, _ := dataValidators.NewTxValidator(
+		adb,
+		storageTest,
+		getTxPoolsHolder(),
+		&mock.WhiteListHandlerStub{
+			IsWhiteListedCalled: func(interceptedData process.InterceptedData) bool {
+				return true
+			},
+		},
+		mock.NewPubkeyConverterMock(32),
+		&cryptoMock.SingleSignerStub{},
+		&cryptoMock.KeyGenMock{},
+		getKAppController(),
+		core.MaxTxNonceDeltaAllowed,
+	)
+
+	addressMock := []byte("address")
+	txValidatorHandler := getTxValidatorHandler(addressMock, 0, 0)
+
+	adb.GetExistingAccountCalled = func(address []byte) (handler state.AccountHandler, e error) {
+		return nil, nil
+	}
+
+	result := txValidator.CheckTxValidity(txValidatorHandler)
+	assert.Nil(t, result)
+}
+
+func TestTxValidator_CheckTxValidity_InvalidSignerShouldReturnError(t *testing.T) {
+	t.Parallel()
+
+	txValidator := generateTxValidator()
+
+	addressMock := []byte("address")
+	txValidatorHandler := getTxValidatorHandler(addressMock, 0, 0)
+
+	interceptedTx := struct {
+		process.InterceptedData
+		process.TxValidatorHandler
+	}{
+		InterceptedData:    &mock.InterceptedDataStub{},
+		TxValidatorHandler: txValidatorHandler,
+	}
+
+	txValidatorHandler.(*mock.TxValidatorHandlerStub).SignatureCalled = func() [][]byte {
+		return [][]byte{[]byte("invalidSignature")}
+	}
+
+	result := txValidator.CheckTxValidity(interceptedTx)
+	assert.NotNil(t, result)
+	assert.Equal(t, common.ErrInvalidSignature, result)
+}
+
+func makeAddressMock(address string) []byte {
+	result := make([]byte, 32)
+	copy(result, []byte(address))
+	return result
+}
+
+func TestTxValidator_CheckTxValidity_InvalidPubKeyShouldReturnError(t *testing.T) {
+	t.Parallel()
+
+	addressMock := makeAddressMock("address")
+	// Mock permission to have high threshold
+	adb := &mock.AccountsStub{}
+	adb.GetExistingAccountCalled = func(address []byte) (handler state.AccountHandler, e error) {
+		acc, _ := state.NewUserAccount(address)
+		acc.Permissions = []*state.Permission{
+			{
+				Threshold: 10,
+				Signers: []*state.Key{
+					{Address: addressMock, Weight: 1},
+				},
+			},
+		}
+
+		return acc, nil
+	}
+
+	expectedErr := errors.New("invalid public key")
+	txValidator, _ := dataValidators.NewTxValidator(
+		adb,
+		storageTest,
+		getTxPoolsHolder(),
+		&mock.WhiteListHandlerStub{},
+		mock.NewPubkeyConverterMock(32),
+		&cryptoMock.SingleSignerStub{},
+		&cryptoMock.KeyGenMock{
+			PublicKeyFromByteArrayMock: func(b []byte) (crypto.PublicKey, error) {
+				return nil, expectedErr
+			},
+		},
+		getKAppController(),
+		core.MaxTxNonceDeltaAllowed,
+	)
+
+	txValidatorHandler := getTxValidatorHandler(addressMock, 0, 0)
+
+	interceptedTx := struct {
+		process.InterceptedData
+		process.TxValidatorHandler
+	}{
+		InterceptedData:    &mock.InterceptedDataStub{},
+		TxValidatorHandler: txValidatorHandler,
+	}
+
+	err := txValidator.CheckTxValidity(interceptedTx)
+	assert.NotNil(t, err)
+	assert.Equal(t, expectedErr, err)
+}
+
+func TestTxValidator_CheckTxValidity_ThresholdNotReachedShouldReturnError(t *testing.T) {
+	t.Parallel()
+
+	addressMock := makeAddressMock("address")
+	// Mock permission to have high threshold
+	adb := &mock.AccountsStub{}
+	adb.GetExistingAccountCalled = func(address []byte) (handler state.AccountHandler, e error) {
+		acc, _ := state.NewUserAccount(address)
+		acc.Permissions = []*state.Permission{
+			{
+				Threshold: 10,
+				Signers: []*state.Key{
+					{Address: addressMock, Weight: 1},
+				},
+			},
+		}
+
+		return acc, nil
+	}
+
+	txValidator, _ := dataValidators.NewTxValidator(
+		adb,
+		storageTest,
+		getTxPoolsHolder(),
+		&mock.WhiteListHandlerStub{},
+		mock.NewPubkeyConverterMock(32),
+		&cryptoMock.SingleSignerStub{},
+		&cryptoMock.KeyGenMock{
+			PublicKeyFromByteArrayMock: func(b []byte) (crypto.PublicKey, error) {
+				return &cryptoMock.PublicKeyMock{}, nil
+			},
+		},
+		getKAppController(),
+		core.MaxTxNonceDeltaAllowed,
+	)
+
+	txValidatorHandler := getTxValidatorHandler(addressMock, 0, 0)
+
+	interceptedTx := struct {
+		process.InterceptedData
+		process.TxValidatorHandler
+	}{
+		InterceptedData:    &mock.InterceptedDataStub{},
+		TxValidatorHandler: txValidatorHandler,
+	}
+
+	err := txValidator.CheckTxValidity(interceptedTx)
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), common.ErrSignatureThreshold.Error())
+}
+
+func TestTxValidator_CheckTxValidity_NoUserPermissionShouldReturnError(t *testing.T) {
+	t.Parallel()
+
+	addressMock := makeAddressMock("address")
+	// Mock permission to have high threshold
+	adb := &mock.AccountsStub{}
+	adb.GetExistingAccountCalled = func(address []byte) (handler state.AccountHandler, e error) {
+		acc, _ := state.NewUserAccount(address)
+		acc.Permissions = []*state.Permission{
+			{
+				Type:      state.Permission_User,
+				Threshold: 1,
+				Signers: []*state.Key{
+					{Address: addressMock, Weight: 1},
+				},
+				Operations: []byte{0x01},
+			},
+		}
+
+		return acc, nil
+	}
+
+	txValidator, _ := dataValidators.NewTxValidator(
+		adb,
+		storageTest,
+		getTxPoolsHolder(),
+		&mock.WhiteListHandlerStub{},
+		mock.NewPubkeyConverterMock(32),
+		&cryptoMock.SingleSignerStub{},
+		&cryptoMock.KeyGenMock{
+			PublicKeyFromByteArrayMock: func(b []byte) (crypto.PublicKey, error) {
+				return &cryptoMock.PublicKeyMock{}, nil
+			},
+		},
+		getKAppController(),
+		core.MaxTxNonceDeltaAllowed,
+	)
+
+	txValidatorHandler := getTxValidatorHandler(addressMock, 0, 0)
+	txValidatorHandler.(*mock.TxValidatorHandlerStub).ValidatePermissionOperationCalled = func(permission []byte) error {
+		if len(permission) > core.MaxOperationsSize {
+			return common.ErrInvalidPermission
+		}
+
+		contractType := transaction.TXContract_ClaimContractType
+
+		if !transaction.CheckPermissionGrantedForContract(permission, contractType) {
+			return common.ErrNoPermission
+		}
+
+		return nil
+	}
+
+	interceptedTx := struct {
+		process.InterceptedData
+		process.TxValidatorHandler
+	}{
+		InterceptedData:    &mock.InterceptedDataStub{},
+		TxValidatorHandler: txValidatorHandler,
+	}
+
+	err := txValidator.CheckTxValidity(interceptedTx)
+	assert.Equal(t, common.ErrNoPermission, err)
+}
+
+func TestTxValidator_CheckTxValidity_UserPermissionShouldWork(t *testing.T) {
+	t.Parallel()
+
+	addressMock := makeAddressMock("address")
+	// Mock permission to have high threshold
+	adb := &mock.AccountsStub{}
+	adb.GetExistingAccountCalled = func(address []byte) (handler state.AccountHandler, e error) {
+		acc, _ := state.NewUserAccount(address)
+		acc.Permissions = []*state.Permission{
+			{
+				Type:      state.Permission_User,
+				Threshold: 1,
+				Signers: []*state.Key{
+					{Address: addressMock, Weight: 1},
+				},
+				Operations: []byte{0x01},
+			},
+		}
+
+		return acc, nil
+	}
+
+	txValidator, _ := dataValidators.NewTxValidator(
+		adb,
+		storageTest,
+		getTxPoolsHolder(),
+		&mock.WhiteListHandlerStub{},
+		mock.NewPubkeyConverterMock(32),
+		&cryptoMock.SingleSignerStub{},
+		&cryptoMock.KeyGenMock{
+			PublicKeyFromByteArrayMock: func(b []byte) (crypto.PublicKey, error) {
+				return &cryptoMock.PublicKeyMock{}, nil
+			},
+		},
+		getKAppController(),
+		core.MaxTxNonceDeltaAllowed,
+	)
+
+	txValidatorHandler := getTxValidatorHandler(addressMock, 0, 0)
+	txValidatorHandler.(*mock.TxValidatorHandlerStub).ValidatePermissionOperationCalled = func(permission []byte) error {
+		if len(permission) > core.MaxOperationsSize {
+			return common.ErrInvalidPermission
+		}
+
+		contractType := transaction.TXContract_TransferContractType
+
+		if !transaction.CheckPermissionGrantedForContract(permission, contractType) {
+			return common.ErrNoPermission
+		}
+
+		return nil
+	}
+
+	interceptedTx := struct {
+		process.InterceptedData
+		process.TxValidatorHandler
+	}{
+		InterceptedData:    &mock.InterceptedDataStub{},
+		TxValidatorHandler: txValidatorHandler,
+	}
+
+	err := txValidator.CheckTxValidity(interceptedTx)
+	assert.Nil(t, err)
+}
 
 func TestTxValidator_IsInterfaceNil(t *testing.T) {
 	t.Parallel()

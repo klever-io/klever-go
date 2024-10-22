@@ -536,6 +536,11 @@ func (k *kdaKapp) updateRoyalties(sender []byte, tc *transaction.AssetTriggerCon
 		asset.Royalties.Address = asset.OwnerAddress
 	}
 
+	// validate max transfer percentage
+	if err := validateRoyaltiesTransferLimit(tc.GetRoyalties()); err != nil {
+		return transaction.Transaction_ParameterInvalid, err
+	}
+
 	switch asset.AssetType {
 	case kapps.KDAData_NonFungible,
 		kapps.KDAData_SemiFungible:

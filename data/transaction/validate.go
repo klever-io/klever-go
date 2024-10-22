@@ -124,6 +124,10 @@ func (tc *CreateAssetContract) Validate() error {
 		return errors.New("invalid transfer royalties")
 	}
 
+	if tc.GetRoyalties() != nil && len(tc.GetRoyalties().GetSplitRoyalties()) > core.MaxTransferRoyalties {
+		return errors.New("invalid split royalties length")
+	}
+
 	if len(tc.GetRoles()) > core.MaxRoles {
 		return errors.New("invalid transfer royalties")
 	}
@@ -132,7 +136,15 @@ func (tc *CreateAssetContract) Validate() error {
 		return errors.New("invalid uri")
 	}
 
-	for key, uri := range tc.GetURIs() {
+	if err := validateURI(tc.GetURIs()); err != nil {
+		return err
+	}
+
+	return tc.validateByAssetType()
+}
+
+func validateURI(uris map[string]string) error {
+	for key, uri := range uris {
 		if !utf8.ValidString(key) ||
 			!utf8.ValidString(uri) ||
 			len(key) > core.MaxURIKeySize ||
@@ -141,6 +153,10 @@ func (tc *CreateAssetContract) Validate() error {
 		}
 	}
 
+	return nil
+}
+
+func (tc *CreateAssetContract) validateByAssetType() error {
 	switch tc.GetType() {
 	case CreateAssetContract_Fungible:
 		if tc.GetPrecision() < core.MinNumberOfDecimals ||
@@ -233,7 +249,16 @@ func validateKDAPool(poolInfo *KDAPoolInfo) bool {
 }
 
 func validateRoyalties(royalties *RoyaltiesInfo) bool {
-	return royalties != nil
+	if royalties == nil {
+		return false
+	}
+
+	if len(royalties.GetTransferPercentage()) > core.MaxTransferRoyalties ||
+		len(royalties.GetSplitRoyalties()) > core.MaxTransferRoyalties {
+		return false
+	}
+
+	return true
 }
 
 func (tc *AssetTriggerContract) Validate() error {

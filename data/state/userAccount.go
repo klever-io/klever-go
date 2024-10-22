@@ -14,6 +14,7 @@ import (
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
 )
@@ -848,4 +849,31 @@ func (a *userAccount) Equal(toCompare UserAccountHandler) bool {
 	}
 
 	return bytes.Equal(p1, p2)
+}
+
+func (x *Permission) CheckPermissionGrantedForContracts(contractTypes ...transaction.TXContract_ContractType) bool {
+	if x == nil {
+		return false
+	}
+
+	if x.Type == Permission_Owner {
+		return true
+	}
+
+	return transaction.CheckPermissionGrantedForContracts(x.Operations, contractTypes...)
+}
+
+func (x *Permission) CheckPermissionGrantedForUint64(ops uint64) bool {
+	if x == nil {
+		return false
+	}
+
+	if x.Type == Permission_Owner {
+		return true
+	}
+
+	permissionUint64 := tools.BytesToUint64LE(x.Operations)
+
+	// Check if all requested operations are permitted
+	return (ops & ^permissionUint64) == 0
 }

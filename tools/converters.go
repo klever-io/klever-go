@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 	"math/big"
@@ -114,4 +115,41 @@ func ComputePercentageI64(value int64, percentage int64, checkOverflow bool) (in
 	}
 
 	return result.Int64(), nil
+}
+
+// BytesToUint64LE converts a byte slice to a uint64 using binary.LittleEndian.
+// It handles slices larger than 8 bytes by truncating them, and pads smaller ones.
+func BytesToUint64LE(b []byte) uint64 {
+	// If the slice is smaller than 8 bytes, we need to pad it with zeros
+	var tmp [8]byte
+	copy(tmp[:], b)
+
+	// Use the highly optimized LittleEndian.Uint64 function
+	return binary.LittleEndian.Uint64(tmp[:])
+}
+
+// Uint64ToBytesLE converts a uint64 to a byte slice
+// It truncates the result to the minimum number of bytes needed.
+func Uint64ToBytesLETruncate(u uint64) []byte {
+	if u == 0 {
+		return []byte{0}
+	}
+
+	var result []byte
+	for u > 0 {
+		result = append(result, byte(u&0xFF))
+		u >>= 8
+	}
+
+	return result
+}
+
+// Uint64ToBytesLEPadded converts a uint64 to a byte slice using binary.LittleEndian.
+// It pads the result with zeros to 8 bytes.
+func Uint64ToBytesLE(u uint64) []byte {
+	// If the slice is smaller than 8 bytes, we need to pad it with zeros
+	var padded [8]byte
+	binary.LittleEndian.PutUint64(padded[:], u)
+
+	return padded[:]
 }

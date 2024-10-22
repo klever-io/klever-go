@@ -213,6 +213,14 @@ func (ai *ArgsIterator) NextArg() Argument {
 	return Argument{}
 }
 
+func (arg Argument) Bytes() []byte {
+	if arg == nil {
+		return nil
+	}
+
+	return arg
+}
+
 func (arg Argument) String() string {
 	if arg == nil {
 		return ""

@@ -4,11 +4,12 @@ import "github.com/klever-io/klever-go/data"
 
 // TxValidatorHandlerStub -
 type TxValidatorHandlerStub struct {
-	SenderAddressCalled func() []byte
-	FeeCalled           func() int64
-	KDAFeeCalled        func() data.KDAFeeHandler
-	NonceCalled         func() uint64
-	SignatureCalled     func() [][]byte
+	SenderAddressCalled               func() []byte
+	FeeCalled                         func() int64
+	KDAFeeCalled                      func() data.KDAFeeHandler
+	NonceCalled                       func() uint64
+	SignatureCalled                   func() [][]byte
+	ValidatePermissionOperationCalled func([]byte) error
 }
 
 // SenderAddress -
@@ -42,7 +43,10 @@ func (tvhs *TxValidatorHandlerStub) PermissionID() int32 {
 }
 
 // ValidatePermission -
-func (tvhs *TxValidatorHandlerStub) ValidatePermission([]byte) error {
+func (tvhs *TxValidatorHandlerStub) ValidatePermissionOperation(permission []byte) error {
+	if tvhs.ValidatePermissionOperationCalled != nil {
+		return tvhs.ValidatePermissionOperationCalled(permission)
+	}
 	return nil
 }
 

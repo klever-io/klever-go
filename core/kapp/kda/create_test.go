@@ -70,7 +70,17 @@ func setupFork(cfg *config.EnableEpochs) config.EnableEpochs {
 func Test_CreateKDA(t *testing.T) {
 	validAccCacher := &mock.AccountsCacherStub{
 		GetExistingKappCalled: func(address []byte) (state.KAppAccountHandler, error) {
-			return nil, common.ErrAssetNotFound
+			// mock KDA KApps
+			acc, _ := state.NewKAppAccount(address)
+			trieStub := &mock.TrieStub{
+				GetCalled: func(key []byte) ([]byte, error) {
+					return nil, nil
+				},
+			}
+
+			acc.SetDataTrie(trieStub)
+
+			return acc, nil
 		},
 	}
 
@@ -98,7 +108,7 @@ func Test_CreateKDA(t *testing.T) {
 		Error               error
 	}{
 		{
-			Description: "Invalid asset name lenght",
+			Description: "Invalid asset name length",
 			TransactionContract: &transaction.CreateAssetContract{
 				Name: []byte(strings.Repeat("a", core.MaxLengthForAssetName+1)),
 			},
@@ -106,7 +116,7 @@ func Test_CreateKDA(t *testing.T) {
 			Status: transaction.Transaction_ContractInvalid,
 		},
 		{
-			Description: "Invalid ticker name lenght",
+			Description: "Invalid ticker name length",
 			TransactionContract: &transaction.CreateAssetContract{
 				Name:   []byte("KDA"),
 				Ticker: []byte(strings.Repeat("a", core.MinLengthForAssetTicker-1)), // less than min len
@@ -234,7 +244,7 @@ func Test_CreateKDA(t *testing.T) {
 			Status:    transaction.Transaction_AssetTypeInvalid,
 		},
 		{
-			Description: "Invalid logo lenght error",
+			Description: "Invalid logo length error",
 			TransactionContract: &transaction.CreateAssetContract{
 				OwnerAddress: makeAddress("valid"),
 				Name:         []byte("KDA"),
@@ -249,7 +259,7 @@ func Test_CreateKDA(t *testing.T) {
 			Status:    transaction.Transaction_ParameterInvalid,
 		},
 		{
-			Description: "Greather than max uri map size error",
+			Description: "Greater than max uri map size error",
 			TransactionContract: &transaction.CreateAssetContract{
 				OwnerAddress: makeAddress("valid"),
 				Name:         []byte("KDA"),
@@ -265,7 +275,7 @@ func Test_CreateKDA(t *testing.T) {
 			Status:    transaction.Transaction_ParameterInvalid,
 		},
 		{
-			Description: "Greather than uri key size error",
+			Description: "Greater than uri key size error",
 			TransactionContract: &transaction.CreateAssetContract{
 				OwnerAddress: makeAddress("valid"),
 				Name:         []byte("KDA"),
@@ -302,6 +312,56 @@ func Test_CreateKDA(t *testing.T) {
 			Error:     process.ErrInvalidAdminAddr,
 			Status:    transaction.Transaction_AccountError,
 		},
+		{
+			Description: "Exceed transfer percentage limit",
+			TransactionContract: &transaction.CreateAssetContract{
+				OwnerAddress: makeAddress("valid"),
+				Name:         []byte("KDA"),
+				Ticker:       []byte("KDA"),
+				MaxSupply:    100,
+				Type:         transaction.CreateAssetContract_Fungible,
+				Royalties: &transaction.RoyaltiesInfo{
+					TransferPercentage: make([]*transaction.RoyaltyInfo, core.MaxTransferRoyalties+1),
+				},
+			},
+			AccCacher: validAccCacher,
+			Error:     common.ErrInvalidValue,
+			Status:    transaction.Transaction_ParameterInvalid,
+		},
+		{
+			Description: "Invalid address length",
+			TransactionContract: &transaction.CreateAssetContract{
+				OwnerAddress: makeAddress("valid"),
+				Name:         []byte("KDA"),
+				Ticker:       []byte("KDA"),
+				MaxSupply:    100,
+				Type:         transaction.CreateAssetContract_Fungible,
+				Royalties: &transaction.RoyaltiesInfo{
+					Address: make([]byte, 31),
+				},
+			},
+			AccCacher: validAccCacher,
+			Error:     process.ErrInvalidOwnerAddr,
+			Status:    transaction.Transaction_AccountError,
+		},
+		{
+			Description: "Success",
+			TransactionContract: &transaction.CreateAssetContract{
+				OwnerAddress: makeAddress("valid"),
+				Name:         []byte("KDA"),
+				Ticker:       []byte("KDA"),
+				MaxSupply:    0,
+				Type:         transaction.CreateAssetContract_Fungible,
+				Properties:   &transaction.PropertiesInfo{CanMint: true},
+				Royalties: &transaction.RoyaltiesInfo{
+					Address: makeAddress("valid"),
+				},
+				Logo: "",
+				URIs: genUris(1, "mock"),
+			},
+			AccCacher: validAccCacher,
+			Status:    transaction.Transaction_Ok,
+		},
 	}
 
 	for _, tt := range tests {
@@ -310,11 +370,9 @@ func Test_CreateKDA(t *testing.T) {
 		kdaKapp.SetAccountsCacher(setupAccCacher(tt.AccCacher))
 
 		t.Run(tt.Description, func(t *testing.T) {
-			require := require.New(t)
 			assert := assert.New(t)
 
 			status, err := kdaKapp.Create(tt.Sender, tt.TransactionContract)
-			require.Error(err)
 			assert.Equal(tt.Status, status)
 			assert.Equal(tt.Error, err)
 		})

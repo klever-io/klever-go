@@ -1061,6 +1061,16 @@ func ManagedAccHasPermWithHost(
 		metering.GasSchedule().BaseOpsAPICost.GetOwnerAddress
 	metering.UseAndTraceGas(gasToUse)
 
+	// check if valid ops
+	if ops < 0 {
+		_ = WithFaultAndHost(
+			host,
+			vmhost.ErrArgOutOfRange,
+			runtime.BaseOpsErrorShouldFailExecution(),
+		)
+		return 0
+	}
+
 	srcAddBytes, err := managedType.GetBytes(sourceAccAddr)
 	if err != nil {
 		_ = WithFaultAndHost(
@@ -1091,10 +1101,10 @@ func ManagedAccHasPermWithHost(
 		return 0
 	}
 
-	return ValidatePerm(acc, tgtAddBytes, ops)
+	return ValidatePerm(acc, tgtAddBytes, uint64(ops))
 }
 
-func ValidatePerm(acc state.UserAccountHandler, tgtAddBytes []byte, ops int64) int32 {
+func ValidatePerm(acc state.UserAccountHandler, tgtAddBytes []byte, ops uint64) int32 {
 	perms := acc.GetPermissions()
 
 	for _, perm := range perms {
@@ -1104,32 +1114,11 @@ func ValidatePerm(acc state.UserAccountHandler, tgtAddBytes []byte, ops int64) i
 				continue
 			}
 
-			switch perm.GetType() {
-			case state.Permission_Owner:
+			if perm.CheckPermissionGrantedForUint64(ops) {
 				return 1
-			case state.Permission_User:
-				if isOperationPermitted(perm.GetOperations(), ops) {
-					return 1
-				}
 			}
 		}
 	}
 
 	return 0
-}
-
-func isOperationPermitted(permission []byte, ops int64) bool {
-	// Check each bit of ops
-	for i := 0; i < 64; i++ {
-		if ops&(1<<i) != 0 {
-			value := int32(i) // #nosec G115 - max value is 63
-			base := value / 8
-			index := value % 8
-			// #nosec G115
-			if int32(len(permission)) <= base || permission[base]&(1<<index) == 0 {
-				return false
-			}
-		}
-	}
-	return true
 }

@@ -1060,8 +1060,8 @@ func TestBaseOpsAPI_NFTNonceOverflow(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-func opsValue(ops ...transaction.TXContract_ContractType) int64 {
-	value := int64(0)
+func opsValue(ops ...transaction.TXContract_ContractType) uint64 {
+	value := uint64(0)
 	for _, op := range ops {
 		value |= 1 << uint(op)
 	}
@@ -1070,19 +1070,7 @@ func opsValue(ops ...transaction.TXContract_ContractType) int64 {
 }
 
 func opsBytes(ops ...transaction.TXContract_ContractType) []byte {
-	opCleanBytes := make([]byte, 0)
-	for _, op := range ops {
-		value := int32(op)
-		base := int(value / 8)
-		index := value % 8
-		if len(opCleanBytes) <= base {
-			opCleanBytes = append(opCleanBytes, make([]byte, base-len(opCleanBytes)+1)...)
-		}
-
-		opCleanBytes[base] = 1 << uint(index)
-	}
-
-	return opCleanBytes
+	return transaction.EncodeContractPermissions(ops...)
 }
 
 func TestManagedei_ManagedAccHasPerm_Helper_Func_ValidatePerm(t *testing.T) {
@@ -1233,6 +1221,65 @@ func TestManagedei_ManagedAccHasPerm_Helper_Func_ValidatePerm(t *testing.T) {
 			},
 			contractType: []transaction.TXContract_ContractType{transaction.TXContract_TransferContractType, transaction.TXContract_AssetTriggerContractType},
 			expected:     1,
+		},
+		{
+			name:          "all permission slice > 8",
+			targetAddress: []byte("targetaddress"),
+			perm: []*state.Permission{
+				{
+					Type:       state.Permission_User,
+					Threshold:  1,
+					Operations: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+					Signers:    []*state.Key{{Address: []byte("targetaddress"), Weight: 1}},
+				},
+			},
+			contractType: []transaction.TXContract_ContractType{transaction.TXContract_TransferContractType, transaction.TXContract_AssetTriggerContractType},
+			expected:     1,
+		},
+		{
+			name:          "doc example",
+			targetAddress: []byte("targetaddress"),
+			perm: []*state.Permission{
+				{
+					Type:       state.Permission_User,
+					Threshold:  1,
+					Operations: []byte{0xAF, 0x01},
+					Signers:    []*state.Key{{Address: []byte("targetaddress"), Weight: 1}},
+				},
+			},
+			contractType: []transaction.TXContract_ContractType{
+				transaction.TXContract_TransferContractType,
+				transaction.TXContract_CreateAssetContractType,
+				transaction.TXContract_CreateValidatorContractType,
+				transaction.TXContract_ValidatorConfigContractType,
+				transaction.TXContract_UnfreezeContractType,
+				transaction.TXContract_UndelegateContractType,
+				transaction.TXContract_WithdrawContractType,
+			},
+			expected: 1,
+		},
+		{
+			name:          "doc example, one invalid operation",
+			targetAddress: []byte("targetaddress"),
+			perm: []*state.Permission{
+				{
+					Type:       state.Permission_User,
+					Threshold:  1,
+					Operations: []byte{0xAF, 0x01},
+					Signers:    []*state.Key{{Address: []byte("targetaddress"), Weight: 1}},
+				},
+			},
+			contractType: []transaction.TXContract_ContractType{
+				transaction.TXContract_TransferContractType,
+				transaction.TXContract_CreateAssetContractType,
+				transaction.TXContract_CreateValidatorContractType,
+				transaction.TXContract_ValidatorConfigContractType,
+				transaction.TXContract_UnfreezeContractType,
+				transaction.TXContract_UndelegateContractType,
+				transaction.TXContract_WithdrawContractType,
+				transaction.TXContract_ClaimContractType,
+			},
+			expected: 0,
 		},
 	}
 

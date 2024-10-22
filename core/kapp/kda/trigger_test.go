@@ -2063,6 +2063,21 @@ func TestKDATrigger_UpdateRoyalties(t *testing.T) {
 				assert.Len(t, asset.Royalties.SplitRoyalties, 2)
 			},
 		},
+		{
+			name:   "Update royalties with max transfer percentage exceeded",
+			sender: owner,
+			asset: &kapps.KDAData{
+				OwnerAddress: owner,
+				AssetType:    kapps.KDAData_Fungible,
+				Royalties:    &kapps.RoyaltiesData{},
+				Attributes:   &kapps.AttributesData{},
+			},
+			royalties: &transaction.RoyaltiesInfo{
+				TransferPercentage: make([]*transaction.RoyaltyInfo, core.MaxTransferRoyalties+1),
+			},
+			expectedCode:  transaction.Transaction_ParameterInvalid,
+			expectedError: common.ErrInvalidValue,
+		},
 	}
 
 	kdaAccHandler := &mock.KAppAccountHandlerStub{

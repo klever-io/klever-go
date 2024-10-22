@@ -205,12 +205,12 @@ const MaxProposalParamLength = 50
 const MaxDescriptionLength = 1000
 
 // MaxOperationsSize defines max operations size
-const MaxOperationsSize = 30
+const MaxOperationsSize = 8
 
 // MaxTransferRoyalties defines max transfer royalties size
 const MaxTransferRoyalties = 20
 
-// MaxRoles definesmax roles size
+// MaxRoles defines max roles size
 const MaxRoles = 50
 
 // MaxPacks defines max packs allowed
@@ -288,3 +288,9 @@ const MaxGasBandwidthPerBatchPerSender = 50_000_000
 
 // MaxTxSize defines the maximum size of a tx without contracts and message data
 const MaxTxSize = 420
+
+// MaxBytesToDecode defines the maximum number of bytes that can be decoded from VM
+const MaxBytesToDecode = 1 << 12 // 4KB
+
+// MaxBytesBigInt defines the maximum number of bytes that can be allocated for a big int decode
+const MaxBytesBigInt = 512

@@ -1476,21 +1476,18 @@ func (t *Transaction) GetContracts() []*TXContract {
 	return t.RawData.Contract
 }
 
-// ValidatePermission - for each contract check if TXType match permission
-func (t *Transaction) ValidatePermission(permission []byte) error {
+// ValidatePermissionOperation - for each contract check if TXType match permission
+func (t *Transaction) ValidatePermissionOperation(permission []byte) error {
 	if len(permission) > core.MaxOperationsSize {
 		return common.ErrInvalidPermission
 	}
+
 	if t == nil || t.RawData == nil || len(t.RawData.Contract) == 0 {
 		return common.ErrInvalidContract
 	}
+
 	for _, c := range t.RawData.Contract {
-		value := int32(c.Type)
-		base := value / 8
-		index := value % 8
-		// #nosec G115
-		if int32(len(permission)) <= base ||
-			permission[base]&(1<<index) == 0 {
+		if !CheckPermissionGrantedForContract(permission, c.Type) {
 			return common.ErrNoPermission
 		}
 	}

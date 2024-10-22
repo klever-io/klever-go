@@ -13,7 +13,7 @@ type InterceptedTransactionHandler interface {
 	KDAFee() data.KDAFeeHandler
 	Transaction() data.TransactionHandler
 	PermissionID() int32
-	ValidatePermission([]byte) error
+	ValidatePermissionOperation([]byte) error
 	Signature() [][]byte
 }
 

@@ -567,3 +567,16 @@ func (k *kdaKapp) TokeTypeHasNonce(tokenType kapps.KDAData_EnumAssetType) bool {
 
 	return tokenType == kapps.KDAData_NonFungible
 }
+
+func validateRoyaltiesTransferLimit(royaltiesInfo *transaction.RoyaltiesInfo) error {
+	if royaltiesInfo == nil {
+		return nil
+	}
+
+	if len(royaltiesInfo.TransferPercentage) > core.MaxTransferRoyalties ||
+		len(royaltiesInfo.SplitRoyalties) > core.MaxTransferRoyalties {
+		return common.ErrInvalidValue
+	}
+
+	return nil
+}

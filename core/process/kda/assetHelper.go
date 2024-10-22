@@ -68,7 +68,7 @@ func ValidateCreateAsset(tc *transaction.CreateAssetContract, forkController cor
 	return transaction.Transaction_Ok, nil
 }
 
-func ValitadeLogoAndUri(tc *transaction.CreateAssetContract) (transaction.Transaction_TXResultCode, error) {
+func ValidateLogoAndUri(tc *transaction.CreateAssetContract) (transaction.Transaction_TXResultCode, error) {
 	if !utf8.ValidString(tc.GetLogo()) || len(tc.GetLogo()) > core.MaxLogoURISize {
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
