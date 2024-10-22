@@ -10,6 +10,7 @@ import (
 type ValidatorsKAppStub struct {
 	ResetValidatorStatisticsAtNewEpochCalled func([]*state.ValidatorInfo) ([]*state.ValidatorInfo, error)
 	ProcessRatingsEndOfEpochCalled           func([]*state.ValidatorInfo) error
+	UndelegateCalled func(blockEpoch uint32, validator []byte, sender []byte, tc *transaction.UndelegateContract) (transaction.Transaction_TXResultCode, error)
 }
 
 // SetKAppController sets the KApp controller.
@@ -38,8 +39,10 @@ func (v *ValidatorsKAppStub) Delegate(sender []byte, blockTime int64, blockEpoch
 
 // Undelegate handles validator undelegation.
 func (v *ValidatorsKAppStub) Undelegate(blockEpoch uint32, validator []byte, sender []byte, tc *transaction.UndelegateContract) (transaction.Transaction_TXResultCode, error) {
-	// Stub implementation
-	return transaction.Transaction_TXResultCode(0), nil
+	if v.UndelegateCalled != nil {
+		return v.UndelegateCalled(blockEpoch, validator, sender, tc)
+	}
+	return transaction.Transaction_Ok, nil
 }
 
 // Unjail unjails a jailed validator.

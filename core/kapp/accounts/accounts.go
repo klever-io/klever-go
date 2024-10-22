@@ -766,9 +766,11 @@ func (a *accountsKapp) Freeze(sender []byte, tc *transaction.FreezeContract) (tr
 	return transaction.Transaction_Ok, nil
 }
 
-func (a *accountsKapp) Unfreeze(sender []byte, tc *transaction.UnfreezeContract) (transaction.Transaction_TXResultCode, error) {
-	ctx := a.KAppController.GetCurrentKAppContext()
-
+func (a *accountsKapp) Unfreeze(
+	sender []byte,
+	tc *transaction.UnfreezeContract,
+) (transaction.Transaction_TXResultCode, error) {
+	// Retrieve owner account
 	ownerAcc, err := a.GetExistingUserAccount(sender)
 	if err != nil {
 		return transaction.Transaction_LoadAccountError, err
@@ -793,108 +795,75 @@ func (a *accountsKapp) Unfreeze(sender []byte, tc *transaction.UnfreezeContract)
 		return transaction.Transaction_AssetError, err
 	}
 
+	// Retrieve user KDA
 	userKDA, err := ownerAcc.GetUserKDA(assetID, nil, a.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_AssetError, err
 	}
 
-	// claim pending rewards
-	gains, err := a.ClaimBalance(transaction.ClaimContract_StakingClaim, assetID, ctx.Block(), ownerAcc, staking, kda, userKDA)
+	// Claim any pending rewards
+	gains, err := a.ClaimBalance(
+		transaction.ClaimContract_StakingClaim,
+		assetID,
+		a.KAppController.GetCurrentKAppContext().Block(),
+		ownerAcc,
+		staking,
+		kda,
+		userKDA,
+	)
 	if err != nil && !errors.Is(err, state.ErrClaimNotAvailable) {
 		return transaction.Transaction_ClaimError, err
 	}
 
-	delegationAddress, unfrozenAmount, err := ownerAcc.Unfreeze(assetID, tc.GetBucketID(), ctx.Block().GetEpoch(), staking, userKDA, a.forkController.FixStakingBuckets())
+	// Perform the unfreeze operation
+	delegationAddress, unfrozenAmount, txResCode, err := a.processUnfreezeLogic(
+		ownerAcc,
+		assetID,
+		tc,
+		staking,
+		userKDA,
+	)
 	if err != nil {
-		return transaction.Transaction_UnfreezeError, err
+		return txResCode, err
 	}
 
-	if delegationAddress != nil {
-		// undelegate bucket from peer
-		resultCode, err := a.KAppController.GetValidatorsKApp().Undelegate(
-			ctx.Block().GetEpoch(), delegationAddress, sender, &transaction.UndelegateContract{BucketID: tc.GetBucketID()})
-		if err != nil {
-			return resultCode, err
-		}
-		if a.forkController.EnableSmartContracts() {
-			_, _, err = ownerAcc.Undelegate(tc.GetBucketID(), userKDA)
-			if err != nil {
-				return transaction.Transaction_UndelegateError, err
-			}
-		}
+	// Update KDA and Staking info
+	if txResCode, err := a.updateAccountState(ownerAcc, assetID, userKDA, stakingKapp, kdaKapp, kda, staking); err != nil {
+		return txResCode, err
 	}
 
-	err = ownerAcc.SetUserKDA(assetID, nil, userKDA)
-	if err != nil {
-		return transaction.Transaction_AssetError, err
-	}
-
-	if err := a.accountsCacher.UpdateUser(ownerAcc); err != nil {
-		return transaction.Transaction_SaveAccountError, err
-	}
-
-	err = a.updateFPRTotalStake(ctx.Block(), assetID, staking)
-	if err != nil {
-		return transaction.Transaction_SetStakingErr, err
-	}
-
-	err = a.KAppController.GetKDAKApp().SetStaking(stakingKapp, assetID, staking)
-	if err != nil {
-		return transaction.Transaction_SetStakingErr, err
-	}
-
-	if err := a.accountsCacher.UpdateKapp(stakingKapp); err != nil {
-		return transaction.Transaction_SaveAccountError, err
-	}
-
-	err = a.KAppController.GetKDAKApp().SetKDA(kdaKapp, assetID, kda)
-	if err != nil {
-		return transaction.Transaction_KAPPError, err
-	}
-
-	if err := a.accountsCacher.UpdateKapp(kdaKapp); err != nil {
-		return transaction.Transaction_SaveAccountError, err
-	}
-
+	// Receipts for unfreezing
+	ctx := a.KAppController.GetCurrentKAppContext()
 	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Unfreeze,
 		ctx.ContractID(),
 		tc.GetBucketID(),
-		[]byte(strconv.FormatInt(int64(ctx.Block().GetEpoch()+staking.GetMinEpochsToWithdraw()), 10)),
+		[]byte(
+			strconv.FormatInt(int64(ctx.Block().GetEpoch()+staking.GetMinEpochsToWithdraw()), 10),
+		),
 		ownerAcc.AddressBytes(),
 		assetID,
 		[]byte(strconv.FormatInt(unfrozenAmount, 10)),
 	))
 
-	for key, value := range gains {
-		if value <= 0 {
+	// Receipts for gains
+	for asset, gain := range gains {
+		if gain <= 0 {
 			continue
 		}
 
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			claimAddress(staking.InterestType),
-			sender,
-			[]byte(strconv.FormatInt(value, 10)),
-			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
-			nil,
-			txProcess.AssetTypeReceipt(a.forkController.ClaimKFI(), assetID, []byte(key), kda),
-		))
-
-		claimType := []byte(strconv.FormatInt(int64(transaction.ClaimContract_StakingClaim.Enum().Number()), 10))
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Claim,
-			ctx.ContractID(),
-			[]byte(strconv.FormatInt(value, 10)),
-			nil,
-			nil,
+		a.addClaimReceipts(
+			ctx,
+			ownerAcc.AddressBytes(),
 			assetID,
-			txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, []byte(key)),
-			claimType,
-		))
+			[]byte(asset),
+			gain,
+			staking.InterestType,
+			kda,
+		)
 	}
 
+	// Receipts for delegation if applicable
 	if delegationAddress != nil {
 		ctx.Receipts().Add(txProcess.NewReceipt(
 			txProcess.Delegate,
@@ -906,68 +875,238 @@ func (a *accountsKapp) Unfreeze(sender []byte, tc *transaction.UnfreezeContract)
 		))
 	}
 
-	//On KFI unfreeze, remove all user votes
-	if bytes.Equal(assetID, kdautils.KFIIdentifier) {
-		proposalKapp, _, controller, err := a.KAppController.GetProposalKApp().GetProposal(0)
+	if txResCode, err := a.handleProposalVotesOnUnfreeze(ownerAcc, assetID, sender, unfrozenAmount); err != nil {
+		return txResCode, err
+	}
+
+	return transaction.Transaction_Ok, nil
+}
+
+// Handles the unfreeze logic including delegation
+func (a *accountsKapp) processUnfreezeLogic(
+	ownerAcc state.UserAccountHandler,
+	assetID []byte,
+	tc *transaction.UnfreezeContract,
+	staking *kapps.StakingData,
+	userKDA *kapps.UserKDA,
+) ([]byte, int64, transaction.Transaction_TXResultCode, error) {
+	epoch := a.KAppController.GetCurrentKAppContext().Block().GetEpoch()
+	delegationAddress, unfrozenAmount, err := ownerAcc.Unfreeze(
+		assetID,
+		tc.GetBucketID(),
+		epoch,
+		staking,
+		userKDA,
+		a.forkController.FixStakingBuckets(),
+	)
+	if err != nil {
+		return nil, 0, transaction.Transaction_UnfreezeError, err
+	}
+
+	if delegationAddress != nil {
+		resultCode, err := a.KAppController.GetValidatorsKApp().Undelegate(
+			epoch, delegationAddress, ownerAcc.AddressBytes(), &transaction.UndelegateContract{BucketID: tc.GetBucketID()})
 		if err != nil {
-			return transaction.Transaction_AccountError, err
+			return nil, 0, resultCode, err
 		}
-
-		userKDA, err := ownerAcc.GetUserKDA(assetID, nil, a.forkController.EnableSmartContracts())
-		if err != nil {
-			return transaction.Transaction_AccountError, err
-		}
-
-		// must use string to marshal proto map due UTF8 issue
-		encodedAddr := hex.EncodeToString(sender)
-
-		for _, proposal := range controller.GetActiveProposals() {
-			for _, id := range proposal.ProposalIDs {
-				_, proposal, _, err := a.KAppController.GetProposalKApp().GetProposal(id)
-				if err != nil {
-					return transaction.Transaction_AccountError, err
-				}
-
-				if v, ok := proposal.Voters[encodedAddr]; ok && v != nil {
-					if v.Amount <= userKDA.FrozenBalance {
-						continue
-					}
-
-					votesToRemove := unfrozenAmount
-					receiptAmount := int64(0)
-					if votesToRemove >= v.Amount {
-						votesToRemove = v.Amount
-						delete(proposal.Voters, encodedAddr)
-					} else {
-						v.Amount -= votesToRemove
-						receiptAmount = v.Amount
-					}
-
-					proposal.Votes[int32(v.Type)] -= votesToRemove
-
-					ctx.Receipts().Add(txProcess.NewReceipt(
-						txProcess.ProposalVote,
-						ctx.ContractID(),
-						[]byte(strconv.FormatUint(id, 10)),           // proposal ID
-						ownerAcc.AddressBytes(),                      // Voter
-						[]byte(strconv.FormatInt(int64(v.Type), 10)), // Vote type
-						[]byte(strconv.FormatInt(receiptAmount, 10)), // Vote weight
-					))
-
-					err = a.KAppController.GetProposalKApp().SetProposal(proposalKapp, id, proposal, controller)
-					if err != nil {
-						return transaction.Transaction_ParameterInvalid, err
-					}
-				}
+		if a.forkController.EnableSmartContracts() {
+			_, _, err = ownerAcc.Undelegate(tc.GetBucketID(), userKDA)
+			if err != nil {
+				return nil, 0, transaction.Transaction_UndelegateError, err
 			}
 		}
+	}
 
-		if err := a.accountsCacher.UpdateKapp(proposalKapp); err != nil {
+	return delegationAddress, unfrozenAmount, transaction.Transaction_Ok, nil
+}
+
+func (a *accountsKapp) addClaimReceipts(
+	ctx kapp.KappContext,
+	ownerAddrBytes, assetID, assetBytes []byte,
+	gain int64,
+	interestType kapps.StakingData_EnumInterestType,
+	kda *kapps.KDAData,
+) {
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.Transfer,
+		ctx.ContractID(),
+		claimAddress(interestType),
+		ownerAddrBytes,
+		[]byte(strconv.FormatInt(gain, 10)),
+		txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, assetBytes),
+		nil,
+		txProcess.AssetTypeReceipt(a.forkController.ClaimKFI(), assetID, assetBytes, kda),
+	))
+
+	claimType := []byte(
+		strconv.FormatInt(int64(transaction.ClaimContract_StakingClaim.Enum().Number()), 10),
+	)
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.Claim,
+		ctx.ContractID(),
+		[]byte(strconv.FormatInt(gain, 10)),
+		nil,
+		nil,
+		assetID,
+		txProcess.AssetGainReceipt(a.forkController.ClaimKFI(), assetID, assetBytes),
+		claimType,
+	))
+}
+
+// Updates account state with the new KDA and Staking data
+func (a *accountsKapp) updateAccountState(
+	ownerAcc state.UserAccountHandler,
+	assetID []byte,
+	userKDA *kapps.UserKDA,
+	stakingKapp, kdaKapp state.KAppAccountHandler,
+	kda *kapps.KDAData,
+	staking *kapps.StakingData,
+) (transaction.Transaction_TXResultCode, error) {
+	if err := ownerAcc.SetUserKDA(assetID, nil, userKDA); err != nil {
+		return transaction.Transaction_AssetError, err
+	}
+
+	if err := a.accountsCacher.UpdateUser(ownerAcc); err != nil {
+		return transaction.Transaction_SaveAccountError, err
+	}
+
+	if err := a.updateFPRTotalStake(a.KAppController.GetCurrentKAppContext().Block(), assetID, staking); err != nil {
+		return transaction.Transaction_SetStakingErr, err
+	}
+
+	if err := a.KAppController.GetKDAKApp().SetStaking(stakingKapp, assetID, staking); err != nil {
+		return transaction.Transaction_SetStakingErr, err
+	}
+
+	if err := a.accountsCacher.UpdateKapp(stakingKapp); err != nil {
+		return transaction.Transaction_SaveAccountError, err
+	}
+
+	if err := a.KAppController.GetKDAKApp().SetKDA(kdaKapp, assetID, kda); err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
+	if err := a.accountsCacher.UpdateKapp(kdaKapp); err != nil {
+		return transaction.Transaction_SaveAccountError, err
+	}
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (a *accountsKapp) handleProposalVotesOnUnfreeze(
+	ownerAcc state.UserAccountHandler,
+	assetID, sender []byte,
+	unfrozenAmount int64,
+) (transaction.Transaction_TXResultCode, error) {
+	if !bytes.Equal(assetID, kdautils.KFIIdentifier) {
+		return transaction.Transaction_Ok, nil
+	}
+
+	proposalKapp, _, controller, err := a.KAppController.GetProposalKApp().GetProposal(0)
+	if err != nil {
+		return transaction.Transaction_AccountError, err
+	}
+
+	userKDA, err := ownerAcc.GetUserKDA(assetID, nil, a.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_AccountError, err
+	}
+
+	encodedAddr := hex.EncodeToString(sender)
+
+	for _, proposal := range controller.GetActiveProposals() {
+		if err := a.processActiveProposal(proposal, proposalKapp, controller, encodedAddr, unfrozenAmount, ownerAcc, userKDA); err != nil {
 			return transaction.Transaction_AccountError, err
 		}
 	}
 
+	if err := a.accountsCacher.UpdateKapp(proposalKapp); err != nil {
+		return transaction.Transaction_AccountError, err
+	}
+
 	return transaction.Transaction_Ok, nil
+}
+
+func (a *accountsKapp) processActiveProposal(
+	proposal *kapps.ActiveProposals,
+	proposalKapp state.KAppAccountHandler,
+	controller *kapps.ProposalController,
+	encodedAddr string,
+	unfrozenAmount int64,
+	ownerAcc state.UserAccountHandler,
+	userKDA *kapps.UserKDA,
+) error {
+	for _, id := range proposal.ProposalIDs {
+		_, proposal, _, err := a.KAppController.GetProposalKApp().GetProposal(id)
+		if err != nil {
+			return err
+		}
+
+		voter, exists := proposal.Voters[encodedAddr]
+		if !exists || voter == nil {
+			return nil
+		}
+
+		if voter.Amount <= userKDA.FrozenBalance {
+			return nil
+		}
+
+		a.updateVoterAndProposal(voter, proposal, encodedAddr, unfrozenAmount, ownerAcc, id)
+
+		if err := a.updateProposalTotalStaked(proposal); err != nil {
+			return err
+		}
+
+		if err := a.KAppController.GetProposalKApp().SetProposal(proposalKapp, id, proposal, controller); err != nil {
+			return err
+		}
+
+	}
+
+	return nil
+}
+
+func (a *accountsKapp) updateVoterAndProposal(
+	voter *kapps.ProposalData_VoteDetail,
+	proposal *kapps.ProposalData,
+	encodedAddr string,
+	unfrozenAmount int64,
+	ownerAcc state.UserAccountHandler,
+	proposalID uint64,
+) {
+	votesToRemove := unfrozenAmount
+	receiptAmount := int64(0)
+
+	if votesToRemove >= voter.Amount {
+		votesToRemove = voter.Amount
+		delete(proposal.Voters, encodedAddr)
+	} else {
+		voter.Amount -= votesToRemove
+		receiptAmount = voter.Amount
+	}
+
+	proposal.Votes[int32(voter.Type)] -= votesToRemove
+
+	receipt := txProcess.NewReceipt(
+		txProcess.ProposalVote,
+		a.KAppController.GetCurrentKAppContext().ContractID(),
+		[]byte(strconv.FormatUint(proposalID, 10)),
+		ownerAcc.AddressBytes(),
+		[]byte(strconv.FormatInt(int64(voter.Type), 10)),
+		[]byte(strconv.FormatInt(receiptAmount, 10)),
+	)
+	a.KAppController.GetCurrentKAppContext().Receipts().Add(receipt)
+}
+
+func (a *accountsKapp) updateProposalTotalStaked(proposal *kapps.ProposalData) error {
+	if a.forkController.EnableSmartContracts() {
+		_, stakedKFI, err := a.KAppController.GetKDAKApp().GetStaking(kdautils.KFIIdentifier)
+		if err != nil {
+			return err
+		}
+		proposal.TotalStaked = stakedKFI.TotalStaked
+	}
+	return nil
 }
 
 func (a *accountsKapp) Delegate(sender []byte, tc *transaction.DelegateContract) (transaction.Transaction_TXResultCode, error) {

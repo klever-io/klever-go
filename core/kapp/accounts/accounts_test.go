@@ -1,36 +1,2053 @@
 package accounts
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
 	"math"
 	"testing"
 
-	"bytes"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/klever-io/klever-go/common"
-	"github.com/klever-io/klever-go/common/mock"
+	commonMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/fork"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
+	cryptoMock "github.com/klever-io/klever-go/crypto/mock"
+	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
+	integrationMock "github.com/klever-io/klever-go/integrationTest/mock"
 	"github.com/klever-io/klever-go/kapps"
-	vmStub "github.com/klever-io/klever-go/kvm/mock/stub"
-
-	cryptoMock "github.com/klever-io/klever-go/crypto/mock"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	kvmStub "github.com/klever-io/klever-go/kvm/mock/stub"
 )
 
+//////////////
+// Unfreeze //
+//////////////
+
+var (
+	testBucketID = []byte("TEST-BUCKET")
+	txSender     = []byte("testAddress")
+)
+
+func TestUnfreeze(t *testing.T) {
+	var (
+		errAccNotFound  = errors.New("Account not found")
+		errGetKda       = errors.New("Error getting KDA")
+		errClaimRewards = errors.New("Error claim asset")
+		errGetStaking   = errors.New("Error getting staking")
+		errGetUserKda   = errors.New("Error getting KDA")
+		errAccUnfreeze  = errors.New("Error unfreeze")
+		errUndelegate   = errors.New("Error undelegate")
+		errSetUserKda   = errors.New("Error setting user KDA")
+		errUpdateUser   = errors.New("Error updating user account")
+		errSetStaking   = errors.New("Error setting KDA staking")
+		errUpdateKapp   = errors.New("Error updating Kapp")
+		errSetKDA       = errors.New("Error updating KDA Kapp")
+		errGetProposal  = errors.New("Error getting proposal")
+
+		kdaKappAddrBytes      = []byte("KDAKappAddress")
+		proposalKappAddrBytes = []byte("proposalKappAddress")
+
+		gainsMap = map[string]int64{
+			"ABC-123": 0,
+			"DEF-456": 10,
+			"GHI-789": 20,
+		}
+	)
+
+	cases := []struct {
+		title             string
+		forkController    core.ForkController
+		accountsCacher    state.AccountsCacher
+		kappController    kapp.KAppController
+		expectedErr       error
+		expectedTxResCode transaction.Transaction_TXResultCode
+		unfreezeTx        *transaction.UnfreezeContract
+	}{
+		{
+			title:          "Failing to retrieve user account",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return nil, errAccNotFound
+				},
+			},
+			expectedErr:       errAccNotFound,
+			expectedTxResCode: transaction.Transaction_LoadAccountError,
+			unfreezeTx:        &transaction.UnfreezeContract{},
+		},
+		{
+			title:          "Failing to retrieve KDA data",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.AccountWrapMock{}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, nil, errGetKda
+						},
+					}
+				},
+			},
+			expectedErr:       errGetKda,
+			expectedTxResCode: transaction.Transaction_KAPPError,
+			unfreezeTx:        &transaction.UnfreezeContract{},
+		},
+		{
+			title:          "Failing to retrieve KDA data due to is non fungible",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.AccountWrapMock{}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{AssetType: kapps.KDAData_NonFungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							return nil, nil, nil
+						},
+					}
+				},
+			},
+			expectedErr:       common.ErrAssetTypeInvalid,
+			expectedTxResCode: transaction.Transaction_AssetError,
+			unfreezeTx:        &transaction.UnfreezeContract{},
+		},
+		{
+			title:          "Failing to retrieve staking data",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.AccountWrapMock{}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							return nil, nil, errGetStaking
+						},
+					}
+				},
+			},
+			expectedErr:       errGetStaking,
+			expectedTxResCode: transaction.Transaction_AssetError,
+			unfreezeTx:        &transaction.UnfreezeContract{},
+		},
+		{
+			title:          "Failing to retrieve user kda",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, errGetUserKda
+						},
+					}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							return nil, nil, nil
+						},
+					}
+				},
+			},
+			expectedErr:       errGetUserKda,
+			expectedTxResCode: transaction.Transaction_AssetError,
+			unfreezeTx:        &transaction.UnfreezeContract{},
+		},
+		{
+			title:          "Failing to claim rewards",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return nil, errClaimRewards
+						},
+					}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							return nil, nil, nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			expectedErr:       errClaimRewards,
+			expectedTxResCode: transaction.Transaction_ClaimError,
+			unfreezeTx:        &transaction.UnfreezeContract{},
+		},
+		{
+			title:          "Account unfreeze fail",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return nil, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 0, errAccUnfreeze
+						},
+					}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							return nil, nil, nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			expectedErr:       errAccUnfreeze,
+			expectedTxResCode: transaction.Transaction_UnfreezeError,
+			unfreezeTx:        &transaction.UnfreezeContract{},
+		},
+		{
+			title:          "Validator undelegate fail",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return nil, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return []byte("delegationAddress"), 0, nil
+						},
+					}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							return nil, nil, nil
+						},
+					}
+				},
+				GetValidatorsKAppCalled: func() kapp.ValidatorsKapp {
+					return &commonMock.ValidatorsKAppStub{
+						UndelegateCalled: func(blockEpoch uint32, validator []byte, sender []byte, tc *transaction.UndelegateContract) (transaction.Transaction_TXResultCode, error) {
+							return transaction.Transaction_Fail, errUndelegate
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			expectedErr:       errUndelegate,
+			expectedTxResCode: transaction.Transaction_Fail,
+			unfreezeTx:        &transaction.UnfreezeContract{},
+		},
+		{
+			title: "Undelegate bucket fail",
+			forkController: &integrationMock.ForkControllerStub{
+				EnableSmartContractsCalled: func() bool { return true },
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return nil, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return []byte("delegationAddress"), 0, nil
+						},
+						UndelegateCalled: func(bucketID []byte, userKDA *kapps.UserKDA) ([]byte, int64, error) {
+							return nil, 0, errUndelegate
+						},
+					}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							return nil, nil, nil
+						},
+					}
+				},
+				GetValidatorsKAppCalled: func() kapp.ValidatorsKapp {
+					return &commonMock.ValidatorsKAppStub{
+						UndelegateCalled: func(blockEpoch uint32, validator []byte, sender []byte, tc *transaction.UndelegateContract) (transaction.Transaction_TXResultCode, error) {
+							return transaction.Transaction_Ok, nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			expectedErr:       errUndelegate,
+			expectedTxResCode: transaction.Transaction_UndelegateError,
+			unfreezeTx: &transaction.UnfreezeContract{
+				BucketID: testBucketID,
+			},
+		},
+		{
+			title:          "Failing to set user KDA",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return nil, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 0, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return errSetUserKda
+						},
+					}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							return nil, nil, nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			expectedErr:       errSetUserKda,
+			expectedTxResCode: transaction.Transaction_AssetError,
+			unfreezeTx:        &transaction.UnfreezeContract{},
+		},
+		{
+			title:          "Failing to set user KDA",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return nil, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 0, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return errUpdateUser
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							return nil, nil, nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			expectedErr:       errUpdateUser,
+			expectedTxResCode: transaction.Transaction_SaveAccountError,
+			unfreezeTx:        &transaction.UnfreezeContract{},
+		},
+		{
+			title:          "Failing to set staking",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return nil, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 0, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							return nil, nil, nil
+						},
+						SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+							return errSetStaking
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			expectedErr:       errSetStaking,
+			expectedTxResCode: transaction.Transaction_SetStakingErr,
+			unfreezeTx:        &transaction.UnfreezeContract{},
+		},
+		{
+			title:          "Failing to update staking kapp",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return nil, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 0, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+				UpdateKappCalled: func(account state.AccountHandler) error {
+					return errUpdateKapp
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							return nil, nil, nil
+						},
+						SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+							return nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			expectedErr:       errUpdateKapp,
+			expectedTxResCode: transaction.Transaction_SaveAccountError,
+			unfreezeTx:        &transaction.UnfreezeContract{},
+		},
+		{
+			title:          "Failing to set kda",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return nil, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 0, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+				UpdateKappCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							return nil, nil, nil
+						},
+						SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+							return nil
+						},
+						SetKDACalled: func(kdaKapp state.KAppAccountHandler, assetID []byte, kda *kapps.KDAData) error {
+							return errSetKDA
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			expectedErr:       errSetKDA,
+			expectedTxResCode: transaction.Transaction_KAPPError,
+			unfreezeTx:        &transaction.UnfreezeContract{},
+		},
+		{
+			title:          "Failing to update kda kapp",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return gainsMap, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 100, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return txSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+				UpdateKappCalled: func(account state.AccountHandler) error {
+					if bytes.Equal(account.AddressBytes(), kdaKappAddrBytes) {
+						return errUpdateKapp
+					}
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							kdaKapp, _ := state.NewKAppAccount(kdaKappAddrBytes)
+							return kdaKapp, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							stakingKapp, _ := state.NewKAppAccount([]byte("stakingKappAddress"))
+							return stakingKapp, &kapps.StakingData{
+								MinEpochsToClaim: 1,
+								InterestType:     kapps.StakingData_APRI,
+							}, nil
+						},
+						SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+							return nil
+						},
+						SetKDACalled: func(kdaKapp state.KAppAccountHandler, assetID []byte, kda *kapps.KDAData) error {
+							return nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			expectedErr:       errUpdateKapp,
+			expectedTxResCode: transaction.Transaction_SaveAccountError,
+			unfreezeTx:        &transaction.UnfreezeContract{},
+		},
+		{
+			title:          "Failing to retrieve proposal kapp",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return gainsMap, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 100, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return txSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+				UpdateKappCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							kdaKapp, _ := state.NewKAppAccount(kdaKappAddrBytes)
+							return kdaKapp, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							stakingKapp, _ := state.NewKAppAccount([]byte("stakingKappAddress"))
+							return stakingKapp, &kapps.StakingData{
+								MinEpochsToClaim: 1,
+								InterestType:     kapps.StakingData_APRI,
+							}, nil
+						},
+						SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+							return nil
+						},
+						SetKDACalled: func(kdaKapp state.KAppAccountHandler, assetID []byte, kda *kapps.KDAData) error {
+							return nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+				GetProposalKAppCalled: func() kapp.ProposalKapp {
+					return &commonMock.ProposalKappStub{
+						GetProposalCalled: func(proposalID uint64) (state.KAppAccountHandler, *kapps.ProposalData, *kapps.ProposalController, error) {
+							return nil, nil, nil, errGetProposal
+						},
+					}
+				},
+			},
+			expectedErr:       errGetProposal,
+			expectedTxResCode: transaction.Transaction_AccountError,
+			unfreezeTx: &transaction.UnfreezeContract{
+				AssetID: kdautils.KFIIdentifier,
+			},
+		},
+		{
+			title:          "Failing to retrieve user kda during proposals processing",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					callCount := 0
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							callCount++
+							if callCount == 1 {
+								return &kapps.UserKDA{}, nil
+							}
+							return nil, errGetUserKda
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return gainsMap, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 100, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return txSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+				UpdateKappCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							kdaKapp, _ := state.NewKAppAccount(kdaKappAddrBytes)
+							return kdaKapp, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							stakingKapp, _ := state.NewKAppAccount([]byte("stakingKappAddress"))
+							return stakingKapp, &kapps.StakingData{
+								MinEpochsToClaim: 1,
+								InterestType:     kapps.StakingData_APRI,
+							}, nil
+						},
+						SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+							return nil
+						},
+						SetKDACalled: func(kdaKapp state.KAppAccountHandler, assetID []byte, kda *kapps.KDAData) error {
+							return nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+				GetProposalKAppCalled: func() kapp.ProposalKapp {
+					return &commonMock.ProposalKappStub{
+						GetProposalCalled: func(proposalID uint64) (state.KAppAccountHandler, *kapps.ProposalData, *kapps.ProposalController, error) {
+							return nil, nil, nil, nil
+						},
+					}
+				},
+			},
+			expectedErr:       errGetUserKda,
+			expectedTxResCode: transaction.Transaction_AccountError,
+			unfreezeTx: &transaction.UnfreezeContract{
+				AssetID: kdautils.KFIIdentifier,
+			},
+		},
+		{
+			title:          "Failing to retrieve proposal during its processing",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return gainsMap, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 100, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return txSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+				UpdateKappCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							kdaKapp, _ := state.NewKAppAccount(kdaKappAddrBytes)
+							return kdaKapp, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							stakingKapp, _ := state.NewKAppAccount([]byte("stakingKappAddress"))
+							return stakingKapp, &kapps.StakingData{
+								MinEpochsToClaim: 1,
+								InterestType:     kapps.StakingData_APRI,
+							}, nil
+						},
+						SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+							return nil
+						},
+						SetKDACalled: func(kdaKapp state.KAppAccountHandler, assetID []byte, kda *kapps.KDAData) error {
+							return nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+				GetProposalKAppCalled: func() kapp.ProposalKapp {
+					return &commonMock.ProposalKappStub{
+						GetProposalCalled: func(proposalID uint64) (state.KAppAccountHandler, *kapps.ProposalData, *kapps.ProposalController, error) {
+							if proposalID == 0 {
+								return nil, nil, &kapps.ProposalController{
+									ActiveProposals: map[uint32]*kapps.ActiveProposals{
+										1: {
+											ProposalIDs: []uint64{1},
+										},
+									},
+								}, nil
+							}
+							return nil, nil, nil, errGetProposal
+						},
+					}
+				},
+			},
+			expectedErr:       errGetProposal,
+			expectedTxResCode: transaction.Transaction_AccountError,
+			unfreezeTx: &transaction.UnfreezeContract{
+				AssetID: kdautils.KFIIdentifier,
+			},
+		},
+		{
+			title:          "Finishes successful without changing proposal due to user is not unfreeze KFI",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return gainsMap, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 100, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return txSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+				UpdateKappCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							kdaKapp, _ := state.NewKAppAccount(kdaKappAddrBytes)
+							return kdaKapp, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							stakingKapp, _ := state.NewKAppAccount([]byte("stakingKappAddress"))
+							return stakingKapp, &kapps.StakingData{
+								MinEpochsToClaim: 1,
+								InterestType:     kapps.StakingData_APRI,
+							}, nil
+						},
+						SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+							return nil
+						},
+						SetKDACalled: func(kdaKapp state.KAppAccountHandler, assetID []byte, kda *kapps.KDAData) error {
+							return nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+				GetProposalKAppCalled: func() kapp.ProposalKapp {
+					return &commonMock.ProposalKappStub{
+						GetProposalCalled: func(proposalID uint64) (state.KAppAccountHandler, *kapps.ProposalData, *kapps.ProposalController, error) {
+							return nil, nil, &kapps.ProposalController{
+								ActiveProposals: map[uint32]*kapps.ActiveProposals{
+									1: {
+										ProposalIDs: []uint64{1},
+									},
+								},
+							}, nil
+						},
+					}
+				},
+			},
+			expectedErr:       nil,
+			expectedTxResCode: transaction.Transaction_Ok,
+			unfreezeTx: &transaction.UnfreezeContract{
+				AssetID: []byte("TEST_12AB"),
+			},
+		},
+		{
+			title:          "Finishes successful without update proposal due to user has not voted",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return gainsMap, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 100, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return txSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+				UpdateKappCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							kdaKapp, _ := state.NewKAppAccount(kdaKappAddrBytes)
+							return kdaKapp, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							stakingKapp, _ := state.NewKAppAccount([]byte("stakingKappAddress"))
+							return stakingKapp, &kapps.StakingData{
+								MinEpochsToClaim: 1,
+								InterestType:     kapps.StakingData_APRI,
+							}, nil
+						},
+						SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+							return nil
+						},
+						SetKDACalled: func(kdaKapp state.KAppAccountHandler, assetID []byte, kda *kapps.KDAData) error {
+							return nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+				GetProposalKAppCalled: func() kapp.ProposalKapp {
+					return &commonMock.ProposalKappStub{
+						GetProposalCalled: func(proposalID uint64) (state.KAppAccountHandler, *kapps.ProposalData, *kapps.ProposalController, error) {
+							if proposalID == 0 {
+								return nil, nil, &kapps.ProposalController{
+									ActiveProposals: map[uint32]*kapps.ActiveProposals{
+										1: {
+											ProposalIDs: []uint64{1},
+										},
+									},
+								}, nil
+							}
+							return nil, &kapps.ProposalData{
+								Voters: map[string]*kapps.ProposalData_VoteDetail{
+									"randomAddress": {},
+								},
+							}, nil, nil
+						},
+					}
+				},
+			},
+			expectedErr:       nil,
+			expectedTxResCode: transaction.Transaction_Ok,
+			unfreezeTx: &transaction.UnfreezeContract{
+				AssetID: kdautils.KFIIdentifier,
+			},
+		},
+		{
+			title:          "Finishes successful without update proposal due to user KFI frozen balance still higher than vote amount",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return &kapps.UserKDA{FrozenBalance: 100}, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return gainsMap, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 100, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return txSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+				UpdateKappCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							kdaKapp, _ := state.NewKAppAccount(kdaKappAddrBytes)
+							return kdaKapp, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							stakingKapp, _ := state.NewKAppAccount([]byte("stakingKappAddress"))
+							return stakingKapp, &kapps.StakingData{
+								MinEpochsToClaim: 1,
+								InterestType:     kapps.StakingData_APRI,
+							}, nil
+						},
+						SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+							return nil
+						},
+						SetKDACalled: func(kdaKapp state.KAppAccountHandler, assetID []byte, kda *kapps.KDAData) error {
+							return nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+				GetProposalKAppCalled: func() kapp.ProposalKapp {
+					return &commonMock.ProposalKappStub{
+						GetProposalCalled: func(proposalID uint64) (state.KAppAccountHandler, *kapps.ProposalData, *kapps.ProposalController, error) {
+							if proposalID == 0 {
+								return nil, nil, &kapps.ProposalController{
+									ActiveProposals: map[uint32]*kapps.ActiveProposals{
+										1: {
+											ProposalIDs: []uint64{1},
+										},
+									},
+								}, nil
+							}
+							return nil, &kapps.ProposalData{
+								Voters: map[string]*kapps.ProposalData_VoteDetail{
+									hex.EncodeToString(txSender): {Amount: 90},
+								},
+							}, nil, nil
+						},
+					}
+				},
+			},
+			expectedErr:       nil,
+			expectedTxResCode: transaction.Transaction_Ok,
+			unfreezeTx: &transaction.UnfreezeContract{
+				AssetID: kdautils.KFIIdentifier,
+			},
+		},
+		{
+			title: "On unfreeze KFI failing to update proposal total staked",
+			forkController: &integrationMock.ForkControllerStub{
+				EnableSmartContractsCalled: func() bool { return true },
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return &kapps.UserKDA{FrozenBalance: 100}, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return gainsMap, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 100, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return txSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+				UpdateKappCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					getStakingCallCount := 0
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							kdaKapp, _ := state.NewKAppAccount(kdaKappAddrBytes)
+							return kdaKapp, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							getStakingCallCount++
+							if getStakingCallCount == 1 {
+								stakingKapp, _ := state.NewKAppAccount(kdautils.KFIIdentifier)
+								return stakingKapp, &kapps.StakingData{
+									MinEpochsToClaim: 1,
+									InterestType:     kapps.StakingData_APRI,
+								}, nil
+							}
+							return nil, nil, errGetStaking
+						},
+						SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+							return nil
+						},
+						SetKDACalled: func(kdaKapp state.KAppAccountHandler, assetID []byte, kda *kapps.KDAData) error {
+							return nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+				GetProposalKAppCalled: func() kapp.ProposalKapp {
+					return &commonMock.ProposalKappStub{
+						GetProposalCalled: func(proposalID uint64) (state.KAppAccountHandler, *kapps.ProposalData, *kapps.ProposalController, error) {
+							if proposalID == 0 {
+								return nil, nil, &kapps.ProposalController{
+									ActiveProposals: map[uint32]*kapps.ActiveProposals{
+										1: {
+											ProposalIDs: []uint64{1},
+										},
+									},
+								}, nil
+							}
+							return nil, &kapps.ProposalData{
+								Voters: map[string]*kapps.ProposalData_VoteDetail{
+									hex.EncodeToString(txSender): {
+										Amount: 101,
+										Type:   kapps.ProposalData_VoteDetail_No,
+									},
+								},
+								Votes: map[int32]int64{
+									int32(kapps.ProposalData_VoteDetail_No): 200,
+								},
+							}, nil, nil
+						},
+					}
+				},
+			},
+			expectedErr:       nil,
+			expectedTxResCode: transaction.Transaction_Ok,
+			unfreezeTx: &transaction.UnfreezeContract{
+				AssetID: kdautils.KFIIdentifier,
+			},
+		},
+		{
+			title:          "Failing on update proposal kapp",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return gainsMap, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 100, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return txSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+				UpdateKappCalled: func(account state.AccountHandler) error {
+					if bytes.Equal(account.AddressBytes(), proposalKappAddrBytes) {
+						return errUpdateKapp
+					}
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							kdaKapp, _ := state.NewKAppAccount(kdaKappAddrBytes)
+							return kdaKapp, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							stakingKapp, _ := state.NewKAppAccount([]byte("stakingKappAddress"))
+							return stakingKapp, &kapps.StakingData{
+								MinEpochsToClaim: 1,
+								InterestType:     kapps.StakingData_APRI,
+							}, nil
+						},
+						SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+							return nil
+						},
+						SetKDACalled: func(kdaKapp state.KAppAccountHandler, assetID []byte, kda *kapps.KDAData) error {
+							return nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+				GetProposalKAppCalled: func() kapp.ProposalKapp {
+					return &commonMock.ProposalKappStub{
+						GetProposalCalled: func(proposalID uint64) (state.KAppAccountHandler, *kapps.ProposalData, *kapps.ProposalController, error) {
+							if proposalID == 0 {
+								proposalKapp, _ := state.NewKAppAccount(proposalKappAddrBytes)
+								return proposalKapp, nil, &kapps.ProposalController{
+									ActiveProposals: map[uint32]*kapps.ActiveProposals{
+										1: {
+											ProposalIDs: []uint64{1},
+										},
+									},
+								}, nil
+							}
+							return nil, &kapps.ProposalData{
+								Voters: map[string]*kapps.ProposalData_VoteDetail{
+									"randomAddress": {},
+								},
+							}, nil, nil
+						},
+					}
+				},
+			},
+			expectedErr:       errUpdateKapp,
+			expectedTxResCode: transaction.Transaction_AccountError,
+			unfreezeTx: &transaction.UnfreezeContract{
+				AssetID: kdautils.KFIIdentifier,
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.title, func(t *testing.T) {
+			accsKapp, _ := NewAccountKApp(&ArgsNewAccountKApp{
+				Hasher:         &commonMock.HasherMock{},
+				Marshalizer:    &commonMock.MarshalizerMock{},
+				PubkeyConv:     commonMock.NewPubkeyConverterMock(4),
+				ForkController: c.forkController,
+			})
+			accsKapp.SetKAppController(c.kappController)
+			accsKapp.SetAccountsCacher(c.accountsCacher)
+
+			txResCode, err := accsKapp.Unfreeze(
+				txSender,
+				c.unfreezeTx,
+			)
+
+			require.Equal(t, txResCode, c.expectedTxResCode)
+			require.ErrorIs(t, err, c.expectedErr)
+		})
+	}
+}
+
+func TestUnfreezeKFIFailingOnFinishUpdateProposal(t *testing.T) {
+	t.Run("Failing to get KFI total staked on proposal update", func(t *testing.T) {
+		accsKapp, _ := NewAccountKApp(&ArgsNewAccountKApp{
+			Hasher:      &commonMock.HasherMock{},
+			Marshalizer: &commonMock.MarshalizerMock{},
+			PubkeyConv:  commonMock.NewPubkeyConverterMock(4),
+			ForkController: &integrationMock.ForkControllerStub{
+				EnableSmartContractsCalled: func() bool { return true },
+			},
+		})
+
+		errGetStaking := errors.New("Error getting staking kapp")
+		getStakingCalled := 0
+		accsKapp.SetKAppController(
+			&kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							kdaKapp, _ := state.NewKAppAccount([]byte("kdaKappAddress"))
+							return kdaKapp, &kapps.KDAData{
+								AssetType: kapps.KDAData_Fungible,
+							}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							if getStakingCalled == 0 {
+								getStakingCalled++
+
+								stakingKapp, _ := state.NewKAppAccount([]byte("stakingKappAddress"))
+								return stakingKapp, &kapps.StakingData{
+									MinEpochsToClaim: 1,
+									InterestType:     kapps.StakingData_APRI,
+								}, nil
+							}
+							return nil, nil, errGetStaking
+						},
+						SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+							return nil
+						},
+						SetKDACalled: func(kdaKapp state.KAppAccountHandler, assetID []byte, kda *kapps.KDAData) error {
+							return nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+				GetProposalKAppCalled: func() kapp.ProposalKapp {
+					return &commonMock.ProposalKappStub{
+						GetProposalCalled: func(proposalID uint64) (state.KAppAccountHandler, *kapps.ProposalData, *kapps.ProposalController, error) {
+							if proposalID == 0 {
+								return nil, nil, &kapps.ProposalController{
+									ActiveProposals: map[uint32]*kapps.ActiveProposals{
+										1: {
+											ProposalIDs: []uint64{1},
+										},
+									},
+								}, nil
+							}
+							return nil, &kapps.ProposalData{
+								Voters: map[string]*kapps.ProposalData_VoteDetail{
+									hex.EncodeToString(txSender): {
+										Amount: 90,
+										Type:   kapps.ProposalData_VoteDetail_No,
+									},
+								},
+								Votes: map[int32]int64{
+									int32(kapps.ProposalData_VoteDetail_No): 200,
+								},
+							}, nil, nil
+						},
+					}
+				},
+			},
+		)
+		accsKapp.SetAccountsCacher(
+			&commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return &kapps.UserKDA{FrozenBalance: 80}, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							gainsMap := map[string]int64{
+								"ABC-123": 0,
+								"DEF-456": 10,
+								"GHI-789": 20,
+							}
+
+							return gainsMap, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 100, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return txSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+				UpdateKappCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+		)
+
+		txResCode, err := accsKapp.Unfreeze(
+			txSender,
+			&transaction.UnfreezeContract{
+				AssetID: kdautils.KFIIdentifier,
+			},
+		)
+
+		require.Equal(t, txResCode, transaction.Transaction_AccountError)
+		require.ErrorIs(t, err, errGetStaking)
+	})
+
+	t.Run("Failing to set proposal after its update", func(t *testing.T) {
+		accsKapp, _ := NewAccountKApp(&ArgsNewAccountKApp{
+			Hasher:         &commonMock.HasherMock{},
+			Marshalizer:    &commonMock.MarshalizerMock{},
+			PubkeyConv:     commonMock.NewPubkeyConverterMock(4),
+			ForkController: &integrationMock.ForkControllerStub{},
+		})
+
+		errSetingProposal := errors.New("Error setting proposal")
+		accsKapp.SetKAppController(
+			&kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							kdaKapp, _ := state.NewKAppAccount([]byte("kdaKappAddress"))
+							return kdaKapp, &kapps.KDAData{
+								AssetType: kapps.KDAData_Fungible,
+							}, nil
+						},
+						GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+							stakingKapp, _ := state.NewKAppAccount([]byte("stakingKappAddress"))
+							return stakingKapp, &kapps.StakingData{
+								MinEpochsToClaim: 1,
+								InterestType:     kapps.StakingData_APRI,
+							}, nil
+						},
+						SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+							return nil
+						},
+						SetKDACalled: func(kdaKapp state.KAppAccountHandler, assetID []byte, kda *kapps.KDAData) error {
+							return nil
+						},
+					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+				GetProposalKAppCalled: func() kapp.ProposalKapp {
+					return &commonMock.ProposalKappStub{
+						GetProposalCalled: func(proposalID uint64) (state.KAppAccountHandler, *kapps.ProposalData, *kapps.ProposalController, error) {
+							if proposalID == 0 {
+								return nil, nil, &kapps.ProposalController{
+									ActiveProposals: map[uint32]*kapps.ActiveProposals{
+										1: {
+											ProposalIDs: []uint64{1},
+										},
+									},
+								}, nil
+							}
+							return nil, &kapps.ProposalData{
+								Voters: map[string]*kapps.ProposalData_VoteDetail{
+									hex.EncodeToString(txSender): {
+										Amount: 90,
+										Type:   kapps.ProposalData_VoteDetail_No,
+									},
+								},
+								Votes: map[int32]int64{
+									int32(kapps.ProposalData_VoteDetail_No): 200,
+								},
+							}, nil, nil
+						},
+						SetProposalCalled: func(proposalKapp state.KAppAccountHandler, proposalID uint64, proposal *kapps.ProposalData, controller *kapps.ProposalController) error {
+							return errSetingProposal
+						},
+					}
+				},
+			},
+		)
+		accsKapp.SetAccountsCacher(
+			&commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return &kapps.UserKDA{FrozenBalance: 80}, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							gainsMap := map[string]int64{
+								"ABC-123": 0,
+								"DEF-456": 10,
+								"GHI-789": 20,
+							}
+
+							return gainsMap, nil
+						},
+						UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+							return nil, 100, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return txSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+				UpdateKappCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+		)
+
+		txResCode, err := accsKapp.Unfreeze(
+			txSender,
+			&transaction.UnfreezeContract{
+				AssetID: kdautils.KFIIdentifier,
+			},
+		)
+
+		require.Equal(t, txResCode, transaction.Transaction_AccountError)
+		require.ErrorIs(t, err, errSetingProposal)
+	})
+}
+
+func TestUnfreezeKFIAndUpdatingProposals(t *testing.T) {
+	gainsMap := map[string]int64{
+		"ABC-123": 0,
+		"DEF-456": 10,
+		"GHI-789": 20,
+	}
+
+	t.Run(
+		"completly removes vote due to unfreeze KFI amount is higher or equal than vote amount",
+		func(t *testing.T) {
+			const (
+				voteAmount     = int64(90)
+				noVotes        = int64(200)
+				unfreezeAmount = int64(100)
+				kfiTotalStaked = int64(1000)
+			)
+			accsKapp, _ := NewAccountKApp(&ArgsNewAccountKApp{
+				Hasher:      &commonMock.HasherMock{},
+				Marshalizer: &commonMock.MarshalizerMock{},
+				PubkeyConv:  commonMock.NewPubkeyConverterMock(4),
+				ForkController: &integrationMock.ForkControllerStub{
+					EnableSmartContractsCalled: func() bool {
+						return true
+					},
+				},
+			})
+
+			stakingData := &kapps.StakingData{
+				MinEpochsToClaim: 1,
+				InterestType:     kapps.StakingData_APRI,
+				TotalStaked:      kfiTotalStaked,
+			}
+
+			proposalData := &kapps.ProposalData{
+				Voters: map[string]*kapps.ProposalData_VoteDetail{
+					hex.EncodeToString(txSender): {
+						Type:   kapps.ProposalData_VoteDetail_No,
+						Amount: voteAmount,
+					},
+				},
+				Votes: map[int32]int64{
+					int32(kapps.ProposalData_VoteDetail_No): noVotes,
+				},
+			}
+
+			accsKapp.SetKAppController(
+				&kvmStub.KAppControllerStub{
+					GetKDAKAppCalled: func() kapp.KDAKapp {
+						return &kvmStub.KDAKappStub{
+							GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+								kdaKapp, _ := state.NewKAppAccount([]byte("kdaKappAddress"))
+								return kdaKapp, &kapps.KDAData{
+									AssetType: kapps.KDAData_Fungible,
+								}, nil
+							},
+							GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+								stakingKapp, _ := state.NewKAppAccount([]byte("stakingKappAddress"))
+								return stakingKapp, stakingData, nil
+							},
+							SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+								return nil
+							},
+							SetKDACalled: func(kdaKapp state.KAppAccountHandler, assetID []byte, kda *kapps.KDAData) error {
+								return nil
+							},
+						}
+					},
+					GetCurrentKAppContextCalled: func() kapp.KappContext {
+						return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+							OriginalSender: txSender,
+							ContractID:     0,
+							ContractType:   transaction.TXContract_UnfreezeContractType,
+							Block: &block.Block{
+								Header: &block.BlockHeader{
+									Timestamp: 1000,
+									Epoch:     1,
+								},
+							},
+						})
+					},
+					GetProposalKAppCalled: func() kapp.ProposalKapp {
+						return &commonMock.ProposalKappStub{
+							GetProposalCalled: func(proposalID uint64) (state.KAppAccountHandler, *kapps.ProposalData, *kapps.ProposalController, error) {
+								if proposalID == 0 {
+									return nil, nil, &kapps.ProposalController{
+										ActiveProposals: map[uint32]*kapps.ActiveProposals{
+											1: {
+												ProposalIDs: []uint64{1},
+											},
+										},
+									}, nil
+								}
+								return nil, proposalData, nil, nil
+							},
+						}
+					},
+				},
+			)
+			accsKapp.SetAccountsCacher(
+				&commonMock.AccountsCacherStub{
+					GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+						return &commonMock.UserAccountHandlerStub{
+							GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+								return &kapps.UserKDA{FrozenBalance: 80}, nil
+							},
+							ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+								return gainsMap, nil
+							},
+							UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+								return nil, unfreezeAmount, nil
+							},
+							SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+								return nil
+							},
+							AddressBytesCalled: func() []byte {
+								return txSender
+							},
+						}, nil
+					},
+					UpdateUserCalled: func(account state.AccountHandler) error {
+						return nil
+					},
+					UpdateKappCalled: func(account state.AccountHandler) error {
+						return nil
+					},
+				},
+			)
+
+			txResCode, err := accsKapp.Unfreeze(
+				txSender,
+				&transaction.UnfreezeContract{
+					AssetID: kdautils.KFIIdentifier,
+				},
+			)
+
+			require.NotContains(t, proposalData.Voters, hex.EncodeToString(txSender))
+			require.Equal(
+				t,
+				proposalData.Votes[int32(kapps.ProposalData_VoteDetail_No)],
+				noVotes-voteAmount,
+			)
+			require.Equal(t, proposalData.TotalStaked, kfiTotalStaked)
+
+			require.Equal(t, txResCode, transaction.Transaction_Ok)
+			require.NoError(t, err)
+		},
+	)
+
+	t.Run(
+		"subtracts vote amount from unfreeze KFI amount",
+		func(t *testing.T) {
+			const (
+				voteAmount     = int64(100)
+				noVotes        = int64(200)
+				unfreezeAmount = int64(90)
+				kfiTotalStaked = int64(1000)
+			)
+			accsKapp, _ := NewAccountKApp(&ArgsNewAccountKApp{
+				Hasher:      &commonMock.HasherMock{},
+				Marshalizer: &commonMock.MarshalizerMock{},
+				PubkeyConv:  commonMock.NewPubkeyConverterMock(4),
+				ForkController: &integrationMock.ForkControllerStub{
+					EnableSmartContractsCalled: func() bool {
+						return true
+					},
+				},
+			})
+
+			stakingData := &kapps.StakingData{
+				MinEpochsToClaim: 1,
+				InterestType:     kapps.StakingData_APRI,
+				TotalStaked:      kfiTotalStaked,
+			}
+
+			proposalData := &kapps.ProposalData{
+				Voters: map[string]*kapps.ProposalData_VoteDetail{
+					hex.EncodeToString(txSender): {
+						Type:   kapps.ProposalData_VoteDetail_No,
+						Amount: voteAmount,
+					},
+				},
+				Votes: map[int32]int64{
+					int32(kapps.ProposalData_VoteDetail_No): noVotes,
+				},
+			}
+
+			accsKapp.SetKAppController(
+				&kvmStub.KAppControllerStub{
+					GetKDAKAppCalled: func() kapp.KDAKapp {
+						return &kvmStub.KDAKappStub{
+							GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+								kdaKapp, _ := state.NewKAppAccount([]byte("kdaKappAddress"))
+								return kdaKapp, &kapps.KDAData{
+									AssetType: kapps.KDAData_Fungible,
+								}, nil
+							},
+							GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+								stakingKapp, _ := state.NewKAppAccount([]byte("stakingKappAddress"))
+								return stakingKapp, stakingData, nil
+							},
+							SetStakingCalled: func(stakingKapp state.KAppAccountHandler, assetID []byte, staking *kapps.StakingData) error {
+								return nil
+							},
+							SetKDACalled: func(kdaKapp state.KAppAccountHandler, assetID []byte, kda *kapps.KDAData) error {
+								return nil
+							},
+						}
+					},
+					GetCurrentKAppContextCalled: func() kapp.KappContext {
+						return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+							OriginalSender: txSender,
+							ContractID:     0,
+							ContractType:   transaction.TXContract_UnfreezeContractType,
+							Block: &block.Block{
+								Header: &block.BlockHeader{
+									Timestamp: 1000,
+									Epoch:     1,
+								},
+							},
+						})
+					},
+					GetProposalKAppCalled: func() kapp.ProposalKapp {
+						return &commonMock.ProposalKappStub{
+							GetProposalCalled: func(proposalID uint64) (state.KAppAccountHandler, *kapps.ProposalData, *kapps.ProposalController, error) {
+								if proposalID == 0 {
+									return nil, nil, &kapps.ProposalController{
+										ActiveProposals: map[uint32]*kapps.ActiveProposals{
+											1: {
+												ProposalIDs: []uint64{1},
+											},
+										},
+									}, nil
+								}
+								return nil, proposalData, nil, nil
+							},
+						}
+					},
+				},
+			)
+			accsKapp.SetAccountsCacher(
+				&commonMock.AccountsCacherStub{
+					GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+						return &commonMock.UserAccountHandlerStub{
+							GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+								return &kapps.UserKDA{FrozenBalance: 80}, nil
+							},
+							ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+								return gainsMap, nil
+							},
+							UnfreezeCalled: func(assetID, bucketID []byte, blockEpoch uint32, staking *kapps.StakingData, userKDA *kapps.UserKDA, newStakingFlow bool) ([]byte, int64, error) {
+								return nil, unfreezeAmount, nil
+							},
+							SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+								return nil
+							},
+							AddressBytesCalled: func() []byte {
+								return txSender
+							},
+						}, nil
+					},
+					UpdateUserCalled: func(account state.AccountHandler) error {
+						return nil
+					},
+					UpdateKappCalled: func(account state.AccountHandler) error {
+						return nil
+					},
+				},
+			)
+
+			txResCode, err := accsKapp.Unfreeze(
+				txSender,
+				&transaction.UnfreezeContract{
+					AssetID: kdautils.KFIIdentifier,
+				},
+			)
+
+			require.Equal(
+				t,
+				proposalData.Voters[hex.EncodeToString(txSender)].Amount,
+				voteAmount-unfreezeAmount,
+			)
+			require.Equal(
+				t,
+				proposalData.Votes[int32(kapps.ProposalData_VoteDetail_No)],
+				noVotes-unfreezeAmount,
+			)
+			require.Equal(t, proposalData.TotalStaked, kfiTotalStaked)
+
+			require.Equal(t, txResCode, transaction.Transaction_Ok)
+			require.NoError(t, err)
+		},
+	)
+}
+
+///////////////
+// Royalties //
+///////////////
+
 var inactiveFork = uint32(1)
+
 var activeFork = uint32(0)
 
 var validAddress = hex.EncodeToString(makeAddress("valid"))
+
 var validAddressBytes = makeAddress("valid")
-var emptyAccCacher = &mock.AccountsCacherStub{}
+
+var emptyAccCacher = &commonMock.AccountsCacherStub{}
 
 var mockError = errors.New("mock-error")
 
@@ -40,24 +2057,24 @@ func makeAddress(prefix string) []byte {
 	return addr
 }
 
-func setupAccCacher(accCacher *mock.AccountsCacherStub) *mock.AccountsCacherStub {
+func setupAccCacher(accCacher *commonMock.AccountsCacherStub) *commonMock.AccountsCacherStub {
 	if accCacher != nil {
 		return accCacher
 	}
 
-	return &mock.AccountsCacherStub{}
+	return &commonMock.AccountsCacherStub{}
 }
 
-func setupKappController(kappController *vmStub.KAppControllerStub) *vmStub.KAppControllerStub {
+func setupKappController(kappController *kvmStub.KAppControllerStub) *kvmStub.KAppControllerStub {
 	if kappController != nil {
 		return kappController
 	}
 
-	return &vmStub.KAppControllerStub{}
+	return &kvmStub.KAppControllerStub{}
 }
 
 func setupAccountsKapp(t *testing.T, cfg config.EnableEpochs) *accountsKapp {
-	epochNotifier := &mock.EpochNotifierStub{}
+	epochNotifier := &commonMock.EpochNotifierStub{}
 	forkController, err := fork.NewForkController(
 		cfg,
 		epochNotifier,
@@ -65,7 +2082,7 @@ func setupAccountsKapp(t *testing.T, cfg config.EnableEpochs) *accountsKapp {
 	require.NoError(t, err)
 
 	accountArgs := ArgsNewAccountKApp{
-		Marshalizer:    &mock.ProtoMarshalizerMock{},
+		Marshalizer:    &commonMock.ProtoMarshalizerMock{},
 		PubkeyConv:     cryptoMock.NewPubkeyConverterMock(32),
 		ForkController: forkController,
 	}
@@ -77,7 +2094,7 @@ func setupAccountsKapp(t *testing.T, cfg config.EnableEpochs) *accountsKapp {
 }
 
 func Test_NewAccountKApp_NilMarshalizer(t *testing.T) {
-	epochNotifier := &mock.EpochNotifierStub{}
+	epochNotifier := &commonMock.EpochNotifierStub{}
 	forkController, err := fork.NewForkController(
 		config.EnableEpochs{},
 		epochNotifier,
@@ -96,7 +2113,7 @@ func Test_NewAccountKApp_NilMarshalizer(t *testing.T) {
 }
 
 func Test_NewAccountKApp_NilPubkeyConverter(t *testing.T) {
-	epochNotifier := &mock.EpochNotifierStub{}
+	epochNotifier := &commonMock.EpochNotifierStub{}
 	forkController, err := fork.NewForkController(
 		config.EnableEpochs{},
 		epochNotifier,
@@ -104,7 +2121,7 @@ func Test_NewAccountKApp_NilPubkeyConverter(t *testing.T) {
 	require.NoError(t, err)
 
 	accountArgs := ArgsNewAccountKApp{
-		Marshalizer:    &mock.ProtoMarshalizerMock{},
+		Marshalizer:    &commonMock.ProtoMarshalizerMock{},
 		PubkeyConv:     nil,
 		ForkController: forkController,
 	}
@@ -113,6 +2130,7 @@ func Test_NewAccountKApp_NilPubkeyConverter(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, common.ErrNilPubkeyConverter, err)
 }
+
 func Test_SetAccountsCacher_NilAccountsAdapter(t *testing.T) {
 	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
 
@@ -137,11 +2155,11 @@ func Test_GetExistingUserAccount(t *testing.T) {
 	tests := []struct {
 		description string
 		expectedErr error
-		accCacher   *mock.AccountsCacherStub
+		accCacher   *commonMock.AccountsCacherStub
 	}{{
 		description: "should fail to get user",
 		expectedErr: mockError,
-		accCacher: &mock.AccountsCacherStub{
+		accCacher: &commonMock.AccountsCacherStub{
 			GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 				return nil, mockError
 			},
@@ -149,7 +2167,7 @@ func Test_GetExistingUserAccount(t *testing.T) {
 	}, {
 		description: "should work",
 		expectedErr: nil,
-		accCacher: &mock.AccountsCacherStub{
+		accCacher: &commonMock.AccountsCacherStub{
 			GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 				return nil, nil
 			},
@@ -175,27 +2193,28 @@ func Test_LoadKDA(t *testing.T) {
 		kdaID          []byte
 		expectedErr    error
 		expectedStatus transaction.Transaction_TXResultCode
-		kappController *vmStub.KAppControllerStub
-	}{{
-		description: "should not find kda",
-		kappController: &vmStub.KAppControllerStub{
-			GetKDAKAppCalled: func() kapp.KDAKapp {
-				return &vmStub.KDAKappStub{
-					GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
-						return nil, nil, mockError
-					},
-				}
+		kappController *kvmStub.KAppControllerStub
+	}{
+		{
+			description: "should not find kda",
+			kappController: &kvmStub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, nil, mockError
+						},
+					}
+				},
 			},
+			expectedErr:    mockError,
+			expectedStatus: transaction.Transaction_KAPPError,
 		},
-		expectedErr:    mockError,
-		expectedStatus: transaction.Transaction_KAPPError,
-	},
 		{
 			description: "should invalid kda id for the kda type",
 			kdaID:       []byte("KDA/1"),
-			kappController: &vmStub.KAppControllerStub{
+			kappController: &kvmStub.KAppControllerStub{
 				GetKDAKAppCalled: func() kapp.KDAKapp {
-					return &vmStub.KDAKappStub{
+					return &kvmStub.KDAKappStub{
 						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
 							return nil, &kapps.KDAData{
 								AssetType: kapps.KDAData_Fungible,
@@ -209,9 +2228,9 @@ func Test_LoadKDA(t *testing.T) {
 		},
 		{
 			description: "should ok",
-			kappController: &vmStub.KAppControllerStub{
+			kappController: &kvmStub.KAppControllerStub{
 				GetKDAKAppCalled: func() kapp.KDAKapp {
-					return &vmStub.KDAKappStub{
+					return &kvmStub.KDAKappStub{
 						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
 							return nil, nil, nil
 						},
@@ -224,9 +2243,9 @@ func Test_LoadKDA(t *testing.T) {
 		{
 			description: "should ok with nft",
 			kdaID:       []byte("KDA/1"),
-			kappController: &vmStub.KAppControllerStub{
+			kappController: &kvmStub.KAppControllerStub{
 				GetKDAKAppCalled: func() kapp.KDAKapp {
-					return &vmStub.KDAKappStub{
+					return &kvmStub.KDAKappStub{
 						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
 							return nil, &kapps.KDAData{
 								AssetType: kapps.KDAData_NonFungible,
@@ -266,8 +2285,8 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 		value          int64
 		percentage     int64
 		scFork         uint32
-		accCacher      *mock.AccountsCacherStub
-		kappController *vmStub.KAppControllerStub
+		accCacher      *commonMock.AccountsCacherStub
+		kappController *kvmStub.KAppControllerStub
 		expectedErr    error
 		expectedStatus transaction.Transaction_TXResultCode
 	}{
@@ -281,7 +2300,7 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 		{
 			description: "invalid account error",
 			address:     validAddress,
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 					return nil, mockError
 				},
@@ -292,7 +2311,7 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 		{
 			description: "invalid royalties values error",
 			address:     validAddress,
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 					return nil, nil
 				},
@@ -305,9 +2324,9 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 		{
 			description: "add to balance error",
 			address:     validAddress,
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
-					return &mock.UserAccountHandlerStub{
+					return &commonMock.UserAccountHandlerStub{
 						AddToBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 							return mockError
 						},
@@ -320,9 +2339,9 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 		{
 			description: "update user error",
 			address:     validAddress,
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
-					return &mock.UserAccountHandlerStub{
+					return &commonMock.UserAccountHandlerStub{
 						AddToBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 							return nil
 						},
@@ -338,10 +2357,10 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 		{
 			description: "ok",
 			address:     validAddress,
-			acc:         &mock.UserAccountHandlerStub{},
-			accCacher: &mock.AccountsCacherStub{
+			acc:         &commonMock.UserAccountHandlerStub{},
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
-					return &mock.UserAccountHandlerStub{
+					return &commonMock.UserAccountHandlerStub{
 						AddToBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 							return nil
 						},
@@ -351,7 +2370,7 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 					return nil
 				},
 			},
-			kappController: &vmStub.KAppControllerStub{
+			kappController: &kvmStub.KAppControllerStub{
 				GetCurrentKAppContextCalled: func() kapp.KappContext {
 					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
 						ContractID: 0,
@@ -387,16 +2406,14 @@ func Test_ComputeSplitRoyalties(t *testing.T) {
 			assert.Equal(tt.expectedStatus, status)
 		})
 	}
-
 }
 
 func Test_ValidateAndLoadAccounts(t *testing.T) {
-
 	tests := []struct {
 		description         string
 		sender              []byte
 		transactionContract *transaction.TransferContract
-		accCacher           *mock.AccountsCacherStub
+		accCacher           *commonMock.AccountsCacherStub
 		expectedErr         error
 		expectedStatus      transaction.Transaction_TXResultCode
 	}{
@@ -407,7 +2424,8 @@ func Test_ValidateAndLoadAccounts(t *testing.T) {
 			},
 			expectedErr:    process.ErrInvalidRcvAddr,
 			expectedStatus: transaction.Transaction_AccountError,
-		}, {
+		},
+		{
 			description: "same account",
 			transactionContract: &transaction.TransferContract{
 				ToAddress: makeAddress("valid"),
@@ -415,26 +2433,28 @@ func Test_ValidateAndLoadAccounts(t *testing.T) {
 			sender:         makeAddress("valid"),
 			expectedErr:    process.ErrSameSenderAndReceiverAddress,
 			expectedStatus: transaction.Transaction_SameAccountError,
-		}, {
+		},
+		{
 			description: "load source account error",
 			transactionContract: &transaction.TransferContract{
 				ToAddress: makeAddress("valid-1"),
 			},
 			sender: validAddressBytes,
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 					return nil, mockError
 				},
 			},
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_LoadAccountError,
-		}, {
+		},
+		{
 			description: "load destination account error",
 			transactionContract: &transaction.TransferContract{
 				ToAddress: makeAddress("valid-1"),
 			},
 			sender: validAddressBytes,
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 					if bytes.Equal(address, validAddressBytes) {
 						return nil, nil
@@ -452,14 +2472,15 @@ func Test_ValidateAndLoadAccounts(t *testing.T) {
 				ToAddress: makeAddress("valid-1"),
 			},
 			sender: validAddressBytes,
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 					return nil, nil
 				},
 			},
 			expectedErr:    nil,
 			expectedStatus: transaction.Transaction_Ok,
-		}}
+		},
+	}
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
@@ -478,7 +2499,7 @@ func Test_ValidateAndLoadAccounts(t *testing.T) {
 
 func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 	balance := int64(100)
-	royaltyOwner := &mock.UserAccountHandlerStub{
+	royaltyOwner := &commonMock.UserAccountHandlerStub{
 		GetOwnerAddressCalled: func() []byte { return []byte{1} },
 		AddToBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 			return nil
@@ -491,31 +2512,33 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 		accSrc              state.UserAccountHandler
 		accDst              state.UserAccountHandler
 		kda                 *kapps.KDAData
-		accCacher           *mock.AccountsCacherStub
-		kappController      *vmStub.KAppControllerStub
+		accCacher           *commonMock.AccountsCacherStub
+		kappController      *kvmStub.KAppControllerStub
 		fprFork             uint32
 		expectedErr         error
 		expectedStatus      transaction.Transaction_TXResultCode
-	}{{
-		description: "without royalties",
-		kda: &kapps.KDAData{
-			Royalties: &kapps.RoyaltiesData{},
-		},
-		expectedErr:    nil,
-		expectedStatus: transaction.Transaction_Ok,
-	}, {
-		description: "klv royalties not equal transferFixed royalties",
-		kda: &kapps.KDAData{
-			Royalties: &kapps.RoyaltiesData{
-				TransferFixed: balance + 50,
+	}{
+		{
+			description: "without royalties",
+			kda: &kapps.KDAData{
+				Royalties: &kapps.RoyaltiesData{},
 			},
+			expectedErr:    nil,
+			expectedStatus: transaction.Transaction_Ok,
 		},
-		transactionContract: &transaction.TransferContract{
-			KLVRoyalties: balance,
+		{
+			description: "klv royalties not equal transferFixed royalties",
+			kda: &kapps.KDAData{
+				Royalties: &kapps.RoyaltiesData{
+					TransferFixed: balance + 50,
+				},
+			},
+			transactionContract: &transaction.TransferContract{
+				KLVRoyalties: balance,
+			},
+			expectedErr:    common.ErrInvalidValue,
+			expectedStatus: transaction.Transaction_ParameterInvalid,
 		},
-		expectedErr:    common.ErrInvalidValue,
-		expectedStatus: transaction.Transaction_ParameterInvalid,
-	},
 		{
 			description: "insufficient funds",
 			kda: &kapps.KDAData{
@@ -526,7 +2549,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			transactionContract: &transaction.TransferContract{
 				KLVRoyalties: balance,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return balance - 1
 				},
@@ -544,7 +2567,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			transactionContract: &transaction.TransferContract{
 				KLVRoyalties: balance,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return balance
 				},
@@ -565,7 +2588,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			transactionContract: &transaction.TransferContract{
 				KLVRoyalties: balance,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return balance
 				},
@@ -573,7 +2596,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 					return nil
 				},
 			},
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				UpdateUserCalled: func(account state.AccountHandler) error {
 					return mockError
 				},
@@ -587,14 +2610,14 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 				Royalties: &kapps.RoyaltiesData{
 					TransferFixed: balance,
 					SplitRoyalties: map[string]*kapps.RoyaltySplitData{
-						"invalidAddress": &kapps.RoyaltySplitData{},
+						"invalidAddress": {},
 					},
 				},
 			},
 			transactionContract: &transaction.TransferContract{
 				KLVRoyalties: balance,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return balance
 				},
@@ -602,7 +2625,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 					return nil
 				},
 			},
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				UpdateUserCalled: func(account state.AccountHandler) error {
 					return nil
 				},
@@ -620,7 +2643,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			transactionContract: &transaction.TransferContract{
 				KLVRoyalties: balance,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return balance
 				},
@@ -628,7 +2651,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 					return nil
 				},
 			},
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				UpdateUserCalled: func(account state.AccountHandler) error {
 					return nil
 				},
@@ -649,7 +2672,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			transactionContract: &transaction.TransferContract{
 				KLVRoyalties: balance,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return balance
 				},
@@ -657,7 +2680,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 					return nil
 				},
 			},
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 					return nil, mockError
 				},
@@ -679,7 +2702,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			transactionContract: &transaction.TransferContract{
 				KLVRoyalties: balance,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return balance
 				},
@@ -687,12 +2710,12 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 					return nil
 				},
 			},
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				UpdateUserCalled: func(account state.AccountHandler) error {
 					return nil
 				},
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
-					return &mock.UserAccountHandlerStub{
+					return &commonMock.UserAccountHandlerStub{
 						AddToBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 							return mockError
 						},
@@ -712,7 +2735,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			transactionContract: &transaction.TransferContract{
 				KLVRoyalties: balance,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return balance
 				},
@@ -720,7 +2743,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 					return nil
 				},
 			},
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				UpdateUserCalled: func(account state.AccountHandler) error {
 					if account == royaltyOwner {
 						return mockError
@@ -744,7 +2767,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			transactionContract: &transaction.TransferContract{
 				KLVRoyalties: balance,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return balance
 				},
@@ -752,7 +2775,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 					return nil
 				},
 			},
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				UpdateUserCalled: func(account state.AccountHandler) error {
 					return nil
 				},
@@ -760,7 +2783,7 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 					return royaltyOwner, nil
 				},
 			},
-			kappController: &vmStub.KAppControllerStub{
+			kappController: &kvmStub.KAppControllerStub{
 				GetCurrentKAppContextCalled: func() kapp.KappContext {
 					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
 						ContractID: 0,
@@ -782,8 +2805,13 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			_ = accKapp.SetAccountsCacher(setupAccCacher(tt.accCacher))
 			_ = accKapp.SetKAppController(setupKappController(tt.kappController))
 
-			status, err := accKapp.processFixedRoyaltiesTransfer(transaction.TXContract_TransferContractType, tt.transactionContract,
-				tt.accSrc, tt.accDst, tt.kda)
+			status, err := accKapp.processFixedRoyaltiesTransfer(
+				transaction.TXContract_TransferContractType,
+				tt.transactionContract,
+				tt.accSrc,
+				tt.accDst,
+				tt.kda,
+			)
 			assert.Equal(tt.expectedErr, err)
 			assert.Equal(tt.expectedStatus, status)
 		})
@@ -800,8 +2828,8 @@ func Test_ValidatePercentageRoyaltiesTransfer(t *testing.T) {
 		accSrc              state.UserAccountHandler
 		accDst              state.UserAccountHandler
 		kda                 *kapps.KDAData
-		accCacher           *mock.AccountsCacherStub
-		kappController      *vmStub.KAppControllerStub
+		accCacher           *commonMock.AccountsCacherStub
+		kappController      *kvmStub.KAppControllerStub
 		expectedErr         error
 		expectedStatus      transaction.Transaction_TXResultCode
 	}{
@@ -846,7 +2874,7 @@ func Test_ValidatePercentageRoyaltiesTransfer(t *testing.T) {
 			transactionContract: &transaction.TransferContract{
 				Amount: amount,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return amount
 				},
@@ -870,7 +2898,7 @@ func Test_ValidatePercentageRoyaltiesTransfer(t *testing.T) {
 			transactionContract: &transaction.TransferContract{
 				Amount: amount,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
 				},
@@ -888,13 +2916,17 @@ func Test_ValidatePercentageRoyaltiesTransfer(t *testing.T) {
 			_ = accKapp.SetAccountsCacher(setupAccCacher(tt.accCacher))
 			_ = accKapp.SetKAppController(setupKappController(tt.kappController))
 
-			_, status, err := accKapp.validatePercentageRoyaltiesTransfer(transaction.TXContract_TransferContractType,
-				tt.transactionContract, tt.kda, tt.accSrc, kdautils.KLVIdentifier)
+			_, status, err := accKapp.validatePercentageRoyaltiesTransfer(
+				transaction.TXContract_TransferContractType,
+				tt.transactionContract,
+				tt.kda,
+				tt.accSrc,
+				kdautils.KLVIdentifier,
+			)
 			assert.Equal(tt.expectedErr, err)
 			assert.Equal(tt.expectedStatus, status)
 		})
 	}
-
 }
 
 func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
@@ -907,8 +2939,8 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 		accSrc              state.UserAccountHandler
 		accDst              state.UserAccountHandler
 		kda                 *kapps.KDAData
-		accCacher           *mock.AccountsCacherStub
-		kappController      *vmStub.KAppControllerStub
+		accCacher           *commonMock.AccountsCacherStub
+		kappController      *kvmStub.KAppControllerStub
 		expectedErr         error
 		expectedStatus      transaction.Transaction_TXResultCode
 	}{
@@ -945,7 +2977,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			transactionContract: &transaction.TransferContract{
 				Amount: amount,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
 				},
@@ -969,7 +3001,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 				Amount:       amount,
 				KDARoyalties: 0,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
 				},
@@ -982,7 +3014,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			kda: &kapps.KDAData{
 				Royalties: &kapps.RoyaltiesData{
 					SplitRoyalties: map[string]*kapps.RoyaltySplitData{
-						"invalidAddress": &kapps.RoyaltySplitData{},
+						"invalidAddress": {},
 					},
 					TransferPercentage: []*kapps.RoyaltyData{
 						{
@@ -996,7 +3028,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 				Amount:       amount,
 				KDARoyalties: amount / 2,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
 				},
@@ -1025,24 +3057,24 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 				Amount:       amount,
 				KDARoyalties: amount / 2,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
 				},
 			},
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				UpdateUserCalled: func(account state.AccountHandler) error {
 					return nil
 				},
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
-					return &mock.UserAccountHandlerStub{
+					return &commonMock.UserAccountHandlerStub{
 						AddToBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 							return nil
 						},
 					}, nil
 				},
 			},
-			kappController: &vmStub.KAppControllerStub{
+			kappController: &kvmStub.KAppControllerStub{
 				GetCurrentKAppContextCalled: func() kapp.KappContext {
 					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
 						ContractID: 0,
@@ -1068,12 +3100,12 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 				Amount:       amount,
 				KDARoyalties: amount / 2,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
 				},
 			},
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 					return nil, mockError
 				},
@@ -1097,7 +3129,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 				Amount:       amount,
 				KDARoyalties: amount / 2,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
 				},
@@ -1105,7 +3137,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 					return mockError
 				},
 			},
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 					return nil, nil
 				},
@@ -1129,7 +3161,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 				Amount:       amount,
 				KDARoyalties: amount / 2,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
 				},
@@ -1137,9 +3169,9 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 					return nil
 				},
 			},
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
-					return &mock.UserAccountHandlerStub{
+					return &commonMock.UserAccountHandlerStub{
 						AddToBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 							return mockError
 						},
@@ -1165,7 +3197,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 				Amount:       amount,
 				KDARoyalties: amount / 2,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
 				},
@@ -1173,9 +3205,9 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 					return nil
 				},
 			},
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
-					return &mock.UserAccountHandlerStub{
+					return &commonMock.UserAccountHandlerStub{
 						AddToBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 							return nil
 						},
@@ -1204,7 +3236,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 				Amount:       amount,
 				KDARoyalties: amount / 2,
 			},
-			accSrc: &mock.UserAccountHandlerStub{
+			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
 				},
@@ -1212,9 +3244,9 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 					return nil
 				},
 			},
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
-					return &mock.UserAccountHandlerStub{
+					return &commonMock.UserAccountHandlerStub{
 						AddToBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 							return nil
 						},
@@ -1224,7 +3256,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 					return nil
 				},
 			},
-			kappController: &vmStub.KAppControllerStub{
+			kappController: &kvmStub.KAppControllerStub{
 				GetCurrentKAppContextCalled: func() kapp.KappContext {
 					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
 						ContractID: 0,
@@ -1244,8 +3276,15 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			_ = accKapp.SetAccountsCacher(setupAccCacher(tt.accCacher))
 			_ = accKapp.SetKAppController(setupKappController(tt.kappController))
 
-			status, err := accKapp.processPercentageRoyaltiesTransfer(transaction.TXContract_TransferContractType,
-				tt.transactionContract, kdautils.KLVIdentifier, []byte{0}, tt.accSrc, tt.accDst, tt.kda)
+			status, err := accKapp.processPercentageRoyaltiesTransfer(
+				transaction.TXContract_TransferContractType,
+				tt.transactionContract,
+				kdautils.KLVIdentifier,
+				[]byte{0},
+				tt.accSrc,
+				tt.accDst,
+				tt.kda,
+			)
 			assert.Equal(tt.expectedErr, err)
 			assert.Equal(tt.expectedStatus, status)
 		})
@@ -1258,18 +3297,19 @@ func Test_Transfer_ShouldFail(t *testing.T) {
 		sender              []byte
 		transactionContract *transaction.TransferContract
 		contractType        transaction.TXContract_ContractType
-		accCacher           *mock.AccountsCacherStub
-		kappController      *vmStub.KAppControllerStub
+		accCacher           *commonMock.AccountsCacherStub
+		kappController      *kvmStub.KAppControllerStub
 		expectedErr         error
 		expectedStatus      transaction.Transaction_TXResultCode
-	}{{
-		description: "should fail in validateAndLoadAccounts",
-		transactionContract: &transaction.TransferContract{
-			ToAddress: []byte("invalid-address"),
+	}{
+		{
+			description: "should fail in validateAndLoadAccounts",
+			transactionContract: &transaction.TransferContract{
+				ToAddress: []byte("invalid-address"),
+			},
+			expectedErr:    process.ErrInvalidRcvAddr,
+			expectedStatus: transaction.Transaction_AccountError,
 		},
-		expectedErr:    process.ErrInvalidRcvAddr,
-		expectedStatus: transaction.Transaction_AccountError,
-	},
 		{
 			description: "should fail in loadKDA",
 			transactionContract: &transaction.TransferContract{
@@ -1277,14 +3317,14 @@ func Test_Transfer_ShouldFail(t *testing.T) {
 				AssetID:   []byte("invalid"),
 			},
 			sender: validAddressBytes,
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 					return nil, nil
 				},
 			},
-			kappController: &vmStub.KAppControllerStub{
+			kappController: &kvmStub.KAppControllerStub{
 				GetKDAKAppCalled: func() kapp.KDAKapp {
-					return &vmStub.KDAKappStub{
+					return &kvmStub.KDAKappStub{
 						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
 							return nil, nil, mockError
 						},
@@ -1301,14 +3341,14 @@ func Test_Transfer_ShouldFail(t *testing.T) {
 				AssetID:   []byte("valid"),
 			},
 			sender: validAddressBytes,
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 					return nil, nil
 				},
 			},
-			kappController: &vmStub.KAppControllerStub{
+			kappController: &kvmStub.KAppControllerStub{
 				GetKDAKAppCalled: func() kapp.KDAKapp {
-					return &vmStub.KDAKappStub{
+					return &kvmStub.KDAKappStub{
 						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
 							return nil, &kapps.KDAData{
 								AssetType: kapps.KDAData_Fungible,
@@ -1322,21 +3362,22 @@ func Test_Transfer_ShouldFail(t *testing.T) {
 			},
 			expectedErr:    process.ErrAssetIsPaused,
 			expectedStatus: transaction.Transaction_AssetPaused,
-		}, {
+		},
+		{
 			description: "should fail in because asset is paused",
 			transactionContract: &transaction.TransferContract{
 				ToAddress: makeAddress("valid-1"),
 				AssetID:   []byte("valid"),
 			},
 			sender: validAddressBytes,
-			accCacher: &mock.AccountsCacherStub{
+			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 					return nil, nil
 				},
 			},
-			kappController: &vmStub.KAppControllerStub{
+			kappController: &kvmStub.KAppControllerStub{
 				GetKDAKAppCalled: func() kapp.KDAKapp {
-					return &vmStub.KDAKappStub{
+					return &kvmStub.KDAKappStub{
 						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
 							return nil, &kapps.KDAData{
 								AssetType:  kapps.KDAData_Fungible,
@@ -1369,3 +3410,4 @@ func Test_Transfer_ShouldFail(t *testing.T) {
 		})
 	}
 }
+

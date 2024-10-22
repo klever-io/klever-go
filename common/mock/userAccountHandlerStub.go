@@ -9,6 +9,7 @@ import (
 )
 
 type UserAccountHandlerStub struct {
+	AddressBytesCalled            func() []byte
 	SetCodeCalled                 func(code []byte)
 	SetCodeMetadataCalled         func(codeMetadata []byte)
 	GetCodeMetadataCalled         func() []byte
@@ -357,6 +358,10 @@ func (u *UserAccountHandlerStub) Equal(other state.UserAccountHandler) bool {
 	}
 	return false
 }
+
 func (u *UserAccountHandlerStub) AddressBytes() []byte {
+	if u.AddressBytesCalled != nil {
+		return u.AddressBytesCalled()
+	}
 	return []byte{0}
 }
