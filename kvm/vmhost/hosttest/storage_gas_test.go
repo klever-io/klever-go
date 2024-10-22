@@ -130,24 +130,19 @@ func computeExpectedGasForGetStorage(key []byte, value []byte) uint64 {
 }
 
 func TestGasUsed_SetStorage_FlagEnabled(t *testing.T) {
-	setStorage(t, smallKey)
+	setStorage(t, smallKey, 29)
 }
 
 func TestGasUsed_SetStorage_BigKey_FlagEnabled(t *testing.T) {
-	setStorage(t, bigKey)
+	setStorage(t, bigKey, 65)
 }
 
-func setStorage(t *testing.T, key []byte) {
+func setStorage(t *testing.T, key []byte, expectedUsedGas uint64) {
 	testConfig := makeTestConfig()
 	value := []byte("testValue")
 
 	storageStoreGas := uint64(10)
 	dataCopyGas := uint64(1)
-
-	expectedUsedGas := 2 * storageStoreGas
-	if len(key) > vmhost.AddressLen {
-		expectedUsedGas += uint64(len(key) - vmhost.AddressLen)
-	}
 
 	_, err := test.BuildMockInstanceCallTest(t).
 		WithContracts(

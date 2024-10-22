@@ -270,19 +270,19 @@ func (context *storageContext) setStorageToAddress(address []byte, key []byte, v
 	length := len(value)
 
 	storageUpdates := context.GetStorageUpdates(address)
-	oldValue, usedCache, err := context.getOldValue(storageUpdates, key)
+	oldValue, err := context.getOldValue(storageUpdates, key)
 	if err != nil {
 		return vmhost.StorageUnchanged, err
 	}
 
-	gasForKey := context.computeGasForKey(key, usedCache)
+	gasForKey := context.computeGasForKey(key)
 	err = metering.UseGasBounded(gasForKey)
 	if err != nil {
 		return vmhost.StorageUnchanged, err
 	}
 
 	if bytes.Equal(oldValue, value) {
-		return context.storageUnchanged(length, usedCache)
+		return context.storageUnchanged(length)
 	}
 
 	deltaBytes := len(value) - len(oldValue)
@@ -307,8 +307,6 @@ func (context *storageContext) setStorageToAddress(address []byte, key []byte, v
 		gasToUseForValue, gasToFreeForValue = context.computeGasForBiggerValues(lengthOldValue, newValueExtraLength)
 	case newValueExtraLength < 0:
 		gasToUseForValue, gasToFreeForValue = context.computeGasForSmallerValues(newValueExtraLength, length)
-	case newValueExtraLength == 0:
-		gasToUseForValue, gasToFreeForValue = 0, 0
 	}
 
 	//TODO: review free gas
@@ -400,8 +398,8 @@ func (context *storageContext) storageDeleted(lengthOldValue int, key []byte) (v
 	return vmhost.StorageDeleted, nil
 }
 
-func (context *storageContext) storageUnchanged(length int, usedCache bool) (vmhost.StorageStatus, error) {
-	useGas := context.computeGasForUnchangedValue(length, usedCache)
+func (context *storageContext) storageUnchanged(length int) (vmhost.StorageStatus, error) {
+	useGas := context.computeGasForUnchangedValue(length)
 	err := context.host.Metering().UseGasBounded(useGas)
 	if err != nil {
 		return vmhost.StorageUnchanged, err
@@ -411,45 +409,38 @@ func (context *storageContext) storageUnchanged(length int, usedCache bool) (vmh
 	return vmhost.StorageUnchanged, nil
 }
 
-func (context *storageContext) computeGasForUnchangedValue(length int, usedCache bool) uint64 {
+func (context *storageContext) computeGasForUnchangedValue(length int) uint64 {
 	metering := context.host.Metering()
-	useGas := uint64(0)
-	if !usedCache {
-		// #nosec G115
-		useGas = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(length))
-	}
-	return useGas
+	// #nosec G115
+	return math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(length))
 }
 
-func (context *storageContext) getOldValue(storageUpdates map[string]*vmcommon.StorageUpdate, key []byte) ([]byte, bool, error) {
+func (context *storageContext) getOldValue(storageUpdates map[string]*vmcommon.StorageUpdate, key []byte) ([]byte, error) {
 	var oldValue []byte
 	var err error
 
-	usedCache := true
 	strKey := string(key)
 	if update, ok := storageUpdates[strKey]; !ok {
 		// if it's not in storageUpdates, GetStorageUnmetered() will use blockchain hook for sure
 		oldValue, _, _, err = context.GetStorageUnmetered(key)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		storageUpdates[strKey] = &vmcommon.StorageUpdate{
 			Offset: key,
 			Data:   oldValue,
 		}
-		usedCache = false
 	} else {
 		oldValue = update.Data
 	}
-	return oldValue, usedCache, nil
+	return oldValue, nil
 }
 
-func (context *storageContext) computeGasForKey(key []byte, usedCache bool) uint64 {
+func (context *storageContext) computeGasForKey(key []byte) uint64 {
 	metering := context.host.Metering()
 	extraBytes := len(key) - vmhost.AddressLen
 	extraKeyLenGas := uint64(0)
-	if extraBytes > 0 &&
-		(!usedCache) {
+	if extraBytes > 0 {
 		// #nosec G115
 		extraKeyLenGas = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(extraBytes))
 	}
