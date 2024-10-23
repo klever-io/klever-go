@@ -3411,3 +3411,464 @@ func Test_Transfer_ShouldFail(t *testing.T) {
 	}
 }
 
+func TestUpdatePermission(t *testing.T) {
+	tests := []struct {
+		name           string
+		sender         []byte
+		tc             *transaction.UpdateAccountPermissionContract
+		accountsCacher *commonMock.AccountsCacherStub
+		forkController core.ForkController
+		expectedCode   transaction.Transaction_TXResultCode
+		expectedError  error
+	}{
+		{
+			name:   "Too many permissions",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: make([]*transaction.AccPermission, core.MaxAccountPermission+1),
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{},
+			expectedCode:   transaction.Transaction_ParameterInvalid,
+			expectedError:  common.ErrInvalidParameter,
+		},
+		{
+			name:   "Invalid account",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{},
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return nil, errors.New("account error")
+				},
+			},
+			expectedCode:  transaction.Transaction_LoadAccountError,
+			expectedError: errors.New("account error"),
+		},
+		{
+			name:   "Empty signers list",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type:      transaction.AccPermission_Owner,
+						Signers:   []*transaction.AccKey{},
+						Threshold: 1,
+					},
+				},
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			expectedCode:  transaction.Transaction_ParameterInvalid,
+			expectedError: common.ErrInvalidParameter,
+		},
+		{
+			name:   "Invalid signer address length",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_Owner,
+						Signers: []*transaction.AccKey{
+							{Address: []byte("short")},
+						},
+						Threshold: 1,
+					},
+				},
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			expectedCode:  transaction.Transaction_ParameterInvalid,
+			expectedError: common.ErrInvalidParameter,
+		},
+		{
+			name:   "Duplicate signers",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_Owner,
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32)},
+							{Address: bytes.Repeat([]byte{1}, 32)},
+						},
+						Threshold: 1,
+					},
+				},
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			expectedCode:  transaction.Transaction_ParameterInvalid,
+			expectedError: common.ErrInvalidParameter,
+		},
+		{
+			name:   "Invalid threshold",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_Owner,
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: 1},
+						},
+						Threshold: 2,
+					},
+				},
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			expectedCode:  transaction.Transaction_ParameterInvalid,
+			expectedError: common.ErrInvalidParameter,
+		},
+		{
+			name:   "Invalid permission name with KdaFpr enabled",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_Owner,
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: 1},
+						},
+						Threshold:      1,
+						PermissionName: string([]byte{0xFF}), // Invalid UTF-8
+					},
+				},
+			},
+			forkController: &integrationMock.ForkControllerStub{
+				KdaFprCalled: func() bool { return true },
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			expectedCode:  transaction.Transaction_ParameterInvalid,
+			expectedError: common.ErrInvalidParameter,
+		},
+		{
+			name:   "Update account error",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_Owner,
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: 1},
+						},
+						Threshold: 1,
+					},
+				},
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+				UpdateUserCalled: func(state.AccountHandler) error {
+					return errors.New("update error")
+				},
+			},
+			expectedCode:  transaction.Transaction_SaveAccountError,
+			expectedError: errors.New("update error"),
+		},
+		{
+			name:   "Successful update with user permission",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_User,
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: 1},
+						},
+						Threshold: 1,
+					},
+				},
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+				UpdateUserCalled: func(state.AccountHandler) error {
+					return nil
+				},
+			},
+			expectedCode: transaction.Transaction_Ok,
+		},
+		{
+			name:   "Successful update with owner permission",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_Owner,
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: 1},
+						},
+						Threshold: 1,
+					},
+				},
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+				UpdateUserCalled: func(state.AccountHandler) error {
+					return nil
+				},
+			},
+			expectedCode: transaction.Transaction_Ok,
+		},
+		{
+			name:   "Error update invalid permission type",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_AccPermissionType(0xFF),
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: 1},
+						},
+						Threshold: 1,
+					},
+				},
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+				UpdateUserCalled: func(state.AccountHandler) error {
+					return nil
+				},
+			},
+			expectedCode:  transaction.Transaction_ParameterInvalid,
+			expectedError: common.ErrInvalidParameter,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup accountsKapp
+			accKapp := setupAccountsKapp(t, config.EnableEpochs{})
+			if tt.forkController != nil {
+				accKapp.forkController = tt.forkController
+			}
+			_ = accKapp.SetAccountsCacher(tt.accountsCacher)
+			_ = accKapp.SetKAppController(&kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{})
+				},
+			})
+
+			// Execute test
+			code, err := accKapp.UpdatePermission(tt.sender, tt.tc)
+
+			// Assert results
+			assert.Equal(t, tt.expectedCode, code)
+			if tt.expectedError != nil {
+				assert.Equal(t, tt.expectedError.Error(), err.Error())
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestUpdatePermission_NoOwnerProvided(t *testing.T) {
+	// Setup accountsKapp
+	accKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	senderAddr := []byte("senderAddress")
+	var capturedPermissions []*state.Permission
+
+	// Mock account stub that captures the permissions set
+	account := &commonMock.UserAccountHandlerStub{
+		AddressBytesCalled: func() []byte {
+			return senderAddr
+		},
+		SetPermissionsCalled: func(permissions []*state.Permission) {
+			capturedPermissions = permissions
+		},
+	}
+
+	accCacher := &commonMock.AccountsCacherStub{
+		GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			return account, nil
+		},
+		UpdateUserCalled: func(account state.AccountHandler) error {
+			return nil
+		},
+	}
+	_ = accKapp.SetAccountsCacher(accCacher)
+
+	_ = accKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			return kapp.NewKappContext(kapp.ArgsNewKAppContext{})
+		},
+	})
+
+	// Create a test case with a user permission but no owner permission
+	tc := &transaction.UpdateAccountPermissionContract{
+		Permissions: []*transaction.AccPermission{
+			{
+				Type: transaction.AccPermission_User,
+				Signers: []*transaction.AccKey{
+					{
+						Address: bytes.Repeat([]byte{1}, 32),
+						Weight:  1,
+					},
+				},
+				Threshold: 1,
+			},
+		},
+	}
+
+	// Execute the update
+	code, err := accKapp.UpdatePermission(senderAddr, tc)
+
+	// Verifications
+	require.Equal(t, transaction.Transaction_Ok, code)
+	require.NoError(t, err)
+
+	// Verify that we have both permissions (user + auto-added owner)
+	require.Len(t, capturedPermissions, 2)
+
+	// Verify the user permission
+	require.Equal(t, int32(0), capturedPermissions[0].ID)
+	require.Equal(t, state.Permission_User, capturedPermissions[0].Type)
+
+	// Verify the auto-added owner permission
+	ownerPerm := capturedPermissions[1]
+	require.Equal(t, int32(1), ownerPerm.ID)
+	require.Equal(t, state.Permission_Owner, ownerPerm.Type)
+	require.Equal(t, int64(1), ownerPerm.Threshold)
+	require.Empty(t, ownerPerm.Operations)
+	require.Len(t, ownerPerm.Signers, 1)
+	require.Equal(t, senderAddr, ownerPerm.Signers[0].Address)
+	require.Equal(t, int64(1), ownerPerm.Signers[0].Weight)
+
+	// Additional test case: empty permissions list
+	tc = &transaction.UpdateAccountPermissionContract{
+		Permissions: []*transaction.AccPermission{},
+	}
+
+	code, err = accKapp.UpdatePermission(senderAddr, tc)
+
+	require.Equal(t, transaction.Transaction_Ok, code)
+	require.NoError(t, err)
+	require.Len(t, capturedPermissions, 1)
+
+	// Verify the single auto-added owner permission
+	ownerPerm = capturedPermissions[0]
+	require.Equal(t, int32(0), ownerPerm.ID)
+	require.Equal(t, state.Permission_Owner, ownerPerm.Type)
+	require.Equal(t, int64(1), ownerPerm.Threshold)
+	require.Empty(t, ownerPerm.Operations)
+	require.Len(t, ownerPerm.Signers, 1)
+	require.Equal(t, senderAddr, ownerPerm.Signers[0].Address)
+	require.Equal(t, int64(1), ownerPerm.Signers[0].Weight)
+}
+
+func TestUpdatePermission_WithNamePriorAndAfterFPRFork(t *testing.T) {
+	// Setup accountsKapp
+	accKapp := setupAccountsKapp(t, config.EnableEpochs{})
+	accKapp.forkController = &integrationMock.ForkControllerStub{
+		KdaFprCalled: func() bool {
+			return false
+		},
+	}
+
+	senderAddr := []byte("senderAddress")
+	var capturedPermissions []*state.Permission
+
+	// Mock account stub that captures the permissions set
+	account := &commonMock.UserAccountHandlerStub{
+		AddressBytesCalled: func() []byte {
+			return senderAddr
+		},
+		SetPermissionsCalled: func(permissions []*state.Permission) {
+			capturedPermissions = permissions
+		},
+	}
+
+	accCacher := &commonMock.AccountsCacherStub{
+		GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			return account, nil
+		},
+		UpdateUserCalled: func(account state.AccountHandler) error {
+			return nil
+		},
+	}
+	_ = accKapp.SetAccountsCacher(accCacher)
+
+	_ = accKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			return kapp.NewKappContext(kapp.ArgsNewKAppContext{})
+		},
+	})
+
+	tc := &transaction.UpdateAccountPermissionContract{
+		Permissions: []*transaction.AccPermission{
+			{
+				Type: transaction.AccPermission_Owner,
+				Signers: []*transaction.AccKey{
+					{
+						Address: bytes.Repeat([]byte{1}, 32),
+						Weight:  1,
+					},
+				},
+				PermissionName: "owner",
+				Threshold:      1,
+			},
+		},
+	}
+
+	// Execute the update
+	code, err := accKapp.UpdatePermission(senderAddr, tc)
+
+	// Verifications
+	require.Equal(t, transaction.Transaction_Ok, code)
+	require.NoError(t, err)
+
+	// Verify that we have both permissions (user + auto-added owner)
+	require.Len(t, capturedPermissions, 1)
+
+	// Verify the user permission
+	require.Equal(t, int32(0), capturedPermissions[0].ID)
+	require.Equal(t, state.Permission_Owner, capturedPermissions[0].Type)
+	require.Equal(t, "", capturedPermissions[0].PermissionName)
+
+	accKapp.forkController = &integrationMock.ForkControllerStub{
+		KdaFprCalled: func() bool {
+			return true
+		},
+	}
+
+	// Execute the update.
+	// Execute the update
+	code, err = accKapp.UpdatePermission(senderAddr, tc)
+
+	// Verifications
+	require.Equal(t, transaction.Transaction_Ok, code)
+	require.NoError(t, err)
+
+	// Verify that we have both permissions (user + auto-added owner)
+	require.Len(t, capturedPermissions, 1)
+
+	// Verify the user permission
+	require.Equal(t, int32(0), capturedPermissions[0].ID)
+	require.Equal(t, state.Permission_Owner, capturedPermissions[0].Type)
+	require.Equal(t, "owner", capturedPermissions[0].PermissionName)
+}

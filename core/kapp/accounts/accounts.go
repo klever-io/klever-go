@@ -1651,12 +1651,107 @@ func (a *accountsKapp) SetAccountName(sender []byte, tc *transaction.SetAccountN
 	return transaction.Transaction_Ok, nil
 }
 
+// Helper functions for UpdatePermission
+func (a *accountsKapp) validatePermissionParams(tc *transaction.UpdateAccountPermissionContract) error {
+	if len(tc.Permissions) > core.MaxAccountPermission {
+		return common.ErrInvalidParameter
+	}
+	return nil
+}
+
+func (a *accountsKapp) validateSigners(pType transaction.AccPermission_AccPermissionType, signers []*transaction.AccKey) (int64, []*state.Key, error) {
+	if len(signers) == 0 || len(signers) > core.MaxPermissionSigners {
+		return 0, nil, common.ErrInvalidParameter
+	}
+
+	// Verify if type is valid
+	if _, exist := state.Permission_PermissionType_name[int32(pType)]; !exist {
+		return 0, nil, common.ErrInvalidParameter
+	}
+
+	stateSigners := make([]*state.Key, 0)
+	weightSum := int64(0)
+	dupCheck := make(map[string]bool)
+
+	for _, signer := range signers {
+		if len(signer.Address) != a.pubkeyConv.Len() {
+			return 0, nil, common.ErrInvalidParameter
+		}
+
+		// Check for duplicate signers
+		if dupCheck[string(signer.Address)] {
+			return 0, nil, common.ErrInvalidParameter
+		}
+		dupCheck[string(signer.Address)] = true
+
+		weightSum += signer.Weight
+		stateSigners = append(stateSigners, &state.Key{
+			Address: append([]byte{}, signer.Address...),
+			Weight:  signer.Weight,
+		})
+	}
+
+	return weightSum, stateSigners, nil
+}
+
+func (a *accountsKapp) validatePermissionName(name string) (string, error) {
+	if !a.forkController.KdaFpr() {
+		return "", nil
+	}
+
+	if !utf8.ValidString(name) || len(name) > core.MaxNameSize {
+		return "", common.ErrInvalidParameter
+	}
+
+	return name, nil
+}
+
+func (a *accountsKapp) buildPermission(
+	p *transaction.AccPermission,
+	permissionIndex int,
+	weightSum int64,
+	stateSigners []*state.Key,
+) (*state.Permission, error) {
+	// Verify threshold
+	if p.Threshold > weightSum {
+		return nil, common.ErrInvalidParameter
+	}
+
+	permName, err := a.validatePermissionName(p.PermissionName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &state.Permission{
+		ID:             int32(permissionIndex), // #nosec G115 valid permission index
+		PermissionName: permName,
+		Type:           state.Permission_PermissionType(p.Type),
+		Threshold:      p.Threshold,
+		Operations:     append([]byte{}, p.Operations...),
+		Signers:        stateSigners,
+	}, nil
+}
+
+func (a *accountsKapp) createDefaultOwnerPermission(ownerAcc state.UserAccountHandler, permissionIndex int) *state.Permission {
+	return &state.Permission{
+		ID:         int32(permissionIndex), // #nosec G115 valid permission index
+		Type:       state.Permission_Owner,
+		Threshold:  1,
+		Operations: make([]byte, 0),
+		Signers: []*state.Key{
+			{
+				Address: ownerAcc.AddressBytes(),
+				Weight:  1,
+			},
+		},
+	}
+}
+
 func (a *accountsKapp) UpdatePermission(sender []byte, tc *transaction.UpdateAccountPermissionContract) (transaction.Transaction_TXResultCode, error) {
 	ctx := a.KAppController.GetCurrentKAppContext()
 
-	// validate data
-	if len(tc.Permissions) > core.MaxAccountPermission {
-		return transaction.Transaction_ParameterInvalid, common.ErrInvalidParameter
+	if err := a.validatePermissionParams(tc); err != nil {
+		return transaction.Transaction_ParameterInvalid, err
 	}
 
 	ownerAcc, err := a.GetExistingUserAccount(sender)
@@ -1664,92 +1759,33 @@ func (a *accountsKapp) UpdatePermission(sender []byte, tc *transaction.UpdateAcc
 		return transaction.Transaction_LoadAccountError, err
 	}
 
-	permission := make([]*state.Permission, 0)
-
+	permissions := make([]*state.Permission, 0)
 	hasOwner := false
-	if len(tc.Permissions) > 0 {
-		// check keys
-		for _, p := range tc.Permissions {
-			if len(p.Signers) == 0 ||
-				len(p.Signers) > core.MaxPermissionSigners {
-				return transaction.Transaction_ParameterInvalid, common.ErrInvalidParameter
-			}
 
-			// check type
-			_, exist := state.Permission_PermissionType_name[int32(p.Type)]
-			if !exist {
-				return transaction.Transaction_ParameterInvalid, common.ErrInvalidParameter
-			}
-
-			signers := make([]*state.Key, 0)
-			weightSum := int64(0)
-
-			dupCheck := make(map[string]bool)
-			// Verify address length
-			for _, signer := range p.Signers {
-				if len(signer.Address) != a.pubkeyConv.Len() {
-					return transaction.Transaction_ParameterInvalid, common.ErrInvalidParameter
-				}
-				// Check DUP
-				if dupCheck[string(signer.Address)] {
-					// same signature was added more than one time
-					return transaction.Transaction_ParameterInvalid, common.ErrInvalidParameter
-				}
-				dupCheck[string(signer.Address)] = true
-
-				weightSum += signer.Weight
-				signers = append(signers, &state.Key{
-					Address: append([]byte{}, signer.Address...),
-					Weight:  signer.Weight,
-				})
-			}
-
-			// verify threshold/signers
-			if p.Threshold > weightSum {
-				return transaction.Transaction_ParameterInvalid, common.ErrInvalidParameter
-			}
-
-			hasOwner = hasOwner || p.Type == transaction.AccPermission_Owner
-
-			var permissionName string
-			if a.forkController.KdaFpr() {
-				if !utf8.ValidString(p.PermissionName) ||
-					len(p.PermissionName) > core.MaxNameSize {
-					return transaction.Transaction_ParameterInvalid, common.ErrInvalidParameter
-				}
-
-				permissionName = p.PermissionName
-			}
-
-			permission = append(permission, &state.Permission{
-				ID:             int32(len(permission)), // #nosec G115
-				PermissionName: permissionName,
-				Type:           state.Permission_PermissionType(p.Type),
-				Threshold:      p.Threshold,
-				Operations:     append([]byte{}, p.Operations...),
-				Signers:        signers,
-			})
+	// Process provided permissions
+	for i, p := range tc.Permissions {
+		weightSum, stateSigners, err := a.validateSigners(p.Type, p.Signers)
+		if err != nil {
+			return transaction.Transaction_ParameterInvalid, err
 		}
+
+		permission, err := a.buildPermission(p, i, weightSum, stateSigners)
+		if err != nil {
+			return transaction.Transaction_ParameterInvalid, err
+		}
+
+		hasOwner = hasOwner || p.Type == transaction.AccPermission_Owner
+		permissions = append(permissions, permission)
 	}
 
+	// Add default owner permission if none provided
+	// Owner permission is required and added to the end of the list
 	if !hasOwner {
-		// add owner permission if none has been provided
-		permission = append(permission, &state.Permission{
-			ID:         int32(len(permission)), // #nosec G115
-			Type:       state.Permission_Owner,
-			Threshold:  1,
-			Operations: make([]byte, 0),
-			Signers: []*state.Key{
-				{
-					Address: ownerAcc.AddressBytes(),
-					Weight:  1,
-				},
-			},
-		})
+		permissions = append(permissions, a.createDefaultOwnerPermission(ownerAcc, len(permissions)))
 	}
 
-	// save permission into account
-	ownerAcc.SetPermissions(permission)
+	// Update account permissions
+	ownerAcc.SetPermissions(permissions)
 
 	if err := a.accountsCacher.UpdateUser(ownerAcc); err != nil {
 		return transaction.Transaction_SaveAccountError, err
