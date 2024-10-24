@@ -269,7 +269,7 @@ const BaseTxSize = 250
 
 // MetricAreVMQueriesReady will hold the string representation of the boolean that indicated if the node is ready
 // to process VM queries
-const MetricAreVMQueriesReady = "erd_are_vm_queries_ready"
+const MetricAreVMQueriesReady = "klv_are_vm_queries_ready"
 
 // Maximum amount of APR updates that will be saved by the blockchain and the indexer
 const MaxAPRPercentageUpdates = 100
