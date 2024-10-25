@@ -3,6 +3,7 @@ package blockchain_test
 import (
 	"testing"
 
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/blockchain"
@@ -97,4 +98,35 @@ func TestBlockChain_CreateNewHeader(t *testing.T) {
 	bc := blockchain.NewBlockChain()
 
 	assert.Equal(t, &block.Block{}, bc.CreateNewHeader())
+}
+
+func TestBlockChain_SettersWithInvalidBlock(t *testing.T) {
+	t.Parallel()
+
+	bc := blockchain.NewBlockChain()
+
+	err := bc.SetCurrentBlockHeader(&mock.HeaderHandlerStub{})
+	assert.Equal(t, common.ErrInvalidHeaderType, err)
+
+	err = bc.SetGenesisHeader(&mock.HeaderHandlerStub{})
+	assert.Equal(t, common.ErrInvalidHeaderType, err)
+}
+
+func TestBlockChain_GetCurrentBlockRootHash(t *testing.T) {
+	t.Parallel()
+
+	bc := blockchain.NewBlockChain()
+
+	// empty blockchain should return empty root hash
+	assert.Equal(t, []byte(nil), bc.GetCurrentBlockRootHash())
+
+	// set a block header and check the root hash
+	hdr := &block.Block{
+		Header: &block.BlockHeader{
+			TrieRoot: []byte("root hash"),
+		},
+	}
+	bc.SetCurrentBlockHeader(hdr)
+
+	assert.Equal(t, []byte("root hash"), bc.GetCurrentBlockRootHash())
 }

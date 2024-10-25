@@ -346,7 +346,7 @@ func (bh *BlockChainHookImpl) LastEpoch() uint32 {
 
 // GetStateRootHash returns the state root hash from the last committed block
 func (bh *BlockChainHookImpl) GetStateRootHash() []byte {
-	rootHash := bh.blockChain.GetCurrentBlockHeaderHash()
+	rootHash := bh.blockChain.GetCurrentBlockRootHash()
 	if len(rootHash) > 0 {
 		return rootHash
 	}

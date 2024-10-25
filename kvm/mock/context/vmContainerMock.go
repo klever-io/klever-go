@@ -11,6 +11,7 @@ type VMContainerMock struct {
 	RemoveCalled      func(key []byte)
 	LenCalled         func() int
 	KeysCalled        func() [][]byte
+	CloseCalled       func() error
 }
 
 // Get -
@@ -71,6 +72,9 @@ func (vmc *VMContainerMock) Keys() [][]byte {
 
 // Close -
 func (vmc *VMContainerMock) Close() error {
+	if vmc.CloseCalled != nil {
+		return vmc.CloseCalled()
+	}
 	return nil
 }
 

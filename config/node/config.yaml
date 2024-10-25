@@ -617,7 +617,7 @@ virtualMachine:
   gasConfig:
     # The following values define the maximum amount of gas to be allocated for VM Queries coming from API
     # If set to 0, then MaxUInt64 will be used
-    metaMaxGasPerVmQuery: 0 #unlimited
+    metaMaxGasPerVmQuery: 1500000000  # Set reasonable limit
 
 builtInFunctions:
   maxNumAddressesInTransferRole: 100

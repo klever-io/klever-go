@@ -2,6 +2,7 @@ package smartContract
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"math/big"
 	"sync"
@@ -18,6 +19,10 @@ import (
 )
 
 var _ process.SCQueryService = (*SCQueryService)(nil)
+
+const (
+	UnlimitedGasValue = uint64(math.MaxInt64)
+)
 
 // SCQueryService can execute Get functions over SC to fetch stored values
 type SCQueryService struct {
@@ -66,10 +71,8 @@ func NewSCQueryService(
 		return nil, process.ErrNilAllowExternalQueriesChan
 	}
 
-	gasForQuery := uint64(math.MaxInt64)
-	if args.MaxGasLimitPerQuery > 0 {
-		gasForQuery = args.MaxGasLimitPerQuery
-	}
+	gasForQuery := validateAndGetQueryGas(args.MaxGasLimitPerQuery)
+
 	return &SCQueryService{
 		vmContainer:              args.VmContainer,
 		economicsFee:             args.EconomicsFee,
@@ -79,6 +82,19 @@ func NewSCQueryService(
 		gasForQuery:              gasForQuery,
 		allowExternalQueriesChan: args.AllowExternalQueriesChan,
 	}, nil
+}
+
+func validateAndGetQueryGas(configuredGas uint64) uint64 {
+	if configuredGas == 0 {
+		log.Warn("VM query running with unlimited gas limit",
+			"configured_value", "0",
+			"effective_limit", UnlimitedGasValue,
+			"security_note", "Node is configured to allow unlimited gas for VM queries. This may increase vulnerability to DOS attacks",
+			"config_key", "metaMaxGasPerVmQuery")
+		return UnlimitedGasValue
+	}
+
+	return configuredGas
 }
 
 // ExecuteQuery returns the VMOutput resulted upon running the function on the smart contract
@@ -122,7 +138,7 @@ func (service *SCQueryService) executeScCall(query *process.SCQuery) (*vmcommon.
 	rootHashBeforeExecution := make([]byte, 0)
 
 	if shouldCheckRootHashChanges {
-		rootHashBeforeExecution = service.blockChain.GetCurrentBlockHeaderHash()
+		rootHashBeforeExecution = service.blockChain.GetCurrentBlockRootHash()
 	}
 
 	service.blockChainHook.SetCurrentHeader(service.blockChain.GetCurrentBlockHeader())
@@ -151,8 +167,8 @@ func (service *SCQueryService) executeScCall(query *process.SCQuery) (*vmcommon.
 		log.Error("Retriable execution error detected. Will retry (once) executeScCall()", "returnCode", vmOutput.ReturnCode, "returnMessage", vmOutput.ReturnMessage)
 
 		vmOutput, err = vm.RunSmartContractCall(vmInput)
-		if err != nil {
-			return nil, err
+		if err != nil || service.hasRetriableExecutionError(vmOutput) {
+			return nil, fmt.Errorf("failed to execute smart contract call after retry: returnCode(%d) returnMessage(%s) %w", vmOutput.ReturnCode, vmOutput.ReturnMessage, err)
 		}
 	}
 
@@ -167,7 +183,7 @@ func (service *SCQueryService) executeScCall(query *process.SCQuery) (*vmcommon.
 }
 
 func (service *SCQueryService) checkForRootHashChanges(rootHashBefore []byte) error {
-	rootHashAfter := service.blockChain.GetCurrentBlockHeaderHash()
+	rootHashAfter := service.blockChain.GetCurrentBlockRootHash()
 
 	if bytes.Equal(rootHashBefore, rootHashAfter) {
 		return nil

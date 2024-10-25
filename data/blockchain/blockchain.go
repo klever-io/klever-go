@@ -154,6 +154,17 @@ func (bc *blockChain) SetCurrentBlockHeaderHash(hash []byte) {
 	bc.mut.Unlock()
 }
 
+// GetCurrentBlockRootHash returns the current committed block root hash. The returned byte slice is a new copy
+// of the contained root hash.
+func (bc *blockChain) GetCurrentBlockRootHash() []byte {
+	header := bc.GetCurrentBlockHeader()
+	if header == nil || header.IsInterfaceNil() {
+		return nil
+	}
+
+	return header.GetTrieRoot()
+}
+
 // IsInterfaceNil returns true if there is no value under the interface
 func (bc *blockChain) IsInterfaceNil() bool {
 	return bc == nil
