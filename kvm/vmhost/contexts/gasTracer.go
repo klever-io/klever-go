@@ -60,11 +60,11 @@ func (gt *gasTracer) newTrace(scAddress string, functionName string) {
 }
 
 func (gt *gasTracer) createGasTraceIfNil(scAddress string, functionName string) {
-	gt.createSCAdressGasTracingIfNil(scAddress)
+	gt.createSCAddressGasTracingIfNil(scAddress)
 	gt.createFunctionNameGasTracingIfNil(scAddress, functionName)
 }
 
-func (gt *gasTracer) createSCAdressGasTracingIfNil(scAddress string) {
+func (gt *gasTracer) createSCAddressGasTracingIfNil(scAddress string) {
 	if gt.gasTrace[scAddress] == nil {
 		gt.gasTrace[scAddress] = make(map[string][]uint64)
 	}
