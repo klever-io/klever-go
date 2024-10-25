@@ -229,7 +229,7 @@ func (context *managedTypesContext) IsInterfaceNil() bool {
 // ConsumeGasForBigIntCopy uses gas for Copy operations
 func (context *managedTypesContext) ConsumeGasForBigIntCopy(values ...*big.Int) {
 	for _, val := range values {
-		byteLen := val.BitLen() / 8
+		byteLen := (val.BitLen() + 7) / 8 // add 7 to `val.BitLen()` prevents rounding issues in the division by 8
 		context.ConsumeGasForThisIntNumberOfBytes(byteLen)
 	}
 }
