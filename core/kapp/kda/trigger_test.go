@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
@@ -18,10 +19,10 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
-	"github.com/stretchr/testify/require"
 )
 
 var defaultTicker []byte = []byte("KDA")
+
 var defaultAssetID []byte = []byte("KDA-3W0I")
 
 func createDefaultAsset(
@@ -729,13 +730,14 @@ func TestKDATrigger_TriggerAddRole(t *testing.T) {
 
 	// Test cases
 	tests := []struct {
-		name           string
-		asset          *kapps.KDAData
-		sender         []byte
-		role           *transaction.RolesInfo
-		expectedResult transaction.Transaction_TXResultCode
-		expectedError  error
-		expectedRoles  []*kapps.RolesData
+		name                 string
+		asset                *kapps.KDAData
+		sender               []byte
+		role                 *transaction.RolesInfo
+		expectedResult       transaction.Transaction_TXResultCode
+		expectedError        error
+		expectedRoles        []*kapps.RolesData
+		enableSmartContracts bool
 	}{
 		{
 			name: "Successful role addition",
@@ -775,7 +777,7 @@ func TestKDATrigger_TriggerAddRole(t *testing.T) {
 			expectedRoles:  []*kapps.RolesData{existingRole}, // No roles added
 		},
 		{
-			name: "Asset can't add roles - fail",
+			name: "Asset can't add roles before smart contracts - fail",
 			asset: &kapps.KDAData{
 				Roles:        []*kapps.RolesData{existingRole},
 				OwnerAddress: sender,
@@ -790,6 +792,24 @@ func TestKDATrigger_TriggerAddRole(t *testing.T) {
 			expectedResult: transaction.Transaction_AssetCantBeBurned,
 			expectedError:  common.ErrAssetTriggerInvalid,
 			expectedRoles:  []*kapps.RolesData{existingRole}, // No roles added
+		},
+		{
+			name: "Asset can't add roles after smart contracts - fail",
+			asset: &kapps.KDAData{
+				Roles:        []*kapps.RolesData{existingRole},
+				OwnerAddress: sender,
+				Properties: &kapps.PropertiesData{
+					CanAddRoles: false,
+				},
+			},
+			sender: sender,
+			role: &transaction.RolesInfo{
+				Address: newRoleAddress,
+			},
+			expectedResult:       transaction.Transaction_AssetCantAddRoles,
+			expectedError:        common.ErrAssetTriggerInvalid,
+			expectedRoles:        []*kapps.RolesData{existingRole}, // No roles added
+			enableSmartContracts: true,
 		},
 		{
 			name: "Address length mismatch - fail",
@@ -845,9 +865,10 @@ func TestKDATrigger_TriggerAddRole(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
 			kdaKApp := kda.NewKDAKappForTests()
-
+			kdaKApp.SetForkController(&mock.ForkControllerStub{
+				EnableSmartContractsValue: tt.enableSmartContracts,
+			})
 			// Call the function under test
 			result, err := kdaKApp.HandleAddRole(tt.sender, &transaction.AssetTriggerContract{Role: tt.role}, kdaKAppData, assetID, tt.asset)
 

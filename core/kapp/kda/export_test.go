@@ -208,3 +208,7 @@ func (k *KDAKappForTests) HandleUpdateURIs(
 ) (transaction.Transaction_TXResultCode, error) {
 	return k.handleUpdateURIs(sender, tc, kdaKApp, assetID, asset)
 }
+
+func (k *KDAKappForTests) SetForkController(fc *mock.ForkControllerStub) {
+	k.forkController = fc
+}

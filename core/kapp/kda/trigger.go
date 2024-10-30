@@ -166,6 +166,16 @@ func (k *kdaKapp) changeOwner(sender []byte, tc *transaction.AssetTriggerContrac
 	return k.updateKApp(kdaKApp, assetID[0], asset)
 }
 
+func (k *kdaKapp) checkCanAddRoles(asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	if asset.GetProperties().GetCanAddRoles() {
+		return transaction.Transaction_Ok, nil
+	}
+	if k.forkController.EnableSmartContracts() {
+		return transaction.Transaction_AssetCantAddRoles, common.ErrAssetTriggerInvalid
+	}
+	return transaction.Transaction_AssetCantBeBurned, common.ErrAssetTriggerInvalid
+}
+
 func (k *kdaKapp) handleAddRole(
 	sender []byte,
 	tc *transaction.AssetTriggerContract,
@@ -177,9 +187,10 @@ func (k *kdaKapp) handleAddRole(
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
-	if !asset.GetProperties().GetCanAddRoles() {
-		return transaction.Transaction_AssetCantBeBurned, common.ErrAssetTriggerInvalid
+	if resCode, err := k.checkCanAddRoles(asset); err != nil {
+		return resCode, err
 	}
+
 	if len(tc.GetRole().GetAddress()) != k.pubkeyConv.Len() {
 		return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
 	}
