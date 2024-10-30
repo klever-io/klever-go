@@ -233,12 +233,12 @@ func (h *headersToSync) computeMissingNonce(epochStart *block.Block) error {
 
 	h.foundMetaNonces[epochStartNonce] = string(epochStartHash)
 
-	for hash, meta := range h.firstPendingMetaBlocks {
-		h.foundMetaNonces[meta.GetNonce()] = hash
-	}
-
 	if len(h.firstPendingMetaBlocks) == 0 {
 		return nil
+	}
+
+	for hash, meta := range h.firstPendingMetaBlocks {
+		h.foundMetaNonces[meta.GetNonce()] = hash
 	}
 
 	lowestPendingNonce := h.lowestPendingNonceFrom(h.firstPendingMetaBlocks)
