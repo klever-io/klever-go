@@ -107,6 +107,13 @@ func (e *kleverProposal) getProposalContract(vmInput *vmcommon.ContractCallInput
 		Parameters:     make(map[int32][]byte),
 	}
 
+	parameters, err := DecodeParameters(vmInput.NextArg())
+	if err != nil {
+		return nil, err
+	}
+
+	contract.Parameters = parameters
+
 	return contract, nil
 }
 

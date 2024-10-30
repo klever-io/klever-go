@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"io"
 	"math/big"
 	"testing"
 
@@ -603,4 +604,87 @@ func TestDecodeAccountPermissionData_OperationErr(t *testing.T) {
 	permissions2, err := DecodeAccountPermissionData(data2)
 	assert.Equal(t, common.ErrInvalidPermission, err)
 	assert.Nil(t, permissions2)
+}
+
+func createParameters(parameters map[int32][]byte) []byte {
+	buf := new(bytes.Buffer)
+
+	_ = writeUint32(buf, uint32(len(parameters)))
+	for i, k := range parameters {
+		_ = writeInt32(buf, i)
+		_ = writeUint32(buf, uint32(len(k)))
+		_, _ = buf.Write(k)
+	}
+	return buf.Bytes()
+}
+
+func TestDecodeProposalContract(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       []byte
+		expected    map[int32][]byte
+		expectedErr error
+	}{
+		{
+			name: "Success",
+			input: createParameters(map[int32][]byte{
+				1: []byte("2000000"),
+				3: []byte("4000000"),
+				5: []byte("6000000"),
+			}),
+			expected: map[int32][]byte{
+				1: []byte("2000000"),
+				3: []byte("4000000"),
+				5: []byte("6000000"),
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "Invalid parameters len",
+			input: []byte{
+				0, 0, 0,
+			},
+			expectedErr: io.ErrUnexpectedEOF,
+		},
+		{
+			name: "max proposals len error",
+			input: []byte{
+				0, 0, 0, 0xB,
+			},
+			expectedErr: common.ErrMaxBytesExceeded,
+		},
+		{
+			name: "invalid parameter key lenght",
+			input: []byte{
+				0, 0, 0, 4,
+				0, 0, 0,
+			},
+			expectedErr: io.ErrUnexpectedEOF,
+		},
+		{
+			name: "invalid parameter value lenght",
+			input: append([]byte{
+				0, 0, 0, 1,
+				0, 0, 0, 3,
+			}, bytes.Repeat([]byte{1}, (2*core.MaxProposalParamLength))...),
+			expectedErr: common.ErrMaxBytesExceeded,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			result, err := DecodeParameters(tt.input)
+			if tt.expectedErr != nil {
+				assert.Error(err)
+				assert.Equal(tt.expectedErr, err)
+				assert.Nil(result)
+			} else {
+				assert.NoError(err)
+				assert.Equal(tt.expected, result)
+			}
+		})
+	}
+
 }

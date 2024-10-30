@@ -550,8 +550,54 @@ func decodeSigner(buf *bytes.Reader) (*transaction.AccKey, error) {
 	return signer, nil
 }
 
+func DecodeParameters(data []byte) (map[int32][]byte, error) {
+	buf := bytes.NewReader(data)
+
+	length, err := readUint32(buf)
+	if err != nil {
+		return nil, err
+	}
+
+	parameters := make(map[int32][]byte)
+
+	// prevent large length
+	if length > core.MaxProposalsLength {
+		return nil, common.ErrMaxBytesExceeded
+	}
+
+	for i := 0; i < int(length); i++ {
+		parameter, value, err := decodeParameter(buf)
+		if err != nil {
+			return nil, err
+		}
+
+		parameters[parameter] = value
+	}
+
+	return parameters, nil
+}
+
+func decodeParameter(buf *bytes.Reader) (int32, []byte, error) {
+	key, err := readInt32(buf)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	value, err := readBytesMaxSize(buf, 2*core.MaxProposalParamLength)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return key, value, nil
+}
+
 // writeUint32 writes a uint32 value to the buffer.
 func writeUint32(buf *bytes.Buffer, value uint32) error {
+	return binary.Write(buf, binary.BigEndian, value)
+}
+
+// writeInt32 writes a int32 value to the buffer.
+func writeInt32(buf *bytes.Buffer, value int32) error {
 	return binary.Write(buf, binary.BigEndian, value)
 }
 
@@ -594,6 +640,13 @@ func writeString(buf *bytes.Buffer, value string) error {
 // readUint32 reads a uint32 value from the buffer.
 func readUint32(buf *bytes.Reader) (uint32, error) {
 	var value uint32
+	err := binary.Read(buf, binary.BigEndian, &value)
+	return value, err
+}
+
+// readInt32 reads a int32 value from the buffer.
+func readInt32(buf *bytes.Reader) (int32, error) {
+	var value int32
 	err := binary.Read(buf, binary.BigEndian, &value)
 	return value, err
 }
