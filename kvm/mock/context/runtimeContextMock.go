@@ -39,10 +39,14 @@ type RuntimeContextMock struct {
 	GasTrace                 map[string]map[string][]uint64
 	SameContractOnStackCount uint64
 	HasFunctionResult        bool
+	InstanceMock             executor.Instance
+	SignalErrorMessage       string
+	FailExecutionErr         error
 }
 
 // InitState mocked method
 func (r *RuntimeContextMock) InitState() {
+	r.InstanceMock = NewInstanceMock(nil)
 }
 
 // GetVMExecutor mocked method
@@ -210,7 +214,8 @@ func (r *RuntimeContextMock) SignalExit(_ int) {
 }
 
 // SignalUserError mocked method
-func (r *RuntimeContextMock) SignalUserError(_ string) {
+func (r *RuntimeContextMock) SignalUserError(message string) {
+	r.SignalErrorMessage = message
 }
 
 // SetRuntimeBreakpointValue mocked method
@@ -249,7 +254,7 @@ func (r *RuntimeContextMock) SetReadOnly(readOnly bool) {
 
 // GetInstance mocked method()
 func (r *RuntimeContextMock) GetInstance() executor.Instance {
-	return nil
+	return r.InstanceMock
 }
 
 // GetWarmInstance mocked method
@@ -310,7 +315,8 @@ func (r *RuntimeContextMock) ManagedMapAPIErrorShouldFailExecution() bool {
 }
 
 // FailExecution mocked method
-func (r *RuntimeContextMock) FailExecution(_ error) {
+func (r *RuntimeContextMock) FailExecution(err error) {
+	r.FailExecutionErr = err
 }
 
 // SetCustomCallFunction mocked method

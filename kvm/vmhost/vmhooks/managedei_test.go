@@ -1,4 +1,4 @@
-package vmhooks
+package vmhooks_test
 
 import (
 	"errors"
@@ -8,12 +8,13 @@ import (
 	"github.com/klever-io/klever-go/kvm/config"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	hostmock "github.com/klever-io/klever-go/kvm/vmhost/mock"
+	"github.com/klever-io/klever-go/kvm/vmhost/vmhooks"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestVMHooksImpl_ManagedAccHasPerm(t *testing.T) {
 	host := newMockVMHost()
-	hooks := NewVMHooksImpl(host)
+	hooks := vmhooks.NewVMHooksImpl(host)
 
 	// invalid perm, coverage only
 	result := hooks.ManagedAccHasPerm(-1, 1, 2)
@@ -25,7 +26,7 @@ func TestManagedAccHasPermWithHost(t *testing.T) {
 	t.Run("Invalid ops", func(t *testing.T) {
 		host := newMockVMHost()
 
-		result := ManagedAccHasPermWithHost(host, -1, 1, 2)
+		result := vmhooks.ManagedAccHasPermWithHost(host, -1, 1, 2)
 		assert.Equal(t, int32(0), result)
 	})
 
@@ -39,7 +40,7 @@ func TestManagedAccHasPermWithHost(t *testing.T) {
 			return []byte("target"), nil
 		}
 
-		result := ManagedAccHasPermWithHost(host, 1, 1, 2)
+		result := vmhooks.ManagedAccHasPermWithHost(host, 1, 1, 2)
 		assert.Equal(t, int32(0), result)
 	})
 
@@ -52,7 +53,7 @@ func TestManagedAccHasPermWithHost(t *testing.T) {
 			return []byte("source"), nil
 		}
 
-		result := ManagedAccHasPermWithHost(host, 1, 1, 2)
+		result := vmhooks.ManagedAccHasPermWithHost(host, 1, 1, 2)
 
 		assert.Equal(t, int32(0), result)
 	})
@@ -63,7 +64,7 @@ func TestManagedAccHasPermWithHost(t *testing.T) {
 			return nil, errors.New("account not found")
 		}
 
-		result := ManagedAccHasPermWithHost(host, 1, 1, 2)
+		result := vmhooks.ManagedAccHasPermWithHost(host, 1, 1, 2)
 
 		assert.Equal(t, int32(0), result)
 	})
@@ -74,7 +75,7 @@ func TestManagedAccHasPermWithHost(t *testing.T) {
 			return state.NewEmptyUserAccount(), nil
 		}
 
-		result := ManagedAccHasPermWithHost(host, 1, 1, 2)
+		result := vmhooks.ManagedAccHasPermWithHost(host, 1, 1, 2)
 
 		assert.Equal(t, int32(0), result)
 	})
@@ -85,7 +86,7 @@ func TestManagedAccHasPermWithHost(t *testing.T) {
 			return state.NewEmptyUserAccount(), nil
 		}
 
-		result := ManagedAccHasPermWithHost(host, 1, 1, 2)
+		result := vmhooks.ManagedAccHasPermWithHost(host, 1, 1, 2)
 
 		assert.Equal(t, int32(0), result)
 	})
@@ -105,7 +106,7 @@ func TestManagedAccHasPermWithHost(t *testing.T) {
 			return acc, nil
 		}
 
-		result := ManagedAccHasPermWithHost(host, 1, 1, 2)
+		result := vmhooks.ManagedAccHasPermWithHost(host, 1, 1, 2)
 
 		assert.Equal(t, int32(1), result)
 	})
@@ -125,7 +126,7 @@ func TestManagedAccHasPermWithHost(t *testing.T) {
 			return acc, nil
 		}
 
-		result := ManagedAccHasPermWithHost(host, 1, 1, 2)
+		result := vmhooks.ManagedAccHasPermWithHost(host, 1, 1, 2)
 
 		assert.Equal(t, int32(1), result)
 	})
@@ -145,7 +146,7 @@ func TestManagedAccHasPermWithHost(t *testing.T) {
 			return acc, nil
 		}
 
-		result := ManagedAccHasPermWithHost(host, 1, 1, 2)
+		result := vmhooks.ManagedAccHasPermWithHost(host, 1, 1, 2)
 
 		assert.Equal(t, int32(0), result)
 	})
@@ -155,9 +156,12 @@ func TestManagedAccHasPermWithHost(t *testing.T) {
 func newMockVMHost() *contextmock.VMHostMock {
 	gasSchedule := config.MakeGasMapForTests()
 
-	mockMetering := &contextmock.MeteringContextMock{}
+	mockMetering := &contextmock.MeteringContextMock{
+		GasLeftMock: 1000,
+	}
 	mockMetering.SetGasSchedule(gasSchedule)
 	mockRuntime := &contextmock.RuntimeContextMock{}
+	mockRuntime.InitState()
 	mType := &hostmock.ManagedTypesContextMock{
 		GetBytesCalled: func(index int32) ([]byte, error) {
 			switch index {

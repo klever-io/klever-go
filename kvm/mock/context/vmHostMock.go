@@ -5,6 +5,7 @@ import (
 	"github.com/klever-io/klever-go/data/vm"
 	"github.com/klever-io/klever-go/kvm/config"
 	"github.com/klever-io/klever-go/kvm/crypto"
+	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/klever-io/klever-go/vmcommon/parsers"
@@ -239,4 +240,12 @@ func (host *VMHostMock) Close() error {
 
 // Reset -
 func (host *VMHostMock) Reset() {
+}
+
+func (host *VMHostMock) MemLoadFromMock(address executor.MemPtr, size int) ([]byte, error) {
+	return host.RuntimeContext.GetInstance().MemLoad(address, int32(size))
+}
+
+func (host *VMHostMock) MemStoreToMock(address executor.MemPtr, data []byte) error {
+	return host.RuntimeContext.GetInstance().MemStore(address, data)
 }

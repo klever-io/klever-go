@@ -54,6 +54,10 @@ func (m *MeteringContextMock) UseGas(gas uint64) {
 		return
 	}
 
+	if m.GasLeftMock > 1<<63 {
+		m.GasLeftMock = 1 << 63
+	}
+
 	m.GasLeftMock -= gas
 }
 
@@ -61,10 +65,13 @@ func (m *MeteringContextMock) UseGas(gas uint64) {
 func (m *MeteringContextMock) UseAndTraceGas(_ uint64) {}
 
 // UseGasAndAddTracedGas mocked method
-func (m *MeteringContextMock) UseGasAndAddTracedGas(_ string, _ uint64) {}
+func (m *MeteringContextMock) UseGasAndAddTracedGas(_ string, gasToUse uint64) {
+	m.UseGas(gasToUse)
+}
 
 // UseGasBoundedAndAddTracedGas -
-func (m *MeteringContextMock) UseGasBoundedAndAddTracedGas(_ string, _ uint64) error {
+func (m *MeteringContextMock) UseGasBoundedAndAddTracedGas(_ string, gasToUse uint64) error {
+	m.UseGas(gasToUse)
 	return nil
 }
 

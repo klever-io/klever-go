@@ -11,6 +11,7 @@ var ContractMaxSizes = map[TXContract_ContractType]int{
 	TXContract_UndelegateContractType:              120,
 	TXContract_WithdrawContractType:                150,
 	TXContract_ClaimContractType:                   90,
+	TXContract_UnjailContractType:                  2,
 	TXContract_AssetTriggerContractType:            14000,
 	TXContract_SetAccountNameContractType:          240,
 	TXContract_ProposalContractType:                3200,

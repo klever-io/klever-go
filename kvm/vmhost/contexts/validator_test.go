@@ -7,7 +7,6 @@ import (
 	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
-	"github.com/klever-io/klever-go/kvm/vmhost/mock"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/require"
 )
@@ -21,8 +20,8 @@ func testImportNames() vmcommon.FunctionNames {
 
 func TestFunctionsGuard_isValidFunctionName(t *testing.T) {
 	builtInFuncContainer := builtInFunctions.NewBuiltInFunctionContainer()
-	_ = builtInFuncContainer.Add("protocolFunctionFoo", &mock.BuiltInFunctionStub{})
-	_ = builtInFuncContainer.Add("protocolFunctionBar", &mock.BuiltInFunctionStub{})
+	_ = builtInFuncContainer.Add("protocolFunctionFoo", &contextmock.BuiltInFunctionStub{})
+	_ = builtInFuncContainer.Add("protocolFunctionBar", &contextmock.BuiltInFunctionStub{})
 
 	validator := newWASMValidator(testImportNames(), builtInFuncContainer)
 

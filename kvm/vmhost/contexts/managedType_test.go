@@ -8,7 +8,6 @@ import (
 
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	"github.com/klever-io/klever-go/kvm/vmhost"
-	"github.com/klever-io/klever-go/kvm/vmhost/mock"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,7 +80,7 @@ func TestManagedTypesContext_ClearStateStack(t *testing.T) {
 	t.Parallel()
 	host := &contextmock.VMHostStub{
 		BlockchainCalled: func() vmhost.BlockchainContext {
-			return &mock.BlockchainContextMock{}
+			return &contextmock.BlockchainContextMock{}
 		},
 		RuntimeCalled: func() vmhost.RuntimeContext {
 			return &contextmock.RuntimeContextMock{CurrentTxHash: bytes.Repeat([]byte{1}, 32)}

@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
+	mock "github.com/klever-io/klever-go/kvm/mock/context"
 	"github.com/klever-io/klever-go/kvm/vmhost"
-	"github.com/klever-io/klever-go/kvm/vmhost/mock"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/require"
 )

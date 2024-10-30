@@ -615,7 +615,6 @@ func TransferKDANFTExecuteWithTypedArgs(
 
 // UpgradeContract VMHooks implementation.
 // @autogenerate(VMHooks)
-// @autogenerate(VMHooks)
 func (context *VMHooksImpl) UpgradeContract(
 	destOffset executor.MemPtr,
 	gasLimit int64,

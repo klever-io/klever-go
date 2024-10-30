@@ -114,7 +114,7 @@ func SafeStringToU64(value string) (uint64, error) {
 }
 
 // SafeStringToI64 converts a string to a int64, if overflow return error.
-func SafeStringToI644(value string) (int64, error) {
+func SafeStringToI64(value string) (int64, error) {
 	return strconv.ParseInt(value, 10, 64)
 }
 
