@@ -19,8 +19,8 @@ services:
         hard: -1
     volumes:
       - data01:/usr/share/elasticsearch/data
-      - ./docker/elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
-      - ./docker/elasticsearch/jvm.options:/usr/share/elasticsearch/config/jvm.options.d/jvm.options
+      - ./elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+      - ./elasticsearch/jvm.options:/usr/share/elasticsearch/config/jvm.options.d/jvm.options
     ports:
       - 9200:9200
     networks:
