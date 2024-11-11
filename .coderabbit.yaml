@@ -1,0 +1,21 @@
+language: "en-US"
+early_access: false
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - master
+      - develop
+      - release.*
+      - rc\/.*
+      - \d+?\.\d+[.\d]{0,} # matches 43.4 and 43.4.1
+      - v\d+?\.\d+[.\d]{0,} # matches v43.4 and v43.4.1
+chat:
+  auto_reply: true
