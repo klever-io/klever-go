@@ -361,7 +361,7 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 		!bytes.Equal(val.BlsPubKey, tc.GetConfig().GetBLSPublicKey()) {
 
 		// Reset old peer
-		peerAccOld, err := v.revokPeerAccount(val.BlsPubKey)
+		peerAccOld, err := v.revokePeerAccount(val.BlsPubKey)
 		if err != nil {
 			_ = bugsnag.Notify(err)
 			return transaction.Transaction_InvalidPeerKey, err
@@ -829,7 +829,7 @@ func (v *validatorsKApp) DisplayRating(validatorOwners [][]byte) {
 
 }
 
-func (v *validatorsKApp) revokPeerAccount(pubkey []byte) (state.PeerAccountHandler, error) {
+func (v *validatorsKApp) revokePeerAccount(pubkey []byte) (state.PeerAccountHandler, error) {
 	peerAccOld, err := v.loadPeerAccount(pubkey)
 	if err != nil {
 		log.Error("UpdateValidator loading previous peerAccount", "err", err.Error())
