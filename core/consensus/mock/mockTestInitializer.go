@@ -60,7 +60,7 @@ func InitMultiSignerMock() *cMock.BelNevMock {
 	multiSigner.CreateCommitmentMock = func() ([]byte, []byte) {
 		return []byte("commSecret"), []byte("commitment")
 	}
-	multiSigner.VerifySignatureShareMock = func(index uint16, sig []byte, msg []byte, bitmap []byte) error {
+	multiSigner.VerifySignatureShareMock = func(index uint16, sig []byte, msg []byte) error {
 		return nil
 	}
 	multiSigner.VerifyMock = func(msg []byte, bitmap []byte) error {

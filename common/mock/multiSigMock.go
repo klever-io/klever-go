@@ -21,7 +21,7 @@ type BelNevMock struct {
 	CreateCommitmentMock     func() ([]byte, []byte)
 	AggregateCommitmentsMock func(bitmap []byte) error
 	CreateSignatureShareMock func(msg []byte, bitmap []byte) ([]byte, error)
-	VerifySignatureShareMock func(index uint16, sig []byte, msg []byte, bitmap []byte) error
+	VerifySignatureShareMock func(index uint16, sig []byte, msg []byte) error
 	AggregateSigsMock        func(bitmap []byte) ([]byte, error)
 	SignatureShareMock       func(index uint16) ([]byte, error)
 	StoreCommitmentMock      func(index uint16, value []byte) error
@@ -189,9 +189,9 @@ func (bnm *BelNevMock) StoreSignatureShare(index uint16, sig []byte) error {
 }
 
 // VerifySignatureShare verifies the partial signature of the signer with specified position
-func (bnm *BelNevMock) VerifySignatureShare(index uint16, sig []byte, msg []byte, bitmap []byte) error {
-	if bnm.VerifySignatureShareMock(index, sig, msg, bitmap) != nil {
-		return bnm.VerifySignatureShareMock(index, sig, msg, bitmap)
+func (bnm *BelNevMock) VerifySignatureShare(index uint16, sig []byte, msg []byte) error {
+	if bnm.VerifySignatureShareMock(index, sig, msg) != nil {
+		return bnm.VerifySignatureShareMock(index, sig, msg)
 	}
 
 	if bytes.Equal([]byte("signature share"), sig) {

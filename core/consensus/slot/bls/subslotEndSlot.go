@@ -479,7 +479,7 @@ func (sr *subslotEndSlot) checkSignaturesValidity(bitmap []byte) error {
 			return err
 		}
 
-		err = sr.MultiSigner().VerifySignatureShare(uint16(i), signature, sr.GetData(), bitmap) // #nosec G115
+		err = sr.MultiSigner().VerifySignatureShare(uint16(i), signature, sr.GetData()) // #nosec G115
 		if err != nil {
 			return err
 		}

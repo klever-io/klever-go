@@ -167,7 +167,7 @@ func (bms *blsMultiSigner) isIndexInBitmap(index uint16, bitmap []byte) error {
 
 // VerifySignatureShare verifies the single signature share of the signer with specified position
 // Signature is verified over a message configured with a previous call of SetMessage
-func (bms *blsMultiSigner) VerifySignatureShare(index uint16, sig []byte, message []byte, _ []byte) error {
+func (bms *blsMultiSigner) VerifySignatureShare(index uint16, sig []byte, message []byte) error {
 	if sig == nil {
 		return crypto.ErrNilSignature
 	}

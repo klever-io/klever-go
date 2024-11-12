@@ -49,7 +49,7 @@ func (dms *DisabledMultiSig) SignatureShare(_ uint16) ([]byte, error) {
 }
 
 // VerifySignatureShare returns nil
-func (dms *DisabledMultiSig) VerifySignatureShare(_ uint16, _ []byte, _ []byte, _ []byte) error {
+func (dms *DisabledMultiSig) VerifySignatureShare(_ uint16, _ []byte, _ []byte) error {
 	return nil
 }
 

@@ -38,5 +38,5 @@ func TestDisabledMultiSig_MethodsShouldNotPanic(t *testing.T) {
 	assert.False(t, check.IfNil(dms))
 	assert.Nil(t, dms.Reset(nil, 0))
 	assert.Nil(t, dms.StoreSignatureShare(0, nil))
-	assert.Nil(t, dms.VerifySignatureShare(0, nil, nil, nil))
+	assert.Nil(t, dms.VerifySignatureShare(0, nil, nil))
 }

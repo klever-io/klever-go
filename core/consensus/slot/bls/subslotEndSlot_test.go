@@ -515,7 +515,7 @@ func TestSubslotEndSlot_CheckSignaturesValidityShouldErrInvalidSignatureShare(t 
 	sr := *initSubslotEndSlotWithContainer(container)
 	multiSignerMock := mock.InitMultiSignerMock()
 	err := errors.New("invalid signature share")
-	multiSignerMock.VerifySignatureShareMock = func(index uint16, sig []byte, msg []byte, bitmap []byte) error {
+	multiSignerMock.VerifySignatureShareMock = func(index uint16, sig []byte, msg []byte) error {
 		return err
 	}
 	container.SetMultiSigner(multiSignerMock)

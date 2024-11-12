@@ -48,7 +48,7 @@ func (m *multiSigner) SignatureShare(_ uint16) ([]byte, error) {
 }
 
 // VerifySignatureShare -
-func (m *multiSigner) VerifySignatureShare(_ uint16, _ []byte, _ []byte, _ []byte) error {
+func (m *multiSigner) VerifySignatureShare(_ uint16, _ []byte, _ []byte) error {
 	return nil
 }
 

@@ -187,7 +187,7 @@ type MultiSigner interface {
 	// SignatureShare returns the partial signature set for given index
 	SignatureShare(index uint16) ([]byte, error)
 	// VerifySignatureShare verifies the partial signature of the signer with specified position
-	VerifySignatureShare(index uint16, sig []byte, msg []byte, bitmap []byte) error
+	VerifySignatureShare(index uint16, sig []byte, msg []byte) error
 	// AggregateSigs aggregates all collected partial signatures
 	AggregateSigs(bitmap []byte) ([]byte, error)
 }

@@ -368,7 +368,7 @@ func TestBLSMultiSigner_CreateSignatureShareOK(t *testing.T) {
 	msg := []byte("message")
 	sigShare, err := multiSig.CreateSignatureShare(msg, []byte(""))
 
-	verifErr := multiSig.VerifySignatureShare(ownIndex, sigShare, msg, []byte(""))
+	verifErr := multiSig.VerifySignatureShare(ownIndex, sigShare, msg)
 
 	assert.Nil(t, err)
 	assert.NotNil(t, sigShare)
@@ -384,7 +384,7 @@ func TestBLSMultiSigner_VerifySignatureShareNilSigShouldErr(t *testing.T) {
 	msg := []byte("message")
 	_, multiSig := createSignerAndSigShareBLS(hasher, pubKeys, privKey, kg, ownIndex, msg)
 
-	verifErr := multiSig.VerifySignatureShare(ownIndex, nil, msg, []byte(""))
+	verifErr := multiSig.VerifySignatureShare(ownIndex, nil, msg)
 
 	assert.Equal(t, crypto.ErrNilSignature, verifErr)
 }
@@ -397,7 +397,7 @@ func TestBLSMultiSigner_VerifySignatureShareInvalidSignatureShouldErr(t *testing
 	privKey, _, pubKeys, kg, _ := genMultiSigParamsBLS(4, ownIndex)
 	msg := []byte("message")
 	sigShare, multiSig := createSignerAndSigShareBLS(hasher, pubKeys, privKey, kg, ownIndex, msg)
-	verifErr := multiSig.VerifySignatureShare(0, sigShare, msg, []byte(""))
+	verifErr := multiSig.VerifySignatureShare(0, sigShare, msg)
 
 	assert.NotNil(t, verifErr)
 	assert.Contains(t, verifErr.Error(), "signature is invalid")
@@ -412,7 +412,7 @@ func TestBLSMultiSigner_VerifySignatureShareOK(t *testing.T) {
 	msg := []byte("message")
 	sigShare, multiSig := createSignerAndSigShareBLS(hasher, pubKeys, privKey, kg, ownIndex, msg)
 
-	verifErr := multiSig.VerifySignatureShare(ownIndex, sigShare, msg, []byte(""))
+	verifErr := multiSig.VerifySignatureShare(ownIndex, sigShare, msg)
 
 	assert.Nil(t, verifErr)
 }

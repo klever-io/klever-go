@@ -16,7 +16,7 @@ type MultisignerMock struct {
 	VerifyCalled                           func(msg []byte, bitmap []byte) error
 	CommitmentHashCalled                   func(index uint16) ([]byte, error)
 	CreateSignatureShareCalled             func(msg []byte, bitmap []byte) ([]byte, error)
-	VerifySignatureShareCalled             func(index uint16, sig []byte, msg []byte, bitmap []byte) error
+	VerifySignatureShareCalled             func(index uint16, sig []byte, msg []byte) error
 	AggregateSigsCalled                    func(bitmap []byte) ([]byte, error)
 	SignatureShareCalled                   func(index uint16) ([]byte, error)
 	CreateCalled                           func(pubKeys []string, index uint16) (crypto.MultiSigner, error)
@@ -113,9 +113,9 @@ func (mm *MultisignerMock) StoreSignatureShare(index uint16, sig []byte) error {
 }
 
 // VerifySignatureShare -
-func (mm *MultisignerMock) VerifySignatureShare(index uint16, sig []byte, msg []byte, bitmap []byte) error {
+func (mm *MultisignerMock) VerifySignatureShare(index uint16, sig []byte, msg []byte) error {
 	if mm.VerifySignatureShareCalled != nil {
-		return mm.VerifySignatureShareCalled(index, sig, msg, bitmap)
+		return mm.VerifySignatureShareCalled(index, sig, msg)
 	}
 
 	return nil
