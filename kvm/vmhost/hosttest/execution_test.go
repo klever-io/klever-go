@@ -102,10 +102,11 @@ func TestExecution_DeployNewAddressErr(t *testing.T) {
 				require.Equal(t, input.CallerAddr, address)
 				return &worldmock.Account{}, nil
 			}
-			stubBlockchainHook.NewAddressCalled = func(creatorAddress []byte, nonce uint64, vmType []byte) ([]byte, error) {
+			stubBlockchainHook.NewAddressCalled = func(creatorAddress []byte, nonce uint64, vmType []byte, randomSeed []byte) ([]byte, error) {
 				require.Equal(t, input.CallerAddr, creatorAddress)
 				require.Equal(t, uint64(0), nonce)
 				require.Equal(t, test.DefaultVMType, vmType)
+				require.Equal(t, []byte("seed"), randomSeed)
 				return nil, errNewAddress
 			}
 		}).
@@ -304,7 +305,7 @@ func TestExecution_ManyDeployments(t *testing.T) {
 			stubBlockchainHook.GetUserAccountCalled = func(address []byte) (state.UserAccountHandler, error) {
 				return &worldmock.Account{Nonce: ownerNonce}, nil
 			}
-			stubBlockchainHook.NewAddressCalled = func(creatorAddress []byte, nonce uint64, vmType []byte) ([]byte, error) {
+			stubBlockchainHook.NewAddressCalled = func(creatorAddress []byte, nonce uint64, vmType []byte, randomSeed []byte) ([]byte, error) {
 				ownerNonce++
 				return []byte(string(newAddress) + " " + fmt.Sprint(ownerNonce)), nil
 			}

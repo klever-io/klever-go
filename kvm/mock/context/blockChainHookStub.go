@@ -15,7 +15,7 @@ var _ vmcommon.BlockchainHook = (*BlockchainHookStub)(nil)
 
 // BlockchainHookStub is used in tests to check that interface methods were called
 type BlockchainHookStub struct {
-	NewAddressCalled                        func(creatorAddress []byte, creatorNonce uint64, vmType []byte) ([]byte, error)
+	NewAddressCalled                        func(creatorAddress []byte, creatorNonce uint64, vmType []byte, randomSeed []byte) ([]byte, error)
 	GetStorageDataCalled                    func(accountsAddress []byte, index []byte) ([]byte, uint32, error)
 	GetBlockHashCalled                      func(nonce uint64) ([]byte, error)
 	LastNonceCalled                         func() uint64
@@ -80,9 +80,9 @@ func (b *BlockchainHookStub) TransferValueOnly(destination []byte, sender []byte
 }
 
 // NewAddress mocked method
-func (b *BlockchainHookStub) NewAddress(creatorAddress []byte, creatorNonce uint64, vmType []byte) ([]byte, error) {
+func (b *BlockchainHookStub) NewAddress(creatorAddress []byte, creatorNonce uint64, vmType []byte, randomSeed []byte) ([]byte, error) {
 	if b.NewAddressCalled != nil {
-		return b.NewAddressCalled(creatorAddress, creatorNonce, vmType)
+		return b.NewAddressCalled(creatorAddress, creatorNonce, vmType, randomSeed)
 	}
 	return []byte("newAddress"), nil
 }

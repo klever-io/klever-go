@@ -117,7 +117,7 @@ func (template *InstanceCreatorTestTemplate) createBlockchainStub() *contextmock
 			Nonce: 24,
 		}, nil
 	}
-	stubBlockchainHook.NewAddressCalled = func(creatorAddress []byte, nonce uint64, vmType []byte) ([]byte, error) {
+	stubBlockchainHook.NewAddressCalled = func(creatorAddress []byte, nonce uint64, vmType []byte, randomSeed []byte) ([]byte, error) {
 		return template.address, nil
 	}
 

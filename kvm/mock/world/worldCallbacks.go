@@ -27,7 +27,7 @@ var ErrBuiltinFuncWrapperNotInitialized = errors.New("builtin function not found
 
 // NewAddress provides the address for a new account.
 // It looks up the explicit new address mocks, if none found generates one using a fake but realistic algorithm.
-func (b *MockWorld) NewAddress(creatorAddress []byte, creatorNonce uint64, vmType []byte) ([]byte, error) {
+func (b *MockWorld) NewAddress(creatorAddress []byte, creatorNonce uint64, vmType []byte, randomSeed []byte) ([]byte, error) {
 	// custom error
 	if b.Err != nil {
 		return nil, b.Err
@@ -91,7 +91,7 @@ func (b *MockWorld) GetBlockHash(nonce uint64) ([]byte, error) {
 	return b.Blockhashes[offsetInt32], nil
 }
 
-// LastNonce returns the nonce from from the last committed block
+// LastNonce returns the nonce from the last committed block
 func (b *MockWorld) LastNonce() uint64 {
 	if b.PreviousBlockInfo == nil {
 		return 0

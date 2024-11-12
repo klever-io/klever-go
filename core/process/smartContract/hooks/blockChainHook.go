@@ -423,7 +423,7 @@ func (bh *BlockChainHookImpl) CurrentEpoch() uint32 {
 // The address is created by applied keccak256 on the appended value off creator address and nonce
 // Prefix mask is applied for first 8 bytes 0, and for bytes 9-10 - VM type
 // Suffix mask is applied - last 2 bytes are for the shard ID - mask is applied as suffix mask
-func (bh *BlockChainHookImpl) NewAddress(creatorAddress []byte, creatorNonce uint64, vmType []byte) ([]byte, error) {
+func (bh *BlockChainHookImpl) NewAddress(creatorAddress []byte, creatorNonce uint64, vmType []byte, randomSeed []byte) ([]byte, error) {
 	addressLength := bh.pubkeyConv.Len()
 	if len(creatorAddress) != addressLength {
 		return nil, ErrAddressLengthNotCorrect
@@ -433,7 +433,7 @@ func (bh *BlockChainHookImpl) NewAddress(creatorAddress []byte, creatorNonce uin
 		return nil, ErrVMTypeLengthIsNotCorrect
 	}
 
-	base := hashFromAddressAndNonce(creatorAddress, creatorNonce)
+	base := hashFromAddressAndNonce(creatorAddress, creatorNonce, randomSeed)
 	prefixMask := createPrefixMask(vmType)
 	suffixMask := createSuffixMask(creatorAddress)
 
@@ -633,10 +633,11 @@ func (bh *BlockChainHookImpl) GetKDAToken(address []byte, assetID []byte, nonce 
 	return kda, userKDA, nil
 }
 
-func hashFromAddressAndNonce(creatorAddress []byte, creatorNonce uint64) []byte {
+func hashFromAddressAndNonce(creatorAddress []byte, creatorNonce uint64, randomSeed []byte) []byte {
 	buffNonce := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buffNonce, creatorNonce)
 	adrAndNonce := append(creatorAddress, buffNonce...)
+	adrAndNonce = append(adrAndNonce, randomSeed...)
 
 	hasher, err := factoryHasher.NewHasher("keccak")
 	if err != nil {

@@ -46,8 +46,10 @@ func (context *blockchainContext) NewAddress(creatorAddress []byte) ([]byte, err
 		return nil, err
 	}
 
+	randomSeed := context.blockChainHook.CurrentRandomSeed()
+
 	vmType := context.host.Runtime().GetVMType()
-	return context.blockChainHook.NewAddress(creatorAddress, nonce, vmType)
+	return context.blockChainHook.NewAddress(creatorAddress, nonce, vmType, randomSeed)
 }
 
 // AccountExists verifies if the provided address exists.

@@ -225,10 +225,11 @@ func TestBlockchainContext_NewAddress(t *testing.T) {
 	expectedCreatorAddres := creatorAddress
 	stubBlockchain := &contextmock.BlockchainHookStub{
 		GetUserAccountCalled: mockWorld.GetUserAccount,
-		NewAddressCalled: func(creatorAddress []byte, creatorNonce uint64, vmType []byte) ([]byte, error) {
+		NewAddressCalled: func(creatorAddress []byte, creatorNonce uint64, vmType []byte, randomSeed []byte) ([]byte, error) {
 			require.Equal(t, expectedCreatorAddres, creatorAddress)
 			require.Equal(t, uint64(0), creatorNonce)
 			require.Equal(t, mockRuntime.VMType, vmType)
+			require.Equal(t, []byte("seed"), randomSeed)
 			return []byte("new_address"), nil
 		},
 	}
@@ -248,10 +249,11 @@ func TestBlockchainContext_NewAddress(t *testing.T) {
 	expectedCreatorAddres = creatorAddress
 	stubBlockchain = &contextmock.BlockchainHookStub{
 		GetUserAccountCalled: mockWorld.GetUserAccount,
-		NewAddressCalled: func(creatorAddress []byte, creatorNonce uint64, vmType []byte) ([]byte, error) {
+		NewAddressCalled: func(creatorAddress []byte, creatorNonce uint64, vmType []byte, randomSeed []byte) ([]byte, error) {
 			require.Equal(t, expectedCreatorAddres, creatorAddress)
 			require.Equal(t, uint64(56), creatorNonce)
 			require.Equal(t, mockRuntime.VMType, vmType)
+			require.Equal(t, []byte("seed"), randomSeed)
 			return []byte("new_address"), nil
 		},
 	}
@@ -271,10 +273,11 @@ func TestBlockchainContext_NewAddress(t *testing.T) {
 	expectedCreatorAddres = creatorAddress
 	stubBlockchain = &contextmock.BlockchainHookStub{
 		GetUserAccountCalled: mockWorld.GetUserAccount,
-		NewAddressCalled: func(creatorAddress []byte, creatorNonce uint64, vmType []byte) ([]byte, error) {
+		NewAddressCalled: func(creatorAddress []byte, creatorNonce uint64, vmType []byte, randomSeed []byte) ([]byte, error) {
 			require.Equal(t, expectedCreatorAddres, creatorAddress)
 			require.Equal(t, uint64(4), creatorNonce)
 			require.Equal(t, mockRuntime.VMType, vmType)
+			require.Equal(t, []byte("seed"), randomSeed)
 			return nil, errTestError
 		},
 	}

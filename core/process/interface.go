@@ -629,7 +629,7 @@ type BlockChainHookHandler interface {
 	CurrentTimeStamp() int64
 	CurrentRandomSeed() []byte
 	CurrentEpoch() uint32
-	NewAddress(creatorAddress []byte, creatorNonce uint64, vmType []byte) ([]byte, error)
+	NewAddress(creatorAddress []byte, creatorNonce uint64, vmType []byte, randomSeed []byte) ([]byte, error)
 	ProcessBuiltInFunction(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error)
 	IsSmartContract(address []byte) bool
 	GetBuiltinFunctionNames() vmcommon.FunctionNames

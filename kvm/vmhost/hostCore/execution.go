@@ -888,7 +888,7 @@ func (host *vmHost) callSCMethodIndirect() error {
 	return err
 }
 
-// ExecuteKDATransfer calls the process built in function with the given transfer for KDA/KDANFT if nonce > 0
+// ExecuteKDATransfer calls the process built-in function with the given transfer for KDA/KDANFT if nonce > 0
 // there are no NFTs with nonce == 0, it will call multi transfer if multiple tokens are sent
 func (host *vmHost) ExecuteKDATransfer(transfersArgs *vmhost.KDATransfersArgs, callType vm.CallType) (*vmcommon.VMOutput, uint64, error) {
 	if len(transfersArgs.Transfers) == 0 {

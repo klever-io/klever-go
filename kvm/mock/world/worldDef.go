@@ -207,7 +207,7 @@ func (b *MockWorld) PutAccount(acct *Account) {
 	_ = b.AccountsCacher.SaveUser(acctHandler)
 }
 
-func (b MockWorld) PutAccounts(accounts []*Account) {
+func (b *MockWorld) PutAccounts(accounts []*Account) {
 	for _, account := range accounts {
 		b.PutAccount(account)
 	}
