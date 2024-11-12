@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bugsnag/bugsnag-go/v2"
 	"github.com/klever-io/klever-go/core"
@@ -1449,13 +1450,21 @@ func (cm *commonProcessor) convertAssetInfo(assetInfo *kapps.KDAData) *data.Asse
 }
 
 func (cm *commonProcessor) convertSFTMeta(meta *kapps.MetaV2) *data.Meta {
+	attributes := string(meta.GetMetadata().GetAttributes())
+	contentType := "text/plain"
+	if !utf8.ValidString(attributes) {
+		attributes = hex.EncodeToString(meta.GetMetadata().GetAttributes())
+		contentType = "application/x-hex"
+	}
+
 	return &data.Meta{
 		Circulation: meta.GetCirculation(),
 		MaxSupply:   meta.GetMaxSupply(),
 		Metadata: data.Metadata{
-			Name:       string(meta.GetMetadata().GetName()),
-			Hash:       hex.EncodeToString(meta.GetMetadata().GetHash()),
-			Attributes: string(meta.GetMetadata().GetAttributes()),
+			Name:        string(meta.GetMetadata().GetName()),
+			Hash:        hex.EncodeToString(meta.GetMetadata().GetHash()),
+			Attributes:  attributes,
+			ContentType: contentType,
 		},
 	}
 }

@@ -188,9 +188,10 @@ type Meta struct {
 }
 
 type Metadata struct {
-	Name       string `json:"name"`
-	Hash       string `json:"hash"`
-	Attributes string `json:"attributes"`
+	Name        string `json:"name"`
+	Hash        string `json:"hash"`
+	ContentType string `json:"contentType"`
+	Attributes  string `json:"attributes"`
 }
 
 type KDAPoolData struct {
