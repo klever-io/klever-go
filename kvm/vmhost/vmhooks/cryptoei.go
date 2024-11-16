@@ -765,7 +765,7 @@ func (context *VMHooksImpl) IsOnCurveEC(
 	curveMultiplier := managedType.Get100xCurveGasCostMultiplier(ecHandle)
 	if curveMultiplier < 0 {
 		_ = context.WithFault(vmhost.ErrNoEllipticCurveUnderThisHandle, runtime.CryptoAPIErrorShouldFailExecution())
-		return 1
+		return -1
 	}
 	gasToUse := metering.GasSchedule().CryptoAPICost.IsOnCurveECC * uint64(curveMultiplier) / 100
 	metering.UseAndTraceGas(gasToUse)
