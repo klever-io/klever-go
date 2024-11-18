@@ -2478,13 +2478,14 @@ func TestTxProcessor_ProcessClaimStakingShouldWork(t *testing.T) {
 func TestTxProcessor_ProcessClaimAllowanceOkValsShouldWork(t *testing.T) {
 	t.Parallel()
 
+	args := createArgsForTxProcessor()
+
 	contract := transaction.ClaimContract{ClaimType: transaction.ClaimContract_AllowanceClaim}
-	err := contract.Validate()
+	err := contract.Validate(args.ForkController)
 	assert.Nil(t, err)
 
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_ClaimContractType, testOwnerAddress, 0)
 
-	args := createArgsForTxProcessor()
 	acntSrc := loadUserAccount(args.AccountsCacher, testOwnerAddress)
 	_ = acntSrc.AddToBalance(90, nil, true)
 	_ = acntSrc.AddToAllowance(123)
@@ -2509,13 +2510,14 @@ func TestTxProcessor_ProcessClaimAllowanceOkValsShouldWork(t *testing.T) {
 func TestTxProcessor_ProcessClaimAllowanceKFIShouldFail(t *testing.T) {
 	t.Parallel()
 
+	args := createArgsForTxProcessor()
+
 	contract := transaction.ClaimContract{ClaimType: transaction.ClaimContract_AllowanceClaim, ID: kdautils.KFIIdentifier}
-	err := contract.Validate()
+	err := contract.Validate(args.ForkController)
 	assert.Equal(t, common.ErrAssetIDInvalid, err)
 
 	tx, _ := createTransactionMock(&contract, transaction.TXContract_ClaimContractType, testOwnerAddress, 0)
 
-	args := createArgsForTxProcessor()
 	acntSrc := loadUserAccount(args.AccountsCacher, testOwnerAddress)
 	_ = acntSrc.AddToBalance(90, nil, true)
 	_ = acntSrc.AddToAllowance(123)

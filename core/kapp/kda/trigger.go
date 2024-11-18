@@ -654,7 +654,10 @@ func (k *kdaKapp) handleUpdateRoyaltiesFT(tc *transaction.AssetTriggerContract, 
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
-	asset.Royalties.TransferPercentage = tp
+	// only overwrite empty post fork
+	if k.forkController.EnableSmartContracts() || len(tp) > 0 {
+		asset.Royalties.TransferPercentage = tp
+	}
 
 	if k.forkController.EnableSmartContracts() {
 		asset.Royalties.MarketFixed = tc.GetRoyalties().GetMarketFixed()

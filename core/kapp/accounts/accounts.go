@@ -801,11 +801,12 @@ func (a *accountsKapp) Unfreeze(
 		return transaction.Transaction_AssetError, err
 	}
 
+	ctx := a.KAppController.GetCurrentKAppContext()
 	// Claim any pending rewards
 	gains, err := a.ClaimBalance(
 		transaction.ClaimContract_StakingClaim,
 		assetID,
-		a.KAppController.GetCurrentKAppContext().Block(),
+		ctx.Block(),
 		ownerAcc,
 		staking,
 		kda,
@@ -833,7 +834,6 @@ func (a *accountsKapp) Unfreeze(
 	}
 
 	// Receipts for unfreezing
-	ctx := a.KAppController.GetCurrentKAppContext()
 	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.Unfreeze,
 		ctx.ContractID(),
@@ -1044,11 +1044,11 @@ func (a *accountsKapp) processActiveProposal(
 
 		voter, exists := proposal.Voters[encodedAddr]
 		if !exists || voter == nil {
-			return nil
+			continue
 		}
 
 		if voter.Amount <= userKDA.FrozenBalance {
-			return nil
+			continue
 		}
 
 		a.updateVoterAndProposal(voter, proposal, encodedAddr, unfrozenAmount, ownerAcc, id)

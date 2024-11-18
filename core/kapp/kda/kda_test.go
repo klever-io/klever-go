@@ -2,9 +2,7 @@ package kda_test
 
 import (
 	"github.com/klever-io/klever-go/common/mock"
-	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
-	"github.com/klever-io/klever-go/core/fork"
 	"github.com/klever-io/klever-go/core/kapp"
 	kappcontroller "github.com/klever-io/klever-go/core/kapp/kappController"
 	"github.com/klever-io/klever-go/crypto/hashing"
@@ -72,11 +70,7 @@ func loadUserAccount(userDB state.AccountsAdapter, address []byte) state.UserAcc
 func createFullArgumentsForKAppsProcessingMemory() (core.ForkController, kapps.ActiveProposalController, state.AccountsCacher) {
 	hasher := &sha256.Sha256{}
 	marshalizer := marshal.NewProtoMarshalizer()
-	epochNotifier := &mock.EpochNotifierStub{}
-	forkController, _ := fork.NewForkController(
-		config.EnableEpochs{},
-		epochNotifier,
-	)
+	forkController := mock.NewForkControllerStub()
 
 	trieFactoryManagerAcc, _ := trie.NewTrieStorageManagerWithoutPruning(createMemUnit())
 	trieFactoryManagerKApp, _ := trie.NewTrieStorageManagerWithoutPruning(createMemUnit())

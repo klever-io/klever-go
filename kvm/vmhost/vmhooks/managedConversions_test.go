@@ -15,32 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestWriteSplitRoyalties(t *testing.T) {
-	t.Parallel()
-
-	mockManagedTypes := &hostmock.ManagedTypesContextMock{}
-
-	destionation := make([]byte, SplitRoyaltiesLen)
-
-	royaties := &kapps.RoyaltySplitData{
-		PercentTransferPercentage: 1,
-		PercentTransferFixed:      2,
-		PercentMarketPercentage:   3,
-		PercentMarketFixed:        4,
-		PercentITOPercentage:      5,
-		PercentITOFixed:           6,
-	}
-
-	writeSplitRoyalties(mockManagedTypes, "addrs", royaties, destionation)
-
-	assert.Equal(t, destionation[4:8], []byte{0, 0, 0, 1})
-	assert.Equal(t, destionation[8:12], []byte{0, 0, 0, 2})
-	assert.Equal(t, destionation[12:16], []byte{0, 0, 0, 3})
-	assert.Equal(t, destionation[16:20], []byte{0, 0, 0, 4})
-	assert.Equal(t, destionation[20:24], []byte{0, 0, 0, 5})
-	assert.Equal(t, destionation[24:28], []byte{0, 0, 0, 6})
-}
-
 func TestWriteLastClaim(t *testing.T) {
 	t.Parallel()
 
@@ -381,24 +355,20 @@ func TestWriteSplitRoyalties(t *testing.T) {
 	dest := make([]byte, 28)
 
 	writeSplitRoyalties(mockManagedTypes, key, &kapps.RoyaltySplitData{
-		PercentTransferFixed:      1,
-		PercentTransferPercentage: 2,
-		PercentMarketFixed:        3,
-		PercentMarketPercentage:   4,
-		PercentITOFixed:           5,
-		PercentITOPercentage:      6,
+		PercentTransferPercentage: 1,
+		PercentTransferFixed:      2,
+		PercentMarketPercentage:   3,
+		PercentMarketFixed:        4,
+		PercentITOPercentage:      5,
+		PercentITOFixed:           6,
 	}, dest)
 
-	res := make([]byte, 28)
-	res[1*4-1] = 1
-	res[2*4-1] = 1
-	res[3*4-1] = 2
-	res[4*4-1] = 3
-	res[5*4-1] = 4
-	res[6*4-1] = 5
-	res[7*4-1] = 6
-
-	assert.Equal(t, res, dest)
+	assert.Equal(t, dest[4:8], []byte{0, 0, 0, 1})
+	assert.Equal(t, dest[8:12], []byte{0, 0, 0, 2})
+	assert.Equal(t, dest[12:16], []byte{0, 0, 0, 3})
+	assert.Equal(t, dest[16:20], []byte{0, 0, 0, 4})
+	assert.Equal(t, dest[20:24], []byte{0, 0, 0, 5})
+	assert.Equal(t, dest[24:28], []byte{0, 0, 0, 6})
 }
 
 func TestWriteSplitRoyaltiesToBytes(t *testing.T) {

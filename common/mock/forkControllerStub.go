@@ -24,6 +24,29 @@ func NewForkControllerStub() *ForkControllerStub {
 	return f
 }
 
+func (s *ForkControllerStub) SetFork(forkName string, value bool) *ForkControllerStub {
+	switch forkName {
+	case "ProcessorFlowITOPrice":
+		s.ProcessorFlowITOPriceValue = value
+	case "ClaimKFI":
+		s.ClaimKFIValue = value
+	case "FixStakingBuckets":
+		s.FixStakingBucketsValue = value
+	case "KdaFpr":
+		s.KdaFprValue = value
+	case "BigBucketsCompute":
+		s.BigBucketsComputeValue = value
+	case "FPRComputeAndKdaFeeFlow":
+		s.FPRComputeAndKdaFeeFlowValue = value
+	case "FixDelegationSameEpoch":
+		s.FixDelegationSameEpochValue = value
+	case "EnableSmartContracts":
+		s.EnableSmartContractsValue = value
+	}
+
+	return s
+}
+
 // SetAll sets all values
 func (s *ForkControllerStub) SetAll(value bool) {
 	s.ProcessorFlowITOPriceValue = value

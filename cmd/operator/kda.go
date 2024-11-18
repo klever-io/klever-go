@@ -301,7 +301,7 @@ func subKDA() []*cobra.Command {
 			if len(addRolesMint) == 1 &&
 				len(addRolesSetITOPrices) == 1 &&
 				addRolesMint[0] != addRolesSetITOPrices[0] {
-				return fmt.Errorf("can only set one address roler per trigger")
+				return ErrMultipleAddressRole
 			}
 
 			role := &models.RolesInfo{}
@@ -311,7 +311,7 @@ func subKDA() []*cobra.Command {
 				role.Address = addRolesMint[0]
 				role.HasRoleMint = true
 			default:
-				return fmt.Errorf("can only add one roler per trigger")
+				return ErrMultipleRoles
 			}
 
 			switch len(addRolesSetITOPrices) {
@@ -320,7 +320,7 @@ func subKDA() []*cobra.Command {
 				role.Address = addRolesSetITOPrices[0]
 				role.HasRoleSetITOPrices = true
 			default:
-				return fmt.Errorf("can only add one roler per trigger")
+				return ErrMultipleRoles
 			}
 
 			switch len(addRolesDeposit) {
@@ -329,7 +329,7 @@ func subKDA() []*cobra.Command {
 				role.Address = addRolesDeposit[0]
 				role.HasRoleDeposit = true
 			default:
-				return fmt.Errorf("can only add one role per trigger")
+				return ErrMultipleRoles
 			}
 
 			switch len(addRolesTransfer) {
@@ -338,7 +338,7 @@ func subKDA() []*cobra.Command {
 				role.Address = addRolesTransfer[0]
 				role.HasRoleTransfer = true
 			default:
-				return fmt.Errorf("can only add one role per trigger")
+				return ErrMultipleRoles
 			}
 
 			var stakingInfo *models.StakingInfo

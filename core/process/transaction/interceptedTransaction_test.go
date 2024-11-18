@@ -29,8 +29,14 @@ import (
 var errSingleSignKeyGenMock = errors.New("errSingleSignKeyGenMock")
 var errSignerMockVerifySigFails = errors.New("errSignerMockVerifySigFails")
 
-var senderAddress = []byte("12345678123456781234567812345678")
-var recvAddress = []byte("1234567812345679")
+func makeAddress(addr string) []byte {
+	result := make([]byte, 32)
+	copy(result, addr)
+	return result
+}
+
+var senderAddress = makeAddress("12345678123456781234567812345678")
+var recvAddress = makeAddress("12345678123456781234567812345679")
 var token = "KDA"
 var sigOk = []byte("signature")
 
@@ -824,6 +830,9 @@ func AddTransaction(tx *dataTransaction.Transaction, sender []byte, contract int
 	}
 	nodeHelper.GetValidatorPCKCalled = func() core.PubkeyConverter {
 		return addressPubkeyConverter
+	}
+	nodeHelper.GetEncodedAddressLengthCalled = func() int {
+		return addressPubkeyConverter.Len() * 2
 	}
 	nodeHelper.GetAssetCalled = func(address string) (*kapps.KDAData, error) {
 		return &kapps.KDAData{}, nil

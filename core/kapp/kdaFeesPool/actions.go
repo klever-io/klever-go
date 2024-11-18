@@ -87,6 +87,10 @@ func (v *kdaFeesPoolKApp) UpdatePool(poolID []byte, assetOwner []byte, sender []
 
 // ChangePoolOwner -
 func (v *kdaFeesPoolKApp) ChangePoolOwner(assetID []byte, sender []byte, newOwner []byte) (transaction.Transaction_TXResultCode, error) {
+	if !v.forkController.EnableSmartContracts() {
+		return transaction.Transaction_Ok, nil
+	}
+
 	ctx := v.KAppController.GetCurrentKAppContext()
 
 	app, err := v.getKApp()

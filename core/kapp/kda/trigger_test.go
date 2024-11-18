@@ -335,57 +335,73 @@ func TestKDATrigger_ChangeOwnerWithoutPool(t *testing.T) {
 }
 
 func TestKDATrigger_ChangeOwner(t *testing.T) {
-	kc, err := createMockControllers()
-	require.NoError(t, err)
-
-	createDefaultAsset(t, kc, transaction.CreateAssetContract_Fungible, 0, 0, 0, nil)
-
-	createDefaultKDAPool(t, kc, defaultAssetID, defaultSender, true, 1000, 100000)
-
 	tests := []struct {
-		name          string
-		sender        []byte
-		toAddress     []byte
-		expectError   error
-		expectedOwner []byte
+		name              string
+		sender            []byte
+		toAddress         []byte
+		expectError       error
+		expectedOwner     []byte
+		expectedPoolOwner []byte
+		priorFork         bool
 	}{
 		{
-			name:          "Sender is not the owner",
-			sender:        makeAddress("notOwner"),
-			toAddress:     defaultOtherSender,
-			expectError:   common.ErrAccNotOwner,
-			expectedOwner: defaultSender,
+			name:              "Sender is not the owner",
+			sender:            makeAddress("notOwner"),
+			toAddress:         defaultOtherSender,
+			expectError:       common.ErrAccNotOwner,
+			expectedOwner:     defaultSender,
+			expectedPoolOwner: defaultSender,
 		},
 		{
-			name:          "Invalid ToAddress",
-			sender:        defaultSender,
-			toAddress:     []byte("invalid_address"),
-			expectError:   process.ErrInvalidRcvAddr,
-			expectedOwner: defaultSender,
+			name:              "Invalid ToAddress",
+			sender:            defaultSender,
+			toAddress:         []byte("invalid_address"),
+			expectError:       process.ErrInvalidRcvAddr,
+			expectedOwner:     defaultSender,
+			expectedPoolOwner: defaultSender,
 		},
 		{
-			name:          "Successful Change Owner",
-			sender:        defaultSender,
-			toAddress:     defaultOtherSender,
-			expectError:   nil,
-			expectedOwner: defaultOtherSender,
+			name:              "Successful Change Owner",
+			sender:            defaultSender,
+			toAddress:         defaultOtherSender,
+			expectError:       nil,
+			expectedOwner:     defaultOtherSender,
+			expectedPoolOwner: defaultOtherSender,
+		},
+		{
+			name:              "Successful Change Owner Prior Fork",
+			sender:            defaultSender,
+			toAddress:         defaultOtherSender,
+			expectError:       nil,
+			expectedOwner:     defaultOtherSender,
+			expectedPoolOwner: defaultSender,
+			priorFork:         true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			kc, err := createMockControllers()
+			require.NoError(t, err)
+			if tt.priorFork {
+				kc.GetForkController().(*mock.ForkControllerStub).SetFork("EnableSmartContracts", false)
+			}
+
+			createDefaultAsset(t, kc, transaction.CreateAssetContract_Fungible, 0, 0, 0, nil)
+
+			createDefaultKDAPool(t, kc, defaultAssetID, defaultSender, true, 1000, 100000)
+
 			tc := transaction.AssetTriggerContract{
 				TriggerType: transaction.AssetTriggerContract_ChangeOwner,
 				AssetID:     defaultAssetID,
 				ToAddress:   tt.toAddress,
 			}
 
-			_, err := kc.GetKDAKApp().Trigger(tt.sender, &tc, nil)
-
+			_, err = kc.GetKDAKApp().Trigger(tt.sender, &tc, nil)
 			assert.Equal(t, tt.expectError, err)
 
 			assetOwner, _ := kc.GetKDAFeesPoolKApp().GetPoolOwner(defaultAssetID)
-			assert.Equal(t, tt.expectedOwner, assetOwner)
+			assert.Equal(t, tt.expectedPoolOwner, assetOwner)
 		})
 	}
 }

@@ -213,7 +213,7 @@ func (inTx *InterceptedTransaction) integrity(tx *transaction.Transaction) error
 			return err
 		}
 	}
-	if err := tx.Validate(); err != nil {
+	if err := tx.Validate(inTx.forkController); err != nil {
 		return err
 	}
 
