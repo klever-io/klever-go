@@ -118,6 +118,8 @@ func writeSplitRoyalties(
 	destinationBytes []byte,
 ) {
 	keyHandle := managedType.NewManagedBufferFromBytes([]byte(key))
+	managedType.ConsumeGasForBytes([]byte(key))
+
 	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(keyHandle)) // #nosec G115
 	binary.BigEndian.PutUint32(destinationBytes[4:8], sr.PercentTransferPercentage)
 	binary.BigEndian.PutUint32(destinationBytes[8:12], sr.PercentTransferFixed)
@@ -163,6 +165,8 @@ func writeTransferPercentages(
 ) {
 	amount := big.NewInt(tp.Amount)
 	amountHandle := managedType.NewBigInt(amount)
+	managedType.ConsumeGasForBigIntCopy(amount)
+
 	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(amountHandle)) // #nosec G115
 	binary.BigEndian.PutUint32(destinationBytes[4:8], tp.Percentage)
 }
@@ -237,10 +241,20 @@ func writeUserBuckets(
 // - Delegation    - 4 bytes
 // Total: 24 bytes.
 func writeUserBucket(managedType vmhost.ManagedTypesContext, key string, bucket *kapps.UserBucket, destinationBytes []byte) {
-	keyHandle := managedType.NewManagedBufferFromBytes([]byte(key))
-	stakedAtHandle := managedType.NewBigIntFromInt64(bucket.StakedAt)
-	valueHandle := managedType.NewBigIntFromInt64(bucket.Value)
+	bKey := []byte(key)
+	keyHandle := managedType.NewManagedBufferFromBytes(bKey)
+	managedType.ConsumeGasForBytes(bKey)
+
+	stakedAt := big.NewInt(bucket.StakedAt)
+	stakedAtHandle := managedType.NewBigInt(stakedAt)
+	managedType.ConsumeGasForBigIntCopy(stakedAt)
+
+	value := big.NewInt(bucket.Value)
+	valueHandle := managedType.NewBigInt(value)
+	managedType.ConsumeGasForBigIntCopy(value)
+
 	delegationHandle := managedType.NewManagedBufferFromBytes(bucket.Delegation)
+	managedType.ConsumeGasForBytes(bucket.Delegation)
 
 	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(keyHandle))      // #nosec G115
 	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(stakedAtHandle)) // #nosec G115
@@ -269,12 +283,29 @@ func writeRoyaltiesToBytes(
 	}
 
 	destinationBytes := make([]byte, RoyaltiesLen)
+
 	addressHandle := managedType.NewManagedBufferFromBytes(royalties.Address)
-	transferPercentageHandle := managedType.NewManagedBufferFromBytes(writeTransferPercentagesToBytes(managedType, royalties.TransferPercentage))
-	transferFixedHandle := managedType.NewBigIntFromInt64(royalties.TransferFixed)
-	marketFixedHandle := managedType.NewBigIntFromInt64(royalties.MarketFixed)
-	splitRoyaltiesHandle := managedType.NewManagedBufferFromBytes(writeSplitRoyaltiesToBytes(managedType, royalties.SplitRoyalties))
-	itoFixedHandle := managedType.NewBigIntFromInt64(royalties.ITOFixed)
+	managedType.ConsumeGasForBytes(royalties.Address)
+
+	transferPercentage := writeTransferPercentagesToBytes(managedType, royalties.TransferPercentage)
+	transferPercentageHandle := managedType.NewManagedBufferFromBytes(transferPercentage)
+	managedType.ConsumeGasForBytes(transferPercentage)
+
+	transferFixed := big.NewInt(int64(royalties.TransferFixed))
+	transferFixedHandle := managedType.NewBigInt(transferFixed)
+	managedType.ConsumeGasForBigIntCopy(transferFixed)
+
+	marketFixed := big.NewInt(int64(royalties.MarketFixed))
+	marketFixedHandle := managedType.NewBigInt(marketFixed)
+	managedType.ConsumeGasForBigIntCopy(marketFixed)
+
+	splitRoyalties := writeSplitRoyaltiesToBytes(managedType, royalties.SplitRoyalties)
+	splitRoyaltiesHandle := managedType.NewManagedBufferFromBytes(splitRoyalties)
+	managedType.ConsumeGasForBytes(splitRoyalties)
+
+	itoFixed := big.NewInt(int64(royalties.ITOFixed))
+	itoFixedHandle := managedType.NewBigInt(itoFixed)
+	managedType.ConsumeGasForBigIntCopy(itoFixed)
 
 	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(addressHandle))            // #nosec G115
 	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(transferPercentageHandle)) // #nosec G115
@@ -391,12 +422,15 @@ func writeSFTMetadata(managedType vmhost.ManagedTypesContext, metadata *kapps.Me
 
 	nameHandle := managedType.NewManagedBufferFromBytes(metadata.Name)
 	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(nameHandle)) // #nosec G115
+	managedType.ConsumeGasForBytes(metadata.Name)
 
 	hashHandle := managedType.NewManagedBufferFromBytes(metadata.Hash)
 	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(hashHandle)) // #nosec G115
+	managedType.ConsumeGasForBytes(metadata.Hash)
 
 	attriHandle := managedType.NewManagedBufferFromBytes(metadata.Attributes)
 	binary.BigEndian.PutUint32(destinationBytes[8:12], uint32(attriHandle)) // #nosec G115
+	managedType.ConsumeGasForBytes(metadata.Attributes)
 
 	return destinationBytes
 }
@@ -404,14 +438,17 @@ func writeSFTMetadata(managedType vmhost.ManagedTypesContext, metadata *kapps.Me
 func writeURIs(managedType vmhost.ManagedTypesContext, key, value string, destinationBytes []byte) {
 	keyHandle := managedType.NewManagedBufferFromBytes([]byte(key))
 	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(keyHandle)) // #nosec G115
+	managedType.ConsumeGasForBytes([]byte(key))
 
 	valueHandle := managedType.NewManagedBufferFromBytes([]byte(value))
 	binary.BigEndian.PutUint32(destinationBytes[4:8], uint32(valueHandle)) // #nosec G115
+	managedType.ConsumeGasForBytes([]byte(value))
 }
 
 func writeRoles(managedType vmhost.ManagedTypesContext, role *kapps.RolesData, destinationBytes []byte) {
 	addressHandle := managedType.NewManagedBufferFromBytes(role.Address)
 	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(addressHandle)) // #nosec G115
+	managedType.ConsumeGasForBytes(role.Address)
 
 	value := uint32(0)
 

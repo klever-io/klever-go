@@ -321,6 +321,10 @@ func FillGasMapBaseOpsAPICosts(value uint64) map[string]uint64 {
 	gasMap["DeleteFromReturnData"] = value
 	gasMap["GetCodeMetadata"] = value
 	gasMap["IsBuiltinFunction"] = value
+	gasMap["GetKDATokenData"] = value
+	gasMap["GetUserKDA"] = value
+	gasMap["GetSFTMetadata"] = value
+	gasMap["GetKDARoles"] = value
 
 	return gasMap
 }

@@ -16,6 +16,8 @@ type MeteringContextMock struct {
 	GasComputedToLock uint64
 	BlockGasLimitMock uint64
 	Err               error
+
+	UseAndTraceGasCalled func(gas uint64)
 }
 
 // InitState mocked method
@@ -62,7 +64,11 @@ func (m *MeteringContextMock) UseGas(gas uint64) {
 }
 
 // UseAndTraceGas mocked method
-func (m *MeteringContextMock) UseAndTraceGas(_ uint64) {}
+func (m *MeteringContextMock) UseAndTraceGas(gas uint64) {
+	if m.UseAndTraceGasCalled != nil {
+		m.UseAndTraceGasCalled(gas)
+	}
+}
 
 // UseGasAndAddTracedGas mocked method
 func (m *MeteringContextMock) UseGasAndAddTracedGas(_ string, gasToUse uint64) {

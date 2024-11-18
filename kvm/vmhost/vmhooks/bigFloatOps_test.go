@@ -52,7 +52,8 @@ func makeHostParameters() *vmhost.VMHostParameters {
 func TestBigFloatPow(t *testing.T) {
 	t.Run("Positive base, positive exponent", func(t *testing.T) {
 		mockWorld := worldmock.NewMockWorld()
-		vmHost, _ := hostCore.NewVMHost(mockWorld, makeHostParameters())
+		vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+		require.NoError(t, err)
 		hooks := vmhooks.NewVMHooksImpl(vmHost)
 
 		base := big.NewFloat(2.0)

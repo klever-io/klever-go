@@ -33,7 +33,7 @@ const (
 	managedGetBackTransferName              = "managedGetBackTransfer"
 	managedGetKDABalanceName                = "managedGetKDABalance"
 	managedGetKDATokenDataName              = "managedGetKDATokenData"
-	managedGetSftTokenDataName              = "managedGetSftTokenData"
+	managedGetSftMetadataName               = "managedGetSftMetadataName"
 	managedAccHasPermName                   = "managedAccHasPerm"
 	managedGetKDARolesName                  = "managedGetKDARoles"
 	managedGetReturnDataName                = "managedGetReturnData"
@@ -381,9 +381,9 @@ func ManagedGetKDARolesWithHost(
 	metering := host.Metering()
 	blockchain := host.Blockchain()
 	managedType := host.ManagedTypes()
-	metering.StartGasTracing(managedGetKDATokenDataName)
+	metering.StartGasTracing(managedGetKDARolesName)
 
-	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetExternalBalance
+	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetKDARoles
 	metering.UseAndTraceGas(gasToUse)
 
 	ticker, err := managedType.GetBytes(tickerHandle)
@@ -400,6 +400,7 @@ func ManagedGetKDARolesWithHost(
 
 	roles := writeRolesToBytes(managedType, kda.Roles)
 	managedType.SetBytes(rolesHandle, roles)
+	managedType.ConsumeGasForBytes(roles)
 }
 
 func ManagedGetUserKDAWithHost(
@@ -415,7 +416,7 @@ func ManagedGetUserKDAWithHost(
 	managedType := host.ManagedTypes()
 	metering.StartGasTracing(managedGetKDATokenDataName)
 
-	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetExternalBalance
+	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetUserKDA
 	metering.UseAndTraceGas(gasToUse)
 
 	address, err := managedType.GetBytes(addressHandle)
@@ -443,9 +444,12 @@ func ManagedGetUserKDAWithHost(
 
 	buckets := writeUserBuckets(managedType, userKDA.Buckets)
 	managedType.SetBytes(bucketsHandle, buckets)
+	managedType.ConsumeGasForBytes(buckets)
 
 	managedType.SetBytes(mimeHandle, userKDA.MIME)
+	managedType.ConsumeGasForBytes(userKDA.MIME)
 	managedType.SetBytes(metadataHandle, userKDA.Metadata)
+	managedType.ConsumeGasForBytes(userKDA.Metadata)
 }
 
 func ManagedGetKDATokenDataWithHost(
@@ -460,7 +464,7 @@ func ManagedGetKDATokenDataWithHost(
 	managedType := host.ManagedTypes()
 	metering.StartGasTracing(managedGetKDATokenDataName)
 
-	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetExternalBalance
+	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetKDATokenData
 	metering.UseAndTraceGas(gasToUse)
 
 	address, err := managedType.GetBytes(addressHandle)
@@ -486,6 +490,8 @@ func ManagedGetKDATokenDataWithHost(
 	managedType.SetBytes(creatorHandle, kda.OwnerAddress)
 	managedType.SetBytes(adminHandle, kda.AdminAddress)
 	managedType.SetBytes(logoHandle, []byte(kda.Logo))
+	managedType.ConsumeGasForBytes([]byte(kda.Logo))
+
 	managedType.GetBigIntOrCreate(initialSupplyHandle).Set(big.NewInt(int64(kda.InitialSupply)))
 	managedType.GetBigIntOrCreate(circulatingSupplyHandle).Set(big.NewInt(int64(kda.CirculatingSupply)))
 	managedType.GetBigIntOrCreate(maxSupplyHandle).Set(big.NewInt(int64(kda.MaxSupply)))
@@ -494,17 +500,19 @@ func ManagedGetKDATokenDataWithHost(
 	managedType.GetBigIntOrCreate(issueDateHandle).Set(big.NewInt(int64(kda.IssueDate)))
 
 	royalties := writeRoyaltiesToBytes(managedType, kda.Royalties)
-
 	managedType.SetBytes(royaltiesHandle, royalties)
+	managedType.ConsumeGasForBytes(royalties)
 
 	managedType.GetBigIntOrCreate(propertiesHandle).Set(big.NewInt(int64(getPropertiesValue(kda.Properties, int32(kda.AssetType)))))
 	managedType.GetBigIntOrCreate(attributesHandle).Set(big.NewInt(int64(getAttributesValue(kda.Attributes))))
 
 	roles := writeRolesToBytes(managedType, kda.Roles)
 	managedType.SetBytes(rolesHandle, roles)
+	managedType.ConsumeGasForBytes(roles)
 
 	uris := writeURIsToBytes(managedType, kda.URIs)
 	managedType.SetBytes(urisHandle, uris)
+	managedType.ConsumeGasForBytes(uris)
 }
 
 // ManagedUpgradeFromSourceContract VMHooks implementation.
@@ -1011,9 +1019,9 @@ func ManagedGetSftMetadataWithHost(
 	metering := host.Metering()
 	blockchain := host.Blockchain()
 	managedType := host.ManagedTypes()
-	metering.StartGasTracing(managedGetSftTokenDataName)
+	metering.StartGasTracing(managedGetSftMetadataName)
 
-	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetExternalBalance
+	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetSFTMetadata
 	metering.UseAndTraceGas(gasToUse)
 
 	ticker, err := managedType.GetBytes(tickerHandle)

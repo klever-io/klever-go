@@ -77,6 +77,10 @@ BaseOpsAPICost:
   DeleteFromReturnData: 100
   GetCodeMetadata: 10
   IsBuiltinFunction: 10
+  GetKDATokenData: 15000
+  GetUserKDA: 9000
+  GetSFTMetadata: 5000
+  GetKDARoles: 4000
 
 EthAPICost:
   UseGas: 100

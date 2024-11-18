@@ -10,7 +10,7 @@ import (
 type ValidatorsKAppStub struct {
 	ResetValidatorStatisticsAtNewEpochCalled func([]*state.ValidatorInfo) ([]*state.ValidatorInfo, error)
 	ProcessRatingsEndOfEpochCalled           func([]*state.ValidatorInfo) error
-	UndelegateCalled func(blockEpoch uint32, validator []byte, sender []byte, tc *transaction.UndelegateContract) (transaction.Transaction_TXResultCode, error)
+	UndelegateCalled                         func(blockEpoch uint32, validator []byte, sender []byte, tc *transaction.UndelegateContract) (transaction.Transaction_TXResultCode, error)
 }
 
 // SetKAppController sets the KApp controller.

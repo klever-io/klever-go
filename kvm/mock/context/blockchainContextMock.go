@@ -15,6 +15,8 @@ var _ vmhost.BlockchainContext = (*BlockchainContextMock)(nil)
 
 // BlockchainContextMock -
 type BlockchainContextMock struct {
+	GetKdaTokenDataCalled func(addr []byte, ticker []byte, nonce uint64) (*kapps.KDAData, *kapps.UserKDA, error)
+	GetSFTMetaCalled      func(asset []byte, nonce uint64) (*kapps.MetaV2, error)
 }
 
 // InitState -
@@ -166,12 +168,20 @@ func (b *BlockchainContextMock) GetCompiledCode(_ []byte) (bool, []byte) {
 }
 
 // GetKDAToken -
-func (b *BlockchainContextMock) GetKDAToken(_ []byte, _ []byte, _ uint64) (*kapps.KDAData, *kapps.UserKDA, error) {
+func (b *BlockchainContextMock) GetKDAToken(addr []byte, ticker []byte, nonce uint64) (*kapps.KDAData, *kapps.UserKDA, error) {
+	if b.GetKdaTokenDataCalled != nil {
+		return b.GetKdaTokenDataCalled(addr, ticker, nonce)
+	}
+
 	return &kapps.KDAData{}, &kapps.UserKDA{}, nil
 }
 
 // GetSFTMeta -
-func (b *BlockchainContextMock) GetSFTMeta(_ []byte, _ uint64) (*kapps.MetaV2, error) {
+func (b *BlockchainContextMock) GetSFTMeta(asset []byte, nonce uint64) (*kapps.MetaV2, error) {
+	if b.GetSFTMetaCalled != nil {
+		return b.GetSFTMetaCalled(asset, nonce)
+	}
+
 	return &kapps.MetaV2{}, nil
 }
 

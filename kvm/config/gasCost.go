@@ -103,6 +103,10 @@ type BaseOpsAPICost struct {
 	DeleteFromReturnData uint64
 	GetCodeMetadata      uint64
 	IsBuiltinFunction    uint64
+	GetUserKDA           uint64
+	GetKDATokenData      uint64
+	GetSFTMetadata       uint64
+	GetKDARoles          uint64
 }
 
 // DynamicStorageLoadCostCoefficients holds the signed coefficients of the func that will compute the gas cost
