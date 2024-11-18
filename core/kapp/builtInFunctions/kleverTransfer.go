@@ -92,6 +92,18 @@ func (e *kdaTransfer) performKDATransfer(
 	return nil
 }
 
+func (e *kdaTransfer) getPendingTransfersCount(vmInput *vmcommon.ContractCallInput) uint64 {
+	kdaTransfersLen := uint64(0)
+
+	for _, v := range vmInput.KDATransfers {
+		if !v.IsExecuted() {
+			kdaTransfersLen++
+		}
+	}
+
+	return kdaTransfersLen
+}
+
 // ProcessBuiltinFunction resolves KDA transfer function calls
 func (e *kdaTransfer) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
 	e.mutExecution.RLock()
@@ -101,8 +113,10 @@ func (e *kdaTransfer) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput
 		return nil, err
 	}
 
-	// Builtin cost by number of TX executed
-	totalCost := e.funcGasCost * uint64(len(vmInput.KDATransfers))
+	kdaTransfersLen := e.getPendingTransfersCount(vmInput)
+
+	// Builtin cost by number of TX to be executed (pending transfers)
+	totalCost := e.funcGasCost * kdaTransfersLen
 	if totalCost > vmInput.GasProvided {
 		return nil, common.ErrNotEnoughGas
 	}

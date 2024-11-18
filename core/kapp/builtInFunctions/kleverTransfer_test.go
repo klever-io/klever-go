@@ -114,7 +114,7 @@ func vmInputTransferCreation(
 		RecipientAddr: []byte("receiver_address"),
 		VMInput: vmcommon.VMInput{
 			CallerAddr:   []byte("caller_address"),
-			GasProvided:  gasCost + 1,
+			GasProvided:  gasCost,
 			KDATransfers: transfers,
 		},
 	}
@@ -123,263 +123,360 @@ func vmInputTransferCreation(
 func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 	funcGasCost := uint64(1000)
 
-	t.Run("nil ContractCallInput", func(t *testing.T) {
-		kdaTransferInstance := builtInFunctions.NewKDATransferFunc(
-			funcGasCost,
-			&mock.KappsControllerMock{},
-		)
-		vmOutput, err := kdaTransferInstance.ProcessBuiltinFunction(nil)
+	transferExecuted := &vmcommon.KDATransfer{}
+	transferExecuted.SetExecuted()
 
-		require.Nil(t, vmOutput, "vmOutput should be nil")
-		require.Error(t, err, "kleverTransfer ProcessBuiltinFunction should return not nil error")
-	})
-
-	t.Run("input not payable", func(t *testing.T) {
-		kdaTransferInstance := builtInFunctions.NewKDATransferFunc(
-			funcGasCost,
-			&mock.KappsControllerMock{},
-		)
-		kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{
-			CheckPayableCalled: func(vmInput *vmcommon.ContractCallInput, destAddr []byte, minLenArgs int) error {
-				return builtInFunctions.ErrAccountNotPayable
+	cases := []struct {
+		name                string
+		kdaTransferInstance vmcommon.BuiltinFunction
+		mock                func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput
+		transfers           []*vmcommon.KDATransfer
+		expectedError       error
+	}{
+		{
+			name: "nil ContractCallInput",
+			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
+				funcGasCost,
+				&mock.KappsControllerMock{},
+			),
+			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
+				return nil
 			},
-		})
+			expectedError: builtInFunctions.ErrNilVmInput,
+		},
+		{
+			name: "input not payable",
+			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
+				funcGasCost,
+				&mock.KappsControllerMock{},
+			),
+			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
+				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{
+					CheckPayableCalled: func(vmInput *vmcommon.ContractCallInput, destAddr []byte, minLenArgs int) error {
+						return builtInFunctions.ErrAccountNotPayable
+					},
+				})
 
-		vmOutput, err := kdaTransferInstance.ProcessBuiltinFunction(
-			vmInputTransferCreation([]*vmcommon.KDATransfer{
+				return vmInputTransferCreation(transfers, funcGasCost)
+			},
+			expectedError: builtInFunctions.ErrAccountNotPayable,
+			transfers: []*vmcommon.KDATransfer{
 				{
 					KDAValue: big.NewInt(100),
 				},
-			}, funcGasCost),
-		)
+			},
+		},
+		{
+			name: "transfer kapp returns error",
+			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
+				funcGasCost,
+				&stub.KAppControllerStub{
+					GetAccountsKAppCalled: func() kapp.AccountsKapp {
+						return &stub.KAppAccountsStub{
+							TransferCalled: func(
+								cType transaction.TXContract_ContractType,
+								sender []byte,
+								tc *transaction.TransferContract,
+							) (transaction.Transaction_TXResultCode, error) {
+								return transaction.Transaction_AccountError, fmt.Errorf(
+									"transfer error",
+								)
+							},
+						}
+					},
+				},
+			),
+			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
+				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
 
-		require.Nil(t, vmOutput, "vmOutput should be nil")
-		require.Error(t, err, "kleverTransfer ProcessBuiltinFunction should return not nil error")
-		require.ErrorIs(
-			t,
-			err,
-			builtInFunctions.ErrAccountNotPayable,
-			"error should be ErrAccountNotPayable",
-		)
-	})
-
-	t.Run("transfer kapp returns error", func(t *testing.T) {
-		kdaTransferInstance := builtInFunctions.NewKDATransferFunc(
-			funcGasCost,
-			&stub.KAppControllerStub{
-				GetAccountsKAppCalled: func() kapp.AccountsKapp {
-					return &stub.KAppAccountsStub{
-						TransferCalled: func(
-							cType transaction.TXContract_ContractType,
-							sender []byte,
-							tc *transaction.TransferContract,
-						) (transaction.Transaction_TXResultCode, error) {
-							return transaction.Transaction_AccountError, fmt.Errorf(
-								"transfer error",
-							)
-						},
-					}
+				return vmInputTransferCreation(transfers, funcGasCost)
+			},
+			transfers: []*vmcommon.KDATransfer{
+				{
+					KDATokenName:  []byte("FTError"),
+					KDAValue:      big.NewInt(1000),
+					KDATokenNonce: 0,
 				},
 			},
-		)
+			expectedError: fmt.Errorf("transfer error"),
+		},
+		{
+			name:          "transfer kapp returns transaction code not Ok",
+			expectedError: fmt.Errorf("KDA Transfer error: %s", transaction.Transaction_AccountError.String()),
+			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
+				funcGasCost,
+				&stub.KAppControllerStub{
+					GetAccountsKAppCalled: func() kapp.AccountsKapp {
+						return &stub.KAppAccountsStub{
+							TransferCalled: func(
+								cType transaction.TXContract_ContractType,
+								sender []byte,
+								tc *transaction.TransferContract,
+							) (transaction.Transaction_TXResultCode, error) {
+								return transaction.Transaction_AccountError, nil
+							},
+						}
+					},
+				},
+			),
+			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
+				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
 
-		kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
-
-		vmInputFT := vmInputTransferCreation([]*vmcommon.KDATransfer{
-			{
-				KDATokenName:  []byte("FTError"),
-				KDAValue:      big.NewInt(1000),
-				KDATokenNonce: 0,
+				return vmInputTransferCreation(transfers, funcGasCost)
 			},
-		}, funcGasCost)
-
-		vmOutput, err := kdaTransferInstance.ProcessBuiltinFunction(vmInputFT)
-
-		require.Nil(t, vmOutput, "vmOutput should be nil")
-		require.Error(t, err, "kleverTransfer ProcessBuiltinFunction should return not nil error")
-	})
-
-	t.Run("transfer kapp returns transaction code not Ok", func(t *testing.T) {
-		resultCode := transaction.Transaction_AccountError
-		returnedError := fmt.Errorf("KDA Transfer error: %s", resultCode.String())
-
-		kdaTransferInstance := builtInFunctions.NewKDATransferFunc(
-			funcGasCost,
-			&stub.KAppControllerStub{
-				GetAccountsKAppCalled: func() kapp.AccountsKapp {
-					return &stub.KAppAccountsStub{
-						TransferCalled: func(
-							cType transaction.TXContract_ContractType,
-							sender []byte,
-							tc *transaction.TransferContract,
-						) (transaction.Transaction_TXResultCode, error) {
-							return resultCode, nil
-						},
-					}
+			transfers: []*vmcommon.KDATransfer{
+				{
+					KDATokenName:  []byte("FTCodeNotOk"),
+					KDAValue:      big.NewInt(1000),
+					KDATokenNonce: 0,
 				},
 			},
-		)
-
-		kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
-
-		vmInputFT := vmInputTransferCreation([]*vmcommon.KDATransfer{
-			{
-				KDATokenName:  []byte("FTCodeNotOk"),
-				KDAValue:      big.NewInt(1000),
-				KDATokenNonce: 0,
-			},
-		}, funcGasCost)
-
-		vmOutput, err := kdaTransferInstance.ProcessBuiltinFunction(vmInputFT)
-
-		require.Nil(t, vmOutput, "vmOutput should be nil")
-		require.Error(t, err, "kleverTransfer ProcessBuiltinFunction should return not nil error")
-		require.Equal(
-			t,
-			err.Error(),
-			returnedError.Error(),
-			"error should be the one returned by the transfer kapp",
-		)
-	})
-
-	t.Run("transfer with negative value", func(t *testing.T) {
-		kdaTransferInstance := builtInFunctions.NewKDATransferFunc(
-			funcGasCost,
-			&mock.KappsControllerMock{},
-		)
-
-		kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
-
-		vmInputFT := vmInputTransferCreation([]*vmcommon.KDATransfer{
-			{
-				KDATokenName:  []byte("FTNeg"),
-				KDAValue:      big.NewInt(-1),
-				KDATokenNonce: 0,
-			},
-		}, funcGasCost)
-
-		vmOutput, err := kdaTransferInstance.ProcessBuiltinFunction(vmInputFT)
-
-		require.Nil(t, vmOutput, "vmOutput should be nil")
-		require.Error(t, err, "kleverTransfer ProcessBuiltinFunction should return not nil error")
-		require.ErrorIs(
-			t,
-			err,
-			common.ErrInvalidValue,
-			"error should be ErrInvalidValue from `common` package",
-		)
-	})
-
-	t.Run("not enough gas provided", func(t *testing.T) {
-		kdaTransferInstance := builtInFunctions.NewKDATransferFunc(
-			funcGasCost,
-			&stub.KAppControllerStub{
-				GetAccountsKAppCalled: func() kapp.AccountsKapp {
-					return &stub.KAppAccountsStub{
-						TransferCalled: func(
-							cType transaction.TXContract_ContractType,
-							sender []byte,
-							tc *transaction.TransferContract,
-						) (transaction.Transaction_TXResultCode, error) {
-							return transaction.Transaction_Ok, nil
-						},
-					}
+		},
+		{
+			name: "transfer with negative value",
+			transfers: []*vmcommon.KDATransfer{
+				{
+					KDATokenName:  []byte("FTNeg"),
+					KDAValue:      big.NewInt(-1),
+					KDATokenNonce: 0,
 				},
 			},
-		)
+			expectedError: common.ErrInvalidValue,
+			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
+				funcGasCost,
+				&mock.KappsControllerMock{},
+			),
+			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
+				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
 
-		kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
-
-		transfers := []*vmcommon.KDATransfer{
-			{
-				KDATokenName:  []byte("FTSucess"),
-				KDAValue:      big.NewInt(1000),
-				KDATokenNonce: 0,
+				return vmInputTransferCreation(transfers, funcGasCost)
 			},
-			{
-				KDATokenName:  []byte("SFTOrNFTSucess"),
-				KDAValue:      big.NewInt(10),
-				KDATokenNonce: 8,
-			},
-		}
-
-		vmInputFT := vmInputTransferCreation(transfers, funcGasCost)
-
-		vmOutput, err := kdaTransferInstance.ProcessBuiltinFunction(vmInputFT)
-
-		require.Nil(t, vmOutput, "vmOutput should be nil")
-		require.Error(t, err, "kleverTransfer ProcessBuiltinFunction should return not nil error")
-		require.ErrorIs(
-			t,
-			err,
-			common.ErrNotEnoughGas,
-			"error should be ErrOutOfGas from `common` package",
-		)
-	})
-
-	t.Run("successful transfers", func(t *testing.T) {
-		kdaTransferInstance := builtInFunctions.NewKDATransferFunc(
-			funcGasCost,
-			&stub.KAppControllerStub{
-				GetAccountsKAppCalled: func() kapp.AccountsKapp {
-					return &stub.KAppAccountsStub{
-						TransferCalled: func(
-							cType transaction.TXContract_ContractType,
-							sender []byte,
-							tc *transaction.TransferContract,
-						) (transaction.Transaction_TXResultCode, error) {
-							return transaction.Transaction_Ok, nil
-						},
-					}
+		},
+		{
+			name: "not enough gas provided",
+			transfers: []*vmcommon.KDATransfer{
+				{
+					KDATokenName:  []byte("FTSucess"),
+					KDAValue:      big.NewInt(1000),
+					KDATokenNonce: 0,
+				},
+				{
+					KDATokenName:  []byte("SFTOrNFTSucess"),
+					KDAValue:      big.NewInt(10),
+					KDATokenNonce: 8,
 				},
 			},
-		)
+			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
+				funcGasCost,
+				&stub.KAppControllerStub{
+					GetAccountsKAppCalled: func() kapp.AccountsKapp {
+						return &stub.KAppAccountsStub{
+							TransferCalled: func(
+								cType transaction.TXContract_ContractType,
+								sender []byte,
+								tc *transaction.TransferContract,
+							) (transaction.Transaction_TXResultCode, error) {
+								return transaction.Transaction_Ok, nil
+							},
+						}
+					},
+				},
+			),
+			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
+				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
 
-		kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
-
-		transferExecuted := &vmcommon.KDATransfer{}
-		transferExecuted.SetExecuted()
-
-		transfers := []*vmcommon.KDATransfer{
-			transferExecuted,
-			{
-				KDATokenName:  []byte("FTSucess"),
-				KDAValue:      big.NewInt(1000),
-				KDATokenNonce: 0,
+				return vmInputTransferCreation(transfers, funcGasCost)
 			},
-			{
-				KDATokenName:  []byte("SFTOrNFTSucess"),
-				KDAValue:      big.NewInt(1),
-				KDATokenNonce: 8,
+			expectedError: common.ErrNotEnoughGas,
+		},
+		{
+			name: "successful transfers",
+			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
+				funcGasCost,
+				&stub.KAppControllerStub{
+					GetAccountsKAppCalled: func() kapp.AccountsKapp {
+						return &stub.KAppAccountsStub{
+							TransferCalled: func(
+								cType transaction.TXContract_ContractType,
+								sender []byte,
+								tc *transaction.TransferContract,
+							) (transaction.Transaction_TXResultCode, error) {
+								return transaction.Transaction_Ok, nil
+							},
+						}
+					},
+				},
+			),
+			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
+				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
+
+				return vmInputTransferCreation(transfers, funcGasCost*uint64(len(transfers)))
 			},
-			{
-				KDATokenName:  []byte("FTZeroAmount"),
-				KDAValue:      big.NewInt(0),
-				KDATokenNonce: 0,
+			transfers: []*vmcommon.KDATransfer{
+				{
+					KDATokenName:  []byte("FTSucess"),
+					KDAValue:      big.NewInt(1000),
+					KDATokenNonce: 0,
+				},
+				{
+					KDATokenName:  []byte("SFTOrNFTSucess"),
+					KDAValue:      big.NewInt(1),
+					KDATokenNonce: 8,
+				},
+				{
+					KDATokenName:  []byte("FTZeroAmount"),
+					KDAValue:      big.NewInt(0),
+					KDATokenNonce: 0,
+				},
+				{
+					KDATokenName:  []byte("FTNilAmount"),
+					KDAValue:      nil,
+					KDATokenNonce: 0,
+				},
 			},
-			{
-				KDATokenName:  []byte("FTNilAmount"),
-				KDAValue:      nil,
-				KDATokenNonce: 0,
+		},
+		{
+			name: "successful transfers with executed transfers",
+			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
+				funcGasCost,
+				&stub.KAppControllerStub{
+					GetAccountsKAppCalled: func() kapp.AccountsKapp {
+						return &stub.KAppAccountsStub{
+							TransferCalled: func(
+								cType transaction.TXContract_ContractType,
+								sender []byte,
+								tc *transaction.TransferContract,
+							) (transaction.Transaction_TXResultCode, error) {
+								return transaction.Transaction_Ok, nil
+							},
+						}
+					},
+				},
+			),
+			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
+				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
+
+				return vmInputTransferCreation(transfers, funcGasCost*uint64(len(transfers)-1))
 			},
-		}
+			transfers: []*vmcommon.KDATransfer{
+				transferExecuted,
+				{
+					KDATokenName:  []byte("FTSucess"),
+					KDAValue:      big.NewInt(1000),
+					KDATokenNonce: 0,
+				},
+				{
+					KDATokenName:  []byte("SFTOrNFTSucess"),
+					KDAValue:      big.NewInt(1),
+					KDATokenNonce: 8,
+				},
+				{
+					KDATokenName:  []byte("FTZeroAmount"),
+					KDAValue:      big.NewInt(0),
+					KDATokenNonce: 0,
+				},
+				{
+					KDATokenName:  []byte("FTNilAmount"),
+					KDAValue:      nil,
+					KDATokenNonce: 0,
+				},
+			},
+		},
+		{
+			name: "successful transfers with all executed",
+			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
+				funcGasCost,
+				&stub.KAppControllerStub{
+					GetAccountsKAppCalled: func() kapp.AccountsKapp {
+						return &stub.KAppAccountsStub{
+							TransferCalled: func(
+								cType transaction.TXContract_ContractType,
+								sender []byte,
+								tc *transaction.TransferContract,
+							) (transaction.Transaction_TXResultCode, error) {
+								return transaction.Transaction_Ok, nil
+							},
+						}
+					},
+				},
+			),
+			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
+				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
 
-		vmInputFT := vmInputTransferCreation(transfers, funcGasCost*uint64(len(transfers)))
+				return vmInputTransferCreation(transfers, funcGasCost*0)
+			},
+			transfers: []*vmcommon.KDATransfer{
+				transferExecuted,
+				transferExecuted,
+			},
+		},
+		{
+			name:          "not enought gas with executed transfers",
+			expectedError: common.ErrNotEnoughGas,
+			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
+				funcGasCost,
+				&stub.KAppControllerStub{
+					GetAccountsKAppCalled: func() kapp.AccountsKapp {
+						return &stub.KAppAccountsStub{
+							TransferCalled: func(
+								cType transaction.TXContract_ContractType,
+								sender []byte,
+								tc *transaction.TransferContract,
+							) (transaction.Transaction_TXResultCode, error) {
+								return transaction.Transaction_Ok, nil
+							},
+						}
+					},
+				},
+			),
+			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
+				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
 
-		vmOutput, err := kdaTransferInstance.ProcessBuiltinFunction(vmInputFT)
+				return vmInputTransferCreation(transfers, funcGasCost)
+			},
+			transfers: []*vmcommon.KDATransfer{
+				transferExecuted,
+				transferExecuted,
+				{
+					KDATokenName:  []byte("FTSucess"),
+					KDAValue:      big.NewInt(1000),
+					KDATokenNonce: 0,
+				},
+				{
+					KDATokenName:  []byte("SFTOrNFTSucess"),
+					KDAValue:      big.NewInt(1),
+					KDATokenNonce: 8,
+				},
+			},
+		},
+	}
 
-		require.NotNil(t, vmOutput, "vmOutput should not be nil")
-		require.NoError(t, err, "kleverTransfer ProcessBuiltinFunction should not return error")
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			req := require.New(t)
+			vmInput := tt.mock(tt.kdaTransferInstance.(vmcommon.AcceptPayableChecker), tt.transfers)
+			vmOutput, err := tt.kdaTransferInstance.ProcessBuiltinFunction(vmInput)
 
-		for _, transfer := range transfers {
-			require.True(
-				t,
-				transfer.IsExecuted(),
-				"transfer of %s token should be marked as executed",
-				transfer.KDATokenName,
-			)
-		}
-	})
+			if tt.expectedError != nil {
+				req.Nil(vmOutput, "vmOutput should be nil")
+				req.Error(err, "kleverTransfer ProcessBuiltinFunction should return not nil error")
+				req.Equal(tt.expectedError.Error(), err.Error())
+				return
+			}
+
+			// gas remaining should be zero
+			req.Equal(uint64(0), vmOutput.GasRemaining)
+			req.NotNil(vmOutput, "vmOutput should not be nil")
+			req.NoError(err, "kleverTransfer ProcessBuiltinFunction should not return error")
+			for _, transfer := range tt.transfers {
+				req.True(
+					transfer.IsExecuted(),
+					"transfer of %s token should be marked as executed",
+					transfer.KDATokenName,
+				)
+			}
+		})
+	}
 }
 
 func TestKleverTransferSetNewGasConfig(t *testing.T) {
