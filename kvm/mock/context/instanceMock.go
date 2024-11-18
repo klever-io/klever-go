@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	executorwrapper "github.com/klever-io/klever-go/kvm/executor/wrapper"
+
 	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 )
@@ -176,7 +178,8 @@ func (instance *InstanceMock) IsFunctionImported(name string) bool {
 
 // GetMockInstance gets the mock instance from the runtime of the provided host
 func GetMockInstance(host vmhost.VMHost) *InstanceMock {
-	instance := host.Runtime().GetInstance().(*InstanceMock)
+	wrappedInstance := host.Runtime().GetInstance().(*executorwrapper.WrapperInstance)
+	instance := wrappedInstance.GetWrappedInstance().(*InstanceMock)
 	return instance
 }
 

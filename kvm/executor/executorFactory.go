@@ -1,6 +1,10 @@
 package executor
 
-import "github.com/klever-io/klever-go/tools/check"
+import (
+	"time"
+
+	"github.com/klever-io/klever-go/tools/check"
+)
 
 // ExecutorFactoryArgs define the Executor configurations that come from the VM, especially the hooks and the gas costs.
 type ExecutorFactoryArgs struct {
@@ -8,6 +12,7 @@ type ExecutorFactoryArgs struct {
 	OpcodeCosts              *WASMOpcodeCost
 	RkyvSerializationEnabled bool
 	WasmerSIGSEGVPassthrough bool
+	ExecutionTimeout         time.Duration
 }
 
 // ExecutorAbstractFactory defines an object to be passed to the VM to configure the instantiation of the Executor.

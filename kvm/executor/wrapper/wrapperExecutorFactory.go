@@ -32,12 +32,14 @@ func SimpleWrappedExecutorFactory(wrappedFactory executor.ExecutorAbstractFactor
 func (factory *WrapperExecutorFactory) CreateExecutor(args executor.ExecutorFactoryArgs) (executor.Executor, error) {
 	wrappedExecutor, err := factory.wrappedFactory.CreateExecutor(executor.ExecutorFactoryArgs{
 		VMHooks: &WrapperVMHooks{
-			logger:         factory.logger,
-			wrappedVMHooks: args.VMHooks,
+			logger:           factory.logger,
+			wrappedVMHooks:   args.VMHooks,
+			executionTimeout: args.ExecutionTimeout,
 		},
 		OpcodeCosts:              args.OpcodeCosts,
 		RkyvSerializationEnabled: args.RkyvSerializationEnabled,
 		WasmerSIGSEGVPassthrough: args.WasmerSIGSEGVPassthrough,
+		ExecutionTimeout:         args.ExecutionTimeout,
 	})
 	if err != nil {
 		return nil, err

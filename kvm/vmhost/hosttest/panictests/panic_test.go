@@ -2,7 +2,6 @@ package panictests
 
 import (
 	"math/big"
-	"math/rand"
 	"sync"
 	"testing"
 	"time"
@@ -173,7 +172,7 @@ func TestExecution_MultipleHostsPanicInGoWithSilentWasmer_TimeoutAndSIGSEGV(t *t
 			var i *int
 
 			// dereference a nil pointer
-			time.Sleep(time.Millisecond * time.Duration(rand.Intn(1000))) // Random sleep
+			time.Sleep(time.Second)
 			*i = *i + 1
 			return nil, 0, nil
 		}
@@ -197,11 +196,11 @@ func TestExecution_MultipleHostsPanicInGoWithSilentWasmer_TimeoutAndSIGSEGV(t *t
 			defer func() {
 				r := recover()
 				require.Nil(t, r)
+				wg.Done()
 			}()
 
 			_, err := hosts[idx].RunSmartContractCall(input)
 			require.NotNil(t, err)
-			wg.Done()
 		}(k)
 	}
 

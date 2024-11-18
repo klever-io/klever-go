@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	executorwrapper "github.com/klever-io/klever-go/kvm/executor/wrapper"
+
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/kvm/config"
@@ -186,8 +188,11 @@ func (host *vmHost) createExecutor(hostParameters *vmhost.VMHostParameters) (exe
 		OpcodeCosts:              gasCostConfig.WASMOpcodeCost,
 		RkyvSerializationEnabled: true,
 		WasmerSIGSEGVPassthrough: hostParameters.WasmerSIGSEGVPassthrough,
+		ExecutionTimeout:         host.executionTimeout,
 	}
-	return vmExecutorFactory.CreateExecutor(vmExecutorFactoryArgs)
+
+	wrappedExecutorFactory := executorwrapper.SimpleWrappedExecutorFactory(vmExecutorFactory)
+	return wrappedExecutorFactory.CreateExecutor(vmExecutorFactoryArgs)
 }
 
 // GetVersion returns the VM version string
@@ -415,8 +420,12 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 		defer func() {
 			r := recover()
 			if r != nil {
-				log.Error("VM execution panicked", "error", r, "stack", "\n"+string(debug.Stack()))
-				err = vmhost.ErrExecutionPanicked
+				if r != vmhost.ErrExecutionFailedWithTimeout {
+					log.Error("VM execution panicked", "error", r, "stack", "\n"+string(debug.Stack()))
+					err = vmhost.ErrExecutionPanicked
+				} else {
+					err = vmhost.ErrExecutionFailedWithTimeout
+				}
 				host.Runtime().CleanInstance()
 			} else {
 				host.Runtime().EndExecution()
@@ -450,7 +459,6 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 	select {
 	case <-done:
 		// Normal termination.
-		return
 	case <-ctx.Done():
 		// Terminated due to timeout. The VM sets the `ExecutionFailed` breakpoint
 		// in Wasmer. Also, the VM must wait for Wasmer to reach the end of a WASM
@@ -462,7 +470,7 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 		err = vmhost.ErrExecutionFailedWithTimeout
 	}
 
-	return
+	return vmOutput, err
 }
 
 func (host *vmHost) createLogEntryFromErrors(sndAddress, rcvAddress []byte, function string) *vmcommon.LogEntry {

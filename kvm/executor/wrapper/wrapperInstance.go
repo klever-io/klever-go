@@ -158,3 +158,8 @@ func (inst *WrapperInstance) GetVMHooksPtr() uintptr {
 func (inst *WrapperInstance) ID() string {
 	return inst.wrappedInstance.ID()
 }
+
+// GetWrappedInstance returns the wrapped instance.
+func (inst *WrapperInstance) GetWrappedInstance() executor.Instance {
+	return inst.wrappedInstance
+}

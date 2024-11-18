@@ -8,21 +8,34 @@ package executorwrapper
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/klever-io/klever-go/kvm/executor"
 )
 
 // WrapperVMHooks wraps a VMHooks instance and optionally performs some logging.
 type WrapperVMHooks struct {
-	logger         ExecutorLogger
-	wrappedVMHooks executor.VMHooks
+	logger           ExecutorLogger
+	wrappedVMHooks   executor.VMHooks
+	executionTimeout time.Duration
+}
+
+// NewWrapperVMHooks creates a new instance of WrapperVMHooks.
+func NewWrapperVMHooks(wrappedVMHooks executor.VMHooks, logger ExecutorLogger, executionTimeout time.Duration) *WrapperVMHooks {
+	return &WrapperVMHooks{
+		wrappedVMHooks:   wrappedVMHooks,
+		logger:           logger,
+		executionTimeout: executionTimeout,
+	}
 }
 
 // GetGasLeft VM hook wrapper
 func (w *WrapperVMHooks) GetGasLeft() int64 {
 	callInfo := "GetGasLeft()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetGasLeft()
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.GetGasLeft()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -31,7 +44,10 @@ func (w *WrapperVMHooks) GetGasLeft() int64 {
 func (w *WrapperVMHooks) GetSCAddress(resultOffset executor.MemPtr) {
 	callInfo := fmt.Sprintf("GetSCAddress(%d)", resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.GetSCAddress(resultOffset)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.GetSCAddress(resultOffset)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -39,7 +55,10 @@ func (w *WrapperVMHooks) GetSCAddress(resultOffset executor.MemPtr) {
 func (w *WrapperVMHooks) GetOwnerAddress(resultOffset executor.MemPtr) {
 	callInfo := fmt.Sprintf("GetOwnerAddress(%d)", resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.GetOwnerAddress(resultOffset)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.GetOwnerAddress(resultOffset)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -47,7 +66,9 @@ func (w *WrapperVMHooks) GetOwnerAddress(resultOffset executor.MemPtr) {
 func (w *WrapperVMHooks) IsSmartContract(addressOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("IsSmartContract(%d)", addressOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.IsSmartContract(addressOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.IsSmartContract(addressOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -56,7 +77,10 @@ func (w *WrapperVMHooks) IsSmartContract(addressOffset executor.MemPtr) int32 {
 func (w *WrapperVMHooks) SignalError(messageOffset executor.MemPtr, messageLength executor.MemLength) {
 	callInfo := fmt.Sprintf("SignalError(%d, %d)", messageOffset, messageLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.SignalError(messageOffset, messageLength)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.SignalError(messageOffset, messageLength)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -64,7 +88,10 @@ func (w *WrapperVMHooks) SignalError(messageOffset executor.MemPtr, messageLengt
 func (w *WrapperVMHooks) GetExternalBalance(addressOffset executor.MemPtr, resultOffset executor.MemPtr) {
 	callInfo := fmt.Sprintf("GetExternalBalance(%d, %d)", addressOffset, resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.GetExternalBalance(addressOffset, resultOffset)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.GetExternalBalance(addressOffset, resultOffset)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -72,7 +99,9 @@ func (w *WrapperVMHooks) GetExternalBalance(addressOffset executor.MemPtr, resul
 func (w *WrapperVMHooks) GetBlockHash(nonce int64, resultOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("GetBlockHash(%d, %d)", nonce, resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetBlockHash(nonce, resultOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetBlockHash(nonce, resultOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -81,7 +110,9 @@ func (w *WrapperVMHooks) GetBlockHash(nonce int64, resultOffset executor.MemPtr)
 func (w *WrapperVMHooks) GetKDABalance(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, resultOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("GetKDABalance(%d, %d, %d, %d, %d)", addressOffset, tokenIDOffset, tokenIDLen, nonce, resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetKDABalance(addressOffset, tokenIDOffset, tokenIDLen, nonce, resultOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetKDABalance(addressOffset, tokenIDOffset, tokenIDLen, nonce, resultOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -90,7 +121,9 @@ func (w *WrapperVMHooks) GetKDABalance(addressOffset executor.MemPtr, tokenIDOff
 func (w *WrapperVMHooks) GetKDANFTNameLength(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
 	callInfo := fmt.Sprintf("GetKDANFTNameLength(%d, %d, %d, %d)", addressOffset, tokenIDOffset, tokenIDLen, nonce)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetKDANFTNameLength(addressOffset, tokenIDOffset, tokenIDLen, nonce)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetKDANFTNameLength(addressOffset, tokenIDOffset, tokenIDLen, nonce)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -99,7 +132,9 @@ func (w *WrapperVMHooks) GetKDANFTNameLength(addressOffset executor.MemPtr, toke
 func (w *WrapperVMHooks) GetKDANFTURILength(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
 	callInfo := fmt.Sprintf("GetKDANFTURILength(%d, %d, %d, %d)", addressOffset, tokenIDOffset, tokenIDLen, nonce)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetKDANFTURILength(addressOffset, tokenIDOffset, tokenIDLen, nonce)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetKDANFTURILength(addressOffset, tokenIDOffset, tokenIDLen, nonce)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -108,7 +143,9 @@ func (w *WrapperVMHooks) GetKDANFTURILength(addressOffset executor.MemPtr, token
 func (w *WrapperVMHooks) GetKDATokenData(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, precisionHandle int32, idOffset executor.MemPtr, nameOffset executor.MemPtr, creatorOffset executor.MemPtr, logoOffset executor.MemPtr, initialSupplyOffset executor.MemPtr, circulatingSupplyOffset executor.MemPtr, maxSupplyOffset executor.MemPtr, mintedOffset executor.MemPtr, burnedOffset executor.MemPtr, royaltiesOffset executor.MemPtr, propertiesOffset executor.MemPtr, attributesOffset executor.MemPtr, rolesOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("GetKDATokenData(%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)", addressOffset, tokenIDOffset, tokenIDLen, nonce, precisionHandle, idOffset, nameOffset, creatorOffset, logoOffset, initialSupplyOffset, circulatingSupplyOffset, maxSupplyOffset, mintedOffset, burnedOffset, royaltiesOffset, propertiesOffset, attributesOffset, rolesOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetKDATokenData(addressOffset, tokenIDOffset, tokenIDLen, nonce, precisionHandle, idOffset, nameOffset, creatorOffset, logoOffset, initialSupplyOffset, circulatingSupplyOffset, maxSupplyOffset, mintedOffset, burnedOffset, royaltiesOffset, propertiesOffset, attributesOffset, rolesOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetKDATokenData(addressOffset, tokenIDOffset, tokenIDLen, nonce, precisionHandle, idOffset, nameOffset, creatorOffset, logoOffset, initialSupplyOffset, circulatingSupplyOffset, maxSupplyOffset, mintedOffset, burnedOffset, royaltiesOffset, propertiesOffset, attributesOffset, rolesOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -117,7 +154,9 @@ func (w *WrapperVMHooks) GetKDATokenData(addressOffset executor.MemPtr, tokenIDO
 func (w *WrapperVMHooks) ValidateTokenIdentifier(tokenIdHandle int32) int32 {
 	callInfo := fmt.Sprintf("ValidateTokenIdentifier(%d)", tokenIdHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ValidateTokenIdentifier(tokenIdHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ValidateTokenIdentifier(tokenIdHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -126,7 +165,10 @@ func (w *WrapperVMHooks) ValidateTokenIdentifier(tokenIdHandle int32) int32 {
 func (w *WrapperVMHooks) UpgradeContract(destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
 	callInfo := fmt.Sprintf("UpgradeContract(%d, %d, %d, %d, %d, %d, %d, %d, %d)", destOffset, gasLimit, valueOffset, codeOffset, codeMetadataOffset, length, numArguments, argumentsLengthOffset, dataOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.UpgradeContract(destOffset, gasLimit, valueOffset, codeOffset, codeMetadataOffset, length, numArguments, argumentsLengthOffset, dataOffset)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.UpgradeContract(destOffset, gasLimit, valueOffset, codeOffset, codeMetadataOffset, length, numArguments, argumentsLengthOffset, dataOffset)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -134,7 +176,10 @@ func (w *WrapperVMHooks) UpgradeContract(destOffset executor.MemPtr, gasLimit in
 func (w *WrapperVMHooks) UpgradeFromSourceContract(destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, sourceContractAddressOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
 	callInfo := fmt.Sprintf("UpgradeFromSourceContract(%d, %d, %d, %d, %d, %d, %d, %d)", destOffset, gasLimit, valueOffset, sourceContractAddressOffset, codeMetadataOffset, numArguments, argumentsLengthOffset, dataOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.UpgradeFromSourceContract(destOffset, gasLimit, valueOffset, sourceContractAddressOffset, codeMetadataOffset, numArguments, argumentsLengthOffset, dataOffset)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.UpgradeFromSourceContract(destOffset, gasLimit, valueOffset, sourceContractAddressOffset, codeMetadataOffset, numArguments, argumentsLengthOffset, dataOffset)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -142,7 +187,10 @@ func (w *WrapperVMHooks) UpgradeFromSourceContract(destOffset executor.MemPtr, g
 func (w *WrapperVMHooks) DeleteContract(destOffset executor.MemPtr, gasLimit int64, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
 	callInfo := fmt.Sprintf("DeleteContract(%d, %d, %d, %d, %d)", destOffset, gasLimit, numArguments, argumentsLengthOffset, dataOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.DeleteContract(destOffset, gasLimit, numArguments, argumentsLengthOffset, dataOffset)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.DeleteContract(destOffset, gasLimit, numArguments, argumentsLengthOffset, dataOffset)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -150,7 +198,9 @@ func (w *WrapperVMHooks) DeleteContract(destOffset executor.MemPtr, gasLimit int
 func (w *WrapperVMHooks) GetArgumentLength(id int32) int32 {
 	callInfo := fmt.Sprintf("GetArgumentLength(%d)", id)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetArgumentLength(id)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetArgumentLength(id)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -159,7 +209,9 @@ func (w *WrapperVMHooks) GetArgumentLength(id int32) int32 {
 func (w *WrapperVMHooks) GetArgument(id int32, argOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("GetArgument(%d, %d)", id, argOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetArgument(id, argOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetArgument(id, argOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -168,7 +220,9 @@ func (w *WrapperVMHooks) GetArgument(id int32, argOffset executor.MemPtr) int32 
 func (w *WrapperVMHooks) GetFunction(functionOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("GetFunction(%d)", functionOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetFunction(functionOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetFunction(functionOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -177,7 +231,9 @@ func (w *WrapperVMHooks) GetFunction(functionOffset executor.MemPtr) int32 {
 func (w *WrapperVMHooks) GetNumArguments() int32 {
 	callInfo := "GetNumArguments()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetNumArguments()
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetNumArguments()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -186,7 +242,9 @@ func (w *WrapperVMHooks) GetNumArguments() int32 {
 func (w *WrapperVMHooks) StorageStore(keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
 	callInfo := fmt.Sprintf("StorageStore(%d, %d, %d, %d)", keyOffset, keyLength, dataOffset, dataLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.StorageStore(keyOffset, keyLength, dataOffset, dataLength)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.StorageStore(keyOffset, keyLength, dataOffset, dataLength)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -195,7 +253,9 @@ func (w *WrapperVMHooks) StorageStore(keyOffset executor.MemPtr, keyLength execu
 func (w *WrapperVMHooks) StorageLoadLength(keyOffset executor.MemPtr, keyLength executor.MemLength) int32 {
 	callInfo := fmt.Sprintf("StorageLoadLength(%d, %d)", keyOffset, keyLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.StorageLoadLength(keyOffset, keyLength)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.StorageLoadLength(keyOffset, keyLength)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -204,7 +264,9 @@ func (w *WrapperVMHooks) StorageLoadLength(keyOffset executor.MemPtr, keyLength 
 func (w *WrapperVMHooks) StorageLoadFromAddress(addressOffset executor.MemPtr, keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("StorageLoadFromAddress(%d, %d, %d, %d)", addressOffset, keyOffset, keyLength, dataOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.StorageLoadFromAddress(addressOffset, keyOffset, keyLength, dataOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.StorageLoadFromAddress(addressOffset, keyOffset, keyLength, dataOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -213,7 +275,9 @@ func (w *WrapperVMHooks) StorageLoadFromAddress(addressOffset executor.MemPtr, k
 func (w *WrapperVMHooks) StorageLoad(keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("StorageLoad(%d, %d, %d)", keyOffset, keyLength, dataOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.StorageLoad(keyOffset, keyLength, dataOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.StorageLoad(keyOffset, keyLength, dataOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -222,7 +286,9 @@ func (w *WrapperVMHooks) StorageLoad(keyOffset executor.MemPtr, keyLength execut
 func (w *WrapperVMHooks) SetStorageLock(keyOffset executor.MemPtr, keyLength executor.MemLength, lockTimestamp int64) int32 {
 	callInfo := fmt.Sprintf("SetStorageLock(%d, %d, %d)", keyOffset, keyLength, lockTimestamp)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.SetStorageLock(keyOffset, keyLength, lockTimestamp)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.SetStorageLock(keyOffset, keyLength, lockTimestamp)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -231,7 +297,9 @@ func (w *WrapperVMHooks) SetStorageLock(keyOffset executor.MemPtr, keyLength exe
 func (w *WrapperVMHooks) GetStorageLock(keyOffset executor.MemPtr, keyLength executor.MemLength) int64 {
 	callInfo := fmt.Sprintf("GetStorageLock(%d, %d)", keyOffset, keyLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetStorageLock(keyOffset, keyLength)
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.GetStorageLock(keyOffset, keyLength)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -240,7 +308,9 @@ func (w *WrapperVMHooks) GetStorageLock(keyOffset executor.MemPtr, keyLength exe
 func (w *WrapperVMHooks) IsStorageLocked(keyOffset executor.MemPtr, keyLength executor.MemLength) int32 {
 	callInfo := fmt.Sprintf("IsStorageLocked(%d, %d)", keyOffset, keyLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.IsStorageLocked(keyOffset, keyLength)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.IsStorageLocked(keyOffset, keyLength)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -249,7 +319,9 @@ func (w *WrapperVMHooks) IsStorageLocked(keyOffset executor.MemPtr, keyLength ex
 func (w *WrapperVMHooks) ClearStorageLock(keyOffset executor.MemPtr, keyLength executor.MemLength) int32 {
 	callInfo := fmt.Sprintf("ClearStorageLock(%d, %d)", keyOffset, keyLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ClearStorageLock(keyOffset, keyLength)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ClearStorageLock(keyOffset, keyLength)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -258,7 +330,10 @@ func (w *WrapperVMHooks) ClearStorageLock(keyOffset executor.MemPtr, keyLength e
 func (w *WrapperVMHooks) GetCaller(resultOffset executor.MemPtr) {
 	callInfo := fmt.Sprintf("GetCaller(%d)", resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.GetCaller(resultOffset)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.GetCaller(resultOffset)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -266,7 +341,10 @@ func (w *WrapperVMHooks) GetCaller(resultOffset executor.MemPtr) {
 func (w *WrapperVMHooks) CheckNoPayment() {
 	callInfo := "CheckNoPayment()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.CheckNoPayment()
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.CheckNoPayment()
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -274,7 +352,9 @@ func (w *WrapperVMHooks) CheckNoPayment() {
 func (w *WrapperVMHooks) GetCallValue(resultOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("GetCallValue(%d)", resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetCallValue(resultOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetCallValue(resultOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -283,7 +363,9 @@ func (w *WrapperVMHooks) GetCallValue(resultOffset executor.MemPtr) int32 {
 func (w *WrapperVMHooks) GetKDAValue(resultOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("GetKDAValue(%d)", resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetKDAValue(resultOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetKDAValue(resultOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -292,7 +374,9 @@ func (w *WrapperVMHooks) GetKDAValue(resultOffset executor.MemPtr) int32 {
 func (w *WrapperVMHooks) GetKDAValueByIndex(resultOffset executor.MemPtr, index int32) int32 {
 	callInfo := fmt.Sprintf("GetKDAValueByIndex(%d, %d)", resultOffset, index)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetKDAValueByIndex(resultOffset, index)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetKDAValueByIndex(resultOffset, index)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -301,7 +385,9 @@ func (w *WrapperVMHooks) GetKDAValueByIndex(resultOffset executor.MemPtr, index 
 func (w *WrapperVMHooks) GetKDATokenName(resultOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("GetKDATokenName(%d)", resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetKDATokenName(resultOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetKDATokenName(resultOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -310,7 +396,9 @@ func (w *WrapperVMHooks) GetKDATokenName(resultOffset executor.MemPtr) int32 {
 func (w *WrapperVMHooks) GetKDATokenNameByIndex(resultOffset executor.MemPtr, index int32) int32 {
 	callInfo := fmt.Sprintf("GetKDATokenNameByIndex(%d, %d)", resultOffset, index)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetKDATokenNameByIndex(resultOffset, index)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetKDATokenNameByIndex(resultOffset, index)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -319,7 +407,9 @@ func (w *WrapperVMHooks) GetKDATokenNameByIndex(resultOffset executor.MemPtr, in
 func (w *WrapperVMHooks) GetKDATokenNonce() int64 {
 	callInfo := "GetKDATokenNonce()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetKDATokenNonce()
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.GetKDATokenNonce()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -328,7 +418,9 @@ func (w *WrapperVMHooks) GetKDATokenNonce() int64 {
 func (w *WrapperVMHooks) GetKDATokenNonceByIndex(index int32) int64 {
 	callInfo := fmt.Sprintf("GetKDATokenNonceByIndex(%d)", index)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetKDATokenNonceByIndex(index)
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.GetKDATokenNonceByIndex(index)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -337,7 +429,9 @@ func (w *WrapperVMHooks) GetKDATokenNonceByIndex(index int32) int64 {
 func (w *WrapperVMHooks) GetKDATokenType() int32 {
 	callInfo := "GetKDATokenType()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetKDATokenType()
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetKDATokenType()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -346,7 +440,9 @@ func (w *WrapperVMHooks) GetKDATokenType() int32 {
 func (w *WrapperVMHooks) GetKDATokenTypeByIndex(index int32) int32 {
 	callInfo := fmt.Sprintf("GetKDATokenTypeByIndex(%d)", index)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetKDATokenTypeByIndex(index)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetKDATokenTypeByIndex(index)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -355,7 +451,9 @@ func (w *WrapperVMHooks) GetKDATokenTypeByIndex(index int32) int32 {
 func (w *WrapperVMHooks) GetNumKDATransfers() int32 {
 	callInfo := "GetNumKDATransfers()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetNumKDATransfers()
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetNumKDATransfers()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -364,7 +462,9 @@ func (w *WrapperVMHooks) GetNumKDATransfers() int32 {
 func (w *WrapperVMHooks) GetCallValueByTokenName(callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr, tokenNameLength executor.MemLength) int32 {
 	callInfo := fmt.Sprintf("GetCallValueByTokenName(%d, %d, %d)", callValueOffset, tokenNameOffset, tokenNameLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetCallValueByTokenName(callValueOffset, tokenNameOffset, tokenNameLength)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetCallValueByTokenName(callValueOffset, tokenNameOffset, tokenNameLength)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -373,7 +473,9 @@ func (w *WrapperVMHooks) GetCallValueByTokenName(callValueOffset executor.MemPtr
 func (w *WrapperVMHooks) GetCallValueTokenName(callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("GetCallValueTokenName(%d, %d)", callValueOffset, tokenNameOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetCallValueTokenName(callValueOffset, tokenNameOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetCallValueTokenName(callValueOffset, tokenNameOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -382,7 +484,9 @@ func (w *WrapperVMHooks) GetCallValueTokenName(callValueOffset executor.MemPtr, 
 func (w *WrapperVMHooks) GetCallValueTokenNameByIndex(callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr, index int32) int32 {
 	callInfo := fmt.Sprintf("GetCallValueTokenNameByIndex(%d, %d, %d)", callValueOffset, tokenNameOffset, index)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetCallValueTokenNameByIndex(callValueOffset, tokenNameOffset, index)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetCallValueTokenNameByIndex(callValueOffset, tokenNameOffset, index)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -391,7 +495,10 @@ func (w *WrapperVMHooks) GetCallValueTokenNameByIndex(callValueOffset executor.M
 func (w *WrapperVMHooks) WriteLog(dataPointer executor.MemPtr, dataLength executor.MemLength, topicPtr executor.MemPtr, numTopics int32) {
 	callInfo := fmt.Sprintf("WriteLog(%d, %d, %d, %d)", dataPointer, dataLength, topicPtr, numTopics)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.WriteLog(dataPointer, dataLength, topicPtr, numTopics)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.WriteLog(dataPointer, dataLength, topicPtr, numTopics)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -399,7 +506,10 @@ func (w *WrapperVMHooks) WriteLog(dataPointer executor.MemPtr, dataLength execut
 func (w *WrapperVMHooks) WriteEventLog(numTopics int32, topicLengthsOffset executor.MemPtr, topicOffset executor.MemPtr, dataOffset executor.MemPtr, dataLength executor.MemLength) {
 	callInfo := fmt.Sprintf("WriteEventLog(%d, %d, %d, %d, %d)", numTopics, topicLengthsOffset, topicOffset, dataOffset, dataLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.WriteEventLog(numTopics, topicLengthsOffset, topicOffset, dataOffset, dataLength)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.WriteEventLog(numTopics, topicLengthsOffset, topicOffset, dataOffset, dataLength)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -407,7 +517,9 @@ func (w *WrapperVMHooks) WriteEventLog(numTopics int32, topicLengthsOffset execu
 func (w *WrapperVMHooks) GetBlockTimestamp() int64 {
 	callInfo := "GetBlockTimestamp()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetBlockTimestamp()
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.GetBlockTimestamp()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -416,7 +528,9 @@ func (w *WrapperVMHooks) GetBlockTimestamp() int64 {
 func (w *WrapperVMHooks) GetBlockNonce() int64 {
 	callInfo := "GetBlockNonce()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetBlockNonce()
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.GetBlockNonce()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -425,7 +539,9 @@ func (w *WrapperVMHooks) GetBlockNonce() int64 {
 func (w *WrapperVMHooks) GetBlockRound() int64 {
 	callInfo := "GetBlockRound()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetBlockRound()
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.GetBlockRound()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -434,7 +550,9 @@ func (w *WrapperVMHooks) GetBlockRound() int64 {
 func (w *WrapperVMHooks) GetBlockEpoch() int64 {
 	callInfo := "GetBlockEpoch()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetBlockEpoch()
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.GetBlockEpoch()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -443,7 +561,10 @@ func (w *WrapperVMHooks) GetBlockEpoch() int64 {
 func (w *WrapperVMHooks) GetBlockRandomSeed(pointer executor.MemPtr) {
 	callInfo := fmt.Sprintf("GetBlockRandomSeed(%d)", pointer)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.GetBlockRandomSeed(pointer)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.GetBlockRandomSeed(pointer)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -451,7 +572,10 @@ func (w *WrapperVMHooks) GetBlockRandomSeed(pointer executor.MemPtr) {
 func (w *WrapperVMHooks) GetStateRootHash(pointer executor.MemPtr) {
 	callInfo := fmt.Sprintf("GetStateRootHash(%d)", pointer)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.GetStateRootHash(pointer)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.GetStateRootHash(pointer)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -459,7 +583,9 @@ func (w *WrapperVMHooks) GetStateRootHash(pointer executor.MemPtr) {
 func (w *WrapperVMHooks) GetPrevBlockTimestamp() int64 {
 	callInfo := "GetPrevBlockTimestamp()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetPrevBlockTimestamp()
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.GetPrevBlockTimestamp()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -468,7 +594,9 @@ func (w *WrapperVMHooks) GetPrevBlockTimestamp() int64 {
 func (w *WrapperVMHooks) GetPrevBlockNonce() int64 {
 	callInfo := "GetPrevBlockNonce()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetPrevBlockNonce()
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.GetPrevBlockNonce()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -477,7 +605,9 @@ func (w *WrapperVMHooks) GetPrevBlockNonce() int64 {
 func (w *WrapperVMHooks) GetPrevBlockRound() int64 {
 	callInfo := "GetPrevBlockRound()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetPrevBlockRound()
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.GetPrevBlockRound()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -486,7 +616,9 @@ func (w *WrapperVMHooks) GetPrevBlockRound() int64 {
 func (w *WrapperVMHooks) GetPrevBlockEpoch() int64 {
 	callInfo := "GetPrevBlockEpoch()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetPrevBlockEpoch()
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.GetPrevBlockEpoch()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -495,7 +627,10 @@ func (w *WrapperVMHooks) GetPrevBlockEpoch() int64 {
 func (w *WrapperVMHooks) GetPrevBlockRandomSeed(pointer executor.MemPtr) {
 	callInfo := fmt.Sprintf("GetPrevBlockRandomSeed(%d)", pointer)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.GetPrevBlockRandomSeed(pointer)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.GetPrevBlockRandomSeed(pointer)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -503,7 +638,10 @@ func (w *WrapperVMHooks) GetPrevBlockRandomSeed(pointer executor.MemPtr) {
 func (w *WrapperVMHooks) Finish(pointer executor.MemPtr, length executor.MemLength) {
 	callInfo := fmt.Sprintf("Finish(%d, %d)", pointer, length)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.Finish(pointer, length)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.Finish(pointer, length)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -511,7 +649,9 @@ func (w *WrapperVMHooks) Finish(pointer executor.MemPtr, length executor.MemLeng
 func (w *WrapperVMHooks) ExecuteOnSameContext(gasLimit int64, addressOffset executor.MemPtr, valueOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("ExecuteOnSameContext(%d, %d, %d, %d, %d, %d, %d, %d)", gasLimit, addressOffset, valueOffset, functionOffset, functionLength, numArguments, argumentsLengthOffset, dataOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ExecuteOnSameContext(gasLimit, addressOffset, valueOffset, functionOffset, functionLength, numArguments, argumentsLengthOffset, dataOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ExecuteOnSameContext(gasLimit, addressOffset, valueOffset, functionOffset, functionLength, numArguments, argumentsLengthOffset, dataOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -520,7 +660,9 @@ func (w *WrapperVMHooks) ExecuteOnSameContext(gasLimit int64, addressOffset exec
 func (w *WrapperVMHooks) ExecuteOnDestContext(gasLimit int64, addressOffset executor.MemPtr, valueOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("ExecuteOnDestContext(%d, %d, %d, %d, %d, %d, %d, %d)", gasLimit, addressOffset, valueOffset, functionOffset, functionLength, numArguments, argumentsLengthOffset, dataOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ExecuteOnDestContext(gasLimit, addressOffset, valueOffset, functionOffset, functionLength, numArguments, argumentsLengthOffset, dataOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ExecuteOnDestContext(gasLimit, addressOffset, valueOffset, functionOffset, functionLength, numArguments, argumentsLengthOffset, dataOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -529,7 +671,9 @@ func (w *WrapperVMHooks) ExecuteOnDestContext(gasLimit int64, addressOffset exec
 func (w *WrapperVMHooks) ExecuteReadOnly(gasLimit int64, addressOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("ExecuteReadOnly(%d, %d, %d, %d, %d, %d, %d)", gasLimit, addressOffset, functionOffset, functionLength, numArguments, argumentsLengthOffset, dataOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ExecuteReadOnly(gasLimit, addressOffset, functionOffset, functionLength, numArguments, argumentsLengthOffset, dataOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ExecuteReadOnly(gasLimit, addressOffset, functionOffset, functionLength, numArguments, argumentsLengthOffset, dataOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -538,7 +682,9 @@ func (w *WrapperVMHooks) ExecuteReadOnly(gasLimit int64, addressOffset executor.
 func (w *WrapperVMHooks) CreateContract(gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("CreateContract(%d, %d, %d, %d, %d, %d, %d, %d, %d)", gasLimit, valueOffset, codeOffset, codeMetadataOffset, length, resultOffset, numArguments, argumentsLengthOffset, dataOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.CreateContract(gasLimit, valueOffset, codeOffset, codeMetadataOffset, length, resultOffset, numArguments, argumentsLengthOffset, dataOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.CreateContract(gasLimit, valueOffset, codeOffset, codeMetadataOffset, length, resultOffset, numArguments, argumentsLengthOffset, dataOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -547,7 +693,9 @@ func (w *WrapperVMHooks) CreateContract(gasLimit int64, valueOffset executor.Mem
 func (w *WrapperVMHooks) DeployFromSourceContract(gasLimit int64, valueOffset executor.MemPtr, sourceContractAddressOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, resultAddressOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("DeployFromSourceContract(%d, %d, %d, %d, %d, %d, %d, %d)", gasLimit, valueOffset, sourceContractAddressOffset, codeMetadataOffset, resultAddressOffset, numArguments, argumentsLengthOffset, dataOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.DeployFromSourceContract(gasLimit, valueOffset, sourceContractAddressOffset, codeMetadataOffset, resultAddressOffset, numArguments, argumentsLengthOffset, dataOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.DeployFromSourceContract(gasLimit, valueOffset, sourceContractAddressOffset, codeMetadataOffset, resultAddressOffset, numArguments, argumentsLengthOffset, dataOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -556,7 +704,9 @@ func (w *WrapperVMHooks) DeployFromSourceContract(gasLimit int64, valueOffset ex
 func (w *WrapperVMHooks) GetNumReturnData() int32 {
 	callInfo := "GetNumReturnData()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetNumReturnData()
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetNumReturnData()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -565,7 +715,9 @@ func (w *WrapperVMHooks) GetNumReturnData() int32 {
 func (w *WrapperVMHooks) GetReturnDataSize(resultID int32) int32 {
 	callInfo := fmt.Sprintf("GetReturnDataSize(%d)", resultID)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetReturnDataSize(resultID)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetReturnDataSize(resultID)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -574,7 +726,9 @@ func (w *WrapperVMHooks) GetReturnDataSize(resultID int32) int32 {
 func (w *WrapperVMHooks) GetReturnData(resultID int32, dataOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("GetReturnData(%d, %d)", resultID, dataOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetReturnData(resultID, dataOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetReturnData(resultID, dataOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -583,7 +737,10 @@ func (w *WrapperVMHooks) GetReturnData(resultID int32, dataOffset executor.MemPt
 func (w *WrapperVMHooks) CleanReturnData() {
 	callInfo := "CleanReturnData()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.CleanReturnData()
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.CleanReturnData()
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -591,7 +748,10 @@ func (w *WrapperVMHooks) CleanReturnData() {
 func (w *WrapperVMHooks) DeleteFromReturnData(resultID int32) {
 	callInfo := fmt.Sprintf("DeleteFromReturnData(%d)", resultID)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.DeleteFromReturnData(resultID)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.DeleteFromReturnData(resultID)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -599,7 +759,10 @@ func (w *WrapperVMHooks) DeleteFromReturnData(resultID int32) {
 func (w *WrapperVMHooks) GetOriginalTxHash(dataOffset executor.MemPtr) {
 	callInfo := fmt.Sprintf("GetOriginalTxHash(%d)", dataOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.GetOriginalTxHash(dataOffset)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.GetOriginalTxHash(dataOffset)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -607,7 +770,10 @@ func (w *WrapperVMHooks) GetOriginalTxHash(dataOffset executor.MemPtr) {
 func (w *WrapperVMHooks) GetCurrentTxHash(dataOffset executor.MemPtr) {
 	callInfo := fmt.Sprintf("GetCurrentTxHash(%d)", dataOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.GetCurrentTxHash(dataOffset)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.GetCurrentTxHash(dataOffset)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -615,7 +781,10 @@ func (w *WrapperVMHooks) GetCurrentTxHash(dataOffset executor.MemPtr) {
 func (w *WrapperVMHooks) ManagedSCAddress(destinationHandle int32) {
 	callInfo := fmt.Sprintf("ManagedSCAddress(%d)", destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedSCAddress(destinationHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedSCAddress(destinationHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -623,7 +792,10 @@ func (w *WrapperVMHooks) ManagedSCAddress(destinationHandle int32) {
 func (w *WrapperVMHooks) ManagedOwnerAddress(destinationHandle int32) {
 	callInfo := fmt.Sprintf("ManagedOwnerAddress(%d)", destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedOwnerAddress(destinationHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedOwnerAddress(destinationHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -631,7 +803,10 @@ func (w *WrapperVMHooks) ManagedOwnerAddress(destinationHandle int32) {
 func (w *WrapperVMHooks) ManagedCaller(destinationHandle int32) {
 	callInfo := fmt.Sprintf("ManagedCaller(%d)", destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedCaller(destinationHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedCaller(destinationHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -639,7 +814,10 @@ func (w *WrapperVMHooks) ManagedCaller(destinationHandle int32) {
 func (w *WrapperVMHooks) ManagedSignalError(errHandle int32) {
 	callInfo := fmt.Sprintf("ManagedSignalError(%d)", errHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedSignalError(errHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedSignalError(errHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -647,7 +825,10 @@ func (w *WrapperVMHooks) ManagedSignalError(errHandle int32) {
 func (w *WrapperVMHooks) ManagedWriteLog(topicsHandle int32, dataHandle int32) {
 	callInfo := fmt.Sprintf("ManagedWriteLog(%d, %d)", topicsHandle, dataHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedWriteLog(topicsHandle, dataHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedWriteLog(topicsHandle, dataHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -655,7 +836,10 @@ func (w *WrapperVMHooks) ManagedWriteLog(topicsHandle int32, dataHandle int32) {
 func (w *WrapperVMHooks) ManagedGetOriginalTxHash(resultHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetOriginalTxHash(%d)", resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedGetOriginalTxHash(resultHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetOriginalTxHash(resultHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -663,7 +847,10 @@ func (w *WrapperVMHooks) ManagedGetOriginalTxHash(resultHandle int32) {
 func (w *WrapperVMHooks) ManagedGetStateRootHash(resultHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetStateRootHash(%d)", resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedGetStateRootHash(resultHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetStateRootHash(resultHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -671,7 +858,10 @@ func (w *WrapperVMHooks) ManagedGetStateRootHash(resultHandle int32) {
 func (w *WrapperVMHooks) ManagedGetBlockRandomSeed(resultHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetBlockRandomSeed(%d)", resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedGetBlockRandomSeed(resultHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetBlockRandomSeed(resultHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -679,7 +869,10 @@ func (w *WrapperVMHooks) ManagedGetBlockRandomSeed(resultHandle int32) {
 func (w *WrapperVMHooks) ManagedGetPrevBlockRandomSeed(resultHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetPrevBlockRandomSeed(%d)", resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedGetPrevBlockRandomSeed(resultHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetPrevBlockRandomSeed(resultHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -687,7 +880,10 @@ func (w *WrapperVMHooks) ManagedGetPrevBlockRandomSeed(resultHandle int32) {
 func (w *WrapperVMHooks) ManagedGetReturnData(resultID int32, resultHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetReturnData(%d, %d)", resultID, resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedGetReturnData(resultID, resultHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetReturnData(resultID, resultHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -695,7 +891,10 @@ func (w *WrapperVMHooks) ManagedGetReturnData(resultID int32, resultHandle int32
 func (w *WrapperVMHooks) ManagedGetKDACallValue(kdaCallValueHandle int32, kdaHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetKDACallValue(%d, %d)", kdaCallValueHandle, kdaHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedGetKDACallValue(kdaCallValueHandle, kdaHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetKDACallValue(kdaCallValueHandle, kdaHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -703,7 +902,10 @@ func (w *WrapperVMHooks) ManagedGetKDACallValue(kdaCallValueHandle int32, kdaHan
 func (w *WrapperVMHooks) ManagedGetMultiKDACallValue(multiCallValueHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetMultiKDACallValue(%d)", multiCallValueHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedGetMultiKDACallValue(multiCallValueHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetMultiKDACallValue(multiCallValueHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -711,7 +913,10 @@ func (w *WrapperVMHooks) ManagedGetMultiKDACallValue(multiCallValueHandle int32)
 func (w *WrapperVMHooks) ManagedGetBackTransfers(kdaTransfersValueHandle int32, callValueHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetBackTransfers(%d, %d)", kdaTransfersValueHandle, callValueHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedGetBackTransfers(kdaTransfersValueHandle, callValueHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetBackTransfers(kdaTransfersValueHandle, callValueHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -719,7 +924,10 @@ func (w *WrapperVMHooks) ManagedGetBackTransfers(kdaTransfersValueHandle int32, 
 func (w *WrapperVMHooks) ManagedGetKDABalance(addressHandle int32, tokenIDHandle int32, nonce int64, valueHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetKDABalance(%d, %d, %d, %d)", addressHandle, tokenIDHandle, nonce, valueHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedGetKDABalance(addressHandle, tokenIDHandle, nonce, valueHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetKDABalance(addressHandle, tokenIDHandle, nonce, valueHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -727,7 +935,10 @@ func (w *WrapperVMHooks) ManagedGetKDABalance(addressHandle int32, tokenIDHandle
 func (w *WrapperVMHooks) ManagedGetUserKDA(addressHandle int32, tickerHandle int32, nonce int64, balanceHandle int32, frozenHandle int32, lastClaimHandle int32, bucketsHandle int32, mimeHandle int32, metadataHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetUserKDA(%d, %d, %d, %d, %d, %d, %d, %d, %d)", addressHandle, tickerHandle, nonce, balanceHandle, frozenHandle, lastClaimHandle, bucketsHandle, mimeHandle, metadataHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedGetUserKDA(addressHandle, tickerHandle, nonce, balanceHandle, frozenHandle, lastClaimHandle, bucketsHandle, mimeHandle, metadataHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetUserKDA(addressHandle, tickerHandle, nonce, balanceHandle, frozenHandle, lastClaimHandle, bucketsHandle, mimeHandle, metadataHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -735,7 +946,10 @@ func (w *WrapperVMHooks) ManagedGetUserKDA(addressHandle int32, tickerHandle int
 func (w *WrapperVMHooks) ManagedGetKDATokenData(addressHandle int32, tickerHandle int32, nonce int64, precisionHandle int32, idHandle int32, nameHandle int32, creatorHandle int32, adminHandle int32, logoHandle int32, urisHandle int32, initialSupplyHandle int32, circulatingSupplyHandle int32, maxSupplyHandle int32, mintedHandle int32, burnedHandle int32, royaltiesHandle int32, propertiesHandle int32, attributesHandle int32, rolesHandle int32, issueDateHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetKDATokenData(%d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)", addressHandle, tickerHandle, nonce, precisionHandle, idHandle, nameHandle, creatorHandle, adminHandle, logoHandle, urisHandle, initialSupplyHandle, circulatingSupplyHandle, maxSupplyHandle, mintedHandle, burnedHandle, royaltiesHandle, propertiesHandle, attributesHandle, rolesHandle, issueDateHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedGetKDATokenData(addressHandle, tickerHandle, nonce, precisionHandle, idHandle, nameHandle, creatorHandle, adminHandle, logoHandle, urisHandle, initialSupplyHandle, circulatingSupplyHandle, maxSupplyHandle, mintedHandle, burnedHandle, royaltiesHandle, propertiesHandle, attributesHandle, rolesHandle, issueDateHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetKDATokenData(addressHandle, tickerHandle, nonce, precisionHandle, idHandle, nameHandle, creatorHandle, adminHandle, logoHandle, urisHandle, initialSupplyHandle, circulatingSupplyHandle, maxSupplyHandle, mintedHandle, burnedHandle, royaltiesHandle, propertiesHandle, attributesHandle, rolesHandle, issueDateHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -743,7 +957,10 @@ func (w *WrapperVMHooks) ManagedGetKDATokenData(addressHandle int32, tickerHandl
 func (w *WrapperVMHooks) ManagedGetKDARoles(tickerHandle int32, rolesHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetKDARoles(%d, %d)", tickerHandle, rolesHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedGetKDARoles(tickerHandle, rolesHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetKDARoles(tickerHandle, rolesHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -751,7 +968,10 @@ func (w *WrapperVMHooks) ManagedGetKDARoles(tickerHandle int32, rolesHandle int3
 func (w *WrapperVMHooks) ManagedUpgradeFromSourceContract(destHandle int32, gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32) {
 	callInfo := fmt.Sprintf("ManagedUpgradeFromSourceContract(%d, %d, %d, %d, %d, %d, %d)", destHandle, gas, valueHandle, addressHandle, codeMetadataHandle, argumentsHandle, resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedUpgradeFromSourceContract(destHandle, gas, valueHandle, addressHandle, codeMetadataHandle, argumentsHandle, resultHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedUpgradeFromSourceContract(destHandle, gas, valueHandle, addressHandle, codeMetadataHandle, argumentsHandle, resultHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -759,7 +979,10 @@ func (w *WrapperVMHooks) ManagedUpgradeFromSourceContract(destHandle int32, gas 
 func (w *WrapperVMHooks) ManagedUpgradeContract(destHandle int32, gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32) {
 	callInfo := fmt.Sprintf("ManagedUpgradeContract(%d, %d, %d, %d, %d, %d, %d)", destHandle, gas, valueHandle, codeHandle, codeMetadataHandle, argumentsHandle, resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedUpgradeContract(destHandle, gas, valueHandle, codeHandle, codeMetadataHandle, argumentsHandle, resultHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedUpgradeContract(destHandle, gas, valueHandle, codeHandle, codeMetadataHandle, argumentsHandle, resultHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -767,7 +990,10 @@ func (w *WrapperVMHooks) ManagedUpgradeContract(destHandle int32, gas int64, val
 func (w *WrapperVMHooks) ManagedDeleteContract(destHandle int32, gasLimit int64, argumentsHandle int32) {
 	callInfo := fmt.Sprintf("ManagedDeleteContract(%d, %d, %d)", destHandle, gasLimit, argumentsHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedDeleteContract(destHandle, gasLimit, argumentsHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedDeleteContract(destHandle, gasLimit, argumentsHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -775,7 +1001,9 @@ func (w *WrapperVMHooks) ManagedDeleteContract(destHandle int32, gasLimit int64,
 func (w *WrapperVMHooks) ManagedDeployFromSourceContract(gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultAddressHandle int32, resultHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedDeployFromSourceContract(%d, %d, %d, %d, %d, %d, %d)", gas, valueHandle, addressHandle, codeMetadataHandle, argumentsHandle, resultAddressHandle, resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedDeployFromSourceContract(gas, valueHandle, addressHandle, codeMetadataHandle, argumentsHandle, resultAddressHandle, resultHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedDeployFromSourceContract(gas, valueHandle, addressHandle, codeMetadataHandle, argumentsHandle, resultAddressHandle, resultHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -784,7 +1012,9 @@ func (w *WrapperVMHooks) ManagedDeployFromSourceContract(gas int64, valueHandle 
 func (w *WrapperVMHooks) ManagedCreateContract(gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultAddressHandle int32, resultHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedCreateContract(%d, %d, %d, %d, %d, %d, %d)", gas, valueHandle, codeHandle, codeMetadataHandle, argumentsHandle, resultAddressHandle, resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedCreateContract(gas, valueHandle, codeHandle, codeMetadataHandle, argumentsHandle, resultAddressHandle, resultHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedCreateContract(gas, valueHandle, codeHandle, codeMetadataHandle, argumentsHandle, resultAddressHandle, resultHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -793,7 +1023,9 @@ func (w *WrapperVMHooks) ManagedCreateContract(gas int64, valueHandle int32, cod
 func (w *WrapperVMHooks) ManagedExecuteReadOnly(gas int64, addressHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedExecuteReadOnly(%d, %d, %d, %d, %d)", gas, addressHandle, functionHandle, argumentsHandle, resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedExecuteReadOnly(gas, addressHandle, functionHandle, argumentsHandle, resultHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedExecuteReadOnly(gas, addressHandle, functionHandle, argumentsHandle, resultHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -802,7 +1034,9 @@ func (w *WrapperVMHooks) ManagedExecuteReadOnly(gas int64, addressHandle int32, 
 func (w *WrapperVMHooks) ManagedExecuteOnSameContext(gas int64, addressHandle int32, valueHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedExecuteOnSameContext(%d, %d, %d, %d, %d, %d)", gas, addressHandle, valueHandle, functionHandle, argumentsHandle, resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedExecuteOnSameContext(gas, addressHandle, valueHandle, functionHandle, argumentsHandle, resultHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedExecuteOnSameContext(gas, addressHandle, valueHandle, functionHandle, argumentsHandle, resultHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -811,7 +1045,9 @@ func (w *WrapperVMHooks) ManagedExecuteOnSameContext(gas int64, addressHandle in
 func (w *WrapperVMHooks) ManagedExecuteOnDestContext(gas int64, addressHandle int32, valueHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedExecuteOnDestContext(%d, %d, %d, %d, %d, %d)", gas, addressHandle, valueHandle, functionHandle, argumentsHandle, resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedExecuteOnDestContext(gas, addressHandle, valueHandle, functionHandle, argumentsHandle, resultHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedExecuteOnDestContext(gas, addressHandle, valueHandle, functionHandle, argumentsHandle, resultHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -820,7 +1056,9 @@ func (w *WrapperVMHooks) ManagedExecuteOnDestContext(gas int64, addressHandle in
 func (w *WrapperVMHooks) ManagedMultiTransferKDANFTExecute(dstHandle int32, tokenTransfersHandle int32, gasLimit int64, functionHandle int32, argumentsHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedMultiTransferKDANFTExecute(%d, %d, %d, %d, %d)", dstHandle, tokenTransfersHandle, gasLimit, functionHandle, argumentsHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedMultiTransferKDANFTExecute(dstHandle, tokenTransfersHandle, gasLimit, functionHandle, argumentsHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedMultiTransferKDANFTExecute(dstHandle, tokenTransfersHandle, gasLimit, functionHandle, argumentsHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -829,7 +1067,10 @@ func (w *WrapperVMHooks) ManagedMultiTransferKDANFTExecute(dstHandle int32, toke
 func (w *WrapperVMHooks) ManagedBufferToHex(sourceHandle int32, destHandle int32) {
 	callInfo := fmt.Sprintf("ManagedBufferToHex(%d, %d)", sourceHandle, destHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedBufferToHex(sourceHandle, destHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedBufferToHex(sourceHandle, destHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -837,7 +1078,10 @@ func (w *WrapperVMHooks) ManagedBufferToHex(sourceHandle int32, destHandle int32
 func (w *WrapperVMHooks) ManagedGetCodeMetadata(addressHandle int32, responseHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetCodeMetadata(%d, %d)", addressHandle, responseHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedGetCodeMetadata(addressHandle, responseHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetCodeMetadata(addressHandle, responseHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -845,7 +1089,9 @@ func (w *WrapperVMHooks) ManagedGetCodeMetadata(addressHandle int32, responseHan
 func (w *WrapperVMHooks) ManagedIsBuiltinFunction(functionNameHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedIsBuiltinFunction(%d)", functionNameHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedIsBuiltinFunction(functionNameHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedIsBuiltinFunction(functionNameHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -854,7 +1100,10 @@ func (w *WrapperVMHooks) ManagedIsBuiltinFunction(functionNameHandle int32) int3
 func (w *WrapperVMHooks) ManagedGetSftMetadata(tickerHandle int32, nonce int64, dataHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetSftMetadata(%d, %d, %d)", tickerHandle, nonce, dataHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.ManagedGetSftMetadata(tickerHandle, nonce, dataHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetSftMetadata(tickerHandle, nonce, dataHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -862,7 +1111,9 @@ func (w *WrapperVMHooks) ManagedGetSftMetadata(tickerHandle int32, nonce int64, 
 func (w *WrapperVMHooks) ManagedAccHasPerm(ops int64, sourceAccAddr int32, targetAccAddr int32) int32 {
 	callInfo := fmt.Sprintf("ManagedAccHasPerm(%d, %d, %d)", ops, sourceAccAddr, targetAccAddr)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedAccHasPerm(ops, sourceAccAddr, targetAccAddr)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedAccHasPerm(ops, sourceAccAddr, targetAccAddr)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -871,7 +1122,9 @@ func (w *WrapperVMHooks) ManagedAccHasPerm(ops int64, sourceAccAddr int32, targe
 func (w *WrapperVMHooks) BigFloatNewFromParts(integralPart int32, fractionalPart int32, exponent int32) int32 {
 	callInfo := fmt.Sprintf("BigFloatNewFromParts(%d, %d, %d)", integralPart, fractionalPart, exponent)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigFloatNewFromParts(integralPart, fractionalPart, exponent)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigFloatNewFromParts(integralPart, fractionalPart, exponent)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -880,7 +1133,9 @@ func (w *WrapperVMHooks) BigFloatNewFromParts(integralPart int32, fractionalPart
 func (w *WrapperVMHooks) BigFloatNewFromFrac(numerator int64, denominator int64) int32 {
 	callInfo := fmt.Sprintf("BigFloatNewFromFrac(%d, %d)", numerator, denominator)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigFloatNewFromFrac(numerator, denominator)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigFloatNewFromFrac(numerator, denominator)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -889,7 +1144,9 @@ func (w *WrapperVMHooks) BigFloatNewFromFrac(numerator int64, denominator int64)
 func (w *WrapperVMHooks) BigFloatNewFromSci(significand int64, exponent int64) int32 {
 	callInfo := fmt.Sprintf("BigFloatNewFromSci(%d, %d)", significand, exponent)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigFloatNewFromSci(significand, exponent)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigFloatNewFromSci(significand, exponent)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -898,7 +1155,10 @@ func (w *WrapperVMHooks) BigFloatNewFromSci(significand int64, exponent int64) i
 func (w *WrapperVMHooks) BigFloatAdd(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigFloatAdd(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatAdd(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatAdd(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -906,7 +1166,10 @@ func (w *WrapperVMHooks) BigFloatAdd(destinationHandle int32, op1Handle int32, o
 func (w *WrapperVMHooks) BigFloatSub(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigFloatSub(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatSub(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatSub(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -914,7 +1177,10 @@ func (w *WrapperVMHooks) BigFloatSub(destinationHandle int32, op1Handle int32, o
 func (w *WrapperVMHooks) BigFloatMul(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigFloatMul(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatMul(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatMul(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -922,7 +1188,10 @@ func (w *WrapperVMHooks) BigFloatMul(destinationHandle int32, op1Handle int32, o
 func (w *WrapperVMHooks) BigFloatDiv(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigFloatDiv(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatDiv(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatDiv(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -930,7 +1199,10 @@ func (w *WrapperVMHooks) BigFloatDiv(destinationHandle int32, op1Handle int32, o
 func (w *WrapperVMHooks) BigFloatNeg(destinationHandle int32, opHandle int32) {
 	callInfo := fmt.Sprintf("BigFloatNeg(%d, %d)", destinationHandle, opHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatNeg(destinationHandle, opHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatNeg(destinationHandle, opHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -938,7 +1210,10 @@ func (w *WrapperVMHooks) BigFloatNeg(destinationHandle int32, opHandle int32) {
 func (w *WrapperVMHooks) BigFloatClone(destinationHandle int32, opHandle int32) {
 	callInfo := fmt.Sprintf("BigFloatClone(%d, %d)", destinationHandle, opHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatClone(destinationHandle, opHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatClone(destinationHandle, opHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -946,7 +1221,9 @@ func (w *WrapperVMHooks) BigFloatClone(destinationHandle int32, opHandle int32) 
 func (w *WrapperVMHooks) BigFloatCmp(op1Handle int32, op2Handle int32) int32 {
 	callInfo := fmt.Sprintf("BigFloatCmp(%d, %d)", op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigFloatCmp(op1Handle, op2Handle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigFloatCmp(op1Handle, op2Handle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -955,7 +1232,10 @@ func (w *WrapperVMHooks) BigFloatCmp(op1Handle int32, op2Handle int32) int32 {
 func (w *WrapperVMHooks) BigFloatAbs(destinationHandle int32, opHandle int32) {
 	callInfo := fmt.Sprintf("BigFloatAbs(%d, %d)", destinationHandle, opHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatAbs(destinationHandle, opHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatAbs(destinationHandle, opHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -963,7 +1243,9 @@ func (w *WrapperVMHooks) BigFloatAbs(destinationHandle int32, opHandle int32) {
 func (w *WrapperVMHooks) BigFloatSign(opHandle int32) int32 {
 	callInfo := fmt.Sprintf("BigFloatSign(%d)", opHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigFloatSign(opHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigFloatSign(opHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -972,7 +1254,10 @@ func (w *WrapperVMHooks) BigFloatSign(opHandle int32) int32 {
 func (w *WrapperVMHooks) BigFloatSqrt(destinationHandle int32, opHandle int32) {
 	callInfo := fmt.Sprintf("BigFloatSqrt(%d, %d)", destinationHandle, opHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatSqrt(destinationHandle, opHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatSqrt(destinationHandle, opHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -980,7 +1265,10 @@ func (w *WrapperVMHooks) BigFloatSqrt(destinationHandle int32, opHandle int32) {
 func (w *WrapperVMHooks) BigFloatPow(destinationHandle int32, opHandle int32, exponent int32) {
 	callInfo := fmt.Sprintf("BigFloatPow(%d, %d, %d)", destinationHandle, opHandle, exponent)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatPow(destinationHandle, opHandle, exponent)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatPow(destinationHandle, opHandle, exponent)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -988,7 +1276,10 @@ func (w *WrapperVMHooks) BigFloatPow(destinationHandle int32, opHandle int32, ex
 func (w *WrapperVMHooks) BigFloatFloor(destBigIntHandle int32, opHandle int32) {
 	callInfo := fmt.Sprintf("BigFloatFloor(%d, %d)", destBigIntHandle, opHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatFloor(destBigIntHandle, opHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatFloor(destBigIntHandle, opHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -996,7 +1287,10 @@ func (w *WrapperVMHooks) BigFloatFloor(destBigIntHandle int32, opHandle int32) {
 func (w *WrapperVMHooks) BigFloatCeil(destBigIntHandle int32, opHandle int32) {
 	callInfo := fmt.Sprintf("BigFloatCeil(%d, %d)", destBigIntHandle, opHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatCeil(destBigIntHandle, opHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatCeil(destBigIntHandle, opHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1004,7 +1298,10 @@ func (w *WrapperVMHooks) BigFloatCeil(destBigIntHandle int32, opHandle int32) {
 func (w *WrapperVMHooks) BigFloatTruncate(destBigIntHandle int32, opHandle int32) {
 	callInfo := fmt.Sprintf("BigFloatTruncate(%d, %d)", destBigIntHandle, opHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatTruncate(destBigIntHandle, opHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatTruncate(destBigIntHandle, opHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1012,7 +1309,10 @@ func (w *WrapperVMHooks) BigFloatTruncate(destBigIntHandle int32, opHandle int32
 func (w *WrapperVMHooks) BigFloatSetInt64(destinationHandle int32, value int64) {
 	callInfo := fmt.Sprintf("BigFloatSetInt64(%d, %d)", destinationHandle, value)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatSetInt64(destinationHandle, value)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatSetInt64(destinationHandle, value)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1020,7 +1320,9 @@ func (w *WrapperVMHooks) BigFloatSetInt64(destinationHandle int32, value int64) 
 func (w *WrapperVMHooks) BigFloatIsInt(opHandle int32) int32 {
 	callInfo := fmt.Sprintf("BigFloatIsInt(%d)", opHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigFloatIsInt(opHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigFloatIsInt(opHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1029,7 +1331,10 @@ func (w *WrapperVMHooks) BigFloatIsInt(opHandle int32) int32 {
 func (w *WrapperVMHooks) BigFloatSetBigInt(destinationHandle int32, bigIntHandle int32) {
 	callInfo := fmt.Sprintf("BigFloatSetBigInt(%d, %d)", destinationHandle, bigIntHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatSetBigInt(destinationHandle, bigIntHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatSetBigInt(destinationHandle, bigIntHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1037,7 +1342,10 @@ func (w *WrapperVMHooks) BigFloatSetBigInt(destinationHandle int32, bigIntHandle
 func (w *WrapperVMHooks) BigFloatGetConstPi(destinationHandle int32) {
 	callInfo := fmt.Sprintf("BigFloatGetConstPi(%d)", destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatGetConstPi(destinationHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatGetConstPi(destinationHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1045,7 +1353,10 @@ func (w *WrapperVMHooks) BigFloatGetConstPi(destinationHandle int32) {
 func (w *WrapperVMHooks) BigFloatGetConstE(destinationHandle int32) {
 	callInfo := fmt.Sprintf("BigFloatGetConstE(%d)", destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigFloatGetConstE(destinationHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigFloatGetConstE(destinationHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1053,7 +1364,10 @@ func (w *WrapperVMHooks) BigFloatGetConstE(destinationHandle int32) {
 func (w *WrapperVMHooks) BigIntGetUnsignedArgument(id int32, destinationHandle int32) {
 	callInfo := fmt.Sprintf("BigIntGetUnsignedArgument(%d, %d)", id, destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntGetUnsignedArgument(id, destinationHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntGetUnsignedArgument(id, destinationHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1061,7 +1375,10 @@ func (w *WrapperVMHooks) BigIntGetUnsignedArgument(id int32, destinationHandle i
 func (w *WrapperVMHooks) BigIntGetSignedArgument(id int32, destinationHandle int32) {
 	callInfo := fmt.Sprintf("BigIntGetSignedArgument(%d, %d)", id, destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntGetSignedArgument(id, destinationHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntGetSignedArgument(id, destinationHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1069,7 +1386,9 @@ func (w *WrapperVMHooks) BigIntGetSignedArgument(id int32, destinationHandle int
 func (w *WrapperVMHooks) BigIntStorageStoreUnsigned(keyOffset executor.MemPtr, keyLength executor.MemLength, sourceHandle int32) int32 {
 	callInfo := fmt.Sprintf("BigIntStorageStoreUnsigned(%d, %d, %d)", keyOffset, keyLength, sourceHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigIntStorageStoreUnsigned(keyOffset, keyLength, sourceHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigIntStorageStoreUnsigned(keyOffset, keyLength, sourceHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1078,7 +1397,9 @@ func (w *WrapperVMHooks) BigIntStorageStoreUnsigned(keyOffset executor.MemPtr, k
 func (w *WrapperVMHooks) BigIntStorageLoadUnsigned(keyOffset executor.MemPtr, keyLength executor.MemLength, destinationHandle int32) int32 {
 	callInfo := fmt.Sprintf("BigIntStorageLoadUnsigned(%d, %d, %d)", keyOffset, keyLength, destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigIntStorageLoadUnsigned(keyOffset, keyLength, destinationHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigIntStorageLoadUnsigned(keyOffset, keyLength, destinationHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1087,7 +1408,10 @@ func (w *WrapperVMHooks) BigIntStorageLoadUnsigned(keyOffset executor.MemPtr, ke
 func (w *WrapperVMHooks) BigIntGetCallValue(destinationHandle int32) {
 	callInfo := fmt.Sprintf("BigIntGetCallValue(%d)", destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntGetCallValue(destinationHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntGetCallValue(destinationHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1095,7 +1419,10 @@ func (w *WrapperVMHooks) BigIntGetCallValue(destinationHandle int32) {
 func (w *WrapperVMHooks) BigIntGetKDACallValue(destination int32) {
 	callInfo := fmt.Sprintf("BigIntGetKDACallValue(%d)", destination)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntGetKDACallValue(destination)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntGetKDACallValue(destination)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1103,7 +1430,10 @@ func (w *WrapperVMHooks) BigIntGetKDACallValue(destination int32) {
 func (w *WrapperVMHooks) BigIntGetKDACallValueByIndex(destinationHandle int32, index int32) {
 	callInfo := fmt.Sprintf("BigIntGetKDACallValueByIndex(%d, %d)", destinationHandle, index)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntGetKDACallValueByIndex(destinationHandle, index)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntGetKDACallValueByIndex(destinationHandle, index)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1111,7 +1441,10 @@ func (w *WrapperVMHooks) BigIntGetKDACallValueByIndex(destinationHandle int32, i
 func (w *WrapperVMHooks) BigIntGetExternalBalance(addressOffset executor.MemPtr, result int32) {
 	callInfo := fmt.Sprintf("BigIntGetExternalBalance(%d, %d)", addressOffset, result)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntGetExternalBalance(addressOffset, result)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntGetExternalBalance(addressOffset, result)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1119,7 +1452,10 @@ func (w *WrapperVMHooks) BigIntGetExternalBalance(addressOffset executor.MemPtr,
 func (w *WrapperVMHooks) BigIntGetKDAExternalBalance(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, resultHandle int32) {
 	callInfo := fmt.Sprintf("BigIntGetKDAExternalBalance(%d, %d, %d, %d, %d)", addressOffset, tokenIDOffset, tokenIDLen, nonce, resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntGetKDAExternalBalance(addressOffset, tokenIDOffset, tokenIDLen, nonce, resultHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntGetKDAExternalBalance(addressOffset, tokenIDOffset, tokenIDLen, nonce, resultHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1127,7 +1463,9 @@ func (w *WrapperVMHooks) BigIntGetKDAExternalBalance(addressOffset executor.MemP
 func (w *WrapperVMHooks) BigIntNew(smallValue int64) int32 {
 	callInfo := fmt.Sprintf("BigIntNew(%d)", smallValue)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigIntNew(smallValue)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigIntNew(smallValue)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1136,7 +1474,9 @@ func (w *WrapperVMHooks) BigIntNew(smallValue int64) int32 {
 func (w *WrapperVMHooks) BigIntUnsignedByteLength(referenceHandle int32) int32 {
 	callInfo := fmt.Sprintf("BigIntUnsignedByteLength(%d)", referenceHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigIntUnsignedByteLength(referenceHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigIntUnsignedByteLength(referenceHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1145,7 +1485,9 @@ func (w *WrapperVMHooks) BigIntUnsignedByteLength(referenceHandle int32) int32 {
 func (w *WrapperVMHooks) BigIntSignedByteLength(referenceHandle int32) int32 {
 	callInfo := fmt.Sprintf("BigIntSignedByteLength(%d)", referenceHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigIntSignedByteLength(referenceHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigIntSignedByteLength(referenceHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1154,7 +1496,9 @@ func (w *WrapperVMHooks) BigIntSignedByteLength(referenceHandle int32) int32 {
 func (w *WrapperVMHooks) BigIntGetUnsignedBytes(referenceHandle int32, byteOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("BigIntGetUnsignedBytes(%d, %d)", referenceHandle, byteOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigIntGetUnsignedBytes(referenceHandle, byteOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigIntGetUnsignedBytes(referenceHandle, byteOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1163,7 +1507,9 @@ func (w *WrapperVMHooks) BigIntGetUnsignedBytes(referenceHandle int32, byteOffse
 func (w *WrapperVMHooks) BigIntGetSignedBytes(referenceHandle int32, byteOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("BigIntGetSignedBytes(%d, %d)", referenceHandle, byteOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigIntGetSignedBytes(referenceHandle, byteOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigIntGetSignedBytes(referenceHandle, byteOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1172,7 +1518,10 @@ func (w *WrapperVMHooks) BigIntGetSignedBytes(referenceHandle int32, byteOffset 
 func (w *WrapperVMHooks) BigIntSetUnsignedBytes(destinationHandle int32, byteOffset executor.MemPtr, byteLength executor.MemLength) {
 	callInfo := fmt.Sprintf("BigIntSetUnsignedBytes(%d, %d, %d)", destinationHandle, byteOffset, byteLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntSetUnsignedBytes(destinationHandle, byteOffset, byteLength)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntSetUnsignedBytes(destinationHandle, byteOffset, byteLength)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1180,7 +1529,10 @@ func (w *WrapperVMHooks) BigIntSetUnsignedBytes(destinationHandle int32, byteOff
 func (w *WrapperVMHooks) BigIntSetSignedBytes(destinationHandle int32, byteOffset executor.MemPtr, byteLength executor.MemLength) {
 	callInfo := fmt.Sprintf("BigIntSetSignedBytes(%d, %d, %d)", destinationHandle, byteOffset, byteLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntSetSignedBytes(destinationHandle, byteOffset, byteLength)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntSetSignedBytes(destinationHandle, byteOffset, byteLength)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1188,7 +1540,9 @@ func (w *WrapperVMHooks) BigIntSetSignedBytes(destinationHandle int32, byteOffse
 func (w *WrapperVMHooks) BigIntIsInt64(destinationHandle int32) int32 {
 	callInfo := fmt.Sprintf("BigIntIsInt64(%d)", destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigIntIsInt64(destinationHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigIntIsInt64(destinationHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1197,7 +1551,9 @@ func (w *WrapperVMHooks) BigIntIsInt64(destinationHandle int32) int32 {
 func (w *WrapperVMHooks) BigIntGetInt64(destinationHandle int32) int64 {
 	callInfo := fmt.Sprintf("BigIntGetInt64(%d)", destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigIntGetInt64(destinationHandle)
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.BigIntGetInt64(destinationHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1206,7 +1562,10 @@ func (w *WrapperVMHooks) BigIntGetInt64(destinationHandle int32) int64 {
 func (w *WrapperVMHooks) BigIntSetInt64(destinationHandle int32, value int64) {
 	callInfo := fmt.Sprintf("BigIntSetInt64(%d, %d)", destinationHandle, value)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntSetInt64(destinationHandle, value)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntSetInt64(destinationHandle, value)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1214,7 +1573,10 @@ func (w *WrapperVMHooks) BigIntSetInt64(destinationHandle int32, value int64) {
 func (w *WrapperVMHooks) BigIntAdd(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigIntAdd(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntAdd(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntAdd(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1222,7 +1584,10 @@ func (w *WrapperVMHooks) BigIntAdd(destinationHandle int32, op1Handle int32, op2
 func (w *WrapperVMHooks) BigIntSub(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigIntSub(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntSub(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntSub(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1230,7 +1595,10 @@ func (w *WrapperVMHooks) BigIntSub(destinationHandle int32, op1Handle int32, op2
 func (w *WrapperVMHooks) BigIntMul(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigIntMul(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntMul(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntMul(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1238,7 +1606,10 @@ func (w *WrapperVMHooks) BigIntMul(destinationHandle int32, op1Handle int32, op2
 func (w *WrapperVMHooks) BigIntTDiv(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigIntTDiv(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntTDiv(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntTDiv(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1246,7 +1617,10 @@ func (w *WrapperVMHooks) BigIntTDiv(destinationHandle int32, op1Handle int32, op
 func (w *WrapperVMHooks) BigIntTMod(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigIntTMod(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntTMod(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntTMod(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1254,7 +1628,10 @@ func (w *WrapperVMHooks) BigIntTMod(destinationHandle int32, op1Handle int32, op
 func (w *WrapperVMHooks) BigIntEDiv(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigIntEDiv(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntEDiv(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntEDiv(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1262,7 +1639,10 @@ func (w *WrapperVMHooks) BigIntEDiv(destinationHandle int32, op1Handle int32, op
 func (w *WrapperVMHooks) BigIntEMod(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigIntEMod(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntEMod(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntEMod(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1270,7 +1650,10 @@ func (w *WrapperVMHooks) BigIntEMod(destinationHandle int32, op1Handle int32, op
 func (w *WrapperVMHooks) BigIntSqrt(destinationHandle int32, opHandle int32) {
 	callInfo := fmt.Sprintf("BigIntSqrt(%d, %d)", destinationHandle, opHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntSqrt(destinationHandle, opHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntSqrt(destinationHandle, opHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1278,7 +1661,10 @@ func (w *WrapperVMHooks) BigIntSqrt(destinationHandle int32, opHandle int32) {
 func (w *WrapperVMHooks) BigIntPow(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigIntPow(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntPow(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntPow(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1286,7 +1672,9 @@ func (w *WrapperVMHooks) BigIntPow(destinationHandle int32, op1Handle int32, op2
 func (w *WrapperVMHooks) BigIntLog2(op1Handle int32) int32 {
 	callInfo := fmt.Sprintf("BigIntLog2(%d)", op1Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigIntLog2(op1Handle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigIntLog2(op1Handle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1295,7 +1683,10 @@ func (w *WrapperVMHooks) BigIntLog2(op1Handle int32) int32 {
 func (w *WrapperVMHooks) BigIntAbs(destinationHandle int32, opHandle int32) {
 	callInfo := fmt.Sprintf("BigIntAbs(%d, %d)", destinationHandle, opHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntAbs(destinationHandle, opHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntAbs(destinationHandle, opHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1303,7 +1694,10 @@ func (w *WrapperVMHooks) BigIntAbs(destinationHandle int32, opHandle int32) {
 func (w *WrapperVMHooks) BigIntNeg(destinationHandle int32, opHandle int32) {
 	callInfo := fmt.Sprintf("BigIntNeg(%d, %d)", destinationHandle, opHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntNeg(destinationHandle, opHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntNeg(destinationHandle, opHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1311,7 +1705,9 @@ func (w *WrapperVMHooks) BigIntNeg(destinationHandle int32, opHandle int32) {
 func (w *WrapperVMHooks) BigIntSign(opHandle int32) int32 {
 	callInfo := fmt.Sprintf("BigIntSign(%d)", opHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigIntSign(opHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigIntSign(opHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1320,7 +1716,9 @@ func (w *WrapperVMHooks) BigIntSign(opHandle int32) int32 {
 func (w *WrapperVMHooks) BigIntCmp(op1Handle int32, op2Handle int32) int32 {
 	callInfo := fmt.Sprintf("BigIntCmp(%d, %d)", op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.BigIntCmp(op1Handle, op2Handle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.BigIntCmp(op1Handle, op2Handle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1329,7 +1727,10 @@ func (w *WrapperVMHooks) BigIntCmp(op1Handle int32, op2Handle int32) int32 {
 func (w *WrapperVMHooks) BigIntNot(destinationHandle int32, opHandle int32) {
 	callInfo := fmt.Sprintf("BigIntNot(%d, %d)", destinationHandle, opHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntNot(destinationHandle, opHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntNot(destinationHandle, opHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1337,7 +1738,10 @@ func (w *WrapperVMHooks) BigIntNot(destinationHandle int32, opHandle int32) {
 func (w *WrapperVMHooks) BigIntAnd(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigIntAnd(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntAnd(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntAnd(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1345,7 +1749,10 @@ func (w *WrapperVMHooks) BigIntAnd(destinationHandle int32, op1Handle int32, op2
 func (w *WrapperVMHooks) BigIntOr(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigIntOr(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntOr(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntOr(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1353,7 +1760,10 @@ func (w *WrapperVMHooks) BigIntOr(destinationHandle int32, op1Handle int32, op2H
 func (w *WrapperVMHooks) BigIntXor(destinationHandle int32, op1Handle int32, op2Handle int32) {
 	callInfo := fmt.Sprintf("BigIntXor(%d, %d, %d)", destinationHandle, op1Handle, op2Handle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntXor(destinationHandle, op1Handle, op2Handle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntXor(destinationHandle, op1Handle, op2Handle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1361,7 +1771,10 @@ func (w *WrapperVMHooks) BigIntXor(destinationHandle int32, op1Handle int32, op2
 func (w *WrapperVMHooks) BigIntShr(destinationHandle int32, opHandle int32, bits int32) {
 	callInfo := fmt.Sprintf("BigIntShr(%d, %d, %d)", destinationHandle, opHandle, bits)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntShr(destinationHandle, opHandle, bits)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntShr(destinationHandle, opHandle, bits)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1369,7 +1782,10 @@ func (w *WrapperVMHooks) BigIntShr(destinationHandle int32, opHandle int32, bits
 func (w *WrapperVMHooks) BigIntShl(destinationHandle int32, opHandle int32, bits int32) {
 	callInfo := fmt.Sprintf("BigIntShl(%d, %d, %d)", destinationHandle, opHandle, bits)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntShl(destinationHandle, opHandle, bits)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntShl(destinationHandle, opHandle, bits)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1377,7 +1793,10 @@ func (w *WrapperVMHooks) BigIntShl(destinationHandle int32, opHandle int32, bits
 func (w *WrapperVMHooks) BigIntFinishUnsigned(referenceHandle int32) {
 	callInfo := fmt.Sprintf("BigIntFinishUnsigned(%d)", referenceHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntFinishUnsigned(referenceHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntFinishUnsigned(referenceHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1385,7 +1804,10 @@ func (w *WrapperVMHooks) BigIntFinishUnsigned(referenceHandle int32) {
 func (w *WrapperVMHooks) BigIntFinishSigned(referenceHandle int32) {
 	callInfo := fmt.Sprintf("BigIntFinishSigned(%d)", referenceHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntFinishSigned(referenceHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntFinishSigned(referenceHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1393,7 +1815,10 @@ func (w *WrapperVMHooks) BigIntFinishSigned(referenceHandle int32) {
 func (w *WrapperVMHooks) BigIntToString(bigIntHandle int32, destinationHandle int32) {
 	callInfo := fmt.Sprintf("BigIntToString(%d, %d)", bigIntHandle, destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.BigIntToString(bigIntHandle, destinationHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.BigIntToString(bigIntHandle, destinationHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1401,7 +1826,9 @@ func (w *WrapperVMHooks) BigIntToString(bigIntHandle int32, destinationHandle in
 func (w *WrapperVMHooks) MBufferNew() int32 {
 	callInfo := "MBufferNew()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferNew()
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferNew()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1410,7 +1837,9 @@ func (w *WrapperVMHooks) MBufferNew() int32 {
 func (w *WrapperVMHooks) MBufferNewFromBytes(dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
 	callInfo := fmt.Sprintf("MBufferNewFromBytes(%d, %d)", dataOffset, dataLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferNewFromBytes(dataOffset, dataLength)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferNewFromBytes(dataOffset, dataLength)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1419,7 +1848,9 @@ func (w *WrapperVMHooks) MBufferNewFromBytes(dataOffset executor.MemPtr, dataLen
 func (w *WrapperVMHooks) MBufferGetLength(mBufferHandle int32) int32 {
 	callInfo := fmt.Sprintf("MBufferGetLength(%d)", mBufferHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferGetLength(mBufferHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferGetLength(mBufferHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1428,7 +1859,9 @@ func (w *WrapperVMHooks) MBufferGetLength(mBufferHandle int32) int32 {
 func (w *WrapperVMHooks) MBufferGetBytes(mBufferHandle int32, resultOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("MBufferGetBytes(%d, %d)", mBufferHandle, resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferGetBytes(mBufferHandle, resultOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferGetBytes(mBufferHandle, resultOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1437,7 +1870,9 @@ func (w *WrapperVMHooks) MBufferGetBytes(mBufferHandle int32, resultOffset execu
 func (w *WrapperVMHooks) MBufferGetByteSlice(sourceHandle int32, startingPosition int32, sliceLength int32, resultOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("MBufferGetByteSlice(%d, %d, %d, %d)", sourceHandle, startingPosition, sliceLength, resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferGetByteSlice(sourceHandle, startingPosition, sliceLength, resultOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferGetByteSlice(sourceHandle, startingPosition, sliceLength, resultOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1446,7 +1881,9 @@ func (w *WrapperVMHooks) MBufferGetByteSlice(sourceHandle int32, startingPositio
 func (w *WrapperVMHooks) MBufferCopyByteSlice(sourceHandle int32, startingPosition int32, sliceLength int32, destinationHandle int32) int32 {
 	callInfo := fmt.Sprintf("MBufferCopyByteSlice(%d, %d, %d, %d)", sourceHandle, startingPosition, sliceLength, destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferCopyByteSlice(sourceHandle, startingPosition, sliceLength, destinationHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferCopyByteSlice(sourceHandle, startingPosition, sliceLength, destinationHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1455,7 +1892,9 @@ func (w *WrapperVMHooks) MBufferCopyByteSlice(sourceHandle int32, startingPositi
 func (w *WrapperVMHooks) MBufferEq(mBufferHandle1 int32, mBufferHandle2 int32) int32 {
 	callInfo := fmt.Sprintf("MBufferEq(%d, %d)", mBufferHandle1, mBufferHandle2)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferEq(mBufferHandle1, mBufferHandle2)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferEq(mBufferHandle1, mBufferHandle2)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1464,7 +1903,9 @@ func (w *WrapperVMHooks) MBufferEq(mBufferHandle1 int32, mBufferHandle2 int32) i
 func (w *WrapperVMHooks) MBufferSetBytes(mBufferHandle int32, dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
 	callInfo := fmt.Sprintf("MBufferSetBytes(%d, %d, %d)", mBufferHandle, dataOffset, dataLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferSetBytes(mBufferHandle, dataOffset, dataLength)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferSetBytes(mBufferHandle, dataOffset, dataLength)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1473,7 +1914,9 @@ func (w *WrapperVMHooks) MBufferSetBytes(mBufferHandle int32, dataOffset executo
 func (w *WrapperVMHooks) MBufferSetByteSlice(mBufferHandle int32, startingPosition int32, dataLength executor.MemLength, dataOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("MBufferSetByteSlice(%d, %d, %d, %d)", mBufferHandle, startingPosition, dataLength, dataOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferSetByteSlice(mBufferHandle, startingPosition, dataLength, dataOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferSetByteSlice(mBufferHandle, startingPosition, dataLength, dataOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1482,7 +1925,9 @@ func (w *WrapperVMHooks) MBufferSetByteSlice(mBufferHandle int32, startingPositi
 func (w *WrapperVMHooks) MBufferAppend(accumulatorHandle int32, dataHandle int32) int32 {
 	callInfo := fmt.Sprintf("MBufferAppend(%d, %d)", accumulatorHandle, dataHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferAppend(accumulatorHandle, dataHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferAppend(accumulatorHandle, dataHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1491,7 +1936,9 @@ func (w *WrapperVMHooks) MBufferAppend(accumulatorHandle int32, dataHandle int32
 func (w *WrapperVMHooks) MBufferAppendBytes(accumulatorHandle int32, dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
 	callInfo := fmt.Sprintf("MBufferAppendBytes(%d, %d, %d)", accumulatorHandle, dataOffset, dataLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferAppendBytes(accumulatorHandle, dataOffset, dataLength)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferAppendBytes(accumulatorHandle, dataOffset, dataLength)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1500,7 +1947,9 @@ func (w *WrapperVMHooks) MBufferAppendBytes(accumulatorHandle int32, dataOffset 
 func (w *WrapperVMHooks) MBufferToBigIntUnsigned(mBufferHandle int32, bigIntHandle int32) int32 {
 	callInfo := fmt.Sprintf("MBufferToBigIntUnsigned(%d, %d)", mBufferHandle, bigIntHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferToBigIntUnsigned(mBufferHandle, bigIntHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferToBigIntUnsigned(mBufferHandle, bigIntHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1509,7 +1958,9 @@ func (w *WrapperVMHooks) MBufferToBigIntUnsigned(mBufferHandle int32, bigIntHand
 func (w *WrapperVMHooks) MBufferToBigIntSigned(mBufferHandle int32, bigIntHandle int32) int32 {
 	callInfo := fmt.Sprintf("MBufferToBigIntSigned(%d, %d)", mBufferHandle, bigIntHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferToBigIntSigned(mBufferHandle, bigIntHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferToBigIntSigned(mBufferHandle, bigIntHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1518,7 +1969,9 @@ func (w *WrapperVMHooks) MBufferToBigIntSigned(mBufferHandle int32, bigIntHandle
 func (w *WrapperVMHooks) MBufferFromBigIntUnsigned(mBufferHandle int32, bigIntHandle int32) int32 {
 	callInfo := fmt.Sprintf("MBufferFromBigIntUnsigned(%d, %d)", mBufferHandle, bigIntHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferFromBigIntUnsigned(mBufferHandle, bigIntHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferFromBigIntUnsigned(mBufferHandle, bigIntHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1527,7 +1980,9 @@ func (w *WrapperVMHooks) MBufferFromBigIntUnsigned(mBufferHandle int32, bigIntHa
 func (w *WrapperVMHooks) MBufferFromBigIntSigned(mBufferHandle int32, bigIntHandle int32) int32 {
 	callInfo := fmt.Sprintf("MBufferFromBigIntSigned(%d, %d)", mBufferHandle, bigIntHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferFromBigIntSigned(mBufferHandle, bigIntHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferFromBigIntSigned(mBufferHandle, bigIntHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1536,7 +1991,9 @@ func (w *WrapperVMHooks) MBufferFromBigIntSigned(mBufferHandle int32, bigIntHand
 func (w *WrapperVMHooks) MBufferToBigFloat(mBufferHandle int32, bigFloatHandle int32) int32 {
 	callInfo := fmt.Sprintf("MBufferToBigFloat(%d, %d)", mBufferHandle, bigFloatHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferToBigFloat(mBufferHandle, bigFloatHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferToBigFloat(mBufferHandle, bigFloatHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1545,7 +2002,9 @@ func (w *WrapperVMHooks) MBufferToBigFloat(mBufferHandle int32, bigFloatHandle i
 func (w *WrapperVMHooks) MBufferFromBigFloat(mBufferHandle int32, bigFloatHandle int32) int32 {
 	callInfo := fmt.Sprintf("MBufferFromBigFloat(%d, %d)", mBufferHandle, bigFloatHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferFromBigFloat(mBufferHandle, bigFloatHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferFromBigFloat(mBufferHandle, bigFloatHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1554,7 +2013,9 @@ func (w *WrapperVMHooks) MBufferFromBigFloat(mBufferHandle int32, bigFloatHandle
 func (w *WrapperVMHooks) MBufferStorageStore(keyHandle int32, sourceHandle int32) int32 {
 	callInfo := fmt.Sprintf("MBufferStorageStore(%d, %d)", keyHandle, sourceHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferStorageStore(keyHandle, sourceHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferStorageStore(keyHandle, sourceHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1563,7 +2024,9 @@ func (w *WrapperVMHooks) MBufferStorageStore(keyHandle int32, sourceHandle int32
 func (w *WrapperVMHooks) MBufferStorageLoad(keyHandle int32, destinationHandle int32) int32 {
 	callInfo := fmt.Sprintf("MBufferStorageLoad(%d, %d)", keyHandle, destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferStorageLoad(keyHandle, destinationHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferStorageLoad(keyHandle, destinationHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1572,7 +2035,10 @@ func (w *WrapperVMHooks) MBufferStorageLoad(keyHandle int32, destinationHandle i
 func (w *WrapperVMHooks) MBufferStorageLoadFromAddress(addressHandle int32, keyHandle int32, destinationHandle int32) {
 	callInfo := fmt.Sprintf("MBufferStorageLoadFromAddress(%d, %d, %d)", addressHandle, keyHandle, destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.MBufferStorageLoadFromAddress(addressHandle, keyHandle, destinationHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.MBufferStorageLoadFromAddress(addressHandle, keyHandle, destinationHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1580,7 +2046,9 @@ func (w *WrapperVMHooks) MBufferStorageLoadFromAddress(addressHandle int32, keyH
 func (w *WrapperVMHooks) MBufferGetArgument(id int32, destinationHandle int32) int32 {
 	callInfo := fmt.Sprintf("MBufferGetArgument(%d, %d)", id, destinationHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferGetArgument(id, destinationHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferGetArgument(id, destinationHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1589,7 +2057,9 @@ func (w *WrapperVMHooks) MBufferGetArgument(id int32, destinationHandle int32) i
 func (w *WrapperVMHooks) MBufferFinish(sourceHandle int32) int32 {
 	callInfo := fmt.Sprintf("MBufferFinish(%d)", sourceHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferFinish(sourceHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferFinish(sourceHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1598,7 +2068,9 @@ func (w *WrapperVMHooks) MBufferFinish(sourceHandle int32) int32 {
 func (w *WrapperVMHooks) MBufferSetRandom(destinationHandle int32, length int32) int32 {
 	callInfo := fmt.Sprintf("MBufferSetRandom(%d, %d)", destinationHandle, length)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MBufferSetRandom(destinationHandle, length)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MBufferSetRandom(destinationHandle, length)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1607,7 +2079,9 @@ func (w *WrapperVMHooks) MBufferSetRandom(destinationHandle int32, length int32)
 func (w *WrapperVMHooks) ManagedMapNew() int32 {
 	callInfo := "ManagedMapNew()"
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedMapNew()
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedMapNew()
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1616,7 +2090,9 @@ func (w *WrapperVMHooks) ManagedMapNew() int32 {
 func (w *WrapperVMHooks) ManagedMapPut(mMapHandle int32, keyHandle int32, valueHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedMapPut(%d, %d, %d)", mMapHandle, keyHandle, valueHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedMapPut(mMapHandle, keyHandle, valueHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedMapPut(mMapHandle, keyHandle, valueHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1625,7 +2101,9 @@ func (w *WrapperVMHooks) ManagedMapPut(mMapHandle int32, keyHandle int32, valueH
 func (w *WrapperVMHooks) ManagedMapGet(mMapHandle int32, keyHandle int32, outValueHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedMapGet(%d, %d, %d)", mMapHandle, keyHandle, outValueHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedMapGet(mMapHandle, keyHandle, outValueHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedMapGet(mMapHandle, keyHandle, outValueHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1634,7 +2112,9 @@ func (w *WrapperVMHooks) ManagedMapGet(mMapHandle int32, keyHandle int32, outVal
 func (w *WrapperVMHooks) ManagedMapRemove(mMapHandle int32, keyHandle int32, outValueHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedMapRemove(%d, %d, %d)", mMapHandle, keyHandle, outValueHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedMapRemove(mMapHandle, keyHandle, outValueHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedMapRemove(mMapHandle, keyHandle, outValueHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1643,7 +2123,9 @@ func (w *WrapperVMHooks) ManagedMapRemove(mMapHandle int32, keyHandle int32, out
 func (w *WrapperVMHooks) ManagedMapContains(mMapHandle int32, keyHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedMapContains(%d, %d)", mMapHandle, keyHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedMapContains(mMapHandle, keyHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedMapContains(mMapHandle, keyHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1652,7 +2134,9 @@ func (w *WrapperVMHooks) ManagedMapContains(mMapHandle int32, keyHandle int32) i
 func (w *WrapperVMHooks) SmallIntGetUnsignedArgument(id int32) int64 {
 	callInfo := fmt.Sprintf("SmallIntGetUnsignedArgument(%d)", id)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.SmallIntGetUnsignedArgument(id)
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.SmallIntGetUnsignedArgument(id)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1661,7 +2145,9 @@ func (w *WrapperVMHooks) SmallIntGetUnsignedArgument(id int32) int64 {
 func (w *WrapperVMHooks) SmallIntGetSignedArgument(id int32) int64 {
 	callInfo := fmt.Sprintf("SmallIntGetSignedArgument(%d)", id)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.SmallIntGetSignedArgument(id)
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.SmallIntGetSignedArgument(id)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1670,7 +2156,10 @@ func (w *WrapperVMHooks) SmallIntGetSignedArgument(id int32) int64 {
 func (w *WrapperVMHooks) SmallIntFinishUnsigned(value int64) {
 	callInfo := fmt.Sprintf("SmallIntFinishUnsigned(%d)", value)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.SmallIntFinishUnsigned(value)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.SmallIntFinishUnsigned(value)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1678,7 +2167,10 @@ func (w *WrapperVMHooks) SmallIntFinishUnsigned(value int64) {
 func (w *WrapperVMHooks) SmallIntFinishSigned(value int64) {
 	callInfo := fmt.Sprintf("SmallIntFinishSigned(%d)", value)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.SmallIntFinishSigned(value)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.SmallIntFinishSigned(value)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1686,7 +2178,9 @@ func (w *WrapperVMHooks) SmallIntFinishSigned(value int64) {
 func (w *WrapperVMHooks) SmallIntStorageStoreUnsigned(keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32 {
 	callInfo := fmt.Sprintf("SmallIntStorageStoreUnsigned(%d, %d, %d)", keyOffset, keyLength, value)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.SmallIntStorageStoreUnsigned(keyOffset, keyLength, value)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.SmallIntStorageStoreUnsigned(keyOffset, keyLength, value)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1695,7 +2189,9 @@ func (w *WrapperVMHooks) SmallIntStorageStoreUnsigned(keyOffset executor.MemPtr,
 func (w *WrapperVMHooks) SmallIntStorageStoreSigned(keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32 {
 	callInfo := fmt.Sprintf("SmallIntStorageStoreSigned(%d, %d, %d)", keyOffset, keyLength, value)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.SmallIntStorageStoreSigned(keyOffset, keyLength, value)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.SmallIntStorageStoreSigned(keyOffset, keyLength, value)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1704,7 +2200,9 @@ func (w *WrapperVMHooks) SmallIntStorageStoreSigned(keyOffset executor.MemPtr, k
 func (w *WrapperVMHooks) SmallIntStorageLoadUnsigned(keyOffset executor.MemPtr, keyLength executor.MemLength) int64 {
 	callInfo := fmt.Sprintf("SmallIntStorageLoadUnsigned(%d, %d)", keyOffset, keyLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.SmallIntStorageLoadUnsigned(keyOffset, keyLength)
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.SmallIntStorageLoadUnsigned(keyOffset, keyLength)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1713,7 +2211,9 @@ func (w *WrapperVMHooks) SmallIntStorageLoadUnsigned(keyOffset executor.MemPtr, 
 func (w *WrapperVMHooks) SmallIntStorageLoadSigned(keyOffset executor.MemPtr, keyLength executor.MemLength) int64 {
 	callInfo := fmt.Sprintf("SmallIntStorageLoadSigned(%d, %d)", keyOffset, keyLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.SmallIntStorageLoadSigned(keyOffset, keyLength)
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.SmallIntStorageLoadSigned(keyOffset, keyLength)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1722,7 +2222,9 @@ func (w *WrapperVMHooks) SmallIntStorageLoadSigned(keyOffset executor.MemPtr, ke
 func (w *WrapperVMHooks) Int64getArgument(id int32) int64 {
 	callInfo := fmt.Sprintf("Int64getArgument(%d)", id)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.Int64getArgument(id)
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.Int64getArgument(id)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1731,7 +2233,10 @@ func (w *WrapperVMHooks) Int64getArgument(id int32) int64 {
 func (w *WrapperVMHooks) Int64finish(value int64) {
 	callInfo := fmt.Sprintf("Int64finish(%d)", value)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.Int64finish(value)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.Int64finish(value)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1739,7 +2244,9 @@ func (w *WrapperVMHooks) Int64finish(value int64) {
 func (w *WrapperVMHooks) Int64storageStore(keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32 {
 	callInfo := fmt.Sprintf("Int64storageStore(%d, %d, %d)", keyOffset, keyLength, value)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.Int64storageStore(keyOffset, keyLength, value)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.Int64storageStore(keyOffset, keyLength, value)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1748,7 +2255,9 @@ func (w *WrapperVMHooks) Int64storageStore(keyOffset executor.MemPtr, keyLength 
 func (w *WrapperVMHooks) Int64storageLoad(keyOffset executor.MemPtr, keyLength executor.MemLength) int64 {
 	callInfo := fmt.Sprintf("Int64storageLoad(%d, %d)", keyOffset, keyLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.Int64storageLoad(keyOffset, keyLength)
+	result := FailAfterTimeout(func() int64 {
+		return w.wrappedVMHooks.Int64storageLoad(keyOffset, keyLength)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1757,7 +2266,9 @@ func (w *WrapperVMHooks) Int64storageLoad(keyOffset executor.MemPtr, keyLength e
 func (w *WrapperVMHooks) Sha256(dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("Sha256(%d, %d, %d)", dataOffset, length, resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.Sha256(dataOffset, length, resultOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.Sha256(dataOffset, length, resultOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1766,7 +2277,9 @@ func (w *WrapperVMHooks) Sha256(dataOffset executor.MemPtr, length executor.MemL
 func (w *WrapperVMHooks) ManagedSha256(inputHandle int32, outputHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedSha256(%d, %d)", inputHandle, outputHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedSha256(inputHandle, outputHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedSha256(inputHandle, outputHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1775,7 +2288,9 @@ func (w *WrapperVMHooks) ManagedSha256(inputHandle int32, outputHandle int32) in
 func (w *WrapperVMHooks) Keccak256(dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("Keccak256(%d, %d, %d)", dataOffset, length, resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.Keccak256(dataOffset, length, resultOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.Keccak256(dataOffset, length, resultOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1784,7 +2299,9 @@ func (w *WrapperVMHooks) Keccak256(dataOffset executor.MemPtr, length executor.M
 func (w *WrapperVMHooks) ManagedKeccak256(inputHandle int32, outputHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedKeccak256(%d, %d)", inputHandle, outputHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedKeccak256(inputHandle, outputHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedKeccak256(inputHandle, outputHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1793,7 +2310,9 @@ func (w *WrapperVMHooks) ManagedKeccak256(inputHandle int32, outputHandle int32)
 func (w *WrapperVMHooks) Ripemd160(dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("Ripemd160(%d, %d, %d)", dataOffset, length, resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.Ripemd160(dataOffset, length, resultOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.Ripemd160(dataOffset, length, resultOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1802,7 +2321,9 @@ func (w *WrapperVMHooks) Ripemd160(dataOffset executor.MemPtr, length executor.M
 func (w *WrapperVMHooks) ManagedRipemd160(inputHandle int32, outputHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedRipemd160(%d, %d)", inputHandle, outputHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedRipemd160(inputHandle, outputHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedRipemd160(inputHandle, outputHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1811,7 +2332,9 @@ func (w *WrapperVMHooks) ManagedRipemd160(inputHandle int32, outputHandle int32)
 func (w *WrapperVMHooks) VerifyBLS(keyOffset executor.MemPtr, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("VerifyBLS(%d, %d, %d, %d)", keyOffset, messageOffset, messageLength, sigOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.VerifyBLS(keyOffset, messageOffset, messageLength, sigOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.VerifyBLS(keyOffset, messageOffset, messageLength, sigOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1820,7 +2343,9 @@ func (w *WrapperVMHooks) VerifyBLS(keyOffset executor.MemPtr, messageOffset exec
 func (w *WrapperVMHooks) ManagedVerifyBLS(keyHandle int32, messageHandle int32, sigHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedVerifyBLS(%d, %d, %d)", keyHandle, messageHandle, sigHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedVerifyBLS(keyHandle, messageHandle, sigHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedVerifyBLS(keyHandle, messageHandle, sigHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1829,7 +2354,9 @@ func (w *WrapperVMHooks) ManagedVerifyBLS(keyHandle int32, messageHandle int32, 
 func (w *WrapperVMHooks) VerifyEd25519(keyOffset executor.MemPtr, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("VerifyEd25519(%d, %d, %d, %d)", keyOffset, messageOffset, messageLength, sigOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.VerifyEd25519(keyOffset, messageOffset, messageLength, sigOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.VerifyEd25519(keyOffset, messageOffset, messageLength, sigOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1838,7 +2365,9 @@ func (w *WrapperVMHooks) VerifyEd25519(keyOffset executor.MemPtr, messageOffset 
 func (w *WrapperVMHooks) ManagedVerifyEd25519(keyHandle int32, messageHandle int32, sigHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedVerifyEd25519(%d, %d, %d)", keyHandle, messageHandle, sigHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedVerifyEd25519(keyHandle, messageHandle, sigHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedVerifyEd25519(keyHandle, messageHandle, sigHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1847,7 +2376,9 @@ func (w *WrapperVMHooks) ManagedVerifyEd25519(keyHandle int32, messageHandle int
 func (w *WrapperVMHooks) VerifyCustomSecp256k1(keyOffset executor.MemPtr, keyLength executor.MemLength, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr, hashType int32) int32 {
 	callInfo := fmt.Sprintf("VerifyCustomSecp256k1(%d, %d, %d, %d, %d, %d)", keyOffset, keyLength, messageOffset, messageLength, sigOffset, hashType)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.VerifyCustomSecp256k1(keyOffset, keyLength, messageOffset, messageLength, sigOffset, hashType)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.VerifyCustomSecp256k1(keyOffset, keyLength, messageOffset, messageLength, sigOffset, hashType)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1856,7 +2387,9 @@ func (w *WrapperVMHooks) VerifyCustomSecp256k1(keyOffset executor.MemPtr, keyLen
 func (w *WrapperVMHooks) ManagedVerifyCustomSecp256k1(keyHandle int32, messageHandle int32, sigHandle int32, hashType int32) int32 {
 	callInfo := fmt.Sprintf("ManagedVerifyCustomSecp256k1(%d, %d, %d, %d)", keyHandle, messageHandle, sigHandle, hashType)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedVerifyCustomSecp256k1(keyHandle, messageHandle, sigHandle, hashType)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedVerifyCustomSecp256k1(keyHandle, messageHandle, sigHandle, hashType)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1865,7 +2398,9 @@ func (w *WrapperVMHooks) ManagedVerifyCustomSecp256k1(keyHandle int32, messageHa
 func (w *WrapperVMHooks) VerifySecp256k1(keyOffset executor.MemPtr, keyLength executor.MemLength, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("VerifySecp256k1(%d, %d, %d, %d, %d)", keyOffset, keyLength, messageOffset, messageLength, sigOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.VerifySecp256k1(keyOffset, keyLength, messageOffset, messageLength, sigOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.VerifySecp256k1(keyOffset, keyLength, messageOffset, messageLength, sigOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1874,7 +2409,9 @@ func (w *WrapperVMHooks) VerifySecp256k1(keyOffset executor.MemPtr, keyLength ex
 func (w *WrapperVMHooks) ManagedVerifySecp256k1(keyHandle int32, messageHandle int32, sigHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedVerifySecp256k1(%d, %d, %d)", keyHandle, messageHandle, sigHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedVerifySecp256k1(keyHandle, messageHandle, sigHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedVerifySecp256k1(keyHandle, messageHandle, sigHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1883,7 +2420,9 @@ func (w *WrapperVMHooks) ManagedVerifySecp256k1(keyHandle int32, messageHandle i
 func (w *WrapperVMHooks) EncodeSecp256k1DerSignature(rOffset executor.MemPtr, rLength executor.MemLength, sOffset executor.MemPtr, sLength executor.MemLength, sigOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("EncodeSecp256k1DerSignature(%d, %d, %d, %d, %d)", rOffset, rLength, sOffset, sLength, sigOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.EncodeSecp256k1DerSignature(rOffset, rLength, sOffset, sLength, sigOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.EncodeSecp256k1DerSignature(rOffset, rLength, sOffset, sLength, sigOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1892,7 +2431,9 @@ func (w *WrapperVMHooks) EncodeSecp256k1DerSignature(rOffset executor.MemPtr, rL
 func (w *WrapperVMHooks) ManagedEncodeSecp256k1DerSignature(rHandle int32, sHandle int32, sigHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedEncodeSecp256k1DerSignature(%d, %d, %d)", rHandle, sHandle, sigHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedEncodeSecp256k1DerSignature(rHandle, sHandle, sigHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedEncodeSecp256k1DerSignature(rHandle, sHandle, sigHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1901,7 +2442,10 @@ func (w *WrapperVMHooks) ManagedEncodeSecp256k1DerSignature(rHandle int32, sHand
 func (w *WrapperVMHooks) AddEC(xResultHandle int32, yResultHandle int32, ecHandle int32, fstPointXHandle int32, fstPointYHandle int32, sndPointXHandle int32, sndPointYHandle int32) {
 	callInfo := fmt.Sprintf("AddEC(%d, %d, %d, %d, %d, %d, %d)", xResultHandle, yResultHandle, ecHandle, fstPointXHandle, fstPointYHandle, sndPointXHandle, sndPointYHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.AddEC(xResultHandle, yResultHandle, ecHandle, fstPointXHandle, fstPointYHandle, sndPointXHandle, sndPointYHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.AddEC(xResultHandle, yResultHandle, ecHandle, fstPointXHandle, fstPointYHandle, sndPointXHandle, sndPointYHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1909,7 +2453,10 @@ func (w *WrapperVMHooks) AddEC(xResultHandle int32, yResultHandle int32, ecHandl
 func (w *WrapperVMHooks) DoubleEC(xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32) {
 	callInfo := fmt.Sprintf("DoubleEC(%d, %d, %d, %d, %d)", xResultHandle, yResultHandle, ecHandle, pointXHandle, pointYHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	w.wrappedVMHooks.DoubleEC(xResultHandle, yResultHandle, ecHandle, pointXHandle, pointYHandle)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.DoubleEC(xResultHandle, yResultHandle, ecHandle, pointXHandle, pointYHandle)
+		return nil
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
@@ -1917,7 +2464,9 @@ func (w *WrapperVMHooks) DoubleEC(xResultHandle int32, yResultHandle int32, ecHa
 func (w *WrapperVMHooks) IsOnCurveEC(ecHandle int32, pointXHandle int32, pointYHandle int32) int32 {
 	callInfo := fmt.Sprintf("IsOnCurveEC(%d, %d, %d)", ecHandle, pointXHandle, pointYHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.IsOnCurveEC(ecHandle, pointXHandle, pointYHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.IsOnCurveEC(ecHandle, pointXHandle, pointYHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1926,7 +2475,9 @@ func (w *WrapperVMHooks) IsOnCurveEC(ecHandle int32, pointXHandle int32, pointYH
 func (w *WrapperVMHooks) ScalarBaseMultEC(xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32 {
 	callInfo := fmt.Sprintf("ScalarBaseMultEC(%d, %d, %d, %d, %d)", xResultHandle, yResultHandle, ecHandle, dataOffset, length)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ScalarBaseMultEC(xResultHandle, yResultHandle, ecHandle, dataOffset, length)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ScalarBaseMultEC(xResultHandle, yResultHandle, ecHandle, dataOffset, length)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1935,7 +2486,9 @@ func (w *WrapperVMHooks) ScalarBaseMultEC(xResultHandle int32, yResultHandle int
 func (w *WrapperVMHooks) ManagedScalarBaseMultEC(xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedScalarBaseMultEC(%d, %d, %d, %d)", xResultHandle, yResultHandle, ecHandle, dataHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedScalarBaseMultEC(xResultHandle, yResultHandle, ecHandle, dataHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedScalarBaseMultEC(xResultHandle, yResultHandle, ecHandle, dataHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1944,7 +2497,9 @@ func (w *WrapperVMHooks) ManagedScalarBaseMultEC(xResultHandle int32, yResultHan
 func (w *WrapperVMHooks) ScalarMultEC(xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32 {
 	callInfo := fmt.Sprintf("ScalarMultEC(%d, %d, %d, %d, %d, %d, %d)", xResultHandle, yResultHandle, ecHandle, pointXHandle, pointYHandle, dataOffset, length)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ScalarMultEC(xResultHandle, yResultHandle, ecHandle, pointXHandle, pointYHandle, dataOffset, length)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ScalarMultEC(xResultHandle, yResultHandle, ecHandle, pointXHandle, pointYHandle, dataOffset, length)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1953,7 +2508,9 @@ func (w *WrapperVMHooks) ScalarMultEC(xResultHandle int32, yResultHandle int32, 
 func (w *WrapperVMHooks) ManagedScalarMultEC(xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32, dataHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedScalarMultEC(%d, %d, %d, %d, %d, %d)", xResultHandle, yResultHandle, ecHandle, pointXHandle, pointYHandle, dataHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedScalarMultEC(xResultHandle, yResultHandle, ecHandle, pointXHandle, pointYHandle, dataHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedScalarMultEC(xResultHandle, yResultHandle, ecHandle, pointXHandle, pointYHandle, dataHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1962,7 +2519,9 @@ func (w *WrapperVMHooks) ManagedScalarMultEC(xResultHandle int32, yResultHandle 
 func (w *WrapperVMHooks) MarshalEC(xPairHandle int32, yPairHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("MarshalEC(%d, %d, %d, %d)", xPairHandle, yPairHandle, ecHandle, resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MarshalEC(xPairHandle, yPairHandle, ecHandle, resultOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MarshalEC(xPairHandle, yPairHandle, ecHandle, resultOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1971,7 +2530,9 @@ func (w *WrapperVMHooks) MarshalEC(xPairHandle int32, yPairHandle int32, ecHandl
 func (w *WrapperVMHooks) ManagedMarshalEC(xPairHandle int32, yPairHandle int32, ecHandle int32, resultHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedMarshalEC(%d, %d, %d, %d)", xPairHandle, yPairHandle, ecHandle, resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedMarshalEC(xPairHandle, yPairHandle, ecHandle, resultHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedMarshalEC(xPairHandle, yPairHandle, ecHandle, resultHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1980,7 +2541,9 @@ func (w *WrapperVMHooks) ManagedMarshalEC(xPairHandle int32, yPairHandle int32, 
 func (w *WrapperVMHooks) MarshalCompressedEC(xPairHandle int32, yPairHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("MarshalCompressedEC(%d, %d, %d, %d)", xPairHandle, yPairHandle, ecHandle, resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.MarshalCompressedEC(xPairHandle, yPairHandle, ecHandle, resultOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.MarshalCompressedEC(xPairHandle, yPairHandle, ecHandle, resultOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1989,7 +2552,9 @@ func (w *WrapperVMHooks) MarshalCompressedEC(xPairHandle int32, yPairHandle int3
 func (w *WrapperVMHooks) ManagedMarshalCompressedEC(xPairHandle int32, yPairHandle int32, ecHandle int32, resultHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedMarshalCompressedEC(%d, %d, %d, %d)", xPairHandle, yPairHandle, ecHandle, resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedMarshalCompressedEC(xPairHandle, yPairHandle, ecHandle, resultHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedMarshalCompressedEC(xPairHandle, yPairHandle, ecHandle, resultHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -1998,7 +2563,9 @@ func (w *WrapperVMHooks) ManagedMarshalCompressedEC(xPairHandle int32, yPairHand
 func (w *WrapperVMHooks) UnmarshalEC(xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32 {
 	callInfo := fmt.Sprintf("UnmarshalEC(%d, %d, %d, %d, %d)", xResultHandle, yResultHandle, ecHandle, dataOffset, length)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.UnmarshalEC(xResultHandle, yResultHandle, ecHandle, dataOffset, length)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.UnmarshalEC(xResultHandle, yResultHandle, ecHandle, dataOffset, length)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -2007,7 +2574,9 @@ func (w *WrapperVMHooks) UnmarshalEC(xResultHandle int32, yResultHandle int32, e
 func (w *WrapperVMHooks) ManagedUnmarshalEC(xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedUnmarshalEC(%d, %d, %d, %d)", xResultHandle, yResultHandle, ecHandle, dataHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedUnmarshalEC(xResultHandle, yResultHandle, ecHandle, dataHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedUnmarshalEC(xResultHandle, yResultHandle, ecHandle, dataHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -2016,7 +2585,9 @@ func (w *WrapperVMHooks) ManagedUnmarshalEC(xResultHandle int32, yResultHandle i
 func (w *WrapperVMHooks) UnmarshalCompressedEC(xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32 {
 	callInfo := fmt.Sprintf("UnmarshalCompressedEC(%d, %d, %d, %d, %d)", xResultHandle, yResultHandle, ecHandle, dataOffset, length)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.UnmarshalCompressedEC(xResultHandle, yResultHandle, ecHandle, dataOffset, length)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.UnmarshalCompressedEC(xResultHandle, yResultHandle, ecHandle, dataOffset, length)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -2025,7 +2596,9 @@ func (w *WrapperVMHooks) UnmarshalCompressedEC(xResultHandle int32, yResultHandl
 func (w *WrapperVMHooks) ManagedUnmarshalCompressedEC(xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedUnmarshalCompressedEC(%d, %d, %d, %d)", xResultHandle, yResultHandle, ecHandle, dataHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedUnmarshalCompressedEC(xResultHandle, yResultHandle, ecHandle, dataHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedUnmarshalCompressedEC(xResultHandle, yResultHandle, ecHandle, dataHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -2034,7 +2607,9 @@ func (w *WrapperVMHooks) ManagedUnmarshalCompressedEC(xResultHandle int32, yResu
 func (w *WrapperVMHooks) GenerateKeyEC(xPubKeyHandle int32, yPubKeyHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32 {
 	callInfo := fmt.Sprintf("GenerateKeyEC(%d, %d, %d, %d)", xPubKeyHandle, yPubKeyHandle, ecHandle, resultOffset)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GenerateKeyEC(xPubKeyHandle, yPubKeyHandle, ecHandle, resultOffset)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GenerateKeyEC(xPubKeyHandle, yPubKeyHandle, ecHandle, resultOffset)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -2043,7 +2618,9 @@ func (w *WrapperVMHooks) GenerateKeyEC(xPubKeyHandle int32, yPubKeyHandle int32,
 func (w *WrapperVMHooks) ManagedGenerateKeyEC(xPubKeyHandle int32, yPubKeyHandle int32, ecHandle int32, resultHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedGenerateKeyEC(%d, %d, %d, %d)", xPubKeyHandle, yPubKeyHandle, ecHandle, resultHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedGenerateKeyEC(xPubKeyHandle, yPubKeyHandle, ecHandle, resultHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedGenerateKeyEC(xPubKeyHandle, yPubKeyHandle, ecHandle, resultHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -2052,7 +2629,9 @@ func (w *WrapperVMHooks) ManagedGenerateKeyEC(xPubKeyHandle int32, yPubKeyHandle
 func (w *WrapperVMHooks) CreateEC(dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
 	callInfo := fmt.Sprintf("CreateEC(%d, %d)", dataOffset, dataLength)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.CreateEC(dataOffset, dataLength)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.CreateEC(dataOffset, dataLength)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -2061,7 +2640,9 @@ func (w *WrapperVMHooks) CreateEC(dataOffset executor.MemPtr, dataLength executo
 func (w *WrapperVMHooks) ManagedCreateEC(dataHandle int32) int32 {
 	callInfo := fmt.Sprintf("ManagedCreateEC(%d)", dataHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.ManagedCreateEC(dataHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.ManagedCreateEC(dataHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -2070,7 +2651,9 @@ func (w *WrapperVMHooks) ManagedCreateEC(dataHandle int32) int32 {
 func (w *WrapperVMHooks) GetCurveLengthEC(ecHandle int32) int32 {
 	callInfo := fmt.Sprintf("GetCurveLengthEC(%d)", ecHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetCurveLengthEC(ecHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetCurveLengthEC(ecHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -2079,7 +2662,9 @@ func (w *WrapperVMHooks) GetCurveLengthEC(ecHandle int32) int32 {
 func (w *WrapperVMHooks) GetPrivKeyByteLengthEC(ecHandle int32) int32 {
 	callInfo := fmt.Sprintf("GetPrivKeyByteLengthEC(%d)", ecHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.GetPrivKeyByteLengthEC(ecHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.GetPrivKeyByteLengthEC(ecHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
@@ -2088,7 +2673,9 @@ func (w *WrapperVMHooks) GetPrivKeyByteLengthEC(ecHandle int32) int32 {
 func (w *WrapperVMHooks) EllipticCurveGetValues(ecHandle int32, fieldOrderHandle int32, basePointOrderHandle int32, eqConstantHandle int32, xBasePointHandle int32, yBasePointHandle int32) int32 {
 	callInfo := fmt.Sprintf("EllipticCurveGetValues(%d, %d, %d, %d, %d, %d)", ecHandle, fieldOrderHandle, basePointOrderHandle, eqConstantHandle, xBasePointHandle, yBasePointHandle)
 	w.logger.LogVMHookCallBefore(callInfo)
-	result := w.wrappedVMHooks.EllipticCurveGetValues(ecHandle, fieldOrderHandle, basePointOrderHandle, eqConstantHandle, xBasePointHandle, yBasePointHandle)
+	result := FailAfterTimeout(func() int32 {
+		return w.wrappedVMHooks.EllipticCurveGetValues(ecHandle, fieldOrderHandle, basePointOrderHandle, eqConstantHandle, xBasePointHandle, yBasePointHandle)
+	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }

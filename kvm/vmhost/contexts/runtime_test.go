@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
@@ -45,7 +46,8 @@ func InitializeVMAndWasmer() *contextmock.VMHostMock {
 func makeDefaultRuntimeContext(t *testing.T, host vmhost.VMHost) *runtimeContext {
 	execFactory := testexecutor.NewDefaultTestExecutorFactory(t)
 	exec, err := execFactory.CreateExecutor(executor.ExecutorFactoryArgs{
-		VMHooks: vmhooks.NewVMHooksImpl(host),
+		VMHooks:          vmhooks.NewVMHooksImpl(host),
+		ExecutionTimeout: time.Minute,
 	})
 	require.Nil(t, err)
 	runtimeCtx, err := NewRuntimeContext(
@@ -67,7 +69,8 @@ func TestNewRuntimeContextErrors(t *testing.T) {
 
 	execFactory := testexecutor.NewDefaultTestExecutorFactory(t)
 	exec, err := execFactory.CreateExecutor(executor.ExecutorFactoryArgs{
-		VMHooks: vmhooks.NewVMHooksImpl(host),
+		VMHooks:          vmhooks.NewVMHooksImpl(host),
+		ExecutionTimeout: time.Minute,
 	})
 	require.Nil(t, err)
 
@@ -324,7 +327,8 @@ func TestRuntimeContext_CountContractInstancesOnStack(t *testing.T) {
 	testVMType := []byte("type")
 	execFactory := testexecutor.NewDefaultTestExecutorFactory(t)
 	exec, err := execFactory.CreateExecutor(executor.ExecutorFactoryArgs{
-		VMHooks: vmhooks.NewVMHooksImpl(host),
+		VMHooks:          vmhooks.NewVMHooksImpl(host),
+		ExecutionTimeout: time.Minute,
 	})
 	require.Nil(t, err)
 	runtime, _ := NewRuntimeContext(
