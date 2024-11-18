@@ -9,6 +9,32 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestWriteSplitRoyalties(t *testing.T) {
+	t.Parallel()
+
+	mockManagedTypes := &hostmock.ManagedTypesContextMock{}
+
+	destionation := make([]byte, SplitRoyaltiesLen)
+
+	royaties := &kapps.RoyaltySplitData{
+		PercentTransferPercentage: 1,
+		PercentTransferFixed:      2,
+		PercentMarketPercentage:   3,
+		PercentMarketFixed:        4,
+		PercentITOPercentage:      5,
+		PercentITOFixed:           6,
+	}
+
+	writeSplitRoyalties(mockManagedTypes, "addrs", royaties, destionation)
+
+	assert.Equal(t, destionation[4:8], []byte{0, 0, 0, 1})
+	assert.Equal(t, destionation[8:12], []byte{0, 0, 0, 2})
+	assert.Equal(t, destionation[12:16], []byte{0, 0, 0, 3})
+	assert.Equal(t, destionation[16:20], []byte{0, 0, 0, 4})
+	assert.Equal(t, destionation[20:24], []byte{0, 0, 0, 5})
+	assert.Equal(t, destionation[24:28], []byte{0, 0, 0, 6})
+}
+
 func TestWriteLastClaim(t *testing.T) {
 	t.Parallel()
 

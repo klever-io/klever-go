@@ -119,12 +119,12 @@ func writeSplitRoyalties(
 ) {
 	keyHandle := managedType.NewManagedBufferFromBytes([]byte(key))
 	binary.BigEndian.PutUint32(destinationBytes[0:4], uint32(keyHandle)) // #nosec G115
-	binary.BigEndian.PutUint32(destinationBytes[4:8], sr.PercentTransferFixed)
-	binary.BigEndian.PutUint32(destinationBytes[8:12], sr.PercentTransferPercentage)
-	binary.BigEndian.PutUint32(destinationBytes[12:16], sr.PercentMarketFixed)
-	binary.BigEndian.PutUint32(destinationBytes[16:20], sr.PercentMarketPercentage)
-	binary.BigEndian.PutUint32(destinationBytes[20:24], sr.PercentITOFixed)
-	binary.BigEndian.PutUint32(destinationBytes[24:28], sr.PercentITOPercentage)
+	binary.BigEndian.PutUint32(destinationBytes[4:8], sr.PercentTransferPercentage)
+	binary.BigEndian.PutUint32(destinationBytes[8:12], sr.PercentTransferFixed)
+	binary.BigEndian.PutUint32(destinationBytes[12:16], sr.PercentMarketPercentage)
+	binary.BigEndian.PutUint32(destinationBytes[16:20], sr.PercentMarketFixed)
+	binary.BigEndian.PutUint32(destinationBytes[20:24], sr.PercentITOPercentage)
+	binary.BigEndian.PutUint32(destinationBytes[24:28], sr.PercentITOFixed)
 }
 
 // Serializes a list of SplitRoyalties one after the other into a byte slice.
