@@ -1,26 +1,26 @@
 BuiltInCost:
   Transfer: 2000000
-  CreateAsset: 150000000000
-  CreateValidator: 500000000000
-  ValidatorConfig: 50000000000
+  CreateAsset: 25000000
+  CreateValidator: 90000000
+  ValidatorConfig: 9000000
   Freeze: 2000000
   Unfreeze: 2000000
   Delegate: 2000000
   Undelegate: 2000000
   Withdraw: 2000000
   Claim: 2000000
-  Unjail: 500000000000
+  Unjail: 90000000
   AssetTrigger: 3000000
   SetAccountName: 3000000
   Proposal: 5000000
   Vote: 2000000
-  ConfigITO: 150000000000
+  ConfigITO: 25000000
   Buy: 2000000
   Sell: 3000000
   CancelMarketOrder: 300000
-  CreateMarketplace: 500000000000
-  ConfigMarketplace: 10000000000
-  UpdateAccountPermission: 10000000000
+  CreateMarketplace: 50000000
+  ConfigMarketplace: 1000000
+  UpdateAccountPermission: 15000000
   Deposit: 50000000
   ITOTrigger: 10000000
   ChangeOwnerAddress: 2000000

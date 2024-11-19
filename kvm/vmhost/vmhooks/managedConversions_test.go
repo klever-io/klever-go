@@ -399,20 +399,20 @@ func TestWriteSplitRoyaltiesToBytes(t *testing.T) {
 
 	dest := writeSplitRoyaltiesToBytes(mockManagedTypes, map[string]*kapps.RoyaltySplitData{
 		"key1": {
-			PercentTransferFixed:      2,
-			PercentTransferPercentage: 3,
-			PercentMarketFixed:        4,
-			PercentMarketPercentage:   5,
-			PercentITOFixed:           6,
-			PercentITOPercentage:      7,
+			PercentTransferPercentage: 2,
+			PercentTransferFixed:      3,
+			PercentMarketPercentage:   4,
+			PercentMarketFixed:        5,
+			PercentITOPercentage:      6,
+			PercentITOFixed:           7,
 		},
 		"key2": {
-			PercentTransferFixed:      9,
-			PercentTransferPercentage: 10,
-			PercentMarketFixed:        11,
-			PercentMarketPercentage:   12,
-			PercentITOFixed:           13,
-			PercentITOPercentage:      14,
+			PercentTransferPercentage: 9,
+			PercentTransferFixed:      10,
+			PercentMarketPercentage:   11,
+			PercentMarketFixed:        12,
+			PercentITOPercentage:      13,
+			PercentITOFixed:           14,
 		},
 	})
 
