@@ -120,6 +120,12 @@ func (e *kleverCreateAsset) getCreateAssetContract(vmInput *vmcommon.ContractCal
 			CanAddRoles:    vmInput.NextArg().Bool(),
 			LimitTransfer:  vmInput.NextArg().Bool(),
 		},
+		Attributes: &transaction.AttributesInfo{
+			IsPaused:                   vmInput.NextArg().Bool(),
+			IsNFTMintStopped:           vmInput.NextArg().Bool(),
+			IsRoyaltiesChangeStopped:   vmInput.NextArg().Bool(),
+			IsNFTMetadataChangeStopped: vmInput.NextArg().Bool(),
+		},
 	}
 
 	// use ticker if name is empty
@@ -129,6 +135,13 @@ func (e *kleverCreateAsset) getCreateAssetContract(vmInput *vmcommon.ContractCal
 
 	// initial admin address is the owner address
 	contract.AdminAddress = contract.OwnerAddress
+
+	uris, err := DecodeURIs(vmInput.NextArg())
+	if err != nil {
+		return nil, ErrInvalidArguments
+	}
+
+	contract.URIs = uris
 
 	royalties, err := DecodeRoyaltiesData(vmInput.NextArg())
 	if err != nil {
