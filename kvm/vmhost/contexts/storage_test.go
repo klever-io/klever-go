@@ -3,7 +3,9 @@ package contexts
 import (
 	"bytes"
 	"errors"
+	"math/big"
 	"testing"
+	"time"
 
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kvm/config"
@@ -296,6 +298,21 @@ func TestStorageContext_SetStorage(t *testing.T) {
 	storageStatus, err = storageCtx.SetStorage(key, value)
 	require.Equal(t, vmhost.StorageUnchanged, storageStatus)
 	require.Equal(t, vmhost.ErrStoreReservedKey, err)
+
+	key = []byte("mykey")
+	timeLockKeyPrefix := string(storageCtx.GetVmProtectedPrefix(vmhost.TimeLockKeyPrefix))
+	timeLockKey := vmhost.CustomStorageKey(timeLockKeyPrefix, key)
+	lockTimestamp := big.NewInt(0).SetInt64(time.Now().Unix() + 3600).Bytes()
+
+	storageStatus, err = storageCtx.SetProtectedStorage(timeLockKey, lockTimestamp)
+	require.Nil(t, err)
+	require.Equal(t, vmhost.StorageAdded, storageStatus)
+
+	foundValue, _, usedCache, err := storageCtx.GetStorage(timeLockKey)
+	require.Nil(t, err)
+	require.Equal(t, lockTimestamp, foundValue)
+	// To validate when the key is protected and has the VM prefix, the value will be checked in the cache
+	require.True(t, usedCache)
 }
 
 func TestStorageContext_SetStorage_GasUsage(t *testing.T) {
