@@ -292,7 +292,7 @@ func displayHeader(headerHandler data.HeaderHandler, headerHash []byte) []*displ
 			logger.DisplayByteSlice(headerHandler.GetParentHash())}),
 		display.NewLineData(false, []string{
 			"",
-			"Block Hahs",
+			"Block hash",
 			logger.DisplayByteSlice(headerHash)}),
 		display.NewLineData(false, []string{
 			"",
