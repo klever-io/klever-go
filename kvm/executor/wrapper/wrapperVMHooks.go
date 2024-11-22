@@ -909,6 +909,17 @@ func (w *WrapperVMHooks) ManagedGetMultiKDACallValue(multiCallValueHandle int32)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 
+// ManagedGetMultiKDAWithoutKLVCallValue VM hook wrapper
+func (w *WrapperVMHooks) ManagedGetMultiKDAWithoutKLVCallValue(multiCallValueHandle int32) {
+	callInfo := fmt.Sprintf("ManagedGetMultiKDAWithoutKLVCallValue(%d)", multiCallValueHandle)
+	w.logger.LogVMHookCallBefore(callInfo)
+	_ = FailAfterTimeout(func() any {
+		w.wrappedVMHooks.ManagedGetMultiKDAWithoutKLVCallValue(multiCallValueHandle)
+		return nil
+	}, w.executionTimeout)
+	w.logger.LogVMHookCallAfter(callInfo)
+}
+
 // ManagedGetBackTransfers VM hook wrapper
 func (w *WrapperVMHooks) ManagedGetBackTransfers(kdaTransfersValueHandle int32, callValueHandle int32) {
 	callInfo := fmt.Sprintf("ManagedGetBackTransfers(%d, %d)", kdaTransfersValueHandle, callValueHandle)

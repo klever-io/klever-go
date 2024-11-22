@@ -13,7 +13,7 @@ func upperInitial(name string) string {
 	return strings.ToUpper(name[0:1]) + name[1:]
 }
 
-var knownAcronyms = []string{"kda", "nft", "id", "uri", "sc"}
+var knownAcronyms = []string{"kda", "klv", "nft", "id", "uri", "sc"}
 
 func snakeCase(camelCase string) string {
 	// replace known acronyms,

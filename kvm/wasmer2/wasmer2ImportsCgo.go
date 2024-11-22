@@ -91,6 +91,7 @@ package wasmer2
 // extern void      w2_managedGetReturnData(void* context, int32_t resultID, int32_t resultHandle);
 // extern void      w2_managedGetKDACallValue(void* context, int32_t kdaCallValueHandle, int32_t kdaHandle);
 // extern void      w2_managedGetMultiKDACallValue(void* context, int32_t multiCallValueHandle);
+// extern void      w2_managedGetMultiKDAWithoutKLVCallValue(void* context, int32_t multiCallValueHandle);
 // extern void      w2_managedGetBackTransfers(void* context, int32_t kdaTransfersValueHandle, int32_t callValueHandle);
 // extern void      w2_managedGetKDABalance(void* context, int32_t addressHandle, int32_t tokenIDHandle, long long nonce, int32_t valueHandle);
 // extern void      w2_managedGetUserKDA(void* context, int32_t addressHandle, int32_t tickerHandle, long long nonce, int32_t balanceHandle, int32_t frozenHandle, int32_t lastClaimHandle, int32_t bucketsHandle, int32_t mimeHandle, int32_t metadataHandle);
@@ -343,6 +344,7 @@ func populateCgoFunctionPointers() *cWasmerVmHookPointers {
 		managed_get_return_data_func_ptr: funcPointer(C.w2_managedGetReturnData),
 		managed_get_kda_call_value_func_ptr: funcPointer(C.w2_managedGetKDACallValue),
 		managed_get_multi_kda_call_value_func_ptr: funcPointer(C.w2_managedGetMultiKDACallValue),
+		managed_get_multi_kda_without_klv_call_value_func_ptr: funcPointer(C.w2_managedGetMultiKDAWithoutKLVCallValue),
 		managed_get_back_transfers_func_ptr: funcPointer(C.w2_managedGetBackTransfers),
 		managed_get_kda_balance_func_ptr: funcPointer(C.w2_managedGetKDABalance),
 		managed_get_user_kda_func_ptr: funcPointer(C.w2_managedGetUserKDA),
@@ -985,6 +987,12 @@ func w2_managedGetKDACallValue(context unsafe.Pointer, kdaCallValueHandle int32,
 func w2_managedGetMultiKDACallValue(context unsafe.Pointer, multiCallValueHandle int32) {
 	vmHooks := getVMHooksFromContextRawPtr(context)
 	vmHooks.ManagedGetMultiKDACallValue(multiCallValueHandle)
+}
+
+//export w2_managedGetMultiKDAWithoutKLVCallValue
+func w2_managedGetMultiKDAWithoutKLVCallValue(context unsafe.Pointer, multiCallValueHandle int32) {
+	vmHooks := getVMHooksFromContextRawPtr(context)
+	vmHooks.ManagedGetMultiKDAWithoutKLVCallValue(multiCallValueHandle)
 }
 
 //export w2_managedGetBackTransfers

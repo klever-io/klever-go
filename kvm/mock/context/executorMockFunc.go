@@ -89,6 +89,7 @@ var functionNames = map[string]struct{}{
 	"managedGetReturnData": empty,
 	"managedGetKDACallValue": empty,
 	"managedGetMultiKDACallValue": empty,
+	"managedGetMultiKDAWithoutKLVCallValue": empty,
 	"managedGetBackTransfers": empty,
 	"managedGetKDABalance": empty,
 	"managedGetUserKDA": empty,

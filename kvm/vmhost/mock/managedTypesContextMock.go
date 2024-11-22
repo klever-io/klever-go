@@ -62,6 +62,8 @@ type ManagedTypesContextMock struct {
 	GetBackTransfersCalled                         func() ([]*vmcommon.KDATransfer, *big.Int)
 	AddValueOnlyBackTransferCalled                 func(value *big.Int)
 	AddBackTransfersCalled                         func(transfers []*vmcommon.KDATransfer)
+	GetManagedBufferCalled                         func() [][]byte
+	GetManagedBigIntCalled                         func() []*big.Int
 }
 
 func (m *ManagedTypesContextMock) InitState() {
@@ -396,4 +398,20 @@ func (m *ManagedTypesContextMock) AddBackTransfers(transfers []*vmcommon.KDATran
 // IsInterfaceNil returns true if there is no value under the interface
 func (m *ManagedTypesContextMock) IsInterfaceNil() bool {
 	return m == nil
+}
+
+func (m *ManagedTypesContextMock) GetManagedBuffer() [][]byte {
+	if m.GetManagedBufferCalled != nil {
+		return m.GetManagedBufferCalled()
+	}
+
+	return nil
+}
+
+func (m *ManagedTypesContextMock) GetManagedBigInt() []*big.Int {
+	if m.GetManagedBigIntCalled != nil {
+		return m.GetManagedBigIntCalled()
+	}
+
+	return nil
 }

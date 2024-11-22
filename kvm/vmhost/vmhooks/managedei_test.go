@@ -9,6 +9,7 @@ import (
 
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/vmhost"
+	"github.com/klever-io/klever-go/vmcommon"
 
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kvm/config"
@@ -168,6 +169,9 @@ func newMockVMHost() *contextmock.VMHostMock {
 	mockMetering.SetGasSchedule(gasSchedule)
 	mockRuntime := &contextmock.RuntimeContextMock{}
 	mockRuntime.InitState()
+
+	mockBuffer := make([][]byte, 0)
+	mockBigInt := make([]*big.Int, 0)
 	mType := &hostmock.ManagedTypesContextMock{
 		GetBytesCalled: func(index int32) ([]byte, error) {
 			switch index {
@@ -178,6 +182,28 @@ func newMockVMHost() *contextmock.VMHostMock {
 			default:
 				return nil, errors.New("invalid index")
 			}
+		},
+		NewManagedBufferCalled: func() int32 {
+			mockBuffer = append(mockBuffer, []byte(""))
+			return int32(len(mockBuffer) - 1)
+		},
+		NewManagedBufferFromBytesCalled: func(bytes []byte) int32 {
+			mockBuffer = append(mockBuffer, bytes)
+			return int32(len(mockBuffer) - 1)
+		},
+		NewBigIntCalled: func(value *big.Int) int32 {
+			mockBigInt = append(mockBigInt, value)
+			return int32(len(mockBigInt) - 1)
+		},
+		NewBigIntFromInt64Called: func(value int64) int32 {
+			mockBigInt = append(mockBigInt, big.NewInt(value))
+			return int32(len(mockBigInt) - 1)
+		},
+		GetManagedBufferCalled: func() [][]byte {
+			return mockBuffer
+		},
+		GetManagedBigIntCalled: func() []*big.Int {
+			return mockBigInt
 		},
 	}
 
@@ -918,4 +944,98 @@ func TestManagedGetKDATokenDataWithHost_GasCost(t *testing.T) {
 
 		})
 	}
+}
+
+func TestManagedGetMultiKDACallValue(t *testing.T) {
+	t.Parallel()
+
+	host := newMockVMHost()
+	host.RuntimeContext.(*contextmock.RuntimeContextMock).VMInput = &vmcommon.ContractCallInput{
+		VMInput: vmcommon.VMInput{
+			KDATransfers: []*vmcommon.KDATransfer{
+				{
+					KDAValue:     big.NewInt(100),
+					KDATokenName: []byte("KFI"),
+				},
+				{
+					KDAValue:     big.NewInt(200),
+					KDATokenName: []byte("KLV"),
+				},
+				{
+					KDAValue:     big.NewInt(300),
+					KDATokenName: []byte("OTHER_KDA"),
+				},
+			},
+		},
+	}
+
+	callValueHandle := int32(0)
+	kdaHandler := int32(1)
+	bigIntHandler := int32(2)
+	var result []byte
+	var resultBigInt *big.Int
+	mockManaged := host.ManagedTypes().(*hostmock.ManagedTypesContextMock)
+	mockManaged.SetBytesCalled = func(index int32, value []byte) {
+		if index == callValueHandle {
+			result = value
+		}
+	}
+	mockManaged.GetBytesCalled = func(index int32) ([]byte, error) {
+		if index == kdaHandler {
+			return []byte("OTHER_KDA"), nil
+		}
+		return nil, nil
+	}
+	mockManaged.GetBigIntOrCreateCalled = func(index int32) *big.Int {
+		if index == bigIntHandler {
+			resultBigInt = big.NewInt(0)
+			return resultBigInt
+		}
+
+		return nil
+	}
+
+	hooks := vmhooks.NewVMHooksImpl(host)
+
+	hooks.ManagedGetKDACallValue(bigIntHandler, kdaHandler)
+	assert.Equal(t, int64(300), resultBigInt.Int64())
+
+	expected := []byte{
+		0x0, 0x0, 0x0, 0x0, // Token KFI - Buffer 0
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, // NONCE 0
+		0x0, 0x0, 0x0, 0x0, // VALUE KFI - Buffer 0
+		0x0, 0x0, 0x0, 0x1, // Token KLV - Buffer 1
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, // NONCE 0
+		0x0, 0x0, 0x0, 0x1, // VALUE KLV - Buffer 1
+		0x0, 0x0, 0x0, 0x2, // Token OTHER_KDA - Buffer 2
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, // NONCE 0
+		0x0, 0x0, 0x0, 0x2, // VALUE OTHER_KDA - Buffer 2
+	}
+	hooks.ManagedGetMultiKDACallValue(callValueHandle)
+	assert.Equal(t, expected, result)
+	// decoded info
+	assert.Equal(t, []byte("KFI"), mockManaged.GetManagedBuffer()[0])
+	assert.Equal(t, int64(100), mockManaged.GetManagedBigInt()[0].Int64())
+	assert.Equal(t, []byte("KLV"), mockManaged.GetManagedBuffer()[1])
+	assert.Equal(t, int64(200), mockManaged.GetManagedBigInt()[1].Int64())
+	assert.Equal(t, []byte("OTHER_KDA"), mockManaged.GetManagedBuffer()[2])
+	assert.Equal(t, int64(300), mockManaged.GetManagedBigInt()[2].Int64())
+
+	expected = []byte{0x0, 0x0, 0x0, 0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x3, 0x0, 0x0, 0x0, 0x4, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x4}
+	expected = []byte{
+		0x0, 0x0, 0x0, 0x3, // Token KFI - Buffer 3
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, // NONCE 0
+		0x0, 0x0, 0x0, 0x3, // VALUE KFI - Buffer 3
+		0x0, 0x0, 0x0, 0x4, // Token OTHER_KDA - Buffer 4
+		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, // NONCE 0
+		0x0, 0x0, 0x0, 0x4, // VALUE OTHER_KDA - Buffer 4
+	}
+	hooks.ManagedGetMultiKDAWithoutKLVCallValue(callValueHandle)
+	assert.Equal(t, expected, result)
+	// decoded info
+	assert.Equal(t, []byte("KFI"), mockManaged.GetManagedBuffer()[3])
+	assert.Equal(t, int64(100), mockManaged.GetManagedBigInt()[3].Int64())
+	assert.Equal(t, []byte("OTHER_KDA"), mockManaged.GetManagedBuffer()[4])
+	assert.Equal(t, int64(300), mockManaged.GetManagedBigInt()[4].Int64())
+
 }

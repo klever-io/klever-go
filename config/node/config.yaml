@@ -531,10 +531,6 @@ elasticSearch:
   username: basic_auth_username
   password: basic_auth_password
 
-maxNodesChangeEnableEpoch:
-  - epochEnable: 0
-    nodesToShuffle: 4
-
 #Ratings configuration
 
 # proposer-validator importanceRatio = 1 =>
@@ -699,5 +695,6 @@ importDbConfig:
   importDBStartInEpoch: 0
   importDBWorkingDir: "./importedDB"
   importDbNoSigCheckFlag: false
+  importDbSaveTrieEpochRootHash: false
 
 consensusMonitorList:

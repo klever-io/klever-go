@@ -5,247 +5,248 @@ import "github.com/klever-io/klever-go/kvm/executor"
 var _ executor.VMHooks = (*VMHooksStub)(nil)
 
 type VMHooksStub struct {
-	GetGasLeftCalled                         func() int64
-	GetSCAddressCalled                       func(resultOffset executor.MemPtr)
-	GetOwnerAddressCalled                    func(resultOffset executor.MemPtr)
-	IsSmartContractCalled                    func(addressOffset executor.MemPtr) int32
-	SignalErrorCalled                        func(messageOffset executor.MemPtr, messageLength executor.MemLength)
-	GetExternalBalanceCalled                 func(addressOffset executor.MemPtr, resultOffset executor.MemPtr)
-	GetBlockHashCalled                       func(nonce int64, resultOffset executor.MemPtr) int32
-	GetKDABalanceCalled                      func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, resultOffset executor.MemPtr) int32
-	GetKDANFTNameLengthCalled                func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32
-	GetKDANFTURILengthCalled                 func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32
-	GetKDATokenDataCalled                    func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, precisionHandle int32, idOffset executor.MemPtr, nameOffset executor.MemPtr, creatorOffset executor.MemPtr, logoOffset executor.MemPtr, initialSupplyOffset executor.MemPtr, circulatingSupplyOffset executor.MemPtr, maxSupplyOffset executor.MemPtr, mintedOffset executor.MemPtr, burnedOffset executor.MemPtr, royaltiesOffset executor.MemPtr, propertiesOffset executor.MemPtr, attributesOffset executor.MemPtr, rolesOffset executor.MemPtr) int32
-	ValidateTokenIdentifierCalled            func(tokenIdHandle int32) int32
-	UpgradeContractCalled                    func(destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr)
-	UpgradeFromSourceContractCalled          func(destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, sourceContractAddressOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr)
-	DeleteContractCalled                     func(destOffset executor.MemPtr, gasLimit int64, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr)
-	GetArgumentLengthCalled                  func(id int32) int32
-	GetArgumentCalled                        func(id int32, argOffset executor.MemPtr) int32
-	GetFunctionCalled                        func(functionOffset executor.MemPtr) int32
-	GetNumArgumentsCalled                    func() int32
-	StorageStoreCalled                       func(keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr, dataLength executor.MemLength) int32
-	StorageLoadLengthCalled                  func(keyOffset executor.MemPtr, keyLength executor.MemLength) int32
-	StorageLoadFromAddressCalled             func(addressOffset executor.MemPtr, keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr) int32
-	StorageLoadCalled                        func(keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr) int32
-	SetStorageLockCalled                     func(keyOffset executor.MemPtr, keyLength executor.MemLength, lockTimestamp int64) int32
-	GetStorageLockCalled                     func(keyOffset executor.MemPtr, keyLength executor.MemLength) int64
-	IsStorageLockedCalled                    func(keyOffset executor.MemPtr, keyLength executor.MemLength) int32
-	ClearStorageLockCalled                   func(keyOffset executor.MemPtr, keyLength executor.MemLength) int32
-	GetCallerCalled                          func(resultOffset executor.MemPtr)
-	CheckNoPaymentCalled                     func()
-	GetCallValueCalled                       func(resultOffset executor.MemPtr) int32
-	GetKDAValueCalled                        func(resultOffset executor.MemPtr) int32
-	GetKDAValueByIndexCalled                 func(resultOffset executor.MemPtr, index int32) int32
-	GetKDATokenNameCalled                    func(resultOffset executor.MemPtr) int32
-	GetKDATokenNameByIndexCalled             func(resultOffset executor.MemPtr, index int32) int32
-	GetKDATokenNonceCalled                   func() int64
-	GetKDATokenNonceByIndexCalled            func(index int32) int64
-	GetKDATokenTypeCalled                    func() int32
-	GetKDATokenTypeByIndexCalled             func(index int32) int32
-	GetNumKDATransfersCalled                 func() int32
-	GetCallValueByTokenNameCalled            func(callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr, tokenNameLength executor.MemLength) int32
-	GetCallValueTokenNameCalled              func(callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr) int32
-	GetCallValueTokenNameByIndexCalled       func(callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr, index int32) int32
-	WriteLogCalled                           func(dataPointer executor.MemPtr, dataLength executor.MemLength, topicPtr executor.MemPtr, numTopics int32)
-	WriteEventLogCalled                      func(numTopics int32, topicLengthsOffset executor.MemPtr, topicOffset executor.MemPtr, dataOffset executor.MemPtr, dataLength executor.MemLength)
-	GetBlockTimestampCalled                  func() int64
-	GetBlockNonceCalled                      func() int64
-	GetBlockRoundCalled                      func() int64
-	GetBlockEpochCalled                      func() int64
-	GetBlockRandomSeedCalled                 func(pointer executor.MemPtr)
-	GetStateRootHashCalled                   func(pointer executor.MemPtr)
-	GetPrevBlockTimestampCalled              func() int64
-	GetPrevBlockNonceCalled                  func() int64
-	GetPrevBlockRoundCalled                  func() int64
-	GetPrevBlockEpochCalled                  func() int64
-	GetPrevBlockRandomSeedCalled             func(pointer executor.MemPtr)
-	FinishCalled                             func(pointer executor.MemPtr, length executor.MemLength)
-	ExecuteOnSameContextCalled               func(gasLimit int64, addressOffset executor.MemPtr, valueOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32
-	ExecuteOnDestContextCalled               func(gasLimit int64, addressOffset executor.MemPtr, valueOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32
-	ExecuteReadOnlyCalled                    func(gasLimit int64, addressOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32
-	CreateContractCalled                     func(gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32
-	DeployFromSourceContractCalled           func(gasLimit int64, valueOffset executor.MemPtr, sourceContractAddressOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, resultAddressOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32
-	GetNumReturnDataCalled                   func() int32
-	GetReturnDataSizeCalled                  func(resultID int32) int32
-	GetReturnDataCalled                      func(resultID int32, dataOffset executor.MemPtr) int32
-	CleanReturnDataCalled                    func()
-	DeleteFromReturnDataCalled               func(resultID int32)
-	GetOriginalTxHashCalled                  func(dataOffset executor.MemPtr)
-	GetCurrentTxHashCalled                   func(dataOffset executor.MemPtr)
-	ManagedSCAddressCalled                   func(destinationHandle int32)
-	ManagedOwnerAddressCalled                func(destinationHandle int32)
-	ManagedCallerCalled                      func(destinationHandle int32)
-	ManagedSignalErrorCalled                 func(errHandle int32)
-	ManagedWriteLogCalled                    func(topicsHandle int32, dataHandle int32)
-	ManagedGetOriginalTxHashCalled           func(resultHandle int32)
-	ManagedGetStateRootHashCalled            func(resultHandle int32)
-	ManagedGetBlockRandomSeedCalled          func(resultHandle int32)
-	ManagedGetPrevBlockRandomSeedCalled      func(resultHandle int32)
-	ManagedGetReturnDataCalled               func(resultID int32, resultHandle int32)
-	ManagedGetKDACallValueCalled             func(kdaCallValueHandle int32, kdaHandle int32)
-	ManagedGetMultiKDACallValueCalled        func(multiCallValueHandle int32)
-	ManagedGetBackTransfersCalled            func(kdaTransfersValueHandle int32, callValueHandle int32)
-	ManagedGetKDABalanceCalled               func(addressHandle int32, tokenIDHandle int32, nonce int64, valueHandle int32)
-	ManagedGetUserKDACalled                  func(addressHandle int32, tickerHandle int32, nonce int64, balanceHandle int32, frozenHandle int32, lastClaimHandle int32, bucketsHandle int32, mimeHandle int32, metadataHandle int32)
-	ManagedGetKDATokenDataCalled             func(addressHandle int32, tickerHandle int32, nonce int64, precisionHandle int32, idHandle int32, nameHandle int32, creatorHandle int32, adminHandle int32, logoHandle int32, urisHandle int32, initialSupplyHandle int32, circulatingSupplyHandle int32, maxSupplyHandle int32, mintedHandle int32, burnedHandle int32, royaltiesHandle int32, propertiesHandle int32, attributesHandle int32, rolesHandle int32, issueDateHandle int32)
-	ManagedGetKDARolesCalled                 func(tickerHandle int32, rolesHandle int32)
-	ManagedUpgradeFromSourceContractCalled   func(destHandle int32, gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32)
-	ManagedUpgradeContractCalled             func(destHandle int32, gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32)
-	ManagedDeleteContractCalled              func(destHandle int32, gasLimit int64, argumentsHandle int32)
-	ManagedDeployFromSourceContractCalled    func(gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultAddressHandle int32, resultHandle int32) int32
-	ManagedCreateContractCalled              func(gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultAddressHandle int32, resultHandle int32) int32
-	ManagedExecuteReadOnlyCalled             func(gas int64, addressHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32
-	ManagedExecuteOnSameContextCalled        func(gas int64, addressHandle int32, valueHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32
-	ManagedExecuteOnDestContextCalled        func(gas int64, addressHandle int32, valueHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32
-	ManagedMultiTransferKDANFTExecuteCalled  func(dstHandle int32, tokenTransfersHandle int32, gasLimit int64, functionHandle int32, argumentsHandle int32) int32
-	ManagedBufferToHexCalled                 func(sourceHandle int32, destHandle int32)
-	ManagedGetCodeMetadataCalled             func(addressHandle int32, responseHandle int32)
-	ManagedIsBuiltinFunctionCalled           func(functionNameHandle int32) int32
-	ManagedGetSftMetadataCalled              func(tickerHandle int32, nonce int64, dataHandle int32)
-	ManagedAccHasPermCalled                  func(ops int64, sourceAccAddr int32, targetAccAddr int32) int32
-	BigFloatNewFromPartsCalled               func(integralPart int32, fractionalPart int32, exponent int32) int32
-	BigFloatNewFromFracCalled                func(numerator int64, denominator int64) int32
-	BigFloatNewFromSciCalled                 func(significand int64, exponent int64) int32
-	BigFloatAddCalled                        func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigFloatSubCalled                        func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigFloatMulCalled                        func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigFloatDivCalled                        func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigFloatNegCalled                        func(destinationHandle int32, opHandle int32)
-	BigFloatCloneCalled                      func(destinationHandle int32, opHandle int32)
-	BigFloatCmpCalled                        func(op1Handle int32, op2Handle int32) int32
-	BigFloatAbsCalled                        func(destinationHandle int32, opHandle int32)
-	BigFloatSignCalled                       func(opHandle int32) int32
-	BigFloatSqrtCalled                       func(destinationHandle int32, opHandle int32)
-	BigFloatPowCalled                        func(destinationHandle int32, opHandle int32, exponent int32)
-	BigFloatFloorCalled                      func(destBigIntHandle int32, opHandle int32)
-	BigFloatCeilCalled                       func(destBigIntHandle int32, opHandle int32)
-	BigFloatTruncateCalled                   func(destBigIntHandle int32, opHandle int32)
-	BigFloatSetInt64Called                   func(destinationHandle int32, value int64)
-	BigFloatIsIntCalled                      func(opHandle int32) int32
-	BigFloatSetBigIntCalled                  func(destinationHandle int32, bigIntHandle int32)
-	BigFloatGetConstPiCalled                 func(destinationHandle int32)
-	BigFloatGetConstECalled                  func(destinationHandle int32)
-	BigIntGetUnsignedArgumentCalled          func(id int32, destinationHandle int32)
-	BigIntGetSignedArgumentCalled            func(id int32, destinationHandle int32)
-	BigIntStorageStoreUnsignedCalled         func(keyOffset executor.MemPtr, keyLength executor.MemLength, sourceHandle int32) int32
-	BigIntStorageLoadUnsignedCalled          func(keyOffset executor.MemPtr, keyLength executor.MemLength, destinationHandle int32) int32
-	BigIntGetCallValueCalled                 func(destinationHandle int32)
-	BigIntGetKDACallValueCalled              func(destination int32)
-	BigIntGetKDACallValueByIndexCalled       func(destinationHandle int32, index int32)
-	BigIntGetExternalBalanceCalled           func(addressOffset executor.MemPtr, result int32)
-	BigIntGetKDAExternalBalanceCalled        func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, resultHandle int32)
-	BigIntNewCalled                          func(smallValue int64) int32
-	BigIntUnsignedByteLengthCalled           func(referenceHandle int32) int32
-	BigIntSignedByteLengthCalled             func(referenceHandle int32) int32
-	BigIntGetUnsignedBytesCalled             func(referenceHandle int32, byteOffset executor.MemPtr) int32
-	BigIntGetSignedBytesCalled               func(referenceHandle int32, byteOffset executor.MemPtr) int32
-	BigIntSetUnsignedBytesCalled             func(destinationHandle int32, byteOffset executor.MemPtr, byteLength executor.MemLength)
-	BigIntSetSignedBytesCalled               func(destinationHandle int32, byteOffset executor.MemPtr, byteLength executor.MemLength)
-	BigIntIsInt64Called                      func(destinationHandle int32) int32
-	BigIntGetInt64Called                     func(destinationHandle int32) int64
-	BigIntSetInt64Called                     func(destinationHandle int32, value int64)
-	BigIntAddCalled                          func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigIntSubCalled                          func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigIntMulCalled                          func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigIntTDivCalled                         func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigIntTModCalled                         func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigIntEDivCalled                         func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigIntEModCalled                         func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigIntSqrtCalled                         func(destinationHandle int32, opHandle int32)
-	BigIntPowCalled                          func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigIntLog2Called                         func(op1Handle int32) int32
-	BigIntAbsCalled                          func(destinationHandle int32, opHandle int32)
-	BigIntNegCalled                          func(destinationHandle int32, opHandle int32)
-	BigIntSignCalled                         func(opHandle int32) int32
-	BigIntCmpCalled                          func(op1Handle int32, op2Handle int32) int32
-	BigIntNotCalled                          func(destinationHandle int32, opHandle int32)
-	BigIntAndCalled                          func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigIntOrCalled                           func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigIntXorCalled                          func(destinationHandle int32, op1Handle int32, op2Handle int32)
-	BigIntShrCalled                          func(destinationHandle int32, opHandle int32, bits int32)
-	BigIntShlCalled                          func(destinationHandle int32, opHandle int32, bits int32)
-	BigIntFinishUnsignedCalled               func(referenceHandle int32)
-	BigIntFinishSignedCalled                 func(referenceHandle int32)
-	BigIntToStringCalled                     func(bigIntHandle int32, destinationHandle int32)
-	MBufferNewCalled                         func() int32
-	MBufferNewFromBytesCalled                func(dataOffset executor.MemPtr, dataLength executor.MemLength) int32
-	MBufferGetLengthCalled                   func(mBufferHandle int32) int32
-	MBufferGetBytesCalled                    func(mBufferHandle int32, resultOffset executor.MemPtr) int32
-	MBufferGetByteSliceCalled                func(sourceHandle int32, startingPosition int32, sliceLength int32, resultOffset executor.MemPtr) int32
-	MBufferCopyByteSliceCalled               func(sourceHandle int32, startingPosition int32, sliceLength int32, destinationHandle int32) int32
-	MBufferEqCalled                          func(mBufferHandle1 int32, mBufferHandle2 int32) int32
-	MBufferSetBytesCalled                    func(mBufferHandle int32, dataOffset executor.MemPtr, dataLength executor.MemLength) int32
-	MBufferSetByteSliceCalled                func(mBufferHandle int32, startingPosition int32, dataLength executor.MemLength, dataOffset executor.MemPtr) int32
-	MBufferAppendCalled                      func(accumulatorHandle int32, dataHandle int32) int32
-	MBufferAppendBytesCalled                 func(accumulatorHandle int32, dataOffset executor.MemPtr, dataLength executor.MemLength) int32
-	MBufferToBigIntUnsignedCalled            func(mBufferHandle int32, bigIntHandle int32) int32
-	MBufferToBigIntSignedCalled              func(mBufferHandle int32, bigIntHandle int32) int32
-	MBufferFromBigIntUnsignedCalled          func(mBufferHandle int32, bigIntHandle int32) int32
-	MBufferFromBigIntSignedCalled            func(mBufferHandle int32, bigIntHandle int32) int32
-	MBufferToBigFloatCalled                  func(mBufferHandle int32, bigFloatHandle int32) int32
-	MBufferFromBigFloatCalled                func(mBufferHandle int32, bigFloatHandle int32) int32
-	MBufferStorageStoreCalled                func(keyHandle int32, sourceHandle int32) int32
-	MBufferStorageLoadCalled                 func(keyHandle int32, destinationHandle int32) int32
-	MBufferStorageLoadFromAddressCalled      func(addressHandle int32, keyHandle int32, destinationHandle int32)
-	MBufferGetArgumentCalled                 func(id int32, destinationHandle int32) int32
-	MBufferFinishCalled                      func(sourceHandle int32) int32
-	MBufferSetRandomCalled                   func(destinationHandle int32, length int32) int32
-	ManagedMapNewCalled                      func() int32
-	ManagedMapPutCalled                      func(mMapHandle int32, keyHandle int32, valueHandle int32) int32
-	ManagedMapGetCalled                      func(mMapHandle int32, keyHandle int32, outValueHandle int32) int32
-	ManagedMapRemoveCalled                   func(mMapHandle int32, keyHandle int32, outValueHandle int32) int32
-	ManagedMapContainsCalled                 func(mMapHandle int32, keyHandle int32) int32
-	SmallIntGetUnsignedArgumentCalled        func(id int32) int64
-	SmallIntGetSignedArgumentCalled          func(id int32) int64
-	SmallIntFinishUnsignedCalled             func(value int64)
-	SmallIntFinishSignedCalled               func(value int64)
-	SmallIntStorageStoreUnsignedCalled       func(keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32
-	SmallIntStorageStoreSignedCalled         func(keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32
-	SmallIntStorageLoadUnsignedCalled        func(keyOffset executor.MemPtr, keyLength executor.MemLength) int64
-	SmallIntStorageLoadSignedCalled          func(keyOffset executor.MemPtr, keyLength executor.MemLength) int64
-	Int64getArgumentCalled                   func(id int32) int64
-	Int64finishCalled                        func(value int64)
-	Int64storageStoreCalled                  func(keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32
-	Int64storageLoadCalled                   func(keyOffset executor.MemPtr, keyLength executor.MemLength) int64
-	Sha256Called                             func(dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32
-	ManagedSha256Called                      func(inputHandle int32, outputHandle int32) int32
-	Keccak256Called                          func(dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32
-	ManagedKeccak256Called                   func(inputHandle int32, outputHandle int32) int32
-	Ripemd160Called                          func(dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32
-	ManagedRipemd160Called                   func(inputHandle int32, outputHandle int32) int32
-	VerifyBLSCalled                          func(keyOffset executor.MemPtr, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32
-	ManagedVerifyBLSCalled                   func(keyHandle int32, messageHandle int32, sigHandle int32) int32
-	VerifyEd25519Called                      func(keyOffset executor.MemPtr, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32
-	ManagedVerifyEd25519Called               func(keyHandle int32, messageHandle int32, sigHandle int32) int32
-	VerifyCustomSecp256k1Called              func(keyOffset executor.MemPtr, keyLength executor.MemLength, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr, hashType int32) int32
-	ManagedVerifyCustomSecp256k1Called       func(keyHandle int32, messageHandle int32, sigHandle int32, hashType int32) int32
-	VerifySecp256k1Called                    func(keyOffset executor.MemPtr, keyLength executor.MemLength, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32
-	ManagedVerifySecp256k1Called             func(keyHandle int32, messageHandle int32, sigHandle int32) int32
-	EncodeSecp256k1DerSignatureCalled        func(rOffset executor.MemPtr, rLength executor.MemLength, sOffset executor.MemPtr, sLength executor.MemLength, sigOffset executor.MemPtr) int32
-	ManagedEncodeSecp256k1DerSignatureCalled func(rHandle int32, sHandle int32, sigHandle int32) int32
-	AddECCalled                              func(xResultHandle int32, yResultHandle int32, ecHandle int32, fstPointXHandle int32, fstPointYHandle int32, sndPointXHandle int32, sndPointYHandle int32)
-	DoubleECCalled                           func(xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32)
-	IsOnCurveECCalled                        func(ecHandle int32, pointXHandle int32, pointYHandle int32) int32
-	ScalarBaseMultECCalled                   func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32
-	ManagedScalarBaseMultECCalled            func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32
-	ScalarMultECCalled                       func(xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32
-	ManagedScalarMultECCalled                func(xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32, dataHandle int32) int32
-	MarshalECCalled                          func(xPairHandle int32, yPairHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32
-	ManagedMarshalECCalled                   func(xPairHandle int32, yPairHandle int32, ecHandle int32, resultHandle int32) int32
-	MarshalCompressedECCalled                func(xPairHandle int32, yPairHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32
-	ManagedMarshalCompressedECCalled         func(xPairHandle int32, yPairHandle int32, ecHandle int32, resultHandle int32) int32
-	UnmarshalECCalled                        func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32
-	ManagedUnmarshalECCalled                 func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32
-	UnmarshalCompressedECCalled              func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32
-	ManagedUnmarshalCompressedECCalled       func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32
-	GenerateKeyECCalled                      func(xPubKeyHandle int32, yPubKeyHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32
-	ManagedGenerateKeyECCalled               func(xPubKeyHandle int32, yPubKeyHandle int32, ecHandle int32, resultHandle int32) int32
-	CreateECCalled                           func(dataOffset executor.MemPtr, dataLength executor.MemLength) int32
-	ManagedCreateECCalled                    func(dataHandle int32) int32
-	GetCurveLengthECCalled                   func(ecHandle int32) int32
-	GetPrivKeyByteLengthECCalled             func(ecHandle int32) int32
-	EllipticCurveGetValuesCalled             func(ecHandle int32, fieldOrderHandle int32, basePointOrderHandle int32, eqConstantHandle int32, xBasePointHandle int32, yBasePointHandle int32) int32
+	GetGasLeftCalled                            func() int64
+	GetSCAddressCalled                          func(resultOffset executor.MemPtr)
+	GetOwnerAddressCalled                       func(resultOffset executor.MemPtr)
+	IsSmartContractCalled                       func(addressOffset executor.MemPtr) int32
+	SignalErrorCalled                           func(messageOffset executor.MemPtr, messageLength executor.MemLength)
+	GetExternalBalanceCalled                    func(addressOffset executor.MemPtr, resultOffset executor.MemPtr)
+	GetBlockHashCalled                          func(nonce int64, resultOffset executor.MemPtr) int32
+	GetKDABalanceCalled                         func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, resultOffset executor.MemPtr) int32
+	GetKDANFTNameLengthCalled                   func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32
+	GetKDANFTURILengthCalled                    func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32
+	GetKDATokenDataCalled                       func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, precisionHandle int32, idOffset executor.MemPtr, nameOffset executor.MemPtr, creatorOffset executor.MemPtr, logoOffset executor.MemPtr, initialSupplyOffset executor.MemPtr, circulatingSupplyOffset executor.MemPtr, maxSupplyOffset executor.MemPtr, mintedOffset executor.MemPtr, burnedOffset executor.MemPtr, royaltiesOffset executor.MemPtr, propertiesOffset executor.MemPtr, attributesOffset executor.MemPtr, rolesOffset executor.MemPtr) int32
+	ValidateTokenIdentifierCalled               func(tokenIdHandle int32) int32
+	UpgradeContractCalled                       func(destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr)
+	UpgradeFromSourceContractCalled             func(destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, sourceContractAddressOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr)
+	DeleteContractCalled                        func(destOffset executor.MemPtr, gasLimit int64, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr)
+	GetArgumentLengthCalled                     func(id int32) int32
+	GetArgumentCalled                           func(id int32, argOffset executor.MemPtr) int32
+	GetFunctionCalled                           func(functionOffset executor.MemPtr) int32
+	GetNumArgumentsCalled                       func() int32
+	StorageStoreCalled                          func(keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr, dataLength executor.MemLength) int32
+	StorageLoadLengthCalled                     func(keyOffset executor.MemPtr, keyLength executor.MemLength) int32
+	StorageLoadFromAddressCalled                func(addressOffset executor.MemPtr, keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr) int32
+	StorageLoadCalled                           func(keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr) int32
+	SetStorageLockCalled                        func(keyOffset executor.MemPtr, keyLength executor.MemLength, lockTimestamp int64) int32
+	GetStorageLockCalled                        func(keyOffset executor.MemPtr, keyLength executor.MemLength) int64
+	IsStorageLockedCalled                       func(keyOffset executor.MemPtr, keyLength executor.MemLength) int32
+	ClearStorageLockCalled                      func(keyOffset executor.MemPtr, keyLength executor.MemLength) int32
+	GetCallerCalled                             func(resultOffset executor.MemPtr)
+	CheckNoPaymentCalled                        func()
+	GetCallValueCalled                          func(resultOffset executor.MemPtr) int32
+	GetKDAValueCalled                           func(resultOffset executor.MemPtr) int32
+	GetKDAValueByIndexCalled                    func(resultOffset executor.MemPtr, index int32) int32
+	GetKDATokenNameCalled                       func(resultOffset executor.MemPtr) int32
+	GetKDATokenNameByIndexCalled                func(resultOffset executor.MemPtr, index int32) int32
+	GetKDATokenNonceCalled                      func() int64
+	GetKDATokenNonceByIndexCalled               func(index int32) int64
+	GetKDATokenTypeCalled                       func() int32
+	GetKDATokenTypeByIndexCalled                func(index int32) int32
+	GetNumKDATransfersCalled                    func() int32
+	GetCallValueByTokenNameCalled               func(callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr, tokenNameLength executor.MemLength) int32
+	GetCallValueTokenNameCalled                 func(callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr) int32
+	GetCallValueTokenNameByIndexCalled          func(callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr, index int32) int32
+	WriteLogCalled                              func(dataPointer executor.MemPtr, dataLength executor.MemLength, topicPtr executor.MemPtr, numTopics int32)
+	WriteEventLogCalled                         func(numTopics int32, topicLengthsOffset executor.MemPtr, topicOffset executor.MemPtr, dataOffset executor.MemPtr, dataLength executor.MemLength)
+	GetBlockTimestampCalled                     func() int64
+	GetBlockNonceCalled                         func() int64
+	GetBlockRoundCalled                         func() int64
+	GetBlockEpochCalled                         func() int64
+	GetBlockRandomSeedCalled                    func(pointer executor.MemPtr)
+	GetStateRootHashCalled                      func(pointer executor.MemPtr)
+	GetPrevBlockTimestampCalled                 func() int64
+	GetPrevBlockNonceCalled                     func() int64
+	GetPrevBlockRoundCalled                     func() int64
+	GetPrevBlockEpochCalled                     func() int64
+	GetPrevBlockRandomSeedCalled                func(pointer executor.MemPtr)
+	FinishCalled                                func(pointer executor.MemPtr, length executor.MemLength)
+	ExecuteOnSameContextCalled                  func(gasLimit int64, addressOffset executor.MemPtr, valueOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32
+	ExecuteOnDestContextCalled                  func(gasLimit int64, addressOffset executor.MemPtr, valueOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32
+	ExecuteReadOnlyCalled                       func(gasLimit int64, addressOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32
+	CreateContractCalled                        func(gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32
+	DeployFromSourceContractCalled              func(gasLimit int64, valueOffset executor.MemPtr, sourceContractAddressOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, resultAddressOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32
+	GetNumReturnDataCalled                      func() int32
+	GetReturnDataSizeCalled                     func(resultID int32) int32
+	GetReturnDataCalled                         func(resultID int32, dataOffset executor.MemPtr) int32
+	CleanReturnDataCalled                       func()
+	DeleteFromReturnDataCalled                  func(resultID int32)
+	GetOriginalTxHashCalled                     func(dataOffset executor.MemPtr)
+	GetCurrentTxHashCalled                      func(dataOffset executor.MemPtr)
+	ManagedSCAddressCalled                      func(destinationHandle int32)
+	ManagedOwnerAddressCalled                   func(destinationHandle int32)
+	ManagedCallerCalled                         func(destinationHandle int32)
+	ManagedSignalErrorCalled                    func(errHandle int32)
+	ManagedWriteLogCalled                       func(topicsHandle int32, dataHandle int32)
+	ManagedGetOriginalTxHashCalled              func(resultHandle int32)
+	ManagedGetStateRootHashCalled               func(resultHandle int32)
+	ManagedGetBlockRandomSeedCalled             func(resultHandle int32)
+	ManagedGetPrevBlockRandomSeedCalled         func(resultHandle int32)
+	ManagedGetReturnDataCalled                  func(resultID int32, resultHandle int32)
+	ManagedGetKDACallValueCalled                func(kdaCallValueHandle int32, kdaHandle int32)
+	ManagedGetMultiKDACallValueCalled           func(multiCallValueHandle int32)
+	ManagedGetMultiKDAWithoutKLVCallValueCalled func(multiCallValueHandle int32)
+	ManagedGetBackTransfersCalled               func(kdaTransfersValueHandle int32, callValueHandle int32)
+	ManagedGetKDABalanceCalled                  func(addressHandle int32, tokenIDHandle int32, nonce int64, valueHandle int32)
+	ManagedGetUserKDACalled                     func(addressHandle int32, tickerHandle int32, nonce int64, balanceHandle int32, frozenHandle int32, lastClaimHandle int32, bucketsHandle int32, mimeHandle int32, metadataHandle int32)
+	ManagedGetKDATokenDataCalled                func(addressHandle int32, tickerHandle int32, nonce int64, precisionHandle int32, idHandle int32, nameHandle int32, creatorHandle int32, adminHandle int32, logoHandle int32, urisHandle int32, initialSupplyHandle int32, circulatingSupplyHandle int32, maxSupplyHandle int32, mintedHandle int32, burnedHandle int32, royaltiesHandle int32, propertiesHandle int32, attributesHandle int32, rolesHandle int32, issueDateHandle int32)
+	ManagedGetKDARolesCalled                    func(tickerHandle int32, rolesHandle int32)
+	ManagedUpgradeFromSourceContractCalled      func(destHandle int32, gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32)
+	ManagedUpgradeContractCalled                func(destHandle int32, gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32)
+	ManagedDeleteContractCalled                 func(destHandle int32, gasLimit int64, argumentsHandle int32)
+	ManagedDeployFromSourceContractCalled       func(gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultAddressHandle int32, resultHandle int32) int32
+	ManagedCreateContractCalled                 func(gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultAddressHandle int32, resultHandle int32) int32
+	ManagedExecuteReadOnlyCalled                func(gas int64, addressHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32
+	ManagedExecuteOnSameContextCalled           func(gas int64, addressHandle int32, valueHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32
+	ManagedExecuteOnDestContextCalled           func(gas int64, addressHandle int32, valueHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32
+	ManagedMultiTransferKDANFTExecuteCalled     func(dstHandle int32, tokenTransfersHandle int32, gasLimit int64, functionHandle int32, argumentsHandle int32) int32
+	ManagedBufferToHexCalled                    func(sourceHandle int32, destHandle int32)
+	ManagedGetCodeMetadataCalled                func(addressHandle int32, responseHandle int32)
+	ManagedIsBuiltinFunctionCalled              func(functionNameHandle int32) int32
+	ManagedGetSftMetadataCalled                 func(tickerHandle int32, nonce int64, dataHandle int32)
+	ManagedAccHasPermCalled                     func(ops int64, sourceAccAddr int32, targetAccAddr int32) int32
+	BigFloatNewFromPartsCalled                  func(integralPart int32, fractionalPart int32, exponent int32) int32
+	BigFloatNewFromFracCalled                   func(numerator int64, denominator int64) int32
+	BigFloatNewFromSciCalled                    func(significand int64, exponent int64) int32
+	BigFloatAddCalled                           func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigFloatSubCalled                           func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigFloatMulCalled                           func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigFloatDivCalled                           func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigFloatNegCalled                           func(destinationHandle int32, opHandle int32)
+	BigFloatCloneCalled                         func(destinationHandle int32, opHandle int32)
+	BigFloatCmpCalled                           func(op1Handle int32, op2Handle int32) int32
+	BigFloatAbsCalled                           func(destinationHandle int32, opHandle int32)
+	BigFloatSignCalled                          func(opHandle int32) int32
+	BigFloatSqrtCalled                          func(destinationHandle int32, opHandle int32)
+	BigFloatPowCalled                           func(destinationHandle int32, opHandle int32, exponent int32)
+	BigFloatFloorCalled                         func(destBigIntHandle int32, opHandle int32)
+	BigFloatCeilCalled                          func(destBigIntHandle int32, opHandle int32)
+	BigFloatTruncateCalled                      func(destBigIntHandle int32, opHandle int32)
+	BigFloatSetInt64Called                      func(destinationHandle int32, value int64)
+	BigFloatIsIntCalled                         func(opHandle int32) int32
+	BigFloatSetBigIntCalled                     func(destinationHandle int32, bigIntHandle int32)
+	BigFloatGetConstPiCalled                    func(destinationHandle int32)
+	BigFloatGetConstECalled                     func(destinationHandle int32)
+	BigIntGetUnsignedArgumentCalled             func(id int32, destinationHandle int32)
+	BigIntGetSignedArgumentCalled               func(id int32, destinationHandle int32)
+	BigIntStorageStoreUnsignedCalled            func(keyOffset executor.MemPtr, keyLength executor.MemLength, sourceHandle int32) int32
+	BigIntStorageLoadUnsignedCalled             func(keyOffset executor.MemPtr, keyLength executor.MemLength, destinationHandle int32) int32
+	BigIntGetCallValueCalled                    func(destinationHandle int32)
+	BigIntGetKDACallValueCalled                 func(destination int32)
+	BigIntGetKDACallValueByIndexCalled          func(destinationHandle int32, index int32)
+	BigIntGetExternalBalanceCalled              func(addressOffset executor.MemPtr, result int32)
+	BigIntGetKDAExternalBalanceCalled           func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, resultHandle int32)
+	BigIntNewCalled                             func(smallValue int64) int32
+	BigIntUnsignedByteLengthCalled              func(referenceHandle int32) int32
+	BigIntSignedByteLengthCalled                func(referenceHandle int32) int32
+	BigIntGetUnsignedBytesCalled                func(referenceHandle int32, byteOffset executor.MemPtr) int32
+	BigIntGetSignedBytesCalled                  func(referenceHandle int32, byteOffset executor.MemPtr) int32
+	BigIntSetUnsignedBytesCalled                func(destinationHandle int32, byteOffset executor.MemPtr, byteLength executor.MemLength)
+	BigIntSetSignedBytesCalled                  func(destinationHandle int32, byteOffset executor.MemPtr, byteLength executor.MemLength)
+	BigIntIsInt64Called                         func(destinationHandle int32) int32
+	BigIntGetInt64Called                        func(destinationHandle int32) int64
+	BigIntSetInt64Called                        func(destinationHandle int32, value int64)
+	BigIntAddCalled                             func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigIntSubCalled                             func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigIntMulCalled                             func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigIntTDivCalled                            func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigIntTModCalled                            func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigIntEDivCalled                            func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigIntEModCalled                            func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigIntSqrtCalled                            func(destinationHandle int32, opHandle int32)
+	BigIntPowCalled                             func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigIntLog2Called                            func(op1Handle int32) int32
+	BigIntAbsCalled                             func(destinationHandle int32, opHandle int32)
+	BigIntNegCalled                             func(destinationHandle int32, opHandle int32)
+	BigIntSignCalled                            func(opHandle int32) int32
+	BigIntCmpCalled                             func(op1Handle int32, op2Handle int32) int32
+	BigIntNotCalled                             func(destinationHandle int32, opHandle int32)
+	BigIntAndCalled                             func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigIntOrCalled                              func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigIntXorCalled                             func(destinationHandle int32, op1Handle int32, op2Handle int32)
+	BigIntShrCalled                             func(destinationHandle int32, opHandle int32, bits int32)
+	BigIntShlCalled                             func(destinationHandle int32, opHandle int32, bits int32)
+	BigIntFinishUnsignedCalled                  func(referenceHandle int32)
+	BigIntFinishSignedCalled                    func(referenceHandle int32)
+	BigIntToStringCalled                        func(bigIntHandle int32, destinationHandle int32)
+	MBufferNewCalled                            func() int32
+	MBufferNewFromBytesCalled                   func(dataOffset executor.MemPtr, dataLength executor.MemLength) int32
+	MBufferGetLengthCalled                      func(mBufferHandle int32) int32
+	MBufferGetBytesCalled                       func(mBufferHandle int32, resultOffset executor.MemPtr) int32
+	MBufferGetByteSliceCalled                   func(sourceHandle int32, startingPosition int32, sliceLength int32, resultOffset executor.MemPtr) int32
+	MBufferCopyByteSliceCalled                  func(sourceHandle int32, startingPosition int32, sliceLength int32, destinationHandle int32) int32
+	MBufferEqCalled                             func(mBufferHandle1 int32, mBufferHandle2 int32) int32
+	MBufferSetBytesCalled                       func(mBufferHandle int32, dataOffset executor.MemPtr, dataLength executor.MemLength) int32
+	MBufferSetByteSliceCalled                   func(mBufferHandle int32, startingPosition int32, dataLength executor.MemLength, dataOffset executor.MemPtr) int32
+	MBufferAppendCalled                         func(accumulatorHandle int32, dataHandle int32) int32
+	MBufferAppendBytesCalled                    func(accumulatorHandle int32, dataOffset executor.MemPtr, dataLength executor.MemLength) int32
+	MBufferToBigIntUnsignedCalled               func(mBufferHandle int32, bigIntHandle int32) int32
+	MBufferToBigIntSignedCalled                 func(mBufferHandle int32, bigIntHandle int32) int32
+	MBufferFromBigIntUnsignedCalled             func(mBufferHandle int32, bigIntHandle int32) int32
+	MBufferFromBigIntSignedCalled               func(mBufferHandle int32, bigIntHandle int32) int32
+	MBufferToBigFloatCalled                     func(mBufferHandle int32, bigFloatHandle int32) int32
+	MBufferFromBigFloatCalled                   func(mBufferHandle int32, bigFloatHandle int32) int32
+	MBufferStorageStoreCalled                   func(keyHandle int32, sourceHandle int32) int32
+	MBufferStorageLoadCalled                    func(keyHandle int32, destinationHandle int32) int32
+	MBufferStorageLoadFromAddressCalled         func(addressHandle int32, keyHandle int32, destinationHandle int32)
+	MBufferGetArgumentCalled                    func(id int32, destinationHandle int32) int32
+	MBufferFinishCalled                         func(sourceHandle int32) int32
+	MBufferSetRandomCalled                      func(destinationHandle int32, length int32) int32
+	ManagedMapNewCalled                         func() int32
+	ManagedMapPutCalled                         func(mMapHandle int32, keyHandle int32, valueHandle int32) int32
+	ManagedMapGetCalled                         func(mMapHandle int32, keyHandle int32, outValueHandle int32) int32
+	ManagedMapRemoveCalled                      func(mMapHandle int32, keyHandle int32, outValueHandle int32) int32
+	ManagedMapContainsCalled                    func(mMapHandle int32, keyHandle int32) int32
+	SmallIntGetUnsignedArgumentCalled           func(id int32) int64
+	SmallIntGetSignedArgumentCalled             func(id int32) int64
+	SmallIntFinishUnsignedCalled                func(value int64)
+	SmallIntFinishSignedCalled                  func(value int64)
+	SmallIntStorageStoreUnsignedCalled          func(keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32
+	SmallIntStorageStoreSignedCalled            func(keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32
+	SmallIntStorageLoadUnsignedCalled           func(keyOffset executor.MemPtr, keyLength executor.MemLength) int64
+	SmallIntStorageLoadSignedCalled             func(keyOffset executor.MemPtr, keyLength executor.MemLength) int64
+	Int64getArgumentCalled                      func(id int32) int64
+	Int64finishCalled                           func(value int64)
+	Int64storageStoreCalled                     func(keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32
+	Int64storageLoadCalled                      func(keyOffset executor.MemPtr, keyLength executor.MemLength) int64
+	Sha256Called                                func(dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32
+	ManagedSha256Called                         func(inputHandle int32, outputHandle int32) int32
+	Keccak256Called                             func(dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32
+	ManagedKeccak256Called                      func(inputHandle int32, outputHandle int32) int32
+	Ripemd160Called                             func(dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32
+	ManagedRipemd160Called                      func(inputHandle int32, outputHandle int32) int32
+	VerifyBLSCalled                             func(keyOffset executor.MemPtr, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32
+	ManagedVerifyBLSCalled                      func(keyHandle int32, messageHandle int32, sigHandle int32) int32
+	VerifyEd25519Called                         func(keyOffset executor.MemPtr, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32
+	ManagedVerifyEd25519Called                  func(keyHandle int32, messageHandle int32, sigHandle int32) int32
+	VerifyCustomSecp256k1Called                 func(keyOffset executor.MemPtr, keyLength executor.MemLength, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr, hashType int32) int32
+	ManagedVerifyCustomSecp256k1Called          func(keyHandle int32, messageHandle int32, sigHandle int32, hashType int32) int32
+	VerifySecp256k1Called                       func(keyOffset executor.MemPtr, keyLength executor.MemLength, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32
+	ManagedVerifySecp256k1Called                func(keyHandle int32, messageHandle int32, sigHandle int32) int32
+	EncodeSecp256k1DerSignatureCalled           func(rOffset executor.MemPtr, rLength executor.MemLength, sOffset executor.MemPtr, sLength executor.MemLength, sigOffset executor.MemPtr) int32
+	ManagedEncodeSecp256k1DerSignatureCalled    func(rHandle int32, sHandle int32, sigHandle int32) int32
+	AddECCalled                                 func(xResultHandle int32, yResultHandle int32, ecHandle int32, fstPointXHandle int32, fstPointYHandle int32, sndPointXHandle int32, sndPointYHandle int32)
+	DoubleECCalled                              func(xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32)
+	IsOnCurveECCalled                           func(ecHandle int32, pointXHandle int32, pointYHandle int32) int32
+	ScalarBaseMultECCalled                      func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32
+	ManagedScalarBaseMultECCalled               func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32
+	ScalarMultECCalled                          func(xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32
+	ManagedScalarMultECCalled                   func(xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32, dataHandle int32) int32
+	MarshalECCalled                             func(xPairHandle int32, yPairHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32
+	ManagedMarshalECCalled                      func(xPairHandle int32, yPairHandle int32, ecHandle int32, resultHandle int32) int32
+	MarshalCompressedECCalled                   func(xPairHandle int32, yPairHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32
+	ManagedMarshalCompressedECCalled            func(xPairHandle int32, yPairHandle int32, ecHandle int32, resultHandle int32) int32
+	UnmarshalECCalled                           func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32
+	ManagedUnmarshalECCalled                    func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32
+	UnmarshalCompressedECCalled                 func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32
+	ManagedUnmarshalCompressedECCalled          func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32
+	GenerateKeyECCalled                         func(xPubKeyHandle int32, yPubKeyHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32
+	ManagedGenerateKeyECCalled                  func(xPubKeyHandle int32, yPubKeyHandle int32, ecHandle int32, resultHandle int32) int32
+	CreateECCalled                              func(dataOffset executor.MemPtr, dataLength executor.MemLength) int32
+	ManagedCreateECCalled                       func(dataHandle int32) int32
+	GetCurveLengthECCalled                      func(ecHandle int32) int32
+	GetPrivKeyByteLengthECCalled                func(ecHandle int32) int32
+	EllipticCurveGetValuesCalled                func(ecHandle int32, fieldOrderHandle int32, basePointOrderHandle int32, eqConstantHandle int32, xBasePointHandle int32, yBasePointHandle int32) int32
 }
 
 func (V VMHooksStub) GetGasLeft() int64 {
@@ -774,6 +775,12 @@ func (V VMHooksStub) ManagedGetKDACallValue(kdaCallValueHandle int32, kdaHandle 
 func (V VMHooksStub) ManagedGetMultiKDACallValue(multiCallValueHandle int32) {
 	if V.ManagedGetMultiKDACallValueCalled != nil {
 		V.ManagedGetMultiKDACallValueCalled(multiCallValueHandle)
+	}
+}
+
+func (V VMHooksStub) ManagedGetMultiKDAWithoutKLVCallValue(multiCallValueHandle int32) {
+	if V.ManagedGetMultiKDAWithoutKLVCallValueCalled != nil {
+		V.ManagedGetMultiKDAWithoutKLVCallValueCalled(multiCallValueHandle)
 	}
 }
 

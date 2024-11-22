@@ -102,6 +102,7 @@ type ManagedVMHooks interface {
 	ManagedGetReturnData(resultID int32, resultHandle int32)
 	ManagedGetKDACallValue(kdaCallValueHandle int32, kdaHandle int32)
 	ManagedGetMultiKDACallValue(multiCallValueHandle int32)
+	ManagedGetMultiKDAWithoutKLVCallValue(multiCallValueHandle int32)
 	ManagedGetBackTransfers(kdaTransfersValueHandle int32, callValueHandle int32)
 	ManagedGetKDABalance(addressHandle int32, tokenIDHandle int32, nonce int64, valueHandle int32)
 	ManagedGetUserKDA(addressHandle int32, tickerHandle int32, nonce int64, balanceHandle int32, frozenHandle int32, lastClaimHandle int32, bucketsHandle int32, mimeHandle int32, metadataHandle int32)

@@ -3776,6 +3776,53 @@ func TestManagedGetMultiKDACallValue(t *testing.T) {
 	}
 }
 
+func TestManagedGetMultiKDAWithoutKLVCallValue(t *testing.T) {
+	var testCases = []struct {
+		name        string
+		shouldPanic bool
+		shouldCall  bool
+		delay       time.Duration
+		timeout     time.Duration
+	}{
+		{
+			name:        "ManagedGetMultiKDAWithoutKLVCallValue should call hook",
+			shouldPanic: false,
+			shouldCall:  true,
+			delay:       0,
+			timeout:     time.Second * 1,
+		},
+		{
+			name:        "ManagedGetMultiKDAWithoutKLVCallValue should timeout",
+			shouldPanic: true,
+			shouldCall:  true,
+			delay:       time.Millisecond * 10,
+			timeout:     0,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			called := false
+			panicked := false
+			defer func() {
+				r := recover()
+				panicked = r != nil
+			}()
+			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+				ManagedGetMultiKDAWithoutKLVCallValueCalled: func (multiCallValueHandle int32) {
+					called = true
+					time.Sleep(tc.delay)
+					return
+				},
+			}, &NoLogger{}, tc.timeout)
+			wrapper.ManagedGetMultiKDAWithoutKLVCallValue(0)
+			assert.Equal(t, tc.shouldCall, called)
+			assert.Equal(t, tc.shouldPanic, panicked)
+		})
+	}
+}
+
 func TestManagedGetBackTransfers(t *testing.T) {
 	var testCases = []struct {
 		name        string

@@ -118,6 +118,7 @@ typedef struct {
   void (*managed_get_return_data_func_ptr)(void *context, int32_t result_id, int32_t result_handle);
   void (*managed_get_kda_call_value_func_ptr)(void *context, int32_t kda_call_value_handle, int32_t kda_handle);
   void (*managed_get_multi_kda_call_value_func_ptr)(void *context, int32_t multi_call_value_handle);
+  void (*managed_get_multi_kda_without_klv_call_value_func_ptr)(void *context, int32_t multi_call_value_handle);
   void (*managed_get_back_transfers_func_ptr)(void *context, int32_t kda_transfers_value_handle, int32_t call_value_handle);
   void (*managed_get_kda_balance_func_ptr)(void *context, int32_t address_handle, int32_t token_id_handle, int64_t nonce, int32_t value_handle);
   void (*managed_get_user_kda_func_ptr)(void *context, int32_t address_handle, int32_t ticker_handle, int64_t nonce, int32_t balance_handle, int32_t frozen_handle, int32_t last_claim_handle, int32_t buckets_handle, int32_t mime_handle, int32_t metadata_handle);

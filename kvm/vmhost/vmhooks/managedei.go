@@ -14,36 +14,37 @@ import (
 )
 
 const (
-	managedSCAddressName                    = "managedSCAddress"
-	managedOwnerAddressName                 = "managedOwnerAddress"
-	managedCallerName                       = "managedCaller"
-	managedSignalErrorName                  = "managedSignalError"
-	managedWriteLogName                     = "managedWriteLog"
-	managedMultiTransferKDANFTExecuteName   = "managedMultiTransferKDANFTExecute"
-	managedExecuteOnDestContextName         = "managedExecuteOnDestContext"
-	managedExecuteOnDestContextByCallerName = "managedExecuteOnDestContextByCaller"
-	managedExecuteOnSameContextName         = "managedExecuteOnSameContext"
-	managedExecuteReadOnlyName              = "managedExecuteReadOnly"
-	managedCreateContractName               = "managedCreateContract"
-	managedDeployFromSourceContractName     = "managedDeployFromSourceContract"
-	managedUpgradeContractName              = "managedUpgradeContract"
-	managedUpgradeFromSourceContractName    = "managedUpgradeFromSourceContract"
-	managedGetKDACallValueName              = "managedGetKDACallValue"
-	managedGetMultiKDACallValueName         = "managedGetMultiKDACallValue"
-	managedGetBackTransferName              = "managedGetBackTransfer"
-	managedGetKDABalanceName                = "managedGetKDABalance"
-	managedGetKDATokenDataName              = "managedGetKDATokenData"
-	managedGetSftMetadataName               = "managedGetSftMetadataName"
-	managedAccHasPermName                   = "managedAccHasPerm"
-	managedGetKDARolesName                  = "managedGetKDARoles"
-	managedGetReturnDataName                = "managedGetReturnData"
-	managedGetPrevBlockRandomSeedName       = "managedGetPrevBlockRandomSeed"
-	managedGetBlockRandomSeedName           = "managedGetBlockRandomSeed"
-	managedGetStateRootHashName             = "managedGetStateRootHash"
-	managedGetOriginalTxHashName            = "managedGetOriginalTxHash"
-	managedBufferToHexName                  = "managedBufferToHex"
-	managedGetCodeMetadataName              = "managedGetCodeMetadata"
-	managedIsBuiltinFunction                = "managedIsBuiltinFunction"
+	managedSCAddressName                      = "managedSCAddress"
+	managedOwnerAddressName                   = "managedOwnerAddress"
+	managedCallerName                         = "managedCaller"
+	managedSignalErrorName                    = "managedSignalError"
+	managedWriteLogName                       = "managedWriteLog"
+	managedMultiTransferKDANFTExecuteName     = "managedMultiTransferKDANFTExecute"
+	managedExecuteOnDestContextName           = "managedExecuteOnDestContext"
+	managedExecuteOnDestContextByCallerName   = "managedExecuteOnDestContextByCaller"
+	managedExecuteOnSameContextName           = "managedExecuteOnSameContext"
+	managedExecuteReadOnlyName                = "managedExecuteReadOnly"
+	managedCreateContractName                 = "managedCreateContract"
+	managedDeployFromSourceContractName       = "managedDeployFromSourceContract"
+	managedUpgradeContractName                = "managedUpgradeContract"
+	managedUpgradeFromSourceContractName      = "managedUpgradeFromSourceContract"
+	managedGetKDACallValueName                = "managedGetKDACallValue"
+	managedGetMultiKDACallValueName           = "managedGetMultiKDACallValue"
+	managedGetMultiKDAWithoutKLVCallValueName = "managedGetMultiKDAWithoutKLVCallValue"
+	managedGetBackTransferName                = "managedGetBackTransfer"
+	managedGetKDABalanceName                  = "managedGetKDABalance"
+	managedGetKDATokenDataName                = "managedGetKDATokenData"
+	managedGetSftMetadataName                 = "managedGetSftMetadataName"
+	managedAccHasPermName                     = "managedAccHasPerm"
+	managedGetKDARolesName                    = "managedGetKDARoles"
+	managedGetReturnDataName                  = "managedGetReturnData"
+	managedGetPrevBlockRandomSeedName         = "managedGetPrevBlockRandomSeed"
+	managedGetBlockRandomSeedName             = "managedGetBlockRandomSeed"
+	managedGetStateRootHashName               = "managedGetStateRootHash"
+	managedGetOriginalTxHashName              = "managedGetOriginalTxHash"
+	managedBufferToHexName                    = "managedBufferToHex"
+	managedGetCodeMetadataName                = "managedGetCodeMetadata"
+	managedIsBuiltinFunction                  = "managedIsBuiltinFunction"
 )
 
 // ManagedSCAddress VMHooks implementation.
@@ -259,6 +260,23 @@ func (context *VMHooksImpl) ManagedGetMultiKDACallValue(multiCallValueHandle int
 
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetCallValue
 	metering.UseGasAndAddTracedGas(managedGetMultiKDACallValueName, gasToUse)
+
+	kdaTransfers := runtime.GetVMInput().KDATransfers
+	multiCallBytes := writeKDATransfersToBytes(managedType, kdaTransfers)
+	managedType.ConsumeGasForBytes(multiCallBytes)
+
+	managedType.SetBytes(multiCallValueHandle, multiCallBytes)
+}
+
+// ManagedGetMultiKDAWithoutKLVCallValue VMHooks implementation.
+// @autogenerate(VMHooks)
+func (context *VMHooksImpl) ManagedGetMultiKDAWithoutKLVCallValue(multiCallValueHandle int32) {
+	runtime := context.GetRuntimeContext()
+	metering := context.GetMeteringContext()
+	managedType := context.GetManagedTypesContext()
+
+	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetCallValue
+	metering.UseGasAndAddTracedGas(managedGetMultiKDAWithoutKLVCallValueName, gasToUse)
 
 	kdaTransfers := runtime.GetVMInput().KDATransfers
 	// remove klv transfers if any
