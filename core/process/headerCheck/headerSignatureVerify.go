@@ -191,11 +191,12 @@ func (hsv *HeaderSigVerifier) VerifyRandSeed(header data.HeaderHandler) error {
 
 	err = hsv.verifyRandSeed(leaderPubKey, header)
 	if err != nil {
+		leaderPubKeyBytes, _ := leaderPubKey.ToByteArray()
 		log.Trace("block rand seed",
 			"slot", header.GetSlot(),
 			"nonce", header.GetNonce(),
 			"prevRandSeed", header.GetPrevRandSeed(),
-			"leader", leaderPubKey,
+			"leader", leaderPubKeyBytes,
 			"error", err.Error())
 		return err
 	}
