@@ -285,7 +285,6 @@ type ProcessorNode struct {
 	EpochStartNotifier            notifier.EpochStartNotifier
 	EpochStartTrigger             process.EpochStartTriggerHandler
 	BlocksBlackListHandler        process.TimeCacher
-	HardforkTrigger               node.HardforkTrigger
 	BlockChainHook                process.BlockChainHookHandler
 	WorkingDir                    string
 	LogProcessor                  process.TransactionLogProcessor
@@ -1315,7 +1314,6 @@ func (n *ProcessorNode) initNode() error {
 		node.WithMinTransactionVersion(n.MinTransactionVersion),
 		node.WithRequestHandler(n.RequestHandler),
 		node.WithInputAntifloodHandler(n.InputAntifloodHandler),
-		// node.WithHardforkTrigger(hardForkTrigger),
 		node.WithTxAccumulator(n.TxAccumulator),
 		node.WithWhiteListHandler(n.WhiteListHandler),
 		node.WithWhiteListHandlerVerified(n.WhiteListerVerifiedTxs),

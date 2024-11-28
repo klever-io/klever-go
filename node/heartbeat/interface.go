@@ -83,15 +83,6 @@ type PeerTypeProviderHandler interface {
 	IsInterfaceNil() bool
 }
 
-// HardforkTrigger defines the behavior of a hardfork trigger
-type HardforkTrigger interface {
-	TriggerReceived(payload []byte, data []byte, pkBytes []byte) (bool, error)
-	RecordedTriggerMessage() ([]byte, bool)
-	NotifyTriggerReceived() <-chan struct{}
-	CreateData() []byte
-	IsInterfaceNil() bool
-}
-
 // PeerBlackListHandler can determine if a certain peer ID is or not blacklisted
 type PeerBlackListHandler interface {
 	Add(pid core.PeerID) error

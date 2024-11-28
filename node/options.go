@@ -609,19 +609,6 @@ func WithTxAccumulator(accumulator Accumulator) Option {
 	}
 }
 
-// WithHardforkTrigger sets up a hardfork trigger
-func WithHardforkTrigger(hardforkTrigger HardforkTrigger) Option {
-	return func(n *Node) error {
-		if check.IfNil(hardforkTrigger) {
-			return common.ErrNilHardforkTrigger
-		}
-
-		n.hardforkTrigger = hardforkTrigger
-
-		return nil
-	}
-}
-
 // WithWhiteListHandler sets up a white list handler option
 func WithWhiteListHandler(whiteListHandler process.WhiteListHandler) Option {
 	return func(n *Node) error {

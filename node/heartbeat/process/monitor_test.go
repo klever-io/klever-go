@@ -70,7 +70,6 @@ func createMockArgHeartbeatMonitor() process.ArgHeartbeatMonitor {
 		},
 		Timer:                              mock.NewTimerMock(),
 		AntifloodHandler:                   createMockP2PAntifloodHandler(),
-		HardforkTrigger:                    &mock.HardforkTriggerStub{},
 		ValidatorPubkeyConverter:           mock.NewPubkeyConverterMock(96),
 		HeartbeatRefreshIntervalInSec:      1,
 		HideInactiveValidatorIntervalInSec: 600,
@@ -154,17 +153,6 @@ func TestNewMonitor_NilAntifloodHandlerShouldErr(t *testing.T) {
 
 	assert.Nil(t, mon)
 	assert.Equal(t, heartbeat.ErrNilAntifloodHandler, err)
-}
-
-func TestNewMonitor_NilHardforkTriggerShouldErr(t *testing.T) {
-	t.Parallel()
-
-	arg := createMockArgHeartbeatMonitor()
-	arg.HardforkTrigger = nil
-	mon, err := process.NewMonitor(arg)
-
-	assert.Nil(t, mon)
-	assert.Equal(t, heartbeat.ErrNilHardforkTrigger, err)
 }
 
 func TestNewMonitor_NilValidatorPubkeyConverterShouldErr(t *testing.T) {
@@ -252,45 +240,6 @@ func TestMonitor_ProcessReceivedMessageShouldWork(t *testing.T) {
 	hbStatus := mon.GetHeartbeats()
 	assert.Equal(t, 1, len(hbStatus))
 	assert.Equal(t, hex.EncodeToString([]byte(pubKey)), hbStatus[0].PublicKey)
-}
-
-func TestMonitor_ProcessReceivedMessageProcessTriggerErrorShouldErr(t *testing.T) {
-	t.Parallel()
-
-	pubKey := "pk1"
-	triggerWasCalled := false
-	expectedErr := errors.New("expected error")
-
-	arg := createMockArgHeartbeatMonitor()
-	arg.MaxDurationPeerUnresponsive = time.Second * 1000
-	arg.PubKeysList = []string{pubKey}
-	arg.MessageHandler = &mock.MessageHandlerStub{
-		CreateHeartbeatFromP2PMessageCalled: func(message p2p.MessageP2P) (*data.Heartbeat, error) {
-			var rcvHb data.Heartbeat
-			_ = json.Unmarshal(message.Data(), &rcvHb)
-			return &rcvHb, nil
-		},
-	}
-	arg.HardforkTrigger = &mock.HardforkTriggerStub{
-		TriggerReceivedCalled: func(payload []byte, data []byte, pkBytes []byte) (bool, error) {
-			triggerWasCalled = true
-
-			return true, expectedErr
-		},
-	}
-	mon, _ := process.NewMonitor(arg)
-
-	hb := data.Heartbeat{
-		Pubkey: []byte(pubKey),
-	}
-	hbBytes, _ := json.Marshal(&hb)
-	err := mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: hbBytes}, fromConnectedPeerId)
-
-	//a delay is mandatory for the go routine to finish its job
-	time.Sleep(time.Second)
-
-	assert.Equal(t, expectedErr, err)
-	assert.True(t, triggerWasCalled)
 }
 
 func TestMonitor_ProcessReceivedMessageWithNewPublicKey(t *testing.T) {
@@ -492,7 +441,6 @@ func TestMonitor_RemoveInactiveValidatorsIfIntervalExceeded(t *testing.T) {
 		},
 		Timer:                              timer,
 		AntifloodHandler:                   createMockP2PAntifloodHandler(),
-		HardforkTrigger:                    &mock.HardforkTriggerStub{},
 		ValidatorPubkeyConverter:           mock.NewPubkeyConverterMock(32),
 		HeartbeatRefreshIntervalInSec:      1,
 		HideInactiveValidatorIntervalInSec: 600,

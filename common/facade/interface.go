@@ -108,10 +108,3 @@ type APIResolver interface {
 	GetTotalStakedValue() (int64, error)
 	IsInterfaceNil() bool
 }
-
-// HardforkTrigger defines the structure used to trigger hardforks
-type HardforkTrigger interface {
-	Trigger(epoch uint32, withEarlyEndOfEpoch bool) error
-	IsSelfTrigger() bool
-	IsInterfaceNil() bool
-}

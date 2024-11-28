@@ -745,9 +745,6 @@ var ErrAssetIDInvalid = errors.New("invalid asset id")
 // ErrNilNodeRedundancyHandler signals that provided node redundancy handler is nil
 var ErrNilNodeRedundancyHandler = errors.New("nil node redundancy handler")
 
-// ErrNilHardforkTrigger signals that a nil hardfork trigger has been provided
-var ErrNilHardforkTrigger = errors.New("nil hardfork trigger")
-
 // ErrTimeIsOut signals that time is out
 var ErrTimeIsOut = errors.New("time is out")
 

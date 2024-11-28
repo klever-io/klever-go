@@ -16,7 +16,6 @@ import (
 	"github.com/klever-io/klever-go/common/facade"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
-	"github.com/klever-io/klever-go/core/closing"
 	"github.com/klever-io/klever-go/core/consensus"
 	broadcastFactory "github.com/klever-io/klever-go/core/consensus/broadcast"
 	"github.com/klever-io/klever-go/core/consensus/chronology"
@@ -100,7 +99,6 @@ type Node struct {
 	peerDenialEvaluator           p2p.PeerDenialEvaluator
 	appStatusHandler              core.AppStatusHandler
 	validatorStatistics           process.ValidatorStatisticsProcessor
-	hardforkTrigger               HardforkTrigger
 	validatorsProvider            process.ValidatorsProvider
 	whiteListRequest              process.WhiteListHandler
 	whiteListerVerifiedTxs        process.WhiteListHandler
@@ -456,18 +454,6 @@ func (n *Node) StartConsensus() error {
 	}
 
 	chronologyHandler.StartSlots()
-
-	return n.addCloserInstances(chronologyHandler, bootstrapper, worker, n.syncTimer)
-}
-
-func (n *Node) addCloserInstances(closers ...closing.Closer) error {
-	for _, c := range closers {
-		err := n.hardforkTrigger.AddCloser(c)
-		if err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -771,7 +757,6 @@ func (n *Node) StartHeartbeat(hbConfig config.HeartbeatConfig, versionNumber str
 		ValidatorStatistics:      n.validatorStatistics,
 		PeerSignatureHandler:     n.peerSigHandler,
 		PrivKey:                  n.privKey,
-		HardforkTrigger:          n.hardforkTrigger,
 		AntifloodHandler:         n.inputAntifloodHandler,
 		ValidatorPubkeyConverter: n.validatorPubkeyConverter,
 		EpochStartTrigger:        n.epochStartTrigger,

@@ -27,7 +27,6 @@ type ArgHeartbeatSender struct {
 	VersionNumber        string
 	NodeDisplayName      string
 	KeyBaseIdentity      string
-	HardforkTrigger      heartbeat.HardforkTrigger
 	CurrentBlockProvider heartbeat.CurrentBlockProvider
 	RedundancyHandler    heartbeat.NodeRedundancyHandler
 }
@@ -46,7 +45,6 @@ type Sender struct {
 	versionNumber        string
 	nodeDisplayName      string
 	keyBaseIdentity      string
-	hardforkTrigger      heartbeat.HardforkTrigger
 	currentBlockProvider heartbeat.CurrentBlockProvider
 	redundancy           heartbeat.NodeRedundancyHandler
 }
@@ -70,9 +68,6 @@ func NewSender(arg ArgHeartbeatSender) (*Sender, error) {
 	}
 	if check.IfNil(arg.StatusHandler) {
 		return nil, heartbeat.ErrNilAppStatusHandler
-	}
-	if check.IfNil(arg.HardforkTrigger) {
-		return nil, heartbeat.ErrNilHardforkTrigger
 	}
 	if check.IfNil(arg.CurrentBlockProvider) {
 		return nil, heartbeat.ErrNilCurrentBlockProvider
@@ -103,7 +98,6 @@ func NewSender(arg ArgHeartbeatSender) (*Sender, error) {
 		versionNumber:        arg.VersionNumber,
 		nodeDisplayName:      arg.NodeDisplayName,
 		keyBaseIdentity:      arg.KeyBaseIdentity,
-		hardforkTrigger:      arg.HardforkTrigger,
 		currentBlockProvider: arg.CurrentBlockProvider,
 		redundancy:           arg.RedundancyHandler,
 	}

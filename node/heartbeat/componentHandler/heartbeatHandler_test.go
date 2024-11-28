@@ -36,7 +36,6 @@ func createMockArgument() ArgHeartbeat {
 		ValidatorStatistics:      &cMock.ValidatorStatisticsProcessorStub{},
 		PeerSignatureHandler:     &mock.PeerSignatureHandler{},
 		PrivKey:                  &mock.PrivateKeyStub{},
-		HardforkTrigger:          &mock.HardforkTriggerStub{},
 		AntifloodHandler:         &mock.P2PAntifloodHandlerStub{},
 		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
 		EpochStartTrigger:        &mock.EpochStartTriggerStub{},

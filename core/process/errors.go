@@ -715,9 +715,6 @@ var ErrNoTxToProcess = errors.New("no transaction to process")
 // ErrNilPeerSignatureHandler signals that a nil peer signature handler was provided
 var ErrNilPeerSignatureHandler = errors.New("nil peer signature handler")
 
-// ErrNilHardforkTrigger signals that a nil hardfork trigger has been provided
-var ErrNilHardforkTrigger = errors.New("nil hardfork trigger")
-
 // ErrNilEnableEpochsHandler signals that a nil enable epochs handler has been provided
 var ErrNilEnableEpochsHandler = errors.New("nil enable epochs handler")
 

@@ -34,7 +34,6 @@ type ArgHeartbeatMonitor struct {
 	PeerTypeProvider                   heartbeat.PeerTypeProviderHandler
 	Timer                              heartbeat.Timer
 	AntifloodHandler                   heartbeat.P2PAntifloodHandler
-	HardforkTrigger                    heartbeat.HardforkTrigger
 	ValidatorPubkeyConverter           core.PubkeyConverter
 	HeartbeatRefreshIntervalInSec      uint32
 	HideInactiveValidatorIntervalInSec uint32
@@ -58,7 +57,6 @@ type Monitor struct {
 	storer                             heartbeat.HeartbeatStorageHandler
 	timer                              heartbeat.Timer
 	antifloodHandler                   heartbeat.P2PAntifloodHandler
-	hardforkTrigger                    heartbeat.HardforkTrigger
 	validatorPubkeyConverter           core.PubkeyConverter
 	heartbeatRefreshIntervalInSec      uint32
 	hideInactiveValidatorIntervalInSec uint32
@@ -87,9 +85,6 @@ func NewMonitor(arg ArgHeartbeatMonitor) (*Monitor, error) {
 	if check.IfNil(arg.AntifloodHandler) {
 		return nil, heartbeat.ErrNilAntifloodHandler
 	}
-	if check.IfNil(arg.HardforkTrigger) {
-		return nil, heartbeat.ErrNilHardforkTrigger
-	}
 	if check.IfNil(arg.ValidatorPubkeyConverter) {
 		return nil, heartbeat.ErrNilPubkeyConverter
 	}
@@ -111,7 +106,6 @@ func NewMonitor(arg ArgHeartbeatMonitor) (*Monitor, error) {
 		storer:                             arg.Storer,
 		timer:                              arg.Timer,
 		antifloodHandler:                   arg.AntifloodHandler,
-		hardforkTrigger:                    arg.HardforkTrigger,
 		validatorPubkeyConverter:           arg.ValidatorPubkeyConverter,
 		heartbeatRefreshIntervalInSec:      arg.HeartbeatRefreshIntervalInSec,
 		hideInactiveValidatorIntervalInSec: arg.HideInactiveValidatorIntervalInSec,
@@ -274,11 +268,6 @@ func (m *Monitor) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPe
 		m.antifloodHandler.BlacklistPeer(message.Peer(), reason, core.InvalidMessageBlacklistDuration)
 		m.antifloodHandler.BlacklistPeer(fromConnectedPeer, reason, core.InvalidMessageBlacklistDuration)
 
-		return err
-	}
-
-	isHardforkTrigger, err := m.hardforkTrigger.TriggerReceived(message.Data(), hbRecv.Payload, hbRecv.Pubkey)
-	if isHardforkTrigger {
 		return err
 	}
 

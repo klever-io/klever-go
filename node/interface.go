@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/klever-io/klever-go/core"
-	"github.com/klever-io/klever-go/core/closing"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/node/heartbeat/process"
 )
@@ -77,18 +76,6 @@ type Accumulator interface {
 type HeartbeatHandler interface {
 	Monitor() *process.Monitor
 	Sender() *process.Sender
-	IsInterfaceNil() bool
-}
-
-// HardforkTrigger defines the behavior of a hardfork trigger
-type HardforkTrigger interface {
-	TriggerReceived(payload []byte, data []byte, pkBytes []byte) (bool, error)
-	RecordedTriggerMessage() ([]byte, bool)
-	Trigger(epoch uint32, withEarlyEndOfEpoch bool) error
-	CreateData() []byte
-	AddCloser(closer closing.Closer) error
-	NotifyTriggerReceived() <-chan struct{}
-	IsSelfTrigger() bool
 	IsInterfaceNil() bool
 }
 

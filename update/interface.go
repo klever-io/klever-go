@@ -183,15 +183,6 @@ type EpochChangeConfirmedNotifier interface {
 	IsInterfaceNil() bool
 }
 
-// ImportStartHandler can manage the process of starting the import after the hardfork event
-type ImportStartHandler interface {
-	IsAfterExportBeforeImport() bool
-	ShouldStartImport() bool
-	ResetStartImport() error
-	SetStartImport() error
-	IsInterfaceNil() bool
-}
-
 // HardforkStorer manages the export and import of data
 type HardforkStorer interface {
 	Write(identifier string, key []byte, value []byte) error

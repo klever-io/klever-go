@@ -58,7 +58,6 @@ import (
 	"github.com/klever-io/klever-go/tools/marshal"
 	factoryMarshalizer "github.com/klever-io/klever-go/tools/marshal/factory"
 	"github.com/klever-io/klever-go/tools/typeConverters/uint64ByteSlice"
-	"github.com/klever-io/klever-go/update/trigger"
 	"github.com/urfave/cli"
 )
 
@@ -421,11 +420,6 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 	}
 
 	nodesShuffler, err := sharding.NewHashValidatorsShuffler(argsNodesShuffler)
-	if err != nil {
-		return err
-	}
-
-	importStartHandler, err := trigger.NewImportStartHandler(filepath.Join(workingDir, factory.DefaultDBPath), appVersion)
 	if err != nil {
 		return err
 	}
@@ -826,30 +820,6 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		return err
 	}
 
-	hardForkTrigger, err := createHardForkTrigger(
-		&cfg,
-		cryptoParams.KeyGenerator,
-		cryptoParams.PublicKey,
-		nodesCoordinator,
-		coreComponents,
-		stateComponents,
-		dataComponents,
-		cryptoComponents,
-		processComponents,
-		networkComponents,
-		whiteListRequest,
-		whiteListerVerifiedTxs,
-		chanStopNodeProcess,
-		epochStartNotifier,
-		importStartHandler,
-		genesisNodesConfig,
-		workingDir,
-		epochNotifier,
-	)
-	if err != nil {
-		return err
-	}
-
 	observerBLSPrivateKey, observerBLSPublicKey := cryptoComponents.BlockSignKeyGen.GeneratePair()
 	observerBLSPublicKeyBuff, err := observerBLSPublicKey.ToByteArray()
 	if err != nil {
@@ -895,7 +865,6 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		whiteListRequest,
 		whiteListerVerifiedTxs,
 		storerEpoch,
-		hardForkTrigger,
 		chanStopNodeProcess,
 		fallbackHeaderValidator,
 		nodeRedundancy,

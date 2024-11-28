@@ -32,7 +32,6 @@ func createMockArgHeartbeatSender() process.ArgHeartbeatSender {
 		StatusHandler:        &mock.AppStatusHandlerStub{},
 		VersionNumber:        "v0.1",
 		NodeDisplayName:      "undefined",
-		HardforkTrigger:      &mock.HardforkTriggerStub{},
 		CurrentBlockProvider: &mock.CurrentBlockProviderStub{},
 		RedundancyHandler:    &mock.RedundancyHandlerStub{},
 	}
@@ -102,17 +101,6 @@ func TestNewSender_NilStatusHandlerShouldErr(t *testing.T) {
 
 	assert.Nil(t, sender)
 	assert.Equal(t, heartbeat.ErrNilAppStatusHandler, err)
-}
-
-func TestNewSender_NilHardforkTriggerShouldErr(t *testing.T) {
-	t.Parallel()
-
-	arg := createMockArgHeartbeatSender()
-	arg.HardforkTrigger = nil
-	sender, err := process.NewSender(arg)
-
-	assert.Nil(t, sender)
-	assert.Equal(t, heartbeat.ErrNilHardforkTrigger, err)
 }
 
 func TestNewSender_PropertyTooLongShouldErr(t *testing.T) {
@@ -555,14 +543,6 @@ func TestSender_SendHeartbeatAfterTriggerShouldWork(t *testing.T) {
 			return nil, nil
 		},
 	}
-	arg.HardforkTrigger = &mock.HardforkTriggerStub{
-		RecordedTriggerMessageCalled: func() (i []byte, b bool) {
-			return nil, true
-		},
-		CreateDataCalled: func() []byte {
-			return dataPayload
-		},
-	}
 	sender, _ := process.NewSender(arg)
 
 	err := sender.SendHeartbeat()
@@ -583,7 +563,6 @@ func TestSender_SendHeartbeatAfterTriggerWithRecorededPayloadShouldWork(t *testi
 		},
 	}
 	signature := []byte("signature")
-	originalTriggerPayload := []byte("original trigger payload")
 
 	broadcastCalled := false
 	signCalled := false
@@ -630,11 +609,6 @@ func TestSender_SendHeartbeatAfterTriggerWithRecorededPayloadShouldWork(t *testi
 			}
 
 			return nil, nil
-		},
-	}
-	arg.HardforkTrigger = &mock.HardforkTriggerStub{
-		RecordedTriggerMessageCalled: func() (i []byte, b bool) {
-			return originalTriggerPayload, true
 		},
 	}
 	sender, _ := process.NewSender(arg)
