@@ -103,6 +103,8 @@ type LogEntry struct {
 	Topics [][]byte
 	// Data is the data of the log entry.
 	Data [][]byte
+	// IsSystemLog is a flag that indicates if the log entry is a system log entry.
+	IsSystemLog bool
 }
 
 // VMOutput is the return data and final account state after a SC execution.
@@ -266,7 +268,7 @@ func (vmOutput *VMOutput) GetNextAvailableOutputTransferIndex() uint32 {
 func (vmOutput *VMOutput) ComputeTotalGasConsumed() *big.Int {
 	totalGasConsumed := big.NewInt(0)
 	for _, log := range vmOutput.Logs {
-		if string(log.Identifier) == core.TotalConsumedGasString {
+		if log.IsSystemLog && string(log.Identifier) == core.TotalConsumedGasString {
 			if len(log.Topics) > 0 {
 				totalGasConsumed.Add(totalGasConsumed, big.NewInt(0).SetBytes(log.Topics[0]))
 			}

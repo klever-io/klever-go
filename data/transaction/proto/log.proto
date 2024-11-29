@@ -11,6 +11,7 @@ message Event {
     bytes Identifier       = 2 [json_name = "identifier"];
     repeated bytes Topics  = 3 [json_name = "topics"];
     repeated bytes Data    = 4 [json_name = "data"];
+    bool IsSystemLog       = 5 [json_name = "is_system_log"];
 }
 
 // Log holds all the data needed for a log structure

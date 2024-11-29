@@ -480,10 +480,11 @@ func (host *vmHost) createLogEntryFromErrors(sndAddress, rcvAddress []byte, func
 	}
 
 	logFromError := &vmcommon.LogEntry{
-		Identifier: []byte(internalVMErrors),
-		Address:    sndAddress,
-		Topics:     [][]byte{rcvAddress, []byte(function)},
-		Data:       [][]byte{[]byte(formattedErrors.Error())},
+		Identifier:  []byte(internalVMErrors),
+		Address:     sndAddress,
+		Topics:      [][]byte{rcvAddress, []byte(function)},
+		Data:        [][]byte{[]byte(formattedErrors.Error())},
+		IsSystemLog: true,
 	}
 
 	return logFromError

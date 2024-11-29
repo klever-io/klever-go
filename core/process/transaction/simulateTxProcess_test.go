@@ -242,8 +242,9 @@ func TestProcessTransaction(t *testing.T) {
 			txProc.VMOutputCacher().Put(ctx.TxHash(), &vmcommon.VMOutput{
 				Logs: []*vmcommon.LogEntry{
 					{
-						Identifier: []byte(core.TotalConsumedGasString),
-						Topics:     [][]byte{overflowValue.Bytes()},
+						Identifier:  []byte(core.TotalConsumedGasString),
+						Topics:      [][]byte{overflowValue.Bytes()},
+						IsSystemLog: true,
 					},
 				}}, 0)
 			return vmcommon.Ok, nil
@@ -282,8 +283,9 @@ func TestGetTotalConsumedGasByContract(t *testing.T) {
 		expectedOutput := &vmcommon.VMOutput{
 			Logs: []*vmcommon.LogEntry{
 				{
-					Identifier: []byte(core.TotalConsumedGasString),
-					Topics:     [][]byte{big.NewInt(100).Bytes()},
+					Identifier:  []byte(core.TotalConsumedGasString),
+					Topics:      [][]byte{big.NewInt(100).Bytes()},
+					IsSystemLog: true,
 				},
 			},
 		}

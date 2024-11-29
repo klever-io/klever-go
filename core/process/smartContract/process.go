@@ -418,15 +418,17 @@ func (sc *scProcessor) finishSCExecution(
 
 	logEntries := []*vmcommon.LogEntry{
 		{
-			Address:    tc.GetAddress(),
-			Identifier: []byte(core.ReturnDataString),
-			Topics:     [][]byte{[]byte(vmOutput.ReturnMessage)},
-			Data:       vmOutput.ReturnData,
+			Address:     tc.GetAddress(),
+			Identifier:  []byte(core.ReturnDataString),
+			Topics:      [][]byte{[]byte(vmOutput.ReturnMessage)},
+			Data:        vmOutput.ReturnData,
+			IsSystemLog: true,
 		},
 		{
-			Address:    tc.GetAddress(),
-			Identifier: []byte(core.TotalConsumedGasString),
-			Topics:     [][]byte{totalConsumedGas.Bytes()},
+			Address:     tc.GetAddress(),
+			Identifier:  []byte(core.TotalConsumedGasString),
+			Topics:      [][]byte{totalConsumedGas.Bytes()},
+			IsSystemLog: true,
 		},
 	}
 	vmOutput.Logs = append(vmOutput.Logs, logEntries...)
@@ -619,15 +621,17 @@ func (sc *scProcessor) doDeploySmartContract(
 
 	logEntries := []*vmcommon.LogEntry{
 		{
-			Address:    ctx.OriginalSender(),
-			Identifier: []byte(core.ReturnDataString),
-			Topics:     [][]byte{[]byte(vmOutput.ReturnMessage)},
-			Data:       vmOutput.ReturnData,
+			Address:     ctx.OriginalSender(),
+			Identifier:  []byte(core.ReturnDataString),
+			Topics:      [][]byte{[]byte(vmOutput.ReturnMessage)},
+			Data:        vmOutput.ReturnData,
+			IsSystemLog: true,
 		},
 		{
-			Address:    ctx.OriginalSender(),
-			Identifier: []byte(core.TotalConsumedGasString),
-			Topics:     [][]byte{totalConsumedGas.Bytes()},
+			Address:     ctx.OriginalSender(),
+			Identifier:  []byte(core.TotalConsumedGasString),
+			Topics:      [][]byte{totalConsumedGas.Bytes()},
+			IsSystemLog: true,
 		},
 	}
 	vmOutput.Logs = append(vmOutput.Logs, logEntries...)
@@ -810,6 +814,7 @@ func (sc *scProcessor) updateSmartContractCode(
 		Topics: [][]byte{
 			outputAccount.Address, outputAccount.CodeDeployerAddress,
 		},
+		IsSystemLog: true,
 	}
 
 	if isDeployment {
@@ -910,9 +915,10 @@ func (sc *scProcessor) consumeKDATransferGas(providedGas uint64, tc data.SmartCo
 
 func createCompleteEventLog(tc data.SmartContractHandler, txHash []byte) *vmcommon.LogEntry {
 	newLog := &vmcommon.LogEntry{
-		Identifier: []byte(core.CompletedTxEventIdentifier),
-		Address:    tc.GetAddress(),
-		Topics:     [][]byte{txHash},
+		Identifier:  []byte(core.CompletedTxEventIdentifier),
+		Address:     tc.GetAddress(),
+		Topics:      [][]byte{txHash},
+		IsSystemLog: true,
 	}
 
 	return newLog

@@ -194,25 +194,56 @@ func TestVMOutput_GetNextAvailableOutputTransferIndex(t *testing.T) {
 }
 
 func TestVMOutput_ComputeTotalGasConsumed(t *testing.T) {
-	vmOutput := &VMOutput{
-		Logs: []*LogEntry{
-			{
-				Identifier: []byte(core.TotalConsumedGasString),
-				Topics:     [][]byte{big.NewInt(100).Bytes()},
+	t.Run("only counts system logs", func(t *testing.T) {
+		vmOutput := &VMOutput{
+			Logs: []*LogEntry{
+				{
+					Identifier: []byte(core.TotalConsumedGasString),
+					Topics:     [][]byte{big.NewInt(100).Bytes()},
+					IsSystemLog:   true,
+				},
+				{
+					// Contract trying to spoof system log
+					Identifier: []byte(core.TotalConsumedGasString),
+					Topics:     [][]byte{big.NewInt(500).Bytes()},
+					IsSystemLog:   false,
+				},
+				{
+					Identifier: []byte(core.TotalConsumedGasString),
+					Topics:     [][]byte{big.NewInt(50).Bytes()},
+					IsSystemLog:   true,
+				},
 			},
-			{
-				Identifier: []byte(core.TotalConsumedGasString),
-				Topics:     [][]byte{big.NewInt(50).Bytes()},
-			},
-			{
-				Identifier: []byte("other"),
-				Topics:     [][]byte{big.NewInt(1000).Bytes()},
-			},
-		},
-	}
+		}
 
-	totalGas := vmOutput.ComputeTotalGasConsumed()
-	assert.Equal(t, big.NewInt(150), totalGas)
+		totalGas := vmOutput.ComputeTotalGasConsumed()
+		assert.Equal(t, big.NewInt(150), totalGas, "should only sum gas from system logs")
+	})
+
+	t.Run("handles various log types", func(t *testing.T) {
+		vmOutput := &VMOutput{
+			Logs: []*LogEntry{
+				{
+					Identifier: []byte(core.TotalConsumedGasString),
+					Topics:     [][]byte{big.NewInt(100).Bytes()},
+					IsSystemLog:   true,
+				},
+				{
+					Identifier: []byte("other"),
+					Topics:     [][]byte{big.NewInt(1000).Bytes()},
+					IsSystemLog:   true,
+				},
+				{
+					Identifier: []byte(core.TotalConsumedGasString),
+					Topics:     [][]byte{big.NewInt(50).Bytes()},
+					IsSystemLog:   true,
+				},
+			},
+		}
+
+		totalGas := vmOutput.ComputeTotalGasConsumed()
+		assert.Equal(t, big.NewInt(150), totalGas)
+	})
 }
 
 func TestVMOutput_IsInterfaceNil(t *testing.T) {

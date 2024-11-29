@@ -20,8 +20,9 @@ func newEntryForKDA(identifier, tokenID []byte, nonce uint64, value *big.Int, ar
 	nonceBig := big.NewInt(0).SetUint64(nonce)
 
 	logEntry := &vmcommon.LogEntry{
-		Identifier: identifier,
-		Topics:     [][]byte{tokenID, nonceBig.Bytes(), value.Bytes()},
+		Identifier:  identifier,
+		Topics:      [][]byte{tokenID, nonceBig.Bytes(), value.Bytes()},
+		IsSystemLog: true,
 	}
 
 	if len(args) > 0 {

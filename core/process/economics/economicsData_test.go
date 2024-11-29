@@ -150,8 +150,9 @@ func TestComputeTransactionCost(t *testing.T) {
 				VMOutput: &vmcommon.VMOutput{
 					Logs: []*vmcommon.LogEntry{
 						{
-							Identifier: []byte(core.TotalConsumedGasString),
-							Topics:     [][]byte{big.NewInt(100).Bytes()},
+							Identifier:  []byte(core.TotalConsumedGasString),
+							Topics:      [][]byte{big.NewInt(100).Bytes()},
+							IsSystemLog: true,
 						},
 					},
 				},

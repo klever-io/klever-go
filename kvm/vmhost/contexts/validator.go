@@ -47,7 +47,12 @@ var protectedFunctions = map[string]bool{
 	"transferValueOnly": true,
 	"writeLog":          true,
 	"signalError":       true,
-	"completedTxEvent":  true}
+	"completedTxEvent":  true,
+	"totalConsumedGas":  true,
+	"returnData":        true,
+	"gasRemaining":      true,
+	"vmOutput":          true,
+}
 
 func (validator *wasmValidator) verifyProtectedFunctions(instance executor.Instance) error {
 	for _, functionName := range instance.GetFunctionNames() {
