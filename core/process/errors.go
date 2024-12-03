@@ -198,6 +198,9 @@ var ErrRootStateDoesNotMatch = errors.New("root state does not match")
 // ErrTxRootHashDoesNotMatch signals that tx root hash does not match
 var ErrTxRootHashDoesNotMatch = errors.New("tx root hash does not match")
 
+// ErrTxRootHashInvalidForEmptyBlock signals that tx root hash is invalid for empty block case
+var ErrTxRootHashInvalidForEmptyBlock = errors.New("invalid tx root hash for empty block")
+
 // ErrNilTransactionCoordinator signals that transaction coordinator is nil
 var ErrNilTransactionCoordinator = errors.New("transaction coordinator is nil")
 

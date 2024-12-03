@@ -201,18 +201,24 @@ func (bp *baseProcessor) validateBlockAndSlot(headerHandler data.HeaderHandler) 
 
 // Helper function to validate transaction root hash
 func (bp *baseProcessor) validateTxRootHash(headerHandler data.HeaderHandler) error {
-	if headerHandler.GetTxRootHash() != nil || headerHandler.GetTxCount() > 0 {
-		txRootHash, err := headerHandler.ComputeRootHash(bp.hasher)
-		if err != nil {
-			return err
+	if headerHandler.GetTxCount() == 0 {
+		if headerHandler.GetTxRootHash() != nil {
+			log.Debug("invalid block hash with no transactions",
+				"header tx root hash", headerHandler.GetTxRootHash())
+			return process.ErrTxRootHashInvalidForEmptyBlock
 		}
+		return nil
+	}
 
-		if !bytes.Equal(headerHandler.GetTxRootHash(), txRootHash) {
-			log.Debug("tx root hash does not match",
-				"header tx root hash", headerHandler.GetTxRootHash(),
-				"computed tx root hash", txRootHash)
-			return process.ErrTxRootHashDoesNotMatch
-		}
+	txRootHash, err := headerHandler.ComputeRootHash(bp.hasher)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(headerHandler.GetTxRootHash(), txRootHash) {
+		log.Debug("tx root hash does not match",
+			"header tx root hash", headerHandler.GetTxRootHash(),
+			"computed tx root hash", txRootHash)
+		return process.ErrTxRootHashDoesNotMatch
 	}
 
 	return nil
