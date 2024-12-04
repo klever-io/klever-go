@@ -1,6 +1,9 @@
 package errors
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // ErrNilAppContext signals that no context was passed to the routing system
 var ErrNilAppContext = errors.New("nil app context")
@@ -28,6 +31,9 @@ var ErrCouldNotGetAssets = errors.New("could not get assets")
 
 // ErrGetBalance signals an error in getting the balance for an account
 var ErrGetBalance = errors.New("get balance error")
+
+// ErrGetUserKDA signals an error in getting the userKDA for an account
+var ErrGetUserKDA = errors.New("get userKDA error")
 
 // ErrGetAvailableClaim signals an error in getting the rewards an account asset
 var ErrGetAvailableClaim = errors.New("could not get rewards for requested account asset")
@@ -70,3 +76,30 @@ var ErrValidationEmptyTxHash = errors.New("TxHash is empty")
 
 // ErrGetTransaction signals an error happening when trying to fetch a transaction
 var ErrGetTransaction = errors.New("getting transaction failed")
+
+func errMsgToString(msg interface{}) string {
+	switch msgTyped := msg.(type) {
+	case string:
+		return msgTyped
+	case error:
+		return msgTyped.Error()
+	default:
+		return fmt.Sprintf("%v", msg)
+	}
+}
+
+func APIErrorString(err error, msg ...interface{}) string {
+	if len(msg) == 0 {
+		return err.Error()
+	}
+
+	if len(msg) > 1 {
+		errMsg := err.Error()
+		for _, m := range msg {
+			errMsg += fmt.Sprintf(": %s", errMsgToString(m))
+		}
+		return errMsg
+	}
+
+	return fmt.Sprintf("%s: %s", err.Error(), errMsgToString(msg[0]))
+}

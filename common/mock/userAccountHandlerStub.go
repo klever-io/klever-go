@@ -365,3 +365,7 @@ func (u *UserAccountHandlerStub) AddressBytes() []byte {
 	}
 	return []byte{0}
 }
+
+func (u *UserAccountHandlerStub) IsInterfaceNil() bool {
+	return u == nil
+}

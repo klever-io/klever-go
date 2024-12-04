@@ -58,7 +58,7 @@ const docTemplatenode = `{
                 "tags": [
                     "Address"
                 ],
-                "summary": "returns the rewards avaible for a specific list of asset in an account",
+                "summary": "returns the rewards available for a specific list of asset in an account",
                 "parameters": [
                     {
                         "type": "string",
@@ -137,6 +137,53 @@ const docTemplatenode = `{
                 }
             }
         },
+        "/address/{address}/kda": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Address"
+                ],
+                "summary": "returns the user kda for the address parameter",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "address",
+                        "name": "address",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "default": "KLV",
+                        "description": "asset",
+                        "name": "asset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/address/{address}/nonce": {
             "get": {
                 "produces": [
@@ -145,7 +192,7 @@ const docTemplatenode = `{
                 "tags": [
                     "Address"
                 ],
-                "summary": "returns the rewards avaible for a specific asset in an account",
+                "summary": "returns the rewards available for a specific asset in an account",
                 "parameters": [
                     {
                         "type": "string",
@@ -328,7 +375,7 @@ const docTemplatenode = `{
                 "tags": [
                     "Block"
                 ],
-                "summary": "returns the block info by hash",
+                "summary": "returns the block info by nonce",
                 "parameters": [
                     {
                         "type": "string",
@@ -497,7 +544,7 @@ const docTemplatenode = `{
             }
         },
         "/node/enable-epochs": {
-            "post": {
+            "get": {
                 "produces": [
                     "application/json"
                 ],
@@ -1894,7 +1941,7 @@ const docTemplatenode = `{
                 22,
                 23,
                 24,
-                99
+                63
             ],
             "x-enum-varnames": [
                 "TXContract_TransferContractType",

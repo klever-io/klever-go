@@ -399,7 +399,12 @@ func (nf *nodeFacade) GetBalance(address, kda string) (int64, error) {
 	return nf.node.GetBalance(address, kda)
 }
 
-// GetAvailableClaim returns the rewards avaible for a specific asset in an account
+// GetUserKDA returns the userKDA for a specific address
+func (nf *nodeFacade) GetUserKDA(address string, kda string) (*kapps.UserKDA, error) {
+	return nf.node.GetUserKDA(address, kda)
+}
+
+// GetAvailableClaim returns the rewards available for a specific asset in an account
 func (nf *nodeFacade) GetAvailableClaim(address string, assetId string) (int64, map[string]int64, int64, error) {
 	return nf.node.GetAvailableClaim(address, assetId)
 }

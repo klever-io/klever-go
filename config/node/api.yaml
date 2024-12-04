@@ -5,6 +5,8 @@ apiPackages:
         open: true
       - name: /:address/balance
         open: true
+      - name: /:address/kda
+        open: true
       - name: /:address/nonce
         open: true
       - name: /:address/allowance

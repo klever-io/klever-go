@@ -453,9 +453,6 @@ func Test_ManagedEncodeSecp256k1DerSignature(t *testing.T) {
 
 			verifier := secp256k1.NewSecp256k1()
 			sig, _ := verifier.EncodeSecp256k1DERSignature(r, s)
-			// if tc.expectErr && err == nil {
-			// 	t.Fatalf("expected error but got nil")
-			// }
 
 			_, err := test.BuildMockInstanceCallTest(t).
 				WithContracts(

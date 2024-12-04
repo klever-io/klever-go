@@ -130,3 +130,8 @@ func (k *KAppAccountHandlerStub) DataTrie() data.Trie {
 func (k *KAppAccountHandlerStub) DataTrieTracker() state.DataTrieTracker {
 	return k.DataTrieTrackerCalled()
 }
+
+// IsInterfaceNil -
+func (k *KAppAccountHandlerStub) IsInterfaceNil() bool {
+	return k == nil
+}

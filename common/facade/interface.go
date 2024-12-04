@@ -53,7 +53,10 @@ type NodeHandler interface {
 	// GetBalance returns the balance for a specific address
 	GetBalance(address, kda string) (int64, error)
 
-	// GetAvailableClaim returns the rewards avaible for a specific asset in an account
+	// GetUserKDA returns the userKDA for a specific address
+	GetUserKDA(address string, kda string) (*kapps.UserKDA, error)
+
+	// GetAvailableClaim returns the rewards available for a specific asset in an account
 	GetAvailableClaim(address string, assetId string) (int64, map[string]int64, int64, error)
 
 	// GetAsset returns an assetResponse containing information

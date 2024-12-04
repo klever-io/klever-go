@@ -28,6 +28,7 @@ type Facade struct {
 	GetNFTHandler                  func(owner string, address string) (*kapps.UserKDA, *kapps.KDAData, error)
 	GetKDAFeePoolHandler           func(address string) (*kdafeespool.KDAFeesPoolData, error)
 	BalanceHandler                 func(string, string) (int64, error)
+	GetUserKDAHandler              func(string, string) (*kapps.UserKDA, error)
 	RewardsAvailableToClaimHandler func(address string, assetId string) (int64, map[string]int64, int64, error)
 	StatusMetricsHandler           func() core.StatusMetricsHandler
 	ValidatorStatisticsHandler     func() (map[string]*state.ValidatorApiResponse, error)
@@ -124,6 +125,10 @@ func (f *Facade) GetAvailableClaim(address string, assetId string) (int64, map[s
 // GetBalance is the mock implementation of a handler's GetBalance method
 func (f *Facade) GetBalance(address, kda string) (int64, error) {
 	return f.BalanceHandler(address, kda)
+}
+
+func (f *Facade) GetUserKDA(address string, kda string) (*kapps.UserKDA, error) {
+	return f.GetUserKDAHandler(address, kda)
 }
 
 // GetAsset is the mock implementation of a handler's GetAsset method

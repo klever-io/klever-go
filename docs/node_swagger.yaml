@@ -554,7 +554,7 @@ definitions:
     - 22
     - 23
     - 24
-    - 99
+    - 63
     type: integer
     x-enum-varnames:
     - TXContract_TransferContractType
@@ -912,7 +912,7 @@ paths:
           description: internal error
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
-      summary: returns the rewards avaible for a specific list of asset in an account
+      summary: returns the rewards available for a specific list of asset in an account
       tags:
       - Address
   /address/{address}/balance:
@@ -941,6 +941,37 @@ paths:
       summary: returns the balance for the address parameter
       tags:
       - Address
+  /address/{address}/kda:
+    get:
+      parameters:
+      - description: address
+        in: path
+        name: address
+        required: true
+        type: string
+      - default: KLV
+        description: asset
+        in: query
+        name: asset
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the user kda for the address parameter
+      tags:
+      - Address
   /address/{address}/nonce:
     get:
       parameters:
@@ -960,7 +991,7 @@ paths:
           description: internal error
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
-      summary: returns the rewards avaible for a specific asset in an account
+      summary: returns the rewards available for a specific asset in an account
       tags:
       - Address
   /asset/{id}:
@@ -1083,7 +1114,7 @@ paths:
           description: internal error
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
-      summary: returns the block info by hash
+      summary: returns the block info by nonce
       tags:
       - Block
   /marketplace/{id}:
@@ -1174,7 +1205,7 @@ paths:
       tags:
       - Node
   /node/enable-epochs:
-    post:
+    get:
       produces:
       - application/json
       responses:

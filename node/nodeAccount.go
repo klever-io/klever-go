@@ -89,7 +89,22 @@ func (n *Node) GetBalance(address string, kda string) (int64, error) {
 	return userAccount.GetBalance([]byte(kda), n.forkController.EnableSmartContracts()), nil
 }
 
-// GetAvailableClaim returns the rewards avaible for a specific asset in an account
+// GetUserKDA returns user KDA for a specific asset in an account
+func (n *Node) GetUserKDA(address string, assetId string) (*kapps.UserKDA, error) {
+	account, err := n.getAccountHandler(address)
+	if err != nil {
+		return nil, err
+	}
+
+	userAccount, ok := n.castAccountToUserAccount(account)
+	if !ok {
+		return nil, nil
+	}
+
+	return userAccount.GetUserKDA([]byte(assetId), nil, n.forkController.EnableSmartContracts())
+}
+
+// GetAvailableClaim returns the rewards available for a specific asset in an account
 func (n *Node) GetAvailableClaim(address string, assetId string) (int64, map[string]int64, int64, error) {
 	account, err := n.getAccountHandler(address)
 	if err != nil {

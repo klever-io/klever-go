@@ -117,8 +117,11 @@ func getKAppController(t *testing.T, accAdapter state.AccountsAdapter) kapp.KApp
 }
 
 func createNode(t *testing.T) (*node.Node, error) {
-
 	accAdapter := getAccAdapter(100)
+	return createNodeWithAccountsAdapter(t, accAdapter)
+}
+
+func createNodeWithAccountsAdapter(t *testing.T, accAdapter *mock.AccountsStub) (*node.Node, error) {
 	uint64Converter := mock.NewNonceHashConverterMock()
 	storerMock := mock.NewStorerMock("", 0)
 
