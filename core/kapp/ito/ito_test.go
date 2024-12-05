@@ -2461,3 +2461,110 @@ func Test_BuyIto_ComputeITOPercentBuyRoyalties_ShouldWork(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, transaction.Transaction_Ok, status)
 }
+
+func Test_BuyITO_Retrieve_Account_To_Send_Percent_And_Fixed_Royalties(t *testing.T) {
+	errLoadingUser := fmt.Errorf("Error on loading user account")
+
+	cases := []struct {
+		title                string
+		accCacherStrub       state.AccountsCacher
+		enableSCFork         bool
+		err                  error
+		expectedTxResultCode transaction.Transaction_TXResultCode
+		expectedErr          error
+	}{
+		{
+			title: "After fork error on LoadUserAccount",
+			accCacherStrub: &mock.AccountsCacherStub{
+				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return nil, errLoadingUser
+				},
+			},
+			enableSCFork:         true,
+			expectedTxResultCode: transaction.Transaction_LoadAccountError,
+			expectedErr:          errLoadingUser,
+		},
+		{
+			title: "After Fork success on LoadUserAccount",
+			accCacherStrub: &mock.AccountsCacherStub{
+				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &mock.UserAccountHandlerStub{
+						AddToBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
+							return nil
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			enableSCFork:         true,
+			expectedTxResultCode: transaction.Transaction_Ok,
+			expectedErr:          nil,
+		},
+		{
+			title: "Before fork error on GetUserAccount",
+			accCacherStrub: &mock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return nil, errLoadingUser
+				},
+			},
+			enableSCFork:         false,
+			expectedTxResultCode: transaction.Transaction_LoadAccountError,
+			expectedErr:          errLoadingUser,
+		},
+		{
+			title: "Before fork success on GetUserAccount",
+			accCacherStrub: &mock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &mock.UserAccountHandlerStub{
+						AddToBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
+							return nil
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			enableSCFork:         false,
+			expectedTxResultCode: transaction.Transaction_Ok,
+			expectedErr:          nil,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.title, func(t *testing.T) {
+			mockITOArgs := &ArgsNewITOKApp{
+				Marshalizer:    &mock.MarshalizerMock{},
+				PubkeyConv:     &mock.PubkeyConverterMock{},
+				ForkController: mock.NewForkControllerStub(),
+			}
+			mockITOArgs.ForkController.(*mock.ForkControllerStub).SetFork(
+				"EnableSmartContracts",
+				tt.enableSCFork,
+			)
+
+			itoKapp, _ := NewITOKApp(mockITOArgs)
+			itoKapp.SetAccountsCacher(tt.accCacherStrub)
+
+			royaltiesToPay := int64(200)
+			resCode, err := itoKapp.computeSplitRoyalties(
+				&mock.KAppContextStub{
+					ReceiptsCalled: func() kapp.ReceiptsContext {
+						return &kapp.ReceiptSlice{}
+					},
+				},
+				fmt.Sprintf("%x", "TestAddress"),
+				[]byte("AST-HJK7"),
+				&mock.AccountWrapMock{},
+				10000,
+				5,
+				&royaltiesToPay,
+			)
+
+			assert.Equal(t, tt.expectedTxResultCode, resCode)
+			require.Equal(t, tt.expectedErr, err)
+		})
+	}
+}

@@ -529,7 +529,15 @@ func (i *itoKapp) computeSplitRoyalties(ctx kapp.KappContext, address string, as
 		return transaction.Transaction_LoadAccountError, err
 	}
 
-	splitRoyalty, err := i.LoadUserAccount(decodedAddress)
+	var retrieveAccFunc func([]byte) (state.UserAccountHandler, error)
+	if i.forkController.EnableSmartContracts() {
+		// After fork: allow any valid user address
+		retrieveAccFunc = i.LoadUserAccount
+	} else {
+		// Before fork: only accounts already registered
+		retrieveAccFunc = i.GetExistingUserAccount
+	}
+	splitRoyalty, err := retrieveAccFunc(decodedAddress)
 	if err != nil {
 		return transaction.Transaction_LoadAccountError, err
 	}
