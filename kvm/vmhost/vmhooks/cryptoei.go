@@ -15,6 +15,7 @@ const ed25519PublicKeyLength = 32
 const ed25519SignatureLength = 64
 const secp256k1CompressedPublicKeyLength = 33
 const secp256k1UncompressedPublicKeyLength = 65
+const secp256k1SignatureComponentMaxLength = 32
 const curveNameLength = 4
 
 const (
@@ -592,6 +593,16 @@ func (context *VMHooksImpl) EncodeSecp256k1DerSignature(
 	gasToUse := metering.GasSchedule().CryptoAPICost.EncodeDERSig
 	metering.UseGasAndAddTracedGas(encodeSecp256k1DerSignatureName, gasToUse)
 
+	// secp256k1 is designed to works with values till 32 bytes
+	if rLength > secp256k1SignatureComponentMaxLength ||
+		sLength > secp256k1SignatureComponentMaxLength {
+		_ = context.WithFault(
+			vmhost.ErrRAndSExceedsMax32BytesSecp256k1,
+			runtime.CryptoAPIErrorShouldFailExecution(),
+		)
+		return 1
+	}
+
 	r, err := context.MemLoad(rOffset, rLength)
 	if context.WithFault(err, runtime.CryptoAPIErrorShouldFailExecution()) {
 		return 1
@@ -644,6 +655,17 @@ func ManagedEncodeSecp256k1DerSignatureWithHost(
 
 	s, err := managedType.GetBytes(sHandle)
 	if WithFaultAndHost(host, err, runtime.CryptoAPIErrorShouldFailExecution()) {
+		return 1
+	}
+
+	// secp256k1 is designed to works with values till 32 bytes
+	if len(s) > secp256k1SignatureComponentMaxLength ||
+		len(r) > secp256k1SignatureComponentMaxLength {
+		_ = WithFaultAndHost(
+			host,
+			vmhost.ErrRAndSExceedsMax32BytesSecp256k1,
+			runtime.CryptoAPIErrorShouldFailExecution(),
+		)
 		return 1
 	}
 

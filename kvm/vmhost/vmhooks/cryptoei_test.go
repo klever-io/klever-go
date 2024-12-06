@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_EncodeSecp256k1DerSignature(t *testing.T) {
+func TestEncodeSecp256k1DerSignature(t *testing.T) {
 	t.Parallel()
 
 	const sigSize = 71
@@ -58,6 +58,18 @@ func Test_EncodeSecp256k1DerSignature(t *testing.T) {
 			sHex:        "",
 			expectErr:   false,
 			expectedSig: "3006020100020100",
+		},
+		{
+			name:      "Fail due to R too long",
+			rHex:      "fef45d2892953aa5bbcdb057b5e98b208f1617a7498af7eb765574e29b5d9c2cd4",
+			sHex:      "2b8a9c0ad55394fb4aa21dc9483aea13279d6768ff2a9d6bcf589ac2613b3b02",
+			expectErr: true,
+		},
+		{
+			name:      "Fail due to S too long",
+			rHex:      "fef45d2892953aa5bbcdb057b5e98b208f1617a7498af7eb765574e29b5d9c2c",
+			sHex:      "2b8a9c0ad55394fb4aa21dc9483aea13279d6768ff2a9d6bcf589ac2613b3b02fe",
+			expectErr: true,
 		},
 	}
 

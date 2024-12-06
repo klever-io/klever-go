@@ -444,6 +444,20 @@ func Test_ManagedEncodeSecp256k1DerSignature(t *testing.T) {
 			returnCode: vmcommon.VMExecutionFailed,
 			errorMsg:   "assert failed",
 		},
+		{
+			name:       "Fails due to R greater than 32 bytes",
+			rHex:       "fef45d2892953aa5bbcdb057b5e98b208f1617a7498af7eb765574e29b5d9c2c2b",
+			sHex:       "2b8a9c0ad55394fb4aa21dc9483aea13279d6768ff2a9d6bcf589ac2613b3b02",
+			expectErr:  true,
+			returnCode: vmcommon.VMExecutionFailed,
+		},
+		{
+			name:       "Fails due to S greater than 32 bytes",
+			rHex:       "fef45d2892953aa5bbcdb057b5e98b208f1617a7498af7eb765574e29b5d9c2c",
+			sHex:       "2b8a9c0ad55394fb4aa21dc9483aea13279d6768ff2a9d6bcf589ac2613b3b02fe",
+			expectErr:  true,
+			returnCode: vmcommon.VMExecutionFailed,
+		},
 	}
 
 	for _, tc := range testCases {
