@@ -337,7 +337,7 @@ func NewStorageUnitFromConf(cacheConf CacheConfig, dbConf DBConfig, bloomFilterC
 	return NewStorageUnitFromConfWithSleep(cacheConf, dbConf, bloomFilterConf, core.SleepTimeBetweenCreateDBRetries)
 }
 
-// NewStorageUnitFromConf creates a new storage unit from a storage unit config
+// NewStorageUnitFromConfWithSleep creates a new storage unit from a storage unit config
 func NewStorageUnitFromConfWithSleep(cacheConf CacheConfig, dbConf DBConfig, bloomFilterConf BloomConfig, sleepBetween time.Duration) (*Unit, error) {
 	var cache storage.Cacher
 	var db storage.Persister

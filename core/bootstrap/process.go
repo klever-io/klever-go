@@ -231,14 +231,6 @@ func NewEpochStartBootstrap(args ArgsEpochStartBootstrap) (*epochStartBootstrap,
 	epochStartProvider.trieContainer = state.NewDataTriesHolder()
 	epochStartProvider.trieStorageManagers = make(map[string]data.StorageManager)
 
-	if epochStartProvider.generalConfig.Hardfork.AfterHardFork {
-		epochStartProvider.startEpoch = epochStartProvider.generalConfig.Hardfork.StartEpoch
-		epochStartProvider.baseData.lastEpoch = epochStartProvider.startEpoch
-		epochStartProvider.startSlot = tools.SafeU64ToI64(epochStartProvider.generalConfig.Hardfork.StartSlot)
-		epochStartProvider.baseData.lastSlot = epochStartProvider.startSlot
-		epochStartProvider.baseData.epochStartSlot = tools.SafeI64ToU64(epochStartProvider.startSlot)
-	}
-
 	return epochStartProvider, nil
 }
 

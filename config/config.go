@@ -42,27 +42,6 @@ type MaxNodesChangeConfig struct {
 	NodesToShuffle uint32 `yaml:"nodesToShuffle"`
 }
 
-// HardforkConfig holds the configuration for the hardfork trigger
-type HardforkConfig struct {
-	ExportStateStorageConfig     StorageConfig `yaml:"exportStateStorageConfig"`
-	ExportKeysStorageConfig      StorageConfig `yaml:"exportKeysStorageConfig"`
-	ExportTriesStorageConfig     StorageConfig `yaml:"exportTriesStorageConfig"`
-	ImportStateStorageConfig     StorageConfig `yaml:"importStateStorageConfig"`
-	ImportKeysStorageConfig      StorageConfig `yaml:"importKeysStorageConfig"`
-	PublicKeyToListenFrom        string        `yaml:"publicKeyToListenFrom"`
-	ImportFolder                 string        `yaml:"importFolder"`
-	GenesisTime                  int64         `yaml:"genesisTime"`
-	StartSlot                    uint64        `yaml:"startSlot"`
-	StartNonce                   uint64        `yaml:"startNonce"`
-	CloseAfterExportInMinutes    uint32        `yaml:"closeAfterExportInMinutes"`
-	StartEpoch                   uint32        `yaml:"startEpoch"`
-	ValidatorGracePeriodInEpochs uint32        `yaml:"validatorGracePeriodInEpochs"`
-	EnableTrigger                bool          `yaml:"enableTrigger"`
-	EnableTriggerFromP2P         bool          `yaml:"enableTriggerFromP2P"`
-	MustImport                   bool          `yaml:"mustImport"`
-	AfterHardFork                bool          `yaml:"afterHardFork"`
-}
-
 // TrieSyncConfig represents the trie synchronization configuration area
 type TrieSyncConfig struct {
 	NumConcurrentTrieSyncers  int `yaml:"numConcurrentTrieSyncers"`
@@ -86,11 +65,9 @@ type Config struct {
 	SoftwareVersionConfig SoftwareVersionConfig   `yaml:"softwareVersionConfig"`
 	TrieSync              TrieSyncConfig          `yaml:"trieSync"`
 
-	NTP         NTPConfig         `yaml:"ntp"`
-	Preferences PreferencesConfig `yaml:"preferences"`
-
-	Hardfork HardforkConfig      `yaml:"hardfork"`
-	Health   HealthServiceConfig `yaml:"health"`
+	NTP         NTPConfig           `yaml:"ntp"`
+	Preferences PreferencesConfig   `yaml:"preferences"`
+	Health      HealthServiceConfig `yaml:"health"`
 
 	Storages StoragesConfig `yaml:"storages"`
 
