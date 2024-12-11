@@ -44,9 +44,11 @@ jobs:
           fi
           echo "test_exit_code=$?" >> $GITHUB_OUTPUT
 
-      - name: Generate coverage summary
+      - name: Process test results
+        if: always()
         id: coverage
         run: |
+          # Generate coverage summary
           if [ -f coverage.out ]; then
             go tool cover -func=coverage.out > coverage-summary.txt
             COVERAGE=$(grep "total:" coverage-summary.txt | awk '{print $3}')
@@ -56,12 +58,28 @@ jobs:
             echo "total=0.0%" >> $GITHUB_OUTPUT
           fi
 
-      - name: Process test output
-        run: |
-          if [ ! -f test-output.json ]; then
-            echo '{"Time":"","Action":"fail","Package":"","Test":"","Elapsed":0}' > test-output.json
+          # Create test summary and check for failures
+          echo "### Test Results 🧪" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.run-tests.outputs.test_exit_code }}" == "0" ]; then
+            echo "✅ All tests passed successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Some tests failed" >> $GITHUB_STEP_SUMMARY
+            echo "::error::🔴 Test failures detected!"
+            
+            if [ -f test-output.json ]; then
+              echo "#### Failed Tests" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              jq -r 'select(.Action=="fail") | "- \(.Package) - \(.Test)"' test-output.json | tee -a $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              
+              # Output failures as GitHub annotations
+              jq -r 'select(.Action=="fail") | "::error file=\(.Package)::❌ \(.Test): \(.Action)"' test-output.json
+            fi
+            
+            exit 1
           fi
-          jq -r ' select(.Action=="fail") | "\(.Package) - \(.Test): \(.Action)"' test-output.json
+          
+          echo "Coverage: ${{ steps.coverage.outputs.total }}" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload test results
         if: always()
@@ -200,7 +218,7 @@ jobs:
             echo "REVIEW_URL=${{ github.event.pull_request.html_url }}/files" >> $GITHUB_ENV
             echo "REVIEW_TEXT=Review PR" >> $GITHUB_ENV
           else
-            echo "event_title=${{ github.event.head_commit.message }}" >> $GITHUB_OUTPUT
+            echo "event_title=MERGE ${{ github.event.number }}" >> $GITHUB_OUTPUT
             
             # Use GitHub API to get commit details
             commit_data=$(gh api repos/${{ github.repository }}/commits/${{ github.sha }} --jq '{files:.files}')
