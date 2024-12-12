@@ -3,6 +3,7 @@ package block
 import (
 	"testing"
 
+	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/crypto/hashing/blake2b"
@@ -47,14 +48,16 @@ func Test_validateTxRootHash(t *testing.T) {
 	hasher := &blake2b.Blake2b{HashSize: 32}
 
 	bp := baseProcessor{
-		hasher: hasher,
+		hasher:         hasher,
+		forkController: mock.NewForkControllerStub(),
 	}
 
 	tests := []struct {
-		name    string
-		block   *block.Block
-		wantErr bool
-		err     error
+		name        string
+		block       *block.Block
+		disableFork bool
+		wantErr     bool
+		err         error
 	}{
 		{
 			name: "should ok when doesn't have rootHash",
@@ -127,12 +130,41 @@ func Test_validateTxRootHash(t *testing.T) {
 			wantErr: true,
 			err:     process.ErrTxRootHashInvalidForEmptyBlock,
 		},
+		{
+			name: "allow zero txRootHash when there are no transactions prior to fork",
+			block: &block.Block{
+				Header: &block.BlockHeader{
+					TxCount: 0,
+					// 0e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8
+					TxRootHash: hasher.EmptyHash(),
+				},
+				TxHashes: [][]byte{},
+			},
+			disableFork: true,
+			wantErr:     false,
+			err:         nil,
+		},
+		{
+			name: "error zero txRootHash when there are no transactions prior to fork wrong hash",
+			block: &block.Block{
+				Header: &block.BlockHeader{
+					TxCount:    0,
+					TxRootHash: []byte{0x00, 0x57, 0x51, 0xc0, 0x26, 0xe5, 0x43, 0xb2, 0xe8, 0xab, 0x2e, 0xb0, 0x60, 0x99, 0xda, 0xa1, 0xd1, 0xe5, 0xdf, 0x47, 0x77, 0x8f, 0x77, 0x87, 0xfa, 0xab, 0x45, 0xcd, 0xf1, 0x2f, 0xe3, 0xa8},
+				},
+				TxHashes: [][]byte{},
+			},
+			disableFork: true,
+			wantErr:     true,
+			err:         process.ErrTxRootHashDoesNotMatch,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require := require.New(t)
 			assert := assert.New(t)
+
+			bp.forkController.(*mock.ForkControllerStub).SetFork("EnableSmartContracts", !tt.disableFork)
 
 			err := bp.validateTxRootHash(tt.block)
 			if tt.wantErr {

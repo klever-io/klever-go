@@ -331,7 +331,7 @@ func (k *kdaKapp) Burn(sender []byte, tc *transaction.AssetTriggerContract) (tra
 		kda.BurnedValue += tc.GetAmount()
 		kda.CirculatingSupply -= tc.GetAmount()
 
-		if kda.BurnedValue <= 0 || kda.CirculatingSupply < 0 {
+		if kda.BurnedValue <= 0 || !k.isValidCirculatingSupply(kda) {
 			// prevent overflow
 			return transaction.Transaction_AssetError, process.ErrSupplyNotValid
 		}
@@ -369,6 +369,14 @@ func (k *kdaKapp) Burn(sender []byte, tc *transaction.AssetTriggerContract) (tra
 	}
 
 	return transaction.Transaction_Ok, nil
+}
+
+func (k *kdaKapp) isValidCirculatingSupply(kda *kapps.KDAData) bool {
+	if k.forkController.EnableSmartContracts() && kda.CirculatingSupply < 0 {
+		return false
+	}
+
+	return kda.CirculatingSupply > 0
 }
 
 func (k *kdaKapp) Deposit(sender []byte, tc *transaction.DepositContract) (transaction.Transaction_TXResultCode, error) {

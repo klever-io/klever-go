@@ -31,6 +31,12 @@ import (
 
 var log = logger.GetOrCreate("process/block")
 
+const (
+	// Log parameter names
+	LogHeaderTxRootHash   = "header tx root hash"
+	LogComputedTxRootHash = "computed tx root hash"
+)
+
 type baseProcessor struct {
 	nodesCoordinator             sharding.NodesCoordinator
 	accountsDB                   map[state.AccountsDbIdentifier]state.AccountsAdapter
@@ -199,15 +205,34 @@ func (bp *baseProcessor) validateBlockAndSlot(headerHandler data.HeaderHandler) 
 	return bp.validateTxRootHash(headerHandler)
 }
 
+// Helper function to validate zero transaction root hash prior/after fork
+func (bp *baseProcessor) validateZeroTXRootHash(headerHandler data.HeaderHandler) error {
+	if headerHandler.GetTxRootHash() == nil {
+		return nil
+	}
+
+	// must allow if zero tx root hash for empty block prior fork
+	if !bp.forkController.EnableSmartContracts() {
+		if !bytes.Equal(headerHandler.GetTxRootHash(), bp.hasher.EmptyHash()) {
+			log.Debug("tx root hash does not match for empty block",
+				LogHeaderTxRootHash, headerHandler.GetTxRootHash(),
+				LogComputedTxRootHash, bp.hasher.EmptyHash())
+			return process.ErrTxRootHashDoesNotMatch
+		}
+
+		return nil
+	}
+
+	log.Debug("invalid block hash with no transactions",
+		LogHeaderTxRootHash, headerHandler.GetTxRootHash())
+	return process.ErrTxRootHashInvalidForEmptyBlock
+
+}
+
 // Helper function to validate transaction root hash
 func (bp *baseProcessor) validateTxRootHash(headerHandler data.HeaderHandler) error {
 	if headerHandler.GetTxCount() == 0 {
-		if headerHandler.GetTxRootHash() != nil {
-			log.Debug("invalid block hash with no transactions",
-				"header tx root hash", headerHandler.GetTxRootHash())
-			return process.ErrTxRootHashInvalidForEmptyBlock
-		}
-		return nil
+		return bp.validateZeroTXRootHash(headerHandler)
 	}
 
 	txRootHash, err := headerHandler.ComputeRootHash(bp.hasher)
@@ -216,8 +241,8 @@ func (bp *baseProcessor) validateTxRootHash(headerHandler data.HeaderHandler) er
 	}
 	if !bytes.Equal(headerHandler.GetTxRootHash(), txRootHash) {
 		log.Debug("tx root hash does not match",
-			"header tx root hash", headerHandler.GetTxRootHash(),
-			"computed tx root hash", txRootHash)
+			LogHeaderTxRootHash, headerHandler.GetTxRootHash(),
+			LogComputedTxRootHash, txRootHash)
 		return process.ErrTxRootHashDoesNotMatch
 	}
 
