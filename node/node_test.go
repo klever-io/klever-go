@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
+	disabledSig "github.com/klever-io/klever-go/crypto/signing/disabled/singlesig"
 	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/tools"
 
@@ -30,10 +31,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var sigOk = []byte{191, 150, 24, 156, 89, 18, 71, 123, 244, 251, 51, 26, 55, 130, 91, 227, 104, 159, 51, 243, 201, 219, 75, 212, 173, 18, 167, 48, 22, 49, 94, 136, 109, 173, 4, 140, 86, 193, 35, 146, 217, 154, 232, 45, 10, 117, 14, 144, 24, 177, 224, 125, 161, 190, 78, 156, 145, 162, 252, 143, 180, 218, 92, 9}
 var errSingleSignKeyGenMock = errors.New("errSingleSignKeyGenMock")
 
 func getMarshalizer() marshal.Marshalizer {
-	return &mock.MarshalizerFake{}
+	return &mock.ProtoMarshalizerMock{}
 }
 
 func createMockPubkeyConverter() *mock.PubkeyConverterMock {
@@ -174,6 +176,7 @@ func createNodeWithAccountsAdapter(t *testing.T, accAdapter *mock.AccountsStub) 
 		node.WithKeyGenForAccounts(keyGen),
 		node.WithTxFeeHandler(feeHandler),
 		node.WithSingleSigner(&cryptoMock.SignerMock{}),
+		node.WithTxSingleSigner(&disabledSig.DisabledSingleSig{}),
 		node.WithChainID([]byte("chainID")),
 		node.WithProposalController(proposalController),
 		node.WithKAppController(kappController),
@@ -256,4 +259,66 @@ func TestCreateTransaction_ShouldFail(t *testing.T) {
 
 	_, _, err = n.CreateTransaction(0, baseInfo, []json.RawMessage{transferContract}, false)
 	require.Error(t, common.ErrDataFieldTooBig, err)
+}
+
+func TestSendTransaction_ShouldWork(t *testing.T) {
+	t.Parallel()
+
+	n, err := createNode(t)
+	require.NoError(t, err)
+
+	transferContract, _ := json.Marshal(struct {
+		Receiver string
+		Amount   int64
+		Asset    string
+	}{
+		Receiver: createDummyHexAddress(64),
+		Amount:   10,
+		Asset:    "token",
+	})
+
+	baseInfo := &transaction.TXBaseInfo{
+		Sender:    createDummyHexAddress(64),
+		Nonce:     uint64(0),
+		DataField: [][]byte{[]byte("data")},
+	}
+
+	tx, _, err := n.CreateTransaction(0, baseInfo, []json.RawMessage{transferContract}, false)
+	require.NoError(t, err)
+
+	tx.AddSignature(sigOk)
+
+	_, err = n.SendTransaction(tx)
+	require.NoError(t, err)
+}
+
+func TestSendBulkTransactions_ShouldWork(t *testing.T) {
+	t.Parallel()
+
+	n, err := createNode(t)
+	require.NoError(t, err)
+
+	transferContract, _ := json.Marshal(struct {
+		Receiver string
+		Amount   int64
+		Asset    string
+	}{
+		Receiver: createDummyHexAddress(64),
+		Amount:   10,
+		Asset:    "token",
+	})
+
+	baseInfo := &transaction.TXBaseInfo{
+		Sender:    createDummyHexAddress(64),
+		Nonce:     uint64(0),
+		DataField: [][]byte{[]byte("data")},
+	}
+
+	tx, _, err := n.CreateTransaction(0, baseInfo, []json.RawMessage{transferContract}, false)
+	require.NoError(t, err)
+
+	tx.AddSignature(sigOk)
+
+	_, err = n.SendBulkTransactions([]*transaction.Transaction{tx})
+	require.NoError(t, err)
 }

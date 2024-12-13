@@ -17,12 +17,13 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func mockProcessor() *transaction.TxProcessorExportTest {
+func mockProcessor(economicHandlerStub *mock.EconomicsHandlerStub) *transaction.TxProcessorExportTest {
 	// environment setup
 	scProcessor := &mock.SmartContractProcessorStub{}
 	forkController := mock.NewForkControllerStub()
 	accountsCacher := &mock.AccountsCacherStub{}
-	economicsFess := &mock.EconomicsHandlerStub{
+	maxGasLimitPerTxValue := uint64(100)
+	economicsFees := &mock.EconomicsHandlerStub{
 		CheckValidityTxValuesCalled: func(tx process.TransactionWithFeeHandler) (*dt.CostResponse, error) {
 			cost := &dt.CostResponse{BandwidthFee: 100, KAppFee: 0, GasMultiplier: 1}
 			if tx.GetBandwidthFee() < cost.BandwidthFee ||
@@ -35,13 +36,17 @@ func mockProcessor() *transaction.TxProcessorExportTest {
 
 			return cost, nil
 		},
-		MaxGasLimitPerTxValue: 100,
+		MaxGasLimitPerTxValue: maxGasLimitPerTxValue,
 	}
+	if economicHandlerStub != nil {
+		economicsFees = economicHandlerStub
+	}
+
 	txProc := transaction.NewTxProcessorExportTest()
 	txProc.SetForkController(forkController)
 	txProc.SetSCProcessor(scProcessor)
 	txProc.SetAccountsCacher(accountsCacher)
-	txProc.SetEconomicsFee(economicsFess)
+	txProc.SetEconomicsFee(economicsFees)
 
 	return txProc
 }
@@ -73,13 +78,14 @@ func TestCheckTxValues(t *testing.T) {
 	}
 
 	scenarios := []struct {
-		name          string
-		tx            *dt.Transaction_Raw
-		txHash        []byte
-		acntSender    state.UserAccountHandler
-		preSetup      func(txProc *transaction.TxProcessorExportTest, tx *dt.Transaction)
-		postCheck     func(t *testing.T, txProc *transaction.TxProcessorExportTest, tx *dt.Transaction)
-		ExpectedError error
+		name             string
+		tx               *dt.Transaction_Raw
+		txHash           []byte
+		acntSender       state.UserAccountHandler
+		preSetup         func(txProc *transaction.TxProcessorExportTest, tx *dt.Transaction)
+		postCheck        func(t *testing.T, txProc *transaction.TxProcessorExportTest, tx *dt.Transaction)
+		economicsHandler *mock.EconomicsHandlerStub
+		ExpectedError    error
 	}{
 		{
 			name:          "higher nonce",
@@ -153,6 +159,11 @@ func TestCheckTxValues(t *testing.T) {
 			preSetup: func(txProc *transaction.TxProcessorExportTest, tx *dt.Transaction) {
 				signTX(tx, []byte{1}, txProc.SingleSigner())
 			},
+			economicsHandler: &mock.EconomicsHandlerStub{
+				ComputeGasCalled: func(tx *dt.Transaction, computedCost *dt.CostResponse) (uint64, uint64, error) {
+					return 0, 0, fmt.Errorf("%w, gasLimit: %d, maxGasLimit: %d", process.ErrInvalidMaxGasLimitPerTx, 900, 100)
+				},
+			},
 			ExpectedError: fmt.Errorf("%w, gasLimit: %d, maxGasLimit: %d", process.ErrInvalidMaxGasLimitPerTx, 900, 100),
 		},
 		{
@@ -166,13 +177,18 @@ func TestCheckTxValues(t *testing.T) {
 			postCheck: func(t *testing.T, txProc *transaction.TxProcessorExportTest, tx *dt.Transaction) {
 				assert.Equal(t, uint64(50), tx.GetGasLimit())
 			},
+			economicsHandler: &mock.EconomicsHandlerStub{
+				ComputeGasCalled: func(tx *dt.Transaction, computedCost *dt.CostResponse) (uint64, uint64, error) {
+					return uint64(50), 0, nil
+				},
+			},
 			ExpectedError: nil,
 		},
 	}
 
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
-			txProc := mockProcessor()
+			txProc := mockProcessor(scenario.economicsHandler)
 
 			tx := &dt.Transaction{RawData: scenario.tx}
 			// pre setup
@@ -358,7 +374,7 @@ func TestValidatePermission(t *testing.T) {
 
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
-			txProc := mockProcessor()
+			txProc := mockProcessor(nil)
 
 			// pre setup
 			if scenario.preSetup != nil {

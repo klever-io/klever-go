@@ -3,6 +3,7 @@ package economics
 import (
 	"fmt"
 
+	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
@@ -16,6 +17,8 @@ import (
 const BaseTxSize = core.BaseTxSize
 
 var _ process.EconomicsDataHandler = (*EconomicsData)(nil)
+
+var log = logger.GetOrCreate("process/economics")
 
 // EconomicsData will store information about economics
 type EconomicsData struct {
@@ -211,6 +214,33 @@ func (ed *EconomicsData) CheckValidityTxValues(tx process.TransactionWithFeeHand
 	}
 
 	return cost, nil
+}
+
+func (ed *EconomicsData) ComputeGas(tx *transaction.Transaction, computedCost *transaction.CostResponse) (uint64, uint64, error) {
+	freeBandwidth := tx.GetBandwidthFee() - computedCost.BandwidthFee
+	if freeBandwidth < 0 {
+		return 0, 0, fmt.Errorf("%w, freeBandwidth: %d",
+			process.ErrInvalidTXFees,
+			freeBandwidth,
+		)
+	}
+
+	gasLimit := uint64(freeBandwidth) * uint64(computedCost.GasMultiplier)
+	gasMultiplier := uint64(computedCost.GasMultiplier)
+
+	log.Trace("freeBandwidth", "freeBandwidth", freeBandwidth, "gasLimit", tx.GasLimit, "gasMultiplier", tx.GasMultiplier)
+
+	// validate gas limit
+	if gasLimit > ed.MaxGasLimitPerTX() {
+		return 0, 0, fmt.Errorf("%w, gasLimit: %d, maxGasLimit: %d",
+			process.ErrInvalidMaxGasLimitPerTx,
+			gasLimit,
+			ed.MaxGasLimitPerTX(),
+		)
+	}
+
+	return gasLimit, gasMultiplier, nil
+
 }
 
 // LeaderPercentage will return leader reward percentage

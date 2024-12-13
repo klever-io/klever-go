@@ -50,6 +50,10 @@ func (fh *FeeHandler) MaxGasLimitPerTX() uint64 {
 	return math.MaxUint64
 }
 
+func (ed *FeeHandler) ComputeGas(tx *transaction.Transaction, computedCost *transaction.CostResponse) (uint64, uint64, error) {
+	return 0, 0, nil
+}
+
 // ComputeTransactionCost will calculate how many gas units a transaction will consume
 func (ed *FeeHandler) ComputeTransactionCost(_ process.TransactionWithFeeHandler, _ bool) (*transaction.CostResponse, error) {
 	return &transaction.CostResponse{}, nil

@@ -532,6 +532,7 @@ func (n *Node) SendTransaction(tx *transaction.Transaction) (string, error) {
 		return "", err
 	}
 
+	tx.PrepareForProcessing()
 	n.addTransactionsToSendPipe([]*transaction.Transaction{tx})
 
 	return hex.EncodeToString(txHash), nil
@@ -555,6 +556,8 @@ func (n *Node) SendBulkTransactions(txs []*transaction.Transaction) ([]string, e
 		if err != nil {
 			return nil, err
 		}
+
+		tx.PrepareForProcessing()
 
 		txsHashes = append(txsHashes, hex.EncodeToString(txHash))
 	}

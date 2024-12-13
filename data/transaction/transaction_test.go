@@ -13,6 +13,7 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 var mockSender = []byte("01234567891011121314151617181920")
@@ -50,6 +51,32 @@ func createMockNodeHelper() *mock.NodesHelperMock {
 			}, nil
 		},
 	}
+}
+
+func TestTransaction_PrepareForProcessing(t *testing.T) {
+	t.Parallel()
+
+	tx := &transaction.Transaction{
+		RawData: &transaction.Transaction_Raw{
+			Contract: []*transaction.TXContract{{
+				Type: transaction.TXContract_TransferContractType,
+				Parameter: &anypb.Any{
+					TypeUrl: "type.googleapis.com/TransferContract",
+					Value:   []byte{1, 2, 3, 4},
+				},
+			}},
+			Data: [][]byte{{1, 2, 3, 4}},
+		},
+		Receipts: []*transaction.Transaction_Receipt{{
+			Data: [][]byte{{1, 2, 3, 4}},
+		}},
+	}
+
+	tx.PrepareForProcessing()
+
+	assert.Empty(t, tx.Receipts)
+	assert.NotEmpty(t, tx.RawData.Contract)
+	assert.NotEmpty(t, tx.RawData.Data)
 }
 
 func TestTransaction_GetDataSize(t *testing.T) {

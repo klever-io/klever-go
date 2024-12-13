@@ -33,6 +33,10 @@ func (fh *FeeHandler) CheckValidityTxValues(_ process.TransactionWithFeeHandler)
 	return &transaction.CostResponse{}, nil
 }
 
+func (fh *FeeHandler) ComputeGas(tx *transaction.Transaction, computedCost *transaction.CostResponse) (uint64, uint64, error) {
+	return 0, 0, nil
+}
+
 func (fh *FeeHandler) ComputeGasLimit(tx data.TransactionHandler) uint64 {
 	return 0
 }

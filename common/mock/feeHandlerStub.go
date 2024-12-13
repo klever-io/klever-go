@@ -14,7 +14,15 @@ type FeeHandlerStub struct {
 	MaxGasLimitPerTxValue        uint64
 	CheckValidityTxValuesCalled  func(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error)
 	ComputeTransactionCostCalled func(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error)
+	ComputeGasCalled             func(tx *transaction.Transaction, computedCost *transaction.CostResponse) (uint64, uint64, error)
 	EpochConfirmedCalled         func(epoch uint32)
+}
+
+func (fhs *FeeHandlerStub) ComputeGas(tx *transaction.Transaction, computedCost *transaction.CostResponse) (uint64, uint64, error) {
+	if fhs.ComputeGasCalled != nil {
+		return fhs.ComputeGasCalled(tx, computedCost)
+	}
+	return 0, 0, nil
 }
 
 // ComputeTransactionCost

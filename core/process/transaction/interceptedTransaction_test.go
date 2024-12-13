@@ -38,7 +38,8 @@ func makeAddress(addr string) []byte {
 var senderAddress = makeAddress("12345678123456781234567812345678")
 var recvAddress = makeAddress("12345678123456781234567812345679")
 var token = "KDA"
-var sigOk = []byte("signature")
+
+var sigOk = []byte{191, 150, 24, 156, 89, 18, 71, 123, 244, 251, 51, 26, 55, 130, 91, 227, 104, 159, 51, 243, 201, 219, 75, 212, 173, 18, 167, 48, 22, 49, 94, 136, 109, 173, 4, 140, 86, 193, 35, 146, 217, 154, 232, 45, 10, 117, 14, 144, 24, 177, 224, 125, 161, 190, 78, 156, 145, 162, 252, 143, 180, 218, 92, 9}
 
 func createMockPubkeyConverter() *cryptoMock.PubkeyConverterMock {
 	return cryptoMock.NewPubkeyConverterMock(32)
@@ -73,6 +74,36 @@ func createFreeTxFeeHandler() *mock.FeeHandlerStub {
 			return &dataTransaction.CostResponse{}, nil
 		},
 	}
+}
+
+func createInterceptedProtoTxFromPlainTxWithFork(tx *dataTransaction.Transaction, txFeeHandler process.EconomicsDataHandler, chainID []byte, minTxVersion uint32, forkController core.ForkController) (*transaction.InterceptedTransaction, error) {
+	marshalizer := &mock.ProtoMarshalizerMock{}
+	txBuff, err := marshalizer.Marshal(tx)
+	if err != nil {
+		return nil, err
+	}
+
+	return transaction.NewInterceptedTransaction(
+		&transaction.InterceptedTransactionArgs{
+			txBuff,
+			marshalizer,
+			marshalizer,
+			mock.HasherMock{},
+			createKeyGenMock(),
+			createDummySigner(),
+			&mock.PubkeyConverterStub{
+				LenCalled: func() int {
+					return 32
+				},
+			},
+			&mock.WhiteListHandlerStub{},
+			chainID,
+			mock.HasherMock{},
+			txFeeHandler,
+			versioning.NewTxVersionChecker(minTxVersion),
+			forkController,
+		},
+	)
 }
 
 func createInterceptedTxFromPlainTx(tx *dataTransaction.Transaction, txFeeHandler process.EconomicsDataHandler, chainID []byte, minTxVersion uint32) (*transaction.InterceptedTransaction, error) {
@@ -638,7 +669,7 @@ func TestInterceptedTransaction_CheckSizeValidityShouldWork(t *testing.T) {
 	err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 10)
 	assert.Nil(t, err)
 
-	txi, err := createInterceptedTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainId, 1, &mock.ForkControllerStub{
+	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainId, 1, &mock.ForkControllerStub{
 		EnableSmartContractsValue: true,
 	})
 	assert.Nil(t, err)
@@ -667,6 +698,75 @@ func TestInterceptedTransaction_CheckSizeValidityShoulFail(t *testing.T) {
 	txi, err := createInterceptedTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainId, 1, &mock.ForkControllerStub{
 		EnableSmartContractsValue: true,
 	})
+	assert.Nil(t, err)
+
+	err = txi.CheckValidity()
+	require.NotNil(t, err)
+	assert.Equal(t, common.ErrInvalidTransactionRawSize, err)
+}
+
+func TestInterceptedTransaction_CheckSizeValidityShouldWork_MultipleSigners(t *testing.T) {
+	t.Parallel()
+
+	chainId := make([]byte, core.MaxLengthForAssetTicker)
+
+	tx := dataTransaction.NewBaseTransaction(sender, math.MaxInt64, [][]byte{}, math.MaxInt64, math.MaxInt64)
+	tx.RawData.KDAFee = &dataTransaction.Transaction_KDAFee{
+		KDA:    make([]byte, core.MaxLengthForAssetTicker),
+		Amount: math.MaxInt64,
+	}
+	tx.SetChainID(chainId)
+	tx.RawData.PermissionID = math.MaxInt32
+	signatures := make([][]byte, 0)
+	for i := 0; i < core.MaxPermissionSigners; i++ {
+		signatures = append(signatures, sigOk)
+	}
+	tx.Signature = signatures
+
+	err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 10)
+	assert.Nil(t, err)
+
+	tx.GasLimit = math.MaxUint64
+	tx.GasMultiplier = math.MaxUint64
+
+	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainId, 1, &mock.ForkControllerStub{
+		EnableSmartContractsValue: true,
+	})
+
+	assert.Nil(t, err)
+
+	err = txi.CheckValidity()
+	assert.Nil(t, err)
+}
+
+func TestInterceptedTransaction_CheckSizeValidityShouldFail_MultipleSigners(t *testing.T) {
+	t.Parallel()
+
+	chainId := make([]byte, core.MaxLengthForAssetTicker)
+
+	tx := dataTransaction.NewBaseTransaction(senderAddress, math.MaxInt64, [][]byte{}, math.MaxInt64, math.MaxInt64)
+	tx.RawData.KDAFee = &dataTransaction.Transaction_KDAFee{
+		KDA:    make([]byte, core.MaxLengthForAssetTicker),
+		Amount: math.MaxInt64,
+	}
+	tx.SetChainID(chainId)
+	tx.RawData.PermissionID = math.MaxInt32
+	signatures := make([][]byte, 0)
+	for i := 0; i < core.MaxPermissionSigners+1; i++ {
+		signatures = append(signatures, sigOk)
+	}
+	tx.Signature = signatures
+
+	err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 10)
+	assert.Nil(t, err)
+
+	tx.GasLimit = math.MaxUint64
+	tx.GasMultiplier = math.MaxUint64
+
+	txi, err := createInterceptedTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainId, 1, &mock.ForkControllerStub{
+		EnableSmartContractsValue: true,
+	})
+
 	assert.Nil(t, err)
 
 	err = txi.CheckValidity()

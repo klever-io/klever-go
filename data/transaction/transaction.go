@@ -53,6 +53,8 @@ func NewBaseTransaction(sender []byte, nonce uint64, data [][]byte, kAppFee int6
 func (t *Transaction) PrepareForProcessing() {
 	t.Receipts = make([]*Transaction_Receipt, 0)
 	t.Block = 0
+	t.GasLimit = 0
+	t.GasMultiplier = 0
 	t.Result = Transaction_SUCCESS
 	t.ResultCode = Transaction_Ok
 }

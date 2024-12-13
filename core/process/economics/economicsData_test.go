@@ -15,6 +15,7 @@ import (
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const MinFreezeAmount = int64(1_000)
@@ -342,6 +343,91 @@ func TestCheckValidityTxValues(t *testing.T) {
 		assert.Error(t, err)
 		assert.Equal(t, process.ErrProposalNotInitialized, err)
 	})
+
+}
+
+func TestComputeGas(t *testing.T) {
+	ed := newMockEconomicsData()
+
+	ed.proposalController.UpdateParameters(map[int32]*kapps.Parameter{
+		int32(kapps.EnumParameter_MaxGasPerTX): {Type: kapps.EnumType_Int64, Value: []byte("1000")},
+	})
+
+	baseGasMultiplier := uint64(1)
+	baseBandwidthFee := int64(350)
+
+	t.Run("Should work", func(t *testing.T) {
+		tx := &transaction.Transaction{
+			RawData: &transaction.Transaction_Raw{
+				Contract: []*transaction.TXContract{
+					{Type: transaction.TXContract_TransferContractType},
+				},
+				Data: [][]byte{
+					make([]byte, 100),
+				},
+				BandwidthFee: baseBandwidthFee,
+				KAppFee:      10,
+			},
+		}
+
+		costResponse := transaction.CostResponse{
+			GasMultiplier: baseGasMultiplier,
+		}
+
+		gasLimit, gasMultiplier, err := ed.ComputeGas(tx, &costResponse)
+		require.NoError(t, err)
+		assert.Equal(t, baseGasMultiplier, gasMultiplier)
+		assert.Equal(t, uint64(350), gasLimit)
+	})
+
+	t.Run("negative free bandwidth", func(t *testing.T) {
+		tx := &transaction.Transaction{
+			RawData: &transaction.Transaction_Raw{
+				Contract: []*transaction.TXContract{
+					{Type: transaction.TXContract_TransferContractType},
+				},
+				Data: [][]byte{
+					make([]byte, 100),
+				},
+				BandwidthFee: baseBandwidthFee,
+				KAppFee:      10,
+			},
+		}
+
+		costResponse := transaction.CostResponse{
+			GasMultiplier: baseGasMultiplier,
+			BandwidthFee:  baseBandwidthFee + 1,
+		}
+
+		_, _, err := ed.ComputeGas(tx, &costResponse)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), process.ErrInvalidTXFees.Error())
+	})
+
+	t.Run("free bandwidth is greather than max limit per tx", func(t *testing.T) {
+		tx := &transaction.Transaction{
+			RawData: &transaction.Transaction_Raw{
+				Contract: []*transaction.TXContract{
+					{Type: transaction.TXContract_TransferContractType},
+				},
+				Data: [][]byte{
+					make([]byte, 100),
+				},
+				BandwidthFee: baseBandwidthFee * 10,
+				KAppFee:      10,
+			},
+		}
+
+		costResponse := transaction.CostResponse{
+			GasMultiplier: baseGasMultiplier,
+			BandwidthFee:  baseBandwidthFee,
+		}
+
+		_, _, err := ed.ComputeGas(tx, &costResponse)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), process.ErrInvalidMaxGasLimitPerTx.Error())
+	})
+
 }
 
 // Test LeaderPercentage

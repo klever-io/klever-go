@@ -17,6 +17,7 @@ type EconomicsHandlerStub struct {
 	ComputeTransactionCostCalled           func(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error)
 	GetTransactionFeeCalled                func(tx process.TransactionWithFeeHandler) int64
 	CheckValidityTxValuesCalled            func(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error)
+	ComputeGasCalled                       func(tx *transaction.Transaction, computedCost *transaction.CostResponse) (uint64, uint64, error)
 	EpochConfirmedCalled                   func(epoch uint32)
 	LeaderPercentageCalled                 func() float64
 	ProtocolSustainabilityPercentageCalled func() float64
@@ -27,6 +28,13 @@ type EconomicsHandlerStub struct {
 	RewardsTopUpFactorCalled               func() float64
 	GenesisTotalSupplyCalled               func() *big.Int
 	TxSimulatorProcessor                   txsimulator.TransactionSimulatorProcessor
+}
+
+func (e *EconomicsHandlerStub) ComputeGas(tx *transaction.Transaction, computedCost *transaction.CostResponse) (uint64, uint64, error) {
+	if e.ComputeGasCalled != nil {
+		return e.ComputeGasCalled(tx, computedCost)
+	}
+	return 0, 0, nil
 }
 
 // GetTransactionFee computes the provided transaction's fee using enable from epoch approach

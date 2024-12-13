@@ -9,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/data/batch"
 	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/data/retriever/requestHandlers"
+	dataTransaction "github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/tools/check"
@@ -113,6 +114,20 @@ func (txRes *TxResolver) ProcessReceivedMessage(message p2p.MessageP2P, fromConn
 	return err
 }
 
+func (txRes *TxResolver) cleanTxBeforeSend(tx []byte) ([]byte, error) {
+	transaction := &dataTransaction.Transaction{}
+	if err := txRes.marshalizer.Unmarshal(transaction, tx); err != nil {
+		return nil, err
+	}
+	transaction.PrepareForProcessing()
+
+	txCleaned, err := txRes.marshalizer.Marshal(transaction)
+	if err != nil {
+		return nil, err
+	}
+	return txCleaned, nil
+}
+
 func (txRes *TxResolver) resolveTxRequestByHash(hash []byte, pid core.PeerID) error {
 	//TODO this can be optimized by searching in corresponding datapool (taken by topic name)
 	tx, err := txRes.fetchTxAsByteSlice(hash)
@@ -120,8 +135,13 @@ func (txRes *TxResolver) resolveTxRequestByHash(hash []byte, pid core.PeerID) er
 		return err
 	}
 
+	txCleaned, err := txRes.cleanTxBeforeSend(tx)
+	if err != nil {
+		return err
+	}
+
 	b := &batch.Batch{
-		Data: [][]byte{tx},
+		Data: [][]byte{txCleaned},
 	}
 	buff, err := txRes.marshalizer.Marshal(b)
 	if err != nil {
@@ -185,7 +205,13 @@ func (txRes *TxResolver) resolveTxRequestByHashArray(hashesBuff []byte, pid core
 
 			continue
 		}
-		txsBuffSlice = append(txsBuffSlice, tx)
+
+		txCleaned, err := txRes.cleanTxBeforeSend(tx)
+		if err != nil {
+			return err
+		}
+
+		txsBuffSlice = append(txsBuffSlice, txCleaned)
 	}
 
 	buffsToSend, errPack := txRes.dataPacker.PackDataInChunks(txsBuffSlice, maxBuffToSendBulkTransactions)
@@ -239,7 +265,7 @@ func (txRes *TxResolver) RequestDataFromHashArray(hashes [][]byte, epoch uint32)
 	)
 }
 
-// RequestDataFromHashArray requests a list of tx hashes from other peers
+// RequestDataFromHashArrayTo requests a list of tx hashes from other peers
 func (txRes *TxResolver) RequestDataFromHashArrayTo(hashes [][]byte, epoch uint32, peer core.PeerID) error {
 	b := &batch.Batch{
 		Data: hashes,

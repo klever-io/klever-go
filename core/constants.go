@@ -286,8 +286,11 @@ const MinGasLimit = 50_000
 // MaxGasBandwidthPerBatchPerSender defines the maximum gas bandwidth that should be selected for a sender per batch from the cache
 const MaxGasBandwidthPerBatchPerSender = 50_000_000
 
+// MaxTransactionRaw defines the maximum size of the raw data without contracts and message data
+const MaxTransactionRaw = 420
+
 // MaxTxSize defines the maximum size of a tx without contracts and message data
-const MaxTxSize = 420
+const MaxTxSize = 1900
 
 // MaxBytesToDecode defines the maximum number of bytes that can be decoded from VM
 const MaxBytesToDecode = 1 << 12 // 4KB

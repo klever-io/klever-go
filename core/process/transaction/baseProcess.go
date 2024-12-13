@@ -240,28 +240,13 @@ func (txProc *baseTxProcessor) computeKDAFees(tx *transaction.Transaction, total
 }
 
 func (txProc *baseTxProcessor) UpdateTXGas(tx *transaction.Transaction, computedCost *transaction.CostResponse) error {
-	// update free bandwidth fee
-	freeBandwidth := tx.GetBandwidthFee() - computedCost.BandwidthFee
-	if freeBandwidth < 0 {
-		return fmt.Errorf("%w, freeBandwidth: %d",
-			process.ErrInvalidTXFees,
-			freeBandwidth,
-		)
+	gasLimit, gasMultiplier, err := txProc.economicsFee.ComputeGas(tx, computedCost)
+	if err != nil {
+		return err
 	}
 
-	tx.GasLimit = uint64(freeBandwidth) * uint64(computedCost.GasMultiplier)
-	tx.GasMultiplier = uint64(computedCost.GasMultiplier)
-
-	log.Trace("freeBandwidth", "freeBandwidth", freeBandwidth, "gasLimit", tx.GasLimit, "gasMultiplier", tx.GasMultiplier)
-
-	// validate gas limit
-	if tx.GasLimit > txProc.economicsFee.MaxGasLimitPerTX() {
-		return fmt.Errorf("%w, gasLimit: %d, maxGasLimit: %d",
-			process.ErrInvalidMaxGasLimitPerTx,
-			tx.GasLimit,
-			txProc.economicsFee.MaxGasLimitPerTX(),
-		)
-	}
+	tx.GasLimit = gasLimit
+	tx.GasMultiplier = gasMultiplier
 
 	return nil
 }

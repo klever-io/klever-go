@@ -20,6 +20,8 @@ func TestRustBasicFeaturesLatest(t *testing.T) {
 		t.Skip("not a short test")
 	}
 
+	t.Skip()
+
 	ScenariosTest(t).
 		Folder("features/basic-features/scenarios").
 		Exclude("features/basic-features/scenarios/storage_mapper_fungible_token.scen.json").

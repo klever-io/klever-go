@@ -491,6 +491,7 @@ type EconomicsDataHandler interface {
 	SetTXSimulatorProcessor(txSimulatorProcessor txsimulator.TransactionSimulatorProcessor) error
 	ComputeTransactionCost(tx TransactionWithFeeHandler, simulateSC bool) (*transaction.CostResponse, error)
 	CheckValidityTxValues(tx TransactionWithFeeHandler) (*transaction.CostResponse, error)
+	ComputeGas(tx *transaction.Transaction, computedCost *transaction.CostResponse) (uint64, uint64, error)
 	LeaderPercentage() float64
 	MaxGasLimitPerBlock() uint64
 	MaxGasLimitPerTX() uint64
