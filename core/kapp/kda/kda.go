@@ -372,8 +372,8 @@ func (k *kdaKapp) Burn(sender []byte, tc *transaction.AssetTriggerContract) (tra
 }
 
 func (k *kdaKapp) isValidCirculatingSupply(kda *kapps.KDAData) bool {
-	if k.forkController.EnableSmartContracts() && kda.CirculatingSupply < 0 {
-		return false
+	if k.forkController.EnableSmartContracts() {
+		return kda.CirculatingSupply >= 0
 	}
 
 	return kda.CirculatingSupply > 0
