@@ -297,3 +297,6 @@ const MaxBytesToDecode = 1 << 12 // 4KB
 
 // MaxBytesBigInt defines the maximum number of bytes that can be allocated for a big int decode
 const MaxBytesBigInt = 512
+
+// BaseTransactionOverhead defines base overhead for a transaction
+const BaseTransactionOverhead = 10 // calculated base overhead for a transactions is 10 bytes

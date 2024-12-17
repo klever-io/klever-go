@@ -217,14 +217,13 @@ func (inTx *InterceptedTransaction) integrity(tx *transaction.Transaction) error
 		return err
 	}
 
-
 	transactionCost, err := inTx.feeHandler.CheckValidityTxValues(tx)
 	if err != nil {
 		return err
 	}
 
 	if inTx.forkController.EnableSmartContracts() {
-    // validate fees
+		// validate fees
 		gasLimit, gasMultiplier, err := inTx.feeHandler.ComputeGas(tx, transactionCost)
 		if err != nil {
 			return err
@@ -373,7 +372,7 @@ func (inTx *InterceptedTransaction) validateTransactionSize(tx *transaction.Tran
 
 	// Calculate expected protobuf overhead for signatures
 	numSignatures := len(tx.Signature)
-	expectedOverhead := 3 + (2 * numSignatures) // Base overhead (3) + 2 bytes per signature
+	expectedOverhead := core.BaseTransactionOverhead + (2 * numSignatures) // Base Overhead + 2 bytes per signature
 
 	// Calculate actual overhead (excluding signatures and raw data)
 	actualOverhead := len(transaction) - len(transactionRaw) - (len(tx.Signature) * 64) // 64 bytes per signature

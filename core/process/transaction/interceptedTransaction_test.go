@@ -739,6 +739,41 @@ func TestInterceptedTransaction_CheckSizeValidityShouldWork_MultipleSigners(t *t
 	assert.Nil(t, err)
 }
 
+func TestInterceptedTransaction_CheckSizeValidityShouldWork_SmartContractOverhead(t *testing.T) {
+	t.Parallel()
+
+	chainId := make([]byte, core.MaxLengthForAssetTicker)
+	data := make([][]byte, 1)
+	data[0] = bytes.Repeat([]byte{255}, core.MegabyteSize-1)
+
+	tx := dataTransaction.NewBaseTransaction(sender, math.MaxInt64, data, math.MaxInt64, math.MaxInt64)
+	tx.RawData.KDAFee = &dataTransaction.Transaction_KDAFee{
+		KDA:    make([]byte, core.MaxLengthForAssetTicker),
+		Amount: math.MaxInt64,
+	}
+	tx.SetChainID(chainId)
+	tx.RawData.PermissionID = math.MaxInt32
+	signatures := make([][]byte, 0)
+	for i := 0; i < core.MaxPermissionSigners; i++ {
+		signatures = append(signatures, sigOk)
+	}
+	tx.Signature = signatures
+
+	err := AddSmartContract(tx, createMockPubkeyConverter(), senderAddress)
+	assert.Nil(t, err)
+
+	tx.GasLimit = math.MaxUint64
+	tx.GasMultiplier = math.MaxUint64
+
+	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainId, 1, &mock.ForkControllerStub{
+		EnableSmartContractsValue: true,
+	})
+	assert.Nil(t, err)
+
+	err = txi.CheckValidity()
+	assert.Error(t, err)
+}
+
 func TestInterceptedTransaction_CheckSizeValidityShouldFail_MultipleSigners(t *testing.T) {
 	t.Parallel()
 
@@ -918,11 +953,29 @@ func AddTransfer(tx *dataTransaction.Transaction,
 		KDA:      token,
 	}
 
-	return AddTransaction(tx, sender, contract, addressPubkeyConverter)
+	return AddTransaction(tx, sender, contract, addressPubkeyConverter, dataTransaction.TXContract_TransferContractType)
 }
 
-func AddTransaction(tx *dataTransaction.Transaction, sender []byte, contract interface{}, addressPubkeyConverter core.PubkeyConverter) error {
-	cJson, _ := json.Marshal(contract)
+func AddSmartContract(tx *dataTransaction.Transaction,
+	addressPubkeyConverter core.PubkeyConverter,
+	sender []byte) error {
+
+	senderAddress := addressPubkeyConverter.Encode(sender)
+
+	contract := &models.SmartContractRequest{
+		SCType:    int32(dataTransaction.SmartContract_SCDeploy),
+		Address:   senderAddress,
+		CallValue: make(map[string]int64, 0),
+	}
+
+	return AddTransaction(tx, sender, contract, addressPubkeyConverter, dataTransaction.TXContract_SmartContractType)
+}
+
+func AddTransaction(tx *dataTransaction.Transaction, sender []byte, contract interface{}, addressPubkeyConverter core.PubkeyConverter, txType dataTransaction.TXContract_ContractType) error {
+	cJson, err := json.Marshal(contract)
+	if err != nil {
+		return err
+	}
 
 	nodeHelper := mock.NewNodeHelperMock()
 	nodeHelper.GetAddressPCKCalled = func() core.PubkeyConverter {
@@ -939,7 +992,7 @@ func AddTransaction(tx *dataTransaction.Transaction, sender []byte, contract int
 	}
 
 	txArgs := dataTransaction.TXArgs{
-		Type:       uint32(dataTransaction.TXContract_TransferContractType),
+		Type:       uint32(txType),
 		Sender:     senderAddress,
 		Data:       nil,
 		Contract:   cJson,
