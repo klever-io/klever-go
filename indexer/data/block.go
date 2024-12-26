@@ -16,6 +16,7 @@ type Block struct {
 	Slot               uint64        `json:"slot"`
 	Epoch              uint32        `json:"epoch"`
 	IsEpochStart       bool          `json:"isEpochStart"`
+	PrevEpochStartSlot uint64        `json:"prevEpochStartSlot"`
 	Size               int64         `json:"size"`
 	SizeTxs            int64         `json:"sizeTxs"`
 	TxRootHash         string        `json:"txRootHash"`

@@ -77,6 +77,7 @@ func (dp *dataParser) getSerializedElasticBlockAndHeaderHash(
 		ChainID:            string(block.GetChainID()),
 		Reserved:           hex.EncodeToString(block.GetReserved()),
 		ProducerBLS:        producerBls,
+		PrevEpochStartSlot: block.GetPrevEpochStartSlot(),
 	}
 
 	serializedBlock, err := json.Marshal(elasticBlock)

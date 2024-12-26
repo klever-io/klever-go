@@ -50,6 +50,7 @@ type HeaderHandler interface {
 	SetBurnedUnclaimed(burned int64)
 	GetStakingRewards() int64
 	GetReserved() []byte
+	GetPrevEpochStartSlot() uint64
 
 	GetBlockHeader() interface{}
 	GetTxHashes() [][]byte
