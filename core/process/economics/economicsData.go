@@ -240,7 +240,6 @@ func (ed *EconomicsData) ComputeGas(tx *transaction.Transaction, computedCost *t
 	}
 
 	return gasLimit, gasMultiplier, nil
-
 }
 
 // LeaderPercentage will return leader reward percentage

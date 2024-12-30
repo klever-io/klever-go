@@ -17,3 +17,5 @@ const BaseOpsAPICost = "BaseOpsAPICost"
 
 // MaxPerTransaction represents the field name of max counts per transaction in block chain hook
 const MaxPerTransaction = "MaxPerTransaction"
+
+const EmptyJSonMarshalData = "{}"

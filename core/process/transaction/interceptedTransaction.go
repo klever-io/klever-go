@@ -151,7 +151,7 @@ func createTx(marshalizer marshal.Marshalizer, txBuff []byte) (*transaction.Tran
 
 // CheckValidity checks if the received transaction is valid (not nil fields, fees and so on)
 func (inTx *InterceptedTransaction) CheckValidity() error {
-	err := inTx.integrity(inTx.tx)
+	err := inTx.integrity()
 	if err != nil {
 		return err
 	}
@@ -161,10 +161,18 @@ func (inTx *InterceptedTransaction) CheckValidity() error {
 
 // CheckTXSignature checks if the received transaction has valid signature
 func (inTx *InterceptedTransaction) CheckTXSignature() error {
+	// check if disabledSignature check (size == 0)
+	if inTx.singleSigner.SignatureSize() == 0 {
+		return nil
+	}
+
 	// check signature structure
-	if len(inTx.tx.Signature) == 0 ||
-		len(inTx.tx.Signature) > core.MaxPermissionSigners {
-		return common.ErrInvalidSignatureLength
+	if len(inTx.tx.Signature) == 0 {
+		return common.ErrNoSignatures
+	}
+
+	if len(inTx.tx.Signature) > core.MaxPermissionSigners {
+		return common.ErrExceedsMaxSignatures
 	}
 
 	dupCheck := make(map[string]bool)
@@ -175,6 +183,11 @@ func (inTx *InterceptedTransaction) CheckTXSignature() error {
 			return common.ErrDupSignature
 		}
 		dupCheck[string(s1)] = true
+
+		// check signature length
+		if len(s1) != inTx.singleSigner.SignatureSize() {
+			return common.ErrInvalidSignatureLength
+		}
 	}
 
 	return nil
@@ -186,54 +199,55 @@ func (inTx *InterceptedTransaction) processFields(txBuff []byte, txHeader []byte
 }
 
 // integrity checks for not nil fields and negative value
-func (inTx *InterceptedTransaction) integrity(tx *transaction.Transaction) error {
-	err := inTx.txVersionChecker.CheckTxVersion(tx)
+func (inTx *InterceptedTransaction) integrity() error {
+	err := inTx.txVersionChecker.CheckTxVersion(inTx.tx)
 	if err != nil {
 		return err
 	}
 
-	if !bytes.Equal(tx.RawData.GetChainID(), inTx.chainID) {
+	if !bytes.Equal(inTx.tx.RawData.GetChainID(), inTx.chainID) {
 		return process.ErrInvalidChainID
 	}
 
-	if len(tx.RawData.Sender) != inTx.pubkeyConv.Len() ||
-		bytes.Equal(tx.RawData.Sender, core.ZeroAddress) ||
-		bytes.Equal(tx.RawData.Sender, core.BlackHoleAddress) {
+	if len(inTx.tx.RawData.Sender) != inTx.pubkeyConv.Len() ||
+		bytes.Equal(inTx.tx.RawData.Sender, core.ZeroAddress) ||
+		bytes.Equal(inTx.tx.RawData.Sender, core.BlackHoleAddress) {
 		return process.ErrInvalidSndAddr
 	}
 
-	if len(tx.RawData.Contract) == 0 || len(tx.RawData.Contract) > core.MaxLengthOfContracts {
+	if len(inTx.tx.RawData.Contract) == 0 || len(inTx.tx.RawData.Contract) > core.MaxLengthOfContracts {
 		return process.ErrInvalidTransactionNoContract
 	}
 
-	// Validate Transaction Size
-	if inTx.forkController.EnableSmartContracts() {
-		err = inTx.validateTransactionSize(tx.Clone())
-		if err != nil {
-			return err
-		}
-	}
-	if err := tx.Validate(inTx.forkController); err != nil {
+	if err := inTx.CheckTXSignature(); err != nil {
 		return err
 	}
 
-	transactionCost, err := inTx.feeHandler.CheckValidityTxValues(tx)
+	// ensure that transaction is prepared for processing (remove unsigned fields)
+	inTx.tx.PrepareForProcessing()
+
+	// Validate Transaction Size
+	err = inTx.validateTransactionSize()
 	if err != nil {
 		return err
 	}
 
-	if inTx.forkController.EnableSmartContracts() {
-		// validate fees
-		gasLimit, gasMultiplier, err := inTx.feeHandler.ComputeGas(tx, transactionCost)
-		if err != nil {
-			return err
-		}
-		inTx.tx.GasLimit = gasLimit
-		inTx.tx.GasMultiplier = gasMultiplier
+	if err := inTx.tx.Validate(inTx.forkController); err != nil {
+		return err
 	}
 
-	// clean transaction only after fee handler check
-	tx.PrepareForProcessing()
+	transactionCost, err := inTx.feeHandler.CheckValidityTxValues(inTx.tx)
+	if err != nil {
+		return err
+	}
+
+	// validate fees
+	gasLimit, gasMultiplier, err := inTx.feeHandler.ComputeGas(inTx.tx, transactionCost)
+	if err != nil {
+		return err
+	}
+	inTx.tx.GasLimit = gasLimit
+	inTx.tx.GasMultiplier = gasMultiplier
 
 	return err
 }
@@ -332,57 +346,74 @@ func (inTx *InterceptedTransaction) IsInterfaceNil() bool {
 	return inTx == nil
 }
 
-func (inTx *InterceptedTransaction) validateTransactionSize(tx *transaction.Transaction) error {
-	tx.PrepareForProcessing()
-
+func (inTx *InterceptedTransaction) validateDataFieldSize(txClone *transaction.Transaction) error {
 	// check data field size
 	dataSize := 0
-	for _, data := range tx.GetRawData().Data {
+	for _, data := range txClone.GetRawData().Data {
 		dataSize += len(data)
 	}
 
-	if dataSize >= core.MegabyteSize {
-		return common.ErrDataFieldTooBig
-	}
-	// check contracts field size
-	contractsSize := 0
-	for _, contract := range tx.GetContracts() {
-		// #nosec G115
-		if !transaction.IsContractSizeValid(contract.GetParameter().Value, uint32(contract.GetType())) {
-			return common.ErrInvalidContractSize
-		}
-		contractsSize += len(contract.GetParameter().Value)
+	maxSize := core.MaxDataSize
+	if !inTx.forkController.EnableSmartContracts() {
+		maxSize = core.MaxDataSizeOld
 	}
 
+	if dataSize >= maxSize {
+		return common.ErrDataFieldTooBig
+	}
+
+	return nil
+}
+
+func (inTx *InterceptedTransaction) validateTransactionSize() error {
+	txClone := inTx.tx.Clone()
+
+	if err := inTx.validateDataFieldSize(txClone); err != nil {
+		return err
+	}
+
+	// remove data field from size check
+	txClone.RawData.Data = nil
+
+	// check contracts field size
+	contractsSize := 0
+	for _, contract := range txClone.GetContracts() {
+		// only check contract size after fork
+		if inTx.forkController.EnableSmartContracts() &&
+			!transaction.IsContractSizeValid(contract.GetParameter().Value, contract.GetType()) {
+			return common.ErrInvalidContractSize
+		}
+
+		if !transaction.IsValidTypeURL(contract.GetParameter().TypeUrl, contract.GetType()) {
+			return common.ErrInvalidContractTypeURL
+		}
+
+		contractsSize += len(contract.GetParameter().Value) + len(contract.GetParameter().TypeUrl) + core.ContractSizeOverhead
+	}
+
+	// remove signature field from size check (signatures are checked separately)
+	txClone.Signature = nil
+
 	// check raw data size without data and contracts
-	transactionRaw, err := inTx.protoMarshalizer.Marshal(tx.RawData)
+	transactionRaw, err := inTx.protoMarshalizer.Marshal(txClone.RawData)
 	if err != nil {
 		return err
 	}
 
-	if len(transactionRaw)-contractsSize-dataSize >= core.MaxTransactionRaw {
+	// remove expected contract size and check if transaction raw is bigger than allowed
+	if len(transactionRaw)-contractsSize >= core.MaxTransactionRaw {
 		return common.ErrInvalidTransactionRawSize
 	}
 
-	// check transaction without transaction raw
-	transaction, err := inTx.protoMarshalizer.Marshal(tx)
+	// remove transaction raw from invalid fields checker (prevent unchecked values)
+	txClone.RawData = nil
+	transaction, err := inTx.protoMarshalizer.Marshal(txClone)
 	if err != nil {
 		return err
 	}
 
-	// Calculate expected protobuf overhead for signatures
-	numSignatures := len(tx.Signature)
-	expectedOverhead := core.BaseTransactionOverhead + (2 * numSignatures) // Base Overhead + 2 bytes per signature
-
-	// Calculate actual overhead (excluding signatures and raw data)
-	actualOverhead := len(transaction) - len(transactionRaw) - (len(tx.Signature) * 64) // 64 bytes per signature
-
-	// Verify if actual overhead matches expected pattern
-	if actualOverhead > expectedOverhead {
-		return common.ErrInvalidTransactionSize
-	}
-
-	if len(transaction)-len(transactionRaw) >= core.MaxTxSize {
+	// transaction must be empty after `PrepareForProcessing`, removing raw data and signatures
+	if len(transaction) > 0 && string(transaction) != common.EmptyJSonMarshalData {
 		return common.ErrInvalidTransactionSize
 	}
 

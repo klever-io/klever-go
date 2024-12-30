@@ -4,12 +4,20 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"google.golang.org/protobuf/proto"
+)
+
+// Constants for URL prefixes to improve maintainability and avoid magic strings
+const (
+	protoURLPrefix = "type.googleapis.com/proto."
+	typeURLPrefix  = "type.googleapis.com/"
+	typeSuffix     = "Type"
 )
 
 type contractValidate interface {
@@ -782,11 +790,45 @@ func (tc *SmartContract) Validate(fc core.ForkController) error {
 	return nil
 }
 
-func IsContractSizeValid(contract []byte, contractType uint32) bool {
-	// #nosec G115
-	contractSize, ok := ContractMaxSizes[TXContract_ContractType(contractType)]
+func IsContractSizeValid(contract []byte, contractType TXContract_ContractType) bool {
+	contractSize, ok := ContractMaxSizes[contractType]
 	if !ok {
 		return false
 	}
+
 	return len(contract) <= contractSize
+}
+
+// getCanonicalName returns the canonical name for a contract type,
+func getCanonicalName(contractType TXContract_ContractType) string {
+	// Compute canonical name
+	contractName := TXContract_ContractType_name[int32(contractType)] // #nosec G115
+	canonicalName := strings.TrimSuffix(contractName, typeSuffix)
+
+	return canonicalName
+}
+
+// cleanTypeURL removes known prefixes from the type URL
+func cleanTypeURL(typeURL string) string {
+	// Remove prefixes in order of specificity
+	typeURL = strings.Replace(typeURL, protoURLPrefix, "", 1)
+	typeURL = strings.Replace(typeURL, typeURLPrefix, "", 1)
+	return typeURL
+}
+
+// IsValidTypeURL checks if the typeURL is valid for the contract type
+// It returns true if the typeURL is empty or matches the contract type (prefix excluded)
+func IsValidTypeURL(typeURL string, contractType TXContract_ContractType) bool {
+	// Empty URLs are considered valid
+	if len(typeURL) == 0 {
+		return true
+	}
+
+	// Get canonical name from cache or compute it
+	canonicalName := getCanonicalName(contractType)
+
+	// Clean the provided typeURL by removing prefixes
+	cleanURL := cleanTypeURL(typeURL)
+
+	return cleanURL == canonicalName
 }

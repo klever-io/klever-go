@@ -4,8 +4,9 @@ import "github.com/klever-io/klever-go/crypto"
 
 // SingleSignerStub -
 type SingleSignerStub struct {
-	SignCalled   func(private crypto.PrivateKey, msg []byte) ([]byte, error)
-	VerifyCalled func(public crypto.PublicKey, msg []byte, sig []byte) error
+	SignCalled    func(private crypto.PrivateKey, msg []byte) ([]byte, error)
+	VerifyCalled  func(public crypto.PublicKey, msg []byte, sig []byte) error
+	SigSizeCalled func() int
 }
 
 // Sign -
@@ -24,6 +25,15 @@ func (s *SingleSignerStub) Verify(public crypto.PublicKey, msg []byte, sig []byt
 	}
 
 	return nil
+}
+
+// SignatureSize returns the size of the signature
+func (s *SingleSignerStub) SignatureSize() int {
+	if s.SigSizeCalled != nil {
+		return s.SigSizeCalled()
+	}
+
+	return 0
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

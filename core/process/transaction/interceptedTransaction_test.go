@@ -2,6 +2,7 @@ package transaction_test
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -24,15 +25,25 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 var errSingleSignKeyGenMock = errors.New("errSingleSignKeyGenMock")
 var errSignerMockVerifySigFails = errors.New("errSignerMockVerifySigFails")
 
+const defaultSigSize = 64
+
 func makeAddress(addr string) []byte {
 	result := make([]byte, 32)
 	copy(result, addr)
 	return result
+}
+
+func mockSig(size int) []byte {
+	// random 64 bytes signature
+	randSig := make([]byte, size)
+	_, _ = rand.Read(randSig)
+	return randSig
 }
 
 var senderAddress = makeAddress("12345678123456781234567812345678")
@@ -52,6 +63,9 @@ func createDummySigner() crypto.SingleSigner {
 				return errSignerMockVerifySigFails
 			}
 			return nil
+		},
+		SigSizeStub: func() int {
+			return 64
 		},
 	}
 }
@@ -634,7 +648,7 @@ func TestInterceptedTransaction_TransactionWithNilChainIDShouldErr(t *testing.T)
 	assert.Equal(t, process.ErrInvalidChainID, err)
 }
 
-func TestInterceptedTransaction_CheckValidityOkValsShouldWork(t *testing.T) {
+func TestInterceptedTransaction_CheckValidityPriorForkShouldWork(t *testing.T) {
 	t.Parallel()
 
 	minTxVersion := uint32(1)
@@ -655,21 +669,21 @@ func TestInterceptedTransaction_CheckValidityOkValsShouldWork(t *testing.T) {
 func TestInterceptedTransaction_CheckSizeValidityShouldWork(t *testing.T) {
 	t.Parallel()
 
-	chainId := make([]byte, core.MaxLengthForAssetTicker)
+	chainID := []byte("chain")
 
 	tx := dataTransaction.NewBaseTransaction(senderAddress, math.MaxInt64, [][]byte{}, math.MaxInt64, math.MaxInt64)
 	tx.RawData.KDAFee = &dataTransaction.Transaction_KDAFee{
 		KDA:    make([]byte, core.MaxLengthForAssetTicker),
 		Amount: math.MaxInt64,
 	}
-	tx.SetChainID(chainId)
+	tx.SetChainID(chainID)
 	tx.RawData.PermissionID = math.MaxInt32
 	tx.Signature = append(tx.Signature, sigOk)
 
 	err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 10)
 	assert.Nil(t, err)
 
-	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainId, 1, &mock.ForkControllerStub{
+	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainID, 1, &mock.ForkControllerStub{
 		EnableSmartContractsValue: true,
 	})
 	assert.Nil(t, err)
@@ -678,24 +692,52 @@ func TestInterceptedTransaction_CheckSizeValidityShouldWork(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-func TestInterceptedTransaction_CheckSizeValidityShoulFail(t *testing.T) {
+func TestInterceptedTransaction_CheckSizeValidityMultiTransactionsShouldWork(t *testing.T) {
 	t.Parallel()
 
-	chainId := make([]byte, core.MaxTxSize+1)
+	chainID := []byte("chain")
 
 	tx := dataTransaction.NewBaseTransaction(senderAddress, math.MaxInt64, [][]byte{}, math.MaxInt64, math.MaxInt64)
 	tx.RawData.KDAFee = &dataTransaction.Transaction_KDAFee{
 		KDA:    make([]byte, core.MaxLengthForAssetTicker),
 		Amount: math.MaxInt64,
 	}
-	tx.SetChainID(chainId)
+	tx.SetChainID(chainID)
+	tx.RawData.PermissionID = math.MaxInt32
+	tx.Signature = append(tx.Signature, sigOk)
+
+	for i := 0; i < 20; i++ {
+		err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 100000)
+		require.Nil(t, err)
+	}
+
+	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainID, 1, &mock.ForkControllerStub{
+		EnableSmartContractsValue: true,
+	})
+	assert.Nil(t, err)
+
+	err = txi.CheckValidity()
+	assert.Nil(t, err)
+}
+
+func TestInterceptedTransaction_CheckSizeValidityShouldFail(t *testing.T) {
+	t.Parallel()
+
+	chainID := make([]byte, core.MaxTxSize+1)
+
+	tx := dataTransaction.NewBaseTransaction(senderAddress, math.MaxInt64, [][]byte{}, math.MaxInt64, math.MaxInt64)
+	tx.RawData.KDAFee = &dataTransaction.Transaction_KDAFee{
+		KDA:    make([]byte, core.MaxLengthForAssetTicker),
+		Amount: math.MaxInt64,
+	}
+	tx.SetChainID(chainID)
 	tx.RawData.PermissionID = math.MaxInt32
 	tx.Signature = append(tx.Signature, sigOk)
 
 	err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 10)
 	assert.Nil(t, err)
 
-	txi, err := createInterceptedTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainId, 1, &mock.ForkControllerStub{
+	txi, err := createInterceptedTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainID, 1, &mock.ForkControllerStub{
 		EnableSmartContractsValue: true,
 	})
 	assert.Nil(t, err)
@@ -708,18 +750,18 @@ func TestInterceptedTransaction_CheckSizeValidityShoulFail(t *testing.T) {
 func TestInterceptedTransaction_CheckSizeValidityShouldWork_MultipleSigners(t *testing.T) {
 	t.Parallel()
 
-	chainId := make([]byte, core.MaxLengthForAssetTicker)
+	chainID := []byte("chain")
 
 	tx := dataTransaction.NewBaseTransaction(sender, math.MaxInt64, [][]byte{}, math.MaxInt64, math.MaxInt64)
 	tx.RawData.KDAFee = &dataTransaction.Transaction_KDAFee{
 		KDA:    make([]byte, core.MaxLengthForAssetTicker),
 		Amount: math.MaxInt64,
 	}
-	tx.SetChainID(chainId)
+	tx.SetChainID(chainID)
 	tx.RawData.PermissionID = math.MaxInt32
 	signatures := make([][]byte, 0)
 	for i := 0; i < core.MaxPermissionSigners; i++ {
-		signatures = append(signatures, sigOk)
+		signatures = append(signatures, mockSig(defaultSigSize))
 	}
 	tx.Signature = signatures
 
@@ -729,7 +771,7 @@ func TestInterceptedTransaction_CheckSizeValidityShouldWork_MultipleSigners(t *t
 	tx.GasLimit = math.MaxUint64
 	tx.GasMultiplier = math.MaxUint64
 
-	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainId, 1, &mock.ForkControllerStub{
+	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainID, 1, &mock.ForkControllerStub{
 		EnableSmartContractsValue: true,
 	})
 
@@ -742,53 +784,140 @@ func TestInterceptedTransaction_CheckSizeValidityShouldWork_MultipleSigners(t *t
 func TestInterceptedTransaction_CheckSizeValidityShouldWork_SmartContractOverhead(t *testing.T) {
 	t.Parallel()
 
-	chainId := make([]byte, core.MaxLengthForAssetTicker)
+	chainID := []byte("chain")
 	data := make([][]byte, 1)
-	data[0] = bytes.Repeat([]byte{255}, core.MegabyteSize-1)
+	data[0] = bytes.Repeat([]byte{255}, core.MaxDataSize-1)
 
 	tx := dataTransaction.NewBaseTransaction(sender, math.MaxInt64, data, math.MaxInt64, math.MaxInt64)
 	tx.RawData.KDAFee = &dataTransaction.Transaction_KDAFee{
 		KDA:    make([]byte, core.MaxLengthForAssetTicker),
 		Amount: math.MaxInt64,
 	}
-	tx.SetChainID(chainId)
+	tx.SetChainID(chainID)
 	tx.RawData.PermissionID = math.MaxInt32
 	signatures := make([][]byte, 0)
 	for i := 0; i < core.MaxPermissionSigners; i++ {
-		signatures = append(signatures, sigOk)
+		signatures = append(signatures, mockSig(defaultSigSize))
 	}
 	tx.Signature = signatures
 
-	err := AddSmartContract(tx, createMockPubkeyConverter(), senderAddress)
+	err := AddDeploySmartContract(tx, createMockPubkeyConverter(), senderAddress)
 	assert.Nil(t, err)
 
 	tx.GasLimit = math.MaxUint64
 	tx.GasMultiplier = math.MaxUint64
 
-	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainId, 1, &mock.ForkControllerStub{
+	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainID, 1, &mock.ForkControllerStub{
 		EnableSmartContractsValue: true,
 	})
 	assert.Nil(t, err)
 
 	err = txi.CheckValidity()
-	assert.Error(t, err)
+	assert.Nil(t, err)
+}
+
+func TestInterceptedTransaction_MaxDataSizeShouldFail(t *testing.T) {
+	t.Parallel()
+
+	chainID := []byte("chain")
+	data := make([][]byte, 1)
+	data[0] = bytes.Repeat([]byte{255}, core.MaxDataSize)
+
+	tx := dataTransaction.NewBaseTransaction(sender, math.MaxInt64, data, math.MaxInt64, math.MaxInt64)
+	err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 10)
+	assert.Nil(t, err)
+
+	tx.SetChainID(chainID)
+	tx.GasLimit = math.MaxUint64
+	tx.GasMultiplier = math.MaxUint64
+	tx.Signature = append(tx.Signature, sigOk)
+
+	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainID, 1, &mock.ForkControllerStub{
+		EnableSmartContractsValue: true,
+	})
+	assert.Nil(t, err)
+
+	err = txi.CheckValidity()
+	assert.Equal(t, common.ErrDataFieldTooBig, err)
+}
+
+func TestInterceptedTransaction_MaxContractSizeShouldFail(t *testing.T) {
+	t.Parallel()
+
+	chainID := []byte("chain")
+	data := make([][]byte, 1)
+
+	tx := dataTransaction.NewBaseTransaction(sender, math.MaxInt64, data, math.MaxInt64, math.MaxInt64)
+	// add invalid contract data
+	tx.RawData.Contract = []*dataTransaction.TXContract{
+		{
+			Type: dataTransaction.TXContract_TransferContractType,
+			Parameter: &anypb.Any{
+				Value: make([]byte, dataTransaction.ContractMaxSizes[dataTransaction.TXContract_TransferContractType]+1),
+			},
+		},
+	}
+
+	tx.SetChainID(chainID)
+	tx.GasLimit = math.MaxUint64
+	tx.GasMultiplier = math.MaxUint64
+	tx.Signature = append(tx.Signature, sigOk)
+
+	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainID, 1, &mock.ForkControllerStub{
+		EnableSmartContractsValue: true,
+	})
+	assert.Nil(t, err)
+
+	err = txi.CheckValidity()
+	assert.Equal(t, common.ErrInvalidContractSize, err)
+}
+
+func TestInterceptedTransaction_InvalidContractMarshalShouldFail(t *testing.T) {
+	t.Parallel()
+
+	chainID := []byte("chain")
+	data := make([][]byte, 1)
+
+	tx := dataTransaction.NewBaseTransaction(sender, math.MaxInt64, data, math.MaxInt64, math.MaxInt64)
+	// add invalid contract data
+	tx.RawData.Contract = []*dataTransaction.TXContract{
+		{
+			Type: dataTransaction.TXContract_TransferContractType,
+			Parameter: &anypb.Any{
+				Value: make([]byte, 10),
+			},
+		},
+	}
+
+	tx.SetChainID(chainID)
+	tx.GasLimit = math.MaxUint64
+	tx.GasMultiplier = math.MaxUint64
+	tx.Signature = append(tx.Signature, sigOk)
+
+	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainID, 1, &mock.ForkControllerStub{
+		EnableSmartContractsValue: true,
+	})
+	assert.Nil(t, err)
+
+	err = txi.CheckValidity()
+	assert.Contains(t, err.Error(), "mismatched message type:")
 }
 
 func TestInterceptedTransaction_CheckSizeValidityShouldFail_MultipleSigners(t *testing.T) {
 	t.Parallel()
 
-	chainId := make([]byte, core.MaxLengthForAssetTicker)
+	chainID := []byte("chain")
 
 	tx := dataTransaction.NewBaseTransaction(senderAddress, math.MaxInt64, [][]byte{}, math.MaxInt64, math.MaxInt64)
 	tx.RawData.KDAFee = &dataTransaction.Transaction_KDAFee{
 		KDA:    make([]byte, core.MaxLengthForAssetTicker),
 		Amount: math.MaxInt64,
 	}
-	tx.SetChainID(chainId)
+	tx.SetChainID(chainID)
 	tx.RawData.PermissionID = math.MaxInt32
 	signatures := make([][]byte, 0)
 	for i := 0; i < core.MaxPermissionSigners+1; i++ {
-		signatures = append(signatures, sigOk)
+		signatures = append(signatures, mockSig(defaultSigSize))
 	}
 	tx.Signature = signatures
 
@@ -798,15 +927,14 @@ func TestInterceptedTransaction_CheckSizeValidityShouldFail_MultipleSigners(t *t
 	tx.GasLimit = math.MaxUint64
 	tx.GasMultiplier = math.MaxUint64
 
-	txi, err := createInterceptedTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainId, 1, &mock.ForkControllerStub{
+	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainID, 1, &mock.ForkControllerStub{
 		EnableSmartContractsValue: true,
 	})
 
 	assert.Nil(t, err)
 
 	err = txi.CheckValidity()
-	require.NotNil(t, err)
-	assert.Equal(t, common.ErrInvalidTransactionSize, err)
+	assert.Equal(t, common.ErrExceedsMaxSignatures, err)
 }
 
 func TestInterceptedTransaction_OkValsGettersShouldWork(t *testing.T) {
@@ -841,6 +969,29 @@ func TestInterceptedTransaction_GetSenderAddress(t *testing.T) {
 	assert.Nil(t, err)
 	result := txi.SenderAddress()
 	assert.NotNil(t, result)
+}
+
+func TestInterceptedTransaction_InvalidTransactionSize(t *testing.T) {
+	t.Parallel()
+
+	dataHex := "0a9b01080112201df232332e62e12414ce5605ee58c1341de9099683306eb188f69a8cb8825ce3326312610a2a747970652e676f6f676c65617069732e636f6d2f70726f746f2e5472616e73666572436f6e747261637412330a20e360b34b852a780dc298835e3296ddb0b74a75d181e25769fa210ce232bcf0d4120a474f48414e2d315a445518bfc5b20b520068c0843d70c0843d78018201033130381240e3363519d3ebc30ad57943eac548c74bc5215b01d7d5a9d289f0fc15554ae5be099d5e3633b4a6a445321c78e63b61e1c284aa3d92224db5358b669c9b36960730015207696e76616c6964"
+	data, err := hex.DecodeString(dataHex)
+	require.Nil(t, err)
+
+	chainID := []byte("108")
+
+	tx := &dataTransaction.Transaction{}
+	marshalizer := &mock.ProtoMarshalizerMock{}
+	err = marshalizer.Unmarshal(tx, data)
+	require.Nil(t, err)
+
+	txi, err := createInterceptedProtoTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainID, 1, &mock.ForkControllerStub{
+		EnableSmartContractsValue: true,
+	})
+	assert.Nil(t, err)
+
+	err = txi.CheckValidity()
+	assert.Equal(t, common.ErrInvalidTransactionSize, err)
 }
 
 // ------- IsInterfaceNil
@@ -956,15 +1107,13 @@ func AddTransfer(tx *dataTransaction.Transaction,
 	return AddTransaction(tx, sender, contract, addressPubkeyConverter, dataTransaction.TXContract_TransferContractType)
 }
 
-func AddSmartContract(tx *dataTransaction.Transaction,
+func AddDeploySmartContract(tx *dataTransaction.Transaction,
 	addressPubkeyConverter core.PubkeyConverter,
 	sender []byte) error {
 
-	senderAddress := addressPubkeyConverter.Encode(sender)
-
 	contract := &models.SmartContractRequest{
 		SCType:    int32(dataTransaction.SmartContract_SCDeploy),
-		Address:   senderAddress,
+		Address:   "",
 		CallValue: make(map[string]int64, 0),
 	}
 
@@ -1005,6 +1154,9 @@ func AddTransaction(tx *dataTransaction.Transaction, sender []byte, contract int
 func TestInterceptedTransaction_CheckTXSignature(t *testing.T) {
 	t.Parallel()
 
+	sig1 := mockSig(defaultSigSize)
+	sig2 := mockSig(defaultSigSize)
+
 	tests := []struct {
 		name          string
 		signatures    [][]byte
@@ -1013,21 +1165,26 @@ func TestInterceptedTransaction_CheckTXSignature(t *testing.T) {
 		{
 			name:          "EmptySignature",
 			signatures:    [][]byte{},
-			expectedError: common.ErrInvalidSignatureLength,
+			expectedError: common.ErrNoSignatures,
 		},
 		{
 			name:          "TooManySignatures",
 			signatures:    make([][]byte, core.MaxPermissionSigners+1),
+			expectedError: common.ErrExceedsMaxSignatures,
+		},
+		{
+			name:          "InvalidSignatureLength",
+			signatures:    [][]byte{sig1, make([]byte, 0)},
 			expectedError: common.ErrInvalidSignatureLength,
 		},
 		{
 			name:          "DuplicateSignature",
-			signatures:    [][]byte{[]byte("sig1"), []byte("sig1")},
+			signatures:    [][]byte{sig1, sig1},
 			expectedError: common.ErrDupSignature,
 		},
 		{
 			name:          "ValidSignatures",
-			signatures:    [][]byte{[]byte("sig1"), []byte("sig2")},
+			signatures:    [][]byte{sig1, sig2},
 			expectedError: nil,
 		},
 	}

@@ -18,6 +18,11 @@ func (dss *DisabledSingleSig) Verify(_ crypto.PublicKey, _ []byte, _ []byte) err
 	return nil
 }
 
+// SignatureSize returns the size of the signature
+func (dss *DisabledSingleSig) SignatureSize() int {
+	return 0
+}
+
 // IsInterfaceNil returns true if there is no value under the interface
 func (dss *DisabledSingleSig) IsInterfaceNil() bool {
 	return dss == nil

@@ -51,6 +51,8 @@ func NewBaseTransaction(sender []byte, nonce uint64, data [][]byte, kAppFee int6
 
 // PrepareForProcessing clear TX previous processing results
 func (t *Transaction) PrepareForProcessing() {
+	// reset to proto default values
+	// values will be updated during processing
 	t.Receipts = make([]*Transaction_Receipt, 0)
 	t.Block = 0
 	t.GasLimit = 0
@@ -173,7 +175,9 @@ func (t *Transaction) AddTransaction(txArgs TXArgs) error {
 	var err error
 
 	// #nosec G115
-	switch TXContract_ContractType(txArgs.Type) {
+	contractType := TXContract_ContractType(txArgs.Type)
+
+	switch contractType {
 	case TXContract_TransferContractType:
 		err = t.addTransfer(txArgs)
 	case TXContract_CreateAssetContractType:
@@ -230,11 +234,21 @@ func (t *Transaction) AddTransaction(txArgs TXArgs) error {
 		return common.ErrInvalidTransactionType
 	}
 
-	if !IsContractSizeValid(txArgs.Contract, txArgs.Type) {
+	if err != nil {
+		return err
+	}
+
+	lastContract := t.RawData.Contract[len(t.RawData.Contract)-1]
+
+	if !IsContractSizeValid(lastContract.GetParameter().Value, contractType) {
 		return common.ErrInvalidContractSize
 	}
 
-	return err
+	if !IsValidTypeURL(lastContract.GetParameter().TypeUrl, contractType) {
+		return common.ErrInvalidContractTypeURL
+	}
+
+	return nil
 }
 
 func (t *Transaction) PushContract(cType TXContract_ContractType, contract protoreflect.ProtoMessage) error {

@@ -170,6 +170,8 @@ type SingleSigner interface {
 	Sign(private PrivateKey, msg []byte) ([]byte, error)
 	// Verify is used to verify a signed message
 	Verify(public PublicKey, msg []byte, sig []byte) error
+	// SignatureSize returns the size of the signature
+	SignatureSize() int
 	// IsInterfaceNil returns true if there is no value under the interface
 	IsInterfaceNil() bool
 }

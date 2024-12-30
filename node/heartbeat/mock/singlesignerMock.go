@@ -26,6 +26,10 @@ func (s *SinglesignMock) Verify(_ crypto.PublicKey, _ []byte, sig []byte) error 
 	return nil
 }
 
+func (s *SinglesignMock) SignatureSize() int {
+	return len("signed")
+}
+
 // IsInterfaceNil -
 func (s *SinglesignMock) IsInterfaceNil() bool {
 	return s == nil
@@ -45,6 +49,10 @@ func (s *SinglesignFailMock) Verify(_ crypto.PublicKey, _ []byte, _ []byte) erro
 	return errors.New("signature verification failure")
 }
 
+func (s *SinglesignFailMock) SignatureSize() int {
+	return 0
+}
+
 // IsInterfaceNil -
 func (s *SinglesignFailMock) IsInterfaceNil() bool {
 	return s == nil
@@ -52,8 +60,9 @@ func (s *SinglesignFailMock) IsInterfaceNil() bool {
 
 // SinglesignStub -
 type SinglesignStub struct {
-	SignCalled   func(private crypto.PrivateKey, msg []byte) ([]byte, error)
-	VerifyCalled func(public crypto.PublicKey, msg []byte, sig []byte) error
+	SignCalled    func(private crypto.PrivateKey, msg []byte) ([]byte, error)
+	VerifyCalled  func(public crypto.PublicKey, msg []byte, sig []byte) error
+	SigSizeCalled func() int
 }
 
 // Sign -
@@ -64,6 +73,10 @@ func (s *SinglesignStub) Sign(private crypto.PrivateKey, msg []byte) ([]byte, er
 // Verify -
 func (s *SinglesignStub) Verify(public crypto.PublicKey, msg []byte, sig []byte) error {
 	return s.VerifyCalled(public, msg, sig)
+}
+
+func (s *SinglesignStub) SignatureSize() int {
+	return s.SigSizeCalled()
 }
 
 // IsInterfaceNil -

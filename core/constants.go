@@ -287,10 +287,16 @@ const MinGasLimit = 50_000
 const MaxGasBandwidthPerBatchPerSender = 50_000_000
 
 // MaxTransactionRaw defines the maximum size of the raw data without contracts and message data
-const MaxTransactionRaw = 420
+const MaxTransactionRaw = 200
 
 // MaxTxSize defines the maximum size of a tx without contracts and message data
 const MaxTxSize = 1900
+
+// MaxDataSize defines the maximum size of a data field
+const MaxDataSize = 1024 * 1024 // 1MB
+
+// MaxDataSizeOld defines the maximum size of a data field
+const MaxDataSizeOld = 2 * 1024 * 1024 // 2MB
 
 // MaxBytesToDecode defines the maximum number of bytes that can be decoded from VM
 const MaxBytesToDecode = 1 << 12 // 4KB
@@ -298,5 +304,5 @@ const MaxBytesToDecode = 1 << 12 // 4KB
 // MaxBytesBigInt defines the maximum number of bytes that can be allocated for a big int decode
 const MaxBytesBigInt = 512
 
-// BaseTransactionOverhead defines base overhead for a transaction
-const BaseTransactionOverhead = 10 // calculated base overhead for a transactions is 10 bytes
+// ContractSizeOverhead defines the overhead of a contract
+const ContractSizeOverhead = 8 // max 5 bytes type Any encode + max 3 bytes contract array encode

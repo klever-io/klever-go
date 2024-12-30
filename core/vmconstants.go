@@ -14,9 +14,6 @@ const (
 	ShardHeaderV2 HeaderType = "HeaderV2"
 )
 
-// MegabyteSize represents the size in bytes of a megabyte
-const MegabyteSize = 1024 * 1024
-
 // KDAType defines the possible types in case of KDA tokens
 type KDAType uint32
 

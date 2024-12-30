@@ -479,11 +479,20 @@ func TestIsContractSizeValid(t *testing.T) {
 		t.Run(tt.description, func(t *testing.T) {
 			require := require.New(t)
 
-			result := transaction.IsContractSizeValid(tt.contract, uint32(tt.contractType))
+			result := transaction.IsContractSizeValid(tt.contract, tt.contractType)
 			require.Equal(tt.expectedResult, result)
 		})
 	}
 
+}
+
+func TestIsContractSizeValid_CheckAllContractsExists(t *testing.T) {
+	for name, id := range transaction.TXContract_ContractType_value {
+		contractType := transaction.TXContract_ContractType(id)
+		// dummy contract
+		contract := make([]byte, 1)
+		require.True(t, transaction.IsContractSizeValid(contract, contractType), name)
+	}
 }
 
 // helpers
@@ -1929,6 +1938,54 @@ func TestTXContractValidate(t *testing.T) {
 				require.Contains(t, err.Error(), tt.errorMsg)
 			} else {
 				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestTypeURLValidator_IsValidTypeURL(t *testing.T) {
+	tests := []struct {
+		name         string
+		typeURL      string
+		contractType transaction.TXContract_ContractType
+		want         bool
+	}{
+		{
+			name:         "empty URL",
+			typeURL:      "",
+			contractType: transaction.TXContract_TransferContractType,
+			want:         true,
+		},
+		{
+			name:         "valid URL with proto prefix",
+			typeURL:      "type.googleapis.com/proto.TransferContract",
+			contractType: transaction.TXContract_TransferContractType,
+			want:         true,
+		},
+		{
+			name:         "valid URL with type prefix",
+			typeURL:      "type.googleapis.com/TransferContract",
+			contractType: transaction.TXContract_TransferContractType,
+			want:         true,
+		},
+		{
+			name:         "valid URL without prefix",
+			typeURL:      "TransferContract",
+			contractType: transaction.TXContract_TransferContractType,
+			want:         true,
+		},
+		{
+			name:         "invalid URL",
+			typeURL:      "InvalidType",
+			contractType: transaction.TXContract_TransferContractType,
+			want:         false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := transaction.IsValidTypeURL(tt.typeURL, tt.contractType); got != tt.want {
+				t.Errorf("IsValidTypeURL() = %v, want %v", got, tt.want)
 			}
 		})
 	}

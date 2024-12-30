@@ -51,6 +51,10 @@ func (e *Ed25519Signer) Verify(public crypto.PublicKey, msg []byte, sig []byte) 
 	return nil
 }
 
+func (e *Ed25519Signer) SignatureSize() int {
+	return ed25519.SignatureSize
+}
+
 // IsInterfaceNil returns true if there is no value under the interface
 func (e *Ed25519Signer) IsInterfaceNil() bool {
 	return e == nil

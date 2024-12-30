@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/core"
 	disabledSig "github.com/klever-io/klever-go/crypto/signing/disabled/singlesig"
 	"github.com/klever-io/klever-go/network/api/models"
-	"github.com/klever-io/klever-go/tools"
 
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
@@ -249,7 +249,7 @@ func TestCreateTransaction_ShouldFail(t *testing.T) {
 		Asset:    "token",
 	})
 
-	byteSlice := make([]byte, tools.MegabyteSize+1)
+	byteSlice := make([]byte, core.MaxDataSize+1)
 
 	baseInfo := &transaction.TXBaseInfo{
 		Sender:    createDummyHexAddress(64),

@@ -17,6 +17,7 @@ var ContractMaxSizes = map[TXContract_ContractType]int{
 	TXContract_ProposalContractType:                3200,
 	TXContract_VoteContractType:                    100,
 	TXContract_ConfigITOContractType:               1100000,
+	TXContract_SetITOPricesContractType:            1800,
 	TXContract_BuyContractType:                     160,
 	TXContract_SellContractType:                    260,
 	TXContract_CancelMarketOrderContractType:       90,

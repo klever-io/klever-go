@@ -114,7 +114,7 @@ func (n *Node) validateTransactionInputs(base *transaction.TXBaseInfo, contracts
 	for _, slice := range base.DataField {
 		totalSize += len(slice)
 	}
-	if totalSize > tools.MegabyteSize {
+	if totalSize > core.MaxDataSize {
 		return common.ErrDataFieldTooBig
 	}
 

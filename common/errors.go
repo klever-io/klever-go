@@ -445,6 +445,12 @@ var ErrInvalidChainID = errors.New("invalid chain ID")
 // ErrInvalidSignatureLength signals that an invalid signature length has been provided
 var ErrInvalidSignatureLength = errors.New("invalid signature length")
 
+// ErrExceedsMaxSignatures signals that the number of signatures exceeds the maximum allowed limit
+var ErrExceedsMaxSignatures = errors.New("exceeds maximum allowed signatures")
+
+// ErrNoSignatures signals that a transaction has no signatures provided
+var ErrNoSignatures = errors.New("no signatures provided")
+
 // ErrInvalidSenderUsernameLength signals that the length of the sender username is invalid
 var ErrInvalidSenderUsernameLength = errors.New("invalid sender username length")
 
@@ -864,6 +870,9 @@ var ErrInvalidReceiverAddress = errors.New("could not create receiver address fr
 
 // ErrInvalidContractSize signals contract size is too big
 var ErrInvalidContractSize = errors.New("contract size is too big")
+
+// ErrInvalidContractTypeURL signals contract type URL is invalid
+var ErrInvalidContractTypeURL = errors.New("contract type URL is invalid")
 
 // ErrInvalidTransactionSize signals transaction size is too big
 var ErrInvalidTransactionSize = errors.New("transaction size is too big")

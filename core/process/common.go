@@ -48,10 +48,10 @@ func GetHeaderFromPoolWithNonce(
 
 	// check if signed
 	if hdr.ProducerSignature == nil || hdr.Signature == nil {
-		log.Trace("GetHeaderFromPoolWithNonce.RemoveHeaderByNonce", "nonce", nonce)
+		log.Trace("GetHeaderFromPoolWithNonce.RemoveHeaderByNonce no signature provided", "nonce", nonce)
 		headersCacher.RemoveHeaderByNonce(nonce)
 
-		return nil, nil, common.ErrInvalidSignatureLength
+		return nil, nil, common.ErrNoSignatures
 	}
 
 	return hdr, hash, nil

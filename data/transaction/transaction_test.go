@@ -731,11 +731,8 @@ func TestAddTransactionAdditionalCases(t *testing.T) {
 
 // Helper function to create a huge JSON for testing contract size limits
 func makeHugeJSON() string {
-	hugePadding := make([]byte, 1024*1024) // 1MB of data
-	for i := range hugePadding {
-		hugePadding[i] = 'x'
-	}
-	return `{"receiver": "klv17e8zzgn73h6ehe3c6q9vlt77kuxk5euddmhymy5uhv2rhv0dc0nqlfp0ap", "padding": "` + string(hugePadding) + `"}`
+	hugePadding := bytes.Repeat([]byte("x"), 1024*1024) // 1MB of data
+	return `{"receiver": "klv17e8zzgn73h6ehe3c6q9vlt77kuxk5euddmhymy5uhv2rhv0dc0nqlfp0ap", "kda": "` + string(hugePadding) + `"}`
 }
 
 func TestValidatePermission(t *testing.T) {
