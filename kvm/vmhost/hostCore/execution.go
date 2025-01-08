@@ -203,6 +203,24 @@ func (host *vmHost) checkGasForGetCode(input *vmcommon.ContractCallInput, meteri
 
 // doRunSmartContractDelete deletes a contract directly
 func (host *vmHost) doRunSmartContractDelete(input *vmcommon.ContractCallInput) *vmcommon.VMOutput {
+	host.InitState()
+	defer func() {
+		errs := host.GetRuntimeErrors()
+		if errs != nil {
+			log.Trace(fmt.Sprintf("doRunSmartContractDelete full error list for %s", input.Function), "error", errs)
+		}
+	}()
+
+	_, _, metering, _, runtime, storage := host.GetContexts()
+
+	runtime.InitStateFromContractCallInput(input)
+	metering.InitStateFromContractCallInput(&input.VMInput)
+	storage.SetAddress(runtime.GetContextAddress())
+
+	return host.doExecContractDelete(input)
+}
+
+func (host *vmHost) doExecContractDelete(input *vmcommon.ContractCallInput) *vmcommon.VMOutput {
 	output := host.Output()
 	err := host.checkUpgradePermission(input)
 	if err != nil {
@@ -801,7 +819,7 @@ func (host *vmHost) executeUpgrade(input *vmcommon.ContractCallInput) error {
 }
 
 func (host *vmHost) executeDelete(input *vmcommon.ContractCallInput) error {
-	host.doRunSmartContractDelete(input)
+	host.doExecContractDelete(input)
 	return nil
 }
 
