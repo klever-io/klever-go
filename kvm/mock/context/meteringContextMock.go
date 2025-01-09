@@ -183,6 +183,11 @@ func (m *MeteringContextMock) DeductInitialGasForIndirectDeployment(_ vmhost.Cod
 	return m.Err
 }
 
+// DeductInitialGasForDirectDelete mocked method
+func (m *MeteringContextMock) DeductInitialGasForDirectDelete() error {
+	return m.Err
+}
+
 // EnableRestoreGas mocked method
 func (m *MeteringContextMock) EnableRestoreGas() {}
 

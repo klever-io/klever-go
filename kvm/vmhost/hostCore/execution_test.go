@@ -180,3 +180,104 @@ func TestExecuteKDATransfer(t *testing.T) {
 	require.NotNil(t, vmOutput)
 	require.Equal(t, uint64(2), gasConsumed)
 }
+
+func TestExecution_DeleteContract(t *testing.T) {
+	hostParams := makeHostParameters()
+	accCacher := createFullArgumentsForKAppsProcessingMemory()
+	mockWorld := worldmock.NewMockWorld()
+	mockWorld.AccountsCacher = accCacher
+
+	_, err := accCacher.LoadKApp(kapps.ProposalKAppAddress)
+	require.NoError(t, err)
+	err = accCacher.SaveAll()
+	require.NoError(t, err)
+
+	mockWorld.InitBuiltinFunctions(hostParams.GasSchedule, hostParams.ForkController)
+
+	vmHost, err := hostCore.NewVMHost(mockWorld, hostParams)
+	require.NoError(t, err)
+
+	deleteGasCost := vmHost.Metering().GasSchedule().BaseOpsAPICost.CreateContract
+	extraGas := uint64(1000)
+
+	tests := []struct {
+		name                 string
+		callerAddr           []byte
+		gasProvided          uint64
+		expectedMsg          string
+		shouldDelete         bool
+		expectedGasRemaining uint64
+	}{
+		{
+			name:                 "successful delete with extra gas",
+			callerAddr:           testOwnerAddress,
+			gasProvided:          deleteGasCost + extraGas,
+			expectedMsg:          "",
+			shouldDelete:         true,
+			expectedGasRemaining: extraGas,
+		},
+		{
+			name:                 "exact gas provided for delete",
+			callerAddr:           testOwnerAddress,
+			gasProvided:          deleteGasCost,
+			expectedMsg:          "",
+			shouldDelete:         true,
+			expectedGasRemaining: 0,
+		},
+		{
+			name:                 "fail delete with insufficient gas",
+			callerAddr:           testOwnerAddress,
+			gasProvided:          deleteGasCost - 1,
+			expectedMsg:          vmhost.ErrNotEnoughGas.Error(),
+			shouldDelete:         false,
+			expectedGasRemaining: 0,
+		},
+		{
+			name:                 "fail delete from non-owner",
+			callerAddr:           []byte("not-owner"),
+			gasProvided:          deleteGasCost + extraGas,
+			expectedMsg:          vmhost.ErrUpgradeNotAllowed.Error(),
+			shouldDelete:         false,
+			expectedGasRemaining: 0,
+		},
+	}
+
+	scAddress := []byte("scAddress")
+	scAccount, err := accCacher.LoadUser(scAddress)
+	require.NoError(t, err)
+
+	scAccount.SetCode([]byte("dummy code"))
+	scAccount.SetOwnerAddress(testOwnerAddress)
+	scAccount.SetCodeMetadata([]byte{
+		vmcommon.MetadataUpgradeable,
+		0,
+	})
+	err = accCacher.SaveUser(scAccount)
+	require.NoError(t, err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := &vmcommon.ContractCallInput{
+				VMInput: vmcommon.VMInput{
+					CallerAddr:  tt.callerAddr,
+					GasProvided: tt.gasProvided,
+					CallType:    vm.DirectCall,
+				},
+				RecipientAddr: scAddress,
+				Function:      vmhost.DeleteFunctionName,
+			}
+
+			vmOutput, err := vmHost.RunSmartContractCall(input)
+			require.NoError(t, err)
+			require.NotNil(t, vmOutput)
+
+			if tt.shouldDelete {
+				require.Contains(t, vmOutput.DeletedAccounts, scAddress)
+				require.Equal(t, tt.expectedGasRemaining, vmOutput.GasRemaining)
+			} else {
+				require.Equal(t, tt.expectedMsg, vmOutput.ReturnMessage)
+				require.Empty(t, vmOutput.DeletedAccounts)
+			}
+		})
+	}
+}

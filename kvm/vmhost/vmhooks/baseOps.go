@@ -826,6 +826,7 @@ func (context *VMHooksImpl) DeleteContract(
 	metering := host.Metering()
 	metering.StartGasTracing(deleteContractName)
 
+	// use the same gas cost as create contract for delete contract
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.CreateContract
 	metering.UseAndTraceGas(gasToUse)
 

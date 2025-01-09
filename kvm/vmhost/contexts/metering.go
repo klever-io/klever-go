@@ -416,6 +416,16 @@ func (context *meteringContext) DeductInitialGasForIndirectDeployment(input vmho
 	)
 }
 
+// DeductInitialGasForDirectDelete deducts gas for the delete of a contract initiated by a Transaction
+func (context *meteringContext) DeductInitialGasForDirectDelete() error {
+	// use the same gas cost as create contract for delete contract, but no contract size/byte cost
+	return context.deductInitialGas(
+		nil,
+		context.gasSchedule.BaseOpsAPICost.CreateContract,
+		context.gasSchedule.BaseOperationCost.CompilePerByte,
+	)
+}
+
 // deductInitialGas deducts the initial gas for the execution of a contract, also called for contract deployments
 // can be called multiple times if the contract call deploys other contracts or calls other contracts
 func (context *meteringContext) deductInitialGas(

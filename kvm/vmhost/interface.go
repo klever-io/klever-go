@@ -280,6 +280,7 @@ type MeteringContext interface {
 	DeductInitialGasForExecution(contract []byte) error
 	DeductInitialGasForDirectDeployment(input CodeDeployInput) error
 	DeductInitialGasForIndirectDeployment(input CodeDeployInput) error
+	DeductInitialGasForDirectDelete() error
 	UseGasBounded(gasToUse uint64) error
 	UpdateGasStateOnSuccess(vmOutput *vmcommon.VMOutput) error
 	UpdateGasStateOnFailure(vmOutput *vmcommon.VMOutput)

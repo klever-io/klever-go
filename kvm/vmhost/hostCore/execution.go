@@ -202,7 +202,7 @@ func (host *vmHost) checkGasForGetCode(input *vmcommon.ContractCallInput, meteri
 }
 
 // doRunSmartContractDelete deletes a contract directly
-func (host *vmHost) doRunSmartContractDelete(input *vmcommon.ContractCallInput) *vmcommon.VMOutput {
+func (host *vmHost) doRunSmartContractDelete(input *vmcommon.ContractCallInput) (vmOutput *vmcommon.VMOutput) {
 	host.InitState()
 	defer func() {
 		errs := host.GetRuntimeErrors()
@@ -211,11 +211,21 @@ func (host *vmHost) doRunSmartContractDelete(input *vmcommon.ContractCallInput) 
 		}
 	}()
 
-	_, _, metering, _, runtime, storage := host.GetContexts()
+	_, _, metering, output, runtime, storage := host.GetContexts()
+
+	defer func() {
+		if vmOutput == nil || vmOutput.ReturnCode == vmcommon.VMExecutionFailed {
+			runtime.CleanInstance()
+		}
+	}()
 
 	runtime.InitStateFromContractCallInput(input)
 	metering.InitStateFromContractCallInput(&input.VMInput)
 	storage.SetAddress(runtime.GetContextAddress())
+
+	if err := metering.DeductInitialGasForDirectDelete(); err != nil {
+		return output.CreateVMOutputInCaseOfError(vmhost.ErrNotEnoughGas)
+	}
 
 	return host.doExecContractDelete(input)
 }
@@ -230,6 +240,7 @@ func (host *vmHost) doExecContractDelete(input *vmcommon.ContractCallInput) *vmc
 
 	vmOutput := output.GetVMOutput()
 	vmOutput.DeletedAccounts = append(vmOutput.DeletedAccounts, input.RecipientAddr)
+
 	return vmOutput
 }
 
