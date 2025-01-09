@@ -121,6 +121,7 @@ type BasicAccountsAdapter interface {
 	LoadAccount(address []byte) (AccountHandler, error)
 	SaveAccount(account AccountHandler) error
 	SaveAccounts(accounts ...AccountHandler) error
+	RemoveAccountCode(address []byte) error
 	RemoveAccount(address []byte) error
 	Commit() ([]byte, error)
 	JournalLen() int

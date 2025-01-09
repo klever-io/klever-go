@@ -448,15 +448,55 @@ func (adb *AccountsDB) saveAccountToTrie(accountHandler AccountHandler) error {
 	return adb.mainTrie.Update(accountHandler.AddressBytes(), buff)
 }
 
-// RemoveAccount removes the account data from underlying trie.
-// It basically calls Update with empty slice
-func (adb *AccountsDB) RemoveAccount(address []byte) error {
+// RemoveAccountCode removes the account code from the underlying trie.
+func (adb *AccountsDB) RemoveAccountCode(address []byte) error {
+	if len(address) == 0 {
+		return fmt.Errorf("%w in RemoveAccountCode", common.ErrNilAddress)
+	}
+
 	adb.mutOp.Lock()
 	defer adb.mutOp.Unlock()
 
+	acnt, err := adb.getAccount(address)
+	if err != nil {
+		return err
+	}
+	if check.IfNil(acnt) {
+		return fmt.Errorf("%w in RemoveAccountCode for address %s", common.ErrAccNotFound, address)
+	}
+
+	entry, err := NewJournalEntryAccount(acnt)
+	if err != nil {
+		return err
+	}
+	adb.journalize(entry)
+
+	userAcc, ok := acnt.(UserAccountHandler)
+	if !ok {
+		return nil
+	}
+
+	err = adb.removeCode(userAcc)
+	if err != nil {
+		return err
+	}
+
+	log.Trace("accountsDB.RemoveAccountCode",
+		"address", hex.EncodeToString(address),
+	)
+
+	return nil
+}
+
+// RemoveAccount removes the account data from underlying trie.
+// It basically calls Update with empty slice
+func (adb *AccountsDB) RemoveAccount(address []byte) error {
 	if len(address) == 0 {
 		return fmt.Errorf("%w in RemoveAccount", common.ErrNilAddress)
 	}
+
+	adb.mutOp.Lock()
+	defer adb.mutOp.Unlock()
 
 	acnt, err := adb.getAccount(address)
 	if err != nil {

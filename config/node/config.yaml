@@ -607,8 +607,6 @@ virtualMachine:
     wasmVMVersions:
       - startEpoch: 0
         version: "v1.0"
-      - startEpoch: 1
-        version: "v1.0"
 
   gasConfig:
     # The following values define the maximum amount of gas to be allocated for VM Queries coming from API

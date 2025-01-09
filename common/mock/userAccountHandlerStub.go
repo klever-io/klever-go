@@ -57,8 +57,6 @@ type UserAccountHandlerStub struct {
 	state.AccountHandler
 }
 
-// Methods
-
 func (u *UserAccountHandlerStub) SetCode(code []byte) {
 	if u.SetCodeCalled != nil {
 		u.SetCodeCalled(code)

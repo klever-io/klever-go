@@ -343,12 +343,6 @@ func (a *userAccount) SubInternalKDA(assetID []byte, internalID []byte) ([]byte,
 	return data, nil
 }
 
-func (a *userAccount) DeleteInternalKDA(assetID []byte, internalID []byte) error {
-	key := kdautils.ToKDAKey(assetID, internalID)
-
-	return a.dataTrieTracker.SaveKeyValue(key, nil)
-}
-
 // GetBalance returns the actual balance from the account
 func (a *userAccount) GetBalance(assetID []byte, cdd bool) int64 {
 	if assetID == nil || bytes.Equal(assetID, kdautils.KLVIdentifier) {

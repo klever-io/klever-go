@@ -44,6 +44,11 @@ func (m *MockAccountsAdapter) SaveAccount(account state.AccountHandler) error {
 	return m.World.AccountsCacher.SaveUser(account)
 }
 
+// RemoveAccountCode -
+func (m *MockAccountsAdapter) RemoveAccountCode(address []byte) error {
+	return nil
+}
+
 // RemoveAccount -
 func (m *MockAccountsAdapter) RemoveAccount(address []byte) error {
 	return nil

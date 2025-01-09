@@ -44,6 +44,11 @@ func (a *accountsAdapter) GetExistingAccount(_ []byte) (state.AccountHandler, er
 	return nil, nil
 }
 
+// RemoveAccountCode -
+func (a *accountsAdapter) RemoveAccountCode(_ []byte) error {
+	return nil
+}
+
 // RemoveAccount -
 func (a *accountsAdapter) RemoveAccount(_ []byte) error {
 	return nil

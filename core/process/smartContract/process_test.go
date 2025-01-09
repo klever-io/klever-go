@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/common/mock"
 	commommock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
@@ -32,7 +33,6 @@ import (
 	integrationTestsMock "github.com/klever-io/klever-go/integrationTest/mock"
 	"github.com/klever-io/klever-go/kapps"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
-	"github.com/klever-io/klever-go/sharding/mock"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/memorydb"
 	"github.com/klever-io/klever-go/storage/storageUnit"
@@ -1903,4 +1903,90 @@ func TestScProcessor_processVMOutput(t *testing.T) {
 
 	err = sc.processVMOutput(ctx, vmOutput)
 	require.Nil(t, err)
+}
+
+func TestScProcessor_DeleteAccounts(t *testing.T) {
+	t.Parallel()
+
+	addrOk := "addr1"
+	addrNotFound := "addr2"
+	addrNoCode := "addr3"
+	addrMult1 := "addr4"
+	addrMult2 := "addr5"
+	mockCodes := map[string][]byte{
+		addrOk:    []byte("code"),
+		addrMult1: []byte("code"),
+		addrMult2: []byte("code"),
+	}
+
+	makeMock := func(addr string) state.UserAccountHandler {
+		acc, err := state.NewUserAccount([]byte(addr))
+		require.Nil(t, err)
+
+		if code, ok := mockCodes[addr]; ok {
+			acc.SetCode(code)
+		}
+
+		return acc
+	}
+
+	mockAccounts := map[string]state.UserAccountHandler{
+		addrOk:     makeMock(addrOk),
+		addrMult1:  makeMock(addrMult1),
+		addrMult2:  makeMock(addrMult2),
+		addrNoCode: makeMock(addrNoCode),
+	}
+
+	tests := []struct {
+		name        string
+		deletedAccs [][]byte
+		expectedErr error
+	}{
+		{
+			name:        "fail account not found",
+			deletedAccs: [][]byte{[]byte(addrNotFound)},
+			expectedErr: common.ErrAccNotFound,
+		},
+		{
+			name:        "no code account should success",
+			deletedAccs: [][]byte{[]byte(addrNoCode)},
+			expectedErr: nil,
+		},
+		{
+			name:        "success",
+			deletedAccs: [][]byte{[]byte(addrOk)},
+			expectedErr: nil,
+		},
+		{
+			name:        "success multiple accounts",
+			deletedAccs: [][]byte{[]byte(addrMult1), []byte(addrMult2)},
+			expectedErr: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := createMockSmartContractProcessorArguments()
+			sc, _ := NewSmartContractProcessor(args)
+
+			// load accounts
+			for _, account := range mockAccounts {
+				err := args.AccountsCacher.SaveUser(account)
+				require.Nil(t, err)
+			}
+
+			err := sc.deleteAccounts(tt.deletedAccs)
+			assert.Equal(t, tt.expectedErr, err)
+
+			// check if account code is removed
+			if err == nil {
+				for _, addr := range tt.deletedAccs {
+					acc, err := args.AccountsCacher.GetExistingUser(addr)
+					require.Nil(t, err)
+					assert.Len(t, acc.GetCodeHash(), 0)
+				}
+			}
+
+		})
+	}
 }

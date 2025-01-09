@@ -361,11 +361,12 @@ func (sc *scProcessor) executeSmartContractCall(
 	}
 	if vmOutput == nil {
 		err = process.ErrNilVMOutput
-		log.Debug("run smart contract call error", "error", err.Error())
+		log.Debug("run smart contract call error: nil vmOutput", "error", err.Error())
 		return userErrorVmOutput, sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
 	}
 
 	if vmOutput.ReturnCode != vmcommon.Ok {
+		log.Debug("run smart contract call error vmOutput.ReturnCode", "returnCode", vmOutput.ReturnCode, "returnMessage", vmOutput.ReturnMessage)
 		return userErrorVmOutput, sc.processIfErrorWithAddedLogs(ctx, tc, vmOutput.ReturnCode.String(), []byte(vmOutput.ReturnMessage), prevVmOutput, vmOutput.Logs)
 	}
 
@@ -846,14 +847,10 @@ func (sc *scProcessor) updateSmartContractCode(
 // delete accounts - only suicide by current SC or another SC called by current SC - protected by VM
 func (sc *scProcessor) deleteAccounts(deletedAccounts [][]byte) error {
 	for _, value := range deletedAccounts {
-		acc, err := sc.accountsCacher.GetExistingUser(value)
+		// delete account code
+		err := sc.accountsCacher.RemoveCode(value)
 		if err != nil {
-			return err
-		}
-
-		// delete account code and trie
-		err = sc.accountsCacher.RemoveCode(acc.AddressBytes())
-		if err != nil {
+			log.Error("deleteAccounts remove code", "address", value, "error", err.Error())
 			return err
 		}
 	}

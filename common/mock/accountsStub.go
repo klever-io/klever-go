@@ -14,6 +14,7 @@ type AccountsStub struct {
 	GetExistingAccountCalled func(addressContainer []byte) (state.AccountHandler, error)
 	LoadAccountCalled        func(container []byte) (state.AccountHandler, error)
 	SaveAccountCalled        func(account state.AccountHandler) error
+	RemoveAccountCodeCalled  func(address []byte) error
 	RemoveAccountCalled      func(addressContainer []byte) error
 	CommitCalled             func() ([]byte, error)
 	JournalLenCalled         func() int
@@ -116,6 +117,15 @@ func (as *AccountsStub) JournalLen() int {
 	}
 
 	return 0
+}
+
+// RemoveAccountCode -
+func (as *AccountsStub) RemoveAccountCode(address []byte) error {
+	if as.RemoveAccountCodeCalled != nil {
+		return as.RemoveAccountCodeCalled(address)
+	}
+
+	return errAccNotImplemented
 }
 
 // RemoveAccount -

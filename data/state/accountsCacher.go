@@ -317,7 +317,14 @@ func (acc *accountsCache) RemoveCode(address []byte) error {
 		return err
 	}
 
+	err = acc.accounts.RemoveAccountCode(address)
+	if err != nil {
+		return err
+	}
+
+	// remove mode from cache
 	accHandler.SetCode(make([]byte, 0))
+	accHandler.SetCodeHash(make([]byte, 0))
 
 	return nil
 }

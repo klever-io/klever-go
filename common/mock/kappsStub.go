@@ -29,6 +29,10 @@ func (k KappsDBMock) SaveAccount(account state.AccountHandler) error {
 	return nil
 }
 
+func (k KappsDBMock) RemoveAccountCode(address []byte) error {
+	return nil
+}
+
 func (k KappsDBMock) RemoveAccount(address []byte) error {
 	return nil
 }
