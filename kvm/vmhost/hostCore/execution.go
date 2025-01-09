@@ -365,6 +365,9 @@ func (host *vmHost) addNewBackTransfersFromVMOutput(vmOutput *vmcommon.VMOutput,
 		return
 	}
 
+	// Clean previous back transfers before add the new ones
+	host.managedTypesContext.CleanBackTransfers()
+
 	for _, transfer := range callerOutAcc.OutputTransfers {
 		transfer := transfer
 

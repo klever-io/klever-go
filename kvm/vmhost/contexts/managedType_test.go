@@ -11,6 +11,7 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/klever-io/klever-go/vmcommon"
 )
 
 func TestNewManagedTypes(t *testing.T) {
@@ -728,4 +729,49 @@ func TestManagedTypesContext_PopDiscardIfStackIsEmptyShouldNotPanic(t *testing.T
 	managedTypesCtx.PopDiscard()
 
 	require.Equal(t, 0, len(managedTypesCtx.managedTypesStack))
+}
+
+func TestManagedTypesContext_CleanBackTransfersMustEmptyItsFields(t *testing.T) {
+	t.Parallel()
+
+	// Setup managed types context
+	host := &contextmock.VMHostMock{}
+	managedTypesCtx, _ := NewManagedTypesContext(host)
+	managedTypesCtx.InitState()
+
+	// Fills the backtransfers fields
+	callValue := big.NewInt(1_000_000)
+	managedTypesCtx.AddValueOnlyBackTransfer(callValue)
+	transfers := []*vmcommon.KDATransfer{
+		{
+			KDATokenName:  []byte("TSF-1HIU"),
+			KDATokenType:  0,
+			KDAValue:      big.NewInt(1_000),
+			KDATokenNonce: 0,
+		},
+		{
+			KDATokenName:  []byte("TSN-2BA7"),
+			KDATokenType:  1,
+			KDAValue:      big.NewInt(1),
+			KDATokenNonce: 1,
+		},
+		{
+			KDATokenName:  []byte("TSS-3Y8G"),
+			KDATokenType:  2,
+			KDAValue:      big.NewInt(1),
+			KDATokenNonce: 2,
+		},
+	}
+	managedTypesCtx.AddBackTransfers(transfers)
+
+	// Verifies the fields are filled
+	assert.Equal(t, callValue, managedTypesCtx.managedTypesValues.backTransfers.CallValue)
+	assert.EqualValues(t, transfers, managedTypesCtx.managedTypesValues.backTransfers.KDATransfers)
+
+	// Calling the method to clean the fields
+	managedTypesCtx.CleanBackTransfers()
+
+	// Verifies the fields are empty
+	assert.Equal(t, big.NewInt(0), managedTypesCtx.managedTypesValues.backTransfers.CallValue)
+	assert.Len(t, managedTypesCtx.managedTypesValues.backTransfers.KDATransfers, 0)
 }

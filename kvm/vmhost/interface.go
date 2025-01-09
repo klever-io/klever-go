@@ -218,6 +218,7 @@ type ManagedTypesContext interface {
 	ManagedMapRemove(mMapHandle int32, keyHandle int32, outValueHandle int32) error
 	ManagedMapContains(mMapHandle int32, keyHandle int32) (bool, error)
 	GetBackTransfers() ([]*vmcommon.KDATransfer, *big.Int)
+	CleanBackTransfers()
 	AddValueOnlyBackTransfer(value *big.Int)
 	AddBackTransfers(transfers []*vmcommon.KDATransfer)
 }

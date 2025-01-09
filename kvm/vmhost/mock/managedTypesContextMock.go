@@ -60,6 +60,7 @@ type ManagedTypesContextMock struct {
 	ManagedMapRemoveCalled                         func(mMapHandle int32, keyHandle int32, outValueHandle int32) error
 	ManagedMapContainsCalled                       func(mMapHandle int32, keyHandle int32) (bool, error)
 	GetBackTransfersCalled                         func() ([]*vmcommon.KDATransfer, *big.Int)
+	CleanBackTransfersCalled                       func()
 	AddValueOnlyBackTransferCalled                 func(value *big.Int)
 	AddBackTransfersCalled                         func(transfers []*vmcommon.KDATransfer)
 	GetManagedBufferCalled                         func() [][]byte
@@ -381,6 +382,12 @@ func (m *ManagedTypesContextMock) GetBackTransfers() ([]*vmcommon.KDATransfer, *
 		return m.GetBackTransfersCalled()
 	}
 	return nil, big.NewInt(0)
+}
+
+func (m *ManagedTypesContextMock) CleanBackTransfers() {
+	if m.CleanBackTransfersCalled != nil {
+		m.CleanBackTransfersCalled()
+	}
 }
 
 func (m *ManagedTypesContextMock) AddValueOnlyBackTransfer(value *big.Int) {

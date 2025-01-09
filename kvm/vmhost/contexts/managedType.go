@@ -809,12 +809,18 @@ func (context *managedTypesContext) AddValueOnlyBackTransfer(value *big.Int) {
 // GetBackTransfers returns all KDA transfers and accumulated value as well, will clean accumulated values
 func (context *managedTypesContext) GetBackTransfers() ([]*vmcommon.KDATransfer, *big.Int) {
 	clonedTransfers := context.cloneBackTransfers()
+
+	context.CleanBackTransfers()
+
+	return clonedTransfers.KDATransfers, clonedTransfers.CallValue
+}
+
+// CleanBackTransfers will clean backTransfers accumulated values
+func (context *managedTypesContext) CleanBackTransfers() {
 	context.managedTypesValues.backTransfers = backTransfers{
 		KDATransfers: make([]*vmcommon.KDATransfer, 0),
 		CallValue:    big.NewInt(0),
 	}
-
-	return clonedTransfers.KDATransfers, clonedTransfers.CallValue
 }
 
 func (context *managedTypesContext) cloneBackTransfers() backTransfers {
