@@ -736,6 +736,7 @@ func (context *managedTypesContext) ManagedMapPut(mMapHandle int32, keyHandle in
 	valueCopy := make([]byte, len(value))
 	copy(valueCopy, value)
 
+	context.ConsumeGasForBytes(key)
 	context.ConsumeGasForBytes(value)
 
 	mMap[string(key)] = valueCopy
@@ -765,6 +766,7 @@ func (context *managedTypesContext) ManagedMapRemove(mMapHandle int32, keyHandle
 
 	context.SetBytes(outValueHandle, value)
 	context.ConsumeGasForBytes(value)
+	context.ConsumeGasForBytes(key)
 
 	delete(mMap, string(key))
 	return nil
