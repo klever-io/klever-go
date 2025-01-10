@@ -37,8 +37,8 @@ func (c *CryptoHookMock) VerifySecp256k1(_ []byte, _ []byte, _ []byte, _ uint8) 
 }
 
 // EncodeSecp256k1DERSignature mocked method
-func (c *CryptoHookMock) EncodeSecp256k1DERSignature(_, _ []byte) []byte {
-	return make([]byte, 0)
+func (c *CryptoHookMock) EncodeSecp256k1DERSignature(_, _ []byte) ([]byte, error) {
+	return make([]byte, 0), nil
 }
 
 // Ecrecover mocked method

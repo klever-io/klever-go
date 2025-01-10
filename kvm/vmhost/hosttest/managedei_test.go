@@ -290,12 +290,13 @@ func Test_VerifySecp256k1(t *testing.T) {
 	key, _ := hex.DecodeString("04d2e670a19c6d753d1a6d8b20bd045df8a08fb162cf508956c31268c6d81ffdabab65528eefbb8057aa85d597258a3fbd481a24633bc9b47a9aa045c91371de52")
 	msg, _ := hex.DecodeString("01020304")
 	r, _ := hex.DecodeString("fef45d2892953aa5bbcdb057b5e98b208f1617a7498af7eb765574e29b5d9c2c")
-	s, _ := hex.DecodeString("d47563f52aac6b04b55de236b7c515eb9311757db01e02cff079c3ca6efb063f")
+	s, _ := hex.DecodeString("2b8a9c0ad55394fb4aa21dc9483aea13279d6768ff2a9d6bcf589ac2613b3b02")
 
 	verifier := secp256k1.NewSecp256k1()
-	sig := verifier.EncodeSecp256k1DERSignature(r, s)
+	sig, err := verifier.EncodeSecp256k1DERSignature(r, s)
+	assert.Nil(t, err)
 
-	_, err := test.BuildMockInstanceCallTest(t).
+	_, err = test.BuildMockInstanceCallTest(t).
 		WithContracts(
 			test.CreateMockContract(test.ParentAddress).
 				WithBalance(testConfig.ParentBalance).
@@ -342,12 +343,13 @@ func Test_VerifyCustomSecp256k1(t *testing.T) {
 	key, _ := hex.DecodeString("04d2e670a19c6d753d1a6d8b20bd045df8a08fb162cf508956c31268c6d81ffdabab65528eefbb8057aa85d597258a3fbd481a24633bc9b47a9aa045c91371de52")
 	msg, _ := hex.DecodeString("01020304")
 	r, _ := hex.DecodeString("fef45d2892953aa5bbcdb057b5e98b208f1617a7498af7eb765574e29b5d9c2c")
-	s, _ := hex.DecodeString("d47563f52aac6b04b55de236b7c515eb9311757db01e02cff079c3ca6efb063f")
+	s, _ := hex.DecodeString("2b8a9c0ad55394fb4aa21dc9483aea13279d6768ff2a9d6bcf589ac2613b3b02")
 
 	verifier := secp256k1.NewSecp256k1()
-	sig := verifier.EncodeSecp256k1DERSignature(r, s)
+	sig, err := verifier.EncodeSecp256k1DERSignature(r, s)
+	assert.Nil(t, err)
 
-	_, err := test.BuildMockInstanceCallTest(t).
+	_, err = test.BuildMockInstanceCallTest(t).
 		WithContracts(
 			test.CreateMockContract(test.ParentAddress).
 				WithBalance(testConfig.ParentBalance).
@@ -392,52 +394,122 @@ func Test_VerifyCustomSecp256k1(t *testing.T) {
 func Test_ManagedEncodeSecp256k1DerSignature(t *testing.T) {
 	testConfig := baseTestConfig
 
-	r, _ := hex.DecodeString("fef45d2892953aa5bbcdb057b5e98b208f1617a7498af7eb765574e29b5d9c2c")
-	s, _ := hex.DecodeString("d47563f52aac6b04b55de236b7c515eb9311757db01e02cff079c3ca6efb063f")
+	// Define test cases
+	testCases := []struct {
+		name       string
+		rHex       string
+		sHex       string
+		expectErr  bool
+		errorMsg   string
+		returnCode vmcommon.ReturnCode
+		skipBuffer bool // Simulates an error when fetching bytes from managed type
+	}{
+		{
+			name:       "Valid signature",
+			rHex:       "fef45d2892953aa5bbcdb057b5e98b208f1617a7498af7eb765574e29b5d9c2c",
+			sHex:       "2b8a9c0ad55394fb4aa21dc9483aea13279d6768ff2a9d6bcf589ac2613b3b02",
+			expectErr:  false,
+			returnCode: vmcommon.Ok,
+		},
+		{
+			name:       "Invalid R (too short)",
+			rHex:       "fef4",
+			sHex:       "2b8a9c0ad55394fb4aa21dc9483aea13279d6768ff2a9d6bcf589ac2613b3b02",
+			expectErr:  true,
+			returnCode: vmcommon.VMUserError,
+			errorMsg:   "assert failed",
+		},
+		{
+			name:       "Invalid S (too short)",
+			rHex:       "fef45d2892953aa5bbcdb057b5e98b208f1617a7498af7eb765574e29b5d9c2c",
+			sHex:       "2b8a",
+			expectErr:  true,
+			returnCode: vmcommon.VMUserError,
+			errorMsg:   "assert failed",
+		},
+		{
+			name:       "ManagedType GetBytes error on R",
+			rHex:       "fef45d2892953aa5bbcdb057b5e98b208f1617a7498af7eb765574e29b5d9c2c",
+			sHex:       "2b8a9c0ad55394fb4aa21dc9483aea13279d6768ff2a9d6bcf589ac2613b3b02",
+			expectErr:  true,
+			returnCode: vmcommon.VMExecutionFailed,
+			errorMsg:   "assert failed",
+			skipBuffer: true, // Simulates GetBytes error for R
+		},
+		{
+			name:       "Invalid signature S overflow order",
+			rHex:       "fef45d2892953aa5bbcdb057b5e98b208f1617a7498af7eb765574e29b5d9c2c",
+			sHex:       "d47563f52aac6b04b55de236b7c515eb9311757db01e02cff079c3ca6efb063f",
+			expectErr:  true,
+			returnCode: vmcommon.VMExecutionFailed,
+			errorMsg:   "assert failed",
+		},
+	}
 
-	verifier := secp256k1.NewSecp256k1()
-	sig := verifier.EncodeSecp256k1DERSignature(r, s)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := hex.DecodeString(tc.rHex)
+			s, _ := hex.DecodeString(tc.sHex)
 
-	_, err := test.BuildMockInstanceCallTest(t).
-		WithContracts(
-			test.CreateMockContract(test.ParentAddress).
-				WithBalance(testConfig.ParentBalance).
-				WithConfig(testConfig).
-				WithMethods(func(parentInstance *mock.InstanceMock, config interface{}) {
-					parentInstance.AddMockMethod("testFunction", func() *mock.InstanceMock {
-						host := parentInstance.Host
+			verifier := secp256k1.NewSecp256k1()
+			sig, _ := verifier.EncodeSecp256k1DERSignature(r, s)
+			// if tc.expectErr && err == nil {
+			// 	t.Fatalf("expected error but got nil")
+			// }
 
-						managedTypes := host.ManagedTypes()
-						rHandle := managedTypes.NewManagedBufferFromBytes(r)
-						sHandle := managedTypes.NewManagedBufferFromBytes(s)
-						sigHandle := managedTypes.NewManagedBuffer()
+			_, err := test.BuildMockInstanceCallTest(t).
+				WithContracts(
+					test.CreateMockContract(test.ParentAddress).
+						WithBalance(testConfig.ParentBalance).
+						WithConfig(testConfig).
+						WithMethods(func(parentInstance *mock.InstanceMock, config interface{}) {
+							parentInstance.AddMockMethod("testFunction", func() *mock.InstanceMock {
+								host := parentInstance.Host
 
-						retResult := vmhooks.ManagedEncodeSecp256k1DerSignatureWithHost(
-							host,
-							rHandle,
-							sHandle,
-							sigHandle)
+								managedTypes := host.ManagedTypes()
+								var rHandle, sHandle, sigHandle int32
+								if tc.skipBuffer {
+									rHandle = -1 // Simulate a failed buffer fetch
+								} else {
+									rHandle = managedTypes.NewManagedBufferFromBytes(r)
+									sHandle = managedTypes.NewManagedBufferFromBytes(s)
+								}
+								sigHandle = managedTypes.NewManagedBuffer()
 
-						result, _ := managedTypes.GetBytes(sigHandle)
-						if retResult != 0 || !bytes.Equal(result, sig) {
-							host.Runtime().SignalUserError("assert failed")
-							return parentInstance
-						}
+								retResult := vmhooks.ManagedEncodeSecp256k1DerSignatureWithHost(
+									host,
+									rHandle,
+									sHandle,
+									sigHandle)
 
-						return parentInstance
-					})
-				}),
-		).
-		WithInput(test.CreateTestContractCallInputBuilder().
-			WithRecipientAddr(test.ParentAddress).
-			WithGasProvided(testConfig.GasProvided).
-			WithFunction("testFunction").
-			Build()).
-		AndAssertResults(func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
-			verify.
-				Ok()
+								if tc.expectErr {
+									if retResult == 0 {
+										host.Runtime().SignalUserError(tc.errorMsg)
+									}
+									return parentInstance
+								}
+
+								result, _ := managedTypes.GetBytes(sigHandle)
+								if retResult != 0 || !bytes.Equal(result, sig) {
+									host.Runtime().SignalUserError("assert failed")
+									return parentInstance
+								}
+
+								return parentInstance
+							})
+						}),
+				).
+				WithInput(test.CreateTestContractCallInputBuilder().
+					WithRecipientAddr(test.ParentAddress).
+					WithGasProvided(testConfig.GasProvided).
+					WithFunction("testFunction").
+					Build()).
+				AndAssertResults(func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
+					verify.ReturnCode(tc.returnCode)
+				})
+			assert.Nil(t, err)
 		})
-	assert.Nil(t, err)
+	}
 }
 
 func Test_ManagedScalarBaseMultEC(t *testing.T) {

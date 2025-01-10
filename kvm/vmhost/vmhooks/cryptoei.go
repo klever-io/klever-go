@@ -602,7 +602,11 @@ func (context *VMHooksImpl) EncodeSecp256k1DerSignature(
 		return 1
 	}
 
-	derSig := crypto.EncodeSecp256k1DERSignature(r, s)
+	derSig, err := crypto.EncodeSecp256k1DERSignature(r, s)
+	if context.WithFault(err, runtime.CryptoAPIErrorShouldFailExecution()) {
+		return 1
+	}
+
 	err = context.MemStore(sigOffset, derSig)
 	if context.WithFault(err, runtime.CryptoAPIErrorShouldFailExecution()) {
 		return 1
@@ -643,7 +647,11 @@ func ManagedEncodeSecp256k1DerSignatureWithHost(
 		return 1
 	}
 
-	derSig := crypto.EncodeSecp256k1DERSignature(r, s)
+	derSig, err := crypto.EncodeSecp256k1DERSignature(r, s)
+	if WithFaultAndHost(host, err, runtime.CryptoAPIErrorShouldFailExecution()) {
+		return 1
+	}
+
 	managedType.SetBytes(sigHandle, derSig)
 
 	return 0

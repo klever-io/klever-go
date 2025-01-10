@@ -12,3 +12,6 @@ var ErrInvalidSignature = errors.New("invalid signature")
 
 // ErrHasherNotSupported will be returned when a provided hasher type is not supported by the signature scheme
 var ErrHasherNotSupported = errors.New("hasher not supported")
+
+// ErrNonCanonicalSignature is raised when a signature is not canonical
+var ErrNonCanonicalSignature = errors.New("non-canonical signature: S value is too high")

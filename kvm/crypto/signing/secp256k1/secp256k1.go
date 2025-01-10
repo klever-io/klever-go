@@ -59,7 +59,7 @@ func (sec *secp256k1) VerifySecp256k1(key, msg, sig []byte, hashType uint8) erro
 // Useful when having the plain params - like in the case of ecrecover
 //
 //	from ethereum
-func (sec *secp256k1) EncodeSecp256k1DERSignature(r, s []byte) []byte {
+func (sec *secp256k1) EncodeSecp256k1DERSignature(r, s []byte) ([]byte, error) {
 	rScalar := &btcec.ModNScalar{}
 	rScalar.SetByteSlice(r)
 
@@ -68,7 +68,13 @@ func (sec *secp256k1) EncodeSecp256k1DERSignature(r, s []byte) []byte {
 
 	sig := ecdsa.NewSignature(rScalar, sScalar)
 
-	return sig.Serialize()
+	sigS := sig.S()
+
+	if sigS.IsOverHalfOrder() {
+		return nil, signing.ErrNonCanonicalSignature
+	}
+
+	return sig.Serialize(), nil
 }
 
 func (sec *secp256k1) hashMessage(msg []byte, hashType uint8) ([]byte, error) {

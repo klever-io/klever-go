@@ -6,10 +6,10 @@ require (
 	github.com/ElrondNetwork/concurrent-map v0.1.3
 	github.com/awalterschulze/gographviz v2.0.3+incompatible
 	github.com/beevik/ntp v0.3.0
-	github.com/btcsuite/btcd/btcec/v2 v2.3.2
+	github.com/btcsuite/btcd/btcec/v2 v2.3.4
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btcutil v1.0.2
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0
 	github.com/dustinkirkland/golang-petname v0.0.0-20191129215211-8e5a1ed0cff0
 	github.com/elastic/go-elasticsearch/v8 v8.4.0
 	github.com/fatih/color v1.13.0

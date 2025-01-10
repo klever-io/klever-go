@@ -20,7 +20,7 @@ type Ed25519 interface {
 // Secp256k1 defines the functionality of a component able to verify and encode Secp256k1 signatures
 type Secp256k1 interface {
 	VerifySecp256k1(key []byte, msg []byte, sig []byte, hashType uint8) error
-	EncodeSecp256k1DERSignature(r, s []byte) []byte
+	EncodeSecp256k1DERSignature(r, s []byte) ([]byte, error)
 }
 
 // VMCrypto will provide the interface to the main crypto functionalities of the vm
