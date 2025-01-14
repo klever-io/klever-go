@@ -106,14 +106,10 @@ func (m *MeteringContextMock) InitStateFromContractCallInput(_ *vmcommon.VMInput
 func (m *MeteringContextMock) TrackGasUsedByOutOfVMFunction(_ *vmcommon.ContractCallInput, _ *vmcommon.VMOutput) {
 }
 
-// GasUsedByContract mocked method
-func (m *MeteringContextMock) GasUsedByContract() (uint64, uint64) {
-	return 0, 0
-}
-
 // GasUsedForExecution mocked method
 func (m *MeteringContextMock) GasUsedForExecution() uint64 {
-	return 0
+	// return m.Gas
+	return m.GasProvidedMock - m.GasLeftMock
 }
 
 // GasSpentByContract mocked method

@@ -3,6 +3,7 @@ package vmhooks
 import (
 	"github.com/klever-io/klever-go/kvm/crypto"
 	"github.com/klever-io/klever-go/kvm/executor"
+	"github.com/klever-io/klever-go/kvm/math"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 )
 
@@ -90,6 +91,24 @@ func (context *VMHooksImpl) GetMeteringContext() vmhost.MeteringContext {
 // GetStorageContext returns the storage context
 func (context *VMHooksImpl) GetStorageContext() vmhost.StorageContext {
 	return context.host.Storage()
+}
+
+// ComputeGetCallValueGas calculates the total gas consumption for retrieving token call values,
+// including base cost and additional gas for processing multiple token amounts
+func (context *VMHooksImpl) ComputeGetCallValueGas() uint64 {
+	transfersLen := len(context.GetRuntimeContext().GetVMInput().KDATransfers)
+	metering := context.GetMeteringContext()
+
+	// If overflow occurs, the methods `MulUint64` and `AddUint64` will log the error and returns the MaxUint64 value
+	extraGasForIterations := math.MulUint64(
+		uint64(transfersLen),
+		uint64(metering.GasSchedule().WASMOpcodeCost.Loop),
+	) // #nosec G115
+	gasToUse := math.AddUint64(
+		metering.GasSchedule().BaseOpsAPICost.GetCallValue,
+		extraGasForIterations,
+	)
+	return gasToUse
 }
 
 // WithFault handles an error, taking into account whether it should completely

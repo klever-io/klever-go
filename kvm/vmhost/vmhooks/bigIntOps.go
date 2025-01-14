@@ -162,7 +162,7 @@ func (context *VMHooksImpl) BigIntGetCallValue(destinationHandle int32) {
 	runtime := context.GetRuntimeContext()
 	metering := context.GetMeteringContext()
 
-	gasToUse := metering.GasSchedule().BigIntAPICost.BigIntGetCallValue
+	gasToUse := context.ComputeGetCallValueGas()
 	metering.UseGasAndAddTracedGas(bigIntGetCallValueName, gasToUse)
 
 	value := managedType.GetBigIntOrCreate(destinationHandle)

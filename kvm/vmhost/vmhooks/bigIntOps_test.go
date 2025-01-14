@@ -4,6 +4,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/kvm/executor"
 	mock "github.com/klever-io/klever-go/kvm/mock/context"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
@@ -427,4 +428,282 @@ func TestBigIntGetSignedBytes(t *testing.T) {
 			assert.Equal(t, tt.expectedBytes, result)
 		})
 	}
+}
+
+func TestBigIntGetCallValue(t *testing.T) {
+	cases := []struct {
+		title        string
+		kdaTransfers []*vmcommon.KDATransfer
+	}{
+		{
+			title:        "With 10 transfers",
+			kdaTransfers: generateTransfersSlice(9),
+		},
+		{
+			title:        "With 20 transfers",
+			kdaTransfers: generateTransfersSlice(19),
+		},
+		{
+			title:        "With 30 transfers",
+			kdaTransfers: generateTransfersSlice(29),
+		},
+		{
+			title:        "With 40 transfers",
+			kdaTransfers: generateTransfersSlice(39),
+		},
+		{
+			title:        "With 50 transfers",
+			kdaTransfers: generateTransfersSlice(49),
+		},
+	}
+
+	t.Run("Sucessful", func(t *testing.T) {
+		for _, tt := range cases {
+			t.Run(tt.title, func(t *testing.T) {
+				mockWorld := worldmock.NewMockWorld()
+				vmHost, _ := hostCore.NewVMHost(mockWorld, makeHostParameters())
+				hooks := vmhooks.NewVMHooksImpl(vmHost)
+
+				// Set mock instance
+				it, ok := vmHost.Runtime().GetInstanceTracker().(InstanceTracker)
+				require.True(t, ok)
+				it.ReplaceInstance(mock.NewInstanceMock(nil))
+
+				destHandle := int32(1)
+
+				// As it does not exist, it will be created
+				initialValue := hooks.GetManagedTypesContext().GetBigIntOrCreate(destHandle)
+				assert.Equal(t, initialValue, big.NewInt(0))
+
+				expected := big.NewInt(100)
+				tt.kdaTransfers = append(tt.kdaTransfers, &vmcommon.KDATransfer{
+					KDATokenName: kdautils.KLVIdentifier, // BigIntGetCallValue hook only retrieves KLV
+					KDAValue:     expected,
+				})
+
+				shuffleTransferSlice(tt.kdaTransfers)
+				hooks.GetRuntimeContext().SetVMInput(&vmcommon.ContractCallInput{
+					VMInput: vmcommon.VMInput{
+						KDATransfers: tt.kdaTransfers,
+					},
+				})
+
+				// Invoking test target hook who will set *big.Int value on destHandle
+				hooks.BigIntGetCallValue(destHandle)
+
+				// As it now exists the value retrieved must be non-zero
+				result := hooks.GetManagedTypesContext().GetBigIntOrCreate(destHandle)
+				assert.Equal(t, result, expected)
+
+				// Calculate gas used
+				loopGas := hooks.GetMeteringContext().GasSchedule().WASMOpcodeCost.Loop
+				callValueGas := hooks.GetMeteringContext().
+					GasSchedule().
+					BigIntAPICost.BigIntGetCallValue
+				totalGas := (uint64(loopGas) * uint64(len(tt.kdaTransfers))) + callValueGas
+
+				assert.Equal(t, hooks.GetRuntimeContext().GetPointsUsed(), totalGas)
+			})
+		}
+
+		t.Run("With only one KLV transfer", func(t *testing.T) {
+			mockWorld := worldmock.NewMockWorld()
+			vmHost, _ := hostCore.NewVMHost(mockWorld, makeHostParameters())
+			hooks := vmhooks.NewVMHooksImpl(vmHost)
+
+			// Set mock instance
+			it, ok := vmHost.Runtime().GetInstanceTracker().(InstanceTracker)
+			require.True(t, ok)
+			it.ReplaceInstance(mock.NewInstanceMock(nil))
+
+			destHandle := int32(1)
+
+			// As it does not exist, it will be created
+			initialValue := hooks.GetManagedTypesContext().GetBigIntOrCreate(destHandle)
+			assert.Equal(t, initialValue, big.NewInt(0))
+
+			expected := big.NewInt(100)
+			kdaTransfers := []*vmcommon.KDATransfer{
+				{
+					KDATokenName: kdautils.KLVIdentifier, // BigIntGetCallValue hook only retrieves KLV
+					KDAValue:     expected,
+				},
+			}
+			hooks.GetRuntimeContext().SetVMInput(&vmcommon.ContractCallInput{
+				VMInput: vmcommon.VMInput{
+					KDATransfers: kdaTransfers,
+				},
+			})
+
+			// Invoking test target hook who will set *big.Int value on destHandle
+			hooks.BigIntGetCallValue(destHandle)
+
+			// As it now exists the value retrieved must be non-zero
+			result := hooks.GetManagedTypesContext().GetBigIntOrCreate(destHandle)
+			assert.Equal(t, result, expected)
+
+			// Calculate gas used
+			loopGas := hooks.GetMeteringContext().GasSchedule().WASMOpcodeCost.Loop
+			callValueGas := hooks.GetMeteringContext().
+				GasSchedule().
+				BigIntAPICost.BigIntGetCallValue
+			totalGas := (uint64(loopGas) * uint64(len(kdaTransfers))) + callValueGas
+
+			assert.Equal(t, hooks.GetRuntimeContext().GetPointsUsed(), totalGas)
+		})
+	})
+
+	casesNoKLV := []struct {
+		title        string
+		kdaTransfers []*vmcommon.KDATransfer
+	}{
+		{
+			title:        "With 10 transfers",
+			kdaTransfers: generateTransfersSlice(10),
+		},
+		{
+			title:        "With 20 transfers",
+			kdaTransfers: generateTransfersSlice(20),
+		},
+		{
+			title:        "With 30 transfers",
+			kdaTransfers: generateTransfersSlice(30),
+		},
+		{
+			title:        "With 40 transfers",
+			kdaTransfers: generateTransfersSlice(40),
+		},
+		{
+			title:        "With 50 transfers",
+			kdaTransfers: generateTransfersSlice(50),
+		},
+	}
+
+	t.Run("With no KLV call value", func(t *testing.T) {
+		for _, tt := range casesNoKLV {
+			t.Run(tt.title, func(t *testing.T) {
+				mockWorld := worldmock.NewMockWorld()
+				vmHost, _ := hostCore.NewVMHost(mockWorld, makeHostParameters())
+				hooks := vmhooks.NewVMHooksImpl(vmHost)
+
+				// Set mock instance
+				it, ok := vmHost.Runtime().GetInstanceTracker().(InstanceTracker)
+				require.True(t, ok)
+				it.ReplaceInstance(mock.NewInstanceMock(nil))
+
+				destHandle := int32(1)
+				// As it does not exist, it will be created
+				initialValue := hooks.GetManagedTypesContext().GetBigIntOrCreate(destHandle)
+				assert.Equal(t, initialValue, big.NewInt(0))
+
+				shuffleTransferSlice(tt.kdaTransfers)
+				hooks.GetRuntimeContext().SetVMInput(&vmcommon.ContractCallInput{
+					VMInput: vmcommon.VMInput{
+						KDATransfers: tt.kdaTransfers,
+					},
+				})
+
+				// Invoking test target hook who will set *big.Int value on destHandle
+				hooks.BigIntGetCallValue(destHandle)
+
+				// Invoking test target hook with empty transfers slice, so no value will be set
+				result := hooks.GetManagedTypesContext().GetBigIntOrCreate(destHandle)
+				assert.Equal(t, result, big.NewInt(0))
+
+				// Calculate gas used
+				loopGas := hooks.GetMeteringContext().GasSchedule().WASMOpcodeCost.Loop
+				callValueGas := hooks.GetMeteringContext().
+					GasSchedule().
+					BigIntAPICost.BigIntGetCallValue
+				totalGas := (uint64(loopGas) * uint64(len(tt.kdaTransfers))) + callValueGas
+
+				assert.Equal(t, hooks.GetRuntimeContext().GetPointsUsed(), totalGas)
+			})
+		}
+
+		t.Run("only one asset transfer", func(t *testing.T) {
+			mockWorld := worldmock.NewMockWorld()
+			vmHost, _ := hostCore.NewVMHost(mockWorld, makeHostParameters())
+			hooks := vmhooks.NewVMHooksImpl(vmHost)
+
+			// Set mock instance
+			it, ok := vmHost.Runtime().GetInstanceTracker().(InstanceTracker)
+			require.True(t, ok)
+			it.ReplaceInstance(mock.NewInstanceMock(nil))
+
+			destHandle := int32(1)
+
+			// As it does not exist, it will be created
+			initialValue := hooks.GetManagedTypesContext().GetBigIntOrCreate(destHandle)
+			assert.Equal(t, initialValue, big.NewInt(0))
+
+			kdaTransfers := []*vmcommon.KDATransfer{
+				{
+					KDATokenName: []byte("TEST-H7K7"),
+					KDAValue:     big.NewInt(100),
+				},
+			}
+			hooks.GetRuntimeContext().SetVMInput(&vmcommon.ContractCallInput{
+				VMInput: vmcommon.VMInput{
+					KDATransfers: kdaTransfers,
+				},
+			})
+
+			// Invoking test target hook who will set *big.Int value on destHandle
+			hooks.BigIntGetCallValue(destHandle)
+
+			// As there is no transfer of klv the value must be zero
+			result := hooks.GetManagedTypesContext().GetBigIntOrCreate(destHandle)
+			assert.Equal(t, result, big.NewInt(0))
+
+			// Calculate gas used
+			loopGas := hooks.GetMeteringContext().GasSchedule().WASMOpcodeCost.Loop
+			callValueGas := hooks.GetMeteringContext().
+				GasSchedule().
+				BigIntAPICost.BigIntGetCallValue
+			totalGas := (uint64(loopGas) * uint64(len(kdaTransfers))) + callValueGas
+
+			assert.Equal(t, hooks.GetRuntimeContext().GetPointsUsed(), totalGas)
+		})
+	})
+
+	t.Run("with empty call values", func(t *testing.T) {
+		mockWorld := worldmock.NewMockWorld()
+		vmHost, _ := hostCore.NewVMHost(mockWorld, makeHostParameters())
+		hooks := vmhooks.NewVMHooksImpl(vmHost)
+
+		// Set mock instance
+		it, ok := vmHost.Runtime().GetInstanceTracker().(InstanceTracker)
+		require.True(t, ok)
+		it.ReplaceInstance(mock.NewInstanceMock(nil))
+
+		destHandle := int32(1)
+
+		// As it does not exist, it will be created
+		initialValue := hooks.GetManagedTypesContext().GetBigIntOrCreate(destHandle)
+		assert.Equal(t, initialValue, big.NewInt(0))
+
+		hooks.GetRuntimeContext().SetVMInput(&vmcommon.ContractCallInput{
+			VMInput: vmcommon.VMInput{
+				KDATransfers: []*vmcommon.KDATransfer{},
+			},
+		})
+
+		hooks.BigIntGetCallValue(destHandle)
+
+		// As there is no transfer of klv the value must be zero
+		result := hooks.GetManagedTypesContext().GetBigIntOrCreate(destHandle)
+		assert.Equal(t, result, big.NewInt(0))
+
+		// Calculate gas used
+		loopGas := hooks.GetMeteringContext().GasSchedule().WASMOpcodeCost.Loop
+		callValueGas := hooks.GetMeteringContext().
+			GasSchedule().
+			BigIntAPICost.BigIntGetCallValue
+		totalGas := (uint64(loopGas) * uint64(len(
+			hooks.GetRuntimeContext().GetVMInput().KDATransfers,
+		))) + callValueGas
+
+		assert.Equal(t, hooks.GetRuntimeContext().GetPointsUsed(), totalGas)
+	})
 }

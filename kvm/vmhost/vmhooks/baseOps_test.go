@@ -968,6 +968,13 @@ func TestVMHooksImpl_GetCallValue(t *testing.T) {
 
 			result := hooks.GetCallValue(executor.MemPtr(0))
 			assert.Equal(t, tt.expectedLen, result)
+
+			// Calculate gas used
+			loopGas := hooks.GetMeteringContext().GasSchedule().WASMOpcodeCost.Loop
+			callValueGas := hooks.GetMeteringContext().GasSchedule().BaseOpsAPICost.GetCallValue
+			gasUsed := (uint64(loopGas) * uint64(len(vmInput.KDATransfers))) + callValueGas
+
+			assert.Equal(t, host.MeteringContext.(*contextmock.MeteringContextMock).GasUsedForExecution(), gasUsed)
 		})
 	}
 }
@@ -1140,6 +1147,16 @@ func TestVMHooksImpl_GetCallValueByTokenName(t *testing.T) {
 			expectedBytes := vmhost.PadBytesLeft(expectedValue.Bytes(), 32)
 			assert.Equal(t, expectedBytes, stored)
 
+			// Calculate gas used
+			loopGas := hooks.GetMeteringContext().GasSchedule().WASMOpcodeCost.Loop
+			callValueGas := hooks.GetMeteringContext().GasSchedule().BaseOpsAPICost.GetCallValue
+			gasUsed := (uint64(loopGas) * uint64(len(vmInput.KDATransfers))) + callValueGas
+
+			assert.Equal(
+				t,
+				host.MeteringContext.(*contextmock.MeteringContextMock).GasUsedForExecution(),
+				gasUsed,
+			)
 		})
 	}
 }

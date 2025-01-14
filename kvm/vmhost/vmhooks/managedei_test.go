@@ -3,20 +3,24 @@ package vmhooks_test
 import (
 	"errors"
 	"math/big"
+	"math/rand"
 	"strings"
-
 	"testing"
 
-	"github.com/klever-io/klever-go/kapps"
-	"github.com/klever-io/klever-go/kvm/vmhost"
-	"github.com/klever-io/klever-go/vmcommon"
-
+	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/data/state"
+	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/config"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
+	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
+	"github.com/klever-io/klever-go/kvm/vmhost"
+	"github.com/klever-io/klever-go/kvm/vmhost/hostCore"
 	hostmock "github.com/klever-io/klever-go/kvm/vmhost/mock"
 	"github.com/klever-io/klever-go/kvm/vmhost/vmhooks"
+	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestVMHooksImpl_ManagedAccHasPerm(t *testing.T) {
@@ -159,12 +163,386 @@ func TestManagedAccHasPermWithHost(t *testing.T) {
 	})
 }
 
+func generateAssetIdentifier() []byte {
+	const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	const lettersAndDigits = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+	// Generates token ticker
+	ticker := make([]byte, 3)
+	for i := range ticker {
+		ticker[i] = letters[rand.Intn(len(letters))]
+	}
+
+	// Adds hyphen
+	ticker = append(ticker, '-')
+
+	// Generates the token random id
+	id := make([]byte, 4)
+	hasDigit := false
+	for i := 0; i < len(id); i++ {
+		char := lettersAndDigits[rand.Intn(len(lettersAndDigits))]
+		if char >= '0' && char <= '9' {
+			hasDigit = true
+		}
+		id[i] = char
+	}
+
+	// Ensure at least one digit on token id
+	if !hasDigit {
+		// Replace a random position with a digit between 0 and 9
+		id[rand.Intn(len(id))] = '0' + byte(rand.Intn(10))
+	}
+
+	// Append the id to the token ticker
+	ticker = append(ticker, id...)
+
+	return ticker
+}
+
+func generateTransfersSlice(length int64) []*vmcommon.KDATransfer {
+	transfers := []*vmcommon.KDATransfer{}
+	for i := int64(0); i < length; i++ {
+		transfers = append(transfers, &vmcommon.KDATransfer{
+			KDAValue:     big.NewInt((i + 1) * 100),
+			KDATokenName: generateAssetIdentifier(),
+		})
+	}
+	return transfers
+}
+
+func shuffleTransferSlice(slice []*vmcommon.KDATransfer) []*vmcommon.KDATransfer {
+	rand.Shuffle(len(slice), func(i, j int) {
+		slice[i], slice[j] = slice[j], slice[i]
+	})
+	return slice
+}
+
+func TestManagedGetKDACallValue(t *testing.T) {
+	cases := []struct {
+		title        string
+		kdaTransfers []*vmcommon.KDATransfer
+	}{
+		{
+			title:        "With 10 transfers",
+			kdaTransfers: generateTransfersSlice(9),
+		},
+		{
+			title:        "With 20 transfers",
+			kdaTransfers: generateTransfersSlice(19),
+		},
+		{
+			title:        "With 30 transfers",
+			kdaTransfers: generateTransfersSlice(29),
+		},
+		{
+			title:        "With 40 transfers",
+			kdaTransfers: generateTransfersSlice(39),
+		},
+		{
+			title:        "With 50 transfers",
+			kdaTransfers: generateTransfersSlice(49),
+		},
+	}
+
+	t.Run("Sucessful", func(t *testing.T) {
+		for _, tt := range cases {
+			t.Run(tt.title, func(t *testing.T) {
+				mockWorld := worldmock.NewMockWorld()
+				vmHost, _ := hostCore.NewVMHost(mockWorld, makeHostParameters())
+				hooks := vmhooks.NewVMHooksImpl(vmHost)
+
+				// Set mock instance
+				it, ok := vmHost.Runtime().GetInstanceTracker().(InstanceTracker)
+				require.True(t, ok)
+				it.ReplaceInstance(contextmock.NewInstanceMock(nil))
+
+				hooksRuntime := hooks.GetRuntimeContext()
+				hooksMetering := hooks.GetMeteringContext()
+				hooksMgdType := hooks.GetManagedTypesContext()
+
+				lastTransferHandle := int32(len(tt.kdaTransfers) + 1)
+				kdaHandle, kdaCallValueHandle := lastTransferHandle, lastTransferHandle
+				testKDAId := []byte("TEST-H7K7")
+				// Sets KDA ID into bytes on memory using kdaHandle
+				hooksMgdType.SetBytes(kdaHandle, testKDAId)
+
+				// As it does not exist, it will be created
+				initialKDAValue := hooksMgdType.GetBigIntOrCreate(kdaCallValueHandle)
+				assert.Equal(t, initialKDAValue, big.NewInt(0))
+
+				expectedKDAValue := big.NewInt(1000)
+				tt.kdaTransfers = append(tt.kdaTransfers, &vmcommon.KDATransfer{
+					KDAValue:     expectedKDAValue,
+					KDATokenName: testKDAId,
+				})
+				shuffleTransferSlice(tt.kdaTransfers)
+				hooksRuntime.SetVMInput(&vmcommon.ContractCallInput{
+					VMInput: vmcommon.VMInput{
+						KDATransfers: tt.kdaTransfers,
+					},
+				})
+
+				// Invoking test target hook who will set kdaCallValueHandle on kdaHandle
+				hooks.ManagedGetKDACallValue(kdaCallValueHandle, kdaHandle)
+
+				// As it now exists the value retrieved must be non-zero
+				result := hooksMgdType.GetBigIntOrCreate(kdaCallValueHandle)
+				assert.Equal(t, result, expectedKDAValue)
+
+				// Calculate gas used
+				loopGas := hooksMetering.GasSchedule().WASMOpcodeCost.Loop
+				callValueGas := hooksMetering.GasSchedule().BaseOpsAPICost.GetCallValue
+				totalGas := (uint64(loopGas) * uint64(len(tt.kdaTransfers))) + callValueGas
+
+				assert.Equal(t, hooksRuntime.GetPointsUsed(), totalGas)
+			})
+		}
+	})
+
+	t.Run("Sucessful with KLV among assets", func(t *testing.T) {
+		for _, tt := range cases {
+			t.Run(tt.title, func(t *testing.T) {
+				mockWorld := worldmock.NewMockWorld()
+				vmHost, _ := hostCore.NewVMHost(mockWorld, makeHostParameters())
+				hooks := vmhooks.NewVMHooksImpl(vmHost)
+
+				// Set mock instance
+				it, ok := vmHost.Runtime().GetInstanceTracker().(InstanceTracker)
+				require.True(t, ok)
+				it.ReplaceInstance(contextmock.NewInstanceMock(nil))
+
+				hooksRuntime := hooks.GetRuntimeContext()
+				hooksMetering := hooks.GetMeteringContext()
+				hooksMgdType := hooks.GetManagedTypesContext()
+
+				// Adding KLV to the transfers
+				tt.kdaTransfers = append(tt.kdaTransfers, &vmcommon.KDATransfer{
+					KDAValue:     big.NewInt(1000),
+					KDATokenName: kdautils.KLVIdentifier,
+				})
+				shuffleTransferSlice(tt.kdaTransfers)
+
+				// Getting random transfer to use as target
+				transferHandle := int32(len(tt.kdaTransfers) / 2)
+				targetTransfer := tt.kdaTransfers[transferHandle]
+
+				kdaHandle, kdaCallValueHandle := transferHandle, transferHandle
+				// Sets KDA into bytes on memory using kdaHandle
+				hooksMgdType.SetBytes(kdaHandle, targetTransfer.KDATokenName)
+
+				// As it does not exist, it will be created
+				initialKDAValue := hooksMgdType.GetBigIntOrCreate(kdaCallValueHandle)
+				assert.Equal(t, initialKDAValue, big.NewInt(0))
+
+				hooksRuntime.SetVMInput(&vmcommon.ContractCallInput{
+					VMInput: vmcommon.VMInput{
+						KDATransfers: tt.kdaTransfers,
+					},
+				})
+
+				// Invoking test target hook who will set kdaCallValueHandle on kdaHandle
+				hooks.ManagedGetKDACallValue(kdaCallValueHandle, kdaHandle)
+
+				// As it now exists the value retrieved must be non-zero
+				result := hooksMgdType.GetBigIntOrCreate(kdaCallValueHandle)
+				assert.Equal(t, result, targetTransfer.KDAValue)
+
+				// Calculate gas used
+				loopGas := hooksMetering.GasSchedule().WASMOpcodeCost.Loop
+				callValueGas := hooksMetering.GasSchedule().BaseOpsAPICost.GetCallValue
+				totalGas := (uint64(loopGas) * uint64(len(tt.kdaTransfers))) + callValueGas
+
+				assert.Equal(t, hooksRuntime.GetPointsUsed(), totalGas)
+			})
+		}
+	})
+
+	t.Run("Error getting token ID", func(t *testing.T) {
+		for _, tt := range cases {
+			t.Run(tt.title, func(t *testing.T) {
+				mockWorld := worldmock.NewMockWorld()
+				vmHost, _ := hostCore.NewVMHost(mockWorld, makeHostParameters())
+				hooks := vmhooks.NewVMHooksImpl(vmHost)
+
+				// Set mock instance
+				it, ok := vmHost.Runtime().GetInstanceTracker().(InstanceTracker)
+				require.True(t, ok)
+				it.ReplaceInstance(contextmock.NewInstanceMock(nil))
+
+				hooksRuntime := hooks.GetRuntimeContext()
+				hooksMetering := hooks.GetMeteringContext()
+				hooksMgdType := hooks.GetManagedTypesContext()
+
+				lastTransferHandle := int32(len(tt.kdaTransfers) + 1)
+				kdaHandle, kdaCallValueHandle := lastTransferHandle, lastTransferHandle
+
+				// As it does not exist, it will be created
+				initialKDAValue := hooksMgdType.GetBigIntOrCreate(kdaCallValueHandle)
+				assert.Equal(t, initialKDAValue, big.NewInt(0))
+
+				tt.kdaTransfers = append(tt.kdaTransfers, &vmcommon.KDATransfer{
+					KDAValue:     big.NewInt(1000),
+					KDATokenName: []byte("TEST-H7K7"),
+				})
+				shuffleTransferSlice(tt.kdaTransfers)
+				hooksRuntime.SetVMInput(&vmcommon.ContractCallInput{
+					VMInput: vmcommon.VMInput{
+						KDATransfers: tt.kdaTransfers,
+					},
+				})
+
+				// Invoking test target hook who will set kdaCallValueHandle on kdaHandle
+				// It will get an error because the ID token is not registered in the VM memoryll set kdaCallValueHandle on kdaHandle
+				hooks.ManagedGetKDACallValue(kdaCallValueHandle, kdaHandle)
+
+				// Must continue as zero
+				result := hooksMgdType.GetBigIntOrCreate(kdaCallValueHandle)
+				assert.Equal(t, result, big.NewInt(0))
+
+				// Calculate gas used
+				loopGas := hooksMetering.GasSchedule().WASMOpcodeCost.Loop
+				callValueGas := hooksMetering.GasSchedule().BaseOpsAPICost.GetCallValue
+				totalGas := (uint64(loopGas) * uint64(len(tt.kdaTransfers))) + callValueGas
+
+				assert.Equal(t, hooksRuntime.GetPointsUsed(), totalGas)
+
+				vmOutput := vmHost.Output().GetVMOutput()
+				assert.Equal(
+					t,
+					vmOutput.ReturnCode,
+					vmcommon.ReturnCode(transaction.Transaction_VMExecutionFailed),
+				)
+				assert.Equal(t, vmOutput.ReturnMessage, vmhost.ErrArgOutOfRange.Error())
+			})
+		}
+	})
+
+	t.Run("Error getting token ID with KLV among transfers", func(t *testing.T) {
+		for _, tt := range cases {
+			t.Run(tt.title, func(t *testing.T) {
+				mockWorld := worldmock.NewMockWorld()
+				vmHost, _ := hostCore.NewVMHost(mockWorld, makeHostParameters())
+				hooks := vmhooks.NewVMHooksImpl(vmHost)
+
+				// Set mock instance
+				it, ok := vmHost.Runtime().GetInstanceTracker().(InstanceTracker)
+				require.True(t, ok)
+				it.ReplaceInstance(contextmock.NewInstanceMock(nil))
+
+				hooksRuntime := hooks.GetRuntimeContext()
+				hooksMetering := hooks.GetMeteringContext()
+				hooksMgdType := hooks.GetManagedTypesContext()
+
+				// Adding KLV to the transfers
+				tt.kdaTransfers = append(tt.kdaTransfers, &vmcommon.KDATransfer{
+					KDAValue:     big.NewInt(1000),
+					KDATokenName: kdautils.KLVIdentifier,
+				})
+				shuffleTransferSlice(tt.kdaTransfers)
+
+				// Getting random transfer to use as target
+				transferHandle := int32(len(tt.kdaTransfers) / 2)
+
+				kdaHandle, kdaCallValueHandle := transferHandle, transferHandle
+
+				// As it does not exist, it will be created
+				initialKDAValue := hooksMgdType.GetBigIntOrCreate(kdaCallValueHandle)
+				assert.Equal(t, initialKDAValue, big.NewInt(0))
+
+				hooksRuntime.SetVMInput(&vmcommon.ContractCallInput{
+					VMInput: vmcommon.VMInput{
+						KDATransfers: tt.kdaTransfers,
+					},
+				})
+
+				// Invoking test target hook who will set kdaCallValueHandle on kdaHandle
+				// It will get an error because the ID token is not registered in the VM memoryll set kdaCallValueHandle on kdaHandle
+				hooks.ManagedGetKDACallValue(kdaCallValueHandle, kdaHandle)
+
+				// Must continue as zero
+				result := hooksMgdType.GetBigIntOrCreate(kdaCallValueHandle)
+				assert.Equal(t, result, big.NewInt(0))
+
+				// Calculate gas used
+				loopGas := hooksMetering.GasSchedule().WASMOpcodeCost.Loop
+				callValueGas := hooksMetering.GasSchedule().BaseOpsAPICost.GetCallValue
+				totalGas := (uint64(loopGas) * uint64(len(tt.kdaTransfers))) + callValueGas
+
+				assert.Equal(t, hooksRuntime.GetPointsUsed(), totalGas)
+
+				vmOutput := vmHost.Output().GetVMOutput()
+				assert.Equal(
+					t,
+					vmOutput.ReturnCode,
+					vmcommon.ReturnCode(transaction.Transaction_VMExecutionFailed),
+				)
+				assert.Equal(t, vmOutput.ReturnMessage, vmhost.ErrArgOutOfRange.Error())
+			})
+		}
+	})
+
+	t.Run("With empty transfers slice", func(t *testing.T) {
+		mockWorld := worldmock.NewMockWorld()
+		vmHost, _ := hostCore.NewVMHost(mockWorld, makeHostParameters())
+		hooks := vmhooks.NewVMHooksImpl(vmHost)
+
+		// Set mock instance
+		it, ok := vmHost.Runtime().GetInstanceTracker().(InstanceTracker)
+		require.True(t, ok)
+		it.ReplaceInstance(contextmock.NewInstanceMock(nil))
+
+		hooksRuntime := hooks.GetRuntimeContext()
+		hooksMetering := hooks.GetMeteringContext()
+		hooksMgdType := hooks.GetManagedTypesContext()
+
+		kdaHandle, kdaCallValueHandle := int32(1), int32(1)
+
+		// Sets KDA ID into bytes on memory using kdaHandle
+		hooksMgdType.SetBytes(kdaHandle, []byte("TEST-H7K7"))
+
+		// As it does not exist, it will be created
+		initialKDAValue := hooksMgdType.GetBigIntOrCreate(kdaCallValueHandle)
+		assert.Equal(t, initialKDAValue, big.NewInt(0))
+
+		hooksRuntime.SetVMInput(&vmcommon.ContractCallInput{
+			VMInput: vmcommon.VMInput{
+				KDATransfers: []*vmcommon.KDATransfer{},
+			},
+		})
+
+		// Invoking test target hook with empty transfers slice, so no value will be set
+		hooks.ManagedGetKDACallValue(kdaCallValueHandle, kdaHandle)
+
+		// As its does not was set, the value retrieved must be zero
+		result := hooksMgdType.GetBigIntOrCreate(kdaCallValueHandle)
+		assert.Equal(t, result, big.NewInt(0))
+
+		// Calculate gas used
+		loopGas := hooksMetering.GasSchedule().WASMOpcodeCost.Loop
+		callValueGas := hooksMetering.GasSchedule().BaseOpsAPICost.GetCallValue
+		totalGas := (uint64(loopGas))*uint64(
+			len(hooksRuntime.GetVMInput().KDATransfers),
+		) + callValueGas
+
+		assert.Equal(t, hooksRuntime.GetPointsUsed(), totalGas)
+
+		vmOutput := vmHost.Output().GetVMOutput()
+		assert.Equal(
+			t,
+			vmOutput.ReturnCode,
+			vmcommon.ReturnCode(transaction.Transaction_Ok),
+		)
+	})
+}
+
 // Helper function to create a new mock VMHost
 func newMockVMHost() *contextmock.VMHostMock {
 	gasSchedule := config.MakeGasMapForTests()
 
+	initialGas := uint64(1000)
 	mockMetering := &contextmock.MeteringContextMock{
-		GasLeftMock: 1000,
+		GasProvidedMock: initialGas,
+		GasLeftMock:     initialGas,
 	}
 	mockMetering.SetGasSchedule(gasSchedule)
 	mockRuntime := &contextmock.RuntimeContextMock{}
@@ -638,8 +1016,18 @@ func TestManagedGetUserKDAWithHost_GasCost(t *testing.T) {
 
 			tt.mock()
 
-			vmhooks.ManagedGetUserKDAWithHost(host, addressHandle, tickerHandle, nonce,
-				balanceHandle, frozenHandle, lastClaimHandle, bucketsHandle, mimeHandle, metadataHandle)
+			vmhooks.ManagedGetUserKDAWithHost(
+				host,
+				addressHandle,
+				tickerHandle,
+				nonce,
+				balanceHandle,
+				frozenHandle,
+				lastClaimHandle,
+				bucketsHandle,
+				mimeHandle,
+				metadataHandle,
+			)
 			as.Equal(tt.expectedError, runtimeErr)
 			as.Equal(tt.expectedGas, totalGas)
 		})
@@ -937,11 +1325,31 @@ func TestManagedGetKDATokenDataWithHost_GasCost(t *testing.T) {
 			rolesHandle := int32(16)
 			issueDateHandle := int32(17)
 
-			vmhooks.ManagedGetKDATokenDataWithHost(host, addressHandle, tickerHandle, nonce,
-				precisionHandle, idHandle, nameHandle, creatorHandle, adminHandle, logoHandle, urisHandle, initialSupplyHandle, circulatingSupplyHandle, maxSupplyHandle, mintedHandle, burnedHandle, royaltiesHandle, propertiesHandle, attributesHandle, rolesHandle, issueDateHandle)
+			vmhooks.ManagedGetKDATokenDataWithHost(
+				host,
+				addressHandle,
+				tickerHandle,
+				nonce,
+				precisionHandle,
+				idHandle,
+				nameHandle,
+				creatorHandle,
+				adminHandle,
+				logoHandle,
+				urisHandle,
+				initialSupplyHandle,
+				circulatingSupplyHandle,
+				maxSupplyHandle,
+				mintedHandle,
+				burnedHandle,
+				royaltiesHandle,
+				propertiesHandle,
+				attributesHandle,
+				rolesHandle,
+				issueDateHandle,
+			)
 			as.Equal(tt.expectedError, runtimeErr)
 			as.Equal(tt.expectedGas, totalGas)
-
 		})
 	}
 }
@@ -1021,7 +1429,6 @@ func TestManagedGetMultiKDACallValue(t *testing.T) {
 	assert.Equal(t, []byte("OTHER_KDA"), mockManaged.GetManagedBuffer()[2])
 	assert.Equal(t, int64(300), mockManaged.GetManagedBigInt()[2].Int64())
 
-	expected = []byte{0x0, 0x0, 0x0, 0x3, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x3, 0x0, 0x0, 0x0, 0x4, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x4}
 	expected = []byte{
 		0x0, 0x0, 0x0, 0x3, // Token KFI - Buffer 3
 		0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, // NONCE 0
@@ -1037,5 +1444,4 @@ func TestManagedGetMultiKDACallValue(t *testing.T) {
 	assert.Equal(t, int64(100), mockManaged.GetManagedBigInt()[3].Int64())
 	assert.Equal(t, []byte("OTHER_KDA"), mockManaged.GetManagedBuffer()[4])
 	assert.Equal(t, int64(300), mockManaged.GetManagedBigInt()[4].Int64())
-
 }

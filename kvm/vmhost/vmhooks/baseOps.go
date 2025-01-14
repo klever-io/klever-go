@@ -1325,7 +1325,7 @@ func (context *VMHooksImpl) GetCallValue(resultOffset executor.MemPtr) int32 {
 	runtime := context.GetRuntimeContext()
 	metering := context.GetMeteringContext()
 
-	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetCallValue
+	gasToUse := context.ComputeGetCallValueGas()
 	metering.UseGasAndAddTracedGas(callValueName, gasToUse)
 
 	value := runtime.GetVMInput().GetKDACallValue(nil).Bytes()
@@ -1481,7 +1481,7 @@ func (context *VMHooksImpl) GetCallValueByTokenName(
 	runtime := context.GetRuntimeContext()
 	metering := context.GetMeteringContext()
 
-	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetCallValue
+	gasToUse := context.ComputeGetCallValueGas()
 	metering.UseGasAndAddTracedGas(getCallValueByTokenNameName, gasToUse)
 
 	tokenName, err := context.MemLoad(tokenNameOffset, tokenNameLength)

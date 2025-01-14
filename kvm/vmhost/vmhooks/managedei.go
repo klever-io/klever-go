@@ -236,8 +236,8 @@ func (context *VMHooksImpl) ManagedGetKDACallValue(kdaCallValueHandle int32, kda
 	metering := context.GetMeteringContext()
 	managedType := context.GetManagedTypesContext()
 
-	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetCallValue
-	metering.UseGasAndAddTracedGas(managedGetMultiKDACallValueName, gasToUse)
+	gasToUse := context.ComputeGetCallValueGas()
+	metering.UseGasAndAddTracedGas(managedGetKDACallValueName, gasToUse)
 
 	tokenID, err := managedType.GetBytes(kdaHandle)
 	if err != nil {
@@ -281,7 +281,8 @@ func (context *VMHooksImpl) ManagedGetMultiKDAWithoutKLVCallValue(multiCallValue
 	kdaTransfers := runtime.GetVMInput().KDATransfers
 	// remove klv transfers if any
 	for i := 0; i < len(kdaTransfers); {
-		if kdaTransfers[i].KDATokenName == nil || bytes.Equal(kdaTransfers[i].KDATokenName, kdautils.KLVIdentifier) {
+		if kdaTransfers[i].KDATokenName == nil ||
+			bytes.Equal(kdaTransfers[i].KDATokenName, kdautils.KLVIdentifier) {
 			// Remove the element by creating a new slice without it
 			kdaTransfers = append(kdaTransfers[:i], kdaTransfers[i+1:]...)
 		} else {
