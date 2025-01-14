@@ -7,6 +7,7 @@ import (
 	"os"
 
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/statistics"
 	"github.com/klever-io/klever-go/data/metrics"
@@ -153,6 +154,10 @@ func CreateStatusHandlers(arguments *ArgStatusHandlers) (*statusHandlersInfo, er
 
 // UpdateStorerAndMetricsForPersistentHandler will set storer for persistent status handler
 func (shi *statusHandlersInfo) UpdateStorerAndMetricsForPersistentHandler(store storage.Storer) error {
+	if store == nil {
+		return common.ErrNilStorage
+	}
+
 	err := shi.PersistentHandler.SetStorage(store)
 	if err != nil {
 		return err
@@ -170,9 +175,10 @@ func (shi *statusHandlersInfo) LoadTpsBenchmarkFromStorage(
 		BlockNumber:           0,
 		SlotNumber:            0,
 		PeakTPS:               0,
+		AverageTPS:            big.NewInt(0),
 		AverageBlockTxCount:   big.NewInt(0),
 		TotalProcessedTxCount: big.NewInt(0),
-		LastBlockTxCount:      0,
+		CurrentBlockTxCount:   0,
 	}
 	lastNonceBytes, err := store.Get([]byte(core.LastNonceKeyMetricsStorage))
 	if err != nil {
@@ -195,28 +201,31 @@ func (shi *statusHandlersInfo) LoadTpsBenchmarkFromStorage(
 
 	metricsMap := metrics.MapFromList(metricsList)
 
-	okTpsBenchmarks := &statistics.TpsPersistentData{}
+	tpsBenchmarks := &statistics.TpsPersistentData{}
 
-	okTpsBenchmarks.BlockNumber = persister.GetUint64(metricsMap[core.MetricNonceForTPS])
-	okTpsBenchmarks.SlotNumber = persister.GetUint64(metricsMap[core.MetricCurrentSlot])
+	tpsBenchmarks.BlockNumber = persister.GetUint64(metricsMap[core.MetricNonceForTPS])
+	tpsBenchmarks.SlotNumber = persister.GetUint64(metricsMap[core.MetricCurrentSlot])
+	tpsBenchmarks.AverageTPS = persister.GetBigIntFromString(metricsMap[core.MetricAverageTPS])
 	// #nosec G115 - max tx per block is uint32 value
-	okTpsBenchmarks.LastBlockTxCount = uint32(persister.GetUint64(metricsMap[core.MetricLastBlockTxCount]))
-	okTpsBenchmarks.PeakTPS = float64(persister.GetUint64(metricsMap[core.MetricPeakTPS]))
+	tpsBenchmarks.CurrentBlockTxCount = uint32(persister.GetUint64(metricsMap[core.MetricCurrentBlockTxCount]))
+	tpsBenchmarks.PeakTPS = float64(persister.GetUint64(metricsMap[core.MetricPeakTPS]))
+	tpsBenchmarks.TotalProcessedTxCount = big.NewInt(int64(persister.GetUint64(metricsMap[core.MetricNumProcessedTxsTPSBenchmark])))
 	// #nosec G115 - total processed tx count is uint32
-	okTpsBenchmarks.TotalProcessedTxCount = big.NewInt(int64(persister.GetUint64(metricsMap[core.MetricNumProcessedTxsTPSBenchmark])))
-	okTpsBenchmarks.AverageBlockTxCount = persister.GetBigIntFromString(metricsMap[core.MetricAverageBlockTxCount])
+
+	tpsBenchmarks.AverageBlockTxCount = persister.GetBigIntFromString(metricsMap[core.MetricAverageBlockTxCount])
 
 	shi.updateTpsMetrics(metricsMap)
 
 	log.Debug("loaded tps benchmark from storage",
-		"block number", okTpsBenchmarks.BlockNumber,
-		"slot number", okTpsBenchmarks.SlotNumber,
-		"peak tps", okTpsBenchmarks.PeakTPS,
-		"last block tx count", okTpsBenchmarks.LastBlockTxCount,
-		"average block tx count", okTpsBenchmarks.AverageBlockTxCount,
-		"total txs processed", okTpsBenchmarks.TotalProcessedTxCount.String())
+		"block number", tpsBenchmarks.BlockNumber,
+		"slot number", tpsBenchmarks.SlotNumber,
+		"peak tps", tpsBenchmarks.PeakTPS,
+		"average tps", tpsBenchmarks.AverageTPS,
+		"current block tx count", tpsBenchmarks.CurrentBlockTxCount,
+		"average block tx count", tpsBenchmarks.AverageBlockTxCount,
+		"total txs processed", tpsBenchmarks.TotalProcessedTxCount.String())
 
-	return okTpsBenchmarks
+	return tpsBenchmarks
 }
 
 func (shi *statusHandlersInfo) updateTpsMetrics(metricsMap map[string]interface{}) {

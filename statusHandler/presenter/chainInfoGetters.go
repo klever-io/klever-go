@@ -24,7 +24,7 @@ func (psh *PresenterStatusHandler) GetTxPoolLoad() uint64 {
 
 // GetTPSCurrent will return how many transactions per second in current slot
 func (psh *PresenterStatusHandler) GetTPSCurrent() uint64 {
-	return psh.getFromCacheAsUint64(core.MetricLastBlockTxCount) / 4
+	return psh.getFromCacheAsUint64(core.MetricCurrentBlockTxCount) / 4
 }
 
 // GetTPSPeak will return how many transactions per second at peak

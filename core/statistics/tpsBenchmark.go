@@ -24,40 +24,29 @@ type TpsPersistentData struct {
 	BlockNumber           uint64
 	SlotNumber            uint64
 	PeakTPS               float64
+	AverageTPS            *big.Int
 	AverageBlockTxCount   *big.Int
 	TotalProcessedTxCount *big.Int
-	LastBlockTxCount      uint32
+	CurrentBlockTxCount   uint32
 }
 
 // TpsBenchmark will calculate statistics for the network activity
 type TpsBenchmark struct {
-	mut                   sync.RWMutex
-	activeNodes           uint32
-	slotTime              uint64
-	blockNumber           uint64
-	slotNumber            uint64
+	mut         sync.RWMutex
+	activeNodes uint32
+	slotTime    uint64
+	blockNumber uint64
+	slotNumber  uint64
+	averageTPS  *big.Int
+
 	peakTPS               float64
 	averageBlockTxCount   *big.Int
-	lastBlockTxCount      uint32
+	currentBlockTxCount   uint32
 	totalProcessedTxCount *big.Int
-	statistics            ChainStatistic
 	statusHandler         core.AppStatusHandler
 	initialBlockNumber    int64
 }
 
-// ChainStatistics will hold the tps statistics
-type ChainStatistics struct {
-	slotTime              uint64
-	averageTPS            *big.Int
-	peakTPS               float64
-	lastBlockTxCount      uint32
-	averageBlockTxCount   uint32
-	currentBlockNonce     uint64
-	totalProcessedTxCount *big.Int
-}
-
-// NewTPSBenchmarkWithInitialData instantiates a new object responsible with calculating statistics for each shard tps
-// starting with initial data
 func NewTPSBenchmarkWithInitialData(
 	appStatusHandler core.AppStatusHandler,
 	initialTpsBenchmark *TpsPersistentData,
@@ -73,21 +62,17 @@ func NewTPSBenchmarkWithInitialData(
 		return nil, ErrNilStatusHandler
 	}
 
-	stats := &ChainStatistics{
-		slotTime:              slotInterval,
-		totalProcessedTxCount: big.NewInt(0),
-	}
 	return &TpsBenchmark{
 		slotTime:              slotInterval,
-		statistics:            stats,
 		peakTPS:               initialTpsBenchmark.PeakTPS,
-		lastBlockTxCount:      initialTpsBenchmark.LastBlockTxCount,
+		averageTPS:            initialTpsBenchmark.AverageTPS,
+		currentBlockTxCount:   initialTpsBenchmark.CurrentBlockTxCount,
 		blockNumber:           initialTpsBenchmark.BlockNumber,
 		slotNumber:            initialTpsBenchmark.SlotNumber,
 		totalProcessedTxCount: initialTpsBenchmark.TotalProcessedTxCount,
 		averageBlockTxCount:   initialTpsBenchmark.AverageBlockTxCount,
 		statusHandler:         appStatusHandler,
-		initialBlockNumber:    int64(initialTpsBenchmark.BlockNumber), // #nosec G115 -
+		initialBlockNumber:    int64(initialTpsBenchmark.BlockNumber), // #nosec G115
 	}, nil
 }
 
@@ -100,16 +85,11 @@ func NewTPSBenchmark(
 		return nil, ErrInvalidSlotInterval
 	}
 
-	stats := &ChainStatistics{
-		slotTime:              slotInterval,
-		totalProcessedTxCount: big.NewInt(0),
-	}
-
 	return &TpsBenchmark{
 		slotTime:              slotInterval,
-		statistics:            stats,
 		statusHandler:         statusHandler.NewNilStatusHandler(),
 		totalProcessedTxCount: big.NewInt(0),
+		averageTPS:            big.NewInt(0),
 		averageBlockTxCount:   big.NewInt(0),
 		initialBlockNumber:    defaultBlockNumber,
 	}, nil
@@ -140,9 +120,9 @@ func (s *TpsBenchmark) AverageBlockTxCount() *big.Int {
 	return s.averageBlockTxCount
 }
 
-// LastBlockTxCount returns the number of transactions processed in the last block
-func (s *TpsBenchmark) LastBlockTxCount() uint32 {
-	return s.lastBlockTxCount
+// CurrentBlockTxCount returns the number of transactions processed in the current block
+func (s *TpsBenchmark) CurrentBlockTxCount() uint32 {
+	return s.currentBlockTxCount
 }
 
 // TotalProcessedTxCount returns the total number of processed transactions
@@ -150,9 +130,9 @@ func (s *TpsBenchmark) TotalProcessedTxCount() *big.Int {
 	return s.totalProcessedTxCount
 }
 
-// LiveTPS returns tps for the last block
+// LiveTPS returns tps for the current block
 func (s *TpsBenchmark) LiveTPS() float64 {
-	return float64(uint64(s.lastBlockTxCount) / s.slotTime)
+	return float64(uint64(s.currentBlockTxCount) / s.slotTime)
 }
 
 // PeakTPS returns tps for the last block
@@ -160,12 +140,9 @@ func (s *TpsBenchmark) PeakTPS() float64 {
 	return s.peakTPS
 }
 
-// Statistic returns the current statistical state
-func (s *TpsBenchmark) Statistic() ChainStatistic {
-	s.mut.RLock()
-	defer s.mut.RUnlock()
-
-	return s.statistics
+// AverageTPS returns the average tps for the last block
+func (s *TpsBenchmark) AverageTPS() *big.Int {
+	return s.averageTPS
 }
 
 // Update receives a metablock and updates all fields accordingly for each shard available in the meta block
@@ -192,107 +169,38 @@ func (s *TpsBenchmark) updateStatistics(b *block.Block) error {
 	s.blockNumber = b.Header.Nonce
 	s.slotNumber = b.Header.Slot
 
-	// same value (one shard)
-	totalTxsForTPS := uint64(b.Header.TxCount)
-	totalTxsForCount := uint64(b.Header.TxCount)
+	totalTxs := uint64(b.Header.TxCount)
+	s.currentBlockTxCount = b.Header.TxCount
 
-	s.lastBlockTxCount = uint32(totalTxsForTPS) // #nosec G115 - max TPS is uint32
+	currentTPS := float64(totalTxs / s.slotTime)
 
-	s.totalProcessedTxCount.Add(s.totalProcessedTxCount, big.NewInt(0).SetUint64(totalTxsForCount))
-	s.statusHandler.AddUint64(core.MetricNumProcessedTxsTPSBenchmark, totalTxsForCount)
-
-	s.averageBlockTxCount.Quo(s.totalProcessedTxCount, big.NewInt(0).SetUint64(b.Header.Nonce))
-
-	currentTPS := float64(totalTxsForTPS / s.slotTime)
 	if currentTPS > s.peakTPS {
 		s.peakTPS = currentTPS
 	}
 
+	s.totalProcessedTxCount.Add(s.totalProcessedTxCount, big.NewInt(0).SetUint64(totalTxs))
+	s.averageBlockTxCount.Quo(s.totalProcessedTxCount, big.NewInt(0).SetUint64(b.Header.Nonce))
+	s.averageTPS = big.NewInt(0).SetUint64(s.totalProcessedTxCount.Uint64() / b.Header.Slot)
+
+	s.statusHandler.AddUint64(core.MetricNumProcessedTxsTPSBenchmark, totalTxs)
 	s.statusHandler.SetUInt64Value(core.MetricNonceForTPS, b.Header.Nonce)
-	s.statusHandler.SetUInt64Value(core.MetricLastBlockTxCount, totalTxsForTPS)
+	s.statusHandler.SetUInt64Value(core.MetricCurrentBlockTxCount, totalTxs)
 	s.statusHandler.SetUInt64Value(core.MetricPeakTPS, uint64(s.peakTPS))
+	s.statusHandler.SetStringValue(core.MetricAverageTPS, s.averageTPS.String())
 	s.statusHandler.SetStringValue(core.MetricAverageBlockTxCount, s.averageBlockTxCount.String())
 
-	// one shard only...
-	shardTotalTxsForTPS := uint64(b.Header.TxCount)
-	shardTotalTxsForCount := uint64(b.Header.TxCount)
-
-	shardPeakTPS := s.statistics.PeakTPS()
-	currentShardTPS := float64(shardTotalTxsForTPS / s.slotTime)
-	if currentShardTPS > s.statistics.PeakTPS() {
-		shardPeakTPS = currentShardTPS
-	}
-
-	bigTxCount := big.NewInt(0).SetUint64(shardTotalTxsForCount)
-	newTotalProcessedTxCount := big.NewInt(0).Add(s.statistics.TotalProcessedTxCount(), bigTxCount)
-	slotsPassed := big.NewInt(0).SetUint64(b.Header.Slot)
-	newAverageTPS := big.NewInt(0).Quo(newTotalProcessedTxCount, slotsPassed)
-
-	updatedChainStats := &ChainStatistics{
-		slotTime:              s.slotTime,
-		currentBlockNonce:     b.Header.Nonce,
-		totalProcessedTxCount: newTotalProcessedTxCount,
-
-		averageTPS:       newAverageTPS,
-		peakTPS:          shardPeakTPS,
-		lastBlockTxCount: uint32(shardTotalTxsForTPS), // #nosec G115 - max TPS is uint32
-	}
-
-	log.Debug("TpsBenchmark.updateStatistics",
-		"block", updatedChainStats.currentBlockNonce,
-		"avgTPS", updatedChainStats.averageTPS,
-		"peakTPS", updatedChainStats.peakTPS,
-		"lastBlockTxCount", updatedChainStats.lastBlockTxCount,
-		"avgBlockTxCount", updatedChainStats.averageBlockTxCount,
-		"totalProcessedTxCount", updatedChainStats.totalProcessedTxCount,
+	log.Debug("TPS benchmark updated",
+		"peakTPS", s.peakTPS,
+		"averageTPS", s.averageTPS,
+		"liveTPS", currentTPS,
+		"currentBlockTxCount", s.currentBlockTxCount,
+		"avgBlockTxCount", s.averageBlockTxCount,
+		"totalProcessedTxCount", s.totalProcessedTxCount,
 	)
-
-	s.statistics = updatedChainStats
 
 	return nil
 }
 
-// IsInterfaceNil returns true if there is no value under the interface
 func (s *TpsBenchmark) IsInterfaceNil() bool {
 	return s == nil
-}
-
-// AverageTPS returns an average tps for all processed blocks in a shard
-func (ss *ChainStatistics) AverageTPS() *big.Int {
-	return ss.averageTPS
-}
-
-// AverageBlockTxCount returns an average transaction count for
-func (ss *ChainStatistics) AverageBlockTxCount() uint32 {
-	return ss.averageBlockTxCount
-}
-
-// CurrentBlockNonce returns the block nounce of the last processed block in a shard
-func (ss *ChainStatistics) CurrentBlockNonce() uint64 {
-	return ss.currentBlockNonce
-}
-
-// LiveTPS returns tps for the last block
-func (ss *ChainStatistics) LiveTPS() float64 {
-	return float64(uint64(ss.lastBlockTxCount) / ss.slotTime)
-}
-
-// PeakTPS returns peak tps for for all the blocks of the current shard
-func (ss *ChainStatistics) PeakTPS() float64 {
-	return ss.peakTPS
-}
-
-// LastBlockTxCount returns the number of transactions included in the last block
-func (ss *ChainStatistics) LastBlockTxCount() uint32 {
-	return ss.lastBlockTxCount
-}
-
-// TotalProcessedTxCount returns the total number of processed transactions for this shard
-func (ss *ChainStatistics) TotalProcessedTxCount() *big.Int {
-	return ss.totalProcessedTxCount
-}
-
-// IsInterfaceNil returns true if there is no value under the interface
-func (ss *ChainStatistics) IsInterfaceNil() bool {
-	return ss == nil
 }

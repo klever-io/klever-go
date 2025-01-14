@@ -52,7 +52,7 @@ type StatisticsResponse struct {
 		BlockNumber           uint64  `json:"blockNumber"`
 		SlotTime              uint32  `json:"slotTime"`
 		AverageBlockTxCount   float32 `json:"averageBlockTxCount"`
-		LastBlockTxCount      uint32  `json:"lastBlockTxCount"`
+		CurrentBlockTxCount   uint32  `json:"currentBlockTxCount"`
 		TotalProcessedTxCount uint32  `json:"totalProcessedTxCount"`
 	} `json:"statistics"`
 }

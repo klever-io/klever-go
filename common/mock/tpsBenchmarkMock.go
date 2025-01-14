@@ -4,7 +4,6 @@ import (
 	"math/big"
 	"sync"
 
-	"github.com/klever-io/klever-go/core/statistics"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 )
@@ -18,9 +17,8 @@ type TpsBenchmarkMock struct {
 	slotNumber            uint64
 	peakTPS               float64
 	averageBlockTxCount   *big.Int
-	lastBlockTxCount      uint32
+	currentBlockTxCount   uint32
 	totalProcessedTxCount *big.Int
-	statistics            statistics.ChainStatistic
 }
 
 // ActiveNodes returns the number of active nodes
@@ -48,9 +46,9 @@ func (s *TpsBenchmarkMock) AverageBlockTxCount() *big.Int {
 	return s.averageBlockTxCount
 }
 
-// LastBlockTxCount returns the number of transactions processed in the last block
-func (s *TpsBenchmarkMock) LastBlockTxCount() uint32 {
-	return s.lastBlockTxCount
+// CurrentBlockTxCount returns the number of transactions processed in the current block
+func (s *TpsBenchmarkMock) CurrentBlockTxCount() uint32 {
+	return s.currentBlockTxCount
 }
 
 // TotalProcessedTxCount returns the total number of processed transactions
@@ -58,19 +56,14 @@ func (s *TpsBenchmarkMock) TotalProcessedTxCount() *big.Int {
 	return s.totalProcessedTxCount
 }
 
-// LiveTPS returns tps for the last block
+// LiveTPS returns tps for the current block
 func (s *TpsBenchmarkMock) LiveTPS() float64 {
-	return float64(uint64(s.lastBlockTxCount) / s.slotTime)
+	return float64(uint64(s.currentBlockTxCount) / s.slotTime)
 }
 
 // PeakTPS returns tps for the last block
 func (s *TpsBenchmarkMock) PeakTPS() float64 {
 	return s.peakTPS
-}
-
-// ShardStatistic returns the current statistical state for a given shard
-func (s *TpsBenchmarkMock) Statistic() statistics.ChainStatistic {
-	return s.statistics
 }
 
 // Update receives a metablock and updates all fields accordingly for each shard available in the meta block

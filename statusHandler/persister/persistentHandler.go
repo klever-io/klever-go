@@ -72,7 +72,7 @@ func (psh *PersistentStatusHandler) initMap() {
 	psh.persistentMetrics.Store(core.MetricNonceForTPS, initUint)
 	psh.persistentMetrics.Store(core.MetricPeakTPS, initUint)
 	psh.persistentMetrics.Store(core.MetricAverageBlockTxCount, zeroString)
-	psh.persistentMetrics.Store(core.MetricLastBlockTxCount, initUint)
+	psh.persistentMetrics.Store(core.MetricCurrentBlockTxCount, initUint)
 	psh.persistentMetrics.Store(core.MetricCurrentSlot, initUint)
 	psh.persistentMetrics.Store(core.MetricNonceAtEpochStart, initUint)
 	psh.persistentMetrics.Store(core.MetricSlotAtEpochStart, initUint)

@@ -59,25 +59,15 @@ type QueryDebugRequest struct {
 }
 
 type statisticsResponse struct {
-	LiveTPS               float64                 `json:"liveTPS"`
-	PeakTPS               float64                 `json:"peakTPS"`
-	BlockNumber           uint64                  `json:"blockNumber"`
-	SlotNumber            uint64                  `json:"slotNumber"`
-	SlotTime              uint64                  `json:"slotTime"`
-	AverageBlockTxCount   *big.Int                `json:"averageBlockTxCount"`
-	TotalProcessedTxCount *big.Int                `json:"totalProcessedTxCount"`
-	ChainStatistics       chainStatisticsResponse `json:"chainStatistics"`
-	LastBlockTxCount      uint32                  `json:"lastBlockTxCount"`
-}
-
-type chainStatisticsResponse struct {
 	LiveTPS               float64  `json:"liveTPS"`
 	AverageTPS            *big.Int `json:"averageTPS"`
 	PeakTPS               float64  `json:"peakTPS"`
-	CurrentBlockNonce     uint64   `json:"currentBlockNonce"`
+	BlockNumber           uint64   `json:"blockNumber"`
+	SlotNumber            uint64   `json:"slotNumber"`
+	SlotTime              uint64   `json:"slotTime"`
+	AverageBlockTxCount   *big.Int `json:"averageBlockTxCount"`
 	TotalProcessedTxCount *big.Int `json:"totalProcessedTxCount"`
-	AverageBlockTxCount   uint32   `json:"averageBlockTxCount"`
-	LastBlockTxCount      uint32   `json:"lastBlockTxCount"`
+	CurrentBlockTxCount   uint32   `json:"currentBlockTxCount"`
 }
 
 // Routes defines node related routes
@@ -235,26 +225,19 @@ func P2pStatusMetrics(c *gin.Context) {
 }
 
 func statsFromTpsBenchmark(tpsBenchmark *statistics.TpsBenchmark) statisticsResponse {
+	if tpsBenchmark == nil {
+		return statisticsResponse{}
+	}
 	sr := statisticsResponse{}
 	sr.LiveTPS = tpsBenchmark.LiveTPS()
+	sr.AverageTPS = tpsBenchmark.AverageTPS()
 	sr.PeakTPS = tpsBenchmark.PeakTPS()
 	sr.SlotTime = tpsBenchmark.SlotTime()
 	sr.BlockNumber = tpsBenchmark.BlockNumber()
 	sr.SlotNumber = tpsBenchmark.SlotNumber()
 	sr.AverageBlockTxCount = tpsBenchmark.AverageBlockTxCount()
-	sr.LastBlockTxCount = tpsBenchmark.LastBlockTxCount()
+	sr.CurrentBlockTxCount = tpsBenchmark.CurrentBlockTxCount()
 	sr.TotalProcessedTxCount = tpsBenchmark.TotalProcessedTxCount()
-
-	ss := tpsBenchmark.Statistic()
-	sr.ChainStatistics = chainStatisticsResponse{
-		LiveTPS:               ss.LiveTPS(),
-		PeakTPS:               ss.PeakTPS(),
-		AverageTPS:            ss.AverageTPS(),
-		AverageBlockTxCount:   ss.AverageBlockTxCount(),
-		CurrentBlockNonce:     ss.CurrentBlockNonce(),
-		LastBlockTxCount:      ss.LastBlockTxCount(),
-		TotalProcessedTxCount: ss.TotalProcessedTxCount(),
-	}
 
 	return sr
 }

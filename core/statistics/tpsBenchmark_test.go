@@ -13,7 +13,6 @@ import (
 )
 
 func updateTpsBenchmark(tpsBenchmark *statistics.TpsBenchmark, txCount uint32, nonce uint64) {
-
 	metaBlock := &block.Block{
 		Header: &block.BlockHeader{
 			Nonce:   nonce,
@@ -28,11 +27,10 @@ func updateTpsBenchmark(tpsBenchmark *statistics.TpsBenchmark, txCount uint32, n
 	_ = tpsBenchmark.BlockNumber()
 	_ = tpsBenchmark.SlotNumber()
 	_ = tpsBenchmark.AverageBlockTxCount()
-	_ = tpsBenchmark.LastBlockTxCount()
+	_ = tpsBenchmark.CurrentBlockTxCount()
 	_ = tpsBenchmark.TotalProcessedTxCount()
 	_ = tpsBenchmark.LiveTPS()
 	_ = tpsBenchmark.PeakTPS()
-	_ = tpsBenchmark.Statistic()
 }
 
 func TestTpsBenchmark_NewTPSBenchmarkReturnsErrorOnInvalidDuration(t *testing.T) {
@@ -52,7 +50,6 @@ func TestTpsBenchmark_NewTPSBenchmark(t *testing.T) {
 
 	assert.Equal(t, tpsBenchmark.SlotTime(), slotInterval)
 	assert.False(t, check.IfNil(tpsBenchmark))
-	assert.False(t, tpsBenchmark.Statistic().IsInterfaceNil())
 }
 
 func TestTpsBenchmark_BlockNumber(t *testing.T) {
@@ -168,44 +165,10 @@ func TestTPSBenchmark_GettersAndSetters(t *testing.T) {
 
 	assert.Equal(t, slotInterval, tpsBenchmark.SlotTime())
 	assert.Equal(t, blockNumber, tpsBenchmark.BlockNumber())
-	assert.Equal(t, blockNumber, tpsBenchmark.BlockNumber())
 	assert.Equal(t, float64(totalTxs), tpsBenchmark.PeakTPS())
-	assert.Equal(t, totalTxs, tpsBenchmark.LastBlockTxCount())
+	assert.Equal(t, totalTxs, tpsBenchmark.CurrentBlockTxCount())
 	assert.Equal(t, big.NewInt(int64(totalTxs)), tpsBenchmark.AverageBlockTxCount())
 	assert.Equal(t, big.NewInt(int64(totalTxs)), tpsBenchmark.TotalProcessedTxCount())
-	assert.Equal(t, totalTxs, tpsBenchmark.Statistic().LastBlockTxCount())
-}
-
-func TestTPSBenchmarkChainStatistics_GettersAndSetters(t *testing.T) {
-	t.Parallel()
-
-	slotInterval := uint64(1)
-	tpsBenchmark, _ := statistics.NewTPSBenchmark(slotInterval)
-	slot := uint64(1)
-	blockNumber := slot
-	txCount := uint32(5)
-
-	metaBlock := &block.Block{
-		Header: &block.BlockHeader{
-			Nonce:      blockNumber,
-			Slot:       slot,
-			ParentHash: []byte{1},
-			TxCount:    txCount,
-		},
-	}
-
-	tpsBenchmark.Update(metaBlock)
-
-	statistics := tpsBenchmark.Statistic()
-	assert.NotNil(t, statistics)
-
-	assert.Equal(t, 1, statistics.AverageTPS().Cmp(big.NewInt(0)))
-	assert.True(t, statistics.LiveTPS() > 0)
-	assert.Equal(t, slot, statistics.CurrentBlockNonce())
-	assert.Equal(t, float64(txCount), statistics.PeakTPS())
-	assert.Equal(t, txCount, statistics.LastBlockTxCount())
-	assert.Equal(t, big.NewInt(int64(txCount)), statistics.TotalProcessedTxCount())
-
 }
 
 func TestTpsBenchmark_EmptyBlocksShouldNotUpdateMultipleTimes(t *testing.T) {

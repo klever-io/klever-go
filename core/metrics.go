@@ -93,6 +93,9 @@ const MetricCurrentBlockHash = "klv_current_block_hash"
 // MetricCurrentSlotTimestamp is the metric that stores current slot timestamp
 const MetricCurrentSlotTimestamp = "klv_current_slot_timestamp"
 
+// MetricAverageTPS is the metric that stores the average tps
+const MetricAverageTPS = "klv_average_tps"
+
 // MetricHeaderSize is the metric that stores the current block size
 const MetricHeaderSize = "klv_current_header_block_size"
 
@@ -204,8 +207,8 @@ const MetricNumProcessedTxsTPSBenchmark = "klv_num_transactions_processed_tps_be
 // MetricAverageBlockTxCount holds the average count of transactions in a block
 const MetricAverageBlockTxCount = "klv_average_block_tx_count"
 
-// MetricLastBlockTxCount holds the number of transactions in the last block
-const MetricLastBlockTxCount = "klv_last_block_tx_count"
+// MetricCurrentBlockTxCount holds the number of transactions in the current block
+const MetricCurrentBlockTxCount = "klv_current_block_tx_count"
 
 // MetricConsensusGroupSize is the metric for consensus group size for the current
 const MetricConsensusGroupSize = "klv_consensus_group_size"
