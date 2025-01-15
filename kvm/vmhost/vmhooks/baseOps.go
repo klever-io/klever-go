@@ -52,8 +52,8 @@ const (
 	signalErrorName                  = "signalError"
 	getGasLeftName                   = "getGasLeft"
 	getKDABalanceName                = "getKDABalance"
-	getKDANFTNameLengthName          = "getKDANFTNameLength"
-	getKDANFTURILengthName           = "getKDANFTURILength"
+	getKDANameLength                 = "GetKDANameLength"
+	getKDAURILength                  = "GetKDAURILength"
 	getKDATokenDataName              = "getKDATokenData"
 	validateTokenIdentifierName      = "validateTokenIdentifier"
 	executeOnDestContextName         = "executeOnDestContext"
@@ -306,9 +306,9 @@ func (context *VMHooksImpl) GetKDABalance(
 	return int32(len(big.NewInt(userKDA.Balance).Bytes())) // #nosec G115
 }
 
-// GetKDANFTNameLength VMHooks implementation.
+// GetKDANameLength VMHooks implementation.
 // @autogenerate(VMHooks)
-func (context *VMHooksImpl) GetKDANFTNameLength(
+func (context *VMHooksImpl) GetKDANameLength(
 	addressOffset executor.MemPtr,
 	tokenIDOffset executor.MemPtr,
 	tokenIDLen executor.MemLength,
@@ -316,7 +316,7 @@ func (context *VMHooksImpl) GetKDANFTNameLength(
 ) int32 {
 	runtime := context.GetRuntimeContext()
 	metering := context.GetMeteringContext()
-	metering.StartGasTracing(getKDANFTNameLengthName)
+	metering.StartGasTracing(getKDANameLength)
 
 	kdaData, _, err := getKDADataFromBlockchainHook(context, addressOffset, tokenIDOffset, tokenIDLen, nonce)
 
@@ -327,9 +327,9 @@ func (context *VMHooksImpl) GetKDANFTNameLength(
 	return int32(len(kdaData.Name)) // #nosec G115
 }
 
-// GetKDANFTURILength VMHooks implementation.
+// GetKDAURILength VMHooks implementation.
 // @autogenerate(VMHooks)
-func (context *VMHooksImpl) GetKDANFTURILength(
+func (context *VMHooksImpl) GetKDAURILength(
 	addressOffset executor.MemPtr,
 	tokenIDOffset executor.MemPtr,
 	tokenIDLen executor.MemLength,
@@ -337,7 +337,7 @@ func (context *VMHooksImpl) GetKDANFTURILength(
 ) int32 {
 	runtime := context.GetRuntimeContext()
 	metering := context.GetMeteringContext()
-	metering.StartGasTracing(getKDANFTURILengthName)
+	metering.StartGasTracing(getKDAURILength)
 
 	kdaData, _, err := getKDADataFromBlockchainHook(context, addressOffset, tokenIDOffset, tokenIDLen, nonce)
 

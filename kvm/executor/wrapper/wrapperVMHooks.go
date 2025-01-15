@@ -117,23 +117,23 @@ func (w *WrapperVMHooks) GetKDABalance(addressOffset executor.MemPtr, tokenIDOff
 	return result
 }
 
-// GetKDANFTNameLength VM hook wrapper
-func (w *WrapperVMHooks) GetKDANFTNameLength(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
-	callInfo := fmt.Sprintf("GetKDANFTNameLength(%d, %d, %d, %d)", addressOffset, tokenIDOffset, tokenIDLen, nonce)
+// GetKDANameLength VM hook wrapper
+func (w *WrapperVMHooks) GetKDANameLength(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
+	callInfo := fmt.Sprintf("GetKDANameLength(%d, %d, %d, %d)", addressOffset, tokenIDOffset, tokenIDLen, nonce)
 	w.logger.LogVMHookCallBefore(callInfo)
 	result := FailAfterTimeout(func() int32 {
-		return w.wrappedVMHooks.GetKDANFTNameLength(addressOffset, tokenIDOffset, tokenIDLen, nonce)
+		return w.wrappedVMHooks.GetKDANameLength(addressOffset, tokenIDOffset, tokenIDLen, nonce)
 	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }
 
-// GetKDANFTURILength VM hook wrapper
-func (w *WrapperVMHooks) GetKDANFTURILength(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
-	callInfo := fmt.Sprintf("GetKDANFTURILength(%d, %d, %d, %d)", addressOffset, tokenIDOffset, tokenIDLen, nonce)
+// GetKDAURILength VM hook wrapper
+func (w *WrapperVMHooks) GetKDAURILength(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
+	callInfo := fmt.Sprintf("GetKDAURILength(%d, %d, %d, %d)", addressOffset, tokenIDOffset, tokenIDLen, nonce)
 	w.logger.LogVMHookCallBefore(callInfo)
 	result := FailAfterTimeout(func() int32 {
-		return w.wrappedVMHooks.GetKDANFTURILength(addressOffset, tokenIDOffset, tokenIDLen, nonce)
+		return w.wrappedVMHooks.GetKDAURILength(addressOffset, tokenIDOffset, tokenIDLen, nonce)
 	}, w.executionTimeout)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result

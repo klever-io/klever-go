@@ -524,7 +524,7 @@ func TestVMHooksImpl_GetKDABalance(t *testing.T) {
 	}
 }
 
-func TestVMHooksImpl_GetKDANFTNameLength(t *testing.T) {
+func TestVMHooksImpl_GetKDANameLength(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -537,7 +537,7 @@ func TestVMHooksImpl_GetKDANFTNameLength(t *testing.T) {
 		shouldFailExec bool
 	}{
 		{
-			name:        "valid NFT name",
+			name:        "valid name",
 			address:     []byte("address123456789012"),
 			tokenID:     []byte("NFT-123"),
 			nftName:     "CoolNFT",
@@ -545,7 +545,7 @@ func TestVMHooksImpl_GetKDANFTNameLength(t *testing.T) {
 			expectedLen: 7,
 		},
 		{
-			name:        "empty NFT name",
+			name:        "empty name",
 			address:     []byte("address123456789012"),
 			tokenID:     []byte("NFT-123"),
 			nftName:     "",
@@ -588,7 +588,7 @@ func TestVMHooksImpl_GetKDANFTNameLength(t *testing.T) {
 			err = host.Runtime().GetInstance().MemStore(executor.MemPtr(32), tt.tokenID)
 			require.Nil(t, err)
 
-			result := hooks.GetKDANFTNameLength(
+			result := hooks.GetKDANameLength(
 				executor.MemPtr(0),
 				executor.MemPtr(32),
 				executor.MemLength(len(tt.tokenID)),
@@ -600,7 +600,7 @@ func TestVMHooksImpl_GetKDANFTNameLength(t *testing.T) {
 	}
 }
 
-func TestVMHooksImpl_GetKDANFTURILength(t *testing.T) {
+func TestVMHooksImpl_GetKDAURILength(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -672,7 +672,7 @@ func TestVMHooksImpl_GetKDANFTURILength(t *testing.T) {
 			err = host.Runtime().GetInstance().MemStore(executor.MemPtr(32), tt.tokenID)
 			require.Nil(t, err)
 
-			result := hooks.GetKDANFTURILength(
+			result := hooks.GetKDAURILength(
 				executor.MemPtr(0),
 				executor.MemPtr(32),
 				executor.MemLength(len(tt.tokenID)),

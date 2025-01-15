@@ -27,8 +27,8 @@ type MainVMHooks interface {
 	GetExternalBalance(addressOffset MemPtr, resultOffset MemPtr)
 	GetBlockHash(nonce int64, resultOffset MemPtr) int32
 	GetKDABalance(addressOffset MemPtr, tokenIDOffset MemPtr, tokenIDLen MemLength, nonce int64, resultOffset MemPtr) int32
-	GetKDANFTNameLength(addressOffset MemPtr, tokenIDOffset MemPtr, tokenIDLen MemLength, nonce int64) int32
-	GetKDANFTURILength(addressOffset MemPtr, tokenIDOffset MemPtr, tokenIDLen MemLength, nonce int64) int32
+	GetKDANameLength(addressOffset MemPtr, tokenIDOffset MemPtr, tokenIDLen MemLength, nonce int64) int32
+	GetKDAURILength(addressOffset MemPtr, tokenIDOffset MemPtr, tokenIDLen MemLength, nonce int64) int32
 	GetKDATokenData(addressOffset MemPtr, tokenIDOffset MemPtr, tokenIDLen MemLength, nonce int64, precisionHandle int32, idOffset MemPtr, nameOffset MemPtr, creatorOffset MemPtr, logoOffset MemPtr, initialSupplyOffset MemPtr, circulatingSupplyOffset MemPtr, maxSupplyOffset MemPtr, mintedOffset MemPtr, burnedOffset MemPtr, royaltiesOffset MemPtr, propertiesOffset MemPtr, attributesOffset MemPtr, rolesOffset MemPtr) int32
 	ValidateTokenIdentifier(tokenIdHandle int32) int32
 	UpgradeContract(destOffset MemPtr, gasLimit int64, valueOffset MemPtr, codeOffset MemPtr, codeMetadataOffset MemPtr, length MemLength, numArguments int32, argumentsLengthOffset MemPtr, dataOffset MemPtr)

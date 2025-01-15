@@ -46,8 +46,8 @@ typedef struct {
   void (*get_external_balance_func_ptr)(void *context, int32_t address_offset, int32_t result_offset);
   int32_t (*get_block_hash_func_ptr)(void *context, int64_t nonce, int32_t result_offset);
   int32_t (*get_kda_balance_func_ptr)(void *context, int32_t address_offset, int32_t token_id_offset, int32_t token_id_len, int64_t nonce, int32_t result_offset);
-  int32_t (*get_kda_nft_name_length_func_ptr)(void *context, int32_t address_offset, int32_t token_id_offset, int32_t token_id_len, int64_t nonce);
-  int32_t (*get_kda_nft_uri_length_func_ptr)(void *context, int32_t address_offset, int32_t token_id_offset, int32_t token_id_len, int64_t nonce);
+  int32_t (*get_kda_name_length_func_ptr)(void *context, int32_t address_offset, int32_t token_id_offset, int32_t token_id_len, int64_t nonce);
+  int32_t (*get_kda_uri_length_func_ptr)(void *context, int32_t address_offset, int32_t token_id_offset, int32_t token_id_len, int64_t nonce);
   int32_t (*get_kda_token_data_func_ptr)(void *context, int32_t address_offset, int32_t token_id_offset, int32_t token_id_len, int64_t nonce, int32_t precision_handle, int32_t id_offset, int32_t name_offset, int32_t creator_offset, int32_t logo_offset, int32_t initial_supply_offset, int32_t circulating_supply_offset, int32_t max_supply_offset, int32_t minted_offset, int32_t burned_offset, int32_t royalties_offset, int32_t properties_offset, int32_t attributes_offset, int32_t roles_offset);
   int32_t (*validate_token_identifier_func_ptr)(void *context, int32_t token_id_handle);
   void (*upgrade_contract_func_ptr)(void *context, int32_t dest_offset, int64_t gas_limit, int32_t value_offset, int32_t code_offset, int32_t code_metadata_offset, int32_t length, int32_t num_arguments, int32_t arguments_length_offset, int32_t data_offset);

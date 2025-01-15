@@ -392,7 +392,7 @@ func TestGetKDABalance(t *testing.T) {
 	}
 }
 
-func TestGetKDANFTNameLength(t *testing.T) {
+func TestGetKDANameLength(t *testing.T) {
 	var testCases = []struct {
 		name        string
 		shouldPanic bool
@@ -401,14 +401,14 @@ func TestGetKDANFTNameLength(t *testing.T) {
 		timeout     time.Duration
 	}{
 		{
-			name:        "GetKDANFTNameLength should call hook",
+			name:        "GetKDANameLength should call hook",
 			shouldPanic: false,
 			shouldCall:  true,
 			delay:       0,
 			timeout:     time.Second * 1,
 		},
 		{
-			name:        "GetKDANFTNameLength should timeout",
+			name:        "GetKDANameLength should timeout",
 			shouldPanic: true,
 			shouldCall:  true,
 			delay:       time.Millisecond * 10,
@@ -426,20 +426,20 @@ func TestGetKDANFTNameLength(t *testing.T) {
 				panicked = r != nil
 			}()
 			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetKDANFTNameLengthCalled: func (addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
+				GetKDANameLengthCalled: func (addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
 					called = true
 					time.Sleep(tc.delay)
 					return 0
 				},
 			}, &NoLogger{}, tc.timeout)
-			wrapper.GetKDANFTNameLength(0, 0, 0, 0)
+			wrapper.GetKDANameLength(0, 0, 0, 0)
 			assert.Equal(t, tc.shouldCall, called)
 			assert.Equal(t, tc.shouldPanic, panicked)
 		})
 	}
 }
 
-func TestGetKDANFTURILength(t *testing.T) {
+func TestGetKDAURILength(t *testing.T) {
 	var testCases = []struct {
 		name        string
 		shouldPanic bool
@@ -448,14 +448,14 @@ func TestGetKDANFTURILength(t *testing.T) {
 		timeout     time.Duration
 	}{
 		{
-			name:        "GetKDANFTURILength should call hook",
+			name:        "GetKDAURILength should call hook",
 			shouldPanic: false,
 			shouldCall:  true,
 			delay:       0,
 			timeout:     time.Second * 1,
 		},
 		{
-			name:        "GetKDANFTURILength should timeout",
+			name:        "GetKDAURILength should timeout",
 			shouldPanic: true,
 			shouldCall:  true,
 			delay:       time.Millisecond * 10,
@@ -473,13 +473,13 @@ func TestGetKDANFTURILength(t *testing.T) {
 				panicked = r != nil
 			}()
 			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetKDANFTURILengthCalled: func (addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
+				GetKDAURILengthCalled: func (addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
 					called = true
 					time.Sleep(tc.delay)
 					return 0
 				},
 			}, &NoLogger{}, tc.timeout)
-			wrapper.GetKDANFTURILength(0, 0, 0, 0)
+			wrapper.GetKDAURILength(0, 0, 0, 0)
 			assert.Equal(t, tc.shouldCall, called)
 			assert.Equal(t, tc.shouldPanic, panicked)
 		})

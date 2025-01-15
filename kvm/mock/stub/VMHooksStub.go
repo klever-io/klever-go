@@ -13,8 +13,8 @@ type VMHooksStub struct {
 	GetExternalBalanceCalled                    func(addressOffset executor.MemPtr, resultOffset executor.MemPtr)
 	GetBlockHashCalled                          func(nonce int64, resultOffset executor.MemPtr) int32
 	GetKDABalanceCalled                         func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, resultOffset executor.MemPtr) int32
-	GetKDANFTNameLengthCalled                   func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32
-	GetKDANFTURILengthCalled                    func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32
+	GetKDANameLengthCalled                      func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32
+	GetKDAURILengthCalled                       func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32
 	GetKDATokenDataCalled                       func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, precisionHandle int32, idOffset executor.MemPtr, nameOffset executor.MemPtr, creatorOffset executor.MemPtr, logoOffset executor.MemPtr, initialSupplyOffset executor.MemPtr, circulatingSupplyOffset executor.MemPtr, maxSupplyOffset executor.MemPtr, mintedOffset executor.MemPtr, burnedOffset executor.MemPtr, royaltiesOffset executor.MemPtr, propertiesOffset executor.MemPtr, attributesOffset executor.MemPtr, rolesOffset executor.MemPtr) int32
 	ValidateTokenIdentifierCalled               func(tokenIdHandle int32) int32
 	UpgradeContractCalled                       func(destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr)
@@ -301,16 +301,16 @@ func (V VMHooksStub) GetKDABalance(addressOffset executor.MemPtr, tokenIDOffset 
 	return 0
 }
 
-func (V VMHooksStub) GetKDANFTNameLength(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
-	if V.GetKDANFTNameLengthCalled != nil {
-		return V.GetKDANFTNameLengthCalled(addressOffset, tokenIDOffset, tokenIDLen, nonce)
+func (V VMHooksStub) GetKDANameLength(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
+	if V.GetKDANameLengthCalled != nil {
+		return V.GetKDANameLengthCalled(addressOffset, tokenIDOffset, tokenIDLen, nonce)
 	}
 	return 0
 }
 
-func (V VMHooksStub) GetKDANFTURILength(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
-	if V.GetKDANFTURILengthCalled != nil {
-		return V.GetKDANFTURILengthCalled(addressOffset, tokenIDOffset, tokenIDLen, nonce)
+func (V VMHooksStub) GetKDAURILength(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
+	if V.GetKDAURILengthCalled != nil {
+		return V.GetKDAURILengthCalled(addressOffset, tokenIDOffset, tokenIDLen, nonce)
 	}
 	return 0
 }

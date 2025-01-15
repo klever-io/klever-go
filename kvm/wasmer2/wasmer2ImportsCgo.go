@@ -19,8 +19,8 @@ package wasmer2
 // extern void      w2_getExternalBalance(void* context, int32_t addressOffset, int32_t resultOffset);
 // extern int32_t   w2_getBlockHash(void* context, long long nonce, int32_t resultOffset);
 // extern int32_t   w2_getKDABalance(void* context, int32_t addressOffset, int32_t tokenIDOffset, int32_t tokenIDLen, long long nonce, int32_t resultOffset);
-// extern int32_t   w2_getKDANFTNameLength(void* context, int32_t addressOffset, int32_t tokenIDOffset, int32_t tokenIDLen, long long nonce);
-// extern int32_t   w2_getKDANFTURILength(void* context, int32_t addressOffset, int32_t tokenIDOffset, int32_t tokenIDLen, long long nonce);
+// extern int32_t   w2_getKDANameLength(void* context, int32_t addressOffset, int32_t tokenIDOffset, int32_t tokenIDLen, long long nonce);
+// extern int32_t   w2_getKDAURILength(void* context, int32_t addressOffset, int32_t tokenIDOffset, int32_t tokenIDLen, long long nonce);
 // extern int32_t   w2_getKDATokenData(void* context, int32_t addressOffset, int32_t tokenIDOffset, int32_t tokenIDLen, long long nonce, int32_t precisionHandle, int32_t idOffset, int32_t nameOffset, int32_t creatorOffset, int32_t logoOffset, int32_t initialSupplyOffset, int32_t circulatingSupplyOffset, int32_t maxSupplyOffset, int32_t mintedOffset, int32_t burnedOffset, int32_t royaltiesOffset, int32_t propertiesOffset, int32_t attributesOffset, int32_t rolesOffset);
 // extern int32_t   w2_validateTokenIdentifier(void* context, int32_t tokenIdHandle);
 // extern void      w2_upgradeContract(void* context, int32_t destOffset, long long gasLimit, int32_t valueOffset, int32_t codeOffset, int32_t codeMetadataOffset, int32_t length, int32_t numArguments, int32_t argumentsLengthOffset, int32_t dataOffset);
@@ -272,8 +272,8 @@ func populateCgoFunctionPointers() *cWasmerVmHookPointers {
 		get_external_balance_func_ptr: funcPointer(C.w2_getExternalBalance),
 		get_block_hash_func_ptr: funcPointer(C.w2_getBlockHash),
 		get_kda_balance_func_ptr: funcPointer(C.w2_getKDABalance),
-		get_kda_nft_name_length_func_ptr: funcPointer(C.w2_getKDANFTNameLength),
-		get_kda_nft_uri_length_func_ptr: funcPointer(C.w2_getKDANFTURILength),
+		get_kda_name_length_func_ptr: funcPointer(C.w2_getKDANameLength),
+		get_kda_uri_length_func_ptr: funcPointer(C.w2_getKDAURILength),
 		get_kda_token_data_func_ptr: funcPointer(C.w2_getKDATokenData),
 		validate_token_identifier_func_ptr: funcPointer(C.w2_validateTokenIdentifier),
 		upgrade_contract_func_ptr: funcPointer(C.w2_upgradeContract),
@@ -557,16 +557,16 @@ func w2_getKDABalance(context unsafe.Pointer, addressOffset int32, tokenIDOffset
 	return vmHooks.GetKDABalance(executor.MemPtr(addressOffset), executor.MemPtr(tokenIDOffset), tokenIDLen, nonce, executor.MemPtr(resultOffset))
 }
 
-//export w2_getKDANFTNameLength
-func w2_getKDANFTNameLength(context unsafe.Pointer, addressOffset int32, tokenIDOffset int32, tokenIDLen int32, nonce int64) int32 {
+//export w2_getKDANameLength
+func w2_getKDANameLength(context unsafe.Pointer, addressOffset int32, tokenIDOffset int32, tokenIDLen int32, nonce int64) int32 {
 	vmHooks := getVMHooksFromContextRawPtr(context)
-	return vmHooks.GetKDANFTNameLength(executor.MemPtr(addressOffset), executor.MemPtr(tokenIDOffset), tokenIDLen, nonce)
+	return vmHooks.GetKDANameLength(executor.MemPtr(addressOffset), executor.MemPtr(tokenIDOffset), tokenIDLen, nonce)
 }
 
-//export w2_getKDANFTURILength
-func w2_getKDANFTURILength(context unsafe.Pointer, addressOffset int32, tokenIDOffset int32, tokenIDLen int32, nonce int64) int32 {
+//export w2_getKDAURILength
+func w2_getKDAURILength(context unsafe.Pointer, addressOffset int32, tokenIDOffset int32, tokenIDLen int32, nonce int64) int32 {
 	vmHooks := getVMHooksFromContextRawPtr(context)
-	return vmHooks.GetKDANFTURILength(executor.MemPtr(addressOffset), executor.MemPtr(tokenIDOffset), tokenIDLen, nonce)
+	return vmHooks.GetKDAURILength(executor.MemPtr(addressOffset), executor.MemPtr(tokenIDOffset), tokenIDLen, nonce)
 }
 
 //export w2_getKDATokenData
