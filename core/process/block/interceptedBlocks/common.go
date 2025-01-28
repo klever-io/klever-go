@@ -29,6 +29,9 @@ func checkBlockArgument(arg *ArgInterceptedBlock) error {
 	if check.IfNil(arg.HeaderIntegrityVerifier) {
 		return common.ErrNilHeaderIntegrityVerifier
 	}
+	if check.IfNil(arg.ForkController) {
+		return common.ErrNilForkController
+	}
 
 	return nil
 }

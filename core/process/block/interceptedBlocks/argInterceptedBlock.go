@@ -1,6 +1,7 @@
 package interceptedBlocks
 
 import (
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/crypto/hashing"
@@ -16,4 +17,5 @@ type ArgInterceptedBlock struct {
 	HeaderSigVerifier       process.InterceptedHeaderSigVerifier
 	HeaderIntegrityVerifier process.HeaderIntegrityVerifier
 	EpochStartTrigger       process.EpochStartTriggerHandler
+	ForkController          core.ForkController
 }

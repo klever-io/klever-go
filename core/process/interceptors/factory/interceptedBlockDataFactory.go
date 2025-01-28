@@ -2,6 +2,7 @@ package factory
 
 import (
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/block/interceptedBlocks"
 	"github.com/klever-io/klever-go/crypto"
@@ -19,6 +20,7 @@ type interceptedBlockDataFactory struct {
 	headerSigVerifier       process.InterceptedHeaderSigVerifier
 	headerIntegrityVerifier process.HeaderIntegrityVerifier
 	epochStartTrigger       process.EpochStartTriggerHandler
+	forkController          core.ForkController
 }
 
 // NewInterceptedBlockDataFactory creates an instance of interceptedBlockDataFactory
@@ -41,6 +43,10 @@ func NewInterceptedBlockDataFactory(argument *ArgInterceptedDataFactory) (*inter
 	if check.IfNil(argument.EpochStartTrigger) {
 		return nil, common.ErrNilEpochStartTrigger
 	}
+	if check.IfNil(argument.ForkController) {
+		return nil, common.ErrNilForkController
+	}
+
 	return &interceptedBlockDataFactory{
 		marshalizer:             argument.ProtoMarshalizer,
 		hasher:                  argument.Hasher,
@@ -48,6 +54,7 @@ func NewInterceptedBlockDataFactory(argument *ArgInterceptedDataFactory) (*inter
 		headerSigVerifier:       argument.HeaderSigVerifier,
 		headerIntegrityVerifier: argument.HeaderIntegrityVerifier,
 		epochStartTrigger:       argument.EpochStartTrigger,
+		forkController:          argument.ForkController,
 	}, nil
 }
 
@@ -61,6 +68,7 @@ func (imfd *interceptedBlockDataFactory) Create(buff []byte) (process.Intercepte
 		HeaderSigVerifier:       imfd.headerSigVerifier,
 		HeaderIntegrityVerifier: imfd.headerIntegrityVerifier,
 		EpochStartTrigger:       imfd.epochStartTrigger,
+		ForkController:          imfd.forkController,
 	}
 
 	return interceptedBlocks.NewInterceptedBlock(arg)

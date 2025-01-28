@@ -507,7 +507,7 @@ func (mp *metaProcessor) updateEpochStartHeader(blk *block.Block) error {
 	}()
 
 	blk.Header.IsEpochStart = true
-	blk.Header.PrevEpochStartSlot = mp.epochStartTrigger.EpochStartSlot()
+	blk.Header.PrevEpochStartSlot = mp.epochStartTrigger.PrevEpochStartSlot()
 
 	return nil
 }

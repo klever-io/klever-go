@@ -440,6 +440,7 @@ func (e *epochStartBootstrap) prepareComponentsToSyncFromNetwork() error {
 		NonceConverter:          e.uint64Converter,
 		HeaderIntegrityVerifier: e.headerIntegrityVerifier,
 		BlockProcessor:          blockProcessor,
+		ForkController:          e.forkController,
 	}
 	e.epochStartMetaBlockSyncer, err = NewEpochStartMetaSyncer(argsEpochStartSyncer)
 	if err != nil {

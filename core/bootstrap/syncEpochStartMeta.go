@@ -45,6 +45,7 @@ type ArgsNewEpochStartMetaSyncer struct {
 	NonceConverter          typeConverters.Uint64ByteSliceConverter
 	HeaderIntegrityVerifier process.HeaderIntegrityVerifier
 	BlockProcessor          EpochStartBlockInterceptorProcessor
+	ForkController          core.ForkController
 }
 
 // thresholdForConsideringMetaBlockCorrect represents the percentage (between 0 and 100) of connected peers to send
@@ -61,6 +62,9 @@ func NewEpochStartMetaSyncer(args ArgsNewEpochStartMetaSyncer) (*epochStartMetaS
 	}
 	if check.IfNil(args.BlockProcessor) {
 		return nil, common.ErrNilBlockProcessor
+	}
+	if check.IfNil(args.ForkController) {
+		return nil, common.ErrNilForkController
 	}
 
 	e := &epochStartMetaSyncer{
@@ -86,6 +90,7 @@ func NewEpochStartMetaSyncer(args ArgsNewEpochStartMetaSyncer) (*epochStartMetaS
 		HeaderSigVerifier:       disabled.NewHeaderSigVerifier(),
 		HeaderIntegrityVerifier: args.HeaderIntegrityVerifier,
 		EpochStartTrigger:       disabled.NewEpochStartTrigger(),
+		ForkController:          args.ForkController,
 		//ValidityAttester:  disabled.NewValidityAttester(),
 	}
 

@@ -112,5 +112,6 @@ func getEpochStartSyncerArgs() ArgsNewEpochStartMetaSyncer {
 		NonceConverter:          &mock.Uint64ByteSliceConverterMock{},
 		HeaderIntegrityVerifier: &mock.HeaderIntegrityVerifierStub{},
 		BlockProcessor:          &mock.BlockInterceptorProcessorStub{},
+		ForkController:          &mock.ForkControllerStub{},
 	}
 }

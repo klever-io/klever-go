@@ -26,6 +26,7 @@ func createDefaultBlockArgument(blck *block.Block) *interceptedBlocks.ArgInterce
 		HeaderSigVerifier:       &cMock.HeaderSigVerifierStub{},
 		HeaderIntegrityVerifier: &mock.HeaderIntegrityVerifierStub{},
 		EpochStartTrigger:       &mock.EpochStartTriggerStub{},
+		ForkController:          &mock.ForkControllerStub{},
 	}
 
 	arg.BlockBuff, _ = arg.Marshalizer.Marshal(blck)

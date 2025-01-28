@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
 	cMock "github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/process"
@@ -33,6 +34,7 @@ func createDefaultBlockArgument() *interceptedBlocks.ArgInterceptedBlock {
 		HeaderSigVerifier:       &cMock.HeaderSigVerifierStub{},
 		HeaderIntegrityVerifier: &mock.HeaderIntegrityVerifierStub{},
 		EpochStartTrigger:       &mock.EpochStartTriggerStub{},
+		ForkController:          &mock.ForkControllerStub{},
 	}
 
 	blck := createMockBlock()
@@ -93,6 +95,19 @@ func TestNewInterceptedBlock_MarshalizerFailShouldErr(t *testing.T) {
 	assert.True(t, check.IfNil(inBlk))
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "invalid character")
+}
+
+func TestNewInterceptedBlock_ForkControllerFailShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createDefaultBlockArgument()
+	arg.ForkController = nil
+
+	inBlk, err := interceptedBlocks.NewInterceptedBlock(arg)
+
+	assert.True(t, check.IfNil(inBlk))
+	assert.NotNil(t, err)
+	assert.Equal(t, common.ErrNilForkController, err)
 }
 
 func TestNewInterceptedBlock_ShouldWork(t *testing.T) {
@@ -218,4 +233,207 @@ func TestInterceptedBlock_IsInterfaceNil(t *testing.T) {
 	var inBlk *interceptedBlocks.InterceptedBlock
 
 	assert.True(t, check.IfNil(inBlk))
+}
+
+func TestInterceptedBlock_CheckValidity(t *testing.T) {
+	tests := []struct {
+		name    string
+		block   *block.Block
+		wantErr bool
+		err     error
+	}{
+		{
+			name:    "invalid PubKeysBitmap",
+			block:   &block.Block{},
+			wantErr: true,
+			err:     process.ErrNilPubKeysBitmap,
+		},
+		{
+			name: "invalid ParentHash",
+			block: &block.Block{
+				PubKeysBitmap: []byte{1},
+			},
+			wantErr: true,
+			err:     common.ErrNilPreviousBlockHash,
+		},
+		{
+			name: "invalid Signature",
+			block: &block.Block{
+				Header: &block.BlockHeader{
+					ParentHash: []byte("prev hash"),
+				},
+				PubKeysBitmap: []byte{1},
+			},
+			wantErr: true,
+			err:     common.ErrNilSignature,
+		},
+		{
+			name: "invalid RandomSeed",
+			block: &block.Block{
+				Header: &block.BlockHeader{
+					ParentHash: []byte("prev hash"),
+				},
+				Signature:     []byte("signature"),
+				PubKeysBitmap: []byte{1},
+			},
+			wantErr: true,
+			err:     common.ErrNilRandSeed,
+		},
+		{
+			name: "invalid PrevRandomSeed",
+			block: &block.Block{
+				Header: &block.BlockHeader{
+					ParentHash: []byte("prev hash"),
+					RandSeed:   []byte("rand seed"),
+				},
+				Signature:     []byte("signature"),
+				PubKeysBitmap: []byte{1},
+			},
+			wantErr: true,
+			err:     common.ErrNilPrevRandSeed,
+		},
+		{
+			name: "isEpochStarted active but slot is not equal to epochStartedSlot",
+			block: &block.Block{
+				Header: &block.BlockHeader{
+					ParentHash:   []byte("prev hash"),
+					RandSeed:     []byte("rand seed"),
+					PrevRandSeed: []byte("prev"),
+					IsEpochStart: true,
+					Epoch:        0,
+					Slot:         100,
+				},
+				Signature:     []byte("signature"),
+				PubKeysBitmap: []byte{1},
+			},
+			wantErr: true,
+			err:     process.ErrEpochDoesNotMatch,
+		},
+		{
+			name: "isEpochStarted active but prevStartSlot is greater than epochStartedSlot",
+			block: &block.Block{
+				Header: &block.BlockHeader{
+					ParentHash:         []byte("prev hash"),
+					RandSeed:           []byte("rand seed"),
+					PrevRandSeed:       []byte("prev"),
+					IsEpochStart:       true,
+					Epoch:              0,
+					Slot:               10,
+					PrevEpochStartSlot: 20,
+				},
+				Signature:     []byte("signature"),
+				PubKeysBitmap: []byte{1},
+			},
+			wantErr: true,
+			err:     process.ErrEpochDoesNotMatch,
+		},
+		{
+			name: "isEpochStarted active should work",
+			block: &block.Block{
+				Header: &block.BlockHeader{
+					ParentHash:         []byte("prev hash"),
+					RandSeed:           []byte("rand seed"),
+					PrevRandSeed:       []byte("prev"),
+					IsEpochStart:       true,
+					Epoch:              0,
+					Slot:               10,
+					PrevEpochStartSlot: 0,
+				},
+				Signature:     []byte("signature"),
+				PubKeysBitmap: []byte{1},
+			},
+			wantErr: false,
+			err:     nil,
+		},
+		{
+			name: "isEpochStarted inactive but slot is lesser than is lesser than epochStartedSlot",
+			block: &block.Block{
+				Header: &block.BlockHeader{
+					ParentHash:         []byte("prev hash"),
+					RandSeed:           []byte("rand seed"),
+					PrevRandSeed:       []byte("prev"),
+					IsEpochStart:       false,
+					Epoch:              0,
+					Slot:               5,
+					PrevEpochStartSlot: 0,
+				},
+				Signature:     []byte("signature"),
+				PubKeysBitmap: []byte{1},
+			},
+			wantErr: true,
+			err:     process.ErrEpochDoesNotMatch,
+		},
+		{
+			name: "isEpochStarted inactive but prevStartSlot isn't zero",
+			block: &block.Block{
+				Header: &block.BlockHeader{
+					ParentHash:         []byte("prev hash"),
+					RandSeed:           []byte("rand seed"),
+					PrevRandSeed:       []byte("prev"),
+					IsEpochStart:       false,
+					Epoch:              0,
+					Slot:               15,
+					PrevEpochStartSlot: 1,
+				},
+				Signature:     []byte("signature"),
+				PubKeysBitmap: []byte{1},
+			},
+			wantErr: true,
+			err:     process.ErrEpochDoesNotMatch,
+		},
+		{
+			name: "isEpochStarted inactive should work",
+			block: &block.Block{
+				Header: &block.BlockHeader{
+					ParentHash:         []byte("prev hash"),
+					RandSeed:           []byte("rand seed"),
+					PrevRandSeed:       []byte("prev"),
+					IsEpochStart:       false,
+					Epoch:              0,
+					Slot:               15,
+					PrevEpochStartSlot: 0,
+				},
+				Signature:     []byte("signature"),
+				PubKeysBitmap: []byte{1},
+			},
+			wantErr: false,
+			err:     nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			assert := assert.New(t)
+
+			arg := createDefaultBlockArgument()
+			arg.ForkController = &mock.ForkControllerStub{
+				EnableSmartContractsValue: true,
+			}
+			arg.EpochStartTrigger = &mock.EpochStartTriggerStub{
+				EpochStartSlotCalled: func() uint64 {
+					return 10
+				},
+				PrevEpochStartSlotCalled: func() uint64 {
+					return 0
+				},
+			}
+
+			buff, err := arg.Marshalizer.Marshal(tt.block)
+			require.Nil(err)
+			arg.BlockBuff = buff
+
+			inBlk, err := interceptedBlocks.NewInterceptedBlock(arg)
+			require.Nil(err)
+
+			err = inBlk.CheckValidity()
+			if tt.wantErr {
+				require.Error(err)
+				assert.ErrorIs(err, tt.err)
+			} else {
+				require.NoError(err)
+			}
+		})
+	}
+
 }

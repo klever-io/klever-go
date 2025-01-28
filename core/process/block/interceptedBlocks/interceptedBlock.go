@@ -26,6 +26,7 @@ type InterceptedBlock struct {
 	sigVerifier       process.InterceptedHeaderSigVerifier
 	integrityVerifier process.HeaderIntegrityVerifier
 	epochStartTrigger process.EpochStartTriggerHandler
+	forkController    core.ForkController
 }
 
 // NewInterceptedBlock creates a new instance of InterceptedBlock struct
@@ -53,7 +54,9 @@ func NewInterceptedBlock(arg *ArgInterceptedBlock) (*InterceptedBlock, error) {
 		sigVerifier:       arg.HeaderSigVerifier,
 		integrityVerifier: arg.HeaderIntegrityVerifier,
 		epochStartTrigger: arg.EpochStartTrigger,
+		forkController:    arg.ForkController,
 	}
+
 	inBlock.processFields(arg.BlockBuff, headerBytes)
 
 	return inBlock, nil
@@ -99,6 +102,23 @@ func (inMb *InterceptedBlock) isEpochCorrect() bool {
 		return true
 	}
 	if inMb.block.GetSlot() <= inMb.epochStartTrigger.EpochFinalityAttestingSlot()+process.EpochChangeGracePeriod {
+		return true
+	}
+
+	return false
+}
+
+func (inMb *InterceptedBlock) isEpochStartCorrect() bool {
+	isEpochStarted := inMb.block.GetIsEpochStart()
+	epochStartedSlot := inMb.epochStartTrigger.EpochStartSlot()
+	slot := inMb.block.GetSlot()
+	prevStartSlot := inMb.block.Header.PrevEpochStartSlot
+
+	if isEpochStarted && (epochStartedSlot == slot && prevStartSlot < epochStartedSlot && prevStartSlot == inMb.epochStartTrigger.PrevEpochStartSlot()) {
+		return true
+	}
+
+	if !isEpochStarted && (epochStartedSlot < slot && prevStartSlot == uint64(0)) {
 		return true
 	}
 
@@ -177,6 +197,22 @@ func (inMb *InterceptedBlock) integrity() error {
 			logger.DisplayByteSlice(inMb.hash),
 			inMb.block.Header.Epoch,
 			inMb.block.Header.Slot,
+		)
+	}
+
+	if inMb.forkController.EnableSmartContracts() && !inMb.isEpochStartCorrect() {
+		return fmt.Errorf("header with incorrect epochStart: %w"+
+			"headerHash=%s, "+
+			"epoch=%v, "+
+			"slot=%v "+
+			"epochStart=%v "+
+			"prevEpochStartSlot=%v ",
+			process.ErrEpochDoesNotMatch,
+			logger.DisplayByteSlice(inMb.hash),
+			inMb.block.Header.Epoch,
+			inMb.block.Header.Slot,
+			inMb.block.Header.GetIsEpochStart(),
+			inMb.block.Header.GetPrevEpochStartSlot(),
 		)
 	}
 
