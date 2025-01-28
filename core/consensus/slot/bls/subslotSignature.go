@@ -164,6 +164,14 @@ func (sr *subslotSignature) receivedSignature(cnsDta *consensus.Message) bool {
 	}
 
 	currentMultiSigner := sr.MultiSigner()
+	err = currentMultiSigner.VerifySignatureShare(uint16(index), cnsDta.SignatureShare, sr.GetData()) // #nosec G115
+	if err != nil {
+		log.Debug("receivedSignature.VerifySignatureShare",
+			"index", index,
+			"error", err.Error())
+		return false
+	}
+
 	err = currentMultiSigner.StoreSignatureShare(uint16(index), cnsDta.SignatureShare) // #nosec G115
 	if err != nil {
 		log.Debug("receivedSignature.StoreSignatureShare",

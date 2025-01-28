@@ -211,6 +211,10 @@ func (ccm *ConsensusCoreMock) SetNodeRedundancyHandler(nodeRedundancyHandler con
 	ccm.nodeRedundancyHandler = nodeRedundancyHandler
 }
 
+func (ccm *ConsensusCoreMock) SetPeerHonestyHandler(peerHonestyHandler consensus.PeerHonestyHandler) {
+	ccm.peerHonestyHandler = peerHonestyHandler
+}
+
 // IsInterfaceNil returns true if there is no value under the interface
 func (ccm *ConsensusCoreMock) IsInterfaceNil() bool {
 	return ccm == nil

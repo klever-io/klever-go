@@ -343,6 +343,82 @@ func TestSubslotSignature_ReceivedSignature(t *testing.T) {
 	assert.True(t, r)
 }
 
+func TestSubslotSignature_ReceivedSignature_HonestyScore(t *testing.T) {
+	t.Parallel()
+
+	container := mock.InitConsensusCore()
+	sr := *initSubslotSignatureWithContainer(container)
+	// Set self as leader, validating other nodes
+	sr.SetSelfPubKey(sr.ConsensusGroup()[0])
+
+	var testCases = []struct {
+		name              string
+		pubKey            string
+		signature         string
+		shouldJobBeDone   bool
+		shouldBeAccepted  bool
+		shouldChangeScore bool
+		expectedUnits     int
+	}{
+		{
+			name:              "valid signature",
+			pubKey:            sr.ConsensusGroup()[1],
+			signature:         "i am valid!",
+			shouldBeAccepted:  true,
+			shouldJobBeDone:   true,
+			shouldChangeScore: true,
+			expectedUnits:     1,
+		},
+		{
+			name:              "invalid signature",
+			pubKey:            sr.ConsensusGroup()[2],
+			signature:         "signature share", // mocked to be invalid
+			shouldBeAccepted:  false,
+			shouldJobBeDone:   false,
+			shouldChangeScore: false,
+			expectedUnits:     0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// setup
+			called := false
+			container.SetPeerHonestyHandler(&cMock.PeerHonestyHandlerStub{
+				ChangeScoreCalled: func(pk string, topic string, units int) {
+					called = true
+					assert.Equal(t, tc.pubKey, pk)
+					assert.Equal(t, "consensus", topic)
+					assert.Equal(t, tc.expectedUnits, units)
+				},
+			})
+
+			cnsMsg := consensus.NewConsensusMessage(
+				sr.Data,
+				[]byte(tc.signature),
+				nil,
+				[]byte(tc.pubKey),
+				[]byte("sig"),
+				int(bls.MtSignature),
+				0,
+				0,
+				chainID,
+				nil,
+				nil,
+				nil,
+				currentPid,
+			)
+			// assert
+			accepted := sr.ReceivedSignature(cnsMsg)
+			assert.Equal(t, tc.shouldBeAccepted, accepted)
+			assert.Equal(t, tc.shouldJobBeDone, sr.IsJobDone(tc.pubKey, bls.SrSignature))
+			assert.Equal(t, tc.shouldChangeScore, called)
+		})
+	}
+}
+
 func TestSubslotSignature_SignaturesCollected(t *testing.T) {
 	t.Parallel()
 
