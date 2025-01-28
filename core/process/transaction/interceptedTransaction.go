@@ -380,15 +380,15 @@ func (inTx *InterceptedTransaction) validateTransactionSize() error {
 	for _, contract := range txClone.GetContracts() {
 		// only check contract size after fork
 		if inTx.forkController.EnableSmartContracts() &&
-			!transaction.IsContractSizeValid(contract.GetParameter().Value, contract.GetType()) {
+			!transaction.IsContractSizeValid(contract.GetParameter().GetValue(), contract.GetType()) {
 			return common.ErrInvalidContractSize
 		}
 
-		if !transaction.IsValidTypeURL(contract.GetParameter().TypeUrl, contract.GetType()) {
+		if !transaction.IsValidTypeURL(contract.GetParameter().GetTypeUrl(), contract.GetType()) {
 			return common.ErrInvalidContractTypeURL
 		}
 
-		contractsSize += len(contract.GetParameter().Value) + len(contract.GetParameter().TypeUrl) + core.ContractSizeOverhead
+		contractsSize += len(contract.GetParameter().GetValue()) + len(contract.GetParameter().GetTypeUrl()) + core.ContractSizeOverhead
 	}
 
 	// remove signature field from size check (signatures are checked separately)

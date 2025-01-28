@@ -172,6 +172,10 @@ type TXArgs struct {
 
 // AddTransaction -
 func (t *Transaction) AddTransaction(txArgs TXArgs) error {
+	if txArgs.NodeHelper == nil {
+		return common.ErrNilNodeHelper
+	}
+
 	var err error
 
 	// #nosec G115
@@ -238,7 +242,12 @@ func (t *Transaction) AddTransaction(txArgs TXArgs) error {
 		return err
 	}
 
-	lastContract := t.RawData.Contract[len(t.RawData.Contract)-1]
+	contracts := t.GetContracts()
+	lastContract := contracts[len(contracts)-1]
+
+	if lastContract.GetParameter() == nil {
+		return common.ErrInvalidContract
+	}
 
 	if !IsContractSizeValid(lastContract.GetParameter().Value, contractType) {
 		return common.ErrInvalidContractSize
@@ -735,7 +744,16 @@ func (t *Transaction) addFreeze(txArgs TXArgs) error {
 		return err
 	}
 
-	minBuckets, err := strconv.ParseInt(string(txArgs.ActiveParameters[int32(kapps.EnumParameter_MinKLVBucketAmount)].Value), 10, 64)
+	if txArgs.ActiveParameters == nil {
+		return ErrNilActiveParameters
+	}
+
+	activeParameter := txArgs.ActiveParameters[int32(kapps.EnumParameter_MinKLVBucketAmount)]
+	if activeParameter == nil {
+		return ErrMinKLVBucketAmountNotFound
+	}
+
+	minBuckets, err := strconv.ParseInt(string(activeParameter.Value), 10, 64)
 	if err != nil {
 		return err
 	}
@@ -1489,7 +1507,10 @@ func (t *Transaction) addSmartContract(txArgs TXArgs) error {
 
 // GetContracts -
 func (t *Transaction) GetContracts() []*TXContract {
-	return t.RawData.Contract
+	if t.RawData != nil {
+		return t.RawData.Contract
+	}
+	return nil
 }
 
 // ValidatePermissionOperation - for each contract check if TXType match permission

@@ -882,3 +882,6 @@ var ErrInvalidTransactionRawSize = errors.New("transaction raw size is too big")
 
 // ErrMaxBytesExceeded signals that max bytes exceeded for decode buffer
 var ErrMaxBytesExceeded = errors.New("max bytes exceeded")
+
+// ErrNilNodeHelper signals that the node helper is a nil pointer for that operation
+var ErrNilNodeHelper = errors.New("received nil pointer when trying to get node helper")

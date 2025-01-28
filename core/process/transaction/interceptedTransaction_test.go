@@ -1257,3 +1257,31 @@ func TestInterceptedTransaction_Identifiers(t *testing.T) {
 	require.Len(t, identifiers, 1)
 	assert.Equal(t, txi.Hash(), identifiers[0])
 }
+
+func TestInterceptedTransaction_CheckValidity_TxFieldsNilPointerShouldNotPanic(t *testing.T) {
+	t.Parallel()
+
+	chainID := []byte("chainID")
+	tx := dataTransaction.NewBaseTransaction(senderAddress, 0, nil, 0, 0)
+	tx.SetChainID(chainID)
+
+	tx.Signature = append(tx.Signature, sigOk)
+
+	contracts := []*dataTransaction.TXContract{
+		{
+			Type: dataTransaction.TXContract_TransferContractType,
+		},
+	}
+	tx.GetRaw().Contract = contracts
+
+	forkController := &mock.ForkControllerStub{
+		EnableSmartContractsValue: true,
+	}
+
+	intx, err := createInterceptedTxFromPlainTxWithFork(tx, createFreeTxFeeHandler(), chainID, 1, forkController)
+	require.Nil(t, err)
+
+	// CheckValidity will validate Tx with nil pointer fields for Contract.Parameter and Contract.TypeURL
+	err = intx.CheckValidity()
+	assert.Equal(t, common.ErrInvalidTransactionType, err)
+}

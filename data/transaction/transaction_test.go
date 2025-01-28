@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -13,6 +15,8 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -787,4 +791,127 @@ func TestValidatePermission(t *testing.T) {
 			assert.Equal(t, tt.expectedError, err)
 		})
 	}
+}
+
+func TestAddTransaction_ShouldFail_NilNodeHelper(t *testing.T) {
+	addr := makeAddress("testAddr")
+	tx := transaction.NewBaseTransaction(addr, 0, nil, 0, 0)
+
+	txArgs := transaction.TXArgs{
+		Contract: json.RawMessage(`{
+			"receiver": "klv17e8zzgn73h6ehe3c6q9vlt77kuxk5euddmhymy5uhv2rhv0dc0nqlfp0ap",
+			"amount": 1000,
+			"kda": "KLV"
+		}`),
+	}
+
+	err := tx.AddTransaction(txArgs)
+	require.Equal(t, common.ErrNilNodeHelper, err)
+}
+
+func TestAddTransaction_FreezeContract(t *testing.T) {
+	addr := makeAddress("testAddr")
+	txType := transaction.TXContract_FreezeContractType
+	minKLVBucketAmount := "1000000000" // 1_000_000_000 = 1000 KLV
+	assetID := "KLV"
+
+	t.Run("should fail with nil active parameters", func(t *testing.T) {
+		t.Parallel()
+
+		tx := transaction.NewBaseTransaction(addr, 0, nil, 0, 0)
+
+		contract := fmt.Sprintf("{\"kda\": \"%s\"}", assetID)
+		txArgs := transaction.TXArgs{
+			Type:       uint32(txType),
+			Contract:   json.RawMessage(contract),
+			NodeHelper: createMockNodeHelper(),
+		}
+
+		err := tx.AddTransaction(txArgs)
+		require.Equal(t, transaction.ErrNilActiveParameters, err)
+	})
+
+	t.Run("should fail with min KLV bucket amount not found", func(t *testing.T) {
+		t.Parallel()
+
+		tx := transaction.NewBaseTransaction(addr, 0, nil, 0, 0)
+
+		contract := fmt.Sprintf("{\"kda\": \"%s\"}", assetID)
+
+		activeParameters := map[int32]*kapps.Parameter{}
+		txArgs := transaction.TXArgs{
+			Type:             uint32(txType),
+			Contract:         json.RawMessage(contract),
+			ActiveParameters: activeParameters,
+			NodeHelper:       createMockNodeHelper(),
+		}
+
+		err := tx.AddTransaction(txArgs)
+		require.Equal(t, transaction.ErrMinKLVBucketAmountNotFound, err)
+	})
+
+	t.Run("should fail with invalid amount", func(t *testing.T) {
+		t.Parallel()
+
+		tx := transaction.NewBaseTransaction(addr, 0, nil, 0, 0)
+
+		activeParameters := map[int32]*kapps.Parameter{
+			int32(kapps.EnumParameter_MinKLVBucketAmount): {
+				Type:  kapps.EnumType_Int64,
+				Value: []byte(minKLVBucketAmount),
+			},
+		}
+
+		contract := fmt.Sprintf("{\"amount\": %d, \"kda\": \"%s\"}", 0, assetID)
+		txArgs := transaction.TXArgs{
+			Type:             uint32(txType),
+			Contract:         json.RawMessage(contract),
+			ActiveParameters: activeParameters,
+			NodeHelper:       createMockNodeHelper(),
+		}
+
+		err := tx.AddTransaction(txArgs)
+		require.Equal(t, common.ErrInvalidValue, err)
+	})
+
+	t.Run("should work", func(t *testing.T) {
+		t.Parallel()
+
+		tx := transaction.NewBaseTransaction(addr, 0, nil, 0, 0)
+
+		activeParameters := map[int32]*kapps.Parameter{
+			int32(kapps.EnumParameter_MinKLVBucketAmount): {
+				Type:  kapps.EnumType_Int64,
+				Value: []byte(minKLVBucketAmount),
+			},
+		}
+
+		contract := fmt.Sprintf("{\"amount\": %s, \"kda\": \"%s\"}", minKLVBucketAmount, assetID)
+		txArgs := transaction.TXArgs{
+			Type:             uint32(txType),
+			Contract:         json.RawMessage(contract),
+			ActiveParameters: activeParameters,
+			NodeHelper:       createMockNodeHelper(),
+		}
+
+		err := tx.AddTransaction(txArgs)
+		require.Nil(t, err)
+
+		// get last contract added, which should be the freeze contract
+		require.Len(t, tx.GetContracts(), 1)
+		freezeContract := tx.GetContracts()[len(tx.GetContracts())-1]
+
+		require.Equal(t, txType, freezeContract.Type)
+
+		parsedContract := &transaction.FreezeContract{}
+		err = anypb.UnmarshalTo(freezeContract.Parameter, parsedContract, proto.UnmarshalOptions{})
+		require.Nil(t, err)
+
+		require.Equal(t, []byte(assetID), parsedContract.AssetID)
+
+		expectedBucketAmount, err := strconv.ParseInt(minKLVBucketAmount, 10, 64)
+		require.Nil(t, err)
+
+		require.EqualValues(t, expectedBucketAmount, parsedContract.Amount)
+	})
 }
