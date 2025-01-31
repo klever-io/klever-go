@@ -293,7 +293,7 @@ func (t *Transaction) addTransfer(txArgs TXArgs) error {
 
 	receiverAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.Receiver)
 	if err != nil {
-		return common.ErrInvalidReceiverAddress
+		return ErrInvalidReceiverAddress
 	}
 
 	if contractRequest.Amount < 0 {
@@ -309,7 +309,7 @@ func (t *Transaction) addTransfer(txArgs TXArgs) error {
 
 		kda, err := txArgs.NodeHelper.GetAsset(contractRequest.KDA)
 		if err != nil {
-			return common.ErrInvalidReceiverAddress
+			return ErrInvalidAssetID
 		}
 
 		if kda.Royalties != nil {
@@ -349,7 +349,7 @@ func (t *Transaction) addCreateAsset(txArgs TXArgs) error {
 
 	ownerAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.OwnerAddress)
 	if err != nil {
-		return common.ErrInvalidReceiverAddress
+		return ErrInvalidOwnerAddress
 	}
 
 	var isValid bool
@@ -516,7 +516,7 @@ func (t *Transaction) addAssetTrigger(txArgs TXArgs) error {
 	if len(contractRequest.Receiver) > 0 {
 		receiverAddress, err = txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.Receiver)
 		if err != nil {
-			return common.ErrInvalidReceiverAddress
+			return ErrInvalidReceiverAddress
 		}
 	}
 
@@ -529,7 +529,7 @@ func (t *Transaction) addAssetTrigger(txArgs TXArgs) error {
 		if len(contractRequest.Role.Address) > 0 {
 			roleInfo.Address, err = txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.Role.Address)
 			if err != nil {
-				return common.ErrInvalidReceiverAddress
+				return ErrInvalidRoleAddress
 			}
 			roleInfo.HasRoleMint = contractRequest.Role.HasRoleMint
 			roleInfo.HasRoleSetITOPrices = contractRequest.Role.HasRoleSetITOPrices
@@ -965,7 +965,7 @@ func (t *Transaction) addConfigITO(txArgs TXArgs) error {
 
 	receiverAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.ReceiverAddress)
 	if err != nil {
-		return common.ErrInvalidReceiverAddress
+		return ErrInvalidReceiverAddress
 	}
 
 	packInfo := make(map[string]*PackInfo)
@@ -1062,7 +1062,7 @@ func (t *Transaction) addITOTrigger(txArgs TXArgs) error {
 	if len(contractRequest.ReceiverAddress) > 0 {
 		receiverAddress, err = txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.ReceiverAddress)
 		if err != nil {
-			return common.ErrInvalidReceiverAddress
+			return ErrInvalidReceiverAddress
 		}
 	}
 
@@ -1473,7 +1473,7 @@ func (t *Transaction) validateAndParseAddress(txArgs TXArgs, contractRequest mod
 
 	parsedAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.Address)
 	if err != nil {
-		return nil, common.ErrInvalidReceiverAddress
+		return nil, ErrInvalidContractAddress
 	}
 
 	return parsedAddress, nil

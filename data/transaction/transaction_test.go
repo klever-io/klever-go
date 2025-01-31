@@ -171,7 +171,7 @@ func TestAddTransaction(t *testing.T) {
 				}`),
 				NodeHelper: createMockNodeHelper(),
 			},
-			expectedError: common.ErrInvalidReceiverAddress,
+			expectedError: transaction.ErrInvalidReceiverAddress,
 		},
 		{
 			name: "Valid Create Asset Contract",
@@ -217,6 +217,21 @@ func TestAddTransaction(t *testing.T) {
 			name: "Valid Create Validator",
 			txArgs: transaction.TXArgs{
 				Type:   uint32(transaction.TXContract_CreateValidatorContractType),
+				Sender: mockSender,
+				Contract: json.RawMessage(`{
+					"BLSPublicKey": "1d8cb37e902525bf8bda62b635ca240ac7c3a713250295381b3e661cb32a7cdeb64cd8f17144ca7ad2520c92dfe5330f610d18bf9b503dda86a1ba5d7071cdeb0e510bcc28e32ca8c033c493f61abf43448ea39e3215cec49e4f4ae796c13b08",
+					"commission": 1000,
+					"maxDelegationAmount": 1000000,
+					"name": "validator1"
+				}`),
+				NodeHelper: createMockNodeHelper(),
+			},
+			expectedError: nil,
+		},
+		{
+			name: "Valid Config Validator",
+			txArgs: transaction.TXArgs{
+				Type:   uint32(transaction.TXContract_ValidatorConfigContractType),
 				Sender: mockSender,
 				Contract: json.RawMessage(`{
 					"BLSPublicKey": "1d8cb37e902525bf8bda62b635ca240ac7c3a713250295381b3e661cb32a7cdeb64cd8f17144ca7ad2520c92dfe5330f610d18bf9b503dda86a1ba5d7071cdeb0e510bcc28e32ca8c033c493f61abf43448ea39e3215cec49e4f4ae796c13b08",
@@ -362,6 +377,74 @@ func TestAddTransaction(t *testing.T) {
 			},
 			expectedError: common.ErrInvalidValue,
 		},
+		{
+			name: "Valid Create Asset Contract",
+			txArgs: transaction.TXArgs{
+				Type:   uint32(transaction.TXContract_CreateAssetContractType),
+				Sender: mockSender,
+				Contract: json.RawMessage(`{
+					"type": 0,
+					"name": "TestAsset",
+					"ticker": "TEST",
+					"ownerAddress": "klv17e8zzgn73h6ehe3c6q9vlt77kuxk5euddmhymy5uhv2rhv0dc0nqlfp0ap",
+					"precision": 6,
+					"initialSupply": 1000000,
+					"maxSupply": 10000000,
+					"properties": {
+						"canFreeze": true,
+						"canWipe": true,
+						"canPause": true,
+						"canMint": true,
+						"canBurn": true
+					}
+				}`),
+				NodeHelper: createMockNodeHelper(),
+			},
+			expectedError: nil,
+		},
+		{
+			name: "Invalid Create Asset Contract With Roles And Royalties",
+			txArgs: transaction.TXArgs{
+				Type:   uint32(transaction.TXContract_CreateAssetContractType),
+				Sender: mockSender,
+				Contract: json.RawMessage(`{
+					"type": 0,
+					"name": "TestAsset",
+					"ticker": "TEST",
+					"ownerAddress": "klv17e8zzgn73h6ehe3c6q9vlt77kuxk5euddmhymy5uhv2rhv0dc0nqlfp0ap",
+					"precision": 6,
+					"initialSupply": 1000000,
+					"maxSupply": 10000000,
+					"properties": {
+						"canFreeze": true,
+						"canWipe": true,
+						"canPause": true,
+						"canMint": true,
+						"canBurn": true
+					},
+					"roles": [
+						{
+							"address": "klv1fpwjz234gy8aaae3gx0e8q9f52vymzzn3z5q0s5h60pvktzx0n0qwvtux5",
+							"hasRoleMint": true
+						}
+					],
+                    "royalties": {
+					  "address": "klv17e8zzgn73h6ehe3c6q9vlt77kuxk5euddmhymy5uhv2rhv0dc0nqlfp0ap",
+					  "transferPercentage": [{
+						 "amount": 10,
+						 "percentage": 10
+					  }],
+					  "splitRoyalties": {
+						"klv1fpwjz234gy8aaae3gx0e8q9f52vymzzn3z5q0s5h60pvktzx0n0qwvtux5": {
+						  "percentTransferPercentage": 50
+						}
+					  }
+					}
+				}`),
+				NodeHelper: createMockNodeHelper(),
+			},
+			expectedError: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -437,6 +520,42 @@ func TestAddTransactionAdditionalCases(t *testing.T) {
 		txArgs        transaction.TXArgs
 		expectedError error
 	}{
+		{
+			name: "Valid Freeze Contract",
+			txArgs: transaction.TXArgs{
+				ActiveParameters: map[int32]*kapps.Parameter{
+					31: {
+						Value: []byte("1000000000"),
+					},
+				},
+				Type:   uint32(transaction.TXContract_FreezeContractType),
+				Sender: mockSender,
+				Contract: json.RawMessage(`{
+					"Amount": 1000000000,
+					"KDA": "KLV"
+				}`),
+				NodeHelper: createMockNodeHelper(),
+			},
+			expectedError: nil,
+		},
+		{
+			name: "Invalid Freeze Contract",
+			txArgs: transaction.TXArgs{
+				ActiveParameters: map[int32]*kapps.Parameter{
+					31: {
+						Value: []byte("1000000000"),
+					},
+				},
+				Type:   uint32(transaction.TXContract_FreezeContractType),
+				Sender: mockSender,
+				Contract: json.RawMessage(`{
+					"Amount": 10000,
+					"KDA": "KLV"
+				}`),
+				NodeHelper: createMockNodeHelper(),
+			},
+			expectedError: common.ErrInvalidValue,
+		},
 		{
 			name: "Valid Unfreeze Contract",
 			txArgs: transaction.TXArgs{
@@ -655,6 +774,46 @@ func TestAddTransactionAdditionalCases(t *testing.T) {
 					"assetID": "TEST",
 					"amount": 1000,
 					"value": 1
+				}`),
+				NodeHelper: createMockNodeHelper(),
+			},
+			expectedError: nil,
+		},
+		{
+			name: "Valid Asset Trigger Contract - Update Royalties",
+			txArgs: transaction.TXArgs{
+				Type:   uint32(transaction.TXContract_AssetTriggerContractType),
+				Sender: mockSender,
+				Contract: json.RawMessage(`{
+					"triggerType": 14,
+					"royalties": {
+					  "address": "klv17e8zzgn73h6ehe3c6q9vlt77kuxk5euddmhymy5uhv2rhv0dc0nqlfp0ap",
+					  "transferPercentage": [{
+						 "amount": 10,
+						 "percentage": 10
+					  }],
+					  "splitRoyalties": {
+						"klv1fpwjz234gy8aaae3gx0e8q9f52vymzzn3z5q0s5h60pvktzx0n0qwvtux5": {
+						  "percentTransferPercentage": 50
+						}
+					  }
+					}
+				}`),
+				NodeHelper: createMockNodeHelper(),
+			},
+			expectedError: nil,
+		},
+		{
+			name: "Valid Asset Trigger Contract - Add Role",
+			txArgs: transaction.TXArgs{
+				Type:   uint32(transaction.TXContract_AssetTriggerContractType),
+				Sender: mockSender,
+				Contract: json.RawMessage(`{
+					"triggerType": 6,
+					"role": {
+						"address": "klv1fpwjz234gy8aaae3gx0e8q9f52vymzzn3z5q0s5h60pvktzx0n0qwvtux5",
+						"hasRoleMint": true
+					}
 				}`),
 				NodeHelper: createMockNodeHelper(),
 			},

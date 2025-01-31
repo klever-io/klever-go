@@ -865,9 +865,6 @@ var ErrUint64Overflow = errors.New("uint64 overflow")
 // ErrInt64Overflow signals that an overflow occurred while adding int64 values
 var ErrInt64Overflow = errors.New("int64 overflow")
 
-// ErrInvalidReceiverAddress signals that an invalid receiver address has been provided
-var ErrInvalidReceiverAddress = errors.New("could not create receiver address from provided parameters")
-
 // ErrInvalidContractSize signals contract size is too big
 var ErrInvalidContractSize = errors.New("contract size is too big")
 

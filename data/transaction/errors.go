@@ -2,8 +2,57 @@ package transaction
 
 import "errors"
 
-// ErrNilActiveParameters signals that the active paramaters is a nil pointer and is required for that operation
-var ErrNilActiveParameters = errors.New("received nil pointer when trying to get active paramaters")
+var (
+	ErrInvalidReceiverAddress     = errors.New("invalid receiver address")
+	ErrInvalidAmount              = errors.New("invalid amount")
+	ErrInvalidAssetID             = errors.New("invalid asset id")
+	ErrInvalidCurrencyID          = errors.New("invalid currency id")
+	ErrInvalidBucketID            = errors.New("invalid bucket id")
+	ErrInvalidPermissionSize      = errors.New("invalid permission size")
+	ErrInvalidWhitelistAddr       = errors.New("invalid whitelist address")
+	ErrInvalidSignerAddress       = errors.New("invalid signer address")
+	ErrInvalidReferralAddress     = errors.New("invalid referral address")
+	ErrInvalidOwnerAddress        = errors.New("invalid owner address")
+	ErrInvalidAdminAddress        = errors.New("invalid admin address")
+	ErrInvalidAddress             = errors.New("invalid address")
+	ErrInvalidToAddress           = errors.New("invalid toAddress")
+	ErrInvalidRoleAddress         = errors.New("invalid role address")
+	ErrInvalidContractAddress     = errors.New("invalid contract address")
+	ErrInvalidParameter           = errors.New("invalid parameter")
+	ErrInvalidName                = errors.New("invalid name")
+	ErrInvalidURI                 = errors.New("invalid uri")
+	ErrInvalidLogo                = errors.New("invalid logo")
+	ErrInvalidConfig              = errors.New("invalid config")
+	ErrInvalidPrecision           = errors.New("invalid precision")
+	ErrInvalidPackSize            = errors.New("invalid packs size")
+	ErrInvalidPackItemSize        = errors.New("invalid pack items size")
+	ErrInvalidOrderID             = errors.New("invalid order id")
+	ErrInvalidPermissionName      = errors.New("invalid permission name")
+	ErrInvalidPermissionOperation = errors.New("invalid permission operation")
+	ErrInvalidTriggerType         = errors.New("invalid trigger type")
+	ErrInvalidTicker              = errors.New("invalid ticker")
 
-// ErrMinKLVBucketAmountNotFound signals that the minnium KLV bucket amount was not found in active parameters and is required for that operation
-var ErrMinKLVBucketAmountNotFound = errors.New("failed to get minimum KLV bucket amount")
+	ErrInvalidRolesLen             = errors.New("invalid roles length")
+	ErrInvalidSplitRoyaltiesLen    = errors.New("invalid split royalties length")
+	ErrInvalidTransferRoyaltiesLen = errors.New("invalid transfer royalties length")
+	ErrInvalidAssetType            = errors.New("invalid asset type")
+	ErrInvalidWithdrawType         = errors.New("invalid withdraw type")
+	ErrInvalidValues               = errors.New("invalid values")
+	ErrInvalidID                   = errors.New("invalid id")
+	ErrInvalidDepositType          = errors.New("invalid deposit type")
+	ErrInvalidDescription          = errors.New("invalid description")
+	ErrInvalidProposalID           = errors.New("invalid proposal id")
+	ErrInvalidPackID               = errors.New("invalid pack id")
+	ErrInvalidMarketplaceID        = errors.New("invalid marketplace id")
+	ErrInvalidPrice                = errors.New("invalid price")
+	ErrInvalidReservePrice         = errors.New("invalid reserve price")
+	ErrInvalidEndTime              = errors.New("invalid end time")
+	ErrInvalidCallValue            = errors.New("invalid call value")
+	ErrInvalidAssetIDPreFork       = errors.New("invalid assetID")
+
+	// ErrNilActiveParameters signals that the active paramaters is a nil pointer and is required for that operation
+	ErrNilActiveParameters = errors.New("received nil pointer when trying to get active paramaters")
+
+	// ErrMinKLVBucketAmountNotFound signals that the minnium KLV bucket amount was not found in active parameters and is required for that operation
+	ErrMinKLVBucketAmountNotFound = errors.New("failed to get minimum KLV bucket amount")
+)

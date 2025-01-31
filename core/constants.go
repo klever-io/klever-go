@@ -180,6 +180,9 @@ const MinLengthForAssetTicker = 3
 // MaxLengthForAssetTicker defines max length for asset ticker
 const MaxLengthForAssetTicker = 10
 
+// MaxLengthForAssetID defines max length for asset name + id (TOKEN-1234)
+const MaxLengthForAssetID = MaxLengthForAssetTicker + 5
+
 // MaxNameSize defines max name size
 const MaxNameSize = 100
 
@@ -306,3 +309,6 @@ const MaxBytesBigInt = 512
 
 // ContractSizeOverhead defines the overhead of a contract
 const ContractSizeOverhead = 8 // max 5 bytes type Any encode + max 3 bytes contract array encode
+
+// BucketIDSize defines the size of a bucket id when asset is KLV or KFI
+const BucketIDSize = 64

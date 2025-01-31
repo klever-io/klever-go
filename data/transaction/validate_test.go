@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -508,6 +509,17 @@ func createDummyHexAddress(hexChars int) string {
 	return hex.EncodeToString(buff)
 }
 
+func createDummyAddress(hexChars int) []byte {
+	if hexChars < 1 {
+		return []byte{}
+	}
+
+	buff := make([]byte, hexChars/2)
+	_, _ = rand.Reader.Read(buff)
+
+	return buff
+}
+
 func convertContract(contract interface{}) []byte {
 	bytes, _ := json.Marshal(contract)
 	return bytes
@@ -922,6 +934,104 @@ func TestCreateAssetContractValidate(t *testing.T) {
 			expectError: true,
 			errorMsg:    "invalid asset type",
 		},
+		{
+			name: "valid owner address pre fork",
+			contract: &transaction.CreateAssetContract{
+				Name:         []byte("ValidName"),
+				Ticker:       []byte("VLD"),
+				Type:         transaction.CreateAssetContract_Fungible,
+				Precision:    6,
+				OwnerAddress: []byte("address"),
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
+		{
+			name: "invalid owner address pos fork",
+			contract: &transaction.CreateAssetContract{
+				Name:         []byte("ValidName"),
+				Ticker:       []byte("VLD"),
+				Type:         transaction.CreateAssetContract_Fungible,
+				Precision:    6,
+				OwnerAddress: []byte("address"),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid owner address",
+		},
+		{
+			name: "valid owner address pos fork",
+			contract: &transaction.CreateAssetContract{
+				Name:         []byte("ValidName"),
+				Ticker:       []byte("VLD"),
+				Type:         transaction.CreateAssetContract_Fungible,
+				Precision:    6,
+				OwnerAddress: core.ZeroAddress,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "valid owner address empty pos fork",
+			contract: &transaction.CreateAssetContract{
+				Name:         []byte("ValidName"),
+				Ticker:       []byte("VLD"),
+				Type:         transaction.CreateAssetContract_Fungible,
+				Precision:    6,
+				OwnerAddress: []byte{},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "valid admin address pre fork",
+			contract: &transaction.CreateAssetContract{
+				Name:         []byte("ValidName"),
+				Ticker:       []byte("VLD"),
+				Type:         transaction.CreateAssetContract_Fungible,
+				Precision:    6,
+				AdminAddress: []byte("address"),
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
+		{
+			name: "invalid admin address pos fork",
+			contract: &transaction.CreateAssetContract{
+				Name:         []byte("ValidName"),
+				Ticker:       []byte("VLD"),
+				Type:         transaction.CreateAssetContract_Fungible,
+				Precision:    6,
+				AdminAddress: []byte("address"),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid admin address",
+		},
+		{
+			name: "valid admin address pos fork",
+			contract: &transaction.CreateAssetContract{
+				Name:         []byte("ValidName"),
+				Ticker:       []byte("VLD"),
+				Type:         transaction.CreateAssetContract_Fungible,
+				Precision:    6,
+				AdminAddress: core.ZeroAddress,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "valid admin address empty pos fork",
+			contract: &transaction.CreateAssetContract{
+				Name:         []byte("ValidName"),
+				Ticker:       []byte("VLD"),
+				Type:         transaction.CreateAssetContract_Fungible,
+				Precision:    6,
+				AdminAddress: []byte{},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -942,6 +1052,7 @@ func TestAssetTriggerContractValidate(t *testing.T) {
 		name        string
 		contract    *transaction.AssetTriggerContract
 		expectError bool
+		fc          core.ForkController
 		errorMsg    string
 	}{
 		{
@@ -949,6 +1060,7 @@ func TestAssetTriggerContractValidate(t *testing.T) {
 			contract: &transaction.AssetTriggerContract{
 				TriggerType: transaction.AssetTriggerContract_Pause,
 			},
+			fc:          mock.NewForkControllerStub(),
 			expectError: false,
 		},
 		{
@@ -957,6 +1069,7 @@ func TestAssetTriggerContractValidate(t *testing.T) {
 				TriggerType: 999,
 			},
 			expectError: true,
+			fc:          mock.NewForkControllerStub(),
 			errorMsg:    "invalid trigger type",
 		},
 		{
@@ -966,6 +1079,7 @@ func TestAssetTriggerContractValidate(t *testing.T) {
 				Logo:        "invalid_logo_field", // Logo not allowed for Mint
 			},
 			expectError: true,
+			fc:          mock.NewForkControllerStub(),
 			errorMsg:    "invalid contract fields",
 		},
 		{
@@ -975,6 +1089,7 @@ func TestAssetTriggerContractValidate(t *testing.T) {
 				Logo:        string(make([]byte, core.MaxLogoURISize+1)),
 			},
 			expectError: true,
+			fc:          mock.NewForkControllerStub(),
 			errorMsg:    "invalid logo",
 		},
 		{
@@ -984,16 +1099,828 @@ func TestAssetTriggerContractValidate(t *testing.T) {
 				URIs:        makeMap(core.MaxURIMapSize + 1),
 			},
 			expectError: true,
+			fc:          mock.NewForkControllerStub(),
 			errorMsg:    "invalid uri",
+		},
+		{
+			name: "valid to address pre fork",
+			contract: &transaction.AssetTriggerContract{
+				TriggerType: transaction.AssetTriggerContract_Mint,
+				ToAddress:   []byte("address"),
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
+		{
+			name: "invalid to address pos fork",
+			contract: &transaction.AssetTriggerContract{
+				TriggerType: transaction.AssetTriggerContract_Mint,
+				ToAddress:   []byte("address"),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid address",
+		},
+		{
+			name: "valid to address pos fork",
+			contract: &transaction.AssetTriggerContract{
+				TriggerType: transaction.AssetTriggerContract_Mint,
+				ToAddress:   core.ZeroAddress,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "valid to address empty pos fork",
+			contract: &transaction.AssetTriggerContract{
+				TriggerType: transaction.AssetTriggerContract_Mint,
+				ToAddress:   []byte{},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "valid amount pre fork",
+			contract: &transaction.AssetTriggerContract{
+				TriggerType: transaction.AssetTriggerContract_Wipe,
+				Amount:      -1,
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
+		{
+			name: "invalid amount pos fork",
+			contract: &transaction.AssetTriggerContract{
+				TriggerType: transaction.AssetTriggerContract_Wipe,
+				Amount:      -1,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid amount",
+		},
+		{
+			name: "valid amount pos fork",
+			contract: &transaction.AssetTriggerContract{
+				TriggerType: transaction.AssetTriggerContract_Wipe,
+				Amount:      10,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "valid amount empty pos fork",
+			contract: &transaction.AssetTriggerContract{
+				TriggerType: transaction.AssetTriggerContract_Wipe,
+				Amount:      0,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.contract.Validate(nil)
+			err := tt.contract.Validate(tt.fc)
 			if tt.expectError {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestUnfreezeContractValidate(t *testing.T) {
+	tests := []struct {
+		name        string
+		contract    *transaction.UnfreezeContract
+		expectError bool
+		fc          core.ForkController
+		errorMsg    string
+	}{
+		{
+			name: "valid unfreeze contract",
+			contract: &transaction.UnfreezeContract{
+				AssetID:  []byte("KLV"),
+				BucketID: make([]byte, 64),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "invalid asset id",
+			contract: &transaction.UnfreezeContract{
+				AssetID:  []byte("A"),
+				BucketID: make([]byte, 64),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid asset id",
+		},
+		{
+			name: "invalid bucket id",
+			contract: &transaction.UnfreezeContract{
+				AssetID:  []byte("KLV"),
+				BucketID: make([]byte, 0),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid bucket id",
+		},
+		{
+			name: "valid bucket id pre fork",
+			contract: &transaction.UnfreezeContract{
+				AssetID:  []byte("KLV"),
+				BucketID: make([]byte, 3),
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
+		{
+			name: "invalid bucket pos fork",
+			contract: &transaction.UnfreezeContract{
+				AssetID:  []byte("KLV"),
+				BucketID: make([]byte, 3),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid bucket id",
+		},
+		{
+			name: "invalid bucket pos fork",
+			contract: &transaction.UnfreezeContract{
+				AssetID:  []byte("ASSET-1234"),
+				BucketID: make([]byte, 3),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid bucket id",
+		},
+		{
+			name: "valid bucket pos fork",
+			contract: &transaction.UnfreezeContract{
+				AssetID:  []byte("KLV"),
+				BucketID: make([]byte, 64),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "valid bucket pos fork",
+			contract: &transaction.UnfreezeContract{
+				AssetID:  []byte("ASSET-1234"),
+				BucketID: []byte("ASSET-1234"),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.contract.Validate(tt.fc)
+			if tt.expectError {
+				require.Error(t, err)
+				require.Equal(t, tt.errorMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestUpdateAccountPermissionContractValidate(t *testing.T) {
+	tests := []struct {
+		name        string
+		contract    *transaction.UpdateAccountPermissionContract
+		expectError bool
+		fc          core.ForkController
+		errorMsg    string
+	}{
+		{
+			name: "valid update account permission",
+			contract: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type:      transaction.AccPermission_Owner,
+						Threshold: 1,
+						Signers: []*transaction.AccKey{
+							{
+								Address: core.ZeroAddress,
+								Weight:  1,
+							},
+						},
+					},
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "invalid signer address",
+			contract: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type:      transaction.AccPermission_Owner,
+						Threshold: 1,
+						Signers: []*transaction.AccKey{
+							{
+								Address: []byte("1"),
+								Weight:  1,
+							},
+						},
+					},
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid signer address",
+		},
+		{
+			name: "valid signer address pre fork",
+			contract: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type:      transaction.AccPermission_Owner,
+						Threshold: 1,
+						Signers: []*transaction.AccKey{
+							{
+								Address: []byte("1"),
+								Weight:  1,
+							},
+						},
+					},
+				},
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var fork core.ForkController = mock.NewForkControllerStub()
+			if tt.fc != nil {
+				fork = tt.fc
+			}
+
+			err := tt.contract.Validate(fork)
+			if tt.expectError {
+				require.Error(t, err)
+				require.Equal(t, tt.errorMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestConfigMarketplaceContractValidate(t *testing.T) {
+	tests := []struct {
+		name        string
+		contract    *transaction.ConfigMarketplaceContract
+		expectError bool
+		fc          core.ForkController
+		errorMsg    string
+	}{
+		{
+			name: "valid config marketplace",
+			contract: &transaction.ConfigMarketplaceContract{
+				ReferralAddress: core.ZeroAddress,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "invalid config marketplace",
+			contract: &transaction.ConfigMarketplaceContract{
+				ReferralAddress: []byte("invalid"),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid referral address",
+		},
+		{
+			name: "valid config marketplace pre fork",
+			contract: &transaction.ConfigMarketplaceContract{
+				ReferralAddress: []byte("invalid"),
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var fork core.ForkController = mock.NewForkControllerStub()
+			if tt.fc != nil {
+				fork = tt.fc
+			}
+
+			err := tt.contract.Validate(fork)
+			if tt.expectError {
+				require.Error(t, err)
+				require.Equal(t, tt.errorMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestITOTriggerContractValidate(t *testing.T) {
+	tests := []struct {
+		name        string
+		contract    *transaction.ITOTriggerContract
+		expectError bool
+		fc          core.ForkController
+		errorMsg    string
+	}{
+		{
+			name: "valid ito config",
+			contract: &transaction.ITOTriggerContract{
+				TriggerType:     transaction.ITOTriggerContract_UpdateReceiverAddress,
+				AssetID:         []byte("KLV"),
+				ReceiverAddress: core.ZeroAddress,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "invalid asset ito config",
+			contract: &transaction.ITOTriggerContract{
+				AssetID:         []byte("I"),
+				TriggerType:     transaction.ITOTriggerContract_UpdateReceiverAddress,
+				ReceiverAddress: core.ZeroAddress,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid asset id",
+		},
+		{
+			name: "invalid receiver ito config",
+			contract: &transaction.ITOTriggerContract{
+				TriggerType:     transaction.ITOTriggerContract_UpdateReceiverAddress,
+				AssetID:         []byte("KLV"),
+				ReceiverAddress: []byte("invalid"),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid receiver address",
+		},
+		{
+			name: "valid receiver ito config pre fork",
+			contract: &transaction.ITOTriggerContract{
+				TriggerType:     transaction.ITOTriggerContract_UpdateReceiverAddress,
+				AssetID:         []byte("KLV"),
+				ReceiverAddress: []byte("invalid"),
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
+		{
+			name: "invalid whitelist address ito config",
+			contract: &transaction.ITOTriggerContract{
+				AssetID:     []byte("KLV"),
+				TriggerType: transaction.ITOTriggerContract_AddToWhitelist,
+				WhitelistInfo: map[string]*transaction.WhitelistInfo{
+					"1": {},
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid whitelist address",
+		},
+		{
+			name: "valid whitelist address ito config",
+			contract: &transaction.ITOTriggerContract{
+				AssetID:     []byte("KLV"),
+				TriggerType: transaction.ITOTriggerContract_AddToWhitelist,
+				WhitelistInfo: map[string]*transaction.WhitelistInfo{
+					string(core.ZeroAddress): {},
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "valid whitelist address ito config pre fork",
+			contract: &transaction.ITOTriggerContract{
+				AssetID:     []byte("KLV"),
+				TriggerType: transaction.ITOTriggerContract_AddToWhitelist,
+				WhitelistInfo: map[string]*transaction.WhitelistInfo{
+					"1": {},
+				},
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var fork core.ForkController = mock.NewForkControllerStub()
+			if tt.fc != nil {
+				fork = tt.fc
+			}
+
+			err := tt.contract.Validate(fork)
+			if tt.expectError {
+				require.Error(t, err)
+				require.Equal(t, tt.errorMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestDelegateContractValidate(t *testing.T) {
+	tests := []struct {
+		name        string
+		contract    *transaction.DelegateContract
+		expectError bool
+		fc          core.ForkController
+		errorMsg    string
+	}{
+		{
+			name: "valid delegate contract",
+			contract: &transaction.DelegateContract{
+				ToAddress: core.ZeroAddress,
+				BucketID:  make([]byte, 64),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "invalid bucket id",
+			contract: &transaction.DelegateContract{
+				ToAddress: core.ZeroAddress,
+				BucketID:  make([]byte, 0),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid bucket id",
+		},
+		{
+			name: "invalid to address",
+			contract: &transaction.DelegateContract{
+				ToAddress: []byte("invalid"),
+				BucketID:  make([]byte, 1),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid toAddress",
+		},
+		{
+			name: "valid address pre fork",
+			contract: &transaction.DelegateContract{
+				ToAddress: []byte("invalid"),
+				BucketID:  make([]byte, 1),
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.contract.Validate(tt.fc)
+			if tt.expectError {
+				require.Error(t, err)
+				require.Equal(t, tt.errorMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestProposalContractValidate(t *testing.T) {
+	tests := []struct {
+		name        string
+		contract    *transaction.ProposalContract
+		expectError bool
+		fc          core.ForkController
+		errorMsg    string
+	}{
+		{
+			name: "valid proposal contract",
+			contract: &transaction.ProposalContract{
+				Parameters: map[int32][]byte{
+					0: []byte{0x01},
+				},
+				Description:    []byte("description"),
+				EpochsDuration: 0,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "invalid proposal contract - description too long",
+			contract: &transaction.ProposalContract{
+				Parameters: map[int32][]byte{
+					0: []byte{0x01},
+				},
+				Description:    make([]byte, 2000),
+				EpochsDuration: 0,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidDescription.Error(),
+		},
+		{
+			name: "invalid proposal contract - parameter too long",
+			contract: &transaction.ProposalContract{
+				Parameters: map[int32][]byte{
+					0: []byte{255, 255, 255, 255, 255, 255, 255},
+				},
+				EpochsDuration: 0,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidParameter.Error(),
+		},
+		{
+			name: "invalid proposal contract - too many parameters",
+			contract: &transaction.ProposalContract{
+				Parameters: map[int32][]byte{
+					0:  []byte{0x01},
+					1:  []byte{0x01},
+					2:  []byte{0x01},
+					3:  []byte{0x01},
+					4:  []byte{0x01},
+					5:  []byte{0x01},
+					6:  []byte{0x01},
+					7:  []byte{0x01},
+					8:  []byte{0x01},
+					9:  []byte{0x01},
+					10: []byte{0x01},
+				},
+				Description:    make([]byte, 2000),
+				EpochsDuration: 0,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidParameter.Error(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.contract.Validate(tt.fc)
+			if tt.expectError {
+				require.Error(t, err)
+				require.Equal(t, tt.errorMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestConfigValidatorContractValidate(t *testing.T) {
+	tests := []struct {
+		name        string
+		contract    *transaction.ValidatorConfigContract
+		expectError bool
+		fc          core.ForkController
+		errorMsg    string
+	}{
+		{
+			name: "valid config contract",
+			contract: &transaction.ValidatorConfigContract{
+				Config: &transaction.ValidatorConfig{
+					BLSPublicKey:        createDummyAddress(96),
+					RewardAddress:       createDummyAddress(64),
+					CanDelegate:         true,
+					Commission:          10,
+					MaxDelegationAmount: 100000000,
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "invalid config contract - nil config",
+			contract: &transaction.ValidatorConfigContract{
+				Config: nil,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidConfig.Error(),
+		},
+		{
+			name: "invalid config contract - invalid logo",
+			contract: &transaction.ValidatorConfigContract{
+				Config: &transaction.ValidatorConfig{
+					BLSPublicKey:        createDummyAddress(96),
+					RewardAddress:       createDummyAddress(64),
+					CanDelegate:         true,
+					Commission:          10,
+					Logo:                strings.Repeat("a", 1000),
+					MaxDelegationAmount: 100000000,
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidLogo.Error(),
+		},
+		{
+			name: "invalid config contract - invalid name",
+			contract: &transaction.ValidatorConfigContract{
+				Config: &transaction.ValidatorConfig{
+					BLSPublicKey:        createDummyAddress(96),
+					RewardAddress:       createDummyAddress(64),
+					CanDelegate:         true,
+					Commission:          10,
+					Name:                strings.Repeat("a", 1000),
+					MaxDelegationAmount: 100000000,
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidName.Error(),
+		},
+		{
+			name: "invalid config contract - invalid URI len",
+			contract: &transaction.ValidatorConfigContract{
+				Config: &transaction.ValidatorConfig{
+					BLSPublicKey:  createDummyAddress(96),
+					RewardAddress: createDummyAddress(64),
+					CanDelegate:   true,
+					Commission:    10,
+					URIs: map[string]string{
+						"0":  "1",
+						"1":  "1",
+						"2":  "1",
+						"3":  "1",
+						"4":  "1",
+						"5":  "1",
+						"6":  "1",
+						"7":  "1",
+						"8":  "1",
+						"9":  "1",
+						"10": "1",
+					},
+					MaxDelegationAmount: 100000000,
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidURI.Error(),
+		},
+		{
+			name: "invalid config contract - invalid URI",
+			contract: &transaction.ValidatorConfigContract{
+				Config: &transaction.ValidatorConfig{
+					BLSPublicKey:  createDummyAddress(96),
+					RewardAddress: createDummyAddress(64),
+					CanDelegate:   true,
+					Commission:    10,
+					URIs: map[string]string{
+						"invalidURI": strings.Repeat("a", 300),
+					},
+					MaxDelegationAmount: 100000000,
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidURI.Error(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.contract.Validate(tt.fc)
+			if tt.expectError {
+				require.Error(t, err)
+				require.Equal(t, tt.errorMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestCreateValidatorContractValidate(t *testing.T) {
+	tests := []struct {
+		name        string
+		contract    *transaction.CreateValidatorContract
+		expectError bool
+		fc          core.ForkController
+		errorMsg    string
+	}{
+		{
+			name: "valid create validator contract",
+			contract: &transaction.CreateValidatorContract{
+				Config: &transaction.ValidatorConfig{
+					BLSPublicKey:        createDummyAddress(96),
+					RewardAddress:       createDummyAddress(64),
+					CanDelegate:         true,
+					Commission:          10,
+					MaxDelegationAmount: 100000000,
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "invalid create validator contract - nil config",
+			contract: &transaction.CreateValidatorContract{
+				Config: nil,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidConfig.Error(),
+		},
+		{
+			name: "invalid create validator contract - invalid logo",
+			contract: &transaction.CreateValidatorContract{
+				Config: &transaction.ValidatorConfig{
+					BLSPublicKey:        createDummyAddress(96),
+					RewardAddress:       createDummyAddress(64),
+					CanDelegate:         true,
+					Commission:          10,
+					Logo:                strings.Repeat("a", 1000),
+					MaxDelegationAmount: 100000000,
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidLogo.Error(),
+		},
+		{
+			name: "invalid create validator contract - invalid name",
+			contract: &transaction.CreateValidatorContract{
+				Config: &transaction.ValidatorConfig{
+					BLSPublicKey:        createDummyAddress(96),
+					RewardAddress:       createDummyAddress(64),
+					CanDelegate:         true,
+					Commission:          10,
+					Name:                strings.Repeat("a", 1000),
+					MaxDelegationAmount: 100000000,
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidName.Error(),
+		},
+		{
+			name: "invalid create validator contract - invalid URI len",
+			contract: &transaction.CreateValidatorContract{
+				Config: &transaction.ValidatorConfig{
+					BLSPublicKey:  createDummyAddress(96),
+					RewardAddress: createDummyAddress(64),
+					CanDelegate:   true,
+					Commission:    10,
+					URIs: map[string]string{
+						"0":  "1",
+						"1":  "1",
+						"2":  "1",
+						"3":  "1",
+						"4":  "1",
+						"5":  "1",
+						"6":  "1",
+						"7":  "1",
+						"8":  "1",
+						"9":  "1",
+						"10": "1",
+					},
+					MaxDelegationAmount: 100000000,
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidURI.Error(),
+		},
+		{
+			name: "invalid create validator contract - invalid URI",
+			contract: &transaction.CreateValidatorContract{
+				Config: &transaction.ValidatorConfig{
+					BLSPublicKey:  createDummyAddress(96),
+					RewardAddress: createDummyAddress(64),
+					CanDelegate:   true,
+					Commission:    10,
+					URIs: map[string]string{
+						"invalidURI": strings.Repeat("a", 300),
+					},
+					MaxDelegationAmount: 100000000,
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidURI.Error(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.contract.Validate(tt.fc)
+			if tt.expectError {
+				require.Error(t, err)
+				require.Equal(t, tt.errorMsg, err.Error())
 			} else {
 				require.NoError(t, err)
 			}
@@ -1006,6 +1933,7 @@ func TestWithdrawContractValidate(t *testing.T) {
 		name        string
 		contract    *transaction.WithdrawContract
 		expectError bool
+		fc          *mock.ForkControllerStub
 		errorMsg    string
 	}{
 		{
@@ -1024,6 +1952,24 @@ func TestWithdrawContractValidate(t *testing.T) {
 			},
 			expectError: true,
 			errorMsg:    "invalid asset id",
+		},
+		{
+			name: "invalid asset ID length",
+			contract: &transaction.WithdrawContract{
+				WithdrawType: transaction.WithdrawContract_Staking,
+				AssetID:      []byte("10123456789-1234"),
+			},
+			expectError: true,
+			errorMsg:    "invalid asset id",
+		},
+		{
+			name: "valid asset ID length pre fork",
+			contract: &transaction.WithdrawContract{
+				WithdrawType: transaction.WithdrawContract_Staking,
+				AssetID:      []byte("10123456789-1234"),
+			},
+			expectError: false,
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
 		},
 		{
 			name: "invalid withdraw type",
@@ -1053,11 +1999,36 @@ func TestWithdrawContractValidate(t *testing.T) {
 			expectError: true,
 			errorMsg:    "invalid currency id",
 		},
+		{
+			name: "KDAPool withdraw with invalid currency ID",
+			contract: &transaction.WithdrawContract{
+				WithdrawType: transaction.WithdrawContract_KDAPool,
+				CurrencyID:   []byte("10123456789-1234"),
+				Amount:       100,
+			},
+			expectError: true,
+			errorMsg:    "invalid currency id",
+		},
+		{
+			name: "KDAPool withdraw with valid currency ID pre fork",
+			contract: &transaction.WithdrawContract{
+				WithdrawType: transaction.WithdrawContract_KDAPool,
+				CurrencyID:   []byte("10123456789-1234"),
+				Amount:       100,
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.contract.Validate(nil)
+			fc := mock.NewForkControllerStub()
+			if tt.fc != nil {
+				fc = tt.fc
+			}
+
+			err := tt.contract.Validate(fc)
 			if tt.expectError {
 				require.Error(t, err)
 				require.Equal(t, tt.errorMsg, err.Error())
@@ -1084,6 +2055,7 @@ func TestSmartContractValidate(t *testing.T) {
 		name        string
 		contract    *transaction.SmartContract
 		expectError bool
+		fc          *mock.ForkControllerStub
 		errorMsg    string
 	}{
 		{
@@ -1092,6 +2064,7 @@ func TestSmartContractValidate(t *testing.T) {
 				Type:    transaction.SmartContract_SCDeploy,
 				Address: nil,
 			},
+			fc:          mock.NewForkControllerStub(),
 			expectError: false,
 		},
 		{
@@ -1100,6 +2073,7 @@ func TestSmartContractValidate(t *testing.T) {
 				Type:    transaction.SmartContract_SCDeploy,
 				Address: []byte("invalid"),
 			},
+			fc:          mock.NewForkControllerStub(),
 			expectError: true,
 			errorMsg:    "invalid contract address",
 		},
@@ -1109,6 +2083,7 @@ func TestSmartContractValidate(t *testing.T) {
 				Type:      transaction.SmartContract_SCDeploy,
 				CallValue: makeSCCallMap(core.MaxCallValueSize + 1),
 			},
+			fc:          mock.NewForkControllerStub(),
 			expectError: true,
 			errorMsg:    "invalid call value",
 		},
@@ -1118,6 +2093,7 @@ func TestSmartContractValidate(t *testing.T) {
 				Type:    transaction.SmartContract_SCInvoke,
 				Address: []byte("invalid"),
 			},
+			fc:          mock.NewForkControllerStub(),
 			expectError: true,
 			errorMsg:    "invalid contract address",
 		},
@@ -1339,14 +2315,12 @@ func TestSellContractValidate(t *testing.T) {
 			errorMsg:    "invalid marketplace id",
 		},
 		{
-			name: "missing asset ID with smart contracts enabled",
+			name: "missing asset ID - should return default KLV",
 			contract: &transaction.SellContract{
 				MarketplaceID: []byte("MARKETPLACE"),
 				Price:         1000,
 			},
-			fc:          mock.NewForkControllerStub(),
-			expectError: true,
-			errorMsg:    "invalid asset id",
+			fc: mock.NewForkControllerStub(),
 		},
 		{
 			name: "valid sell with smart contracts disabled",
@@ -1391,6 +2365,31 @@ func TestSellContractValidate(t *testing.T) {
 			fc:          mock.NewForkControllerStub(),
 			expectError: true,
 			errorMsg:    "invalid end time",
+		},
+		{
+			name: "valid currency id pre fork",
+			contract: &transaction.SellContract{
+				MarketplaceID: []byte("MARKETPLACE"),
+				AssetID:       []byte("ASSET"),
+				CurrencyID:    []byte("I"),
+				Price:         1000,
+				EndTime:       1000,
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
+		{
+			name: "invalid currency id",
+			contract: &transaction.SellContract{
+				MarketplaceID: []byte("MARKETPLACE"),
+				AssetID:       []byte("ASSET"),
+				CurrencyID:    []byte("I"),
+				Price:         1000,
+				EndTime:       1000,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid currency id",
 		},
 	}
 
@@ -1476,6 +2475,37 @@ func TestBuyContractValidate(t *testing.T) {
 			expectError: false,
 		},
 		{
+			name: "invalid currency id",
+			contract: &transaction.BuyContract{
+				ID:         []byte("VALID_ID"),
+				CurrencyID: []byte("I"),
+				Amount:     1000,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid currency id",
+		},
+		{
+			name: "valid currency id pre fork",
+			contract: &transaction.BuyContract{
+				ID:         []byte("VALID_ID"),
+				CurrencyID: []byte("I"),
+				Amount:     1000,
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
+		{
+			name: "valid currency id",
+			contract: &transaction.BuyContract{
+				ID:         []byte("VALID_ID"),
+				CurrencyID: []byte("KLV"),
+				Amount:     1000,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
 			name: "missing ID with smart contracts",
 			contract: &transaction.BuyContract{
 				Amount: 1000,
@@ -1522,6 +2552,7 @@ func TestConfigITOContractValidate(t *testing.T) {
 		name        string
 		contract    *transaction.ConfigITOContract
 		expectError bool
+		fc          core.ForkController
 		errorMsg    string
 	}{
 		{
@@ -1529,6 +2560,57 @@ func TestConfigITOContractValidate(t *testing.T) {
 			contract: &transaction.ConfigITOContract{
 				Status: 1,
 			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "invalid receiver address",
+			contract: &transaction.ConfigITOContract{
+				ReceiverAddress: []byte("invalid"),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid receiver address",
+		},
+		{
+			name: "valid receiver address",
+			contract: &transaction.ConfigITOContract{
+				ReceiverAddress: []byte{},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "valid asset id pre fork",
+			contract: &transaction.ConfigITOContract{
+				ReceiverAddress: []byte("invalid"),
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
+		{
+			name: "invalid asset id",
+			contract: &transaction.ConfigITOContract{
+				AssetID: []byte("i"),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid asset id",
+		},
+		{
+			name: "valid asset id",
+			contract: &transaction.ConfigITOContract{
+				AssetID: []byte("KLV"),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "valid asset id pre fork",
+			contract: &transaction.ConfigITOContract{
+				AssetID: []byte("i"),
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
 			expectError: false,
 		},
 		{
@@ -1540,6 +2622,7 @@ func TestConfigITOContractValidate(t *testing.T) {
 					},
 				},
 			},
+			fc:          mock.NewForkControllerStub(),
 			expectError: false,
 		},
 		{
@@ -1547,6 +2630,7 @@ func TestConfigITOContractValidate(t *testing.T) {
 			contract: &transaction.ConfigITOContract{
 				PackInfo: makePackInfo(core.MaxPacks+1, 1),
 			},
+			fc:          mock.NewForkControllerStub(),
 			expectError: true,
 			errorMsg:    "invalid packs size",
 		},
@@ -1555,6 +2639,7 @@ func TestConfigITOContractValidate(t *testing.T) {
 			contract: &transaction.ConfigITOContract{
 				PackInfo: makePackInfo(1, core.MaxPackItems+1),
 			},
+			fc:          mock.NewForkControllerStub(),
 			expectError: true,
 			errorMsg:    "invalid pack items size",
 		},
@@ -1562,7 +2647,7 @@ func TestConfigITOContractValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.contract.Validate(mock.NewForkControllerStub())
+			err := tt.contract.Validate(tt.fc)
 			if tt.expectError {
 				require.Error(t, err)
 				require.Equal(t, tt.errorMsg, err.Error())
@@ -1694,15 +2779,36 @@ func TestCreateMarketplaceContractValidate(t *testing.T) {
 		name        string
 		contract    *transaction.CreateMarketplaceContract
 		expectError bool
+		fc          core.ForkController
 		errorMsg    string
 	}{
 		{
 			name: "valid marketplace",
 			contract: &transaction.CreateMarketplaceContract{
 				Name:               []byte("ValidMarketplace"),
+				ReferralAddress:    core.ZeroAddress,
+				ReferralPercentage: 10,
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid referral address",
+			contract: &transaction.CreateMarketplaceContract{
+				Name:               []byte("ValidMarketplace"),
 				ReferralAddress:    []byte("ValidAddress"),
 				ReferralPercentage: 10,
 			},
+			expectError: true,
+			errorMsg:    "invalid referral address",
+		},
+		{
+			name: "valid marketplace pre fork",
+			contract: &transaction.CreateMarketplaceContract{
+				Name:               []byte("ValidMarketplace"),
+				ReferralAddress:    []byte("ValidAddress"),
+				ReferralPercentage: 10,
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
 			expectError: false,
 		},
 		{
@@ -1738,7 +2844,12 @@ func TestCreateMarketplaceContractValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.contract.Validate(mock.NewForkControllerStub())
+			var fork core.ForkController = mock.NewForkControllerStub()
+			if tt.fc != nil {
+				fork = tt.fc
+			}
+
+			err := tt.contract.Validate(fork)
 			if tt.expectError {
 				require.Error(t, err)
 				require.Equal(t, tt.errorMsg, err.Error())
@@ -1754,6 +2865,7 @@ func TestSetITOPricesContractValidate(t *testing.T) {
 		name        string
 		contract    *transaction.SetITOPricesContract
 		expectError bool
+		fc          core.ForkController
 		errorMsg    string
 	}{
 		{
@@ -1761,6 +2873,32 @@ func TestSetITOPricesContractValidate(t *testing.T) {
 			contract: &transaction.SetITOPricesContract{
 				PackInfo: make(map[string]*transaction.PackInfo),
 			},
+			expectError: false,
+		},
+		{
+			name: "valid asset pack info",
+			contract: &transaction.SetITOPricesContract{
+				PackInfo: make(map[string]*transaction.PackInfo),
+				AssetID:  []byte("KLV"),
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid asset pack info",
+			contract: &transaction.SetITOPricesContract{
+				PackInfo: make(map[string]*transaction.PackInfo),
+				AssetID:  []byte("I"),
+			},
+			expectError: true,
+			errorMsg:    "invalid asset id",
+		},
+		{
+			name: "valid asset pack info pre fork",
+			contract: &transaction.SetITOPricesContract{
+				PackInfo: make(map[string]*transaction.PackInfo),
+				AssetID:  []byte("I"),
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
 			expectError: false,
 		},
 		{
@@ -1790,7 +2928,12 @@ func TestSetITOPricesContractValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.contract.Validate(mock.NewForkControllerStub())
+			var fork core.ForkController = mock.NewForkControllerStub()
+			if tt.fc != nil {
+				fork = tt.fc
+			}
+
+			err := tt.contract.Validate(fork)
 			if tt.expectError {
 				require.Error(t, err)
 				require.Equal(t, tt.errorMsg, err.Error())
@@ -1902,6 +3045,18 @@ func TestTXContractValidate(t *testing.T) {
 				}),
 			},
 			expectError: false,
+		},
+		{
+			name: "invavalid freeze contract",
+			contract: &transaction.TXContract{
+				Type: transaction.TXContract_FreezeContractType,
+				Parameter: marshalAnyPB(&transaction.FreezeContract{
+					AssetID: []byte("10123456789-1234"),
+					Amount:  1000,
+				}),
+			},
+			expectError: true,
+			errorMsg:    "invalid asset id",
 		},
 		{
 			name: "invalid contract type",

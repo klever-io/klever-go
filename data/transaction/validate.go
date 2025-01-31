@@ -2,7 +2,6 @@ package transaction
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -111,7 +110,7 @@ func (t *TXContract) Validate(fc core.ForkController) error {
 func (tc *TransferContract) Validate(fc core.ForkController) error {
 	if len(tc.ToAddress) != core.PubKeyLen ||
 		bytes.Equal(tc.ToAddress, core.ZeroAddress) {
-		return errors.New("invalid receiver address")
+		return ErrInvalidReceiverAddress
 	}
 
 	return nil
@@ -124,38 +123,75 @@ func (tc *CreateAssetContract) Validate(fc core.ForkController) error {
 	}
 
 	if !isHumanReadable(tc.GetName()) {
-		return errors.New("invalid name")
+		return ErrInvalidName
 	}
 
 	if !kdautils.IsTickerValid(tc.GetTicker()) {
-		return errors.New("invalid ticker")
+		return ErrInvalidTicker
 	}
 
 	if !utf8.ValidString(tc.GetLogo()) || len(tc.GetLogo()) > core.MaxLogoURISize {
-		return errors.New("invalid logo")
+		return ErrInvalidLogo
 	}
 
 	if tc.GetRoyalties() != nil && len(tc.GetRoyalties().GetTransferPercentage()) > core.MaxTransferRoyalties {
-		return errors.New("invalid transfer royalties length")
+		return ErrInvalidTransferRoyaltiesLen
 	}
 
 	if tc.GetRoyalties() != nil && len(tc.GetRoyalties().GetSplitRoyalties()) > core.MaxTransferRoyalties {
-		return errors.New("invalid split royalties length")
+		return ErrInvalidSplitRoyaltiesLen
 	}
 
 	if len(tc.GetRoles()) > core.MaxRoles {
-		return errors.New("invalid roles length")
+		return ErrInvalidRolesLen
 	}
 
 	if len(tc.GetURIs()) > core.MaxURIMapSize {
-		return errors.New("invalid uri")
+		return ErrInvalidURI
 	}
 
 	if err := validateURI(tc.GetURIs()); err != nil {
 		return err
 	}
 
+	if err := tc.validateCreateAssetAfterFork(fc); err != nil {
+		return err
+	}
+
 	return tc.validateByAssetType()
+}
+
+func validateAssetID(fk core.ForkController, assetID []byte, err error) error {
+	if !fk.EnableSmartContracts() {
+		return nil
+	}
+
+	if assetID == nil || bytes.Equal(assetID, kdautils.KLVIdentifier) ||
+		bytes.Equal(assetID, kdautils.KFIIdentifier) {
+		return nil
+	}
+
+	if len(assetID) < core.MinLengthForAssetTicker || len(assetID) > core.MaxLengthForAssetID {
+		return err
+	}
+
+	return nil
+}
+
+func (tc *CreateAssetContract) validateCreateAssetAfterFork(fc core.ForkController) error {
+	if !fc.EnableSmartContracts() {
+		return nil
+	}
+
+	if err := validateAddressOrNil(len(tc.GetOwnerAddress()), ErrInvalidOwnerAddress); err != nil {
+		return err
+	}
+
+	if err := validateAddressOrNil(len(tc.GetAdminAddress()), ErrInvalidAdminAddress); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func validateURI(uris map[string]string) error {
@@ -164,7 +200,7 @@ func validateURI(uris map[string]string) error {
 			!utf8.ValidString(uri) ||
 			len(key) > core.MaxURIKeySize ||
 			len(uri) > core.MaxURIValueSize {
-			return errors.New("invalid uri")
+			return ErrInvalidURI
 		}
 	}
 
@@ -173,22 +209,17 @@ func validateURI(uris map[string]string) error {
 
 func (tc *CreateAssetContract) validateByAssetType() error {
 	switch tc.GetType() {
-	case CreateAssetContract_Fungible:
+	case CreateAssetContract_Fungible, CreateAssetContract_SemiFungible:
 		if tc.GetPrecision() < core.MinNumberOfDecimals ||
 			tc.GetPrecision() > core.MaxNumberOfDecimals {
-			return errors.New("invalid precision")
+			return ErrInvalidPrecision
 		}
 	case CreateAssetContract_NonFungible:
 		if !kdautils.IsNFTContractValid(tc.GetInitialSupply(), tc.GetPrecision()) {
-			return errors.New("invalid parameter")
-		}
-	case CreateAssetContract_SemiFungible:
-		if tc.GetPrecision() < core.MinNumberOfDecimals ||
-			tc.GetPrecision() > core.MaxNumberOfDecimals {
-			return errors.New("invalid precision")
+			return ErrInvalidParameter
 		}
 	default:
-		return errors.New("invalid asset type")
+		return ErrInvalidAssetType
 	}
 
 	return nil
@@ -301,13 +332,13 @@ func (tc *AssetTriggerContract) Validate(fc core.ForkController) error {
 		allowed = allowedAssetTriggerFields{ToAddress: true, MIME: true}
 	case AssetTriggerContract_UpdateLogo:
 		if !utf8.ValidString(tc.GetLogo()) || len(tc.GetLogo()) > core.MaxLogoURISize {
-			return errors.New("invalid logo")
+			return ErrInvalidLogo
 		}
 
 		allowed = allowedAssetTriggerFields{Logo: true}
 	case AssetTriggerContract_UpdateURIs:
 		if len(tc.GetURIs()) > core.MaxURIMapSize {
-			return errors.New("invalid uri")
+			return ErrInvalidURI
 		}
 
 		for key, uri := range tc.GetURIs() {
@@ -315,7 +346,7 @@ func (tc *AssetTriggerContract) Validate(fc core.ForkController) error {
 				!utf8.ValidString(uri) ||
 				len(key) > core.MaxURIKeySize ||
 				len(uri) > core.MaxURIValueSize {
-				return errors.New("invalid uri")
+				return ErrInvalidURI
 			}
 		}
 
@@ -329,11 +360,29 @@ func (tc *AssetTriggerContract) Validate(fc core.ForkController) error {
 	case AssetTriggerContract_UpdateKDAFeePool:
 		allowed = allowedAssetTriggerFields{KDAPool: true}
 	default:
-		return errors.New("invalid trigger type")
+		return ErrInvalidTriggerType
 	}
 
 	if !validateAssetTriggerFields(tc, allowed) {
 		return fmt.Errorf("invalid contract fields, allowed fields: assetID:true + %+v", allowed)
+	}
+
+	return tc.validateAssetTriggerAfterFork(allowed, fc)
+}
+
+func (tc *AssetTriggerContract) validateAssetTriggerAfterFork(allowed allowedAssetTriggerFields, fc core.ForkController) error {
+	if !fc.EnableSmartContracts() {
+		return nil
+	}
+
+	if allowed.ToAddress {
+		if err := validateAddressOrNil(len(tc.GetToAddress()), ErrInvalidAddress); err != nil {
+			return err
+		}
+	}
+
+	if allowed.Amount && tc.Amount < 0 {
+		return ErrInvalidAmount
 	}
 
 	return nil
@@ -341,21 +390,20 @@ func (tc *AssetTriggerContract) Validate(fc core.ForkController) error {
 
 func (tc *CreateValidatorContract) Validate(fc core.ForkController) error {
 	if tc.GetConfig() == nil {
-		return errors.New("invalid config")
+		return ErrInvalidConfig
 	}
 
 	if !utf8.ValidString(tc.GetConfig().GetName()) ||
 		len(tc.GetConfig().GetName()) > core.MaxNameSize {
-		return errors.New("invalid name")
+		return ErrInvalidName
 	}
 
 	if !utf8.ValidString(tc.GetConfig().GetLogo()) || len(tc.GetConfig().GetLogo()) > core.MaxLogoURISize {
-		return errors.New("invalid logo")
-
+		return ErrInvalidLogo
 	}
 
 	if len(tc.GetConfig().GetURIs()) > core.MaxURIMapSize {
-		return errors.New("invalid uri")
+		return ErrInvalidURI
 	}
 
 	for key, uri := range tc.GetConfig().GetURIs() {
@@ -363,7 +411,7 @@ func (tc *CreateValidatorContract) Validate(fc core.ForkController) error {
 			!utf8.ValidString(uri) ||
 			len(key) > core.MaxURIKeySize ||
 			len(uri) > core.MaxURIValueSize {
-			return errors.New("invalid uri")
+			return ErrInvalidURI
 		}
 	}
 
@@ -372,21 +420,21 @@ func (tc *CreateValidatorContract) Validate(fc core.ForkController) error {
 
 func (tc *ValidatorConfigContract) Validate(fc core.ForkController) error {
 	if tc.GetConfig() == nil {
-		return errors.New("invalid config")
+		return ErrInvalidConfig
 	}
 
 	if !utf8.ValidString(tc.GetConfig().GetName()) ||
 		len(tc.GetConfig().GetName()) > core.MaxNameSize {
-		return errors.New("invalid name")
+		return ErrInvalidName
 	}
 
 	if !utf8.ValidString(tc.GetConfig().GetLogo()) || len(tc.GetConfig().GetLogo()) > core.MaxLogoURISize {
-		return errors.New("invalid logo")
+		return ErrInvalidLogo
 
 	}
 
 	if len(tc.GetConfig().GetURIs()) > core.MaxURIMapSize {
-		return errors.New("invalid uri")
+		return ErrInvalidURI
 	}
 
 	for key, uri := range tc.GetConfig().GetURIs() {
@@ -394,7 +442,7 @@ func (tc *ValidatorConfigContract) Validate(fc core.ForkController) error {
 			!utf8.ValidString(uri) ||
 			len(key) > core.MaxURIKeySize ||
 			len(uri) > core.MaxURIValueSize {
-			return errors.New("invalid uri")
+			return ErrInvalidURI
 		}
 	}
 
@@ -402,20 +450,32 @@ func (tc *ValidatorConfigContract) Validate(fc core.ForkController) error {
 }
 
 func (tc *FreezeContract) Validate(fc core.ForkController) error {
-	if len(tc.AssetID) != 0 && len(tc.AssetID) < 3 {
-		return errors.New("invalid asset id")
+	if len(tc.AssetID) != 0 && len(tc.AssetID) < core.MinLengthForAssetTicker {
+		return ErrInvalidAssetID
 	}
 
 	if tc.Amount <= 0 {
-		return errors.New("invalid amount")
+		return ErrInvalidAmount
+	}
+
+	if !fc.EnableSmartContracts() {
+		return nil
+	}
+
+	if err := validateAssetID(fc, tc.AssetID, ErrInvalidAssetID); err != nil {
+		return err
 	}
 
 	return nil
 }
 
+func (tc *WithdrawContract) validateWithdrawAfterFork(fc core.ForkController) error {
+	return validateAssetID(fc, tc.AssetID, ErrInvalidAssetID)
+}
+
 func (tc *WithdrawContract) Validate(fc core.ForkController) error {
-	if len(tc.AssetID) != 0 && len(tc.AssetID) < 3 {
-		return errors.New("invalid asset id")
+	if len(tc.AssetID) != 0 && len(tc.AssetID) < core.MinLengthForAssetTicker {
+		return ErrInvalidAssetID
 	}
 
 	// check types
@@ -423,21 +483,26 @@ func (tc *WithdrawContract) Validate(fc core.ForkController) error {
 	case WithdrawContract_Staking:
 		if len(tc.CurrencyID) != 0 ||
 			tc.Amount != 0 {
-			return errors.New("invalid values")
+			return ErrInvalidValues
 		}
 	case WithdrawContract_KDAPool:
-		if len(tc.CurrencyID) < 3 {
-			return errors.New("invalid currency id")
+		if len(tc.CurrencyID) < core.MinLengthForAssetTicker {
+			return ErrInvalidCurrencyID
 		}
 
 		if tc.Amount <= 0 {
-			return errors.New("invalid amount")
+			return ErrInvalidAmount
 		}
+
+		if err := validateAssetID(fc, tc.CurrencyID, ErrInvalidCurrencyID); err != nil {
+			return err
+		}
+
 	default:
-		return errors.New("invalid withdraw type")
+		return ErrInvalidWithdrawType
 	}
 
-	return nil
+	return tc.validateWithdrawAfterFork(fc)
 }
 
 func (tc *DepositContract) Validate(fc core.ForkController) error {
@@ -445,43 +510,73 @@ func (tc *DepositContract) Validate(fc core.ForkController) error {
 	switch tc.DepositType {
 	case DepositContract_FPRDeposit,
 		DepositContract_KDAPool:
-		if len(tc.ID) < 3 {
-			return errors.New("invalid id")
+		if len(tc.ID) < core.MinLengthForAssetTicker {
+			return ErrInvalidID
 		}
 
-		if len(tc.CurrencyID) < 3 {
-			return errors.New("invalid currency id")
+		if len(tc.CurrencyID) < core.MinLengthForAssetTicker {
+			return ErrInvalidCurrencyID
 		}
 
 		if tc.Amount <= 0 {
-			return errors.New("invalid amount")
+			return ErrInvalidAmount
+		}
+
+		if err := validateAssetID(fc, tc.CurrencyID, ErrInvalidCurrencyID); err != nil {
+			return err
 		}
 
 		return nil
 	}
 
-	return errors.New("invalid deposit type")
+	return ErrInvalidDepositType
 }
 
-func (tc *UnfreezeContract) Validate(fc core.ForkController) error {
-	if len(tc.AssetID) != 0 && len(tc.AssetID) < 3 {
-		return errors.New("invalid asset id")
+func (tc *UnfreezeContract) validateUnfreezeAfterFork(fc core.ForkController) error {
+	if !fc.EnableSmartContracts() {
+		return nil
 	}
 
-	if len(tc.BucketID) == 0 {
-		return errors.New("invalid bucket id")
+	if err := validateAssetID(fc, tc.AssetID, ErrInvalidAssetID); err != nil {
+		return err
+	}
+
+	if len(tc.AssetID) > core.MinLengthForAssetTicker && len(tc.BucketID) != len(tc.AssetID) {
+		return ErrInvalidBucketID
+	}
+
+	if (bytes.Equal(tc.AssetID, kdautils.KLVIdentifier) || bytes.Equal(tc.AssetID, kdautils.KFIIdentifier)) && len(tc.BucketID) != core.BucketIDSize {
+		return ErrInvalidBucketID
 	}
 
 	return nil
 }
 
-func (tc *DelegateContract) Validate(fc core.ForkController) error {
-	if len(tc.ToAddress) == 0 {
-		return errors.New("invalid receiver address")
+func (tc *UnfreezeContract) Validate(fc core.ForkController) error {
+	if len(tc.AssetID) != 0 && len(tc.AssetID) < core.MinLengthForAssetTicker {
+		return ErrInvalidAssetID
 	}
 
 	if len(tc.BucketID) == 0 {
-		return errors.New("invalid bucket id")
+		return ErrInvalidBucketID
+	}
+
+	return tc.validateUnfreezeAfterFork(fc)
+}
+
+func (tc *DelegateContract) Validate(fc core.ForkController) error {
+	if len(tc.ToAddress) == 0 {
+		return ErrInvalidReceiverAddress
+	}
+
+	if len(tc.BucketID) == 0 {
+		return ErrInvalidBucketID
+	}
+
+	if fc.EnableSmartContracts() {
+		if err := validateAddress(len(tc.ToAddress), ErrInvalidToAddress); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -489,7 +584,7 @@ func (tc *DelegateContract) Validate(fc core.ForkController) error {
 
 func (tc *UndelegateContract) Validate(fc core.ForkController) error {
 	if len(tc.BucketID) == 0 {
-		return errors.New("invalid bucket id")
+		return ErrInvalidBucketID
 	}
 
 	return nil
@@ -514,7 +609,7 @@ func (tc *UnjailContract) Validate(fc core.ForkController) error {
 func (tc *SetAccountNameContract) Validate(fc core.ForkController) error {
 	if !utf8.Valid(tc.GetName()) ||
 		len(tc.GetName()) > core.MaxNameSize {
-		return errors.New("invalid name")
+		return ErrInvalidName
 	}
 
 	return nil
@@ -522,17 +617,17 @@ func (tc *SetAccountNameContract) Validate(fc core.ForkController) error {
 
 func (tc *ProposalContract) Validate(fc core.ForkController) error {
 	if len(tc.GetParameters()) > core.MaxProposalsLength {
-		return errors.New("invalid parameters")
+		return ErrInvalidParameter
 	}
 
 	if len(tc.GetDescription()) > core.MaxDescriptionLength {
-		return errors.New("invalid description")
+		return ErrInvalidDescription
 	}
 
 	for _, parameter := range tc.GetParameters() {
 		if !utf8.Valid([]byte(parameter)) ||
 			len(parameter) > core.MaxProposalParamLength {
-			return errors.New("invalid parameter")
+			return ErrInvalidParameter
 		}
 	}
 
@@ -541,11 +636,27 @@ func (tc *ProposalContract) Validate(fc core.ForkController) error {
 
 func (tc *VoteContract) Validate(fc core.ForkController) error {
 	if fc.EnableSmartContracts() && tc.GetProposalID() <= 0 {
-		return errors.New("invalid proposal id")
+		return ErrInvalidProposalID
 	}
 
 	if tc.GetAmount() <= 0 {
-		return errors.New("invalid amount")
+		return ErrInvalidAmount
+	}
+
+	return nil
+}
+
+func (tc *ConfigITOContract) validateConfigITOAfterFork(fc core.ForkController) error {
+	if !fc.EnableSmartContracts() {
+		return nil
+	}
+
+	if err := validateAddressOrNil(len(tc.ReceiverAddress), ErrInvalidReceiverAddress); err != nil {
+		return err
+	}
+
+	if err := validateAssetID(fc, tc.AssetID, ErrInvalidAssetID); err != nil {
+		return err
 	}
 
 	return nil
@@ -554,42 +665,52 @@ func (tc *VoteContract) Validate(fc core.ForkController) error {
 func (tc *ConfigITOContract) Validate(fc core.ForkController) error {
 	if len(tc.GetPackInfo()) > 0 {
 		if len(tc.GetPackInfo()) > core.MaxPacks {
-			return errors.New("invalid packs size")
+			return ErrInvalidPackSize
 		}
 
 		for _, packInfo := range tc.GetPackInfo() {
 			if len(packInfo.GetPacks()) > core.MaxPackItems {
-				return errors.New("invalid pack items size")
+				return ErrInvalidPackItemSize
 			}
 		}
 	}
 
-	return nil
+	return tc.validateConfigITOAfterFork(fc)
 }
 
 func (tc *SetITOPricesContract) Validate(fc core.ForkController) error {
 	if len(tc.GetPackInfo()) > 0 {
 		if len(tc.GetPackInfo()) > core.MaxPacks {
-			return errors.New("invalid packs size")
+			return ErrInvalidPackSize
 		}
 
 		for _, packInfo := range tc.GetPackInfo() {
 			if len(packInfo.GetPacks()) > core.MaxPackItems {
-				return errors.New("invalid pack items size")
+				return ErrInvalidPackItemSize
 			}
 		}
+	}
+
+	if err := validateAssetID(fc, tc.AssetID, ErrInvalidAssetID); err != nil {
+		return err
 	}
 
 	return nil
 }
 
 func (tc *BuyContract) Validate(fc core.ForkController) error {
-	if fc.EnableSmartContracts() && len(tc.GetID()) == 0 {
-		return errors.New("invalid pack id")
+	if fc.EnableSmartContracts() {
+		if len(tc.GetID()) == 0 {
+			return ErrInvalidPackID
+		}
+
+		if err := validateAssetID(fc, tc.CurrencyID, ErrInvalidCurrencyID); err != nil {
+			return err
+		}
 	}
 
 	if tc.GetAmount() < 0 {
-		return errors.New("invalid amount")
+		return ErrInvalidAmount
 	}
 
 	return nil
@@ -598,24 +719,28 @@ func (tc *BuyContract) Validate(fc core.ForkController) error {
 func (tc *SellContract) Validate(fc core.ForkController) error {
 	if fc.EnableSmartContracts() {
 		if len(tc.MarketplaceID) == 0 {
-			return errors.New("invalid marketplace id")
+			return ErrInvalidMarketplaceID
 		}
 
-		if len(tc.AssetID) == 0 {
-			return errors.New("invalid asset id")
+		if err := validateAssetID(fc, tc.AssetID, ErrInvalidAssetID); err != nil {
+			return err
+		}
+
+		if err := validateAssetID(fc, tc.CurrencyID, ErrInvalidCurrencyID); err != nil {
+			return err
 		}
 	}
 
 	if tc.Price < 0 {
-		return errors.New("invalid price")
+		return ErrInvalidPrice
 	}
 
 	if tc.ReservePrice < 0 {
-		return errors.New("invalid reserve price")
+		return ErrInvalidReservePrice
 	}
 
 	if tc.EndTime < 0 {
-		return errors.New("invalid end time")
+		return ErrInvalidEndTime
 	}
 
 	return nil
@@ -623,7 +748,7 @@ func (tc *SellContract) Validate(fc core.ForkController) error {
 
 func (tc *CancelMarketOrderContract) Validate(fc core.ForkController) error {
 	if fc.EnableSmartContracts() && len(tc.GetOrderID()) == 0 {
-		return errors.New("invalid order id")
+		return ErrInvalidOrderID
 	}
 
 	return nil
@@ -633,7 +758,13 @@ func (tc *CreateMarketplaceContract) Validate(fc core.ForkController) error {
 	if tc.GetName() == nil ||
 		!utf8.Valid([]byte(tc.GetName())) ||
 		len(tc.GetName()) > core.MaxNameSize {
-		return errors.New("invalid name")
+		return ErrInvalidName
+	}
+
+	if fc.EnableSmartContracts() {
+		if err := validateAddressOrNil(len(tc.ReferralAddress), ErrInvalidReferralAddress); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -642,29 +773,62 @@ func (tc *CreateMarketplaceContract) Validate(fc core.ForkController) error {
 func (tc *ConfigMarketplaceContract) Validate(fc core.ForkController) error {
 	if !utf8.Valid([]byte(tc.GetName())) ||
 		len(tc.GetName()) > core.MaxNameSize {
-		return errors.New("invalid name")
+		return ErrInvalidName
 	}
+
+	if fc.EnableSmartContracts() {
+		if err := validateAddressOrNil(len(tc.ReferralAddress), ErrInvalidReferralAddress); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (tc *UpdateAccountPermissionContract) validateUpdateAccountPermissionAfterFork(perm *AccPermission, fc core.ForkController) error {
+	if !fc.EnableSmartContracts() {
+		return nil
+	}
+
+	for _, op := range perm.Signers {
+		if err := validateAddress(len(op.Address), ErrInvalidSignerAddress); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (tc *UpdateAccountPermissionContract) validateUpdateAccountPermissions(fc core.ForkController) error {
+	for _, perm := range tc.GetPermissions() {
+		if len(perm.GetSigners()) > core.MaxPermissionSigners {
+			return ErrInvalidPermissionSize
+		}
+
+		if !utf8.Valid([]byte(perm.PermissionName)) ||
+			len(perm.PermissionName) > core.MaxNameSize {
+			return ErrInvalidPermissionName
+		}
+
+		if len(perm.Operations) > core.MaxOperationsSize {
+			return ErrInvalidPermissionOperation
+		}
+
+		if err := tc.validateUpdateAccountPermissionAfterFork(perm, fc); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
 func (tc *UpdateAccountPermissionContract) Validate(fc core.ForkController) error {
 	if len(tc.GetPermissions()) > core.MaxAccountPermission {
-		return errors.New("invalid permission size")
+		return ErrInvalidPermissionSize
 	}
 
-	for _, perm := range tc.GetPermissions() {
-		if len(perm.GetSigners()) > core.MaxPermissionSigners {
-			return errors.New("invalid permission size")
-		}
-
-		if !utf8.Valid([]byte(perm.PermissionName)) ||
-			len(perm.PermissionName) > core.MaxNameSize {
-			return errors.New("invalid permission name")
-		}
-
-		if len(perm.Operations) > core.MaxOperationsSize {
-			return errors.New("invalid permission operation")
-		}
+	if err := tc.validateUpdateAccountPermissions(fc); err != nil {
+		return err
 	}
 
 	return nil
@@ -732,9 +896,48 @@ func validateITOTriggerFields(tc *ITOTriggerContract, allow allowedITOTriggerFie
 	return true
 }
 
+func validateAddressOrNil(addressLen int, err error) error {
+	if addressLen == 0 {
+		return nil
+	}
+
+	return validateAddress(addressLen, err)
+}
+
+func validateAddress(addressLen int, err error) error {
+
+	if addressLen != core.PubKeyLen {
+		return err
+	}
+
+	return nil
+}
+
+func (tc *ITOTriggerContract) validateITOTriggerAfterFork(fc core.ForkController) error {
+	if !fc.EnableSmartContracts() {
+		return nil
+	}
+
+	if err := validateAssetID(fc, tc.GetAssetID(), ErrInvalidAssetID); err != nil {
+		return err
+	}
+
+	if err := validateAddressOrNil(len(tc.ReceiverAddress), ErrInvalidReceiverAddress); err != nil {
+		return err
+	}
+
+	for address := range tc.GetWhitelistInfo() {
+		if err := validateAddress(len(address), ErrInvalidWhitelistAddr); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (tc *ITOTriggerContract) Validate(fc core.ForkController) error {
 	if tc.GetAssetID() == nil {
-		return errors.New("invalid assetID")
+		return ErrInvalidAssetIDPreFork
 	}
 
 	var allowed allowedITOTriggerFields
@@ -761,30 +964,30 @@ func (tc *ITOTriggerContract) Validate(fc core.ForkController) error {
 	case ITOTriggerContract_UpdateWhitelistTimes:
 		allowed = allowedITOTriggerFields{WhitelistStartTime: true, WhitelistEndTime: true}
 	default:
-		return errors.New("invalid trigger type")
+		return ErrInvalidTriggerType
 	}
 
 	if !validateITOTriggerFields(tc, allowed) {
 		return fmt.Errorf("invalid contract fields, allowed fields: assetID:true + %+v", allowed)
 	}
 
-	return nil
+	return tc.validateITOTriggerAfterFork(fc)
 }
 
 func (tc *SmartContract) Validate(fc core.ForkController) error {
 	switch tc.Type {
 	case SmartContract_SCDeploy:
 		if len(tc.Address) > 0 {
-			return errors.New("invalid contract address")
+			return ErrInvalidContractAddress
 		}
 	default:
 		if len(tc.Address) != core.PubKeyLen {
-			return errors.New("invalid contract address")
+			return ErrInvalidContractAddress
 		}
 	}
 
 	if len(tc.CallValue) > core.MaxCallValueSize {
-		return errors.New("invalid call value")
+		return ErrInvalidCallValue
 	}
 
 	return nil
