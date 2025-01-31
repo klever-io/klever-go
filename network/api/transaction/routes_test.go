@@ -1,6 +1,7 @@
 package transaction_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/data/api"
+	"github.com/klever-io/klever-go/data/transaction"
 	apiErrors "github.com/klever-io/klever-go/network/api/errors"
 	"github.com/klever-io/klever-go/network/api/middleware"
 	"github.com/klever-io/klever-go/network/api/mock"
@@ -86,6 +88,7 @@ func getRoutesConfig() config.APIRoutesConfig {
 					{Name: "/send", Open: true},
 					{Name: "/broadcast", Open: true},
 					{Name: "/:txhash", Open: true},
+					{Name: "/estimate-fee", Open: true},
 				},
 			},
 		},
@@ -182,4 +185,142 @@ func TestSendTransaction_NilContextShouldError(t *testing.T) {
 
 	assert.Equal(t, shared.ReturnCodeInternalError, response.Code)
 	assert.True(t, strings.Contains(response.Error, apiErrors.ErrNilAppContext.Error()))
+}
+
+func TestEstimateTransactionFees_NilContextShouldError(t *testing.T) {
+	t.Parallel()
+	ws := startNodeServer(nil)
+
+	req, _ := http.NewRequest("POST", "/transaction/estimate-fee", nil)
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, shared.ReturnCodeInternalError, response.Code)
+	assert.True(t, strings.Contains(response.Error, apiErrors.ErrNilAppContext.Error()))
+}
+
+func TestEstimateTransactionFees_ShouldFailWithBadRequest_NilRequestBody(t *testing.T) {
+	t.Parallel()
+
+	facade := mock.Facade{
+		EstimateTransactionFeesHandler: func(tx *transaction.Transaction) (*transaction.FeesResponse, error) {
+			return &transaction.FeesResponse{}, nil
+		},
+	}
+
+	ws := startNodeServer(&facade)
+
+	req, _ := http.NewRequest("POST", "/transaction/estimate-fee", nil)
+	resp := httptest.NewRecorder()
+
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, shared.ReturnCodeRequestError, response.Code)
+}
+
+func TestEstimateTransactionFees_ShouldFailWithBadRequest_InvalidBodyReceived(t *testing.T) {
+	t.Parallel()
+
+	facade := mock.Facade{
+		EstimateTransactionFeesHandler: func(tx *transaction.Transaction) (*transaction.FeesResponse, error) {
+			return &transaction.FeesResponse{}, nil
+		},
+	}
+
+	ws := startNodeServer(&facade)
+
+	invalidBody := map[string]interface{}{
+		"RawData": []byte("invalid type"),
+	}
+
+	bodyBytes, err := json.Marshal(invalidBody)
+	require.Nil(t, err)
+
+	req, _ := http.NewRequest("POST", "/transaction/estimate-fee", bytes.NewReader(bodyBytes))
+	resp := httptest.NewRecorder()
+
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Nil(t, response.Data)
+	assert.Equal(t, shared.ReturnCodeRequestError, response.Code)
+}
+
+func TestEstimateTransactionFees_ShouldFailWithBadRequest_EstimateFeeReturnedError(t *testing.T) {
+	t.Parallel()
+
+	sender := []byte("sender")
+
+	facade := mock.Facade{
+		EstimateTransactionFeesHandler: func(tx *transaction.Transaction) (*transaction.FeesResponse, error) {
+			return nil, fmt.Errorf("validation failed")
+		},
+	}
+
+	ws := startNodeServer(&facade)
+
+	tx := transaction.NewBaseTransaction(sender, 0, nil, 0, 0)
+	txBytes, err := json.Marshal(tx)
+	require.Nil(t, err)
+
+	req, _ := http.NewRequest("POST", "/transaction/estimate-fee", bytes.NewReader(txBytes))
+	resp := httptest.NewRecorder()
+
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Nil(t, response.Data)
+	assert.Equal(t, shared.ReturnCodeRequestError, response.Code)
+}
+
+func TestEstimateTransactionFees_ShouldWork(t *testing.T) {
+	t.Parallel()
+
+	sender := []byte("sender")
+
+	expectedKAppFee := int64(1e6)
+	expectedBandwidthFee := int64(1e6)
+
+	facade := mock.Facade{
+		EstimateTransactionFeesHandler: func(tx *transaction.Transaction) (*transaction.FeesResponse, error) {
+			return &transaction.FeesResponse{
+				CostResponse: &transaction.CostResponse{
+					KAppFee:      expectedKAppFee,
+					BandwidthFee: expectedBandwidthFee,
+				},
+			}, nil
+		},
+	}
+
+	ws := startNodeServer(&facade)
+
+	tx := transaction.NewBaseTransaction(sender, 0, nil, 0, 0)
+
+	txBytes, err := json.Marshal(tx)
+	require.Nil(t, err)
+
+	req, _ := http.NewRequest("POST", "/transaction/estimate-fee", bytes.NewReader(txBytes))
+	resp := httptest.NewRecorder()
+
+	ws.ServeHTTP(resp, req)
+
+	var costResponse transaction.CostResponse
+	response := shared.GenericAPIResponse{
+		Data: &costResponse,
+	}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, expectedKAppFee, costResponse.KAppFee)
+	assert.Equal(t, expectedBandwidthFee, costResponse.BandwidthFee)
+
+	assert.Equal(t, shared.ReturnCodeSuccess, response.Code)
 }

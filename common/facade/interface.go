@@ -40,6 +40,9 @@ type NodeHandler interface {
 	// GetTransaction will return a transaction based on the hash
 	GetTransaction(hash string, withResults bool) (*api.Transaction, error)
 
+	// EstimateTransactionFees will return a transaction with the estimated fees
+	EstimateTransactionFees(tx *transaction.Transaction) (*transaction.FeesResponse, error)
+
 	// TXPool will retrun list od txs in mem pool
 	TXPool(string, int, int) ([]*api.Transaction, int, error)
 

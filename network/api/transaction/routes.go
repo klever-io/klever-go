@@ -30,12 +30,14 @@ const (
 	broadcastEndpoint         = "/transaction/broadcast"
 	poolEndpoint              = "/transaction/pool"
 	simulateEndpoint          = "/transaction/simulate"
+	estimateFeeEndpoint       = "/transaction/estimate-fee"
 	sendPath                  = "/send"
 	decodePath                = "/decode"
 	broadcastPath             = "/broadcast"
 	poolPath                  = "/pool"
 	getTransactionPath        = "/:txhash"
 	simulatePath              = "/simulate"
+	estimateFeePath           = "/estimate-fee"
 	queryParamWithResults     = "withResults"
 )
 
@@ -50,6 +52,7 @@ type FacadeHandler interface {
 	EncodeAddressPubkey(addr []byte) (string, error)
 	TXPool(sender string, page int, pageSize int) ([]*api.Transaction, int, error)
 	EstimateTransactionGas(tx *transaction.Transaction) (*transaction.CostResponse, error)
+	EstimateTransactionFees(tx *transaction.Transaction) (*transaction.FeesResponse, error)
 	IsInterfaceNil() bool
 }
 
@@ -90,6 +93,12 @@ func Routes(router *wrapper.RouterWrapper) {
 		simulatePath,
 		middleware.CreateEndpointThrottler(simulateEndpoint),
 		SimulateTransaction,
+	)
+	router.RegisterHandler(
+		http.MethodPost,
+		estimateFeePath,
+		middleware.CreateEndpointThrottler(estimateFeeEndpoint),
+		EstimateTransactionFees,
 	)
 }
 
@@ -513,17 +522,63 @@ func GetTransaction(c *gin.Context) {
 	)
 }
 
-// @Summary returns transaction details for a given txhash
+// @Summary returns fee details for a given transaction
 // @Tags Transaction
 // @Accept  json
 // @Produce  json
-// @Param txhash path string true "txhash"
+// @Param data body transaction.Transaction true "body data"
 // @Success 200 object shared.GenericAPIResponse "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Failure 500 object shared.GenericAPIResponse "some internal error"
-// @Router /transaction/estimate-fee [get]
-// EstimateFee returns estimated fee of given tx
-func EstimateFee(c *gin.Context) {
+// @Router /transaction/estimate-fee [post]
+// EstimateTransactionFees returns the tx with the estimated fee
+func EstimateTransactionFees(c *gin.Context) {
+	facade, ok := getFacade(c)
+	if !ok {
+		return
+	}
+
+	var gtx = transaction.Transaction{}
+	if err := c.ShouldBindJSON(&gtx); err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), err.Error()),
+				Code:  shared.ReturnCodeRequestError,
+			},
+		)
+		return
+	}
+
+	start := time.Now()
+
+	fees, err := facade.EstimateTransactionFees(&gtx)
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), err.Error()),
+				Code:  shared.ReturnCodeRequestError,
+			},
+		)
+		return
+	}
+
+	duration := time.Since(start)
+	if duration > 200*time.Millisecond {
+		log.Debug(fmt.Sprintf("API call: SimulateTransaction took %s", duration))
+	}
+
+	c.JSON(
+		http.StatusOK,
+		shared.GenericAPIResponse{
+			Data:  fees,
+			Error: "",
+			Code:  shared.ReturnCodeSuccess,
+		},
+	)
 }
 
 func getQueryParamWithResults(c *gin.Context) (bool, error) {

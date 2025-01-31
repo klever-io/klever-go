@@ -543,3 +543,8 @@ func (nf *nodeFacade) DecodeAddressPubkey(pk string) ([]byte, error) {
 func (nf *nodeFacade) EstimateTransactionGas(tx *transaction.Transaction) (*transaction.CostResponse, error) {
 	return nf.apiResolver.EstimateTransactionGas(tx)
 }
+
+// EstimateTransactionGas will calculate how many gas a transaction will consume
+func (nf *nodeFacade) EstimateTransactionFees(tx *transaction.Transaction) (*transaction.FeesResponse, error) {
+	return nf.node.EstimateTransactionFees(tx)
+}

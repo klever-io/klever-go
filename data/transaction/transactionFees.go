@@ -9,6 +9,12 @@ type CostResponse struct {
 	RetMessage    string `json:"returnMessage"`
 }
 
+// FeesResponse is structure used to return the transaction fees
+type FeesResponse struct {
+	*CostResponse
+	KDAFees *Transaction_KDAFee `json:"kdaFee"`
+}
+
 func (x *Transaction_KDAFee) IsInterfaceNil() bool {
 	return x == nil
 }

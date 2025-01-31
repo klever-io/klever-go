@@ -49,6 +49,7 @@ type Facade struct {
 	SendBulkTransactionsHandler    func(txs []*transaction.Transaction) ([]string, error)
 	GetNextNonceHandler            func(address string) (uint64, uint64, uint64, error)
 	EstimateTransactionGasHandler  func(tx *transaction.Transaction) (*transaction.CostResponse, error)
+	EstimateTransactionFeesHandler func(tx *transaction.Transaction) (*transaction.FeesResponse, error)
 }
 
 // GetThrottlerForEndpoint -
@@ -252,6 +253,11 @@ func (f *Facade) GetEnableEpochs() (config.EnableEpochsConfig, error) {
 // GetEnableEpochs -
 func (f *Facade) EstimateTransactionGas(tx *transaction.Transaction) (*transaction.CostResponse, error) {
 	return f.EstimateTransactionGasHandler(tx)
+}
+
+// EstimateTransactionFees -
+func (f *Facade) EstimateTransactionFees(tx *transaction.Transaction) (*transaction.FeesResponse, error) {
+	return f.EstimateTransactionFeesHandler(tx)
 }
 
 // WrongFacade is a struct that can be used as a wrong implementation of the node router handler

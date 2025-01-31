@@ -1386,15 +1386,16 @@ paths:
       tags:
       - Transaction
   /transaction/estimate-fee:
-    get:
+    post:
       consumes:
       - application/json
       parameters:
-      - description: txhash
-        in: path
-        name: txhash
+      - description: body data
+        in: body
+        name: data
         required: true
-        type: string
+        schema:
+          $ref: '#/definitions/transaction.Transaction'
       produces:
       - application/json
       responses:
@@ -1410,7 +1411,7 @@ paths:
           description: some internal error
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
-      summary: returns transaction details for a given txhash
+      summary: returns fee details for a given transaction
       tags:
       - Transaction
   /transaction/pool:

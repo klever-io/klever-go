@@ -49,6 +49,8 @@ apiPackages:
         open: true
       - name: /simulate
         open: true
+      - name: /estimate-fee
+        open: true
   validator:
     routes:
       - name: /statistics

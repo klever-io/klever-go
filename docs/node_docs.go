@@ -783,7 +783,7 @@ const docTemplatenode = `{
             }
         },
         "/transaction/estimate-fee": {
-            "get": {
+            "post": {
                 "consumes": [
                     "application/json"
                 ],
@@ -793,14 +793,16 @@ const docTemplatenode = `{
                 "tags": [
                     "Transaction"
                 ],
-                "summary": "returns transaction details for a given txhash",
+                "summary": "returns fee details for a given transaction",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "txhash",
-                        "name": "txhash",
-                        "in": "path",
-                        "required": true
+                        "description": "body data",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/transaction.Transaction"
+                        }
                     }
                 ],
                 "responses": {

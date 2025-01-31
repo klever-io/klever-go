@@ -103,7 +103,7 @@ func (n *Node) validateTransactionInputs(base *transaction.TXBaseInfo, contracts
 	if check.IfNil(n.accounts) {
 		return common.ErrNilAccountsAdapter
 	}
-	if len(base.Sender) > n.encodedAddressLength {
+	if len(base.Sender) != n.encodedAddressLength {
 		return fmt.Errorf("%w for sender", common.ErrInvalidAddressLength)
 	}
 	if len(base.SenderUsername) > core.MaxUserNameLength {
@@ -176,49 +176,64 @@ func (n *Node) addContractsToTransaction(
 }
 
 // Helper function to compute transaction fees
-func (n *Node) computeTransactionFees(tx *transaction.Transaction, base *transaction.TXBaseInfo) error {
+func (n *Node) computeTransactionFees(tx *transaction.Transaction, base *transaction.TXBaseInfo) (*transaction.FeesResponse, error) {
 	cost, err := n.feeHandler.ComputeTransactionCost(tx, true)
+	if err != nil {
+		return nil, err
+	}
+
+	fees := &transaction.FeesResponse{
+		CostResponse: cost,
+	}
+
+	// Add up estimated gas into BandwidthFee
+	if fees.GasMultiplier > 0 && fees.GasEstimated > 0 {
+		value := cost.GasEstimated / fees.GasMultiplier
+		if value > math.MaxInt64 {
+			return nil, common.ErrEstimateGasTooBig
+		}
+
+		// Add FreeBandwidth to BandwidthFee to cover SC execution costs
+		fees.BandwidthFee, err = tools.SafeAddI64(fees.BandwidthFee, value)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Compute KDAFee if any
+	if len(base.KDAFee) > 0 && base.KDAFee != string(kdautils.KLVIdentifier) {
+		fees.KDAFees = &transaction.Transaction_KDAFee{
+			KDA: []byte(base.KDAFee),
+		}
+
+		totalFees := fees.BandwidthFee + fees.KAppFee
+
+		// Check if KDA has a fee pool set
+		kdaAmount, err := n.kappController.GetKDAFeesPoolKApp().Compute(totalFees, fees.KDAFees)
+		if err != nil {
+			return nil, err
+		}
+
+		if kdaAmount <= 0 {
+			return nil, common.ErrAssetPoolAmountError
+		}
+
+		fees.KDAFees.Amount = kdaAmount
+	}
+
+	return fees, nil
+}
+
+// Helper function to compute transaction fees and set fees to the transaction
+func (n *Node) computeAndSetTransactionFees(tx *transaction.Transaction, base *transaction.TXBaseInfo) error {
+	cost, err := n.computeTransactionFees(tx, base)
 	if err != nil {
 		return err
 	}
 
 	tx.RawData.BandwidthFee = cost.BandwidthFee
 	tx.RawData.KAppFee = cost.KAppFee
-
-	// Add up estimated gas into BandwidthFee
-	if cost.GasMultiplier > 0 && cost.GasEstimated > 0 {
-		value := cost.GasEstimated / cost.GasMultiplier
-		if value > math.MaxInt64 {
-			return common.ErrEstimateGasTooBig
-		}
-
-		// Add FreeBandwidth to BandwidthFee to cover SC execution costs
-		tx.RawData.BandwidthFee, err = tools.SafeAddI64(tx.RawData.BandwidthFee, value)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Compute KDAFee if any
-	if len(base.KDAFee) > 0 && base.KDAFee != string(kdautils.KLVIdentifier) {
-		tx.RawData.KDAFee = &transaction.Transaction_KDAFee{
-			KDA: []byte(base.KDAFee),
-		}
-
-		totalFees := tx.RawData.BandwidthFee + tx.RawData.KAppFee
-
-		// Check if KDA has a fee pool set
-		kdaAmount, err := n.kappController.GetKDAFeesPoolKApp().Compute(totalFees, tx.RawData.KDAFee)
-		if err != nil {
-			return err
-		}
-
-		if kdaAmount <= 0 {
-			return common.ErrAssetPoolAmountError
-		}
-
-		tx.RawData.KDAFee.Amount = kdaAmount
-	}
+	tx.RawData.KDAFee = cost.KDAFees
 
 	return nil
 }
@@ -262,7 +277,7 @@ func (n *Node) CreateTransaction(
 		return nil, nil, err
 	}
 
-	if err := n.computeTransactionFees(tx, base); err != nil {
+	if err := n.computeAndSetTransactionFees(tx, base); err != nil {
 		return tx, nil, err
 	}
 
@@ -283,6 +298,44 @@ func (n *Node) CreateTransaction(
 
 	return tx, txHash, nil
 
+}
+
+// EstimateTransactionFees will return a transaction with estimated fees
+func (n *Node) EstimateTransactionFees(tx *transaction.Transaction) (*transaction.FeesResponse, error) {
+	if tx.IsInterfaceNil() {
+		return nil, common.ErrNilTransaction
+	}
+
+	txRawData := tx.GetRawData()
+	if txRawData == nil {
+		return nil, common.ErrNilRawTransaction
+	}
+
+	sender := n.addressPubkeyConverter.Encode(tx.GetSender())
+
+	base := &transaction.TXBaseInfo{
+		Sender:    sender,
+		Nonce:     tx.GetNonce(),
+		DataField: tx.GetData(),
+		PermID:    txRawData.GetPermissionID(),
+		KDAFee:    string(txRawData.GetKDAFee().GetKDA()),
+	}
+
+	var contracts []json.RawMessage
+	for _, c := range tx.GetContracts() {
+		contracts = append(contracts, []byte(c.String()))
+	}
+
+	if err := n.validateTransactionInputs(base, contracts); err != nil {
+		return nil, err
+	}
+
+	fees, err := n.computeTransactionFees(tx, base)
+	if err != nil {
+		return nil, err
+	}
+
+	return fees, nil
 }
 
 // DecodeTransaction sends the provided transaction to the network

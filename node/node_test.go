@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -17,6 +18,7 @@ import (
 	"github.com/klever-io/klever-go/core/fork"
 	"github.com/klever-io/klever-go/core/kapp"
 	kappcontroller "github.com/klever-io/klever-go/core/kapp/kappController"
+	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	cryptoMock "github.com/klever-io/klever-go/crypto/mock"
@@ -32,6 +34,7 @@ import (
 )
 
 var sigOk = []byte{191, 150, 24, 156, 89, 18, 71, 123, 244, 251, 51, 26, 55, 130, 91, 227, 104, 159, 51, 243, 201, 219, 75, 212, 173, 18, 167, 48, 22, 49, 94, 136, 109, 173, 4, 140, 86, 193, 35, 146, 217, 154, 232, 45, 10, 117, 14, 144, 24, 177, 224, 125, 161, 190, 78, 156, 145, 162, 252, 143, 180, 218, 92, 9}
+var chainID = []byte("chainID")
 var errSingleSignKeyGenMock = errors.New("errSingleSignKeyGenMock")
 
 func getMarshalizer() marshal.Marshalizer {
@@ -177,7 +180,71 @@ func createNodeWithAccountsAdapter(t *testing.T, accAdapter *mock.AccountsStub) 
 		node.WithTxFeeHandler(feeHandler),
 		node.WithSingleSigner(&cryptoMock.SignerMock{}),
 		node.WithTxSingleSigner(&disabledSig.DisabledSingleSig{}),
-		node.WithChainID([]byte("chainID")),
+		node.WithChainID(chainID),
+		node.WithProposalController(proposalController),
+		node.WithKAppController(kappController),
+		node.WithForkController(forkController),
+	)
+	require.Nil(t, err)
+
+	return n, nil
+}
+
+func createNodeWithFeeHandler(t *testing.T, feeHandler *mock.FeeHandlerStub) (*node.Node, error) {
+	uint64Converter := mock.NewNonceHashConverterMock()
+	storerMock := mock.NewStorerMock("", 0)
+
+	dataPool := &mock.PoolsHolderStub{
+		TransactionsCalled: func() retriever.ShardedDataCacherNotifier {
+			return &mock.ShardedDataStub{}
+		},
+	}
+	keyGen := &cryptoMock.KeyGenMock{
+		PublicKeyFromByteArrayMock: func(b []byte) (crypto.PublicKey, error) {
+			return nil, nil
+		},
+	}
+
+	epochNotifier := &mock.EpochNotifierStub{}
+	forkController, _ := fork.NewForkController(config.EnableEpochs{
+		ClaimKFI:              0,
+		ProcessorFlowITOPrice: 0,
+		FixStakingBuckets:     0,
+		KdaFpr:                0,
+	}, epochNotifier)
+
+	proposalController, _ := kapps.NewProposalController(forkController)
+
+	accAdapter := getAccAdapter(1e9)
+	kappController := getKAppController(t, accAdapter)
+
+	n, err := node.NewNode(
+		node.WithDataPool(dataPool),
+		node.WithInternalMarshalizer(getMarshalizer()),
+		node.WithTxSignMarshalizer(getMarshalizer()),
+		node.WithDataStore(&mock.ChainStorerMock{
+			GetCalled: func(unitType retriever.UnitType, key []byte) ([]byte, error) {
+				return storerMock.Get(key)
+			},
+			GetStorerCalled: func(unitType retriever.UnitType) storage.Storer {
+				return storerMock
+			},
+		}),
+		node.WithUint64ByteSliceConverter(uint64Converter),
+		node.WithAddressPubkeyConverter(createMockPubkeyConverter()),
+		node.WithValidatorPubkeyConverter(createMockPubkeyConverter()),
+		node.WithAccountsAdapter(accAdapter),
+		node.WithWhiteListHandler(&mock.WhiteListHandlerStub{}),
+		node.WithWhiteListHandlerVerified(&mock.WhiteListHandlerStub{}),
+		node.WithUint64ByteSliceConverter(uint64Converter),
+		node.WithHasher(getHasher()),
+		node.WithTxSignHasher(getHasher()),
+		node.WithKeyGen(createKeyGenMock()),
+		node.WithKeyGenForAccounts(keyGen),
+		node.WithTxFeeHandler(feeHandler),
+		node.WithSingleSigner(&cryptoMock.SignerMock{}),
+		node.WithTxSingleSigner(&disabledSig.DisabledSingleSig{}),
+		node.WithChainID(chainID),
 		node.WithProposalController(proposalController),
 		node.WithKAppController(kappController),
 		node.WithForkController(forkController),
@@ -321,4 +388,215 @@ func TestSendBulkTransactions_ShouldWork(t *testing.T) {
 
 	_, err = n.SendBulkTransactions([]*transaction.Transaction{tx})
 	require.NoError(t, err)
+}
+
+func TestEstimateTransactionsFees(t *testing.T) {
+	kAppFee := int64(1e6)
+	bandwidthFee := int64(1e6)
+	gasMultiplier := uint64(10)
+
+	validAddress, err := hex.DecodeString(createDummyHexAddress(64))
+	require.NoError(t, err)
+
+	feeHandler := &mock.FeeHandlerStub{
+		ComputeTransactionCostCalled: func(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error) {
+			return &transaction.CostResponse{
+				KAppFee:       kAppFee,
+				BandwidthFee:  bandwidthFee,
+				GasMultiplier: gasMultiplier,
+			}, nil
+		},
+	}
+
+	n, err := createNodeWithFeeHandler(t, feeHandler)
+	require.Nil(t, err)
+
+	t.Run("should fail with nil transaction", func(t *testing.T) {
+		t.Parallel()
+
+		var tx *transaction.Transaction
+
+		cost, err := n.EstimateTransactionFees(tx)
+		assert.Nil(t, cost)
+		assert.Equal(t, common.ErrNilTransaction, err)
+	})
+
+	t.Run("should fail with empty raw transaction", func(t *testing.T) {
+		t.Parallel()
+
+		tx := &transaction.Transaction{}
+
+		cost, err := n.EstimateTransactionFees(tx)
+		assert.Nil(t, cost)
+		assert.Equal(t, common.ErrNilRawTransaction, err)
+	})
+
+	t.Run("should fail missing contract", func(t *testing.T) {
+		t.Parallel()
+
+		tx := &transaction.Transaction{
+			RawData: &transaction.Transaction_Raw{
+				Sender: validAddress,
+			},
+		}
+
+		cost, err := n.EstimateTransactionFees(tx)
+		assert.Nil(t, cost)
+		assert.NotNil(t, err)
+	})
+
+	t.Run("should work transaction with transfer contract", func(t *testing.T) {
+		t.Parallel()
+
+		tx := transaction.NewBaseTransaction(validAddress, 0, nil, 0, 0)
+		err = tx.SetChainID(chainID)
+		require.Nil(t, err)
+
+		txArgs := transaction.TXArgs{
+			Type:   uint32(transaction.TXContract_TransferContractType),
+			Sender: validAddress,
+			Contract: json.RawMessage(`{
+				"receiver": "ff5f4bf41899fcabd6751809c037f7f18838eacad8c59d27f221dc9be9301854",
+				"amount": 1000,
+				"KDA": "KLV"
+			}`),
+			NodeHelper: n,
+		}
+
+		err = tx.AddTransaction(txArgs)
+		require.Nil(t, err)
+
+		cost, err := n.EstimateTransactionFees(tx)
+		require.NotNil(t, cost)
+		require.Nil(t, err)
+
+		assert.Equal(t, kAppFee, cost.KAppFee)
+		assert.Equal(t, bandwidthFee, cost.BandwidthFee)
+	})
+
+	t.Run("should fail transaction with smart contract estimated gas too big", func(t *testing.T) {
+		t.Parallel()
+
+		gasMultiplier := uint64(1)
+
+		feeHandler := &mock.FeeHandlerStub{
+			ComputeTransactionCostCalled: func(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error) {
+				return &transaction.CostResponse{
+					KAppFee:       kAppFee,
+					BandwidthFee:  bandwidthFee,
+					GasMultiplier: gasMultiplier,
+					GasEstimated:  math.MaxInt64 + 1,
+				}, nil
+			},
+		}
+
+		n, err := createNodeWithFeeHandler(t, feeHandler)
+		require.Nil(t, err)
+
+		tx := transaction.NewBaseTransaction(validAddress, 0, nil, 0, 0)
+		err = tx.SetChainID(chainID)
+		require.Nil(t, err)
+
+		txArgs := transaction.TXArgs{
+			Type:   uint32(transaction.TXContract_SmartContractType),
+			Sender: validAddress,
+			Contract: json.RawMessage(`{
+				"SCType": 1,
+				"callValue": {
+					"KLV": 1000
+				}
+			}`),
+			NodeHelper: n,
+		}
+
+		err = tx.AddTransaction(txArgs)
+		require.Nil(t, err)
+
+		cost, err := n.EstimateTransactionFees(tx)
+		require.Nil(t, cost)
+		require.Equal(t, common.ErrEstimateGasTooBig, err)
+	})
+
+	t.Run("should fail with nil vm output", func(t *testing.T) {
+		t.Parallel()
+
+		feeHandler := &mock.FeeHandlerStub{
+			ComputeTransactionCostCalled: func(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error) {
+				return nil, process.ErrNilVMOutput
+			},
+		}
+
+		n, err := createNodeWithFeeHandler(t, feeHandler)
+		require.Nil(t, err)
+
+		tx := transaction.NewBaseTransaction(validAddress, 0, nil, 0, 0)
+		err = tx.SetChainID(chainID)
+		require.Nil(t, err)
+
+		txArgs := transaction.TXArgs{
+			Type:   uint32(transaction.TXContract_SmartContractType),
+			Sender: validAddress,
+			Contract: json.RawMessage(`{
+				"SCType": 1,
+				"callValue": {
+					"KLV": 1000
+				}
+			}`),
+			NodeHelper: n,
+		}
+
+		err = tx.AddTransaction(txArgs)
+		require.Nil(t, err)
+
+		cost, err := n.EstimateTransactionFees(tx)
+		require.Nil(t, cost)
+		require.Equal(t, process.ErrNilVMOutput, err)
+	})
+
+	t.Run("should work transaction with smart contract transaction", func(t *testing.T) {
+		t.Parallel()
+
+		gasEstimated := uint64(1e3)
+		expectedTotalBandwidthFee := bandwidthFee + int64(gasEstimated/gasMultiplier)
+
+		feeHandler := &mock.FeeHandlerStub{
+			ComputeTransactionCostCalled: func(tx process.TransactionWithFeeHandler) (*transaction.CostResponse, error) {
+				return &transaction.CostResponse{
+					KAppFee:       kAppFee,
+					BandwidthFee:  bandwidthFee,
+					GasMultiplier: gasMultiplier,
+					GasEstimated:  gasEstimated,
+				}, nil
+			},
+		}
+
+		n, err := createNodeWithFeeHandler(t, feeHandler)
+		require.Nil(t, err)
+
+		tx := transaction.NewBaseTransaction(validAddress, 0, nil, 0, 0)
+		err = tx.SetChainID(chainID)
+		require.Nil(t, err)
+
+		txArgs := transaction.TXArgs{
+			Type:   uint32(transaction.TXContract_SmartContractType),
+			Sender: validAddress,
+			Contract: json.RawMessage(`{
+				"SCType": 1,
+				"callValue": {
+					"KLV": 1000
+				}
+			}`),
+			NodeHelper: n,
+		}
+
+		err = tx.AddTransaction(txArgs)
+		require.Nil(t, err)
+
+		cost, err := n.EstimateTransactionFees(tx)
+		require.NotNil(t, cost)
+		require.Nil(t, err)
+
+		assert.Equal(t, kAppFee, cost.KAppFee)
+		assert.Equal(t, expectedTotalBandwidthFee, cost.BandwidthFee)
+	})
 }
