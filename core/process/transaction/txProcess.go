@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"errors"
 	"fmt"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -450,20 +451,44 @@ func (txProc *txProcessor) transferContract(ctx kapp.KappContext, tx *transactio
 
 	// check if address isPayable
 	if txProc.forkController.EnableSmartContracts() {
-		isPayable, err := txProc.scProcessor.IsPayable(tx.GetSender(), tc.ToAddress)
-		if err != nil {
-			tx.ResultCode = transaction.Transaction_AccountError
+		if err := txProc.validatePayable(tc, tx); err != nil {
 			return err
-		}
-		if !isPayable {
-			tx.ResultCode = transaction.Transaction_AccountError
-			return process.ErrAccountNotPayable
 		}
 	}
 
 	tx.ResultCode, err = txProc.kApps.GetAccountsKApp().Transfer(cType, tx.GetSender(), tc)
 
 	return err
+}
+
+func (txProc *txProcessor) validatePayable(tc *transaction.TransferContract, tx *transaction.Transaction) error {
+	if !core.IsSmartContractAddress(tc.ToAddress) {
+		return nil
+	}
+
+	dstAccount, err := txProc.accountsCacher.GetExistingUser(tc.ToAddress)
+	if err != nil && !errors.Is(err, common.ErrAccNotFound) {
+		tx.ResultCode = transaction.Transaction_AccountError
+		return err
+	}
+
+	if dstAccount == nil || len(dstAccount.GetCodeHash()) == 0 {
+		tx.ResultCode = transaction.Transaction_AccountError
+		return process.ErrInvalidRcvAddr
+	}
+
+	isPayable, err := txProc.scProcessor.IsPayable(tx.GetSender(), tc.ToAddress)
+	if err != nil {
+		tx.ResultCode = transaction.Transaction_AccountError
+		return err
+	}
+
+	if !isPayable {
+		tx.ResultCode = transaction.Transaction_AccountError
+		return process.ErrAccountNotPayable
+	}
+
+	return nil
 }
 
 func (txProc *txProcessor) createAssetContract(ctx kapp.KappContext, tx *transaction.Transaction) error {

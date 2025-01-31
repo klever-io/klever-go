@@ -814,6 +814,163 @@ func TestTxProcessor_ProcessTransferOkValsShouldWork2(t *testing.T) {
 	assert.Equal(t, int64(100000061), toAcc.GetBalance(kdautils.KLVIdentifier, true))
 }
 
+func TestTxProcessor_ProcessTransferOkValsScAddress(t *testing.T) {
+	t.Parallel()
+
+	args := createBaseKAppsProcessingArgs()
+
+	kdaKapp := loadKAppAccount(args.AccountsCacher, kapps.KDAKAppAddress)
+	stakingKapp := loadKAppAccount(args.AccountsCacher, kapps.StakingKAppAddress)
+	initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
+	_ = args.AccountsCacher.SaveAll()
+
+	addr, _ := addressConverter.Decode("klv1qqqqqqqqqqqqqpgqpg2ff85tljne96d2jwedj4mkrhsu3up5c0nq0x8g69")
+	toAcc := loadUserAccount(args.AccountsCacher, addr)
+	toAcc.SetCodeHash([]byte("asdasda"))
+	toAcc.SetCode([]byte("asdasda"))
+	_ = args.AccountsCacher.SaveAll()
+
+	SetupKappController(t, &args)
+
+	execTx, err := pTX.NewTxProcessor(args)
+	require.Nil(t, err)
+
+	contract := transaction.TransferContract{
+		ToAddress: addr,
+		Amount:    61,
+	}
+
+	tx, _ := createTransactionMock(&contract, transaction.TXContract_TransferContractType, testOwnerAddress, 0)
+
+	_, hash, err := execTx.PreProcessTransaction(tx)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(createBlockHeader(), hash, tx)
+	assert.Nil(t, err)
+
+	ownerAcc := loadUserAccount(args.AccountsCacher, testOwnerAddress)
+	toAcc2 := loadUserAccount(args.AccountsCacher, addr)
+
+	assert.Equal(t, int64(99999939), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+	assert.Equal(t, int64(61), toAcc2.GetBalance(kdautils.KLVIdentifier, true))
+}
+
+func TestTxProcessor_ProcessTransferOkValsScAddressNoPayable(t *testing.T) {
+	t.Parallel()
+
+	args := createBaseKAppsProcessingArgs()
+
+	kdaKapp := loadKAppAccount(args.AccountsCacher, kapps.KDAKAppAddress)
+	stakingKapp := loadKAppAccount(args.AccountsCacher, kapps.StakingKAppAddress)
+	initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
+	_ = args.AccountsCacher.SaveAll()
+
+	addr, _ := addressConverter.Decode("klv1qqqqqqqqqqqqqpgqpg2ff85tljne96d2jwedj4mkrhsu3up5c0nq0x8g69")
+	toAcc := loadUserAccount(args.AccountsCacher, addr)
+	toAcc.SetCodeHash([]byte("asdasda"))
+	toAcc.SetCodeMetadata([]byte("000000000"))
+	toAcc.SetCode([]byte("000000000"))
+	_ = args.AccountsCacher.SaveAll()
+
+	args.ScProcessor = &commonMock.SCProcessorMock{
+		IsPayableCalled: func(sndAddress []byte, recvAddress []byte) (bool, error) {
+			return false, nil
+		},
+	}
+
+	SetupKappController(t, &args)
+
+	execTx, err := pTX.NewTxProcessor(args)
+	require.Nil(t, err)
+
+	contract := transaction.TransferContract{
+		ToAddress: addr,
+		Amount:    61,
+	}
+
+	tx, _ := createTransactionMock(&contract, transaction.TXContract_TransferContractType, testOwnerAddress, 0)
+
+	_, hash, err := execTx.PreProcessTransaction(tx)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(createBlockHeader(), hash, tx)
+	assert.Error(t, err)
+}
+
+func TestTxProcessor_ProcessTransferOkValsErrValidatePayable(t *testing.T) {
+	t.Parallel()
+
+	args := createBaseKAppsProcessingArgs()
+
+	kdaKapp := loadKAppAccount(args.AccountsCacher, kapps.KDAKAppAddress)
+	stakingKapp := loadKAppAccount(args.AccountsCacher, kapps.StakingKAppAddress)
+	initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
+	_ = args.AccountsCacher.SaveAll()
+
+	addr, _ := addressConverter.Decode("klv1qqqqqqqqqqqqqpgqpg2ff85tljne96d2jwedj4mkrhsu3up5c0nq0x8g69")
+	toAcc := loadUserAccount(args.AccountsCacher, addr)
+	toAcc.SetCodeHash([]byte("asdasda"))
+	toAcc.SetCodeMetadata([]byte("000000000"))
+	toAcc.SetCode([]byte("000000000"))
+	_ = args.AccountsCacher.SaveAll()
+
+	args.ScProcessor = &commonMock.SCProcessorMock{
+		IsPayableCalled: func(sndAddress []byte, recvAddress []byte) (bool, error) {
+			return false, errors.New("error")
+		},
+	}
+
+	SetupKappController(t, &args)
+
+	execTx, err := pTX.NewTxProcessor(args)
+	require.Nil(t, err)
+
+	contract := transaction.TransferContract{
+		ToAddress: addr,
+		Amount:    61,
+	}
+
+	tx, _ := createTransactionMock(&contract, transaction.TXContract_TransferContractType, testOwnerAddress, 0)
+
+	_, hash, err := execTx.PreProcessTransaction(tx)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(createBlockHeader(), hash, tx)
+	assert.Error(t, err)
+}
+
+func TestTxProcessor_ProcessTransferFailScAddressNoCode(t *testing.T) {
+	t.Parallel()
+
+	args := createBaseKAppsProcessingArgs()
+
+	kdaKapp := loadKAppAccount(args.AccountsCacher, kapps.KDAKAppAddress)
+	stakingKapp := loadKAppAccount(args.AccountsCacher, kapps.StakingKAppAddress)
+	initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
+	_ = args.AccountsCacher.SaveAll()
+
+	addr, _ := addressConverter.Decode("klv1qqqqqqqqqqqqqpgqpg2ff85tljne96d2jwedj4mkrhsu3up5c0nq0x8g69")
+	_ = args.AccountsCacher.SaveAll()
+
+	SetupKappController(t, &args)
+
+	execTx, err := pTX.NewTxProcessor(args)
+	require.Nil(t, err)
+
+	contract := transaction.TransferContract{
+		ToAddress: addr,
+		Amount:    61,
+	}
+
+	tx, _ := createTransactionMock(&contract, transaction.TXContract_TransferContractType, testOwnerAddress, 0)
+
+	_, hash, err := execTx.PreProcessTransaction(tx)
+	assert.Nil(t, err)
+
+	err = execTx.ProcessTransaction(createBlockHeader(), hash, tx)
+	assert.NotNil(t, err)
+}
+
 func TestTxProcessor_ProcessCreateAssetInvalidTypeShouldErr(t *testing.T) {
 	t.Parallel()
 

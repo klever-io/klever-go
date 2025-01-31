@@ -215,6 +215,10 @@ func (inTx *InterceptedTransaction) integrity() error {
 		return process.ErrInvalidSndAddr
 	}
 
+	if core.IsSmartContractAddress(inTx.tx.RawData.Sender) {
+		return process.ErrInvalidSndAddr
+	}
+
 	if len(inTx.tx.RawData.Contract) == 0 || len(inTx.tx.RawData.Contract) > core.MaxLengthOfContracts {
 		return process.ErrInvalidTransactionNoContract
 	}

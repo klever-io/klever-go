@@ -559,7 +559,7 @@ func (bh *BlockChainHookImpl) IsPayable(sndAddress []byte, recvAddress []byte) (
 		return false, nil
 	}
 
-	if !bh.IsSmartContract(recvAddress) {
+	if !core.IsSmartContractAddress(recvAddress) {
 		return true, nil
 	}
 

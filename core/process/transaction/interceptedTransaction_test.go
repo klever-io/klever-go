@@ -565,20 +565,56 @@ func TestInterceptedTransaction_CheckContractShouldErr(t *testing.T) {
 func TestInterceptedTransaction_CheckValidityInvalidSenderAddressShouldErr(t *testing.T) {
 	t.Parallel()
 
-	minTxVersion := uint32(1)
-	chainID := []byte("chain")
-	tx := dataTransaction.NewBaseTransaction(nil, 0, [][]byte{[]byte("data")}, 1, 100)
-	tx.Signature = append(tx.Signature, sigOk)
-	_ = tx.SetChainID(chainID)
+	cases := []struct {
+		name          string
+		address       []byte
+		expectedError error
+	}{
+		{
+			name:          "invalid sender address by len",
+			address:       append(senderAddress, 0),
+			expectedError: process.ErrInvalidSndAddr,
+		},
+		{
+			name:          "invalid sender zero address",
+			address:       core.ZeroAddress,
+			expectedError: process.ErrInvalidSndAddr,
+		},
+		{
+			name:          "invalid sender block hole address",
+			address:       core.BlackHoleAddress,
+			expectedError: process.ErrInvalidSndAddr,
+		},
+		{
+			name:          "invalid sender sc address",
+			address:       []byte{0, 0, 0, 0, 0, 0, 0, 0, 5, 0, 10, 20, 148, 158, 139, 252, 167, 146, 233, 170, 147, 178, 217, 87, 118, 29, 225, 200, 240, 52, 195, 230},
+			expectedError: process.ErrInvalidSndAddr,
+		},
+		{
+			name:          "valid sender address",
+			address:       senderAddress,
+			expectedError: nil,
+		},
+	}
 
-	err := AddTransfer(tx, createMockPubkeyConverter(), append(senderAddress, 0), recvAddress, token, 10)
-	assert.Nil(t, err)
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			minTxVersion := uint32(1)
+			chainID := []byte("chain")
+			tx := dataTransaction.NewBaseTransaction(tt.address, 0, [][]byte{[]byte("data")}, 1, 100)
+			tx.Signature = append(tx.Signature, sigOk)
+			_ = tx.SetChainID(chainID)
 
-	txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion)
-	assert.Nil(t, err)
+			err := AddTransfer(tx, createMockPubkeyConverter(), nil, recvAddress, token, 10)
+			assert.Nil(t, err)
 
-	err = txi.CheckValidity()
-	assert.Equal(t, process.ErrInvalidSndAddr, err)
+			txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, minTxVersion)
+			assert.Nil(t, err)
+
+			err = txi.CheckValidity()
+			assert.Equal(t, tt.expectedError, err)
+		})
+	}
 }
 
 func TestInterceptedTransaction_CheckValidityInvalidSenderShouldErr(t *testing.T) {
