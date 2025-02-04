@@ -8,6 +8,7 @@ import (
 
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/config"
+	"github.com/klever-io/klever-go/data/api"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/integrationTest"
 	"github.com/klever-io/klever-go/integrationTest/processorNode"
@@ -16,6 +17,9 @@ import (
 
 const ConfigPath = "../../../integrationTest/config/config.yaml"
 const EnableEpochsPath = "../../../integrationTest/config/enableEpochs.yaml"
+
+var ErrStatusNotSuccess = errors.New("tx status is not success")
+var ErrNotInBlock = errors.New("tx is not in block")
 
 var log = logger.GetOrCreate("transactions/common")
 
@@ -152,9 +156,14 @@ func GetAndCheckTransaction(
 	}
 
 	if tx.Result != transaction.Transaction_SUCCESS {
-		err := errors.New("tx is not success")
 		log.Error("transaction not success", "status", tx.Result, "code", tx.ResultCode)
-		return nil, err
+		return nil, ErrStatusNotSuccess
+	}
+
+	// // check if TX is in the block
+	if tx.Status != api.TRANSACTION_STATUS_ON_CHAIN {
+		log.Error("transaction not in block", "status", tx.Status)
+		return nil, ErrNotInBlock
 	}
 
 	return tx.Transaction, nil

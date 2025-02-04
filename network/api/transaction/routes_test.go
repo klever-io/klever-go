@@ -128,7 +128,7 @@ func TestGetTransaction_WithCorrectHashShouldReturnTransaction(t *testing.T) {
 	facade := mock.Facade{
 		GetTransactionHandler: func(hash string, withEvents bool) (i *api.Transaction, e error) {
 			return &api.Transaction{
-				Status: "onChain",
+				Status: api.TRANSACTION_STATUS_ON_CHAIN,
 				Hash:   hash,
 			}, nil
 		},
@@ -155,7 +155,7 @@ func TestGetTransaction_WithUnknownHashShouldReturnNil(t *testing.T) {
 				return nil, errors.New("local error")
 			}
 			return &api.Transaction{
-				Status: "onChain",
+				Status: api.TRANSACTION_STATUS_ON_CHAIN,
 				Hash:   hash,
 			}, nil
 		},

@@ -185,7 +185,7 @@ func getTXByID(hash string) error {
 	}
 
 	// respond with error if await is set and tx still pending
-	if await && tx.Status == "pending" {
+	if await && tx.Status == api.TRANSACTION_STATUS_PENDING {
 		return fmt.Errorf("transaction is still pending")
 	}
 
@@ -227,7 +227,7 @@ func formatAndDumpTX(tx *api.Transaction, hash string, block *api.Block) error {
 	}
 
 	if txDecoded.BlockNum <= 0 {
-		txDecoded.Status = "pending"
+		txDecoded.Status = api.TRANSACTION_STATUS_PENDING
 		txDecoded.ResultCode = ""
 	}
 

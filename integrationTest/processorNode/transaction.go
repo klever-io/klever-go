@@ -214,9 +214,9 @@ func (n *ProcessorNode) prepareNormalTx(tx *transaction.Transaction) (*api.Trans
 		signature = append(signature, hex.EncodeToString(s))
 	}
 
-	status := "pending"
+	status := api.TRANSACTION_STATUS_PENDING
 	if tx.Block > 0 {
-		status = "onChain"
+		status = api.TRANSACTION_STATUS_ON_CHAIN
 	}
 
 	return &api.Transaction{

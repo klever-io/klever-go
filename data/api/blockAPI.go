@@ -5,6 +5,13 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 )
 
+const (
+	// TRANSACTION_STATUS_ON_CHAIN represents the status of a transaction that is on-chain
+	TRANSACTION_STATUS_ON_CHAIN = "onChain"
+	// TRANSACTION_STATUS_PENDING represents the status of a transaction that is pending
+	TRANSACTION_STATUS_PENDING = "pending"
+)
+
 // Block block with tarnsactions for API response
 type Block struct {
 	*block.Block
