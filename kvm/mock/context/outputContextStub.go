@@ -130,6 +130,9 @@ func (o *OutputContextStub) GetOutputAccount(address []byte) (*vmcommon.OutputAc
 	return nil, false
 }
 
+func (o *OutputContextStub) SetOutputAccount(address []byte, data *vmcommon.OutputAccount) {
+}
+
 // DeleteOutputAccount mocked method
 func (o *OutputContextStub) DeleteOutputAccount(address []byte) {
 	if o.DeleteOutputAccountCalled != nil {

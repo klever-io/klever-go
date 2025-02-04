@@ -522,3 +522,31 @@ func TestOutputContext_PopDiscardIfStackIsEmptyShouldNotPanic(t *testing.T) {
 
 	require.Equal(t, 0, len(outputContext.stateStack))
 }
+
+func TestOutputContext_SetOutputAccount(t *testing.T) {
+	t.Parallel()
+
+	host := &contextmock.VMHostMock{}
+	outputContext, _ := NewOutputContext(host)
+
+	address := []byte("address")
+	account := NewVMOutputAccount(address)
+
+	// invalid address, should not save
+	outputContext.SetOutputAccount([]byte(""), account)
+	accounts := outputContext.GetOutputAccounts()
+	_, ok := accounts[""]
+	require.False(t, ok)
+
+	// invalid data, should not save
+	outputContext.SetOutputAccount(address, nil)
+	accounts = outputContext.GetOutputAccounts()
+	_, ok = accounts[string(address)]
+	require.False(t, ok)
+
+	// valid data
+	outputContext.SetOutputAccount(address, account)
+	outputAccount, _ := outputContext.GetOutputAccount(address)
+
+	require.Equal(t, account, outputAccount)
+}

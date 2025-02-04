@@ -151,6 +151,16 @@ func (context *outputContext) CensorVMOutput() {
 	logOutput.Trace("state content censored")
 }
 
+func (context *outputContext) SetOutputAccount(address []byte, data *vmcommon.OutputAccount) {
+	if len(address) == 0 {
+		return
+	}
+	if data == nil {
+		return
+	}
+	context.outputState.OutputAccounts[string(address)] = data
+}
+
 // GetOutputAccount returns the output account present at the given address,
 // and a bool that is true if the account is new. If no output account is present at that address,
 // a new account will be created and added to the output accounts.

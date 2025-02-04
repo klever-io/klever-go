@@ -231,6 +231,7 @@ type OutputContext interface {
 	AddToActiveState(rightOutput *vmcommon.VMOutput)
 
 	GetOutputAccount(address []byte) (*vmcommon.OutputAccount, bool)
+	SetOutputAccount(address []byte, data *vmcommon.OutputAccount)
 	GetOutputAccounts() map[string]*vmcommon.OutputAccount
 	DeleteOutputAccount(address []byte)
 	WriteLog(address []byte, topics [][]byte, data [][]byte)

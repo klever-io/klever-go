@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/klever-io/klever-go/common"
+
 	"github.com/klever-io/klever-go/data/transaction"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
@@ -89,6 +91,75 @@ func TestBlockchainContext_GetBalance(t *testing.T) {
 	balanceBytes = blockchainContext.GetBalance([]byte("any account"))
 	value = big.NewInt(0).SetBytes(balanceBytes)
 	require.Equal(t, big.NewInt(42), value)
+}
+
+func TestBlockchainContext_GetOwnerAddress(t *testing.T) {
+	t.Parallel()
+
+	ownerAddress := []byte("owner-address")
+	var testCases = []struct {
+		name                string
+		isUserAccountLoaded bool
+		isOnOutputAccount   bool
+
+		expectedUserAccountError error
+		expectedOwnerAddress     []byte
+	}{
+		{
+			name:                 "UserAccount is already loaded",
+			isUserAccountLoaded:  true,
+			expectedOwnerAddress: ownerAddress,
+		},
+		{
+			name:                 "UserAccount is not loaded, but is on output account",
+			isUserAccountLoaded:  false,
+			isOnOutputAccount:    true,
+			expectedOwnerAddress: ownerAddress,
+		},
+		{
+			name:                     "UserAccount is not loaded, and is not on output account",
+			isUserAccountLoaded:      false,
+			isOnOutputAccount:        false,
+			expectedUserAccountError: common.ErrAccNotFound,
+			expectedOwnerAddress:     []byte(nil),
+		},
+	}
+
+	contractAddress := []byte("sc-address")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// setup
+			mockWorld := worldmock.NewMockWorld()
+			mockOutput := &contextmock.OutputContextMock{}
+			host := &contextmock.VMHostMock{}
+			host.OutputContext = mockOutput
+			host.RuntimeContext = &contextmock.RuntimeContextMock{
+				SCAddress: contractAddress,
+			}
+
+			if tc.isUserAccountLoaded {
+				acc, _ := mockWorld.AccountsCacher.LoadUser(contractAddress)
+				acc.SetOwnerAddress(ownerAddress)
+			}
+
+			if tc.isOnOutputAccount {
+				mockOutput.OutputAccounts = map[string]*vmcommon.OutputAccount{
+					string(contractAddress): {
+						CodeDeployerAddress: ownerAddress,
+					},
+				}
+			}
+
+			blockchainContext, _ := NewBlockchainContext(host, mockWorld)
+
+			// do
+			address, err := blockchainContext.GetOwnerAddress()
+
+			// assert
+			assert.Equal(t, tc.expectedUserAccountError, err)
+			assert.Equal(t, tc.expectedOwnerAddress, address)
+		})
+	}
 }
 
 func TestBlockchainContext_GetBalance_Updates(t *testing.T) {

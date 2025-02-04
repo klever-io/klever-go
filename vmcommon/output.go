@@ -67,6 +67,39 @@ type OutputAccount struct {
 	BytesDeletedFromStorage uint64
 }
 
+func (oa *OutputAccount) Clone() *OutputAccount {
+	clonedTransfers := make([]OutputTransfer, len(oa.OutputTransfers))
+
+	for i, transfer := range oa.OutputTransfers {
+		clonedTransfers[i] = *transfer.Clone()
+	}
+
+	clonedStorageUpdates := make(map[string]*StorageUpdate, len(oa.StorageUpdates))
+	for key, value := range oa.StorageUpdates {
+		if value != nil {
+			clonedStorageUpdates[key] = &StorageUpdate{
+				Offset:  append([]byte{}, value.Offset...),
+				Data:    append([]byte{}, value.Data...),
+				Written: value.Written,
+			}
+		}
+	}
+
+	cloned := &OutputAccount{
+		Address:                 append([]byte{}, oa.Address...),
+		StorageUpdates:          clonedStorageUpdates,
+		Code:                    append([]byte{}, oa.Code...),
+		CodeMetadata:            append([]byte{}, oa.CodeMetadata...),
+		CodeDeployerAddress:     append([]byte{}, oa.CodeDeployerAddress...),
+		OutputTransfers:         clonedTransfers,
+		GasUsed:                 oa.GasUsed,
+		BytesAddedToStorage:     oa.BytesAddedToStorage,
+		BytesDeletedFromStorage: oa.BytesDeletedFromStorage,
+	}
+
+	return cloned
+}
+
 // OutputTransfer contains the fields with result
 type OutputTransfer struct {
 	// Index of the transfer

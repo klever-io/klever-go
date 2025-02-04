@@ -221,8 +221,16 @@ func (context *blockchainContext) CurrentRandomSeed() []byte {
 // GetOwnerAddress returns the owner address of the contract being executed.
 func (context *blockchainContext) GetOwnerAddress() ([]byte, error) {
 	scAddress := context.host.Runtime().GetContextAddress()
+
 	scAccount, err := context.blockChainHook.GetUserAccount(scAddress)
 	if err != nil || vmhost.IfNil(scAccount) {
+		// if user account not present on cacher yet, fallback to output account
+		output, ok := context.host.Output().GetOutputAccounts()[string(scAddress)]
+		if ok && len(output.CodeDeployerAddress) > 0 {
+			return output.CodeDeployerAddress, nil
+		}
+
+		// if output account not present, then return the original error
 		return nil, err
 	}
 

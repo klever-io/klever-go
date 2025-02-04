@@ -198,20 +198,20 @@ func TestVMOutput_ComputeTotalGasConsumed(t *testing.T) {
 		vmOutput := &VMOutput{
 			Logs: []*LogEntry{
 				{
-					Identifier: []byte(core.TotalConsumedGasString),
-					Topics:     [][]byte{big.NewInt(100).Bytes()},
-					IsSystemLog:   true,
+					Identifier:  []byte(core.TotalConsumedGasString),
+					Topics:      [][]byte{big.NewInt(100).Bytes()},
+					IsSystemLog: true,
 				},
 				{
 					// Contract trying to spoof system log
-					Identifier: []byte(core.TotalConsumedGasString),
-					Topics:     [][]byte{big.NewInt(500).Bytes()},
-					IsSystemLog:   false,
+					Identifier:  []byte(core.TotalConsumedGasString),
+					Topics:      [][]byte{big.NewInt(500).Bytes()},
+					IsSystemLog: false,
 				},
 				{
-					Identifier: []byte(core.TotalConsumedGasString),
-					Topics:     [][]byte{big.NewInt(50).Bytes()},
-					IsSystemLog:   true,
+					Identifier:  []byte(core.TotalConsumedGasString),
+					Topics:      [][]byte{big.NewInt(50).Bytes()},
+					IsSystemLog: true,
 				},
 			},
 		}
@@ -224,19 +224,19 @@ func TestVMOutput_ComputeTotalGasConsumed(t *testing.T) {
 		vmOutput := &VMOutput{
 			Logs: []*LogEntry{
 				{
-					Identifier: []byte(core.TotalConsumedGasString),
-					Topics:     [][]byte{big.NewInt(100).Bytes()},
-					IsSystemLog:   true,
+					Identifier:  []byte(core.TotalConsumedGasString),
+					Topics:      [][]byte{big.NewInt(100).Bytes()},
+					IsSystemLog: true,
 				},
 				{
-					Identifier: []byte("other"),
-					Topics:     [][]byte{big.NewInt(1000).Bytes()},
-					IsSystemLog:   true,
+					Identifier:  []byte("other"),
+					Topics:      [][]byte{big.NewInt(1000).Bytes()},
+					IsSystemLog: true,
 				},
 				{
-					Identifier: []byte(core.TotalConsumedGasString),
-					Topics:     [][]byte{big.NewInt(50).Bytes()},
-					IsSystemLog:   true,
+					Identifier:  []byte(core.TotalConsumedGasString),
+					Topics:      [][]byte{big.NewInt(50).Bytes()},
+					IsSystemLog: true,
 				},
 			},
 		}
@@ -244,6 +244,44 @@ func TestVMOutput_ComputeTotalGasConsumed(t *testing.T) {
 		totalGas := vmOutput.ComputeTotalGasConsumed()
 		assert.Equal(t, big.NewInt(150), totalGas)
 	})
+}
+
+func TestVMOutput_Clone(t *testing.T) {
+	expected := &OutputAccount{
+		Address:                 []byte("addr1"),
+		Code:                    []byte("code1"),
+		CodeMetadata:            []byte("metadata1"),
+		CodeDeployerAddress:     []byte("deployer1"),
+		GasUsed:                 10,
+		BytesAddedToStorage:     15,
+		BytesDeletedFromStorage: 3,
+		StorageUpdates: map[string]*StorageUpdate{
+			"key1": {Data: []byte("data1"), Offset: []byte("offset1")},
+		},
+		OutputTransfers: []OutputTransfer{
+			{
+				Index:         1,
+				SenderAddress: []byte("sender1"),
+				RcvAddr:       []byte("receiver1"),
+				KDATransfers: KDATransfer{
+					KDAValue:     big.NewInt(100),
+					KDATokenName: []byte("token1"),
+				},
+			},
+		},
+	}
+
+	cloned := expected.Clone()
+
+	assert.Equal(t, expected.Address, cloned.Address)
+	assert.Equal(t, expected.Code, cloned.Code)
+	assert.Equal(t, expected.CodeMetadata, cloned.CodeMetadata)
+	assert.Equal(t, expected.CodeDeployerAddress, cloned.CodeDeployerAddress)
+	assert.Equal(t, expected.GasUsed, cloned.GasUsed)
+	assert.Equal(t, expected.BytesAddedToStorage, cloned.BytesAddedToStorage)
+	assert.Equal(t, expected.BytesDeletedFromStorage, cloned.BytesDeletedFromStorage)
+	assert.Equal(t, expected.StorageUpdates, cloned.StorageUpdates)
+	assert.Equal(t, expected.OutputTransfers, cloned.OutputTransfers)
 }
 
 func TestVMOutput_IsInterfaceNil(t *testing.T) {

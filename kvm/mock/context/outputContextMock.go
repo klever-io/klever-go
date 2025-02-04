@@ -91,6 +91,9 @@ func (o *OutputContextMock) GetOutputAccount(_ []byte) (*vmcommon.OutputAccount,
 	return o.OutputAccountMock, o.OutputAccountIsNew
 }
 
+func (o *OutputContextMock) SetOutputAccount(_ []byte, _ *vmcommon.OutputAccount) {
+}
+
 // DeleteOutputAccount mocked method
 func (o *OutputContextMock) DeleteOutputAccount(_ []byte) {
 }
