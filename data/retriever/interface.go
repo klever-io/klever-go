@@ -37,7 +37,7 @@ func (ut UnitType) String() string {
 const (
 	// TransactionUnit is the transactions storage unit identifier
 	TransactionUnit UnitType = 0
-	// BlockUnit is the transaction block body storage unit identifier
+	// BlockUnit is the transaction block header storage unit identifier
 	BlockUnit UnitType = 1
 	// HdrNonceHashDataUnit is the header nonce-hash pair data unit identifier
 	HdrNonceHashDataUnit UnitType = 2

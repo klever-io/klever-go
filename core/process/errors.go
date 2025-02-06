@@ -141,8 +141,8 @@ var ErrNilSlotManager = errors.New("nil slot manager")
 // ErrNilBlockHeader signals that an operation has been attempted to or with a nil block header
 var ErrNilBlockHeader = errors.New("nil block header")
 
-// ErrNilTxBlockBody signals that an operation has been attempted to or with a nil tx block body
-var ErrNilTxBlockBody = errors.New("nil tx block body")
+// ErrNilTxBlockHeader signals that an operation has been attempted to or with a nil tx block header
+var ErrNilTxBlockHeader = errors.New("nil tx block header")
 
 // ErrTimeIsOut signals that time is out
 var ErrTimeIsOut = errors.New("time is out")

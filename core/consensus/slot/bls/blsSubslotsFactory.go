@@ -199,7 +199,7 @@ func (fct *factory) generateBlockSubslot() error {
 		return err
 	}
 
-	fct.worker.AddReceivedMessageCall(MtBlockBodyAndHeader, subslotBlock.receivedBlockBodyAndHeader)
+	fct.worker.AddReceivedMessageCall(MtBlockHeader, subslotBlock.receivedBlockHeader)
 	fct.consensusCore.Chronology().AddSubslot(subslotBlock)
 
 	return nil

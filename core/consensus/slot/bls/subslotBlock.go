@@ -126,7 +126,7 @@ func (sr *subslotBlock) sendBlock(header data.HeaderHandler) bool {
 		return false
 	}
 
-	return sr.sendBlockBodyAndHeader(header, headerHash, marshalizedData)
+	return sr.sendBlockHeader(header, headerHash, marshalizedData)
 
 }
 
@@ -148,8 +148,8 @@ func (sr *subslotBlock) createBlock(header data.HeaderHandler) (data.HeaderHandl
 	return finalHeader, nil
 }
 
-// sendBlockBodyAndHeader method sends the proposed block body and header in the subslot Block
-func (sr *subslotBlock) sendBlockBodyAndHeader(
+// sendBlockHeader method sends the proposed block header in the subslot Block
+func (sr *subslotBlock) sendBlockHeader(
 	headerHandler data.HeaderHandler,
 	headerHash []byte,
 	marshalizedHeader []byte,
@@ -160,7 +160,7 @@ func (sr *subslotBlock) sendBlockBodyAndHeader(
 		marshalizedHeader,
 		[]byte(sr.SelfPubKey()),
 		nil,
-		int(MtBlockBodyAndHeader),
+		int(MtBlockHeader),
 		sr.SlotManager().Index(),
 		headerHandler.GetNonce(),
 		sr.ChainID(),
@@ -172,11 +172,11 @@ func (sr *subslotBlock) sendBlockBodyAndHeader(
 
 	err := sr.BroadcastMessenger().BroadcastConsensusMessage(cnsMsg)
 	if err != nil {
-		log.Debug("sendBlockBodyAndHeader.BroadcastConsensusMessage", "error", err.Error())
+		log.Debug("sendBlockHeader.BroadcastConsensusMessage", "error", err.Error())
 		return false
 	}
 
-	log.Debug("step 1: block body and header have been sent",
+	log.Debug("step 1: block header have been sent",
 		"nonce", headerHandler.GetNonce(),
 		"hash", headerHash)
 
@@ -219,14 +219,14 @@ func (sr *subslotBlock) createHeader() (data.HeaderHandler, error) {
 	return hdr, nil
 }
 
-// receivedBlockBodyAndHeader method is called when a block body and a block header is received
-func (sr *subslotBlock) receivedBlockBodyAndHeader(cnsDta *consensus.Message) bool {
+// receivedBlockHeader method is called when a block header is received
+func (sr *subslotBlock) receivedBlockHeader(cnsDta *consensus.Message) bool {
 	sw := tools.NewStopWatch()
-	sw.Start("receivedBlockBodyAndHeader")
+	sw.Start("receivedBlockHeader")
 
 	defer func() {
-		sw.Stop("receivedBlockBodyAndHeader")
-		log.Debug("time measurements of receivedBlockBodyAndHeader", sw.GetMeasurements()...)
+		sw.Stop("receivedHeader")
+		log.Debug("time measurements of receivedBlockHeader", sw.GetMeasurements()...)
 	}()
 
 	node := string(cnsDta.PubKey)
@@ -260,7 +260,7 @@ func (sr *subslotBlock) receivedBlockBodyAndHeader(cnsDta *consensus.Message) bo
 		return false
 	}
 
-	log.Debug("step 1: block body and header have been received",
+	log.Debug("step 1: block header have been received",
 		"nonce", sr.Header.GetNonce(),
 		"hash", cnsDta.BlockHeaderHash)
 

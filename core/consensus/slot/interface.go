@@ -113,8 +113,8 @@ type ConsensusService interface {
 	GetMessageRange() []consensus.MessageType
 	// CanProceed returns if the current messageType can proceed further if previous subslots finished
 	CanProceed(*ConsensusState, consensus.MessageType) bool
-	// IsMessageWithBlockBodyAndHeader returns if the current messageType is about block body and header
-	IsMessageWithBlockBodyAndHeader(consensus.MessageType) bool
+	// IsMessageWithBlockHeader returns if the current messageType is about block header
+	IsMessageWithBlockHeader(consensus.MessageType) bool
 	// IsMessageWithSignature returns if the current messageType is about signature
 	IsMessageWithSignature(consensus.MessageType) bool
 	// IsMessageWithFinalInfo returns if the current messageType is about header final info

@@ -452,19 +452,19 @@ func (mp *metaProcessor) CreateBlock(
 			return nil, err
 		}
 
-		err = mp.createEpochStartBody(blk)
+		err = mp.CreateEpochStartHeader(blk)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		err := mp.createBlockBody(blk, haveTime)
+		err := mp.createBlockHeader(blk, haveTime)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	// update block info
-	err = mp.applyBodyToHeader(blk)
+	err = mp.applyHeader(blk)
 	if err != nil {
 		return nil, err
 	}
@@ -512,10 +512,10 @@ func (mp *metaProcessor) updateEpochStartHeader(blk *block.Block) error {
 	return nil
 }
 
-func (mp *metaProcessor) createEpochStartBody(blk *block.Block) error {
+func (mp *metaProcessor) CreateEpochStartHeader(blk *block.Block) error {
 	mp.createBlockStarted()
 
-	log.Debug("started creating epoch start block body",
+	log.Debug("started creating epoch start block header",
 		"epoch", blk.GetEpoch(),
 		"slot", blk.GetSlot(),
 		"nonce", blk.GetNonce(),
@@ -788,12 +788,12 @@ func (mp *metaProcessor) receivedHeader(headerHandler data.HeaderHandler, header
 	)
 }
 
-// applyBodyToHeader creates a miniblock header list given a block body
-func (mp *metaProcessor) applyBodyToHeader(blk *block.Block) error {
+// applyHeader creates a block header list
+func (mp *metaProcessor) applyHeader(blk *block.Block) error {
 	sw := tools.NewStopWatch()
-	sw.Start("applyBodyToHeader")
+	sw.Start("applyHeader")
 	defer func() {
-		sw.Stop("applyBodyToHeader")
+		sw.Stop("applyHeader")
 
 		log.Debug("measurements", sw.GetMeasurements()...)
 	}()
@@ -928,27 +928,27 @@ func (mp *metaProcessor) RestoreBlockIntoPools(headerHandler data.HeaderHandler)
 		log.Debug("HdrNonceHashDataUnit.Remove", "error", errNotCritical.Error())
 	}
 
-	mp.restoreBlockBody(blk)
+	mp.restoreBlockHeader(blk)
 
 	return nil
 }
 
-func (bp *baseProcessor) restoreBlockBody(blk *block.Block) {
+func (bp *baseProcessor) restoreBlockHeader(blk *block.Block) {
 	restoredTxNr, errNotCritical := bp.txCoordinator.RestoreBlockDataFromStorage(blk)
 	if errNotCritical != nil {
-		log.Debug("restoreBlockBody RestoreBlockDataFromStorage", "error", errNotCritical.Error())
+		log.Debug("restoreBlockHeader RestoreBlockDataFromStorage", "error", errNotCritical.Error())
 	}
 
 	go bp.txCounter.subtractRestoredTxs(restoredTxNr)
 }
 
-// createBlockBody -
-func (mp *metaProcessor) createBlockBody(blk *block.Block, haveTime func() bool) error {
+// createBlockHeader -
+func (mp *metaProcessor) createBlockHeader(blk *block.Block, haveTime func() bool) error {
 	mp.createBlockStarted()
 
 	mp.blockSizeThrottler.ComputeCurrentMaxSize()
 
-	log.Debug("started creating block body",
+	log.Debug("started creating block header",
 		"epoch", blk.GetEpoch(),
 		"slot", blk.GetSlot(),
 		"nonce", blk.GetNonce(),

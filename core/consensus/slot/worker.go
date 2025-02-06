@@ -321,15 +321,7 @@ func (wrk *Worker) getCleanedList(cnsDataList []*consensus.Message) []*consensus
 
 // ProcessReceivedMessage method redirects the received message to the channel which should handle it
 func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
-	if check.IfNil(message) {
-		return ErrNilMessage
-	}
-	if message.Data() == nil {
-		return ErrNilDataToProcess
-	}
-
-	// early check to prevent process messages from untrusted peers
-	if err := wrk.antifloodHandler.CanProcessMessage(message, fromConnectedPeer); err != nil {
+	if err := wrk.validateMessage(message, fromConnectedPeer); err != nil {
 		return err
 	}
 
@@ -396,8 +388,8 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 	}
 
 	wrk.updateNetworkShardingVals(message, cnsMsg)
-	isMessageWithBlockBodyAndHeader := wrk.consensusService.IsMessageWithBlockBodyAndHeader(msgType)
-	if isMessageWithBlockBodyAndHeader {
+	IsMessageWithBlockHeader := wrk.consensusService.IsMessageWithBlockHeader(msgType)
+	if IsMessageWithBlockHeader {
 		err = wrk.doJobOnMessageWithHeader(cnsMsg)
 		if err != nil {
 			return err
@@ -827,4 +819,21 @@ func (wrk *Worker) ResetConsensusMessages() {
 // IsInterfaceNil returns true if there is no value under the interface
 func (wrk *Worker) IsInterfaceNil() bool {
 	return wrk == nil
+}
+
+// ValidateMessage validates the received message
+func (wrk *Worker) validateMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
+	if check.IfNil(message) {
+		return ErrNilMessage
+	}
+	if message.Data() == nil {
+		return ErrNilDataToProcess
+	}
+
+	// early check to prevent process messages from untrusted peers
+	if err := wrk.antifloodHandler.CanProcessMessage(message, fromConnectedPeer); err != nil {
+		return err
+	}
+
+	return nil
 }

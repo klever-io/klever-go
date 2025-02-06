@@ -177,14 +177,14 @@ func (sr *subslotBlock) CreateHeader() (data.HeaderHandler, error) {
 	return sr.createHeader()
 }
 
-// CreateBody method creates the proposed block body in the subslot Block
+// CreateBody method creates the proposed block header in the subslot Block
 func (sr *subslotBlock) CreateBlock(hdr data.HeaderHandler) (data.HeaderHandler, error) {
 	return sr.createBlock(hdr)
 }
 
 // SendBlockHeader method sends the proposed block header in the subslot Block
 func (sr *subslotBlock) SendBlockHeader(header data.HeaderHandler, headerHash []byte, marshalizedHeader []byte) bool {
-	return sr.sendBlockBodyAndHeader(header, headerHash, marshalizedHeader)
+	return sr.sendBlockHeader(header, headerHash, marshalizedHeader)
 }
 
 // ComputeSubslotProcessingMetric computes processing metric related to the subslot Block
@@ -194,7 +194,7 @@ func (sr *subslotBlock) ComputeSubslotProcessingMetric(startTime time.Time, metr
 
 // ReceivedBlockHeader method is called when a block header is received through the block header channel
 func (sr *subslotBlock) ReceivedBlockHeader(cnsDta *consensus.Message) bool {
-	return sr.receivedBlockBodyAndHeader(cnsDta)
+	return sr.receivedBlockHeader(cnsDta)
 }
 
 // subslotSignature

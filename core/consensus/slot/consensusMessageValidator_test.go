@@ -148,28 +148,6 @@ func TestCheckMessageWithSignatureShareValidity_ShouldWork(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-func TestCheckMessageWithBlockHeaderValidity_InvalidMessage(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	cnsMsg := &consensus.Message{SignatureShare: []byte("0")}
-	err := cmv.CheckMessageWithBlockBodyAndHeaderValidity(cnsMsg)
-	assert.True(t, errors.Is(err, slot.ErrInvalidMessage))
-}
-
-func TestCheckMessageWithBlockHeaderValidity_InvalidHeaderSize(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	cnsMsg := &consensus.Message{}
-	err := cmv.CheckMessageWithBlockBodyAndHeaderValidity(cnsMsg)
-	assert.True(t, errors.Is(err, slot.ErrInvalidHeaderSize))
-}
-
 func TestCheckMessageWithBlockHeaderValidity_HeaderTooBig(t *testing.T) {
 	t.Parallel()
 
@@ -179,7 +157,7 @@ func TestCheckMessageWithBlockHeaderValidity_HeaderTooBig(t *testing.T) {
 	headerBytes := make([]byte, tools.MegabyteSize+1)
 	_, _ = rand.Read(headerBytes)
 	cnsMsg := &consensus.Message{Header: headerBytes}
-	err := cmv.CheckMessageWithBlockBodyAndHeaderValidity(cnsMsg)
+	err := cmv.CheckMessageWithBlockHeaderValidity(cnsMsg)
 	assert.True(t, errors.Is(err, slot.ErrInvalidHeaderSize))
 }
 
@@ -191,7 +169,44 @@ func TestCheckMessageWithBlockHeaderValidity_HeaderSizeZero(t *testing.T) {
 
 	headerBytes := make([]byte, 0)
 	cnsMsg := &consensus.Message{Header: headerBytes}
-	err := cmv.CheckMessageWithBlockBodyAndHeaderValidity(cnsMsg)
+	err := cmv.CheckMessageWithBlockHeaderValidity(cnsMsg)
+	assert.True(t, errors.Is(err, slot.ErrInvalidHeaderSize))
+}
+
+func TestCheckMessageWithBlockHeaderValidity_InvalidMessage(t *testing.T) {
+	t.Parallel()
+
+	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
+	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
+
+	cnsMsg := &consensus.Message{SignatureShare: []byte("0")}
+	err := cmv.CheckMessageWithBlockHeaderValidity(cnsMsg)
+	assert.True(t, errors.Is(err, slot.ErrInvalidMessage))
+}
+
+func TestCheckMessageWithBlockHeaderValidity_InvalidBodySize(t *testing.T) {
+	t.Parallel()
+
+	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
+	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
+
+	bodyBytes := make([]byte, tools.MegabyteSize+1)
+	_, _ = rand.Read(bodyBytes)
+	cnsMsg := &consensus.Message{Header: bodyBytes}
+	err := cmv.CheckMessageWithBlockHeaderValidity(cnsMsg)
+	assert.True(t, errors.Is(err, slot.ErrInvalidHeaderSize))
+}
+
+func TestCheckMessageWithBlockHeaderValidity_InvalidHeaderSize(t *testing.T) {
+	t.Parallel()
+
+	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
+	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
+
+	headerBytes := make([]byte, tools.MegabyteSize+1)
+	_, _ = rand.Read(headerBytes)
+	cnsMsg := &consensus.Message{Header: headerBytes}
+	err := cmv.CheckMessageWithBlockHeaderValidity(cnsMsg)
 	assert.True(t, errors.Is(err, slot.ErrInvalidHeaderSize))
 }
 
@@ -201,120 +216,11 @@ func TestCheckMessageWithBlockHeaderValidity_ShouldWork(t *testing.T) {
 	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
 	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
 
-	cnsMsg := &consensus.Message{Header: []byte("header")}
-	err := cmv.CheckMessageWithBlockBodyAndHeaderValidity(cnsMsg)
-	assert.Nil(t, err)
-}
-
-func TestCheckMessageWithBlockBodyValidity_InvalidMessage(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	signatureShare := make([]byte, 100)
-	_, _ = rand.Read(signatureShare)
-	cnsMsg := &consensus.Message{SignatureShare: signatureShare}
-	err := cmv.CheckMessageWithBlockBodyAndHeaderValidity(cnsMsg)
-	assert.True(t, errors.Is(err, slot.ErrInvalidMessage))
-}
-
-func TestCheckMessageWithBlockBodyValidity_InvalidBodySize(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	bodyBytes := make([]byte, tools.MegabyteSize+1)
-	_, _ = rand.Read(bodyBytes)
-	cnsMsg := &consensus.Message{Header: bodyBytes}
-	err := cmv.CheckMessageWithBlockBodyAndHeaderValidity(cnsMsg)
-	assert.True(t, errors.Is(err, slot.ErrInvalidHeaderSize))
-}
-
-func TestCheckMessageWithBlockBodyValidity_ShouldWork(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	bodyBytes := make([]byte, 100)
-	_, _ = rand.Read(bodyBytes)
-	cnsMsg := &consensus.Message{Header: bodyBytes}
-	err := cmv.CheckMessageWithBlockBodyAndHeaderValidity(cnsMsg)
-	assert.Nil(t, err)
-}
-
-func TestCheckMessageWithBlockBodyAndHeaderValidity_InvalidMessage(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	cnsMsg := &consensus.Message{SignatureShare: []byte("0")}
-	err := cmv.CheckMessageWithBlockBodyAndHeaderValidity(cnsMsg)
-	assert.True(t, errors.Is(err, slot.ErrInvalidMessage))
-}
-
-func TestCheckMessageWithBlockBodyAndHeaderValidity_InvalidBodySize(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	bodyBytes := make([]byte, tools.MegabyteSize+1)
-	_, _ = rand.Read(bodyBytes)
-	cnsMsg := &consensus.Message{Header: bodyBytes}
-	err := cmv.CheckMessageWithBlockBodyAndHeaderValidity(cnsMsg)
-	assert.True(t, errors.Is(err, slot.ErrInvalidHeaderSize))
-}
-
-func TestCheckMessageWithBlockBodyAndHeaderValidity_InvalidHeaderSize(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	headerBytes := make([]byte, tools.MegabyteSize+1)
-	_, _ = rand.Read(headerBytes)
-	cnsMsg := &consensus.Message{Header: headerBytes}
-	err := cmv.CheckMessageWithBlockBodyAndHeaderValidity(cnsMsg)
-	assert.True(t, errors.Is(err, slot.ErrInvalidHeaderSize))
-}
-
-func TestCheckMessageWithBlockBodyAndHeaderValidity_ShouldWork(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
 	headerBytes := make([]byte, 100)
 	_, _ = rand.Read(headerBytes)
 	cnsMsg := &consensus.Message{Header: headerBytes}
-	err := cmv.CheckMessageWithBlockBodyAndHeaderValidity(cnsMsg)
+	err := cmv.CheckMessageWithBlockHeaderValidity(cnsMsg)
 	assert.Nil(t, err)
-}
-
-func TestCheckConsensusMessageValidityForMessageType_MessageWithBlockBodyAndHeaderInvalid(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	cnsMsg := &consensus.Message{MsgType: int64(bls.MtBlockBodyAndHeader), SignatureShare: []byte("1")}
-	err := cmv.CheckConsensusMessageValidityForMessageType(cnsMsg)
-	assert.True(t, errors.Is(err, slot.ErrInvalidMessage))
-}
-
-func TestCheckConsensusMessageValidityForMessageType_MessageWithBlockBodyInvalid(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	cnsMsg := &consensus.Message{MsgType: int64(bls.MtBlockBodyAndHeader), SignatureShare: []byte("1")}
-	err := cmv.CheckConsensusMessageValidityForMessageType(cnsMsg)
-	assert.True(t, errors.Is(err, slot.ErrInvalidMessage))
 }
 
 func TestCheckConsensusMessageValidityForMessageType_MessageWithBlockHeaderInvalid(t *testing.T) {
@@ -323,7 +229,7 @@ func TestCheckConsensusMessageValidityForMessageType_MessageWithBlockHeaderInval
 	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
 	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
 
-	cnsMsg := &consensus.Message{MsgType: int64(bls.MtBlockBodyAndHeader), SignatureShare: []byte("1")}
+	cnsMsg := &consensus.Message{MsgType: int64(bls.MtBlockHeader), SignatureShare: []byte("1")}
 	err := cmv.CheckConsensusMessageValidityForMessageType(cnsMsg)
 	assert.True(t, errors.Is(err, slot.ErrInvalidMessage))
 }
@@ -361,37 +267,13 @@ func TestCheckConsensusMessageValidityForMessageType_MessageUnknownInvalid(t *te
 	assert.True(t, errors.Is(err, slot.ErrInvalidMessageType))
 }
 
-func TestIsBlockHeaderHashSizeValid_NotValid(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	cnsMsg := &consensus.Message{MsgType: int64(bls.MtBlockBody), BlockHeaderHash: []byte("hash")}
-	result := cmv.IsBlockHeaderHashSizeValid(cnsMsg)
-	assert.False(t, result)
-}
-
-func TestIsBlockHeaderHashSizeValid(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	headerHash := make([]byte, consensusMessageValidatorArgs.HasherSize)
-	_, _ = rand.Read(headerHash)
-	cnsMsg := &consensus.Message{MsgType: int64(bls.MtBlockHeader), BlockHeaderHash: headerHash}
-	result := cmv.IsBlockHeaderHashSizeValid(cnsMsg)
-	assert.True(t, result)
-}
-
 func TestCheckConsensusMessageValidity_InvalidMessage(t *testing.T) {
 	t.Parallel()
 
 	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
 	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
 
-	cnsMsg := &consensus.Message{ChainID: chainID, MsgType: int64(bls.MtBlockBodyAndHeader), SignatureShare: []byte("1")}
+	cnsMsg := &consensus.Message{ChainID: chainID, MsgType: int64(bls.MtBlockHeader), SignatureShare: []byte("1")}
 	err := cmv.CheckConsensusMessageValidity(cnsMsg, "")
 	assert.True(t, errors.Is(err, slot.ErrInvalidMessage))
 }
@@ -404,7 +286,7 @@ func TestCheckConsensusMessageValidity_InvalidHeaderHashSize(t *testing.T) {
 
 	headerBytes := make([]byte, 100)
 	_, _ = rand.Read(headerBytes)
-	cnsMsg := &consensus.Message{ChainID: chainID, MsgType: int64(bls.MtBlockBodyAndHeader), Header: headerBytes}
+	cnsMsg := &consensus.Message{ChainID: chainID, MsgType: int64(bls.MtBlockHeader), Header: headerBytes}
 	err := cmv.CheckConsensusMessageValidity(cnsMsg, "")
 	assert.True(t, errors.Is(err, slot.ErrInvalidHeaderHashSize))
 }
@@ -419,7 +301,7 @@ func TestCheckConsensusMessageValidity_InvalidPublicKeySize(t *testing.T) {
 	_, _ = rand.Read(headerBytes)
 	headerHash := make([]byte, consensusMessageValidatorArgs.HasherSize)
 	_, _ = rand.Read(headerHash)
-	cnsMsg := &consensus.Message{ChainID: chainID, MsgType: int64(bls.MtBlockBodyAndHeader), Header: headerBytes, BlockHeaderHash: headerHash}
+	cnsMsg := &consensus.Message{ChainID: chainID, MsgType: int64(bls.MtBlockHeader), Header: headerBytes, BlockHeaderHash: headerHash}
 	err := cmv.CheckConsensusMessageValidity(cnsMsg, "")
 	assert.True(t, errors.Is(err, slot.ErrInvalidPublicKeySize))
 }
@@ -438,7 +320,7 @@ func TestCheckConsensusMessageValidity_InvalidSignatureSize(t *testing.T) {
 	_, _ = rand.Read(pubKey)
 
 	cnsMsg := &consensus.Message{
-		ChainID: chainID, MsgType: int64(bls.MtBlockBodyAndHeader), Header: headerBytes, BlockHeaderHash: headerHash, PubKey: pubKey,
+		ChainID: chainID, MsgType: int64(bls.MtBlockHeader), Header: headerBytes, BlockHeaderHash: headerHash, PubKey: pubKey,
 	}
 	err := cmv.CheckConsensusMessageValidity(cnsMsg, "")
 	assert.True(t, errors.Is(err, slot.ErrInvalidSignatureSize))
@@ -460,7 +342,7 @@ func TestCheckConsensusMessageValidity_NodeIsNotEligible(t *testing.T) {
 	_, _ = rand.Read(sig)
 
 	cnsMsg := &consensus.Message{
-		ChainID: chainID, MsgType: int64(bls.MtBlockBodyAndHeader),
+		ChainID: chainID, MsgType: int64(bls.MtBlockHeader),
 		Header: headerBytes, BlockHeaderHash: headerHash, PubKey: pubKey, Signature: sig,
 	}
 	err := cmv.CheckConsensusMessageValidity(cnsMsg, "")
@@ -482,7 +364,7 @@ func TestCheckConsensusMessageValidity_ErrMessageForFutureSlot(t *testing.T) {
 	_, _ = rand.Read(sig)
 
 	cnsMsg := &consensus.Message{
-		ChainID: chainID, MsgType: int64(bls.MtBlockBodyAndHeader),
+		ChainID: chainID, MsgType: int64(bls.MtBlockHeader),
 		Header: headerBytes, BlockHeaderHash: headerHash, PubKey: pubKey, Signature: sig, SlotIndex: 10,
 	}
 	err := cmv.CheckConsensusMessageValidity(cnsMsg, "")
@@ -505,7 +387,7 @@ func TestCheckConsensusMessageValidity_ErrMessageForPastSlot(t *testing.T) {
 	_, _ = rand.Read(sig)
 
 	cnsMsg := &consensus.Message{
-		ChainID: chainID, MsgType: int64(bls.MtBlockBodyAndHeader),
+		ChainID: chainID, MsgType: int64(bls.MtBlockHeader),
 		Header: headerBytes, BlockHeaderHash: headerHash, PubKey: pubKey, Signature: sig, SlotIndex: 10,
 	}
 	err := cmv.CheckConsensusMessageValidity(cnsMsg, "")
@@ -527,10 +409,10 @@ func TestCheckConsensusMessageValidity_ErrMessageTypeLimitReached(t *testing.T) 
 	sig := make([]byte, SignatureSize)
 	_, _ = rand.Read(sig)
 
-	cmv.AddMessageTypeToPublicKey(pubKey, 10, bls.MtBlockBodyAndHeader)
+	cmv.AddMessageTypeToPublicKey(pubKey, 10, bls.MtBlockHeader)
 
 	cnsMsg := &consensus.Message{
-		ChainID: chainID, MsgType: int64(bls.MtBlockBodyAndHeader),
+		ChainID: chainID, MsgType: int64(bls.MtBlockHeader),
 		Header: headerBytes, BlockHeaderHash: headerHash, PubKey: pubKey, Signature: sig, SlotIndex: 10,
 	}
 	err := cmv.CheckConsensusMessageValidity(cnsMsg, "")
@@ -563,7 +445,7 @@ func TestCheckConsensusMessageValidity_InvalidSignature(t *testing.T) {
 	_, _ = rand.Read(sig)
 
 	cnsMsg := &consensus.Message{
-		ChainID: chainID, MsgType: int64(bls.MtBlockBodyAndHeader),
+		ChainID: chainID, MsgType: int64(bls.MtBlockHeader),
 		Header: headerBytes, BlockHeaderHash: headerHash, PubKey: pubKey, Signature: sig, SlotIndex: 10,
 	}
 	err := cmv.CheckConsensusMessageValidity(cnsMsg, "")
@@ -586,76 +468,9 @@ func TestCheckConsensusMessageValidity_Ok(t *testing.T) {
 	_, _ = rand.Read(sig)
 
 	cnsMsg := &consensus.Message{
-		ChainID: chainID, MsgType: int64(bls.MtBlockBodyAndHeader),
+		ChainID: chainID, MsgType: int64(bls.MtBlockHeader),
 		Header: headerBytes, BlockHeaderHash: headerHash, PubKey: pubKey, Signature: sig, SlotIndex: 10,
 	}
 	err := cmv.CheckConsensusMessageValidity(cnsMsg, "")
 	assert.Nil(t, err)
-}
-
-func TestIsMessageTypeLimitReached_ShouldWork(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	assert.False(t, cmv.IsMessageTypeLimitReached([]byte("pk1"), 1, bls.MtBlockBody))
-
-	cmv.AddMessageTypeToPublicKey([]byte("pk1"), 1, bls.MtBlockHeader)
-
-	assert.False(t, cmv.IsMessageTypeLimitReached([]byte("pk1"), 1, bls.MtBlockBody))
-	assert.True(t, cmv.IsMessageTypeLimitReached([]byte("pk1"), 1, bls.MtBlockHeader))
-	assert.False(t, cmv.IsMessageTypeLimitReached([]byte("pk1"), 2, bls.MtBlockHeader))
-}
-
-func TestAddMessageTypeToPublicKey_ShouldWork(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	assert.Equal(t, uint32(0), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk1"), 1, bls.MtBlockBody))
-
-	cmv.AddMessageTypeToPublicKey([]byte("pk1"), 1, bls.MtBlockHeader)
-
-	assert.Equal(t, uint32(0), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk1"), 1, bls.MtBlockBody))
-	assert.Equal(t, uint32(0), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk1"), 2, bls.MtBlockHeader))
-
-	cmv.AddMessageTypeToPublicKey([]byte("pk1"), 1, bls.MtBlockBody)
-	cmv.AddMessageTypeToPublicKey([]byte("pk1"), 1, bls.MtBlockHeader)
-
-	assert.Equal(t, uint32(1), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk1"), 1, bls.MtBlockBody))
-	assert.Equal(t, uint32(2), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk1"), 1, bls.MtBlockHeader))
-	assert.Equal(t, uint32(0), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk1"), 2, bls.MtBlockHeader))
-
-	cmv.AddMessageTypeToPublicKey([]byte("pk2"), 1, bls.MtBlockHeaderFinalInfo)
-
-	assert.Equal(t, uint32(0), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk1"), 1, bls.MtBlockHeaderFinalInfo))
-	assert.Equal(t, uint32(0), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk2"), 2, bls.MtBlockHeaderFinalInfo))
-	assert.Equal(t, uint32(1), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk2"), 1, bls.MtBlockHeaderFinalInfo))
-}
-
-func TestResetConsensusMessages_ShouldWork(t *testing.T) {
-	t.Parallel()
-
-	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
-	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
-
-	cmv.AddMessageTypeToPublicKey([]byte("pk1"), 1, bls.MtBlockBody)
-	cmv.AddMessageTypeToPublicKey([]byte("pk1"), 1, bls.MtBlockBody)
-	cmv.AddMessageTypeToPublicKey([]byte("pk1"), 2, bls.MtBlockBody)
-	cmv.AddMessageTypeToPublicKey([]byte("pk1"), 1, bls.MtBlockHeader)
-	cmv.AddMessageTypeToPublicKey([]byte("pk2"), 1, bls.MtBlockHeaderFinalInfo)
-
-	assert.Equal(t, uint32(2), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk1"), 1, bls.MtBlockBody))
-	assert.Equal(t, uint32(1), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk1"), 1, bls.MtBlockHeader))
-	assert.Equal(t, uint32(1), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk1"), 2, bls.MtBlockBody))
-	assert.Equal(t, uint32(1), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk2"), 1, bls.MtBlockHeaderFinalInfo))
-
-	cmv.ResetConsensusMessages()
-
-	assert.Equal(t, uint32(0), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk1"), 1, bls.MtBlockBody))
-	assert.Equal(t, uint32(0), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk1"), 1, bls.MtBlockHeader))
-	assert.Equal(t, uint32(0), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk1"), 2, bls.MtBlockBody))
-	assert.Equal(t, uint32(0), cmv.GetNumOfMessageTypeForPublicKey([]byte("pk2"), 1, bls.MtBlockHeaderFinalInfo))
 }

@@ -24,7 +24,7 @@ func createGenesisBlock() *block.Block {
 	}
 }
 
-func TestDisplayBlock_DisplayTxBlockBody(t *testing.T) {
+func TestDisplayBlock_DisplayTxBlockHeader(t *testing.T) {
 	t.Parallel()
 
 	lines := make([]*display.LineData, 0)
@@ -32,7 +32,7 @@ func TestDisplayBlock_DisplayTxBlockBody(t *testing.T) {
 	blck.TxHashes = [][]byte{[]byte("hash1"), []byte("hash2"), []byte("hash3")}
 
 	txCounter := NewTransactionCounter()
-	lines = txCounter.displayTxBlockBody(
+	lines = txCounter.displayTxBlockHeader(
 		lines,
 		blck,
 	)

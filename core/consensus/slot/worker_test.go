@@ -416,7 +416,7 @@ func TestWorker_InitReceivedMessagesShouldInitMap(t *testing.T) {
 	wrk.NilReceivedMessages()
 	wrk.InitReceivedMessages()
 
-	assert.NotNil(t, wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader])
+	assert.NotNil(t, wrk.ReceivedMessages()[bls.MtBlockHeader])
 }
 
 func TestWorker_AddReceivedMessageCallShouldWork(t *testing.T) {
@@ -425,12 +425,12 @@ func TestWorker_AddReceivedMessageCallShouldWork(t *testing.T) {
 	receivedMessageCall := func(*consensus.Message) bool {
 		return true
 	}
-	wrk.AddReceivedMessageCall(bls.MtBlockBodyAndHeader, receivedMessageCall)
+	wrk.AddReceivedMessageCall(bls.MtBlockHeader, receivedMessageCall)
 	receivedMessageCalls := wrk.ReceivedMessagesCalls()
 
 	assert.Equal(t, 1, len(receivedMessageCalls))
-	assert.NotNil(t, receivedMessageCalls[bls.MtBlockBodyAndHeader])
-	assert.True(t, receivedMessageCalls[bls.MtBlockBodyAndHeader](nil))
+	assert.NotNil(t, receivedMessageCalls[bls.MtBlockHeader])
+	assert.True(t, receivedMessageCalls[bls.MtBlockHeader](nil))
 }
 
 func TestWorker_RemoveAllReceivedMessageCallsShouldWork(t *testing.T) {
@@ -439,21 +439,21 @@ func TestWorker_RemoveAllReceivedMessageCallsShouldWork(t *testing.T) {
 	receivedMessageCall := func(*consensus.Message) bool {
 		return true
 	}
-	wrk.AddReceivedMessageCall(bls.MtBlockBodyAndHeader, receivedMessageCall)
+	wrk.AddReceivedMessageCall(bls.MtBlockHeader, receivedMessageCall)
 	receivedMessageCalls := wrk.ReceivedMessagesCalls()
 
 	assert.Equal(t, 1, len(receivedMessageCalls))
-	assert.NotNil(t, receivedMessageCalls[bls.MtBlockBodyAndHeader])
-	assert.True(t, receivedMessageCalls[bls.MtBlockBodyAndHeader](nil))
+	assert.NotNil(t, receivedMessageCalls[bls.MtBlockHeader])
+	assert.True(t, receivedMessageCalls[bls.MtBlockHeader](nil))
 
 	wrk.RemoveAllReceivedMessagesCalls()
 	receivedMessageCalls = wrk.ReceivedMessagesCalls()
 
 	assert.Equal(t, 0, len(receivedMessageCalls))
-	assert.Nil(t, receivedMessageCalls[bls.MtBlockBodyAndHeader])
+	assert.Nil(t, receivedMessageCalls[bls.MtBlockHeader])
 }
 
-func TestWorker_ProcessReceivedMessageTxBlockBodyShouldRetNil(t *testing.T) {
+func TestWorker_ProcessReceivedMessageTxBlockHeaderShouldRetNil(t *testing.T) {
 	t.Parallel()
 	wrk := *initWorker()
 	hdr := &block.Block{Header: &block.BlockHeader{ChainID: chainID}}
@@ -466,7 +466,7 @@ func TestWorker_ProcessReceivedMessageTxBlockBodyShouldRetNil(t *testing.T) {
 		hdrStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		signature,
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0, 0,
 		chainID,
 		nil,
@@ -491,7 +491,7 @@ func TestWorker_ProcessReceivedMessageNilMessageShouldErr(t *testing.T) {
 	err := wrk.ProcessReceivedMessage(nil, fromConnectedPeerId)
 	time.Sleep(time.Second)
 
-	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader]))
+	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
 	assert.Equal(t, slot.ErrNilMessage, err)
 }
 
@@ -501,7 +501,7 @@ func TestWorker_ProcessReceivedMessageNilMessageDataFieldShouldErr(t *testing.T)
 	err := wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{}, fromConnectedPeerId)
 	time.Sleep(time.Second)
 
-	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader]))
+	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
 	assert.Equal(t, slot.ErrNilDataToProcess, err)
 }
 
@@ -537,7 +537,7 @@ func TestWorker_ProcessReceivedMessageNodeNotInConsensusGroupShouldErr(t *testin
 		hdrStr,
 		publicKey,
 		signature,
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0, 0,
 		chainID,
 		nil,
@@ -549,7 +549,7 @@ func TestWorker_ProcessReceivedMessageNodeNotInConsensusGroupShouldErr(t *testin
 	err := wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff}, fromConnectedPeerId)
 	time.Sleep(time.Second)
 
-	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader]))
+	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
 	assert.True(t, errors.Is(err, slot.ErrNodeIsNotInConsensusGroup))
 }
 
@@ -590,7 +590,7 @@ func TestWorker_ProcessReceivedMessageComputeReceivedProposedBlockMetric(t *test
 		hdrStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		signature,
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0,
 		0,
 		chainID,
@@ -634,7 +634,7 @@ func TestWorker_ProcessReceivedMessageInconsistentChainIDInConsensusMessageShoul
 		blkStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		[]byte("sig"),
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		1,
 		1,
 		[]byte("inconsistent chain ID"),
@@ -688,7 +688,7 @@ func TestWorker_ProcessReceivedHeaderHashSizeInvalidShouldErr(t *testing.T) {
 		blkStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		[]byte("sig"),
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0, 0,
 		chainID,
 		nil,
@@ -700,7 +700,7 @@ func TestWorker_ProcessReceivedHeaderHashSizeInvalidShouldErr(t *testing.T) {
 	err := wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff}, fromConnectedPeerId)
 	time.Sleep(time.Second)
 
-	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader]))
+	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
 	assert.True(t, errors.Is(err, slot.ErrInvalidHeaderHashSize), err)
 }
 
@@ -717,7 +717,7 @@ func TestWorker_ProcessReceivedMessageForFutureSlotShouldErr(t *testing.T) {
 		hdrStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		signature,
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		2,
 		2,
 		chainID,
@@ -730,7 +730,7 @@ func TestWorker_ProcessReceivedMessageForFutureSlotShouldErr(t *testing.T) {
 	err := wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff}, fromConnectedPeerId)
 	time.Sleep(time.Second)
 
-	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader]))
+	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
 	assert.True(t, errors.Is(err, slot.ErrMessageForFutureSlot))
 }
 
@@ -747,7 +747,7 @@ func TestWorker_ProcessReceivedMessageForPastSlotShouldErr(t *testing.T) {
 		hdrStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		signature,
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		-1,
 		0,
 		chainID,
@@ -760,7 +760,7 @@ func TestWorker_ProcessReceivedMessageForPastSlotShouldErr(t *testing.T) {
 	err := wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff}, fromConnectedPeerId)
 	time.Sleep(time.Second)
 
-	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader]))
+	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
 	assert.True(t, errors.Is(err, slot.ErrMessageForPastSlot))
 }
 
@@ -777,7 +777,7 @@ func TestWorker_ProcessReceivedMessageTypeLimitReachedShouldErr(t *testing.T) {
 		blkStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		signature,
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0, 0,
 		chainID,
 		nil,
@@ -793,12 +793,12 @@ func TestWorker_ProcessReceivedMessageTypeLimitReachedShouldErr(t *testing.T) {
 
 	err := wrk.ProcessReceivedMessage(msg, fromConnectedPeerId)
 	time.Sleep(time.Second)
-	assert.Equal(t, 1, len(wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader]))
+	assert.Equal(t, 1, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
 	assert.Nil(t, err)
 
 	err = wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff}, fromConnectedPeerId)
 	time.Sleep(time.Second)
-	assert.Equal(t, 1, len(wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader]))
+	assert.Equal(t, 1, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
 	assert.True(t, errors.Is(err, slot.ErrMessageTypeLimitReached))
 }
 
@@ -815,7 +815,7 @@ func TestWorker_ProcessReceivedMessageInvalidSignatureShouldErr(t *testing.T) {
 		hdrStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		invalidSignature,
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0, 0,
 		chainID,
 		nil,
@@ -827,7 +827,7 @@ func TestWorker_ProcessReceivedMessageInvalidSignatureShouldErr(t *testing.T) {
 	err := wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff}, fromConnectedPeerId)
 	time.Sleep(time.Second)
 
-	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader]))
+	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
 	assert.True(t, errors.Is(err, slot.ErrInvalidSignatureSize))
 }
 
@@ -845,7 +845,7 @@ func TestWorker_ProcessReceivedMessageReceivedMessageIsFromSelfShouldRetNilAndNo
 		hdrStr,
 		[]byte(wrk.ConsensusState().SelfPubKey()),
 		signature,
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0, 0,
 		chainID,
 		nil,
@@ -861,7 +861,7 @@ func TestWorker_ProcessReceivedMessageReceivedMessageIsFromSelfShouldRetNilAndNo
 	err := wrk.ProcessReceivedMessage(msg, fromConnectedPeerId)
 	time.Sleep(time.Second)
 
-	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader]))
+	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
 	assert.Nil(t, err)
 }
 
@@ -880,7 +880,7 @@ func TestWorker_ProcessReceivedMessageWhenSlotIsCanceledShouldRetNilAndNotProces
 		hdrStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		signature,
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0, 0,
 		chainID,
 		nil,
@@ -896,7 +896,7 @@ func TestWorker_ProcessReceivedMessageWhenSlotIsCanceledShouldRetNilAndNotProces
 	err := wrk.ProcessReceivedMessage(msg, fromConnectedPeerId)
 	time.Sleep(time.Second)
 
-	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader]))
+	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
 	assert.Nil(t, err)
 }
 
@@ -928,7 +928,7 @@ func TestWorker_ProcessReceivedMessageWrongChainIDInProposedBlockShouldError(t *
 		nil,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		[]byte("sig"),
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0,
 		0,
 		wrongChainID,
@@ -973,7 +973,7 @@ func TestWorker_ProcessReceivedMessageWithABadOriginatorShouldErr(t *testing.T) 
 		hdrStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		signature,
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0, 0,
 		chainID,
 		nil,
@@ -989,7 +989,7 @@ func TestWorker_ProcessReceivedMessageWithABadOriginatorShouldErr(t *testing.T) 
 	err := wrk.ProcessReceivedMessage(msg, fromConnectedPeerId)
 	time.Sleep(time.Second)
 
-	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader]))
+	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
 	assert.True(t, errors.Is(err, slot.ErrOriginatorMismatch))
 }
 
@@ -1026,7 +1026,7 @@ func TestWorker_ProcessReceivedMessageOkValsShouldWork(t *testing.T) {
 		hdrStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		signature,
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0, 0,
 		chainID,
 		nil,
@@ -1042,7 +1042,7 @@ func TestWorker_ProcessReceivedMessageOkValsShouldWork(t *testing.T) {
 	err := wrk.ProcessReceivedMessage(msg, fromConnectedPeerId)
 	time.Sleep(time.Second)
 
-	assert.Equal(t, 1, len(wrk.ReceivedMessages()[bls.MtBlockBodyAndHeader]))
+	assert.Equal(t, 1, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
 	assert.Nil(t, err)
 }
 
@@ -1124,7 +1124,7 @@ func TestWorker_CheckSignatureShouldReturnNilErr(t *testing.T) {
 		blkStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		[]byte("sig"),
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0, 0,
 		chainID,
 		nil,
@@ -1149,7 +1149,7 @@ func TestWorker_ExecuteMessagesShouldNotExecuteWhenConsensusDataIsNil(t *testing
 		blkStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		[]byte("sig"),
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0, 0,
 		chainID,
 		nil,
@@ -1178,67 +1178,9 @@ func TestWorker_ExecuteMessagesShouldNotExecuteWhenMessageIsForOtherSlot(t *test
 		blkStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		[]byte("sig"),
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		-1,
 		0,
-		chainID,
-		nil,
-		nil,
-		nil,
-		currentPid,
-	)
-	msgType := consensus.MessageType(cnsMsg.MsgType)
-	cnsDataList := wrk.ReceivedMessages()[msgType]
-	cnsDataList = append(cnsDataList, cnsMsg)
-	wrk.SetReceivedMessages(msgType, cnsDataList)
-	wrk.ExecuteMessage(cnsDataList)
-
-	assert.NotNil(t, wrk.ReceivedMessages()[msgType][0])
-}
-
-func TestWorker_ExecuteBlockBodyMessagesShouldNotExecuteWhenStartSlotIsNotFinished(t *testing.T) {
-	t.Parallel()
-	wrk := *initWorker()
-	blk := &block.Block{Header: &block.BlockHeader{}}
-	blkStr, _ := mock.MarshalizerMock{}.Marshal(blk)
-	wrk.InitReceivedMessages()
-	cnsMsg := consensus.NewConsensusMessage(
-		nil,
-		nil,
-		blkStr,
-		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
-		[]byte("sig"),
-		int(bls.MtBlockBodyAndHeader),
-		0, 0,
-		chainID,
-		nil,
-		nil,
-		nil,
-		currentPid,
-	)
-	msgType := consensus.MessageType(cnsMsg.MsgType)
-	cnsDataList := wrk.ReceivedMessages()[msgType]
-	cnsDataList = append(cnsDataList, cnsMsg)
-	wrk.SetReceivedMessages(msgType, cnsDataList)
-	wrk.ExecuteMessage(cnsDataList)
-
-	assert.NotNil(t, wrk.ReceivedMessages()[msgType][0])
-}
-
-func TestWorker_ExecuteBlockHeaderMessagesShouldNotExecuteWhenStartSlotIsNotFinished(t *testing.T) {
-	t.Parallel()
-	wrk := *initWorker()
-	blk := &block.Block{Header: &block.BlockHeader{}}
-	blkStr, _ := mock.MarshalizerMock{}.Marshal(blk)
-	wrk.InitReceivedMessages()
-	cnsMsg := consensus.NewConsensusMessage(
-		nil,
-		nil,
-		blkStr,
-		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
-		[]byte("sig"),
-		int(bls.MtBlockBodyAndHeader),
-		0, 0,
 		chainID,
 		nil,
 		nil,
@@ -1297,7 +1239,7 @@ func TestWorker_ExecuteMessagesShouldExecute(t *testing.T) {
 		blkStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		[]byte("sig"),
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0, 0,
 		chainID,
 		nil,
@@ -1321,7 +1263,7 @@ func TestWorker_CheckChannelsShouldWork(t *testing.T) {
 	t.Parallel()
 	wrk := *initWorker()
 	wrk.StartWorking()
-	wrk.SetReceivedMessagesCalls(bls.MtBlockBodyAndHeader, func(cnsMsg *consensus.Message) bool {
+	wrk.SetReceivedMessagesCalls(bls.MtBlockHeader, func(cnsMsg *consensus.Message) bool {
 		_ = wrk.ConsensusState().SetJobDone(wrk.ConsensusState().ConsensusGroup()[0], bls.SrBlock, true)
 		return true
 	})
@@ -1337,7 +1279,7 @@ func TestWorker_CheckChannelsShouldWork(t *testing.T) {
 		hdrStr,
 		[]byte(cnsGroup[0]),
 		[]byte("sig"),
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		1,
 		0,
 		chainID,
@@ -1470,7 +1412,7 @@ func TestWorker_ExecuteStoredMessagesShouldWork(t *testing.T) {
 		blkStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		[]byte("sig"),
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0, 0,
 		chainID,
 		nil,
@@ -1535,7 +1477,7 @@ func TestWorker_ProcessReceivedMessageWrongHeaderShouldErr(t *testing.T) {
 		hdrStr,
 		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
 		signature,
-		int(bls.MtBlockBodyAndHeader),
+		int(bls.MtBlockHeader),
 		0, 0,
 		chainID,
 		nil,
@@ -1575,4 +1517,27 @@ func TestErrorWrapper(t *testing.T) {
 	err := getLeader()
 	assert.True(t, errors.Is(err, ErrEpochNodesConfigDoesNotExist))
 
+}
+
+func TestWorker_ProcessReceivedMessageShouldErrIfAntifloodHandlerRejects(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("cannot process message")
+	antifloodHandler := &cMock.P2PAntifloodHandlerStub{
+		CanProcessMessageCalled: func(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
+			return expectedErr
+		},
+	}
+
+	workerArgs := createDefaultWorkerArgs()
+	workerArgs.AntifloodHandler = antifloodHandler
+	wrk, _ := slot.NewWorker(workerArgs)
+
+	msg := &cMock.P2PMessageMock{
+		DataField: []byte("test data"),
+		PeerField: core.PeerID("test peer"),
+	}
+	err := wrk.ProcessReceivedMessage(msg, fromConnectedPeerId)
+
+	assert.Equal(t, expectedErr, err)
 }

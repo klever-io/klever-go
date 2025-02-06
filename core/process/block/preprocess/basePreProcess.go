@@ -40,7 +40,7 @@ func (bpp *basePreProcess) removeTxsFromPools(
 	txPool retriever.ShardedDataCacherNotifier,
 ) error {
 	if check.IfNil(block) {
-		return process.ErrNilTxBlockBody
+		return process.ErrNilTxBlockHeader
 	}
 	if check.IfNil(txPool) {
 		return process.ErrNilTransactionPool

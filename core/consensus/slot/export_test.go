@@ -178,8 +178,8 @@ func (cmv *consensusMessageValidator) CheckMessageWithSignatureValidity(cnsMsg *
 	return cmv.checkMessageWithSignatureValidity(cnsMsg)
 }
 
-func (cmv *consensusMessageValidator) CheckMessageWithBlockBodyAndHeaderValidity(cnsMsg *consensus.Message) error {
-	return cmv.checkMessageWithBlockBodyAndHeaderValidity(cnsMsg)
+func (cmv *consensusMessageValidator) CheckMessageWithBlockHeaderValidity(cnsMsg *consensus.Message) error {
+	return cmv.checkMessageWithBlockHeaderValidity(cnsMsg)
 }
 
 func (cmv *consensusMessageValidator) CheckConsensusMessageValidityForMessageType(cnsMsg *consensus.Message) error {

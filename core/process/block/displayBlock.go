@@ -55,7 +55,7 @@ func (txc *transactionCounter) displayLogInfo(
 	appStatusHandler core.AppStatusHandler,
 	slotDuration uint64,
 ) {
-	dispHeader, dispLines := txc.createDisplayableHeaderAndBlockBody(blck, headerHash)
+	dispHeader, dispLines := txc.createDisplayableHeader(blck, headerHash)
 
 	txc.mutex.RLock()
 	appStatusHandler.SetUInt64Value(core.MetricNumProcessedTxs, txc.totalTxs)
@@ -95,7 +95,7 @@ func (txc *transactionCounter) displayLogInfo(
 		"peak tps", txc.peakTPS)
 }
 
-func (txc *transactionCounter) createDisplayableHeaderAndBlockBody(
+func (txc *transactionCounter) createDisplayableHeader(
 	blck *block.Block,
 	headerHash []byte,
 ) ([]string, []*display.LineData) {
@@ -115,13 +115,13 @@ func (txc *transactionCounter) createDisplayableHeaderAndBlockBody(
 	shardLines = append(shardLines, headerLines...)
 	shardLines = append(shardLines, lines...)
 
-	shardLines = txc.displayTxBlockBody(shardLines, blck)
+	shardLines = txc.displayTxBlockHeader(shardLines, blck)
 
 	return tableHeader, shardLines
 
 }
 
-func (txc *transactionCounter) displayTxBlockBody(lines []*display.LineData, blck *block.Block) []*display.LineData {
+func (txc *transactionCounter) displayTxBlockHeader(lines []*display.LineData, blck *block.Block) []*display.LineData {
 	currentBlockTxs := len(blck.TxHashes)
 
 	part := "Block"

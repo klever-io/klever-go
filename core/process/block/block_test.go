@@ -440,6 +440,104 @@ func TestNewMetaProcessor_NilEpochStartShouldErr(t *testing.T) {
 	assert.Equal(t, common.ErrNilEpochStartTrigger, err)
 	assert.Nil(t, be)
 }
+func TestNewMetaProcessor_NilSlotManagerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	arguments.SlotManager = nil
+
+	be, err := blproc.NewMetaProcessor(arguments)
+	assert.Equal(t, common.ErrNilSlotManager, err)
+	assert.Nil(t, be)
+}
+
+func TestNewMetaProcessor_NilBootStorerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	arguments.BootStorer = nil
+
+	be, err := blproc.NewMetaProcessor(arguments)
+	assert.Equal(t, common.ErrNilStorage, err)
+	assert.Nil(t, be)
+}
+
+func TestNewMetaProcessor_NilTxCoordinatorShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	arguments.TxCoordinator = nil
+
+	be, err := blproc.NewMetaProcessor(arguments)
+	assert.Equal(t, process.ErrNilTransactionCoordinator, err)
+	assert.Nil(t, be)
+}
+
+func TestNewMetaProcessor_NilErrNilEconomicsFeeHandlerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	arguments.FeeHandler = nil
+
+	be, err := blproc.NewMetaProcessor(arguments)
+	assert.Equal(t, process.ErrNilEconomicsFeeHandler, err)
+	assert.Nil(t, be)
+}
+
+func TestNewMetaProcessor_NilErrNilBlockChainHandlerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	arguments.BlockChain = nil
+
+	be, err := blproc.NewMetaProcessor(arguments)
+	assert.Equal(t, process.ErrNilBlockChain, err)
+	assert.Nil(t, be)
+}
+
+func TestNewMetaProcessor_NilErrNilHeaderIntegrityVerifierShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	arguments.HeaderIntegrityVerifier = nil
+
+	be, err := blproc.NewMetaProcessor(arguments)
+	assert.Equal(t, common.ErrNilHeaderIntegrityVerifier, err)
+	assert.Nil(t, be)
+}
+
+func TestNewMetaProcessor_NilErrNilTpsBenchmarkShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	arguments.TpsBenchmark = nil
+
+	be, err := blproc.NewMetaProcessor(arguments)
+	assert.Equal(t, process.ErrNilTpsBenchmark, err)
+	assert.Nil(t, be)
+}
+
+func TestNewMetaProcessor_NilErrNilEpochNotifierShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	arguments.EpochNotifier = nil
+
+	be, err := blproc.NewMetaProcessor(arguments)
+	assert.Equal(t, common.ErrNilEpochNotifier, err)
+	assert.Nil(t, be)
+}
+
+func TestNewMetaProcessor_NilErrNilBlockChainHookShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	arguments.BlockChainHook = nil
+
+	be, err := blproc.NewMetaProcessor(arguments)
+	assert.Equal(t, common.ErrNilBlockchainHooks, err)
+	assert.Nil(t, be)
+}
 
 func TestNewMetaProcessor_NilBlockSizeThrottlerShouldErr(t *testing.T) {
 	t.Parallel()
@@ -609,36 +707,6 @@ func TestMetaProcessor_ProcessWithHeaderNotCorrectNonceShouldErr(t *testing.T) {
 	assert.Equal(t, process.ErrWrongNonceInBlock, err)
 }
 
-func TestMetaProcessor_ProcessWithHeaderNotCorrectPrevHashShouldErr(t *testing.T) {
-	t.Parallel()
-
-	arguments := createMockMetaArguments()
-	blkc := blockchain.NewBlockChain()
-	_ = blkc.SetCurrentBlockHeader(
-		&block.Block{
-			Header: &block.BlockHeader{
-				Slot:  1,
-				Nonce: 1,
-			},
-		},
-	)
-	_ = blkc.SetGenesisHeader(&block.Block{
-		Header: &block.BlockHeader{Nonce: 0},
-	})
-	arguments.BlockChain = blkc
-	mp, err := blproc.NewMetaProcessor(arguments)
-	require.NoError(t, err)
-	hdr := &block.Block{
-		Header: &block.BlockHeader{
-			Slot:       2,
-			Nonce:      2,
-			ParentHash: []byte("X"),
-		},
-	}
-	err = mp.ProcessBlock(hdr, haveTime)
-	assert.Equal(t, process.ErrBlockHashDoesNotMatch, err)
-}
-
 //------- CommitBlock
 
 func TestMetaProcessor_CommitBlockMarshalizerFailForHeaderShouldErr(t *testing.T) {
@@ -670,6 +738,38 @@ func TestMetaProcessor_CommitBlockMarshalizerFailForHeaderShouldErr(t *testing.T
 	require.NoError(t, err)
 	err = mp.CommitBlock(hdr)
 	assert.Equal(t, errMarshalizer, err)
+}
+
+func TestMetaProcessor_CommitBlockWithNilHeaderShouldErr(t *testing.T) {
+	t.Parallel()
+
+	accounts := &mock.AccountsStub{
+		RevertToSnapshotCalled: func(snapshot int) error {
+			return nil
+		},
+	}
+	errMarshalizer := errors.New("failure")
+	hdr := createMetaBlockHeader()
+	marshalizer := &mock.MarshalizerStub{
+		MarshalCalled: func(obj interface{}) (i []byte, e error) {
+			if reflect.DeepEqual(obj, hdr) {
+				return nil, errMarshalizer
+			}
+
+			return []byte("obj"), nil
+		},
+		UnmarshalCalled: func(obj interface{}, buff []byte) error {
+			return nil
+		},
+	}
+	arguments := createMockMetaArguments()
+	arguments.AccountsDB[state.UserAccountsState] = accounts
+	arguments.Marshalizer = marshalizer
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+	hdr = nil
+	err = mp.CommitBlock(hdr)
+	require.EqualError(t, err, process.ErrNilBlockHeader.Error())
 }
 
 func TestMetaProcessor_CommitBlockStorageFailsForHeaderShouldErr(t *testing.T) {
@@ -1375,4 +1475,46 @@ func generateTestUnit() storage.Storer {
 
 func haveTime() time.Duration {
 	return 2000 * time.Millisecond
+}
+
+func TestMetaProcessor_ProcessWithHeaderNotCorrectPrevHashShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	blkc := blockchain.NewBlockChain()
+	_ = blkc.SetCurrentBlockHeader(
+		&block.Block{
+			Header: &block.BlockHeader{
+				Slot:  1,
+				Nonce: 1,
+			},
+		},
+	)
+	_ = blkc.SetGenesisHeader(&block.Block{
+		Header: &block.BlockHeader{Nonce: 0},
+	})
+	arguments.BlockChain = blkc
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+	hdr := &block.Block{
+		Header: &block.BlockHeader{
+			Slot:       2,
+			Nonce:      2,
+			ParentHash: []byte("X"),
+		},
+	}
+	err = mp.ProcessBlock(hdr, haveTime)
+	assert.Equal(t, process.ErrBlockHashDoesNotMatch, err)
+}
+
+func TestMetaProcessor_CreateEpochStartBodyWithInvalidTxCountShouldErr(t *testing.T) {
+	t.Parallel()
+
+	hdr := createMetaBlockHeader()
+
+	arguments := createMockMetaArguments()
+
+	mp, err := blproc.NewMetaProcessor(arguments)
+	err = mp.CreateEpochStartHeader(hdr)
+	require.Error(t, err, "invalid block tx count")
 }

@@ -53,9 +53,9 @@ func TestInterceptedBlockDataFactory_ShouldWorkAndCreate(t *testing.T) {
 	assert.Nil(t, err)
 
 	marshalizer := &mock.MarshalizerMock{}
-	emptyBlockBody := &block.Block{}
-	emptyBlockBodyBuff, _ := marshalizer.Marshal(emptyBlockBody)
-	interceptedData, err := imdf.Create(emptyBlockBodyBuff)
+	emptyBlockHeader := &block.Block{}
+	emptyBlockHeaderBuff, _ := marshalizer.Marshal(emptyBlockHeader)
+	interceptedData, err := imdf.Create(emptyBlockHeaderBuff)
 	assert.Nil(t, err)
 
 	_, ok := interceptedData.(*interceptedBlocks.InterceptedBlock)

@@ -171,8 +171,8 @@ func (cmv *consensusMessageValidator) isBlockHeaderHashSizeValid(cnsMsg *consens
 func (cmv *consensusMessageValidator) checkConsensusMessageValidityForMessageType(cnsMsg *consensus.Message) error {
 	msgType := consensus.MessageType(cnsMsg.MsgType)
 
-	if cmv.consensusService.IsMessageWithBlockBodyAndHeader(msgType) {
-		return cmv.checkMessageWithBlockBodyAndHeaderValidity(cnsMsg)
+	if cmv.consensusService.IsMessageWithBlockHeader(msgType) {
+		return cmv.checkMessageWithBlockHeaderValidity(cnsMsg)
 	}
 
 	if cmv.consensusService.IsMessageWithSignature(msgType) {
@@ -188,7 +188,7 @@ func (cmv *consensusMessageValidator) checkConsensusMessageValidityForMessageTyp
 		msgType)
 }
 
-func (cmv *consensusMessageValidator) checkMessageWithBlockBodyAndHeaderValidity(cnsMsg *consensus.Message) error {
+func (cmv *consensusMessageValidator) checkMessageWithBlockHeaderValidity(cnsMsg *consensus.Message) error {
 	isMessageInvalid := cnsMsg.SignatureShare != nil ||
 		cnsMsg.PubKeysBitmap != nil ||
 		cnsMsg.AggregateSignature != nil ||

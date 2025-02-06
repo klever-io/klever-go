@@ -21,12 +21,12 @@ const (
 const (
 	// MtUnknown defines ID of a message that has unknown data inside
 	MtUnknown consensus.MessageType = iota
-	// MtBlockBodyAndHeader defines ID of a message that has a block body and a block header inside
-	MtBlockBodyAndHeader
-	// MtBlockBody defines ID of a message that has a block body inside
-	MtBlockBody
-	// MtBlockHeader defines ID of a message that has a block header inside
+	// MtBlockHeader defines ID of a message that has and a block header inside
 	MtBlockHeader
+	// DEPRECATED: MtBlockBody defines ID of a message that has a block body inside
+	MtBlockBody
+	// DEPRECATED: MtBlockBodyAndHeader defines ID of a message that has a block body and header inside
+	MtBlockBodyAndHeader
 	// MtSignature defines ID of a message that has a Signature inside
 	MtSignature
 	// MtBlockHeaderFinalInfo defines ID of a message that has a block header final info inside
@@ -65,14 +65,11 @@ const srEndStartTime = 0.80
 const srEndEndTime = 0.95
 
 const (
-	// BlockBodyAndHeaderStringValue represents the string to be used to identify a block body and a block header
-	BlockBodyAndHeaderStringValue = "(BLOCK_BODY_AND_HEADER)"
+	// BlockHeaderStringValue represents the string to be used to identify a block header
+	BlockHeaderStringValue = "(BLOCK_HEADER)"
 
 	// BlockBodyStringValue represents the string to be used to identify a block body
 	BlockBodyStringValue = "(BLOCK_BODY)"
-
-	// BlockHeaderStringValue represents the string to be used to identify a block header
-	BlockHeaderStringValue = "(BLOCK_HEADER)"
 
 	// BlockSignatureStringValue represents the string to be used to identify a block's signature
 	BlockSignatureStringValue = "(SIGNATURE)"
@@ -89,10 +86,6 @@ const (
 
 func getStringValue(msgType consensus.MessageType) string {
 	switch msgType {
-	case MtBlockBodyAndHeader:
-		return BlockBodyAndHeaderStringValue
-	case MtBlockBody:
-		return BlockBodyStringValue
 	case MtBlockHeader:
 		return BlockHeaderStringValue
 	case MtSignature:

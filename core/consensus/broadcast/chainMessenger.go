@@ -102,12 +102,12 @@ func (cm *chainMessenger) BroadcastBlock(blck data.HeaderHandler) error {
 	}
 
 	b := blck.(*block.Block)
-	msgBlockBody, err := cm.marshalizer.Marshal(b)
+	msgBlockHeader, err := cm.marshalizer.Marshal(b)
 	if err != nil {
 		return err
 	}
 
-	go cm.messenger.Broadcast(common.BlocksTopic, msgBlockBody)
+	go cm.messenger.Broadcast(common.BlocksTopic, msgBlockHeader)
 
 	return nil
 }

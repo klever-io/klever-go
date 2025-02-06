@@ -271,9 +271,6 @@ var ErrNilDatabase = errors.New("no database provided")
 // ErrSuffixNotPresentOrInIncorrectPosition signals that the suffix is not present in the data field or its position is incorrect
 var ErrSuffixNotPresentOrInIncorrectPosition = errors.New("suffix is not present or the position is incorrect")
 
-// ErrNilTxBlockDataPool signals that a nil tx block body pool has been provided
-var ErrNilTxBlockDataPool = errors.New("nil tx block data pool")
-
 // ErrNilCurrBlockTxs signals that nil current blocks txs holder was provided
 var ErrNilCurrBlockTxs = errors.New("nil current block txs holder")
 

@@ -260,7 +260,7 @@ func (sr *subslotEndSlot) doEndSlotJobByLeader() bool {
 
 	sr.displayStatistics()
 
-	log.Debug("step 3: Body and Header have been committed and header has been broadcast")
+	log.Debug("step 3: Header have been committed and header has been broadcast")
 
 	msg := fmt.Sprintf("Added proposed block with nonce  %d  in blockchain", sr.Header.GetNonce())
 	log.Debug(display.Headline(msg, sr.SyncTimer().FormattedCurrentTime(), "+"))
@@ -361,7 +361,7 @@ func (sr *subslotEndSlot) doEndSlotJobByParticipant(cnsDta *consensus.Message) b
 
 	sr.displayStatistics()
 
-	log.Debug("step 3: Body and Header have been committed")
+	log.Debug("step 3: Header have been committed")
 
 	headerTypeMsg := "received"
 	if cnsDta != nil {

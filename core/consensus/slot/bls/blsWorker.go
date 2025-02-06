@@ -32,8 +32,6 @@ func NewConsensusService() (*worker, error) {
 // InitReceivedMessages initializes the MessagesType map for all messages for the current ConsensusService
 func (wrk *worker) InitReceivedMessages() map[consensus.MessageType][]*consensus.Message {
 	receivedMessages := make(map[consensus.MessageType][]*consensus.Message)
-	receivedMessages[MtBlockBodyAndHeader] = make([]*consensus.Message, 0)
-	receivedMessages[MtBlockBody] = make([]*consensus.Message, 0)
 	receivedMessages[MtBlockHeader] = make([]*consensus.Message, 0)
 	receivedMessages[MtSignature] = make([]*consensus.Message, 0)
 	receivedMessages[MtBlockHeaderFinalInfo] = make([]*consensus.Message, 0)
@@ -56,16 +54,6 @@ func (wrk *worker) GetSubslotName(subslotId int) string {
 	return getSubslotName(subslotId)
 }
 
-// IsMessageWithBlockBodyAndHeader returns if the current messageType is about block body and header
-func (wrk *worker) IsMessageWithBlockBodyAndHeader(msgType consensus.MessageType) bool {
-	return msgType == MtBlockBodyAndHeader
-}
-
-// IsMessageWithBlockBody returns if the current messageType is about block body
-func (wrk *worker) IsMessageWithBlockBody(msgType consensus.MessageType) bool {
-	return msgType == MtBlockBody
-}
-
 // IsMessageWithBlockHeader returns if the current messageType is about block header
 func (wrk *worker) IsMessageWithBlockHeader(msgType consensus.MessageType) bool {
 	return msgType == MtBlockHeader
@@ -83,9 +71,7 @@ func (wrk *worker) IsMessageWithFinalInfo(msgType consensus.MessageType) bool {
 
 // IsMessageTypeValid returns if the current messageType is valid
 func (wrk *worker) IsMessageTypeValid(msgType consensus.MessageType) bool {
-	isMessageTypeValid := msgType == MtBlockBodyAndHeader ||
-		msgType == MtBlockBody ||
-		msgType == MtBlockHeader ||
+	isMessageTypeValid := msgType == MtBlockHeader ||
 		msgType == MtSignature ||
 		msgType == MtBlockHeaderFinalInfo
 
@@ -106,7 +92,7 @@ func (wrk *worker) IsSubslotStartSlot(subslotId int) bool {
 func (wrk *worker) GetMessageRange() []consensus.MessageType {
 	var v []consensus.MessageType
 
-	for i := MtBlockBodyAndHeader; i <= MtBlockHeaderFinalInfo; i++ {
+	for i := MtBlockHeader; i <= MtBlockHeaderFinalInfo; i++ {
 		v = append(v, i)
 	}
 
@@ -116,10 +102,6 @@ func (wrk *worker) GetMessageRange() []consensus.MessageType {
 // CanProceed returns if the current messageType can proceed further if previous subslots finished
 func (wrk *worker) CanProceed(consensusState *slot.ConsensusState, msgType consensus.MessageType) bool {
 	switch msgType {
-	case MtBlockBodyAndHeader:
-		return consensusState.Status(SrStartSlot) == slot.SsFinished
-	case MtBlockBody:
-		return consensusState.Status(SrStartSlot) == slot.SsFinished
 	case MtBlockHeader:
 		return consensusState.Status(SrStartSlot) == slot.SsFinished
 	case MtSignature:

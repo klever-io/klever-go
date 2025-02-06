@@ -76,7 +76,7 @@ func (inMb *InterceptedBlock) processFields(mbBuff []byte, headerBytes []byte) {
 	inMb.hash = inMb.hasher.Compute(string(headerBytes))
 }
 
-// Hash gets the hash of this transaction block body
+// Hash gets the hash of this transaction block header
 func (inMb *InterceptedBlock) Hash() []byte {
 	return inMb.hash
 }
@@ -153,7 +153,7 @@ func (inMb *InterceptedBlock) IsInterfaceNil() bool {
 	return inMb == nil
 }
 
-// CheckValidity checks if the received tx block body is valid (not nil fields)
+// CheckValidity checks if the received tx block header is valid (not nil fields)
 func (inMb *InterceptedBlock) CheckValidity() error {
 	err := inMb.integrity()
 	if err != nil {
@@ -181,7 +181,7 @@ func (inMb *InterceptedBlock) CheckTXSignature() error {
 	return nil
 }
 
-// integrity checks the integrity of the tx block body
+// integrity checks the integrity of the tx block header
 func (inMb *InterceptedBlock) integrity() error {
 	err := checkHeaderHandler(inMb.HeaderHandler())
 	if err != nil {

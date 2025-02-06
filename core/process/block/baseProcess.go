@@ -453,7 +453,7 @@ func (bp *baseProcessor) cleanupPools(headerHandler data.HeaderHandler) {
 }
 
 func (bp *baseProcessor) removeHeadersBehindNonceFromPools(
-	shouldRemoveBlockBody bool,
+	shouldRemoveBlockHeader bool,
 	nonce uint64,
 ) {
 	if nonce <= 1 {
@@ -467,15 +467,15 @@ func (bp *baseProcessor) removeHeadersBehindNonceFromPools(
 			continue
 		}
 
-		if shouldRemoveBlockBody {
-			bp.removeBlocksBody(nonceFromCache)
+		if shouldRemoveBlockHeader {
+			bp.removeBlocksHeader(nonceFromCache)
 		}
 
 		headersPool.RemoveHeaderByNonce(nonceFromCache)
 	}
 }
 
-func (bp *baseProcessor) removeBlocksBody(nonce uint64) {
+func (bp *baseProcessor) removeBlocksHeader(nonce uint64) {
 	headersPool := bp.dataPool.Headers()
 	headers, _, err := headersPool.GetHeadersByNonce(nonce)
 	if err != nil {

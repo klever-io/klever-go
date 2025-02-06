@@ -567,7 +567,7 @@ func TestTransactionPreprocessor_RemoveTxsDataFromPoolsNilBlockShouldErr(t *test
 	txs := createGoodPreprocessor(dataPool)
 	err := txs.RemoveTxsFromPools(nil)
 	assert.NotNil(t, err)
-	assert.Equal(t, err, process.ErrNilTxBlockBody)
+	assert.Equal(t, err, process.ErrNilTxBlockHeader)
 }
 
 func TestTransactionPreprocessor_RemoveTxsDataFromPoolsOK(t *testing.T) {
