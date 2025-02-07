@@ -108,13 +108,30 @@ func (inMb *InterceptedBlock) isEpochCorrect() bool {
 	return false
 }
 
+func (inMb *InterceptedBlock) verifyEpochStartSlot(epoch uint32, slot uint64) bool {
+	if epoch == inMb.epochStartTrigger.Epoch() {
+		return slot == inMb.epochStartTrigger.EpochStartSlot()
+	}
+
+	return slot > inMb.epochStartTrigger.EpochStartSlot()
+}
+
+func (inMb *InterceptedBlock) verifyPrevEpochStartSlot(epoch uint32, prevStartSlot uint64) bool {
+	if epoch == inMb.epochStartTrigger.Epoch() {
+		return prevStartSlot == inMb.epochStartTrigger.PrevEpochStartSlot()
+	}
+
+	return prevStartSlot == inMb.epochStartTrigger.EpochStartSlot()
+}
+
 func (inMb *InterceptedBlock) isEpochStartCorrect() bool {
 	isEpochStarted := inMb.block.GetIsEpochStart()
 	epochStartedSlot := inMb.epochStartTrigger.EpochStartSlot()
+	epoch := inMb.block.GetEpoch()
 	slot := inMb.block.GetSlot()
 	prevStartSlot := inMb.block.Header.PrevEpochStartSlot
 
-	if isEpochStarted && (epochStartedSlot == slot && prevStartSlot < epochStartedSlot && prevStartSlot == inMb.epochStartTrigger.PrevEpochStartSlot()) {
+	if isEpochStarted && (inMb.verifyEpochStartSlot(epoch, slot) && inMb.verifyPrevEpochStartSlot(epoch, prevStartSlot)) {
 		return true
 	}
 
@@ -155,25 +172,24 @@ func (inMb *InterceptedBlock) IsInterfaceNil() bool {
 
 // CheckValidity checks if the received tx block header is valid (not nil fields)
 func (inMb *InterceptedBlock) CheckValidity() error {
-	err := inMb.integrity()
-	if err != nil {
+	if err := inMb.integrity(); err != nil {
 		return err
 	}
 
 	hdr := inMb.HeaderHandler()
 
-	err = inMb.sigVerifier.VerifyRandSeedAndLeaderSignature(hdr)
-	if err != nil {
+	// verify basic fields such as ChanID and software version to reduce load
+	// on CheckValidity
+	if err := inMb.integrityVerifier.Verify(hdr); err != nil {
+		return err
+	}
+
+	if err := inMb.sigVerifier.VerifyRandSeedAndLeaderSignature(hdr); err != nil {
 		return fmt.Errorf("%w : verify rand seed and leader signature for intercepted block failed",
 			err)
 	}
 
-	err = inMb.sigVerifier.VerifySignature(hdr)
-	if err != nil {
-		return err
-	}
-
-	return inMb.integrityVerifier.Verify(hdr)
+	return inMb.sigVerifier.VerifySignature(hdr)
 }
 
 // CheckTXSignature -
