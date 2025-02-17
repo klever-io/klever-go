@@ -203,6 +203,9 @@ func (txs *transactions) RestoreBlockDataIntoPools(blk *block.Block) (int, error
 			return 0, err
 		}
 
+		// reset TX processed fields
+		tx.PrepareForProcessing()
+
 		txs.txPool.AddData([]byte(txHash), &tx, tx.GetSize(), "0")
 		// remove from storage
 		err = storer.Remove([]byte(txHash))
