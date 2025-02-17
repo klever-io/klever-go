@@ -1498,7 +1498,7 @@ func TestITOTriggerContractValidate(t *testing.T) {
 				AssetID:     []byte("KLV"),
 				TriggerType: transaction.ITOTriggerContract_AddToWhitelist,
 				WhitelistInfo: map[string]*transaction.WhitelistInfo{
-					string(core.ZeroAddress): {},
+					hex.EncodeToString(core.ZeroAddress): {},
 				},
 			},
 			fc:          mock.NewForkControllerStub(),

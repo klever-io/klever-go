@@ -2,6 +2,7 @@ package transaction
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -927,7 +928,13 @@ func (tc *ITOTriggerContract) validateITOTriggerAfterFork(fc core.ForkController
 	}
 
 	for address := range tc.GetWhitelistInfo() {
-		if err := validateAddress(len(address), ErrInvalidWhitelistAddr); err != nil {
+		// convert address to byte array
+		addrBytes, err := hex.DecodeString(address)
+		if err != nil {
+			return ErrInvalidWhitelistAddr
+		}
+
+		if err := validateAddress(len(addrBytes), ErrInvalidWhitelistAddr); err != nil {
 			return err
 		}
 	}
