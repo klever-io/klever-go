@@ -6,9 +6,12 @@ import (
 	"time"
 
 	mclsinglesig "github.com/klever-io/klever-go/crypto/signing/mcl/singlesig"
+	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/integrationTest/processorNode"
 	"github.com/klever-io/klever-go/tools/check"
 )
+
+var PushToProposerPool = make(map[string]*transaction.Transaction)
 
 // ProposeAndSyncOneBlock proposes a block, syncs the block and then increments the slot
 func ProposeAndSyncOneBlock(
@@ -19,30 +22,44 @@ func ProposeAndSyncOneBlock(
 	nonce uint64,
 ) (uint64, uint64, []*processorNode.ProcessorNode, error) {
 
-	currHdr := nodes[0].Blkc.GetCurrentBlockHeader()
+	currHdr := nodes[xidProposer].Blkc.GetCurrentBlockHeader()
 	if check.IfNil(currHdr) {
-		currHdr = nodes[0].Blkc.GetGenesisHeader()
+		currHdr = nodes[xidProposer].Blkc.GetGenesisHeader()
 	}
 
 	prevRandomness := currHdr.GetRandSeed()
 	epoch := currHdr.GetEpoch()
 
-	pubKeys, err := nodes[0].NodesCoordinator.GetConsensusValidatorsPublicKeys(prevRandomness, slot, epoch)
+	pubKeys, err := nodes[xidProposer].NodesCoordinator.GetConsensusValidatorsPublicKeys(prevRandomness, slot, epoch)
 	if err != nil {
 		return 0, 0, nil, err
 	}
 
 	consensusNodes := processorNode.SelectTestNodesForPubKeys(nodes, pubKeys)
 
+	// push TX to pool if any
+	if len(PushToProposerPool) > 0 {
+		log.Info("***** PUSHING TX TO PROPOSER POOL *****")
+		for txHash, tx := range PushToProposerPool {
+			consensusNodes[xidProposer].DataPool.Transactions().AddData([]byte(txHash), tx, 100, "0")
+			log.Info("Pushed TX to proposer pool", "txHash", txHash)
+			delete(PushToProposerPool, txHash)
+		}
+	}
+
 	UpdateSlot(consensusNodes, slot)
 	err = ProposeBlock(consensusNodes, pubKeys, xidProposer, slot, nonce)
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	err = SyncBlock(consensusNodes, xidProposer, slot)
+
+	log.Info("Sync proposed block...", "slot", slot, "nonce", nonce)
+
+	err = SyncBlock(consensusNodes, xidProposer, nonce)
 	if err != nil {
 		return 0, 0, nil, err
 	}
+
 	slot = IncrementAndPrintSlot(slot)
 	nonce++
 
@@ -83,7 +100,7 @@ func ProposeBlock(nodes []*processorNode.ProcessorNode, pubKeys []string, xidPro
 
 	log.Info("Delaying for disseminating headers...")
 	time.Sleep(stepDelayAdjustment)
-	log.Info("------ block  proposed ------ \n")
+	log.Info("------ block  proposed ------", "slot", slot, "nonce", nonce, "hash", nodes[xidProposer].Blkc.GetCurrentBlockHeaderHash())
 	return nil
 }
 
@@ -91,7 +108,7 @@ func ProposeBlock(nodes []*processorNode.ProcessorNode, pubKeys []string, xidPro
 func SyncBlock(
 	nodes []*processorNode.ProcessorNode,
 	xidProposer int,
-	slot uint64,
+	nonce uint64,
 ) error {
 
 	log.Info("All nodes sync the proposed block...")
@@ -100,18 +117,28 @@ func SyncBlock(
 			continue
 		}
 
-		err := n.SyncNode(slot)
+		err := n.SyncNode(nonce)
 		if err != nil {
-			log.Warn(fmt.Sprintf("SyncNode on slot %v could not be synced. Error: %s", slot, err.Error()))
-			if err != nil {
-				return err
-			}
+			log.Warn(fmt.Sprintf("SyncNode (%d) on nonce %d could not be synced. Error: %s", i, nonce, err.Error()))
+
 			continue
 		}
 	}
 
 	time.Sleep(StepDelay)
-	log.Info("---------- block synchronized ----------\n")
+	log.Info("---------- block synchronized ----------", "nonce", nonce)
+	return nil
+}
+
+func RevertOneBlock(nodes []*processorNode.ProcessorNode, nonce uint64) error {
+	for i, n := range nodes {
+		log.Warn("RevertOneBlock", "node", i, "nonce", nonce)
+		err := n.RevertOneBlock(nonce)
+		if err != nil {
+			log.Error("RevertOneBlock", "node", i, "nonce", nonce, "error", err.Error())
+			return err
+		}
+	}
 	return nil
 }
 

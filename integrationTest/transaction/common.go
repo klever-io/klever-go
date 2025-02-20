@@ -2,7 +2,10 @@ package transaction
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"errors"
 
@@ -23,10 +26,12 @@ var ErrNotInBlock = errors.New("tx is not in block")
 
 var log = logger.GetOrCreate("transactions/common")
 
-func LoadDefaultConfigs(t *testing.T) config.Config {
-	config, err := integrationTest.LoadConfig(ConfigPath)
+func LoadDefaultConfigs(t *testing.T, configPath string) config.Config {
+	config, err := integrationTest.LoadConfig(configPath)
 	require.Nil(t, err)
-	enableEpochs, err := integrationTest.LoadEnableEpochsConfig(EnableEpochsPath)
+	// replace config.yaml -> enableEpochs.yaml
+	enableEpochsPath := strings.Replace(configPath, "config.yaml", "enableEpochs.yaml", 1)
+	enableEpochs, err := integrationTest.LoadEnableEpochsConfig(enableEpochsPath)
 	require.Nil(t, err)
 	config.EnableEpochs = enableEpochs.EnableEpochs
 	config.GasScheduleConfig = enableEpochs.GasSchedule
@@ -119,7 +124,7 @@ func CreateAndSendTransaction(
 		return nil, nil, err
 	}
 
-	tx.Signature[0], err = wallet.SingleSigner.Sign(wallet.SkTxSign, hash)
+	tx.Signature[0], err = wallet.TxSingleSigner.Sign(wallet.SkTxSign, hash)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -132,6 +137,29 @@ func CreateAndSendTransaction(
 	}
 
 	return tx, hash, nil
+}
+
+func SendTx(t *testing.T, nodes []*processorNode.ProcessorNode, wallets []*processorNode.NodeAccount, sendAmount int64) (*transaction.Transaction, []byte) {
+	tx, txHash, err := CreateAndSendTransaction(
+		nodes[0],
+		wallets[0],
+		transaction.TXContract_TransferContractType,
+		struct {
+			Receiver string
+			Amount   int64
+			Asset    string
+		}{
+			Receiver: processorNode.TestAddressPubkeyConverter.Encode(wallets[1].Address),
+			Amount:   sendAmount,
+			Asset:    "KLV",
+		},
+	)
+	require.Nil(t, err)
+
+	// wait for tx to be propagated
+	time.Sleep(500 * time.Millisecond)
+
+	return tx, txHash
 }
 
 func GetTransaction(
@@ -156,15 +184,73 @@ func GetAndCheckTransaction(
 	}
 
 	if tx.Result != transaction.Transaction_SUCCESS {
-		log.Error("transaction not success", "status", tx.Result, "code", tx.ResultCode)
+		log.Error("transaction not success", "status", tx.Result, "code", tx.ResultCode, "txHash", txHash)
 		return nil, ErrStatusNotSuccess
 	}
 
 	// // check if TX is in the block
 	if tx.Status != api.TRANSACTION_STATUS_ON_CHAIN {
-		log.Error("transaction not in block", "status", tx.Status)
+		log.Error("transaction not in block", "status", tx.Status, "txHash", txHash)
 		return nil, ErrNotInBlock
 	}
 
 	return tx.Transaction, nil
+}
+
+func WrapError(err error, newErr error) error {
+	if err == nil {
+		return newErr
+	}
+	return fmt.Errorf("%w, %v", err, newErr)
+}
+
+func CheckTXInBlock(nodes []*processorNode.ProcessorNode, txHash []byte, blockNonce uint64) error {
+	var finalErr error
+	for i, n := range nodes {
+		txResult, err := GetAndCheckTransaction(n, txHash)
+		if err != nil {
+			finalErr = WrapError(finalErr, err)
+			log.Warn("TX not found", "nodeIdx", i, "slot", n.SlotManager.SlotIndex, "nonce", n.Blkc.GetCurrentBlockHeader().GetNonce())
+			continue
+
+		}
+
+		// check if TX is in the block or pending
+		if txResult.Block != blockNonce {
+			finalErr = WrapError(finalErr, ErrNotInBlock)
+			log.Warn("TX block does not match", "nodeIdx", i, "slot", n.SlotManager.SlotIndex, "nodeHight", n.Blkc.GetCurrentBlockHeader().GetNonce(), "foundBlock", txResult.Block, "expectedBlock", blockNonce)
+			continue
+		}
+
+		// check current block
+		b, err := n.GetBlockByNonce(txResult.Block)
+		if err != nil {
+			finalErr = WrapError(finalErr, err)
+			log.Warn("Block not found", "nodeIdx", i, "slot", n.SlotManager.SlotIndex, "nonce", txResult.Block, "nodeBlock", n.Blkc.GetCurrentBlockHeader().GetBlockHeader())
+			continue
+		}
+
+		log.Info("TX found in node", "nodeIdx", i, "slot", b.GetSlot(), "nonce", txResult.Block)
+		log.Info("Block info", "nodeIdx", i, "slot", b.GetSlot(), "hash", b.Hash, "txLen", len(b.TxHashes))
+	}
+
+	if finalErr != nil {
+		log.Error("Some errors occurred", "err", finalErr)
+	}
+
+	return finalErr
+}
+
+func CheckTXIsPending(nodes []*processorNode.ProcessorNode, txHash []byte) error {
+	var finalErr error
+	for i, n := range nodes {
+		_, err := GetAndCheckTransaction(n, txHash)
+		if err != ErrNotInBlock {
+			finalErr = WrapError(finalErr, err)
+			log.Warn("TX not pending", "nodeIdx", i, "slot", n.SlotManager.SlotIndex, "nonce", n.Blkc.GetCurrentBlockHeader().GetNonce(), "error", err)
+			continue
+		}
+	}
+
+	return finalErr
 }

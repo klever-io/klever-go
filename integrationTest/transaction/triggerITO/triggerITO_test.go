@@ -25,7 +25,7 @@ func TestTransaction_TriggerITO_ShouldError(t *testing.T) {
 	nodes, wallets, err := commonTxTest.CreateStandardSetupForTxTests(numWallets)
 	require.Nil(t, err)
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -410,7 +410,7 @@ func TestTransaction_TriggerITO_ShouldWork(t *testing.T) {
 	nodes, wallets, err := commonTxTest.CreateStandardSetupForTxTests(numWallets)
 	require.Nil(t, err)
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {

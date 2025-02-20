@@ -31,7 +31,7 @@ type TxCache struct {
 
 // NewTxCache creates a new transaction cache
 func NewTxCache(config Config) (*TxCache, error) {
-	log.Info("NewTxCache", "config", config.String())
+	log.Debug("NewTxCache", "config", config.String())
 	storage.MonitorNewCache(config.Name, uint64(config.NumBytesThreshold))
 
 	err := config.verify()

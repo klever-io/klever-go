@@ -24,7 +24,7 @@ func TestTransaction_CreateConfigITO_ShouldWork(t *testing.T) {
 	nodes, wallets, err := commonTxTest.CreateStandardSetupForTxTests(numWallets)
 	require.Nil(t, err)
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -185,13 +185,13 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 	require.Nil(t, err)
 
 	// check if asset exists
-	tx, err := consensusNodes[1].GetTransaction(createAssetTxHash, true)
+	tx, err := consensusNodes[xidProposerBlock].GetTransaction(createAssetTxHash, true)
 	require.Nil(t, err)
 
 	assetIdentifierGenerated, err := integrationTest.GetAssetId(tx.Receipts)
 	require.Nil(t, err)
 
-	asset, err := consensusNodes[1].GetAsset([]byte(assetIdentifierGenerated))
+	asset, err := consensusNodes[xidProposerBlock].GetAsset([]byte(assetIdentifierGenerated))
 	require.Nil(t, err)
 	require.NotNil(t, asset)
 
@@ -532,11 +532,11 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 	slot, nonce, consensusNodes, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
 
-	_, err = commonTxTest.GetAndCheckTransaction(consensusNodes[1], configITOInvalidAssetTxHash)
+	_, err = commonTxTest.GetAndCheckTransaction(consensusNodes[xidProposerBlock], configITOInvalidAssetTxHash)
 	require.Error(t, err)
-	_, err = commonTxTest.GetAndCheckTransaction(consensusNodes[1], configITOInexistentAssetTxHash)
+	_, err = commonTxTest.GetAndCheckTransaction(consensusNodes[xidProposerBlock], configITOInexistentAssetTxHash)
 	require.Error(t, err)
-	_, err = commonTxTest.GetAndCheckTransaction(consensusNodes[1], configITOTxHash)
+	_, err = commonTxTest.GetAndCheckTransaction(consensusNodes[xidProposerBlock], configITOTxHash)
 	require.NoError(t, err)
 
 	// error: address not in whitelist
@@ -586,7 +586,7 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, consensusNodes, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)

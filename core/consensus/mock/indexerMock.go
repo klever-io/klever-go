@@ -24,7 +24,6 @@ func (im *IndexerMock) UpdateProposalsAndParameters(proposalIDs []string) {}
 
 // RevertIndexedBlock -
 func (im *IndexerMock) RevertIndexedBlock(_ data.HeaderHandler) {
-	panic("implement me")
 }
 
 // SaveEpochInfo -

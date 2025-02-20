@@ -132,7 +132,7 @@ jobs:
           args: >
             -Dsonar.projectKey=${{ github.event.repository.name }}
             -Dsonar.plugins.downloadOnlyRequired=true
-            -Dsonar.exclusions=**/*.json,**/*.xml,**/*_test.go,vendor/**,coverage.out
+            -Dsonar.exclusions=**/*.json,**/*.xml,**/*_test.go,vendor/**,coverage.out,integrationTest/**
             -Dsonar.test.inclusions="**/*_test.go"
             -Dsonar.go.coverage.reportPaths=coverage.out
             -Dsonar.go.tests.reportPaths=test-output.json
@@ -149,7 +149,7 @@ jobs:
           args: >
             -Dsonar.projectKey=${{ github.event.repository.name }}
             -Dsonar.plugins.downloadOnlyRequired=true
-            -Dsonar.exclusions=**/*.json,**/*.xml,**/*_test.go,vendor/**,coverage.out
+            -Dsonar.exclusions=**/*.json,**/*.xml,**/*_test.go,vendor/**,coverage.out,integrationTest/**
             -Dsonar.test.inclusions="**/*_test.go"
             -Dsonar.go.coverage.reportPaths=coverage.out
             -Dsonar.go.tests.reportPaths=test-output.json

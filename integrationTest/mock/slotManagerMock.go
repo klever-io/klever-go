@@ -76,11 +76,11 @@ func (smm *SlotManagerMock) UpdateSlot(timestamp time.Time) {
 
 // RemainingTime -
 func (smm *SlotManagerMock) RemainingTime(startTime time.Time, maxTime time.Duration) time.Duration {
-	currentTime := smm.SyncTimer.CurrentTime()
-	elapsedTime := currentTime.Sub(startTime)
-	remainingTime := maxTime - elapsedTime
+	if smm.RemainingTimeCalled != nil {
+		return smm.RemainingTimeCalled(startTime, maxTime)
+	}
 
-	return remainingTime
+	return 4000 * time.Millisecond
 }
 
 func (smm *SlotManagerMock) ValidateSlotTimestamp(slot int64, timestamp int64) bool {

@@ -20,7 +20,7 @@ func TestTransaction_KDAFeePoolFlow_ShouldWork(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	config := commonTxTest.LoadDefaultConfigs(t)
+	config := commonTxTest.LoadDefaultConfigs(t, commonTxTest.ConfigPath)
 
 	initialBalance := int64(1_000_000_000_000)
 	xidProposerBlock := 0
@@ -34,7 +34,7 @@ func TestTransaction_KDAFeePoolFlow_ShouldWork(t *testing.T) {
 	assert.Equal(t, numNodes, len(nodes))
 	assert.Equal(t, numWallets, len(wallets))
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -72,7 +72,7 @@ func TestTransaction_KDAFeePoolFlow_ShouldWork(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -114,7 +114,7 @@ func TestTransaction_KDAFeePoolFlow_ShouldWork(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -144,7 +144,7 @@ func TestTransaction_KDAFeePoolFlow_ShouldWork(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	user := integrationTest.GetUserAccount(nodes[0], sender.Address)
 
@@ -179,7 +179,7 @@ func TestTransaction_KDAFeePoolFlow_ShouldWork(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	user = integrationTest.GetUserAccount(nodes[0], sender.Address)
 	balanceBeforeWitdraw := user.GetBalance(kdautils.KLVIdentifier, true)
@@ -187,7 +187,7 @@ func TestTransaction_KDAFeePoolFlow_ShouldWork(t *testing.T) {
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	user = integrationTest.GetUserAccount(nodes[0], sender.Address)
 	balanceAfterWitdraw := user.GetBalance(kdautils.KLVIdentifier, true)
@@ -199,7 +199,7 @@ func TestTransaction_CreateKDAPool_EmptyAsset(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	config := commonTxTest.LoadDefaultConfigs(t)
+	config := commonTxTest.LoadDefaultConfigs(t, commonTxTest.ConfigPath)
 
 	initialBalance := int64(1_000_000_000_000)
 	xidProposerBlock := 0
@@ -213,7 +213,7 @@ func TestTransaction_CreateKDAPool_EmptyAsset(t *testing.T) {
 	assert.Equal(t, numNodes, len(nodes))
 	assert.Equal(t, numWallets, len(wallets))
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -250,7 +250,7 @@ func TestTransaction_CreateKDAPool_EmptyAsset(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -264,7 +264,7 @@ func TestTransaction_CreateKDAPool_WrongAsset(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	config := commonTxTest.LoadDefaultConfigs(t)
+	config := commonTxTest.LoadDefaultConfigs(t, commonTxTest.ConfigPath)
 
 	initialBalance := int64(1_000_000_000_000)
 	xidProposerBlock := 0
@@ -278,7 +278,7 @@ func TestTransaction_CreateKDAPool_WrongAsset(t *testing.T) {
 	assert.Equal(t, numNodes, len(nodes))
 	assert.Equal(t, numWallets, len(wallets))
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -315,7 +315,7 @@ func TestTransaction_CreateKDAPool_WrongAsset(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -329,7 +329,7 @@ func TestTransaction_CreateKDAPool_InvalidRatio(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	config := commonTxTest.LoadDefaultConfigs(t)
+	config := commonTxTest.LoadDefaultConfigs(t, commonTxTest.ConfigPath)
 
 	initialBalance := int64(1_000_000_000_000)
 	xidProposerBlock := 0
@@ -343,7 +343,7 @@ func TestTransaction_CreateKDAPool_InvalidRatio(t *testing.T) {
 	assert.Equal(t, numNodes, len(nodes))
 	assert.Equal(t, numWallets, len(wallets))
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -384,7 +384,7 @@ func TestTransaction_CreateKDAPool_InvalidRatio(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -422,7 +422,7 @@ func TestTransaction_DepositKDAFeePool_ZeroDepositAmount(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	config := commonTxTest.LoadDefaultConfigs(t)
+	config := commonTxTest.LoadDefaultConfigs(t, commonTxTest.ConfigPath)
 
 	initialBalance := int64(1_000_000_000_000)
 	xidProposerBlock := 0
@@ -436,7 +436,7 @@ func TestTransaction_DepositKDAFeePool_ZeroDepositAmount(t *testing.T) {
 	assert.Equal(t, numNodes, len(nodes))
 	assert.Equal(t, numWallets, len(wallets))
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -474,7 +474,7 @@ func TestTransaction_DepositKDAFeePool_ZeroDepositAmount(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -515,7 +515,7 @@ func TestTransaction_DepositKDAFeePool_ZeroDepositAmount(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -541,7 +541,7 @@ func TestTransaction_DepositKDAFeePool_WrongDepositAmount(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	config := commonTxTest.LoadDefaultConfigs(t)
+	config := commonTxTest.LoadDefaultConfigs(t, commonTxTest.ConfigPath)
 
 	initialBalance := int64(1_000_000_000_000)
 	xidProposerBlock := 0
@@ -555,7 +555,7 @@ func TestTransaction_DepositKDAFeePool_WrongDepositAmount(t *testing.T) {
 	assert.Equal(t, numNodes, len(nodes))
 	assert.Equal(t, numWallets, len(wallets))
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -593,7 +593,7 @@ func TestTransaction_DepositKDAFeePool_WrongDepositAmount(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -634,7 +634,7 @@ func TestTransaction_DepositKDAFeePool_WrongDepositAmount(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -658,7 +658,7 @@ func TestTransaction_DepositKDAFeePool_WrongDepositAmount(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -672,7 +672,7 @@ func TestTransaction_WithdrawKdaPool_InvalidAmount(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	config := commonTxTest.LoadDefaultConfigs(t)
+	config := commonTxTest.LoadDefaultConfigs(t, commonTxTest.ConfigPath)
 
 	initialBalance := int64(1_000_000_000_000)
 	xidProposerBlock := 0
@@ -684,7 +684,7 @@ func TestTransaction_WithdrawKdaPool_InvalidAmount(t *testing.T) {
 	nodes, wallets, err := commonTxTest.CreateSetupForTxTests(initialBalance, numNodes, numConsensusSize, numWallets, config)
 	require.Nil(t, err)
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -722,7 +722,7 @@ func TestTransaction_WithdrawKdaPool_InvalidAmount(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -763,7 +763,7 @@ func TestTransaction_WithdrawKdaPool_InvalidAmount(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -787,7 +787,7 @@ func TestTransaction_WithdrawKdaPool_InvalidAmount(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)
@@ -809,7 +809,7 @@ func TestTransaction_WithdrawKdaPool_InvalidAmount(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, blkSlot, blkNonce)
 	require.Nil(t, err)

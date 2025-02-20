@@ -74,7 +74,7 @@ func (txc *transactionCounter) displayLogInfo(
 		"block txs processed", txc.currentBlockTxs,
 	}
 	txc.mutex.RUnlock()
-	log.Debug(message, arguments...)
+	log.Trace(message, arguments...)
 
 	numTxs := uint64(blck.GetTxCount())
 	log.Trace("txs info",

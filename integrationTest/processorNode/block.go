@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/data"
+	"github.com/klever-io/klever-go/data/api"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
@@ -47,7 +49,7 @@ func ProposeBlockWithConsensusSigs(nodes []*ProcessorNode, pubKeys []string, ind
 	if check.IfNil(currHdr) {
 		currHdr = nodes[indexProposer].Blkc.GetGenesisHeader()
 
-		buff, err := TestMarshalizer.Marshal(currHdr)
+		buff, err := TestMarshalizer.Marshal(currHdr.GetBlockHeader())
 		if err != nil {
 			return nil, err
 		}
@@ -67,7 +69,7 @@ func ProposeBlockWithConsensusSigs(nodes []*ProcessorNode, pubKeys []string, ind
 
 	genesisSlot := uint64(0) //Todo: add it in other place
 	// #nosec G115
-	finalTimestamp := nodes[0].SlotManager.Timestamp().Unix() + int64((slot-genesisSlot)*uint64(nodes[0].SlotManager.TimeDuration().Seconds()))
+	finalTimestamp := nodes[indexProposer].SlotManager.Timestamp().Unix() + int64((slot-genesisSlot)*uint64(nodes[indexProposer].SlotManager.TimeDuration().Seconds()))
 	blk.SetTimestamp(finalTimestamp)
 	blk.SetPrevRandSeed(prevRandomness)
 	blk.SetRandSeed(randSeed)
@@ -173,6 +175,10 @@ func DoConsensusSigningOnBlock(
 	return blockHeader, nil
 }
 
+func (n *ProcessorNode) GetBlockByNonce(nonce uint64) (*api.Block, error) {
+	return n.Node.GetBlockByNonce(nonce, false)
+}
+
 // GetBlock returns the first data.HeaderHandler stored in datapools having the nonce provided as parameter
 func (n *ProcessorNode) GetBlock(nonce uint64) (data.HeaderHandler, error) {
 	invalidCachers := n.DataPool == nil || n.DataPool.Headers() == nil
@@ -182,7 +188,12 @@ func (n *ProcessorNode) GetBlock(nonce uint64) (data.HeaderHandler, error) {
 
 	headerObjects, _, err := n.DataPool.Headers().GetHeadersByNonce(nonce)
 	if err != nil {
-		return nil, fmt.Errorf("no headers found for nonce %d %s", nonce, err.Error())
+		// try from storer
+		header, _, err := process.GetHeaderFromStorageWithNonce(nonce, n.Store, n.Uint64ByteSliceConverter, n.InternalMarshalizer)
+		if err != nil {
+			return nil, fmt.Errorf("no headers found for nonce %d %s", nonce, err.Error())
+		}
+		return header, nil
 	}
 
 	headerObject := headerObjects[len(headerObjects)-1]

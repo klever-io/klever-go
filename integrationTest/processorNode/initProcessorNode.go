@@ -26,6 +26,7 @@ import (
 	"github.com/klever-io/klever-go/crypto/signing/multisig"
 	"github.com/klever-io/klever-go/data/endProcess"
 	"github.com/klever-io/klever-go/eventNotifier/notifier"
+	"github.com/klever-io/klever-go/indexer"
 	integrationTestsMock "github.com/klever-io/klever-go/integrationTest/mock"
 	"github.com/klever-io/klever-go/kapps"
 	networkMock "github.com/klever-io/klever-go/network/p2p/mock"
@@ -58,9 +59,18 @@ func NewProcessorNode(opts ...Option) (*ProcessorNode, error) {
 	return node, nil
 }
 
-func CreateNodesWithNodesCoordinatorAndHeaderSigVerifier(numOfNodes int, numConsensusSize int, mainConfig config.Config) ([]*ProcessorNode, error) {
+func CreateNodesWithNodesCoordinatorAndHeaderSigVerifier(
+	numOfNodes int,
+	numConsensusSize int,
+	mainConfig config.Config,
+) ([]*ProcessorNode, error) {
 	singleSigner := &mclsinglesig.BlsSingleSigner{}
 	blockKeyGen := signing.NewKeyGenerator(mcl.NewSuiteBLS12())
+
+	syncer := ntp.NewSyncTime(mainConfig.NTP, nil)
+	syncer.StartSyncingTime()
+	time.Sleep(1000 * time.Millisecond)
+	genesisTime := syncer.CurrentTime()
 
 	nodeList := make([]*ProcessorNode, numOfNodes)
 	completeNodesList := make([]Connectable, numOfNodes)
@@ -163,6 +173,8 @@ func CreateNodesWithNodesCoordinatorAndHeaderSigVerifier(numOfNodes int, numCons
 			headerIntegrityVerifier,
 			nodesSetup,
 			mainConfig,
+			syncer,
+			genesisTime,
 		)
 		if err != nil {
 			return nil, err
@@ -175,6 +187,8 @@ func CreateNodesWithNodesCoordinatorAndHeaderSigVerifier(numOfNodes int, numCons
 			}
 
 			processorNode.Indexer = idx
+		} else {
+			processorNode.Indexer = indexer.NewNilIndexer()
 		}
 
 		nodeList[i] = processorNode
@@ -226,7 +240,9 @@ func NewBaseProcessorNode(mainConfig config.Config) (*ProcessorNode, error) {
 		ConsensusGroupSizeCalled: func() int { return 1 },
 	}
 
-	peerSign := &mock.PeerSignatureHandler{Signer: &singlesig.Ed25519Signer{}}
+	singleSigner := &mclsinglesig.BlsSingleSigner{}
+	blockKeyGen := signing.NewKeyGenerator(mcl.NewSuiteBLS12())
+	peerSign := &mock.PeerSignatureHandler{Signer: singleSigner, KeyGen: blockKeyGen}
 
 	var txAccumulator node.Accumulator
 	txAccumulatorConfig := mainConfig.Antiflood.TxAccumulator
@@ -286,7 +302,7 @@ func NewBaseProcessorNode(mainConfig config.Config) (*ProcessorNode, error) {
 		TxSignMarshalizer:        getMarshalizer(),
 		InternalMarshalizer:      getMarshalizer(),
 		PeerSigHandler:           peerSign,
-		SingleSigner:             &singlesig.Ed25519Signer{},
+		SingleSigner:             &mclsinglesig.BlsSingleSigner{},
 		Uint64ByteSliceConverter: uint64ByteSlice.NewBigEndianConverter(),
 		MainConfig:               mainConfig,
 		Messenger:                messenger,
@@ -306,6 +322,9 @@ func NewBaseProcessorNode(mainConfig config.Config) (*ProcessorNode, error) {
 			PutCalled: func(slot int64, bootData *bootstrapStorage.BootstrapData) error {
 				return nil
 			},
+			GetHighestSlotCalled: func() int64 {
+				return 0
+			},
 		},
 		EnableEpochsConfig: config.EnableEpochsConfig{
 			EnableEpochs: config.EnableEpochs{
@@ -314,9 +333,12 @@ func NewBaseProcessorNode(mainConfig config.Config) (*ProcessorNode, error) {
 		},
 		TxSingleSigner: &singlesig.Ed25519Signer{},
 		AppStatusHandler: &mock.AppStatusHandlerStub{
-			SetUInt64ValueHandler: func(key string, value uint64) {
-
-			},
+			AddUint64Handler:      func(key string, value uint64) {},
+			IncrementHandler:      func(key string) {},
+			DecrementHandler:      func(key string) {},
+			SetUInt64ValueHandler: func(key string, value uint64) {},
+			SetStringValueHandler: func(key string, value string) {},
+			SetInt64ValueHandler:  func(key string, value int64) {},
 		},
 		PeerDenialEvaluator:     &networkMock.PeerDenialEvaluatorStub{},
 		ValidatorsProvider:      &heartbeatMock.ValidatorsProviderStub{},
@@ -373,6 +395,12 @@ func CreateNodesWithTxSetup(numOfNodes int, numConsensusSize int, mainConfig con
 	}
 	epochStartSubscriber := notifier.NewEpochStartSubscriptionHandler()
 	bootStorer := CreateMemUnit()
+
+	syncer := ntp.NewSyncTime(mainConfig.NTP, nil)
+	syncer.StartSyncingTime()
+	time.Sleep(1000 * time.Millisecond)
+	genesisTime := syncer.CurrentTime()
+
 	for i, v := range electedValidatorsList {
 		cache, err := lrucache.NewCache(10000)
 		if err != nil {
@@ -409,6 +437,8 @@ func CreateNodesWithTxSetup(numOfNodes int, numConsensusSize int, mainConfig con
 			i,
 			nodesSetup,
 			mainConfig,
+			syncer,
+			genesisTime,
 		)
 		if err != nil {
 			return nil, err
@@ -434,9 +464,12 @@ func NewTestProcessorNodeWithTxSetup(
 	keyIndex int,
 	nodeSetup sharding.GenesisNodesSetupHandler,
 	mainConfig config.Config,
+	syncer ntp.SyncTimer,
+	genesisTime time.Time,
 ) (*ProcessorNode, error) {
-	singleSigner := &singlesig.Ed25519Signer{}
+	singleSigner := &mclsinglesig.BlsSingleSigner{}
 	blockSingleSigner := &mclsinglesig.BlsSingleSigner{}
+	blockKeyGen := signing.NewKeyGenerator(mcl.NewSuiteBLS12())
 
 	p2pConfig := CreateP2PConfigWithNoDiscovery()
 	messenger, err := CreateMessengerFromP2P(p2pConfig)
@@ -474,14 +507,8 @@ func NewTestProcessorNodeWithTxSetup(
 		return nil, err
 	}
 
-	syncer := ntp.NewSyncTime(mainConfig.NTP, nil)
-	syncer.StartSyncingTime()
-
-	time.Sleep(1000 * time.Millisecond)
-	ntpTime := syncer.CurrentTime()
-
 	pn := &ProcessorNode{
-		GenesisTime:              ntpTime,
+		GenesisTime:              genesisTime,
 		AddressPubkeyConverter:   TestAddressPubkeyConverter,
 		PubkeyTxSignList:         txSignPubkeyList,
 		PubkeyBlockSignList:      blockSignPubkeyList,
@@ -490,10 +517,10 @@ func NewTestProcessorNodeWithTxSetup(
 		TxSignHasher:             getHasher(),
 		TxSignMarshalizer:        getMarshalizer(),
 		InternalMarshalizer:      getMarshalizer(),
-		SingleSigner:             &singlesig.Ed25519Signer{},
+		SingleSigner:             singleSigner,
 		TxSingleSigner:           &singlesig.Ed25519Signer{},
 		Uint64ByteSliceConverter: uint64ByteSlice.NewBigEndianConverter(),
-		PeerSigHandler:           &mock.PeerSignatureHandler{Signer: &singlesig.Ed25519Signer{}},
+		PeerSigHandler:           &mock.PeerSignatureHandler{Signer: singleSigner, KeyGen: blockKeyGen},
 		BootStorer: &mock.BoostrapStorerMock{
 			PutCalled: func(slot int64, bootData *bootstrapStorage.BootstrapData) error {
 				return nil
@@ -507,9 +534,12 @@ func NewTestProcessorNodeWithTxSetup(
 		ConsensusGroupSize: len(blockSignPubkeyList), // check
 		SyncTimer:          syncer,
 		AppStatusHandler: &mock.AppStatusHandlerStub{
-			SetUInt64ValueHandler: func(key string, value uint64) {
-
-			},
+			AddUint64Handler:      func(key string, value uint64) {},
+			IncrementHandler:      func(key string) {},
+			DecrementHandler:      func(key string) {},
+			SetUInt64ValueHandler: func(key string, value uint64) {},
+			SetStringValueHandler: func(key string, value string) {},
+			SetInt64ValueHandler:  func(key string, value int64) {},
 		},
 		PeerDenialEvaluator:     &networkMock.PeerDenialEvaluatorStub{},
 		ValidatorsProvider:      &heartbeatMock.ValidatorsProviderStub{},
@@ -584,9 +614,12 @@ func NewTestProcessorNodeWithCustomNodesCoordinator(
 	headerIntegrityVerifier process.HeaderIntegrityVerifier,
 	nodeSetup sharding.GenesisNodesSetupHandler,
 	mainConfig config.Config,
+	syncer ntp.SyncTimer,
+	genesisTime time.Time,
 ) (*ProcessorNode, error) {
-	singleSigner := &singlesig.Ed25519Signer{}
+	singleSigner := &mclsinglesig.BlsSingleSigner{}
 	blockSingleSigner := &mclsinglesig.BlsSingleSigner{}
+	blockKeyGen := signing.NewKeyGenerator(mcl.NewSuiteBLS12())
 
 	p2pConfig := CreateP2PConfigWithNoDiscovery()
 	messenger, err := CreateMessengerFromP2P(p2pConfig)
@@ -604,34 +637,14 @@ func NewTestProcessorNodeWithCustomNodesCoordinator(
 		return nil, err
 	}
 
-	forkControllerStub := &integrationTestsMock.ForkControllerStub{
-		ProcessorFlowITOPriceCalled: func() bool {
-			return true
-		},
-		ClaimKFICalled: func() bool {
-			return true
-		},
-		FixStakingBucketsCalled: func() bool {
-			return true
-		},
-		KdaFprCalled: func() bool {
-			return true
-		},
-	}
+	forkControllerStub := mock.NewForkControllerStub()
 
 	proposalController, err := kapps.NewProposalController(forkControllerStub)
 	if err != nil {
 		return nil, err
 	}
-
-	syncer := ntp.NewSyncTime(mainConfig.NTP, nil)
-	syncer.StartSyncingTime()
-
-	time.Sleep(1000 * time.Millisecond)
-	ntpTime := syncer.CurrentTime()
-
 	pn := &ProcessorNode{
-		GenesisTime:              ntpTime,
+		GenesisTime:              genesisTime,
 		AddressPubkeyConverter:   TestAddressPubkeyConverter,
 		ValidatorPubkeyConverter: TestValidatorPubkeyConverter,
 		PubkeyTxSignList:         txSignPubkeyList,
@@ -641,13 +654,16 @@ func NewTestProcessorNodeWithCustomNodesCoordinator(
 		TxSignHasher:             getHasher(),
 		TxSignMarshalizer:        getMarshalizer(),
 		InternalMarshalizer:      getMarshalizer(),
-		SingleSigner:             &singlesig.Ed25519Signer{},
+		SingleSigner:             singleSigner,
 		TxSingleSigner:           &singlesig.Ed25519Signer{},
 		Uint64ByteSliceConverter: uint64ByteSlice.NewBigEndianConverter(),
-		PeerSigHandler:           &mock.PeerSignatureHandler{Signer: &singlesig.Ed25519Signer{}},
+		PeerSigHandler:           &mock.PeerSignatureHandler{Signer: singleSigner, KeyGen: blockKeyGen},
 		BootStorer: &mock.BoostrapStorerMock{
 			PutCalled: func(slot int64, bootData *bootstrapStorage.BootstrapData) error {
 				return nil
+			},
+			GetHighestSlotCalled: func() int64 {
+				return 0
 			},
 		},
 		Messenger:               messenger,
@@ -659,9 +675,12 @@ func NewTestProcessorNodeWithCustomNodesCoordinator(
 		ConsensusGroupSize:      len(blockSignPubkeyList), // check
 		SyncTimer:               syncer,
 		AppStatusHandler: &mock.AppStatusHandlerStub{
-			SetUInt64ValueHandler: func(key string, value uint64) {
-
-			},
+			AddUint64Handler:      func(key string, value uint64) {},
+			IncrementHandler:      func(key string) {},
+			DecrementHandler:      func(key string) {},
+			SetUInt64ValueHandler: func(key string, value uint64) {},
+			SetStringValueHandler: func(key string, value string) {},
+			SetInt64ValueHandler:  func(key string, value int64) {},
 		},
 		PeerDenialEvaluator:     &networkMock.PeerDenialEvaluatorStub{},
 		ValidatorsProvider:      &heartbeatMock.ValidatorsProviderStub{},

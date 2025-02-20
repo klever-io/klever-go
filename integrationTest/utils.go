@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/klever-io/klever-go/common"
@@ -240,5 +241,21 @@ func LoadConfig(relativePath string) (config.Config, error) {
 }
 
 func LoadEnableEpochsConfig(relativePath string) (config.EnableEpochsConfig, error) {
-	return config.LoadEnableEpochsConfig(relativePath)
+	config, err := config.LoadEnableEpochsConfig(relativePath)
+	if err != nil {
+		return config, err
+	}
+	// extract root path remove file name
+	pos := strings.LastIndex(relativePath, "/")
+	rootPath := relativePath[:pos+1]
+	// replace GasSchedule path with relative path
+	for i, v := range config.GasSchedule.GasScheduleByEpochs {
+		// get fileName
+		pos := strings.LastIndex(v.FileName, "/")
+		fileName := v.FileName[pos+1:]
+		// replace fileName with relative path
+		config.GasSchedule.GasScheduleByEpochs[i].FileName = rootPath + fileName
+	}
+
+	return config, nil
 }

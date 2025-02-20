@@ -136,12 +136,12 @@ func (sr *subslotStartSlot) initCurrentSlot() bool {
 		return false
 	}
 
-	msg := ""
+	msg := "(not my turn)"
 	if leader == sr.SelfPubKey() {
 		sr.AppStatusHandler().Increment(core.MetricCountLeader)
 		sr.AppStatusHandler().SetStringValue(core.MetricConsensusSlotState, "proposed")
 		sr.AppStatusHandler().SetStringValue(core.MetricConsensusState, "proposer")
-		msg = " (my turn)"
+		msg = "(my turn)"
 	}
 
 	log.Debug("step 0: preparing the slot",

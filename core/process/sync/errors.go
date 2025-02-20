@@ -42,5 +42,5 @@ var ErrRollBackBehindFinalHeader = errors.New("roll back behind final header is 
 // ErrRollBackBehindForkNonce signals that a roll back behind fork nonce is not permitted
 var ErrRollBackBehindForkNonce = errors.New("roll back behind fork nonce is not permitted")
 
-// ErrGenesisTimeMissmatch signals that a received header has a genesis time missmatch
-var ErrGenesisTimeMissmatch = errors.New("genesis time missmatch")
+// ErrGenesisTimeMismatch signals that a received header has a genesis time mismatch
+var ErrGenesisTimeMismatch = errors.New("genesis time mismatch")

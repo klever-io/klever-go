@@ -114,7 +114,7 @@ func (bfd *baseForkDetector) checkBlockBasicValidity(
 
 	if genesisTimeFromHeader != bfd.genesisTime {
 		process.AddHeaderToBlackList(bfd.blackListHandler, headerHash)
-		return ErrGenesisTimeMissmatch
+		return ErrGenesisTimeMismatch
 	}
 	if slotDif < 0 {
 		return ErrLowerSlotInBlock

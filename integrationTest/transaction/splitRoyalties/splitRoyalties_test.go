@@ -29,7 +29,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferPercentage_ShouldWork(t *te
 	split2 := commonTxTest.CreateAndMintAccount(0, nodes)
 	mainRoyalty := commonTxTest.CreateAndMintAccount(0, nodes)
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -92,7 +92,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferPercentage_ShouldWork(t *te
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -116,7 +116,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferPercentage_ShouldWork(t *te
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, nodes, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -127,7 +127,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferPercentage_ShouldWork(t *te
 	estimatedTotalRoyalty := computeRoyalty(transferAmount, 100)
 	estimatedTotalSplitRoyalty := computeRoyalty(estimatedTotalRoyalty, 300)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	mainRoyaltyAccount := integrationTest.GetUserAccount(nodes[0], mainRoyalty.Address)
 	require.NotNil(t, mainRoyaltyAccount)
@@ -165,7 +165,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferFixed_ShouldWork(t *testing
 	split2 := commonTxTest.CreateAndMintAccount(0, nodes)
 	mainRoyalty := commonTxTest.CreateAndMintAccount(0, nodes)
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -225,7 +225,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferFixed_ShouldWork(t *testing
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -249,7 +249,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferFixed_ShouldWork(t *testing
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, nodes, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -260,7 +260,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferFixed_ShouldWork(t *testing
 	estimatedTotalRoyalty := int64(100)
 	estimatedTotalSplitRoyalty := computeRoyalty(estimatedTotalRoyalty, 300)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	mainRoyaltyAccount := integrationTest.GetUserAccount(nodes[0], mainRoyalty.Address)
 	require.NotNil(t, mainRoyaltyAccount)
@@ -290,7 +290,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferFixedAndPercentage_ShouldWo
 	split2 := commonTxTest.CreateAndMintAccount(0, nodes)
 	mainRoyalty := commonTxTest.CreateAndMintAccount(0, nodes)
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -353,7 +353,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferFixedAndPercentage_ShouldWo
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -377,7 +377,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferFixedAndPercentage_ShouldWo
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, nodes, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -389,7 +389,7 @@ func TestTransaction_SplitRoyalties_Fungible_TransferFixedAndPercentage_ShouldWo
 	estimatedFixedTotalSplitRoyalty := computeRoyalty(estimatedFixedTotalRoyalty, 300)
 	estimatedPercentageTotalRoyalty := computeRoyalty(transferAmount, 100)
 	estimatedPercentageTotalSplitRoyalty := computeRoyalty(estimatedPercentageTotalRoyalty, 300)
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	mainRoyaltyAccount := integrationTest.GetUserAccount(nodes[0], mainRoyalty.Address)
 	require.NotNil(t, mainRoyaltyAccount)
@@ -432,7 +432,7 @@ func TestTransaction_SplitRoyalties_NFT_TransferFixed_ShouldWork(t *testing.T) {
 	split2 := commonTxTest.CreateAndMintAccount(0, nodes)
 	mainRoyalty := commonTxTest.CreateAndMintAccount(0, nodes)
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -490,7 +490,7 @@ func TestTransaction_SplitRoyalties_NFT_TransferFixed_ShouldWork(t *testing.T) {
 
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -521,7 +521,7 @@ func TestTransaction_SplitRoyalties_NFT_TransferFixed_ShouldWork(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -541,7 +541,7 @@ func TestTransaction_SplitRoyalties_NFT_TransferFixed_ShouldWork(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, nodes, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -552,7 +552,7 @@ func TestTransaction_SplitRoyalties_NFT_TransferFixed_ShouldWork(t *testing.T) {
 	estimatedTotalRoyalty := int64(100)
 	estimatedTotalSplitRoyalty := computeRoyalty(estimatedTotalRoyalty, 300)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	mainRoyaltyAccount := integrationTest.GetUserAccount(nodes[0], mainRoyalty.Address)
 	require.NotNil(t, mainRoyaltyAccount)
@@ -583,7 +583,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketPercentage_ShouldWork(t *testing.T
 	mainRoyalty := commonTxTest.CreateAndMintAccount(0, nodes)
 	marketplaceReferral := commonTxTest.CreateAndMintAccount(0, nodes)
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -640,7 +640,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketPercentage_ShouldWork(t *testing.T
 
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -671,7 +671,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketPercentage_ShouldWork(t *testing.T
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -697,7 +697,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketPercentage_ShouldWork(t *testing.T
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -728,7 +728,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketPercentage_ShouldWork(t *testing.T
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -756,7 +756,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketPercentage_ShouldWork(t *testing.T
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -803,7 +803,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixed_ShouldWork(t *testing.T) {
 	mainRoyalty := commonTxTest.CreateAndMintAccount(0, nodes)
 	marketplaceReferral := commonTxTest.CreateAndMintAccount(0, nodes)
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -860,7 +860,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixed_ShouldWork(t *testing.T) {
 
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -891,7 +891,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixed_ShouldWork(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -917,7 +917,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixed_ShouldWork(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -948,7 +948,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixed_ShouldWork(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -976,7 +976,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixed_ShouldWork(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -1023,7 +1023,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixedAndPercentage_ShouldWork(t *t
 	mainRoyalty := commonTxTest.CreateAndMintAccount(0, nodes)
 	marketplaceReferral := commonTxTest.CreateAndMintAccount(0, nodes)
 
-	time.Sleep(3000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	defer func() {
 		for _, n := range nodes {
@@ -1082,7 +1082,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixedAndPercentage_ShouldWork(t *t
 
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -1113,7 +1113,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixedAndPercentage_ShouldWork(t *t
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -1139,7 +1139,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixedAndPercentage_ShouldWork(t *t
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -1170,7 +1170,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixedAndPercentage_ShouldWork(t *t
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	slot, nonce, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)
@@ -1198,7 +1198,7 @@ func TestTransaction_SplitRoyalties_NFT_MarketFixedAndPercentage_ShouldWork(t *t
 	)
 	require.Nil(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	_, _, _, err = integrationTest.ProposeAndSyncOneBlock(t, nodes, xidProposerBlock, slot, nonce)
 	require.Nil(t, err)

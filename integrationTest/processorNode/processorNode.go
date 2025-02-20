@@ -55,6 +55,7 @@ import (
 	"github.com/klever-io/klever-go/crypto/signing/ed25519"
 	"github.com/klever-io/klever-go/crypto/signing/ed25519/singlesig"
 	"github.com/klever-io/klever-go/crypto/signing/mcl"
+	mclsinglesig "github.com/klever-io/klever-go/crypto/signing/mcl/singlesig"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/blockchain"
@@ -134,6 +135,7 @@ const defaultChancesSelection = 1
 type NodeAccount struct {
 	SingleSigner      crypto.SingleSigner
 	BlockSingleSigner crypto.SingleSigner
+	TxSingleSigner    crypto.SingleSigner
 	SkTxSign          crypto.PrivateKey
 	PkTxSign          crypto.PublicKey
 	PkTxSignBytes     []byte
@@ -462,7 +464,11 @@ func (n *ProcessorNode) InitTestNode() error {
 	if err != nil {
 		return err
 	}
-	n.NetworkShardingCollector = &consensusMock.NetworkShardingCollectorStub{}
+	n.NetworkShardingCollector = &consensusMock.NetworkShardingCollectorStub{
+		UpdatePeerIDPublicKeyCalled: func(peerID core.PeerID, pkBytes []byte) {
+			log.Debug("UpdatePeerIDPublicKey", "peerID", peerID.Pretty(), "pkBytes", pkBytes)
+		},
+	}
 	n.initStorage()
 	n.initRequestedItemsHandler()
 	n.initRatingsData()
@@ -723,7 +729,7 @@ func (n *ProcessorNode) CreateGenesisBlock() error {
 	if err != nil {
 		return err
 	}
-	hash, err := tools.CalculateHash(TestMarshalizer, TestHasher, genesisBlock)
+	hash, err := tools.CalculateHash(TestMarshalizer, TestHasher, genesisBlock.GetBlockHeader())
 	if err != nil {
 		return err
 	}
@@ -746,7 +752,7 @@ func (n *ProcessorNode) initInterceptors(heartbeatPk string) error {
 		Epoch:              0,
 		EpochStartSlot:     0,
 		EpochStartNotifier: n.EpochStartNotifier,
-		SlotsPerEpoch:      4,
+		SlotsPerEpoch:      6,
 		Marshalizer:        getMarshalizer(),
 		Hasher:             getHasher(),
 		Storage:            n.Store,
@@ -777,7 +783,7 @@ func (n *ProcessorNode) initInterceptors(heartbeatPk string) error {
 		DataPool:                  n.DataPool,
 		Accounts:                  n.AccountsAdapter,
 		MaxTxNonceDeltaAllowed:    15000,
-		SingleSigner:              n.SingleSigner,
+		SingleSigner:              n.TxSingleSigner,
 		BlockSingleSigner:         n.NodeAccount.BlockSingleSigner,
 		KeyGen:                    n.NodeAccount.KeygenTxSign,
 		BlockKeyGen:               n.NodeAccount.KeygenBlockSign,
@@ -917,7 +923,7 @@ func (n *ProcessorNode) initBlockProcessor() error {
 			Epoch:              0,
 			EpochStartSlot:     0,
 			EpochStartNotifier: n.EpochStartNotifier,
-			SlotsPerEpoch:      4,
+			SlotsPerEpoch:      6,
 			Marshalizer:        getMarshalizer(),
 			Hasher:             getHasher(),
 			Storage:            n.Store,
@@ -970,7 +976,7 @@ func (n *ProcessorNode) initBlockProcessor() error {
 		Marshalizer:    TestMarshalizer,
 		PubkeyConv:     TestAddressPubkeyConverter,
 		KeyGen:         n.NodeAccount.KeygenTxSign,
-		SingleSigner:   &singlesig.Ed25519Signer{},
+		SingleSigner:   n.TxSingleSigner,
 		EconomicsFee:   n.EconomicsData,
 		TxFeeHandler:   txFeeHandler,
 		EpochNotifier:  n.EpochNotifier,
@@ -1190,12 +1196,13 @@ func CreatePKBytes() []byte {
 }
 
 func CreateNodeAccount() *NodeAccount {
-	singleSigner := &singlesig.Ed25519Signer{}
+	singleSigner := &mclsinglesig.BlsSingleSigner{}
 	blockSigner := &mock.SingleSignerMock{
 		VerifyStub: func(public crypto.PublicKey, msg, sig []byte) error {
 			return nil
 		},
 	}
+	txSingleSigner := &singlesig.Ed25519Signer{}
 
 	sk, pk, keyGen := GenerateSkAndPk()
 
@@ -1206,6 +1213,7 @@ func CreateNodeAccount() *NodeAccount {
 	testNodeAccount := &NodeAccount{
 		SingleSigner:      singleSigner,
 		BlockSingleSigner: blockSigner,
+		TxSingleSigner:    txSingleSigner,
 		Balance:           big.NewInt(0),
 		KeygenTxSign:      keyGen,
 		KeygenBlockSign:   &mock.KeyGenMock{},
@@ -1298,7 +1306,7 @@ func (n *ProcessorNode) initNode() error {
 		node.WithResolversFinder(n.ResolversFinder),
 		node.WithTxSingleSigner(n.TxSingleSigner),
 		node.WithAppStatusHandler(n.AppStatusHandler),
-		// node.WithIndexer(esIndexer), // DON'T NEED FOR NOW
+		node.WithIndexer(n.Indexer),
 		node.WithEpochStartTrigger(n.EpochStartTrigger),
 		node.WithEpochStartEventNotifier(n.EpochStartNotifier),
 		node.WithBlockBlackListHandler(n.BlocksBlackListHandler),
@@ -1333,6 +1341,8 @@ func (n *ProcessorNode) initNode() error {
 		node.WithImportMode(false), // CHECK
 		node.WithEnableEpochsConfig(&n.EnableEpochsConfig),
 		node.WithForkController(n.ForkController),
+		node.WithDataPool(n.DataPool),
+		node.WithStartInSync(true),
 	)
 	if err != nil {
 		return err
@@ -1436,6 +1446,45 @@ func (n *ProcessorNode) ConnectTo(connectable Connectable) error {
 	}
 
 	return n.Messenger.ConnectToPeer(connectable.GetConnectableAddress())
+}
+
+func (n *ProcessorNode) GetCurrentBlockHeaderAndHash() (data.HeaderHandler, []byte) {
+	return n.Blkc.GetCurrentBlockHeader(), n.Blkc.GetCurrentBlockHeaderHash()
+}
+
+func (n *ProcessorNode) RevertOneBlock(nonce uint64) error {
+	// get current block
+	currHeader, err := n.GetBlock(nonce)
+	if err != nil {
+		return err
+	}
+
+	// get last block
+	prevHeader, err := n.GetBlock(nonce - 1)
+	if err != nil {
+		return err
+	}
+
+	err = n.Blkc.SetCurrentBlockHeader(prevHeader)
+	if err != nil {
+		return err
+	}
+
+	n.Blkc.SetCurrentBlockHeaderHash(prevHeader.GetParentHash())
+
+	err = n.BlockProcessor.RevertStateToBlock(prevHeader)
+	if err != nil {
+		return err
+	}
+
+	n.BlockProcessor.PruneStateOnRollback(currHeader, prevHeader)
+
+	err = n.BlockProcessor.RestoreBlockIntoPools(currHeader)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // SyncNode tries to process and commit a block already stored in data pool with provided nonce
