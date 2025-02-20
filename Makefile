@@ -50,7 +50,7 @@ endif
 
 GOCMD=go
 GORUN=$(GOCMD) run -exec $(ENV_FLAG) -ldflags="$(ldflags)"
-GOBUILD=$(GOCMD) build -ldflags="$(ldflags)"
+GOBUILD=$(GOCMD) build -ldflags="$(ldflags) -extldflags '-Wl,-rpath,\$$ORIGIN,-rpath,@executable_path'"
 
 
 ############################
