@@ -74,9 +74,9 @@ jobs:
           tar -czf klevergo-node${{ matrix.extension }} validator $LIB_FILE
           
           # Prepare extension files
-          mkdir ${{ matrix.extension }}
-          cp $LIB_FILE ${{ matrix.extension }}/
-          cp operator ${{ matrix.extension }}/koperator
+          mkdir ${{ matrix.name }}
+          cp $LIB_FILE ${{ matrix.name }}/
+          cp operator ${{ matrix.name }}/koperator
 
       - name: Create Release
         id: create_release
@@ -91,6 +91,9 @@ jobs:
 
       - name: List of built files
         run: ls -lh bin
+
+      - name: List of built extension files
+        run: ls -lh bin/${{ matrix.name }}
 
       - name: Get the release version from the tag
         shell: bash
@@ -118,6 +121,7 @@ jobs:
       - name: Upload Klever Blockchain IDE operator files to bucket
         uses: 'google-github-actions/upload-cloud-storage@v2'
         with:
-          path: 'bin/${{ matrix.extension }}/*'
+          path: 'bin/${{ matrix.name }}'
           destination: 'kleverchain-public/koperator/${{ matrix.name }}/${{ env.VERSION }}'
           predefinedAcl: 'publicRead'
+          parent: false
