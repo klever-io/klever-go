@@ -290,6 +290,7 @@ type ProcessorNode struct {
 	BlockChainHook                process.BlockChainHookHandler
 	WorkingDir                    string
 	LogProcessor                  process.TransactionLogProcessor
+	OnRequestTransactionsHandler  func(hashes [][]byte)
 }
 
 // ApplyOptions can set up different configurable options of a Node instance
@@ -805,7 +806,8 @@ func (n *ProcessorNode) initInterceptors(heartbeatPk string) error {
 				return nil, nil
 			},
 		},
-		ForkController: n.ForkController,
+		ForkController:        n.ForkController,
+		RequestedItemsHandler: n.RequestedItemsHandler,
 	}
 
 	interceptorContainer, err := interceptorscontainer.NewMetaInterceptorsContainerFactory(interceptorContainerArgs)
@@ -990,7 +992,6 @@ func (n *ProcessorNode) initBlockProcessor() error {
 		return err
 	}
 
-	requestTransaction := func(txHashes [][]byte) {}
 	preprocessor, err := preprocess.NewTransactionPreprocessor(
 		n.DataPool.Transactions(),
 		n.Store,
@@ -1000,7 +1001,7 @@ func (n *ProcessorNode) initBlockProcessor() error {
 		n.AccountsAdapter,
 		n.KappsAdapter,
 		n.PeersAdapter,
-		requestTransaction,
+		n.OnRequestTransaction,
 		n.EconomicsData,
 		TestAddressPubkeyConverter,
 		n.ForkController,
@@ -1154,6 +1155,14 @@ func (n *ProcessorNode) initBlockProcessor() error {
 	}
 
 	return nil
+}
+
+func (n *ProcessorNode) OnRequestTransaction(hashes [][]byte) {
+	if n.OnRequestTransactionsHandler == nil {
+		return
+	}
+
+	n.OnRequestTransactionsHandler(hashes)
 }
 
 //--------------------------------------------

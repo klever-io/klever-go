@@ -119,6 +119,25 @@ func CreateAndSendTransaction(
 	txType transaction.TXContract_ContractType,
 	contract any,
 ) (*transaction.Transaction, []byte, error) {
+	tx, hash, err := CreateTransactionOnly(sender, wallet, txType, contract)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	_, err = sender.SendTransaction(tx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return tx, hash, nil
+}
+
+func CreateTransactionOnly(
+	sender *processorNode.ProcessorNode,
+	wallet *processorNode.NodeAccount,
+	txType transaction.TXContract_ContractType,
+	contract any,
+) (*transaction.Transaction, []byte, error) {
 	tx, hash, err := createTransaction(sender, wallet, txType, contract)
 	if err != nil {
 		return nil, nil, err
@@ -130,11 +149,6 @@ func CreateAndSendTransaction(
 	}
 
 	wallet.Nonce++
-
-	_, err = sender.SendTransaction(tx)
-	if err != nil {
-		return nil, nil, err
-	}
 
 	return tx, hash, nil
 }

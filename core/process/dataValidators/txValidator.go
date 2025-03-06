@@ -249,15 +249,16 @@ func (txv *txValidator) CheckTxWhiteList(data process.InterceptedData) error {
 
 // CheckDup will check if transactions are whitelisted and could be added in pools
 func (txv *txValidator) CheckDup(txHash []byte) error {
-	//TODO: Investigate if it is needed
-	// if txv.txStorer.Has(txHash) == nil {
-	// 	return fmt.Errorf("%w: storer", common.ErrDupTransaction)
-	// }
+	// check cache pool first for efficiency
+	_, exist := txv.dataPool.Transactions().SearchFirstData(txHash)
+	if exist {
+		return common.ErrDupTransaction
+	}
 
-	// _, exist := txv.dataPool.Transactions().SearchFirstData(txHash)
-	// if exist {
-	// 	return common.ErrDupTransaction
-	// }
+	// check storer
+	if txv.txStorer.Has(txHash) == nil {
+		return fmt.Errorf("%w: storer", common.ErrDupTransaction)
+	}
 
 	return nil
 }

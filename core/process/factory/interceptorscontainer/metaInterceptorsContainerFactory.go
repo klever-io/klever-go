@@ -123,6 +123,7 @@ func NewMetaInterceptorsContainerFactory(
 		addressPubkeyConverter: args.AddressPubkeyConverter,
 		kAppController:         args.KAppController,
 		forkController:         args.ForkController,
+		requestedItemsHandler:  args.RequestedItemsHandler,
 	}
 
 	icf := &metaInterceptorsContainerFactory{

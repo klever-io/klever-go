@@ -65,56 +65,111 @@ func TestNewTxInterceptorProcessor_ShouldWork(t *testing.T) {
 
 //------- Validate
 
-func TestTxInterceptorProcessor_ValidateNilTxShouldErr(t *testing.T) {
+func TestTxInterceptorProcessor_Validate(t *testing.T) {
 	t.Parallel()
 
-	txip, _ := processor.NewTxInterceptorProcessor(createMockTxArgument())
-
-	err := txip.Validate(nil, "")
-
-	assert.Equal(t, process.ErrWrongTypeAssertion, err)
-}
-
-func TestTxInterceptorProcessor_ValidateReturnsFalseShouldErr(t *testing.T) {
-	t.Parallel()
-
+	dupError := errors.New("checkDup error")
 	expectedErr := errors.New("tx validation error")
-	arg := createMockTxArgument()
-	arg.TxValidator = &mock.TxValidatorStub{
-		CheckTxValidityCalled: func(txValidatorHandler process.TxValidatorHandler) error {
-			return expectedErr
+
+	tests := []struct {
+		name                  string
+		checkTxValidityErr    error
+		checkDupErr           error
+		hasRequestedItem      bool
+		inputTxData           process.InterceptedData
+		expectedErrorContains string
+		expectedNilError      bool
+	}{
+		{
+			name:                  "Nil transaction should return ErrWrongTypeAssertion",
+			checkTxValidityErr:    nil,
+			checkDupErr:           nil,
+			hasRequestedItem:      false,
+			inputTxData:           nil,
+			expectedErrorContains: process.ErrWrongTypeAssertion.Error(),
+			expectedNilError:      false,
+		},
+		{
+			name:               "CheckDup error should return error",
+			checkTxValidityErr: nil,
+			checkDupErr:        dupError,
+			hasRequestedItem:   false,
+			inputTxData: &struct {
+				mock.InterceptedDataStub
+				mock.InterceptedTxHandlerStub
+			}{},
+			expectedErrorContains: dupError.Error(),
+			expectedNilError:      false,
+		},
+		{
+			name:               "CheckDup error but allowed by requested items",
+			checkTxValidityErr: nil,
+			checkDupErr:        dupError,
+			hasRequestedItem:   true,
+			inputTxData: &struct {
+				mock.InterceptedDataStub
+				mock.InterceptedTxHandlerStub
+			}{},
+			expectedErrorContains: "",
+			expectedNilError:      true,
+		},
+		{
+			name:               "Tx validation error should return error",
+			checkTxValidityErr: expectedErr,
+			checkDupErr:        nil,
+			hasRequestedItem:   false,
+			inputTxData: &struct {
+				mock.InterceptedDataStub
+				mock.InterceptedTxHandlerStub
+			}{},
+			expectedErrorContains: expectedErr.Error(),
+			expectedNilError:      false,
+		},
+		{
+			name:               "Tx validation success should return nil error",
+			checkTxValidityErr: nil,
+			checkDupErr:        nil,
+			hasRequestedItem:   false,
+			inputTxData: &struct {
+				mock.InterceptedDataStub
+				mock.InterceptedTxHandlerStub
+			}{},
+			expectedErrorContains: "",
+			expectedNilError:      true,
 		},
 	}
-	txip, _ := processor.NewTxInterceptorProcessor(arg)
 
-	txInterceptedData := &struct {
-		mock.InterceptedDataStub
-		mock.InterceptedTxHandlerStub
-	}{}
-	err := txip.Validate(txInterceptedData, "")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			arg := createMockTxArgument()
+			arg.TxValidator = &mock.TxValidatorStub{
+				CheckTxValidityCalled: func(txValidatorHandler process.TxValidatorHandler) error {
+					return tt.checkTxValidityErr
+				},
+				CheckDupCalled: func(hash []byte) error {
+					return tt.checkDupErr
+				},
+			}
 
-	assert.NotNil(t, err)
-	assert.True(t, strings.Contains(err.Error(), expectedErr.Error()))
-}
+			if tt.hasRequestedItem {
+				arg.RequestedItemsHandler = &testscommon.RequestedItemsHandlerStub{
+					HasCalled: func(key string) bool {
+						return true
+					},
+				}
+			}
 
-func TestTxInterceptorProcessor_ValidateReturnsTrueShouldWork(t *testing.T) {
-	t.Parallel()
+			txip, _ := processor.NewTxInterceptorProcessor(arg)
+			err := txip.Validate(tt.inputTxData, "")
 
-	arg := createMockTxArgument()
-	arg.TxValidator = &mock.TxValidatorStub{
-		CheckTxValidityCalled: func(txValidatorHandler process.TxValidatorHandler) error {
-			return nil
-		},
+			if tt.expectedNilError {
+				assert.Nil(t, err)
+			} else {
+				assert.NotNil(t, err)
+				assert.True(t, strings.Contains(err.Error(), tt.expectedErrorContains))
+			}
+		})
 	}
-	txip, _ := processor.NewTxInterceptorProcessor(arg)
-
-	txInterceptedData := &struct {
-		mock.InterceptedDataStub
-		mock.InterceptedTxHandlerStub
-	}{}
-	err := txip.Validate(txInterceptedData, "")
-
-	assert.Nil(t, err)
 }
 
 //------- Save

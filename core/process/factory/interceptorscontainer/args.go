@@ -73,4 +73,5 @@ type MetaInterceptorsContainerFactoryArgs struct {
 	TxFeeHandler              process.EconomicsDataHandler
 	KAppController            kapp.KAppController
 	ForkController            core.ForkController
+	RequestedItemsHandler     retriever.RequestedItemsHandler
 }

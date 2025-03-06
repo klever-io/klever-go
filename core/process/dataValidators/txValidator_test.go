@@ -3,6 +3,7 @@ package dataValidators_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -823,4 +824,83 @@ func TestTxValidator_IsInterfaceNil(t *testing.T) {
 	txValidator = nil
 
 	assert.True(t, check.IfNil(txValidator))
+}
+
+func TestTxValidator_CheckDup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		txHash        []byte
+		inPool        bool
+		inStorage     bool
+		expectedError error
+	}{
+		{
+			name:          "transaction not found anywhere",
+			txHash:        []byte("tx1"),
+			inPool:        false,
+			inStorage:     false,
+			expectedError: nil,
+		},
+		{
+			name:          "transaction found in pool",
+			txHash:        []byte("tx2"),
+			inPool:        true,
+			inStorage:     false,
+			expectedError: common.ErrDupTransaction,
+		},
+		{
+			name:          "transaction found in storage",
+			txHash:        []byte("tx3"),
+			inPool:        false,
+			inStorage:     true,
+			expectedError: fmt.Errorf("%w: storer", common.ErrDupTransaction),
+		},
+	}
+
+	for _, tt := range tests {
+		tc := tt // capture range variable
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange
+			poolsHolder := &mock.PoolsHolderStub{
+				TransactionsCalled: func() retriever.ShardedDataCacherNotifier {
+					return &mock.ShardedDataStub{
+						SearchFirstDataCalled: func(key []byte) (value interface{}, ok bool) {
+							return "tx", tc.inPool
+						},
+					}
+				},
+			}
+
+			storerMock := &mock.StorerStub{
+				HasCalled: func(key []byte) error {
+					if tc.inStorage {
+						return nil // nil means key exists
+					}
+					return errors.New("not found")
+				},
+			}
+
+			txValidator, _ := dataValidators.NewTxValidator(
+				getAccAdapter(0),
+				storerMock,
+				poolsHolder,
+				&mock.WhiteListHandlerStub{},
+				mock.NewPubkeyConverterMock(32),
+				&cryptoMock.SingleSignerStub{},
+				&cryptoMock.KeyGenMock{},
+				getKAppController(),
+				core.MaxTxNonceDeltaAllowed,
+			)
+
+			// Act
+			err := txValidator.CheckDup(tc.txHash)
+
+			// Assert
+			assert.Equal(t, err, tc.expectedError)
+		})
+	}
 }

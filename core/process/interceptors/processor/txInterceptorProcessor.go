@@ -4,6 +4,7 @@ import (
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/tools/check"
 )
@@ -13,8 +14,9 @@ var _ process.InterceptorProcessor = (*TxInterceptorProcessor)(nil)
 // TxInterceptorProcessor is the processor used when intercepting transactions
 // (smart contract results, receipts, transaction) structs which satisfy TransactionHandler interface.
 type TxInterceptorProcessor struct {
-	dataPool    TXDataPool
-	txValidator process.TxValidator
+	dataPool              TXDataPool
+	txValidator           process.TxValidator
+	requestedItemsHandler retriever.RequestedItemsHandler
 }
 
 // NewTxInterceptorProcessor creates a new TxInterceptorProcessor instance
@@ -30,8 +32,9 @@ func NewTxInterceptorProcessor(argument *ArgTxInterceptorProcessor) (*TxIntercep
 	}
 
 	return &TxInterceptorProcessor{
-		dataPool:    argument.TxDataCache,
-		txValidator: argument.TxValidator,
+		dataPool:              argument.TxDataCache,
+		txValidator:           argument.TxValidator,
+		requestedItemsHandler: argument.RequestedItemsHandler,
 	}, nil
 }
 
@@ -43,11 +46,21 @@ func (txip *TxInterceptorProcessor) Validate(data process.InterceptedData, _ cor
 	}
 
 	err := txip.txValidator.CheckDup(data.Hash())
-	if err != nil {
+	// allow requested transactions to be validated
+	if err != nil && !txip.checkRequested(data.Hash()) {
 		return err
 	}
 
 	return txip.txValidator.CheckTxValidity(interceptedTx)
+}
+
+// checkRequested checks if the requested item is in the requested items handler
+func (txip *TxInterceptorProcessor) checkRequested(hash []byte) bool {
+	if txip.requestedItemsHandler == nil {
+		return false
+	}
+
+	return txip.requestedItemsHandler.Has(string(hash))
 }
 
 // Save will save the received data into the cacher

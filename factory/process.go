@@ -121,6 +121,7 @@ type MetaInterceptorContainerFactoryArgs struct {
 	whiteListerVerifiedTxs  process.WhiteListHandler
 	epochNotifier           process.EpochNotifier
 	forkController          core.ForkController
+	requestedItemsHandler   retriever.RequestedItemsHandler
 }
 
 // NewProcessComponentsFactoryArgs initializes the arguments necessary for creating the process components
@@ -376,6 +377,7 @@ func createBaseProcessor(
 			args.whiteListerVerifiedTxs,
 			args.epochNotifier,
 			args.forkController,
+			args.requestedItemsHandler,
 		},
 	)
 	if err != nil {
@@ -634,6 +636,7 @@ type InterceptorContainerFactoryArgs struct {
 	whiteListerVerifiedTxs  process.WhiteListHandler
 	epochNotifier           process.EpochNotifier
 	forkController          core.ForkController
+	requestedItemsHandler   retriever.RequestedItemsHandler
 }
 
 func newInterceptorContainerFactory(
@@ -655,6 +658,7 @@ func newInterceptorContainerFactory(
 			args.whiteListerVerifiedTxs,
 			args.epochNotifier,
 			args.forkController,
+			args.requestedItemsHandler,
 		},
 	)
 }
@@ -692,6 +696,7 @@ func newMetaInterceptorContainerFactory(
 		EpochNotifier:           args.epochNotifier,
 		KAppController:          args.state.KAppController,
 		ForkController:          args.forkController,
+		RequestedItemsHandler:   args.requestedItemsHandler,
 	}
 	interceptorContainerFactory, err := interceptorscontainer.NewMetaInterceptorsContainerFactory(metaInterceptorsContainerFactoryArgs)
 	if err != nil {

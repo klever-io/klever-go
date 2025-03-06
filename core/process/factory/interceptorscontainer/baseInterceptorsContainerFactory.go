@@ -40,6 +40,7 @@ type baseInterceptorsContainerFactory struct {
 	addressPubkeyConverter core.PubkeyConverter
 	kAppController         kapp.KAppController
 	forkController         core.ForkController
+	requestedItemsHandler  retriever.RequestedItemsHandler
 }
 
 func checkBaseParams(
@@ -142,8 +143,9 @@ func (bicf *baseInterceptorsContainerFactory) createOneTxInterceptor(topic strin
 	}
 
 	argProcessor := &processor.ArgTxInterceptorProcessor{
-		TxDataCache: bicf.dataPool.Transactions(),
-		TxValidator: txValidator,
+		TxDataCache:           bicf.dataPool.Transactions(),
+		TxValidator:           txValidator,
+		RequestedItemsHandler: bicf.requestedItemsHandler,
 	}
 	txProcessor, err := processor.NewTxInterceptorProcessor(argProcessor)
 	if err != nil {
