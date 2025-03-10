@@ -54,15 +54,29 @@ func NewConnectorConsole(presenter view.Presenter, refreshTimeInMilliseconds int
 	return &tc, nil
 }
 
+var closeOnce sync.Once
+
+func safeClose() {
+	closeOnce.Do(func() {
+		ui.Close()
+	})
+}
+
 // Start method - will start connector console
 func (tc *ConnectorConsole) Start(chanStart chan struct{}) error {
 	go func() {
 		defer func() {
 			log.Debug("closing connector ui")
-			ui.Close()
+			safeClose()
 		}()
+
 		<-chanStart
-		_ = ui.Init()
+		if err := ui.Init(); err != nil {
+			log.Debug("cannot initialize ui", "error", err.Error())
+			stopApplication()
+			return
+		}
+
 		tc.eventLoop()
 	}()
 
@@ -98,7 +112,8 @@ func (tc *ConnectorConsole) eventLoop() {
 		select {
 		case <-time.After(time.Millisecond * time.Duration(tc.refreshTimeInMilliseconds)):
 			tc.doChanges(&ticksCounter, tc.refreshTimeInMilliseconds)
-		case <-sigTerm:
+		case s := <-sigTerm:
+			log.Info("received signal, terminating application", "signal", s.String())
 			ui.Clear()
 			return
 		case e := <-uiEvents:
@@ -114,7 +129,7 @@ func (tc *ConnectorConsole) processUiEvents(e ui.Event, numMillisecondsRefreshTi
 	case "<Resize>":
 		tc.doResizeEvent(e, numMillisecondsRefreshTime)
 	case "<C-c>":
-		ui.Close()
+		safeClose()
 		stopApplication()
 		return
 	}
