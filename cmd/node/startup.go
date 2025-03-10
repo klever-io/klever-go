@@ -996,8 +996,8 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	var sig endProcess.ArgEndProcess
 	select {
-	case <-sigs:
-		log.Info("terminating at user's signal...")
+	case s := <-sigs:
+		log.Info("terminating at user's signal...", "signal", s)
 	case sig = <-chanStopNodeProcess:
 		log.Info("terminating at internal stop signal", "reason", sig.Reason, "description", sig.Description)
 	}
