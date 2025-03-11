@@ -34,6 +34,7 @@ const (
 	managedGetBackTransferName                = "managedGetBackTransfer"
 	managedGetKDABalanceName                  = "managedGetKDABalance"
 	managedGetKDATokenDataName                = "managedGetKDATokenData"
+	managedGetUserKDAName                     = "managedGetUserKDA"
 	managedGetSftMetadataName                 = "managedGetSftMetadataName"
 	managedAccHasPermName                     = "managedAccHasPerm"
 	managedGetKDARolesName                    = "managedGetKDARoles"
@@ -433,7 +434,7 @@ func ManagedGetUserKDAWithHost(
 	metering := host.Metering()
 	blockchain := host.Blockchain()
 	managedType := host.ManagedTypes()
-	metering.StartGasTracing(managedGetKDATokenDataName)
+	metering.StartGasTracing(managedGetUserKDAName)
 
 	gasToUse := metering.GasSchedule().BaseOpsAPICost.GetUserKDA
 	metering.UseAndTraceGas(gasToUse)
