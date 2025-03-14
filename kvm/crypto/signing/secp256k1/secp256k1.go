@@ -47,6 +47,13 @@ func (sec *secp256k1) VerifySecp256k1(key, msg, sig []byte, hashType uint8) erro
 		return err
 	}
 
+	// Add check for signature malleability
+	// Ensure s value is in the lower half of the curve order
+	sigS := signature.S()
+	if sigS.IsOverHalfOrder() {
+		return signing.ErrNonCanonicalSignature
+	}
+
 	verified := signature.Verify(messageHash, pubKey)
 	if !verified {
 		return signing.ErrInvalidSignature
@@ -69,7 +76,6 @@ func (sec *secp256k1) EncodeSecp256k1DERSignature(r, s []byte) ([]byte, error) {
 	sig := ecdsa.NewSignature(rScalar, sScalar)
 
 	sigS := sig.S()
-
 	if sigS.IsOverHalfOrder() {
 		return nil, signing.ErrNonCanonicalSignature
 	}

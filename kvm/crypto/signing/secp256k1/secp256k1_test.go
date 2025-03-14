@@ -6,9 +6,11 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/klever-io/klever-go/kvm/crypto/signing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEthereumSig(t *testing.T) {
@@ -78,8 +80,14 @@ func TestEthereumSig2(t *testing.T) {
 	msg, _ := hex.DecodeString("616161")
 	key, _ := hex.DecodeString("044338845e8308b819bf33a43dc7f47713f92d8d377dfde399831e9d8da23446be32cef60a7c923332ab06c768242d11017a6bcf419c17b8b184fc19ea603b07d6")
 	sig, _ := hex.DecodeString("3046022100da0db89620513df9a90cf8c97edf227e07182d1c91b3cab55a472122d639daee022100d5b9cf4a02274cf5b606df7b4fa73bff1190f54e0c6ef8cd362e63dc1dbecce1")
+
+	// convert high S to low S
+	signature, err := ecdsa.ParseSignature(sig)
+	require.Nil(t, err)
+	sig = signature.Serialize()
+
 	verifier := NewSecp256k1()
-	err := verifier.VerifySecp256k1(key, msg, sig, byte(ECDSASha256))
+	err = verifier.VerifySecp256k1(key, msg, sig, byte(ECDSASha256))
 
 	assert.Nil(t, err)
 }
@@ -97,12 +105,14 @@ func TestSignatureMalleability(t *testing.T) {
 	s, _ := hex.DecodeString("4a691139ad57a3f0b906637673aa2f63d1f55cb1a69199d4009eea23ceaddc93")
 	key, _ := hex.DecodeString("04e32df42865e97135acfb65f3bae71bdc86f4d49150ad6a440b6f15878109880a0a2b2667f7e725ceea70c673093bf67663e0312623c8e091b13cf2c0f11ef652")
 
+	// Part 1: Test encoding and verification with canonical signature
 	verifier := NewSecp256k1()
 	sig, err := verifier.EncodeSecp256k1DERSignature(r, s)
 	assert.Nil(t, err)
 	err = verifier.VerifySecp256k1(key, msg, sig, byte(ECDSAPlainMsg))
 	assert.Nil(t, err, "Original signature should be valid")
 
+	// Part 2: Test encoding with non-canonical signature (should fail)
 	orderStr := "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141" // group order
 	order := new(big.Int)
 
@@ -115,9 +125,16 @@ func TestSignatureMalleability(t *testing.T) {
 		fmt.Println("Failed to convert hex string to big int")
 	}
 
-	s2.Sub(order, s2)                                                // flip s
-	sig2, err := verifier.EncodeSecp256k1DERSignature(r, s2.Bytes()) // second signature
+	s2.Sub(order, s2)                                            // flip s to create non-canonical signature
+	_, err = verifier.EncodeSecp256k1DERSignature(r, s2.Bytes()) // second signature
+	require.NotNil(t, err)
 	assert.Error(t, err, signing.ErrNonCanonicalSignature)
-	err = verifier.VerifySecp256k1(key, msg, sig2, byte(ECDSAPlainMsg))
-	assert.NotNil(t, err)
+
+	// Part 3: Test direct verification with non-canonical signature (bypass encoder)
+	nonCanonicalDERSig, _ := hex.DecodeString("304602210090f27b8b488db00b00606796d2987f6a5f59ae62ea05effe84fef5b8b0e54998022100b596eec652a85c0f46f99c898c55d09ae8b9803508b70667bf337469018864ae")
+
+	// This should fail with ErrNonCanonicalSignature, not with a parsing error
+	err = verifier.VerifySecp256k1(key, msg, nonCanonicalDERSig, byte(ECDSAPlainMsg))
+	require.NotNil(t, err)
+	assert.Error(t, err, signing.ErrNonCanonicalSignature, err)
 }
