@@ -2071,20 +2071,23 @@ func (cm *commonProcessor) convertSetITOPricesContract(setITOPricesContract *tra
 }
 
 func (cm *commonProcessor) convertBuyContract(buyContract *transaction.BuyContract) *data.TXContract {
-	id := string(buyContract.ID)
+	bc := data.BuyContract{
+		BuyType:    buyContract.BuyType.String(),
+		CurrencyID: string(buyContract.CurrencyID),
+		Amount:     buyContract.Amount,
+	}
+
+	bc.ID = string(buyContract.ID)
 	if buyContract.BuyType == transaction.BuyContract_MarketBuy {
-		id = hex.EncodeToString(buyContract.ID)
+		bc.ID = hex.EncodeToString(buyContract.ID)
+	} else {
+		bc.CurrencyAmount = buyContract.CurrencyAmount
 	}
 
 	convertedContract := &data.TXContract{
 		Type:       transaction.TXContract_BuyContractType,
 		TypeString: transaction.TXContract_BuyContractType.String(),
-		Parameter: data.BuyContract{
-			BuyType:    buyContract.BuyType.String(),
-			ID:         id,
-			CurrencyID: string(buyContract.CurrencyID),
-			Amount:     buyContract.Amount,
-		},
+		Parameter:  bc,
 	}
 
 	return convertedContract
