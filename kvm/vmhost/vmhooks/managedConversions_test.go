@@ -569,8 +569,8 @@ func TestWriteRoyaltiesToBytes(t *testing.T) {
 		SplitRoyalties: map[string]*kapps.RoyaltySplitData{
 			"6": {PercentTransferFixed: 6},
 		},
-		ITOFixed:      7,
-		ITOPercentage: 8,
+		ITOPercentage: 7,
+		ITOFixed:      8,
 	})
 
 	assert.Equal(t, []byte{0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 5, 0, 0, 0, 6, 0, 0, 0, 7, 0, 0, 0, 8}, dest)

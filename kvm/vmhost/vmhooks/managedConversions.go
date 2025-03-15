@@ -313,8 +313,8 @@ func writeRoyaltiesToBytes(
 	binary.BigEndian.PutUint32(destinationBytes[12:16], royalties.MarketPercentage)
 	binary.BigEndian.PutUint32(destinationBytes[16:20], uint32(marketFixedHandle))    // #nosec G115
 	binary.BigEndian.PutUint32(destinationBytes[20:24], uint32(splitRoyaltiesHandle)) // #nosec G115
-	binary.BigEndian.PutUint32(destinationBytes[24:28], uint32(itoFixedHandle))       // #nosec G115
-	binary.BigEndian.PutUint32(destinationBytes[28:32], royalties.ITOPercentage)
+	binary.BigEndian.PutUint32(destinationBytes[24:28], royalties.ITOPercentage)
+	binary.BigEndian.PutUint32(destinationBytes[28:32], uint32(itoFixedHandle)) // #nosec G115
 
 	return destinationBytes
 }
