@@ -153,15 +153,19 @@ func (context *storageContext) useExtraGasForKeyIfNeeded(key []byte, usedCache b
 func (context *storageContext) GetStorageFromAddress(address []byte, key []byte) ([]byte, uint32, bool, error) {
 	if !bytes.Equal(address, context.address) {
 		userAcc, err := context.blockChainHook.GetUserAccount(address)
-		if err != nil || check.IfNil(userAcc) {
+		if err != nil {
 			context.useExtraGasForKeyIfNeeded(key, false)
-			return nil, 0, false, nil
+			return nil, 0, false, err
+		}
+		if check.IfNil(userAcc) {
+			context.useExtraGasForKeyIfNeeded(key, false)
+			return nil, 0, false, vmhost.ErrInvalidAccount
 		}
 
 		metadata := vmcommon.CodeMetadataFromBytes(userAcc.GetCodeMetadata())
 		if !metadata.Readable {
 			context.useExtraGasForKeyIfNeeded(key, false)
-			return nil, 0, false, nil
+			return nil, 0, false, vmhost.ErrInvalidCallOnReadOnlyMode
 		}
 	}
 
