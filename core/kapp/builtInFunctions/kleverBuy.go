@@ -118,6 +118,10 @@ func (e *kleverBuy) getBuyContract(vmInput *vmcommon.ContractCallInput) (*transa
 		Amount:     vmInput.NextArg().Int64(),
 	}
 
+	if contract.GetBuyType() == transaction.BuyContract_ITOBuy {
+		contract.CurrencyAmount = vmInput.NextArg().Int64()
+	}
+
 	return contract, nil
 }
 
