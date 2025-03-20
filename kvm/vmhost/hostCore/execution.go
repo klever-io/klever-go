@@ -234,7 +234,7 @@ func (host *vmHost) doExecContractDelete(input *vmcommon.ContractCallInput) *vmc
 	output := host.Output()
 	err := host.checkUpgradePermission(input)
 	if err != nil {
-		log.Trace("doRunSmartContractDelete", "error", vmhost.ErrUpgradeNotAllowed)
+		log.Trace("doExecContractDelete", "error", vmhost.ErrUpgradeNotAllowed)
 		return output.CreateVMOutputInCaseOfError(err)
 	}
 
@@ -705,7 +705,8 @@ func (host *vmHost) CreateNewContract(input *vmcommon.ContractCreateInput, creat
 		ContractAddress:      nil,
 		CodeDeployerAddress:  input.CallerAddr,
 	}
-	err = metering.DeductInitialGasForIndirectDeployment(codeDeployInput)
+
+	err = metering.UseGasForIndirectDeployment(codeDeployInput)
 	if err != nil {
 		return
 	}
@@ -833,8 +834,18 @@ func (host *vmHost) executeUpgrade(input *vmcommon.ContractCallInput) error {
 }
 
 func (host *vmHost) executeDelete(input *vmcommon.ContractCallInput) error {
-	host.doExecContractDelete(input)
-	return nil
+	_, _, metering, _, runtime, _ := host.GetContexts()
+	// end previous runtime if any, prevent points to the previous runtime
+	runtime.EndExecution()
+
+	err := metering.DeductInitialGasForDirectDelete()
+	if err != nil {
+		return err
+	}
+
+	vmOutput := host.doExecContractDelete(input)
+	logGasTrace.Trace("executeDelete Contract", "gasRemaining", vmOutput.GasRemaining)
+	return host.checkFinalGasAfterExit()
 }
 
 // execute executes an indirect call to a smart contract, assuming there is an
@@ -1092,11 +1103,11 @@ func (host *vmHost) checkFinalGasAfterExit() error {
 	totalUsedPoints := host.Runtime().GetPointsUsed()
 
 	if totalUsedPoints > host.Metering().GetGasForExecution() {
-		log.Trace("checkFinalGasAfterExit", "failed", totalUsedPoints, host.Metering().GetGasForExecution())
+		log.Trace("checkFinalGasAfterExit failed", "totalUsedPoints", totalUsedPoints, "gasForExecution", host.Metering().GetGasForExecution())
 		return vmhost.ErrNotEnoughGas
 	}
 
-	log.Trace("checkFinalGasAfterExit", "ok")
+	log.Trace("checkFinalGasAfterExit ok", "totalUsedPoints", totalUsedPoints, "gasForExecution", host.Metering().GetGasForExecution())
 	return nil
 }
 

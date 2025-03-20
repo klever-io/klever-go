@@ -826,10 +826,6 @@ func (context *VMHooksImpl) DeleteContract(
 	metering := host.Metering()
 	metering.StartGasTracing(deleteContractName)
 
-	// use the same gas cost as create contract for delete contract
-	gasToUse := metering.GasSchedule().BaseOpsAPICost.CreateContract
-	metering.UseAndTraceGas(gasToUse)
-
 	data, actualLen, err := context.getArgumentsFromMemory(
 		host,
 		numArguments,
@@ -838,7 +834,7 @@ func (context *VMHooksImpl) DeleteContract(
 	)
 
 	// #nosec G115
-	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
+	gasToUse := math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
 	metering.UseAndTraceGas(gasToUse)
 
 	if WithFaultAndHost(host, err, runtime.BaseOpsErrorShouldFailExecution()) {

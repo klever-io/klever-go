@@ -20,6 +20,7 @@ CONTRACT_LIST=(
     "./kvm/test/contracts/misc"
     "./kvm/test/contracts/deployer"
     "./kvm/test/contracts/exec-same-ctx-recursive"
+    "./kvm/test/contracts/delete-contract"
     "./kvm/test/contracts/deployer-fromanother-contract"
     "./kvm/test/contracts/answer"
     "./kvm/test/contracts/exec-sync-ctx-multiple/beta"

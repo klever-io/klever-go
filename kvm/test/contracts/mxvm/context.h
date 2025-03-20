@@ -112,7 +112,14 @@ void upgradeFromSourceContract(
 		byte *codeMetadata,
 		int numInitArgs,
 		byte *initArgLengths,
-		byte *initArgs);	
+		byte *initArgs);
+
+void deleteContract(
+	byte *destOffset,
+	long long gasLimit,
+	int numArguments,
+	byte *argumentsLengthOffset,
+	byte *dataOffset);
 
 // Return-related functions
 void finish(byte *data, int length);

@@ -279,8 +279,10 @@ func TestManagedGetKDACallValue(t *testing.T) {
 				hooksRuntime.SetVMInput(&vmcommon.ContractCallInput{
 					VMInput: vmcommon.VMInput{
 						KDATransfers: tt.kdaTransfers,
+						GasProvided:  1,
 					},
 				})
+				hooksMetering.InitStateFromContractCallInput(&hooksRuntime.GetVMInput().VMInput)
 
 				// Invoking test target hook who will set kdaCallValueHandle on kdaHandle
 				hooks.ManagedGetKDACallValue(kdaCallValueHandle, kdaHandle)
@@ -337,8 +339,10 @@ func TestManagedGetKDACallValue(t *testing.T) {
 				hooksRuntime.SetVMInput(&vmcommon.ContractCallInput{
 					VMInput: vmcommon.VMInput{
 						KDATransfers: tt.kdaTransfers,
+						GasProvided:  1,
 					},
 				})
+				hooksMetering.InitStateFromContractCallInput(&hooksRuntime.GetVMInput().VMInput)
 
 				// Invoking test target hook who will set kdaCallValueHandle on kdaHandle
 				hooks.ManagedGetKDACallValue(kdaCallValueHandle, kdaHandle)
@@ -388,8 +392,10 @@ func TestManagedGetKDACallValue(t *testing.T) {
 				hooksRuntime.SetVMInput(&vmcommon.ContractCallInput{
 					VMInput: vmcommon.VMInput{
 						KDATransfers: tt.kdaTransfers,
+						GasProvided:  1,
 					},
 				})
+				hooksMetering.InitStateFromContractCallInput(&hooksRuntime.GetVMInput().VMInput)
 
 				// Invoking test target hook who will set kdaCallValueHandle on kdaHandle
 				// It will get an error because the ID token is not registered in the VM memoryll set kdaCallValueHandle on kdaHandle
@@ -452,8 +458,10 @@ func TestManagedGetKDACallValue(t *testing.T) {
 				hooksRuntime.SetVMInput(&vmcommon.ContractCallInput{
 					VMInput: vmcommon.VMInput{
 						KDATransfers: tt.kdaTransfers,
+						GasProvided:  1,
 					},
 				})
+				hooksMetering.InitStateFromContractCallInput(&hooksRuntime.GetVMInput().VMInput)
 
 				// Invoking test target hook who will set kdaCallValueHandle on kdaHandle
 				// It will get an error because the ID token is not registered in the VM memoryll set kdaCallValueHandle on kdaHandle
@@ -507,8 +515,10 @@ func TestManagedGetKDACallValue(t *testing.T) {
 		hooksRuntime.SetVMInput(&vmcommon.ContractCallInput{
 			VMInput: vmcommon.VMInput{
 				KDATransfers: []*vmcommon.KDATransfer{},
+				GasProvided:  1,
 			},
 		})
+		hooksMetering.InitStateFromContractCallInput(&hooksRuntime.GetVMInput().VMInput)
 
 		// Invoking test target hook with empty transfers slice, so no value will be set
 		hooks.ManagedGetKDACallValue(kdaCallValueHandle, kdaHandle)

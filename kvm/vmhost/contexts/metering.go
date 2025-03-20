@@ -164,6 +164,11 @@ func (context *meteringContext) UpdateGasStateOnSuccess(vmOutput *vmcommon.VMOut
 		return err
 	}
 
+	err = context.checkGas(vmOutput)
+	if err != nil {
+		return err
+	}
+
 	logMetering.Trace("UpdateGasStateOnSuccess", "vmOutput.GasRemaining", vmOutput.GasRemaining)
 	logMetering.Trace("UpdateGasStateOnSuccess", "instance gas left", context.GasLeft())
 
@@ -228,6 +233,36 @@ func (context *meteringContext) TrackGasUsedByOutOfVMFunction(
 
 	context.UseGas(gasUsed)
 	logMetering.Trace("gas used by builtin function", "gas", gasUsed)
+}
+
+func (context *meteringContext) checkGas(vmOutput *vmcommon.VMOutput) error {
+	logMetering.Trace("check gas")
+	gasUsed := context.getCurrentTotalUsedGas()
+	totalGas := math.AddUint64(gasUsed, vmOutput.GasRemaining)
+	gasProvided := context.GetGasProvided()
+
+	// Only print state in trace mode
+	if logMetering.GetLevel() == logger.LogTrace {
+		context.PrintState()
+	}
+
+	if totalGas != gasProvided {
+		logOutput.Error("gas usage mismatch", "total gas", totalGas, "gas provided", gasProvided)
+		return vmhost.ErrInputAndOutputGasDoesNotMatch
+	}
+
+	return nil
+}
+
+func (context *meteringContext) getCurrentTotalUsedGas() uint64 {
+	outputAccounts := context.host.Output().GetOutputAccounts()
+
+	gasUsed := uint64(0)
+	for _, outputAccount := range outputAccounts {
+		gasUsed = math.AddUint64(gasUsed, outputAccount.GasUsed)
+	}
+
+	return gasUsed
 }
 
 func (context *meteringContext) setGasUsedToOutputAccounts(vmOutput *vmcommon.VMOutput) error {
@@ -321,6 +356,7 @@ func (context *meteringContext) GasLeft() uint64 {
 	gasUsed := context.host.Runtime().GetPointsUsed()
 
 	if gasProvided < gasUsed {
+		logMetering.Error("GasUsed > GasProvided", "gasProvided", gasProvided, "gasUsed", gasUsed)
 		return 0
 	}
 
@@ -416,14 +452,36 @@ func (context *meteringContext) DeductInitialGasForIndirectDeployment(input vmho
 	)
 }
 
+func (context *meteringContext) UseGasForIndirectDeployment(input vmhost.CodeDeployInput) error {
+	gasToUse := context.computeCodeCost(
+		input.ContractCode,
+		0,
+		context.gasSchedule.BaseOperationCost.CompilePerByte,
+	)
+	return context.UseGasBounded(gasToUse)
+}
+
 // DeductInitialGasForDirectDelete deducts gas for the delete of a contract initiated by a Transaction
 func (context *meteringContext) DeductInitialGasForDirectDelete() error {
-	// use the same gas cost as create contract for delete contract, but no contract size/byte cost
+	// For contract deletion, we use a fixed cost regardless of contract size
+	// because deletion operations have the same complexity regardless of
+	// contract code length. This differs from creation/upgrading which depends
+	// on contract size.
 	return context.deductInitialGas(
 		nil,
 		context.gasSchedule.BaseOpsAPICost.CreateContract,
-		context.gasSchedule.BaseOperationCost.CompilePerByte,
+		0, // No per-byte compilation cost for deletion
 	)
+}
+
+func (context *meteringContext) computeCodeCost(
+	code []byte,
+	baseCost uint64,
+	costPerByte uint64,
+) uint64 {
+	codeLength := uint64(len(code))
+	codeCost := math.MulUint64(codeLength, costPerByte)
+	return math.AddUint64(baseCost, codeCost)
 }
 
 // deductInitialGas deducts the initial gas for the execution of a contract, also called for contract deployments
@@ -433,17 +491,17 @@ func (context *meteringContext) deductInitialGas(
 	baseCost uint64,
 	costPerByte uint64,
 ) error {
-	codeLength := uint64(len(code))
-	codeCost := math.MulUint64(codeLength, costPerByte)
-	initialCost := math.AddUint64(baseCost, codeCost)
+	input := context.host.Runtime().GetVMInput()
+	initialCost := context.computeCodeCost(code, baseCost, costPerByte)
 
-	if initialCost > context.gasForExecution {
+	if initialCost > input.GasProvided {
 		logMetering.Trace("Not enough gas", "initialCost", initialCost, "context.gasForExecution", context.gasForExecution)
 		return vmhost.ErrNotEnoughGas
 	}
 
 	context.initialCost = initialCost
-	context.gasForExecution -= initialCost
+	context.gasForExecution = input.GasProvided - initialCost
+
 	return nil
 }
 

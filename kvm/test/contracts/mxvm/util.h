@@ -11,6 +11,14 @@
 
 #define SIGNAL_ERROR(var) signalError(var, var##_LEN);
 
+ERROR_MSG(ERR_RESULT, "execute on dest contract failed!")
+#define CHECK_RESULT_CODE(result, expected) {\
+    if (result != expected) {\
+        SIGNAL_ERROR(ERR_RESULT);\
+        return;\
+    }\
+}
+
 ERROR_MSG(ERR_NUM_ARGS, "wrong number of arguments")
 #define CHECK_NUM_ARGS(expected) {\
     if (getNumArguments() != expected) {\
@@ -26,6 +34,14 @@ ERROR_MSG(ERR_NOT_PAYABLE, "attempted to transfer funds via a non-payable functi
     int zero = bigIntNew(0);\
     if (bigIntCmp(callValue, zero) > 0) {\
         SIGNAL_ERROR(ERR_NOT_PAYABLE);\
+        return;\
+    }\
+}
+
+#define REQUIRE(cond, msg) {\
+    if (!(cond)) {\
+        byte message[] = msg;\
+        signalError(message, sizeof msg - 1);\
         return;\
     }\
 }
