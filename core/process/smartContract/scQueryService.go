@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/klever-io/klever-go/common/types"
+	"github.com/klever-io/klever-go/core"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core/process"
@@ -31,6 +32,7 @@ type SCQueryService struct {
 	mutRunSc                 sync.Mutex
 	blockChainHook           process.BlockChainHookHandler
 	blockChain               data.ChainHandler
+	getNodeState             func() core.NodeState
 	numQueries               int
 	gasForQuery              uint64
 	wasmVMChangeLocker       common.Locker
@@ -43,6 +45,7 @@ type ArgsNewSCQueryService struct {
 	EconomicsFee             process.EconomicsDataHandler
 	BlockChainHook           process.BlockChainHookHandler
 	BlockChain               data.ChainHandler
+	GetNodeState             func() core.NodeState
 	WasmVMChangeLocker       common.Locker
 	AllowExternalQueriesChan chan struct{}
 	MaxGasLimitPerQuery      uint64
@@ -70,6 +73,9 @@ func NewSCQueryService(
 	if args.AllowExternalQueriesChan == nil {
 		return nil, process.ErrNilAllowExternalQueriesChan
 	}
+	if args.GetNodeState == nil {
+		return nil, process.ErrNilBootstrapper
+	}
 
 	gasForQuery := validateAndGetQueryGas(args.MaxGasLimitPerQuery)
 
@@ -81,6 +87,7 @@ func NewSCQueryService(
 		wasmVMChangeLocker:       args.WasmVMChangeLocker,
 		gasForQuery:              gasForQuery,
 		allowExternalQueriesChan: args.AllowExternalQueriesChan,
+		getNodeState:             args.GetNodeState,
 	}, nil
 }
 
@@ -129,7 +136,8 @@ func (service *SCQueryService) executeScCall(query *process.SCQuery) (*vmcommon.
 	log.Trace("executeScCall", "function", query.FuncName, "numQueries", service.numQueries)
 	service.numQueries++
 
-	shouldEarlyExitBecauseOfSyncState := query.ShouldBeSynced
+	shouldEarlyExitBecauseOfSyncState := query.ShouldBeSynced &&
+		service.getNodeState() == core.NsNotSynchronized
 	if shouldEarlyExitBecauseOfSyncState {
 		return nil, process.ErrNodeIsNotSynced
 	}

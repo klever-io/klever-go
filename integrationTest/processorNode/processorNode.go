@@ -291,6 +291,7 @@ type ProcessorNode struct {
 	WorkingDir                    string
 	LogProcessor                  process.TransactionLogProcessor
 	OnRequestTransactionsHandler  func(hashes [][]byte)
+	Bootstrapper                  process.Bootstrapper
 }
 
 // ApplyOptions can set up different configurable options of a Node instance

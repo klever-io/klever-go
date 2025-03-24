@@ -127,6 +127,7 @@ type Node struct {
 	bootstrapSlotIndex       uint64
 
 	indexer                 process.Indexer
+	bootstrapper            process.Bootstrapper
 	blocksBlackListHandler  process.TimeCacher
 	bootStorer              process.BootStorer
 	requestedItemsHandler   retriever.RequestedItemsHandler
@@ -206,6 +207,10 @@ func NewNode(opts ...Option) (*Node, error) {
 	return node, nil
 }
 
+func (n *Node) GetNodeState() core.NodeState {
+	return n.bootstrapper.GetNodeState()
+}
+
 // GetAppStatusHandler will return the current status handler
 func (n *Node) GetAppStatusHandler() core.AppStatusHandler {
 	return n.appStatusHandler
@@ -272,17 +277,17 @@ func (n *Node) StartConsensus() error {
 		return err
 	}
 
-	bootstrapper, err := n.createBootstrapper(n.slotManager)
+	n.bootstrapper, err = n.createBootstrapper(n.slotManager)
 	if err != nil {
 		return err
 	}
 
-	err = bootstrapper.SetStatusHandler(n.GetAppStatusHandler())
+	err = n.bootstrapper.SetStatusHandler(n.GetAppStatusHandler())
 	if err != nil {
 		log.Debug("cannot set app status handler for shard bootstrapper")
 	}
 
-	bootstrapper.LoadStorage()
+	n.bootstrapper.LoadStorage()
 
 	log.Trace("creating proposal kapp")
 
@@ -344,10 +349,9 @@ func (n *Node) StartConsensus() error {
 		return err
 	}
 
-	bootstrapper.LoadSyncUntil(n.syncUntil)
-	bootstrapper.LoadStopNodeChannel(n.chanStopNodeProcess)
-
-	bootstrapper.StartSyncingBlocks()
+	n.bootstrapper.LoadSyncUntil(n.syncUntil)
+	n.bootstrapper.LoadStopNodeChannel(n.chanStopNodeProcess)
+	n.bootstrapper.StartSyncingBlocks()
 
 	log.Info("starting consensus", "epoch", epoch)
 
@@ -367,7 +371,7 @@ func (n *Node) StartConsensus() error {
 		ConsensusService:         consensusService,
 		BlockChain:               n.blkc,
 		BlockProcessor:           n.blockProcessor,
-		Bootstrapper:             bootstrapper,
+		Bootstrapper:             n.bootstrapper,
 		BroadcastMessenger:       broadcastMessenger,
 		ConsensusState:           consensusState,
 		ForkDetector:             n.forkDetector,
@@ -408,7 +412,7 @@ func (n *Node) StartConsensus() error {
 	consensusArgs := &slot.ConsensusCoreArgs{
 		BlockChain:                    n.blkc,
 		BlockProcessor:                n.blockProcessor,
-		Bootstrapper:                  bootstrapper,
+		Bootstrapper:                  n.bootstrapper,
 		BroadcastMessenger:            broadcastMessenger,
 		ChronologyHandler:             chronologyHandler,
 		Hasher:                        n.hasher,

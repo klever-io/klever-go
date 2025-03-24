@@ -101,6 +101,7 @@ func CreateNodesWithNodesCoordinatorAndHeaderSigVerifier(
 	if err != nil {
 		return nil, err
 	}
+
 	epochStartSubscriber := notifier.NewEpochStartSubscriptionHandler()
 	bootStorer := CreateMemUnit()
 	for i, v := range electedValidatorsList {
@@ -643,6 +644,7 @@ func NewTestProcessorNodeWithCustomNodesCoordinator(
 	if err != nil {
 		return nil, err
 	}
+
 	pn := &ProcessorNode{
 		GenesisTime:              genesisTime,
 		AddressPubkeyConverter:   TestAddressPubkeyConverter,

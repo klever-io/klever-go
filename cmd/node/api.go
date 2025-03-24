@@ -30,6 +30,7 @@ func createAPIResolver(
 	forkController core.ForkController,
 	rater sharding.ChanceComputer,
 	allowVMQueriesChan chan struct{},
+	getNodeState func() core.NodeState,
 ) (facade.APIResolver, error) {
 
 	args := &stakeValuesProcessor.ArgsTotalStakedValueHandler{
@@ -54,6 +55,7 @@ func createAPIResolver(
 		allowVMQueriesChan:  allowVMQueriesChan,
 		workingDir:          apiWorkingDir,
 		rater:               rater,
+		getNodeState:        getNodeState,
 	}
 	scQueryService, err := createScQueryService(argsSCQuery)
 	if err != nil {

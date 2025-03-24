@@ -921,6 +921,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		forkController,
 		rater,
 		allowExternalVMQueriesChan,
+		currentNode.GetNodeState,
 	)
 	if err != nil {
 		return err

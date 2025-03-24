@@ -23,6 +23,7 @@ import (
 
 type scQueryServiceArgs struct {
 	epochNotifier       process.EpochNotifier
+	getNodeState        func() core.NodeState
 	forkController      core.ForkController
 	generalConfig       *config.Config
 	coreComponents      *factory.CoreComponents
@@ -38,6 +39,7 @@ type scQueryServiceArgs struct {
 
 type scQueryElementArgs struct {
 	epochNotifier       process.EpochNotifier
+	getNodeState        func() core.NodeState
 	forkController      core.ForkController
 	generalConfig       *config.Config
 	coreComponents      *factory.CoreComponents
@@ -61,6 +63,7 @@ func createScQueryService(
 	}
 
 	argsQueryElem := &scQueryElementArgs{
+		getNodeState:        args.getNodeState,
 		epochNotifier:       args.epochNotifier,
 		forkController:      args.forkController,
 		generalConfig:       args.generalConfig,
@@ -212,6 +215,7 @@ func createScQueryElement(
 		WasmVMChangeLocker:       args.coreComponents.WasmVMChangeLocker,
 		AllowExternalQueriesChan: args.allowVMQueriesChan,
 		MaxGasLimitPerQuery:      maxGasForVmQueries,
+		GetNodeState:             args.getNodeState,
 	}
 
 	return smartContract.NewSCQueryService(argsNewSCQueryService)
