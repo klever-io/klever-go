@@ -271,8 +271,6 @@ func (context *storageContext) setStorageToAddress(address []byte, key []byte, v
 	}
 	metering := context.host.Metering()
 
-	length := len(value)
-
 	storageUpdates := context.GetStorageUpdates(address)
 	oldValue, err := context.getOldValue(storageUpdates, key)
 	if err != nil {
@@ -285,32 +283,36 @@ func (context *storageContext) setStorageToAddress(address []byte, key []byte, v
 		return vmhost.StorageUnchanged, err
 	}
 
+	lengthNewValue := len(value)
 	if bytes.Equal(oldValue, value) {
-		return context.storageUnchanged(length)
+		return context.storageUnchanged(lengthNewValue)
 	}
 
-	deltaBytes := len(value) - len(oldValue)
+	lengthOldValue := len(oldValue)
+
+	deltaBytes := lengthNewValue - lengthOldValue
 	context.addDeltaBytes(deltaBytes)
 
 	context.changeStorageUpdate(key, value, storageUpdates)
 
-	if len(oldValue) == 0 {
-		return context.storageAdded(length, key, value)
+	if lengthOldValue == 0 {
+		return context.storageAdded(lengthNewValue, key, value)
 	}
 
-	lengthOldValue := len(oldValue)
-	if len(value) == 0 {
+	if lengthNewValue == 0 {
 		return context.storageDeleted(lengthOldValue, key)
 	}
 
-	newValueExtraLength := math.SubInt(length, lengthOldValue)
+	newValueExtraLength := math.SubInt(lengthNewValue, lengthOldValue)
 
 	var gasToUseForValue, gasToFreeForValue uint64
 	switch {
 	case newValueExtraLength > 0:
 		gasToUseForValue, gasToFreeForValue = context.computeGasForBiggerValues(lengthOldValue, newValueExtraLength)
 	case newValueExtraLength < 0:
-		gasToUseForValue, gasToFreeForValue = context.computeGasForSmallerValues(newValueExtraLength, length)
+		gasToUseForValue, gasToFreeForValue = context.computeGasForSmallerValues(newValueExtraLength, lengthNewValue)
+	case newValueExtraLength == 0:
+		gasToUseForValue, gasToFreeForValue = context.computeGasForSameValues(lengthNewValue)
 	}
 
 	//TODO: review free gas
@@ -359,6 +361,12 @@ func (context *storageContext) changeStorageUpdate(key []byte, value []byte, sto
 	}
 	copy(newUpdate.Data[:length], value[:length])
 	storageUpdates[string(key)] = newUpdate
+}
+
+func (context *storageContext) computeGasForSameValues(length int) (uint64, uint64) {
+	metering := context.host.Metering()
+	useGas := math.MulUint64(metering.GasSchedule().BaseOperationCost.PersistPerByte, uint64(length)) // #nosec G115
+	return useGas, 0
 }
 
 func (context *storageContext) computeGasForSmallerValues(newValueExtraLength int, length int) (uint64, uint64) {

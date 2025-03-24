@@ -138,12 +138,12 @@ GetPointsUsed: 100207
 SetPointsUsed: 100207
 GetPointsUsed: 100207
 GetPointsUsed: 100207
-SetPointsUsed: 100207
+SetPointsUsed: 101207
 VM hook end:   MBufferStorageStore(-102, -105)
-GetPointsUsed: 100222
-GetPointsUsed: 100222
-GetPointsUsed: 100222
-GetPointsUsed: 100222
+GetPointsUsed: 101222
+GetPointsUsed: 101222
+GetPointsUsed: 101222
+GetPointsUsed: 101222
 Clean: true
 `
 

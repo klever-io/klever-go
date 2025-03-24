@@ -383,6 +383,19 @@ func TestStorageContext_SetStorage_GasUsage(t *testing.T) {
 	require.Equal(t, vmhost.StorageModified, storageStatus)
 	require.Equal(t, gasLeft, int(mockMetering.GasLeft()))
 	require.Equal(t, value, storedValue)
+
+	// write same amout of bytes
+	value3 := []byte("eulav")
+	mockMetering.GasLeftMock = uint64(gasProvided)
+	storageStatus, err = storageCtx.SetStorage(key, value3)
+	require.Nil(t, err)
+	gasLeft = gasProvided - persistCost*len(value)
+	storedValue, _, _, err = storageCtx.GetStorage(key)
+	require.Nil(t, err)
+	require.Equal(t, vmhost.StorageModified, storageStatus)
+	require.Equal(t, gasLeft, int(mockMetering.GasLeft()))
+	require.Equal(t, value3, storedValue)
+
 }
 
 func TestStorageContext_StorageProtection(t *testing.T) {
