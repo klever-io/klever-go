@@ -577,7 +577,7 @@ func getProposalParameteres() map[int32]string {
 func getWhitelistInfo() map[string]models.WhitelistInfoRequest {
 	whitelist := make(map[string]models.WhitelistInfoRequest, core.MaxWhitelistSize)
 
-	for i := 0; i < core.MaxWhitelistSize; i++ {
+	for i := range core.MaxWhitelistSize {
 		whitelist[fmt.Sprintf("%d%s", i, createDummyHexAddress(64))] = models.WhitelistInfoRequest{
 			Limit: math.MaxInt64,
 		}
@@ -1512,6 +1512,37 @@ func TestITOTriggerContractValidate(t *testing.T) {
 				WhitelistInfo: map[string]*transaction.WhitelistInfo{
 					"1": {},
 				},
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
+		},
+		{
+			name: "valid whitelist size",
+			contract: &transaction.ITOTriggerContract{
+				AssetID:       []byte("KLV"),
+				TriggerType:   transaction.ITOTriggerContract_AddToWhitelist,
+				WhitelistInfo: createValidWhitelist(core.MaxWhitelistSize),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "exceeded whitelist size",
+			contract: &transaction.ITOTriggerContract{
+				AssetID:       []byte("KLV"),
+				TriggerType:   transaction.ITOTriggerContract_AddToWhitelist,
+				WhitelistInfo: createValidWhitelist(core.MaxWhitelistSize + 1),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid whitelist size",
+		},
+		{
+			name: "whitelist size validation skipped pre-fork",
+			contract: &transaction.ITOTriggerContract{
+				AssetID:       []byte("KLV"),
+				TriggerType:   transaction.ITOTriggerContract_AddToWhitelist,
+				WhitelistInfo: createValidWhitelist(core.MaxWhitelistSize + 1),
 			},
 			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
 			expectError: false,
@@ -2547,6 +2578,20 @@ func TestBuyContractValidate(t *testing.T) {
 	}
 }
 
+// Helper function to create a valid whitelist of specified size
+func createValidWhitelist(size int) map[string]*transaction.WhitelistInfo {
+	whitelist := make(map[string]*transaction.WhitelistInfo, size)
+
+	for i := 0; i < size; i++ {
+		addr := fmt.Sprintf("%064d", i) // Create a valid hex address of correct length
+		whitelist[addr] = &transaction.WhitelistInfo{
+			Limit: math.MaxInt64,
+		}
+	}
+
+	return whitelist
+}
+
 func TestConfigITOContractValidate(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -2642,6 +2687,31 @@ func TestConfigITOContractValidate(t *testing.T) {
 			fc:          mock.NewForkControllerStub(),
 			expectError: true,
 			errorMsg:    "invalid pack items size",
+		},
+		{
+			name: "valid whitelist size",
+			contract: &transaction.ConfigITOContract{
+				WhitelistInfo: createValidWhitelist(core.MaxWhitelistSize),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: false,
+		},
+		{
+			name: "exceeded whitelist size",
+			contract: &transaction.ConfigITOContract{
+				WhitelistInfo: createValidWhitelist(core.MaxWhitelistSize + 1),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid whitelist size",
+		},
+		{
+			name: "whitelist size validation skipped pre-fork",
+			contract: &transaction.ConfigITOContract{
+				WhitelistInfo: createValidWhitelist(core.MaxWhitelistSize + 1),
+			},
+			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
+			expectError: false,
 		},
 	}
 

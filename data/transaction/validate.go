@@ -652,6 +652,10 @@ func (tc *ConfigITOContract) validateConfigITOAfterFork(fc core.ForkController) 
 		return nil
 	}
 
+	if len(tc.WhitelistInfo) > core.MaxWhitelistSize {
+		return ErrInvalidWhitelistSize
+	}
+
 	if err := validateAddressOrNil(len(tc.ReceiverAddress), ErrInvalidReceiverAddress); err != nil {
 		return err
 	}
@@ -925,6 +929,10 @@ func (tc *ITOTriggerContract) validateITOTriggerAfterFork(fc core.ForkController
 
 	if err := validateAddressOrNil(len(tc.ReceiverAddress), ErrInvalidReceiverAddress); err != nil {
 		return err
+	}
+
+	if len(tc.WhitelistInfo) > core.MaxWhitelistSize {
+		return ErrInvalidWhitelistSize
 	}
 
 	for address := range tc.GetWhitelistInfo() {

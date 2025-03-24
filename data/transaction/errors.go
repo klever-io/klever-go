@@ -10,6 +10,7 @@ var (
 	ErrInvalidBucketID            = errors.New("invalid bucket id")
 	ErrInvalidPermissionSize      = errors.New("invalid permission size")
 	ErrInvalidWhitelistAddr       = errors.New("invalid whitelist address")
+	ErrInvalidWhitelistSize       = errors.New("invalid whitelist size")
 	ErrInvalidSignerAddress       = errors.New("invalid signer address")
 	ErrInvalidReferralAddress     = errors.New("invalid referral address")
 	ErrInvalidOwnerAddress        = errors.New("invalid owner address")
