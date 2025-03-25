@@ -5,8 +5,10 @@ import (
 
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/sharding"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/marshal"
 )
 
@@ -24,15 +26,26 @@ func getMetricsFromHeader(
 		headerSize = uint64(len(marshalizedHeader))
 	}
 
-	marshalizedBody, err := marshalizer.Marshal(blk.GetHeader())
+	marshalizedBody, err := marshalizer.Marshal(blk)
 	if err == nil {
-		bodySize = uint64(len(marshalizedBody))
+		bodySize = uint64(len(marshalizedBody)) - headerSize
 	}
 
 	appStatusHandler.SetUInt64Value(core.MetricHeaderSize, headerSize)
 	appStatusHandler.SetUInt64Value(core.MetricBodyBlocksSize, bodySize)
 	appStatusHandler.SetUInt64Value(core.MetricNumTxInBlock, uint64(blk.GetTxCount()))
 	appStatusHandler.SetUInt64Value(core.MetricTxPoolLoad, numTxWithDst)
+}
+
+func getMetricsFromTXProcessed(
+	processResults data.ProcessResults,
+	appStatusHandler core.AppStatusHandler,
+) {
+	if processResults == nil {
+		return
+	}
+
+	appStatusHandler.SetUInt64Value(core.MetricTXsBlocksSize, uint64(tools.SafeI64ToU64(processResults.Size())))
 }
 
 func saveMetricsForCommitBlock(

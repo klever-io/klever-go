@@ -920,10 +920,10 @@ func TestTransactions_ProcessBlockTransactions(t *testing.T) {
 		return nil
 	}
 
-	processedTxHashes, numProcessed, err := txs.ProcessBlockTransactions(blk, haveTime)
+	processResult, err := txs.ProcessBlockTransactions(blk, haveTime)
 	assert.Nil(t, err)
-	assert.Equal(t, blk.TxHashes, processedTxHashes)
-	assert.Equal(t, 3, numProcessed)
+	assert.Equal(t, blk.TxHashes, processResult.Hashes())
+	assert.Equal(t, 3, processResult.Length())
 }
 
 func TestTransactions_CreateAndProcessBlockTransactions(t *testing.T) {
@@ -951,9 +951,9 @@ func TestTransactions_CreateAndProcessBlockTransactions(t *testing.T) {
 	}
 	txs.GetEconomicsFee().(*commonMock.FeeHandlerStub).MaxGasLimitPerBlockValue = 300_000
 
-	processedTxHashes, numProcessed, err := txs.CreateAndProcessBlockTransactions(blk, haveTime)
+	processResult, err := txs.CreateAndProcessBlockTransactions(blk, haveTime)
 	assert.Nil(t, err)
-	assert.LessOrEqual(t, numProcessed, 5)
+	assert.LessOrEqual(t, processResult.Length(), 5)
 
 	// Remove Bad TXs TX4
 	// mock TXProcessor
@@ -965,25 +965,23 @@ func TestTransactions_CreateAndProcessBlockTransactions(t *testing.T) {
 		return nil, nil, nil
 	}
 
-	processedTxHashes, numProcessed, err = txs.CreateAndProcessBlockTransactions(blk, haveTime)
+	processResult, err = txs.CreateAndProcessBlockTransactions(blk, haveTime)
 	assert.Nil(t, err)
-	//assert.LessOrEqual(t, numProcessed, 4)
+	assert.LessOrEqual(t, processResult.Length(), 5)
 
 	// error on `ComputeSortedTxs` should return with no selections, only happen if pool is corrupted
 	dataPool := initDataPool()
 	txs = createGoodPreprocessor(dataPool)
-	processedTxHashes, numProcessed, err = txs.CreateAndProcessBlockTransactions(blk, haveTime)
+	processResult, err = txs.CreateAndProcessBlockTransactions(blk, haveTime)
 	assert.Nil(t, err)
-	assert.Nil(t, processedTxHashes)
-	assert.Equal(t, 0, numProcessed)
+	assert.Equal(t, 0, processResult.Length())
 
 	// no error but no transactions to process
 	poolHolders = createCacheWithTransactions([]*txcache.WrappedTransaction{})
 	txs = createGoodPreprocessor(poolHolders)
-	processedTxHashes, numProcessed, err = txs.CreateAndProcessBlockTransactions(blk, haveTime)
+	processResult, err = txs.CreateAndProcessBlockTransactions(blk, haveTime)
 	assert.Nil(t, err)
-	assert.Nil(t, processedTxHashes)
-	assert.Equal(t, 0, numProcessed)
+	assert.Equal(t, 0, processResult.Length())
 
 	// select TX, but no time to process
 	poolHolders = createCacheWithTransactions([]*txcache.WrappedTransaction{
@@ -991,5 +989,7 @@ func TestTransactions_CreateAndProcessBlockTransactions(t *testing.T) {
 	})
 	txs = createGoodPreprocessor(poolHolders)
 	haveNoTime := func() bool { return false }
-	processedTxHashes, numProcessed, err = txs.CreateAndProcessBlockTransactions(blk, haveNoTime)
+	processResult, err = txs.CreateAndProcessBlockTransactions(blk, haveNoTime)
+	assert.Nil(t, err)
+	assert.Equal(t, 0, processResult.Length())
 }

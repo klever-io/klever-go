@@ -117,6 +117,17 @@ func TestPresenterStatusHandler_GetBlockSize(t *testing.T) {
 	assert.Equal(t, blockExpectedSize, result)
 }
 
+func TestPresenterStatusHandler_GetTxsSize(t *testing.T) {
+	t.Parallel()
+
+	txsSize := uint64(100)
+	presenterStatusHandler := NewPresenterStatusHandler()
+	presenterStatusHandler.SetUInt64Value(core.MetricTXsBlocksSize, txsSize)
+	result := presenterStatusHandler.GetTxsSize()
+
+	assert.Equal(t, txsSize, result)
+}
+
 func TestPresenterStatusHandler_GetHighestFinalBlock(t *testing.T) {
 	t.Parallel()
 

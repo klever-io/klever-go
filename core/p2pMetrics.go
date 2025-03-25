@@ -57,9 +57,3 @@ const MetricP2PCrossShardObservers = "klv_p2p_cross_shard_observers"
 
 // MetricP2PUnknownPeers is the metric that outputs the unknown-shard connected peers
 const MetricP2PUnknownPeers = "klv_p2p_unknown_shard_peers"
-
-// MetricNumConnectedPeersClassification is the metric for monitoring the number of connected peers split on the connection type
-const MetricNumConnectedPeersClassification = "klv_num_connected_peers_classification"
-
-// MetricP2PNumConnectedPeersClassification is the metric for monitoring the number of connected peers split on the connection type
-const MetricP2PNumConnectedPeersClassification = "klv_p2p_num_connected_peers_classification"

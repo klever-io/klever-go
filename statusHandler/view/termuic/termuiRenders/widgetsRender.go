@@ -273,7 +273,8 @@ func (wr *WidgetsRender) prepareBlockInfo() {
 	rows[0] = []string{fmt.Sprintf("Current block height: %d, size: %s", currentBlockHeight, tools.ConvertBytes(blockSize))}
 
 	numTransactionInBlock := wr.presenter.GetNumTxInBlock()
-	rows[1] = []string{fmt.Sprintf("Num transactions in block: %d", numTransactionInBlock)}
+	txSize := wr.presenter.GetTxsSize()
+	rows[1] = []string{fmt.Sprintf("Num transactions in block: %d, size: %s", numTransactionInBlock, tools.ConvertBytes(txSize))}
 
 	currentBlockHash := wr.presenter.GetCurrentBlockHash()
 	rows[2] = []string{fmt.Sprintf("Current block hash: %s", currentBlockHash)}

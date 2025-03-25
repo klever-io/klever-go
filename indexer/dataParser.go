@@ -56,6 +56,7 @@ func (dp *dataParser) getSerializedElasticBlockAndHeaderHash(
 		IsEpochStart:       block.GetIsEpochStart(),
 		Size:               int64(blockSizeInBytes),
 		SizeTxs:            int64(sizeTxs),
+		VirtualBlockSize:   int64(blockSizeInBytes + sizeTxs),
 		TxRootHash:         hex.EncodeToString(block.GetTxRootHash()),
 		TrieRoot:           hex.EncodeToString(block.GetTrieRoot()),
 		ValidatorsTrieRoot: hex.EncodeToString(block.GetValidatorsTrieRoot()),

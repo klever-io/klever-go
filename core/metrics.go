@@ -102,6 +102,9 @@ const MetricHeaderSize = "klv_current_header_block_size"
 // MetricBodyBlocksSize is the metric that stores the current block size
 const MetricBodyBlocksSize = "klv_body_blocks_size"
 
+// MetricTXsBlocksSize is the metric that stores the current block txs size
+const MetricTXsBlocksSize = "klv_txs_blocks_size"
+
 // MetricCPULoadPercent is the metric for monitoring CPU load [%]
 const MetricCPULoadPercent = "klv_cpu_load_percent"
 

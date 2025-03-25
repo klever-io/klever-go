@@ -1518,3 +1518,31 @@ func TestMetaProcessor_CreateEpochStartBodyWithInvalidTxCountShouldErr(t *testin
 	err = mp.CreateEpochStartHeader(hdr)
 	require.Error(t, err, "invalid block tx count")
 }
+
+func TestMetaProcessor_CreateAndProcessWithInvalidProcess(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+
+	arguments.ArgBaseProcessor.TxCoordinator = &mock.TransactionCoordinatorMock{
+		ProcessBlockTransactionsCalled: func(blk *block.Block, timeRemaining func() time.Duration) (data.ProcessResults, error) {
+			// Invalid ProcessResult
+			return nil, nil
+		},
+		CreateAndProcessBlockTransactionsCalled: func(blk *block.Block, haveTime func() bool) (data.ProcessResults, error) {
+			return nil, assert.AnError
+		},
+	}
+
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.Nil(t, err)
+
+	pc, _ := kapps.NewProposalController(arguments.ForkController)
+	_ = mp.SetProposalController(pc)
+	metaHdr := &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1}}
+
+	_, err = mp.CreateBlock(metaHdr, func() bool { return true })
+	assert.Nil(t, err)
+	err = mp.ProcessBlock(metaHdr, haveTime)
+	assert.Nil(t, err)
+}

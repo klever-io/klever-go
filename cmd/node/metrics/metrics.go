@@ -59,6 +59,7 @@ func InitMetrics(
 	appStatusHandler.SetUInt64Value(core.MetricCurrentSlotTimestamp, initUint)
 	appStatusHandler.SetUInt64Value(core.MetricHeaderSize, initUint)
 	appStatusHandler.SetUInt64Value(core.MetricBodyBlocksSize, initUint)
+	appStatusHandler.SetUInt64Value(core.MetricTXsBlocksSize, initUint)
 	appStatusHandler.SetUInt64Value(core.MetricHighestFinalBlock, initUint)
 	appStatusHandler.SetUInt64Value(core.MetricCountConsensusAcceptedBlocks, initUint)
 	appStatusHandler.SetUInt64Value(core.MetricSlotAtEpochStart, initUint)
@@ -66,10 +67,8 @@ func InitMetrics(
 	appStatusHandler.SetUInt64Value(core.MetricSlotsPassedInCurrentEpoch, initUint)
 	appStatusHandler.SetUInt64Value(core.MetricNoncesPassedInCurrentEpoch, initUint)
 	appStatusHandler.SetUInt64Value(core.MetricNumConnectedPeers, initUint)
-	appStatusHandler.SetStringValue(core.MetricNumConnectedPeersClassification, initString)
 	appStatusHandler.SetStringValue(core.MetricLatestTagSoftwareVersion, initString)
 
-	appStatusHandler.SetStringValue(core.MetricP2PNumConnectedPeersClassification, initString)
 	appStatusHandler.SetStringValue(core.MetricP2PPeerInfo, initString)
 	appStatusHandler.SetStringValue(core.MetricP2PIntraShardValidators, initString)
 	appStatusHandler.SetStringValue(core.MetricP2PIntraShardObservers, initString)
@@ -175,16 +174,6 @@ func computeConnectedPeers(
 	networkComponents *mainFactory.NetworkComponents,
 ) {
 	peersInfo := networkComponents.NetMessenger.GetConnectedPeersInfo()
-
-	peerClassification := fmt.Sprintf("intraVal:%d,crossVal:%d,intraObs:%d,crossObs:%d,unknown:%d,",
-		len(peersInfo.IntraShardValidators),
-		len(peersInfo.CrossShardValidators),
-		len(peersInfo.IntraShardObservers),
-		len(peersInfo.CrossShardObservers),
-		len(peersInfo.UnknownPeers),
-	)
-	appStatusHandler.SetStringValue(core.MetricNumConnectedPeersClassification, peerClassification)
-	appStatusHandler.SetStringValue(core.MetricP2PNumConnectedPeersClassification, peerClassification)
 
 	setP2pConnectedPeersMetrics(appStatusHandler, peersInfo)
 	setCurrentP2pNodeAddresses(appStatusHandler, networkComponents)

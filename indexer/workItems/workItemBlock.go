@@ -51,7 +51,7 @@ func (wib *itemBlock) Save() error {
 		}
 	}
 
-	txsSizeInBytes := ComputeSizeOfTxs(wib.marshalizer, wib.argsSaveBlock.TransactionsPool)
+	txsSizeInBytes := ComputeSizeOfTxs(wib.argsSaveBlock.TransactionsPool)
 	err := wib.indexer.SaveHeader(wib.argsSaveBlock.Header, wib.argsSaveBlock.Signer, txsSizeInBytes, wib.argsSaveBlock.Validators)
 	if err != nil {
 		return fmt.Errorf("%w when saving header block, hash %s, nonce %d",
@@ -73,23 +73,17 @@ func (wib *itemBlock) IsInterfaceNil() bool {
 }
 
 // ComputeSizeOfTxs will compute size of transactions in bytes
-func ComputeSizeOfTxs(marshalizer marshal.Marshalizer, pool *indexer.Pool) int {
+func ComputeSizeOfTxs(pool *indexer.Pool) int {
 	sizeTxs := 0
-	sizeTxs += computeSizeOfMap(marshalizer, pool.Txs)
+	sizeTxs += computeSizeOfMap(pool.Txs)
 
 	return sizeTxs
 }
 
-func computeSizeOfMap(marshalizer marshal.Marshalizer, mapTxs map[string]data.TransactionHandler) int {
+func computeSizeOfMap(mapTxs map[string]data.TransactionHandler) int {
 	txsSize := 0
 	for _, tx := range mapTxs {
-		txBytes, err := marshalizer.Marshal(tx)
-		if err != nil {
-			log.Debug("itemBlock.computeSizeOfMap", "error", err)
-			continue
-		}
-
-		txsSize += len(txBytes)
+		txsSize += tx.Size()
 	}
 
 	return txsSize

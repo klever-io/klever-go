@@ -218,11 +218,11 @@ type PreProcessor interface {
 	RemoveTxsFromPools(block *block.Block) error
 	RestoreBlockDataIntoPools(block *block.Block) (int, error)
 	CreateBlockStarted()
-	ProcessBlockTransactions(block *block.Block, haveTime func() bool) ([][]byte, int, error)
+	ProcessBlockTransactions(block *block.Block, haveTime func() bool) (data.ProcessResults, error)
 	CreateAndProcessBlockTransactions(
 		blk *block.Block,
 		haveTime func() bool,
-	) ([][]byte, int, error)
+	) (data.ProcessResults, error)
 	SaveTxsToStorage(block *block.Block) error
 	CreateMarshalizedData(txHashes [][]byte) ([][]byte, error)
 	GetAllCurrentUsedTxs() map[string]data.TransactionHandler
@@ -450,11 +450,11 @@ type TransactionCoordinator interface {
 	SaveTxsToStorage(blk *block.Block) error
 	CreateBlockStarted()
 	CreateMarshalizedData(blk *block.Block) ([][]byte, error)
-	CreateAndProcessBlockTransactions(blk *block.Block, haveTime func() bool) error
+	CreateAndProcessBlockTransactions(blk *block.Block, haveTime func() bool) (data.ProcessResults, error)
 
 	RequestBlockTransactions(blk *block.Block)
 	IsDataPreparedForProcessing(haveTime func() time.Duration) error
-	ProcessBlockTransactions(blk *block.Block, haveTime func() time.Duration) error
+	ProcessBlockTransactions(blk *block.Block, haveTime func() time.Duration) (data.ProcessResults, error)
 	GetAllCurrentUsedTxs() map[string]data.TransactionHandler
 	GetAllCurrentLogs() []*data.LogData
 

@@ -318,7 +318,7 @@ func GetTransactionHandlerFromPool(
 	return tx, nil
 }
 
-// GetTransactionHandlerFromPool gets the transaction from pool with a given txHash
+// CheckIfInTxPool checks if the given txHash is in the tx pool
 func CheckIfInTxPool(
 	txHash []byte,
 	shardedDataCacherNotifier retriever.ShardedDataCacherNotifier,

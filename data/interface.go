@@ -241,3 +241,10 @@ type LogHandler interface {
 
 	IsInterfaceNil() bool
 }
+
+type ProcessResults interface {
+	Hashes() [][]byte
+	Length() int
+	Size() int64
+	IsInterfaceNil() bool
+}

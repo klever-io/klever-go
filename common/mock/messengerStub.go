@@ -11,8 +11,11 @@ type MessengerStub struct {
 	CloseCalled                          func() error
 	IDCalled                             func() core.PeerID
 	PeersCalled                          func() []core.PeerID
+	PeerAddressesCalled                  func(pid core.PeerID) []string
 	AddressesCalled                      func() []string
 	ConnectToPeerCalled                  func(address string) error
+	ConnectedAddressesCalled             func() []string
+	GetConnectedPeersInfoCalled          func() *p2p.ConnectedPeersInfo
 	TrimConnectionsCalled                func()
 	IsConnectedCalled                    func(peerID core.PeerID) bool
 	ConnectedPeersCalled                 func() []core.PeerID
@@ -20,6 +23,7 @@ type MessengerStub struct {
 	HasTopicCalled                       func(name string) bool
 	HasTopicValidatorCalled              func(name string) bool
 	BroadcastOnChannelCalled             func(channel string, topic string, buff []byte)
+	BroadcastOnChannelBlockingCalled     func(channel string, topic string, buff []byte) error
 	BroadcastCalled                      func(topic string, buff []byte)
 	RegisterMessageProcessorCalled       func(topic string, handler p2p.MessageProcessor) error
 	UnregisterMessageProcessorCalled     func(topic string) error
@@ -28,6 +32,11 @@ type MessengerStub struct {
 	BootstrapCalled                      func() error
 	UnregisterAllMessageProcessorsCalled func() error
 	UnjoinAllTopicsCalled                func() error
+	IsConnectedToTheNetworkCalled        func() bool
+	ThresholdMinConnectedPeersCalled     func() int
+	SetThresholdMinConnectedPeersCalled  func(minConnectedPeers int) error
+	SetPeerDenialEvaluatorCalled         func(handler p2p.PeerDenialEvaluator) error
+	SetPeerShardResolverCalled           func(peerShardResolver p2p.PeerShardResolver) error
 }
 
 // ConnectedPeersOnTopic -
@@ -84,6 +93,11 @@ func (ms *MessengerStub) Peers() []core.PeerID {
 	return ms.PeersCalled()
 }
 
+// PeerAddresses -
+func (ms *MessengerStub) PeerAddresses(pid core.PeerID) []string {
+	return ms.PeerAddressesCalled(pid)
+}
+
 // Addresses -
 func (ms *MessengerStub) Addresses() []string {
 	return ms.AddressesCalled()
@@ -92,6 +106,16 @@ func (ms *MessengerStub) Addresses() []string {
 // ConnectToPeer -
 func (ms *MessengerStub) ConnectToPeer(address string) error {
 	return ms.ConnectToPeerCalled(address)
+}
+
+// ConnectedAddresses -
+func (ms *MessengerStub) ConnectedAddresses() []string {
+	return ms.ConnectedAddressesCalled()
+}
+
+// GetConnectedPeersInfo -
+func (ms *MessengerStub) GetConnectedPeersInfo() *p2p.ConnectedPeersInfo {
+	return ms.GetConnectedPeersInfoCalled()
 }
 
 // TrimConnections -
@@ -136,6 +160,11 @@ func (ms *MessengerStub) BroadcastOnChannel(channel string, topic string, buff [
 	ms.BroadcastOnChannelCalled(channel, topic, buff)
 }
 
+// BroadcastOnChannelBlocking -
+func (ms *MessengerStub) BroadcastOnChannelBlocking(channel string, topic string, buff []byte) error {
+	return ms.BroadcastOnChannelBlockingCalled(channel, topic, buff)
+}
+
 // SendToConnectedPeer -
 func (ms *MessengerStub) SendToConnectedPeer(topic string, buff []byte, peerID core.PeerID) error {
 	return ms.SendToConnectedPeerCalled(topic, buff, peerID)
@@ -164,6 +193,51 @@ func (ms *MessengerStub) UnregisterAllMessageProcessors() error {
 func (ms *MessengerStub) UnjoinAllTopics() error {
 	if ms.UnjoinAllTopicsCalled != nil {
 		return ms.UnjoinAllTopicsCalled()
+	}
+
+	return nil
+}
+
+// IsConnectedToTheNetwork -
+func (ms *MessengerStub) IsConnectedToTheNetwork() bool {
+	if ms.IsConnectedToTheNetworkCalled != nil {
+		return ms.IsConnectedToTheNetworkCalled()
+	}
+
+	return true
+}
+
+// ThresholdMinConnectedPeers -
+func (ms *MessengerStub) ThresholdMinConnectedPeers() int {
+	if ms.ThresholdMinConnectedPeersCalled != nil {
+		return ms.ThresholdMinConnectedPeersCalled()
+	}
+
+	return 0
+}
+
+// SetThresholdMinConnectedPeers -
+func (ms *MessengerStub) SetThresholdMinConnectedPeers(minConnectedPeers int) error {
+	if ms.SetThresholdMinConnectedPeersCalled != nil {
+		return ms.SetThresholdMinConnectedPeersCalled(minConnectedPeers)
+	}
+
+	return nil
+}
+
+// SetPeerDenialEvaluator -
+func (ms *MessengerStub) SetPeerDenialEvaluator(handler p2p.PeerDenialEvaluator) error {
+	if ms.SetPeerDenialEvaluatorCalled != nil {
+		return ms.SetPeerDenialEvaluatorCalled(handler)
+	}
+
+	return nil
+}
+
+// SetPeerShardResolver -
+func (ms *MessengerStub) SetPeerShardResolver(peerShardResolver p2p.PeerShardResolver) error {
+	if ms.SetPeerShardResolverCalled != nil {
+		return ms.SetPeerShardResolverCalled(peerShardResolver)
 	}
 
 	return nil

@@ -196,9 +196,9 @@ func (tc *transactionCoordinator) RemoveTxsFromPool(block *block.Block) error {
 func (tc *transactionCoordinator) ProcessBlockTransactions(
 	block *block.Block,
 	timeRemaining func() time.Duration,
-) error {
+) (data.ProcessResults, error) {
 	if check.IfNil(block) {
-		return process.ErrNilBlockHeader
+		return nil, process.ErrNilBlockHeader
 	}
 
 	haveTime := func() bool {
@@ -209,13 +209,12 @@ func (tc *transactionCoordinator) ProcessBlockTransactions(
 	KAppsSnapshot := tc.kapps.JournalLen()
 
 	startTime := time.Now()
-	txsToBeReverted, numTxsProcessed, err := tc.txPreProcessor.ProcessBlockTransactions(block, haveTime)
+	processResult, err := tc.txPreProcessor.ProcessBlockTransactions(block, haveTime)
 	elapsedTime := time.Since(startTime)
 	log.Debug("elapsed time to processBlockTransactions", "time [s]", elapsedTime)
 	if err != nil {
 		log.Debug("ProcessBlockTransaction",
-			"txs to be reverted", len(txsToBeReverted),
-			"num txs processed", numTxsProcessed,
+			"txs to be reverted", processResult.Length(),
 			"error", err.Error(),
 		)
 		startTime = time.Now()
@@ -227,58 +226,57 @@ func (tc *transactionCoordinator) ProcessBlockTransactions(
 		}
 
 		errKAppState := tc.kapps.RevertToSnapshot(KAppsSnapshot)
-		if errAccountState != nil {
+		if errKAppState != nil {
 			// TODO: evaluate if reloading the trie from disk will might solve the problem
 			log.Debug("KAppsRevertToSnapshot", "error", errKAppState.Error())
 		}
 
-		if len(txsToBeReverted) > 0 {
-			tc.feeHandler.RevertFees(txsToBeReverted)
+		if processResult.Length() > 0 {
+			tc.feeHandler.RevertFees(processResult.Hashes())
 		}
 
 		elapsedTime = time.Since(startTime)
 		log.Debug("ProcessBlockTransaction Revert",
 			"elapsedTime [s]", elapsedTime,
 		)
-		return err
+		return nil, err
 	}
 
 	if block.GetTxFees() != tc.feeHandler.GetAccumulatedTxFees() {
-		return process.ErrInvalidTXFees
+		return nil, process.ErrInvalidTXFees
 	}
 
 	if block.GetKAppFees() != tc.feeHandler.GetAccumulatedKAppFees() {
-		return process.ErrInvalidKAppsFees
+		return nil, process.ErrInvalidKAppsFees
 	}
 
 	if tc.forkController.EnableSmartContracts() {
-		if numTxsProcessed != len(block.TxHashes) {
-			return process.ErrInvalidNumberOfBlockTxs
+		if processResult.Length() != len(block.TxHashes) {
+			return nil, process.ErrInvalidNumberOfBlockTxs
 		}
 	}
 
-	return nil
+	return processResult, nil
 }
 
 func (tc *transactionCoordinator) CreateAndProcessBlockTransactions(
 	blk *block.Block,
 	haveTime func() bool,
-) error {
+) (data.ProcessResults, error) {
 	if check.IfNil(blk) {
-		return process.ErrNilBlockHeader
+		return nil, process.ErrNilBlockHeader
 	}
 
 	AccsSnapshot := tc.accounts.JournalLen()
 	KAppsSnapshot := tc.kapps.JournalLen()
 
 	startTime := time.Now()
-	txsToBeReverted, numTxsProcessed, err := tc.txPreProcessor.CreateAndProcessBlockTransactions(blk, haveTime)
+	processResult, err := tc.txPreProcessor.CreateAndProcessBlockTransactions(blk, haveTime)
 	elapsedTime := time.Since(startTime)
 	log.Debug("elapsed time to processBlockTransactions", "time [s]", elapsedTime)
 	if err != nil {
 		log.Debug("ProcessBlockTransaction",
-			"txs to be reverted", len(txsToBeReverted),
-			"num txs processed", numTxsProcessed,
+			"txs to be reverted", processResult.Length(),
 			"error", err.Error(),
 		)
 
@@ -292,14 +290,14 @@ func (tc *transactionCoordinator) CreateAndProcessBlockTransactions(
 			log.Debug("KAppRevertToSnapshot", "error", errKAppState.Error())
 		}
 
-		if len(txsToBeReverted) > 0 {
-			tc.feeHandler.RevertFees(txsToBeReverted)
+		if processResult.Length() > 0 {
+			tc.feeHandler.RevertFees(processResult.Hashes())
 		}
 
-		return err
+		return nil, err
 	}
 
-	return nil
+	return processResult, nil
 }
 
 // CreateBlockStarted initializes necessary data for preprocessors at block create or block process

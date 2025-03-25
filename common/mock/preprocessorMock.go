@@ -16,15 +16,34 @@ type PreProcessorMock struct {
 	RemoveTxsFromPoolsCalled                func(body *block.Block) error
 	RestoreBlockDataIntoPoolsCalled         func(body *block.Block) (int, error)
 	SaveTxsToStorageCalled                  func(body *block.Block) error
-	ProcessBlockTransactionsCalled          func(body *block.Block, haveTime func() bool) ([][]byte, int, error)
+	ProcessBlockTransactionsCalled          func(body *block.Block, haveTime func() bool) (data.ProcessResults, error)
 	RequestBlockTransactionsCalled          func(body *block.Block) int
 	CreateMarshalizedDataCalled             func(txHashes [][]byte) ([][]byte, error)
 	RequestTransactionsForBlockCalled       func(blk *block.Block) int
 	ProcessBlockCalled                      func(blk *block.Block, haveTime func() bool, getNumOfCrossInterMbsAndTxs func() (int, int)) ([][]byte, int, error)
-	CreateAndProcessBlockTransactionsCalled func(blk *block.Block, haveTime func() bool) ([][]byte, int, error)
+	CreateAndProcessBlockTransactionsCalled func(blk *block.Block, haveTime func() bool) (data.ProcessResults, error)
 	GetAllCurrentUsedTxsCalled              func() map[string]data.TransactionHandler
 	IsDataPreparedForProcessingCalled       func(haveTime func() time.Duration) error
 	VerifyCreatedBlockTransactionsCalled    func(blk *block.Block) error
+}
+
+type ProcessResults struct {
+	txHashes [][]byte
+	size     int64
+}
+
+func (pr *ProcessResults) Hashes() [][]byte {
+	return pr.txHashes
+}
+func (pr *ProcessResults) Size() int64 {
+	return pr.size
+}
+func (pr *ProcessResults) IsInterfaceNil() bool {
+	return pr == nil
+}
+
+func (pr *ProcessResults) Length() int {
+	return len(pr.txHashes)
 }
 
 // CreateBlockStarted -
@@ -76,9 +95,9 @@ func (ppm *PreProcessorMock) SaveTxsToStorage(body *block.Block) error {
 }
 
 // ProcessBlockTransactions -
-func (ppm *PreProcessorMock) ProcessBlockTransactions(body *block.Block, haveTime func() bool) ([][]byte, int, error) {
+func (ppm *PreProcessorMock) ProcessBlockTransactions(body *block.Block, haveTime func() bool) (data.ProcessResults, error) {
 	if ppm.ProcessBlockTransactionsCalled == nil {
-		return nil, 0, nil
+		return &ProcessResults{}, nil
 	}
 	return ppm.ProcessBlockTransactionsCalled(body, haveTime)
 }
@@ -117,9 +136,9 @@ func (ppm *PreProcessorMock) ProcessBlock(blk *block.Block, haveTime func() bool
 
 // CreateAndProcessBlocks creates blocks from storage and processes the reward transactions added into the blocks
 // as long as it has time
-func (ppm *PreProcessorMock) CreateAndProcessBlockTransactions(blk *block.Block, haveTime func() bool) ([][]byte, int, error) {
+func (ppm *PreProcessorMock) CreateAndProcessBlockTransactions(blk *block.Block, haveTime func() bool) (data.ProcessResults, error) {
 	if ppm.CreateAndProcessBlockTransactionsCalled == nil {
-		return nil, 0, nil
+		return &ProcessResults{}, nil
 	}
 	return ppm.CreateAndProcessBlockTransactionsCalled(blk, haveTime)
 }

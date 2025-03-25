@@ -213,11 +213,16 @@ func (mp *metaProcessor) ProcessBlock(
 	}
 
 	// Process Transactions
-	err = mp.txCoordinator.ProcessBlockTransactions(header, haveTime)
+	processResults, err := mp.txCoordinator.ProcessBlockTransactions(header, haveTime)
 	if err != nil {
 		_ = bugsnag.Notify(fmt.Errorf("process block transactions: %w", err), bugsnag.MetaData{"data": {"header": header}})
 		return err
 	}
+
+	go getMetricsFromTXProcessed(
+		processResults,
+		mp.appStatusHandler,
+	)
 
 	if !mp.verifyStateRootAccount(header.GetTrieRoot()) {
 		log.Debug("processBlock.verifyStateRootAccount", "blockTrieRoot", logger.DisplayByteSlice(header.GetTrieRoot()))
@@ -833,7 +838,7 @@ func (mp *metaProcessor) applyHeader(blk *block.Block) error {
 	sw.Stop("UpdateNativeStakingKapps")
 
 	// Inflation = Block + Staking Rewards - TXFee Burned
-	// Stking Rewards not claimed are burned in EpochStart
+	// Staking Rewards not claimed are burned in EpochStart
 	err = mp.UpdateKLVCirculationSupply(blk.GetBlockRewards()+blk.GetStakingRewards(), blk.GetTxBurnedFees())
 	if err != nil {
 		return err
@@ -960,13 +965,20 @@ func (mp *metaProcessor) createBlockHeader(blk *block.Block, haveTime func() boo
 	}
 
 	startTime := time.Now()
-	err := mp.txCoordinator.CreateAndProcessBlockTransactions(blk, haveTime)
+	processResults, err := mp.txCoordinator.CreateAndProcessBlockTransactions(blk, haveTime)
 	elapsedTime := time.Since(startTime)
 	log.Debug("elapsed time to select tx and create block",
 		"time [s]", elapsedTime.Seconds(),
 	)
 	if err != nil {
 		log.Debug("createAndProcessBlock", "error", err.Error())
+	}
+
+	if processResults != nil {
+		log.Debug("select tx and create block results",
+			"Num Txs", processResults.Length(),
+			"Txs Size", processResults.Size(),
+		)
 	}
 
 	return nil

@@ -14,12 +14,12 @@ type TransactionCoordinatorMock struct {
 	SaveTxsToStorageCalled                  func(blk *block.Block) error
 	RestoreBlockDataFromStorageCalled       func(blk *block.Block) (int, error)
 	RemoveTxsFromPoolCalled                 func(blk *block.Block) error
-	ProcessBlockTransactionsCalled          func(blk *block.Block, timeRemaining func() time.Duration) error
+	ProcessBlockTransactionsCalled          func(blk *block.Block, timeRemaining func() time.Duration) (data.ProcessResults, error)
 	CreateBlockStartedCalled                func()
 	CreateMarshalizedDataCalled             func(blk *block.Block) ([][]byte, error)
 	GetAllCurrentUsedTxsCalled              func() map[string]data.TransactionHandler
 	VerifyCreatedBlockTransactionsCalled    func(blk *block.Block) error
-	CreateAndProcessBlockTransactionsCalled func(blk *block.Block, haveTime func() bool) error
+	CreateAndProcessBlockTransactionsCalled func(blk *block.Block, haveTime func() bool) (data.ProcessResults, error)
 	RemoveBlockDataFromPoolCalled           func(body *block.Block) error
 	GetAllCurrentLogsCalled                 func() []*data.LogData
 }
@@ -75,9 +75,9 @@ func (tcm *TransactionCoordinatorMock) RemoveTxsFromPool(blk *block.Block) error
 }
 
 // ProcessBlockTransaction -
-func (tcm *TransactionCoordinatorMock) ProcessBlockTransactions(blk *block.Block, timeRemaining func() time.Duration) error {
+func (tcm *TransactionCoordinatorMock) ProcessBlockTransactions(blk *block.Block, timeRemaining func() time.Duration) (data.ProcessResults, error) {
 	if tcm.ProcessBlockTransactionsCalled == nil {
-		return nil
+		return &ProcessResults{}, nil
 	}
 
 	return tcm.ProcessBlockTransactionsCalled(blk, timeRemaining)
@@ -121,9 +121,9 @@ func (tcm *TransactionCoordinatorMock) VerifyCreatedBlockTransactions(blk *block
 
 // CreateAndProcessBlocks creates blocks from storage and processes the reward transactions added into the blocks
 // as long as it has time
-func (tcm *TransactionCoordinatorMock) CreateAndProcessBlockTransactions(blk *block.Block, haveTime func() bool) error {
+func (tcm *TransactionCoordinatorMock) CreateAndProcessBlockTransactions(blk *block.Block, haveTime func() bool) (data.ProcessResults, error) {
 	if tcm.CreateAndProcessBlockTransactionsCalled == nil {
-		return nil
+		return &ProcessResults{}, nil
 	}
 	return tcm.CreateAndProcessBlockTransactionsCalled(blk, haveTime)
 }

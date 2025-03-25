@@ -19,6 +19,7 @@ import (
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/retriever"
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/memorydb"
@@ -634,28 +635,33 @@ func TestTransactionCoordinator_ProcessBlockTransaction(t *testing.T) {
 	haveTime := func() time.Duration {
 		return time.Second
 	}
-	err = tc.ProcessBlockTransactions(&block.Block{}, haveTime)
+
+	// validate nil block
+	_, err = tc.ProcessBlockTransactions(nil, haveTime)
+	assert.Equal(t, process.ErrNilBlockHeader, err)
+
+	_, err = tc.ProcessBlockTransactions(&block.Block{}, haveTime)
 	assert.Nil(t, err)
 
 	body := &block.Block{TxHashes: [][]byte{txHash}, Header: &block.BlockHeader{Timestamp: time.Now().Unix()}}
 
 	tc.RequestBlockTransactions(body)
-	err = tc.ProcessBlockTransactions(body, haveTime)
+	_, err = tc.ProcessBlockTransactions(body, haveTime)
 	assert.Nil(t, err)
 
 	noTime := func() time.Duration {
 		return -1
 	}
-	err = tc.ProcessBlockTransactions(body, noTime)
+	_, err = tc.ProcessBlockTransactions(body, noTime)
 	assert.Equal(t, process.ErrTimeIsOut, err)
 
 	txHashToAsk := []byte("tx_hashnotinPool")
 	body = &block.Block{TxHashes: [][]byte{txHashToAsk}, Header: &block.BlockHeader{Timestamp: time.Now().Unix()}}
-	err = tc.ProcessBlockTransactions(body, haveTime)
+	_, err = tc.ProcessBlockTransactions(body, haveTime)
 	assert.Equal(t, process.ErrMissingTransaction, err)
 }
 
-func TestShardProcessor_ProcessMiniBlockCompleteWithOkTxsShouldExecuteThemAndNotRevertAccntState(t *testing.T) {
+func TestShardProcessor_ProcessBlockCompleteWithOkTxsShouldExecuteThemAndNotRevertAccntState(t *testing.T) {
 	t.Parallel()
 
 	dataPool := commonMock.NewPoolsHolderMock()
@@ -759,9 +765,193 @@ func TestShardProcessor_ProcessMiniBlockCompleteWithOkTxsShouldExecuteThemAndNot
 	haveTime := func() time.Duration {
 		return time.Second
 	}
-	err = tc.ProcessBlockTransactions(&body, haveTime)
+	processResult, err := tc.ProcessBlockTransactions(&body, haveTime)
 	assert.Nil(t, err)
 	assert.Equal(t, 1, tx1ExecutionResult)
 	assert.Equal(t, 2, tx2ExecutionResult)
 	assert.Equal(t, 3, tx3ExecutionResult)
+
+	expectedSize := int64(len(body.TxHashes) * 13) // 3 txs * 13 bytes
+	assert.Equal(t, len(body.TxHashes), processResult.Length())
+	assert.Equal(t, expectedSize, processResult.Size())
+}
+
+func TestShardProcessor_ProcessBlockInvalidFees_ShouldFail(t *testing.T) {
+	t.Parallel()
+
+	dataPool := commonMock.NewPoolsHolderMock()
+	requestTransaction := func(txHashes [][]byte) {}
+
+	txHash1 := []byte("tx hash 1")
+	//put the existing tx inside datapool
+	dataPool.Transactions().AddData(txHash1, &transaction.Transaction{
+		RawData: &transaction.Transaction_Raw{Sender: txHash1, BandwidthFee: 1, KAppFee: 1},
+	}, 0, "0")
+
+	accounts := &commonMock.AccountsStub{}
+	kapps := &commonMock.AccountsStub{}
+
+	forkController := newForkController()
+	preprocessor, _ := preprocess.NewTransactionPreprocessor(
+		dataPool.Transactions(),
+		initStore(),
+		&commonMock.HasherMock{},
+		&commonMock.MarshalizerMock{},
+		&mock.TxProcessorMock{
+			ProcessTransactionCalled: func(blk *block.Block, txHash []byte, transaction *transaction.Transaction) error {
+				return nil
+			},
+		},
+		accounts,
+		&commonMock.AccountsStub{},
+		&commonMock.AccountsStub{},
+		requestTransaction,
+		&commonMock.FeeHandlerStub{},
+		createMockPubkeyConverter(),
+		forkController,
+	)
+
+	tc, err := coordinator.NewTransactionCoordinator(
+		&commonMock.HasherMock{},
+		&commonMock.MarshalizerMock{},
+		accounts,
+		kapps,
+		&commonMock.RequestHandlerStub{},
+		preprocessor,
+		&commonMock.FeeAccumulatorStub{
+			GetAccumulatedTxFeesCalled: func() int64 {
+				return 1
+			},
+			GetAccumulatedKAppFeesCalled: func() int64 {
+				return 1
+			},
+		},
+		&commonMock.FeeHandlerStub{},
+		createTxLogsProcessor(),
+		forkController,
+	)
+	assert.Nil(t, err)
+	assert.NotNil(t, tc)
+
+	// tc.RequestBlockTransactions(&body)
+	haveTime := func() time.Duration {
+		return time.Second
+	}
+
+	t.Run("Should fail due to invalid bandwith fees", func(t *testing.T) {
+		body := block.Block{
+			TxHashes: [][]byte{txHash1},
+			Header: &block.BlockHeader{
+				Timestamp: time.Now().Unix(),
+				TxFees:    2,
+				KAppFees:  1,
+			},
+		}
+
+		processResult, err := tc.ProcessBlockTransactions(&body, haveTime)
+		assert.Equal(t, process.ErrInvalidTXFees, err)
+		assert.Nil(t, processResult)
+	})
+
+	t.Run("Should fail due to invalid kapp fees", func(t *testing.T) {
+		body := block.Block{
+			TxHashes: [][]byte{txHash1},
+			Header: &block.BlockHeader{
+				Timestamp: time.Now().Unix(),
+				TxFees:    1,
+				KAppFees:  2,
+			},
+		}
+
+		processResult, err := tc.ProcessBlockTransactions(&body, haveTime)
+		assert.Equal(t, process.ErrInvalidKAppsFees, err)
+		assert.Nil(t, processResult)
+	})
+
+}
+
+func TestShardProcessor_ProcessBlockInvalidNumberOfBlockTxs_ShouldFail(t *testing.T) {
+	t.Parallel()
+
+	dataPool := commonMock.NewPoolsHolderMock()
+	requestTransaction := func(txHashes [][]byte) {}
+
+	txHash1 := []byte("tx hash 1")
+	txHash2 := []byte("tx hash 2")
+	//put the existing tx inside datapool
+	dataPool.Transactions().AddData(txHash1, &transaction.Transaction{
+		RawData: &transaction.Transaction_Raw{Sender: txHash1},
+	}, 0, "0")
+	dataPool.Transactions().AddData(txHash2, &transaction.Transaction{
+		RawData: &transaction.Transaction_Raw{Sender: txHash2},
+	}, 0, "0")
+
+	accounts := &commonMock.AccountsStub{}
+	kapps := &commonMock.AccountsStub{}
+
+	forkController := newForkController()
+	preprocessor, _ := preprocess.NewTransactionPreprocessor(
+		dataPool.Transactions(),
+		initStore(),
+		&commonMock.HasherMock{},
+		&commonMock.MarshalizerMock{},
+		&mock.TxProcessorMock{
+			PreProcessTransactionCalled: func(transaction *transaction.Transaction) (state.UserAccountHandler, []byte, error) {
+				if bytes.Equal(transaction.RawData.Sender, txHash1) {
+					return nil, nil, nil
+				}
+
+				return nil, nil, process.ErrInvalidTXFees
+			},
+			ProcessTransactionCalled: func(blk *block.Block, txHash []byte, transaction *transaction.Transaction) error {
+				return nil
+			},
+		},
+		accounts,
+		&commonMock.AccountsStub{},
+		&commonMock.AccountsStub{},
+		requestTransaction,
+		&commonMock.FeeHandlerStub{},
+		createMockPubkeyConverter(),
+		forkController,
+	)
+
+	tc, err := coordinator.NewTransactionCoordinator(
+		&commonMock.HasherMock{},
+		&commonMock.MarshalizerMock{},
+		accounts,
+		kapps,
+		&commonMock.RequestHandlerStub{},
+		preprocessor,
+		&commonMock.FeeAccumulatorStub{
+			GetAccumulatedTxFeesCalled: func() int64 {
+				return 1
+			},
+			GetAccumulatedKAppFeesCalled: func() int64 {
+				return 1
+			},
+		},
+		&commonMock.FeeHandlerStub{},
+		createTxLogsProcessor(),
+		forkController,
+	)
+	assert.Nil(t, err)
+	assert.NotNil(t, tc)
+
+	body := block.Block{
+		TxHashes: [][]byte{txHash1, txHash2},
+		Header: &block.BlockHeader{
+			Timestamp: time.Now().Unix(),
+			TxFees:    1,
+			KAppFees:  1,
+		},
+	}
+
+	// tc.RequestBlockTransactions(&body)
+	haveTime := func() time.Duration {
+		return time.Second
+	}
+	processResult, err := tc.ProcessBlockTransactions(&body, haveTime)
+	assert.Equal(t, process.ErrInvalidNumberOfBlockTxs, err)
+	assert.Nil(t, processResult)
 }

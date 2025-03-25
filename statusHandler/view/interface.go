@@ -48,6 +48,7 @@ type Presenter interface {
 	CalculateSynchronizationSpeed(numMillisecondsRefreshTime int) uint64
 	GetCurrentSlotTimestamp() uint64
 	GetBlockSize() uint64
+	GetTxsSize() uint64
 	GetHighestFinalBlock() uint64
 	CheckSoftwareVersion() (bool, string)
 

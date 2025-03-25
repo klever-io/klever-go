@@ -521,20 +521,24 @@ func (txs *transactions) getAllTxsFromBlock(
 func (txs *transactions) ProcessBlockTransactions(
 	blk *block.Block,
 	haveTime func() bool,
-) ([][]byte, int, error) {
+) (data.ProcessResults, error) {
 	log.Debug("ProcessBlockTransactions has been started", "nonce", blk.GetNonce())
 
+	result := &processResults{
+		txHashes: make([][]byte, 0),
+		size:     0,
+	}
+
 	totalTimeUsedForProcess := time.Duration(0)
-	txHashes := make([][]byte, 0)
 	numTxsBad := 0
 
 	if !haveTime() {
-		return nil, 0, process.ErrTimeIsOut
+		return result, process.ErrTimeIsOut
 	}
 
 	blockTxs, blockTxHashes, err := txs.getAllTxsFromBlock(blk)
 	if err != nil {
-		return nil, 0, err
+		return result, err
 	}
 
 	for index := range blockTxs {
@@ -549,6 +553,9 @@ func (txs *transactions) ProcessBlockTransactions(
 		elapsedTime := time.Since(startTime)
 		totalTimeUsedForProcess += elapsedTime
 
+		// if transaction have not been pre-processed successfully,
+		// or BW fee is not enough, Result is not set to FAILED
+		// then remove from pool as nothing can be done
 		if err != nil && blockTxs[index].Result != transaction.Transaction_FAILED {
 			numTxsBad++
 			log.Trace("bad tx",
@@ -559,31 +566,37 @@ func (txs *transactions) ProcessBlockTransactions(
 			continue
 		}
 
-		txHashes = append(txHashes, blockTxHashes[index])
+		result.size += int64(blockTxs[index].Size())
+
+		result.txHashes = append(result.txHashes, blockTxHashes[index])
 	}
 
 	log.Debug("createAndProcessBlock has been finished",
-		"total txs", len(txHashes),
-		"num txs processed", len(txHashes),
+		"total txs", len(blockTxs),
+		"num txs processed", result.size,
 		"num txs bad", numTxsBad,
 		"used time for processAndRemoveBadTransaction", totalTimeUsedForProcess)
 
-	return txHashes, len(txHashes), nil
+	return result, nil
 }
 
 // CreateAndProcessBlock -
-func (txs *transactions) CreateAndProcessBlockTransactions(blk *block.Block, haveTime func() bool) ([][]byte, int, error) {
+func (txs *transactions) CreateAndProcessBlockTransactions(blk *block.Block, haveTime func() bool) (data.ProcessResults, error) {
 	startTime := time.Now()
 
 	// get block gas limit from network economics
 	gasBandwidth := txs.economicsFee.MaxGasLimitPerBlock()
+	result := &processResults{
+		txHashes: make([][]byte, 0),
+		size:     0,
+	}
 
 	// get transactions from pool and sort them by sender and nonce with randomness
 	// limiting the number of transactions to be processed
 	selectedTXs, err := txs.ComputeSortedTxs(gasBandwidth, blk.GetRandSeed())
 	if err != nil {
 		log.Debug("computeSortedTxs", "error", err.Error())
-		return nil, 0, nil
+		return result, nil
 	}
 	elapsedTime := time.Since(startTime)
 
@@ -591,7 +604,7 @@ func (txs *transactions) CreateAndProcessBlockTransactions(blk *block.Block, hav
 		log.Trace("no transaction found after computeSortedTxs",
 			"time [s]", elapsedTime,
 		)
-		return nil, 0, nil
+		return result, nil
 	}
 
 	if !haveTime() {
@@ -599,7 +612,7 @@ func (txs *transactions) CreateAndProcessBlockTransactions(blk *block.Block, hav
 			"num txs", len(selectedTXs),
 			"time [s]", elapsedTime,
 		)
-		return nil, 0, nil
+		return result, nil
 	}
 
 	log.Debug("elapsed time to computeSortedTxs",
@@ -608,7 +621,7 @@ func (txs *transactions) CreateAndProcessBlockTransactions(blk *block.Block, hav
 	)
 
 	startTime = time.Now()
-	processedHashes, numTxs, err := txs.createAndProcessBlock(
+	processResults, err := txs.createAndProcessBlock(
 		blk,
 		haveTime,
 		selectedTXs,
@@ -620,23 +633,25 @@ func (txs *transactions) CreateAndProcessBlockTransactions(blk *block.Block, hav
 
 	if err != nil {
 		log.Debug("createAndProcessBlocks", "error", err.Error())
-		return processedHashes, numTxs, err
+		return processResults, err
 	}
 
-	return processedHashes, numTxs, nil
+	return processResults, nil
 }
 
 func (txs *transactions) createAndProcessBlock(
 	blk *block.Block,
 	haveTime func() bool,
 	sortedTxs []*txcache.WrappedTransaction,
-) ([][]byte, int, error) {
+) (data.ProcessResults, error) {
 	log.Debug("createAndProcessBlock has been started")
 
 	totalTimeUsedForProcess := time.Duration(0)
 	txHashes := make([][]byte, 0)
 	numTxsBad := 0
 	numTxsSkipped := 0
+
+	txsSize := int64(0)
 
 	senderAddressToSkip := []byte("")
 
@@ -681,6 +696,9 @@ func (txs *transactions) createAndProcessBlock(
 		txs.accountsInfo[string(tx.GetSender())] = true
 		txs.mutAccountsInfo.Unlock()
 
+		// if transaction have not been pre-processed successfully,
+		// or BW fee is not enough, Result is not set to FAILED
+		// then remove from pool as nothing can be done
 		if err != nil && tx.Result != transaction.Transaction_FAILED {
 			if errors.Is(err, process.ErrHigherNonceInTransaction) {
 				senderAddressToSkip = tx.GetSender()
@@ -697,6 +715,9 @@ func (txs *transactions) createAndProcessBlock(
 
 		senderAddressToSkip = []byte("")
 
+		// compute TX Size
+		txsSize += int64(tx.Size())
+
 		txHashes = append(txHashes, txHash)
 	}
 
@@ -705,7 +726,7 @@ func (txs *transactions) createAndProcessBlock(
 		blk.TxHashes = txHashes
 		err := blk.UpdateTxRootHash(txs.hasher)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 	}
 
@@ -716,7 +737,10 @@ func (txs *transactions) createAndProcessBlock(
 		"num txs skipped", numTxsSkipped,
 		"used time for processAndRemoveBadTransaction", totalTimeUsedForProcess)
 
-	return txHashes, len(txHashes), nil
+	return &processResults{
+		txHashes: txHashes,
+		size:     txsSize,
+	}, nil
 }
 
 // processAndRemoveBadTransaction processed transactions, if txs are with error it removes them from pool

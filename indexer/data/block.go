@@ -19,6 +19,7 @@ type Block struct {
 	PrevEpochStartSlot uint64        `json:"prevEpochStartSlot"`
 	Size               int64         `json:"size"`
 	SizeTxs            int64         `json:"sizeTxs"`
+	VirtualBlockSize   int64         `json:"virtualBlockSize"`
 	TxRootHash         string        `json:"txRootHash"`
 	TrieRoot           string        `json:"trieRoot"`
 	ValidatorsTrieRoot string        `json:"validatorsTrieRoot"`
