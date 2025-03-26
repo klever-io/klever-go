@@ -177,7 +177,7 @@ type ManagedTypesContext interface {
 	StateStack
 
 	GetRandReader() io.Reader
-	ConsumeGasForThisBigIntNumberOfBytes(byteLen *big.Int)
+	ConsumeGasForThisBigIntNumberOfBytes(byteLen *big.Int) error
 	ConsumeGasForThisIntNumberOfBytes(byteLen int)
 	ConsumeGasForBytes(bytes []byte)
 	ConsumeGasForBigIntCopy(values ...*big.Int)

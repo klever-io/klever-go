@@ -19,7 +19,7 @@ type ManagedTypesContextMock struct {
 	PopDiscardCalled                               func()
 	ClearStateStackCalled                          func()
 	GetRandReaderCalled                            func() io.Reader
-	ConsumeGasForThisBigIntNumberOfBytesCalled     func(byteLen *big.Int)
+	ConsumeGasForThisBigIntNumberOfBytesCalled     func(byteLen *big.Int) error
 	ConsumeGasForThisIntNumberOfBytesCalled        func(byteLen int)
 	ConsumeGasForBytesCalled                       func(bytes []byte)
 	ConsumeGasForBigIntCopyCalled                  func(values ...*big.Int)
@@ -104,10 +104,11 @@ func (m *ManagedTypesContextMock) GetRandReader() io.Reader {
 	return nil
 }
 
-func (m *ManagedTypesContextMock) ConsumeGasForThisBigIntNumberOfBytes(byteLen *big.Int) {
+func (m *ManagedTypesContextMock) ConsumeGasForThisBigIntNumberOfBytes(byteLen *big.Int) error {
 	if m.ConsumeGasForThisBigIntNumberOfBytesCalled != nil {
 		m.ConsumeGasForThisBigIntNumberOfBytesCalled(byteLen)
 	}
+	return nil
 }
 
 func (m *ManagedTypesContextMock) ConsumeGasForThisIntNumberOfBytes(byteLen int) {

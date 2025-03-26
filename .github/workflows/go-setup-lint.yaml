@@ -49,11 +49,16 @@ jobs:
           go install golang.org/x/tools/cmd/goimports@latest
           go mod tidy
           make goimports
-  
+
+      - name: Verify no changes from goimports
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            exit 1
+          fi
+
       - name: Ensure code is buildable
         run: |
-          go vet -unsafeptr=false $(go list ./... | grep -v /vendor/) 
-
+          go vet -unsafeptr=false $(go list ./... | grep -v /vendor/)
 
       - name: Install and Run golangci-lint
         run: |

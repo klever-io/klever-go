@@ -9,9 +9,9 @@ import (
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/tools/check"
+	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/klever-io/klever-go/vmcommon"
 )
 
 func TestNewManagedTypes(t *testing.T) {

@@ -652,7 +652,11 @@ func (context *VMHooksImpl) BigIntPow(destinationHandle, op1Handle, op2Handle in
 	//this calculates the length of the result in bytes
 	lengthOfResult := big.NewInt(0).Div(big.NewInt(0).Mul(b, big.NewInt(int64(a.BitLen()))), big.NewInt(8))
 
-	managedType.ConsumeGasForThisBigIntNumberOfBytes(lengthOfResult)
+	err = managedType.ConsumeGasForThisBigIntNumberOfBytes(lengthOfResult)
+	if context.WithFault(err, runtime.BigIntAPIErrorShouldFailExecution()) {
+		return
+	}
+
 	managedType.ConsumeGasForBigIntCopy(a, b)
 
 	if b.Sign() < 0 {
