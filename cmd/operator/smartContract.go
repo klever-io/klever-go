@@ -300,6 +300,9 @@ func subSC() []*cobra.Command {
 			}
 
 			log.Info("Smart contract output successfully parsed!", "\nParsed value", parsedValue)
+			if resultOnly {
+				fmt.Println(parsedValue)
+			}
 
 			return nil
 		},

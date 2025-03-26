@@ -66,6 +66,20 @@ const (
 	NONCE_CHECK_PENDING       = "pending"
 )
 
+var allowDisabledLogsCommand = []string{
+	"convert-address",
+	"parse-output",
+}
+
+func isDisabledLogsCommand(cmd *cobra.Command) bool {
+	for _, disabled := range allowDisabledLogsCommand {
+		if strings.HasPrefix(cmd.Use, disabled) {
+			return true
+		}
+	}
+	return false
+}
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:          "operator",
@@ -74,7 +88,7 @@ var rootCmd = &cobra.Command{
 	Version:      appVersion,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if resultOnly {
-			if !await {
+			if !await && !isDisabledLogsCommand(cmd) {
 				return fmt.Errorf("await flag is required to use result-only")
 			}
 			log.SetLevel(logger.LogNone)
