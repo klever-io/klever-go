@@ -23,7 +23,7 @@ const (
 	secondsToWaitForP2PBootstrap = 5
 	maxTimeToClose               = 10 * time.Second
 	maxMachineIDLen              = 10
-	defaultSwaggerURL            = "node.testnet.klever.finance/"
+	defaultSwaggerURL            = "node.testnet.klever.org/"
 	emptyNamePrefix              = "klever"
 )
 
