@@ -124,7 +124,7 @@ func tryCreateRustOutputDirectory() {
 }
 
 func writeRustVMHooksNames(eiMetadata *eapigen.EIMetadata) {
-	out := eapigen.NewEIGenWriter(pathToApiPackage, "generate/cmd/output/ei_1_5.rs")
+	out := eapigen.NewEIGenWriter(pathToApiPackage, "generate/cmd/output/ei_1_3.rs")
 	defer out.Close()
 	eapigen.WriteRustHookNames(out, eiMetadata)
 }
