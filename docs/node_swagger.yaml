@@ -991,7 +991,7 @@ paths:
           description: internal error
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
-      summary: returns the rewards available for a specific asset in an account
+      summary: returns the nonce and pending transaction info for a specific account
       tags:
       - Address
   /asset/{id}:

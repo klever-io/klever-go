@@ -192,7 +192,7 @@ const docTemplatenode = `{
                 "tags": [
                     "Address"
                 ],
-                "summary": "returns the rewards available for a specific asset in an account",
+                "summary": "returns the nonce and pending transaction info for a specific account",
                 "parameters": [
                     {
                         "type": "string",

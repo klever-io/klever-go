@@ -113,7 +113,7 @@ func GetAccount(c *gin.Context) {
 	)
 }
 
-// @Summary returns the rewards available for a specific asset in an account
+// @Summary returns the nonce and pending transaction info for a specific account
 // @Tags Address
 // @Produce json
 // @Param address path string true "address"
