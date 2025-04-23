@@ -546,7 +546,7 @@ func (tc *UnfreezeContract) validateUnfreezeAfterFork(fc core.ForkController) er
 		return ErrInvalidBucketID
 	}
 
-	if (bytes.Equal(tc.AssetID, kdautils.KLVIdentifier) || bytes.Equal(tc.AssetID, kdautils.KFIIdentifier)) && len(tc.BucketID) != core.BucketIDSize {
+	if (tc.AssetID == nil || bytes.Equal(tc.AssetID, kdautils.KLVIdentifier) || bytes.Equal(tc.AssetID, kdautils.KFIIdentifier)) && len(tc.BucketID) != core.BucketIDSize {
 		return ErrInvalidBucketID
 	}
 

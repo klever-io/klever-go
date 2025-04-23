@@ -1203,7 +1203,7 @@ func TestUnfreezeContractValidate(t *testing.T) {
 			name: "valid unfreeze contract",
 			contract: &transaction.UnfreezeContract{
 				AssetID:  []byte("KLV"),
-				BucketID: make([]byte, 64),
+				BucketID: make([]byte, core.BucketIDSize),
 			},
 			fc:          mock.NewForkControllerStub(),
 			expectError: false,
@@ -1212,7 +1212,7 @@ func TestUnfreezeContractValidate(t *testing.T) {
 			name: "invalid asset id",
 			contract: &transaction.UnfreezeContract{
 				AssetID:  []byte("A"),
-				BucketID: make([]byte, 64),
+				BucketID: make([]byte, core.BucketIDSize),
 			},
 			fc:          mock.NewForkControllerStub(),
 			expectError: true,
@@ -1227,6 +1227,43 @@ func TestUnfreezeContractValidate(t *testing.T) {
 			fc:          mock.NewForkControllerStub(),
 			expectError: true,
 			errorMsg:    "invalid bucket id",
+		},
+		{
+			// Nil assetID should validate as KLV
+			name: "invalid bucket id for KLV",
+			contract: &transaction.UnfreezeContract{
+				BucketID: []byte("ASSET-1234"),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid bucket id",
+		},
+		{
+			// Nil assetID should validate as KLV
+			name: "valid bucket for KLV",
+			contract: &transaction.UnfreezeContract{
+				BucketID: make([]byte, core.BucketIDSize),
+			},
+			fc: mock.NewForkControllerStub(),
+		},
+		{
+			name: "invalid bucket id for KFI",
+			contract: &transaction.UnfreezeContract{
+				AssetID:  []byte("KFI"),
+				BucketID: []byte("ASSET-1234"),
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid bucket id",
+		},
+		{
+			// Nil assetID should validate as KLV
+			name: "valid bucket for KFI",
+			contract: &transaction.UnfreezeContract{
+				AssetID:  []byte("KFI"),
+				BucketID: make([]byte, core.BucketIDSize),
+			},
+			fc: mock.NewForkControllerStub(),
 		},
 		{
 			name: "valid bucket id pre fork",
@@ -1261,7 +1298,7 @@ func TestUnfreezeContractValidate(t *testing.T) {
 			name: "valid bucket pos fork",
 			contract: &transaction.UnfreezeContract{
 				AssetID:  []byte("KLV"),
-				BucketID: make([]byte, 64),
+				BucketID: make([]byte, core.BucketIDSize),
 			},
 			fc:          mock.NewForkControllerStub(),
 			expectError: false,

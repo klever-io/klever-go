@@ -311,4 +311,4 @@ const MaxBytesBigInt = 512
 const ContractSizeOverhead = 8 // max 5 bytes type Any encode + max 3 bytes contract array encode
 
 // BucketIDSize defines the size of a bucket id when asset is KLV or KFI
-const BucketIDSize = 64
+const BucketIDSize = 32
