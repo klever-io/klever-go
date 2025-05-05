@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/big"
 	"strconv"
+	"strings"
 
 	"github.com/klever-io/klever-go/data/transaction"
 
@@ -209,18 +210,25 @@ func (b *MockWorld) GetKDAToken(address []byte, tokenIdentifier []byte, nonce ui
 	// convert nonce
 	nonceBytes := []byte(strconv.FormatUint(nonce, 10))
 
-	user, err := b.AccountsCacher.GetExistingUser(address)
-	if err != nil {
-		return nil, nil, err
+	userKda := &kapps.UserKDA{}
+	isNft := strings.Contains(string(tokenIdentifier), "/")
+
+	var err error
+	if address != nil && (isNft && nonce > 0 || !isNft) {
+		user, err := b.AccountsCacher.GetExistingUser(address)
+		if err != nil {
+			return nil, nil, err
+		}
+		userKda, err = user.GetUserKDA(tokenIdentifier, nonceBytes, true)
+		if err != nil {
+			return nil, nil, err
+		}
+		// klv does not save its balance in a KDA instance
+		if bytes.Equal(tokenIdentifier, kdautils.KLVIdentifier) {
+			userKda.Balance = user.GetBalance(kdautils.KLVIdentifier, true)
+		}
 	}
-	userKda, err := user.GetUserKDA(tokenIdentifier, nonceBytes, true)
-	if err != nil {
-		return nil, nil, err
-	}
-	// klv does not save its balance in a KDA instance
-	if bytes.Equal(tokenIdentifier, kdautils.KLVIdentifier) {
-		userKda.Balance = user.GetBalance(kdautils.KLVIdentifier, true)
-	}
+
 	kdaData, err := b.GetKDAData(tokenIdentifier, nonceBytes)
 	if err != nil {
 		return nil, nil, err
