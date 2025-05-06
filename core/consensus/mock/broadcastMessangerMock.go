@@ -7,10 +7,12 @@ import (
 
 // BroadcastMessengerMock -
 type BroadcastMessengerMock struct {
-	BroadcastBlockCalled            func(data.HeaderHandler) error
-	BroadcastTransactionsCalled     func([][]byte) error
-	BroadcastConsensusMessageCalled func(*consensus.Message) error
-	BroadcastBlockDataLeaderCalled  func(h data.HeaderHandler, blockBuff []byte, txs [][]byte) error
+	BroadcastBlockCalled                     func(data.HeaderHandler) error
+	BroadcastTransactionsCalled              func([][]byte) error
+	BroadcastConsensusMessageCalled          func(*consensus.Message) error
+	BroadcastBlockDataLeaderCalled           func(h data.HeaderHandler, blockBuff []byte, txs [][]byte) error
+	PrepareBroadcastHeaderValidatorCalled    func(header data.HeaderHandler, transactions [][]byte, idx int, pkBytes []byte)
+	PrepareBroadcastBlockDataValidatorCalled func(header data.HeaderHandler, transactions [][]byte, idx int, pkBytes []byte)
 }
 
 // BroadcastBlock -
@@ -61,4 +63,26 @@ func (bmm *BroadcastMessengerMock) BroadcastBlockDataLeader(
 		)
 	}
 	return nil
+}
+
+func (bbm *BroadcastMessengerMock) PrepareBroadcastHeaderValidator(header data.HeaderHandler, transactions [][]byte, idx int, pkBytes []byte) {
+	if bbm.PrepareBroadcastHeaderValidatorCalled != nil {
+		bbm.PrepareBroadcastHeaderValidatorCalled(
+			header,
+			transactions,
+			idx,
+			pkBytes,
+		)
+	}
+}
+
+func (bbm *BroadcastMessengerMock) PrepareBroadcastBlockDataValidator(header data.HeaderHandler, transactions [][]byte, idx int, pkBytes []byte) {
+	if bbm.PrepareBroadcastBlockDataValidatorCalled != nil {
+		bbm.PrepareBroadcastBlockDataValidatorCalled(
+			header,
+			transactions,
+			idx,
+			pkBytes,
+		)
+	}
 }

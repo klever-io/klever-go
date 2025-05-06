@@ -16,6 +16,7 @@ import (
 	"github.com/klever-io/klever-go/common/facade"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/alarm"
 	"github.com/klever-io/klever-go/core/consensus"
 	broadcastFactory "github.com/klever-io/klever-go/core/consensus/broadcast"
 	"github.com/klever-io/klever-go/core/consensus/chronology"
@@ -255,14 +256,19 @@ func (n *Node) StartConsensus() error {
 		n.watchdog = &watchdog.DisabledWatchdog{}
 	}
 
+	alarmScheduler := alarm.NewAlarmScheduler()
+
 	broadcastMessenger, err := broadcastFactory.GetBroadcastMessenger(
-		n.internalMarshalizer,
-		n.hasher,
-		n.messenger,
-		n.privKey,
-		n.peerSigHandler,
-		n.dataPool.Headers(),
-		n.interceptorsContainer,
+		&broadcastFactory.GetBroadcastMessengerArgs{
+			Marshalizer:           n.internalMarshalizer,
+			Hasher:                n.hasher,
+			Messenger:             n.messenger,
+			PrivateKey:            n.privKey,
+			PeerSignatureHandler:  n.peerSigHandler,
+			HeadersSubscriber:     n.dataPool.Headers(),
+			InterceptorsContainer: n.interceptorsContainer,
+			AlarmScheduler:        alarmScheduler,
+		},
 	)
 	if err != nil {
 		return err

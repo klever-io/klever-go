@@ -52,6 +52,8 @@ type BroadcastMessenger interface {
 	BroadcastTransactions([][]byte) error
 	BroadcastConsensusMessage(*Message) error
 	BroadcastBlockDataLeader(header data.HeaderHandler, blockBuff []byte, transactions [][]byte) error
+	PrepareBroadcastHeaderValidator(header data.HeaderHandler, transactions [][]byte, idx int, pkBytes []byte)
+	PrepareBroadcastBlockDataValidator(header data.HeaderHandler, transactions [][]byte, idx int, pkBytes []byte)
 	IsInterfaceNil() bool
 }
 

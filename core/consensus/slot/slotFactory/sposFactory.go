@@ -7,9 +7,6 @@ import (
 	"github.com/klever-io/klever-go/core/consensus/slot"
 	"github.com/klever-io/klever-go/core/consensus/slot/bls"
 	"github.com/klever-io/klever-go/core/process"
-	"github.com/klever-io/klever-go/crypto"
-	"github.com/klever-io/klever-go/crypto/hashing"
-	"github.com/klever-io/klever-go/tools/marshal"
 )
 
 // GetSubslotsFactory returns a subslots factory depending of the given parameter
@@ -61,25 +58,19 @@ func GetConsensusCoreFactory(consensusType string) (slot.ConsensusService, error
 
 // GetBroadcastMessenger returns a consensus service depending of the given parameter
 func GetBroadcastMessenger(
-	marshalizer marshal.Marshalizer,
-	hasher hashing.Hasher,
-	messenger consensus.P2PMessenger,
-	privateKey crypto.PrivateKey,
-	peerSignatureHandler crypto.PeerSignatureHandler,
-	headersSubscriber consensus.HeadersPoolSubscriber,
-	interceptorsContainer process.InterceptorsContainer,
+	args *broadcast.GetBroadcastMessengerArgs,
 ) (consensus.BroadcastMessenger, error) {
-
 	chainMessengerArgs := broadcast.ChainMessengerArgs{
-		Marshalizer:                marshalizer,
-		Hasher:                     hasher,
-		Messenger:                  messenger,
-		PrivateKey:                 privateKey,
-		PeerSignatureHandler:       peerSignatureHandler,
-		HeadersSubscriber:          headersSubscriber,
+		Marshalizer:                args.Marshalizer,
+		Hasher:                     args.Hasher,
+		Messenger:                  args.Messenger,
+		PrivateKey:                 args.PrivateKey,
+		PeerSignatureHandler:       args.PeerSignatureHandler,
+		HeadersSubscriber:          args.HeadersSubscriber,
 		MaxDelayCacheSize:          maxDelayCacheSize,
 		MaxValidatorDelayCacheSize: maxDelayCacheSize,
-		InterceptorsContainer:      interceptorsContainer,
+		InterceptorsContainer:      args.InterceptorsContainer,
+		AlarmScheduler:             args.AlarmScheduler,
 	}
 
 	return broadcast.NewChainMessenger(chainMessengerArgs)

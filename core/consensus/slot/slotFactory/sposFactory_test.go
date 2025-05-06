@@ -6,6 +6,7 @@ import (
 	commonmock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/consensus"
+	"github.com/klever-io/klever-go/core/consensus/broadcast"
 	"github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/consensus/slot"
 	"github.com/klever-io/klever-go/core/consensus/slot/slotFactory"
@@ -127,24 +128,18 @@ func TestGetSubslotsFactory_InvalidConsensusTypeShouldErr(t *testing.T) {
 func TestGetBroadcastMessenger_ShardShouldWork(t *testing.T) {
 	t.Parallel()
 
-	marshalizer := &commonmock.MarshalizerMock{}
-	hasher := &commonmock.HasherMock{}
-	messenger := &commonmock.MessengerStub{}
-	privateKey := &cryptoMock.PrivateKeyMock{}
-	peerSigHandler := &commonmock.PeerSignatureHandler{}
-	headersSubscriber := &commonmock.HeadersCacherStub{}
-	interceptosContainer := &commonmock.InterceptorsContainerStub{}
+	args := &broadcast.GetBroadcastMessengerArgs{
+		Marshalizer:           &commonmock.MarshalizerMock{},
+		Hasher:                &commonmock.HasherMock{},
+		Messenger:             &commonmock.MessengerStub{},
+		PrivateKey:            &cryptoMock.PrivateKeyMock{},
+		PeerSignatureHandler:  &commonmock.PeerSignatureHandler{},
+		HeadersSubscriber:     &commonmock.HeadersCacherStub{},
+		InterceptorsContainer: &commonmock.InterceptorsContainerStub{},
+		AlarmScheduler:        &commonmock.AlarmSchedulerStub{},
+	}
 
-	bm, err := slotFactory.GetBroadcastMessenger(
-		marshalizer,
-		hasher,
-		messenger,
-		privateKey,
-		peerSigHandler,
-		headersSubscriber,
-		interceptosContainer,
-	)
-
+	bm, err := slotFactory.GetBroadcastMessenger(args)
 	assert.Nil(t, err)
 	assert.NotNil(t, bm)
 }
@@ -152,24 +147,18 @@ func TestGetBroadcastMessenger_ShardShouldWork(t *testing.T) {
 func TestGetBroadcastMessenger_MetachainShouldWork(t *testing.T) {
 	t.Parallel()
 
-	marshalizer := &mock.MarshalizerMock{}
-	hasher := &commonmock.HasherMock{}
-	messenger := &commonmock.MessengerStub{}
-	privateKey := &cryptoMock.PrivateKeyMock{}
-	peerSigHandler := &commonmock.PeerSignatureHandler{}
-	headersSubscriber := &commonmock.HeadersCacherStub{}
-	interceptosContainer := &commonmock.InterceptorsContainerStub{}
+	args := &broadcast.GetBroadcastMessengerArgs{
+		Marshalizer:           &commonmock.MarshalizerMock{},
+		Hasher:                &commonmock.HasherMock{},
+		Messenger:             &commonmock.MessengerStub{},
+		PrivateKey:            &cryptoMock.PrivateKeyMock{},
+		PeerSignatureHandler:  &commonmock.PeerSignatureHandler{},
+		HeadersSubscriber:     &commonmock.HeadersCacherStub{},
+		InterceptorsContainer: &commonmock.InterceptorsContainerStub{},
+		AlarmScheduler:        &commonmock.AlarmSchedulerStub{},
+	}
 
-	bm, err := slotFactory.GetBroadcastMessenger(
-		marshalizer,
-		hasher,
-		messenger,
-		privateKey,
-		peerSigHandler,
-		headersSubscriber,
-		interceptosContainer,
-	)
-
+	bm, err := slotFactory.GetBroadcastMessenger(args)
 	assert.Nil(t, err)
 	assert.NotNil(t, bm)
 }

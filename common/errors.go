@@ -658,8 +658,14 @@ var ErrTimeoutWaitingForBlock = errors.New("timeout while waiting for epoch star
 // ErrNilHeadersSubscriber is raised when a valid headers subscriber is expected but nil is provided
 var ErrNilHeadersSubscriber = errors.New("nil headers subscriber")
 
+// ErrNilAlarmScheduler is raised when a valid alarm scheduler is expected but nil is provided
+var ErrNilAlarmScheduler = errors.New("nil alarm scheduler")
+
 // ErrNilHeader signals that a nil header slice has been provided
 var ErrNilHeader = errors.New("nil header")
+
+// ErrNilHeaderHash is raised when a nil header hash is provided
+var ErrNilHeaderHash = errors.New("nil header hash")
 
 // ErrEmptyAddress signals that an empty address was found in genesis file
 var ErrEmptyAddress = errors.New("empty address")
@@ -768,6 +774,9 @@ var ErrAlreadyCompressed = errors.New("already compressed")
 
 // ErrInvalidParameter signals that a wrong parameter has been provided
 var ErrInvalidParameter = errors.New("invalid parameter")
+
+// ErrNilParameter is raised when a nil parameter is provided
+var ErrNilParameter = errors.New("nil parameter")
 
 // ErrNotFoundInKApp signals that a trie is nil and no operation can be made
 var ErrNotFoundInKApp = errors.New("not found in kapp")

@@ -13,20 +13,36 @@ import (
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
 )
+
+const validatorDelayPerOrder = time.Second
 
 var log = logger.GetOrCreate("consensus/broadcast")
 
 var _ consensus.BroadcastMessenger = (*chainMessenger)(nil)
 
+// delayedBroadcaster exposes functionality for handling the consensus members broadcasting of delay data
+type delayedBroadcaster interface {
+	SetLeaderData(broadcastData *delayedBroadcastData) error
+	SetValidatorData(data *delayedBroadcastData) error
+	SetHeaderForValidator(vData *validatorHeaderBroadcastData) error
+	SetBroadcastHandlers(
+		txBroadcast func(txData [][]byte) error,
+		headerBroadcast func(header data.HeaderHandler) error,
+	) error
+	Close()
+}
+
 type chainMessenger struct {
-	marshalizer          marshal.Marshalizer
-	hasher               hashing.Hasher
-	messenger            consensus.P2PMessenger
-	privateKey           crypto.PrivateKey
-	peerSignatureHandler crypto.PeerSignatureHandler
+	marshalizer             marshal.Marshalizer
+	hasher                  hashing.Hasher
+	messenger               consensus.P2PMessenger
+	privateKey              crypto.PrivateKey
+	peerSignatureHandler    crypto.PeerSignatureHandler
+	delayedBlockBroadcaster delayedBroadcaster
 }
 
 // ChainMessengerArgs holds the arguments for creating a chainMessenger instance
@@ -38,6 +54,7 @@ type ChainMessengerArgs struct {
 	PeerSignatureHandler       crypto.PeerSignatureHandler
 	HeadersSubscriber          consensus.HeadersPoolSubscriber
 	InterceptorsContainer      process.InterceptorsContainer
+	AlarmScheduler             core.TimersScheduler
 	MaxDelayCacheSize          uint32
 	MaxValidatorDelayCacheSize uint32
 }
@@ -46,18 +63,36 @@ type ChainMessengerArgs struct {
 func NewChainMessenger(
 	args ChainMessengerArgs,
 ) (*chainMessenger, error) {
-
 	err := checkMetaChainNilParameters(args)
 	if err != nil {
 		return nil, err
 	}
 
+	delayedBroadcastArgs := &ArgsDelayedBlockBroadcaster{
+		InterceptorsContainer: args.InterceptorsContainer,
+		HeadersSubscriber:     args.HeadersSubscriber,
+		LeaderCacheSize:       args.MaxDelayCacheSize,
+		ValidatorCacheSize:    args.MaxValidatorDelayCacheSize,
+		AlarmScheduler:        args.AlarmScheduler,
+	}
+
+	delayedBroadcast, err := NewDelayedBlockBroadcaster(delayedBroadcastArgs)
+	if err != nil {
+		return nil, err
+	}
+
 	cm := &chainMessenger{
-		marshalizer:          args.Marshalizer,
-		hasher:               args.Hasher,
-		messenger:            args.Messenger,
-		privateKey:           args.PrivateKey,
-		peerSignatureHandler: args.PeerSignatureHandler,
+		marshalizer:             args.Marshalizer,
+		hasher:                  args.Hasher,
+		messenger:               args.Messenger,
+		privateKey:              args.PrivateKey,
+		peerSignatureHandler:    args.PeerSignatureHandler,
+		delayedBlockBroadcaster: delayedBroadcast,
+	}
+
+	err = delayedBroadcast.SetBroadcastHandlers(cm.BroadcastTransactions, cm.BroadcastHeader)
+	if err != nil {
+		return nil, err
 	}
 
 	return cm, nil
@@ -87,6 +122,10 @@ func checkMetaChainNilParameters(
 	if check.IfNil(args.HeadersSubscriber) {
 		return common.ErrNilHeadersSubscriber
 	}
+	if check.IfNil(args.AlarmScheduler) {
+		return common.ErrNilAlarmScheduler
+	}
+
 	if args.MaxDelayCacheSize == 0 || args.MaxValidatorDelayCacheSize == 0 {
 		return common.ErrInvalidCacheSize
 	}
@@ -204,7 +243,21 @@ func (cm *chainMessenger) BroadcastBlockDataLeader(
 	if check.IfNil(header) {
 		return common.ErrNilHeader
 	}
-	// delayedBlockBroadcaster
+
+	headerHash, err := tools.CalculateHash(cm.marshalizer, cm.hasher, header.GetBlockHeader())
+	if err != nil {
+		return err
+	}
+
+	broadcastData := &delayedBroadcastData{
+		headerHash:   headerHash,
+		transactions: transactions,
+	}
+
+	err = cm.delayedBlockBroadcaster.SetLeaderData(broadcastData)
+	if err != nil {
+		return err
+	}
 
 	// go cm.BroadcastBlockAndTransactions(blockBuff, transactions)
 	go func() {
@@ -217,9 +270,72 @@ func (cm *chainMessenger) BroadcastBlockDataLeader(
 	return nil
 }
 
+func (cm *chainMessenger) PrepareBroadcastHeaderValidator(
+	header data.HeaderHandler,
+	transactions [][]byte,
+	index int,
+	pkBytes []byte,
+) {
+	if check.IfNil(header) {
+		log.Error("chainMessenger.PrepareBroadcastHeaderValidator", "error", common.ErrNilHeader)
+		return
+	}
+
+	headerHash, err := tools.CalculateHash(cm.marshalizer, cm.hasher, header.GetBlockHeader())
+	if err != nil {
+		log.Error("chainMessenger.PrepareBroadcastHeaderValidator", "error", err)
+		return
+	}
+
+	vData := &validatorHeaderBroadcastData{
+		headerHash: headerHash,
+		header:     header,
+		order:      uint32(index), // #nosec G115
+		pkBytes:    pkBytes,
+	}
+
+	err = cm.delayedBlockBroadcaster.SetHeaderForValidator(vData)
+	if err != nil {
+		log.Error("chainMessenger.PrepareBroadcastHeaderValidator", "error", err)
+		return
+	}
+}
+
+func (cm *chainMessenger) PrepareBroadcastBlockDataValidator(
+	header data.HeaderHandler,
+	transactions [][]byte,
+	idx int,
+	pkBytes []byte,
+) {
+	if check.IfNil(header) {
+		log.Error("chainMessenger.PrepareBroadcastBlockDataValidator", "error", common.ErrNilHeader)
+		return
+	}
+
+	headerHash, err := tools.CalculateHash(cm.marshalizer, cm.hasher, header.GetBlockHeader())
+	if err != nil {
+		log.Error("chainMessenger.PrepareBroadcastBlockDataValidator", "error", err)
+		return
+	}
+
+	broadcastData := &delayedBroadcastData{
+		headerHash:   headerHash,
+		header:       header,
+		transactions: transactions,
+		order:        uint32(idx), // #nosec G115
+		pkBytes:      pkBytes,
+	}
+
+	err = cm.delayedBlockBroadcaster.SetValidatorData(broadcastData)
+	if err != nil {
+		log.Error("PrepareBroadcastBlockDataValidator", "error", err)
+		return
+	}
+}
+
 // Close closes all the started infinite looping goroutines and subcomponents
 func (cm *chainMessenger) Close() {
-
+	cm.delayedBlockBroadcaster.Close()
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

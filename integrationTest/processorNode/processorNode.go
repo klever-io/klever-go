@@ -19,6 +19,7 @@ import (
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/alarm"
 	"github.com/klever-io/klever-go/core/bootstrap/disabled"
 	"github.com/klever-io/klever-go/core/consensus"
 	broadcastFactory "github.com/klever-io/klever-go/core/consensus/broadcast"
@@ -495,14 +496,19 @@ func (n *ProcessorNode) InitTestNode() error {
 		n.InterceptorsContainer = &mock.InterceptorsContainerStub{}
 	}
 
+	alarmScheduler := alarm.NewAlarmScheduler()
+
 	n.BroadcastMessenger, err = broadcastFactory.GetBroadcastMessenger(
-		getMarshalizer(),
-		getHasher(),
-		n.Messenger,
-		n.NodeBlockSignKeyPair.Sk,
-		n.PeerSigHandler,
-		n.DataPool.Headers(),
-		n.InterceptorsContainer,
+		&broadcastFactory.GetBroadcastMessengerArgs{
+			Marshalizer:           getMarshalizer(),
+			Hasher:                getHasher(),
+			Messenger:             n.Messenger,
+			PrivateKey:            n.NodeBlockSignKeyPair.Sk,
+			PeerSignatureHandler:  n.PeerSigHandler,
+			HeadersSubscriber:     n.DataPool.Headers(),
+			InterceptorsContainer: n.InterceptorsContainer,
+			AlarmScheduler:        alarmScheduler,
+		},
 	)
 	if err != nil {
 		return err

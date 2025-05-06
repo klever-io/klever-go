@@ -164,6 +164,14 @@ func (sr *subslotEndSlot) receivedHeader(headerHandler data.HeaderHandler) {
 // doEndSlotJob method does the job of the subslot EndSlot
 func (sr *subslotEndSlot) doEndSlotJob() bool {
 	if !sr.IsSelfLeaderInCurrentSlot() {
+		if sr.IsNodeInConsensusGroup(sr.SelfPubKey()) {
+			err := sr.prepareBroadcastBlockDataForValidator()
+			if err != nil {
+				log.Warn("validator in consensus group preparing for delayed broadcast",
+					"error", err.Error())
+			}
+		}
+
 		return sr.doEndSlotJobByParticipant(nil)
 	}
 
@@ -262,6 +270,11 @@ func (sr *subslotEndSlot) doEndSlotJobByLeader() bool {
 
 	log.Debug("step 3: Header have been committed and header has been broadcast")
 
+	err = sr.broadcastBlockDataLeader()
+	if err != nil {
+		log.Debug("doEndRoundJobByLeader.broadcastBlockDataLeader", "error", err.Error())
+	}
+
 	msg := fmt.Sprintf("Added proposed block with nonce  %d  in blockchain", sr.Header.GetNonce())
 	log.Debug(display.Headline(msg, sr.SyncTimer().FormattedCurrentTime(), "+"))
 
@@ -358,6 +371,13 @@ func (sr *subslotEndSlot) doEndSlotJobByParticipant(cnsDta *consensus.Message) b
 	}
 
 	sr.SetStatus(sr.Current(), slot.SsFinished)
+
+	if sr.IsNodeInConsensusGroup(sr.SelfPubKey()) {
+		err = sr.setHeaderForValidator(header)
+		if err != nil {
+			log.Warn("doEndRoundJobByParticipant", "error", err.Error())
+		}
+	}
 
 	sr.displayStatistics()
 
@@ -501,4 +521,53 @@ func (sr *subslotEndSlot) isOutOfTime() bool {
 	}
 
 	return false
+}
+
+func (sr *subslotEndSlot) getIndexPkAndDataToBroadcast() (int, []byte, []byte, [][]byte, error) {
+	index, err := sr.SelfConsensusGroupIndex()
+	if err != nil {
+		return -1, nil, nil, nil, err
+	}
+
+	blockBuffer, transactions, err := sr.BlockProcessor().MarshalizedDataToBroadcast(sr.Header)
+	if err != nil {
+		return -1, nil, nil, nil, err
+	}
+
+	consensusGroup := sr.ConsensusGroup()
+	pk := []byte(consensusGroup[index])
+
+	return index, pk, blockBuffer, transactions, nil
+
+}
+
+func (sr *subslotEndSlot) broadcastBlockDataLeader() error {
+	data, transactions, err := sr.BlockProcessor().MarshalizedDataToBroadcast(sr.Header)
+	if err != nil {
+		return err
+	}
+
+	return sr.BroadcastMessenger().BroadcastBlockDataLeader(sr.Header, data, transactions)
+}
+
+func (sr *subslotEndSlot) setHeaderForValidator(header data.HeaderHandler) error {
+	index, pk, _, transactions, err := sr.getIndexPkAndDataToBroadcast()
+	if err != nil {
+		return err
+	}
+
+	go sr.BroadcastMessenger().PrepareBroadcastHeaderValidator(header, transactions, index, pk)
+
+	return nil
+}
+
+func (sr *subslotEndSlot) prepareBroadcastBlockDataForValidator() error {
+	index, pk, _, transactions, err := sr.getIndexPkAndDataToBroadcast()
+	if err != nil {
+		return err
+	}
+
+	go sr.BroadcastMessenger().PrepareBroadcastBlockDataValidator(sr.Header, transactions, index, pk)
+
+	return nil
 }

@@ -1,5 +1,7 @@
 package common
 
+import "time"
+
 // DefaultDirPermission represents the default directory permissions
 const DefaultDirPermission = 0750
 
@@ -19,3 +21,11 @@ const BaseOpsAPICost = "BaseOpsAPICost"
 const MaxPerTransaction = "MaxPerTransaction"
 
 const EmptyJSonMarshalData = "{}"
+
+// ExtraDelayForRequestBlockInfo represents the number of seconds to wait since a block has been received and the
+// moment when its components,like transactions, would be requested too if they are still missing
+const ExtraDelayForRequestBlockInfo = ExtraDelayForBroadcastBlockInfo + time.Second
+
+// ExtraDelayForBroadcastBlockInfo represents the number of seconds to wait since a block has been broadcast and the
+// moment when its components,transactions, would be broadcast too
+const ExtraDelayForBroadcastBlockInfo = 1 * time.Second

@@ -621,6 +621,49 @@ func TestSubslotEndSlot_DoEndSlotJobByParticipant_ShouldReturnTrue(t *testing.T)
 	assert.True(t, res)
 }
 
+func TestSubslotEndSlot_Validator_DoEndSlotJobAllOK(t *testing.T) {
+
+	container := mock.InitConsensusCore()
+	expectedSignature := []byte("signature")
+	singleSigner := &cMock.SingleSignerMock{
+		SignStub: func(private crypto.PrivateKey, msg []byte) ([]byte, error) {
+			var receivedHdr block.Block
+			err := container.Marshalizer().Unmarshal(&receivedHdr, msg)
+			if err != nil {
+				return nil, err
+			}
+
+			return expectedSignature, nil
+		},
+	}
+	container.SetSingleSigner(singleSigner)
+
+	bm := &mock.BroadcastMessengerMock{
+		BroadcastBlockCalled: func(handler data.HeaderHandler) error {
+			return errors.New("error")
+		},
+	}
+	container.SetBroadcastMessenger(bm)
+	sr := *initSubslotEndSlotWithContainer(container)
+
+	hdr := &block.Block{Header: &block.BlockHeader{Nonce: 37}}
+
+	sr.Header = hdr
+	sr.AddReceivedHeader(hdr)
+
+	// set previous as finished
+	sr.SetStatus(2, slot.SsFinished)
+
+	// set current as not finished
+	sr.SetStatus(3, slot.SsNotFinished)
+
+	// set validator in consensus group
+	sr.SetSelfPubKey("B")
+
+	r := sr.DoEndSlotJob()
+	assert.True(t, r)
+}
+
 func TestSubslotEndSlot_IsConsensusHeaderReceived_NoReceivedHeadersShouldReturnFalse(t *testing.T) {
 	t.Parallel()
 
