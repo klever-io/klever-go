@@ -22,6 +22,44 @@ var (
 	fbToNode string
 )
 
+type MSApiEncoded struct {
+	Hash    string
+	Address string
+	Raw     *transaction.Transaction
+}
+
+type MSApiTransaction struct {
+	Hash    string `json:"hash"`
+	Address string `json:"address"`
+	Signers []struct {
+		Address string `json:"address"`
+		Weight  int64  `json:"weight"`
+		Signed  bool   `json:"signed"`
+	} `json:"signers"`
+	Threshold int64 `json:"threshold"`
+
+	Raw *transaction.Transaction `json:"raw"`
+}
+
+func encodeMSApiData(tx *transaction.Transaction) (*MSApiEncoded, error) {
+	// compute hash
+	hash, err := computeTxHash(tx)
+	if err != nil {
+		return nil, err
+	}
+
+	// get sender address encoded
+	sender := walletPubKeyConverter.Encode(tx.RawData.Sender)
+
+	encoded := &MSApiEncoded{
+		Hash:    hex.EncodeToString(hash),
+		Address: sender,
+		Raw:     tx,
+	}
+
+	return encoded, nil
+}
+
 func init() {
 	cmdSign := &cobra.Command{
 		Use:   "sign [Transaction]",
@@ -110,7 +148,11 @@ func init() {
 	}
 	cmdForceBroadcast.Flags().StringVar(&fbToNode, "fb-node", "", "forwarding to")
 
-	rootCmd.AddCommand(cmdSign, cmdBroadcast, cmdForceBroadcast)
+	rootCmd.AddCommand(
+		cmdSign,
+		cmdBroadcast,
+		cmdForceBroadcast,
+	)
 }
 
 func broadcastHash(hash string) error {
@@ -222,7 +264,7 @@ func DumpAsJson(data interface{}) error {
 	return nil
 }
 
-func SignTX(TX *transaction.Transaction) ([]byte, error) {
+func computeTxHash(tx *transaction.Transaction) ([]byte, error) {
 	// hash TX and verify
 	hasher, err := factoryHasher.NewHasher("blake2b")
 	if err != nil {
@@ -234,7 +276,17 @@ func SignTX(TX *transaction.Transaction) ([]byte, error) {
 		return nil, err
 	}
 
-	hash, err := tools.CalculateHash(internalMarshalizer, hasher, TX.RawData)
+	hash, err := tools.CalculateHash(internalMarshalizer, hasher, tx.RawData)
+	if err != nil {
+		return nil, err
+	}
+
+	return hash, nil
+}
+
+func SignTX(TX *transaction.Transaction) ([]byte, error) {
+	// hash TX and verify
+	hash, err := computeTxHash(TX)
 	if err != nil {
 		return nil, err
 	}

@@ -98,7 +98,9 @@ var rootCmd = &cobra.Command{
 			log.SetLevel(logger.LogTrace)
 		}
 
-		if createOnly || strings.HasPrefix(cmd.Use, "sign") {
+		if createOnly ||
+			strings.HasPrefix(cmd.Use, "sign") ||
+			strings.HasPrefix(cmd.Use, "encode") {
 			log.SetLevel(logger.LogNone)
 		}
 
