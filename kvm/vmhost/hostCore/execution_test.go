@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/crypto/hashing"
@@ -31,6 +32,7 @@ import (
 var addressConverter, _ = pubkeyConverter.NewBech32PubkeyConverter(32)
 var testOwnerAddress, _ = addressConverter.Decode("klv10gq6xsegedacd084vmpr2xus950j3d6lhqjfe8ue2xkmfwtkzavqnqhz99")
 var testToAddress, _ = addressConverter.Decode("klv15zssmvht00ugvge5le9n885kahc5ykxzvmxx6xwz5ya2an562yyssfa0c5")
+var invalidAddress, _ = addressConverter.Decode("klv1invalidaddress")
 
 var marshalizer = marshal.NewProtoMarshalizer()
 
@@ -280,4 +282,164 @@ func TestExecution_DeleteContract(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestExecuteKDATransfer_SCValidations(t *testing.T) {
+	hostParams := makeHostParameters()
+	accCacher := createFullArgumentsForKAppsProcessingMemory()
+	mockWorld := worldmock.NewMockWorld()
+	mockWorld.AccountsCacher = accCacher
+
+	_, err := accCacher.LoadKApp(kapps.ProposalKAppAddress)
+	require.NoError(t, err)
+	err = accCacher.SaveAll()
+	require.NoError(t, err)
+
+	mockWorld.InitBuiltinFunctions(hostParams.GasSchedule, hostParams.ForkController)
+
+	vmHost, err := hostCore.NewVMHost(mockWorld, hostParams)
+	require.NoError(t, err)
+
+	value := int64(100)
+	transfers := []*vmcommon.KDATransfer{
+		{
+			KDATokenName: kdautils.KLVIdentifier,
+			KDATokenType: uint32(core.Fungible),
+			KDAValue:     big.NewInt(value),
+		},
+	}
+
+	runtime := vmHost.Runtime()
+	metering := vmHost.Metering()
+
+	oneTransferCost := metering.GasSchedule().BuiltInCost.Transfer
+	gasProvided := oneTransferCost*uint64(len(transfers)) + 1
+
+	setupTest := func(recipientAddr []byte) {
+		input := &vmcommon.ContractCallInput{
+			RecipientAddr: recipientAddr,
+			VMInput: vmcommon.VMInput{
+				CallerAddr:  testOwnerAddress,
+				GasProvided: gasProvided,
+			},
+		}
+		runtime.SetVMInput(input)
+		metering.InitStateFromContractCallInput(&input.VMInput)
+	}
+
+	t.Run("Transfer to non-SC address", func(t *testing.T) {
+		setupTest(testToAddress)
+
+		args := &vmhost.KDATransfersArgs{
+			Sender:         testOwnerAddress,
+			Destination:    testToAddress,
+			OriginalCaller: runtime.GetOriginalCallerAddress(),
+			Transfers:      transfers,
+		}
+
+		vmOutput, gasConsumed, err := vmHost.ExecuteKDATransfer(args, vm.DirectCall)
+		require.Nil(t, err)
+		require.NotNil(t, vmOutput)
+		require.Greater(t, gasConsumed, uint64(0))
+	})
+
+	t.Run("Transfer to non-existent SC address", func(t *testing.T) {
+		scAddress := make([]byte, 32)
+		copy(scAddress[:4], []byte{0, 0, 0, 0})
+
+		setupTest(scAddress)
+
+		args := &vmhost.KDATransfersArgs{
+			Sender:         testOwnerAddress,
+			Destination:    scAddress,
+			OriginalCaller: runtime.GetOriginalCallerAddress(),
+			Transfers:      transfers,
+		}
+
+		vmOutput, _, err := vmHost.ExecuteKDATransfer(args, vm.DirectCall)
+		require.Error(t, err)
+		require.Equal(t, common.ErrAccNotFound, err)
+		require.Nil(t, vmOutput)
+	})
+
+	t.Run("Transfer to SC address without code", func(t *testing.T) {
+		scAddress := make([]byte, 32)
+		copy(scAddress[:4], []byte{0, 0, 0, 0})
+
+		scAccount, _ := accCacher.LoadUser(scAddress)
+		require.NoError(t, accCacher.SaveUser(scAccount))
+
+		setupTest(scAddress)
+
+		args := &vmhost.KDATransfersArgs{
+			Sender:         testOwnerAddress,
+			Destination:    scAddress,
+			OriginalCaller: runtime.GetOriginalCallerAddress(),
+			Transfers:      transfers,
+		}
+
+		vmOutput, _, err := vmHost.ExecuteKDATransfer(args, vm.DirectCall)
+		require.Error(t, err)
+		require.Equal(t, vmhost.ErrAccountNotPayable, err)
+		require.Nil(t, vmOutput)
+	})
+
+	t.Run("Transfer to valid SC address", func(t *testing.T) {
+		scAddress := make([]byte, 32)
+		copy(scAddress[:4], []byte{0, 0, 0, 0})
+
+		scAccount, _ := accCacher.LoadUser(scAddress)
+		scAccount.SetCode([]byte("dummy code"))
+		scAccount.SetCodeMetadata([]byte{
+			vmcommon.MetadataPayable,
+			2,
+		})
+		require.NoError(t, accCacher.SaveUser(scAccount))
+
+		setupTest(scAddress)
+
+		args := &vmhost.KDATransfersArgs{
+			Sender:         testOwnerAddress,
+			Destination:    scAddress,
+			OriginalCaller: runtime.GetOriginalCallerAddress(),
+			Transfers:      transfers,
+		}
+
+		vmOutput, _, err := vmHost.ExecuteKDATransfer(args, vm.DirectCall)
+		require.Nil(t, err)
+		require.NotNil(t, vmOutput)
+	})
+
+	t.Run("Transfer to non-payable SC address", func(t *testing.T) {
+		scAddress := make([]byte, 32)
+		copy(scAddress[:4], []byte{0, 0, 0, 0})
+
+		scAccount, _ := accCacher.LoadUser(scAddress)
+		scAccount.SetCode([]byte("dummy code"))
+		scAccount.SetCodeMetadata([]byte{
+			vmcommon.MetadataPayableBySC,
+			4,
+		})
+		require.NoError(t, accCacher.SaveUser(scAccount))
+
+		scAccount.SetCodeMetadata([]byte{
+			vmcommon.MetadataPayableBySC,
+			4,
+		})
+		require.NoError(t, accCacher.SaveUser(scAccount))
+
+		setupTest(scAddress)
+
+		args := &vmhost.KDATransfersArgs{
+			Sender:         testOwnerAddress,
+			Destination:    scAddress,
+			OriginalCaller: runtime.GetOriginalCallerAddress(),
+			Transfers:      transfers,
+		}
+
+		vmOutput, _, err := vmHost.ExecuteKDATransfer(args, vm.DirectCall)
+		require.Error(t, err)
+		require.Equal(t, vmhost.ErrAccountNotPayable, err)
+		require.Nil(t, vmOutput)
+	})
 }

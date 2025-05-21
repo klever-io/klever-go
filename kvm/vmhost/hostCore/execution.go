@@ -594,7 +594,6 @@ func (host *vmHost) ExecuteOnSameContext(input *vmcommon.ContractCallInput) erro
 		if transfer.KDATokenNonce > 0 ||
 			(len(transfer.KDATokenName) > 0 &&
 				!bytes.Equal(transfer.KDATokenName, kdautils.KLVIdentifier)) {
-			fmt.Println("HERE 2")
 
 			err = vmhost.ErrFailedTransfer
 			return err
@@ -942,6 +941,10 @@ func (host *vmHost) ExecuteKDATransfer(transfersArgs *vmhost.KDATransfersArgs, c
 		return nil, 0, vmhost.ErrInvalidCallOnReadOnlyMode
 	}
 
+	if err := host.validateSCDestination(transfersArgs.Sender, transfersArgs.Destination); err != nil {
+		return nil, 0, err
+	}
+
 	_, _, metering, _, _, _ := host.GetContexts()
 
 	kdaTransferInput := &vmcommon.ContractCallInput{
@@ -989,6 +992,35 @@ func (host *vmHost) ExecuteKDATransfer(transfersArgs *vmhost.KDATransfersArgs, c
 	metering.UseGas(gasConsumed)
 
 	return vmOutput, gasConsumed, nil
+}
+
+// validateSCDestination checks if the destination is a valid SC address and if it is payable
+func (host *vmHost) validateSCDestination(sender []byte, destination []byte) error {
+	if !core.IsSmartContractAddress(destination) {
+		return nil
+	}
+
+	// We need to check mannually if the destination is a account that exists
+	// because IsPayable allow payments to non-existing accounts
+	// TODO: refactor this to use IsPayable
+	_, err := host.Blockchain().GetUserAccount(destination)
+	if err != nil {
+		log.Trace("error getting SC account", "address", destination, "error", err)
+		return err
+	}
+
+	isPayable, err := host.Blockchain().IsPayable(sender, destination)
+	if err != nil {
+		log.Trace("error checking if SC is payable", "address", destination, "error", err)
+		return err
+	}
+
+	if !isPayable {
+		log.Trace("SC is not payable", "address", destination)
+		return vmhost.ErrAccountNotPayable
+	}
+
+	return nil
 }
 
 func (host *vmHost) callFunctionOnOtherVM(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
