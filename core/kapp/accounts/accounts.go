@@ -222,7 +222,7 @@ func (a *accountsKapp) computeRoyalties(kda *kapps.KDAData, amountToTransfer int
 	}
 
 	if len(kda.Royalties.TransferPercentage) > 0 {
-		assetRoyalties, err = kda.GetTransferRoyaltyByAmount(amountToTransfer, a.forkController.KdaFpr())
+		assetRoyalties, err = kda.GetTransferRoyaltyByAmount(amountToTransfer, a.forkController.KdaFpr(), a.forkController.EnableSmartContracts())
 		if err != nil {
 			return 0, 0, err
 		}
@@ -355,7 +355,7 @@ func (a *accountsKapp) validatePercentageRoyaltiesTransfer(ctType transaction.TX
 	var err error
 
 	if kda.Royalties != nil && len(kda.Royalties.TransferPercentage) > 0 {
-		royaltyAmount, err = kda.GetTransferRoyaltyByAmount(value, a.forkController.KdaFpr())
+		royaltyAmount, err = kda.GetTransferRoyaltyByAmount(value, a.forkController.KdaFpr(), a.forkController.EnableSmartContracts())
 		if err != nil {
 			return 0, transaction.Transaction_AccountError, err
 		}

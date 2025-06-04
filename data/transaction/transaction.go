@@ -314,7 +314,7 @@ func (t *Transaction) addTransfer(txArgs TXArgs) error {
 
 		if kda.Royalties != nil {
 			if len(kda.Royalties.TransferPercentage) > 0 {
-				royaltyAmount, err = kda.GetTransferRoyaltyByAmount(contractRequest.Amount, txArgs.NodeHelper.GetForkController().KdaFpr())
+				royaltyAmount, err = kda.GetTransferRoyaltyByAmount(contractRequest.Amount, txArgs.NodeHelper.GetForkController().KdaFpr(), txArgs.NodeHelper.GetForkController().EnableSmartContracts())
 				if err != nil {
 					return err
 				}
@@ -1407,7 +1407,7 @@ func getAssetRoyalties(assetName string, value int64, txArgs TXArgs) (int64, int
 
 	if kda.Royalties != nil {
 		if len(kda.Royalties.TransferPercentage) > 0 {
-			kdaRoyalties, err = kda.GetTransferRoyaltyByAmount(value, txArgs.NodeHelper.GetForkController().KdaFpr())
+			kdaRoyalties, err = kda.GetTransferRoyaltyByAmount(value, txArgs.NodeHelper.GetForkController().KdaFpr(), txArgs.NodeHelper.GetForkController().EnableSmartContracts())
 			if err != nil {
 				return 0, 0, err
 			}

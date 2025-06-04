@@ -4,7 +4,7 @@ import (
 	bytes "bytes"
 
 	"github.com/klever-io/klever-go/common"
-	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/tools"
 )
 
 // Define the pattern to check against (with ID set to 0x00 since it's variable)
@@ -60,45 +60,72 @@ func (kda *KDAData) GetRoleByAddress(address []byte) (*RolesData, error) {
 	return nil, common.ErrRoleNotFound
 }
 
-func (kda *KDAData) GetTransferRoyaltyByAmount(amount int64, isKdaFprFork bool) (int64, error) {
+func (kda *KDAData) GetTransferRoyaltyByAmount(amount int64, isKdaFprFork bool, isEnableSmartContractsFork bool) (int64, error) {
 	if len(kda.Royalties.TransferPercentage) == 0 {
 		return 0, common.ErrInvalidValue
 	}
 
 	//old flow
 	if !isKdaFprFork {
-		chosenRoyalty := kda.Royalties.TransferPercentage[len(kda.Royalties.TransferPercentage)-1]
-		for _, royalty := range kda.Royalties.TransferPercentage {
-			if amount > royalty.Amount {
-				continue
-			}
-
-			chosenRoyalty = royalty
-			break
-		}
-
-		return int64(float64(amount) * float64(chosenRoyalty.Percentage) / float64(core.HundredPercent)), nil
+		return kda.computeOldFlowRoyalty(amount, isEnableSmartContractsFork)
 	}
 
 	//new flow
+	return kda.computeNewFlowRoyalty(amount, isEnableSmartContractsFork)
+}
+
+func (kda *KDAData) computeNewFlowRoyalty(amount int64, isEnableSmartContractsFork bool) (int64, error) {
 	royaltySum := int64(0)
 	for i, royalty := range kda.Royalties.TransferPercentage {
 		if amount < royalty.Amount {
-			royaltySum += int64(float64(amount) * float64(royalty.Percentage) / float64(core.HundredPercent))
+			royaltyCalc, err := tools.ComputePercentageI64(amount, int64(royalty.Percentage), isEnableSmartContractsFork)
+			if err != nil {
+				return 0, err
+			}
+			royaltySum += royaltyCalc
 			break
 		}
 
-		royaltyCalc := int64(float64(royalty.Amount) * float64(royalty.Percentage) / float64(core.HundredPercent))
+		royaltyCalc, err := tools.ComputePercentageI64(royalty.Amount, int64(royalty.Percentage), isEnableSmartContractsFork)
+		if err != nil {
+			return 0, err
+		}
+
 		amount -= royalty.Amount
 		royaltySum += royaltyCalc
 
 		if i == len(kda.Royalties.TransferPercentage)-1 && amount > 0 {
 			lastRoyalty := kda.Royalties.TransferPercentage[i]
-			royaltySum += int64(float64(amount) * float64(lastRoyalty.Percentage) / float64(core.HundredPercent))
+			royaltyCalc, err := tools.ComputePercentageI64(amount, int64(lastRoyalty.Percentage), isEnableSmartContractsFork)
+			if err != nil {
+				return 0, err
+			}
+
+			royaltySum += royaltyCalc
 		}
 	}
 
 	return royaltySum, nil
+}
+
+func (kda *KDAData) computeOldFlowRoyalty(amount int64, isEnableSmartContractsFork bool) (int64, error) {
+	chosenRoyalty := kda.Royalties.TransferPercentage[len(kda.Royalties.TransferPercentage)-1]
+
+	for _, royalty := range kda.Royalties.TransferPercentage {
+		if amount > royalty.Amount {
+			continue
+		}
+
+		chosenRoyalty = royalty
+		break
+	}
+
+	splitToPay, err := tools.ComputePercentageI64(amount, int64(chosenRoyalty.Percentage), isEnableSmartContractsFork)
+	if err != nil {
+		return 0, err
+	}
+
+	return splitToPay, nil
 }
 
 func IsKAppAddress(address []byte) bool {
