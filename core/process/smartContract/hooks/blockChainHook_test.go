@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"testing"
@@ -28,6 +29,7 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/data/trie"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/kvm/mock/stub"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/memorydb"
 	"github.com/klever-io/klever-go/storage/storageUnit"
@@ -402,6 +404,142 @@ func TestBlockChainHookImpl_IsSmartContract(t *testing.T) {
 			if got := h.IsSmartContract(address); got != tt.want {
 				t.Errorf("IsSmartContract() = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+func TestBlockChainHookImpl_GetKDAToken(t *testing.T) {
+	// Test data setup
+	testAddress := []byte("testAddress123456789012345678901234")
+	testAssetID := []byte("TESTKDA")
+	testKDAData := &kapps.KDAData{
+		ID:                testAssetID,
+		AssetType:         kapps.KDAData_Fungible,
+		Name:              []byte("Test KDA"),
+		Ticker:            testAssetID,
+		Precision:         6,
+		InitialSupply:     1000000,
+		CirculatingSupply: 500000,
+	}
+	testUserKDAData := &kapps.UserKDA{
+		Balance:       1000,
+		FrozenBalance: 100,
+		LastClaim:     &kapps.LastClaim{Timestamp: 123456789},
+		Buckets:       make(map[string]*kapps.UserBucket),
+	}
+
+	tests := []struct {
+		name            string
+		address         []byte
+		assetID         []byte
+		nonce           uint64
+		getUserAccErr   bool
+		getUserKDAErr   bool
+		getKDAErr       bool
+		expectedKDA     *kapps.KDAData
+		expectedUserKDA *kapps.UserKDA
+		expectError     bool
+	}{
+		{
+			name:            "Success - nil address, valid asset",
+			address:         nil,
+			assetID:         testAssetID,
+			nonce:           10,
+			expectedKDA:     testKDAData,
+			expectedUserKDA: &kapps.UserKDA{},
+		},
+		{
+			name:            "Success - valid address with KDA data",
+			address:         testAddress,
+			assetID:         testAssetID,
+			nonce:           10,
+			expectedKDA:     testKDAData,
+			expectedUserKDA: testUserKDAData,
+		},
+		{
+			name:            "Error - GetUserAccount fails",
+			address:         testAddress,
+			assetID:         testAssetID,
+			nonce:           10,
+			getUserAccErr:   true,
+			expectedKDA:     &kapps.KDAData{},
+			expectedUserKDA: &kapps.UserKDA{},
+			expectError:     true,
+		},
+		{
+			name:            "Error - GetUserKDA fails",
+			address:         testAddress,
+			assetID:         testAssetID,
+			nonce:           10,
+			getUserKDAErr:   true,
+			expectedKDA:     &kapps.KDAData{},
+			expectedUserKDA: nil,
+			expectError:     true,
+		},
+		{
+			name:            "Error - GetKDA fails",
+			address:         nil,
+			assetID:         testAssetID,
+			nonce:           10,
+			getKDAErr:       true,
+			expectedKDA:     nil,
+			expectedUserKDA: &kapps.UserKDA{},
+			expectError:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create BlockChainHook with mocks configured for this test case
+			accountsCacher := &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					if tt.getUserAccErr {
+						return nil, errors.New("account not found")
+					}
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID []byte, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							if tt.getUserKDAErr {
+								return nil, errors.New("user KDA not found")
+							}
+							return testUserKDAData, nil
+						},
+					}, nil
+				},
+			}
+
+			kappController := &stub.KAppControllerStub{
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &stub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							if tt.getKDAErr {
+								return nil, nil, errors.New("KDA not found")
+							}
+							return &commonMock.KAppAccountHandlerStub{}, testKDAData, nil
+						},
+					}
+				},
+			}
+
+			forkController := commonMock.NewForkControllerStub()
+			forkController.EnableSmartContractsValue = true
+
+			bh := &BlockChainHookImpl{
+				accountsCacher: accountsCacher,
+				kappController: kappController,
+				forkController: forkController,
+			}
+
+			// Execute
+			actualKDA, actualUserKDA, actualError := bh.GetKDAToken(tt.address, tt.assetID, tt.nonce)
+
+			// Verify
+			if tt.expectError {
+				assert.Error(t, actualError)
+			} else {
+				assert.NoError(t, actualError)
+			}
+			assert.Equal(t, tt.expectedKDA, actualKDA)
+			assert.Equal(t, tt.expectedUserKDA, actualUserKDA)
 		})
 	}
 }
