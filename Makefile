@@ -153,6 +153,9 @@ runsc-trace:
 	rm -rf db
 	$(GORUN) ./cmd/node --use-log-view --log-level=*:INFO,process/block:DEBUG,process/transaction:DEBUG,process/transaction.smartcontract:TRACE,process/smartcontract:DEBUG,vm/host:TRACE,vm/metering:DEBUG
 
+run-consensus-trace:
+	$(GORUN) ./cmd/node --use-log-view --log-level=*:INFO,consensus/chronology:TRACE
+
 node1:
 	$(GORUN) ./cmd/node --log-level=*:DEBUG,ntp:INFO,debug/p2p:INFO,facade:INFO,sharding/networksharding:INFO,p2p/libp2p:INFO,basichost:INFO,dht:INFO,pubsub:INFO,heartbeat/process:INFO,statistics/machine:INFO,process/rating:INFO,consensus/chronology:INFO --validator-key-pem-file=./config/node/validatorKey1.pem --working-directory=./db/db1  --p2p-seed=node1 --rest-api-interface=127.0.0.1:8091 --use-log-view #--log-save
 

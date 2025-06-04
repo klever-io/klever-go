@@ -171,10 +171,15 @@ func (chr *chronology) startSlot() {
 	log.Debug(display.Headline(msg, chr.syncTimer.FormattedCurrentTime(), "."))
 	logger.SetCorrelationSubSlot(ss.Name())
 
+	startTime := time.Now()
 	if !ss.DoWork(chr.slotManager) {
 		chr.subslotID = slBeforeStartSlot
 		return
 	}
+	executionTime := time.Since(startTime)
+	log.Trace("DoWork execution completed",
+		"subslot", ss.Name(),
+		"duration_ms", float64(executionTime.Nanoseconds())/1e6)
 
 	chr.subslotID = ss.Next()
 }
