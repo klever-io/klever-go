@@ -92,9 +92,6 @@ func (sdi *SingleDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P,
 	sdi.receivedDebugInterceptedData(interceptedData)
 
 	err = interceptedData.CheckValidity()
-	if err == nil {
-		err = interceptedData.CheckTXSignature()
-	}
 	if err != nil {
 		sdi.throttler.EndProcessing()
 		sdi.processDebugInterceptedData(interceptedData, err)

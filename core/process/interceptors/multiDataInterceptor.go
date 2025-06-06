@@ -167,9 +167,6 @@ func (mdi *MultiDataInterceptor) interceptedData(dataBuff []byte, originator cor
 	mdi.receivedDebugInterceptedData(interceptedData)
 
 	err = interceptedData.CheckValidity()
-	if err == nil {
-		err = interceptedData.CheckTXSignature()
-	}
 	if err != nil {
 		mdi.processDebugInterceptedData(interceptedData, err)
 

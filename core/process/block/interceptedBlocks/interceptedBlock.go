@@ -192,11 +192,6 @@ func (inMb *InterceptedBlock) CheckValidity() error {
 	return inMb.sigVerifier.VerifySignature(hdr)
 }
 
-// CheckTXSignature -
-func (inMb *InterceptedBlock) CheckTXSignature() error {
-	return nil
-}
-
 // integrity checks the integrity of the tx block header
 func (inMb *InterceptedBlock) integrity() error {
 	err := checkHeaderHandler(inMb.HeaderHandler())

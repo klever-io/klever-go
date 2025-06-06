@@ -75,7 +75,6 @@ type ForkDetector interface {
 // InterceptedData represents the interceptor's view of the received data
 type InterceptedData interface {
 	CheckValidity() error
-	CheckTXSignature() error
 	IsInterfaceNil() bool
 	Hash() []byte
 	Type() string
