@@ -756,10 +756,7 @@ func (txs *transactions) processAndRemoveBadTransaction(
 	ownerAcc, _, err := txs.txProcessor.PreProcessTransaction(tx)
 	if err != nil {
 		log.Trace("processAndRemoveBadTransaction.PreProcessTransaction", "tx", txHash, "error", err.Error())
-		isTxTargetedForDeletion := errors.Is(err, process.ErrLowerNonceInTransaction) || errors.Is(err, process.ErrInsufficientFee) || errors.Is(err, process.ErrInvalidMaxGasLimitPerTx)
-		if isTxTargetedForDeletion {
-			txs.txPool.RemoveData(txHash, "0")
-		}
+		txs.txPool.RemoveData(txHash, "0")
 
 		return err
 	}

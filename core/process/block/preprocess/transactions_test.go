@@ -886,6 +886,9 @@ func createCacheWithTransactions(transactions []*txcache.WrappedTransaction) *co
 				ShardDataStoreCalled: func(id string) (c storage.Cacher) {
 					return cache
 				},
+				RemoveDataCalled: func(key []byte, cacheID string) {
+					cache.RemoveTxByHash(key)
+				},
 			}
 		},
 	}
