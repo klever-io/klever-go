@@ -2525,6 +2525,11 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			},
 			expectedErr:    nil,
 			expectedStatus: transaction.Transaction_Ok,
+			accSrc: &commonMock.UserAccountHandlerStub{
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
+				},
+			},
 		},
 		{
 			description: "klv royalties not equal transferFixed royalties",
@@ -2535,6 +2540,11 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			},
 			transactionContract: &transaction.TransferContract{
 				KLVRoyalties: balance,
+			},
+			accSrc: &commonMock.UserAccountHandlerStub{
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
+				},
 			},
 			expectedErr:    common.ErrInvalidValue,
 			expectedStatus: transaction.Transaction_ParameterInvalid,
@@ -2552,6 +2562,9 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return balance - 1
+				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
 				},
 			},
 			expectedErr:    process.ErrInsufficientFunds,
@@ -2574,6 +2587,9 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 				SubFromBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 					return mockError
 				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
+				},
 			},
 			expectedErr:    mockError,
 			expectedStatus: transaction.Transaction_BalanceError,
@@ -2594,6 +2610,9 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 				},
 				SubFromBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 					return nil
+				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
 				},
 			},
 			accCacher: &commonMock.AccountsCacherStub{
@@ -2624,6 +2643,9 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 				SubFromBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 					return nil
 				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
+				},
 			},
 			accCacher: &commonMock.AccountsCacherStub{
 				UpdateUserCalled: func(account state.AccountHandler) error {
@@ -2649,6 +2671,9 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 				},
 				SubFromBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 					return nil
+				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
 				},
 			},
 			accCacher: &commonMock.AccountsCacherStub{
@@ -2679,6 +2704,9 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 				SubFromBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 					return nil
 				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
+				},
 			},
 			accCacher: &commonMock.AccountsCacherStub{
 				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
@@ -2708,6 +2736,9 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 				},
 				SubFromBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 					return nil
+				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
 				},
 			},
 			accCacher: &commonMock.AccountsCacherStub{
@@ -2742,6 +2773,9 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 				SubFromBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 					return nil
 				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
+				},
 			},
 			accCacher: &commonMock.AccountsCacherStub{
 				UpdateUserCalled: func(account state.AccountHandler) error {
@@ -2773,6 +2807,9 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 				},
 				SubFromBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 					return nil
+				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
 				},
 			},
 			accCacher: &commonMock.AccountsCacherStub{
@@ -2806,7 +2843,6 @@ func Test_ProcessFixedRoyaltiesTransfer(t *testing.T) {
 			_ = accKapp.SetKAppController(setupKappController(tt.kappController))
 
 			status, err := accKapp.processFixedRoyaltiesTransfer(
-				transaction.TXContract_TransferContractType,
 				tt.transactionContract,
 				tt.accSrc,
 				tt.accDst,
@@ -2838,6 +2874,11 @@ func Test_ValidatePercentageRoyaltiesTransfer(t *testing.T) {
 			kda: &kapps.KDAData{
 				Royalties: &kapps.RoyaltiesData{},
 			},
+			accSrc: &commonMock.UserAccountHandlerStub{
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
+				},
+			},
 			expectedErr:    nil,
 			expectedStatus: transaction.Transaction_Ok,
 		},
@@ -2855,6 +2896,11 @@ func Test_ValidatePercentageRoyaltiesTransfer(t *testing.T) {
 			},
 			transactionContract: &transaction.TransferContract{
 				Amount: -1,
+			},
+			accSrc: &commonMock.UserAccountHandlerStub{
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
+				},
 			},
 			expectedErr:    common.ErrInvalidValue,
 			expectedStatus: transaction.Transaction_ContractInvalid,
@@ -2877,6 +2923,9 @@ func Test_ValidatePercentageRoyaltiesTransfer(t *testing.T) {
 			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return amount
+				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
 				},
 			},
 			expectedErr:    process.ErrInsufficientFunds,
@@ -2902,6 +2951,9 @@ func Test_ValidatePercentageRoyaltiesTransfer(t *testing.T) {
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
 				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
+				},
 			},
 			expectedErr:    nil,
 			expectedStatus: transaction.Transaction_Ok,
@@ -2917,7 +2969,6 @@ func Test_ValidatePercentageRoyaltiesTransfer(t *testing.T) {
 			_ = accKapp.SetKAppController(setupKappController(tt.kappController))
 
 			_, status, err := accKapp.validatePercentageRoyaltiesTransfer(
-				transaction.TXContract_TransferContractType,
 				tt.transactionContract,
 				tt.kda,
 				tt.accSrc,
@@ -2959,6 +3010,11 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			transactionContract: &transaction.TransferContract{
 				Amount: -1,
 			},
+			accSrc: &commonMock.UserAccountHandlerStub{
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
+				},
+			},
 			expectedErr:    common.ErrInvalidValue,
 			expectedStatus: transaction.Transaction_ContractInvalid,
 		},
@@ -2980,6 +3036,9 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
+				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
 				},
 			},
 			expectedErr:    nil,
@@ -3004,6 +3063,9 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
+				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
 				},
 			},
 			expectedErr:    common.ErrInvalidValue,
@@ -3031,6 +3093,9 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
+				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
 				},
 			},
 			expectedErr:    hex.InvalidByteError(0x69),
@@ -3060,6 +3125,9 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			accSrc: &commonMock.UserAccountHandlerStub{
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
+				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
 				},
 			},
 			accCacher: &commonMock.AccountsCacherStub{
@@ -3104,6 +3172,9 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
 					return 100_000
 				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
+				},
 			},
 			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
@@ -3136,6 +3207,9 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 				SubFromBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 					return mockError
 				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
+				},
 			},
 			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
@@ -3167,6 +3241,9 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 				},
 				SubFromBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 					return nil
+				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
 				},
 			},
 			accCacher: &commonMock.AccountsCacherStub{
@@ -3203,6 +3280,9 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 				},
 				SubFromBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 					return nil
+				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
 				},
 			},
 			accCacher: &commonMock.AccountsCacherStub{
@@ -3243,6 +3323,9 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 				SubFromBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
 					return nil
 				},
+				AddressBytesCalled: func() []byte {
+					return []byte{1}
+				},
 			},
 			accCacher: &commonMock.AccountsCacherStub{
 				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
@@ -3277,7 +3360,6 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			_ = accKapp.SetKAppController(setupKappController(tt.kappController))
 
 			status, err := accKapp.processPercentageRoyaltiesTransfer(
-				transaction.TXContract_TransferContractType,
 				tt.transactionContract,
 				kdautils.KLVIdentifier,
 				[]byte{0},
@@ -3292,6 +3374,7 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 }
 
 func Test_Transfer_ShouldFail(t *testing.T) {
+	scaddress, _ := hex.DecodeString("000000000000000005005fed9c659422cd8429ce92f8973bba2a9fb51e0eb3a1")
 	tests := []struct {
 		description         string
 		sender              []byte
@@ -3392,6 +3475,46 @@ func Test_Transfer_ShouldFail(t *testing.T) {
 			},
 			expectedErr:    process.ErrKDATransferNotAllowed,
 			expectedStatus: transaction.Transaction_KDATransferNotAllowed,
+		},
+		{
+			description:  "should fail when transferring to uninitialized contract address (non-SmartContractType)",
+			contractType: transaction.TXContract_TransferContractType,
+			transactionContract: &transaction.TransferContract{
+				ToAddress: scaddress,
+				AssetID:   []byte("valid"),
+			},
+			sender: validAddressBytes,
+			accCacher: &commonMock.AccountsCacherStub{
+				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					// Simulate uninitialized contract - account doesn't exist
+					return nil, errors.New("account does not exist")
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetForkControllerCalled: func() core.ForkController {
+					return &integrationMock.ForkControllerStub{
+						EnableSmartContractsCalled: func() bool {
+							return true
+						},
+					}
+				},
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{
+								AssetType:  kapps.KDAData_Fungible,
+								Attributes: &kapps.AttributesData{},
+								Properties: &kapps.PropertiesData{},
+							}, nil
+						},
+					}
+				},
+			},
+			expectedErr:    process.ErrContractAccountNotAllowed,
+			expectedStatus: transaction.Transaction_AccountError,
 		},
 	}
 
@@ -3871,4 +3994,152 @@ func TestUpdatePermission_WithNamePriorAndAfterFPRFork(t *testing.T) {
 	require.Equal(t, int32(0), capturedPermissions[0].ID)
 	require.Equal(t, state.Permission_Owner, capturedPermissions[0].Type)
 	require.Equal(t, "owner", capturedPermissions[0].PermissionName)
+}
+
+func TestIsUninitializedContractAddress(t *testing.T) {
+	scaddress, _ := hex.DecodeString("000000000000000005005fed9c659422cd8429ce92f8973bba2a9fb51e0eb3a1")
+	// Table test cases
+	tests := []struct {
+		name                  string
+		address               []byte
+		accountExists         bool
+		accountError          error
+		codeHash              []byte
+		codeMeta              []byte
+		codeLen               int
+		expectedUninitialized bool
+	}{
+		{
+			name:                  "Non smart contract address",
+			address:               []byte("regular_address"),
+			accountExists:         true,
+			accountError:          nil,
+			codeHash:              []byte("hash"),
+			codeMeta:              []byte("meta"),
+			codeLen:               100,
+			expectedUninitialized: false,
+		},
+		{
+			name:                  "Smart contract address not existing",
+			address:               scaddress,
+			accountExists:         false,
+			accountError:          errors.New("account not found"),
+			codeHash:              nil,
+			codeMeta:              nil,
+			codeLen:               0,
+			expectedUninitialized: true,
+		},
+		{
+			name:                  "Smart contract address with empty code hash",
+			address:               scaddress,
+			accountExists:         true,
+			accountError:          nil,
+			codeHash:              []byte{},
+			codeMeta:              []byte("meta"),
+			codeLen:               100,
+			expectedUninitialized: true,
+		},
+		{
+			name:                  "Smart contract address with empty code meta",
+			address:               scaddress,
+			accountExists:         true,
+			accountError:          nil,
+			codeHash:              []byte("hash"),
+			codeMeta:              []byte{},
+			codeLen:               100,
+			expectedUninitialized: true,
+		},
+		{
+			name:                  "Smart contract address with empty code",
+			address:               scaddress,
+			accountExists:         true,
+			accountError:          nil,
+			codeHash:              []byte("hash"),
+			codeMeta:              []byte("meta"),
+			codeLen:               0,
+			expectedUninitialized: true,
+		},
+		{
+			name:                  "Initialized smart contract address",
+			address:               scaddress,
+			accountExists:         true,
+			accountError:          nil,
+			codeHash:              []byte("hash"),
+			codeMeta:              []byte("meta"),
+			codeLen:               100,
+			expectedUninitialized: false,
+		},
+		{
+			name:                  "Deleted contract with empty code hash and meta",
+			address:               scaddress,
+			accountExists:         true,
+			accountError:          nil,
+			codeHash:              nil,
+			codeMeta:              nil,
+			codeLen:               0,
+			expectedUninitialized: true,
+		},
+		{
+			name:                  "Contract with code hash but no actual code",
+			address:               scaddress,
+			accountExists:         true,
+			accountError:          nil,
+			codeHash:              []byte("existingHash"),
+			codeMeta:              []byte("existingMeta"),
+			codeLen:               0,
+			expectedUninitialized: true,
+		},
+	}
+
+	// Execute tests
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create mock user account
+			mockUserAccount := &commonMock.UserAccountHandlerStub{
+				GetCodeHashCalled: func() []byte {
+					return tt.codeHash
+				},
+				GetCodeMetadataCalled: func() []byte {
+					return tt.codeMeta
+				},
+			}
+
+			// Create mock accounts cacher
+			mockAccountsCacher := &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					if tt.accountExists {
+						return mockUserAccount, tt.accountError
+					}
+					return nil, tt.accountError
+				},
+				GetCodeCalled: func(codeHash []byte) []byte {
+					if tt.codeLen > 0 {
+						return make([]byte, tt.codeLen)
+					}
+					return []byte{}
+				},
+			}
+
+			// Create accounts kapp instance
+			args := &ArgsNewAccountKApp{
+				Marshalizer:    &commonMock.MarshalizerStub{},
+				PubkeyConv:     &commonMock.PubkeyConverterStub{},
+				ForkController: &integrationMock.ForkControllerStub{},
+			}
+
+			accKapp, err := NewAccountKApp(args)
+			require.NoError(t, err)
+
+			err = accKapp.SetAccountsCacher(mockAccountsCacher)
+			require.NoError(t, err)
+
+			// Test the method
+			result := accKapp.isUninitializedContractAddress(tt.address)
+
+			// Verify result
+			assert.Equal(t, tt.expectedUninitialized, result,
+				"Test case '%s' failed: expected uninitialized=%v, got=%v",
+				tt.name, tt.expectedUninitialized, result)
+		})
+	}
 }

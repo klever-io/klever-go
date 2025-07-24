@@ -3,6 +3,7 @@ package contexts
 import (
 	"math/big"
 
+	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
@@ -333,6 +334,11 @@ func (context *blockchainContext) IncreaseNonce(address []byte) {
 // This function is used only during deploy smart contract prior the init function is triggered
 func (context *blockchainContext) KDATransfer(sender []byte, tc *transaction.TransferContract) error {
 	return context.blockChainHook.KDATransfer(sender, tc)
+}
+
+// GetKAppController returns the kapp controller instance
+func (context *blockchainContext) GetKAppController() kapp.KAppController {
+	return context.blockChainHook.GetKAppController()
 }
 
 // ClearCompiledCodes cleans the compiled codes cache

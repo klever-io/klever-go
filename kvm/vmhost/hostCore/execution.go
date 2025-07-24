@@ -67,13 +67,17 @@ func (host *vmHost) doRunSmartContractCreate(input *vmcommon.ContractCreateInput
 			continue
 		}
 
-		err = blockchain.KDATransfer(input.CallerAddr, &transaction.TransferContract{
+		accKapp := blockchain.GetKAppController().GetAccountsKApp()
+		resultCode, err := accKapp.Transfer(transaction.TXContract_SmartContractType, input.CallerAddr, &transaction.TransferContract{
 			ToAddress:    address,
 			AssetID:      kda.KDATokenName,
 			Amount:       kda.KDAValue.Int64(),
 			KDARoyalties: kda.KDARoyalties,
 			KLVRoyalties: kda.KLVRoyalties,
 		})
+		if err == nil && resultCode != transaction.Transaction_Ok {
+			err = fmt.Errorf("transfer failed with result code: %d", resultCode)
+		}
 		if err != nil {
 			log.Trace("doRunSmartContractCreate during transfer", "error", err,
 				"assetID", string(kda.KDATokenName), "amount", kda.KDAValue.Int64(),
@@ -996,19 +1000,7 @@ func (host *vmHost) ExecuteKDATransfer(transfersArgs *vmhost.KDATransfersArgs, c
 
 // validateSCDestination checks if the destination is a valid SC address and if it is payable
 func (host *vmHost) validateSCDestination(sender []byte, destination []byte) error {
-	if !core.IsSmartContractAddress(destination) {
-		return nil
-	}
-
-	// We need to check mannually if the destination is a account that exists
-	// because IsPayable allow payments to non-existing accounts
-	// TODO: refactor this to use IsPayable
-	_, err := host.Blockchain().GetUserAccount(destination)
-	if err != nil {
-		log.Trace("error getting SC account", "address", destination, "error", err)
-		return err
-	}
-
+	// IsPayable now handles all validation including uninitialized contract addresses
 	isPayable, err := host.Blockchain().IsPayable(sender, destination)
 	if err != nil {
 		log.Trace("error checking if SC is payable", "address", destination, "error", err)

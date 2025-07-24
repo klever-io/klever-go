@@ -7,6 +7,7 @@ import (
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/closing"
+	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kapps"
 )
@@ -112,6 +113,9 @@ type BlockchainHook interface {
 
 	// KDATransfer transfers KDA from one account to another
 	KDATransfer(sender []byte, tc *transaction.TransferContract) error
+
+	// GetKAppController returns the kapp controller instance
+	GetKAppController() kapp.KAppController
 
 	// IncreaseNonce increase the nonce of given address
 	IncreaseNonce(address []byte) error

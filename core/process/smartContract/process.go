@@ -697,7 +697,7 @@ func (sc *scProcessor) processSCPayment(tc data.SmartContractHandler, acntSnd st
 	// sub from sender the call value
 	return dMap.Each(func(assetID string, cvwr *transaction.CallValue) error {
 		// execute transfer without royalties as it will be deducted from sender account
-		resultCode, err := accKapp.Transfer(transaction.TXContract_TransferContractType, acntSnd.AddressBytes(), &transaction.TransferContract{
+		resultCode, err := accKapp.Transfer(transaction.TXContract_SmartContractType, acntSnd.AddressBytes(), &transaction.TransferContract{
 			ToAddress:    tc.GetAddress(),
 			Amount:       cvwr.Amount,
 			AssetID:      []byte(assetID),

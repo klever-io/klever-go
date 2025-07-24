@@ -3,6 +3,7 @@ package mock
 import (
 	"math/big"
 
+	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
@@ -53,6 +54,7 @@ type BlockchainContextStub struct {
 	ExecuteSmartContractCallOnOtherVMCalled func(*vmcommon.ContractCallInput) (*vmcommon.VMOutput, error)
 	TransferValueOnlyCalled                 func(destination []byte, sender []byte, value *big.Int) error
 	KDATransferCalled                       func(sender []byte, tc *transaction.TransferContract) error
+	GetKAppControllerCalled                 func() kapp.KAppController
 }
 
 func (stub *BlockchainContextStub) InitState() {
@@ -343,6 +345,13 @@ func (stub *BlockchainContextStub) TransferValueOnly(destination []byte, sender 
 func (stub *BlockchainContextStub) KDATransfer(sender []byte, tc *transaction.TransferContract) error {
 	if stub.KDATransferCalled != nil {
 		return stub.KDATransferCalled(sender, tc)
+	}
+	return nil
+}
+
+func (stub *BlockchainContextStub) GetKAppController() kapp.KAppController {
+	if stub.GetKAppControllerCalled != nil {
+		return stub.GetKAppControllerCalled()
 	}
 	return nil
 }

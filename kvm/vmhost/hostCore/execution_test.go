@@ -19,6 +19,7 @@ import (
 	"github.com/klever-io/klever-go/kapps"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
+	"github.com/klever-io/klever-go/kvm/testcommon"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/vmhost/hostCore"
 	"github.com/klever-io/klever-go/storage"
@@ -131,6 +132,8 @@ func TestExecuteKDATransfer(t *testing.T) {
 
 	_, err := accCacher.LoadKApp(kapps.ProposalKAppAddress)
 	require.NoError(t, err)
+	_, err = accCacher.LoadUser(testToAddress)
+	require.NoError(t, err)
 	err = accCacher.SaveAll()
 	require.NoError(t, err)
 
@@ -172,7 +175,7 @@ func TestExecuteKDATransfer(t *testing.T) {
 
 	args := &vmhost.KDATransfersArgs{
 		Sender:         testOwnerAddress,
-		Destination:    vmhost.ParentAddress,
+		Destination:    testToAddress,
 		OriginalCaller: runtime.GetOriginalCallerAddress(),
 		Transfers:      transfers,
 	}
@@ -284,6 +287,97 @@ func TestExecution_DeleteContract(t *testing.T) {
 	}
 }
 
+func TestExecution_CreateContract(t *testing.T) {
+	hostParams := makeHostParameters()
+	accCacher := createFullArgumentsForKAppsProcessingMemory()
+	mockWorld := worldmock.NewMockWorld()
+	mockWorld.AccountsCacher = accCacher
+
+	_, err := accCacher.LoadKApp(kapps.ProposalKAppAddress)
+	require.NoError(t, err)
+	err = accCacher.SaveAll()
+	require.NoError(t, err)
+
+	mockWorld.InitBuiltinFunctions(hostParams.GasSchedule, hostParams.ForkController)
+
+	vmHost, err := hostCore.NewVMHost(mockWorld, hostParams)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name              string
+		callerAddr        []byte
+		contractCode      []byte
+		klvTransferAmount int64
+		expectedMsg       string
+		shouldCreate      bool
+	}{
+		{
+			name:         "fail with invalid contract code",
+			callerAddr:   testOwnerAddress,
+			contractCode: []byte("invalid code"),
+			expectedMsg:  "invalid contract code",
+			shouldCreate: false,
+		},
+		{
+			name:         "successful create",
+			callerAddr:   testOwnerAddress,
+			contractCode: testcommon.GetTestSCCode("empty", "../../"),
+			expectedMsg:  "",
+			shouldCreate: true,
+		},
+		{
+			name:              "fail create, init not payable",
+			callerAddr:        testOwnerAddress,
+			contractCode:      testcommon.GetTestSCCode("empty", "../../"),
+			klvTransferAmount: 100,
+			expectedMsg:       "function does not accept KDA payment",
+			shouldCreate:      false,
+		},
+		{
+			name:              "success create, init payable",
+			callerAddr:        testOwnerAddress,
+			contractCode:      testcommon.GetTestSCCode("init-payable", "../../"),
+			klvTransferAmount: 100,
+			expectedMsg:       "",
+			shouldCreate:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := &vmcommon.ContractCreateInput{
+				VMInput: vmcommon.VMInput{
+					CallerAddr:  tt.callerAddr,
+					GasProvided: 10000,
+					CallType:    vm.DirectCall,
+				},
+				ContractCode:         tt.contractCode,
+				ContractCodeMetadata: []byte{0, 0},
+			}
+			if tt.klvTransferAmount > 0 {
+				input.VMInput.KDATransfers = []*vmcommon.KDATransfer{
+					{
+						KDATokenName: kdautils.KLVIdentifier,
+						KDATokenType: uint32(core.Fungible),
+						KDAValue:     big.NewInt(tt.klvTransferAmount),
+					},
+				}
+			}
+
+			vmOutput, err := vmHost.RunSmartContractCreate(input)
+			require.NoError(t, err)
+			require.NotNil(t, vmOutput)
+
+			if tt.shouldCreate {
+				require.Len(t, vmOutput.OutputAccounts, 1)
+			} else {
+				require.Equal(t, tt.expectedMsg, vmOutput.ReturnMessage)
+				require.Empty(t, vmOutput.DeletedAccounts)
+			}
+		})
+	}
+}
+
 func TestExecuteKDATransfer_SCValidations(t *testing.T) {
 	hostParams := makeHostParameters()
 	accCacher := createFullArgumentsForKAppsProcessingMemory()
@@ -344,8 +438,7 @@ func TestExecuteKDATransfer_SCValidations(t *testing.T) {
 	})
 
 	t.Run("Transfer to non-existent SC address", func(t *testing.T) {
-		scAddress := make([]byte, 32)
-		copy(scAddress[:4], []byte{0, 0, 0, 0})
+		scAddress, _ := addressConverter.Decode("klv1qqqqqqqqqqqqqpgqpg2ff85tljne96d2jwedj4mkrhsu3up5c0nq0x8g69")
 
 		setupTest(scAddress)
 

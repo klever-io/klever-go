@@ -408,6 +408,165 @@ func TestBlockChainHookImpl_IsSmartContract(t *testing.T) {
 	}
 }
 
+func TestBlockChainHookImpl_IsPayable(t *testing.T) {
+	commonAddress := []byte("normalAddress1234567890123456789")
+	scAddress, _ := addressConverter.Decode("klv1qqqqqqqqqqqqqpgqpg2ff85tljne96d2jwedj4mkrhsu3up5c0nq0x8g69")
+
+	tests := []struct {
+		name             string
+		sndAddress       []byte
+		recvAddress      []byte
+		setupMocks       func(*commonMock.AccountsCacherStub)
+		codeHashMock     []byte
+		codeMetadataMock []byte
+		codeMock         []byte
+		getUserErrorMock error
+		expectedPayable  bool
+		expectedError    error
+	}{
+		{
+			name:             "System account address - should return false",
+			sndAddress:       commonAddress,
+			recvAddress:      make([]byte, 32), // System address
+			getUserErrorMock: errors.New("should not be called"),
+			expectedPayable:  false,
+			expectedError:    nil,
+		},
+		{
+			name:             "Smart contract address format but not initialized - should return false",
+			sndAddress:       commonAddress,
+			recvAddress:      scAddress,
+			getUserErrorMock: errors.New("account not found"),
+			expectedPayable:  false,
+			expectedError:    nil,
+		},
+		{
+			name:            "Smart contract address format but no code - should return false",
+			sndAddress:      commonAddress,
+			recvAddress:     scAddress,
+			codeHashMock:    []byte("codeHash"),
+			codeMock:        []byte{}, // No code
+			expectedPayable: false,
+			expectedError:   nil,
+		},
+		{
+			name:             "Normal address (not smart contract) - should return true",
+			sndAddress:       commonAddress,
+			recvAddress:      commonAddress,
+			getUserErrorMock: errors.New("should not be called"),
+			expectedPayable:  true,
+			expectedError:    nil,
+		},
+		{
+			name:             "Smart contract with GetUserAccount error - should return false without error",
+			sndAddress:       commonAddress,
+			recvAddress:      scAddress,
+			getUserErrorMock: errors.New("database error"),
+			expectedPayable:  false,
+			expectedError:    nil,
+		},
+		{
+			name:             "Smart contract payable - sender not SC - should return metadata.Payable",
+			sndAddress:       commonAddress,
+			recvAddress:      scAddress,
+			codeHashMock:     []byte("codeHash"),
+			codeMetadataMock: []byte{0, 2}, // Set Payable flag (bit 1 of second byte)
+			codeMock:         []byte("some code"),
+			expectedPayable:  true,
+			expectedError:    nil,
+		},
+		{
+			name:             "Smart contract not payable - sender not SC - should return false",
+			sndAddress:       commonAddress,
+			recvAddress:      scAddress,
+			codeHashMock:     []byte("codeHash"),
+			codeMetadataMock: []byte{0, 0}, // No flags set
+			codeMock:         []byte("some code"),
+			expectedPayable:  false,
+			expectedError:    nil,
+		},
+		{
+			name:             "Smart contract payable by SC - sender is SC - should return metadata.PayableBySC",
+			sndAddress:       scAddress,
+			recvAddress:      scAddress,
+			codeHashMock:     []byte("codeHash"),
+			codeMetadataMock: []byte{0, 4}, // Set PayableBySC
+			codeMock:         []byte("some code"),
+			expectedPayable:  true,
+			expectedError:    nil,
+		},
+		{
+			name:             "Smart contract not payable by SC - sender is SC - should return false",
+			sndAddress:       scAddress,
+			recvAddress:      scAddress,
+			codeHashMock:     []byte("codeHash"),
+			codeMetadataMock: []byte{0, 0}, // No flags set
+			codeMock:         []byte("some code"),
+			expectedPayable:  false,
+			expectedError:    nil,
+		},
+		{
+			name:             "Smart contract with both payable flags - sender is SC - should return PayableBySC",
+			sndAddress:       scAddress,
+			recvAddress:      scAddress,
+			codeHashMock:     []byte("codeHash"),
+			codeMetadataMock: []byte{0, 6}, // Payable = true, PayableBySC = true
+			codeMock:         []byte("some code"),
+			expectedPayable:  true,
+			expectedError:    nil,
+		},
+		{
+			name:             "Smart contract with empty metadata - should use default values",
+			sndAddress:       commonAddress,
+			recvAddress:      scAddress,
+			codeHashMock:     []byte("codeHash"),
+			codeMetadataMock: []byte{}, // Empty metadata
+			codeMock:         []byte("some code"),
+			expectedPayable:  false,
+			expectedError:    nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup mocks
+			cacherStub := &commonMock.AccountsCacherStub{}
+			accountStub := &commonMock.UserAccountHandlerStub{
+				GetCodeHashCalled: func() []byte {
+					return tt.codeHashMock
+				},
+				GetCodeMetadataCalled: func() []byte {
+					return tt.codeMetadataMock
+				},
+			}
+			cacherStub.GetExistingUserCalled = func(address []byte) (state.UserAccountHandler, error) {
+				return accountStub, tt.getUserErrorMock
+			}
+			cacherStub.GetCodeCalled = func(codeHash []byte) []byte {
+				return tt.codeMock
+			}
+
+			h := &BlockChainHookImpl{
+				accountsCacher: cacherStub,
+			}
+
+			// Execute test
+			isPayable, err := h.IsPayable(tt.sndAddress, tt.recvAddress)
+
+			// Verify results
+			if tt.expectedError != nil {
+				assert.Error(t, err)
+				if err != nil {
+					assert.Equal(t, tt.expectedError.Error(), err.Error())
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+			assert.Equal(t, tt.expectedPayable, isPayable)
+		})
+	}
+}
+
 func TestBlockChainHookImpl_GetKDAToken(t *testing.T) {
 	// Test data setup
 	testAddress := []byte("testAddress123456789012345678901234")

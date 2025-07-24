@@ -74,7 +74,7 @@ func (e *kdaTransfer) performKDATransfer(
 	// Using Kapps, transfer the KDA without transfer fixed/percentage royalties
 	// royalties are only processed if the contract is a TXContract_TransferContractType
 	resultCode, err := e.kappController.GetAccountsKApp().Transfer(
-		transaction.TXContract_SmartContractType,
+		transaction.TXContract_TransferContractType,
 		callerAddr,
 		contract,
 	)

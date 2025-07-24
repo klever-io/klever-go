@@ -108,6 +108,31 @@ func (a *accountsKapp) LoadUserAccount(pubkey []byte) (state.UserAccountHandler,
 	return acc, nil
 }
 
+// isUninitializedContractAddress checks if an address is a smart contract address
+// that has not been initialized (no code or codeMeta present)
+func (a *accountsKapp) isUninitializedContractAddress(address []byte) bool {
+	if !core.IsSmartContractAddress(address) {
+		return false
+	}
+
+	// Try to get the existing account - if it doesn't exist, it's uninitialized
+	userAcc, err := a.accountsCacher.GetExistingUser(address)
+	if err != nil {
+		// Account doesn't exist, so it's uninitialized
+		return true
+	}
+
+	// we need to check code, hash and metadata because deleted contracts
+	// still keep some properties, and deleted contracts are considered initialized
+	codeHash := userAcc.GetCodeHash()
+	codeMeta := userAcc.GetCodeMetadata()
+	if len(codeHash) == 0 || len(codeMeta) == 0 {
+		return true
+	}
+	code := a.accountsCacher.GetCode(codeHash)
+	return len(code) == 0
+}
+
 func (a *accountsKapp) Transfer(cType transaction.TXContract_ContractType, sender []byte, tc *transaction.TransferContract) (transaction.Transaction_TXResultCode, error) {
 	acntSrc, acntDst, resultCode, err := a.validateAndLoadAccounts(sender, tc)
 	if err != nil {
@@ -123,13 +148,20 @@ func (a *accountsKapp) Transfer(cType transaction.TXContract_ContractType, sende
 		return transaction.Transaction_AssetPaused, process.ErrAssetIsPaused
 	}
 
-	// check for transfer roles if SC fork enabled
-	if a.forkController.EnableSmartContracts() &&
-		!kda.IsTransferAllowed(sender, tc.GetToAddress()) {
-		return transaction.Transaction_KDATransferNotAllowed, process.ErrKDATransferNotAllowed
+	if a.forkController.EnableSmartContracts() {
+		// check for transfer roles if SC fork enabled
+		if !kda.IsTransferAllowed(sender, tc.GetToAddress()) {
+			return transaction.Transaction_KDATransferNotAllowed, process.ErrKDATransferNotAllowed
+		}
+		// block transfer to uninitialized contract addresses
+		// but only block on transfer actions, smart contract actions (such deploy or call) are allowed
+		if cType != transaction.TXContract_SmartContractType &&
+			a.isUninitializedContractAddress(tc.GetToAddress()) {
+			return transaction.Transaction_AccountError, process.ErrContractAccountNotAllowed
+		}
 	}
 
-	resultCode, err = a.processFixedRoyaltiesTransfer(cType, tc, acntSrc, acntDst, kda)
+	resultCode, err = a.processFixedRoyaltiesTransfer(tc, acntSrc, acntDst, kda)
 	if err != nil {
 		return resultCode, err
 	}
@@ -138,14 +170,14 @@ func (a *accountsKapp) Transfer(cType transaction.TXContract_ContractType, sende
 	case kapps.KDAData_NonFungible:
 		return a.processNonFungibleTransfer(assetID, internalID, acntSrc, acntDst)
 	case kapps.KDAData_SemiFungible:
-		resultCode, err := a.processPercentageRoyaltiesTransfer(cType, tc, assetID, internalID, acntSrc, acntDst, kda)
+		resultCode, err := a.processPercentageRoyaltiesTransfer(tc, assetID, internalID, acntSrc, acntDst, kda)
 		if err != nil {
 			return resultCode, err
 		}
 
 		return a.processSemiFungibleTransfer(tc, assetID, internalID, acntSrc, acntDst, kda)
 	case kapps.KDAData_Fungible:
-		resultCode, err := a.processPercentageRoyaltiesTransfer(cType, tc, assetID, internalID, acntSrc, acntDst, kda)
+		resultCode, err := a.processPercentageRoyaltiesTransfer(tc, assetID, internalID, acntSrc, acntDst, kda)
 		if err != nil {
 			return resultCode, err
 		}
@@ -271,8 +303,8 @@ func (a *accountsKapp) computeSplitRoyalties(address string, assetID []byte, ass
 	return transaction.Transaction_Ok, nil
 }
 
-func (a *accountsKapp) processFixedRoyaltiesTransfer(cType transaction.TXContract_ContractType, tc *transaction.TransferContract, acntSrc, acntDst state.UserAccountHandler, kda *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
-	if cType != transaction.TXContract_TransferContractType ||
+func (a *accountsKapp) processFixedRoyaltiesTransfer(tc *transaction.TransferContract, acntSrc, acntDst state.UserAccountHandler, kda *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	if core.IsSmartContractAddress(acntSrc.AddressBytes()) ||
 		kda.Royalties == nil ||
 		kda.Royalties.TransferFixed <= 0 {
 		return transaction.Transaction_Ok, nil
@@ -339,8 +371,8 @@ func (a *accountsKapp) processFixedRoyaltiesTransfer(cType transaction.TXContrac
 	return transaction.Transaction_Ok, nil
 }
 
-func (a *accountsKapp) validatePercentageRoyaltiesTransfer(ctType transaction.TXContract_ContractType, tc *transaction.TransferContract, kda *kapps.KDAData, acntSrc state.UserAccountHandler, assetID []byte) (int64, transaction.Transaction_TXResultCode, error) {
-	if ctType != transaction.TXContract_TransferContractType ||
+func (a *accountsKapp) validatePercentageRoyaltiesTransfer(tc *transaction.TransferContract, kda *kapps.KDAData, acntSrc state.UserAccountHandler, assetID []byte) (int64, transaction.Transaction_TXResultCode, error) {
+	if core.IsSmartContractAddress(acntSrc.AddressBytes()) ||
 		kda.Royalties == nil ||
 		len(kda.Royalties.TransferPercentage) <= 0 {
 		return 0, transaction.Transaction_Ok, nil
@@ -369,8 +401,8 @@ func (a *accountsKapp) validatePercentageRoyaltiesTransfer(ctType transaction.TX
 	return royaltyAmount, transaction.Transaction_Ok, nil
 }
 
-func (a *accountsKapp) processPercentageRoyaltiesTransfer(ctType transaction.TXContract_ContractType, tc *transaction.TransferContract, assetID, internalID []byte, acntSrc, acntDst state.UserAccountHandler, kda *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
-	royaltyAmount, status, err := a.validatePercentageRoyaltiesTransfer(ctType, tc, kda, acntSrc, assetID)
+func (a *accountsKapp) processPercentageRoyaltiesTransfer(tc *transaction.TransferContract, assetID, internalID []byte, acntSrc, acntDst state.UserAccountHandler, kda *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	royaltyAmount, status, err := a.validatePercentageRoyaltiesTransfer(tc, kda, acntSrc, assetID)
 	if err != nil {
 		return status, err
 	}

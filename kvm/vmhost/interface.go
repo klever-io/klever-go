@@ -6,6 +6,7 @@ import (
 	"math/big"
 
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/data/vm"
@@ -103,6 +104,7 @@ type BlockchainContext interface {
 	TransferValueOnly(destination []byte, sender []byte, value *big.Int) error
 	IncreaseNonce(address []byte)
 	KDATransfer(sender []byte, tc *transaction.TransferContract) error
+	GetKAppController() kapp.KAppController
 	ClearCompiledCodes()
 	ExecuteSmartContractCallOnOtherVM(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error)
 }

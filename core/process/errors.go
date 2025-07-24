@@ -337,6 +337,9 @@ var ErrBlockProducerSignatureNotValid = errors.New("block producer signature is 
 // ErrSameSenderAndReceiverAddress signals that the transfer can not be created with the same sender and receiver address
 var ErrSameSenderAndReceiverAddress = errors.New("transfer can not be created with the same sender and receiver address")
 
+// ErrContractAccountNotAllowed signals that transfers to uninitialized contract addresses are not allowed
+var ErrContractAccountNotAllowed = errors.New("transfers to uninitialized contract addresses are not allowed")
+
 // ErrOverflow signals that an overflow occured
 var ErrOverflow = errors.New("type overflow occured")
 

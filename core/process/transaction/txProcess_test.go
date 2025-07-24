@@ -828,6 +828,7 @@ func TestTxProcessor_ProcessTransferOkValsScAddress(t *testing.T) {
 	toAcc := loadUserAccount(args.AccountsCacher, addr)
 	toAcc.SetCodeHash([]byte("asdasda"))
 	toAcc.SetCode([]byte("asdasda"))
+	toAcc.SetCodeMetadata([]byte("asdasda"))
 	_ = args.AccountsCacher.SaveAll()
 
 	SetupKappController(t, &args)

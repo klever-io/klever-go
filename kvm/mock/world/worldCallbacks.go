@@ -265,21 +265,23 @@ func (b *MockWorld) IsSmartContract(address []byte) bool {
 
 // IsPayable -
 func (b *MockWorld) IsPayable(sndAddress []byte, rcvAddress []byte) (bool, error) {
+	if IsSmartContractAddress(rcvAddress) && !b.IsSmartContract(rcvAddress) {
+		// This is a smart contract address format but not properly initialized
+		// blocking transfers to avoid unwanted scaddress initialization
+		return false, nil
+	}
+
 	if !b.IsSmartContract(rcvAddress) {
 		return true, nil
 	}
 
-	account, err := b.AccountsCacher.GetExistingUser(rcvAddress)
-	if err == common.ErrAccNotFound {
-		// if new contract, allow deployer to deposit
-		return true, nil
-	}
+	userAcc, err := b.GetUserAccount(rcvAddress)
 	if err != nil {
 		return false, err
 	}
 
-	metadata := vmcommon.CodeMetadataFromBytes(account.GetCodeMetadata())
-	if IsSmartContractAddress(sndAddress) {
+	metadata := vmcommon.CodeMetadataFromBytes(userAcc.GetCodeMetadata())
+	if b.IsSmartContract(sndAddress) {
 		return metadata.PayableBySC, nil
 	}
 

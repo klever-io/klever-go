@@ -7,9 +7,11 @@ import (
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/core/kapp"
 
 	"github.com/klever-io/klever-go/data/transaction"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
+	"github.com/klever-io/klever-go/kvm/mock/stub"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/vmcommon"
@@ -475,4 +477,24 @@ func TestBlockchainContext_Getters(t *testing.T) {
 	require.Equal(t, []byte("root hash"), blockchainContext.GetStateRootHash())
 	require.Equal(t, randomSeed1[:], blockchainContext.LastRandomSeed())
 	require.Equal(t, randomSeed2[:], blockchainContext.CurrentRandomSeed())
+}
+
+func TestBlockchainContext_GetKAppController(t *testing.T) {
+	t.Parallel()
+
+	host := &contextmock.VMHostStub{}
+	mockKAppController := &stub.KAppControllerStub{}
+
+	mockBlockchainHook := &contextmock.BlockchainHookStub{
+		GetKAppControllerCalled: func() kapp.KAppController {
+			return mockKAppController
+		},
+	}
+
+	blockchainContext, err := NewBlockchainContext(host, mockBlockchainHook)
+	require.Nil(t, err)
+	require.NotNil(t, blockchainContext)
+
+	result := blockchainContext.GetKAppController()
+	require.Equal(t, mockKAppController, result)
 }

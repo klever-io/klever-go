@@ -557,16 +557,23 @@ func (bh *BlockChainHookImpl) IsPayable(sndAddress []byte, recvAddress []byte) (
 	if core.IsSystemAccountAddress(recvAddress) {
 		return false, nil
 	}
-
+	// redundant because of the code below, but worth keeping for performance
+	// the other checks uses cacher/storage to do so.
 	if !core.IsSmartContractAddress(recvAddress) {
 		return true, nil
 	}
 
-	userAcc, err := bh.GetUserAccount(recvAddress)
-	if err == common.ErrAccNotFound {
-		// if new contract, allow deployer to deposit
+	if core.IsSmartContractAddress(recvAddress) && !bh.IsSmartContract(recvAddress) {
+		// This is a smart contract address format but not properly initialized
+		// blocking transfers to avoid unwanted scaddress initialization
+		return false, nil
+	}
+
+	if !bh.IsSmartContract(recvAddress) {
 		return true, nil
 	}
+
+	userAcc, err := bh.GetUserAccount(recvAddress)
 	if err != nil {
 		return false, err
 	}
