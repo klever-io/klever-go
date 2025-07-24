@@ -548,7 +548,13 @@ func (bh *BlockChainHookImpl) IsSmartContract(address []byte) bool {
 	if err != nil { // common.ErrAccNotFound
 		return false
 	}
-	// check if the account has code
+
+	// deleted contracts still have code metadata, and still need to be
+	// considered as smart contracts
+	if len(scAccount.GetCodeMetadata()) > 0 {
+		return true
+	}
+	// fallback, if no code metadata, check if the code is present
 	return len(bh.accountsCacher.GetCode(scAccount.GetCodeHash())) > 0
 }
 

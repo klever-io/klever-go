@@ -326,6 +326,7 @@ func TestBlockChainHookImpl_IsSmartContract(t *testing.T) {
 		want          bool
 		accountExists bool
 		codeExists    bool
+		codeMetadata  []byte
 	}{
 		{
 			name:          "Should fail for invalid length",
@@ -376,6 +377,14 @@ func TestBlockChainHookImpl_IsSmartContract(t *testing.T) {
 			accountExists: true,
 			codeExists:    true,
 		},
+		{
+			name:          "Deleted contract, existing account, non existing code and pass",
+			args:          "000000000000000005005fed9c659422cd8429ce92f8973bba2a9fb51e0eb3a1",
+			want:          true,
+			accountExists: true,
+			codeExists:    false,
+			codeMetadata:  []byte{0, 0}, // Simulating deleted contract with empty code metadata
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -389,6 +398,9 @@ func TestBlockChainHookImpl_IsSmartContract(t *testing.T) {
 				accountStub := &commonMock.UserAccountHandlerStub{}
 				accountStub.GetCodeHashCalled = func() []byte {
 					return []byte("codeHash")
+				}
+				accountStub.GetCodeMetadataCalled = func() []byte {
+					return tt.codeMetadata
 				}
 				return accountStub, nil
 			}
