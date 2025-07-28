@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data/transaction"
@@ -30,7 +31,25 @@ func init() {
 				return fmt.Errorf("invalid TX hash %s", hash)
 			}
 
-			return getTXByID(hash)
+			// Retry loop for getTXByID
+			const maxRetries = 5
+			var lastErr error
+			for i := 0; i < maxRetries; i++ {
+				if i > 0 {
+					// Wait before retry (exponential backoff)
+					time.Sleep(time.Duration(i) * time.Second)
+					log.Info("Retrying getTXByID", "attempt", i+1, "hash", hash)
+				}
+
+				err := getTXByID(hash)
+				if err == nil {
+					return nil
+				}
+
+				lastErr = err
+			}
+
+			return fmt.Errorf("failed after %d retries: %w", maxRetries, lastErr)
 		},
 	}
 

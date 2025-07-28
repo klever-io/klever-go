@@ -189,7 +189,16 @@ func getTXByID(hash string) error {
 		return fmt.Errorf("transaction is still pending")
 	}
 
-	blockResult := struct {
+	blockResult, err := fetchBlockByNonce(tx.Block)
+	if err != nil {
+		return err
+	}
+
+	return formatAndDumpTX(tx, hash, blockResult)
+}
+
+func fetchBlockByNonce(nonce uint64) (*api.Block, error) {
+	result := struct {
 		Data struct {
 			Block *api.Block `json:"block"`
 		} `json:"data"`
@@ -197,12 +206,16 @@ func getTXByID(hash string) error {
 		Code  string `json:"code"`
 	}{}
 
-	err = utils.GetURL(fmt.Sprintf("%s/block/by-nonce/%d", nodeAPI, tx.Block), &blockResult)
+	err := utils.GetURL(fmt.Sprintf("%s/block/by-nonce/%d", nodeAPI, nonce), &result)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return formatAndDumpTX(tx, hash, blockResult.Data.Block)
+	if result.Data.Block == nil {
+		return nil, fmt.Errorf("invalid block, if the block nonce is correct, please try with a archive node")
+	}
+
+	return result.Data.Block, nil
 }
 
 func formatAndDumpRawTX(tx *transaction.Transaction) error {
