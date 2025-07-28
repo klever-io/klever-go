@@ -143,8 +143,11 @@ func (cm *commonProcessor) receiptToMap(data [][]byte) (map[string]interface{}, 
 			data = append(data, make([][]byte, 2)...)
 		}
 
-		assetId := string(data[4])
+		collection := string(data[4])
+		nonce := ""
+		assetId := collection
 		if len(data[5]) > 0 {
+			nonce = string(data[5])
 			assetId += kapps.Sp + string(data[5])
 		}
 
@@ -156,6 +159,8 @@ func (cm *commonProcessor) receiptToMap(data [][]byte) (map[string]interface{}, 
 		m["from"] = cm.addressPubkeyConverter.Encode(data[1])
 		m["to"] = cm.addressPubkeyConverter.Encode(data[2])
 		m["assetId"] = assetId
+		m["nonce"] = nonce
+		m["collection"] = collection
 		m["value"] = txValueInt
 		m["assetType"] = kapps.KDAData_EnumAssetType(data[6][0]).String()
 		m["marketplaceId"] = hex.EncodeToString(data[7])
