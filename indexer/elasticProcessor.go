@@ -21,7 +21,6 @@ import (
 	nodeData "github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/indexer"
 	"github.com/klever-io/klever-go/data/state"
-	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/indexer/logsevents"
 	"github.com/klever-io/klever-go/kapps"
@@ -29,7 +28,6 @@ import (
 	"github.com/klever-io/klever-go/storage/memcache"
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
-	"github.com/klever-io/klever-go/tools/marshal"
 )
 
 const numDecimalsInFloatBalance = 10 //?
@@ -454,33 +452,7 @@ func (ei *elasticProcessor) indexTransactions(txs []*data.Transaction, bytesBuff
 		return nil
 	}
 
-	// Add asset type and collection to all contracts before indexing
-	txs = ei.addContractInfoToTransactions(txs)
-
 	return ei.serializeTransactions(txs, bytesBuff)
-}
-
-func (ei *elasticProcessor) GetCachedKDA(kda string, kdaKapp state.KAppAccountHandler) (*data.CachedAsset, error) {
-	var cachedAsset *data.CachedAsset
-
-	cachedData, found := ei.cacher.Get(kda)
-	if !found {
-		parsedData, err := getAssetTypeAndCollection([]byte(kda), kdaKapp, ei.marshalizer)
-		if err != nil {
-			return nil, err
-		}
-		cachedAsset = parsedData
-
-		ei.cacher.Set(kda, parsedData)
-	} else {
-		parsedData, ok := cachedData.(*data.CachedAsset)
-		if !ok {
-			return nil, ErrCannotParseKDA
-		}
-		cachedAsset = parsedData
-	}
-
-	return cachedAsset, nil
 }
 
 func (ei *elasticProcessor) getProposal(proposalKapp state.KAppAccountHandler, proposalID uint64) (*data.Proposal, error) {
@@ -1790,238 +1762,6 @@ func (ei *elasticProcessor) doBulkRequests(index string, buffSlice []*bytes.Buff
 	}
 
 	return nil
-}
-
-func (ei *elasticProcessor) addContractInfoToTransactions(txs []*data.Transaction) []*data.Transaction {
-	// Load before loop all contracts
-	asset, err := ei.kappsDB.LoadAccount(kapps.KDAKAppAddress)
-	if err != nil {
-		return txs
-	}
-	kdaKapp, ok := asset.(state.KAppAccountHandler)
-	if !ok {
-		return txs
-	}
-
-	for _, tx := range txs {
-		for _, contract := range tx.Contracts {
-			switch contract.Type {
-			case transaction.TXContract_TransferContractType:
-				c := contract.Parameter.(data.TransferContract)
-				if len(c.AssetID) <= 0 {
-					continue
-				}
-
-				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
-				if err != nil {
-					continue
-				}
-
-				c.AssetType = data.AssetType{
-					Type:       cachedKDA.Type,
-					Collection: cachedKDA.Collection,
-				}
-
-				contract.Parameter = c
-			case transaction.TXContract_FreezeContractType:
-				c := contract.Parameter.(data.FreezeContract)
-				if len(c.AssetID) <= 0 {
-					continue
-				}
-				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
-				if err != nil {
-					continue
-				}
-
-				c.AssetType = data.AssetType{
-					Type:       cachedKDA.Type,
-					Collection: cachedKDA.Collection,
-				}
-				contract.Parameter = c
-			case transaction.TXContract_UnfreezeContractType:
-				c := contract.Parameter.(data.UnfreezeContract)
-
-				if len(c.AssetID) <= 0 {
-					continue
-				}
-				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
-				if err != nil {
-					continue
-				}
-
-				c.AssetType = data.AssetType{
-					Type:       cachedKDA.Type,
-					Collection: cachedKDA.Collection,
-				}
-				contract.Parameter = c
-			case transaction.TXContract_DepositContractType:
-				c := contract.Parameter.(data.DepositContract)
-
-				if len(c.ID) <= 0 {
-					continue
-				}
-				cachedKDA, err := ei.GetCachedKDA(c.ID, kdaKapp)
-				if err != nil {
-					continue
-				}
-
-				c.AssetType = data.AssetType{
-					Type:       cachedKDA.Type,
-					Collection: cachedKDA.Collection,
-				}
-				contract.Parameter = c
-			case transaction.TXContract_WithdrawContractType:
-				c := contract.Parameter.(data.WithdrawContract)
-
-				if len(c.AssetID) <= 0 {
-					continue
-				}
-				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
-				if err != nil {
-					continue
-				}
-
-				c.AssetType = data.AssetType{
-					Type:       cachedKDA.Type,
-					Collection: cachedKDA.Collection,
-				}
-				contract.Parameter = c
-			case transaction.TXContract_ClaimContractType:
-				c := contract.Parameter.(data.ClaimContract)
-
-				if len(c.ID) <= 0 {
-					continue
-				}
-
-				cachedKDA, err := ei.GetCachedKDA(c.ID, kdaKapp)
-				if err != nil {
-					continue
-				}
-
-				c.AssetType = data.AssetType{
-					Type:       cachedKDA.Type,
-					Collection: cachedKDA.Collection,
-				}
-				contract.Parameter = c
-			case transaction.TXContract_AssetTriggerContractType:
-				c := contract.Parameter.(data.AssetTriggerContract)
-
-				if len(c.AssetID) <= 0 {
-					continue
-				}
-
-				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
-				if err != nil {
-					continue
-				}
-
-				c.AssetType = data.AssetType{
-					Type:       cachedKDA.Type,
-					Collection: cachedKDA.Collection,
-				}
-				contract.Parameter = c
-			case transaction.TXContract_ConfigITOContractType:
-				c := contract.Parameter.(data.ConfigITOContract)
-
-				if len(c.AssetID) <= 0 {
-					continue
-				}
-
-				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
-				if err != nil {
-					continue
-				}
-
-				c.AssetType = data.AssetType{
-					Type:       cachedKDA.Type,
-					Collection: cachedKDA.Collection,
-				}
-
-				contract.Parameter = c
-			case transaction.TXContract_BuyContractType:
-				c := contract.Parameter.(data.BuyContract)
-
-				if len(c.ID) <= 0 {
-					continue
-				}
-
-				cachedKDA, err := ei.GetCachedKDA(c.ID, kdaKapp)
-				if err != nil {
-					continue
-				}
-
-				c.AssetType = data.AssetType{
-					Type:       cachedKDA.Type,
-					Collection: cachedKDA.Collection,
-				}
-				contract.Parameter = c
-			case transaction.TXContract_SellContractType:
-				c := contract.Parameter.(data.SellContract)
-
-				if len(c.AssetID) <= 0 {
-					continue
-				}
-
-				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
-				if err != nil {
-					continue
-				}
-
-				c.AssetType = data.AssetType{
-					Type:       cachedKDA.Type,
-					Collection: cachedKDA.Collection,
-				}
-				contract.Parameter = c
-			case transaction.TXContract_ITOTriggerContractType:
-				c := contract.Parameter.(data.ITOTriggerContract)
-
-				if len(c.AssetID) <= 0 {
-					continue
-				}
-
-				cachedKDA, err := ei.GetCachedKDA(c.AssetID, kdaKapp)
-				if err != nil {
-					continue
-				}
-
-				c.AssetType = data.AssetType{
-					Type:       cachedKDA.Type,
-					Collection: cachedKDA.Collection,
-				}
-
-				contract.Parameter = c
-			default:
-				continue
-			}
-		}
-	}
-	return txs
-}
-
-func getAssetTypeAndCollection(assetId []byte, kdaKapp state.KAppAccountHandler, m marshal.Marshalizer) (*data.CachedAsset, error) {
-	kda := string(assetId)
-	kda = strings.Split(kda, "/")[0]
-	key := kdautils.ToKDAKey([]byte(assetId), nil)
-
-	kdaBytes, err := kdaKapp.DataTrieTracker().RetrieveValue(key)
-	if err != nil {
-		return nil, err
-	}
-	if len(kdaBytes) == 0 {
-		return nil, common.ErrEmptyString
-	}
-
-	kdaParsed := &kapps.KDAData{}
-	err = m.Unmarshal(kdaParsed, kdaBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	return &data.CachedAsset{
-		Type:       kdaParsed.GetAssetType().String(),
-		Collection: kda,
-		Precision:  kdaParsed.Precision,
-	}, nil
 }
 
 // IsInterfaceNil returns true if there is no value under the interface
