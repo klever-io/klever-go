@@ -106,6 +106,7 @@ func subMS() []*cobra.Command {
 			return nil
 		},
 	}
+	cmdMultisignAddTransaction.Flags().StringVar(&multisignAPI, "multisign-api", "https://multisign.mainnet.klever.org", "multisign API URL")
 
 	cmdMultisignBroadcast := &cobra.Command{
 		Use:   "broadcast [Transaction]",
@@ -139,6 +140,7 @@ func subMS() []*cobra.Command {
 			return nil
 		},
 	}
+	cmdMultisignBroadcast.Flags().StringVar(&multisignAPI, "multisign-api", "https://multisign.mainnet.klever.org", "multisign API URL")
 
 	cmdMultisignFetch := &cobra.Command{
 		Use:   "by-hash [Transaction]",
@@ -164,6 +166,7 @@ func subMS() []*cobra.Command {
 			return DumpAsJson(result)
 		},
 	}
+	cmdMultisignFetch.Flags().StringVar(&multisignAPI, "multisign-api", "https://multisign.mainnet.klever.org", "multisign API URL")
 
 	cmdMultisignByAddress := &cobra.Command{
 		Use:   "by-address [Address]",
@@ -181,6 +184,7 @@ func subMS() []*cobra.Command {
 			return DumpAsJson(result)
 		},
 	}
+	cmdMultisignByAddress.Flags().StringVar(&multisignAPI, "multisign-api", "https://multisign.mainnet.klever.org", "multisign API URL")
 
 	return []*cobra.Command{
 		cmdDecodeTransaction,
@@ -201,8 +205,6 @@ func init() {
 		},
 	}
 	cmdMS.AddCommand(subMS()...)
-
-	cmdMS.Flags().StringVar(&multisignAPI, "multisign-api", "https://multisign.mainnet.klever.org", "multisign API URL")
 
 	rootCmd.AddCommand(cmdMS)
 }
