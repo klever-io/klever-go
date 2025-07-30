@@ -253,6 +253,14 @@ func (tdp *txDatabaseProcessor) indexReceipt(
 				IsNew: false,
 			})
 
+			_, itoAlreadyAdded := ad.ITO.Get(m["assetId"].(string))
+			// only updates by config ito receipt when used by a builtin function
+			if !itoAlreadyAdded {
+				ad.ITO.Add(m["assetId"].(string), &data.AlteredITOs{
+					IsNew: true,
+				})
+			}
+
 		case ptx.SetITOPrices:
 			ad.Assets.Add(m["assetId"].(string), &data.AlteredAsset{
 				IsNew: false,
