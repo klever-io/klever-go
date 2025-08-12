@@ -126,11 +126,7 @@ func (a *accountsKapp) isUninitializedContractAddress(address []byte) bool {
 	// still keep some properties, and deleted contracts are considered initialized
 	codeHash := userAcc.GetCodeHash()
 	codeMeta := userAcc.GetCodeMetadata()
-	if len(codeHash) == 0 || len(codeMeta) == 0 {
-		return true
-	}
-	code := a.accountsCacher.GetCode(codeHash)
-	return len(code) == 0
+	return len(codeHash) == 0 && len(codeMeta) == 0
 }
 
 func (a *accountsKapp) Transfer(cType transaction.TXContract_ContractType, sender []byte, tc *transaction.TransferContract) (transaction.Transaction_TXResultCode, error) {

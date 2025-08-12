@@ -4037,7 +4037,7 @@ func TestIsUninitializedContractAddress(t *testing.T) {
 			codeHash:              []byte{},
 			codeMeta:              []byte("meta"),
 			codeLen:               100,
-			expectedUninitialized: true,
+			expectedUninitialized: false,
 		},
 		{
 			name:                  "Smart contract address with empty code meta",
@@ -4047,7 +4047,7 @@ func TestIsUninitializedContractAddress(t *testing.T) {
 			codeHash:              []byte("hash"),
 			codeMeta:              []byte{},
 			codeLen:               100,
-			expectedUninitialized: true,
+			expectedUninitialized: false,
 		},
 		{
 			name:                  "Smart contract address with empty code",
@@ -4057,7 +4057,7 @@ func TestIsUninitializedContractAddress(t *testing.T) {
 			codeHash:              []byte("hash"),
 			codeMeta:              []byte("meta"),
 			codeLen:               0,
-			expectedUninitialized: true,
+			expectedUninitialized: false,
 		},
 		{
 			name:                  "Initialized smart contract address",
@@ -4075,9 +4075,9 @@ func TestIsUninitializedContractAddress(t *testing.T) {
 			accountExists:         true,
 			accountError:          nil,
 			codeHash:              nil,
-			codeMeta:              nil,
+			codeMeta:              []byte("meta"),
 			codeLen:               0,
-			expectedUninitialized: true,
+			expectedUninitialized: false,
 		},
 		{
 			name:                  "Contract with code hash but no actual code",
@@ -4087,7 +4087,7 @@ func TestIsUninitializedContractAddress(t *testing.T) {
 			codeHash:              []byte("existingHash"),
 			codeMeta:              []byte("existingMeta"),
 			codeLen:               0,
-			expectedUninitialized: true,
+			expectedUninitialized: false,
 		},
 	}
 
