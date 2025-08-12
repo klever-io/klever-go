@@ -1,6 +1,7 @@
 #include "../mxvm/context.h"
 #include "../mxvm/bigInt.h"
 #include "../mxvm/test_utils.h"
+#include "../mxvm/transfer.h"
 
 byte dataA[20] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 byte dataB[20] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
@@ -28,7 +29,8 @@ void childFunction() {
 	byte transferData[100];
 	getArgument(1, transferData);
 	int dataLength = getArgumentLength(1);
-	int result = transferValue(recipient, value, transferData, dataLength);
+	
+	int result = performKLVTransfer(recipient,value,50000);
 	if (result != 0) {
 		not_ok();
 	}

@@ -159,11 +159,13 @@ func runTestWithInstances(template *InstanceCallTestTemplate, reset bool) {
 		require.Nil(template.tb, err)
 	}()
 
+	updateBalancesByInput(template)
 	vmOutput, err := template.host.RunSmartContractCall(template.input)
 
 	if template.assertResults != nil {
 		allErrors := template.host.Runtime().GetAllErrors()
 		verify := NewVMOutputVerifierWithAllErrors(template.tb, vmOutput, err, allErrors)
+		updateBalancesByOutput(template, vmOutput)
 		template.assertResults(template.host, blhookStub, verify)
 	}
 }

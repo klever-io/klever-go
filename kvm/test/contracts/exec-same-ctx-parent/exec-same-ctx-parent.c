@@ -1,6 +1,7 @@
 #include "../mxvm/context.h"
 #include "../mxvm/bigInt.h"
 #include "../mxvm/test_utils.h"
+#include "../mxvm/transfer.h"
 
 byte parentKeyA[] =  "parentKeyA......................";
 byte parentDataA[] = "parentDataA";
@@ -29,12 +30,9 @@ void parentFunctionPrepare() {
 	storageStore(parentKeyB, 32, parentDataB, 11);
 	finish(parentFinishA, 13);
 	finish(parentFinishB, 13);
-	int result = transferValue(
-			parentTransferReceiver,
-			parentTransferValue,
-			parentTransferData,
-			18
-	);
+
+	int result = performKLVTransfer(parentTransferReceiver, 42, 50000);
+
 	finishResult(result);
 }
 

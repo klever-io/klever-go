@@ -1,6 +1,8 @@
 #include "../mxvm/context.h"
 #include "../mxvm/bigInt.h"
 #include "../mxvm/test_utils.h"
+#include "../mxvm/transfer.h"
+
 
 byte dataA[20] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 byte dataB[20] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
@@ -25,11 +27,11 @@ void childFunction() {
 	didCallerPay(99);
 
 	// This transfer will appear alongside the transfers made by the parent.
-  getArgument(0, recipient);
+  	getArgument(0, recipient);
 	byte transferData[100];
 	getArgument(1, transferData);
 	int dataLength = getArgumentLength(1);
-	transferValue(recipient, value, transferData, dataLength);
+	int result = performKLVTransfer(recipient, value, 50000);
 
 	// This storage update will appear alongside the storage updates made by the parent.
 	storageStore(childKey, 32, childData, 9);

@@ -228,6 +228,28 @@ func BlockchainHookStubForContracts(
 		return nil
 	}
 
+	stubBlockchainHook.TransferValueOnlyCalled = func(destination, sender []byte, value *big.Int) error {
+		acc, ok := contractsMap[string(destination)]
+		if !ok {
+			contractsMap[string(destination)] = &worldmock.Account{
+				Address: destination,
+				Balance: value,
+			}
+		} else {
+			acc.Balance.Add(acc.Balance, value)
+			contractsMap[string(destination)] = acc
+		}
+
+		if bytes.Equal(sender, []byte{0}) {
+			return nil
+		}
+
+		senderAcc := contractsMap[string(sender)]
+		senderAcc.Balance.Sub(senderAcc.Balance, value)
+		contractsMap[string(sender)] = senderAcc
+		return nil
+	}
+
 	return stubBlockchainHook
 }
 

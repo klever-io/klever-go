@@ -142,6 +142,7 @@ int getArgumentLength(int argumentIndex);
 // Account-related functions
 void getExternalBalance(byte *address, byte *balance);
 int transferValue(byte *destination, byte *value, byte *data, int length);
+int managedMultiTransferKDANFTExecute(int dstHandle, int tokenTransfersHandle, long long gasLimit, int functionHandle, int argumentsHandle);
 
 // Storage-related functions
 int storageLoadLength(byte *key, int keyLength);

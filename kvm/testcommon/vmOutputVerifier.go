@@ -44,6 +44,29 @@ func NewVMOutputVerifierWithAllErrors(t testing.TB, vmOutput *vmcommon.VMOutput,
 	}
 }
 
+func updateBalancesByInput(template *InstanceCallTestTemplate) {
+	contractAddress := template.input.RecipientAddr // sc contract
+	for _, transfer := range template.input.KDATransfers {
+		err := template.host.Blockchain().TransferValueOnly(contractAddress, []byte{0}, transfer.KDAValue)
+		if err != nil {
+			fmt.Println("Error updating balances by input:", err)
+			continue
+		}
+	}
+}
+
+func updateBalancesByOutput(template *InstanceCallTestTemplate, outputs *vmcommon.VMOutput) {
+	for _, account := range outputs.OutputAccounts {
+		for _, transfer := range account.OutputTransfers {
+			err := template.host.Blockchain().TransferValueOnly(account.Address, transfer.SenderAddress, transfer.KDATransfers.KDAValue)
+			if err != nil {
+				fmt.Println("Error updating balances by output:", err)
+				continue
+			}
+		}
+	}
+}
+
 func (v *VMOutputVerifier) WithTrace() *VMOutputVerifier {
 	vmhost.SetLoggingForTestsWithLogger("VMOutputVerifier")
 
@@ -208,6 +231,13 @@ func (v *VMOutputVerifier) ReturnDataDoesNotContain(element []byte) *VMOutputVer
 	return v
 }
 
+func (v *VMOutputVerifier) Balance(host vmhost.VMHost, address []byte, balance int64) *VMOutputVerifier {
+	errMsg := formatErrorForAccount("Balance", address)
+	accountBalance := host.Blockchain().GetBalanceBigInt(address).Int64()
+	require.Equal(v.T, balance, accountBalance, errMsg) // #nosec G115
+
+	return v
+}
 func (v *VMOutputVerifier) isInReturnData(element []byte) bool {
 	for _, e := range v.VmOutput.ReturnData {
 		if bytes.Equal(e, element) {

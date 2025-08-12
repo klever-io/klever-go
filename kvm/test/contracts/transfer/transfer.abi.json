@@ -1,0 +1,68 @@
+{
+    "buildInfo": {
+        "rustc": {
+            "version": "1.82.0",
+            "commitHash": "f6e511eec7342f59a25f7c0534f1dbea00d01b14",
+            "commitDate": "2024-10-15",
+            "channel": "Stable",
+            "short": "rustc 1.82.0 (f6e511eec 2024-10-15)"
+        },
+        "contractCrate": {
+            "name": "transfer",
+            "version": "0.0.0",
+            "gitVersion": "v0.44.0-20-g527f274aa"
+        },
+        "framework": {
+            "name": "klever-sc",
+            "version": "0.45.0"
+        }
+    },
+    "name": "TransferContract",
+    "constructor": {
+        "inputs": [],
+        "outputs": []
+    },
+    "upgradeConstructor": {
+        "inputs": [],
+        "outputs": []
+    },
+    "endpoints": [
+        {
+            "name": "payable",
+            "mutability": "mutable",
+            "payableInTokens": [
+                "KLV"
+            ],
+            "inputs": [],
+            "outputs": []
+        },
+        {
+            "name": "transfer",
+            "mutability": "mutable",
+            "inputs": [
+                {
+                    "name": "value",
+                    "type": "u32"
+                }
+            ],
+            "outputs": []
+        },
+        {
+            "name": "multiple_transfer",
+            "mutability": "mutable",
+            "inputs": [
+                {
+                    "name": "value1",
+                    "type": "u32"
+                },
+                {
+                    "name": "value2",
+                    "type": "u32"
+                }
+            ],
+            "outputs": []
+        }
+    ],
+    "kdaAttributes": [],
+    "types": {}
+}
