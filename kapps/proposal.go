@@ -216,7 +216,7 @@ func InitialProposalParameters(forks core.ForkController) map[int32]*Parameter {
 
 		activeParameters[int32(EnumParameter_MaxGasPerTX)] = &Parameter{
 			Type:  EnumType_Int64,
-			Value: []byte("100000000"), // 100_000_000
+			Value: []byte("450000000"), // 450_000_000
 		}
 
 	}
