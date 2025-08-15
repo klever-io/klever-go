@@ -178,6 +178,14 @@ func (context *VMHooksImpl) IsSmartContract(addressOffset executor.MemPtr) int32
 		return -1
 	}
 
+	// check recent deploys/used on OutputAccounts first
+	if context.GetOutputContext() != nil && context.GetOutputContext().GetOutputAccounts() != nil {
+		ocAccs := context.GetOutputContext().GetOutputAccounts()
+		if acc, ok := ocAccs[string(address)]; ok && acc != nil && len(acc.Code) > 0 {
+			return 1
+		}
+	}
+
 	isSmartContract := blockchain.IsSmartContract(address)
 
 	return int32(vmhost.BooleanToInt(isSmartContract)) // #nosec G115
