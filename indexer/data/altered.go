@@ -8,6 +8,7 @@ type AlteredData struct {
 	KDAPool      AlteredKDAPoolHandler
 	Orders       MarketOperationsHandler
 	ITO          AlteredITOHandler
+	SC           AlteredSmartContractsHandler
 }
 
 func NewAlteredData() *AlteredData {
@@ -19,6 +20,7 @@ func NewAlteredData() *AlteredData {
 		KDAPool:      NewAlteredKDAPools(),
 		Orders:       NewMarketOperations(),
 		ITO:          NewAlteredITOs(),
+		SC:           NewAlteredSmartContracts(),
 	}
 }
 

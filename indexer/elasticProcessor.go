@@ -437,6 +437,11 @@ func (ei *elasticProcessor) SaveTransactions(
 		return err
 	}
 
+	err = ei.indexAlteredSmartContracts(ld.AlteredSCs, buffers)
+	if err != nil {
+		return err
+	}
+
 	err = ei.doBulkRequests("", buffers.Buffers())
 	if err != nil {
 		log.Warn("indexer indexing bulk of transactions",
@@ -1186,6 +1191,18 @@ func (ei *elasticProcessor) SaveAssets(assetsSlice []*data.Asset) error {
 	}
 
 	return ei.doBulkRequests(assetsIndex, buffSlice.Buffers())
+}
+
+func (ei *elasticProcessor) indexAlteredSmartContracts(alteredSCsHandler data.AlteredSmartContractsHandler, buffSlice *data.BufferSlice) error {
+	if !ei.isIndexEnabled(scDeploysIndex) {
+		return nil
+	}
+	alteredSCs := make(map[string][]*data.AlteredSmartContract)
+	if alteredSCsHandler != nil {
+		alteredSCs = alteredSCsHandler.GetAll()
+	}
+
+	return SerializeAlteredSmartContracts(alteredSCs, buffSlice, scDeploysIndex)
 }
 
 func (ei *elasticProcessor) indexAlteredAccounts(

@@ -362,7 +362,7 @@ func (n *Node) DecodeTransaction(tx *transaction.Transaction) (*indexerData.Tran
 		ChainID:      string(tx.RawData.ChainID),
 	}
 
-	err = cp.DecodeContract(decodedTX, tx, nil, nil, time.Now().Unix())
+	err = cp.DecodeContract(decodedTX, tx, nil, nil, nil, time.Now().Unix())
 	if err != nil {
 		return nil, err
 	}

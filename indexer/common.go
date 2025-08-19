@@ -462,7 +462,7 @@ func (cm *commonProcessor) BuildTransaction(
 	}
 }
 
-func (cm *commonProcessor) DecodeContract(dbTx *data.Transaction, tx *transaction.Transaction, alteredAccounts data.AlteredAccountsHandler, alteredIto data.AlteredITOHandler, blockTimestamp int64) error {
+func (cm *commonProcessor) DecodeContract(dbTx *data.Transaction, tx *transaction.Transaction, alteredAccounts data.AlteredAccountsHandler, alteredIto data.AlteredITOHandler, alteredSC data.AlteredSmartContractsHandler, blockTimestamp int64) error {
 	statusOK := tx.Result == transaction.Transaction_SUCCESS && tx.GetResultCode() == transaction.Transaction_Ok
 	if dbTx.Contracts == nil {
 		dbTx.Contracts = []*data.TXContract{}
@@ -937,8 +937,48 @@ func SerializeSCDeploys(deploys map[string]*data.ScDeployInfo, buffSlice *data.B
 	return nil
 }
 
+// SerializeAlteredSmartContracts will serialize the provided altered smart contracts in a way that Elasticsearch expects a bulk request
+func SerializeAlteredSmartContracts(alteredSCs map[string][]*data.AlteredSmartContract, buffSlice *data.BufferSlice, index string) error {
+	if len(alteredSCs) == 0 {
+		return nil
+	}
+
+	// Count all transactions per smart contract (including deployments and upgrades)
+	scTransactionCounts := make(map[string]int)
+	for scAddress, alteredList := range alteredSCs {
+		scTransactionCounts[scAddress] = len(alteredList)
+	}
+
+	for scAddress, txCount := range scTransactionCounts {
+		meta := []byte(fmt.Sprintf(`{ "update" : { "_index":"%s", "_id" : "%s" } }%s`, index, converters.JsonEscape(scAddress), "\n"))
+
+		codeToExecute := `
+			if (!ctx._source.containsKey('totalTransactions')) {
+				ctx._source.totalTransactions = params.count;
+			} else {
+				ctx._source.totalTransactions += params.count;
+			}
+		`
+
+		serializedData := []byte(fmt.Sprintf(`{"script": {`+
+			`"source": "%s",`+
+			`"lang": "painless",`+
+			`"params": {"count": %d}},`+
+			`"upsert": {"totalTransactions": %d}}`,
+			converters.FormatPainlessSource(codeToExecute), txCount, txCount))
+
+		err := buffSlice.PutData(meta, serializedData)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func serializeDeploy(deployInfo *data.ScDeployInfo) ([]byte, error) {
 	deployInfo.Upgrades = make([]*data.Upgrade, 0)
+	deployInfo.TotalTransactions = uint64(0)
 	serializedData, errPrepareD := json.Marshal(deployInfo)
 	if errPrepareD != nil {
 		return nil, errPrepareD

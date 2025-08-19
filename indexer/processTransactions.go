@@ -76,7 +76,7 @@ func (tdp *txDatabaseProcessor) prepareTransactionsForDatabase(
 			BalanceChange: true,
 		})
 
-		err := tdp.commonProcessor.DecodeContract(dbTx, tx.Transaction, ad.Accounts, ad.ITO, header.GetTimestamp())
+		err := tdp.commonProcessor.DecodeContract(dbTx, tx.Transaction, ad.Accounts, ad.ITO, ad.SC, header.GetTimestamp())
 		if err != nil {
 			return nil, nil, err
 		}

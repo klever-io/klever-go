@@ -20,6 +20,7 @@ type logsData struct {
 	timestamp int64
 	txsMap    map[string]*data.Transaction
 	scDeploys map[string]*data.ScDeployInfo
+	alteredSC data.AlteredSmartContractsHandler
 }
 
 // ArgsLogsAndEventsProcessor  holds all dependencies required to create new instances of logsAndEventsProcessor
@@ -63,7 +64,8 @@ func (lep *logsAndEventsProcessor) ExtractDataFromLogs(
 	}
 
 	return &data.PreparedLogsResults{
-		ScDeploys: lep.logsData.scDeploys,
+		ScDeploys:  lep.logsData.scDeploys,
+		AlteredSCs: lep.logsData.alteredSC,
 	}
 }
 
@@ -76,6 +78,7 @@ func newLogsData(
 	ld.txsMap = converters.ConvertTxsSliceIntoMap(txs)
 	ld.timestamp = timestamp
 	ld.scDeploys = make(map[string]*data.ScDeployInfo)
+	ld.alteredSC = data.NewAlteredSmartContracts()
 
 	return ld
 }
@@ -100,6 +103,7 @@ func (lep *logsAndEventsProcessor) processEvent(logHashHexEncoded string, logAdd
 			timestamp:        lep.logsData.timestamp,
 			scDeploys:        lep.logsData.scDeploys,
 			txs:              lep.logsData.txsMap,
+			alteredSC:        lep.logsData.alteredSC,
 		})
 
 		tx, ok := lep.logsData.txsMap[logHashHexEncoded]
@@ -180,6 +184,7 @@ type argsProcessEvent struct {
 	event            transaction.EventHandler
 	timestamp        int64
 	logAddress       []byte
+	alteredSC        data.AlteredSmartContractsHandler
 }
 
 type argOutputProcessEvent struct {
@@ -222,10 +227,12 @@ func checkArgsLogsAndEventsProcessor(args ArgsLogsAndEventsProcessor) error {
 
 func createEventsProcessors(args ArgsLogsAndEventsProcessor) []eventsProcessor {
 	scDeploysProc := newSCDeploysProcessor(args.PubKeyConverter)
+	scInvocationsProc := newSCInvocationsProcessor(args.PubKeyConverter)
 	informativeProc := newInformativeLogsProcessor()
 
 	eventsProcs := []eventsProcessor{
 		scDeploysProc,
+		scInvocationsProc,
 		informativeProc,
 	}
 

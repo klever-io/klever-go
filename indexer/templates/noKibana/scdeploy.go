@@ -35,6 +35,9 @@ var SCDeploys = Object{
 						"type": "keyword",
 					},
 				},
+				"totalTransactions": Object{
+					"type": "long",
+				},
 			},
 		},
 	},

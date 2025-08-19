@@ -57,7 +57,7 @@ type DatabaseClientHandler interface {
 
 type CommonProcessor interface {
 	BuildTransaction(tx *transaction.Transaction, txHash string, header nodeData.HeaderHandler) *data.Transaction
-	DecodeContract(dbTx *data.Transaction, tx *transaction.Transaction, alteredAccounts data.AlteredAccountsHandler, itoAccounts data.AlteredITOHandler, blockTimestamp int64) error
+	DecodeContract(dbTx *data.Transaction, tx *transaction.Transaction, alteredAccounts data.AlteredAccountsHandler, itoAccounts data.AlteredITOHandler, alteredSC data.AlteredSmartContractsHandler, blockTimestamp int64) error
 }
 
 // LogsAndEventsHandler defines the actions that a logs and events handler should do
