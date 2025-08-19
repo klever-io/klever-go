@@ -1170,7 +1170,6 @@ func TestKDATrigger_UpdateMetadata(t *testing.T) {
 			},
 			SetRootHashCalled: func(rootHash []byte) {
 				_ = rootHash
-				return
 			},
 		}, nil
 	}

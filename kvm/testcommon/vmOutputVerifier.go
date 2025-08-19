@@ -383,16 +383,6 @@ func (v *VMOutputVerifier) requireEqualFunctionAndArgs(
 	require.Equal(v.T, "", "!implement", errMsg)
 }
 
-func requireEqualArgumentsInTransfers(ignoredDataFields [][]int, index int, expectedArgs [][]byte, v *VMOutputVerifier, actualArgs [][]byte, errMsg string) {
-	ignoredFieldsForTransfer := ignoredDataFields[index]
-	for a := 0; a < len(expectedArgs); a++ {
-		// a + 1 because we consider func name previously compared
-		if linearIntSearch(ignoredFieldsForTransfer, a+1) == -1 {
-			require.Equal(v.T, expectedArgs[a], actualArgs[a], errMsg)
-		}
-	}
-}
-
 func requireEqualTransfersWithoutData(outputAccount *vmcommon.OutputAccount, index int, transfersForAccount []vmcommon.OutputTransfer, v *VMOutputVerifier, errMsg string) {
 	require.Equal(v.T, transfersForAccount[index], outputAccount.OutputTransfers[index], errMsg)
 }
@@ -411,15 +401,6 @@ func createTransferMapsFromEntries(transfers []TransferEntry) (map[string][]vmco
 			append(ignoredDataFieldsForTransfersMap[account], transferEntry.ignoredDataArguments)
 	}
 	return transfersMap, ignoredDataFieldsForTransfersMap
-}
-
-func linearIntSearch(array []int, i int) int {
-	for index, element := range array {
-		if element == i {
-			return index
-		}
-	}
-	return -1
 }
 
 // Print writes the contents of the VMOutput with log.Trace()

@@ -844,7 +844,7 @@ func (context *VMHooksImpl) ScalarBaseMultEC(
 		return 1
 	}
 	oneByteScalarGasCost := metering.GasSchedule().CryptoAPICost.ScalarMultECC * uint64(curveMultiplier) / 100
-	gasToUse := oneByteScalarGasCost + uint64(length)*oneByteScalarGasCost
+	gasToUse := oneByteScalarGasCost + uint64(length)*oneByteScalarGasCost // #nosec G115 - length is checked for negative values above
 	metering.UseAndTraceGas(gasToUse)
 
 	data, err := context.MemLoad(dataOffset, length)
@@ -965,7 +965,7 @@ func (context *VMHooksImpl) ScalarMultEC(
 		return 1
 	}
 	oneByteScalarGasCost := metering.GasSchedule().CryptoAPICost.ScalarMultECC * uint64(curveMultiplier) / 100
-	gasToUse := oneByteScalarGasCost + uint64(length)*oneByteScalarGasCost
+	gasToUse := oneByteScalarGasCost + uint64(length)*oneByteScalarGasCost // #nosec G115 - length is checked for negative values above
 	metering.UseAndTraceGas(gasToUse)
 
 	data, err := context.MemLoad(dataOffset, length)

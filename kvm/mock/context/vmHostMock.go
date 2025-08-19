@@ -1,6 +1,9 @@
 package mock
 
 import (
+	"fmt"
+	"math"
+
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data/vm"
 	"github.com/klever-io/klever-go/kvm/config"
@@ -243,6 +246,9 @@ func (host *VMHostMock) Reset() {
 }
 
 func (host *VMHostMock) MemLoadFromMock(address executor.MemPtr, size int) ([]byte, error) {
+	if size < 0 || size > math.MaxInt32 {
+		return nil, fmt.Errorf("size out of int32 bounds: %d", size)
+	}
 	return host.RuntimeContext.GetInstance().MemLoad(address, int32(size))
 }
 

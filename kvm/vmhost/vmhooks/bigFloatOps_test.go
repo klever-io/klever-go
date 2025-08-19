@@ -76,6 +76,7 @@ func TestBigFloatPow(t *testing.T) {
 		base := big.NewFloat(2.0)
 		exponent := int32(-1)
 		baseHandle, err := hooks.GetManagedTypesContext().PutBigFloat(base)
+		require.NoError(t, err)
 		destHandle := int32(101)
 
 		hooks.BigFloatPow(destHandle, baseHandle, exponent)

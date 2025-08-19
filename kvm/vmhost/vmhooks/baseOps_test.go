@@ -86,7 +86,6 @@ func TestVMHooksImpl_GetOwnerAddress(t *testing.T) {
 		return testAddress, nil
 	}
 
-	var result = make([]byte, len(testAddress))
 	hooks.GetOwnerAddress(executor.MemPtr(0))
 
 	result, err := host.MemLoadFromMock(executor.MemPtr(0), len(testAddress))
@@ -1322,7 +1321,7 @@ func TestVMHooksImpl_WriteEventLog(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			host := newMockVMHost()
 			hooks := vmhooks.NewVMHooksImpl(host)
-			addStorageContext(host)
+			require.NoError(t, addStorageContext(host))
 			host.RuntimeContext.(*contextmock.RuntimeContextMock).FailBaseOpsAPI = tt.shouldFailExec
 
 			var resultAddress []byte
@@ -1412,7 +1411,7 @@ func TestVMHooksImpl_GetNumReturnData(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			host := newMockVMHost()
 			hooks := vmhooks.NewVMHooksImpl(host)
-			addStorageContext(host)
+			require.NoError(t, addStorageContext(host))
 
 			host.OutputContext.(*contextmock.OutputContextStub).ReturnDataCalled = func() [][]byte {
 				return tt.returnData
@@ -1469,7 +1468,7 @@ func TestVMHooksImpl_GetReturnDataSize(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			host := newMockVMHost()
 			hooks := vmhooks.NewVMHooksImpl(host)
-			addStorageContext(host)
+			require.NoError(t, addStorageContext(host))
 			host.RuntimeContext.(*contextmock.RuntimeContextMock).FailBaseOpsAPI = tt.shouldFailExec
 
 			host.OutputContext.(*contextmock.OutputContextStub).ReturnDataCalled = func() [][]byte {
@@ -1530,7 +1529,7 @@ func TestVMHooksImpl_GetReturnData(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			host := newMockVMHost()
 			hooks := vmhooks.NewVMHooksImpl(host)
-			addStorageContext(host)
+			require.NoError(t, addStorageContext(host))
 			host.RuntimeContext.(*contextmock.RuntimeContextMock).FailBaseOpsAPI = tt.shouldFailExec
 
 			host.OutputContext.(*contextmock.OutputContextStub).ReturnDataCalled = func() [][]byte {

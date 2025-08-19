@@ -106,7 +106,7 @@ func (m *ManagedTypesContextMock) GetRandReader() io.Reader {
 
 func (m *ManagedTypesContextMock) ConsumeGasForThisBigIntNumberOfBytes(byteLen *big.Int) error {
 	if m.ConsumeGasForThisBigIntNumberOfBytesCalled != nil {
-		m.ConsumeGasForThisBigIntNumberOfBytesCalled(byteLen)
+		return m.ConsumeGasForThisBigIntNumberOfBytesCalled(byteLen)
 	}
 	return nil
 }

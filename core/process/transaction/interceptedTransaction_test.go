@@ -712,7 +712,7 @@ func TestInterceptedTransaction_CheckSizeValidityShouldWork(t *testing.T) {
 		KDA:    make([]byte, core.MaxLengthForAssetTicker),
 		Amount: math.MaxInt64,
 	}
-	tx.SetChainID(chainID)
+	require.NoError(t, tx.SetChainID(chainID))
 	tx.RawData.PermissionID = math.MaxInt32
 	tx.Signature = append(tx.Signature, sigOk)
 
@@ -738,7 +738,7 @@ func TestInterceptedTransaction_CheckSizeValidityMultiTransactionsShouldWork(t *
 		KDA:    make([]byte, core.MaxLengthForAssetTicker),
 		Amount: math.MaxInt64,
 	}
-	tx.SetChainID(chainID)
+	require.NoError(t, tx.SetChainID(chainID))
 	tx.RawData.PermissionID = math.MaxInt32
 	tx.Signature = append(tx.Signature, sigOk)
 
@@ -766,7 +766,7 @@ func TestInterceptedTransaction_CheckSizeValidityShouldFail(t *testing.T) {
 		KDA:    make([]byte, core.MaxLengthForAssetTicker),
 		Amount: math.MaxInt64,
 	}
-	tx.SetChainID(chainID)
+	require.NoError(t, tx.SetChainID(chainID))
 	tx.RawData.PermissionID = math.MaxInt32
 	tx.Signature = append(tx.Signature, sigOk)
 
@@ -793,7 +793,7 @@ func TestInterceptedTransaction_CheckSizeValidityShouldWork_MultipleSigners(t *t
 		KDA:    make([]byte, core.MaxLengthForAssetTicker),
 		Amount: math.MaxInt64,
 	}
-	tx.SetChainID(chainID)
+	require.NoError(t, tx.SetChainID(chainID))
 	tx.RawData.PermissionID = math.MaxInt32
 	signatures := make([][]byte, 0)
 	for i := 0; i < core.MaxPermissionSigners; i++ {
@@ -829,7 +829,7 @@ func TestInterceptedTransaction_CheckSizeValidityShouldWork_SmartContractOverhea
 		KDA:    make([]byte, core.MaxLengthForAssetTicker),
 		Amount: math.MaxInt64,
 	}
-	tx.SetChainID(chainID)
+	require.NoError(t, tx.SetChainID(chainID))
 	tx.RawData.PermissionID = math.MaxInt32
 	signatures := make([][]byte, 0)
 	for i := 0; i < core.MaxPermissionSigners; i++ {
@@ -863,7 +863,7 @@ func TestInterceptedTransaction_MaxDataSizeShouldFail(t *testing.T) {
 	err := AddTransfer(tx, createMockPubkeyConverter(), senderAddress, recvAddress, token, 10)
 	assert.Nil(t, err)
 
-	tx.SetChainID(chainID)
+	require.NoError(t, tx.SetChainID(chainID))
 	tx.GasLimit = math.MaxUint64
 	tx.GasMultiplier = math.MaxUint64
 	tx.Signature = append(tx.Signature, sigOk)
@@ -894,7 +894,7 @@ func TestInterceptedTransaction_MaxContractSizeShouldFail(t *testing.T) {
 		},
 	}
 
-	tx.SetChainID(chainID)
+	require.NoError(t, tx.SetChainID(chainID))
 	tx.GasLimit = math.MaxUint64
 	tx.GasMultiplier = math.MaxUint64
 	tx.Signature = append(tx.Signature, sigOk)
@@ -925,7 +925,7 @@ func TestInterceptedTransaction_InvalidContractMarshalShouldFail(t *testing.T) {
 		},
 	}
 
-	tx.SetChainID(chainID)
+	require.NoError(t, tx.SetChainID(chainID))
 	tx.GasLimit = math.MaxUint64
 	tx.GasMultiplier = math.MaxUint64
 	tx.Signature = append(tx.Signature, sigOk)
@@ -949,7 +949,7 @@ func TestInterceptedTransaction_CheckSizeValidityShouldFail_MultipleSigners(t *t
 		KDA:    make([]byte, core.MaxLengthForAssetTicker),
 		Amount: math.MaxInt64,
 	}
-	tx.SetChainID(chainID)
+	require.NoError(t, tx.SetChainID(chainID))
 	tx.RawData.PermissionID = math.MaxInt32
 	signatures := make([][]byte, 0)
 	for i := 0; i < core.MaxPermissionSigners+1; i++ {
@@ -1299,7 +1299,7 @@ func TestInterceptedTransaction_CheckValidity_TxFieldsNilPointerShouldNotPanic(t
 
 	chainID := []byte("chainID")
 	tx := dataTransaction.NewBaseTransaction(senderAddress, 0, nil, 0, 0)
-	tx.SetChainID(chainID)
+	require.NoError(t, tx.SetChainID(chainID))
 
 	tx.Signature = append(tx.Signature, sigOk)
 

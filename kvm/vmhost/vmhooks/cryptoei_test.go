@@ -13,8 +13,6 @@ import (
 func TestEncodeSecp256k1DerSignature(t *testing.T) {
 	t.Parallel()
 
-	const sigSize = 71
-
 	type testCase struct {
 		name        string // Test case name
 		rHex        string // Hex-encoded R value

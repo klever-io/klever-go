@@ -38,7 +38,7 @@ func TestConsensus_InsertDupTransaction(t *testing.T) {
 		n.SlotManager.RemainingTimeCalled = func(startTime time.Time, maxTime time.Duration) time.Duration {
 			return maxTime // always return maxTime
 		}
-		n.Node.StartConsensus()
+		require.NoError(t, n.Node.StartConsensus())
 	}
 
 	// inc slot and wait for block proposal

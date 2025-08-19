@@ -27,6 +27,7 @@ import (
 	"github.com/klever-io/klever-go/storage/txcache"
 	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const MaxGasLimitPerBlock = uint64(100000)
@@ -694,6 +695,7 @@ func TestTransactions_ComputeSortedTxs_NoDataTransactions(t *testing.T) {
 	}
 
 	cache, err := txcache.NewTxCache(config)
+	require.NoError(t, err)
 
 	// add 100 senders with 1000 txs each
 	for i := 0; i < 10; i++ {
@@ -753,6 +755,7 @@ func TestTransactions_ComputeSortedTxs_GasTransactions(t *testing.T) {
 	}
 
 	cache, err := txcache.NewTxCache(config)
+	require.NoError(t, err)
 
 	// add 100 senders with 1000 txs each
 	for i := 0; i < 100; i++ {
@@ -863,7 +866,7 @@ func TestTransactions_PreFilterTransactionsWithPriority(t *testing.T) {
 	}
 }
 
-func createCacheWithTransactions(transactions []*txcache.WrappedTransaction) *commonMock.PoolsHolderStub {
+func createCacheWithTransactions(t *testing.T, transactions []*txcache.WrappedTransaction) *commonMock.PoolsHolderStub {
 	config := txcache.Config{
 		Name:                          "untitled",
 		NumChunks:                     16,
@@ -874,7 +877,8 @@ func createCacheWithTransactions(transactions []*txcache.WrappedTransaction) *co
 		NumBytesPerSenderThreshold:    33_554_432,
 	}
 
-	cache, _ := txcache.NewTxCache(config)
+	cache, err := txcache.NewTxCache(config)
+	require.NoError(t, err)
 
 	for _, tx := range transactions {
 		cache.AddTx(tx)
@@ -897,7 +901,7 @@ func createCacheWithTransactions(transactions []*txcache.WrappedTransaction) *co
 func TestTransactions_ProcessBlockTransactions(t *testing.T) {
 	t.Parallel()
 
-	poolHolders := createCacheWithTransactions([]*txcache.WrappedTransaction{
+	poolHolders := createCacheWithTransactions(t, []*txcache.WrappedTransaction{
 		{TxHash: []byte("TX1"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 0, Nonce: 1, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000}},
 		{TxHash: []byte("TX2"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 2, Sender: []byte("addr1"), Data: [][]byte{[]byte("data")}}, GasLimit: 100000}},
 		{TxHash: []byte("TX3"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 2, Nonce: 3, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000}},
@@ -932,7 +936,7 @@ func TestTransactions_ProcessBlockTransactions(t *testing.T) {
 func TestTransactions_CreateAndProcessBlockTransactions(t *testing.T) {
 	t.Parallel()
 
-	poolHolders := createCacheWithTransactions([]*txcache.WrappedTransaction{
+	poolHolders := createCacheWithTransactions(t, []*txcache.WrappedTransaction{
 		{TxHash: []byte("TX1"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 0, Nonce: 1, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000}},
 		{TxHash: []byte("TX2"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 2, Sender: []byte("addr1"), Data: [][]byte{[]byte("data")}}, GasLimit: 100000}},
 		{TxHash: []byte("TX3"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 2, Nonce: 3, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000}},
@@ -980,14 +984,14 @@ func TestTransactions_CreateAndProcessBlockTransactions(t *testing.T) {
 	assert.Equal(t, 0, processResult.Length())
 
 	// no error but no transactions to process
-	poolHolders = createCacheWithTransactions([]*txcache.WrappedTransaction{})
+	poolHolders = createCacheWithTransactions(t, []*txcache.WrappedTransaction{})
 	txs = createGoodPreprocessor(poolHolders)
 	processResult, err = txs.CreateAndProcessBlockTransactions(blk, haveTime)
 	assert.Nil(t, err)
 	assert.Equal(t, 0, processResult.Length())
 
 	// select TX, but no time to process
-	poolHolders = createCacheWithTransactions([]*txcache.WrappedTransaction{
+	poolHolders = createCacheWithTransactions(t, []*txcache.WrappedTransaction{
 		{TxHash: []byte("TX1"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 0, Nonce: 1, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000}},
 	})
 	txs = createGoodPreprocessor(poolHolders)

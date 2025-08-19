@@ -89,7 +89,7 @@ func setupValidatorsKApp(t *testing.T) *validatorsKApp {
 			return state.NewPeerAccount(peer)
 		},
 	}
-	v.SetAccountsCacher(accCacher)
+	require.NoError(t, v.SetAccountsCacher(accCacher))
 
 	// set functional rater
 	rd := createDefaultRatingsData()
@@ -100,7 +100,7 @@ func setupValidatorsKApp(t *testing.T) *validatorsKApp {
 	return v
 }
 
-func addFunctionalCacher(v *validatorsKApp) {
+func addFunctionalCacher(t *testing.T, v *validatorsKApp) {
 	peersMapper := make(map[string]state.PeerAccountHandler)
 	usersMapper := make(map[string]state.UserAccountHandler)
 
@@ -147,7 +147,7 @@ func addFunctionalCacher(v *validatorsKApp) {
 		},
 	}
 
-	v.SetAccountsCacher(accCacher)
+	require.NoError(t, v.SetAccountsCacher(accCacher))
 }
 
 func updatePeers(addresses [][]byte, v *validatorsKApp, f func(state.PeerAccountHandler) error) error {
@@ -199,7 +199,7 @@ func TestDecreaseAll(t *testing.T) {
 
 	t.Run("Basic Decrease Calculation prior fork", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		v.forkController.(*mock.ForkControllerStub).EnableSmartContractsValue = false
 
 		missedSlots := uint64(100)
@@ -222,7 +222,7 @@ func TestDecreaseAll(t *testing.T) {
 
 	t.Run("Basic Decrease Calculation post fork", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		missedSlots := uint64(100)
 		consensusGroupSize := 21
@@ -244,7 +244,7 @@ func TestDecreaseAll(t *testing.T) {
 
 	t.Run("Rating Decrease", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		validators := getValidators(21)
 		missedSlots := uint64(100)
 		consensusGroupSize := 21
@@ -279,7 +279,7 @@ func TestDecreaseAll(t *testing.T) {
 
 	t.Run("Jailing Check", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		validators := [][]byte{[]byte("validator1")}
 		missedSlots := uint64(100) // Large number to ensure rating drops significantly
 		consensusGroupSize := 21
@@ -289,6 +289,7 @@ func TestDecreaseAll(t *testing.T) {
 			peerAcc.SetTempRating(1000000)
 			return nil
 		})
+		assert.NoError(t, err)
 
 		err = v.DecreaseAll(validators, missedSlots, consensusGroupSize)
 		assert.NoError(t, err)
@@ -297,6 +298,7 @@ func TestDecreaseAll(t *testing.T) {
 			assert.Equal(t, state.List_jailed, peerAcc.GetList())
 			return nil
 		})
+		assert.NoError(t, err)
 	})
 }
 
@@ -305,7 +307,7 @@ func TestProcessRatingsEndOfEpoch(t *testing.T) {
 
 	t.Run("Happy path - process eligible validators", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		// Create test validators
 		validators := []*state.ValidatorInfo{
@@ -341,7 +343,7 @@ func TestProcessRatingsEndOfEpoch(t *testing.T) {
 
 	t.Run("Process validator leaving elected list", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		validators := []*state.ValidatorInfo{
 			{
@@ -411,7 +413,7 @@ func TestResetValidatorStatisticsAtNewEpoch(t *testing.T) {
 
 	t.Run("Happy path - all validators processed", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		// Create test validators
 		validators := []*state.ValidatorInfo{
@@ -449,7 +451,7 @@ func TestResetValidatorStatisticsAtNewEpoch(t *testing.T) {
 
 	t.Run("Skip revoked validator", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		validators := []*state.ValidatorInfo{
 			{
@@ -471,7 +473,7 @@ func TestResetValidatorStatisticsAtNewEpoch(t *testing.T) {
 
 	t.Run("Jail validator if needed", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		validators := []*state.ValidatorInfo{
 			{
@@ -523,7 +525,7 @@ func TestUpdateMissedBlocksCounters(t *testing.T) {
 
 	t.Run("Update counters for multiple validators prior fork", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		v.forkController.(*mock.ForkControllerStub).EnableSmartContractsValue = false
 
@@ -560,7 +562,7 @@ func TestUpdateMissedBlocksCounters(t *testing.T) {
 
 	t.Run("Update counters for multiple validators after fork", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		validators := map[string]*ValidatorData{
 			"addr1": {BlsPubKey: []byte("bls1")},
@@ -595,7 +597,7 @@ func TestUpdateMissedBlocksCounters(t *testing.T) {
 
 	t.Run("No missed blocks", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		saveAllCalled := false
 		v.accountsCacher.(*mock.AccountsCacherStub).SaveAllCalled = func() error {
@@ -632,7 +634,7 @@ func TestUpdateMissedBlocksCounters(t *testing.T) {
 
 	t.Run("Error getting validator", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
 			return &mock.KAppAccountHandlerStub{
@@ -682,7 +684,7 @@ func TestSaveUpdatesForNodesMap(t *testing.T) {
 
 	setupTest := func() *validatorsKApp {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
 			return &mock.KAppAccountHandlerStub{
@@ -851,7 +853,7 @@ func TestDecreaseTempRating(t *testing.T) {
 
 	setupTest := func() *validatorsKApp {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
 			return &mock.KAppAccountHandlerStub{
@@ -993,7 +995,7 @@ func TestDecreaseTempRating(t *testing.T) {
 		peerAcc, _ := v.accountsCacher.LoadPeer(validator)
 		peerAcc.SetTempRating(5000000)
 		peerAcc.SetConsecutiveProposerMisses(2)
-		v.accountsCacher.UpdatePeer(peerAcc)
+		require.NoError(t, v.accountsCacher.UpdatePeer(peerAcc))
 
 		err := v.DecreaseTempRating(validator, true)
 		assert.NoError(t, err)
@@ -1009,7 +1011,7 @@ func TestUpdateValidatorInfoOnSuccessfulBlock(t *testing.T) {
 
 	setupTest := func() *validatorsKApp {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		v.KAppController = &stub.KAppControllerStub{
 			GetProposalControllerCalled: func() kapps.ActiveProposalController {
@@ -1150,7 +1152,7 @@ func TestProcessEconomicsEndOfEpoch(t *testing.T) {
 
 	setupTest := func() *validatorsKApp {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		// Setup mock KAppController
 		mockProposalController := &mock.ProposalControllerStub{
@@ -1248,6 +1250,7 @@ func TestProcessEconomicsEndOfEpoch(t *testing.T) {
 
 		// Verify results
 		kappHandler, err := v.getKApp()
+		require.NoError(t, err)
 		updatedValidator, _ := v.getValidator(kappHandler, validatorAddress)
 		assert.True(t, updatedValidator.SelfStaked)
 		assert.False(t, updatedValidator.Jailed)
@@ -1285,7 +1288,9 @@ func TestProcessEconomicsEndOfEpoch(t *testing.T) {
 
 		// Verify results
 		kappHandler, err := v.getKApp()
-		updatedValidator, _ := v.getValidator(kappHandler, validatorAddress)
+		require.NoError(t, err)
+		updatedValidator, err := v.getValidator(kappHandler, validatorAddress)
+		require.NoError(t, err)
 		assert.True(t, updatedValidator.Jailed)
 		assert.Equal(t, currentEpoch, updatedValidator.JailedEpoch)
 		assert.Equal(t, uint32(1), updatedValidator.NumJailed)
@@ -1308,7 +1313,7 @@ func TestProcessEconomicsEndOfEpoch(t *testing.T) {
 			Commission:     1000,  // 10%
 			SelfStake:      50000, // Below minSelfDelegated
 		})
-		kapp.SetStorage([]byte("VAL/validator1"), data)
+		require.NoError(t, kapp.SetStorage([]byte("VAL/validator1"), data))
 
 		err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
 		assert.NoError(t, err)

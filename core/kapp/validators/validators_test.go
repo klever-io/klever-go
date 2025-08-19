@@ -85,7 +85,7 @@ func TestValidatorsKApp_Register(t *testing.T) {
 
 	t.Run("Successful registration", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		tc := &transaction.CreateValidatorContract{
 			OwnerAddress: makeAddress("owner"),
@@ -117,7 +117,7 @@ func TestValidatorsKApp_Register(t *testing.T) {
 
 	t.Run("Invalid owner address", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		tc := &transaction.CreateValidatorContract{
 			OwnerAddress: []byte("invalid"),
@@ -137,7 +137,7 @@ func TestValidatorsKApp_Register(t *testing.T) {
 
 	t.Run("Invalid commission", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		tc := &transaction.CreateValidatorContract{
 			OwnerAddress: makeAddress("owner"),
@@ -157,7 +157,7 @@ func TestValidatorsKApp_Register(t *testing.T) {
 
 	t.Run("Validator already registered", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 
 		tc := &transaction.CreateValidatorContract{
 			OwnerAddress: makeAddress("owner"),
@@ -190,7 +190,7 @@ func TestValidatorsKApp_UpdateValidator(t *testing.T) {
 
 	t.Run("Successful update", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		addStorageCacher(v)
 
 		// First, register a validator
@@ -219,7 +219,7 @@ func TestValidatorsKApp_UpdateValidator(t *testing.T) {
 
 	t.Run("Update non-existent validator", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		addStorageCacher(v)
 		addContext(v)
 
@@ -238,7 +238,7 @@ func TestValidatorsKApp_UpdateValidator(t *testing.T) {
 
 	t.Run("Invalid commission", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		addStorageCacher(v)
 
 		registerValidator(t, v, ownerAddress, []byte("blspubkey"))
@@ -268,7 +268,7 @@ func TestValidatorsKApp_Delegate(t *testing.T) {
 
 	t.Run("Successful delegation", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		addStorageCacher(v)
 
 		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
@@ -311,7 +311,7 @@ func TestValidatorsKApp_Delegate(t *testing.T) {
 
 	t.Run("Delegation to non-existent validator", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		addStorageCacher(v)
 
 		tc := &transaction.DelegateContract{
@@ -338,7 +338,7 @@ func TestValidatorsKApp_Delegate(t *testing.T) {
 
 	t.Run("Invalid bucket", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		addStorageCacher(v)
 
 		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
@@ -373,7 +373,7 @@ func TestValidatorsKApp_Undelegate(t *testing.T) {
 
 	t.Run("Successful undelegation", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		addStorageCacher(v)
 
 		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
@@ -398,7 +398,7 @@ func TestValidatorsKApp_Undelegate(t *testing.T) {
 
 	t.Run("Successful undelegation same epoch", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		addStorageCacher(v)
 
 		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
@@ -423,7 +423,7 @@ func TestValidatorsKApp_Undelegate(t *testing.T) {
 
 	t.Run("Undelegate non-existent bucket", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		addStorageCacher(v)
 
 		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
@@ -444,7 +444,7 @@ func TestValidatorsKApp_GetValidatorsInfo(t *testing.T) {
 
 	t.Run("Get info for multiple validators", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		addStorageCacher(v)
 
 		v1 := makeAddress("validator1")
@@ -465,7 +465,7 @@ func TestValidatorsKApp_GetValidatorsInfo(t *testing.T) {
 
 	t.Run("Get info for non-existent validator", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		addStorageCacher(v)
 
 		validators := [][]byte{[]byte("nonexistent")}
@@ -484,7 +484,7 @@ func TestValidatorsKApp_Unjail(t *testing.T) {
 
 	t.Run("Successful unjail", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		addStorageCacher(v)
 		addContext(v)
 
@@ -509,7 +509,7 @@ func TestValidatorsKApp_Unjail(t *testing.T) {
 
 	t.Run("Unjail non-jailed validator", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		addStorageCacher(v)
 		addContext(v)
 
@@ -526,7 +526,7 @@ func TestValidatorsKApp_Unjail(t *testing.T) {
 
 	t.Run("Error loading peer account", func(t *testing.T) {
 		v := setupValidatorsKApp(t)
-		addFunctionalCacher(v)
+		addFunctionalCacher(t, v)
 		addStorageCacher(v)
 		addContext(v)
 

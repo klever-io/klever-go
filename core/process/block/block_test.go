@@ -1234,7 +1234,10 @@ func TestMetaProcessor_ProcessProposalEndOfEpoch(t *testing.T) {
 			blk:  &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1, Epoch: 1}},
 			perset: func(pc *kapps.ProposalController, kApp state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
 				// set proposal 1
-				mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{})
+				err := mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{})
+				if err != nil {
+					return nil, err
+				}
 
 				// set proposal controller with valid data active proposals/params
 				return mp.GetMarshalizer().Marshal(&kapps.ProposalController{
@@ -1250,7 +1253,10 @@ func TestMetaProcessor_ProcessProposalEndOfEpoch(t *testing.T) {
 			blk:  &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1, Epoch: 1}},
 			perset: func(pc *kapps.ProposalController, kApp state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
 				// set proposal 1
-				mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{Parameters: map[int32][]byte{1: []byte("1234")}})
+				err := mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{Parameters: map[int32][]byte{1: []byte("1234")}})
+				if err != nil {
+					return nil, err
+				}
 
 				// set proposal controller with valid data active proposals/params
 				return mp.GetMarshalizer().Marshal(&kapps.ProposalController{
@@ -1267,7 +1273,10 @@ func TestMetaProcessor_ProcessProposalEndOfEpoch(t *testing.T) {
 			blk:  &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1, Epoch: 1}},
 			perset: func(pc *kapps.ProposalController, kApp state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
 				// set proposal 1
-				mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{Parameters: map[int32][]byte{1: []byte("1234")}, Votes: map[int32]int64{int32(kapps.ProposalData_VoteDetail_Yes): 10}})
+				err := mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{Parameters: map[int32][]byte{1: []byte("1234")}, Votes: map[int32]int64{int32(kapps.ProposalData_VoteDetail_Yes): 10}})
+				if err != nil {
+					return nil, err
+				}
 
 				// set proposal controller with valid data active proposals/params
 				return mp.GetMarshalizer().Marshal(&kapps.ProposalController{
@@ -1284,7 +1293,10 @@ func TestMetaProcessor_ProcessProposalEndOfEpoch(t *testing.T) {
 			blk:  &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1, Epoch: 1}},
 			perset: func(pc *kapps.ProposalController, kApp state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
 				// set proposal 1
-				mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{Parameters: map[int32][]byte{1: []byte("invalid")}, Votes: map[int32]int64{int32(kapps.ProposalData_VoteDetail_Yes): 10}})
+				err := mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{Parameters: map[int32][]byte{1: []byte("invalid")}, Votes: map[int32]int64{int32(kapps.ProposalData_VoteDetail_Yes): 10}})
+				if err != nil {
+					return nil, err
+				}
 
 				// set proposal controller with valid data active proposals/params
 				return mp.GetMarshalizer().Marshal(&kapps.ProposalController{
@@ -1354,7 +1366,7 @@ func SetProposal(
 	require.NoError(t, err)
 
 	// set proposal controller
-	adapter.SaveAccount(proposalKApp)
+	require.NoError(t, adapter.SaveAccount(proposalKApp))
 }
 
 func createShardedDataChacherNotifier(
@@ -1515,6 +1527,7 @@ func TestMetaProcessor_CreateEpochStartBodyWithInvalidTxCountShouldErr(t *testin
 	arguments := createMockMetaArguments()
 
 	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
 	err = mp.CreateEpochStartHeader(hdr)
 	require.Error(t, err, "invalid block tx count")
 }

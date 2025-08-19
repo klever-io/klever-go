@@ -321,7 +321,7 @@ func Test_ValidatorRewards_Comission_20(t *testing.T) {
 	c.RunDelegateTX(blk, userA, bucketUserA, validatorA)
 
 	rewardsA := int64(1_000_000) // 1 KLV of reward
-	c.AddFeesToPeer(peerAddressA, rewardsA)
+	require.NoError(t, c.AddFeesToPeer(peerAddressA, rewardsA))
 
 	validatorInfo := []*state.ValidatorInfo{{OwnerAddress: validatorA, PublicKey: peerAddressA}}
 	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo)
@@ -334,7 +334,7 @@ func Test_ValidatorRewards_Comission_20(t *testing.T) {
 
 	rewardsB := int64(100)
 
-	c.AddFeesToPeer(peerAddressA, rewardsB)
+	require.NoError(t, c.AddFeesToPeer(peerAddressA, rewardsB))
 
 	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(4, validatorInfo)
 	require.Equal(c.t, nil, err)
@@ -392,7 +392,7 @@ func Test_ValidatorRewards_Comission_2000(t *testing.T) {
 	c.RunDelegateTX(blk, userA, bucketUserA, validatorA)
 
 	rewardsA := int64(1_000_000) // 1 KLV of reward
-	c.AddFeesToPeer(peerAddressA, rewardsA)
+	require.NoError(t, c.AddFeesToPeer(peerAddressA, rewardsA))
 
 	validatorInfo := []*state.ValidatorInfo{{OwnerAddress: validatorA, PublicKey: peerAddressA}}
 	err = c.kappController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(3, validatorInfo)

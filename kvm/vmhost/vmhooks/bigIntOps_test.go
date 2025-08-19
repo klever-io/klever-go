@@ -422,7 +422,6 @@ func TestBigIntGetSignedBytes(t *testing.T) {
 			handle := hooks.BigIntNew(tt.input)
 			length := hooks.BigIntGetSignedBytes(handle, executor.MemPtr(0))
 
-			result := make([]byte, length)
 			result, err := hooks.MemLoad(executor.MemPtr(0), length)
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expectedBytes, result)

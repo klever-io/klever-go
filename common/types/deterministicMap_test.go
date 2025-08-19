@@ -171,7 +171,7 @@ func TestDeterministicMapEach_Order(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for _, _ = range make([]struct{}, tt.repeat) {
+			for range make([]struct{}, tt.repeat) {
 				dm := NewDeterministicMap(tt.data)
 				var count int
 				err := dm.Each(func(key string, value interface{}) error {

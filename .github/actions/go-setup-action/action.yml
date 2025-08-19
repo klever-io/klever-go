@@ -4,7 +4,7 @@ inputs:
   go-version:
     description: 'The Go version to use'
     required: false
-    default: '1.22'
+    default: '1.24'
   go-private:
     description: 'Private go modules'
     required: false

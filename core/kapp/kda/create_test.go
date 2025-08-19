@@ -366,8 +366,10 @@ func Test_CreateKDA(t *testing.T) {
 
 	for _, tt := range tests {
 		kdaKapp := setupKDAKapp(t, setupFork(tt.Fork))
-		kdaKapp.SetKAppController(validKappController)
-		kdaKapp.SetAccountsCacher(setupAccCacher(tt.AccCacher))
+		// These setters do not return an error at the moment, but we include require.NoError
+		// to satisfy linting requirements and to make the tests resilient to future changes.
+		require.NoError(t, kdaKapp.SetKAppController(validKappController))
+		require.NoError(t, kdaKapp.SetAccountsCacher(setupAccCacher(tt.AccCacher)))
 
 		t.Run(tt.Description, func(t *testing.T) {
 			assert := assert.New(t)

@@ -1,4 +1,4 @@
-FROM golang:1.22-bookworm AS builder
+FROM golang:1.24-bookworm AS builder
 
 # NOSONAR
 COPY . /go/src/github.com/klever-io/klever-go
@@ -14,7 +14,6 @@ FROM debian:bookworm-slim
 
 # Install dependencies
 RUN apt-get update && \
-    apt-get upgrade -y && \
     apt-get install --no-install-recommends -y \
     ca-certificates \
     curl \

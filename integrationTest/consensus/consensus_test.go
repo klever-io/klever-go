@@ -58,7 +58,7 @@ func TestConsensus_RevertBlockAndTransactions(t *testing.T) {
 			return maxTime // always return maxTime
 		}
 
-		n.Node.StartConsensus()
+		require.NoError(t, n.Node.StartConsensus())
 	}
 
 	// inc slot and wait for block proposal

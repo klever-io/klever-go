@@ -864,7 +864,7 @@ func Test_BuyIto_BeforeSmartContractFork_ShouldWork(t *testing.T) {
 		},
 	}
 
-	itoKapp.SetKAppController(kappControllerStub)
+	require.NoError(t, itoKapp.SetKAppController(kappControllerStub))
 
 	buyItoContract := &transaction.BuyContract{
 		Amount:     100,
@@ -963,7 +963,7 @@ func Test_BuyIto_AfterSmartContractFork_ShouldWork(t *testing.T) {
 		},
 	}
 
-	itoKapp.SetKAppController(kappControllerStub)
+	require.NoError(t, itoKapp.SetKAppController(kappControllerStub))
 
 	buyItoContract := &transaction.BuyContract{
 		Amount:         1000000,
@@ -987,7 +987,7 @@ func Test_BuyIto_AfterSmartContractFork_InvalidAmountError(t *testing.T) {
 			return kapp.NewKappContext(kapp.ArgsNewKAppContext{})
 		},
 	}
-	itoKapp.SetKAppController(kappControllerStub)
+	require.NoError(t, itoKapp.SetKAppController(kappControllerStub))
 
 	buyItoContract := &transaction.BuyContract{
 		Amount: -100,
@@ -1017,7 +1017,7 @@ func Test_BuyIto_AfterSmartContractFork_InvalidAssetError(t *testing.T) {
 		},
 	}
 
-	itoKapp.SetKAppController(kappControllerStub)
+	require.NoError(t, itoKapp.SetKAppController(kappControllerStub))
 
 	buyItoContract := &transaction.BuyContract{
 		Amount: 100,
@@ -1049,7 +1049,7 @@ func Test_BuyIto_AfterSmartContractFork_InvalidAssetTypeError(t *testing.T) {
 		},
 	}
 
-	itoKapp.SetKAppController(kappControllerStub)
+	require.NoError(t, itoKapp.SetKAppController(kappControllerStub))
 
 	buyItoContract := &transaction.BuyContract{
 		Amount: 100,
@@ -1097,7 +1097,7 @@ func Test_BuyIto_AfterSmartContractFork_InvalidITOError(t *testing.T) {
 		},
 	}
 
-	itoKapp.SetKAppController(kappControllerStub)
+	require.NoError(t, itoKapp.SetKAppController(kappControllerStub))
 
 	buyItoContract := &transaction.BuyContract{
 		Amount: 100,
@@ -1154,7 +1154,7 @@ func Test_BuyIto_AfterSmartContractFork_ITONotActiveError(t *testing.T) {
 		},
 	}
 
-	itoKapp.SetKAppController(kappControllerStub)
+	require.NoError(t, itoKapp.SetKAppController(kappControllerStub))
 
 	buyItoContract := &transaction.BuyContract{
 		Amount: 100,
@@ -1218,7 +1218,7 @@ func Test_BuyIto_AfterSmartContractFork_ITONotStartedError(t *testing.T) {
 		},
 	}
 
-	itoKapp.SetKAppController(kappControllerStub)
+	require.NoError(t, itoKapp.SetKAppController(kappControllerStub))
 
 	buyItoContract := &transaction.BuyContract{
 		Amount: 100,
@@ -1298,7 +1298,7 @@ func Test_BuyIto_AfterSmartContractFork_WhitelistDontExistError(t *testing.T) {
 		},
 	}
 
-	itoKapp.SetKAppController(kappControllerStub)
+	require.NoError(t, itoKapp.SetKAppController(kappControllerStub))
 
 	buyItoContract := &transaction.BuyContract{
 		Amount: 100,
@@ -1383,7 +1383,7 @@ func Test_BuyIto_AfterSmartContractFork_WhitelistLimitNotEnoughError(t *testing.
 		},
 	}
 
-	itoKapp.SetKAppController(kappControllerStub)
+	require.NoError(t, itoKapp.SetKAppController(kappControllerStub))
 
 	buyItoContract := &transaction.BuyContract{
 		Amount: 100,
@@ -1471,7 +1471,7 @@ func Test_BuyIto_AfterSmartContractFork_WhitelistSetError(t *testing.T) {
 		},
 	}
 
-	itoKapp.SetKAppController(kappControllerStub)
+	require.NoError(t, itoKapp.SetKAppController(kappControllerStub))
 
 	buyItoContract := &transaction.BuyContract{
 		Amount: 100,
@@ -2546,7 +2546,7 @@ func Test_BuyITO_Retrieve_Account_To_Send_Percent_And_Fixed_Royalties(t *testing
 			)
 
 			itoKapp, _ := NewITOKApp(mockITOArgs)
-			itoKapp.SetAccountsCacher(tt.accCacherStrub)
+			require.NoError(t, itoKapp.SetAccountsCacher(tt.accCacherStrub))
 
 			royaltiesToPay := int64(200)
 			resCode, err := itoKapp.computeSplitRoyalties(

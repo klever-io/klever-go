@@ -34,7 +34,7 @@ func TestCheckDupTransaction(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	logger.SetLogLevel("*:INFO,process/block:DEBUG,process/sync:DEBUG")
+	require.NoError(t, logger.SetLogLevel("*:INFO,process/block:DEBUG,process/sync:DEBUG"))
 	xidProposerBlock := 0
 
 	numOfNodes := 4
@@ -57,8 +57,8 @@ func TestCheckDupTransaction(t *testing.T) {
 				tx, ok := txMap[string(hash)]
 				if ok {
 					fmt.Println("Transaction found in map", hex.EncodeToString(hash))
-					// send TX to node pool
-					n.SendTransaction(tx)
+					// send TX to node pool (transcation send may fail if duplicated)
+					_, _ = n.SendTransaction(tx)
 				}
 			}
 		}
@@ -156,6 +156,7 @@ func TestCheckDupTransaction(t *testing.T) {
 			assert.Equal(t, finalNonce, header.GetNonce())
 			continue
 		}
+		assert.Equal(t, int64(slot), n.SlotManager.SlotIndex+1, "Node should be at previous slot")
 		// other nodes then proposed should be reverted
 		// current block nonce should be equal to the last block nonce -1
 		assert.Equal(t, finalNonce-1, header.GetNonce())

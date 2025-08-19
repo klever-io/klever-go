@@ -151,11 +151,11 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 				&mock.KappsControllerMock{},
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
-				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{
+				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{
 					CheckPayableCalled: func(vmInput *vmcommon.ContractCallInput, destAddr []byte, minLenArgs int) error {
 						return builtInFunctions.ErrAccountNotPayable
 					},
-				})
+				}))
 
 				return vmInputTransferCreation(transfers, funcGasCost)
 			},
@@ -187,7 +187,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 				},
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
-				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
+				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
 
 				return vmInputTransferCreation(transfers, funcGasCost)
 			},
@@ -220,7 +220,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 				},
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
-				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
+				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
 
 				return vmInputTransferCreation(transfers, funcGasCost)
 			},
@@ -247,7 +247,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 				&mock.KappsControllerMock{},
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
-				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
+				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
 
 				return vmInputTransferCreation(transfers, funcGasCost)
 			},
@@ -283,7 +283,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 				},
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
-				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
+				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
 
 				return vmInputTransferCreation(transfers, funcGasCost)
 			},
@@ -308,7 +308,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 				},
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
-				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
+				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
 
 				return vmInputTransferCreation(transfers, funcGasCost*uint64(len(transfers)))
 			},
@@ -354,7 +354,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 				},
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
-				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
+				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
 
 				return vmInputTransferCreation(transfers, funcGasCost*uint64(len(transfers)-1))
 			},
@@ -401,7 +401,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 				},
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
-				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
+				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
 
 				return vmInputTransferCreation(transfers, funcGasCost*0)
 			},
@@ -430,7 +430,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 				},
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
-				kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{})
+				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
 
 				return vmInputTransferCreation(transfers, funcGasCost)
 			},

@@ -91,7 +91,8 @@ func (txProc *baseTxProcessor) validatePermission(tx *transaction.Transaction, p
 
 	signedBy, signWeight, err := txProc.verifySignatures(tx, permission, signersPub, txHash)
 
-	if signWeight < permission.Threshold {
+	if signWeight < permission.Threshold ||
+		err != nil {
 		return nil, fmt.Errorf("%w: (%d/%d)", common.ErrSignatureThreshold, signWeight, permission.Threshold)
 	}
 

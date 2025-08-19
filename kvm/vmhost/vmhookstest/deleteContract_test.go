@@ -20,7 +20,6 @@ var (
 	accountAddress = make([]byte, 32)
 	_, _           = rand.Read(accountAddress)
 	gasLimit       = uint64(100000)
-	gasRemaining   = uint64(82776)
 	gasConsumedDiv = uint64(2)
 )
 

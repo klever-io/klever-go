@@ -1470,8 +1470,10 @@ func TestUnfreeze(t *testing.T) {
 				PubkeyConv:     commonMock.NewPubkeyConverterMock(4),
 				ForkController: c.forkController,
 			})
-			accsKapp.SetKAppController(c.kappController)
-			accsKapp.SetAccountsCacher(c.accountsCacher)
+			// These setters do not return an error at the moment, but we include require.NoError
+			// to satisfy linting requirements and to make the tests resilient to future changes.
+			require.NoError(t, accsKapp.SetKAppController(c.kappController))
+			require.NoError(t, accsKapp.SetAccountsCacher(c.accountsCacher))
 
 			txResCode, err := accsKapp.Unfreeze(
 				txSender,
@@ -1497,7 +1499,7 @@ func TestUnfreezeKFIFailingOnFinishUpdateProposal(t *testing.T) {
 
 		errGetStaking := errors.New("Error getting staking kapp")
 		getStakingCalled := 0
-		accsKapp.SetKAppController(
+		_ = accsKapp.SetKAppController(
 			&kvmStub.KAppControllerStub{
 				GetKDAKAppCalled: func() kapp.KDAKapp {
 					return &kvmStub.KDAKappStub{
@@ -1568,7 +1570,7 @@ func TestUnfreezeKFIFailingOnFinishUpdateProposal(t *testing.T) {
 				},
 			},
 		)
-		accsKapp.SetAccountsCacher(
+		_ = accsKapp.SetAccountsCacher(
 			&commonMock.AccountsCacherStub{
 				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 					return &commonMock.UserAccountHandlerStub{
@@ -1624,7 +1626,7 @@ func TestUnfreezeKFIFailingOnFinishUpdateProposal(t *testing.T) {
 		})
 
 		errSetingProposal := errors.New("Error setting proposal")
-		accsKapp.SetKAppController(
+		_ = accsKapp.SetKAppController(
 			&kvmStub.KAppControllerStub{
 				GetKDAKAppCalled: func() kapp.KDAKapp {
 					return &kvmStub.KDAKappStub{
@@ -1693,7 +1695,7 @@ func TestUnfreezeKFIFailingOnFinishUpdateProposal(t *testing.T) {
 				},
 			},
 		)
-		accsKapp.SetAccountsCacher(
+		_ = accsKapp.SetAccountsCacher(
 			&commonMock.AccountsCacherStub{
 				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 					return &commonMock.UserAccountHandlerStub{
@@ -1786,7 +1788,7 @@ func TestUnfreezeKFIAndUpdatingProposals(t *testing.T) {
 				},
 			}
 
-			accsKapp.SetKAppController(
+			_ = accsKapp.SetKAppController(
 				&kvmStub.KAppControllerStub{
 					GetKDAKAppCalled: func() kapp.KDAKapp {
 						return &kvmStub.KDAKappStub{
@@ -1839,7 +1841,7 @@ func TestUnfreezeKFIAndUpdatingProposals(t *testing.T) {
 					},
 				},
 			)
-			accsKapp.SetAccountsCacher(
+			_ = accsKapp.SetAccountsCacher(
 				&commonMock.AccountsCacherStub{
 					GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 						return &commonMock.UserAccountHandlerStub{
@@ -1927,7 +1929,7 @@ func TestUnfreezeKFIAndUpdatingProposals(t *testing.T) {
 				},
 			}
 
-			accsKapp.SetKAppController(
+			_ = accsKapp.SetKAppController(
 				&kvmStub.KAppControllerStub{
 					GetKDAKAppCalled: func() kapp.KDAKapp {
 						return &kvmStub.KDAKappStub{
@@ -1980,7 +1982,7 @@ func TestUnfreezeKFIAndUpdatingProposals(t *testing.T) {
 					},
 				},
 			)
-			accsKapp.SetAccountsCacher(
+			_ = accsKapp.SetAccountsCacher(
 				&commonMock.AccountsCacherStub{
 					GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 						return &commonMock.UserAccountHandlerStub{
@@ -2040,8 +2042,6 @@ func TestUnfreezeKFIAndUpdatingProposals(t *testing.T) {
 ///////////////
 
 var inactiveFork = uint32(1)
-
-var activeFork = uint32(0)
 
 var validAddress = hex.EncodeToString(makeAddress("valid"))
 
@@ -2179,7 +2179,7 @@ func Test_GetExistingUserAccount(t *testing.T) {
 			assert := assert.New(t)
 
 			accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
-			accountsKapp.SetAccountsCacher(setupAccCacher(tt.accCacher))
+			require.NoError(t, accountsKapp.SetAccountsCacher(setupAccCacher(tt.accCacher)))
 
 			_, err := accountsKapp.GetExistingUserAccount([]byte{})
 			assert.Equal(tt.expectedErr, err)
@@ -2264,7 +2264,7 @@ func Test_LoadKDA(t *testing.T) {
 			assert := assert.New(t)
 
 			accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
-			accountsKapp.SetKAppController(setupKappController(tt.kappController))
+			require.NoError(t, accountsKapp.SetKAppController(setupKappController(tt.kappController)))
 
 			_, _, _, status, err := accountsKapp.loadKDA(tt.kdaID)
 			assert.Equal(tt.expectedErr, err)

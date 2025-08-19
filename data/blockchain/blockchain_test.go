@@ -9,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/data/blockchain"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewBlockChain_ShouldWork(t *testing.T) {
@@ -126,7 +127,7 @@ func TestBlockChain_GetCurrentBlockRootHash(t *testing.T) {
 			TrieRoot: []byte("root hash"),
 		},
 	}
-	bc.SetCurrentBlockHeader(hdr)
+	require.NoError(t, bc.SetCurrentBlockHeader(hdr))
 
 	assert.Equal(t, []byte("root hash"), bc.GetCurrentBlockRootHash())
 }

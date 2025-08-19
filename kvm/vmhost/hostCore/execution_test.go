@@ -33,7 +33,6 @@ import (
 var addressConverter, _ = pubkeyConverter.NewBech32PubkeyConverter(32)
 var testOwnerAddress, _ = addressConverter.Decode("klv10gq6xsegedacd084vmpr2xus950j3d6lhqjfe8ue2xkmfwtkzavqnqhz99")
 var testToAddress, _ = addressConverter.Decode("klv15zssmvht00ugvge5le9n885kahc5ykxzvmxx6xwz5ya2an562yyssfa0c5")
-var invalidAddress, _ = addressConverter.Decode("klv1invalidaddress")
 
 var marshalizer = marshal.NewProtoMarshalizer()
 
@@ -59,7 +58,7 @@ func createAccountsDB(
 	return adb
 }
 
-func loadUsersAccounts(kappDB state.AccountsAdapter, accCacher state.AccountsCacher) {
+func loadUsersAccounts(t *testing.T, kappDB state.AccountsAdapter, accCacher state.AccountsCacher) {
 	ownerAcc, _ := accCacher.LoadUser(testOwnerAddress)
 	_ = ownerAcc.AddToBalance(100_000_000, nil, true)
 
@@ -67,7 +66,7 @@ func loadUsersAccounts(kappDB state.AccountsAdapter, accCacher state.AccountsCac
 	_ = toAcc.AddToBalance(100_000_000, nil, true)
 
 	kdaKapp, _ := accCacher.LoadKApp(kapps.KDAKAppAddress)
-	kappDB.SaveAccount(kdaKapp)
+	require.NoError(t, kappDB.SaveAccount(kdaKapp))
 
 	klvKey := kdautils.ToKDAKey(kdautils.KLVIdentifier, nil)
 	klv := kapps.KDAData{
@@ -98,7 +97,7 @@ func loadUsersAccounts(kappDB state.AccountsAdapter, accCacher state.AccountsCac
 	_ = kdaKapp.DataTrieTracker().SaveKeyValue(klvKey, klvData)
 }
 
-func createFullArgumentsForKAppsProcessingMemory() state.AccountsCacher {
+func createFullArgumentsForKAppsProcessingMemory(t *testing.T) state.AccountsCacher {
 	hasher := &sha256.Sha256{}
 	trieFactoryManagerAcc, _ := trie.NewTrieStorageManagerWithoutPruning(createMemUnit())
 	trieFactoryManagerKApp, _ := trie.NewTrieStorageManagerWithoutPruning(createMemUnit())
@@ -117,7 +116,7 @@ func createFullArgumentsForKAppsProcessingMemory() state.AccountsCacher {
 	)
 	accCacher.ResetAll(true)
 
-	loadUsersAccounts(kappAccountsDB, accCacher)
+	loadUsersAccounts(t, kappAccountsDB, accCacher)
 
 	return accCacher
 }
@@ -125,7 +124,7 @@ func createFullArgumentsForKAppsProcessingMemory() state.AccountsCacher {
 func TestExecuteKDATransfer(t *testing.T) {
 	hostParams := makeHostParameters()
 
-	accCacher := createFullArgumentsForKAppsProcessingMemory()
+	accCacher := createFullArgumentsForKAppsProcessingMemory(t)
 
 	mockWorld := worldmock.NewMockWorld()
 	mockWorld.AccountsCacher = accCacher
@@ -137,7 +136,7 @@ func TestExecuteKDATransfer(t *testing.T) {
 	err = accCacher.SaveAll()
 	require.NoError(t, err)
 
-	mockWorld.InitBuiltinFunctions(hostParams.GasSchedule, hostParams.ForkController)
+	require.NoError(t, mockWorld.InitBuiltinFunctions(hostParams.GasSchedule, hostParams.ForkController))
 
 	vmHost, err := hostCore.NewVMHost(mockWorld, hostParams)
 	require.NoError(t, err)
@@ -188,7 +187,7 @@ func TestExecuteKDATransfer(t *testing.T) {
 
 func TestExecution_DeleteContract(t *testing.T) {
 	hostParams := makeHostParameters()
-	accCacher := createFullArgumentsForKAppsProcessingMemory()
+	accCacher := createFullArgumentsForKAppsProcessingMemory(t)
 	mockWorld := worldmock.NewMockWorld()
 	mockWorld.AccountsCacher = accCacher
 
@@ -197,7 +196,7 @@ func TestExecution_DeleteContract(t *testing.T) {
 	err = accCacher.SaveAll()
 	require.NoError(t, err)
 
-	mockWorld.InitBuiltinFunctions(hostParams.GasSchedule, hostParams.ForkController)
+	require.NoError(t, mockWorld.InitBuiltinFunctions(hostParams.GasSchedule, hostParams.ForkController))
 
 	vmHost, err := hostCore.NewVMHost(mockWorld, hostParams)
 	require.NoError(t, err)
@@ -289,7 +288,7 @@ func TestExecution_DeleteContract(t *testing.T) {
 
 func TestExecution_CreateContract(t *testing.T) {
 	hostParams := makeHostParameters()
-	accCacher := createFullArgumentsForKAppsProcessingMemory()
+	accCacher := createFullArgumentsForKAppsProcessingMemory(t)
 	mockWorld := worldmock.NewMockWorld()
 	mockWorld.AccountsCacher = accCacher
 
@@ -298,7 +297,7 @@ func TestExecution_CreateContract(t *testing.T) {
 	err = accCacher.SaveAll()
 	require.NoError(t, err)
 
-	mockWorld.InitBuiltinFunctions(hostParams.GasSchedule, hostParams.ForkController)
+	require.NoError(t, mockWorld.InitBuiltinFunctions(hostParams.GasSchedule, hostParams.ForkController))
 
 	vmHost, err := hostCore.NewVMHost(mockWorld, hostParams)
 	require.NoError(t, err)
@@ -380,7 +379,7 @@ func TestExecution_CreateContract(t *testing.T) {
 
 func TestExecuteKDATransfer_SCValidations(t *testing.T) {
 	hostParams := makeHostParameters()
-	accCacher := createFullArgumentsForKAppsProcessingMemory()
+	accCacher := createFullArgumentsForKAppsProcessingMemory(t)
 	mockWorld := worldmock.NewMockWorld()
 	mockWorld.AccountsCacher = accCacher
 
@@ -389,7 +388,7 @@ func TestExecuteKDATransfer_SCValidations(t *testing.T) {
 	err = accCacher.SaveAll()
 	require.NoError(t, err)
 
-	mockWorld.InitBuiltinFunctions(hostParams.GasSchedule, hostParams.ForkController)
+	require.NoError(t, mockWorld.InitBuiltinFunctions(hostParams.GasSchedule, hostParams.ForkController))
 
 	vmHost, err := hostCore.NewVMHost(mockWorld, hostParams)
 	require.NoError(t, err)
