@@ -1,15 +1,19 @@
 package slot
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/consensus"
 	"github.com/klever-io/klever-go/statusHandler"
 	"github.com/klever-io/klever-go/tools/check"
+	"github.com/klever-io/klever-go/tools/tracing"
 )
 
 var _ consensus.SubslotHandler = (*Subslot)(nil)
+
+const lastSubslotID = -1
 
 // Subslot struct contains the needed data for one Subslot and the Subslot properties. It defines a Subslot
 // with it's properties (it's ID, next Subslot ID, it's duration, it's name) and also it has some handler functions
@@ -119,6 +123,21 @@ func (sr *Subslot) DoWork(slotManager consensus.SlotManager) bool {
 	if sr.Job == nil || sr.Check == nil {
 		return false
 	}
+
+	// Stop slot-level tracing when the last subslot (END_SLOT) completes
+	// The last subslot is identified by having no next subslot (next == -1)
+	if sr.next == lastSubslotID {
+		defer func() {
+			tracing.StopSpan("consensus.slot." + strconv.FormatInt(slotManager.Index(), 10))
+		}()
+	}
+
+	// Start subslot tracing
+	defer tracing.StartSpan(
+		"consensus.subslot."+sr.name,
+		"subslot.name", sr.name,
+		"slot.index", strconv.FormatInt(slotManager.Index(), 10),
+	)()
 
 	// execute stored messages which were received in this new slot but before this initialization
 	go sr.executeStoredMessages()

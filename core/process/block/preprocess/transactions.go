@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
+	"github.com/klever-io/klever-go/tools/tracing"
 )
 
 var _ process.DataMarshalizer = (*transactions)(nil)
@@ -536,6 +538,12 @@ func (txs *transactions) ProcessBlockTransactions(
 		return result, process.ErrTimeIsOut
 	}
 
+	defer tracing.StartSpan(
+		"process.block.preprocess.processBlockTxs",
+		"block.nonce", strconv.FormatUint(blk.GetNonce(), 10),
+		"num.txs", strconv.Itoa(len(blk.TxHashes)),
+	)()
+
 	blockTxs, blockTxHashes, err := txs.getAllTxsFromBlock(blk)
 	if err != nil {
 		return result, err
@@ -619,6 +627,12 @@ func (txs *transactions) CreateAndProcessBlockTransactions(blk *block.Block, hav
 		"num txs", len(selectedTXs),
 		"time [s]", elapsedTime,
 	)
+
+	defer tracing.StartSpan(
+		"process.block.preprocess.createAndProcessBlock",
+		"block.nonce", strconv.FormatUint(blk.GetNonce(), 10),
+		"num.txs", strconv.Itoa(len(selectedTXs)),
+	)()
 
 	startTime = time.Now()
 	processResults, err := txs.createAndProcessBlock(

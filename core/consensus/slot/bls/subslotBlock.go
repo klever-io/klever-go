@@ -1,6 +1,7 @@
 package bls
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/klever-io/klever-go/common"
@@ -11,6 +12,7 @@ import (
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
+	"github.com/klever-io/klever-go/tools/tracing"
 )
 
 // subslotBlock defines the data needed by the subslot Block
@@ -79,6 +81,13 @@ func (sr *subslotBlock) doBlockJob() bool {
 
 	metricStatTime := time.Now()
 	defer sr.computeSubslotProcessingMetric(metricStatTime, core.MetricCreatedProposedBlock)
+
+	// Add context tags
+	defer tracing.StartSpan(
+		"consensus.block.createAndSend",
+		"slot.index", strconv.FormatInt(sr.SlotManager().Index(), 10),
+		"node.role", "leader",
+	)()
 
 	header, err := sr.createHeader()
 	if err != nil {

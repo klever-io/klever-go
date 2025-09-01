@@ -3,6 +3,7 @@ package chronology
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/display"
+	"github.com/klever-io/klever-go/tools/tracing"
 )
 
 var _ consensus.ChronologyHandler = (*chronology)(nil)
@@ -194,6 +196,15 @@ func (chr *chronology) updateSlot() {
 		msg := fmt.Sprintf("SLOT %d BEGINS (%d)", chr.slotManager.Index(), chr.slotManager.Timestamp().Unix())
 		log.Info(display.Headline(msg, chr.syncTimer.FormattedCurrentTime(), "#"))
 		logger.SetCorrelationSlot(chr.slotManager.Index())
+
+		if chr.slotManager.Index() > 0 {
+			// Start slot-level tracing for the new slot
+			_ = tracing.StartSpan(
+				"consensus.slot."+strconv.FormatInt(chr.slotManager.Index(), 10),
+				"slot.index", strconv.FormatInt(chr.slotManager.Index(), 10),
+				"slot.timestamp", strconv.FormatInt(chr.slotManager.Timestamp().Unix(), 10),
+			)
+		}
 
 		chr.initSlot()
 	}

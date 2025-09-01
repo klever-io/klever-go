@@ -57,6 +57,7 @@ import (
 	"github.com/klever-io/klever-go/tools/logging"
 	"github.com/klever-io/klever-go/tools/marshal"
 	factoryMarshalizer "github.com/klever-io/klever-go/tools/marshal/factory"
+	"github.com/klever-io/klever-go/tools/tracing"
 	"github.com/klever-io/klever-go/tools/typeConverters/uint64ByteSlice"
 	"github.com/urfave/cli"
 )
@@ -1007,6 +1008,8 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 	go func() {
 		closeAllComponents(log, healthService, dataComponents, triesComponents, networkComponents, chanCloseComponents)
 	}()
+
+	_ = tracing.Shutdown() // errors logged internally
 
 	select {
 	case <-chanCloseComponents:

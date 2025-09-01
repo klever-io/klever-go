@@ -12,6 +12,7 @@ import (
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common/facade"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/tools/tracing"
 	"github.com/urfave/cli"
 )
 
@@ -398,6 +399,9 @@ func main() {
 	app.Action = func(c *cli.Context) error {
 		return startNode(c, log, app.Version)
 	}
+
+	// will check environment variables and initialize the tracing system if configured
+	tracing.MustInitialize()
 
 	err = app.Run(os.Args)
 	if err != nil {
