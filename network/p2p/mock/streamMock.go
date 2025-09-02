@@ -160,3 +160,14 @@ func (sm *streamMock) CloseRead() error {
 func (sm *streamMock) Scope() network.StreamScope {
 	return nil
 }
+
+// ResetWithError -
+func (sm *streamMock) ResetWithError(errCode network.StreamErrorCode) error {
+	sm.mutData.Lock()
+	defer sm.mutData.Unlock()
+
+	sm.buffStream.Reset()
+	sm.canRead = false
+	sm.streamClosed = true
+	return nil
+}

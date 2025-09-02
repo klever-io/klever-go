@@ -132,7 +132,12 @@ func (ns *NetworkStub) Process() goprocess.Process {
 	return nil
 }
 
-// Process -
+// ResourceManager -
 func (ns *NetworkStub) ResourceManager() network.ResourceManager {
 	return nil
+}
+
+// CanDial -
+func (ns *NetworkStub) CanDial(p peer.ID, addr multiaddr.Multiaddr) bool {
+	return true
 }

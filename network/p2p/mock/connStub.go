@@ -99,3 +99,11 @@ func (cs *ConnStub) IsClosed() bool {
 func (cs *ConnStub) Scope() network.ConnScope {
 	return cs.ConnScopeCalled()
 }
+
+// CloseWithError -
+func (cs *ConnStub) CloseWithError(errCode network.ConnErrorCode) error {
+	if cs.CloseCalled != nil {
+		return cs.CloseCalled()
+	}
+	return nil
+}
