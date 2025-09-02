@@ -13,7 +13,8 @@ import (
 type subslotSignature struct {
 	*slot.Subslot
 
-	appStatusHandler core.AppStatusHandler
+	appStatusHandler      core.AppStatusHandler
+	signatureCompleteChan chan struct{}
 }
 
 // NewSubslotSignature creates a subslotSignature object
@@ -29,8 +30,9 @@ func NewSubslotSignature(
 	}
 
 	srSignature := subslotSignature{
-		Subslot:          baseSubslot,
-		appStatusHandler: statusHandler.NewNilStatusHandler(),
+		Subslot:               baseSubslot,
+		appStatusHandler:      statusHandler.NewNilStatusHandler(),
+		signatureCompleteChan: make(chan struct{}, 1),
 	}
 	srSignature.Job = srSignature.doSignatureJob
 	srSignature.Check = srSignature.doSignatureConsensusCheck
@@ -117,6 +119,7 @@ func (sr *subslotSignature) doSignatureJob() bool {
 	}
 
 	if isSelfLeader {
+		sr.resetSignatureCompleteChan()
 		go sr.waitAllSignatures()
 	}
 
@@ -236,6 +239,13 @@ func (sr *subslotSignature) doSignatureConsensusCheck() bool {
 			log.Debug("step 2: signatures",
 				"received", numSigs,
 				"total", len(sr.ConsensusGroup()))
+
+			// Trigger completion channel when all signatures are collected
+			select {
+			case sr.signatureCompleteChan <- struct{}{}:
+			default:
+				// Channel already notified or buffer full
+			}
 		}
 
 		log.Debug("step 2: subslot has been finished",
@@ -283,17 +293,25 @@ func (sr *subslotSignature) getNumOfSignaturesCollected() int {
 
 func (sr *subslotSignature) waitAllSignatures() {
 	remainingTime := sr.remainingTime()
-	time.Sleep(remainingTime)
-
-	if sr.IsSubslotFinished(sr.Current()) {
-		return
-	}
-
-	sr.WaitingAllSignaturesTimeOut = true
+	timeout := time.NewTimer(remainingTime)
+	defer timeout.Stop()
 
 	select {
-	case sr.ConsensusChannel() <- true:
-	default:
+	case <-sr.signatureCompleteChan:
+		// All signatures collected (100%), exit immediately
+		return
+	case <-timeout.C:
+		// Timeout reached, check if subslot is already finished by threshold signatures
+		if sr.IsSubslotFinished(sr.Current()) {
+			return
+		}
+
+		sr.WaitingAllSignaturesTimeOut = true
+		select {
+		case sr.ConsensusChannel() <- true:
+		default:
+		}
+		return
 	}
 }
 
@@ -303,4 +321,14 @@ func (sr *subslotSignature) remainingTime() time.Duration {
 	remainigTime := sr.SlotManager().RemainingTime(startTime, maxTime)
 
 	return remainigTime
+}
+
+// resetSignatureCompleteChan drains and resets the signature completion channel
+func (sr *subslotSignature) resetSignatureCompleteChan() {
+	select {
+	case <-sr.signatureCompleteChan:
+		// Drain the channel if it has a value
+	default:
+		// Channel is already empty
+	}
 }

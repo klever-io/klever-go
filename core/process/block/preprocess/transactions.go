@@ -319,7 +319,19 @@ func (txs *transactions) ComputeSortedTxs(
 	selectedTXs := txCache.SelectTransactions(process.MaxNumOfTxsToSelect, process.NumTxPerBatchForFillingBlock, core.MaxGasBandwidthPerBatchPerSender)
 	// pre-filter transactions prioritizing the move balance operations
 	// reaming transactions are not used in this step
-	selectedTxs, _ := txs.preFilterTransactionsWithPriority(selectedTXs, gasBandwidth)
+	selectedTxs, skipped := txs.preFilterTransactionsWithPriority(selectedTXs, gasBandwidth)
+	log.Trace("transactions.ComputeSortedTxs:",
+		"maxNumOfTxsToSelect", process.MaxNumOfTxsToSelect,
+		"numTxPerBatchForFillingBlock", process.NumTxPerBatchForFillingBlock,
+		"batchSize", core.MaxGasBandwidthPerBatchPerSender,
+		"cacheSize", txCache.CountTx(),
+		"cacheSelected", txCache.CountSenders(),
+		"gasBandwidth", gasBandwidth,
+		"bandwidthPerBatchPerSender", core.MaxGasBandwidthPerBatchPerSender,
+
+		"selectedCount", len(selectedTxs),
+		"skippedCount", len(skipped),
+	)
 	txs.sortTransactionsBySenderAndNonce(selectedTxs, randomness)
 
 	return selectedTxs, nil
@@ -609,8 +621,9 @@ func (txs *transactions) CreateAndProcessBlockTransactions(blk *block.Block, hav
 	elapsedTime := time.Since(startTime)
 
 	if len(selectedTXs) == 0 {
-		log.Trace("no transaction found after computeSortedTxs",
+		log.Trace("CreateAndProcessBlockTransactions: No transactions selected",
 			"time [s]", elapsedTime,
+			"gasBandwidth", gasBandwidth,
 		)
 		return result, nil
 	}
@@ -668,10 +681,6 @@ func (txs *transactions) createAndProcessBlock(
 	txsSize := int64(0)
 
 	senderAddressToSkip := []byte("")
-
-	defer func() {
-		go txs.notifyTransactionProviderIfNeeded()
-	}()
 
 	for index := range sortedTxs {
 		if !haveTime() {
@@ -745,6 +754,8 @@ func (txs *transactions) createAndProcessBlock(
 	}
 
 	log.Debug("createAndProcessBlock has been finished",
+		"blockNonce", blk.GetNonce(),
+		"slot", blk.GetSlot(),
 		"total txs", len(sortedTxs),
 		"num txs added", len(txHashes),
 		"num txs bad", numTxsBad,
@@ -819,39 +830,4 @@ func (txs *transactions) processAndRemoveBadTransaction(
 	txs.txsForCurrBlock.mutTxsForBlock.Unlock()
 
 	return err
-}
-
-func (txs *transactions) notifyTransactionProviderIfNeeded() {
-	txs.mutAccountsInfo.RLock()
-	defer txs.mutAccountsInfo.RUnlock()
-
-	txShardPool := txs.txPool.ShardDataStore("0")
-	if check.IfNil(txShardPool) {
-		log.Error("notifyTransactionProviderIfNeeded txShardPool", "error", common.ErrNilTxDataPool)
-		return
-	}
-	sortedTransactionsProvider, ok := txShardPool.(TxCache)
-	if !ok {
-		log.Error("notifyTransactionProviderIfNeeded sortedTransactionsProvider", "error", common.ErrWrongTypeAssertion)
-	}
-
-	for senderAddress := range txs.accountsInfo {
-
-		account, err := txs.getAccountForAddress([]byte(senderAddress))
-		if err != nil {
-			log.Debug("notifyTransactionProviderIfNeeded.getAccountForAddress", "error", err)
-			continue
-		}
-
-		sortedTransactionsProvider.NotifyAccountNonce([]byte(senderAddress), account.GetNonce())
-	}
-}
-
-func (txs *transactions) getAccountForAddress(address []byte) (state.AccountHandler, error) {
-	account, err := txs.accounts.GetExistingAccount(address)
-	if err != nil {
-		return nil, err
-	}
-
-	return account, nil
 }

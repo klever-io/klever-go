@@ -151,6 +151,22 @@ func (qfp *quotaFloodPreventer) increaseLoad(pid core.PeerID, size uint64) error
 	maxSizeMessagesReached := qfp.isMaximumReached(qfp.maxTotalSizePerPeer, q.sizeReceivedMessages)
 	isPeerQuotaReached := maxNumMessagesReached || maxSizeMessagesReached
 	if isPeerQuotaReached {
+		effectiveMaxMessages := uint64(100-qfp.percentReserved) * uint64(qfp.computedMaxNumMessagesPerPeer) / 100
+		effectiveMaxSize := uint64(100-qfp.percentReserved) * qfp.maxTotalSizePerPeer / 100
+
+		log.Debug("QuotaFloodPreventer: Quota exceeded, dropping message",
+			"name", qfp.name,
+			"peer", pid.Pretty(),
+			"numMessages", q.numReceivedMessages,
+			"maxNumMessages", qfp.computedMaxNumMessagesPerPeer,
+			"sizeMessages", q.sizeReceivedMessages,
+			"maxSize", qfp.maxTotalSizePerPeer,
+			"maxNumReached", maxNumMessagesReached,
+			"maxSizeReached", maxSizeMessagesReached,
+			"effectiveMaxMessages", effectiveMaxMessages,
+			"maxNumMessagesReached", maxNumMessagesReached,
+			"effectiveMaxSize", effectiveMaxSize,
+		)
 		return fmt.Errorf("%w for pid %s", common.ErrSystemBusy, pid.Pretty())
 	}
 
@@ -257,7 +273,7 @@ func (qfp *quotaFloodPreventer) ApplyConsensusSize(size int) {
 	oldComputed := qfp.computedMaxNumMessagesPerPeer
 	qfp.computedMaxNumMessagesPerPeer = qfp.baseMaxNumMessagesPerPeer + uint32(value)
 
-	log.Debug("quotaFloodPreventer.ApplyConsensusSize",
+	log.Debug("quotaFloodPreventer.ApplyConsensusSize: Changing message limits",
 		"name", qfp.name,
 		"provided", size,
 		"threshold", qfp.increaseThreshold,

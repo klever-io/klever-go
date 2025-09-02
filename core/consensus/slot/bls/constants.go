@@ -50,10 +50,10 @@ const srStartEndTime = 0.05
 const srBlockStartTime = 0.05
 
 // srBlockEndTime specifies the end time, from the total time of the slot, of Subslot Block
-const srBlockEndTime = 0.20
+const srBlockEndTime = 0.3
 
 // srSignatureStartTime specifies the start time, from the total time of the slot, of Subslot Signature
-const srSignatureStartTime = 0.20
+const srSignatureStartTime = 0.3
 
 // srSignatureEndTime specifies the end time, from the total time of the slot, of Subslot Signature
 const srSignatureEndTime = 0.80

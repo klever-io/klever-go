@@ -51,7 +51,6 @@ type BuiltInCost struct {
 	UpdateAccountPermission uint64 `yaml:"UpdateAccountPermission"`
 	Deposit                 uint64 `yaml:"Deposit"`
 	ITOTrigger              uint64 `yaml:"ITOTrigger"`
-	SaveKeyValue            uint64 `yaml:"SaveKeyValue"`
 	ChangeOwnerAddress      uint64 `yaml:"ChangeOwnerAddress"`
 }
 

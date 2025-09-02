@@ -64,7 +64,11 @@ func saveMetricsForCommitBlock(
 		epoch = epoch - 1
 	}
 
-	pubKeys, err := nodesCoordinator.GetAllElectedValidatorsKeys(epoch, false)
+	pubKeys, err := nodesCoordinator.GetConsensusValidatorsPublicKeys(
+		header.GetPrevRandSeed(),
+		header.GetSlot(),
+		epoch,
+	)
 	if err != nil {
 		log.Debug("cannot get validators public keys", "error", err.Error())
 	}
@@ -73,7 +77,7 @@ func saveMetricsForCommitBlock(
 }
 
 func countAcceptedSignedBlocks(
-	publicKeys [][]byte,
+	publicKeys []string,
 	ownPublicKey []byte,
 	appStatusHandler core.AppStatusHandler,
 ) {

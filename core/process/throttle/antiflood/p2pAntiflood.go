@@ -149,10 +149,12 @@ func (af *p2pAntiflood) canProcessMessage(fp process.FloodPreventer, message p2p
 	//protect from directly connected peer
 	err := fp.IncreaseLoad(fromConnectedPeer, uint64(len(message.Data())))
 	if err != nil {
-		log.Trace("floodPreventer.IncreaseLoad connected peer",
+		log.Trace("floodPreventer.IncreaseLoad connected peer REJECTED",
 			"error", err,
 			"pid", p2p.PeerIDToShortString(fromConnectedPeer),
+			"topic", message.Topic(),
 			"message payload bytes", uint64(len(message.Data())),
+			"floodPreventerType", fmt.Sprintf("%T", fp),
 		)
 		return fmt.Errorf("%w in p2pAntiflood for connected peer %s",
 			err,
@@ -164,10 +166,12 @@ func (af *p2pAntiflood) canProcessMessage(fp process.FloodPreventer, message p2p
 		//protect from the flooding messages that originate from the same source but come from different peers
 		err = fp.IncreaseLoad(message.Peer(), uint64(len(message.Data())))
 		if err != nil {
-			log.Trace("floodPreventer.IncreaseLoad originator",
+			log.Trace("floodPreventer.IncreaseLoad originator REJECTED",
 				"error", err,
 				"pid", p2p.MessageOriginatorPid(message),
+				"topic", message.Topic(),
 				"message payload bytes", uint64(len(message.Data())),
+				"floodPreventerType", fmt.Sprintf("%T", fp),
 			)
 			return fmt.Errorf("%w in p2pAntiflood for originator %s",
 				err,
@@ -183,10 +187,12 @@ func (af *p2pAntiflood) canProcessMessage(fp process.FloodPreventer, message p2p
 func (af *p2pAntiflood) CanProcessMessagesOnTopic(peer core.PeerID, topic string, numMessages uint32, totalSize uint64, sequence []byte) error {
 	err := af.topicPreventer.IncreaseLoad(peer, topic, numMessages)
 	if err != nil {
-		log.Trace("topicFloodPreventer.Accumulate peer",
+		log.Trace("topicFloodPreventer.Accumulate peer REJECTED messages on topic",
 			"error", err,
 			"pid", p2p.PeerIDToShortString(peer),
 			"topic", topic,
+			"numMessages", numMessages,
+			"totalSize", totalSize,
 		)
 
 		af.recordDebugEvent(peer, topic, numMessages, totalSize, sequence, af.blacklistHandler.Has(peer))
@@ -236,17 +242,17 @@ func (af *p2pAntiflood) BlacklistPeer(peer core.PeerID, reason string, duration 
 
 	err := af.blacklistHandler.Upsert(peer, duration)
 	if err != nil {
-		log.Warn("error adding in blacklist",
+		log.Warn("floodPreventer error adding in blacklist",
 			"pid", peer.Pretty(),
 			"time", duration,
 			"reason", reason,
-			"error", "err",
+			"error", err,
 		)
 		return
 	}
 
 	if !peerIsBlacklisted {
-		log.Debug("blacklisted peer",
+		log.Debug("floodPreventer blacklisted peer",
 			"pid", peer.Pretty(),
 			"time", duration,
 			"reason", reason,

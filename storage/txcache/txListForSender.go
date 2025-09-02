@@ -372,6 +372,13 @@ func (listForSender *txListForSender) hasInitialGap() bool {
 	firstTxNonce := firstTx.Tx.GetNonce()
 	accountNonce := listForSender.accountNonce.Get()
 	hasGap := firstTxNonce > accountNonce
+	if hasGap {
+		log.Trace("TxCache.listForSender: Nonce gap detected for sender",
+			"sender", listForSender.sender,
+			"firstTxNonce", firstTxNonce,
+			"accountNonce", accountNonce,
+		)
+	}
 	return hasGap
 }
 

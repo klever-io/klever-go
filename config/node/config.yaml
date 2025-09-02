@@ -10,7 +10,7 @@ p2p:
     refreshIntervalInSec: 10
     protocolID: /klv/kad/0.0.1
     initialPeerList:
-      - /ip4/127.0.0.1/tcp/37373/p2p/16Uiu2HAkw5SNNtSvH1zJiQ6Gc3WoGNSxiyNueRKe6fuAuh57G3Bk
+      - /ip4/127.0.0.1/tcp/37373/p2p/16Uiu2HAmLnwsbHvKiBrxKF1d4Zr1KCqfQ115C4FmarTuvsVWubAz
     bucketSize: 100
     routingTableRefreshIntervalInSec: 300
   sharding:
@@ -118,7 +118,7 @@ antiflood:
     reservedPercent: 20.0
     peerMaxInput:
       baseMessagesPerInterval: 6000
-      totalSizePerInterval: 18874368 # 18MB/interval
+      totalSizePerInterval: 33554432 # 32MB/interval
       increaseFactor:
         threshold: 10 #if consensus size will exceed this value, then
         factor: 0.0 #increase the base value with [factor*consensus size]
@@ -153,7 +153,7 @@ antiflood:
     type: LRU
 
   topic:
-    defaultMaxMessagesPerSec: 15000
+    defaultMaxMessagesPerSec: 35000
     maxMessages:
       - topic: heartbeat
         numMessagesPerSec: 70
@@ -163,10 +163,10 @@ antiflood:
   webServer:
     # SimultaneousRequests represents the number of concurrent requests accepted by the web server
     # this is a global throttler that acts on all http connections regardless of the originating source
-    simultaneousRequests: 100
+    simultaneousRequests: 10000
     # SameSourceRequests defines how many requests are allowed from the same source in the specified
     # time frame (SameSourceResetIntervalInSec)
-    sameSourceRequests: 10000
+    sameSourceRequests: 100000
     # SameSourceResetIntervalInSec time frame between counter reset, in seconds
     sameSourceResetIntervalInSec: 1
     # EndpointsThrottlers represents a map for maximum simultaneous go routines for an endpoint
@@ -191,10 +191,6 @@ heartbeat:
   heartbeatRefreshIntervalInSec: 60
   hideInactiveValidatorIntervalInSec: 3600
   durationToConsiderUnresponsiveInSec: 60
-
-softwareVersion:
-  stableTagLocation: https://api.github.com/repos/klever-io/klever-go/releases/latest
-  pollingIntervalInMinutes: 65
 
 # DB CONFIGs
 evictionWaitingList:

@@ -137,14 +137,15 @@ func (txMap *txListBySenderMap) removeTxLowerNonce(sender []byte, nonce uint64) 
 		removed = append(removed, tx.TxHash)
 		lastRemovedNonce = tx.Tx.GetNonce()
 	}
-
-	log.Trace("removeTxLowerNonce",
-		"sender", []byte(senderKey),
-		"nonceToRemove", nonce,
-		"lastRemovedNonce", lastRemovedNonce,
-		"removed", len(removed),
-		"sendLen", listForSender.items.Len(),
-	)
+	if len(removed) > 0 {
+		log.Trace("TxCache.txMap: removeTxLowerNonce",
+			"sender", []byte(senderKey),
+			"nonceToRemove", nonce,
+			"lastRemovedNonce", lastRemovedNonce,
+			"removed", len(removed),
+			"sendLen", listForSender.items.Len(),
+		)
+	}
 
 	listForSender.triggerScoreChange()
 	isEmpty := listForSender.IsEmpty()

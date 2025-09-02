@@ -108,11 +108,34 @@ func (cache *TxCache) SelectTransactions(numRequested int, batchSizePerSender in
 func (cache *TxCache) doSelectTransactions(numRequested int, batchSizePerSender int, bandwidthPerSender uint64) []*WrappedTransaction {
 	stopWatch := cache.monitorSelectionStart()
 
+	// Log selection start with more details
+	log.Debug("TxCache.doSelectTransactions: Starting transaction selection",
+		"cache", cache.name,
+		"numRequested", numRequested,
+		"batchSizePerSender", batchSizePerSender,
+		"bandwidthPerSender", bandwidthPerSender,
+		"totalTxs", cache.CountTx(),
+		"totalSenders", cache.CountSenders(),
+		"totalBytes", cache.NumBytes(),
+		"sendersWithInitialGap", cache.numSendersWithInitialGap.GetUint64(),
+		"sendersWithMiddleGap", cache.numSendersWithMiddleGap.GetUint64(),
+		"sendersInGracePeriod", cache.numSendersInGracePeriod.GetUint64(),
+	)
+
 	result := make([]*WrappedTransaction, numRequested)
 	resultFillIndex := 0
 	resultIsFull := false
 
 	snapshotOfSenders := cache.getSendersEligibleForSelection()
+
+	// Log details about each sender's status
+	if len(snapshotOfSenders) == 0 {
+		log.Debug("TxCache.doSelectTransactions: No eligible senders found",
+			"cache", cache.name,
+			"totalSenders", cache.CountSenders(),
+			"totalTxs", cache.CountTx(),
+		)
+	}
 
 	for pass := 0; !resultIsFull; pass++ {
 		copiedInThisPass := 0
@@ -191,7 +214,12 @@ func (cache *TxCache) RemoveTxBySenderNonce(sender []byte, nonce uint64) int {
 	removed := cache.txListBySender.removeTxLowerNonce(sender, nonce)
 	if len(removed) > 0 {
 		cache.txByHash.RemoveTxsBulk(removed)
-		log.Debug("RemoveTxBySenderNonce", "evicted", len(removed))
+		log.Debug("TxCache.RemoveTxBySenderNonce: Removed transactions",
+			"cache", cache.name,
+			"sender", sender,
+			"removedCount", len(removed),
+			"maxNonce", nonce,
+		)
 	}
 
 	return len(removed)
@@ -263,10 +291,26 @@ func (cache *TxCache) ForEachTransaction(function ForEachTransaction) {
 
 // Clear clears the cache
 func (cache *TxCache) Clear() {
+	// Log cache statistics before clearing
+	txCount := cache.CountTx()
+	senderCount := cache.CountSenders()
+	bytesCount := cache.NumBytes()
+
+	log.Debug("TxCache.Clear: Clearing transaction cache",
+		"cache", cache.name,
+		"txCount", txCount,
+		"senderCount", senderCount,
+		"bytesCount", bytesCount,
+	)
+
 	cache.mutTxOperation.Lock()
 	cache.txListBySender.clear()
 	cache.txByHash.clear()
 	cache.mutTxOperation.Unlock()
+
+	log.Debug("TxCache.Clear: Cache cleared successfully",
+		"cache", cache.name,
+	)
 }
 
 // Put is not implemented

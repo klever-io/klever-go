@@ -256,7 +256,6 @@ func FillGasMapBuiltInCosts(value uint64) map[string]uint64 {
 	gasMap["UpdateAccountPermission"] = value
 	gasMap["Deposit"] = value
 	gasMap["ITOTrigger"] = value
-	gasMap["SaveKeyValue"] = value
 	gasMap["ChangeOwnerAddress"] = value
 
 	return gasMap

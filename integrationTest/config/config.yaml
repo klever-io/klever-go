@@ -187,10 +187,6 @@ heartbeat:
   hideInactiveValidatorIntervalInSec: 3600
   durationToConsiderUnresponsiveInSec: 60
 
-softwareVersion:
-  stableTagLocation: https://api.github.com/repos/klever-io/klever-go/releases/latest
-  pollingIntervalInMinutes: 65
-
 # DB CONFIGs
 evictionWaitingList:
   size: 10000

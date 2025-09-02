@@ -1,0 +1,39 @@
+p2p:
+  node:
+    port: 37373-37373
+    seed: seed
+    maximumExpectedPeerCount: 0
+    thresholdMinConnectedPeers: 0
+  kadDhtPeerDiscovery:
+    enabled: true
+    refreshIntervalInSec: 10
+    protocolID: /klv/kad/0.0.1
+    initialPeerList:
+    bucketSize: 100
+    routingTableRefreshIntervalInSec: 300
+  sharding:
+    targetPeerCount: 0
+    maxIntraShardValidators: 0
+    maxCrossShardValidators: 0
+    maxIntraShardObservers: 0
+    maxCrossShardObservers: 0
+    #available options:
+    #  `ListsSharder` will split the peers based on the shard membership (intra, cross or unknown)
+    #  `OneListSharder` will do just the connection triming (upto TargetPeerCount value) not taking into account
+    #              the shard membership of the connected peers
+    #  `NilListSharder` will disable connection trimming (sharder is off)
+    type: NilListSharder
+
+logs:
+  logFileLifeSpanInSec: 86400
+  logFileSizeSpanInSec: 60
+  maxFileSize: 104857600
+  maxBackups: 10
+
+# The main marshalizer, used in internodes communication
+# Type identifies the marshalizer
+# SizeCheckDelta the maximum allow drift between the input data buffer and
+#     the reencoded version (in percents).
+#     0 disables the feature.
+marshalizer:
+  type: protobuf
