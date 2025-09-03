@@ -1,12 +1,19 @@
 package txcache
 
 import (
+	"math"
+	"runtime/debug"
 	"sync"
+	"time"
 
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/tools/atomic"
 	"github.com/klever-io/klever-go/tools/check"
 )
+
+// cleanupInterval defines how often expired transactions are cleaned up
+// Set to half of the TTL to ensure timely cleanup while avoiding excessive overhead
+const cleanupInterval = 30 * time.Second
 
 var _ storage.Cacher = (*TxCache)(nil)
 
@@ -27,10 +34,24 @@ type TxCache struct {
 	sweepingMutex             sync.Mutex
 	sweepingListOfSenders     []*txListForSender
 	mutTxOperation            sync.Mutex
+	cleanupMutex              sync.Mutex
+	cleanupTicker             *time.Ticker
+	cleanupStop               chan struct{}
+	// Cleanup metrics
+	totalExpiredRemoved atomic.Counter
+	totalCleanupRuns    atomic.Counter
+	lastCleanupDuration atomic.Counter // in microseconds
+	lastCleanupTime     atomic.Counter // unix timestamp
 }
 
 // NewTxCache creates a new transaction cache
 func NewTxCache(config Config) (*TxCache, error) {
+	// Set default cleanup interval if not specified
+	// 0 means use default, negative means disable
+	if config.CleanupInterval == 0 {
+		config.CleanupInterval = cleanupInterval
+	}
+
 	log.Debug("NewTxCache", "config", config.String())
 	storage.MonitorNewCache(config.Name, uint64(config.NumBytesThreshold))
 
@@ -53,6 +74,7 @@ func NewTxCache(config Config) (*TxCache, error) {
 	}
 
 	txCache.initSweepable()
+	txCache.startPeriodicCleanup()
 	return txCache, nil
 }
 
@@ -389,6 +411,276 @@ func (cache *TxCache) PendingFor(accountKey []byte) (uint64, uint64) {
 
 // ImmunizeTxsAgainstEviction does nothing for this type of cache
 func (cache *TxCache) ImmunizeTxsAgainstEviction(_ [][]byte) {
+}
+
+// GetCleanupStats returns statistics about the cleanup process
+func (cache *TxCache) GetCleanupStats() map[string]interface{} {
+	lastCleanupTime := cache.lastCleanupTime.GetUint64()
+	var timeSinceLastCleanup int64
+	if lastCleanupTime > 0 && lastCleanupTime <= math.MaxInt64 {
+		timeSinceLastCleanup = time.Now().Unix() - int64(lastCleanupTime)
+	}
+
+	return map[string]interface{}{
+		"totalExpiredRemoved":   cache.totalExpiredRemoved.GetUint64(),
+		"totalCleanupRuns":      cache.totalCleanupRuns.GetUint64(),
+		"lastCleanupDurationUs": cache.lastCleanupDuration.GetUint64(),
+		"lastCleanupTime":       lastCleanupTime,
+		"timeSinceLastCleanup":  timeSinceLastCleanup,
+		"currentTxCount":        cache.CountTx(),
+		"currentSenderCount":    cache.CountSenders(),
+		"currentBytes":          cache.NumBytes(),
+	}
+}
+
+// startPeriodicCleanup starts a goroutine that periodically cleans expired transactions
+func (cache *TxCache) startPeriodicCleanup() {
+	// Get cleanup interval from config
+	interval := cache.config.CleanupInterval
+
+	// Negative interval means cleanup is disabled
+	if interval < 0 {
+		log.Debug("TxCache.startPeriodicCleanup: Periodic cleanup disabled",
+			"cache", cache.name,
+		)
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	stop := make(chan struct{})
+
+	cache.cleanupMutex.Lock()
+	cache.cleanupTicker = ticker
+	cache.cleanupStop = stop
+	cache.cleanupMutex.Unlock()
+
+	go func() {
+		// Ensure ticker is always stopped when goroutine exits
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				// Wrap each cleanup tick in its own recover so the goroutine continues
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							stack := debug.Stack()
+							log.Error("TxCache.startPeriodicCleanup: panic during cleanup tick",
+								"cache", cache.name,
+								"panic", r,
+								"stack", string(stack),
+							)
+						}
+					}()
+					cache.cleanExpiredTransactions()
+				}()
+			case <-stop:
+				return
+			}
+		}
+	}()
+
+	log.Debug("TxCache.startPeriodicCleanup: Started periodic cleanup",
+		"cache", cache.name,
+		"interval", interval,
+	)
+}
+
+// cleanExpiredTransactions removes expired transactions from the cache
+func (cache *TxCache) cleanExpiredTransactions() {
+	startTime := time.Now()
+	currentTime := startTime.Unix()
+
+	// Increment cleanup run counter
+	cache.totalCleanupRuns.Increment()
+
+	// Get all senders
+	senders := cache.txListBySender.getSnapshotAscending()
+
+	// Process expired transactions for all senders
+	result := cache.processExpiredTransactions(senders, currentTime)
+
+	// Perform bulk removal if needed
+	cache.performBulkRemoval(result)
+
+	// Update metrics and log
+	cache.updateCleanupMetrics(result, startTime, currentTime, len(senders))
+}
+
+// expiredTransactionResult holds the result of processing expired transactions
+type expiredTransactionResult struct {
+	txsToRemove         [][]byte
+	sendersToRemove     []string
+	totalExpiredTxs     int
+	totalExpiredSenders int
+}
+
+// processExpiredTransactions processes all senders and identifies expired transactions
+func (cache *TxCache) processExpiredTransactions(senders []*txListForSender, currentTime int64) expiredTransactionResult {
+	result := expiredTransactionResult{
+		txsToRemove:     make([][]byte, 0),
+		sendersToRemove: make([]string, 0),
+	}
+
+	for _, listForSender := range senders {
+		expiredInfo := cache.processExpiredForSender(listForSender, currentTime)
+
+		result.txsToRemove = append(result.txsToRemove, expiredInfo.expiredTxHashes...)
+		result.totalExpiredTxs += expiredInfo.expiredCount
+
+		if expiredInfo.shouldRemoveSender {
+			result.sendersToRemove = append(result.sendersToRemove, listForSender.sender)
+			result.totalExpiredSenders++
+		}
+	}
+
+	return result
+}
+
+// senderExpiredInfo holds expired transaction info for a sender
+type senderExpiredInfo struct {
+	expiredTxHashes    [][]byte
+	expiredCount       int
+	shouldRemoveSender bool
+}
+
+// processExpiredForSender processes expired transactions for a single sender
+func (cache *TxCache) processExpiredForSender(listForSender *txListForSender, currentTime int64) senderExpiredInfo {
+	listForSender.mutex.Lock()
+	defer listForSender.mutex.Unlock()
+
+	info := senderExpiredInfo{
+		expiredTxHashes: make([][]byte, 0),
+	}
+
+	hasRemainingTxs := false
+
+	// Check each transaction for expiration
+	for element := listForSender.items.Front(); element != nil; {
+		nextElement := element.Next()
+
+		if tx, ok := element.Value.(*WrappedTransaction); ok {
+			if tx.ExpireOn < currentTime {
+				listForSender.items.Remove(element)
+				listForSender.onRemovedListElement(element)
+				info.expiredTxHashes = append(info.expiredTxHashes, tx.TxHash)
+				info.expiredCount++
+			} else {
+				hasRemainingTxs = true
+			}
+		}
+
+		element = nextElement
+	}
+
+	// If sender has no remaining transactions, mark for removal
+	info.shouldRemoveSender = !hasRemainingTxs && len(info.expiredTxHashes) > 0
+
+	return info
+}
+
+// revalidateEmptySenders checks if senders are still empty before removal
+// This prevents the TOCTOU race where new transactions could be added after
+// the initial emptiness check but before the actual removal
+func (cache *TxCache) revalidateEmptySenders(sendersToRemove []string) []string {
+	validatedEmpty := make([]string, 0, len(sendersToRemove))
+
+	for _, sender := range sendersToRemove {
+		// Check if sender still has no transactions
+		listForSender, exists := cache.txListBySender.getListForSender(sender)
+		if !exists {
+			// Sender already removed or doesn't exist
+			continue
+		}
+
+		// Lock the sender to check if it's truly empty
+		listForSender.mutex.Lock()
+		isEmpty := listForSender.items.Len() == 0
+		listForSender.mutex.Unlock()
+
+		if isEmpty {
+			validatedEmpty = append(validatedEmpty, sender)
+		} else {
+			log.Debug("TxCache.revalidateEmptySenders: Sender no longer empty, skipping removal",
+				"cache", cache.name,
+				"sender", sender,
+				"txCount", listForSender.items.Len(),
+			)
+		}
+	}
+
+	return validatedEmpty
+}
+
+// performBulkRemoval removes expired transactions and senders in bulk
+func (cache *TxCache) performBulkRemoval(result expiredTransactionResult) {
+	if len(result.txsToRemove) == 0 {
+		return
+	}
+
+	cache.mutTxOperation.Lock()
+	defer cache.mutTxOperation.Unlock()
+
+	cache.txByHash.RemoveTxsBulk(result.txsToRemove)
+
+	// Re-validate sender emptiness before removal to prevent TOCTOU race condition
+	// New transactions may have been added between the emptiness check and this removal
+	if len(result.sendersToRemove) > 0 {
+		validatedSendersToRemove := cache.revalidateEmptySenders(result.sendersToRemove)
+		if len(validatedSendersToRemove) > 0 {
+			cache.txListBySender.RemoveSendersBulk(validatedSendersToRemove)
+		}
+	}
+}
+
+// updateCleanupMetrics updates cleanup metrics and logs the results
+func (cache *TxCache) updateCleanupMetrics(result expiredTransactionResult, startTime time.Time, currentTime int64, totalSenders int) {
+	elapsed := time.Since(startTime)
+
+	// Update metrics
+	cache.totalExpiredRemoved.Add(int64(result.totalExpiredTxs))
+	cache.lastCleanupDuration.Set(int64(elapsed.Microseconds()))
+	cache.lastCleanupTime.Set(int64(currentTime))
+
+	if result.totalExpiredTxs > 0 {
+		log.Info("TxCache.cleanExpiredTransactions: Cleaned expired transactions",
+			"cache", cache.name,
+			"expiredTxs", result.totalExpiredTxs,
+			"expiredSenders", result.totalExpiredSenders,
+			"totalSenders", totalSenders,
+			"duration", elapsed,
+		)
+	}
+}
+
+// Close stops the periodic cleanup and cleans up resources
+func (cache *TxCache) Close() error {
+	cache.cleanupMutex.Lock()
+	defer cache.cleanupMutex.Unlock()
+
+	if cache.cleanupStop != nil {
+		select {
+		case <-cache.cleanupStop:
+			// Already closed
+		default:
+			close(cache.cleanupStop)
+		}
+		cache.cleanupStop = nil
+	}
+
+	// Stop the ticker as a safety net in case the goroutine panicked
+	// before it could stop the ticker itself
+	if cache.cleanupTicker != nil {
+		cache.cleanupTicker.Stop()
+		cache.cleanupTicker = nil
+	}
+
+	log.Debug("TxCache.Close: Stopped periodic cleanup",
+		"cache", cache.name,
+	)
+
+	return nil
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

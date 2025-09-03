@@ -1,6 +1,8 @@
 package txpool
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -340,6 +342,29 @@ func (txPool *shardedTxPool) Diagnose(deep bool) {
 	for _, shard := range txPool.backingMap {
 		shard.Cache.Diagnose(deep)
 	}
+}
+
+// Close closes all the internal caches
+func (txPool *shardedTxPool) Close() error {
+	txPool.mutexBackingMap.Lock()
+	defer txPool.mutexBackingMap.Unlock()
+
+	var errs []error
+	for cacheID, shard := range txPool.backingMap {
+		// Check if the cache has a Close method
+		if closer, ok := shard.Cache.(interface{ Close() error }); ok {
+			if err := closer.Close(); err != nil {
+				log.Error("shardedTxPool.Close: failed to close cache", "cacheID", cacheID, "err", err)
+				errs = append(errs, fmt.Errorf("cache %s: %w", cacheID, err))
+			}
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	log.Debug("shardedTxPool.Close: All caches closed")
+	return nil
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

@@ -3,6 +3,7 @@ package txcache
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/klever-io/klever-go/storage"
 )
@@ -27,6 +28,7 @@ type Config struct {
 	CountThreshold                uint32
 	CountPerSenderThreshold       uint32
 	NumSendersToPreemptivelyEvict uint32
+	CleanupInterval               time.Duration // Interval for periodic cleanup. 0 uses default (30s), negative disables cleanup.
 }
 
 type senderConstraints struct {
