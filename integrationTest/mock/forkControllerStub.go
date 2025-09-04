@@ -9,6 +9,7 @@ type ForkControllerStub struct {
 	FPRComputeAndKdaFeeFlowCalled func() bool
 	FixDelegationSameEpochCalled  func() bool
 	EnableSmartContractsCalled    func() bool
+	FixAuditChangesCalled         func() bool
 }
 
 // ProcessorFlowITOPrice -
@@ -74,6 +75,14 @@ func (fc *ForkControllerStub) FixDelegationSameEpoch() bool {
 func (fc *ForkControllerStub) EnableSmartContracts() bool {
 	if fc.EnableSmartContractsCalled != nil {
 		return fc.EnableSmartContractsCalled()
+	}
+
+	return false
+}
+
+func (fc *ForkControllerStub) FixAuditChanges() bool {
+	if fc.FixAuditChangesCalled != nil {
+		return fc.FixAuditChangesCalled()
 	}
 
 	return false

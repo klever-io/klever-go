@@ -119,6 +119,23 @@ func (b *MockWorld) CreateAccount(address []byte, world *MockWorld) *Account {
 	return newAccount
 }
 
+func (b *MockWorld) CreateSmartContractAccountWithMetadata(owner []byte, address []byte, code []byte, metadata *vmcommon.CodeMetadata) *Account {
+	newAccount := b.CreateAccount(address, b)
+	newAccount.Code = code
+	newAccount.CodeHash = append(owner, address...)
+	newAccount.IsSmartContract = true
+	newAccount.OwnerAddress = owner
+
+	if metadata == nil {
+		metadata = &vmcommon.CodeMetadata{}
+	}
+
+	newAccount.SetCode(code)
+	newAccount.SetCodeMetadata(metadata.ToBytes())
+
+	return newAccount
+}
+
 func (b *MockWorld) CreateSmartContractAccount(owner []byte, address []byte, code []byte, world *MockWorld) *Account {
 	return b.CreateSmartContractAccountWithCodeHash(owner, address, code, nil, world)
 }

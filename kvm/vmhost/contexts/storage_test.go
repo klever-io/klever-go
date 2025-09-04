@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kvm/config"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
@@ -176,9 +178,10 @@ func TestStorageContext_SetStorage(t *testing.T) {
 	mockMetering.GasLeftMock = 20000
 
 	host := &contextmock.VMHostMock{
-		OutputContext:   mockOutput,
-		MeteringContext: mockMetering,
-		RuntimeContext:  mockRuntime,
+		OutputContext:         mockOutput,
+		MeteringContext:       mockMetering,
+		RuntimeContext:        mockRuntime,
+		ForkControllerContext: &mock.ForkControllerStub{},
 	}
 	bcHook := &contextmock.BlockchainHookStub{}
 	storageCtx, _ := NewStorageContext(host, bcHook, reservedTestPrefix)
@@ -337,9 +340,10 @@ func TestStorageContext_SetStorage_GasUsage(t *testing.T) {
 	mockMetering.BlockGasLimitMock = uint64(15000)
 
 	host := &contextmock.VMHostMock{
-		OutputContext:   mockOutput,
-		MeteringContext: mockMetering,
-		RuntimeContext:  mockRuntime,
+		OutputContext:         mockOutput,
+		MeteringContext:       mockMetering,
+		RuntimeContext:        mockRuntime,
+		ForkControllerContext: &mock.ForkControllerStub{},
 	}
 	bcHook := &contextmock.BlockchainHookStub{}
 
@@ -384,18 +388,41 @@ func TestStorageContext_SetStorage_GasUsage(t *testing.T) {
 	require.Equal(t, gasLeft, int(mockMetering.GasLeft()))
 	require.Equal(t, value, storedValue)
 
-	// write same amout of bytes
+	// write same amout of bytes -- Before AuditChanges fork
 	value3 := []byte("eulav")
 	mockMetering.GasLeftMock = uint64(gasProvided)
 	storageStatus, err = storageCtx.SetStorage(key, value3)
 	require.Nil(t, err)
-	gasLeft = gasProvided - persistCost*len(value)
+	gasLeft = gasProvided
 	storedValue, _, _, err = storageCtx.GetStorage(key)
 	require.Nil(t, err)
 	require.Equal(t, vmhost.StorageModified, storageStatus)
 	require.Equal(t, gasLeft, int(mockMetering.GasLeft()))
 	require.Equal(t, value3, storedValue)
 
+	// write same amout of bytes -- After AuditChanges fork
+	hostFork := &contextmock.VMHostMock{
+		OutputContext:   mockOutput,
+		MeteringContext: mockMetering,
+		RuntimeContext:  mockRuntime,
+		ForkControllerContext: &mock.ForkControllerStub{
+			FixAuditChangesValue: true,
+		},
+	}
+
+	storageCtxFork, _ := NewStorageContext(hostFork, bcHook, reservedTestPrefix)
+	storageCtxFork.SetAddress(address)
+
+	value4 := []byte("lorem")
+	mockMetering.GasLeftMock = uint64(gasProvided)
+	storageStatus, err = storageCtxFork.SetStorage(key, value4)
+	require.Nil(t, err)
+	gasLeft = gasProvided - persistCost*len(value)
+	storedValue, _, _, err = storageCtxFork.GetStorage(key)
+	require.Nil(t, err)
+	require.Equal(t, vmhost.StorageModified, storageStatus)
+	require.Equal(t, gasLeft, int(mockMetering.GasLeft()))
+	require.Equal(t, value4, storedValue)
 }
 
 func TestStorageContext_StorageProtection(t *testing.T) {
@@ -465,6 +492,8 @@ func TestStorageContext_GetStorageFromAddress(t *testing.T) {
 
 		expectedData  []byte
 		expectedError error
+
+		forkController core.ForkController
 	}{
 		{
 			name:                "Should return GetStorageData error on readable account",
@@ -472,29 +501,43 @@ func TestStorageContext_GetStorageFromAddress(t *testing.T) {
 			getStorageDataError: errTooManyRequests,
 			readable:            true,
 			expectedError:       errTooManyRequests,
+			forkController:      &mock.ForkControllerStub{},
 		},
 		{
-			name:         "Should return correct internal data on working an readable account",
-			exists:       true,
-			readable:     true,
-			internalData: []byte("internal data"),
-			expectedData: []byte("internal data"),
+			name:           "Should return correct internal data on working an readable account",
+			exists:         true,
+			readable:       true,
+			internalData:   []byte("internal data"),
+			expectedData:   []byte("internal data"),
+			forkController: &mock.ForkControllerStub{},
 		},
 		{
-			name:          "Should return error when reading from a non readable account",
+			name:          "Should return error when reading from a non readable account with AuditChanges fork",
 			exists:        true,
 			readable:      false,
 			expectedError: vmhost.ErrInvalidCallOnReadOnlyMode,
+			forkController: &mock.ForkControllerStub{
+				FixAuditChangesValue: true,
+			},
 		},
 		{
-			name:          "Should return error when reading from non existent account",
-			exists:        false,
-			expectedError: vmhost.ErrInvalidAccount,
+			name:           "Should not return error when reading from a non readable account without AuditChanges fork",
+			exists:         true,
+			readable:       false,
+			expectedError:  nil,
+			forkController: &mock.ForkControllerStub{},
+		},
+		{
+			name:           "Should return error when reading from non existent account",
+			exists:         false,
+			expectedError:  vmhost.ErrInvalidAccount,
+			forkController: &mock.ForkControllerStub{},
 		},
 		{
 			name:                "Should return error when failed to GetUserAccount",
 			getUserAccountError: vmhost.ErrBadBounds,
 			expectedError:       vmhost.ErrBadBounds,
+			forkController:      &mock.ForkControllerStub{},
 		},
 	}
 
@@ -513,9 +556,10 @@ func TestStorageContext_GetStorageFromAddress(t *testing.T) {
 			mockMetering.BlockGasLimitMock = uint64(15000)
 
 			host := &contextmock.VMHostMock{
-				OutputContext:   mockOutput,
-				MeteringContext: mockMetering,
-				RuntimeContext:  mockRuntime,
+				OutputContext:         mockOutput,
+				MeteringContext:       mockMetering,
+				RuntimeContext:        mockRuntime,
+				ForkControllerContext: tc.forkController,
 			}
 			bcHook := &contextmock.BlockchainHookStub{
 				GetUserAccountCalled: func(address []byte) (state.UserAccountHandler, error) {

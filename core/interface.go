@@ -77,6 +77,7 @@ type ForkController interface {
 	FPRComputeAndKdaFeeFlow() bool
 	FixDelegationSameEpoch() bool
 	EnableSmartContracts() bool
+	FixAuditChanges() bool
 	IsInterfaceNil() bool
 }
 

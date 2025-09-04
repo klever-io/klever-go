@@ -945,8 +945,13 @@ func (host *vmHost) ExecuteKDATransfer(transfersArgs *vmhost.KDATransfersArgs, c
 		return nil, 0, vmhost.ErrInvalidCallOnReadOnlyMode
 	}
 
-	if err := host.validateSCDestination(transfersArgs.Sender, transfersArgs.Destination); err != nil {
-		return nil, 0, err
+	// Verify if it should check the destination SC is payable
+	// Backtransfers don't need to verify the destination SC, which is represented by callType == vm.KDATransferAndExecute
+	mustVerifySCDestination := callType != vm.KDATransferAndExecute
+	if mustVerifySCDestination {
+		if err := host.validateSCDestination(transfersArgs.Sender, transfersArgs.Destination); err != nil {
+			return nil, 0, err
+		}
 	}
 
 	_, _, metering, _, _, _ := host.GetContexts()

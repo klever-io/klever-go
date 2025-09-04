@@ -19,6 +19,8 @@ enableEpochs:
   fixDelegationSameEpoch: 0
   # SmartContracts
   smartContracts: 0
+  # Audit Changes
+  fixAuditChanges: 0
 
 gasSchedule:
   gasScheduleByEpochs:

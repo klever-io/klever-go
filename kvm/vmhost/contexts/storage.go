@@ -165,7 +165,12 @@ func (context *storageContext) GetStorageFromAddress(address []byte, key []byte)
 		metadata := vmcommon.CodeMetadataFromBytes(userAcc.GetCodeMetadata())
 		if !metadata.Readable {
 			context.useExtraGasForKeyIfNeeded(key, false)
-			return nil, 0, false, vmhost.ErrInvalidCallOnReadOnlyMode
+
+			if context.host.ForkController().FixAuditChanges() {
+				return nil, 0, false, vmhost.ErrInvalidCallOnReadOnlyMode
+			}
+
+			return nil, 0, false, nil
 		}
 	}
 
@@ -311,7 +316,10 @@ func (context *storageContext) setStorageToAddress(address []byte, key []byte, v
 		gasToUseForValue, gasToFreeForValue = context.computeGasForBiggerValues(lengthOldValue, newValueExtraLength)
 	case newValueExtraLength < 0:
 		gasToUseForValue, gasToFreeForValue = context.computeGasForSmallerValues(newValueExtraLength, lengthNewValue)
-	case newValueExtraLength == 0:
+	}
+
+	// Only calculates fee for value with same length when ForkController AuditChanges is enabled
+	if context.host.ForkController().FixAuditChanges() && newValueExtraLength == 0 {
 		gasToUseForValue, gasToFreeForValue = context.computeGasForSameValues(lengthNewValue)
 	}
 

@@ -23,6 +23,7 @@ type EnableEpochs struct {
 	FPRComputeAndKdaFeeFlow uint32 `yaml:"fprComputeAndKdaFeeFlow"`
 	FixDelegationSameEpoch  uint32 `yaml:"fixDelegationSameEpoch"`
 	SmartContracts          uint32 `yaml:"smartContracts"`
+	FixAuditChanges         uint32 `yaml:"fixAuditChanges"`
 }
 
 // GasScheduleByEpochs represents a gas schedule toml entry that will be applied from the provided epoch

@@ -14,6 +14,7 @@ import (
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/state/factory"
+	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/data/trie"
 	"github.com/klever-io/klever-go/data/vm"
 	"github.com/klever-io/klever-go/kapps"
@@ -119,6 +120,29 @@ func createFullArgumentsForKAppsProcessingMemory(t *testing.T) state.AccountsCac
 	loadUsersAccounts(t, kappAccountsDB, accCacher)
 
 	return accCacher
+}
+
+// Create VM host and mock world with KApps loaded and builtin functions initialized
+func createVmHostAndMockWorld(t *testing.T) (vmhost.VMHost, *worldmock.MockWorld) {
+	hostParams := makeHostParameters()
+	accCacher := createFullArgumentsForKAppsProcessingMemory(t)
+	mockWorld := worldmock.NewMockWorld()
+	mockWorld.AccountsCacher = accCacher
+
+	_, err := accCacher.LoadKApp(kapps.ProposalKAppAddress)
+	require.NoError(t, err)
+	err = accCacher.SaveAll()
+	require.NoError(t, err)
+
+	mockWorld.InitBuiltinFunctions(hostParams.GasSchedule, hostParams.ForkController)
+	hostParams.BuiltInFuncContainer = mockWorld.BuiltinFuncs.Container
+	// configure WorldMock VM host to use common.WasmVirtualMachine, some validations use this as default
+	hostParams.VMType = common.WasmVirtualMachine
+
+	vmHost, err := hostCore.NewVMHost(mockWorld, hostParams)
+	require.NoError(t, err)
+
+	return vmHost, mockWorld
 }
 
 func TestExecuteKDATransfer(t *testing.T) {
@@ -373,6 +397,318 @@ func TestExecution_CreateContract(t *testing.T) {
 				require.Equal(t, tt.expectedMsg, vmOutput.ReturnMessage)
 				require.Empty(t, vmOutput.DeletedAccounts)
 			}
+		})
+	}
+}
+
+func TestExecution_TransferToSCFromContractCall(t *testing.T) {
+	// Setup VM Host
+	vmHost, mockWorld := createVmHostAndMockWorld(t)
+
+	// Create the SC that has an endpoint to send KLV to other SCs
+	scSender := testcommon.MakeTestSCAddress("scSender")
+	code := testcommon.GetTestSCCode("sender", "../../")
+	scAcct := mockWorld.CreateSmartContractAccountWithMetadata(testOwnerAddress, scSender, code, nil)
+	mockWorld.PutAccount(scAcct)
+
+	// Create a base transaction builder to be reused in the tests
+	transferAmount := int64(100)
+	scCallBuilder := vmhost.CreateTestContractCallInputBuilder().
+		WithCallerAddr(testOwnerAddress).
+		WithFunction("sendToAddress").
+		WithRecipientAddr(scSender).
+		WithGasProvided(10000).
+		WithKDATokenName(kdautils.KLVIdentifier).
+		WithKDAValue(big.NewInt(transferAmount))
+
+	dummyScCode := testcommon.GetSCCode("../../test/adder/output/adder.wasm")
+
+	tests := []struct {
+		name               string
+		receiverScMetadata *vmcommon.CodeMetadata
+		receiverSCAddr     string
+		expectedReturnCode vmcommon.ReturnCode
+		shouldTransfer     bool
+	}{
+		{
+			name:               "should fail, sc not payable",
+			receiverSCAddr:     "scNotPayable",
+			receiverScMetadata: &vmcommon.CodeMetadata{},
+			expectedReturnCode: vmcommon.VMExecutionFailed,
+			shouldTransfer:     false,
+		},
+		{
+			name:               "should fail, not payableBySC receiving from smart contract",
+			receiverSCAddr:     "scPayable",
+			receiverScMetadata: &vmcommon.CodeMetadata{Payable: true},
+			expectedReturnCode: vmcommon.VMExecutionFailed,
+			shouldTransfer:     false,
+		},
+		{
+			name:               "should pass, payableBySC and payable receiving from smart contract",
+			receiverSCAddr:     "scPayableBySc&Payable",
+			receiverScMetadata: &vmcommon.CodeMetadata{PayableBySC: true, Payable: true},
+			expectedReturnCode: vmcommon.Ok,
+			shouldTransfer:     true,
+		},
+		{
+			name:               "should pass, payableBySC receiving from smart contract",
+			receiverSCAddr:     "scPayableBySc",
+			receiverScMetadata: &vmcommon.CodeMetadata{PayableBySC: true},
+			expectedReturnCode: vmcommon.Ok,
+			shouldTransfer:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dummyScAddr := testcommon.MakeTestSCAddress(tt.receiverSCAddr)
+
+			emptyScAcct := mockWorld.CreateSmartContractAccountWithMetadata(testOwnerAddress, dummyScAddr, dummyScCode, tt.receiverScMetadata)
+			mockWorld.PutAccount(emptyScAcct)
+
+			// Add the receiver SC address argument to the call
+			scInputCall := scCallBuilder.WithArguments(dummyScAddr).Build()
+
+			if tt.shouldTransfer {
+				// Create the expected transfer to the call endpoint
+				err := mockWorld.KDATransfer(testOwnerAddress, &transaction.TransferContract{
+					ToAddress: scSender,
+					AssetID:   kdautils.KLVIdentifier,
+					Amount:    transferAmount,
+				})
+				require.NoError(t, err)
+			}
+
+			vmOutput, err := vmHost.RunSmartContractCall(scInputCall)
+			require.NoError(t, err)
+			require.NotNil(t, vmOutput)
+			require.Equal(t, tt.expectedReturnCode, vmOutput.ReturnCode, vmOutput.ReturnMessage)
+
+			if !tt.shouldTransfer {
+				t.SkipNow()
+			}
+
+			dummyScAcc, err := mockWorld.AccountsCacher.GetExistingUser(dummyScAddr)
+			require.NoError(t, err)
+
+			dummyScBalance := dummyScAcc.GetBalance(kdautils.KLVIdentifier, false)
+			require.Equal(t, transferAmount, dummyScBalance)
+		})
+	}
+}
+
+func TestExecution_PayableEndpointContractCall(t *testing.T) {
+	// Setup VM Host
+	vmHost, mockWorld := createVmHostAndMockWorld(t)
+
+	adderScAddr := testcommon.MakeTestSCAddress("adder")
+	adderScCode := testcommon.GetSCCode("../../test/adder/output/adder.wasm")
+
+	// Create a base transaction builder to be reused in the tests
+	transferAmount := int64(100)
+
+	createBaseTxBuilder := func() *vmhost.ContractCallInputBuilder {
+		return vmhost.CreateTestContractCallInputBuilder().
+			WithCallerAddr(testOwnerAddress).
+			WithRecipientAddr(adderScAddr).
+			WithGasProvided(100000)
+	}
+
+	tests := []struct {
+		name               string
+		receiverScMetadata *vmcommon.CodeMetadata
+		expectedReturnCode vmcommon.ReturnCode
+		scInputCall        *vmcommon.ContractCallInput
+	}{
+		{
+			name:               "should pass, calling endpoint without KLV transfer",
+			receiverScMetadata: &vmcommon.CodeMetadata{},
+			expectedReturnCode: vmcommon.Ok,
+			scInputCall: createBaseTxBuilder().
+				WithFunction("add").
+				WithArguments([]byte{10}).
+				Build(),
+		},
+		{
+			name:               "should fail, sending to endpoint not payable",
+			receiverScMetadata: &vmcommon.CodeMetadata{},
+			expectedReturnCode: vmcommon.VMExecutionFailed,
+			scInputCall: createBaseTxBuilder().
+				WithFunction("add").
+				WithKDATokenName(kdautils.KLVIdentifier).
+				WithKDAValue(big.NewInt(transferAmount)).
+				Build(),
+		},
+		{
+			name:               "should fail, calling endpoint with payment to non payable endpoint, contract is payable",
+			receiverScMetadata: &vmcommon.CodeMetadata{Payable: true},
+			expectedReturnCode: vmcommon.VMExecutionFailed,
+			scInputCall: createBaseTxBuilder().
+				WithFunction("add").
+				WithKDATokenName(kdautils.KLVIdentifier).
+				WithKDAValue(big.NewInt(transferAmount)).
+				WithArguments([]byte{10}).
+				Build(),
+		},
+		{
+			name:               "should pass, sending to payable endpoint",
+			receiverScMetadata: &vmcommon.CodeMetadata{},
+			expectedReturnCode: vmcommon.Ok,
+			scInputCall: createBaseTxBuilder().
+				WithFunction("add_payable").
+				WithKDATokenName(kdautils.KLVIdentifier).
+				WithKDAValue(big.NewInt(transferAmount)).
+				WithArguments([]byte{10}).
+				Build(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			emptyScAcct := mockWorld.CreateSmartContractAccountWithMetadata(testOwnerAddress, adderScAddr, adderScCode, tt.receiverScMetadata)
+			mockWorld.PutAccount(emptyScAcct)
+
+			vmOutput, err := vmHost.RunSmartContractCall(tt.scInputCall)
+			require.NoError(t, err)
+			require.NotNil(t, vmOutput)
+			require.Equal(t, tt.expectedReturnCode, vmOutput.ReturnCode, vmOutput.ReturnMessage)
+		})
+	}
+}
+
+func TestExecution_TransfersWithProxyContractCall(t *testing.T) {
+	// Setup VM Host
+	vmHost, mockWorld := createVmHostAndMockWorld(t)
+
+	// Create the SC that has an endpoint to send KLV to other SCs
+	scSender := testcommon.MakeTestSCAddressWithVMType("scSender", common.WasmVirtualMachine)
+	code := testcommon.GetTestSCCode("sender", "../../")
+	scAcct := mockWorld.CreateSmartContractAccountWithMetadata(testOwnerAddress, scSender, code, nil)
+	mockWorld.PutAccount(scAcct)
+
+	// Create the proxy SC that will call the sender SC to send KLV to other SCs
+	scSenderProxy := testcommon.MakeTestSCAddressWithVMType("scSenderProxy", common.WasmVirtualMachine)
+	scCodeProxy := testcommon.GetSCCode("../../test/contracts/sender-router/output/router.wasm")
+	scProxyAcct := mockWorld.CreateSmartContractAccountWithMetadata(testOwnerAddress, scSenderProxy, scCodeProxy, nil)
+	mockWorld.PutAccount(scProxyAcct)
+
+	// Create dummy SC to receive transfers
+	dummyScCode := testcommon.GetSCCode("../../test/adder/output/adder.wasm")
+	dummyScAddr := testcommon.MakeTestSCAddress("dummyScAddr")
+	dummyScAcct := mockWorld.CreateSmartContractAccountWithMetadata(testOwnerAddress, dummyScAddr, dummyScCode, nil)
+
+	// Create a base transaction builder to be reused in the tests
+	transferAmount := int64(100)
+	scCallBuilder := vmhost.CreateTestContractCallInputBuilder().
+		WithCallerAddr(testOwnerAddress).
+		WithFunction("proxySendToAddress").
+		WithRecipientAddr(scSenderProxy).
+		WithGasProvided(10000).
+		WithKDATokenName(kdautils.KLVIdentifier).
+		WithKDAValue(big.NewInt(transferAmount))
+
+	tests := []struct {
+		name               string
+		rcvScAcct          *worldmock.Account
+		rcvScMetadata      *vmcommon.CodeMetadata
+		expectedReturnCode vmcommon.ReturnCode
+		shouldTransfer     bool
+	}{
+		{
+			name:               "should fail, sc not payable",
+			rcvScAcct:          dummyScAcct,
+			rcvScMetadata:      &vmcommon.CodeMetadata{},
+			expectedReturnCode: vmcommon.VMExecutionFailed,
+			shouldTransfer:     false,
+		},
+		{
+			name:               "should fail, not payableBySC receiving from SC",
+			rcvScAcct:          dummyScAcct,
+			rcvScMetadata:      &vmcommon.CodeMetadata{Payable: true},
+			expectedReturnCode: vmcommon.VMExecutionFailed,
+			shouldTransfer:     false,
+		},
+		{
+			name:               "should pass, payableBySC and payable receiving from SC",
+			rcvScAcct:          dummyScAcct,
+			rcvScMetadata:      &vmcommon.CodeMetadata{PayableBySC: true, Payable: true},
+			expectedReturnCode: vmcommon.Ok,
+			shouldTransfer:     true,
+		},
+		{
+			name:               "should pass, payableBySC receiving from SC",
+			rcvScAcct:          dummyScAcct,
+			rcvScMetadata:      &vmcommon.CodeMetadata{PayableBySC: true},
+			expectedReturnCode: vmcommon.Ok,
+			shouldTransfer:     true,
+		},
+		{
+			name:               "should pass, back transfer to payableBySC SC caller",
+			rcvScAcct:          scProxyAcct,
+			rcvScMetadata:      &vmcommon.CodeMetadata{PayableBySC: true},
+			expectedReturnCode: vmcommon.Ok,
+			shouldTransfer:     true,
+		},
+		{
+			name:               "should pass, back transfer to payable SC caller",
+			rcvScAcct:          scProxyAcct,
+			rcvScMetadata:      &vmcommon.CodeMetadata{Payable: true},
+			expectedReturnCode: vmcommon.Ok,
+			shouldTransfer:     true,
+		},
+		{
+			name:               "should pass, back transfer to payable by anyone SC caller",
+			rcvScAcct:          scProxyAcct,
+			rcvScMetadata:      &vmcommon.CodeMetadata{Payable: true, PayableBySC: true},
+			expectedReturnCode: vmcommon.Ok,
+			shouldTransfer:     true,
+		},
+		{
+			name:               "should pass, back transfer to non payable SC caller",
+			rcvScAcct:          scProxyAcct,
+			rcvScMetadata:      &vmcommon.CodeMetadata{},
+			expectedReturnCode: vmcommon.Ok,
+			shouldTransfer:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// update the receiver SC account metadata
+			tt.rcvScAcct.SetCodeMetadata(tt.rcvScMetadata.ToBytes())
+			mockWorld.PutAccount(tt.rcvScAcct)
+
+			// Add the receiver SC address argument to the call
+			// in this case the first argument is the sender SC address and the second is the receiver SC address
+			scInputCall := scCallBuilder.
+				WithArguments(scSender, tt.rcvScAcct.Address).
+				Build()
+
+			if tt.shouldTransfer {
+				// Create the expected transfer to the call endpoint
+				err := mockWorld.KDATransfer(testOwnerAddress, &transaction.TransferContract{
+					ToAddress: scSenderProxy,
+					AssetID:   kdautils.KLVIdentifier,
+					Amount:    transferAmount,
+				})
+				require.NoError(t, err)
+			}
+
+			vmOutput, err := vmHost.RunSmartContractCall(scInputCall)
+			require.NoError(t, err)
+			require.NotNil(t, vmOutput)
+			require.Equal(t, tt.expectedReturnCode, vmOutput.ReturnCode, vmOutput.ReturnMessage)
+
+			if !tt.shouldTransfer {
+				t.SkipNow()
+			}
+
+			rcvScAcc, err := mockWorld.AccountsCacher.GetExistingUser(tt.rcvScAcct.Address)
+			require.NoError(t, err)
+
+			rcvScBalance := rcvScAcc.GetBalance(kdautils.KLVIdentifier, false)
+			require.Equal(t, transferAmount, rcvScBalance)
 		})
 	}
 }
