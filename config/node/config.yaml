@@ -163,10 +163,10 @@ antiflood:
   webServer:
     # SimultaneousRequests represents the number of concurrent requests accepted by the web server
     # this is a global throttler that acts on all http connections regardless of the originating source
-    simultaneousRequests: 10000
+    simultaneousRequests: 100
     # SameSourceRequests defines how many requests are allowed from the same source in the specified
     # time frame (SameSourceResetIntervalInSec)
-    sameSourceRequests: 100000
+    sameSourceRequests: 10000
     # SameSourceResetIntervalInSec time frame between counter reset, in seconds
     sameSourceResetIntervalInSec: 1
     # EndpointsThrottlers represents a map for maximum simultaneous go routines for an endpoint
@@ -204,9 +204,9 @@ evictionWaitingList:
 
 stateTriesConfig:
   checkpointSlotsModulus: 100
-  accountsStatePruningEnabled: true
+  accountsStatePruningEnabled: false
   peerStatePruningEnabled: true
-  kappStatePruningEnabled: true
+  kappStatePruningEnabled: false
   maxStateTrieLevelInMemory: 5
   maxPeerTrieLevelInMemory: 5
   maxKAppTrieLevelInMemory: 5
@@ -444,9 +444,9 @@ dbLookupExtensions:
 
 storagePruning:
   # If the Enabled flag is set to false, then the storers won't divide epochs into separate dbs
-  enabled: false
+  enabled:  true
   # If this flag is set to false, the node won't delete any database between epochs
-  cleanOldEpochsData: false
+  cleanOldEpochsData: true
   # NumEpochsToKeep - if the flag above is set to true, this will set the number of epochs to keep in the storage.
   # Epochs older that (current epoch - NumOfEpochsToKeep) will be removed
   numEpochsToKeep: 10

@@ -278,6 +278,12 @@ VERSION:
 		Usage: "This flag will specify the start in epoch value in import-db process",
 	}
 
+	// disableStatePruning defines a flag to disable state pruning
+	disableStatePruning = cli.BoolFlag{
+		Name:  "disable-state-pruning",
+		Usage: "This flag, if set, will disable state pruning for accounts, peer and kapp tries",
+	}
+
 	// redundancyLevel defines a flag that specifies the level of redundancy used by the current instance for the node (-1 = disabled, 0 = main instance (default), 1 = first backup, 2 = second backup, etc.)
 	redundancyLevel = cli.Int64Flag{
 		Name:  "redundancy-level",
@@ -381,6 +387,7 @@ func main() {
 		importDbDirectory,
 		importDbNoSigCheck,
 		importDbStartInEpoch,
+		disableStatePruning,
 		bugsnagKey,
 		bugsnagStage,
 		syncUntil,

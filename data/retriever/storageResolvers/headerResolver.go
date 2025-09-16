@@ -86,6 +86,7 @@ func (hdrRes *headerResolver) RequestDataFromHash(hash []byte, _ uint32) error {
 	epoch := hdrRes.epochHandler.Epoch()
 	hdrRes.mutEpochHandler.RUnlock()
 
+	hdrRes.manualEpochStartNotifier.NewEpoch(epoch + 1)
 	hdrRes.manualEpochStartNotifier.NewEpoch(epoch + 2)
 
 	buff, err := hdrRes.hdrStorage.SearchFirst(hash)

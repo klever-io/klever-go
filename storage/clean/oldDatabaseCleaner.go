@@ -73,7 +73,7 @@ func NewOldDatabaseCleaner(args ArgsOldDatabaseCleaner) (*oldDatabaseCleaner, er
 
 // registerHandler will register a new function to the epoch start notifier
 func (odc *oldDatabaseCleaner) registerHandler(handler EpochStartNotifier) {
-	log.Warn("oldDatabaseCleaner registerHandler")
+	log.Debug("oldDatabaseCleaner registerHandler")
 	subscribeHandler := notifier.NewHandlerForEpochStart(
 		odc.epochChangeActionHandler,
 		odc.epochChangePrepareHandler,
@@ -83,7 +83,7 @@ func (odc *oldDatabaseCleaner) registerHandler(handler EpochStartNotifier) {
 }
 
 func (odc *oldDatabaseCleaner) epochChangeActionHandler(hdr data.HeaderHandler) {
-	log.Warn("oldDatabaseCleaner epochChangeActionHandler")
+	log.Debug("oldDatabaseCleaner epochChangeActionHandler")
 	err := odc.handleEpochChangeAction(hdr.GetEpoch())
 	if err != nil {
 		log.Debug("oldDatabaseCleaner: handleEpochChangeAction", "error", err)
@@ -94,7 +94,7 @@ func (odc *oldDatabaseCleaner) epochChangePrepareHandler(_ data.HeaderHandler) {
 }
 
 func (odc *oldDatabaseCleaner) handleEpochChangeAction(epoch uint32) error {
-	log.Warn("oldDatabaseCleaner handleEpochChangeAction")
+	log.Debug("oldDatabaseCleaner handleEpochChangeAction")
 	newOldestEpoch, err := odc.computeOldestEpochToKeep()
 	if err != nil {
 		return err
@@ -121,7 +121,7 @@ func (odc *oldDatabaseCleaner) handleEpochChangeAction(epoch uint32) error {
 func (odc *oldDatabaseCleaner) shouldCleanOldData(currentEpoch uint32, newOldestEpoch uint32) bool {
 	odc.RLock()
 	defer odc.RUnlock()
-	log.Warn("oldDatabaseCleaner shouldCleanOldData", "clean", odc.oldDataCleanerProvider.ShouldClean())
+	log.Debug("oldDatabaseCleaner shouldCleanOldData", "clean", odc.oldDataCleanerProvider.ShouldClean())
 	if !odc.oldDataCleanerProvider.ShouldClean() {
 		return false
 	}
@@ -147,7 +147,7 @@ func (odc *oldDatabaseCleaner) shouldCleanOldData(currentEpoch uint32, newOldest
 func (odc *oldDatabaseCleaner) computeOldestEpochToKeep() (uint32, error) {
 	odc.RLock()
 	defer odc.RUnlock()
-	log.Warn("oldDatabaseCleaner computeOldestEpochToKeep")
+	log.Debug("oldDatabaseCleaner computeOldestEpochToKeep")
 	oldestEpoch := uint32(math.MaxUint32)
 	storers := odc.storageListProvider.GetAllStorers()
 	for _, storer := range storers {
@@ -178,7 +178,7 @@ func logOldestEpochCompute(err error) {
 func (odc *oldDatabaseCleaner) cleanOldEpochs(currentEpoch uint32) error {
 	odc.Lock()
 	defer odc.Unlock()
-	log.Warn("oldDatabaseCleaner cleanOldEpochs")
+	log.Debug("oldDatabaseCleaner cleanOldEpochs")
 	epochForDeletion := currentEpoch - 1
 	epochToDeleteTo := odc.oldestEpochsToKeep[epochForDeletion]
 

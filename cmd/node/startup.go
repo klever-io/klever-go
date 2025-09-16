@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -145,6 +146,15 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		}
 		cfg.ImportDbConfig = importDBConfigs
 	}
+
+	// Handle --disable-state-pruning flag
+	if ctx.GlobalBool(disableStatePruning.Name) {
+		cfg.StateTriesConfig.AccountsStatePruningEnabled = false
+		cfg.StateTriesConfig.PeerStatePruningEnabled = false
+		cfg.StateTriesConfig.KAppStatePruningEnabled = false
+		log.Info("state pruning disabled via --disable-state-pruning flag")
+	}
+
 	err = applyCompatibleConfigs(log, &cfg)
 	if err != nil {
 		return err
@@ -1242,8 +1252,15 @@ func processConfigImportDBMode(log logger.Logger, configs *config.Config) error 
 		generalConfigs.StartInEpoch = false
 	}
 
+	generalConfigs.Preferences.StatusPollingIntervalSec = 60
+	generalConfigs.Debug.InterceptorResolver.Enabled = false
+	generalConfigs.Debug.Antiflood.Enabled = false
+	generalConfigs.Antiflood.Enabled = false
+
 	generalConfigs.StoragePruning.NumActivePersisters = generalConfigs.StoragePruning.NumEpochsToKeep
-	generalConfigs.StateTriesConfig.CheckpointSlotsModulus = 100000000
+	generalConfigs.StateTriesConfig.CheckpointSlotsModulus = math.MaxUint32
+	generalConfigs.TrieStorageManagerConfig.MaxSnapshots = math.MaxUint32
+
 	p2pConfigs.Node.ThresholdMinConnectedPeers = 0
 	p2pConfigs.KadDhtPeerDiscovery.Enabled = false
 	p2pConfigs.KadDhtPeerDiscovery.InitialPeerList = make([]string, 0)
@@ -1255,6 +1272,10 @@ func processConfigImportDBMode(log logger.Logger, configs *config.Config) error 
 	generalConfigs.Health.IntervalDiagnoseComponentsInSeconds = defaultSecondsToCheckHealth
 	generalConfigs.Health.IntervalVerifyMemoryInSeconds = defaultSecondsToCheckHealth
 	generalConfigs.Health.MemoryUsageToCreateProfiles = defaultDiagnoseMemoryLimit
+
+	generalConfigs.Heartbeat.DurationToConsiderUnresponsiveInSec = math.MaxInt32
+	generalConfigs.Heartbeat.MinTimeToWaitBetweenBroadcastsInSec = math.MaxInt32 - 2
+	generalConfigs.Heartbeat.MaxTimeToWaitBetweenBroadcastsInSec = math.MaxInt32 - 1
 
 	alterStorageConfigsForDBImport(generalConfigs)
 
