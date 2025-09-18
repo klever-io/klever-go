@@ -57,7 +57,7 @@ func (fc *ForkControllerStub) BigBucketsCompute() bool {
 }
 
 func (fc *ForkControllerStub) FPRComputeAndKdaFeeFlow() bool {
-	if fc.BigBucketsComputeCalled != nil {
+	if fc.FPRComputeAndKdaFeeFlowCalled != nil {
 		return fc.FPRComputeAndKdaFeeFlowCalled()
 	}
 
