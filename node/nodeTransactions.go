@@ -188,7 +188,9 @@ func (n *Node) computeTransactionFees(tx *transaction.Transaction, base *transac
 
 	// Add up estimated gas into BandwidthFee
 	if fees.GasMultiplier > 0 && fees.GasEstimated > 0 {
-		value := cost.GasEstimated / fees.GasMultiplier
+		// Add safe gas margin
+		value := fees.GasEstimated + fees.SafetyMargin
+		value = value / fees.GasMultiplier
 		if value > math.MaxInt64 {
 			return nil, common.ErrEstimateGasTooBig
 		}

@@ -1,29 +1,29 @@
 BuiltInCost:
-  Transfer: 2000000
-  CreateAsset: 3000000000
-  CreateValidator: 1000000000000
-  ValidatorConfig: 1000000000000
-  Freeze: 2000000
-  Unfreeze: 2000000
-  Delegate: 2000000
-  Undelegate: 2000000
-  Withdraw: 2000000
-  Claim: 2000000
-  Unjail: 1000000000000
-  AssetTrigger: 2000000
-  SetAccountName: 10000000
-  Proposal: 3000000000
-  Vote: 2000000
-  ConfigITO: 3000000000
-  Buy: 2000000
-  Sell: 3000000
-  CancelMarketOrder: 10000000
-  CreateMarketplace: 3000000000
-  ConfigMarketplace: 60000000
-  UpdateAccountPermission: 100000000
-  Deposit: 5000000
-  ITOTrigger: 2000000
-  ChangeOwnerAddress: 10000000
+  Transfer: 200000
+  CreateAsset: 300000000
+  CreateValidator: 100000000000
+  ValidatorConfig: 100000000000
+  Freeze: 200000
+  Unfreeze: 200000
+  Delegate: 200000
+  Undelegate: 200000
+  Withdraw: 200000
+  Claim: 200000
+  Unjail: 100000000000
+  AssetTrigger: 200000
+  SetAccountName: 1000000
+  Proposal: 300000000
+  Vote: 200000
+  ConfigITO: 300000000
+  Buy: 200000
+  Sell: 300000
+  CancelMarketOrder: 1000000
+  CreateMarketplace: 300000000
+  ConfigMarketplace: 6000000
+  UpdateAccountPermission: 10000000
+  Deposit: 500000
+  ITOTrigger: 200000
+  ChangeOwnerAddress: 1000000
 
 BaseOperationCost:
   StorePerByte: 10000
@@ -203,11 +203,11 @@ ManagedBufferAPICost:
   MBufferFromBigFloat: 2000
 
 ManagedMapAPICost:
-  ManagedMapNew: 2000
-  ManagedMapPut: 2000
-  ManagedMapGet: 2000
-  ManagedMapRemove: 2000
-  ManagedMapContains: 2000
+  ManagedMapNew: 10000
+  ManagedMapPut: 10000
+  ManagedMapGet: 10000
+  ManagedMapRemove: 10000
+  ManagedMapContains: 10000
 
 BigFloatAPICost:
   BigFloatNewFromParts: 3000

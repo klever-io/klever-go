@@ -5,6 +5,7 @@ type CostResponse struct {
 	KAppFee       int64  `json:"kAppFee"`
 	BandwidthFee  int64  `json:"bandwidthFee"`
 	GasEstimated  uint64 `json:"gasEstimated"`
+	SafetyMargin  uint64 `json:"safetyMargin"`
 	GasMultiplier uint64 `json:"gasMultiplier"`
 	RetMessage    string `json:"returnMessage"`
 }

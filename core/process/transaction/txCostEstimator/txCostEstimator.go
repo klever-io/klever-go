@@ -93,6 +93,7 @@ func (tce *transactionCostEstimator) EstimateTransactionGas(tx *transaction.Tran
 		BandwidthFee:  tx.GetBandwidthFee(),
 		GasMultiplier: tx.GetGasMultiplier(),
 		GasEstimated:  totalGasConsumed.Uint64(),
+		SafetyMargin:  totalGasConsumed.Uint64() / 10,
 		RetMessage:    fmt.Sprintf("%s %s", res.VMOutput.ReturnCode.String(), res.VMOutput.ReturnMessage),
 	}, nil
 }

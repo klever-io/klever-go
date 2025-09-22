@@ -12,7 +12,7 @@ jobs:
     uses: ./.github/workflows/go-setup-lint.yaml
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     with:
-      go-version: ${{ vars.GO_VERSION || '1.24' }}
+      go-version: ${{ vars.GO_VERSION || '1.25' }}
       golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'v1.64.8' }}
     secrets:
       git-user: ${{ secrets.GIT_USER }}
@@ -28,7 +28,7 @@ jobs:
       - name: Go Setup
         uses: ./.github/actions/go-setup-action
         with:
-          go-version: ${{ vars.GO_VERSION || '1.24' }}
+          go-version: ${{ vars.GO_VERSION || '1.25' }}
 
       - name: Run tests
         id: run-tests

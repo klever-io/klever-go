@@ -125,6 +125,9 @@ func (ed *EconomicsData) ComputeTransactionCost(tx process.TransactionWithFeeHan
 
 	cost.GasMultiplier = gasMultiplier
 
+	// add safety margin of 10%
+	cost.SafetyMargin = cost.GasEstimated / 10
+
 	return cost, nil
 }
 

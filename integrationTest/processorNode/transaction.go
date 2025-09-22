@@ -104,7 +104,9 @@ func (n *ProcessorNode) computeTransactionCost(tx *transaction.Transaction) erro
 
 	// Add up estimated gas into BandwidthFee
 	if cost.GasMultiplier > 0 && cost.GasEstimated > 0 {
-		value := cost.GasEstimated / cost.GasMultiplier
+		// Add safe gas margin
+		value := cost.GasEstimated + cost.SafetyMargin
+		value = value / cost.GasMultiplier
 		if value > math.MaxInt64 {
 			return common.ErrEstimateGasTooBig
 		}

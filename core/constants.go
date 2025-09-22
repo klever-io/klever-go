@@ -289,6 +289,9 @@ const MinGasLimit = 50_000
 // MaxGasBandwidthPerBatchPerSender defines the maximum gas bandwidth that should be selected for a sender per batch from the cache
 const MaxGasBandwidthPerBatchPerSender = 50_000_000
 
+// MaxGasLimitPerTx defines the maximum gas limit per transaction
+const MaxGasLimitPerTx = 500_000_000
+
 // MaxTransactionRaw defines the maximum size of the raw data without contracts and message data
 const MaxTransactionRaw = 200
 

@@ -218,7 +218,16 @@ func InitialProposalParameters(forks core.ForkController) map[int32]*Parameter {
 			Type:  EnumType_Int64,
 			Value: []byte("100000000"), // 100_000_000
 		}
-
+	}
+	if forks.FixAuditChanges() {
+		activeParameters[int32(EnumParameter_MaxGasPerTX)] = &Parameter{
+			Type:  EnumType_Int64,
+			Value: []byte("400000000"), // 400_000_000 at multiplier 1 = 400 KLV max cost
+		}
+		activeParameters[int32(EnumParameter_GasMultiplier)] = &Parameter{
+			Type:  EnumType_Int64,
+			Value: []byte("1"), // 1 -> 1 gas unit = 1 klv minimum unit
+		}
 	}
 
 	return activeParameters
@@ -275,7 +284,7 @@ func (p *ProposalController) validateConstraints(parameter EnumParameter, value 
 			return common.ErrInvalidParameter
 		}
 	case EnumParameter_MaxGasPerTX:
-		if value.Int() < core.MinGasLimit || value.Int() > core.MaxGasBandwidthPerBatchPerSender {
+		if value.Int() < core.MinGasLimit || value.Int() > core.MaxGasLimitPerTx {
 			return common.ErrInvalidParameter
 		}
 	}
