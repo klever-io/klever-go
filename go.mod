@@ -42,11 +42,11 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/spf13/cobra v1.8.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	github.com/urfave/cli v1.22.10
 	github.com/whyrusleeping/timecache v0.0.0-20160911033111-cfcb2f1abfee
-	golang.org/x/term v0.34.0
+	golang.org/x/term v0.35.0
 	gopkg.in/go-playground/validator.v8 v8.18.2
 	gopkg.in/yaml.v2 v2.4.0
 )
@@ -114,7 +114,7 @@ require (
 	github.com/libp2p/go-netroute v0.2.2 // indirect
 	github.com/libp2p/go-reuseport v0.4.0 // indirect
 	github.com/libp2p/go-yamux/v5 v5.0.1 // indirect
-	github.com/mailru/easyjson v0.7.7 // indirect
+	github.com/mailru/easyjson v0.9.1 // indirect
 	github.com/marten-seemann/tcp v0.0.0-20210406111302-dfbc87cc63fd // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -191,11 +191,12 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/arch v0.10.0 // indirect
 	golang.org/x/exp v0.0.0-20250606033433-dcc06ee1d476 // indirect
-	golang.org/x/mod v0.27.0 // indirect
-	golang.org/x/net v0.43.0 // indirect
-	golang.org/x/sync v0.16.0 // indirect
+	golang.org/x/mod v0.28.0 // indirect
+	golang.org/x/net v0.44.0 // indirect
+	golang.org/x/sync v0.17.0 // indirect
+	golang.org/x/telemetry v0.0.0-20250908211612-aef8a434d053 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	golang.org/x/tools v0.36.0 // indirect
+	golang.org/x/tools v0.37.0 // indirect
 	gonum.org/v1/gonum v0.13.0 // indirect
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
@@ -204,12 +205,12 @@ require (
 require (
 	github.com/bugsnag/bugsnag-go/v2 v2.1.2
 	github.com/joho/godotenv v1.4.0
-	github.com/swaggo/files v0.0.0-20210815190702-a29dd2bc99b2
+	github.com/swaggo/files v1.0.1
 	github.com/swaggo/gin-swagger v1.4.2
-	github.com/swaggo/swag v1.7.9
-	golang.org/x/crypto v0.41.0
-	golang.org/x/sys v0.35.0 // indirect
-	golang.org/x/text v0.28.0
+	github.com/swaggo/swag v1.16.6
+	golang.org/x/crypto v0.42.0
+	golang.org/x/sys v0.36.0 // indirect
+	golang.org/x/text v0.29.0
 	google.golang.org/protobuf v1.36.6
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

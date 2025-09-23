@@ -12,6 +12,7 @@ import (
 	"github.com/klever-io/klever-go/network/api/address"
 	"github.com/klever-io/klever-go/network/api/middleware"
 	"github.com/klever-io/klever-go/network/api/mock"
+	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/network/api/wrapper"
 	"github.com/stretchr/testify/assert"
 )
@@ -65,10 +66,10 @@ func TestCreateEndpointThrottler_NoThrottlerShouldExecute(t *testing.T) {
 
 	numCalls := uint32(0)
 	facade := mock.Facade{
-		BalanceHandler: func(s string, k string) (value int64, e error) {
+		BalanceHandler: func(s string, k string) (*models.BalanceResponse, error) {
 			atomic.AddUint32(&numCalls, 1)
 
-			return 10, nil
+			return &models.BalanceResponse{Balance: 10}, nil
 		},
 	}
 	ws := startNodeServerEndpointThrottler(&facade, "test")
@@ -89,10 +90,10 @@ func TestCreateEndpointThrottler_ThrottlerCanNotProcessShouldNotExecute(t *testi
 
 	numCalls := uint32(0)
 	facade := mock.Facade{
-		BalanceHandler: func(s string, k string) (value int64, e error) {
+		BalanceHandler: func(s string, k string) (*models.BalanceResponse, error) {
 			atomic.AddUint32(&numCalls, 1)
 
-			return 10, nil
+			return &models.BalanceResponse{Balance: 10}, nil
 		},
 		GetThrottlerForEndpointCalled: func(endpoint string) (core.Throttler, bool) {
 			return &mock.ThrottlerStub{
@@ -122,10 +123,10 @@ func TestCreateEndpointThrottler_ThrottlerStartShouldExecute(t *testing.T) {
 	numStart := uint32(0)
 	numEnd := uint32(0)
 	facade := mock.Facade{
-		BalanceHandler: func(s string, k string) (value int64, e error) {
+		BalanceHandler: func(s string, k string) (*models.BalanceResponse, error) {
 			atomic.AddUint32(&numCalls, 1)
 
-			return 10, nil
+			return &models.BalanceResponse{Balance: 10}, nil
 		},
 		GetThrottlerForEndpointCalled: func(endpoint string) (core.Throttler, bool) {
 			return &mock.ThrottlerStub{

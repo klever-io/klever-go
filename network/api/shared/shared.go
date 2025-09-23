@@ -30,12 +30,12 @@ const ReturnCodeRequestError ReturnCode = "bad_request"
 const ReturnCodeSystemBusy ReturnCode = "system_busy"
 
 // RespondWith will respond with the generic API response
-func RespondWith(c *gin.Context, status int, dataField interface{}, error string, code ReturnCode) {
+func RespondWith(c *gin.Context, status int, dataField interface{}, errMsg string, code ReturnCode) {
 	c.JSON(
 		status,
 		GenericAPIResponse{
 			Data:  dataField,
-			Error: error,
+			Error: errMsg,
 			Code:  code,
 		},
 	)
@@ -53,12 +53,12 @@ func RespondWithInvalidAppContext(c *gin.Context) {
 }
 
 // RespondWithValidationError will be called when the application's context is invalid
-func RespondWithValidationError(c *gin.Context, error string) {
+func RespondWithValidationError(c *gin.Context, errMsg string) {
 	RespondWith(
 		c,
 		http.StatusBadRequest,
 		nil,
-		error,
+		errMsg,
 		ReturnCodeRequestError,
 	)
 }

@@ -10,8 +10,8 @@ import (
 // PubKeyHeartbeat returns the heartbeat status for a public key
 type PubKeyHeartbeat struct {
 	PublicKey       string    `json:"publicKey"`
-	Timestamp       time.Time `json:"timestamp"`
-	MaxInactiveTime Duration  `json:"maxInactiveTime"`
+	Timestamp       time.Time `json:"timestamp" swaggertype:"string"`
+	MaxInactiveTime Duration  `json:"maxInactiveTime" swaggertype:"string"`
 	IsActive        bool      `json:"isActive"`
 	TotalUpTime     int64     `json:"totalUpTimeSec"`
 	TotalDownTime   int64     `json:"totalDownTimeSec"`

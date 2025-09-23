@@ -59,7 +59,7 @@ func getFacade(c *gin.Context) (FacadeHandler, bool) {
 // @Summary will return the validation statistics for all validators
 // @Tags Validator
 // @Produce  json
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{statistics=map[string]state.ValidatorApiResponse}} "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Router /validator/statistics [get]
 // Statistics will return the validation statistics for all validators
@@ -94,7 +94,7 @@ func Statistics(c *gin.Context) {
 // @Summary will return the peers
 // @Tags Validator
 // @Produce  json
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{peers=[]state.PeerAccountData}} "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Router /validator/peers [get]
 // Peers will return the peers

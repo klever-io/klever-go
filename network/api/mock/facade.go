@@ -13,6 +13,7 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 	indexerData "github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/node/heartbeat/data"
 	"github.com/klever-io/klever-go/tools/debug"
 )
@@ -27,10 +28,11 @@ type Facade struct {
 	GetAssetHandler                func(address string) (*kapps.KDAData, error)
 	GetNFTHandler                  func(owner string, address string) (*kapps.UserKDA, *kapps.KDAData, error)
 	GetKDAFeePoolHandler           func(address string) (*kdafeespool.KDAFeesPoolData, error)
-	BalanceHandler                 func(string, string) (int64, error)
+	BalanceHandler                 func(string, string) (*models.BalanceResponse, error)
 	GetUserKDAHandler              func(string, string) (*kapps.UserKDA, error)
-	RewardsAvailableToClaimHandler func(address string, assetId string) (int64, map[string]int64, int64, error)
+	RewardsAvailableToClaimHandler func(address string, assetId string) (*models.AvailableClaimResponse, error)
 	StatusMetricsHandler           func() core.StatusMetricsHandler
+	GetNodeOverviewHandler         func() (models.NodeOverview, error)
 	ValidatorStatisticsHandler     func() (map[string]*state.ValidatorApiResponse, error)
 	GetPeerInfoCalled              func(pid string) ([]core.QueryP2PPeerInfo, error)
 	GetThrottlerForEndpointCalled  func(endpoint string) (core.Throttler, bool)
@@ -47,7 +49,7 @@ type Facade struct {
 	SendTransactionHandler         func(tx *transaction.Transaction) (string, error)
 	DecodeTransactionHandler       func(tx *transaction.Transaction) (*indexerData.Transaction, error)
 	SendBulkTransactionsHandler    func(txs []*transaction.Transaction) ([]string, error)
-	GetNextNonceHandler            func(address string) (uint64, uint64, uint64, error)
+	GetNextNonceHandler            func(address string) (*models.AccountNonceResponse, error)
 	EstimateTransactionGasHandler  func(tx *transaction.Transaction) (*transaction.CostResponse, error)
 	EstimateTransactionFeesHandler func(tx *transaction.Transaction) (*transaction.FeesResponse, error)
 }
@@ -119,12 +121,12 @@ func (f *Facade) GetAccount(address string) (state.UserAccountHandler, error) {
 }
 
 // GetAvailableClaim is the mock implementation of a handler's GetAvailableClaim method
-func (f *Facade) GetAvailableClaim(address string, assetId string) (int64, map[string]int64, int64, error) {
+func (f *Facade) GetAvailableClaim(address string, assetId string) (*models.AvailableClaimResponse, error) {
 	return f.RewardsAvailableToClaimHandler(address, assetId)
 }
 
 // GetBalance is the mock implementation of a handler's GetBalance method
-func (f *Facade) GetBalance(address, kda string) (int64, error) {
+func (f *Facade) GetBalance(address, kda string) (*models.BalanceResponse, error) {
 	return f.BalanceHandler(address, kda)
 }
 
@@ -155,6 +157,11 @@ func (f *Facade) ValidatorStatisticsAPI() (map[string]*state.ValidatorApiRespons
 // StatusMetrics is the mock implementation for the StatusMetrics
 func (f *Facade) StatusMetrics() core.StatusMetricsHandler {
 	return f.StatusMetricsHandler()
+}
+
+// GetNodeOverview -
+func (f *Facade) GetNodeOverview() (models.NodeOverview, error) {
+	return f.GetNodeOverviewHandler()
 }
 
 // GetTotalStakedValue -
@@ -232,7 +239,7 @@ func (f *Facade) SendTransaction(tx *transaction.Transaction) (string, error) {
 	return f.SendTransactionHandler(tx)
 }
 
-func (f *Facade) GetNextNonce(address string) (uint64, uint64, uint64, error) {
+func (f *Facade) GetNextNonce(address string) (*models.AccountNonceResponse, error) {
 	return f.GetNextNonceHandler(address)
 }
 

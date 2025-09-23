@@ -26,7 +26,7 @@ var log = logger.GetOrCreate("api/transaction/logging")
 const (
 	sendTransactionEndpoint   = "/transaction/send"
 	decodeTransactionEndpoint = "/transaction/decode"
-	getTransactionEndpoint    = "/transaction/:hash"
+	getTransactionEndpoint    = "/transaction/:txhash"
 	broadcastEndpoint         = "/transaction/broadcast"
 	poolEndpoint              = "/transaction/pool"
 	simulateEndpoint          = "/transaction/simulate"
@@ -142,8 +142,8 @@ type sendTXRequest struct {
 // @Tags Transaction
 // @Accept  json
 // @Produce  json
-// @Param data body sendTXRequest true "body data"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Param sendTXRequest body sendTXRequest true "body data"
+// @Success 200 object shared.GenericAPIResponse{data=models.SendTXResponse} "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Router /transaction/send [post]
 // SendTX returns send transaction
@@ -204,13 +204,15 @@ func SendTX(c *gin.Context) {
 		return
 	}
 
+	response := &models.SendTXResponse{
+		Result: tx,
+		TxHash: hex.EncodeToString(txHash),
+	}
+
 	c.JSON(
 		http.StatusOK,
 		shared.GenericAPIResponse{
-			Data: gin.H{
-				"result": tx,
-				"txHash": hex.EncodeToString(txHash),
-			},
+			Data:  response,
 			Error: "",
 			Code:  shared.ReturnCodeSuccess,
 		},
@@ -227,8 +229,8 @@ type BroadcastTXRequest struct {
 // @Tags Transaction
 // @Accept  json
 // @Produce  json
-// @Param data body BroadcastTXRequest true "body data"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Param BroadcastTXRequest body BroadcastTXRequest true "body data"
+// @Success 200 object shared.GenericAPIResponse{data=models.BroadcastTXResponse} "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Router /transaction/broadcast [post]
 // BroadcastTX broadcast the TX
@@ -269,10 +271,15 @@ func BroadcastTX(c *gin.Context) {
 			return
 		}
 
+		response := &models.BroadcastTXResponse{
+			TxHash:  txHash,
+			TxCount: 1,
+		}
+
 		c.JSON(
 			http.StatusOK,
 			shared.GenericAPIResponse{
-				Data:  gin.H{"txHash": txHash, "txCount": 1},
+				Data:  response,
 				Error: "",
 				Code:  shared.ReturnCodeSuccess,
 			},
@@ -294,10 +301,14 @@ func BroadcastTX(c *gin.Context) {
 		return
 	}
 
+	response := &models.BroadcastTXResponse{
+		TxsHashes: txsHashes,
+	}
+
 	c.JSON(
 		http.StatusOK,
 		shared.GenericAPIResponse{
-			Data:  gin.H{"txsHashes": txsHashes},
+			Data:  response,
 			Error: "",
 			Code:  shared.ReturnCodeSuccess,
 		},
@@ -308,8 +319,8 @@ func BroadcastTX(c *gin.Context) {
 // @Tags Transaction
 // @Accept  json
 // @Produce  json
-// @Param data body transaction.Transaction true "body data"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Param transaction body transaction.Transaction true "body data"
+// @Success 200 object shared.GenericAPIResponse{data=object{tx=indexerData.Transaction}} "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Router /transaction/decode [post]
 // DecodeTX decode the transaction
@@ -319,7 +330,7 @@ func DecodeTX(c *gin.Context) {
 		return
 	}
 
-	var gtx = &transaction.Transaction{}
+	var gtx transaction.Transaction
 	err := c.ShouldBindJSON(&gtx)
 	if err != nil {
 		c.JSON(
@@ -333,7 +344,7 @@ func DecodeTX(c *gin.Context) {
 		return
 	}
 
-	decodedTX, err := facade.DecodeTransaction(gtx)
+	decodedTX, err := facade.DecodeTransaction(&gtx)
 	if err != nil {
 		c.JSON(
 			http.StatusBadRequest,
@@ -360,10 +371,10 @@ func DecodeTX(c *gin.Context) {
 // @Tags Transaction
 // @Accept  json
 // @Produce  json
-// @Param sender query string true "sender"
-// @Param page query int true "page"
-// @Param pageSize query int true "page size"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Param sender query string false "sender (optional)"
+// @Param page query int false "page"
+// @Param pageSize query int false "page size"
+// @Success 200 object shared.GenericAPIResponse{data=models.TransactionPoolResponse} "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Failure 500 object shared.GenericAPIResponse "some internal error"
 // @Router /transaction/pool [get]
@@ -391,21 +402,18 @@ func TXMemPool(c *gin.Context) {
 			)
 			return
 		}
-		page = int(v)
-		if page < 0 {
-			page = 0
-		}
+		page = max(int(v), 0)
 	}
 
 	if data := values.Get("pageSize"); len(data) > 0 {
 		v, err := strconv.ParseInt(data, 10, 32)
 		if err != nil {
 			c.JSON(
-				http.StatusInternalServerError,
+				http.StatusBadRequest,
 				shared.GenericAPIResponse{
 					Data:  nil,
-					Error: fmt.Sprintf("%s: %s", errors.ErrGetTransaction.Error(), err.Error()),
-					Code:  shared.ReturnCodeInternalError,
+					Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), err.Error()),
+					Code:  shared.ReturnCodeRequestError,
 				},
 			)
 			return
@@ -432,25 +440,28 @@ func TXMemPool(c *gin.Context) {
 		return
 	}
 
-	list := make([]map[string]interface{}, 0)
+	transactions := make([]models.TransactionPoolItem, 0, len(txs))
 	for _, tx := range txs {
 		addr, _ := facade.EncodeAddressPubkey(tx.GetSender())
-		list = append(list, map[string]interface{}{
-			"hash":   tx.Hash,
-			"sender": addr,
-			"nonce":  tx.GetNonce(),
+		transactions = append(transactions, models.TransactionPoolItem{
+			Hash:   tx.Hash,
+			Sender: addr,
+			Nonce:  tx.GetNonce(),
 		})
 	}
 
-	data := gin.H{"transactions": list, "total": total, "page": page, "pageSize": pageSize}
-	if len(sender) > 0 {
-		data["sender"] = sender
+	response := &models.TransactionPoolResponse{
+		Transactions: transactions,
+		Total:        total,
+		Page:         page,
+		PageSize:     pageSize,
+		Sender:       sender,
 	}
 
 	c.JSON(
 		http.StatusOK,
 		shared.GenericAPIResponse{
-			Data:  data,
+			Data:  response,
 			Error: "",
 			Code:  shared.ReturnCodeSuccess,
 		},
@@ -462,7 +473,8 @@ func TXMemPool(c *gin.Context) {
 // @Accept  json
 // @Produce  json
 // @Param txhash path string true "txhash"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Param withResults query bool false "include execution results (default false)"
+// @Success 200 object shared.GenericAPIResponse{data=object{transaction=api.Transaction}} "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Failure 500 object shared.GenericAPIResponse "some internal error"
 // @Router /transaction/{txhash} [get]
@@ -526,8 +538,8 @@ func GetTransaction(c *gin.Context) {
 // @Tags Transaction
 // @Accept  json
 // @Produce  json
-// @Param data body transaction.Transaction true "body data"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Param transaction body transaction.Transaction true "body data"
+// @Success 200 object shared.GenericAPIResponse{data=transaction.FeesResponse} "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Failure 500 object shared.GenericAPIResponse "some internal error"
 // @Router /transaction/estimate-fee [post]
@@ -568,7 +580,7 @@ func EstimateTransactionFees(c *gin.Context) {
 
 	duration := time.Since(start)
 	if duration > 200*time.Millisecond {
-		log.Debug(fmt.Sprintf("API call: SimulateTransaction took %s", duration))
+		log.Debug(fmt.Sprintf("API call: EstimateTransactionFees took %s", duration))
 	}
 
 	c.JSON(
@@ -590,7 +602,15 @@ func getQueryParamWithResults(c *gin.Context) (bool, error) {
 	return strconv.ParseBool(withResultsStr)
 }
 
-// SimulateTransaction returns how many gas units a transaction wil consume
+// @Summary simulate transaction gas consumption
+// @Tags Transaction
+// @Accept  json
+// @Produce  json
+// @Param sendTXRequest body sendTXRequest true "body data"
+// @Success 200 object shared.GenericAPIResponse{data=models.SimulateTransactionResponse} "ok"
+// @Failure 400 object shared.GenericAPIResponse "some error"
+// @Router /transaction/simulate [post]
+// SimulateTransaction returns how many gas units a transaction will consume
 func SimulateTransaction(c *gin.Context) {
 	facade, ok := getFacade(c)
 	if !ok {
@@ -648,10 +668,15 @@ func SimulateTransaction(c *gin.Context) {
 		log.Debug(fmt.Sprintf("API call: SimulateTransaction took %s", duration))
 	}
 
+	response := &models.SimulateTransactionResponse{
+		BandwidthFee: tx.GetBandwidthFee(),
+		KappFee:      tx.GetKAppFee(),
+	}
+
 	c.JSON(
 		http.StatusOK,
 		shared.GenericAPIResponse{
-			Data:  gin.H{"bandwidthFee": tx.GetBandwidthFee(), "kappFee": tx.GetKAppFee()},
+			Data:  response,
 			Error: "",
 			Code:  shared.ReturnCodeSuccess,
 		},

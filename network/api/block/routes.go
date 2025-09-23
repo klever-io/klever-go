@@ -37,7 +37,7 @@ func Routes(routes *wrapper.RouterWrapper) {
 // @Tags Block
 // @Produce json
 // @Param nonce path string true "block nonce"
-// @Success 200 object api.Block "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{block=api.Block}} "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /block/by-nonce/{nonce} [get]
@@ -85,7 +85,7 @@ func getBlockByNonce(c *gin.Context) {
 // @Tags Block
 // @Produce json
 // @Param hash path string true "block hash"
-// @Success 200 object api.Block "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{block=api.Block}} "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /block/by-hash/{hash} [get]
@@ -106,7 +106,7 @@ func getBlockByHash(c *gin.Context) {
 	withTxs, err := getQueryParamWithTxs(c)
 	if err != nil {
 		shared.RespondWithValidationError(
-			c, fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), errors.ErrInvalidBlockNonce.Error()),
+			c, fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), errors.ErrInvalidQueryParameter.Error()),
 		)
 		return
 	}

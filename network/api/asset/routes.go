@@ -68,7 +68,7 @@ func getFacade(c *gin.Context) (FacadeHandler, bool) {
 // @Tags Asset
 // @Produce json
 // @Param id path string true "asset id"
-// @Success 200 object kapps.KDAData "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{asset=kapps.KDAData}} "ok"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /asset/{id} [get]
 // GetAsset returns an assetResponse containing information
@@ -114,7 +114,7 @@ type NFTAsset struct {
 // @Produce json
 // @Param owner path string true "asset owner"
 // @Param id path string true "asset id"
-// @Success 200 object NFTAsset "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{asset=NFTAsset}} "ok"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /asset/nft/{owner}/{id} [get]
 // GetNFT returns an nftAssetResponse containing information
@@ -160,9 +160,9 @@ func GetNFT(c *gin.Context) {
 // @Tags Asset
 // @Produce json
 // @Param id path string true "asset id"
-// @Success 200 object kdafeespool.KDAFeesPoolData "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{pool=kdafeespool.KDAFeesPoolData}} "ok"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
-// @Router /asset/{id}/pool [get]
+// @Router /asset/pool/{id} [get]
 // GetKDAFeePool returns an poolResponse containing information
 //
 //	about the kda fee pool of asset correlated with provided asset

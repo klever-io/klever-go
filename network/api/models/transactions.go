@@ -354,3 +354,38 @@ type SmartContractRequest struct {
 	Address   string           `form:"address" json:"address"`
 	CallValue map[string]int64 `form:"callValue" json:"callValue"`
 }
+
+// TransactionPoolItem -
+type TransactionPoolItem struct {
+	Hash   string `json:"hash"`
+	Sender string `json:"sender"`
+	Nonce  uint64 `json:"nonce"`
+}
+
+// TransactionPoolResponse -
+type TransactionPoolResponse struct {
+	Transactions []TransactionPoolItem `json:"transactions"`
+	Total        int                   `json:"total"`
+	Page         int                   `json:"page"`
+	PageSize     int                   `json:"pageSize"`
+	Sender       string                `json:"sender"`
+}
+
+// BroadcastTXResponse -
+type BroadcastTXResponse struct {
+	TxHash    string   `json:"txHash,omitempty"`
+	TxCount   int      `json:"txCount,omitempty"`
+	TxsHashes []string `json:"txsHashes,omitempty"`
+}
+
+// SimulateTransactionResponse -
+type SimulateTransactionResponse struct {
+	BandwidthFee int64 `json:"bandwidthFee"`
+	KappFee      int64 `json:"kappFee"`
+}
+
+// SendTXResponse -
+type SendTXResponse struct {
+	Result interface{} `json:"result"`
+	TxHash string      `json:"txHash"`
+}

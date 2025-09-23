@@ -68,12 +68,12 @@ func getFacade(c *gin.Context) (FacadeHandler, bool) {
 	return facade, true
 }
 
-// @Summary returns metrics related to the network configuration (shard independent)
+// @Summary returns metrics related to the network configuration
 // @Tags Network
 // @Produce json
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{config=object}} "ok"
 // @Router /network/config [get]
-// GetNetworkConfig returns metrics related to the network configuration (shard independent)
+// GetNetworkConfig returns metrics related to the network configuration
 func GetNetworkConfig(c *gin.Context) {
 	facade, ok := getFacade(c)
 	if !ok {
@@ -94,8 +94,8 @@ func GetNetworkConfig(c *gin.Context) {
 // @Summary returns metrics related to the network status (shard specific)
 // @Tags Network
 // @Produce json
-// @Success 200 object shared.GenericAPIResponse "ok"
-// @Router /network/status-parameters [get]
+// @Success 200 object shared.GenericAPIResponse{data=object{status=object}} "ok"
+// @Router /network/status [get]
 // GetNetworkStatus returns metrics related to the network status (shard specific)
 func GetNetworkStatus(c *gin.Context) {
 	facade, ok := getFacade(c)
@@ -117,7 +117,7 @@ func GetNetworkStatus(c *gin.Context) {
 // @Summary returns the active parameters of the proposal controller
 // @Tags Network
 // @Produce json
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{parameters=object}} "ok"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /network/network-parameters [get]
 // GetProposalParameters returns the active parameters of the proposal controller
@@ -128,15 +128,6 @@ func GetProposalParameters(c *gin.Context) {
 	}
 
 	proposalParameters, err := facade.GetProposalParameters()
-
-	parameterResp := make(map[int32]*parameterResponse, 0)
-	for i, parameter := range proposalParameters {
-		parameterResp[i] = &parameterResponse{
-			Type:  parameter.Type.Enum().String(),
-			Value: string(parameter.Value),
-		}
-	}
-
 	if err != nil {
 		c.JSON(
 			http.StatusInternalServerError,
@@ -147,6 +138,14 @@ func GetProposalParameters(c *gin.Context) {
 			},
 		)
 		return
+	}
+
+	parameterResp := make(map[int32]*parameterResponse, len(proposalParameters))
+	for i, parameter := range proposalParameters {
+		parameterResp[i] = &parameterResponse{
+			Type:  parameter.Type.Enum().String(),
+			Value: string(parameter.Value),
+		}
 	}
 
 	c.JSON(

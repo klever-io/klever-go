@@ -12,6 +12,7 @@ import (
 	"github.com/klever-io/klever-go/network/api/address"
 	"github.com/klever-io/klever-go/network/api/middleware"
 	"github.com/klever-io/klever-go/network/api/mock"
+	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/network/api/wrapper"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
@@ -57,8 +58,8 @@ func TestSourceThrottler_LimitBadRequestShouldErr(t *testing.T) {
 	t.Parallel()
 	addr := "testAddress"
 	facade := mock.Facade{
-		BalanceHandler: func(s string, b string) (value int64, e error) {
-			return 10, nil
+		BalanceHandler: func(s string, b string) (*models.BalanceResponse, error) {
+			return &models.BalanceResponse{Balance: 10}, nil
 		},
 	}
 
@@ -77,8 +78,8 @@ func TestSourceThrottler_LimitUnderShouldProcessRequest(t *testing.T) {
 	t.Parallel()
 	addr := "testAddress"
 	facade := mock.Facade{
-		BalanceHandler: func(s string, b string) (value int64, e error) {
-			return 10, nil
+		BalanceHandler: func(s string, b string) (*models.BalanceResponse, error) {
+			return &models.BalanceResponse{Balance: 10}, nil
 		},
 	}
 
@@ -97,8 +98,8 @@ func TestSourceThrottler_LimitOverShouldErr(t *testing.T) {
 	t.Parallel()
 
 	facade := mock.Facade{
-		BalanceHandler: func(s string, b string) (value int64, e error) {
-			return 10, nil
+		BalanceHandler: func(s string, b string) (*models.BalanceResponse, error) {
+			return &models.BalanceResponse{Balance: 10}, nil
 		},
 	}
 
@@ -122,8 +123,8 @@ func TestSourceThrottler_LimitResetShouldWork(t *testing.T) {
 	t.Parallel()
 
 	facade := mock.Facade{
-		BalanceHandler: func(s string, b string) (value int64, e error) {
-			return 10, nil
+		BalanceHandler: func(s string, b string) (*models.BalanceResponse, error) {
+			return &models.BalanceResponse{Balance: 10}, nil
 		},
 	}
 

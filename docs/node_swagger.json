@@ -29,7 +29,24 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "account": {
+                                                    "$ref": "#/definitions/data.AccountInfo"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "500": {
@@ -49,7 +66,7 @@
                 "tags": [
                     "Address"
                 ],
-                "summary": "returns the rewards available for a specific list of asset in an account",
+                "summary": "returns the rewards available for a specific asset in an account",
                 "parameters": [
                     {
                         "type": "string",
@@ -70,7 +87,78 @@
                     "200": {
                         "description": "ok",
                         "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/models.AvailableClaimResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
                             "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/address/{address}/allowance/list": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Address"
+                ],
+                "summary": "returns the rewards available for a specific list of asset in an account",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "address",
+                        "name": "address",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "assets (comma-separated asset IDs), e.g. KLV,KFI",
+                        "name": "asset",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/models.AvailableClaimListResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -104,13 +192,32 @@
                         "name": "address",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "default": "KLV",
+                        "description": "asset",
+                        "name": "asset",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/models.BalanceResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -157,7 +264,19 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/models.KDAResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -197,7 +316,19 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/models.AccountNonceResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "500": {
@@ -238,7 +369,75 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/asset.NFTAsset"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "asset": {
+                                                    "$ref": "#/definitions/asset.NFTAsset"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/asset/pool/{id}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Asset"
+                ],
+                "summary": "returns an poolResponse containing information about the asset pool",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "asset id",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "pool": {
+                                                    "$ref": "#/definitions/kdafeespool.KDAFeesPoolData"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "500": {
@@ -272,41 +471,24 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/kapps.KDAData"
-                        }
-                    },
-                    "500": {
-                        "description": "internal error",
-                        "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/asset/{id}/pool": {
-            "get": {
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Asset"
-                ],
-                "summary": "returns an poolResponse containing information about the asset pool",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "asset id",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "ok",
-                        "schema": {
-                            "$ref": "#/definitions/kdafeespool.KDAFeesPoolData"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "asset": {
+                                                    "$ref": "#/definitions/kapps.KDAData"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "500": {
@@ -340,7 +522,24 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/api.Block"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "block": {
+                                                    "$ref": "#/definitions/api.Block"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -380,7 +579,24 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/api.Block"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "block": {
+                                                    "$ref": "#/definitions/api.Block"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -420,7 +636,24 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "marketplace": {
+                                                    "$ref": "#/definitions/api.Marketplace"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "500": {
@@ -440,12 +673,29 @@
                 "tags": [
                     "Network"
                 ],
-                "summary": "returns metrics related to the network configuration (shard independent)",
+                "summary": "returns metrics related to the network configuration",
                 "responses": {
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "config": {
+                                                    "type": "object"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -464,7 +714,24 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "parameters": {
+                                                    "type": "object"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "500": {
@@ -476,7 +743,7 @@
                 }
             }
         },
-        "/network/status-parameters": {
+        "/network/status": {
             "get": {
                 "produces": [
                     "application/json"
@@ -489,7 +756,24 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "status": {
+                                                    "type": "object"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -547,6 +831,29 @@
                     "200": {
                         "description": "ok",
                         "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "config": {
+                                                    "$ref": "#/definitions/config.EnableEpochsConfig"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
                             "$ref": "#/definitions/shared.GenericAPIResponse"
                         }
                     }
@@ -566,13 +873,49 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "heartbeats": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "$ref": "#/definitions/data.PubKeyHeartbeat"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "500": {
                         "description": "internal error",
                         "schema": {
                             "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/node/metrics": {
+            "get": {
+                "tags": [
+                    "Node"
+                ],
+                "summary": "return the data in the way that prometheus expects them",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "string"
                         }
                     }
                 }
@@ -591,7 +934,19 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/node.NodeOverviewResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -599,15 +954,35 @@
         },
         "/node/p2pstatus": {
             "get": {
+                "produces": [
+                    "application/json"
+                ],
                 "tags": [
                     "Node"
                 ],
-                "summary": "return the data in the way that prometheus expects them",
+                "summary": "returns the node's p2p statistics exported by a StatusMetricsHandler",
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "ok",
                         "schema": {
-                            "type": "string"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "metrics": {
+                                                    "type": "object"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -626,7 +1001,27 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "info": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "$ref": "#/definitions/core.QueryP2PPeerInfo"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "500": {
@@ -653,6 +1048,18 @@
                         "schema": {
                             "$ref": "#/definitions/shared.GenericAPIResponse"
                         }
+                    },
+                    "400": {
+                        "description": "bad request",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
                     }
                 }
             }
@@ -670,7 +1077,24 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "statistics": {
+                                                    "$ref": "#/definitions/node.statisticsResponse"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -689,7 +1113,24 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "metrics": {
+                                                    "type": "object"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -710,7 +1151,7 @@
                 "parameters": [
                     {
                         "description": "body data",
-                        "name": "data",
+                        "name": "BroadcastTXRequest",
                         "in": "body",
                         "required": true,
                         "schema": {
@@ -722,7 +1163,19 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/models.BroadcastTXResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -749,7 +1202,7 @@
                 "parameters": [
                     {
                         "description": "body data",
-                        "name": "data",
+                        "name": "transaction",
                         "in": "body",
                         "required": true,
                         "schema": {
@@ -761,7 +1214,24 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "tx": {
+                                                    "$ref": "#/definitions/data.Transaction"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -788,7 +1258,7 @@
                 "parameters": [
                     {
                         "description": "body data",
-                        "name": "data",
+                        "name": "transaction",
                         "in": "body",
                         "required": true,
                         "schema": {
@@ -800,7 +1270,19 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/transaction.FeesResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -833,31 +1315,40 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "sender",
+                        "description": "sender (optional)",
                         "name": "sender",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     },
                     {
                         "type": "integer",
                         "description": "page",
                         "name": "page",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     },
                     {
                         "type": "integer",
                         "description": "page size",
                         "name": "pageSize",
-                        "in": "query",
-                        "required": true
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/models.TransactionPoolResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -890,7 +1381,7 @@
                 "parameters": [
                     {
                         "description": "body data",
-                        "name": "data",
+                        "name": "sendTXRequest",
                         "in": "body",
                         "required": true,
                         "schema": {
@@ -902,7 +1393,70 @@
                     "200": {
                         "description": "ok",
                         "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/models.SendTXResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "some error",
+                        "schema": {
                             "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/transaction/simulate": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transaction"
+                ],
+                "summary": "simulate transaction gas consumption",
+                "parameters": [
+                    {
+                        "description": "body data",
+                        "name": "sendTXRequest",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/transaction.sendTXRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/models.SimulateTransactionResponse"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -933,13 +1487,36 @@
                         "name": "txhash",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "include execution results (default false)",
+                        "name": "withResults",
+                        "in": "query"
                     }
                 ],
                 "responses": {
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "transaction": {
+                                                    "$ref": "#/definitions/api.Transaction"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -970,7 +1547,27 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "peers": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "$ref": "#/definitions/state.PeerAccountData"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -995,7 +1592,27 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "statistics": {
+                                                    "type": "object",
+                                                    "additionalProperties": {
+                                                        "$ref": "#/definitions/state.ValidatorApiResponse"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -1030,6 +1647,29 @@
                 "responses": {
                     "200": {
                         "description": "ok",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "data": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "bad request",
                         "schema": {
                             "$ref": "#/definitions/shared.GenericAPIResponse"
                         }
@@ -1067,6 +1707,29 @@
                     "200": {
                         "description": "ok",
                         "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "data": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "bad request",
+                        "schema": {
                             "$ref": "#/definitions/shared.GenericAPIResponse"
                         }
                     },
@@ -1087,7 +1750,7 @@
                 "tags": [
                     "VM"
                 ],
-                "summary": "returns the data as string",
+                "summary": "returns the VM output of a smart contract query",
                 "parameters": [
                     {
                         "description": "vm request data",
@@ -1103,7 +1766,24 @@
                     "200": {
                         "description": "ok",
                         "schema": {
-                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "data": {
+                                                    "$ref": "#/definitions/vm.VMOutputApi"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "500": {
@@ -1138,6 +1818,29 @@
                 "responses": {
                     "200": {
                         "description": "ok",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "data": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "bad request",
                         "schema": {
                             "$ref": "#/definitions/shared.GenericAPIResponse"
                         }
@@ -1198,7 +1901,8 @@
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "integer"
+                            "type": "integer",
+                            "format": "int32"
                         }
                     }
                 },
@@ -1256,6 +1960,26 @@
                 }
             }
         },
+        "api.Marketplace": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "ownerAddress": {
+                    "type": "string"
+                },
+                "referralAddress": {
+                    "type": "string"
+                },
+                "referralPercentage": {
+                    "type": "integer"
+                }
+            }
+        },
         "api.Transaction": {
             "type": "object",
             "properties": {
@@ -1288,7 +2012,8 @@
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "integer"
+                            "type": "integer",
+                            "format": "int32"
                         }
                     }
                 },
@@ -1395,6 +2120,9 @@
                 }
             }
         },
+        "big.Int": {
+            "type": "object"
+        },
         "block.BlockHeader": {
             "type": "object",
             "properties": {
@@ -1496,6 +2224,387 @@
                     "items": {
                         "type": "integer"
                     }
+                }
+            }
+        },
+        "config.EnableEpochs": {
+            "type": "object",
+            "properties": {
+                "bigBucketsCompute": {
+                    "type": "integer"
+                },
+                "claimKFI": {
+                    "type": "integer"
+                },
+                "fixAuditChanges": {
+                    "type": "integer"
+                },
+                "fixDelegationSameEpoch": {
+                    "type": "integer"
+                },
+                "fixStakingBuckets": {
+                    "type": "integer"
+                },
+                "fprcomputeAndKdaFeeFlow": {
+                    "type": "integer"
+                },
+                "kdaFpr": {
+                    "type": "integer"
+                },
+                "processorFlowITOPrice": {
+                    "type": "integer"
+                },
+                "smartContracts": {
+                    "type": "integer"
+                }
+            }
+        },
+        "config.EnableEpochsConfig": {
+            "type": "object",
+            "properties": {
+                "enableEpochs": {
+                    "$ref": "#/definitions/config.EnableEpochs"
+                },
+                "gasSchedule": {
+                    "$ref": "#/definitions/config.GasScheduleConfig"
+                },
+                "maxNodesChangeEnableEpoch": {
+                    "description": "Shuffler",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/config.MaxNodesChangeConfig"
+                    }
+                }
+            }
+        },
+        "config.GasScheduleByEpochs": {
+            "type": "object",
+            "properties": {
+                "fileName": {
+                    "type": "string"
+                },
+                "startEpoch": {
+                    "type": "integer"
+                }
+            }
+        },
+        "config.GasScheduleConfig": {
+            "type": "object",
+            "properties": {
+                "gasScheduleByEpochs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/config.GasScheduleByEpochs"
+                    }
+                }
+            }
+        },
+        "config.MaxNodesChangeConfig": {
+            "type": "object",
+            "properties": {
+                "epochEnable": {
+                    "type": "integer"
+                },
+                "nodesToShuffle": {
+                    "type": "integer"
+                }
+            }
+        },
+        "core.QueryP2PPeerInfo": {
+            "type": "object",
+            "properties": {
+                "addresses": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "isblacklisted": {
+                    "type": "boolean"
+                },
+                "peertype": {
+                    "type": "string"
+                },
+                "pid": {
+                    "type": "string"
+                },
+                "pk": {
+                    "type": "string"
+                }
+            }
+        },
+        "data.AccountInfo": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "allowance": {
+                    "type": "integer"
+                },
+                "balance": {
+                    "type": "integer"
+                },
+                "codeHash": {
+                    "type": "string"
+                },
+                "codeMetadata": {
+                    "type": "string"
+                },
+                "foundation": {
+                    "type": "boolean"
+                },
+                "frozenBalance": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "nonce": {
+                    "type": "integer"
+                },
+                "permissions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/data.Permissions"
+                    }
+                },
+                "rootHash": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "$ref": "#/definitions/time.Duration"
+                },
+                "unfrozenBalance": {
+                    "type": "integer"
+                }
+            }
+        },
+        "data.Event": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "identifier": {
+                    "type": "string"
+                },
+                "order": {
+                    "type": "integer"
+                },
+                "topics": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "data.KDAFee": {
+            "type": "object",
+            "properties": {
+                "amount": {
+                    "type": "integer"
+                },
+                "kda": {
+                    "type": "string"
+                }
+            }
+        },
+        "data.Logs": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "contractId": {
+                    "type": "integer"
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/data.Event"
+                    }
+                },
+                "timestamp": {
+                    "$ref": "#/definitions/time.Duration"
+                }
+            }
+        },
+        "data.PermissionKey": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "integer"
+                }
+            }
+        },
+        "data.Permissions": {
+            "type": "object",
+            "properties": {
+                "Threshold": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "operations": {
+                    "type": "string"
+                },
+                "permissionName": {
+                    "type": "string"
+                },
+                "signers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/data.PermissionKey"
+                    }
+                },
+                "type": {
+                    "type": "integer"
+                }
+            }
+        },
+        "data.PubKeyHeartbeat": {
+            "type": "object",
+            "properties": {
+                "identity": {
+                    "type": "string"
+                },
+                "isActive": {
+                    "type": "boolean"
+                },
+                "maxInactiveTime": {
+                    "type": "string"
+                },
+                "nodeDisplayName": {
+                    "type": "string"
+                },
+                "nonce": {
+                    "type": "integer"
+                },
+                "numInstances": {
+                    "type": "integer"
+                },
+                "peerType": {
+                    "type": "string"
+                },
+                "publicKey": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "totalDownTimeSec": {
+                    "type": "integer"
+                },
+                "totalUpTimeSec": {
+                    "type": "integer"
+                },
+                "versionNumber": {
+                    "type": "string"
+                }
+            }
+        },
+        "data.TXContract": {
+            "type": "object",
+            "properties": {
+                "parameter": {},
+                "type": {
+                    "$ref": "#/definitions/transaction.TXContract_ContractType"
+                },
+                "typeString": {
+                    "type": "string"
+                }
+            }
+        },
+        "data.Transaction": {
+            "type": "object",
+            "properties": {
+                "bandwidthFee": {
+                    "type": "integer"
+                },
+                "blockNum": {
+                    "type": "integer"
+                },
+                "chainID": {
+                    "type": "string"
+                },
+                "contract": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/data.TXContract"
+                    }
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "hasLogs": {
+                    "type": "boolean"
+                },
+                "hasOperations": {
+                    "type": "boolean"
+                },
+                "hash": {
+                    "type": "string"
+                },
+                "kAppFee": {
+                    "type": "integer"
+                },
+                "kdaFee": {
+                    "$ref": "#/definitions/data.KDAFee"
+                },
+                "logs": {
+                    "$ref": "#/definitions/data.Logs"
+                },
+                "nonce": {
+                    "type": "integer"
+                },
+                "permissionID": {
+                    "type": "integer"
+                },
+                "receipts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                    }
+                },
+                "resultCode": {
+                    "type": "string"
+                },
+                "searchOrder": {
+                    "type": "integer"
+                },
+                "sender": {
+                    "type": "string"
+                },
+                "signature": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "status": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "$ref": "#/definitions/time.Duration"
+                },
+                "version": {
+                    "type": "integer"
                 }
             }
         },
@@ -1601,6 +2710,7 @@
         },
         "kapps.KDAData_EnumAssetType": {
             "type": "integer",
+            "format": "int32",
             "enum": [
                 0,
                 1,
@@ -1843,6 +2953,191 @@
                 }
             }
         },
+        "models.AccountNonceResponse": {
+            "type": "object",
+            "properties": {
+                "firstPendingNonce": {
+                    "type": "integer"
+                },
+                "nonce": {
+                    "type": "integer"
+                },
+                "txPending": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.AvailableClaimListResponse": {
+            "type": "object",
+            "properties": {
+                "assets": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/models.AvailableClaimResponse"
+                    }
+                }
+            }
+        },
+        "models.AvailableClaimResponse": {
+            "type": "object",
+            "properties": {
+                "allStakingRewards": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "allowance": {
+                    "type": "integer"
+                },
+                "stakingRewards": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.BalanceResponse": {
+            "type": "object",
+            "properties": {
+                "balance": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.BroadcastTXResponse": {
+            "type": "object",
+            "properties": {
+                "txCount": {
+                    "type": "integer"
+                },
+                "txHash": {
+                    "type": "string"
+                },
+                "txsHashes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "models.KDAResponse": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "asset": {
+                    "type": "string"
+                },
+                "userKDA": {
+                    "$ref": "#/definitions/kapps.UserKDA"
+                }
+            }
+        },
+        "models.NodeOverview": {
+            "type": "object",
+            "properties": {
+                "baseTxSize": {
+                    "type": "integer"
+                },
+                "chainID": {
+                    "type": "string"
+                },
+                "currentSlot": {
+                    "type": "integer"
+                },
+                "epochNumber": {
+                    "type": "integer"
+                },
+                "nonce": {
+                    "type": "integer"
+                },
+                "nonceAtEpochStart": {
+                    "type": "integer"
+                },
+                "slotAtEpochStart": {
+                    "type": "integer"
+                },
+                "slotCurrentTimestamp": {
+                    "type": "integer"
+                },
+                "slotDuration": {
+                    "type": "integer"
+                },
+                "slotsPerEpoch": {
+                    "type": "integer"
+                },
+                "startTime": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.SendTXResponse": {
+            "type": "object",
+            "properties": {
+                "result": {},
+                "txHash": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.SimulateTransactionResponse": {
+            "type": "object",
+            "properties": {
+                "bandwidthFee": {
+                    "type": "integer"
+                },
+                "kappFee": {
+                    "type": "integer"
+                }
+            }
+        },
+        "models.TransactionPoolItem": {
+            "type": "object",
+            "properties": {
+                "hash": {
+                    "type": "string"
+                },
+                "nonce": {
+                    "type": "integer"
+                },
+                "sender": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.TransactionPoolResponse": {
+            "type": "object",
+            "properties": {
+                "page": {
+                    "type": "integer"
+                },
+                "pageSize": {
+                    "type": "integer"
+                },
+                "sender": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "transactions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.TransactionPoolItem"
+                    }
+                }
+            }
+        },
+        "node.NodeOverviewResponse": {
+            "type": "object",
+            "properties": {
+                "overview": {
+                    "$ref": "#/definitions/models.NodeOverview"
+                }
+            }
+        },
         "node.QueryDebugRequest": {
             "type": "object",
             "properties": {
@@ -1850,6 +3145,38 @@
                     "type": "string"
                 },
                 "search": {
+                    "type": "string"
+                }
+            }
+        },
+        "node.statisticsResponse": {
+            "type": "object",
+            "properties": {
+                "averageBlockTxCount": {
+                    "type": "string"
+                },
+                "averageTPS": {
+                    "type": "string"
+                },
+                "blockNumber": {
+                    "type": "integer"
+                },
+                "currentBlockTxCount": {
+                    "type": "integer"
+                },
+                "liveTPS": {
+                    "type": "number"
+                },
+                "peakTPS": {
+                    "type": "number"
+                },
+                "slotNumber": {
+                    "type": "integer"
+                },
+                "slotTime": {
+                    "type": "integer"
+                },
+                "totalProcessedTxCount": {
                     "type": "string"
                 }
             }
@@ -1881,6 +3208,181 @@
                 "ReturnCodeSystemBusy"
             ]
         },
+        "state.List": {
+            "type": "integer",
+            "format": "int32",
+            "enum": [
+                0,
+                1,
+                2,
+                3,
+                4,
+                5,
+                6
+            ],
+            "x-enum-varnames": [
+                "List_inactive",
+                "List_observer",
+                "List_waiting",
+                "List_eligible",
+                "List_elected",
+                "List_leaving",
+                "List_jailed"
+            ]
+        },
+        "state.PeerAccountData": {
+            "type": "object",
+            "properties": {
+                "AccumulatedFees": {
+                    "type": "integer"
+                },
+                "BLSPublicKey": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "ConsecutiveProposerMisses": {
+                    "type": "integer"
+                },
+                "Index": {
+                    "type": "integer"
+                },
+                "LeaderSuccessRate": {
+                    "$ref": "#/definitions/state.SignRate"
+                },
+                "List": {
+                    "$ref": "#/definitions/state.List"
+                },
+                "NumSelectedInSuccessBlocks": {
+                    "type": "integer"
+                },
+                "OwnerAddress": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "Rating": {
+                    "type": "integer"
+                },
+                "Revoked": {
+                    "type": "boolean"
+                },
+                "RootHash": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "ShardId": {
+                    "type": "integer"
+                },
+                "TempRating": {
+                    "type": "integer"
+                },
+                "TotalLeaderSuccessRate": {
+                    "$ref": "#/definitions/state.SignRate"
+                },
+                "TotalValidatorIgnoredSignaturesRate": {
+                    "type": "integer"
+                },
+                "TotalValidatorSuccessRate": {
+                    "$ref": "#/definitions/state.SignRate"
+                },
+                "ValidatorIgnoredSignaturesRate": {
+                    "type": "integer"
+                },
+                "ValidatorSuccessRate": {
+                    "$ref": "#/definitions/state.SignRate"
+                }
+            }
+        },
+        "state.SignRate": {
+            "type": "object",
+            "properties": {
+                "NumFailure": {
+                    "type": "integer"
+                },
+                "NumSuccess": {
+                    "type": "integer"
+                }
+            }
+        },
+        "state.ValidatorApiResponse": {
+            "type": "object",
+            "properties": {
+                "NumLeaderFailure": {
+                    "type": "integer"
+                },
+                "NumLeaderSuccess": {
+                    "type": "integer"
+                },
+                "NumValidatorFailure": {
+                    "type": "integer"
+                },
+                "NumValidatorIgnoredSignatures": {
+                    "type": "integer"
+                },
+                "NumValidatorSuccess": {
+                    "type": "integer"
+                },
+                "Rating": {
+                    "type": "number"
+                },
+                "RatingModifier": {
+                    "type": "number"
+                },
+                "Revoked": {
+                    "type": "boolean"
+                },
+                "TempRating": {
+                    "type": "number"
+                },
+                "TotalNumLeaderFailure": {
+                    "type": "integer"
+                },
+                "TotalNumLeaderSuccess": {
+                    "type": "integer"
+                },
+                "TotalNumValidatorFailure": {
+                    "type": "integer"
+                },
+                "TotalNumValidatorIgnoredSignatures": {
+                    "type": "integer"
+                },
+                "TotalNumValidatorSuccess": {
+                    "type": "integer"
+                },
+                "ValidatorStatus": {
+                    "type": "string"
+                }
+            }
+        },
+        "time.Duration": {
+            "type": "integer",
+            "format": "int64",
+            "enum": [
+                -9223372036854775808,
+                9223372036854775807,
+                1,
+                1000,
+                1000000,
+                1000000000,
+                60000000000,
+                3600000000000
+            ],
+            "x-enum-varnames": [
+                "minDuration",
+                "maxDuration",
+                "Nanosecond",
+                "Microsecond",
+                "Millisecond",
+                "Second",
+                "Minute",
+                "Hour"
+            ]
+        },
         "transaction.BroadcastTXRequest": {
             "type": "object",
             "properties": {
@@ -1892,6 +3394,32 @@
                     "items": {
                         "$ref": "#/definitions/transaction.Transaction"
                     }
+                }
+            }
+        },
+        "transaction.FeesResponse": {
+            "type": "object",
+            "properties": {
+                "bandwidthFee": {
+                    "type": "integer"
+                },
+                "gasEstimated": {
+                    "type": "integer"
+                },
+                "gasMultiplier": {
+                    "type": "integer"
+                },
+                "kAppFee": {
+                    "type": "integer"
+                },
+                "kdaFee": {
+                    "$ref": "#/definitions/transaction.Transaction_KDAFee"
+                },
+                "returnMessage": {
+                    "type": "string"
+                },
+                "safetyMargin": {
+                    "type": "integer"
                 }
             }
         },
@@ -1908,6 +3436,7 @@
         },
         "transaction.TXContract_ContractType": {
             "type": "integer",
+            "format": "int32",
             "enum": [
                 0,
                 1,
@@ -1997,7 +3526,8 @@
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "integer"
+                            "type": "integer",
+                            "format": "int32"
                         }
                     }
                 }
@@ -2041,7 +3571,8 @@
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "integer"
+                            "type": "integer",
+                            "format": "int32"
                         }
                     }
                 },
@@ -2076,7 +3607,8 @@
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "integer"
+                            "type": "integer",
+                            "format": "int32"
                         }
                     }
                 }
@@ -2084,6 +3616,7 @@
         },
         "transaction.Transaction_TXResult": {
             "type": "integer",
+            "format": "int32",
             "enum": [
                 0,
                 1
@@ -2095,6 +3628,7 @@
         },
         "transaction.Transaction_TXResultCode": {
             "type": "integer",
+            "format": "int32",
             "enum": [
                 0,
                 1,
@@ -2257,7 +3791,8 @@
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "integer"
+                            "type": "integer",
+                            "format": "int32"
                         }
                     }
                 },
@@ -2275,6 +3810,188 @@
                 },
                 "type": {
                     "type": "integer"
+                }
+            }
+        },
+        "vm.CallType": {
+            "type": "integer",
+            "enum": [
+                0,
+                1,
+                2
+            ],
+            "x-enum-varnames": [
+                "DirectCall",
+                "KDATransferAndExecute",
+                "ExecOnDestByCaller"
+            ]
+        },
+        "vm.KDATransferApi": {
+            "type": "object",
+            "properties": {
+                "tokenName": {
+                    "type": "string"
+                },
+                "tokenNonce": {
+                    "type": "integer"
+                },
+                "tokenType": {
+                    "type": "integer"
+                },
+                "value": {
+                    "$ref": "#/definitions/big.Int"
+                }
+            }
+        },
+        "vm.LogEntryApi": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer",
+                            "format": "int32"
+                        }
+                    }
+                },
+                "identifier": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "topics": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer",
+                            "format": "int32"
+                        }
+                    }
+                }
+            }
+        },
+        "vm.OutputAccountApi": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "callType": {
+                    "$ref": "#/definitions/vm.CallType"
+                },
+                "code": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "codeMetaData": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "outputTransfers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/vm.OutputTransferApi"
+                    }
+                },
+                "storageUpdates": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/vm.StorageUpdateApi"
+                    }
+                }
+            }
+        },
+        "vm.OutputTransferApi": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "receiver": {
+                    "type": "string"
+                },
+                "senderAddress": {
+                    "type": "string"
+                },
+                "tokenInfo": {
+                    "$ref": "#/definitions/vm.KDATransferApi"
+                }
+            }
+        },
+        "vm.StorageUpdateApi": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "offset": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "vm.VMOutputApi": {
+            "type": "object",
+            "properties": {
+                "deletedAccounts": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer",
+                            "format": "int32"
+                        }
+                    }
+                },
+                "gasRemaining": {
+                    "type": "integer"
+                },
+                "logs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/vm.LogEntryApi"
+                    }
+                },
+                "outputAccounts": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/vm.OutputAccountApi"
+                    }
+                },
+                "returnCode": {
+                    "type": "string"
+                },
+                "returnData": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer",
+                            "format": "int32"
+                        }
+                    }
+                },
+                "returnMessage": {
+                    "type": "string"
                 }
             }
         },
@@ -2305,7 +4022,8 @@
                 "value": {
                     "type": "object",
                     "additionalProperties": {
-                        "type": "integer"
+                        "type": "integer",
+                        "format": "int64"
                     }
                 }
             }

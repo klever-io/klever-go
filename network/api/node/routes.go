@@ -10,6 +10,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/statistics"
 	"github.com/klever-io/klever-go/network/api/errors"
+	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/network/api/shared"
 	"github.com/klever-io/klever-go/network/api/wrapper"
 	"github.com/klever-io/klever-go/node/heartbeat/data"
@@ -49,6 +50,7 @@ type FacadeHandler interface {
 	SetRedundancy(level int64) error
 	GetRedundancy() int64
 	GetEnableEpochs() (config.EnableEpochsConfig, error)
+	GetNodeOverview() (models.NodeOverview, error)
 	IsInterfaceNil() bool
 }
 
@@ -58,15 +60,20 @@ type QueryDebugRequest struct {
 	Search string `form:"search" json:"search"`
 }
 
+// NodeOverviewResponse -
+type NodeOverviewResponse struct {
+	Overview models.NodeOverview `json:"overview"`
+}
+
 type statisticsResponse struct {
 	LiveTPS               float64  `json:"liveTPS"`
-	AverageTPS            *big.Int `json:"averageTPS"`
+	AverageTPS            *big.Int `json:"averageTPS" swaggertype:"string"`
 	PeakTPS               float64  `json:"peakTPS"`
 	BlockNumber           uint64   `json:"blockNumber"`
 	SlotNumber            uint64   `json:"slotNumber"`
 	SlotTime              uint64   `json:"slotTime"`
-	AverageBlockTxCount   *big.Int `json:"averageBlockTxCount"`
-	TotalProcessedTxCount *big.Int `json:"totalProcessedTxCount"`
+	AverageBlockTxCount   *big.Int `json:"averageBlockTxCount" swaggertype:"string"`
+	TotalProcessedTxCount *big.Int `json:"totalProcessedTxCount" swaggertype:"string"`
 	CurrentBlockTxCount   uint32   `json:"currentBlockTxCount"`
 }
 
@@ -118,7 +125,7 @@ func getFacade(c *gin.Context) (FacadeHandler, bool) {
 // @Summary respond with the heartbeat status of the node
 // @Tags Node
 // @Produce  json
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{heartbeats=[]data.PubKeyHeartbeat}} "ok"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /node/heartbeatstatus [get]
 // HeartbeatStatus respond with the heartbeat status of the node
@@ -154,7 +161,7 @@ func HeartbeatStatus(c *gin.Context) {
 // @Summary returns the blockchain statistics
 // @Tags Node
 // @Produce  json
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{statistics=statisticsResponse}} "ok"
 // @Router /node/statistics [get]
 // Statistics returns the blockchain statistics
 func Statistics(c *gin.Context) {
@@ -176,7 +183,7 @@ func Statistics(c *gin.Context) {
 // @Summary returns the node statistics exported by an StatusMetricsHandler without p2p statistics
 // @Tags Node
 // @Produce json
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{metrics=object}} "ok"
 // @Router /node/status [get]
 // StatusMetrics returns the node statistics exported by an StatusMetricsHandler without p2p statistics
 func StatusMetrics(c *gin.Context) {
@@ -204,7 +211,7 @@ func StatusMetrics(c *gin.Context) {
 // @Summary returns the node's p2p statistics exported by a StatusMetricsHandler
 // @Tags Node
 // @Produce json
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{metrics=object}} "ok"
 // @Router /node/p2pstatus [get]
 // P2pStatusMetrics returns the node's p2p statistics exported by a StatusMetricsHandler
 func P2pStatusMetrics(c *gin.Context) {
@@ -297,7 +304,7 @@ func QueryDebug(c *gin.Context) {
 // @Summary returns the information of a provided p2p peer ID
 // @Tags Node
 // @Produce json
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{info=[]core.QueryP2PPeerInfo}} "ok"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /node/peerinfo [get]
 // PeerInfo returns the information of a provided p2p peer ID
@@ -340,7 +347,7 @@ func PeerInfo(c *gin.Context) {
 // @Summary return the data in the way that prometheus expects them
 // @Tags Node
 // @Success 200 {string} ok
-// @Router /node/p2pstatus [get]
+// @Router /node/metrics [get]
 // PrometheusMetrics is the endpoint which will return the data in the way that prometheus expects them
 func PrometheusMetrics(c *gin.Context) {
 	facade, ok := getFacade(c)
@@ -358,7 +365,7 @@ func PrometheusMetrics(c *gin.Context) {
 // @Summary returns a node overview
 // @Tags Node
 // @Produce json
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=NodeOverviewResponse} "ok"
 // @Router /node/overview [get]
 // Overview is the endpoint which will return the node overview in JSON format
 func overview(c *gin.Context) {
@@ -367,12 +374,27 @@ func overview(c *gin.Context) {
 		return
 	}
 
-	metrics := facade.StatusMetrics().Overview()
+	overview, err := facade.GetNodeOverview()
+	if err != nil {
+		c.JSON(
+			http.StatusInternalServerError,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: fmt.Sprintf("failed to get node overview: %s", err.Error()),
+				Code:  shared.ReturnCodeInternalError,
+			},
+		)
+		return
+	}
+
+	response := &NodeOverviewResponse{
+		Overview: overview,
+	}
 
 	c.JSON(
 		http.StatusOK,
 		shared.GenericAPIResponse{
-			Data:  gin.H{"overview": metrics},
+			Data:  response,
 			Error: "",
 			Code:  shared.ReturnCodeSuccess,
 		},
@@ -383,6 +405,8 @@ func overview(c *gin.Context) {
 // @Tags Node
 // @Produce json
 // @Success 200 object shared.GenericAPIResponse "ok"
+// @Failure 400 object shared.GenericAPIResponse "bad request"
+// @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /node/set-redundancy [post]
 // setRedundancy is the endpoint which will return the node overview in JSON format
 func setRedundancy(c *gin.Context) {
@@ -433,7 +457,8 @@ func setRedundancy(c *gin.Context) {
 // @Summary get node enable epochs configuration
 // @Tags Node
 // @Produce json
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{config=config.EnableEpochsConfig}} "ok"
+// @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /node/enable-epochs [get]
 // getEnableEpochs is the endpoint which will return the node enable epochs configuration in JSON format
 func getEnableEpochs(c *gin.Context) {

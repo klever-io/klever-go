@@ -58,6 +58,7 @@ definitions:
       TxHashes:
         items:
           items:
+            format: int32
             type: integer
           type: array
         type: array
@@ -96,6 +97,19 @@ definitions:
           $ref: '#/definitions/api.Events'
         type: array
     type: object
+  api.Marketplace:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      ownerAddress:
+        type: string
+      referralAddress:
+        type: string
+      referralPercentage:
+        type: integer
+    type: object
   api.Transaction:
     properties:
       Block:
@@ -117,6 +131,7 @@ definitions:
       Signature:
         items:
           items:
+            format: int32
             type: integer
           type: array
         type: array
@@ -188,6 +203,8 @@ definitions:
       userKDA:
         $ref: '#/definitions/kapps.UserKDA'
     type: object
+  big.Int:
+    type: object
   block.BlockHeader:
     properties:
       BlockRewards:
@@ -256,6 +273,256 @@ definitions:
         items:
           type: integer
         type: array
+    type: object
+  config.EnableEpochs:
+    properties:
+      bigBucketsCompute:
+        type: integer
+      claimKFI:
+        type: integer
+      fixAuditChanges:
+        type: integer
+      fixDelegationSameEpoch:
+        type: integer
+      fixStakingBuckets:
+        type: integer
+      fprcomputeAndKdaFeeFlow:
+        type: integer
+      kdaFpr:
+        type: integer
+      processorFlowITOPrice:
+        type: integer
+      smartContracts:
+        type: integer
+    type: object
+  config.EnableEpochsConfig:
+    properties:
+      enableEpochs:
+        $ref: '#/definitions/config.EnableEpochs'
+      gasSchedule:
+        $ref: '#/definitions/config.GasScheduleConfig'
+      maxNodesChangeEnableEpoch:
+        description: Shuffler
+        items:
+          $ref: '#/definitions/config.MaxNodesChangeConfig'
+        type: array
+    type: object
+  config.GasScheduleByEpochs:
+    properties:
+      fileName:
+        type: string
+      startEpoch:
+        type: integer
+    type: object
+  config.GasScheduleConfig:
+    properties:
+      gasScheduleByEpochs:
+        items:
+          $ref: '#/definitions/config.GasScheduleByEpochs'
+        type: array
+    type: object
+  config.MaxNodesChangeConfig:
+    properties:
+      epochEnable:
+        type: integer
+      nodesToShuffle:
+        type: integer
+    type: object
+  core.QueryP2PPeerInfo:
+    properties:
+      addresses:
+        items:
+          type: string
+        type: array
+      isblacklisted:
+        type: boolean
+      peertype:
+        type: string
+      pid:
+        type: string
+      pk:
+        type: string
+    type: object
+  data.AccountInfo:
+    properties:
+      address:
+        type: string
+      allowance:
+        type: integer
+      balance:
+        type: integer
+      codeHash:
+        type: string
+      codeMetadata:
+        type: string
+      foundation:
+        type: boolean
+      frozenBalance:
+        type: integer
+      name:
+        type: string
+      nonce:
+        type: integer
+      permissions:
+        items:
+          $ref: '#/definitions/data.Permissions'
+        type: array
+      rootHash:
+        type: string
+      timestamp:
+        $ref: '#/definitions/time.Duration'
+      unfrozenBalance:
+        type: integer
+    type: object
+  data.Event:
+    properties:
+      address:
+        type: string
+      data:
+        items:
+          type: string
+        type: array
+      identifier:
+        type: string
+      order:
+        type: integer
+      topics:
+        items:
+          type: string
+        type: array
+    type: object
+  data.KDAFee:
+    properties:
+      amount:
+        type: integer
+      kda:
+        type: string
+    type: object
+  data.Logs:
+    properties:
+      address:
+        type: string
+      contractId:
+        type: integer
+      events:
+        items:
+          $ref: '#/definitions/data.Event'
+        type: array
+      timestamp:
+        $ref: '#/definitions/time.Duration'
+    type: object
+  data.PermissionKey:
+    properties:
+      address:
+        type: string
+      weight:
+        type: integer
+    type: object
+  data.Permissions:
+    properties:
+      Threshold:
+        type: integer
+      id:
+        type: integer
+      operations:
+        type: string
+      permissionName:
+        type: string
+      signers:
+        items:
+          $ref: '#/definitions/data.PermissionKey'
+        type: array
+      type:
+        type: integer
+    type: object
+  data.PubKeyHeartbeat:
+    properties:
+      identity:
+        type: string
+      isActive:
+        type: boolean
+      maxInactiveTime:
+        type: string
+      nodeDisplayName:
+        type: string
+      nonce:
+        type: integer
+      numInstances:
+        type: integer
+      peerType:
+        type: string
+      publicKey:
+        type: string
+      timestamp:
+        type: string
+      totalDownTimeSec:
+        type: integer
+      totalUpTimeSec:
+        type: integer
+      versionNumber:
+        type: string
+    type: object
+  data.TXContract:
+    properties:
+      parameter: {}
+      type:
+        $ref: '#/definitions/transaction.TXContract_ContractType'
+      typeString:
+        type: string
+    type: object
+  data.Transaction:
+    properties:
+      bandwidthFee:
+        type: integer
+      blockNum:
+        type: integer
+      chainID:
+        type: string
+      contract:
+        items:
+          $ref: '#/definitions/data.TXContract'
+        type: array
+      data:
+        items:
+          type: string
+        type: array
+      hasLogs:
+        type: boolean
+      hasOperations:
+        type: boolean
+      hash:
+        type: string
+      kAppFee:
+        type: integer
+      kdaFee:
+        $ref: '#/definitions/data.KDAFee'
+      logs:
+        $ref: '#/definitions/data.Logs'
+      nonce:
+        type: integer
+      permissionID:
+        type: integer
+      receipts:
+        items:
+          additionalProperties: true
+          type: object
+        type: array
+      resultCode:
+        type: string
+      searchOrder:
+        type: integer
+      sender:
+        type: string
+      signature:
+        items:
+          type: string
+        type: array
+      status:
+        type: string
+      timestamp:
+        $ref: '#/definitions/time.Duration'
+      version:
+        type: integer
     type: object
   kapps.AttributesData:
     properties:
@@ -328,6 +595,7 @@ definitions:
     - 0
     - 1
     - 2
+    format: int32
     type: integer
     x-enum-varnames:
     - KDAData_Fungible
@@ -484,11 +752,152 @@ definitions:
           type: integer
         type: array
     type: object
+  models.AccountNonceResponse:
+    properties:
+      firstPendingNonce:
+        type: integer
+      nonce:
+        type: integer
+      txPending:
+        type: integer
+    type: object
+  models.AvailableClaimListResponse:
+    properties:
+      assets:
+        additionalProperties:
+          $ref: '#/definitions/models.AvailableClaimResponse'
+        type: object
+    type: object
+  models.AvailableClaimResponse:
+    properties:
+      allStakingRewards:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      allowance:
+        type: integer
+      stakingRewards:
+        type: integer
+    type: object
+  models.BalanceResponse:
+    properties:
+      balance:
+        type: integer
+    type: object
+  models.BroadcastTXResponse:
+    properties:
+      txCount:
+        type: integer
+      txHash:
+        type: string
+      txsHashes:
+        items:
+          type: string
+        type: array
+    type: object
+  models.KDAResponse:
+    properties:
+      address:
+        type: string
+      asset:
+        type: string
+      userKDA:
+        $ref: '#/definitions/kapps.UserKDA'
+    type: object
+  models.NodeOverview:
+    properties:
+      baseTxSize:
+        type: integer
+      chainID:
+        type: string
+      currentSlot:
+        type: integer
+      epochNumber:
+        type: integer
+      nonce:
+        type: integer
+      nonceAtEpochStart:
+        type: integer
+      slotAtEpochStart:
+        type: integer
+      slotCurrentTimestamp:
+        type: integer
+      slotDuration:
+        type: integer
+      slotsPerEpoch:
+        type: integer
+      startTime:
+        type: integer
+    type: object
+  models.SendTXResponse:
+    properties:
+      result: {}
+      txHash:
+        type: string
+    type: object
+  models.SimulateTransactionResponse:
+    properties:
+      bandwidthFee:
+        type: integer
+      kappFee:
+        type: integer
+    type: object
+  models.TransactionPoolItem:
+    properties:
+      hash:
+        type: string
+      nonce:
+        type: integer
+      sender:
+        type: string
+    type: object
+  models.TransactionPoolResponse:
+    properties:
+      page:
+        type: integer
+      pageSize:
+        type: integer
+      sender:
+        type: string
+      total:
+        type: integer
+      transactions:
+        items:
+          $ref: '#/definitions/models.TransactionPoolItem'
+        type: array
+    type: object
+  node.NodeOverviewResponse:
+    properties:
+      overview:
+        $ref: '#/definitions/models.NodeOverview'
+    type: object
   node.QueryDebugRequest:
     properties:
       name:
         type: string
       search:
+        type: string
+    type: object
+  node.statisticsResponse:
+    properties:
+      averageBlockTxCount:
+        type: string
+      averageTPS:
+        type: string
+      blockNumber:
+        type: integer
+      currentBlockTxCount:
+        type: integer
+      liveTPS:
+        type: number
+      peakTPS:
+        type: number
+      slotNumber:
+        type: integer
+      slotTime:
+        type: integer
+      totalProcessedTxCount:
         type: string
     type: object
   shared.GenericAPIResponse:
@@ -511,6 +920,131 @@ definitions:
     - ReturnCodeInternalError
     - ReturnCodeRequestError
     - ReturnCodeSystemBusy
+  state.List:
+    enum:
+    - 0
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    format: int32
+    type: integer
+    x-enum-varnames:
+    - List_inactive
+    - List_observer
+    - List_waiting
+    - List_eligible
+    - List_elected
+    - List_leaving
+    - List_jailed
+  state.PeerAccountData:
+    properties:
+      AccumulatedFees:
+        type: integer
+      BLSPublicKey:
+        items:
+          type: integer
+        type: array
+      ConsecutiveProposerMisses:
+        type: integer
+      Index:
+        type: integer
+      LeaderSuccessRate:
+        $ref: '#/definitions/state.SignRate'
+      List:
+        $ref: '#/definitions/state.List'
+      NumSelectedInSuccessBlocks:
+        type: integer
+      OwnerAddress:
+        items:
+          type: integer
+        type: array
+      Rating:
+        type: integer
+      Revoked:
+        type: boolean
+      RootHash:
+        items:
+          type: integer
+        type: array
+      ShardId:
+        type: integer
+      TempRating:
+        type: integer
+      TotalLeaderSuccessRate:
+        $ref: '#/definitions/state.SignRate'
+      TotalValidatorIgnoredSignaturesRate:
+        type: integer
+      TotalValidatorSuccessRate:
+        $ref: '#/definitions/state.SignRate'
+      ValidatorIgnoredSignaturesRate:
+        type: integer
+      ValidatorSuccessRate:
+        $ref: '#/definitions/state.SignRate'
+    type: object
+  state.SignRate:
+    properties:
+      NumFailure:
+        type: integer
+      NumSuccess:
+        type: integer
+    type: object
+  state.ValidatorApiResponse:
+    properties:
+      NumLeaderFailure:
+        type: integer
+      NumLeaderSuccess:
+        type: integer
+      NumValidatorFailure:
+        type: integer
+      NumValidatorIgnoredSignatures:
+        type: integer
+      NumValidatorSuccess:
+        type: integer
+      Rating:
+        type: number
+      RatingModifier:
+        type: number
+      Revoked:
+        type: boolean
+      TempRating:
+        type: number
+      TotalNumLeaderFailure:
+        type: integer
+      TotalNumLeaderSuccess:
+        type: integer
+      TotalNumValidatorFailure:
+        type: integer
+      TotalNumValidatorIgnoredSignatures:
+        type: integer
+      TotalNumValidatorSuccess:
+        type: integer
+      ValidatorStatus:
+        type: string
+    type: object
+  time.Duration:
+    enum:
+    - -9223372036854775808
+    - 9223372036854775807
+    - 1
+    - 1000
+    - 1000000
+    - 1000000000
+    - 60000000000
+    - 3600000000000
+    format: int64
+    type: integer
+    x-enum-varnames:
+    - minDuration
+    - maxDuration
+    - Nanosecond
+    - Microsecond
+    - Millisecond
+    - Second
+    - Minute
+    - Hour
   transaction.BroadcastTXRequest:
     properties:
       tx:
@@ -519,6 +1053,23 @@ definitions:
         items:
           $ref: '#/definitions/transaction.Transaction'
         type: array
+    type: object
+  transaction.FeesResponse:
+    properties:
+      bandwidthFee:
+        type: integer
+      gasEstimated:
+        type: integer
+      gasMultiplier:
+        type: integer
+      kAppFee:
+        type: integer
+      kdaFee:
+        $ref: '#/definitions/transaction.Transaction_KDAFee'
+      returnMessage:
+        type: string
+      safetyMargin:
+        type: integer
     type: object
   transaction.TXContract:
     properties:
@@ -555,6 +1106,7 @@ definitions:
     - 23
     - 24
     - 63
+    format: int32
     type: integer
     x-enum-varnames:
     - TXContract_TransferContractType
@@ -604,6 +1156,7 @@ definitions:
       Signature:
         items:
           items:
+            format: int32
             type: integer
           type: array
         type: array
@@ -633,6 +1186,7 @@ definitions:
       Data:
         items:
           items:
+            format: int32
             type: integer
           type: array
         type: array
@@ -656,6 +1210,7 @@ definitions:
       Data:
         items:
           items:
+            format: int32
             type: integer
           type: array
         type: array
@@ -664,6 +1219,7 @@ definitions:
     enum:
     - 0
     - 1
+    format: int32
     type: integer
     x-enum-varnames:
     - Transaction_SUCCESS
@@ -737,6 +1293,7 @@ definitions:
     - 64
     - 65
     - 99
+    format: int32
     type: integer
     x-enum-varnames:
     - Transaction_Ok
@@ -821,6 +1378,7 @@ definitions:
       data:
         items:
           items:
+            format: int32
             type: integer
           type: array
         type: array
@@ -834,6 +1392,128 @@ definitions:
         type: string
       type:
         type: integer
+    type: object
+  vm.CallType:
+    enum:
+    - 0
+    - 1
+    - 2
+    type: integer
+    x-enum-varnames:
+    - DirectCall
+    - KDATransferAndExecute
+    - ExecOnDestByCaller
+  vm.KDATransferApi:
+    properties:
+      tokenName:
+        type: string
+      tokenNonce:
+        type: integer
+      tokenType:
+        type: integer
+      value:
+        $ref: '#/definitions/big.Int'
+    type: object
+  vm.LogEntryApi:
+    properties:
+      address:
+        type: string
+      data:
+        items:
+          items:
+            format: int32
+            type: integer
+          type: array
+        type: array
+      identifier:
+        items:
+          type: integer
+        type: array
+      topics:
+        items:
+          items:
+            format: int32
+            type: integer
+          type: array
+        type: array
+    type: object
+  vm.OutputAccountApi:
+    properties:
+      address:
+        type: string
+      callType:
+        $ref: '#/definitions/vm.CallType'
+      code:
+        items:
+          type: integer
+        type: array
+      codeMetaData:
+        items:
+          type: integer
+        type: array
+      outputTransfers:
+        items:
+          $ref: '#/definitions/vm.OutputTransferApi'
+        type: array
+      storageUpdates:
+        additionalProperties:
+          $ref: '#/definitions/vm.StorageUpdateApi'
+        type: object
+    type: object
+  vm.OutputTransferApi:
+    properties:
+      data:
+        items:
+          type: integer
+        type: array
+      receiver:
+        type: string
+      senderAddress:
+        type: string
+      tokenInfo:
+        $ref: '#/definitions/vm.KDATransferApi'
+    type: object
+  vm.StorageUpdateApi:
+    properties:
+      data:
+        items:
+          type: integer
+        type: array
+      offset:
+        items:
+          type: integer
+        type: array
+    type: object
+  vm.VMOutputApi:
+    properties:
+      deletedAccounts:
+        items:
+          items:
+            format: int32
+            type: integer
+          type: array
+        type: array
+      gasRemaining:
+        type: integer
+      logs:
+        items:
+          $ref: '#/definitions/vm.LogEntryApi'
+        type: array
+      outputAccounts:
+        additionalProperties:
+          $ref: '#/definitions/vm.OutputAccountApi'
+        type: object
+      returnCode:
+        type: string
+      returnData:
+        items:
+          items:
+            format: int32
+            type: integer
+          type: array
+        type: array
+      returnMessage:
+        type: string
     type: object
   vm.VMValueRequest:
     properties:
@@ -853,6 +1533,7 @@ definitions:
         type: boolean
       value:
         additionalProperties:
+          format: int64
           type: integer
         type: object
     type: object
@@ -876,7 +1557,15 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    account:
+                      $ref: '#/definitions/data.AccountInfo'
+                  type: object
+              type: object
         "500":
           description: internal error
           schema:
@@ -903,7 +1592,48 @@ paths:
         "200":
           description: ok
           schema:
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.AvailableClaimResponse'
+              type: object
+        "400":
+          description: some error
+          schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns the rewards available for a specific asset in an account
+      tags:
+      - Address
+  /address/{address}/allowance/list:
+    get:
+      parameters:
+      - description: address
+        in: path
+        name: address
+        required: true
+        type: string
+      - description: assets (comma-separated asset IDs), e.g. KLV,KFI
+        in: query
+        name: asset
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.AvailableClaimListResponse'
+              type: object
         "400":
           description: some error
           schema:
@@ -923,13 +1653,23 @@ paths:
         name: address
         required: true
         type: string
+      - default: KLV
+        description: asset
+        in: query
+        name: asset
+        type: string
       produces:
       - application/json
       responses:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.BalanceResponse'
+              type: object
         "400":
           description: some error
           schema:
@@ -960,7 +1700,12 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.KDAResponse'
+              type: object
         "400":
           description: some error
           schema:
@@ -986,7 +1731,12 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.AccountNonceResponse'
+              type: object
         "500":
           description: internal error
           schema:
@@ -1008,34 +1758,20 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/kapps.KDAData'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    asset:
+                      $ref: '#/definitions/kapps.KDAData'
+                  type: object
+              type: object
         "500":
           description: internal error
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
       summary: returns an assetResponse containing information about the asset
-      tags:
-      - Asset
-  /asset/{id}/pool:
-    get:
-      parameters:
-      - description: asset id
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: ok
-          schema:
-            $ref: '#/definitions/kdafeespool.KDAFeesPoolData'
-        "500":
-          description: internal error
-          schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
-      summary: returns an poolResponse containing information about the asset pool
       tags:
       - Asset
   /asset/nft/{owner}/{id}:
@@ -1057,12 +1793,50 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/asset.NFTAsset'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    asset:
+                      $ref: '#/definitions/asset.NFTAsset'
+                  type: object
+              type: object
         "500":
           description: internal error
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
       summary: returns an assetResponse containing information about the asset
+      tags:
+      - Asset
+  /asset/pool/{id}:
+    get:
+      parameters:
+      - description: asset id
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    pool:
+                      $ref: '#/definitions/kdafeespool.KDAFeesPoolData'
+                  type: object
+              type: object
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns an poolResponse containing information about the asset pool
       tags:
       - Asset
   /block/by-hash/{hash}:
@@ -1079,7 +1853,15 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/api.Block'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    block:
+                      $ref: '#/definitions/api.Block'
+                  type: object
+              type: object
         "400":
           description: some error
           schema:
@@ -1105,7 +1887,15 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/api.Block'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    block:
+                      $ref: '#/definitions/api.Block'
+                  type: object
+              type: object
         "400":
           description: some error
           schema:
@@ -1131,7 +1921,15 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    marketplace:
+                      $ref: '#/definitions/api.Marketplace'
+                  type: object
+              type: object
         "500":
           description: internal error
           schema:
@@ -1147,8 +1945,16 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
-      summary: returns metrics related to the network configuration (shard independent)
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    config:
+                      type: object
+                  type: object
+              type: object
+      summary: returns metrics related to the network configuration
       tags:
       - Network
   /network/network-parameters:
@@ -1159,7 +1965,15 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    parameters:
+                      type: object
+                  type: object
+              type: object
         "500":
           description: internal error
           schema:
@@ -1167,7 +1981,7 @@ paths:
       summary: returns the active parameters of the proposal controller
       tags:
       - Network
-  /network/status-parameters:
+  /network/status:
     get:
       produces:
       - application/json
@@ -1175,7 +1989,15 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    status:
+                      type: object
+                  type: object
+              type: object
       summary: returns metrics related to the network status (shard specific)
       tags:
       - Network
@@ -1212,6 +2034,18 @@ paths:
         "200":
           description: ok
           schema:
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    config:
+                      $ref: '#/definitions/config.EnableEpochsConfig'
+                  type: object
+              type: object
+        "500":
+          description: internal error
+          schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
       summary: get node enable epochs configuration
       tags:
@@ -1224,12 +2058,32 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    heartbeats:
+                      items:
+                        $ref: '#/definitions/data.PubKeyHeartbeat'
+                      type: array
+                  type: object
+              type: object
         "500":
           description: internal error
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
       summary: respond with the heartbeat status of the node
+      tags:
+      - Node
+  /node/metrics:
+    get:
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: string
+      summary: return the data in the way that prometheus expects them
       tags:
       - Node
   /node/overview:
@@ -1240,18 +2094,33 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/node.NodeOverviewResponse'
+              type: object
       summary: returns a node overview
       tags:
       - Node
   /node/p2pstatus:
     get:
+      produces:
+      - application/json
       responses:
         "200":
-          description: OK
+          description: ok
           schema:
-            type: string
-      summary: return the data in the way that prometheus expects them
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    metrics:
+                      type: object
+                  type: object
+              type: object
+      summary: returns the node's p2p statistics exported by a StatusMetricsHandler
       tags:
       - Node
   /node/peerinfo:
@@ -1262,7 +2131,17 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    info:
+                      items:
+                        $ref: '#/definitions/core.QueryP2PPeerInfo'
+                      type: array
+                  type: object
+              type: object
         "500":
           description: internal error
           schema:
@@ -1279,6 +2158,14 @@ paths:
           description: ok
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
+        "400":
+          description: bad request
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
       summary: set node redundancy level
       tags:
       - Node
@@ -1290,7 +2177,15 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    statistics:
+                      $ref: '#/definitions/node.statisticsResponse'
+                  type: object
+              type: object
       summary: returns the blockchain statistics
       tags:
       - Node
@@ -1302,7 +2197,15 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    metrics:
+                      type: object
+                  type: object
+              type: object
       summary: returns the node statistics exported by an StatusMetricsHandler without
         p2p statistics
       tags:
@@ -1317,13 +2220,25 @@ paths:
         name: txhash
         required: true
         type: string
+      - description: include execution results (default false)
+        in: query
+        name: withResults
+        type: boolean
       produces:
       - application/json
       responses:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    transaction:
+                      $ref: '#/definitions/api.Transaction'
+                  type: object
+              type: object
         "400":
           description: some error
           schema:
@@ -1342,7 +2257,7 @@ paths:
       parameters:
       - description: body data
         in: body
-        name: data
+        name: BroadcastTXRequest
         required: true
         schema:
           $ref: '#/definitions/transaction.BroadcastTXRequest'
@@ -1352,7 +2267,12 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.BroadcastTXResponse'
+              type: object
         "400":
           description: some error
           schema:
@@ -1367,7 +2287,7 @@ paths:
       parameters:
       - description: body data
         in: body
-        name: data
+        name: transaction
         required: true
         schema:
           $ref: '#/definitions/transaction.Transaction'
@@ -1377,7 +2297,15 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    tx:
+                      $ref: '#/definitions/data.Transaction'
+                  type: object
+              type: object
         "400":
           description: some error
           schema:
@@ -1392,7 +2320,7 @@ paths:
       parameters:
       - description: body data
         in: body
-        name: data
+        name: transaction
         required: true
         schema:
           $ref: '#/definitions/transaction.Transaction'
@@ -1402,7 +2330,12 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/transaction.FeesResponse'
+              type: object
         "400":
           description: some error
           schema:
@@ -1419,20 +2352,17 @@ paths:
       consumes:
       - application/json
       parameters:
-      - description: sender
+      - description: sender (optional)
         in: query
         name: sender
-        required: true
         type: string
       - description: page
         in: query
         name: page
-        required: true
         type: integer
       - description: page size
         in: query
         name: pageSize
-        required: true
         type: integer
       produces:
       - application/json
@@ -1440,7 +2370,12 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.TransactionPoolResponse'
+              type: object
         "400":
           description: some error
           schema:
@@ -1459,7 +2394,7 @@ paths:
       parameters:
       - description: body data
         in: body
-        name: data
+        name: sendTXRequest
         required: true
         schema:
           $ref: '#/definitions/transaction.sendTXRequest'
@@ -1469,12 +2404,47 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.SendTXResponse'
+              type: object
         "400":
           description: some error
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
       summary: returns send transaction
+      tags:
+      - Transaction
+  /transaction/simulate:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: body data
+        in: body
+        name: sendTXRequest
+        required: true
+        schema:
+          $ref: '#/definitions/transaction.sendTXRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/models.SimulateTransactionResponse'
+              type: object
+        "400":
+          description: some error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: simulate transaction gas consumption
       tags:
       - Transaction
   /validator/peers:
@@ -1485,7 +2455,17 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    peers:
+                      items:
+                        $ref: '#/definitions/state.PeerAccountData'
+                      type: array
+                  type: object
+              type: object
         "400":
           description: some error
           schema:
@@ -1501,7 +2481,17 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    statistics:
+                      additionalProperties:
+                        $ref: '#/definitions/state.ValidatorApiResponse'
+                      type: object
+                  type: object
+              type: object
         "400":
           description: some error
           schema:
@@ -1523,6 +2513,18 @@ paths:
       responses:
         "200":
           description: ok
+          schema:
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    data:
+                      type: string
+                  type: object
+              type: object
+        "400":
+          description: bad request
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
         "500":
@@ -1547,6 +2549,18 @@ paths:
         "200":
           description: ok
           schema:
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    data:
+                      type: string
+                  type: object
+              type: object
+        "400":
+          description: bad request
+          schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
         "500":
           description: internal error
@@ -1570,12 +2584,20 @@ paths:
         "200":
           description: ok
           schema:
-            $ref: '#/definitions/shared.GenericAPIResponse'
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    data:
+                      $ref: '#/definitions/vm.VMOutputApi'
+                  type: object
+              type: object
         "500":
           description: internal error
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
-      summary: returns the data as string
+      summary: returns the VM output of a smart contract query
       tags:
       - VM
   /vm/string:
@@ -1592,6 +2614,18 @@ paths:
       responses:
         "200":
           description: ok
+          schema:
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    data:
+                      type: string
+                  type: object
+              type: object
+        "400":
+          description: bad request
           schema:
             $ref: '#/definitions/shared.GenericAPIResponse'
         "500":

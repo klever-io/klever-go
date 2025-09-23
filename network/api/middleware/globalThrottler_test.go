@@ -15,6 +15,7 @@ import (
 	"github.com/klever-io/klever-go/network/api/address"
 	"github.com/klever-io/klever-go/network/api/middleware"
 	"github.com/klever-io/klever-go/network/api/mock"
+	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/network/api/wrapper"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
@@ -61,8 +62,8 @@ func TestGlobalThrottler_LimitUnderShouldProcessRequest(t *testing.T) {
 
 	addr := "testAddress"
 	facade := mock.Facade{
-		BalanceHandler: func(s string, k string) (value int64, e error) {
-			return 10, nil
+		BalanceHandler: func(s string, k string) (*models.BalanceResponse, error) {
+			return &models.BalanceResponse{Balance: 10}, nil
 		},
 	}
 
@@ -80,13 +81,13 @@ func TestGlobalThrottler_LimitOverShouldError(t *testing.T) {
 	t.Parallel()
 
 	numCalls := uint32(0)
-	responseDelay := time.Second
+	responseDelay := 100 * time.Millisecond
 	facade := mock.Facade{
-		BalanceHandler: func(s string, k string) (value int64, e error) {
+		BalanceHandler: func(s string, k string) (*models.BalanceResponse, error) {
 			time.Sleep(responseDelay)
 			atomic.AddUint32(&numCalls, 1)
 
-			return 10, nil
+			return &models.BalanceResponse{Balance: 10}, nil
 		},
 	}
 

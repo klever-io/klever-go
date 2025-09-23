@@ -61,7 +61,7 @@ func getFacade(c *gin.Context) (FacadeHandler, bool) {
 // @Tags Marketplace
 // @Produce json
 // @Param id path string true "marketplace Id"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{marketplace=api.Marketplace}} "ok"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /marketplace/{id} [get]
 // GetMarketplace returns an marketplaceResponse containing information

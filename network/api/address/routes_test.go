@@ -16,6 +16,7 @@ import (
 	"github.com/klever-io/klever-go/network/api/address"
 	"github.com/klever-io/klever-go/network/api/middleware"
 	"github.com/klever-io/klever-go/network/api/mock"
+	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/network/api/shared"
 	"github.com/klever-io/klever-go/network/api/wrapper"
 	"github.com/stretchr/testify/assert"
@@ -192,7 +193,7 @@ func TestGetBalance(t *testing.T) {
 		name         string
 		addressParam string
 		assetQuery   string
-		mockHandler  func(address, asset string) (int64, error)
+		mockHandler  func(address, asset string) (*models.BalanceResponse, error)
 		expectedCode int
 		expectedData map[string]interface{}
 		expectedErr  string
@@ -201,8 +202,8 @@ func TestGetBalance(t *testing.T) {
 			name:         "Success with valid address and asset",
 			addressParam: validAddress,
 			assetQuery:   "KLV",
-			mockHandler: func(address, asset string) (int64, error) {
-				return 1000, nil
+			mockHandler: func(address, asset string) (*models.BalanceResponse, error) {
+				return &models.BalanceResponse{Balance: 1000}, nil
 			},
 			expectedCode: http.StatusOK,
 			expectedData: map[string]interface{}{"balance": float64(1000)},
@@ -211,12 +212,12 @@ func TestGetBalance(t *testing.T) {
 			name:         "Success with valid address and assetDefault",
 			addressParam: validAddress,
 			assetQuery:   "",
-			mockHandler: func(address, asset string) (int64, error) {
+			mockHandler: func(address, asset string) (*models.BalanceResponse, error) {
 				if asset == "KLV" {
-					return 1000, nil
+					return &models.BalanceResponse{Balance: 1000}, nil
 				}
 
-				return 0, fmt.Errorf("asset not found")
+				return &models.BalanceResponse{Balance: 0}, fmt.Errorf("asset not found")
 			},
 			expectedCode: http.StatusOK,
 			expectedData: map[string]interface{}{"balance": float64(1000)},
@@ -233,8 +234,8 @@ func TestGetBalance(t *testing.T) {
 			name:         "Error from facade",
 			addressParam: validAddress,
 			assetQuery:   "KLV",
-			mockHandler: func(address, asset string) (int64, error) {
-				return 0, fmt.Errorf("facade error")
+			mockHandler: func(address, asset string) (*models.BalanceResponse, error) {
+				return &models.BalanceResponse{Balance: 0}, fmt.Errorf("facade error")
 			},
 			expectedCode: http.StatusInternalServerError,
 			expectedErr:  "facade error",
@@ -279,7 +280,7 @@ func TestGetAccountNonce(t *testing.T) {
 	tests := []struct {
 		name         string
 		addressParam string
-		mockHandler  func(address string) (uint64, uint64, uint64, error)
+		mockHandler  func(address string) (*models.AccountNonceResponse, error)
 		expectedCode int
 		expectedData map[string]interface{}
 		expectedErr  string
@@ -287,8 +288,12 @@ func TestGetAccountNonce(t *testing.T) {
 		{
 			name:         "Success with valid address",
 			addressParam: validAddress,
-			mockHandler: func(address string) (uint64, uint64, uint64, error) {
-				return 1, 2, 3, nil
+			mockHandler: func(address string) (*models.AccountNonceResponse, error) {
+				return &models.AccountNonceResponse{
+					Nonce:             1,
+					FirstPendingNonce: 2,
+					TxPending:         3,
+				}, nil
 			},
 			expectedCode: http.StatusOK,
 			expectedData: map[string]interface{}{
@@ -300,8 +305,8 @@ func TestGetAccountNonce(t *testing.T) {
 		{
 			name:         "Error from facade",
 			addressParam: "invalidAddress",
-			mockHandler: func(address string) (uint64, uint64, uint64, error) {
-				return 0, 0, 0, fmt.Errorf("facade error")
+			mockHandler: func(address string) (*models.AccountNonceResponse, error) {
+				return nil, fmt.Errorf("facade error")
 			},
 			expectedCode: http.StatusInternalServerError,
 			expectedErr:  "facade error",
@@ -340,7 +345,7 @@ func TestGetAvailableClaim(t *testing.T) {
 		name         string
 		addressParam string
 		assetQuery   string
-		mockHandler  func(address, assetId string) (int64, map[string]int64, int64, error)
+		mockHandler  func(address, assetId string) (*models.AvailableClaimResponse, error)
 		expectedCode int
 		expectedData map[string]interface{}
 		expectedErr  string
@@ -349,13 +354,17 @@ func TestGetAvailableClaim(t *testing.T) {
 			name:         "Success with valid parameters",
 			addressParam: validAddress,
 			assetQuery:   "KLV",
-			mockHandler: func(address, assetId string) (int64, map[string]int64, int64, error) {
-				return 100, map[string]int64{"KLV": 200}, 300, nil
+			mockHandler: func(address, assetId string) (*models.AvailableClaimResponse, error) {
+				return &models.AvailableClaimResponse{
+					StakingRewards:    100,
+					AllStakingRewards: map[string]int64{"KLV": 200},
+					Allowance:         300,
+				}, nil
 			},
 			expectedCode: http.StatusOK,
 			expectedData: map[string]interface{}{
 				"stakingRewards":    float64(100),
-				"allStakingRewards": map[string]interface{}{"KLV": float64(200)},
+				"allStakingRewards": map[string]any{"KLV": float64(200)},
 				"allowance":         float64(300),
 			},
 		},
@@ -379,8 +388,8 @@ func TestGetAvailableClaim(t *testing.T) {
 			name:         "Error from facade",
 			addressParam: validAddress,
 			assetQuery:   "KLV",
-			mockHandler: func(address, assetId string) (int64, map[string]int64, int64, error) {
-				return 0, nil, 0, fmt.Errorf("facade error")
+			mockHandler: func(address, assetId string) (*models.AvailableClaimResponse, error) {
+				return nil, fmt.Errorf("facade error")
 			},
 			expectedCode: http.StatusInternalServerError,
 			expectedErr:  "facade error",
@@ -426,17 +435,21 @@ func TestGetAvailableClaimList(t *testing.T) {
 		name         string
 		addressParam string
 		assetsQuery  string
-		mockHandler  func(address, assetId string) (int64, map[string]int64, int64, error)
+		mockHandler  func(address, assetId string) (*models.AvailableClaimResponse, error)
 		expectedCode int
-		expectedData map[string]interface{}
+		expectedData map[string]any
 		expectedErr  string
 	}{
 		{
 			name:         "Success with valid parameters",
 			addressParam: validAddress,
 			assetsQuery:  "KLV,BTC",
-			mockHandler: func(address, assetId string) (int64, map[string]int64, int64, error) {
-				return 100, map[string]int64{assetId: 200}, 300, nil
+			mockHandler: func(address, assetId string) (*models.AvailableClaimResponse, error) {
+				return &models.AvailableClaimResponse{
+					StakingRewards:    100,
+					AllStakingRewards: map[string]int64{assetId: 200},
+					Allowance:         300,
+				}, nil
 			},
 			expectedCode: http.StatusOK,
 			expectedData: map[string]interface{}{
@@ -466,8 +479,8 @@ func TestGetAvailableClaimList(t *testing.T) {
 			name:         "Empty assets",
 			addressParam: validAddress,
 			assetsQuery:  "",
-			mockHandler: func(address, assetId string) (int64, map[string]int64, int64, error) {
-				return 0, nil, 0, fmt.Errorf("invalid assetID")
+			mockHandler: func(address, assetId string) (*models.AvailableClaimResponse, error) {
+				return nil, fmt.Errorf("invalid assetID")
 			},
 			expectedCode: http.StatusBadRequest,
 			expectedErr:  "could not get rewards for requested account asset list: assetId is empty",
@@ -476,12 +489,16 @@ func TestGetAvailableClaimList(t *testing.T) {
 			name:         "Invalid assets",
 			addressParam: validAddress,
 			assetsQuery:  "KLV,INVALID",
-			mockHandler: func(address, assetId string) (int64, map[string]int64, int64, error) {
+			mockHandler: func(address, assetId string) (*models.AvailableClaimResponse, error) {
 				if assetId == "INVALID" {
-					return 0, nil, 0, fmt.Errorf("invalid assetID")
+					return nil, fmt.Errorf("invalid assetID")
 				}
 
-				return 100, map[string]int64{assetId: 200}, 300, nil
+				return &models.AvailableClaimResponse{
+					StakingRewards:    100,
+					AllStakingRewards: map[string]int64{assetId: 200},
+					Allowance:         300,
+				}, nil
 			},
 			expectedCode: http.StatusBadRequest,
 			expectedErr:  "could not get rewards for requested account asset list: map[INVALID:invalid assetID]",
@@ -490,8 +507,8 @@ func TestGetAvailableClaimList(t *testing.T) {
 			name:         "Error from facade",
 			addressParam: validAddress,
 			assetsQuery:  "KLV,BTC",
-			mockHandler: func(address, assetId string) (int64, map[string]int64, int64, error) {
-				return 0, nil, 0, fmt.Errorf("facade error for %s", assetId)
+			mockHandler: func(address, assetId string) (*models.AvailableClaimResponse, error) {
+				return nil, fmt.Errorf("facade error for %s", assetId)
 			},
 			expectedCode: http.StatusBadRequest,
 			expectedErr:  "facade error",

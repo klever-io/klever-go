@@ -50,7 +50,8 @@ type VMValueRequest struct {
 // @Tags VM
 // @Produce json
 // @Param data body vm.VMValueRequest true "vm request data"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{data=string}} "ok"
+// @Failure 400 object shared.GenericAPIResponse "bad request"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /vm/hex [post]
 func getHex(context *gin.Context) {
@@ -61,7 +62,8 @@ func getHex(context *gin.Context) {
 // @Tags VM
 // @Produce json
 // @Param data body vm.VMValueRequest true "vm request data"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{data=string}} "ok"
+// @Failure 400 object shared.GenericAPIResponse "bad request"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /vm/string [post]
 func getString(context *gin.Context) {
@@ -72,7 +74,8 @@ func getString(context *gin.Context) {
 // @Tags VM
 // @Produce json
 // @Param data body vm.VMValueRequest true "vm request data"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{data=string}} "ok"
+// @Failure 400 object shared.GenericAPIResponse "bad request"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /vm/int [post]
 func getInt(context *gin.Context) {
@@ -99,11 +102,11 @@ func doGetVMValue(c *gin.Context, asType vm.ReturnDataKind) {
 	returnOkResponse(c, returnData, execErrMsg)
 }
 
-// @Summary  returns the data as string
+// @Summary  returns the VM output of a smart contract query
 // @Tags VM
 // @Produce json
 // @Param data body vm.VMValueRequest true "vm request data"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{data=vm.VMOutputApi}} "ok"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /vm/query [post]
 func executeQuery(c *gin.Context) {

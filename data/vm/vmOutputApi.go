@@ -44,7 +44,7 @@ type OutputTransferApi struct {
 type KDATransferApi struct {
 	KDAValue      *big.Int `json:"value"`
 	KDATokenName  string   `json:"tokenName"`
-	KDATokenType  uint32   `json:"tokeType"`
+	KDATokenType  uint32   `json:"tokenType"`
 	KDATokenNonce uint64   `json:"tokenNonce"`
 }
 

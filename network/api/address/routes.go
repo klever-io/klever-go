@@ -7,8 +7,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/klever-io/klever-go/data/state"
+
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/network/api/errors"
+	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/network/api/shared"
 	"github.com/klever-io/klever-go/network/api/wrapper"
 )
@@ -27,10 +29,10 @@ const (
 // FacadeHandler interface defines methods that can be used by the gin webserver
 type FacadeHandler interface {
 	GetAccount(address string) (state.UserAccountHandler, error)
-	GetNextNonce(address string) (uint64, uint64, uint64, error)
-	GetBalance(address string, kda string) (int64, error)
+	GetNextNonce(address string) (*models.AccountNonceResponse, error)
+	GetBalance(address string, kda string) (*models.BalanceResponse, error)
 	GetUserKDA(address string, kda string) (*kapps.UserKDA, error)
-	GetAvailableClaim(address string, assetId string) (int64, map[string]int64, int64, error)
+	GetAvailableClaim(address string, assetId string) (*models.AvailableClaimResponse, error)
 	IsInterfaceNil() bool
 }
 
@@ -78,7 +80,7 @@ func getFacade(c *gin.Context) (FacadeHandler, bool) {
 // @Tags Address
 // @Produce json
 // @Param address path string true "address"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=object{account=data.AccountInfo}} "ok"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /address/{address} [get]
 // GetAccount returns an accountResponse containing information
@@ -117,7 +119,7 @@ func GetAccount(c *gin.Context) {
 // @Tags Address
 // @Produce json
 // @Param address path string true "address"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=models.AccountNonceResponse} "ok"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /address/{address}/nonce [get]
 // GetAccountNonce returns an account nonce info
@@ -128,7 +130,7 @@ func GetAccountNonce(c *gin.Context) {
 	}
 
 	addr := c.Param("address")
-	accountNonce, firstPendingNonce, txPending, err := facade.GetNextNonce(addr)
+	nonceResponse, err := facade.GetNextNonce(addr)
 	if err != nil {
 		c.JSON(
 			http.StatusInternalServerError,
@@ -144,7 +146,7 @@ func GetAccountNonce(c *gin.Context) {
 	c.JSON(
 		http.StatusOK,
 		shared.GenericAPIResponse{
-			Data:  gin.H{"nonce": accountNonce, "firstPendingNonce": firstPendingNonce, "txPending": txPending},
+			Data:  nonceResponse,
 			Error: "",
 			Code:  shared.ReturnCodeSuccess,
 		},
@@ -155,7 +157,8 @@ func GetAccountNonce(c *gin.Context) {
 // @Tags Address
 // @Produce json
 // @Param address path string true "address"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Param asset query string false "asset" default(KLV)
+// @Success 200 object shared.GenericAPIResponse{data=models.BalanceResponse} "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /address/{address}/balance [get]
@@ -176,7 +179,7 @@ func GetBalance(c *gin.Context) {
 		c.JSON(
 			http.StatusBadRequest,
 			shared.GenericAPIResponse{
-				Data:  gin.H{"balance": 0},
+				Data:  &models.BalanceResponse{Balance: 0},
 				Error: errors.APIErrorString(errors.ErrGetBalance, errors.ErrEmptyAddress),
 				Code:  shared.ReturnCodeRequestError,
 			},
@@ -184,12 +187,12 @@ func GetBalance(c *gin.Context) {
 		return
 	}
 
-	balance, err := facade.GetBalance(addr, asset)
+	balanceResponse, err := facade.GetBalance(addr, asset)
 	if err != nil {
 		c.JSON(
 			http.StatusInternalServerError,
 			shared.GenericAPIResponse{
-				Data:  gin.H{"balance": 0},
+				Data:  &models.BalanceResponse{Balance: 0},
 				Error: errors.APIErrorString(errors.ErrGetBalance, err),
 				Code:  shared.ReturnCodeInternalError,
 			},
@@ -199,7 +202,7 @@ func GetBalance(c *gin.Context) {
 	c.JSON(
 		http.StatusOK,
 		shared.GenericAPIResponse{
-			Data:  gin.H{"balance": balance},
+			Data:  balanceResponse,
 			Error: "",
 			Code:  shared.ReturnCodeSuccess,
 		},
@@ -211,7 +214,7 @@ func GetBalance(c *gin.Context) {
 // @Produce json
 // @Param address path string true "address"
 // @Param asset query string false "asset" default(KLV)
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=models.KDAResponse} "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /address/{address}/kda [get]
@@ -232,7 +235,7 @@ func GetKDA(c *gin.Context) {
 		c.JSON(
 			http.StatusBadRequest,
 			shared.GenericAPIResponse{
-				Data:  gin.H{"userKDA": nil, "address": addr, "asset": asset},
+				Data:  &models.KDAResponse{UserKDA: nil, Address: addr, Asset: asset},
 				Error: errors.APIErrorString(errors.ErrGetUserKDA, errors.ErrEmptyAddress),
 				Code:  shared.ReturnCodeRequestError,
 			},
@@ -245,17 +248,24 @@ func GetKDA(c *gin.Context) {
 		c.JSON(
 			http.StatusInternalServerError,
 			shared.GenericAPIResponse{
-				Data:  gin.H{"userKDA": nil, "address": addr, "asset": asset},
+				Data:  &models.KDAResponse{UserKDA: nil, Address: addr, Asset: asset},
 				Error: errors.APIErrorString(errors.ErrGetUserKDA, err),
 				Code:  shared.ReturnCodeInternalError,
 			},
 		)
 		return
 	}
+
+	response := &models.KDAResponse{
+		UserKDA: userKDA,
+		Address: addr,
+		Asset:   asset,
+	}
+
 	c.JSON(
 		http.StatusOK,
 		shared.GenericAPIResponse{
-			Data:  gin.H{"userKDA": userKDA, "address": addr, "asset": asset},
+			Data:  response,
 			Error: "",
 			Code:  shared.ReturnCodeSuccess,
 		},
@@ -267,7 +277,7 @@ func GetKDA(c *gin.Context) {
 // @Produce json
 // @Param address path string true "address"
 // @Param asset query string true "asset"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Success 200 object shared.GenericAPIResponse{data=models.AvailableClaimResponse} "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
 // @Router /address/{address}/allowance [get]
@@ -304,7 +314,7 @@ func GetAvailableClaim(c *gin.Context) {
 		return
 	}
 
-	rewards, allRewards, allowance, err := facade.GetAvailableClaim(addr, assetId)
+	claimResponse, err := facade.GetAvailableClaim(addr, assetId)
 	if err != nil {
 		c.JSON(
 			http.StatusInternalServerError,
@@ -320,7 +330,7 @@ func GetAvailableClaim(c *gin.Context) {
 	c.JSON(
 		http.StatusOK,
 		shared.GenericAPIResponse{
-			Data:  gin.H{"stakingRewards": rewards, "allStakingRewards": allRewards, "allowance": allowance},
+			Data:  claimResponse,
 			Error: "",
 			Code:  shared.ReturnCodeSuccess,
 		},
@@ -331,11 +341,11 @@ func GetAvailableClaim(c *gin.Context) {
 // @Tags Address
 // @Produce json
 // @Param address path string true "address"
-// @Param asset query string true "asset"
-// @Success 200 object shared.GenericAPIResponse "ok"
+// @Param asset query string true "assets (comma-separated asset IDs), e.g. KLV,KFI"
+// @Success 200 object shared.GenericAPIResponse{data=models.AvailableClaimListResponse} "ok"
 // @Failure 400 object shared.GenericAPIResponse "some error"
 // @Failure 500 object shared.GenericAPIResponse "internal error"
-// @Router /address/{address}/allowance [get]
+// @Router /address/{address}/allowance/list [get]
 // GetAvailableClaimList returns the rewards available for a specific list of asset in an account
 func GetAvailableClaimList(c *gin.Context) {
 	facade, ok := getFacade(c)
@@ -347,7 +357,14 @@ func GetAvailableClaimList(c *gin.Context) {
 	assets := c.Query("asset") // need to be separated by comma
 
 	// split assets
-	assetList := strings.Split(assets, ",")
+	raw := strings.Split(assets, ",")
+	assetList := make([]string, 0, len(raw))
+	for _, s := range raw {
+		t := strings.TrimSpace(s)
+		if t != "" {
+			assetList = append(assetList, t)
+		}
+	}
 
 	if addr == "" {
 		c.JSON(
@@ -360,6 +377,7 @@ func GetAvailableClaimList(c *gin.Context) {
 		)
 		return
 	}
+
 	if len(assetList) <= 0 || assetList[0] == "" {
 		c.JSON(
 			http.StatusBadRequest,
@@ -375,21 +393,21 @@ func GetAvailableClaimList(c *gin.Context) {
 	var wg sync.WaitGroup
 	var lock sync.Mutex
 	allowanceError := make(map[string]error)
-	assetData := make(map[string]interface{})
+	assetData := make(map[string]*models.AvailableClaimResponse, len(assetList))
 
 	for _, asset := range assetList {
 		wg.Add(1)
 		go func(assetId string) {
 			defer wg.Done()
-			rewards, allRewards, allowance, err := facade.GetAvailableClaim(addr, assetId)
+			claimResponse, err := facade.GetAvailableClaim(addr, assetId)
 
-			defer lock.Unlock()
 			lock.Lock()
+			defer lock.Unlock()
 			if err != nil {
 				allowanceError[assetId] = err
 				return
 			}
-			assetData[assetId] = gin.H{"stakingRewards": rewards, "allStakingRewards": allRewards, "allowance": allowance}
+			assetData[assetId] = claimResponse
 		}(asset)
 	}
 
@@ -407,10 +425,14 @@ func GetAvailableClaimList(c *gin.Context) {
 		return
 	}
 
+	response := &models.AvailableClaimListResponse{
+		Assets: assetData,
+	}
+
 	c.JSON(
 		http.StatusOK,
 		shared.GenericAPIResponse{
-			Data:  gin.H{"assets": assetData},
+			Data:  response,
 			Error: "",
 			Code:  shared.ReturnCodeSuccess,
 		},

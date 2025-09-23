@@ -27,6 +27,7 @@ import (
 	"github.com/klever-io/klever-go/network/api"
 	"github.com/klever-io/klever-go/network/api/address"
 	"github.com/klever-io/klever-go/network/api/middleware"
+	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/network/api/node"
 	transactionAPI "github.com/klever-io/klever-go/network/api/transaction"
 	"github.com/klever-io/klever-go/network/api/validator"
@@ -181,6 +182,49 @@ func (nf *nodeFacade) TpsBenchmark() *statistics.TpsBenchmark {
 // StatusMetrics will return the node's status metrics
 func (nf *nodeFacade) StatusMetrics() core.StatusMetricsHandler {
 	return nf.apiResolver.StatusMetrics()
+}
+
+// GetNodeOverview returns the node overview information
+func (nf *nodeFacade) GetNodeOverview() (models.NodeOverview, error) {
+	metrics := nf.StatusMetrics().Overview()
+
+	overview := models.NodeOverview{
+		ChainID:              getStringValue(metrics["chainID"]),
+		BaseTxSize:           getInt64Value(metrics["baseTxSize"]),
+		SlotAtEpochStart:     getInt64Value(metrics["slotAtEpochStart"]),
+		SlotsPerEpoch:        getInt64Value(metrics["slotsPerEpoch"]),
+		CurrentSlot:          getInt64Value(metrics["currentSlot"]),
+		SlotDuration:         getInt64Value(metrics["slotDuration"]),
+		SlotCurrentTimestamp: getInt64Value(metrics["slotCurrentTimestamp"]),
+		StartTime:            getInt64Value(metrics["startTime"]),
+		EpochNumber:          getInt64Value(metrics["epochNumber"]),
+		NonceAtEpochStart:    getInt64Value(metrics["nonceAtEpochStart"]),
+		Nonce:                getInt64Value(metrics["nonce"]),
+	}
+
+	return overview, nil
+}
+
+func getStringValue(value interface{}) string {
+	if str, ok := value.(string); ok {
+		return str
+	}
+	return ""
+}
+
+func getInt64Value(value interface{}) int64 {
+	switch v := value.(type) {
+	case int64:
+		return v
+	case uint64:
+		return int64(v)
+	case int:
+		return int64(v)
+	case uint:
+		return int64(v)
+	default:
+		return 0
+	}
 }
 
 // GetQueryHandler returns the query handler if existing
@@ -390,13 +434,29 @@ func (nf *nodeFacade) GetAccount(address string) (state.UserAccountHandler, erro
 }
 
 // GetNextNonce returns account next nonce
-func (nf *nodeFacade) GetNextNonce(address string) (uint64, uint64, uint64, error) {
-	return nf.node.GetNextNonce(address)
+func (nf *nodeFacade) GetNextNonce(address string) (*models.AccountNonceResponse, error) {
+	nonce, firstPendingNonce, txPending, err := nf.node.GetNextNonce(address)
+	if err != nil {
+		return nil, err
+	}
+
+	return &models.AccountNonceResponse{
+		Nonce:             nonce,
+		FirstPendingNonce: firstPendingNonce,
+		TxPending:         txPending,
+	}, nil
 }
 
 // GetBalance gets the current balance for a specified address
-func (nf *nodeFacade) GetBalance(address, kda string) (int64, error) {
-	return nf.node.GetBalance(address, kda)
+func (nf *nodeFacade) GetBalance(address, kda string) (*models.BalanceResponse, error) {
+	balance, err := nf.node.GetBalance(address, kda)
+	if err != nil {
+		return nil, err
+	}
+
+	return &models.BalanceResponse{
+		Balance: balance,
+	}, nil
 }
 
 // GetUserKDA returns the userKDA for a specific address
@@ -405,8 +465,17 @@ func (nf *nodeFacade) GetUserKDA(address string, kda string) (*kapps.UserKDA, er
 }
 
 // GetAvailableClaim returns the rewards available for a specific asset in an account
-func (nf *nodeFacade) GetAvailableClaim(address string, assetId string) (int64, map[string]int64, int64, error) {
-	return nf.node.GetAvailableClaim(address, assetId)
+func (nf *nodeFacade) GetAvailableClaim(address string, assetId string) (*models.AvailableClaimResponse, error) {
+	stakingRewards, allStakingRewards, allowance, err := nf.node.GetAvailableClaim(address, assetId)
+	if err != nil {
+		return nil, err
+	}
+
+	return &models.AvailableClaimResponse{
+		StakingRewards:    stakingRewards,
+		AllStakingRewards: allStakingRewards,
+		Allowance:         allowance,
+	}, nil
 }
 
 // GetAsset returns an assetResponse containing information
