@@ -49,7 +49,6 @@ db/
 stats/*
 *.pem*
 *.env*
-seednode
 *.log
 test-output.json
 *.trace*
