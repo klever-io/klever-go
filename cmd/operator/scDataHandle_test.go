@@ -57,6 +57,12 @@ func TestEncodeInput(t *testing.T) {
 			want: "",
 			err:  errors.New("invalid item to encode `file:../../kvm/test/adder/output/wrong.kleversc.json`"),
 		},
+		{
+			name: "Number Values Valid",
+			args: []string{"number:5", "number:-5", "Number:500", "Number:-500", "Number:500000", "Number:-500000", "Number:5000000000", "Number:-5000000000"},
+			want: "@05@fb@01f4@fe0c@07a120@fff85ee0@012a05f200@fffffffed5fa0e00", // u8 i8 u16 i16 u32 i32 u64 i64
+			err:  nil,
+		},
 	}
 
 	for _, tt := range tests {
