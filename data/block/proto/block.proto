@@ -46,13 +46,14 @@ message BlockHeader  {
     bytes                    Reserved               = 30 [json_name = "-"];
 }
 
-// Block holds all block info 
+// Block holds all block info
 message Block  {
     BlockHeader              Header                 = 1 [json_name = "blockHeader"];
     repeated bytes           TxHashes  		        = 2 [json_name = "txHashes"];
     bytes                    ProducerSignature      = 3 [json_name = "producerSignature"];
     bytes                    PubKeysBitmap          = 4 [json_name = "pubKeysBitmap"];
     bytes                    Signature              = 5 [json_name = "signature"];
+    repeated uint32          TxResults              = 6 [json_name = "txResults,omitempty"];  // Transaction execution result codes for timeout validation
 }
 
 message EValidatorInfo  {
