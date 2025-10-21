@@ -38,6 +38,7 @@ type Transaction struct {
 type Logs struct {
 	ID         string        `json:"-"`
 	Address    string        `json:"address"`
+	Caller     string        `json:"caller,omitempty"`
 	ContractID int32         `json:"contractId"`
 	Timestamp  time.Duration `json:"timestamp"`
 	Events     []*Event      `json:"events"`

@@ -62,7 +62,7 @@ type CommonProcessor interface {
 
 // LogsAndEventsHandler defines the actions that a logs and events handler should do
 type LogsAndEventsHandler interface {
-	PrepareLogsForDB(logsAndEvents []*nodeData.LogData, timestamp int64) []*data.Logs
+	PrepareLogsForDB(logsAndEvents []*nodeData.LogData, txsMap map[string]*data.Transaction, timestamp int64) []*data.Logs
 	ExtractDataFromLogs(
 		pool *indexer.Pool,
 		txs []*data.Transaction,

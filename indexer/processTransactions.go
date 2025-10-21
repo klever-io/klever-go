@@ -52,7 +52,7 @@ func newTxDatabaseProcessor(
 func (tdp *txDatabaseProcessor) prepareTransactionsForDatabase(
 	header nodeData.HeaderHandler,
 	txPool *indexer.Pool,
-) ([]*data.Transaction, *data.AlteredData, error) {
+) ([]*data.Transaction, map[string]*data.Transaction, *data.AlteredData, error) {
 	transactions := make(map[string]*data.Transaction)
 	ad := data.NewAlteredData()
 
@@ -78,7 +78,7 @@ func (tdp *txDatabaseProcessor) prepareTransactionsForDatabase(
 
 		err := tdp.commonProcessor.DecodeContract(dbTx, tx.Transaction, ad.Accounts, ad.ITO, ad.SC, header.GetTimestamp())
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 
 		tdp.indexReceipt(
@@ -95,15 +95,15 @@ func (tdp *txDatabaseProcessor) prepareTransactionsForDatabase(
 
 	transactions = tdp.setTransactionSearchOrder(transactions)
 
-	return converters.ConvertMapTxsToSlice(transactions), ad, nil
+	return converters.ConvertMapTxsToSlice(transactions), transactions, ad, nil
 }
 
-func (ei *elasticProcessor) prepareAndIndexLogs(logsAndEvents []*nodeData.LogData, timestamp int64, buffSlice *data.BufferSlice) error {
+func (ei *elasticProcessor) prepareAndIndexLogs(logsAndEvents []*nodeData.LogData, txsMap map[string]*data.Transaction, timestamp int64, buffSlice *data.BufferSlice) error {
 	if !ei.isIndexEnabled(logsIndex) {
 		return nil
 	}
 
-	logsDB := ei.logsAndEventsProc.PrepareLogsForDB(logsAndEvents, timestamp)
+	logsDB := ei.logsAndEventsProc.PrepareLogsForDB(logsAndEvents, txsMap, timestamp)
 
 	return SerializeLogs(logsDB, buffSlice, logsIndex)
 }

@@ -121,6 +121,7 @@ func (lep *logsAndEventsProcessor) processEvent(logHashHexEncoded string, logAdd
 // PrepareLogsForDB will prepare logs for database
 func (lep *logsAndEventsProcessor) PrepareLogsForDB(
 	logsAndEvents []*nodeData.LogData,
+	txsMap map[string]*data.Transaction,
 	timestamp int64,
 ) []*data.Logs {
 	logs := make([]*data.Logs, 0, len(logsAndEvents))
@@ -131,7 +132,14 @@ func (lep *logsAndEventsProcessor) PrepareLogsForDB(
 		}
 
 		logHex := hex.EncodeToString([]byte(txLog.TxHash))
-		logs = append(logs, lep.prepareLogsForDB(logHex, txLog.LogHandler, timestamp))
+
+		caller := ""
+		transaction, ok := txsMap[string(txLog.TxHash)]
+		if ok {
+			caller = transaction.Sender
+		}
+
+		logs = append(logs, lep.prepareLogsForDB(logHex, txLog.LogHandler, timestamp, caller))
 	}
 
 	return logs
@@ -141,11 +149,13 @@ func (lep *logsAndEventsProcessor) prepareLogsForDB(
 	logHashHex string,
 	logHandler nodeData.LogHandler,
 	timestamp int64,
+	caller string,
 ) *data.Logs {
 	events := logHandler.GetLogEvents()
 	logsDB := &data.Logs{
 		ID:        logHashHex,
 		Address:   lep.pubKeyConverter.Encode(logHandler.GetAddress()),
+		Caller:    caller,
 		Timestamp: time.Duration(timestamp),
 		Events:    make([]*data.Event, 0, len(events)),
 	}

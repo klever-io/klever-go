@@ -61,7 +61,7 @@ func TestPrepareTransactionsForDatabase(t *testing.T) {
 		false,
 	)
 
-	transactions, _, _ := txDbProc.prepareTransactionsForDatabase(header, txPool)
+	transactions, _, _, _ := txDbProc.prepareTransactionsForDatabase(header, txPool)
 	assert.Equal(t, 4, len(transactions))
 }
 
