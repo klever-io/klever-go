@@ -301,6 +301,8 @@ func (vmf *vmContainerFactory) createInProcessWasmVMV10() (vmcommon.VMExecutionH
 		KDATransferParser:                   vmf.kdaTransferParser,
 		WasmerSIGSEGVPassthrough:            vmf.config.WasmerSIGSEGVPassthrough,
 		TimeOutForSCExecutionInMilliseconds: vmf.config.TimeOutForSCExecutionInMilliseconds,
+		TimeOutTolerancePercentage:          vmf.config.TimeOutTolerancePercentage,
+		ExecutionMode:                       vmcommon.ExecutionModeQuery, // Default to Query mode
 		EpochNotifier:                       vmf.epochNotifier,
 		ForkController:                      vmf.forkController,
 		Hasher:                              vmf.hasher,

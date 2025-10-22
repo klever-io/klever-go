@@ -55,3 +55,13 @@ func (s *SCProcessorMock) LastBlock() data.HeaderHandler {
 func (s *SCProcessorMock) IsInterfaceNil() bool {
 	return s == nil
 }
+
+// SetVMExecutionMode sets the execution mode
+func (s *SCProcessorMock) SetVMExecutionMode(mode vmcommon.ExecutionMode) {
+	// No-op for mock
+}
+
+// GetVMExecutionMode gets the execution mode
+func (s *SCProcessorMock) GetVMExecutionMode() vmcommon.ExecutionMode {
+	return vmcommon.ExecutionModeQuery
+}

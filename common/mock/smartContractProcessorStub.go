@@ -65,6 +65,16 @@ func (stub *SmartContractProcessorStub) IsInterfaceNil() bool {
 	return false
 }
 
+// SetVMExecutionMode is the stub implementation for SetVMExecutionMode
+func (stub *SmartContractProcessorStub) SetVMExecutionMode(mode vmcommon.ExecutionMode) {
+	// No-op for stub
+}
+
+// GetVMExecutionMode is the stub implementation for GetVMExecutionMode
+func (stub *SmartContractProcessorStub) GetVMExecutionMode() vmcommon.ExecutionMode {
+	return vmcommon.ExecutionModeQuery
+}
+
 // NewSmartContractProcessorStub creates a new instance of SmartContractProcessorStub
 func NewSmartContractProcessorStub() *SmartContractProcessorStub {
 	return &SmartContractProcessorStub{}
