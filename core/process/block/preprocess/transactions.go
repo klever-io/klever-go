@@ -591,7 +591,7 @@ func (txs *transactions) ProcessBlockTransactions(
 		result.txHashes = append(result.txHashes, blockTxHashes[index])
 	}
 
-	log.Debug("createAndProcessBlock has been finished",
+	log.Debug("ProcessBlockTransactions has been finished",
 		"total txs", len(blockTxs),
 		"num txs processed", result.size,
 		"num txs bad", numTxsBad,
@@ -675,6 +675,7 @@ func (txs *transactions) createAndProcessBlock(
 
 	totalTimeUsedForProcess := time.Duration(0)
 	txHashes := make([][]byte, 0)
+	txResults := make([]uint32, 0)
 	numTxsBad := 0
 	numTxsSkipped := 0
 
@@ -742,11 +743,13 @@ func (txs *transactions) createAndProcessBlock(
 		txsSize += int64(tx.Size())
 
 		txHashes = append(txHashes, txHash)
+		txResults = append(txResults, uint32(tx.ResultCode))
 	}
 
 	if len(txHashes) > 0 {
 		// Update block TxRootHash
 		blk.TxHashes = txHashes
+		blk.TxResults = txResults
 		err := blk.UpdateTxRootHash(txs.hasher)
 		if err != nil {
 			return nil, err
@@ -794,9 +797,9 @@ func (txs *transactions) processAndRemoveBadTransaction(
 		return err
 	}
 
-	AccsSnapshot := txs.accounts.JournalLen()
-	KappsSnapshot := txs.kapps.JournalLen()
-	PeerSnapshot := txs.peers.JournalLen()
+	accsSnapshot := txs.accounts.JournalLen()
+	kappsSnapshot := txs.kapps.JournalLen()
+	peersSnapshot := txs.peers.JournalLen()
 
 	err = txs.txProcessor.ProcessTransaction(block, txHash, tx)
 	if err != nil {
@@ -807,19 +810,19 @@ func (txs *transactions) processAndRemoveBadTransaction(
 			"hash", txHash,
 		)
 
-		errAccountState := txs.accounts.RevertToSnapshot(AccsSnapshot)
+		errAccountState := txs.accounts.RevertToSnapshot(accsSnapshot)
 		if errAccountState != nil {
 			log.Debug("processAndRemoveBadTransaction AccRevertToSnapshot", "error", errAccountState.Error())
 		}
 
-		errKAppState := txs.kapps.RevertToSnapshot(KappsSnapshot)
-		if errAccountState != nil {
+		errKAppState := txs.kapps.RevertToSnapshot(kappsSnapshot)
+		if errKAppState != nil {
 			log.Debug("processAndRemoveBadTransaction KAppRevertToSnapshot", "error", errKAppState.Error())
 		}
 
 		if txs.forkProcessor.EnableSmartContracts() {
-			errPeerState := txs.peers.RevertToSnapshot(PeerSnapshot)
-			if errAccountState != nil {
+			errPeerState := txs.peers.RevertToSnapshot(peersSnapshot)
+			if errPeerState != nil {
 				log.Debug("processAndRemoveBadTransaction PeerRevertToSnapshot", "error", errPeerState.Error())
 			}
 		}
