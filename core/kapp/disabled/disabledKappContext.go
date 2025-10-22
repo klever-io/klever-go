@@ -1,6 +1,8 @@
 package disabled
 
 import (
+	"time"
+
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/transaction"
@@ -99,4 +101,11 @@ func (k *kappContext) GetGasLimit() uint64 {
 
 func (k *kappContext) SubGasUsed(_ uint64) error {
 	return nil
+}
+
+func (k *kappContext) SetExecutionTime(_ time.Duration) {
+}
+
+func (k *kappContext) GetExecutionTime() time.Duration {
+	return 0
 }
