@@ -46,8 +46,9 @@ type VMHostStub struct {
 	IsInterfaceNilCalled                 func() bool
 	CompleteLogEntriesWithCallTypeCalled func(vmOutput *vmcommon.VMOutput, callType string)
 
-	SetRuntimeContextCalled func(runtime vmhost.RuntimeContext)
-
+	SetRuntimeContextCalled            func(runtime vmhost.RuntimeContext)
+	SetExecutionModeCalled             func(mode vmcommon.ExecutionMode)
+	GetExecutionModeCalled             func() vmcommon.ExecutionMode
 	SetBuiltInFunctionsContainerCalled func(builtInFuncs vmcommon.BuiltInFunctionContainer)
 }
 
@@ -58,6 +59,21 @@ func (vhs *VMHostStub) GetVersion() string {
 	}
 
 	return "stub"
+}
+
+// SetExecutionMode mocked method
+func (vhs *VMHostStub) SetExecutionMode(mode vmcommon.ExecutionMode) {
+	if vhs.SetExecutionModeCalled != nil {
+		vhs.SetExecutionModeCalled(mode)
+	}
+}
+
+// GetExecutionMode mocked method
+func (vhs *VMHostStub) GetExecutionMode() vmcommon.ExecutionMode {
+	if vhs.GetExecutionModeCalled != nil {
+		return vhs.GetExecutionModeCalled()
+	}
+	return vmcommon.ExecutionModeQuery
 }
 
 // InitState mocked method

@@ -156,6 +156,8 @@ type VMHostParameters struct {
 	ForkController                      core.ForkController
 	Hasher                              HashComputer
 	TimeOutForSCExecutionInMilliseconds uint32
+	TimeOutTolerancePercentage          uint32
+	ExecutionMode                       vmcommon.ExecutionMode
 }
 
 // KDATransfersArgs defines the structure for KDATransferArgs

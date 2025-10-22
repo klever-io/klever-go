@@ -143,6 +143,7 @@ type LogsAndEventsConfig struct {
 type VirtualMachineConfig struct {
 	WasmVMVersions                      []WasmVMVersionByEpoch `yaml:"wasmVMVersions"`
 	TimeOutForSCExecutionInMilliseconds uint32                 `yaml:"timeOutForSCExecutionInMilliseconds"`
+	TimeOutTolerancePercentage          uint32                 `yaml:"timeOutTolerancePercentage"` // Percentage to add for cosigner tolerance (e.g., 20 = 20%)
 	WasmerSIGSEGVPassthrough            bool                   `yaml:"wasmerSIGSEGVPassthrough"`
 }
 

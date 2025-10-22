@@ -591,6 +591,7 @@ epochStart:
 virtualMachine:
   execution:
     timeOutForSCExecutionInMilliseconds: 500 # 0.5 seconds = 500 milliseconds
+    TimeOutTolerancePercentage: 15 # 15% tolerance
     wasmerSIGSEGVPassthrough: false # must be false for release
     wasmVMVersions:
       - startEpoch: 0

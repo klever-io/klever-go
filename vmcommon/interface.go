@@ -140,6 +140,12 @@ type VMExecutionHandler interface {
 	// GetVersion returns the version of the VM instance
 	GetVersion() string
 
+	// SetExecutionMode sets the execution mode for the VM (leader, validator, observer, or query)
+	SetExecutionMode(mode ExecutionMode)
+
+	// GetExecutionMode retrieves the current execution mode
+	GetExecutionMode() ExecutionMode
+
 	// IsInterfaceNil returns true if there is no value under the interface
 	IsInterfaceNil() bool
 }
@@ -253,3 +259,26 @@ type NextOutputTransferIndexProvider interface {
 	SetCrtTransferIndex(index uint32)
 	IsInterfaceNil() bool
 }
+
+// ExecutionMode specifies the context in which the VM is executing
+type ExecutionMode int
+
+const (
+	// ExecutionModeLeader means the VM is executing on the block leader/proposer
+	// Leader uses base timeout (TimeOutForSCExecutionInMilliseconds)
+	ExecutionModeLeader ExecutionMode = iota
+
+	// ExecutionModeValidator means the VM is executing on a validator node
+	// Validators use tolerance timeout (base + tolerance percentage) to allow for
+	// minor execution time differences between leader and validators during consensus
+	ExecutionModeValidator
+
+	// ExecutionModeObserver means the VM is executing on an observer node
+	// Observers validate historical blocks without participating in consensus
+	// Uses tolerance timeout similar to validators
+	ExecutionModeObserver
+
+	// ExecutionModeQuery means the VM is executing a query (non-consensus)
+	// Query uses base timeout or query-specific timeout
+	ExecutionModeQuery
+)
