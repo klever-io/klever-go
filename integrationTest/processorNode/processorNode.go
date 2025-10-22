@@ -1028,6 +1028,7 @@ func (n *ProcessorNode) initBlockProcessor() error {
 		n.EconomicsData,
 		n.LogProcessor,
 		n.ForkController,
+		&mock.SCProcessorMock{},
 	)
 	if err != nil {
 		return err

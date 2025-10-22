@@ -193,6 +193,7 @@ func createMockTransactionCoordinator(dataPool retriever.PoolsHolder) (coordinat
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		forkController,
+		&commonMock.SCProcessorMock{},
 	)
 
 	return coordinator.NewTestTransactionCoordinator(tc), err
@@ -212,6 +213,7 @@ func TestNewTransactionCoordinator_NilHasher(t *testing.T) {
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		newForkController(),
+		&commonMock.SCProcessorMock{},
 	)
 
 	assert.Nil(t, tc)
@@ -232,6 +234,7 @@ func TestNewTransactionCoordinator_NilMarshalizer(t *testing.T) {
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		newForkController(),
+		&commonMock.SCProcessorMock{},
 	)
 
 	assert.Nil(t, tc)
@@ -252,6 +255,7 @@ func TestNewTransactionCoordinator_NilAccountsStub(t *testing.T) {
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		newForkController(),
+		&commonMock.SCProcessorMock{},
 	)
 
 	assert.Nil(t, tc)
@@ -272,6 +276,7 @@ func TestNewTransactionCoordinator_NilAssetsStub(t *testing.T) {
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		newForkController(),
+		&commonMock.SCProcessorMock{},
 	)
 
 	assert.Nil(t, tc)
@@ -292,6 +297,7 @@ func TestNewTransactionCoordinator_NilRequestHandler(t *testing.T) {
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		newForkController(),
+		&commonMock.SCProcessorMock{},
 	)
 	assert.Nil(t, tc)
 	assert.Equal(t, common.ErrNilRequestHandler, err)
@@ -311,6 +317,7 @@ func TestNewTransactionCoordinator_NilPreProcessor(t *testing.T) {
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		newForkController(),
+		&commonMock.SCProcessorMock{},
 	)
 	assert.Nil(t, tc)
 	assert.Equal(t, process.ErrNilPreProcessorsContainer, err)
@@ -330,6 +337,7 @@ func TestNewTransactionCoordinator_OK(t *testing.T) {
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		newForkController(),
+		&commonMock.SCProcessorMock{},
 	)
 
 	assert.Nil(t, err)
@@ -351,6 +359,7 @@ func TestTransactionCoordinator_CreateBlockStarted(t *testing.T) {
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		newForkController(),
+		&commonMock.SCProcessorMock{},
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, tc)
@@ -375,6 +384,7 @@ func TestTransactionCoordinator_CreateMarshalizedDataNilBody(t *testing.T) {
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		newForkController(),
+		&commonMock.SCProcessorMock{},
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, tc)
@@ -411,6 +421,7 @@ func TestTransactionCoordinator_CreateMarshalizedData(t *testing.T) {
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		newForkController(),
+		&commonMock.SCProcessorMock{},
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, tc)
@@ -442,6 +453,7 @@ func TestTransactionCoordinator_GetAllCurrentUsedTxs(t *testing.T) {
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		newForkController(),
+		&commonMock.SCProcessorMock{},
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, tc)
@@ -464,6 +476,7 @@ func TestTransactionCoordinator_RequestBlockTransactionsNilBlock(t *testing.T) {
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		newForkController(),
+		&commonMock.SCProcessorMock{},
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, tc)
@@ -628,6 +641,7 @@ func TestTransactionCoordinator_ProcessBlockTransaction(t *testing.T) {
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		newForkController(),
+		&commonMock.SCProcessorMock{},
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, tc)
@@ -757,6 +771,7 @@ func TestShardProcessor_ProcessBlockCompleteWithOkTxsShouldExecuteThemAndNotReve
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		forkController,
+		&commonMock.SCProcessorMock{},
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, tc)
@@ -829,6 +844,7 @@ func TestShardProcessor_ProcessBlockInvalidFees_ShouldFail(t *testing.T) {
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		forkController,
+		&commonMock.SCProcessorMock{},
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, tc)
@@ -934,6 +950,7 @@ func TestShardProcessor_ProcessBlockInvalidNumberOfBlockTxs_ShouldFail(t *testin
 		&commonMock.FeeHandlerStub{},
 		createTxLogsProcessor(),
 		forkController,
+		&commonMock.SCProcessorMock{},
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, tc)

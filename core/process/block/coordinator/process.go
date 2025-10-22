@@ -14,6 +14,7 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
+	"github.com/klever-io/klever-go/vmcommon"
 )
 
 var _ process.TransactionCoordinator = (*transactionCoordinator)(nil)
@@ -35,6 +36,7 @@ type transactionCoordinator struct {
 	feeHandler     process.TransactionFeeHandler
 	economicsFee   process.EconomicsDataHandler
 	forkController core.ForkController
+	scProcessor    process.SmartContractProcessor
 
 	transactionsLogProcessor process.TransactionLogProcessor
 }
@@ -51,6 +53,7 @@ func NewTransactionCoordinator(
 	economicsFee process.EconomicsDataHandler,
 	transactionsLogProcessor process.TransactionLogProcessor,
 	forkController core.ForkController,
+	scProcessor process.SmartContractProcessor,
 ) (*transactionCoordinator, error) {
 	if check.IfNil(accounts) {
 		return nil, common.ErrNilAccountsAdapter
@@ -82,6 +85,9 @@ func NewTransactionCoordinator(
 	if check.IfNil(transactionsLogProcessor) {
 		return nil, process.ErrNilTxLogsProcessor
 	}
+	if check.IfNil(scProcessor) {
+		return nil, process.ErrNilSmartContractProcessor
+	}
 
 	tc := &transactionCoordinator{
 		accounts:       accounts,
@@ -92,6 +98,7 @@ func NewTransactionCoordinator(
 		feeHandler:     feeHandler,
 		economicsFee:   economicsFee,
 		forkController: forkController,
+		scProcessor:    scProcessor,
 
 		transactionsLogProcessor: transactionsLogProcessor,
 	}
@@ -201,6 +208,9 @@ func (tc *transactionCoordinator) ProcessBlockTransactions(
 		return nil, process.ErrNilBlockHeader
 	}
 
+	// Set validator mode before validating block
+	tc.setVMExecutionMode(vmcommon.ExecutionModeValidator)
+
 	haveTime := func() bool {
 		return timeRemaining() >= 0
 	}
@@ -267,6 +277,9 @@ func (tc *transactionCoordinator) CreateAndProcessBlockTransactions(
 		return nil, process.ErrNilBlockHeader
 	}
 
+	// Set leader mode before creating block
+	tc.setVMExecutionMode(vmcommon.ExecutionModeLeader)
+
 	AccsSnapshot := tc.accounts.JournalLen()
 	KAppsSnapshot := tc.kapps.JournalLen()
 
@@ -316,6 +329,11 @@ func (tc *transactionCoordinator) GetAllCurrentUsedTxs() map[string]data.Transac
 // GetAllCurrentLogs return the cached logs data from current round
 func (tc *transactionCoordinator) GetAllCurrentLogs() []*data.LogData {
 	return tc.transactionsLogProcessor.GetAllCurrentLogs()
+}
+
+// setVMExecutionMode sets the execution mode directly on the smart contract processor
+func (tc *transactionCoordinator) setVMExecutionMode(mode vmcommon.ExecutionMode) {
+	tc.scProcessor.SetVMExecutionMode(mode)
 }
 
 // IsInterfaceNil returns true if there is no value under the interface
