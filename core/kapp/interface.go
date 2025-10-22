@@ -1,6 +1,8 @@
 package kapp
 
 import (
+	"time"
+
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
@@ -196,6 +198,8 @@ type KappContext interface {
 	GetGasLimit() uint64
 	GetExecData() []byte
 	IsScSimulation() bool
+	SetExecutionTime(duration time.Duration)
+	GetExecutionTime() time.Duration
 }
 
 type ReceiptsContext interface {

@@ -262,6 +262,9 @@ func (sc *scProcessor) ExecuteSmartContractTransaction(
 	sw.Stop("execute")
 	duration := sw.GetMeasurement("execute")
 
+	// Store execution time in context for tolerance band validation
+	ctx.SetExecutionTime(duration)
+
 	if duration > executeDurationAlarmThreshold {
 		log.Debug(fmt.Sprintf(
 			"scProcessor.ExecuteSmartContractTransaction(): execution took > %s", executeDurationAlarmThreshold),
@@ -388,6 +391,11 @@ func (sc *scProcessor) executeSmartContractCall(
 	vmOutput, err = vmExec.RunSmartContractCall(vmInput)
 	sc.wasmVMChangeLocker.RUnlock()
 	if err != nil {
+		if vmOutput != nil && vmOutput.ReturnCode != vmcommon.Ok {
+			log.Debug("run smart contract call error with vmOutput", "returnCode", vmOutput.ReturnCode, "returnMessage", vmOutput.ReturnMessage)
+			userErrorVmOutput.ReturnCode = vmOutput.ReturnCode
+		}
+
 		log.Debug("run smart contract call error", "error", err.Error())
 		return userErrorVmOutput, sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
 	}
