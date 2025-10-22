@@ -76,7 +76,6 @@ func (txProc *txProcessor) validateTransactionResult(
 		localErr,
 		expectedResultCode,
 		actualResultCode,
-		executionMode,
 		validatorExecutionTimeNs,
 	)
 }
@@ -126,7 +125,7 @@ func (txProc *txProcessor) logResultMismatch(
 // Three main scenarios are handled:
 //  1. Validator succeeded, Leader failed: Check tolerance band to determine if leader's failure was justified
 //  2. Leader succeeded, Validator failed: Always reject (both Validators and Observers)
-//  3. Both failed with different errors: Validators reject, Observers accept consensus decision
+//  3. Both failed with different errors: Validators reject block
 //
 // Parameters:
 //   - txHash: Hash of the transaction with mismatched results
@@ -146,23 +145,28 @@ func (txProc *txProcessor) handleResultMismatch(
 	tx *transaction.Transaction,
 	localErr error,
 	expectedResultCode, actualResultCode uint32,
-	executionMode vmcommon.ExecutionMode,
 	validatorExecutionTimeNs int64,
 ) error {
 	okCode := uint32(transaction.Transaction_Ok)
+	timeoutCode := uint32(transaction.Transaction_VMExecutionFailed)
 
 	// CASE 1: Validator succeeded, Leader failed - check tolerance band
-	if actualResultCode == okCode && expectedResultCode != okCode {
-		return txProc.validateToleranceBand(txHash, tx, expectedResultCode, validatorExecutionTimeNs)
+	if actualResultCode == okCode && expectedResultCode == timeoutCode {
+		return txProc.validateToleranceBand(txHash, tx, expectedResultCode, validatorExecutionTimeNs, localErr)
 	}
 
-	// CASE 2: Leader succeeded, but validator failed - reject
-	if expectedResultCode == okCode && actualResultCode != okCode {
-		return txProc.handleLocalFailureConsensusSuccess(txHash, txIndex, expectedResultCode, actualResultCode, executionMode)
+	// CASE 2: Leader succeeded, but validator failed - block reject
+	if expectedResultCode == okCode && actualResultCode == timeoutCode {
+		log.Warn("Validator: transaction result mismatch - rejecting block",
+			"txHash", txHash,
+			"expectedResult", expectedResultCode,
+			"actualResult", actualResultCode,
+			"txIndex", txIndex)
+		return process.ErrTransactionResultMismatch
 	}
 
-	// CASE 3: Both failed with different error codes
-	return txProc.handleDifferentErrorCodes(txHash, txIndex, tx, localErr, expectedResultCode, actualResultCode, executionMode)
+	// CASE 3: Both failed with different error codes, constinue based on execution mode - block rejected
+	return localErr
 }
 
 // validateToleranceBand checks if a leader's smart contract execution timeout was justified
@@ -194,6 +198,7 @@ func (txProc *txProcessor) validateToleranceBand(
 	tx *transaction.Transaction,
 	expectedResultCode uint32,
 	validatorExecutionTimeNs int64,
+	localErr error,
 ) error {
 	baseTimeout := time.Duration(txProc.cfg.VirtualMachine.Execution.TimeOutForSCExecutionInMilliseconds) * time.Millisecond
 	tolerancePercentage := txProc.cfg.VirtualMachine.Execution.TimeOutTolerancePercentage
@@ -218,13 +223,14 @@ func (txProc *txProcessor) validateToleranceBand(
 		"lowerBound", lowerBound)
 
 	// If validator finished BEFORE lower bound, leader hardware is too weak
+	// cant update result and should reutnr local error to reject block
 	if validatorExecTime < lowerBound {
 		log.Warn("Rejecting block: leader hardware too weak",
 			"txHash", txHash,
 			"validatorTime", validatorExecTime,
 			"lowerBound", lowerBound,
 			"leaderShouldHaveSucceeded", true)
-		return process.ErrTransactionResultMismatch
+		return localErr
 	}
 
 	// Leader had right to fail - accept block
@@ -233,106 +239,5 @@ func (txProc *txProcessor) validateToleranceBand(
 		"validatorTime", validatorExecTime,
 		"lowerBound", lowerBound)
 	tx.ResultCode = transaction.Transaction_TXResultCode(expectedResultCode)
-	return process.ErrTransactionResultMismatch
-}
-
-// handleLocalFailureConsensusSuccess handles the case where the local node (validator/observer)
-// failed to execute a transaction, but the consensus (leader) reports success.
-//
-// This scenario is problematic because:
-//   - Validators cannot validate a leader's success when their own execution failed
-//   - Observers similarly cannot verify the correctness of the leader's success
-//   - Accepting would mean trusting leader without verification
-//
-// Therefore, this function ALWAYS rejects the block for both Validators and Observers.
-//
-// Parameters:
-//   - txHash: Transaction hash for logging
-//   - txIndex: Transaction index in block
-//   - expectedResultCode: Consensus result (Transaction_Ok)
-//   - actualResultCode: Local result (failure code)
-//   - executionMode: Validator or Observer
-//
-// Returns:
-//   - process.ErrTransactionResultMismatch: Block rejection
-func (txProc *txProcessor) handleLocalFailureConsensusSuccess(
-	txHash []byte,
-	txIndex int,
-	expectedResultCode, actualResultCode uint32,
-	executionMode vmcommon.ExecutionMode,
-) error {
-	if executionMode == vmcommon.ExecutionModeObserver {
-		log.Warn("Observer: cannot validate leader's success - local execution failed, rejecting block",
-			"txHash", txHash,
-			"expectedResult", expectedResultCode,
-			"actualResult", actualResultCode,
-			"txIndex", txIndex)
-		return process.ErrTransactionResultMismatch
-	}
-
-	log.Warn("Validator: transaction result mismatch - rejecting block",
-		"txHash", txHash,
-		"expectedResult", expectedResultCode,
-		"actualResult", actualResultCode,
-		"txIndex", txIndex)
-	return process.ErrTransactionResultMismatch
-}
-
-// handleDifferentErrorCodes handles the case where both the local node and consensus (leader)
-// report transaction failures, but with different error codes.
-//
-// Behavior differs by execution mode:
-//
-//   - Observer Mode: Accepts the consensus decision
-//
-//   - Updates tx.ResultCode to consensus value
-//
-//   - Returns localErr to maintain state consistency
-//
-//   - Rationale: Observers should follow majority consensus, cannot independently verify
-//
-//   - Validator Mode: Rejects the block
-//
-//   - Different error codes indicate execution divergence
-//
-//   - Validators must maintain strict consensus
-//
-//   - Returns ErrTransactionResultMismatch for block rejection
-//
-// Parameters:
-//   - txHash: Transaction hash for logging
-//   - txIndex: Transaction index in block
-//   - tx: Transaction to update ResultCode (observer mode only)
-//   - localErr: Error from local execution
-//   - expectedResultCode: Consensus error code
-//   - actualResultCode: Local execution error code
-//   - executionMode: Validator or Observer
-//
-// Returns:
-//   - localErr: For observers (with ResultCode updated to consensus)
-//   - process.ErrTransactionResultMismatch: For validators (block rejection)
-func (txProc *txProcessor) handleDifferentErrorCodes(
-	txHash []byte,
-	txIndex int,
-	tx *transaction.Transaction,
-	localErr error,
-	expectedResultCode, actualResultCode uint32,
-	executionMode vmcommon.ExecutionMode,
-) error {
-	if executionMode == vmcommon.ExecutionModeObserver {
-		log.Warn("Observer: accepting consensus decision despite different error codes",
-			"txHash", txHash,
-			"consensusResult", expectedResultCode,
-			"localResult", actualResultCode,
-			"txIndex", txIndex)
-		tx.ResultCode = transaction.Transaction_TXResultCode(expectedResultCode)
-		return localErr // Return local error to maintain state consistency
-	}
-
-	log.Warn("Validator: transaction error code mismatch - rejecting block",
-		"txHash", txHash,
-		"expectedResult", expectedResultCode,
-		"actualResult", actualResultCode,
-		"txIndex", txIndex)
 	return process.ErrTransactionResultMismatch
 }
