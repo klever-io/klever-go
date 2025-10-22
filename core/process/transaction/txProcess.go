@@ -279,6 +279,16 @@ func cloneReceipts(tx *transaction.Transaction) []*transaction.Transaction_Recei
 	return bkpReceipts
 }
 
+// findTxIndexInBlock finds the index of a transaction hash in the block's TxHashes
+func (txProc *txProcessor) findTxIndexInBlock(block *block.Block, txHash []byte) int {
+	for i, hash := range block.TxHashes {
+		if string(hash) == string(txHash) {
+			return i
+		}
+	}
+	return -1
+}
+
 // ProcessTransaction modifies the account states in respect with the transaction data
 func (txProc *txProcessor) ProcessTransaction(block *block.Block, txHash []byte, tx *transaction.Transaction) error {
 	bkpReceipts, err := txProc.validateAndPrepareTransaction(tx)
@@ -318,6 +328,19 @@ func (txProc *txProcessor) ProcessTransaction(block *block.Block, txHash []byte,
 	if kAppFeeErr == nil {
 		// execute contracts
 		kAppFeeErr = txProc.processContracts(ctx, ownerAcc, tx)
+
+		// Verify leader vs validator SC execution results
+		// If block has TxResults, validate our execution against consensus
+		if len(block.TxResults) > 0 {
+			// Get validator's execution time from context
+			validatorExecTime := ctx.GetExecutionTime()
+			if validatorExecTime > 0 {
+				log.Debug("Validating transaction result against consensus", "txHash", txHash)
+
+				// Only validate if we have execution time data
+				kAppFeeErr = txProc.validateTransactionResult(block, txHash, tx, kAppFeeErr, validatorExecTime.Nanoseconds())
+			}
+		}
 	}
 
 	txProc.accountsCacher.ResetAll(
