@@ -46,8 +46,8 @@ func TestValidateToleranceBand_LeaderWeakHardware(t *testing.T) {
 	cfg := config.Config{
 		VirtualMachine: config.VirtualMachineServicesConfig{
 			Execution: config.VirtualMachineConfig{
-				TimeOutForSCExecutionInMilliseconds: 500,  // 500ms base timeout
-				TimeOutTolerancePercentage:          15,   // 15% tolerance
+				TimeOutForSCExecutionInMilliseconds: 500, // 500ms base timeout
+				TimeOutTolerancePercentage:          15,  // 15% tolerance
 			},
 		},
 	}
@@ -81,8 +81,8 @@ func TestValidateToleranceBand_LeaderRightToFail(t *testing.T) {
 	cfg := config.Config{
 		VirtualMachine: config.VirtualMachineServicesConfig{
 			Execution: config.VirtualMachineConfig{
-				TimeOutForSCExecutionInMilliseconds: 500,  // 500ms base timeout
-				TimeOutTolerancePercentage:          15,   // 15% tolerance
+				TimeOutForSCExecutionInMilliseconds: 500, // 500ms base timeout
+				TimeOutTolerancePercentage:          15,  // 15% tolerance
 			},
 		},
 	}
@@ -116,8 +116,8 @@ func TestValidateToleranceBand_ExactlyAtLowerBound(t *testing.T) {
 	cfg := config.Config{
 		VirtualMachine: config.VirtualMachineServicesConfig{
 			Execution: config.VirtualMachineConfig{
-				TimeOutForSCExecutionInMilliseconds: 500,  // 500ms base timeout
-				TimeOutTolerancePercentage:          15,   // 15% tolerance
+				TimeOutForSCExecutionInMilliseconds: 500, // 500ms base timeout
+				TimeOutTolerancePercentage:          15,  // 15% tolerance
 			},
 		},
 	}
@@ -151,7 +151,7 @@ func TestValidateToleranceBand_DefaultTolerance(t *testing.T) {
 		VirtualMachine: config.VirtualMachineServicesConfig{
 			Execution: config.VirtualMachineConfig{
 				TimeOutForSCExecutionInMilliseconds: 500,
-				TimeOutTolerancePercentage:          0,    // Not configured, should use default 15%
+				TimeOutTolerancePercentage:          0, // Not configured, should use default 15%
 			},
 		},
 	}
@@ -183,7 +183,7 @@ func TestValidateToleranceBand_ToleranceOver100(t *testing.T) {
 		VirtualMachine: config.VirtualMachineServicesConfig{
 			Execution: config.VirtualMachineConfig{
 				TimeOutForSCExecutionInMilliseconds: 500,
-				TimeOutTolerancePercentage:          150,  // Invalid: >100%, should cap at 100%
+				TimeOutTolerancePercentage:          150, // Invalid: >100%, should cap at 100%
 			},
 		},
 	}
@@ -237,7 +237,7 @@ func TestHandleResultMismatch_ValidatorSucceededLeaderFailed(t *testing.T) {
 	tx := &transaction.Transaction{}
 	txHash := []byte("test-hash")
 	expectedResultCode := uint32(transaction.Transaction_Fail) // Leader failed
-	actualResultCode := uint32(transaction.Transaction_Ok)                 // Validator succeeded
+	actualResultCode := uint32(transaction.Transaction_Ok)     // Validator succeeded
 
 	// Validator finished quickly (300ms < 425ms lower bound)
 	validatorTimeNs := int64(300 * time.Millisecond)
@@ -271,8 +271,8 @@ func TestHandleResultMismatch_LeaderSucceededValidatorFailed_Validator(t *testin
 
 	tx := &transaction.Transaction{}
 	txHash := []byte("test-hash")
-	expectedResultCode := uint32(transaction.Transaction_Ok)               // Leader succeeded
-	actualResultCode := uint32(transaction.Transaction_ContractInvalid)    // Validator failed
+	expectedResultCode := uint32(transaction.Transaction_Ok)            // Leader succeeded
+	actualResultCode := uint32(transaction.Transaction_ContractInvalid) // Validator failed
 
 	err := txProc.handleResultMismatch(
 		txHash,
@@ -303,8 +303,8 @@ func TestHandleResultMismatch_LeaderSucceededValidatorFailed_Observer(t *testing
 
 	tx := &transaction.Transaction{}
 	txHash := []byte("test-hash")
-	expectedResultCode := uint32(transaction.Transaction_Ok)               // Leader succeeded
-	actualResultCode := uint32(transaction.Transaction_ContractInvalid)    // Observer failed
+	expectedResultCode := uint32(transaction.Transaction_Ok)            // Leader succeeded
+	actualResultCode := uint32(transaction.Transaction_ContractInvalid) // Observer failed
 
 	err := txProc.handleResultMismatch(
 		txHash,
@@ -337,8 +337,8 @@ func TestHandleResultMismatch_BothFailedDifferentErrors_Validator(t *testing.T) 
 		ResultCode: transaction.Transaction_ContractInvalid,
 	}
 	txHash := []byte("test-hash")
-	expectedResultCode := uint32(transaction.Transaction_Fail) // Leader: timeout
-	actualResultCode := uint32(transaction.Transaction_ContractInvalid)     // Validator: contract invalid
+	expectedResultCode := uint32(transaction.Transaction_Fail)          // Leader: timeout
+	actualResultCode := uint32(transaction.Transaction_ContractInvalid) // Validator: contract invalid
 
 	err := txProc.handleResultMismatch(
 		txHash,
@@ -371,8 +371,8 @@ func TestHandleResultMismatch_BothFailedDifferentErrors_Observer(t *testing.T) {
 		ResultCode: transaction.Transaction_ContractInvalid,
 	}
 	txHash := []byte("test-hash")
-	expectedResultCode := uint32(transaction.Transaction_Fail) // Leader: timeout
-	actualResultCode := uint32(transaction.Transaction_ContractInvalid)     // Observer: contract invalid
+	expectedResultCode := uint32(transaction.Transaction_Fail)          // Leader: timeout
+	actualResultCode := uint32(transaction.Transaction_ContractInvalid) // Observer: contract invalid
 	localErr := errors.New("contract invalid")
 
 	err := txProc.handleResultMismatch(
