@@ -43,6 +43,7 @@ type vmHost struct {
 	closingInstance  bool
 	executionTimeout time.Duration
 	executionContext context.Context // Per-execution timeout context
+	toleranceTimeout time.Duration   // Timeout with tolerance for cosigner validation
 
 	blockchainContext   vmhost.BlockchainContext
 	runtimeContext      vmhost.RuntimeContext
@@ -105,11 +106,21 @@ func NewVMHost(
 		callArgsParser:       parsers.NewCallArgsParser(),
 		executionTimeout:     minExecutionTimeout,
 		forkController:       hostParameters.ForkController,
+		executionMode:        hostParameters.ExecutionMode, // Initialize from parameters
 	}
 	newExecutionTimeout := time.Duration(hostParameters.TimeOutForSCExecutionInMilliseconds) * time.Millisecond
 	if newExecutionTimeout > minExecutionTimeout {
 		host.executionTimeout = newExecutionTimeout
 	}
+
+	// Calculate tolerance timeout for cosigner validation
+	// Leader uses executionTimeout, cosigners use toleranceTimeout
+	tolerancePercentage := hostParameters.TimeOutTolerancePercentage
+	if tolerancePercentage == 0 {
+		tolerancePercentage = 15 // Default to 15% tolerance
+	}
+	additionalTime := (host.executionTimeout * time.Duration(tolerancePercentage)) / 100
+	host.toleranceTimeout = host.executionTimeout + additionalTime
 
 	var err error
 	host.blockchainContext, err = contexts.NewBlockchainContext(host, blockChainHook)
@@ -328,6 +339,37 @@ func (host *vmHost) GetGasScheduleMap() config.GasScheduleMap {
 	return host.gasSchedule
 }
 
+// SetExecutionMode sets the execution mode for the VM host
+// This determines which timeout will be used during smart contract execution
+func (host *vmHost) SetExecutionMode(mode vmcommon.ExecutionMode) {
+	host.mutExecution.Lock()
+	defer host.mutExecution.Unlock()
+	log.Debug("vmHost SetExecutionMode", "mode", mode)
+	host.executionMode = mode
+}
+
+// GetExecutionMode retrieves the current execution mode
+func (host *vmHost) GetExecutionMode() vmcommon.ExecutionMode {
+	host.mutExecution.RLock()
+	defer host.mutExecution.RUnlock()
+	return host.executionMode
+}
+
+// getEffectiveTimeout returns the timeout to use based on the current execution mode
+func (host *vmHost) getEffectiveTimeout() time.Duration {
+	switch host.executionMode {
+	case vmcommon.ExecutionModeLeader:
+		return host.executionTimeout // Base timeout (e.g., 500ms)
+	case vmcommon.ExecutionModeValidator, vmcommon.ExecutionModeObserver:
+		return host.toleranceTimeout // Base + tolerance (e.g., 575ms with 15% tolerance)
+	case vmcommon.ExecutionModeQuery:
+		return host.executionTimeout // Use base timeout for queries
+	default:
+		// Default to base timeout for unknown modes
+		return host.executionTimeout
+	}
+}
+
 // RunSmartContractCreate executes the deployment of a new contract
 func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) (vmOutput *vmcommon.VMOutput, err error) {
 	err = validateVMInput(&input.VMInput)
@@ -343,7 +385,8 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 	}
 
 	host.setGasTracerEnabledIfLogIsTrace()
-	ctx, cancel := context.WithTimeout(context.Background(), host.executionTimeout)
+	effectiveTimeout := host.getEffectiveTimeout()
+	ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
 	defer cancel()
 
 	// Set execution context on vmHost instance (not global) for timeout protection
@@ -358,7 +401,17 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 		"len(code)", len(input.ContractCode),
 		"metadata", input.ContractCodeMetadata,
 		"gasProvided", input.GasProvided,
-		"executionTimeout", host.executionTimeout)
+		"executionTimeout", effectiveTimeout,
+		"executionMode", host.executionMode)
+
+	// Track execution time
+	startTime := time.Now()
+	defer func() {
+		elapsedTime := time.Since(startTime)
+		log.Trace("RunSmartContractCreate execTime",
+			"time [ms]", elapsedTime.Milliseconds(),
+			"timedOut", err == vmhost.ErrExecutionFailedWithTimeout)
+	}()
 
 	done := make(chan struct{})
 	go func() {
@@ -392,6 +445,7 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 
 	select {
 	case <-done:
+		// Normal termination
 		return
 	case <-ctx.Done():
 		host.Runtime().FailExecution(vmhost.ErrExecutionFailedWithTimeout)
@@ -417,7 +471,8 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 	}
 
 	host.setGasTracerEnabledIfLogIsTrace()
-	ctx, cancel := context.WithTimeout(context.Background(), host.executionTimeout)
+	effectiveTimeout := host.getEffectiveTimeout()
+	ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
 	defer cancel()
 
 	// Set execution context on vmHost instance (not global) for timeout protection
@@ -430,7 +485,19 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 
 	log.Trace("RunSmartContractCall begin",
 		"function", input.Function,
-		"gasProvided", input.GasProvided)
+		"gasProvided", input.GasProvided,
+		"executionTimeout", effectiveTimeout,
+		"executionMode", host.executionMode)
+
+	// Track execution time
+	startTime := time.Now()
+	defer func() {
+		elapsedTime := time.Since(startTime)
+		log.Trace("RunSmartContractCall execTime",
+			"function", input.Function,
+			"time [ms]", elapsedTime.Milliseconds(),
+			"timedOut", err == vmhost.ErrExecutionFailedWithTimeout)
+	}()
 
 	done := make(chan struct{})
 	go func() {
