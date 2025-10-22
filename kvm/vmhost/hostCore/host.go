@@ -360,7 +360,7 @@ func (host *vmHost) getEffectiveTimeout() time.Duration {
 	switch host.executionMode {
 	case vmcommon.ExecutionModeLeader:
 		return host.executionTimeout // Base timeout (e.g., 500ms)
-	case vmcommon.ExecutionModeValidator, vmcommon.ExecutionModeObserver:
+	case vmcommon.ExecutionModeValidator:
 		return host.toleranceTimeout // Base + tolerance (e.g., 575ms with 15% tolerance)
 	case vmcommon.ExecutionModeQuery:
 		return host.executionTimeout // Use base timeout for queries

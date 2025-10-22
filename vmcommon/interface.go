@@ -273,11 +273,6 @@ const (
 	// minor execution time differences between leader and validators during consensus
 	ExecutionModeValidator
 
-	// ExecutionModeObserver means the VM is executing on an observer node
-	// Observers validate historical blocks without participating in consensus
-	// Uses tolerance timeout similar to validators
-	ExecutionModeObserver
-
 	// ExecutionModeQuery means the VM is executing a query (non-consensus)
 	// Query uses base timeout or query-specific timeout
 	ExecutionModeQuery
