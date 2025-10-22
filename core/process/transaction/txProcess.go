@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
@@ -282,7 +283,7 @@ func cloneReceipts(tx *transaction.Transaction) []*transaction.Transaction_Recei
 // findTxIndexInBlock finds the index of a transaction hash in the block's TxHashes
 func (txProc *txProcessor) findTxIndexInBlock(block *block.Block, txHash []byte) int {
 	for i, hash := range block.TxHashes {
-		if string(hash) == string(txHash) {
+		if bytes.Equal(hash, txHash) {
 			return i
 		}
 	}
