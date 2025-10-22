@@ -9,6 +9,12 @@ import (
 	"github.com/klever-io/klever-go/vmcommon"
 )
 
+const (
+	// DefaultTolerancePercentage is the default tolerance percentage for SC execution timeout validation
+	// when TimeOutTolerancePercentage is not configured (15%)
+	DefaultTolerancePercentage = 15
+)
+
 // validateTransactionResult validates local execution result against consensus result
 // Returns an error if validation fails (block should be rejected)
 // Returns the consensus error if local succeeded but consensus says it should fail
@@ -117,7 +123,12 @@ func (txProc *txProcessor) validateToleranceBand(
 	baseTimeout := time.Duration(txProc.cfg.VirtualMachine.Execution.TimeOutForSCExecutionInMilliseconds) * time.Millisecond
 	tolerancePercentage := txProc.cfg.VirtualMachine.Execution.TimeOutTolerancePercentage
 	if tolerancePercentage == 0 {
-		tolerancePercentage = 15 // Default 15% tolerance
+		tolerancePercentage = DefaultTolerancePercentage
+	}
+	if tolerancePercentage > 100 {
+		log.Warn("TimeOutTolerancePercentage exceeds 100%, using 100%",
+			"configured", tolerancePercentage)
+		tolerancePercentage = 100
 	}
 
 	// Calculate lower bound: base - tolerance%
