@@ -243,12 +243,13 @@ func TestGetVMWrapperTestFileHeader(t *testing.T) {
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 import (
-	"github.com/klever-io/klever-go/kvm/executor"
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
 )
 
@@ -271,50 +272,17 @@ func TestBuildVMWrapperFunctionTest(t *testing.T) {
 				Name: "NoArgsNoReturn",
 			},
 			expected: `func TestNoArgsNoReturn(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "NoArgsNoReturn should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "NoArgsNoReturn should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				NoArgsNoReturnCalled: func () {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.NoArgsNoReturn()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("NoArgsNoReturn should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			NoArgsNoReturnCalled: func() {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.NoArgsNoReturn()
+		assert.True(t, called)
+	})
 }
 
 `,
@@ -338,50 +306,18 @@ func TestBuildVMWrapperFunctionTest(t *testing.T) {
 				},
 			},
 			expected: `func TestTwoArgsWithReturn(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "TwoArgsWithReturn should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "TwoArgsWithReturn should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				TwoArgsWithReturnCalled: func (arg1 int32, arg2 executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.TwoArgsWithReturn(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("TwoArgsWithReturn should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			TwoArgsWithReturnCalled: func(arg1 int32, arg2 executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.TwoArgsWithReturn(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 `,
