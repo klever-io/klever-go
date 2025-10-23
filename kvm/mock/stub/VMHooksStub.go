@@ -1,10 +1,14 @@
 package stub
 
-import "github.com/klever-io/klever-go/kvm/executor"
+import (
+	"github.com/klever-io/klever-go/kvm/executor"
+	"github.com/klever-io/klever-go/kvm/vmhost"
+)
 
 var _ executor.VMHooks = (*VMHooksStub)(nil)
 
 type VMHooksStub struct {
+	GetVMHostCalled                             func() vmhost.VMHost
 	GetGasLeftCalled                            func() int64
 	GetSCAddressCalled                          func(resultOffset executor.MemPtr)
 	GetOwnerAddressCalled                       func(resultOffset executor.MemPtr)
@@ -1846,4 +1850,11 @@ func (V VMHooksStub) EllipticCurveGetValues(ecHandle int32, fieldOrderHandle int
 		return V.EllipticCurveGetValuesCalled(ecHandle, fieldOrderHandle, basePointOrderHandle, eqConstantHandle, xBasePointHandle, yBasePointHandle)
 	}
 	return 0
+}
+
+func (V VMHooksStub) GetVMHost() vmhost.VMHost {
+	if V.GetVMHostCalled != nil {
+		return V.GetVMHostCalled()
+	}
+	return nil
 }

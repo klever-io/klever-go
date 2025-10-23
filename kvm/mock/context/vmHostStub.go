@@ -1,6 +1,8 @@
 package mock
 
 import (
+	"context"
+
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data/vm"
 	"github.com/klever-io/klever-go/kvm/config"
@@ -283,6 +285,11 @@ func (vhs *VMHostStub) SetRuntimeContext(runtime vmhost.RuntimeContext) {
 	if vhs.SetRuntimeContextCalled != nil {
 		vhs.SetRuntimeContextCalled(runtime)
 	}
+}
+
+// GetExecutionContext mocked method
+func (vhs *VMHostStub) GetExecutionContext() context.Context {
+	return nil
 }
 
 // CompleteLogEntriesWithCallType mocked method

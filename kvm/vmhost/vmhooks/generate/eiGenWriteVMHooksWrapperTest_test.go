@@ -251,7 +251,22 @@ import (
 
 	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 )
+
+// simpleVMHost is a minimal mock for testing timeout behavior
+type simpleVMHost struct {
+	vmhost.VMHost
+	ctx context.Context
+}
+
+func (h *simpleVMHost) GetExecutionContext() context.Context {
+	return h.ctx
+}
+
+func (h *simpleVMHost) IsInterfaceNil() bool {
+	return h == nil
+}
 
 `
 	actual := getVMWrapperTestFileHeader()

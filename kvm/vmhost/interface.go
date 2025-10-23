@@ -1,6 +1,7 @@
 package vmhost
 
 import (
+	"context"
 	"crypto/elliptic"
 	"io"
 	"math/big"
@@ -62,6 +63,9 @@ type VMHost interface {
 	CompleteLogEntriesWithCallType(vmOutput *vmcommon.VMOutput, callType string)
 
 	Reset()
+
+	// GetExecutionContext returns the execution context for timeout protection
+	GetExecutionContext() context.Context
 
 	IsInterfaceNil() bool
 }

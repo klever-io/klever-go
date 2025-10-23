@@ -49,7 +49,7 @@ func buildVMWrapperFunction(funcMetadata *EIFunction) string {
 	}
 	// Determine category at generation time
 	category := getHookCategoryConstant(funcMetadata.Name)
-	function += fmt.Sprintf("\n\t}, %s)", category)
+	function += fmt.Sprintf("\n\t}, %s, w)", category)
 	function += "\n\tw.logger.LogVMHookCallAfter(callInfo)"
 	if funcMetadata.Result != nil {
 		function += "\n\treturn result"
@@ -68,23 +68,46 @@ func buildVMWrapperFileHeader() string {
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/klever-io/klever-go/kvm/executor"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 )
 
 // WrapperVMHooks wraps a VMHooks instance and optionally performs some logging.
 type WrapperVMHooks struct {
 	logger         ExecutorLogger
 	wrappedVMHooks executor.VMHooks
+	vmHost         vmhost.VMHost // Cached to avoid repeated type assertions
 }
 
 // NewWrapperVMHooks creates a new instance of WrapperVMHooks.
 func NewWrapperVMHooks(wrappedVMHooks executor.VMHooks, logger ExecutorLogger) *WrapperVMHooks {
-	return &WrapperVMHooks{
+	wrapper := &WrapperVMHooks{
 		wrappedVMHooks: wrappedVMHooks,
 		logger:         logger,
 	}
+
+	// Cache the VMHost reference to optimize FailAfterTimeout performance
+	// This eliminates repeated type assertions on every hook call
+	type vmHostGetter interface {
+		GetVMHost() vmhost.VMHost
+	}
+	if hostGetter, ok := wrappedVMHooks.(vmHostGetter); ok {
+		wrapper.vmHost = hostGetter.GetVMHost()
+	}
+
+	return wrapper
+}
+
+// getExecutionContext retrieves the current execution context from the cached VMHost.
+// Returns nil if no VMHost or no context is available.
+func (w *WrapperVMHooks) getExecutionContext() context.Context {
+	if w == nil || w.vmHost == nil {
+		return nil
+	}
+	return w.vmHost.GetExecutionContext()
 }
 `
 }

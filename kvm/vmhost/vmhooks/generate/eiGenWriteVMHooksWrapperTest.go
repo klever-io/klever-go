@@ -79,14 +79,18 @@ func buildTimeoutTest(function *EIFunction) string {
 
 	return fmt.Sprintf(`
 	t.Run("%s", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			%sCalled: func%s {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				%s
@@ -132,7 +136,22 @@ import (
 
 	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 )
+
+// simpleVMHost is a minimal mock for testing timeout behavior
+type simpleVMHost struct {
+	vmhost.VMHost
+	ctx context.Context
+}
+
+func (h *simpleVMHost) GetExecutionContext() context.Context {
+	return h.ctx
+}
+
+func (h *simpleVMHost) IsInterfaceNil() bool {
+	return h == nil
+}
 
 `
 }

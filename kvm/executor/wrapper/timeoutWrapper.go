@@ -11,17 +11,19 @@ import (
 // - Fast hooks (99%): Direct execution with context check (~5ns overhead)
 // - Slow hooks (1%): Goroutine protection for interruptibility (~500ns overhead)
 //
-// CONTEXT SHARING:
-// The execution context is set once per contract in RunSmartContractCall() and
-// reused across all hook calls. This eliminates creating 100k separate timeouts.
+// CONTEXT RETRIEVAL:
+// The execution context is retrieved from the VMHost instance through the wrapper.
+// Each RunSmartContractCall() sets its own context on the host, ensuring:
+// - Thread safety: No race conditions between parallel queries
+// - Call isolation: Nested calls don't overwrite parent contexts
 //
 // SAFETY:
 // - Fast hooks: Protected by contract-level timeout + context checking
 // - Slow hooks: Full goroutine-based interruption capability
 // - Contract timeout in host.go provides defense-in-depth
-func FailAfterTimeout[K any](f func() K, category HookCategory) K {
-	// Get shared execution context
-	ctx := getExecutionContext()
+func FailAfterTimeout[K any](f func() K, category HookCategory, vmHooks *WrapperVMHooks) K {
+	// Get execution context from the VMHost (per-execution, not global)
+	ctx := vmHooks.getExecutionContext()
 
 	// Quick pre-check: Has contract timeout already expired?
 	if ctx != nil {

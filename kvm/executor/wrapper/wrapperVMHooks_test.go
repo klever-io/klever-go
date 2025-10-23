@@ -15,7 +15,22 @@ import (
 
 	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 )
+
+// simpleVMHost is a minimal mock for testing timeout behavior
+type simpleVMHost struct {
+	vmhost.VMHost
+	ctx context.Context
+}
+
+func (h *simpleVMHost) GetExecutionContext() context.Context {
+	return h.ctx
+}
+
+func (h *simpleVMHost) IsInterfaceNil() bool {
+	return h == nil
+}
 
 func TestGetGasLeft(t *testing.T) {
 	t.Run("GetGasLeft should call hook and forward return value", func(t *testing.T) {
@@ -207,14 +222,18 @@ func TestUpgradeContract(t *testing.T) {
 	})
 
 	t.Run("UpgradeContract should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			UpgradeContractCalled: func(destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return
@@ -249,14 +268,18 @@ func TestUpgradeFromSourceContract(t *testing.T) {
 	})
 
 	t.Run("UpgradeFromSourceContract should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			UpgradeFromSourceContractCalled: func(destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, sourceContractAddressOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return
@@ -291,14 +314,18 @@ func TestDeleteContract(t *testing.T) {
 	})
 
 	t.Run("DeleteContract should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			DeleteContractCalled: func(destOffset executor.MemPtr, gasLimit int64, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return
@@ -941,14 +968,18 @@ func TestExecuteOnSameContext(t *testing.T) {
 	})
 
 	t.Run("ExecuteOnSameContext should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			ExecuteOnSameContextCalled: func(gasLimit int64, addressOffset executor.MemPtr, valueOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return 0
@@ -984,14 +1015,18 @@ func TestExecuteOnDestContext(t *testing.T) {
 	})
 
 	t.Run("ExecuteOnDestContext should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			ExecuteOnDestContextCalled: func(gasLimit int64, addressOffset executor.MemPtr, valueOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return 0
@@ -1027,14 +1062,18 @@ func TestExecuteReadOnly(t *testing.T) {
 	})
 
 	t.Run("ExecuteReadOnly should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			ExecuteReadOnlyCalled: func(gasLimit int64, addressOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return 0
@@ -1070,14 +1109,18 @@ func TestCreateContract(t *testing.T) {
 	})
 
 	t.Run("CreateContract should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			CreateContractCalled: func(gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return 0
@@ -1113,14 +1156,18 @@ func TestDeployFromSourceContract(t *testing.T) {
 	})
 
 	t.Run("DeployFromSourceContract should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			DeployFromSourceContractCalled: func(gasLimit int64, valueOffset executor.MemPtr, sourceContractAddressOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, resultAddressOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return 0
@@ -1508,14 +1555,18 @@ func TestManagedUpgradeFromSourceContract(t *testing.T) {
 	})
 
 	t.Run("ManagedUpgradeFromSourceContract should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			ManagedUpgradeFromSourceContractCalled: func(destHandle int32, gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32) {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return
@@ -1550,14 +1601,18 @@ func TestManagedUpgradeContract(t *testing.T) {
 	})
 
 	t.Run("ManagedUpgradeContract should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			ManagedUpgradeContractCalled: func(destHandle int32, gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32) {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return
@@ -1592,14 +1647,18 @@ func TestManagedDeleteContract(t *testing.T) {
 	})
 
 	t.Run("ManagedDeleteContract should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			ManagedDeleteContractCalled: func(destHandle int32, gasLimit int64, argumentsHandle int32) {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return
@@ -1635,14 +1694,18 @@ func TestManagedDeployFromSourceContract(t *testing.T) {
 	})
 
 	t.Run("ManagedDeployFromSourceContract should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			ManagedDeployFromSourceContractCalled: func(gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultAddressHandle int32, resultHandle int32) int32 {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return 0
@@ -1678,14 +1741,18 @@ func TestManagedCreateContract(t *testing.T) {
 	})
 
 	t.Run("ManagedCreateContract should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			ManagedCreateContractCalled: func(gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultAddressHandle int32, resultHandle int32) int32 {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return 0
@@ -1721,14 +1788,18 @@ func TestManagedExecuteReadOnly(t *testing.T) {
 	})
 
 	t.Run("ManagedExecuteReadOnly should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			ManagedExecuteReadOnlyCalled: func(gas int64, addressHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return 0
@@ -1764,14 +1835,18 @@ func TestManagedExecuteOnSameContext(t *testing.T) {
 	})
 
 	t.Run("ManagedExecuteOnSameContext should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			ManagedExecuteOnSameContextCalled: func(gas int64, addressHandle int32, valueHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return 0
@@ -1807,14 +1882,18 @@ func TestManagedExecuteOnDestContext(t *testing.T) {
 	})
 
 	t.Run("ManagedExecuteOnDestContext should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			ManagedExecuteOnDestContextCalled: func(gas int64, addressHandle int32, valueHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return 0
@@ -1850,14 +1929,18 @@ func TestManagedMultiTransferKDANFTExecute(t *testing.T) {
 	})
 
 	t.Run("ManagedMultiTransferKDANFTExecute should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			ManagedMultiTransferKDANFTExecuteCalled: func(dstHandle int32, tokenTransfersHandle int32, gasLimit int64, functionHandle int32, argumentsHandle int32) int32 {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return 0
@@ -2151,14 +2234,18 @@ func TestBigFloatPow(t *testing.T) {
 	})
 
 	t.Run("BigFloatPow should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			BigFloatPowCalled: func(destinationHandle int32, opHandle int32, exponent int32) {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return
@@ -2693,14 +2780,18 @@ func TestBigIntPow(t *testing.T) {
 	})
 
 	t.Run("BigIntPow should timeout when context expires", func(t *testing.T) {
-		// Set up execution context that's already expired
+		// Create a context that's already expired
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		time.Sleep(2 * time.Millisecond) // Ensure timeout
 		defer cancel()
-		SetExecutionContext(ctx)
-		defer ClearExecutionContext()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
 
 		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
 			BigIntPowCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
 				time.Sleep(10 * time.Millisecond) // Simulate slow operation
 				return
