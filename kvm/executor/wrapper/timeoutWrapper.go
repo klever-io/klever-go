@@ -1,6 +1,8 @@
 package executorwrapper
 
 import (
+	"context"
+
 	"github.com/klever-io/klever-go/kvm/vmhost"
 )
 
@@ -23,7 +25,11 @@ import (
 // - Contract timeout in host.go provides defense-in-depth
 func FailAfterTimeout[K any](f func() K, category HookCategory, vmHooks *WrapperVMHooks) K {
 	// Get execution context from the VMHost (per-execution, not global)
-	ctx := vmHooks.getExecutionContext()
+	// Explicitly check for nil to avoid calling method on nil pointer
+	var ctx context.Context
+	if vmHooks != nil {
+		ctx = vmHooks.getExecutionContext()
+	}
 
 	// Quick pre-check: Has contract timeout already expired?
 	if ctx != nil {
@@ -66,7 +72,9 @@ func FailAfterTimeout[K any](f func() K, category HookCategory, vmHooks *Wrapper
 	}()
 
 	// Wait for either completion or timeout
-	// If ctx is nil, we'll wait forever (fallback for tests)
+	// WARNING: If ctx is nil, we'll wait for completion without timeout protection.
+	// This fallback is intended ONLY for tests.
+	// In production, the execution context is set automatically by RunSmartContractCall in host.go.
 	if ctx != nil {
 		select {
 		case rp := <-done:

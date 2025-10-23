@@ -62,7 +62,7 @@ func TestFailAfterTimeoutWithContext(t *testing.T) {
 		// Create a context with very short timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 		defer cancel()
-		time.Sleep(5 * time.Millisecond) // Ensure context is expired
+		time.Sleep(2 * time.Millisecond) // Ensure context is expired
 
 		mockHost := &vmHostStubWithContext{ctx: ctx}
 		wrapper := createWrapperWithHost(mockHost)

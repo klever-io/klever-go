@@ -33,9 +33,9 @@ func buildVMWrapperFunctionTest(function *EIFunction) string {
 }
 
 func buildBasicHookTest(function *EIFunction, hasReturnValue bool) string {
-	testName := fmt.Sprintf("%s should call hook and forward return value", upperInitial(function.Name))
-	if !hasReturnValue {
-		testName = fmt.Sprintf("%s should call hook", upperInitial(function.Name))
+	testName := fmt.Sprintf("%s should call hook", upperInitial(function.Name))
+	if hasReturnValue {
+		testName += " and forward return value"
 	}
 
 	var returnCheck string

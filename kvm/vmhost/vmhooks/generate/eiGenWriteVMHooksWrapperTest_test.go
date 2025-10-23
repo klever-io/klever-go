@@ -489,8 +489,8 @@ func TestBuildTimeoutTest(t *testing.T) {
 
 func TestBuildVMWrapperFunctionTest_SlowHooks(t *testing.T) {
 	testCases := []struct {
-		name           string
-		function       *EIFunction
+		name              string
+		function          *EIFunction
 		shouldHaveTimeout bool
 	}{
 		{
