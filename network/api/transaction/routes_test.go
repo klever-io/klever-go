@@ -324,3 +324,220 @@ func TestEstimateTransactionFees_ShouldWork(t *testing.T) {
 
 	assert.Equal(t, shared.ReturnCodeSuccess, response.Code)
 }
+
+func TestBroadcastTX_NilContextShouldError(t *testing.T) {
+	t.Parallel()
+	ws := startNodeServer(nil)
+
+	tx := transaction.NewBaseTransaction([]byte("sender"), 0, nil, 0, 0)
+	requestData := tr.BroadcastTXRequest{
+		TX: tx,
+	}
+	requestBytes, _ := json.Marshal(requestData)
+
+	req, _ := http.NewRequest("POST", "/transaction/broadcast", bytes.NewReader(requestBytes))
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, shared.ReturnCodeInternalError, response.Code)
+	assert.True(t, strings.Contains(response.Error, apiErrors.ErrNilAppContext.Error()))
+}
+
+func TestBroadcastTX_WrongFacadeTypeShouldError(t *testing.T) {
+	t.Parallel()
+	ws := startNodeServerWrongFacade()
+
+	tx := transaction.NewBaseTransaction([]byte("sender"), 0, nil, 0, 0)
+	requestData := tr.BroadcastTXRequest{
+		TX: tx,
+	}
+	requestBytes, _ := json.Marshal(requestData)
+
+	req, _ := http.NewRequest("POST", "/transaction/broadcast", bytes.NewReader(requestBytes))
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, http.StatusInternalServerError, resp.Code)
+	assert.Equal(t, shared.ReturnCodeInternalError, response.Code)
+	assert.Equal(t, apiErrors.ErrInvalidAppContext.Error(), response.Error)
+}
+
+func TestBroadcastTX_InvalidJSONShouldError(t *testing.T) {
+	t.Parallel()
+	facade := mock.Facade{}
+	ws := startNodeServer(&facade)
+
+	req, _ := http.NewRequest("POST", "/transaction/broadcast", bytes.NewReader([]byte("invalid json")))
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
+	assert.Equal(t, shared.ReturnCodeRequestError, response.Code)
+	assert.True(t, strings.Contains(response.Error, apiErrors.ErrValidation.Error()))
+}
+
+func TestBroadcastTX_SingleTransaction_ShouldWork(t *testing.T) {
+	t.Parallel()
+
+	expectedTxHash := "expectedhash"
+	facade := mock.Facade{
+		SendTransactionHandler: func(tx *transaction.Transaction) (string, error) {
+			return expectedTxHash, nil
+		},
+	}
+
+	ws := startNodeServer(&facade)
+
+	tx := transaction.NewBaseTransaction([]byte("sender"), 0, nil, 0, 0)
+	requestData := tr.BroadcastTXRequest{
+		TX: tx,
+	}
+	requestBytes, _ := json.Marshal(requestData)
+
+	req, _ := http.NewRequest("POST", "/transaction/broadcast", bytes.NewReader(requestBytes))
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
+	assert.Equal(t, shared.ReturnCodeSuccess, response.Code)
+	assert.Empty(t, response.Error)
+
+	// Parse the response data
+	responseData, ok := response.Data.(map[string]interface{})
+	require.True(t, ok)
+
+	assert.Equal(t, expectedTxHash, responseData["txHash"])
+	assert.Equal(t, float64(1), responseData["txCount"])
+	assert.Equal(t, []interface{}{expectedTxHash}, responseData["txsHashes"])
+
+	txsHashes, ok := responseData["txsHashes"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, txsHashes, 1)
+	assert.Equal(t, expectedTxHash, txsHashes[0])
+}
+
+func TestBroadcastTX_SingleTransaction_SendTransactionError(t *testing.T) {
+	t.Parallel()
+
+	expectedError := errors.New("send transaction failed")
+	facade := mock.Facade{
+		SendTransactionHandler: func(tx *transaction.Transaction) (string, error) {
+			return "", expectedError
+		},
+	}
+
+	ws := startNodeServer(&facade)
+
+	tx := transaction.NewBaseTransaction([]byte("sender"), 0, nil, 0, 0)
+	requestData := tr.BroadcastTXRequest{
+		TX: tx,
+	}
+	requestBytes, _ := json.Marshal(requestData)
+
+	req, _ := http.NewRequest("POST", "/transaction/broadcast", bytes.NewReader(requestBytes))
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
+	assert.Equal(t, shared.ReturnCodeRequestError, response.Code)
+	assert.True(t, strings.Contains(response.Error, apiErrors.ErrValidation.Error()))
+	assert.True(t, strings.Contains(response.Error, expectedError.Error()))
+	assert.Nil(t, response.Data)
+}
+
+func TestBroadcastTX_BulkTransactions_ShouldWork(t *testing.T) {
+	t.Parallel()
+
+	expectedTxHashes := []string{"hash1", "hash2", "hash3"}
+	facade := mock.Facade{
+		SendBulkTransactionsHandler: func(txs []*transaction.Transaction) ([]string, error) {
+			require.Len(t, txs, 3)
+			return expectedTxHashes, nil
+		},
+	}
+
+	ws := startNodeServer(&facade)
+
+	tx1 := transaction.NewBaseTransaction([]byte("sender1"), 0, nil, 0, 0)
+	tx2 := transaction.NewBaseTransaction([]byte("sender2"), 1, nil, 0, 0)
+	tx3 := transaction.NewBaseTransaction([]byte("sender3"), 2, nil, 0, 0)
+
+	requestData := tr.BroadcastTXRequest{
+		TXs: []*transaction.Transaction{tx1, tx2, tx3},
+	}
+	requestBytes, _ := json.Marshal(requestData)
+
+	req, _ := http.NewRequest("POST", "/transaction/broadcast", bytes.NewReader(requestBytes))
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
+	assert.Equal(t, shared.ReturnCodeSuccess, response.Code)
+	assert.Empty(t, response.Error)
+
+	// Parse the response data
+	responseData, ok := response.Data.(map[string]interface{})
+	require.True(t, ok)
+
+	assert.Nil(t, responseData["txHash"])                // Should be nil for bulk
+	assert.Equal(t, float64(3), responseData["txCount"]) // JSON numbers are float64
+
+	txsHashes, ok := responseData["txsHashes"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, txsHashes, 3)
+	for i, expectedHash := range expectedTxHashes {
+		assert.Equal(t, expectedHash, txsHashes[i])
+	}
+}
+
+func TestBroadcastTX_BulkTransactions_SendBulkTransactionsError(t *testing.T) {
+	t.Parallel()
+
+	expectedError := errors.New("bulk transaction send failed")
+	facade := mock.Facade{
+		SendBulkTransactionsHandler: func(txs []*transaction.Transaction) ([]string, error) {
+			return nil, expectedError
+		},
+	}
+
+	ws := startNodeServer(&facade)
+
+	tx1 := transaction.NewBaseTransaction([]byte("sender1"), 0, nil, 0, 0)
+	tx2 := transaction.NewBaseTransaction([]byte("sender2"), 1, nil, 0, 0)
+
+	requestData := tr.BroadcastTXRequest{
+		TXs: []*transaction.Transaction{tx1, tx2},
+	}
+	requestBytes, _ := json.Marshal(requestData)
+
+	req, _ := http.NewRequest("POST", "/transaction/broadcast", bytes.NewReader(requestBytes))
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
+	assert.Equal(t, shared.ReturnCodeRequestError, response.Code)
+	assert.True(t, strings.Contains(response.Error, apiErrors.ErrValidation.Error()))
+	assert.True(t, strings.Contains(response.Error, expectedError.Error()))
+	assert.Nil(t, response.Data)
+}

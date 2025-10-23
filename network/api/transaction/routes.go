@@ -272,8 +272,9 @@ func BroadcastTX(c *gin.Context) {
 		}
 
 		response := &models.BroadcastTXResponse{
-			TxHash:  txHash,
-			TxCount: 1,
+			TxHash:    txHash,
+			TxCount:   1,
+			TxsHashes: []string{txHash},
 		}
 
 		c.JSON(
@@ -303,6 +304,7 @@ func BroadcastTX(c *gin.Context) {
 
 	response := &models.BroadcastTXResponse{
 		TxsHashes: txsHashes,
+		TxCount:   len(txsHashes),
 	}
 
 	c.JSON(
