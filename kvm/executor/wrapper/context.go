@@ -17,8 +17,7 @@ func SetExecutionContext(ctx context.Context) {
 
 // ClearExecutionContext clears the shared context after contract execution
 func ClearExecutionContext() {
-	var nilCtx context.Context
-	globalExecutionContext.Store(&nilCtx)
+	globalExecutionContext.Store(nil)
 }
 
 // getExecutionContext retrieves the shared execution context

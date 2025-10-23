@@ -62,6 +62,15 @@ func TestFailAfterTimeout(t *testing.T) {
 
 			shouldPanic: true,
 		},
+		{
+			name:     "Fast hook should not timeout even if slow",
+			returns:  42,
+			waits:    20 * time.Millisecond,
+			timeout:  10 * time.Millisecond,
+			category: HookCategoryFast,
+
+			expectedReturn: 42, // Should complete despite timeout
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -101,4 +110,46 @@ func TestFailAfterTimeout(t *testing.T) {
 			assert.Equal(t, tt.expectedReturn, result)
 		})
 	}
+}
+
+func TestContextCleanup(t *testing.T) {
+	// Set a context
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	SetExecutionContext(ctx)
+
+	// Verify context is set (indirect check via execution)
+	result := FailAfterTimeout(func() int {
+		return 123
+	}, HookCategoryFast)
+	assert.Equal(t, 123, result)
+
+	// Clear the context
+	ClearExecutionContext()
+
+	// Verify context is cleared - getExecutionContext should return nil
+	clearedCtx := getExecutionContext()
+	assert.Nil(t, clearedCtx, "Context should be nil after ClearExecutionContext()")
+}
+
+func TestNilContextBehavior(t *testing.T) {
+	// Ensure no context is set
+	ClearExecutionContext()
+
+	t.Run("Fast hook should work without context", func(t *testing.T) {
+		result := FailAfterTimeout(func() int {
+			time.Sleep(5 * time.Millisecond)
+			return 42
+		}, HookCategoryFast)
+		assert.Equal(t, 42, result, "Fast hook should complete without context")
+	})
+
+	t.Run("Slow hook should work without context (no timeout)", func(t *testing.T) {
+		result := FailAfterTimeout(func() int {
+			time.Sleep(5 * time.Millisecond)
+			return 99
+		}, HookCategorySlow)
+		assert.Equal(t, 99, result, "Slow hook should complete without context (fallback behavior)")
+	})
 }
