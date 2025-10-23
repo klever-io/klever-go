@@ -65,6 +65,7 @@ const (
 	BigInt          string = "BigInt"
 	BigUint         string = "BigUint"
 	BigFloat        string = "BigFloat"
+	Number          string = "Number"
 	Address         string = "Address"
 	Boolean         string = "bool"
 	ManagedBuffer   string = "ManagedBuffer"
@@ -814,6 +815,9 @@ func encodeSingleValue(t, v string, isNested bool) (string, error) {
 		"bi", "n", "BI", "N": // BigInt and BigUint
 
 		return encodeBigInt(v, isNested)
+	case Number, strings.ToLower(Number): // Auto handler number
+
+		return encodeNumber(v, isNested)
 	case Address, strings.ToLower(Address), "a", "A":
 		return encodeAddress(v)
 	case BigFloat, strings.ToLower(BigFloat),
@@ -1100,4 +1104,47 @@ func encodeBigFloat(v string, isNested bool) (string, error) {
 	}
 
 	return hexBf, nil
+}
+
+func encodeNumber(v string, isNested bool) (string, error) {
+	if signedInt, err := strconv.ParseInt(v, BaseDecimal, Bits64); err == nil {
+		if signedInt < 0 {
+			intType := determineIntType(signedInt)
+			log.Info(fmt.Sprintf("Auto type of %s", v), "Type", intType)
+			return encodeInt(v, intType, isNested)
+		}
+		uintType := determineUintType(uint64(signedInt))
+		log.Info(fmt.Sprintf("Auto type of %s", v), "Type", uintType)
+		return encodeUint(v, uintType, isNested)
+	}
+
+	return "", fmt.Errorf("invalid number format: %s", v)
+}
+
+// determineIntType determines the most appropriate signed integer type based on value
+func determineIntType(value int64) string {
+	switch {
+	case value >= math.MinInt8 && value <= math.MaxInt8:
+		return Int8
+	case value >= math.MinInt16 && value <= math.MaxInt16:
+		return Int16
+	case value >= math.MinInt32 && value <= math.MaxInt32:
+		return Int32
+	default:
+		return Int64
+	}
+}
+
+// determineUintType determines the most appropriate unsigned integer type based on value
+func determineUintType(value uint64) string {
+	switch {
+	case value <= math.MaxUint8:
+		return Uint8
+	case value <= math.MaxUint16:
+		return Uint16
+	case value <= math.MaxUint32:
+		return Uint32
+	default:
+		return Uint64
+	}
 }
