@@ -1,6 +1,7 @@
 package executorwrapper
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ func TestFailAfterTimeout(t *testing.T) {
 		waits         time.Duration
 		timeout       time.Duration
 		functionPanic error
+		category      HookCategory
 
 		// assert
 		expectedReturn any
@@ -24,18 +26,29 @@ func TestFailAfterTimeout(t *testing.T) {
 		shouldPanic    bool
 	}{
 		{
-			name:    "Should preserve the return value",
-			returns: 1,
-			waits:   1 * time.Millisecond,
-			timeout: 10 * time.Millisecond,
+			name:     "Should preserve the return value (fast hook)",
+			returns:  1,
+			waits:    1 * time.Millisecond,
+			timeout:  10 * time.Millisecond,
+			category: HookCategoryFast,
 
 			expectedReturn: 1,
 		},
 		{
-			name:    "Should throw a panic when the timeout is reached",
-			returns: 123,
-			waits:   20 * time.Millisecond,
-			timeout: 10 * time.Millisecond,
+			name:     "Should preserve the return value (slow hook)",
+			returns:  1,
+			waits:    1 * time.Millisecond,
+			timeout:  10 * time.Millisecond,
+			category: HookCategorySlow,
+
+			expectedReturn: 1,
+		},
+		{
+			name:     "Should throw a panic when the timeout is reached",
+			returns:  123,
+			waits:    20 * time.Millisecond,
+			timeout:  10 * time.Millisecond,
+			category: HookCategorySlow,
 
 			shouldPanic: true,
 		},
@@ -45,12 +58,19 @@ func TestFailAfterTimeout(t *testing.T) {
 			waits:         1 * time.Millisecond,
 			timeout:       10 * time.Millisecond,
 			functionPanic: vmhost.ErrArgIndexOutOfRange,
+			category:      HookCategorySlow,
 
 			shouldPanic: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Set up execution context with timeout
+			ctx, cancel := context.WithTimeout(context.Background(), tt.timeout)
+			defer cancel()
+			SetExecutionContext(ctx)
+			defer ClearExecutionContext()
+
 			hadPanic := false
 			var result any = nil
 			done := make(chan bool, 1)
@@ -69,7 +89,7 @@ func TestFailAfterTimeout(t *testing.T) {
 					}
 					time.Sleep(tt.waits)
 					return tt.returns
-				}, tt.timeout)
+				}, tt.category)
 			}()
 			select {
 			case <-done:
