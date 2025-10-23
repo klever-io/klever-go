@@ -76,15 +76,19 @@ func (k *kappContext) IsScSimulation() bool {
 }
 
 func (k *kappContext) SetContractID(_ int) {
+	// intentionally empty - disabled implementation
 }
 
 func (k *kappContext) SetSender(_ []byte) {
+	// intentionally empty - disabled implementation
 }
 
 func (k *kappContext) AddReturnData(data []byte) {
+	// intentionally empty - disabled implementation
 }
 
 func (k *kappContext) SetReturnData(data [][]byte) {
+	// intentionally empty - disabled implementation
 }
 
 func (k *kappContext) GetAndClearReturnData() [][]byte {
@@ -104,6 +108,7 @@ func (k *kappContext) SubGasUsed(_ uint64) error {
 }
 
 func (k *kappContext) SetExecutionTime(_ time.Duration) {
+	// intentionally empty - disabled implementation
 }
 
 func (k *kappContext) GetExecutionTime() time.Duration {

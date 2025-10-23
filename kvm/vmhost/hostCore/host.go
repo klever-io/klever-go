@@ -67,33 +67,55 @@ func NewVMHost(
 	blockChainHook vmcommon.BlockchainHook,
 	hostParameters *vmhost.VMHostParameters,
 ) (vmhost.VMHost, error) {
-	if check.IfNil(blockChainHook) {
-		return nil, vmhost.ErrNilBlockChainHook
-	}
-	if hostParameters == nil {
-		return nil, vmhost.ErrNilHostParameters
-	}
-	if check.IfNil(hostParameters.KDATransferParser) {
-		return nil, vmhost.ErrNilKDATransferParser
-	}
-	if check.IfNil(hostParameters.BuiltInFuncContainer) {
-		return nil, vmhost.ErrNilBuiltInFunctionsContainer
-	}
-	if check.IfNil(hostParameters.EpochNotifier) {
-		return nil, vmhost.ErrNilEpochNotifier
-	}
-	if check.IfNil(hostParameters.ForkController) {
-		return nil, vmhost.ErrNilEnableEpochsHandler
-	}
-	if check.IfNil(hostParameters.Hasher) {
-		return nil, vmhost.ErrNilHasher
-	}
-	if hostParameters.VMType == nil {
-		return nil, vmhost.ErrNilVMType
+	if err := validateHostParameters(blockChainHook, hostParameters); err != nil {
+		return nil, err
 	}
 
+	host := createBaseHost(hostParameters)
+	configureTimeouts(host, hostParameters)
+
+	if err := initializeHostContexts(host, blockChainHook, hostParameters); err != nil {
+		return nil, err
+	}
+
+	finalizeHostSetup(host, hostParameters)
+
+	return host, nil
+}
+
+// validateHostParameters validates all required parameters for VM host creation
+func validateHostParameters(blockChainHook vmcommon.BlockchainHook, hostParameters *vmhost.VMHostParameters) error {
+	if check.IfNil(blockChainHook) {
+		return vmhost.ErrNilBlockChainHook
+	}
+	if hostParameters == nil {
+		return vmhost.ErrNilHostParameters
+	}
+	if check.IfNil(hostParameters.KDATransferParser) {
+		return vmhost.ErrNilKDATransferParser
+	}
+	if check.IfNil(hostParameters.BuiltInFuncContainer) {
+		return vmhost.ErrNilBuiltInFunctionsContainer
+	}
+	if check.IfNil(hostParameters.EpochNotifier) {
+		return vmhost.ErrNilEpochNotifier
+	}
+	if check.IfNil(hostParameters.ForkController) {
+		return vmhost.ErrNilEnableEpochsHandler
+	}
+	if check.IfNil(hostParameters.Hasher) {
+		return vmhost.ErrNilHasher
+	}
+	if hostParameters.VMType == nil {
+		return vmhost.ErrNilVMType
+	}
+	return nil
+}
+
+// createBaseHost creates the base vmHost struct with basic configuration
+func createBaseHost(hostParameters *vmhost.VMHostParameters) *vmHost {
 	cryptoHook := factory.NewVMCrypto()
-	host := &vmHost{
+	return &vmHost{
 		cryptoHook:           cryptoHook,
 		meteringContext:      nil,
 		runtimeContext:       nil,
@@ -106,8 +128,12 @@ func NewVMHost(
 		callArgsParser:       parsers.NewCallArgsParser(),
 		executionTimeout:     minExecutionTimeout,
 		forkController:       hostParameters.ForkController,
-		executionMode:        hostParameters.ExecutionMode, // Initialize from parameters
+		executionMode:        hostParameters.ExecutionMode,
 	}
+}
+
+// configureTimeouts sets up execution and tolerance timeouts for the VM host
+func configureTimeouts(host *vmHost, hostParameters *vmhost.VMHostParameters) {
 	newExecutionTimeout := time.Duration(hostParameters.TimeOutForSCExecutionInMilliseconds) * time.Millisecond
 	if newExecutionTimeout > minExecutionTimeout {
 		host.executionTimeout = newExecutionTimeout
@@ -121,16 +147,20 @@ func NewVMHost(
 	}
 	additionalTime := (host.executionTimeout * time.Duration(tolerancePercentage)) / 100
 	host.toleranceTimeout = host.executionTimeout + additionalTime
+}
 
+// initializeHostContexts creates and initializes all VM host contexts
+func initializeHostContexts(host *vmHost, blockChainHook vmcommon.BlockchainHook, hostParameters *vmhost.VMHostParameters) error {
 	var err error
+
 	host.blockchainContext, err = contexts.NewBlockchainContext(host, blockChainHook)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	vmExecutor, err := host.createExecutor(hostParameters)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	host.runtimeContext, err = contexts.NewRuntimeContext(
@@ -141,17 +171,17 @@ func NewVMHost(
 		hostParameters.Hasher,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	host.meteringContext, err = contexts.NewMeteringContext(host, hostParameters.GasSchedule)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	host.outputContext, err = contexts.NewOutputContext(host)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	host.storageContext, err = contexts.NewStorageContext(
@@ -160,24 +190,30 @@ func NewVMHost(
 		hostParameters.ProtectedKeyPrefix,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	host.managedTypesContext, err = contexts.NewManagedTypesContext(host)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	host.runtimeContext.SetMaxInstanceStackSize(MaximumRuntimeInstanceStackSize)
+	return nil
+}
 
+// finalizeHostSetup completes the VM host setup with final configurations
+func finalizeHostSetup(host *vmHost, hostParameters *vmhost.VMHostParameters) {
+	host.runtimeContext.SetMaxInstanceStackSize(MaximumRuntimeInstanceStackSize)
 	host.initContexts()
 	hostParameters.EpochNotifier.RegisterNotifyHandler(host)
+	initializeTransferLogIdentifiers(host)
+}
 
+// initializeTransferLogIdentifiers sets up transfer log identifier mappings
+func initializeTransferLogIdentifiers(host *vmHost) {
 	host.transferLogIdentifiers = make(map[string]bool)
 	host.transferLogIdentifiers["transferValueOnly"] = true
 	host.transferLogIdentifiers["KleverTransfer"] = true
-
-	return host, nil
 }
 
 // Creates a new executor instance. Should only be called once per VM host instantiation.
