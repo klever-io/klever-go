@@ -345,6 +345,10 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 	ctx, cancel := context.WithTimeout(context.Background(), host.executionTimeout)
 	defer cancel()
 
+	// Set shared execution context for all VM hooks
+	executorwrapper.SetExecutionContext(ctx)
+	defer executorwrapper.ClearExecutionContext()
+
 	log.Trace("RunSmartContractCreate begin",
 		"len(code)", len(input.ContractCode),
 		"metadata", input.ContractCodeMetadata,
@@ -410,6 +414,11 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 	host.setGasTracerEnabledIfLogIsTrace()
 	ctx, cancel := context.WithTimeout(context.Background(), host.executionTimeout)
 	defer cancel()
+
+	// Set shared execution context for all VM hooks
+	// This allows hooks to check timeout without creating separate goroutines
+	executorwrapper.SetExecutionContext(ctx)
+	defer executorwrapper.ClearExecutionContext()
 
 	log.Trace("RunSmartContractCall begin",
 		"function", input.Function,
