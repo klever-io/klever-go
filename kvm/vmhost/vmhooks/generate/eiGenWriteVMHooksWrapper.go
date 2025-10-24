@@ -47,7 +47,9 @@ func buildVMWrapperFunction(funcMetadata *EIFunction) string {
 	if funcMetadata.Result == nil {
 		function += "\n\t\treturn nil"
 	}
-	function += "\n\t}, w.executionTimeout)"
+	// Determine category at generation time
+	category := getHookCategoryConstant(funcMetadata.Name)
+	function += fmt.Sprintf("\n\t}, %s, w)", category)
 	function += "\n\tw.logger.LogVMHookCallAfter(callInfo)"
 	if funcMetadata.Result != nil {
 		function += "\n\treturn result"
@@ -66,26 +68,46 @@ func buildVMWrapperFileHeader() string {
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 import (
+	"context"
 	"fmt"
-	"time"
 
 	"github.com/klever-io/klever-go/kvm/executor"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 )
 
 // WrapperVMHooks wraps a VMHooks instance and optionally performs some logging.
 type WrapperVMHooks struct {
-	logger           ExecutorLogger
-	wrappedVMHooks   executor.VMHooks
-	executionTimeout time.Duration
+	logger         ExecutorLogger
+	wrappedVMHooks executor.VMHooks
+	vmHost         vmhost.VMHost // Cached to avoid repeated type assertions
 }
 
 // NewWrapperVMHooks creates a new instance of WrapperVMHooks.
-func NewWrapperVMHooks(wrappedVMHooks executor.VMHooks, logger ExecutorLogger, executionTimeout time.Duration) *WrapperVMHooks {
-	return &WrapperVMHooks{
-		wrappedVMHooks:   wrappedVMHooks,
-		logger:           logger,
-		executionTimeout: executionTimeout,
+func NewWrapperVMHooks(wrappedVMHooks executor.VMHooks, logger ExecutorLogger) *WrapperVMHooks {
+	wrapper := &WrapperVMHooks{
+		wrappedVMHooks: wrappedVMHooks,
+		logger:         logger,
 	}
+
+	// Cache the VMHost reference to optimize FailAfterTimeout performance
+	// This eliminates repeated type assertions on every hook call
+	type vmHostGetter interface {
+		GetVMHost() vmhost.VMHost
+	}
+	if hostGetter, ok := wrappedVMHooks.(vmHostGetter); ok {
+		wrapper.vmHost = hostGetter.GetVMHost()
+	}
+
+	return wrapper
+}
+
+// getExecutionContext retrieves the current execution context from the cached VMHost.
+// Returns nil if no VMHost or no context is available.
+func (w *WrapperVMHooks) getExecutionContext() context.Context {
+	if w == nil || w.vmHost == nil {
+		return nil
+	}
+	return w.vmHost.GetExecutionContext()
 }
 `
 }
@@ -117,4 +139,39 @@ func buildCommaSeparatedArgumentNames(arguments []*EIFunctionArg) string {
 		argumentNames += fmt.Sprintf("%s", arg.Name)
 	}
 	return argumentNames
+}
+
+// getHookCategoryConstant returns the category constant for a hook at generation time.
+// This eliminates runtime string lookups - the category is baked into the generated code.
+func getHookCategoryConstant(hookName string) string {
+	// Only these hooks need expensive goroutine protection
+	slowHooks := map[string]bool{
+		// Contract execution - can run arbitrary WASM
+		"ExecuteOnSameContext":              true,
+		"ExecuteOnDestContext":              true,
+		"ExecuteReadOnly":                   true,
+		"CreateContract":                    true,
+		"UpgradeContract":                   true,
+		"DeployFromSourceContract":          true,
+		"UpgradeFromSourceContract":         true,
+		"DeleteContract":                    true,
+		"ManagedExecuteOnSameContext":       true,
+		"ManagedExecuteOnDestContext":       true,
+		"ManagedExecuteReadOnly":            true,
+		"ManagedCreateContract":             true,
+		"ManagedUpgradeContract":            true,
+		"ManagedDeployFromSourceContract":   true,
+		"ManagedUpgradeFromSourceContract":  true,
+		"ManagedDeleteContract":             true,
+		"ManagedMultiTransferKDANFTExecute": true,
+
+		// Exponential math - can have many iterations
+		"BigIntPow":   true,
+		"BigFloatPow": true,
+	}
+
+	if slowHooks[hookName] {
+		return "HookCategorySlow"
+	}
+	return "HookCategoryFast"
 }

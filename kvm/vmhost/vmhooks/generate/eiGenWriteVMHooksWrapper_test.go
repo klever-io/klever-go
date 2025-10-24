@@ -119,26 +119,46 @@ func TestBuildVMWrapperFileHeader(t *testing.T) {
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 import (
+	"context"
 	"fmt"
-	"time"
 
 	"github.com/klever-io/klever-go/kvm/executor"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 )
 
 // WrapperVMHooks wraps a VMHooks instance and optionally performs some logging.
 type WrapperVMHooks struct {
-	logger           ExecutorLogger
-	wrappedVMHooks   executor.VMHooks
-	executionTimeout time.Duration
+	logger         ExecutorLogger
+	wrappedVMHooks executor.VMHooks
+	vmHost         vmhost.VMHost // Cached to avoid repeated type assertions
 }
 
 // NewWrapperVMHooks creates a new instance of WrapperVMHooks.
-func NewWrapperVMHooks(wrappedVMHooks executor.VMHooks, logger ExecutorLogger, executionTimeout time.Duration) *WrapperVMHooks {
-	return &WrapperVMHooks{
-		wrappedVMHooks:   wrappedVMHooks,
-		logger:           logger,
-		executionTimeout: executionTimeout,
+func NewWrapperVMHooks(wrappedVMHooks executor.VMHooks, logger ExecutorLogger) *WrapperVMHooks {
+	wrapper := &WrapperVMHooks{
+		wrappedVMHooks: wrappedVMHooks,
+		logger:         logger,
 	}
+
+	// Cache the VMHost reference to optimize FailAfterTimeout performance
+	// This eliminates repeated type assertions on every hook call
+	type vmHostGetter interface {
+		GetVMHost() vmhost.VMHost
+	}
+	if hostGetter, ok := wrappedVMHooks.(vmHostGetter); ok {
+		wrapper.vmHost = hostGetter.GetVMHost()
+	}
+
+	return wrapper
+}
+
+// getExecutionContext retrieves the current execution context from the cached VMHost.
+// Returns nil if no VMHost or no context is available.
+func (w *WrapperVMHooks) getExecutionContext() context.Context {
+	if w == nil || w.vmHost == nil {
+		return nil
+	}
+	return w.vmHost.GetExecutionContext()
 }
 `
 
@@ -169,7 +189,7 @@ func (w *WrapperVMHooks) SimpleFunc() {
 	_ = FailAfterTimeout(func() any {
 		w.wrappedVMHooks.SimpleFunc()
 		return nil
-	}, w.executionTimeout)
+	}, HookCategoryFast, w)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 `,
@@ -194,7 +214,7 @@ func (w *WrapperVMHooks) OneArgFunc(arg1 int32) {
 	_ = FailAfterTimeout(func() any {
 		w.wrappedVMHooks.OneArgFunc(arg1)
 		return nil
-	}, w.executionTimeout)
+	}, HookCategoryFast, w)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 `,
@@ -217,7 +237,7 @@ func (w *WrapperVMHooks) MultiArgFunc(arg1 int32, arg2 int64) {
 	_ = FailAfterTimeout(func() any {
 		w.wrappedVMHooks.MultiArgFunc(arg1, arg2)
 		return nil
-	}, w.executionTimeout)
+	}, HookCategoryFast, w)
 	w.logger.LogVMHookCallAfter(callInfo)
 }
 `,
@@ -240,7 +260,7 @@ func (w *WrapperVMHooks) FuncWithReturn(arg1 int32) int32 {
 	w.logger.LogVMHookCallBefore(callInfo)
 	result := FailAfterTimeout(func() int32 {
 		return w.wrappedVMHooks.FuncWithReturn(arg1)
-	}, w.executionTimeout)
+	}, HookCategoryFast, w)
 	w.logger.LogVMHookCallAfter(callInfo)
 	return result
 }

@@ -1,6 +1,7 @@
 package mock
 
 import (
+	"context"
 	"fmt"
 	"math"
 
@@ -194,6 +195,11 @@ func (host *VMHostMock) GetContexts() (
 // SetRuntimeContext mocked method
 func (host *VMHostMock) SetRuntimeContext(runtime vmhost.RuntimeContext) {
 	host.RuntimeContext = runtime
+}
+
+// GetExecutionContext mocked method
+func (host *VMHostMock) GetExecutionContext() context.Context {
+	return nil
 }
 
 // FixOOGReturnCodeEnabled mocked method

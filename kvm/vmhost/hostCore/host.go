@@ -42,6 +42,7 @@ type vmHost struct {
 	mutExecution     sync.RWMutex
 	closingInstance  bool
 	executionTimeout time.Duration
+	executionContext context.Context // Per-execution timeout context
 
 	blockchainContext   vmhost.BlockchainContext
 	runtimeContext      vmhost.RuntimeContext
@@ -345,6 +346,14 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 	ctx, cancel := context.WithTimeout(context.Background(), host.executionTimeout)
 	defer cancel()
 
+	// Set execution context on vmHost instance (not global) for timeout protection
+	// This ensures each RunSmartContractCreate invocation has its own isolated context
+	// preventing race conditions from parallel queries and context overwrite from nested calls
+	host.executionContext = ctx
+	defer func() {
+		host.executionContext = nil
+	}()
+
 	log.Trace("RunSmartContractCreate begin",
 		"len(code)", len(input.ContractCode),
 		"metadata", input.ContractCodeMetadata,
@@ -410,6 +419,14 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 	host.setGasTracerEnabledIfLogIsTrace()
 	ctx, cancel := context.WithTimeout(context.Background(), host.executionTimeout)
 	defer cancel()
+
+	// Set execution context on vmHost instance (not global) for timeout protection
+	// This ensures each RunSmartContractCall invocation has its own isolated context
+	// preventing race conditions from parallel queries and context overwrite from nested calls
+	host.executionContext = ctx
+	defer func() {
+		host.executionContext = nil
+	}()
 
 	log.Trace("RunSmartContractCall begin",
 		"function", input.Function,
@@ -498,6 +515,11 @@ func (host *vmHost) IsInterfaceNil() bool {
 // SetRuntimeContext sets the runtimeContext for this host, used in tests
 func (host *vmHost) SetRuntimeContext(runtime vmhost.RuntimeContext) {
 	host.runtimeContext = runtime
+}
+
+// GetExecutionContext returns the execution context for timeout protection
+func (host *vmHost) GetExecutionContext() context.Context {
+	return host.executionContext
 }
 
 // GetRuntimeErrors obtains the cumultated error object after running the SC

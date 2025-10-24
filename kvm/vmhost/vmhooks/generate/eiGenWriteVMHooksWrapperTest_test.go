@@ -1,6 +1,8 @@
 package vmhooksgenerate
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -243,14 +245,30 @@ func TestGetVMWrapperTestFileHeader(t *testing.T) {
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 import (
-	"github.com/klever-io/klever-go/kvm/executor"
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 )
+
+// simpleVMHost is a minimal mock for testing timeout behavior
+type simpleVMHost struct {
+	vmhost.VMHost
+	ctx context.Context
+}
+
+func (h *simpleVMHost) GetExecutionContext() context.Context {
+	return h.ctx
+}
+
+func (h *simpleVMHost) IsInterfaceNil() bool {
+	return h == nil
+}
 
 `
 	actual := getVMWrapperTestFileHeader()
@@ -271,50 +289,17 @@ func TestBuildVMWrapperFunctionTest(t *testing.T) {
 				Name: "NoArgsNoReturn",
 			},
 			expected: `func TestNoArgsNoReturn(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "NoArgsNoReturn should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "NoArgsNoReturn should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				NoArgsNoReturnCalled: func () {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.NoArgsNoReturn()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("NoArgsNoReturn should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			NoArgsNoReturnCalled: func() {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.NoArgsNoReturn()
+		assert.True(t, called)
+	})
 }
 
 `,
@@ -338,50 +323,18 @@ func TestBuildVMWrapperFunctionTest(t *testing.T) {
 				},
 			},
 			expected: `func TestTwoArgsWithReturn(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "TwoArgsWithReturn should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "TwoArgsWithReturn should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				TwoArgsWithReturnCalled: func (arg1 int32, arg2 executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.TwoArgsWithReturn(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("TwoArgsWithReturn should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			TwoArgsWithReturnCalled: func(arg1 int32, arg2 executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.TwoArgsWithReturn(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 `,
@@ -394,4 +347,276 @@ func TestBuildVMWrapperFunctionTest(t *testing.T) {
 			assert.Equal(t, tc.expected, actual)
 		})
 	}
+}
+
+func TestBuildBasicHookTest(t *testing.T) {
+	testCases := []struct {
+		name           string
+		function       *EIFunction
+		hasReturnValue bool
+		expectedSubstr []string
+	}{
+		{
+			name: "Function with no return value",
+			function: &EIFunction{
+				Name: "SimpleHook",
+			},
+			hasReturnValue: false,
+			expectedSubstr: []string{
+				"SimpleHook should call hook",
+				"called := false",
+				"SimpleHookCalled: func()",
+				"wrapper.SimpleHook()",
+				"assert.True(t, called)",
+			},
+		},
+		{
+			name: "Function with int32 return value",
+			function: &EIFunction{
+				Name: "HookWithReturn",
+				Result: &EIFunctionResult{
+					Type: EITypeInt32,
+				},
+			},
+			hasReturnValue: true,
+			expectedSubstr: []string{
+				"HookWithReturn should call hook and forward return value",
+				"result := wrapper.HookWithReturn()",
+				"assert.Equal(t, int32(0), result)",
+			},
+		},
+		{
+			name: "Function with arguments and return",
+			function: &EIFunction{
+				Name: "ComplexHook",
+				Arguments: []*EIFunctionArg{
+					{Name: "arg1", Type: EITypeInt32},
+					{Name: "arg2", Type: EITypeInt64},
+				},
+				Result: &EIFunctionResult{
+					Type: EITypeInt64,
+				},
+			},
+			hasReturnValue: true,
+			expectedSubstr: []string{
+				"ComplexHook should call hook and forward return value",
+				"ComplexHookCalled: func(arg1 int32, arg2 int64) int64",
+				"result := wrapper.ComplexHook(0, 0)",
+				"assert.Equal(t, int64(0), result)",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := buildBasicHookTest(tc.function, tc.hasReturnValue)
+
+			for _, substr := range tc.expectedSubstr {
+				assert.Contains(t, result, substr, "Expected substring not found: %s", substr)
+			}
+		})
+	}
+}
+
+func TestBuildTimeoutTest(t *testing.T) {
+	testCases := []struct {
+		name           string
+		function       *EIFunction
+		expectedSubstr []string
+	}{
+		{
+			name: "Slow hook timeout test - no args, no return",
+			function: &EIFunction{
+				Name: "ExecuteOnDestContext",
+			},
+			expectedSubstr: []string{
+				"ExecuteOnDestContext should timeout when context expires",
+				"ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)",
+				"time.Sleep(2 * time.Millisecond)",
+				"mockHost := &simpleVMHost{ctx: ctx}",
+				"ExecuteOnDestContextCalled: func()",
+				"time.Sleep(10 * time.Millisecond)",
+				"panicked := false",
+				"assert.True(t, panicked",
+			},
+		},
+		{
+			name: "Slow hook timeout test - with args",
+			function: &EIFunction{
+				Name: "CreateContract",
+				Arguments: []*EIFunctionArg{
+					{Name: "gasLimit", Type: EITypeInt64},
+					{Name: "valueOffset", Type: EITypeMemPtr},
+				},
+			},
+			expectedSubstr: []string{
+				"CreateContract should timeout when context expires",
+				"CreateContractCalled: func(gasLimit int64, valueOffset executor.MemPtr)",
+				"wrapper.CreateContract(0, 0)",
+			},
+		},
+		{
+			name: "Slow hook timeout test - with return value",
+			function: &EIFunction{
+				Name: "BigIntPow",
+				Arguments: []*EIFunctionArg{
+					{Name: "destHandle", Type: EITypeInt32},
+					{Name: "baseHandle", Type: EITypeInt32},
+				},
+				Result: &EIFunctionResult{
+					Type: EITypeInt32,
+				},
+			},
+			expectedSubstr: []string{
+				"BigIntPow should timeout when context expires",
+				"BigIntPowCalled: func(destHandle int32, baseHandle int32) int32",
+				"wrapper.BigIntPow(0, 0)",
+				"return 0",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := buildTimeoutTest(tc.function)
+
+			for _, substr := range tc.expectedSubstr {
+				assert.Contains(t, result, substr, "Expected substring not found: %s", substr)
+			}
+		})
+	}
+}
+
+func TestBuildVMWrapperFunctionTest_SlowHooks(t *testing.T) {
+	testCases := []struct {
+		name              string
+		function          *EIFunction
+		shouldHaveTimeout bool
+	}{
+		{
+			name: "ExecuteOnDestContext (slow hook)",
+			function: &EIFunction{
+				Name: "ExecuteOnDestContext",
+			},
+			shouldHaveTimeout: true,
+		},
+		{
+			name: "CreateContract (slow hook)",
+			function: &EIFunction{
+				Name: "CreateContract",
+			},
+			shouldHaveTimeout: true,
+		},
+		{
+			name: "UpgradeContract (slow hook)",
+			function: &EIFunction{
+				Name: "UpgradeContract",
+			},
+			shouldHaveTimeout: true,
+		},
+		{
+			name: "GetGasLeft (fast hook)",
+			function: &EIFunction{
+				Name: "GetGasLeft",
+			},
+			shouldHaveTimeout: false,
+		},
+		{
+			name: "GetBlockTimestamp (fast hook)",
+			function: &EIFunction{
+				Name: "GetBlockTimestamp",
+			},
+			shouldHaveTimeout: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := buildVMWrapperFunctionTest(tc.function)
+
+			if tc.shouldHaveTimeout {
+				assert.Contains(t, result, "should timeout when context expires",
+					"Slow hook should have timeout test")
+				assert.Contains(t, result, "simpleVMHost",
+					"Timeout test should use simpleVMHost")
+			} else {
+				assert.NotContains(t, result, "should timeout when context expires",
+					"Fast hook should not have timeout test")
+			}
+		})
+	}
+}
+
+func TestWriteVMHooksWrapperTest(t *testing.T) {
+	t.Run("Generates test file with header and multiple function tests", func(t *testing.T) {
+		metadata := &EIMetadata{
+			AllFunctions: []*EIFunction{
+				{Name: "GetGasLeft"},
+				{Name: "ExecuteOnDestContext"},
+			},
+		}
+
+		// Create temp file for testing
+		tmpDir := t.TempDir()
+		filename := "test_wrapper.go"
+		writer := NewEIGenWriter(tmpDir, filename)
+		defer writer.Close()
+
+		WriteVMHooksWrapperTest(writer, metadata)
+		writer.Close()
+
+		// Read the generated file
+		tmpFile := filepath.Join(tmpDir, filename)
+		content, err := os.ReadFile(tmpFile)
+		assert.NoError(t, err)
+		output := string(content)
+
+		// Check header is present
+		assert.Contains(t, output, "package executorwrapper")
+		assert.Contains(t, output, "Code generated by vmhooks generator. DO NOT EDIT.")
+		assert.Contains(t, output, "simpleVMHost")
+
+		// Check both function tests are present
+		assert.Contains(t, output, "func TestGetGasLeft(t *testing.T)")
+		assert.Contains(t, output, "func TestExecuteOnDestContext(t *testing.T)")
+
+		// Fast hook should not have timeout test
+		assert.NotContains(t, output, "GetGasLeft should timeout")
+
+		// Slow hook should have timeout test
+		assert.Contains(t, output, "ExecuteOnDestContext should timeout")
+	})
+}
+
+func TestGetInitializedWrapperType_AllTypes(t *testing.T) {
+	testCases := []struct {
+		name     string
+		eiType   EIType
+		expected string
+	}{
+		{"Int32", EITypeInt32, "0"},
+		{"Int64", EITypeInt64, "0"},
+		{"MemPtr", EITypeMemPtr, "0"},
+		{"MemLength", EITypeMemLength, "0"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := getInitializedWrapperType(tc.eiType)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestGetInitializedWrapperType_Panic(t *testing.T) {
+	t.Run("Panics on invalid type", func(t *testing.T) {
+		defer func() {
+			r := recover()
+			assert.NotNil(t, r, "Expected panic for invalid type")
+			assert.Contains(t, r, "unhandled default case")
+		}()
+
+		// Use an invalid EIType value
+		getInitializedWrapperType(EIType(999))
+	})
 }

@@ -7,11386 +7,4171 @@ package executorwrapper
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 import (
-	"github.com/klever-io/klever-go/kvm/executor"
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 )
 
-func TestGetGasLeft(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetGasLeft should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetGasLeft should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+// simpleVMHost is a minimal mock for testing timeout behavior
+type simpleVMHost struct {
+	vmhost.VMHost
+	ctx context.Context
+}
 
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetGasLeftCalled: func () int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetGasLeft()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+func (h *simpleVMHost) GetExecutionContext() context.Context {
+	return h.ctx
+}
+
+func (h *simpleVMHost) IsInterfaceNil() bool {
+	return h == nil
+}
+
+func TestGetGasLeft(t *testing.T) {
+	t.Run("GetGasLeft should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetGasLeftCalled: func() int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetGasLeft()
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetSCAddress(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetSCAddress should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetSCAddress should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetSCAddressCalled: func (resultOffset executor.MemPtr) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetSCAddress(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetSCAddress should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetSCAddressCalled: func(resultOffset executor.MemPtr) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.GetSCAddress(0)
+		assert.True(t, called)
+	})
 }
 
 func TestGetOwnerAddress(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetOwnerAddress should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetOwnerAddress should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetOwnerAddressCalled: func (resultOffset executor.MemPtr) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetOwnerAddress(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetOwnerAddress should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetOwnerAddressCalled: func(resultOffset executor.MemPtr) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.GetOwnerAddress(0)
+		assert.True(t, called)
+	})
 }
 
 func TestIsSmartContract(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "IsSmartContract should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "IsSmartContract should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				IsSmartContractCalled: func (addressOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.IsSmartContract(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("IsSmartContract should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			IsSmartContractCalled: func(addressOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.IsSmartContract(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestSignalError(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "SignalError should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "SignalError should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				SignalErrorCalled: func (messageOffset executor.MemPtr, messageLength executor.MemLength) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.SignalError(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("SignalError should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			SignalErrorCalled: func(messageOffset executor.MemPtr, messageLength executor.MemLength) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.SignalError(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestGetExternalBalance(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetExternalBalance should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetExternalBalance should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetExternalBalanceCalled: func (addressOffset executor.MemPtr, resultOffset executor.MemPtr) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetExternalBalance(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetExternalBalance should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetExternalBalanceCalled: func(addressOffset executor.MemPtr, resultOffset executor.MemPtr) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.GetExternalBalance(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestGetBlockHash(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetBlockHash should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetBlockHash should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetBlockHashCalled: func (nonce int64, resultOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetBlockHash(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetBlockHash should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetBlockHashCalled: func(nonce int64, resultOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetBlockHash(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetKDABalance(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetKDABalance should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetKDABalance should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetKDABalanceCalled: func (addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, resultOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetKDABalance(0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetKDABalance should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetKDABalanceCalled: func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, resultOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetKDABalance(0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetKDANameLength(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetKDANameLength should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetKDANameLength should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetKDANameLengthCalled: func (addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetKDANameLength(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetKDANameLength should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetKDANameLengthCalled: func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetKDANameLength(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetKDAURILength(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetKDAURILength should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetKDAURILength should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetKDAURILengthCalled: func (addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetKDAURILength(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetKDAURILength should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetKDAURILengthCalled: func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetKDAURILength(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetKDATokenData(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetKDATokenData should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetKDATokenData should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetKDATokenDataCalled: func (addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, precisionHandle int32, idOffset executor.MemPtr, nameOffset executor.MemPtr, creatorOffset executor.MemPtr, logoOffset executor.MemPtr, initialSupplyOffset executor.MemPtr, circulatingSupplyOffset executor.MemPtr, maxSupplyOffset executor.MemPtr, mintedOffset executor.MemPtr, burnedOffset executor.MemPtr, royaltiesOffset executor.MemPtr, propertiesOffset executor.MemPtr, attributesOffset executor.MemPtr, rolesOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetKDATokenData(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetKDATokenData should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetKDATokenDataCalled: func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, precisionHandle int32, idOffset executor.MemPtr, nameOffset executor.MemPtr, creatorOffset executor.MemPtr, logoOffset executor.MemPtr, initialSupplyOffset executor.MemPtr, circulatingSupplyOffset executor.MemPtr, maxSupplyOffset executor.MemPtr, mintedOffset executor.MemPtr, burnedOffset executor.MemPtr, royaltiesOffset executor.MemPtr, propertiesOffset executor.MemPtr, attributesOffset executor.MemPtr, rolesOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetKDATokenData(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestValidateTokenIdentifier(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ValidateTokenIdentifier should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ValidateTokenIdentifier should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ValidateTokenIdentifierCalled: func (tokenIdHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ValidateTokenIdentifier(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ValidateTokenIdentifier should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ValidateTokenIdentifierCalled: func(tokenIdHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ValidateTokenIdentifier(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestUpgradeContract(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "UpgradeContract should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "UpgradeContract should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("UpgradeContract should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			UpgradeContractCalled: func(destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.UpgradeContract(0, 0, 0, 0, 0, 0, 0, 0, 0)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("UpgradeContract should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			UpgradeContractCalled: func(destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				UpgradeContractCalled: func (destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.UpgradeContract(0, 0, 0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestUpgradeFromSourceContract(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "UpgradeFromSourceContract should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "UpgradeFromSourceContract should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("UpgradeFromSourceContract should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			UpgradeFromSourceContractCalled: func(destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, sourceContractAddressOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.UpgradeFromSourceContract(0, 0, 0, 0, 0, 0, 0, 0)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("UpgradeFromSourceContract should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			UpgradeFromSourceContractCalled: func(destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, sourceContractAddressOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				UpgradeFromSourceContractCalled: func (destOffset executor.MemPtr, gasLimit int64, valueOffset executor.MemPtr, sourceContractAddressOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.UpgradeFromSourceContract(0, 0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestDeleteContract(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "DeleteContract should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "DeleteContract should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("DeleteContract should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			DeleteContractCalled: func(destOffset executor.MemPtr, gasLimit int64, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.DeleteContract(0, 0, 0, 0, 0)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("DeleteContract should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			DeleteContractCalled: func(destOffset executor.MemPtr, gasLimit int64, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				DeleteContractCalled: func (destOffset executor.MemPtr, gasLimit int64, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.DeleteContract(0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestGetArgumentLength(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetArgumentLength should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetArgumentLength should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetArgumentLengthCalled: func (id int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetArgumentLength(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetArgumentLength should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetArgumentLengthCalled: func(id int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetArgumentLength(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetArgument(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetArgument should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetArgument should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetArgumentCalled: func (id int32, argOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetArgument(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetArgument should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetArgumentCalled: func(id int32, argOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetArgument(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetFunction(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetFunction should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetFunction should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetFunctionCalled: func (functionOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetFunction(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetFunction should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetFunctionCalled: func(functionOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetFunction(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetNumArguments(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetNumArguments should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetNumArguments should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetNumArgumentsCalled: func () int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetNumArguments()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetNumArguments should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetNumArgumentsCalled: func() int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetNumArguments()
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestStorageStore(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "StorageStore should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "StorageStore should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				StorageStoreCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.StorageStore(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("StorageStore should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			StorageStoreCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.StorageStore(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestStorageLoadLength(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "StorageLoadLength should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "StorageLoadLength should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				StorageLoadLengthCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.StorageLoadLength(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("StorageLoadLength should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			StorageLoadLengthCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.StorageLoadLength(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestStorageLoadFromAddress(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "StorageLoadFromAddress should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "StorageLoadFromAddress should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				StorageLoadFromAddressCalled: func (addressOffset executor.MemPtr, keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.StorageLoadFromAddress(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("StorageLoadFromAddress should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			StorageLoadFromAddressCalled: func(addressOffset executor.MemPtr, keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.StorageLoadFromAddress(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestStorageLoad(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "StorageLoad should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "StorageLoad should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				StorageLoadCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.StorageLoad(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("StorageLoad should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			StorageLoadCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength, dataOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.StorageLoad(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestSetStorageLock(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "SetStorageLock should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "SetStorageLock should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				SetStorageLockCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength, lockTimestamp int64) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.SetStorageLock(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("SetStorageLock should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			SetStorageLockCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength, lockTimestamp int64) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.SetStorageLock(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetStorageLock(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetStorageLock should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetStorageLock should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetStorageLockCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength) int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetStorageLock(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetStorageLock should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetStorageLockCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength) int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetStorageLock(0, 0)
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestIsStorageLocked(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "IsStorageLocked should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "IsStorageLocked should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				IsStorageLockedCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.IsStorageLocked(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("IsStorageLocked should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			IsStorageLockedCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.IsStorageLocked(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestClearStorageLock(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ClearStorageLock should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ClearStorageLock should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ClearStorageLockCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ClearStorageLock(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ClearStorageLock should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ClearStorageLockCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ClearStorageLock(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetCaller(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetCaller should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetCaller should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetCallerCalled: func (resultOffset executor.MemPtr) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetCaller(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetCaller should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetCallerCalled: func(resultOffset executor.MemPtr) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.GetCaller(0)
+		assert.True(t, called)
+	})
 }
 
 func TestCheckNoPayment(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "CheckNoPayment should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "CheckNoPayment should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				CheckNoPaymentCalled: func () {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.CheckNoPayment()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("CheckNoPayment should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			CheckNoPaymentCalled: func() {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.CheckNoPayment()
+		assert.True(t, called)
+	})
 }
 
 func TestGetCallValue(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetCallValue should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetCallValue should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetCallValueCalled: func (resultOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetCallValue(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetCallValue should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetCallValueCalled: func(resultOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetCallValue(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetKDAValue(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetKDAValue should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetKDAValue should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetKDAValueCalled: func (resultOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetKDAValue(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetKDAValue should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetKDAValueCalled: func(resultOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetKDAValue(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetKDAValueByIndex(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetKDAValueByIndex should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetKDAValueByIndex should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetKDAValueByIndexCalled: func (resultOffset executor.MemPtr, index int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetKDAValueByIndex(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetKDAValueByIndex should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetKDAValueByIndexCalled: func(resultOffset executor.MemPtr, index int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetKDAValueByIndex(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetKDATokenName(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetKDATokenName should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetKDATokenName should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetKDATokenNameCalled: func (resultOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetKDATokenName(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetKDATokenName should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetKDATokenNameCalled: func(resultOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetKDATokenName(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetKDATokenNameByIndex(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetKDATokenNameByIndex should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetKDATokenNameByIndex should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetKDATokenNameByIndexCalled: func (resultOffset executor.MemPtr, index int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetKDATokenNameByIndex(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetKDATokenNameByIndex should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetKDATokenNameByIndexCalled: func(resultOffset executor.MemPtr, index int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetKDATokenNameByIndex(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetKDATokenNonce(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetKDATokenNonce should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetKDATokenNonce should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetKDATokenNonceCalled: func () int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetKDATokenNonce()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetKDATokenNonce should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetKDATokenNonceCalled: func() int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetKDATokenNonce()
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetKDATokenNonceByIndex(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetKDATokenNonceByIndex should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetKDATokenNonceByIndex should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetKDATokenNonceByIndexCalled: func (index int32) int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetKDATokenNonceByIndex(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetKDATokenNonceByIndex should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetKDATokenNonceByIndexCalled: func(index int32) int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetKDATokenNonceByIndex(0)
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetKDATokenType(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetKDATokenType should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetKDATokenType should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetKDATokenTypeCalled: func () int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetKDATokenType()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetKDATokenType should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetKDATokenTypeCalled: func() int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetKDATokenType()
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetKDATokenTypeByIndex(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetKDATokenTypeByIndex should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetKDATokenTypeByIndex should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetKDATokenTypeByIndexCalled: func (index int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetKDATokenTypeByIndex(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetKDATokenTypeByIndex should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetKDATokenTypeByIndexCalled: func(index int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetKDATokenTypeByIndex(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetNumKDATransfers(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetNumKDATransfers should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetNumKDATransfers should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetNumKDATransfersCalled: func () int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetNumKDATransfers()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetNumKDATransfers should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetNumKDATransfersCalled: func() int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetNumKDATransfers()
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetCallValueByTokenName(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetCallValueByTokenName should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetCallValueByTokenName should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetCallValueByTokenNameCalled: func (callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr, tokenNameLength executor.MemLength) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetCallValueByTokenName(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetCallValueByTokenName should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetCallValueByTokenNameCalled: func(callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr, tokenNameLength executor.MemLength) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetCallValueByTokenName(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetCallValueTokenName(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetCallValueTokenName should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetCallValueTokenName should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetCallValueTokenNameCalled: func (callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetCallValueTokenName(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetCallValueTokenName should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetCallValueTokenNameCalled: func(callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetCallValueTokenName(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetCallValueTokenNameByIndex(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetCallValueTokenNameByIndex should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetCallValueTokenNameByIndex should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetCallValueTokenNameByIndexCalled: func (callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr, index int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetCallValueTokenNameByIndex(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetCallValueTokenNameByIndex should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetCallValueTokenNameByIndexCalled: func(callValueOffset executor.MemPtr, tokenNameOffset executor.MemPtr, index int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetCallValueTokenNameByIndex(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestWriteLog(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "WriteLog should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "WriteLog should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				WriteLogCalled: func (dataPointer executor.MemPtr, dataLength executor.MemLength, topicPtr executor.MemPtr, numTopics int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.WriteLog(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("WriteLog should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			WriteLogCalled: func(dataPointer executor.MemPtr, dataLength executor.MemLength, topicPtr executor.MemPtr, numTopics int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.WriteLog(0, 0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestWriteEventLog(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "WriteEventLog should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "WriteEventLog should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				WriteEventLogCalled: func (numTopics int32, topicLengthsOffset executor.MemPtr, topicOffset executor.MemPtr, dataOffset executor.MemPtr, dataLength executor.MemLength) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.WriteEventLog(0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("WriteEventLog should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			WriteEventLogCalled: func(numTopics int32, topicLengthsOffset executor.MemPtr, topicOffset executor.MemPtr, dataOffset executor.MemPtr, dataLength executor.MemLength) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.WriteEventLog(0, 0, 0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestGetBlockTimestamp(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetBlockTimestamp should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetBlockTimestamp should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetBlockTimestampCalled: func () int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetBlockTimestamp()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetBlockTimestamp should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetBlockTimestampCalled: func() int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetBlockTimestamp()
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetBlockNonce(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetBlockNonce should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetBlockNonce should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetBlockNonceCalled: func () int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetBlockNonce()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetBlockNonce should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetBlockNonceCalled: func() int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetBlockNonce()
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetBlockRound(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetBlockRound should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetBlockRound should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetBlockRoundCalled: func () int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetBlockRound()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetBlockRound should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetBlockRoundCalled: func() int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetBlockRound()
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetBlockEpoch(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetBlockEpoch should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetBlockEpoch should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetBlockEpochCalled: func () int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetBlockEpoch()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetBlockEpoch should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetBlockEpochCalled: func() int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetBlockEpoch()
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetBlockRandomSeed(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetBlockRandomSeed should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetBlockRandomSeed should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetBlockRandomSeedCalled: func (pointer executor.MemPtr) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetBlockRandomSeed(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetBlockRandomSeed should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetBlockRandomSeedCalled: func(pointer executor.MemPtr) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.GetBlockRandomSeed(0)
+		assert.True(t, called)
+	})
 }
 
 func TestGetStateRootHash(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetStateRootHash should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetStateRootHash should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetStateRootHashCalled: func (pointer executor.MemPtr) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetStateRootHash(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetStateRootHash should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetStateRootHashCalled: func(pointer executor.MemPtr) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.GetStateRootHash(0)
+		assert.True(t, called)
+	})
 }
 
 func TestGetPrevBlockTimestamp(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetPrevBlockTimestamp should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetPrevBlockTimestamp should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetPrevBlockTimestampCalled: func () int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetPrevBlockTimestamp()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetPrevBlockTimestamp should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetPrevBlockTimestampCalled: func() int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetPrevBlockTimestamp()
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetPrevBlockNonce(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetPrevBlockNonce should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetPrevBlockNonce should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetPrevBlockNonceCalled: func () int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetPrevBlockNonce()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetPrevBlockNonce should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetPrevBlockNonceCalled: func() int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetPrevBlockNonce()
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetPrevBlockRound(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetPrevBlockRound should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetPrevBlockRound should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetPrevBlockRoundCalled: func () int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetPrevBlockRound()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetPrevBlockRound should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetPrevBlockRoundCalled: func() int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetPrevBlockRound()
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetPrevBlockEpoch(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetPrevBlockEpoch should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetPrevBlockEpoch should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetPrevBlockEpochCalled: func () int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetPrevBlockEpoch()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetPrevBlockEpoch should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetPrevBlockEpochCalled: func() int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetPrevBlockEpoch()
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetPrevBlockRandomSeed(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetPrevBlockRandomSeed should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetPrevBlockRandomSeed should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetPrevBlockRandomSeedCalled: func (pointer executor.MemPtr) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetPrevBlockRandomSeed(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetPrevBlockRandomSeed should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetPrevBlockRandomSeedCalled: func(pointer executor.MemPtr) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.GetPrevBlockRandomSeed(0)
+		assert.True(t, called)
+	})
 }
 
 func TestFinish(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "Finish should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "Finish should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				FinishCalled: func (pointer executor.MemPtr, length executor.MemLength) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.Finish(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("Finish should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			FinishCalled: func(pointer executor.MemPtr, length executor.MemLength) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.Finish(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestExecuteOnSameContext(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ExecuteOnSameContext should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ExecuteOnSameContext should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("ExecuteOnSameContext should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ExecuteOnSameContextCalled: func(gasLimit int64, addressOffset executor.MemPtr, valueOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ExecuteOnSameContext(0, 0, 0, 0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("ExecuteOnSameContext should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			ExecuteOnSameContextCalled: func(gasLimit int64, addressOffset executor.MemPtr, valueOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return 0
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ExecuteOnSameContextCalled: func (gasLimit int64, addressOffset executor.MemPtr, valueOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.ExecuteOnSameContext(0, 0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestExecuteOnDestContext(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ExecuteOnDestContext should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ExecuteOnDestContext should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("ExecuteOnDestContext should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ExecuteOnDestContextCalled: func(gasLimit int64, addressOffset executor.MemPtr, valueOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ExecuteOnDestContext(0, 0, 0, 0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("ExecuteOnDestContext should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			ExecuteOnDestContextCalled: func(gasLimit int64, addressOffset executor.MemPtr, valueOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return 0
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ExecuteOnDestContextCalled: func (gasLimit int64, addressOffset executor.MemPtr, valueOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.ExecuteOnDestContext(0, 0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestExecuteReadOnly(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ExecuteReadOnly should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ExecuteReadOnly should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("ExecuteReadOnly should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ExecuteReadOnlyCalled: func(gasLimit int64, addressOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ExecuteReadOnly(0, 0, 0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("ExecuteReadOnly should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			ExecuteReadOnlyCalled: func(gasLimit int64, addressOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return 0
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ExecuteReadOnlyCalled: func (gasLimit int64, addressOffset executor.MemPtr, functionOffset executor.MemPtr, functionLength executor.MemLength, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.ExecuteReadOnly(0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestCreateContract(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "CreateContract should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "CreateContract should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("CreateContract should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			CreateContractCalled: func(gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.CreateContract(0, 0, 0, 0, 0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("CreateContract should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			CreateContractCalled: func(gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return 0
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				CreateContractCalled: func (gasLimit int64, valueOffset executor.MemPtr, codeOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.CreateContract(0, 0, 0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestDeployFromSourceContract(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "DeployFromSourceContract should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "DeployFromSourceContract should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("DeployFromSourceContract should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			DeployFromSourceContractCalled: func(gasLimit int64, valueOffset executor.MemPtr, sourceContractAddressOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, resultAddressOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.DeployFromSourceContract(0, 0, 0, 0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("DeployFromSourceContract should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			DeployFromSourceContractCalled: func(gasLimit int64, valueOffset executor.MemPtr, sourceContractAddressOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, resultAddressOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return 0
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				DeployFromSourceContractCalled: func (gasLimit int64, valueOffset executor.MemPtr, sourceContractAddressOffset executor.MemPtr, codeMetadataOffset executor.MemPtr, resultAddressOffset executor.MemPtr, numArguments int32, argumentsLengthOffset executor.MemPtr, dataOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.DeployFromSourceContract(0, 0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestGetNumReturnData(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetNumReturnData should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetNumReturnData should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetNumReturnDataCalled: func () int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetNumReturnData()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetNumReturnData should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetNumReturnDataCalled: func() int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetNumReturnData()
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetReturnDataSize(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetReturnDataSize should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetReturnDataSize should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetReturnDataSizeCalled: func (resultID int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetReturnDataSize(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetReturnDataSize should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetReturnDataSizeCalled: func(resultID int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetReturnDataSize(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetReturnData(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetReturnData should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetReturnData should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetReturnDataCalled: func (resultID int32, dataOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetReturnData(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetReturnData should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetReturnDataCalled: func(resultID int32, dataOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetReturnData(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestCleanReturnData(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "CleanReturnData should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "CleanReturnData should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				CleanReturnDataCalled: func () {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.CleanReturnData()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("CleanReturnData should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			CleanReturnDataCalled: func() {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.CleanReturnData()
+		assert.True(t, called)
+	})
 }
 
 func TestDeleteFromReturnData(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "DeleteFromReturnData should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "DeleteFromReturnData should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				DeleteFromReturnDataCalled: func (resultID int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.DeleteFromReturnData(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("DeleteFromReturnData should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			DeleteFromReturnDataCalled: func(resultID int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.DeleteFromReturnData(0)
+		assert.True(t, called)
+	})
 }
 
 func TestGetOriginalTxHash(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetOriginalTxHash should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetOriginalTxHash should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetOriginalTxHashCalled: func (dataOffset executor.MemPtr) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetOriginalTxHash(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetOriginalTxHash should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetOriginalTxHashCalled: func(dataOffset executor.MemPtr) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.GetOriginalTxHash(0)
+		assert.True(t, called)
+	})
 }
 
 func TestGetCurrentTxHash(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetCurrentTxHash should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetCurrentTxHash should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetCurrentTxHashCalled: func (dataOffset executor.MemPtr) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetCurrentTxHash(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetCurrentTxHash should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetCurrentTxHashCalled: func(dataOffset executor.MemPtr) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.GetCurrentTxHash(0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedSCAddress(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedSCAddress should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedSCAddress should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedSCAddressCalled: func (destinationHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedSCAddress(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedSCAddress should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedSCAddressCalled: func(destinationHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedSCAddress(0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedOwnerAddress(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedOwnerAddress should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedOwnerAddress should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedOwnerAddressCalled: func (destinationHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedOwnerAddress(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedOwnerAddress should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedOwnerAddressCalled: func(destinationHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedOwnerAddress(0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedCaller(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedCaller should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedCaller should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedCallerCalled: func (destinationHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedCaller(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedCaller should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedCallerCalled: func(destinationHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedCaller(0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedSignalError(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedSignalError should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedSignalError should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedSignalErrorCalled: func (errHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedSignalError(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedSignalError should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedSignalErrorCalled: func(errHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedSignalError(0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedWriteLog(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedWriteLog should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedWriteLog should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedWriteLogCalled: func (topicsHandle int32, dataHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedWriteLog(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedWriteLog should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedWriteLogCalled: func(topicsHandle int32, dataHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedWriteLog(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetOriginalTxHash(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetOriginalTxHash should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetOriginalTxHash should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetOriginalTxHashCalled: func (resultHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetOriginalTxHash(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetOriginalTxHash should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetOriginalTxHashCalled: func(resultHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetOriginalTxHash(0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetStateRootHash(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetStateRootHash should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetStateRootHash should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetStateRootHashCalled: func (resultHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetStateRootHash(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetStateRootHash should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetStateRootHashCalled: func(resultHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetStateRootHash(0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetBlockRandomSeed(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetBlockRandomSeed should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetBlockRandomSeed should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetBlockRandomSeedCalled: func (resultHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetBlockRandomSeed(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetBlockRandomSeed should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetBlockRandomSeedCalled: func(resultHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetBlockRandomSeed(0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetPrevBlockRandomSeed(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetPrevBlockRandomSeed should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetPrevBlockRandomSeed should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetPrevBlockRandomSeedCalled: func (resultHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetPrevBlockRandomSeed(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetPrevBlockRandomSeed should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetPrevBlockRandomSeedCalled: func(resultHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetPrevBlockRandomSeed(0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetReturnData(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetReturnData should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetReturnData should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetReturnDataCalled: func (resultID int32, resultHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetReturnData(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetReturnData should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetReturnDataCalled: func(resultID int32, resultHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetReturnData(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetKDACallValue(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetKDACallValue should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetKDACallValue should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetKDACallValueCalled: func (kdaCallValueHandle int32, kdaHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetKDACallValue(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetKDACallValue should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetKDACallValueCalled: func(kdaCallValueHandle int32, kdaHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetKDACallValue(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetMultiKDACallValue(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetMultiKDACallValue should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetMultiKDACallValue should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetMultiKDACallValueCalled: func (multiCallValueHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetMultiKDACallValue(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetMultiKDACallValue should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetMultiKDACallValueCalled: func(multiCallValueHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetMultiKDACallValue(0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetMultiKDAWithoutKLVCallValue(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetMultiKDAWithoutKLVCallValue should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetMultiKDAWithoutKLVCallValue should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetMultiKDAWithoutKLVCallValueCalled: func (multiCallValueHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetMultiKDAWithoutKLVCallValue(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetMultiKDAWithoutKLVCallValue should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetMultiKDAWithoutKLVCallValueCalled: func(multiCallValueHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetMultiKDAWithoutKLVCallValue(0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetBackTransfers(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetBackTransfers should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetBackTransfers should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetBackTransfersCalled: func (kdaTransfersValueHandle int32, callValueHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetBackTransfers(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetBackTransfers should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetBackTransfersCalled: func(kdaTransfersValueHandle int32, callValueHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetBackTransfers(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetKDABalance(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetKDABalance should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetKDABalance should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetKDABalanceCalled: func (addressHandle int32, tokenIDHandle int32, nonce int64, valueHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetKDABalance(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetKDABalance should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetKDABalanceCalled: func(addressHandle int32, tokenIDHandle int32, nonce int64, valueHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetKDABalance(0, 0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetUserKDA(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetUserKDA should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetUserKDA should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetUserKDACalled: func (addressHandle int32, tickerHandle int32, nonce int64, balanceHandle int32, frozenHandle int32, lastClaimHandle int32, bucketsHandle int32, mimeHandle int32, metadataHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetUserKDA(0, 0, 0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetUserKDA should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetUserKDACalled: func(addressHandle int32, tickerHandle int32, nonce int64, balanceHandle int32, frozenHandle int32, lastClaimHandle int32, bucketsHandle int32, mimeHandle int32, metadataHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetUserKDA(0, 0, 0, 0, 0, 0, 0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetKDATokenData(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetKDATokenData should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetKDATokenData should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetKDATokenDataCalled: func (addressHandle int32, tickerHandle int32, nonce int64, precisionHandle int32, idHandle int32, nameHandle int32, creatorHandle int32, adminHandle int32, logoHandle int32, urisHandle int32, initialSupplyHandle int32, circulatingSupplyHandle int32, maxSupplyHandle int32, mintedHandle int32, burnedHandle int32, royaltiesHandle int32, propertiesHandle int32, attributesHandle int32, rolesHandle int32, issueDateHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetKDATokenData(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetKDATokenData should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetKDATokenDataCalled: func(addressHandle int32, tickerHandle int32, nonce int64, precisionHandle int32, idHandle int32, nameHandle int32, creatorHandle int32, adminHandle int32, logoHandle int32, urisHandle int32, initialSupplyHandle int32, circulatingSupplyHandle int32, maxSupplyHandle int32, mintedHandle int32, burnedHandle int32, royaltiesHandle int32, propertiesHandle int32, attributesHandle int32, rolesHandle int32, issueDateHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetKDATokenData(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetKDARoles(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetKDARoles should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetKDARoles should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetKDARolesCalled: func (tickerHandle int32, rolesHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetKDARoles(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetKDARoles should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetKDARolesCalled: func(tickerHandle int32, rolesHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetKDARoles(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedUpgradeFromSourceContract(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedUpgradeFromSourceContract should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedUpgradeFromSourceContract should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("ManagedUpgradeFromSourceContract should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedUpgradeFromSourceContractCalled: func(destHandle int32, gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedUpgradeFromSourceContract(0, 0, 0, 0, 0, 0, 0)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("ManagedUpgradeFromSourceContract should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			ManagedUpgradeFromSourceContractCalled: func(destHandle int32, gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32) {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedUpgradeFromSourceContractCalled: func (destHandle int32, gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.ManagedUpgradeFromSourceContract(0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestManagedUpgradeContract(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedUpgradeContract should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedUpgradeContract should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("ManagedUpgradeContract should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedUpgradeContractCalled: func(destHandle int32, gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedUpgradeContract(0, 0, 0, 0, 0, 0, 0)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("ManagedUpgradeContract should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			ManagedUpgradeContractCalled: func(destHandle int32, gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32) {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedUpgradeContractCalled: func (destHandle int32, gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.ManagedUpgradeContract(0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestManagedDeleteContract(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedDeleteContract should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedDeleteContract should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("ManagedDeleteContract should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedDeleteContractCalled: func(destHandle int32, gasLimit int64, argumentsHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedDeleteContract(0, 0, 0)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("ManagedDeleteContract should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			ManagedDeleteContractCalled: func(destHandle int32, gasLimit int64, argumentsHandle int32) {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedDeleteContractCalled: func (destHandle int32, gasLimit int64, argumentsHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.ManagedDeleteContract(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestManagedDeployFromSourceContract(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedDeployFromSourceContract should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedDeployFromSourceContract should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("ManagedDeployFromSourceContract should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedDeployFromSourceContractCalled: func(gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultAddressHandle int32, resultHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedDeployFromSourceContract(0, 0, 0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("ManagedDeployFromSourceContract should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			ManagedDeployFromSourceContractCalled: func(gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultAddressHandle int32, resultHandle int32) int32 {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return 0
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedDeployFromSourceContractCalled: func (gas int64, valueHandle int32, addressHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultAddressHandle int32, resultHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.ManagedDeployFromSourceContract(0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestManagedCreateContract(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedCreateContract should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedCreateContract should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("ManagedCreateContract should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedCreateContractCalled: func(gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultAddressHandle int32, resultHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedCreateContract(0, 0, 0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("ManagedCreateContract should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			ManagedCreateContractCalled: func(gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultAddressHandle int32, resultHandle int32) int32 {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return 0
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedCreateContractCalled: func (gas int64, valueHandle int32, codeHandle int32, codeMetadataHandle int32, argumentsHandle int32, resultAddressHandle int32, resultHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.ManagedCreateContract(0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestManagedExecuteReadOnly(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedExecuteReadOnly should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedExecuteReadOnly should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("ManagedExecuteReadOnly should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedExecuteReadOnlyCalled: func(gas int64, addressHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedExecuteReadOnly(0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("ManagedExecuteReadOnly should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			ManagedExecuteReadOnlyCalled: func(gas int64, addressHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return 0
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedExecuteReadOnlyCalled: func (gas int64, addressHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.ManagedExecuteReadOnly(0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestManagedExecuteOnSameContext(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedExecuteOnSameContext should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedExecuteOnSameContext should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("ManagedExecuteOnSameContext should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedExecuteOnSameContextCalled: func(gas int64, addressHandle int32, valueHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedExecuteOnSameContext(0, 0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("ManagedExecuteOnSameContext should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			ManagedExecuteOnSameContextCalled: func(gas int64, addressHandle int32, valueHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return 0
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedExecuteOnSameContextCalled: func (gas int64, addressHandle int32, valueHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.ManagedExecuteOnSameContext(0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestManagedExecuteOnDestContext(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedExecuteOnDestContext should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedExecuteOnDestContext should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("ManagedExecuteOnDestContext should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedExecuteOnDestContextCalled: func(gas int64, addressHandle int32, valueHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedExecuteOnDestContext(0, 0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("ManagedExecuteOnDestContext should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			ManagedExecuteOnDestContextCalled: func(gas int64, addressHandle int32, valueHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return 0
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedExecuteOnDestContextCalled: func (gas int64, addressHandle int32, valueHandle int32, functionHandle int32, argumentsHandle int32, resultHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.ManagedExecuteOnDestContext(0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestManagedMultiTransferKDANFTExecute(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedMultiTransferKDANFTExecute should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedMultiTransferKDANFTExecute should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("ManagedMultiTransferKDANFTExecute should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedMultiTransferKDANFTExecuteCalled: func(dstHandle int32, tokenTransfersHandle int32, gasLimit int64, functionHandle int32, argumentsHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedMultiTransferKDANFTExecute(0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("ManagedMultiTransferKDANFTExecute should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			ManagedMultiTransferKDANFTExecuteCalled: func(dstHandle int32, tokenTransfersHandle int32, gasLimit int64, functionHandle int32, argumentsHandle int32) int32 {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return 0
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedMultiTransferKDANFTExecuteCalled: func (dstHandle int32, tokenTransfersHandle int32, gasLimit int64, functionHandle int32, argumentsHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.ManagedMultiTransferKDANFTExecute(0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestManagedBufferToHex(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedBufferToHex should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedBufferToHex should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedBufferToHexCalled: func (sourceHandle int32, destHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedBufferToHex(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedBufferToHex should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedBufferToHexCalled: func(sourceHandle int32, destHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedBufferToHex(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetCodeMetadata(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetCodeMetadata should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetCodeMetadata should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetCodeMetadataCalled: func (addressHandle int32, responseHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetCodeMetadata(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetCodeMetadata should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetCodeMetadataCalled: func(addressHandle int32, responseHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetCodeMetadata(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedIsBuiltinFunction(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedIsBuiltinFunction should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedIsBuiltinFunction should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedIsBuiltinFunctionCalled: func (functionNameHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedIsBuiltinFunction(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedIsBuiltinFunction should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedIsBuiltinFunctionCalled: func(functionNameHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedIsBuiltinFunction(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGetSftMetadata(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGetSftMetadata should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGetSftMetadata should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGetSftMetadataCalled: func (tickerHandle int32, nonce int64, dataHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGetSftMetadata(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGetSftMetadata should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGetSftMetadataCalled: func(tickerHandle int32, nonce int64, dataHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.ManagedGetSftMetadata(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedAccHasPerm(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedAccHasPerm should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedAccHasPerm should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedAccHasPermCalled: func (ops int64, sourceAccAddr int32, targetAccAddr int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedAccHasPerm(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedAccHasPerm should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedAccHasPermCalled: func(ops int64, sourceAccAddr int32, targetAccAddr int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedAccHasPerm(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatNewFromParts(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatNewFromParts should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatNewFromParts should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatNewFromPartsCalled: func (integralPart int32, fractionalPart int32, exponent int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatNewFromParts(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatNewFromParts should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatNewFromPartsCalled: func(integralPart int32, fractionalPart int32, exponent int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigFloatNewFromParts(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatNewFromFrac(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatNewFromFrac should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatNewFromFrac should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatNewFromFracCalled: func (numerator int64, denominator int64) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatNewFromFrac(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatNewFromFrac should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatNewFromFracCalled: func(numerator int64, denominator int64) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigFloatNewFromFrac(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatNewFromSci(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatNewFromSci should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatNewFromSci should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatNewFromSciCalled: func (significand int64, exponent int64) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatNewFromSci(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatNewFromSci should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatNewFromSciCalled: func(significand int64, exponent int64) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigFloatNewFromSci(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatAdd(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatAdd should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatAdd should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatAddCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatAdd(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatAdd should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatAddCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatAdd(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatSub(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatSub should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatSub should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatSubCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatSub(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatSub should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatSubCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatSub(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatMul(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatMul should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatMul should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatMulCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatMul(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatMul should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatMulCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatMul(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatDiv(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatDiv should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatDiv should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatDivCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatDiv(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatDiv should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatDivCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatDiv(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatNeg(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatNeg should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatNeg should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatNegCalled: func (destinationHandle int32, opHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatNeg(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatNeg should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatNegCalled: func(destinationHandle int32, opHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatNeg(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatClone(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatClone should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatClone should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatCloneCalled: func (destinationHandle int32, opHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatClone(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatClone should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatCloneCalled: func(destinationHandle int32, opHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatClone(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatCmp(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatCmp should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatCmp should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatCmpCalled: func (op1Handle int32, op2Handle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatCmp(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatCmp should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatCmpCalled: func(op1Handle int32, op2Handle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigFloatCmp(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatAbs(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatAbs should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatAbs should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatAbsCalled: func (destinationHandle int32, opHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatAbs(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatAbs should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatAbsCalled: func(destinationHandle int32, opHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatAbs(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatSign(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatSign should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatSign should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatSignCalled: func (opHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatSign(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatSign should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatSignCalled: func(opHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigFloatSign(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatSqrt(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatSqrt should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatSqrt should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatSqrtCalled: func (destinationHandle int32, opHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatSqrt(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatSqrt should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatSqrtCalled: func(destinationHandle int32, opHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatSqrt(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatPow(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatPow should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatPow should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("BigFloatPow should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatPowCalled: func(destinationHandle int32, opHandle int32, exponent int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatPow(0, 0, 0)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("BigFloatPow should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			BigFloatPowCalled: func(destinationHandle int32, opHandle int32, exponent int32) {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatPowCalled: func (destinationHandle int32, opHandle int32, exponent int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.BigFloatPow(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestBigFloatFloor(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatFloor should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatFloor should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatFloorCalled: func (destBigIntHandle int32, opHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatFloor(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatFloor should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatFloorCalled: func(destBigIntHandle int32, opHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatFloor(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatCeil(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatCeil should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatCeil should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatCeilCalled: func (destBigIntHandle int32, opHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatCeil(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatCeil should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatCeilCalled: func(destBigIntHandle int32, opHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatCeil(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatTruncate(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatTruncate should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatTruncate should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatTruncateCalled: func (destBigIntHandle int32, opHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatTruncate(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatTruncate should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatTruncateCalled: func(destBigIntHandle int32, opHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatTruncate(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatSetInt64(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatSetInt64 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatSetInt64 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatSetInt64Called: func (destinationHandle int32, value int64) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatSetInt64(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatSetInt64 should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatSetInt64Called: func(destinationHandle int32, value int64) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatSetInt64(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatIsInt(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatIsInt should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatIsInt should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatIsIntCalled: func (opHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatIsInt(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatIsInt should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatIsIntCalled: func(opHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigFloatIsInt(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatSetBigInt(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatSetBigInt should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatSetBigInt should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatSetBigIntCalled: func (destinationHandle int32, bigIntHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatSetBigInt(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatSetBigInt should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatSetBigIntCalled: func(destinationHandle int32, bigIntHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatSetBigInt(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatGetConstPi(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatGetConstPi should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatGetConstPi should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatGetConstPiCalled: func (destinationHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatGetConstPi(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatGetConstPi should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatGetConstPiCalled: func(destinationHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatGetConstPi(0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigFloatGetConstE(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigFloatGetConstE should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigFloatGetConstE should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigFloatGetConstECalled: func (destinationHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigFloatGetConstE(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigFloatGetConstE should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigFloatGetConstECalled: func(destinationHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigFloatGetConstE(0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntGetUnsignedArgument(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntGetUnsignedArgument should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntGetUnsignedArgument should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntGetUnsignedArgumentCalled: func (id int32, destinationHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntGetUnsignedArgument(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntGetUnsignedArgument should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntGetUnsignedArgumentCalled: func(id int32, destinationHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntGetUnsignedArgument(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntGetSignedArgument(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntGetSignedArgument should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntGetSignedArgument should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntGetSignedArgumentCalled: func (id int32, destinationHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntGetSignedArgument(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntGetSignedArgument should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntGetSignedArgumentCalled: func(id int32, destinationHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntGetSignedArgument(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntStorageStoreUnsigned(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntStorageStoreUnsigned should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntStorageStoreUnsigned should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntStorageStoreUnsignedCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength, sourceHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntStorageStoreUnsigned(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntStorageStoreUnsigned should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntStorageStoreUnsignedCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength, sourceHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigIntStorageStoreUnsigned(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntStorageLoadUnsigned(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntStorageLoadUnsigned should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntStorageLoadUnsigned should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntStorageLoadUnsignedCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength, destinationHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntStorageLoadUnsigned(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntStorageLoadUnsigned should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntStorageLoadUnsignedCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength, destinationHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigIntStorageLoadUnsigned(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntGetCallValue(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntGetCallValue should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntGetCallValue should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntGetCallValueCalled: func (destinationHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntGetCallValue(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntGetCallValue should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntGetCallValueCalled: func(destinationHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntGetCallValue(0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntGetKDACallValue(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntGetKDACallValue should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntGetKDACallValue should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntGetKDACallValueCalled: func (destination int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntGetKDACallValue(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntGetKDACallValue should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntGetKDACallValueCalled: func(destination int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntGetKDACallValue(0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntGetKDACallValueByIndex(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntGetKDACallValueByIndex should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntGetKDACallValueByIndex should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntGetKDACallValueByIndexCalled: func (destinationHandle int32, index int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntGetKDACallValueByIndex(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntGetKDACallValueByIndex should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntGetKDACallValueByIndexCalled: func(destinationHandle int32, index int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntGetKDACallValueByIndex(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntGetExternalBalance(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntGetExternalBalance should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntGetExternalBalance should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntGetExternalBalanceCalled: func (addressOffset executor.MemPtr, result int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntGetExternalBalance(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntGetExternalBalance should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntGetExternalBalanceCalled: func(addressOffset executor.MemPtr, result int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntGetExternalBalance(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntGetKDAExternalBalance(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntGetKDAExternalBalance should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntGetKDAExternalBalance should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntGetKDAExternalBalanceCalled: func (addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, resultHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntGetKDAExternalBalance(0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntGetKDAExternalBalance should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntGetKDAExternalBalanceCalled: func(addressOffset executor.MemPtr, tokenIDOffset executor.MemPtr, tokenIDLen executor.MemLength, nonce int64, resultHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntGetKDAExternalBalance(0, 0, 0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntNew(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntNew should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntNew should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntNewCalled: func (smallValue int64) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntNew(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntNew should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntNewCalled: func(smallValue int64) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigIntNew(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntUnsignedByteLength(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntUnsignedByteLength should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntUnsignedByteLength should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntUnsignedByteLengthCalled: func (referenceHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntUnsignedByteLength(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntUnsignedByteLength should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntUnsignedByteLengthCalled: func(referenceHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigIntUnsignedByteLength(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntSignedByteLength(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntSignedByteLength should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntSignedByteLength should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntSignedByteLengthCalled: func (referenceHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntSignedByteLength(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntSignedByteLength should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntSignedByteLengthCalled: func(referenceHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigIntSignedByteLength(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntGetUnsignedBytes(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntGetUnsignedBytes should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntGetUnsignedBytes should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntGetUnsignedBytesCalled: func (referenceHandle int32, byteOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntGetUnsignedBytes(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntGetUnsignedBytes should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntGetUnsignedBytesCalled: func(referenceHandle int32, byteOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigIntGetUnsignedBytes(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntGetSignedBytes(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntGetSignedBytes should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntGetSignedBytes should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntGetSignedBytesCalled: func (referenceHandle int32, byteOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntGetSignedBytes(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntGetSignedBytes should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntGetSignedBytesCalled: func(referenceHandle int32, byteOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigIntGetSignedBytes(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntSetUnsignedBytes(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntSetUnsignedBytes should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntSetUnsignedBytes should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntSetUnsignedBytesCalled: func (destinationHandle int32, byteOffset executor.MemPtr, byteLength executor.MemLength) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntSetUnsignedBytes(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntSetUnsignedBytes should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntSetUnsignedBytesCalled: func(destinationHandle int32, byteOffset executor.MemPtr, byteLength executor.MemLength) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntSetUnsignedBytes(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntSetSignedBytes(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntSetSignedBytes should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntSetSignedBytes should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntSetSignedBytesCalled: func (destinationHandle int32, byteOffset executor.MemPtr, byteLength executor.MemLength) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntSetSignedBytes(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntSetSignedBytes should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntSetSignedBytesCalled: func(destinationHandle int32, byteOffset executor.MemPtr, byteLength executor.MemLength) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntSetSignedBytes(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntIsInt64(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntIsInt64 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntIsInt64 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntIsInt64Called: func (destinationHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntIsInt64(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntIsInt64 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntIsInt64Called: func(destinationHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigIntIsInt64(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntGetInt64(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntGetInt64 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntGetInt64 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntGetInt64Called: func (destinationHandle int32) int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntGetInt64(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntGetInt64 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntGetInt64Called: func(destinationHandle int32) int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigIntGetInt64(0)
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntSetInt64(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntSetInt64 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntSetInt64 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntSetInt64Called: func (destinationHandle int32, value int64) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntSetInt64(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntSetInt64 should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntSetInt64Called: func(destinationHandle int32, value int64) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntSetInt64(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntAdd(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntAdd should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntAdd should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntAddCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntAdd(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntAdd should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntAddCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntAdd(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntSub(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntSub should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntSub should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntSubCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntSub(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntSub should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntSubCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntSub(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntMul(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntMul should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntMul should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntMulCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntMul(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntMul should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntMulCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntMul(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntTDiv(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntTDiv should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntTDiv should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntTDivCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntTDiv(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntTDiv should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntTDivCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntTDiv(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntTMod(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntTMod should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntTMod should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntTModCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntTMod(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntTMod should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntTModCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntTMod(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntEDiv(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntEDiv should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntEDiv should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntEDivCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntEDiv(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntEDiv should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntEDivCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntEDiv(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntEMod(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntEMod should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntEMod should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntEModCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntEMod(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntEMod should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntEModCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntEMod(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntSqrt(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntSqrt should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntSqrt should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntSqrtCalled: func (destinationHandle int32, opHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntSqrt(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntSqrt should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntSqrtCalled: func(destinationHandle int32, opHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntSqrt(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntPow(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntPow should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntPow should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	t.Run("BigIntPow should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntPowCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntPow(0, 0, 0)
+		assert.True(t, called)
+	})
 
-			called := false
-			panicked := false
+	t.Run("BigIntPow should timeout when context expires", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			BigIntPowCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				return
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
 			defer func() {
-				r := recover()
-				panicked = r != nil
+				if r := recover(); r != nil {
+					panicked = true
+				}
 			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntPowCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
 			wrapper.BigIntPow(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
 }
 
 func TestBigIntLog2(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntLog2 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntLog2 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntLog2Called: func (op1Handle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntLog2(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntLog2 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntLog2Called: func(op1Handle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigIntLog2(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntAbs(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntAbs should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntAbs should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntAbsCalled: func (destinationHandle int32, opHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntAbs(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntAbs should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntAbsCalled: func(destinationHandle int32, opHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntAbs(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntNeg(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntNeg should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntNeg should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntNegCalled: func (destinationHandle int32, opHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntNeg(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntNeg should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntNegCalled: func(destinationHandle int32, opHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntNeg(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntSign(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntSign should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntSign should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntSignCalled: func (opHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntSign(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntSign should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntSignCalled: func(opHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigIntSign(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntCmp(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntCmp should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntCmp should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntCmpCalled: func (op1Handle int32, op2Handle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntCmp(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntCmp should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntCmpCalled: func(op1Handle int32, op2Handle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.BigIntCmp(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntNot(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntNot should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntNot should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntNotCalled: func (destinationHandle int32, opHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntNot(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntNot should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntNotCalled: func(destinationHandle int32, opHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntNot(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntAnd(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntAnd should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntAnd should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntAndCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntAnd(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntAnd should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntAndCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntAnd(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntOr(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntOr should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntOr should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntOrCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntOr(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntOr should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntOrCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntOr(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntXor(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntXor should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntXor should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntXorCalled: func (destinationHandle int32, op1Handle int32, op2Handle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntXor(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntXor should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntXorCalled: func(destinationHandle int32, op1Handle int32, op2Handle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntXor(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntShr(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntShr should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntShr should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntShrCalled: func (destinationHandle int32, opHandle int32, bits int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntShr(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntShr should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntShrCalled: func(destinationHandle int32, opHandle int32, bits int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntShr(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntShl(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntShl should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntShl should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntShlCalled: func (destinationHandle int32, opHandle int32, bits int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntShl(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntShl should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntShlCalled: func(destinationHandle int32, opHandle int32, bits int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntShl(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntFinishUnsigned(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntFinishUnsigned should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntFinishUnsigned should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntFinishUnsignedCalled: func (referenceHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntFinishUnsigned(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntFinishUnsigned should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntFinishUnsignedCalled: func(referenceHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntFinishUnsigned(0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntFinishSigned(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntFinishSigned should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntFinishSigned should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntFinishSignedCalled: func (referenceHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntFinishSigned(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntFinishSigned should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntFinishSignedCalled: func(referenceHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntFinishSigned(0)
+		assert.True(t, called)
+	})
 }
 
 func TestBigIntToString(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "BigIntToString should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "BigIntToString should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				BigIntToStringCalled: func (bigIntHandle int32, destinationHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.BigIntToString(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("BigIntToString should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			BigIntToStringCalled: func(bigIntHandle int32, destinationHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.BigIntToString(0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferNew(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferNew should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferNew should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferNewCalled: func () int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferNew()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferNew should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferNewCalled: func() int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferNew()
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferNewFromBytes(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferNewFromBytes should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferNewFromBytes should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferNewFromBytesCalled: func (dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferNewFromBytes(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferNewFromBytes should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferNewFromBytesCalled: func(dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferNewFromBytes(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferGetLength(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferGetLength should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferGetLength should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferGetLengthCalled: func (mBufferHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferGetLength(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferGetLength should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferGetLengthCalled: func(mBufferHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferGetLength(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferGetBytes(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferGetBytes should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferGetBytes should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferGetBytesCalled: func (mBufferHandle int32, resultOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferGetBytes(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferGetBytes should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferGetBytesCalled: func(mBufferHandle int32, resultOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferGetBytes(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferGetByteSlice(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferGetByteSlice should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferGetByteSlice should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferGetByteSliceCalled: func (sourceHandle int32, startingPosition int32, sliceLength int32, resultOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferGetByteSlice(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferGetByteSlice should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferGetByteSliceCalled: func(sourceHandle int32, startingPosition int32, sliceLength int32, resultOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferGetByteSlice(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferCopyByteSlice(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferCopyByteSlice should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferCopyByteSlice should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferCopyByteSliceCalled: func (sourceHandle int32, startingPosition int32, sliceLength int32, destinationHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferCopyByteSlice(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferCopyByteSlice should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferCopyByteSliceCalled: func(sourceHandle int32, startingPosition int32, sliceLength int32, destinationHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferCopyByteSlice(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferEq(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferEq should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferEq should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferEqCalled: func (mBufferHandle1 int32, mBufferHandle2 int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferEq(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferEq should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferEqCalled: func(mBufferHandle1 int32, mBufferHandle2 int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferEq(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferSetBytes(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferSetBytes should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferSetBytes should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferSetBytesCalled: func (mBufferHandle int32, dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferSetBytes(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferSetBytes should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferSetBytesCalled: func(mBufferHandle int32, dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferSetBytes(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferSetByteSlice(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferSetByteSlice should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferSetByteSlice should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferSetByteSliceCalled: func (mBufferHandle int32, startingPosition int32, dataLength executor.MemLength, dataOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferSetByteSlice(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferSetByteSlice should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferSetByteSliceCalled: func(mBufferHandle int32, startingPosition int32, dataLength executor.MemLength, dataOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferSetByteSlice(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferAppend(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferAppend should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferAppend should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferAppendCalled: func (accumulatorHandle int32, dataHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferAppend(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferAppend should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferAppendCalled: func(accumulatorHandle int32, dataHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferAppend(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferAppendBytes(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferAppendBytes should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferAppendBytes should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferAppendBytesCalled: func (accumulatorHandle int32, dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferAppendBytes(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferAppendBytes should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferAppendBytesCalled: func(accumulatorHandle int32, dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferAppendBytes(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferToBigIntUnsigned(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferToBigIntUnsigned should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferToBigIntUnsigned should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferToBigIntUnsignedCalled: func (mBufferHandle int32, bigIntHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferToBigIntUnsigned(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferToBigIntUnsigned should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferToBigIntUnsignedCalled: func(mBufferHandle int32, bigIntHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferToBigIntUnsigned(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferToBigIntSigned(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferToBigIntSigned should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferToBigIntSigned should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferToBigIntSignedCalled: func (mBufferHandle int32, bigIntHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferToBigIntSigned(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferToBigIntSigned should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferToBigIntSignedCalled: func(mBufferHandle int32, bigIntHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferToBigIntSigned(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferFromBigIntUnsigned(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferFromBigIntUnsigned should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferFromBigIntUnsigned should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferFromBigIntUnsignedCalled: func (mBufferHandle int32, bigIntHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferFromBigIntUnsigned(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferFromBigIntUnsigned should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferFromBigIntUnsignedCalled: func(mBufferHandle int32, bigIntHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferFromBigIntUnsigned(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferFromBigIntSigned(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferFromBigIntSigned should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferFromBigIntSigned should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferFromBigIntSignedCalled: func (mBufferHandle int32, bigIntHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferFromBigIntSigned(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferFromBigIntSigned should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferFromBigIntSignedCalled: func(mBufferHandle int32, bigIntHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferFromBigIntSigned(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferToBigFloat(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferToBigFloat should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferToBigFloat should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferToBigFloatCalled: func (mBufferHandle int32, bigFloatHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferToBigFloat(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferToBigFloat should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferToBigFloatCalled: func(mBufferHandle int32, bigFloatHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferToBigFloat(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferFromBigFloat(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferFromBigFloat should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferFromBigFloat should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferFromBigFloatCalled: func (mBufferHandle int32, bigFloatHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferFromBigFloat(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferFromBigFloat should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferFromBigFloatCalled: func(mBufferHandle int32, bigFloatHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferFromBigFloat(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferStorageStore(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferStorageStore should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferStorageStore should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferStorageStoreCalled: func (keyHandle int32, sourceHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferStorageStore(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferStorageStore should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferStorageStoreCalled: func(keyHandle int32, sourceHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferStorageStore(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferStorageLoad(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferStorageLoad should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferStorageLoad should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferStorageLoadCalled: func (keyHandle int32, destinationHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferStorageLoad(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferStorageLoad should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferStorageLoadCalled: func(keyHandle int32, destinationHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferStorageLoad(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferStorageLoadFromAddress(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferStorageLoadFromAddress should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferStorageLoadFromAddress should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferStorageLoadFromAddressCalled: func (addressHandle int32, keyHandle int32, destinationHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferStorageLoadFromAddress(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferStorageLoadFromAddress should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferStorageLoadFromAddressCalled: func(addressHandle int32, keyHandle int32, destinationHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.MBufferStorageLoadFromAddress(0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferGetArgument(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferGetArgument should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferGetArgument should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferGetArgumentCalled: func (id int32, destinationHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferGetArgument(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferGetArgument should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferGetArgumentCalled: func(id int32, destinationHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferGetArgument(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferFinish(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferFinish should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferFinish should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferFinishCalled: func (sourceHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferFinish(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferFinish should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferFinishCalled: func(sourceHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferFinish(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMBufferSetRandom(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MBufferSetRandom should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MBufferSetRandom should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MBufferSetRandomCalled: func (destinationHandle int32, length int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MBufferSetRandom(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MBufferSetRandom should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MBufferSetRandomCalled: func(destinationHandle int32, length int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MBufferSetRandom(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedMapNew(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedMapNew should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedMapNew should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedMapNewCalled: func () int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedMapNew()
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedMapNew should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedMapNewCalled: func() int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedMapNew()
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedMapPut(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedMapPut should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedMapPut should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedMapPutCalled: func (mMapHandle int32, keyHandle int32, valueHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedMapPut(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedMapPut should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedMapPutCalled: func(mMapHandle int32, keyHandle int32, valueHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedMapPut(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedMapGet(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedMapGet should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedMapGet should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedMapGetCalled: func (mMapHandle int32, keyHandle int32, outValueHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedMapGet(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedMapGet should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedMapGetCalled: func(mMapHandle int32, keyHandle int32, outValueHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedMapGet(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedMapRemove(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedMapRemove should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedMapRemove should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedMapRemoveCalled: func (mMapHandle int32, keyHandle int32, outValueHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedMapRemove(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedMapRemove should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedMapRemoveCalled: func(mMapHandle int32, keyHandle int32, outValueHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedMapRemove(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedMapContains(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedMapContains should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedMapContains should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedMapContainsCalled: func (mMapHandle int32, keyHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedMapContains(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedMapContains should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedMapContainsCalled: func(mMapHandle int32, keyHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedMapContains(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestSmallIntGetUnsignedArgument(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "SmallIntGetUnsignedArgument should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "SmallIntGetUnsignedArgument should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				SmallIntGetUnsignedArgumentCalled: func (id int32) int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.SmallIntGetUnsignedArgument(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("SmallIntGetUnsignedArgument should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			SmallIntGetUnsignedArgumentCalled: func(id int32) int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.SmallIntGetUnsignedArgument(0)
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestSmallIntGetSignedArgument(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "SmallIntGetSignedArgument should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "SmallIntGetSignedArgument should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				SmallIntGetSignedArgumentCalled: func (id int32) int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.SmallIntGetSignedArgument(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("SmallIntGetSignedArgument should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			SmallIntGetSignedArgumentCalled: func(id int32) int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.SmallIntGetSignedArgument(0)
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestSmallIntFinishUnsigned(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "SmallIntFinishUnsigned should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "SmallIntFinishUnsigned should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				SmallIntFinishUnsignedCalled: func (value int64) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.SmallIntFinishUnsigned(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("SmallIntFinishUnsigned should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			SmallIntFinishUnsignedCalled: func(value int64) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.SmallIntFinishUnsigned(0)
+		assert.True(t, called)
+	})
 }
 
 func TestSmallIntFinishSigned(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "SmallIntFinishSigned should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "SmallIntFinishSigned should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				SmallIntFinishSignedCalled: func (value int64) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.SmallIntFinishSigned(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("SmallIntFinishSigned should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			SmallIntFinishSignedCalled: func(value int64) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.SmallIntFinishSigned(0)
+		assert.True(t, called)
+	})
 }
 
 func TestSmallIntStorageStoreUnsigned(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "SmallIntStorageStoreUnsigned should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "SmallIntStorageStoreUnsigned should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				SmallIntStorageStoreUnsignedCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.SmallIntStorageStoreUnsigned(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("SmallIntStorageStoreUnsigned should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			SmallIntStorageStoreUnsignedCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.SmallIntStorageStoreUnsigned(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestSmallIntStorageStoreSigned(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "SmallIntStorageStoreSigned should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "SmallIntStorageStoreSigned should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				SmallIntStorageStoreSignedCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.SmallIntStorageStoreSigned(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("SmallIntStorageStoreSigned should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			SmallIntStorageStoreSignedCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.SmallIntStorageStoreSigned(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestSmallIntStorageLoadUnsigned(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "SmallIntStorageLoadUnsigned should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "SmallIntStorageLoadUnsigned should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				SmallIntStorageLoadUnsignedCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength) int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.SmallIntStorageLoadUnsigned(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("SmallIntStorageLoadUnsigned should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			SmallIntStorageLoadUnsignedCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength) int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.SmallIntStorageLoadUnsigned(0, 0)
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestSmallIntStorageLoadSigned(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "SmallIntStorageLoadSigned should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "SmallIntStorageLoadSigned should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				SmallIntStorageLoadSignedCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength) int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.SmallIntStorageLoadSigned(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("SmallIntStorageLoadSigned should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			SmallIntStorageLoadSignedCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength) int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.SmallIntStorageLoadSigned(0, 0)
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestInt64getArgument(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "Int64getArgument should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "Int64getArgument should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				Int64getArgumentCalled: func (id int32) int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.Int64getArgument(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("Int64getArgument should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			Int64getArgumentCalled: func(id int32) int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.Int64getArgument(0)
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestInt64finish(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "Int64finish should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "Int64finish should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				Int64finishCalled: func (value int64) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.Int64finish(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("Int64finish should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			Int64finishCalled: func(value int64) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.Int64finish(0)
+		assert.True(t, called)
+	})
 }
 
 func TestInt64storageStore(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "Int64storageStore should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "Int64storageStore should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				Int64storageStoreCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.Int64storageStore(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("Int64storageStore should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			Int64storageStoreCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength, value int64) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.Int64storageStore(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestInt64storageLoad(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "Int64storageLoad should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "Int64storageLoad should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				Int64storageLoadCalled: func (keyOffset executor.MemPtr, keyLength executor.MemLength) int64 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.Int64storageLoad(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("Int64storageLoad should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			Int64storageLoadCalled: func(keyOffset executor.MemPtr, keyLength executor.MemLength) int64 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.Int64storageLoad(0, 0)
+		assert.Equal(t, int64(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestSha256(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "Sha256 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "Sha256 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				Sha256Called: func (dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.Sha256(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("Sha256 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			Sha256Called: func(dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.Sha256(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedSha256(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedSha256 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedSha256 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedSha256Called: func (inputHandle int32, outputHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedSha256(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedSha256 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedSha256Called: func(inputHandle int32, outputHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedSha256(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestKeccak256(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "Keccak256 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "Keccak256 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				Keccak256Called: func (dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.Keccak256(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("Keccak256 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			Keccak256Called: func(dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.Keccak256(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedKeccak256(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedKeccak256 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedKeccak256 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedKeccak256Called: func (inputHandle int32, outputHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedKeccak256(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedKeccak256 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedKeccak256Called: func(inputHandle int32, outputHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedKeccak256(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestRipemd160(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "Ripemd160 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "Ripemd160 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				Ripemd160Called: func (dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.Ripemd160(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("Ripemd160 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			Ripemd160Called: func(dataOffset executor.MemPtr, length executor.MemLength, resultOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.Ripemd160(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedRipemd160(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedRipemd160 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedRipemd160 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedRipemd160Called: func (inputHandle int32, outputHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedRipemd160(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedRipemd160 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedRipemd160Called: func(inputHandle int32, outputHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedRipemd160(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestVerifyBLS(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "VerifyBLS should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "VerifyBLS should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				VerifyBLSCalled: func (keyOffset executor.MemPtr, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.VerifyBLS(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("VerifyBLS should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			VerifyBLSCalled: func(keyOffset executor.MemPtr, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.VerifyBLS(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedVerifyBLS(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedVerifyBLS should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedVerifyBLS should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedVerifyBLSCalled: func (keyHandle int32, messageHandle int32, sigHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedVerifyBLS(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedVerifyBLS should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedVerifyBLSCalled: func(keyHandle int32, messageHandle int32, sigHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedVerifyBLS(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestVerifyEd25519(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "VerifyEd25519 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "VerifyEd25519 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				VerifyEd25519Called: func (keyOffset executor.MemPtr, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.VerifyEd25519(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("VerifyEd25519 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			VerifyEd25519Called: func(keyOffset executor.MemPtr, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.VerifyEd25519(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedVerifyEd25519(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedVerifyEd25519 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedVerifyEd25519 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedVerifyEd25519Called: func (keyHandle int32, messageHandle int32, sigHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedVerifyEd25519(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedVerifyEd25519 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedVerifyEd25519Called: func(keyHandle int32, messageHandle int32, sigHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedVerifyEd25519(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestVerifyCustomSecp256k1(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "VerifyCustomSecp256k1 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "VerifyCustomSecp256k1 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				VerifyCustomSecp256k1Called: func (keyOffset executor.MemPtr, keyLength executor.MemLength, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr, hashType int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.VerifyCustomSecp256k1(0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("VerifyCustomSecp256k1 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			VerifyCustomSecp256k1Called: func(keyOffset executor.MemPtr, keyLength executor.MemLength, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr, hashType int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.VerifyCustomSecp256k1(0, 0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedVerifyCustomSecp256k1(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedVerifyCustomSecp256k1 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedVerifyCustomSecp256k1 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedVerifyCustomSecp256k1Called: func (keyHandle int32, messageHandle int32, sigHandle int32, hashType int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedVerifyCustomSecp256k1(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedVerifyCustomSecp256k1 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedVerifyCustomSecp256k1Called: func(keyHandle int32, messageHandle int32, sigHandle int32, hashType int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedVerifyCustomSecp256k1(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestVerifySecp256k1(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "VerifySecp256k1 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "VerifySecp256k1 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				VerifySecp256k1Called: func (keyOffset executor.MemPtr, keyLength executor.MemLength, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.VerifySecp256k1(0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("VerifySecp256k1 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			VerifySecp256k1Called: func(keyOffset executor.MemPtr, keyLength executor.MemLength, messageOffset executor.MemPtr, messageLength executor.MemLength, sigOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.VerifySecp256k1(0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedVerifySecp256k1(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedVerifySecp256k1 should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedVerifySecp256k1 should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedVerifySecp256k1Called: func (keyHandle int32, messageHandle int32, sigHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedVerifySecp256k1(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedVerifySecp256k1 should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedVerifySecp256k1Called: func(keyHandle int32, messageHandle int32, sigHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedVerifySecp256k1(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestEncodeSecp256k1DerSignature(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "EncodeSecp256k1DerSignature should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "EncodeSecp256k1DerSignature should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				EncodeSecp256k1DerSignatureCalled: func (rOffset executor.MemPtr, rLength executor.MemLength, sOffset executor.MemPtr, sLength executor.MemLength, sigOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.EncodeSecp256k1DerSignature(0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("EncodeSecp256k1DerSignature should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			EncodeSecp256k1DerSignatureCalled: func(rOffset executor.MemPtr, rLength executor.MemLength, sOffset executor.MemPtr, sLength executor.MemLength, sigOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.EncodeSecp256k1DerSignature(0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedEncodeSecp256k1DerSignature(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedEncodeSecp256k1DerSignature should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedEncodeSecp256k1DerSignature should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedEncodeSecp256k1DerSignatureCalled: func (rHandle int32, sHandle int32, sigHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedEncodeSecp256k1DerSignature(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedEncodeSecp256k1DerSignature should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedEncodeSecp256k1DerSignatureCalled: func(rHandle int32, sHandle int32, sigHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedEncodeSecp256k1DerSignature(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestAddEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "AddEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "AddEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				AddECCalled: func (xResultHandle int32, yResultHandle int32, ecHandle int32, fstPointXHandle int32, fstPointYHandle int32, sndPointXHandle int32, sndPointYHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.AddEC(0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("AddEC should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			AddECCalled: func(xResultHandle int32, yResultHandle int32, ecHandle int32, fstPointXHandle int32, fstPointYHandle int32, sndPointXHandle int32, sndPointYHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.AddEC(0, 0, 0, 0, 0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestDoubleEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "DoubleEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "DoubleEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				DoubleECCalled: func (xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32) {
-					called = true
-					time.Sleep(tc.delay)
-					return
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.DoubleEC(0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("DoubleEC should call hook", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			DoubleECCalled: func(xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32) {
+				called = true
+				return
+			},
+		}, &NoLogger{})
+		wrapper.DoubleEC(0, 0, 0, 0, 0)
+		assert.True(t, called)
+	})
 }
 
 func TestIsOnCurveEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "IsOnCurveEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "IsOnCurveEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				IsOnCurveECCalled: func (ecHandle int32, pointXHandle int32, pointYHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.IsOnCurveEC(0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("IsOnCurveEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			IsOnCurveECCalled: func(ecHandle int32, pointXHandle int32, pointYHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.IsOnCurveEC(0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestScalarBaseMultEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ScalarBaseMultEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ScalarBaseMultEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ScalarBaseMultECCalled: func (xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ScalarBaseMultEC(0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ScalarBaseMultEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ScalarBaseMultECCalled: func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ScalarBaseMultEC(0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedScalarBaseMultEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedScalarBaseMultEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedScalarBaseMultEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedScalarBaseMultECCalled: func (xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedScalarBaseMultEC(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedScalarBaseMultEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedScalarBaseMultECCalled: func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedScalarBaseMultEC(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestScalarMultEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ScalarMultEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ScalarMultEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ScalarMultECCalled: func (xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ScalarMultEC(0, 0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ScalarMultEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ScalarMultECCalled: func(xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ScalarMultEC(0, 0, 0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedScalarMultEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedScalarMultEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedScalarMultEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedScalarMultECCalled: func (xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32, dataHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedScalarMultEC(0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedScalarMultEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedScalarMultECCalled: func(xResultHandle int32, yResultHandle int32, ecHandle int32, pointXHandle int32, pointYHandle int32, dataHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedScalarMultEC(0, 0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMarshalEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MarshalEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MarshalEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MarshalECCalled: func (xPairHandle int32, yPairHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MarshalEC(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MarshalEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MarshalECCalled: func(xPairHandle int32, yPairHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MarshalEC(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedMarshalEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedMarshalEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedMarshalEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedMarshalECCalled: func (xPairHandle int32, yPairHandle int32, ecHandle int32, resultHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedMarshalEC(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedMarshalEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedMarshalECCalled: func(xPairHandle int32, yPairHandle int32, ecHandle int32, resultHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedMarshalEC(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestMarshalCompressedEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "MarshalCompressedEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "MarshalCompressedEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				MarshalCompressedECCalled: func (xPairHandle int32, yPairHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.MarshalCompressedEC(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("MarshalCompressedEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			MarshalCompressedECCalled: func(xPairHandle int32, yPairHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.MarshalCompressedEC(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedMarshalCompressedEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedMarshalCompressedEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedMarshalCompressedEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedMarshalCompressedECCalled: func (xPairHandle int32, yPairHandle int32, ecHandle int32, resultHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedMarshalCompressedEC(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedMarshalCompressedEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedMarshalCompressedECCalled: func(xPairHandle int32, yPairHandle int32, ecHandle int32, resultHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedMarshalCompressedEC(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestUnmarshalEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "UnmarshalEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "UnmarshalEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				UnmarshalECCalled: func (xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.UnmarshalEC(0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("UnmarshalEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			UnmarshalECCalled: func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.UnmarshalEC(0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedUnmarshalEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedUnmarshalEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedUnmarshalEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedUnmarshalECCalled: func (xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedUnmarshalEC(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedUnmarshalEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedUnmarshalECCalled: func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedUnmarshalEC(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestUnmarshalCompressedEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "UnmarshalCompressedEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "UnmarshalCompressedEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				UnmarshalCompressedECCalled: func (xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.UnmarshalCompressedEC(0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("UnmarshalCompressedEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			UnmarshalCompressedECCalled: func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataOffset executor.MemPtr, length executor.MemLength) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.UnmarshalCompressedEC(0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedUnmarshalCompressedEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedUnmarshalCompressedEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedUnmarshalCompressedEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedUnmarshalCompressedECCalled: func (xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedUnmarshalCompressedEC(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedUnmarshalCompressedEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedUnmarshalCompressedECCalled: func(xResultHandle int32, yResultHandle int32, ecHandle int32, dataHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedUnmarshalCompressedEC(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGenerateKeyEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GenerateKeyEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GenerateKeyEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GenerateKeyECCalled: func (xPubKeyHandle int32, yPubKeyHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GenerateKeyEC(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GenerateKeyEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GenerateKeyECCalled: func(xPubKeyHandle int32, yPubKeyHandle int32, ecHandle int32, resultOffset executor.MemPtr) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GenerateKeyEC(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedGenerateKeyEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedGenerateKeyEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedGenerateKeyEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedGenerateKeyECCalled: func (xPubKeyHandle int32, yPubKeyHandle int32, ecHandle int32, resultHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedGenerateKeyEC(0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedGenerateKeyEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedGenerateKeyECCalled: func(xPubKeyHandle int32, yPubKeyHandle int32, ecHandle int32, resultHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedGenerateKeyEC(0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestCreateEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "CreateEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "CreateEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				CreateECCalled: func (dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.CreateEC(0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("CreateEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			CreateECCalled: func(dataOffset executor.MemPtr, dataLength executor.MemLength) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.CreateEC(0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestManagedCreateEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "ManagedCreateEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "ManagedCreateEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				ManagedCreateECCalled: func (dataHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.ManagedCreateEC(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("ManagedCreateEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			ManagedCreateECCalled: func(dataHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.ManagedCreateEC(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetCurveLengthEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetCurveLengthEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetCurveLengthEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetCurveLengthECCalled: func (ecHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetCurveLengthEC(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetCurveLengthEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetCurveLengthECCalled: func(ecHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetCurveLengthEC(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestGetPrivKeyByteLengthEC(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "GetPrivKeyByteLengthEC should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "GetPrivKeyByteLengthEC should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				GetPrivKeyByteLengthECCalled: func (ecHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.GetPrivKeyByteLengthEC(0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("GetPrivKeyByteLengthEC should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetPrivKeyByteLengthECCalled: func(ecHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.GetPrivKeyByteLengthEC(0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 
 func TestEllipticCurveGetValues(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "EllipticCurveGetValues should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "EllipticCurveGetValues should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				EllipticCurveGetValuesCalled: func (ecHandle int32, fieldOrderHandle int32, basePointOrderHandle int32, eqConstantHandle int32, xBasePointHandle int32, yBasePointHandle int32) int32 {
-					called = true
-					time.Sleep(tc.delay)
-					return 0
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.EllipticCurveGetValues(0, 0, 0, 0, 0, 0)
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
-	}
+	t.Run("EllipticCurveGetValues should call hook and forward return value", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			EllipticCurveGetValuesCalled: func(ecHandle int32, fieldOrderHandle int32, basePointOrderHandle int32, eqConstantHandle int32, xBasePointHandle int32, yBasePointHandle int32) int32 {
+				called = true
+				return 0
+			},
+		}, &NoLogger{})
+		result := wrapper.EllipticCurveGetValues(0, 0, 0, 0, 0, 0)
+		assert.Equal(t, int32(0), result)
+		assert.True(t, called)
+	})
 }
 

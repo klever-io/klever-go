@@ -11,57 +11,110 @@ func WriteVMHooksWrapperTest(out *eiGenWriter, eiMetadata *EIMetadata) {
 }
 
 func buildVMWrapperFunctionTest(function *EIFunction) string {
-	return fmt.Sprintf(`func Test%s(t *testing.T) {
-	var testCases = []struct {
-		name        string
-		shouldPanic bool
-		shouldCall  bool
-		delay       time.Duration
-		timeout     time.Duration
-	}{
-		{
-			name:        "%[1]s should call hook",
-			shouldPanic: false,
-			shouldCall:  true,
-			delay:       0,
-			timeout:     time.Second * 1,
-		},
-		{
-			name:        "%[1]s should timeout",
-			shouldPanic: true,
-			shouldCall:  true,
-			delay:       time.Millisecond * 10,
-			timeout:     0,
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	category := getHookCategoryConstant(function.Name)
+	hasReturnValue := function.Result != nil
 
-			called := false
-			panicked := false
-			defer func() {
-				r := recover()
-				panicked = r != nil
-			}()
-			wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
-				%[1]sCalled: func %[2]s {
-					called = true
-					time.Sleep(tc.delay)
-					%[3]s
-				},
-			}, &NoLogger{}, tc.timeout)
-			wrapper.%[1]s%[4]s
-			assert.Equal(t, tc.shouldCall, called)
-			assert.Equal(t, tc.shouldPanic, panicked)
-		})
+	// Build the basic "should call hook and forward return value" test
+	basicTest := buildBasicHookTest(function, hasReturnValue)
+
+	// For slow hooks, add timeout test
+	var timeoutTest string
+	if category == "HookCategorySlow" {
+		timeoutTest = buildTimeoutTest(function)
 	}
-}
+
+	return fmt.Sprintf(`func Test%s(t *testing.T) {
+%s%s}
 
 `,
 		upperInitial(function.Name),
+		basicTest,
+		timeoutTest)
+}
+
+func buildBasicHookTest(function *EIFunction, hasReturnValue bool) string {
+	testName := fmt.Sprintf("%s should call hook", upperInitial(function.Name))
+	if hasReturnValue {
+		testName += " and forward return value"
+	}
+
+	var returnCheck string
+	if hasReturnValue {
+		returnType := vmHooksWrapperType(function.Result.Type)
+		expectedValue := getInitializedWrapperType(function.Result.Type)
+		returnCheck = fmt.Sprintf(`
+		result := wrapper.%s%s
+		assert.Equal(t, %s(%s), result)`,
+			upperInitial(function.Name),
+			getDummyFunctionCallArguments(function),
+			returnType,
+			expectedValue)
+	} else {
+		returnCheck = fmt.Sprintf(`
+		wrapper.%s%s`,
+			upperInitial(function.Name),
+			getDummyFunctionCallArguments(function))
+	}
+
+	return fmt.Sprintf(`	t.Run("%s", func(t *testing.T) {
+		called := false
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			%sCalled: func%s {
+				called = true
+				%s
+			},
+		}, &NoLogger{})%s
+		assert.True(t, called)
+	})
+`,
+		testName,
+		upperInitial(function.Name),
 		getFunctionSignature(function),
 		getDummyFunctionReturn(function),
+		returnCheck)
+}
+
+func buildTimeoutTest(function *EIFunction) string {
+	testName := fmt.Sprintf("%s should timeout when context expires", upperInitial(function.Name))
+
+	return fmt.Sprintf(`
+	t.Run("%s", func(t *testing.T) {
+		// Create a context that's already expired
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		time.Sleep(2 * time.Millisecond) // Ensure timeout
+		defer cancel()
+
+		// Create a simple mock host that returns the expired context
+		mockHost := &simpleVMHost{ctx: ctx}
+
+		wrapper := NewWrapperVMHooks(&stub.VMHooksStub{
+			GetVMHostCalled: func() vmhost.VMHost {
+				return mockHost
+			},
+			%sCalled: func%s {
+				time.Sleep(10 * time.Millisecond) // Simulate slow operation
+				%s
+			},
+		}, &NoLogger{})
+
+		panicked := false
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					panicked = true
+				}
+			}()
+			wrapper.%s%s
+		}()
+
+		assert.True(t, panicked, "Expected timeout panic for slow hook")
+	})
+`,
+		testName,
+		upperInitial(function.Name),
+		getFunctionSignature(function),
+		getDummyFunctionReturn(function),
+		upperInitial(function.Name),
 		getDummyFunctionCallArguments(function))
 }
 
@@ -75,14 +128,30 @@ func getVMWrapperTestFileHeader() string {
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 import (
-	"github.com/klever-io/klever-go/kvm/executor"
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 )
+
+// simpleVMHost is a minimal mock for testing timeout behavior
+type simpleVMHost struct {
+	vmhost.VMHost
+	ctx context.Context
+}
+
+func (h *simpleVMHost) GetExecutionContext() context.Context {
+	return h.ctx
+}
+
+func (h *simpleVMHost) IsInterfaceNil() bool {
+	return h == nil
+}
 
 `
 }
