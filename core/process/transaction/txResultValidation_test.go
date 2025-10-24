@@ -16,6 +16,26 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// TestLogResultMismatch tests the logResultMismatch function
+func TestLogResultMismatch(t *testing.T) {
+	t.Parallel()
+
+	txProc := &txProcessor{}
+
+	// Test that the function doesn't panic and can be called
+	txHash := []byte("test-hash-12345")
+	txIndex := 5
+	expectedResultCode := uint32(transaction.Transaction_VMExecutionFailed)
+	actualResultCode := uint32(transaction.Transaction_Ok)
+
+	// Call with different execution modes
+	txProc.logResultMismatch(txHash, txIndex, expectedResultCode, actualResultCode, vmcommon.ExecutionModeValidator)
+	txProc.logResultMismatch(txHash, txIndex, expectedResultCode, actualResultCode, vmcommon.ExecutionModeLeader)
+	txProc.logResultMismatch(txHash, txIndex, expectedResultCode, actualResultCode, vmcommon.ExecutionModeQuery)
+
+	// Function is for logging only, so we just verify it doesn't panic
+}
+
 // TestGetActualResultCode tests the getActualResultCode helper function
 func TestGetActualResultCode(t *testing.T) {
 	t.Parallel()
@@ -386,6 +406,105 @@ func TestValidateTransactionResult_ResultsMatch(t *testing.T) {
 
 	// Should return nil (no validation needed, results match)
 	assert.Nil(t, err)
+}
+
+// TestValidateTransactionResult_CallsHandleResultMismatch tests the full flow triggering handleResultMismatch
+func TestValidateTransactionResult_CallsHandleResultMismatch(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		VirtualMachine: config.VirtualMachineServicesConfig{
+			Execution: config.VirtualMachineConfig{
+				TimeOutForSCExecutionInMilliseconds: 500,
+				TimeOutTolerancePercentage:          15,
+			},
+		},
+	}
+
+	mockSC := &mockSmartContractProcessor{
+		executionMode: vmcommon.ExecutionModeValidator,
+	}
+
+	txProc := &txProcessor{
+		baseTxProcessor: &baseTxProcessor{
+			cfg:         cfg,
+			scProcessor: mockSC,
+		},
+	}
+
+	t.Run("validator succeeded, leader failed - within tolerance", func(t *testing.T) {
+		txHash := []byte("tx-hash-123")
+		blk := &block.Block{
+			TxHashes:  [][]byte{txHash},
+			TxResults: []uint32{uint32(transaction.Transaction_VMExecutionFailed)}, // Leader failed
+		}
+
+		tx := &transaction.Transaction{}
+		localErr := error(nil)                           // Validator succeeded
+		validatorTimeNs := int64(450 * time.Millisecond) // Within tolerance band (>425ms)
+
+		err := txProc.validateTransactionResult(blk, txHash, tx, localErr, validatorTimeNs)
+
+		// Should accept (leader had right to fail) and update tx.ResultCode
+		assert.Equal(t, process.ErrTransactionResultMismatch, err)
+		assert.Equal(t, transaction.Transaction_VMExecutionFailed, tx.ResultCode)
+	})
+
+	t.Run("validator succeeded, leader failed - outside tolerance", func(t *testing.T) {
+		txHash := []byte("tx-hash-456")
+		blk := &block.Block{
+			TxHashes:  [][]byte{txHash},
+			TxResults: []uint32{uint32(transaction.Transaction_VMExecutionFailed)}, // Leader failed
+		}
+
+		tx := &transaction.Transaction{}
+		localErr := error(nil)                           // Validator succeeded
+		validatorTimeNs := int64(300 * time.Millisecond) // Below tolerance band (<425ms)
+
+		err := txProc.validateTransactionResult(blk, txHash, tx, localErr, validatorTimeNs)
+
+		// Should reject (leader hardware too weak)
+		assert.Nil(t, err)                                                      // Returns localErr which is nil
+		assert.Equal(t, transaction.Transaction_TXResultCode(0), tx.ResultCode) // Not updated
+	})
+
+	t.Run("leader succeeded, validator failed", func(t *testing.T) {
+		txHash := []byte("tx-hash-789")
+		blk := &block.Block{
+			TxHashes:  [][]byte{txHash},
+			TxResults: []uint32{uint32(transaction.Transaction_Ok)}, // Leader succeeded
+		}
+
+		tx := &transaction.Transaction{
+			ResultCode: transaction.Transaction_VMExecutionFailed, // Validator failed
+		}
+		localErr := errors.New("validator execution failed")
+		validatorTimeNs := int64(300 * time.Millisecond)
+
+		err := txProc.validateTransactionResult(blk, txHash, tx, localErr, validatorTimeNs)
+
+		// Should reject (validator must reject when it fails but leader succeeded)
+		assert.Equal(t, process.ErrTransactionResultMismatch, err)
+	})
+
+	t.Run("both failed with different errors", func(t *testing.T) {
+		txHash := []byte("tx-hash-abc")
+		blk := &block.Block{
+			TxHashes:  [][]byte{txHash},
+			TxResults: []uint32{uint32(transaction.Transaction_VMExecutionFailed)}, // Leader failed
+		}
+
+		tx := &transaction.Transaction{
+			ResultCode: transaction.Transaction_VMExecutionFailed, // Validator also failed
+		}
+		localErr := process.ErrAccountNotFound // Different error
+		validatorTimeNs := int64(300 * time.Millisecond)
+
+		err := txProc.validateTransactionResult(blk, txHash, tx, localErr, validatorTimeNs)
+
+		// Should return the local error (validator rejects)
+		assert.Equal(t, process.ErrAccountNotFound, err)
+	})
 }
 
 // Mock smart contract processor for testing

@@ -1990,3 +1990,34 @@ func TestScProcessor_DeleteAccounts(t *testing.T) {
 		})
 	}
 }
+
+// TestSetVMExecutionMode tests setting the execution mode
+func TestSetVMExecutionMode(t *testing.T) {
+	t.Parallel()
+
+	t.Run("successfully calls SetVMExecutionMode without panic", func(t *testing.T) {
+		args := createMockSmartContractProcessorArguments()
+		sc, err := NewSmartContractProcessor(args)
+		require.Nil(t, err)
+
+		// Test setting different modes - just verify no panic
+		sc.SetVMExecutionMode(vmcommon.ExecutionModeValidator)
+		sc.SetVMExecutionMode(vmcommon.ExecutionModeLeader)
+		sc.SetVMExecutionMode(vmcommon.ExecutionModeQuery)
+	})
+}
+
+// TestGetVMExecutionMode tests getting the execution mode
+func TestGetVMExecutionMode(t *testing.T) {
+	t.Parallel()
+
+	t.Run("gets execution mode without panic", func(t *testing.T) {
+		args := createMockSmartContractProcessorArguments()
+		sc, err := NewSmartContractProcessor(args)
+		require.Nil(t, err)
+
+		mode := sc.GetVMExecutionMode()
+		// Should return some valid mode (just verify no panic and valid mode returned)
+		assert.True(t, mode >= vmcommon.ExecutionModeLeader && mode <= vmcommon.ExecutionModeQuery)
+	})
+}
