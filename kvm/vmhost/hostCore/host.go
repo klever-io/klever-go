@@ -42,8 +42,9 @@ type vmHost struct {
 	mutExecution     sync.RWMutex
 	closingInstance  bool
 	executionTimeout time.Duration
-	executionContext context.Context // Per-execution timeout context
-	toleranceTimeout time.Duration   // Timeout with tolerance for cosigner validation
+	executionContext context.Context        // Per-execution timeout context
+	executionMode    vmcommon.ExecutionMode // Current execution mode of the host
+	toleranceTimeout time.Duration          // Timeout with tolerance for cosigner validation
 
 	blockchainContext   vmhost.BlockchainContext
 	runtimeContext      vmhost.RuntimeContext
