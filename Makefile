@@ -89,13 +89,13 @@ newkey:
 ###         BUILD        ###
 ############################
 
-.PHONY: build build-validator build-seenode build-operator build-keygenerator docker-build
-build: build-validator build-seenode build-operator build-keygenerator
+.PHONY: build build-validator build-seednode build-operator build-keygenerator docker-build
+build: build-validator build-seednode build-operator build-keygenerator
 
 build-validator:
 	$(GOBUILD) -o ./bin/validator ./cmd/node
 
-build-seenode:
+build-seednode:
 	$(GOBUILD) -o ./bin/seednode ./cmd/seednode
 
 build-operator:
