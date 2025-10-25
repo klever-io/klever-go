@@ -1,6 +1,8 @@
 package mock
 
 import (
+	"time"
+
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data/block"
 )
@@ -22,6 +24,8 @@ type KAppContextStub struct {
 	GetGasLimitCalled           func() uint64
 	GetExecDataCalled           func() []byte
 	IsScSimulationCalled        func() bool
+	SetExecutionTimeCalled      func(duration time.Duration)
+	GetExecutionTimeCalled      func() time.Duration
 }
 
 func (k *KAppContextStub) OriginalSender() []byte {
@@ -117,4 +121,17 @@ func (k *KAppContextStub) IsScSimulation() bool {
 		return k.IsScSimulationCalled()
 	}
 	return false
+}
+
+func (k *KAppContextStub) SetExecutionTime(duration time.Duration) {
+	if k.SetExecutionTimeCalled != nil {
+		k.SetExecutionTimeCalled(duration)
+	}
+}
+
+func (k *KAppContextStub) GetExecutionTime() time.Duration {
+	if k.GetExecutionTimeCalled != nil {
+		return k.GetExecutionTimeCalled()
+	}
+	return 0
 }

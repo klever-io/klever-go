@@ -58,6 +58,8 @@ type VMHost interface {
 	SetRuntimeContext(runtime RuntimeContext)
 
 	SetBuiltInFunctionsContainer(builtInFuncs vmcommon.BuiltInFunctionContainer)
+	SetExecutionMode(mode vmcommon.ExecutionMode)
+	GetExecutionMode() vmcommon.ExecutionMode
 	InitState()
 
 	CompleteLogEntriesWithCallType(vmOutput *vmcommon.VMOutput, callType string)

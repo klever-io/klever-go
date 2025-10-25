@@ -10,6 +10,8 @@ type VMExecutionHandlerStub struct {
 	RunSmartContractCallCalled   func(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error)
 	GasScheduleChangeCalled      func(gasSchedule map[string]map[string]uint64)
 	GetVersionCalled             func() string
+	SetExecutionModeCalled       func(mode vmcommon.ExecutionMode)
+	GetExecutionModeCalled       func() vmcommon.ExecutionMode
 }
 
 // GetVersion -
@@ -52,6 +54,21 @@ func (vm *VMExecutionHandlerStub) RunSmartContractCall(input *vmcommon.ContractC
 // Close -
 func (vm *VMExecutionHandlerStub) Close() error {
 	return nil
+}
+
+// SetExecutionMode -
+func (vm *VMExecutionHandlerStub) SetExecutionMode(mode vmcommon.ExecutionMode) {
+	if vm.SetExecutionModeCalled != nil {
+		vm.SetExecutionModeCalled(mode)
+	}
+}
+
+// GetExecutionMode -
+func (vm *VMExecutionHandlerStub) GetExecutionMode() vmcommon.ExecutionMode {
+	if vm.GetExecutionModeCalled != nil {
+		return vm.GetExecutionModeCalled()
+	}
+	return vmcommon.ExecutionModeQuery
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

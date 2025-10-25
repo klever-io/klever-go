@@ -187,6 +187,38 @@ func (sc *scProcessor) GasScheduleChange(gasSchedule map[string]map[string]uint6
 	sc.persistPerByte = gasSchedule[common.BaseOperationCost]["PersistPerByte"]
 }
 
+// SetVMExecutionMode sets the execution mode on the WASM VM
+// This determines whether the VM uses base timeout (leader) or tolerance timeout (validator/observer)
+func (sc *scProcessor) SetVMExecutionMode(mode vmcommon.ExecutionMode) {
+	sc.wasmVMChangeLocker.Lock()
+	defer sc.wasmVMChangeLocker.Unlock()
+
+	// Get the WASM VM directly from the container
+	vm, err := sc.vmContainer.Get(common.WasmVirtualMachine)
+	if err != nil {
+		log.Warn("scProcessor SetVMExecutionMode: could not get WASM VM", "error", err)
+		return
+	}
+
+	vm.SetExecutionMode(mode)
+	log.Debug("scProcessor SetVMExecutionMode", "mode", mode)
+}
+
+// GetVMExecutionMode retrieves the current execution mode from the WASM VM
+func (sc *scProcessor) GetVMExecutionMode() vmcommon.ExecutionMode {
+	sc.wasmVMChangeLocker.RLock()
+	defer sc.wasmVMChangeLocker.RUnlock()
+
+	// Get the WASM VM directly from the container
+	vm, err := sc.vmContainer.Get(common.WasmVirtualMachine)
+	if err != nil {
+		log.Warn("scProcessor GetVMExecutionMode: could not get WASM VM", "error", err)
+		return vmcommon.ExecutionModeQuery // Default fallback
+	}
+
+	return vm.GetExecutionMode()
+}
+
 func (sc *scProcessor) checkTxValidity(tc data.SmartContractHandler) error {
 	if check.IfNil(tc) {
 		return process.ErrNilTransaction
@@ -229,6 +261,9 @@ func (sc *scProcessor) ExecuteSmartContractTransaction(
 	returnCode, err := sc.doExecuteSmartContractTransaction(ctx, tc, acntSnd, acntDst)
 	sw.Stop("execute")
 	duration := sw.GetMeasurement("execute")
+
+	// Store execution time in context for tolerance band validation
+	ctx.SetExecutionTime(duration)
 
 	if duration > executeDurationAlarmThreshold {
 		log.Debug(fmt.Sprintf(
@@ -356,6 +391,11 @@ func (sc *scProcessor) executeSmartContractCall(
 	vmOutput, err = vmExec.RunSmartContractCall(vmInput)
 	sc.wasmVMChangeLocker.RUnlock()
 	if err != nil {
+		if vmOutput != nil && vmOutput.ReturnCode != vmcommon.Ok {
+			log.Debug("run smart contract call error with vmOutput", "returnCode", vmOutput.ReturnCode, "returnMessage", vmOutput.ReturnMessage)
+			userErrorVmOutput.ReturnCode = vmOutput.ReturnCode
+		}
+
 		log.Debug("run smart contract call error", "error", err.Error())
 		return userErrorVmOutput, sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
 	}
@@ -367,6 +407,7 @@ func (sc *scProcessor) executeSmartContractCall(
 
 	if vmOutput.ReturnCode != vmcommon.Ok {
 		log.Debug("run smart contract call error vmOutput.ReturnCode", "returnCode", vmOutput.ReturnCode, "returnMessage", vmOutput.ReturnMessage)
+		userErrorVmOutput.ReturnCode = vmOutput.ReturnCode
 		return userErrorVmOutput, sc.processIfErrorWithAddedLogs(ctx, tc, vmOutput.ReturnCode.String(), []byte(vmOutput.ReturnMessage), prevVmOutput, vmOutput.Logs)
 	}
 

@@ -984,6 +984,7 @@ func newBlockProcessor(
 		processArgs.economicsData,
 		processArgs.txLogsProcessor,
 		processArgs.forkController,
+		scProcessor,
 	)
 	if err != nil {
 		return nil, nil, err

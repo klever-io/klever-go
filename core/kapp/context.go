@@ -1,6 +1,8 @@
 package kapp
 
 import (
+	"time"
+
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
@@ -19,6 +21,7 @@ type kappContext struct {
 	tx             data.TransactionHandler
 	gasLimit       uint64
 	isScSimulation bool
+	executionTime  time.Duration
 }
 
 // ArgsNewKAppContext holds the arguments needed to create the KApp Context
@@ -153,4 +156,12 @@ func (k *kappContext) SubGasUsed(gasUsed uint64) error {
 
 func (k *kappContext) GetGasLimit() uint64 {
 	return k.gasLimit
+}
+
+func (k *kappContext) SetExecutionTime(duration time.Duration) {
+	k.executionTime = duration
+}
+
+func (k *kappContext) GetExecutionTime() time.Duration {
+	return k.executionTime
 }

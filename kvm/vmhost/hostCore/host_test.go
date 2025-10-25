@@ -13,6 +13,7 @@ import (
 	"github.com/klever-io/klever-go/kvm/testcommon"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/vmhost/hostCore"
+	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/klever-io/klever-go/vmcommon/parsers"
 	"github.com/stretchr/testify/require"
 )
@@ -124,5 +125,61 @@ func TestNewVMHost(t *testing.T) {
 		host, err := hostCore.NewVMHost(blockchainHook, hostParameters)
 		require.Nil(t, host)
 		require.ErrorIs(t, err, vmhost.ErrNilVMType)
+	})
+}
+
+func TestSetGetExecutionMode(t *testing.T) {
+	blockchainHook := worldmock.NewMockWorld()
+	hostParameters := makeHostParameters()
+
+	host, err := hostCore.NewVMHost(blockchainHook, hostParameters)
+	require.Nil(t, err)
+	require.NotNil(t, host)
+
+	t.Run("sets and gets validator mode", func(t *testing.T) {
+		host.SetExecutionMode(vmcommon.ExecutionModeValidator)
+		mode := host.GetExecutionMode()
+		require.Equal(t, vmcommon.ExecutionModeValidator, mode)
+	})
+
+	t.Run("sets and gets leader mode", func(t *testing.T) {
+		host.SetExecutionMode(vmcommon.ExecutionModeLeader)
+		mode := host.GetExecutionMode()
+		require.Equal(t, vmcommon.ExecutionModeLeader, mode)
+	})
+
+	t.Run("sets and gets query mode", func(t *testing.T) {
+		host.SetExecutionMode(vmcommon.ExecutionModeQuery)
+		mode := host.GetExecutionMode()
+		require.Equal(t, vmcommon.ExecutionModeQuery, mode)
+	})
+}
+
+func TestGetters(t *testing.T) {
+	blockchainHook := worldmock.NewMockWorld()
+	hostParameters := makeHostParameters()
+
+	host, err := hostCore.NewVMHost(blockchainHook, hostParameters)
+	require.Nil(t, err)
+	require.NotNil(t, host)
+
+	t.Run("GetVersion returns non-empty string", func(t *testing.T) {
+		version := host.GetVersion()
+		require.NotEmpty(t, version)
+	})
+
+	t.Run("Crypto returns non-nil", func(t *testing.T) {
+		crypto := host.Crypto()
+		require.NotNil(t, crypto)
+	})
+
+	t.Run("ForkController returns non-nil", func(t *testing.T) {
+		fc := host.ForkController()
+		require.NotNil(t, fc)
+	})
+
+	t.Run("GetGasScheduleMap returns non-nil", func(t *testing.T) {
+		gasSchedule := host.GetGasScheduleMap()
+		require.NotNil(t, gasSchedule)
 	})
 }

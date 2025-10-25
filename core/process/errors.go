@@ -418,6 +418,9 @@ var ErrReservedFieldNotSupportedYet = errors.New("reserved field not supported y
 // ErrBlockProposerSignatureMissing signals that block proposer signature is missing from the block aggregated sig
 var ErrBlockProposerSignatureMissing = errors.New("block proposer signature is missing")
 
+// ErrTransactionResultMismatch signals that transaction execution result does not match consensus
+var ErrTransactionResultMismatch = errors.New("transaction result does not match consensus")
+
 // ErrNilNetworkWatcher signals that a nil network watcher has been provided
 var ErrNilNetworkWatcher = errors.New("nil network watcher")
 

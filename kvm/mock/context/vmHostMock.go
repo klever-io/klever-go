@@ -126,6 +126,15 @@ func (host *VMHostMock) ExecuteOnDestContext(input *vmcommon.ContractCallInput) 
 	return host.GetNextVMOutput(), nil
 }
 
+// SetExecutionMode mocked method
+func (host *VMHostMock) SetExecutionMode(_ vmcommon.ExecutionMode) {
+}
+
+// GetExecutionMode mocked method
+func (host *VMHostMock) GetExecutionMode() vmcommon.ExecutionMode {
+	return vmcommon.ExecutionModeQuery
+}
+
 // InitState mocked method
 func (host *VMHostMock) InitState() {
 }

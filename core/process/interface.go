@@ -607,6 +607,8 @@ type SmartContractProcessor interface {
 	ProcessIfError(ctx kapp.KappContext, tc data.SmartContractHandler, returnCode string, returnMessage []byte) error
 	IsPayable(sndAddress []byte, recvAddress []byte) (bool, error)
 	LastBlock() data.HeaderHandler
+	SetVMExecutionMode(mode vmcommon.ExecutionMode)
+	GetVMExecutionMode() vmcommon.ExecutionMode
 	IsInterfaceNil() bool
 }
 

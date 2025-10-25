@@ -42,7 +42,9 @@ type vmHost struct {
 	mutExecution     sync.RWMutex
 	closingInstance  bool
 	executionTimeout time.Duration
-	executionContext context.Context // Per-execution timeout context
+	executionContext context.Context        // Per-execution timeout context
+	executionMode    vmcommon.ExecutionMode // Current execution mode of the host
+	toleranceTimeout time.Duration          // Timeout with tolerance for cosigner validation
 
 	blockchainContext   vmhost.BlockchainContext
 	runtimeContext      vmhost.RuntimeContext
@@ -66,33 +68,55 @@ func NewVMHost(
 	blockChainHook vmcommon.BlockchainHook,
 	hostParameters *vmhost.VMHostParameters,
 ) (vmhost.VMHost, error) {
-	if check.IfNil(blockChainHook) {
-		return nil, vmhost.ErrNilBlockChainHook
-	}
-	if hostParameters == nil {
-		return nil, vmhost.ErrNilHostParameters
-	}
-	if check.IfNil(hostParameters.KDATransferParser) {
-		return nil, vmhost.ErrNilKDATransferParser
-	}
-	if check.IfNil(hostParameters.BuiltInFuncContainer) {
-		return nil, vmhost.ErrNilBuiltInFunctionsContainer
-	}
-	if check.IfNil(hostParameters.EpochNotifier) {
-		return nil, vmhost.ErrNilEpochNotifier
-	}
-	if check.IfNil(hostParameters.ForkController) {
-		return nil, vmhost.ErrNilEnableEpochsHandler
-	}
-	if check.IfNil(hostParameters.Hasher) {
-		return nil, vmhost.ErrNilHasher
-	}
-	if hostParameters.VMType == nil {
-		return nil, vmhost.ErrNilVMType
+	if err := validateHostParameters(blockChainHook, hostParameters); err != nil {
+		return nil, err
 	}
 
+	host := createBaseHost(hostParameters)
+	configureTimeouts(host, hostParameters)
+
+	if err := initializeHostContexts(host, blockChainHook, hostParameters); err != nil {
+		return nil, err
+	}
+
+	finalizeHostSetup(host, hostParameters)
+
+	return host, nil
+}
+
+// validateHostParameters validates all required parameters for VM host creation
+func validateHostParameters(blockChainHook vmcommon.BlockchainHook, hostParameters *vmhost.VMHostParameters) error {
+	if check.IfNil(blockChainHook) {
+		return vmhost.ErrNilBlockChainHook
+	}
+	if hostParameters == nil {
+		return vmhost.ErrNilHostParameters
+	}
+	if check.IfNil(hostParameters.KDATransferParser) {
+		return vmhost.ErrNilKDATransferParser
+	}
+	if check.IfNil(hostParameters.BuiltInFuncContainer) {
+		return vmhost.ErrNilBuiltInFunctionsContainer
+	}
+	if check.IfNil(hostParameters.EpochNotifier) {
+		return vmhost.ErrNilEpochNotifier
+	}
+	if check.IfNil(hostParameters.ForkController) {
+		return vmhost.ErrNilEnableEpochsHandler
+	}
+	if check.IfNil(hostParameters.Hasher) {
+		return vmhost.ErrNilHasher
+	}
+	if hostParameters.VMType == nil {
+		return vmhost.ErrNilVMType
+	}
+	return nil
+}
+
+// createBaseHost creates the base vmHost struct with basic configuration
+func createBaseHost(hostParameters *vmhost.VMHostParameters) *vmHost {
 	cryptoHook := factory.NewVMCrypto()
-	host := &vmHost{
+	return &vmHost{
 		cryptoHook:           cryptoHook,
 		meteringContext:      nil,
 		runtimeContext:       nil,
@@ -105,21 +129,44 @@ func NewVMHost(
 		callArgsParser:       parsers.NewCallArgsParser(),
 		executionTimeout:     minExecutionTimeout,
 		forkController:       hostParameters.ForkController,
+		executionMode:        hostParameters.ExecutionMode,
 	}
+}
+
+// configureTimeouts sets up execution and tolerance timeouts for the VM host
+func configureTimeouts(host *vmHost, hostParameters *vmhost.VMHostParameters) {
 	newExecutionTimeout := time.Duration(hostParameters.TimeOutForSCExecutionInMilliseconds) * time.Millisecond
 	if newExecutionTimeout > minExecutionTimeout {
 		host.executionTimeout = newExecutionTimeout
 	}
 
+	// Calculate tolerance timeout for cosigner validation
+	// Leader uses executionTimeout, cosigners use toleranceTimeout
+	tolerancePercentage := hostParameters.TimeOutTolerancePercentage
+	if tolerancePercentage == 0 {
+		tolerancePercentage = core.DefaultTolerancePercentage
+	}
+	if tolerancePercentage > 100 {
+		log.Warn("TimeOutTolerancePercentage exceeds 100%, using 100%",
+			"configured", tolerancePercentage)
+		tolerancePercentage = 100
+	}
+	additionalTime := (host.executionTimeout * time.Duration(tolerancePercentage)) / 100
+	host.toleranceTimeout = host.executionTimeout + additionalTime
+}
+
+// initializeHostContexts creates and initializes all VM host contexts
+func initializeHostContexts(host *vmHost, blockChainHook vmcommon.BlockchainHook, hostParameters *vmhost.VMHostParameters) error {
 	var err error
+
 	host.blockchainContext, err = contexts.NewBlockchainContext(host, blockChainHook)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	vmExecutor, err := host.createExecutor(hostParameters)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	host.runtimeContext, err = contexts.NewRuntimeContext(
@@ -130,17 +177,17 @@ func NewVMHost(
 		hostParameters.Hasher,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	host.meteringContext, err = contexts.NewMeteringContext(host, hostParameters.GasSchedule)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	host.outputContext, err = contexts.NewOutputContext(host)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	host.storageContext, err = contexts.NewStorageContext(
@@ -149,24 +196,30 @@ func NewVMHost(
 		hostParameters.ProtectedKeyPrefix,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	host.managedTypesContext, err = contexts.NewManagedTypesContext(host)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	host.runtimeContext.SetMaxInstanceStackSize(MaximumRuntimeInstanceStackSize)
+	return nil
+}
 
+// finalizeHostSetup completes the VM host setup with final configurations
+func finalizeHostSetup(host *vmHost, hostParameters *vmhost.VMHostParameters) {
+	host.runtimeContext.SetMaxInstanceStackSize(MaximumRuntimeInstanceStackSize)
 	host.initContexts()
 	hostParameters.EpochNotifier.RegisterNotifyHandler(host)
+	initializeTransferLogIdentifiers(host)
+}
 
+// initializeTransferLogIdentifiers sets up transfer log identifier mappings
+func initializeTransferLogIdentifiers(host *vmHost) {
 	host.transferLogIdentifiers = make(map[string]bool)
 	host.transferLogIdentifiers["transferValueOnly"] = true
 	host.transferLogIdentifiers["KleverTransfer"] = true
-
-	return host, nil
 }
 
 // Creates a new executor instance. Should only be called once per VM host instantiation.
@@ -328,6 +381,37 @@ func (host *vmHost) GetGasScheduleMap() config.GasScheduleMap {
 	return host.gasSchedule
 }
 
+// SetExecutionMode sets the execution mode for the VM host
+// This determines which timeout will be used during smart contract execution
+func (host *vmHost) SetExecutionMode(mode vmcommon.ExecutionMode) {
+	host.mutExecution.Lock()
+	defer host.mutExecution.Unlock()
+	log.Debug("vmHost SetExecutionMode", "mode", mode)
+	host.executionMode = mode
+}
+
+// GetExecutionMode retrieves the current execution mode
+func (host *vmHost) GetExecutionMode() vmcommon.ExecutionMode {
+	host.mutExecution.RLock()
+	defer host.mutExecution.RUnlock()
+	return host.executionMode
+}
+
+// getEffectiveTimeout returns the timeout to use based on the current execution mode
+func (host *vmHost) getEffectiveTimeout() time.Duration {
+	switch host.executionMode {
+	case vmcommon.ExecutionModeLeader:
+		return host.executionTimeout // Base timeout (e.g., 500ms)
+	case vmcommon.ExecutionModeValidator:
+		return host.toleranceTimeout // Base + tolerance (e.g., 575ms with 15% tolerance)
+	case vmcommon.ExecutionModeQuery:
+		return host.executionTimeout // Use base timeout for queries
+	default:
+		// Default to base timeout for unknown modes
+		return host.executionTimeout
+	}
+}
+
 // RunSmartContractCreate executes the deployment of a new contract
 func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) (vmOutput *vmcommon.VMOutput, err error) {
 	err = validateVMInput(&input.VMInput)
@@ -343,7 +427,8 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 	}
 
 	host.setGasTracerEnabledIfLogIsTrace()
-	ctx, cancel := context.WithTimeout(context.Background(), host.executionTimeout)
+	effectiveTimeout := host.getEffectiveTimeout()
+	ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
 	defer cancel()
 
 	// Set execution context on vmHost instance (not global) for timeout protection
@@ -358,7 +443,17 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 		"len(code)", len(input.ContractCode),
 		"metadata", input.ContractCodeMetadata,
 		"gasProvided", input.GasProvided,
-		"executionTimeout", host.executionTimeout)
+		"executionTimeout", effectiveTimeout,
+		"executionMode", host.executionMode)
+
+	// Track execution time
+	startTime := time.Now()
+	defer func() {
+		elapsedTime := time.Since(startTime)
+		log.Trace("RunSmartContractCreate execTime",
+			"time [ms]", elapsedTime.Milliseconds(),
+			"timedOut", err == vmhost.ErrExecutionFailedWithTimeout)
+	}()
 
 	done := make(chan struct{})
 	go func() {
@@ -392,6 +487,7 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 
 	select {
 	case <-done:
+		// Normal termination
 		return
 	case <-ctx.Done():
 		host.Runtime().FailExecution(vmhost.ErrExecutionFailedWithTimeout)
@@ -417,7 +513,8 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 	}
 
 	host.setGasTracerEnabledIfLogIsTrace()
-	ctx, cancel := context.WithTimeout(context.Background(), host.executionTimeout)
+	effectiveTimeout := host.getEffectiveTimeout()
+	ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
 	defer cancel()
 
 	// Set execution context on vmHost instance (not global) for timeout protection
@@ -430,7 +527,19 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 
 	log.Trace("RunSmartContractCall begin",
 		"function", input.Function,
-		"gasProvided", input.GasProvided)
+		"gasProvided", input.GasProvided,
+		"executionTimeout", effectiveTimeout,
+		"executionMode", host.executionMode)
+
+	// Track execution time
+	startTime := time.Now()
+	defer func() {
+		elapsedTime := time.Since(startTime)
+		log.Trace("RunSmartContractCall execTime",
+			"function", input.Function,
+			"time [ms]", elapsedTime.Milliseconds(),
+			"timedOut", err == vmhost.ErrExecutionFailedWithTimeout)
+	}()
 
 	done := make(chan struct{})
 	go func() {
