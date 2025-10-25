@@ -367,7 +367,7 @@ func (ei *elasticProcessor) SaveTransactions(
 ) error {
 	headerTimestamp := header.GetTimestamp()
 
-	txs, ad, err := ei.prepareTransactionsForDatabase(header, pool)
+	txs, txsMap, ad, err := ei.prepareTransactionsForDatabase(header, pool)
 	if err != nil {
 		return err
 	}
@@ -427,7 +427,7 @@ func (ei *elasticProcessor) SaveTransactions(
 		return err
 	}
 
-	err = ei.prepareAndIndexLogs(pool.Logs, headerTimestamp, buffers)
+	err = ei.prepareAndIndexLogs(pool.Logs, txsMap, headerTimestamp, buffers)
 	if err != nil {
 		return err
 	}
