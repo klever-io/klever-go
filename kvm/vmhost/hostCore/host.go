@@ -144,7 +144,12 @@ func configureTimeouts(host *vmHost, hostParameters *vmhost.VMHostParameters) {
 	// Leader uses executionTimeout, cosigners use toleranceTimeout
 	tolerancePercentage := hostParameters.TimeOutTolerancePercentage
 	if tolerancePercentage == 0 {
-		tolerancePercentage = 15 // Default to 15% tolerance
+		tolerancePercentage = core.DefaultTolerancePercentage
+	}
+	if tolerancePercentage > 100 {
+		log.Warn("TimeOutTolerancePercentage exceeds 100%, using 100%",
+			"configured", tolerancePercentage)
+		tolerancePercentage = 100
 	}
 	additionalTime := (host.executionTimeout * time.Duration(tolerancePercentage)) / 100
 	host.toleranceTimeout = host.executionTimeout + additionalTime
