@@ -421,6 +421,9 @@ var ErrBlockProposerSignatureMissing = errors.New("block proposer signature is m
 // ErrTransactionResultMismatch signals that transaction execution result does not match consensus
 var ErrTransactionResultMismatch = errors.New("transaction result does not match consensus")
 
+// ErrTransactionResultMismatchAcceptLeader signals that transaction execution result does not match consensus - accept leader
+var ErrTransactionResultMismatchAcceptLeader = errors.New("transaction result does not match consensus - accept leader")
+
 // ErrNilNetworkWatcher signals that a nil network watcher has been provided
 var ErrNilNetworkWatcher = errors.New("nil network watcher")
 

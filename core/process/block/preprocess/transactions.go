@@ -577,6 +577,12 @@ func (txs *transactions) ProcessBlockTransactions(
 		// or BW fee is not enough, Result is not set to FAILED
 		// then remove from pool as nothing can be done
 		if err != nil && blockTxs[index].Result != transaction.Transaction_FAILED {
+			if errors.Is(err, process.ErrTransactionResultMismatch) {
+				log.Error("transaction result mismatch detected",
+					"hash", blockTxHashes[index],
+				)
+				return nil, err
+			}
 			numTxsBad++
 			log.Trace("bad tx",
 				"error", err.Error(),
