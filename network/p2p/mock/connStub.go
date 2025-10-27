@@ -24,6 +24,7 @@ type ConnStub struct {
 	StatCalled            func() network.ConnStats
 	ConnStateCalled       func() network.ConnectionState
 	ConnScopeCalled       func() network.ConnScope
+	AsCalled              func(target any) bool
 }
 
 // ID -
@@ -106,4 +107,12 @@ func (cs *ConnStub) CloseWithError(errCode network.ConnErrorCode) error {
 		return cs.CloseCalled()
 	}
 	return nil
+}
+
+// As -
+func (cs *ConnStub) As(target any) bool {
+	if cs.AsCalled != nil {
+		return cs.AsCalled(target)
+	}
+	return false
 }

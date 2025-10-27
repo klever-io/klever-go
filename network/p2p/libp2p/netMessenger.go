@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
-	logging "github.com/ipfs/go-log"
+	logging "github.com/ipfs/go-log/v2"
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common/types"
 	"github.com/klever-io/klever-go/config"
