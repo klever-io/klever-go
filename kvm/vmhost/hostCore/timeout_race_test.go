@@ -25,8 +25,8 @@ import (
 //
 // THE FIX:
 // Implemented a dual-context timeout strategy with a 10ms safety margin:
-//  - ctx (main): Times out at effectiveTimeout (e.g., 400ms) - used by main goroutine select
-//  - ctxHook (hooks): Times out at effectiveTimeout + 10ms (e.g., 410ms) - used by FailAfterTimeout in hooks
+//   - ctx (main): Times out at effectiveTimeout (e.g., 400ms) - used by main goroutine select
+//   - ctxHook (hooks): Times out at effectiveTimeout + 10ms (e.g., 410ms) - used by FailAfterTimeout in hooks
 //
 // WHAT THIS FIXES:
 // The 10ms margin ensures that when the main context times out and calls FailExecution(),
@@ -34,30 +34,31 @@ import (
 // panic due to timeout while FailExecution() is trying to set the breakpoint.
 //
 // EXECUTION FLOW WITH FIX:
-//  Time 0ms: Execution starts, both contexts active
-//  Time 400ms: ctx.Done() fires → main goroutine enters timeout case
-//             → calls FailExecution() → SetBreakpointValue() safely (ctxHook still active)
-//             → waits on <-done
-//  Time 400-410ms: ctxHook still active
-//             → If hooks are called during this window, they use the still-active ctxHook
-//             → VM can respond to the breakpoint set by FailExecution()
-//  Time 410ms: ctxHook.Done() fires
-//             → If execution is still running and calls a hook, FailAfterTimeout will panic
-//  Either way: Execution completes → defer runs → close(done) → main goroutine proceeds
+//
+//	Time 0ms: Execution starts, both contexts active
+//	Time 400ms: ctx.Done() fires → main goroutine enters timeout case
+//	           → calls FailExecution() → SetBreakpointValue() safely (ctxHook still active)
+//	           → waits on <-done
+//	Time 400-410ms: ctxHook still active
+//	           → If hooks are called during this window, they use the still-active ctxHook
+//	           → VM can respond to the breakpoint set by FailExecution()
+//	Time 410ms: ctxHook.Done() fires
+//	           → If execution is still running and calls a hook, FailAfterTimeout will panic
+//	Either way: Execution completes → defer runs → close(done) → main goroutine proceeds
 //
 // KEY INSIGHT:
 // The original race condition happened because both contexts timed out simultaneously:
 //  1. Main goroutine: ctx.Done() → FailExecution() → SetBreakpointValue() (accesses VM)
 //  2. Hook goroutine: ctxHook.Done() → FailAfterTimeout panics → CleanInstance() (destroys VM)
-//  → RACE: SetBreakpointValue() and CleanInstance() access VM memory concurrently
+//     → RACE: SetBreakpointValue() and CleanInstance() access VM memory concurrently
 //
 // The 10ms margin prevents this by separating the timeout events:
-//  - When main ctx times out (400ms), ctxHook is STILL ACTIVE (times out at 410ms)
-//  - FailExecution() → SetBreakpointValue() completes while ctxHook is active
-//  - Hooks don't panic yet, they continue using the active ctxHook
-//  - VM detects the breakpoint and stops cleanly
-//  - Only if execution continues past 410ms will hooks panic → CleanInstance()
-//  - But by then, SetBreakpointValue() has already completed → no race!
+//   - When main ctx times out (400ms), ctxHook is STILL ACTIVE (times out at 410ms)
+//   - FailExecution() → SetBreakpointValue() completes while ctxHook is active
+//   - Hooks don't panic yet, they continue using the active ctxHook
+//   - VM detects the breakpoint and stops cleanly
+//   - Only if execution continues past 410ms will hooks panic → CleanInstance()
+//   - But by then, SetBreakpointValue() has already completed → no race!
 //
 // The 10ms window is sufficient because SetBreakpointValue() is a fast operation
 // (microseconds), and the execution has 10ms (10,000 microseconds) to complete it.
@@ -71,26 +72,27 @@ import (
 //
 // SCENARIOS HANDLED BY THE FIX:
 //
-//  Scenario 1: Typical timeout (execution in WASM or hook, main timeout fires first)
-//    T=400ms: Main ctx.Done() → FailExecution() → SetBreakpointValue() completes in ~50μs
-//    T=400ms-410ms: ctxHook still active, execution continues
-//    Result: VM detects breakpoint, stops cleanly → EndExecution() ✓
+//	Scenario 1: Typical timeout (execution in WASM or hook, main timeout fires first)
+//	  T=400ms: Main ctx.Done() → FailExecution() → SetBreakpointValue() completes in ~50μs
+//	  T=400ms-410ms: ctxHook still active, execution continues
+//	  Result: VM detects breakpoint, stops cleanly → EndExecution() ✓
 //
-//  Scenario 2: Execution continues past hook timeout (>410ms)
-//    T=400ms: Main ctx.Done() → FailExecution() → SetBreakpointValue() completes
-//    T=410ms: ctxHook.Done() fires
-//    T=410ms+: Next hook call → FailAfterTimeout panics → CleanInstance()
-//    Result: SetBreakpointValue() already completed, no concurrent access ✓
+//	Scenario 2: Execution continues past hook timeout (>410ms)
+//	  T=400ms: Main ctx.Done() → FailExecution() → SetBreakpointValue() completes
+//	  T=410ms: ctxHook.Done() fires
+//	  T=410ms+: Next hook call → FailAfterTimeout panics → CleanInstance()
+//	  Result: SetBreakpointValue() already completed, no concurrent access ✓
 //
-//  Scenario 3: Pure computation (no hooks)
-//    T=400ms: Main ctx.Done() → FailExecution() → SetBreakpointValue() completes
-//    Execution: Pure WASM, checks breakpoint at next basic block
-//    Result: VM stops on breakpoint or completes/out-of-gas ✓
+//	Scenario 3: Pure computation (no hooks)
+//	  T=400ms: Main ctx.Done() → FailExecution() → SetBreakpointValue() completes
+//	  Execution: Pure WASM, checks breakpoint at next basic block
+//	  Result: VM stops on breakpoint or completes/out-of-gas ✓
 //
 // TRACE EVIDENCE FROM TEST RUN:
-//  [7-8]: SetRuntimeBreakpointValue() call and return (at 16:31:59.452984-452989 = 5μs)
-//  [11]: CleanInstance() called 90μs later (at 16:31:59.453081)
-//  → SetBreakpointValue() completed BEFORE CleanInstance() started → no race! ✓
+//
+//	[7-8]: SetRuntimeBreakpointValue() call and return (at 16:31:59.452984-452989 = 5μs)
+//	[11]: CleanInstance() called 90μs later (at 16:31:59.453081)
+//	→ SetBreakpointValue() completed BEFORE CleanInstance() started → no race! ✓
 //
 // The 10ms margin provides a 10,000μs safety window, while SetBreakpointValue()
 // takes only ~5μs. This gives a 2000x safety factor.
