@@ -126,7 +126,7 @@ func TestValidateToleranceBand_LeaderRightToFail(t *testing.T) {
 
 	err := txProc.validateToleranceBand(txHash, tx, expectedResultCode, validatorTimeNs, localErr)
 
-	assert.Equal(t, process.ErrTransactionResultMismatch, err)
+	assert.Equal(t, process.ErrTransactionResultMismatchAcceptLeader, err)
 	// ResultCode SHOULD be updated to consensus value
 	assert.Equal(t, transaction.Transaction_TXResultCode(expectedResultCode), tx.ResultCode)
 }
@@ -162,7 +162,7 @@ func TestValidateToleranceBand_ExactlyAtLowerBound(t *testing.T) {
 
 	err := txProc.validateToleranceBand(txHash, tx, expectedResultCode, validatorTimeNs, localErr)
 
-	assert.Equal(t, process.ErrTransactionResultMismatch, err)
+	assert.Equal(t, process.ErrTransactionResultMismatchAcceptLeader, err)
 	assert.Equal(t, transaction.Transaction_TXResultCode(expectedResultCode), tx.ResultCode)
 }
 
@@ -195,7 +195,7 @@ func TestValidateToleranceBand_DefaultTolerance(t *testing.T) {
 
 	err := txProc.validateToleranceBand(txHash, tx, expectedResultCode, validatorTimeNs, localErr)
 
-	assert.Equal(t, process.ErrTransactionResultMismatch, err)
+	assert.Equal(t, process.ErrTransactionResultMismatchAcceptLeader, err)
 	assert.Equal(t, transaction.Transaction_TXResultCode(expectedResultCode), tx.ResultCode)
 }
 
@@ -230,7 +230,7 @@ func TestValidateToleranceBand_ToleranceOver100(t *testing.T) {
 	err := txProc.validateToleranceBand(txHash, tx, expectedResultCode, validatorTimeNs, localErr)
 
 	// Should accept (tolerance capped at 100%)
-	assert.Equal(t, process.ErrTransactionResultMismatch, err)
+	assert.Equal(t, process.ErrTransactionResultMismatchAcceptLeader, err)
 	assert.Equal(t, transaction.Transaction_TXResultCode(expectedResultCode), tx.ResultCode)
 }
 
@@ -446,7 +446,7 @@ func TestValidateTransactionResult_CallsHandleResultMismatch(t *testing.T) {
 		err := txProc.validateTransactionResult(blk, txHash, tx, localErr, validatorTimeNs)
 
 		// Should accept (leader had right to fail) and update tx.ResultCode
-		assert.Equal(t, process.ErrTransactionResultMismatch, err)
+		assert.Equal(t, process.ErrTransactionResultMismatchAcceptLeader, err)
 		assert.Equal(t, transaction.Transaction_VMExecutionFailed, tx.ResultCode)
 	})
 
