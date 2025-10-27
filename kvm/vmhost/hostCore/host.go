@@ -33,8 +33,11 @@ var MaximumRuntimeInstanceStackSize = uint64(10)
 
 var _ vmhost.VMHost = (*vmHost)(nil)
 
-const minExecutionTimeout = time.Millisecond * 400
-const internalVMErrors = "internalVMErrors"
+const (
+	minExecutionTimeout = time.Millisecond * 400
+	hookTimeoutMargin   = time.Millisecond * 10
+	internalVMErrors    = "internalVMErrors"
+)
 
 // vmHost implements HostContext interface.
 type vmHost struct {
@@ -431,10 +434,13 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 	ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
 	defer cancel()
 
+	ctxHook, cancelHook := context.WithTimeout(context.Background(), effectiveTimeout+hookTimeoutMargin)
+	defer cancelHook()
+
 	// Set execution context on vmHost instance (not global) for timeout protection
 	// This ensures each RunSmartContractCreate invocation has its own isolated context
 	// preventing race conditions from parallel queries and context overwrite from nested calls
-	host.executionContext = ctx
+	host.executionContext = ctxHook
 	defer func() {
 		host.executionContext = nil
 	}()
@@ -517,10 +523,13 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 	ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
 	defer cancel()
 
+	ctxHook, cancelHook := context.WithTimeout(context.Background(), effectiveTimeout+hookTimeoutMargin)
+	defer cancelHook()
+
 	// Set execution context on vmHost instance (not global) for timeout protection
 	// This ensures each RunSmartContractCall invocation has its own isolated context
 	// preventing race conditions from parallel queries and context overwrite from nested calls
-	host.executionContext = ctx
+	host.executionContext = ctxHook
 	defer func() {
 		host.executionContext = nil
 	}()
