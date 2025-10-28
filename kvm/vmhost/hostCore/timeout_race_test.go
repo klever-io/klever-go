@@ -105,10 +105,6 @@ import (
 // WITHOUT FIX: Both contexts time out simultaneously → race possible
 // WITH FIX: Sequential cancellation → race architecturally impossible
 func TestTimeoutRaceFix(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping timeout race fix validation test in short mode")
-	}
-
 	// Load the timeout test contract
 	contractCode, err := os.ReadFile(heavyOpsContractPath)
 	require.NoError(t, err, "Failed to load timeout contract")
