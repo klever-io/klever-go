@@ -18,7 +18,7 @@ jobs:
 
   validate-and-build:
     needs: [setup-and-lint]
-    runs-on: ubuntu-latest
+    runs-on: klever-pipe
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
