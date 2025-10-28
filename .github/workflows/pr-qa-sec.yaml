@@ -20,7 +20,7 @@ jobs:
 
   test:
     needs: setup-and-lint
-    runs-on: ubuntu-latest
+    runs-on: klever-pipe
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -99,7 +99,7 @@ jobs:
 
   sonarqube:
     needs: [setup-and-lint, test]
-    runs-on: ubuntu-latest
+    runs-on: klever-pipe
     if: |
       always() &&
       github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -168,7 +168,7 @@ jobs:
 
   notify:
     needs: [setup-and-lint, test, sonarqube]
-    runs-on: ubuntu-latest
+    runs-on: klever-pipe
     if: |
       always() &&
       github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -350,7 +350,7 @@ jobs:
 
   result-check:
     needs: [sonarqube, test]
-    runs-on: ubuntu-latest
+    runs-on: klever-pipe
     steps:
       - name: Check for failed jobs
         run: |
