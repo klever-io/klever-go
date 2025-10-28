@@ -25,7 +25,7 @@ This project and everyone participating in it is governed by our [Code of Conduc
 
 Before you begin, ensure you have:
 
-- Go 1.25 or higher installed
+- Go version as specified in `go.mod` or higher
 - Git configured with your name and email
 - A GitHub account
 - Familiarity with blockchain concepts
@@ -148,12 +148,14 @@ git commit -m "feat(consensus): add new validator selection algorithm"
 
 ### 6. Keep Your Branch Updated
 
-Regularly sync with upstream to avoid conflicts:
+Regularly sync with upstream to avoid conflicts. **Always use rebase, not merge:**
 
 ```bash
 git fetch upstream
 git rebase upstream/develop
 ```
+
+**Important:** We use rebase to maintain a clean, linear history. Do not merge the develop branch into your feature branch.
 
 ### 7. Push and Create Pull Request
 
@@ -190,9 +192,14 @@ func validateTransaction(tx *Transaction) bool { ... }
 const MaxBlockSize = 1024 * 1024
 const DEFAULT_TIMEOUT = 30
 
-// Interfaces often end with "er"
-type Validator interface {
-    Validate() error
+// Interfaces are often named with agent nouns (Reader, Writer, Processor, Handler)
+// describing what the implementer does
+type Reader interface {
+    Read(p []byte) (n int, err error)
+}
+
+type BlockProcessor interface {
+    ProcessBlock(block *Block) error
 }
 ```
 
@@ -546,32 +553,18 @@ feat(consensus): add new validator selection algorithm
 
 ### PR Description Template
 
-```markdown
-## Description
-Brief description of what this PR does.
+See `.github/PULL_REQUEST_TEMPLATE.md` for the full template that auto-populates when creating a PR.
 
-## Motivation
-Why is this change necessary? What problem does it solve?
-
-## Changes
-- Change 1
-- Change 2
-- Change 3
-
-## Testing
-How was this tested? Include test scenarios.
-
-## Related Issues
-Fixes #123
-Related to #456
-
-## Checklist
-- [ ] Tests added/updated
-- [ ] Documentation updated
-- [ ] All tests passing
-- [ ] Code follows style guidelines
-- [ ] Breaking changes documented
-```
+Key sections to include:
+- **Summary** - Brief description of what this PR does
+- **Problem** - What issue does this solve?
+- **Solution** - How does this PR solve the problem?
+- **Key Changes** - List main changes (New/Updated/Removed)
+- **Testing** - How was this tested?
+- **Configuration Changes** - Document any config changes required
+- **Breaking Changes** - List any breaking changes
+- **Related Issues** - Use `Fixes #123` or `Related to #456`
+- **Checklist** - Verify all requirements are met
 
 ### Review Process
 
