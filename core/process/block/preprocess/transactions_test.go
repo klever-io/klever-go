@@ -974,11 +974,15 @@ func TestTransactions_ProcessBlockTransactions_TransactionResultMismatch(t *test
 
 	processResult, err := txs.ProcessBlockTransactions(blk, haveTime)
 
-	// Should return error and nil result when ErrTransactionResultMismatch occurs
+	// Should return error when ErrTransactionResultMismatch occurs
 	// This validates that the block processing is aborted when consensus mismatch is detected
 	assert.NotNil(t, err)
 	assert.True(t, errors.Is(err, process.ErrTransactionResultMismatch))
-	assert.Nil(t, processResult)
+
+	// Result contains only transactions processed before the mismatch (TX1)
+	assert.NotNil(t, processResult)
+	assert.Equal(t, 1, processResult.Length())
+	assert.Equal(t, []byte("TX1"), processResult.Hashes()[0])
 }
 
 func TestTransactions_CreateAndProcessBlockTransactions(t *testing.T) {
