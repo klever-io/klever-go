@@ -24,44 +24,44 @@ import (
 // destroyed, resulting in Rust panic: "index out of bounds: the len is 11 but the index is 34220458006"
 //
 // THE FIX:
-// Implemented a dual-context timeout strategy with a 10ms safety margin:
+// Implemented a sequential context cancellation strategy:
 //   - ctx (main): Times out at effectiveTimeout (e.g., 400ms) - used by main goroutine select
-//   - ctxHook (hooks): Times out at effectiveTimeout + 10ms (e.g., 410ms) - used by FailAfterTimeout in hooks
+//   - ctxHook (hooks): Manual cancellation via cancelHook() - used by FailAfterTimeout in hooks
 //
 // WHAT THIS FIXES:
-// The 10ms margin ensures that when the main context times out and calls FailExecution(),
-// the hook context is still active. This means if a hook is currently executing, it won't
-// panic due to timeout while FailExecution() is trying to set the breakpoint.
+// Sequential execution order guarantees that SetBreakpointValue() completes BEFORE
+// any hook can panic and call CleanInstance(). This architecturally eliminates the race.
 //
 // EXECUTION FLOW WITH FIX:
 //
-//	Time 0ms: Execution starts, both contexts active
+//	Time 0ms: Execution starts, both contexts active (ctx has timeout, ctxHook has none)
 //	Time 400ms: ctx.Done() fires → main goroutine enters timeout case
-//	           → calls FailExecution() → SetBreakpointValue() safely (ctxHook still active)
-//	           → waits on <-done
-//	Time 400-410ms: ctxHook still active
-//	           → If hooks are called during this window, they use the still-active ctxHook
-//	           → VM can respond to the breakpoint set by FailExecution()
-//	Time 410ms: ctxHook.Done() fires
-//	           → If execution is still running and calls a hook, FailAfterTimeout will panic
-//	Either way: Execution completes → defer runs → close(done) → main goroutine proceeds
+//	           ↓
+//	           Step 1: Calls FailExecution() → SetBreakpointValue() (~5μs) ✓ COMPLETES
+//	           ↓
+//	           Step 2: Calls cancelHook() → ctxHook.Done() now fires
+//	           ↓
+//	           Step 3: Waits on <-done
+//
+//	After Step 2: If hooks are called now, they detect ctxHook.Done() and panic
+//	             → CleanInstance() called
+//	             BUT SetBreakpointValue() already completed in Step 1! ✓ NO RACE
 //
 // KEY INSIGHT:
 // The original race condition happened because both contexts timed out simultaneously:
 //  1. Main goroutine: ctx.Done() → FailExecution() → SetBreakpointValue() (accesses VM)
 //  2. Hook goroutine: ctxHook.Done() → FailAfterTimeout panics → CleanInstance() (destroys VM)
-//     → RACE: SetBreakpointValue() and CleanInstance() access VM memory concurrently
+//     → RACE: SetBreakpointValue() and CleanInstance() could access VM memory concurrently
 //
-// The 10ms margin prevents this by separating the timeout events:
-//   - When main ctx times out (400ms), ctxHook is STILL ACTIVE (times out at 410ms)
-//   - FailExecution() → SetBreakpointValue() completes while ctxHook is active
-//   - Hooks don't panic yet, they continue using the active ctxHook
-//   - VM detects the breakpoint and stops cleanly
-//   - Only if execution continues past 410ms will hooks panic → CleanInstance()
-//   - But by then, SetBreakpointValue() has already completed → no race!
+// Sequential cancellation prevents this by enforcing execution order:
 //
-// The 10ms window is sufficient because SetBreakpointValue() is a fast operation
-// (microseconds), and the execution has 10ms (10,000 microseconds) to complete it.
+//	Step 1: FailExecution() → SetBreakpointValue() COMPLETES FIRST
+//	Step 2: cancelHook() is called
+//	Step 3: Only NOW can hooks detect cancellation and panic → CleanInstance()
+//	→ NO RACE: SetBreakpointValue() finished before CleanInstance() can start
+//
+// This is architecturally guaranteed by Go's sequential execution within a goroutine.
+// Unlike a time-based approach, this has ZERO race window - it's impossible by design.
 //
 // THIS TEST:
 // Calls burnGas with extreme parameters to force a timeout, then verifies:
@@ -72,33 +72,38 @@ import (
 //
 // SCENARIOS HANDLED BY THE FIX:
 //
-//	Scenario 1: Typical timeout (execution in WASM or hook, main timeout fires first)
-//	  T=400ms: Main ctx.Done() → FailExecution() → SetBreakpointValue() completes in ~50μs
-//	  T=400ms-410ms: ctxHook still active, execution continues
-//	  Result: VM detects breakpoint, stops cleanly → EndExecution() ✓
+//	Scenario 1: Hook executing when timeout fires
+//	  T=400ms: ctx.Done() → FailExecution() → SetBreakpointValue() completes (~5μs)
+//	          → cancelHook() called → ctxHook.Done() fires
+//	  Hook: Returns to WASM or panics (if checking ctxHook.Done())
+//	  Result: VM detects breakpoint and stops, or CleanInstance() called
+//	         Either way, SetBreakpointValue() already completed ✓
 //
-//	Scenario 2: Execution continues past hook timeout (>410ms)
-//	  T=400ms: Main ctx.Done() → FailExecution() → SetBreakpointValue() completes
-//	  T=410ms: ctxHook.Done() fires
-//	  T=410ms+: Next hook call → FailAfterTimeout panics → CleanInstance()
-//	  Result: SetBreakpointValue() already completed, no concurrent access ✓
+//	Scenario 2: Hook called after timeout and cancelHook()
+//	  T=400ms: ctx.Done() → FailExecution() → SetBreakpointValue() completes
+//	          → cancelHook() called
+//	  T=400ms+: Hook called → FailAfterTimeout detects ctxHook.Done() → panics
+//	  Result: SetBreakpointValue() already completed before panic ✓
 //
-//	Scenario 3: Pure computation (no hooks)
-//	  T=400ms: Main ctx.Done() → FailExecution() → SetBreakpointValue() completes
+//	Scenario 3: Pure computation (no hooks called)
+//	  T=400ms: ctx.Done() → FailExecution() → SetBreakpointValue() completes
+//	          → cancelHook() called (no effect, no hooks running)
 //	  Execution: Pure WASM, checks breakpoint at next basic block
 //	  Result: VM stops on breakpoint or completes/out-of-gas ✓
 //
 // TRACE EVIDENCE FROM TEST RUN:
 //
-//	[7-8]: SetRuntimeBreakpointValue() call and return (at 16:31:59.452984-452989 = 5μs)
-//	[11]: CleanInstance() called 90μs later (at 16:31:59.453081)
+//	[7-8]: SetRuntimeBreakpointValue() call and return (5μs)
+//	[11]: CleanInstance() called 90μs later
 //	→ SetBreakpointValue() completed BEFORE CleanInstance() started → no race! ✓
 //
-// The 10ms margin provides a 10,000μs safety window, while SetBreakpointValue()
-// takes only ~5μs. This gives a 2000x safety factor.
+// ARCHITECTURAL GUARANTEE:
+// The sequential execution order (FailExecution → cancelHook → wait) is enforced
+// by Go's single-goroutine execution model. There is NO timing window where
+// SetBreakpointValue() and CleanInstance() can run concurrently.
 //
-// WITHOUT FIX: Both contexts time out simultaneously → race every time
-// WITH FIX: 10ms separation → SetBreakpointValue() completes safely before any CleanInstance()
+// WITHOUT FIX: Both contexts time out simultaneously → race possible
+// WITH FIX: Sequential cancellation → race architecturally impossible
 func TestTimeoutRaceFix(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping timeout race fix validation test in short mode")

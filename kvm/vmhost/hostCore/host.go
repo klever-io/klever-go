@@ -35,7 +35,6 @@ var _ vmhost.VMHost = (*vmHost)(nil)
 
 const (
 	minExecutionTimeout = time.Millisecond * 400
-	hookTimeoutMargin   = time.Millisecond * 10
 	internalVMErrors    = "internalVMErrors"
 )
 
@@ -434,7 +433,9 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 	ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
 	defer cancel()
 
-	ctxHook, cancelHook := context.WithTimeout(context.Background(), effectiveTimeout+hookTimeoutMargin)
+	// Hook context has no timeout - manually cancelled after FailExecution()
+	// This ensures SetBreakpointValue() completes before hooks can panic and call CleanInstance()
+	ctxHook, cancelHook := context.WithCancel(context.Background())
 	defer cancelHook()
 
 	// Set execution context on vmHost instance (not global) for timeout protection
@@ -496,7 +497,15 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 		// Normal termination
 		return
 	case <-ctx.Done():
+		// Timeout detected. Set breakpoint first, then cancel hooks.
+		// Sequential execution ensures SetBreakpointValue() completes before
+		// any hook can panic and call CleanInstance(), preventing race condition.
 		host.Runtime().FailExecution(vmhost.ErrExecutionFailedWithTimeout)
+
+		// Now safe to cancel hook context - FailExecution() has completed
+		cancelHook()
+
+		// Wait for execution to complete cleanup
 		<-done
 		err = vmhost.ErrExecutionFailedWithTimeout
 	}
@@ -523,7 +532,9 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 	ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
 	defer cancel()
 
-	ctxHook, cancelHook := context.WithTimeout(context.Background(), effectiveTimeout+hookTimeoutMargin)
+	// Hook context has no timeout - manually cancelled after FailExecution()
+	// This ensures SetBreakpointValue() completes before hooks can panic and call CleanInstance()
+	ctxHook, cancelHook := context.WithCancel(context.Background())
 	defer cancelHook()
 
 	// Set execution context on vmHost instance (not global) for timeout protection
@@ -595,12 +606,15 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 	case <-done:
 		// Normal termination.
 	case <-ctx.Done():
-		// Terminated due to timeout. The VM sets the `ExecutionFailed` breakpoint
-		// in Wasmer. Also, the VM must wait for Wasmer to reach the end of a WASM
-		// basic block in order to close the WASM instance cleanly. This is done by
-		// reading the `done` channel once more, awaiting the call to `close(done)`
-		// from above.
+		// Timeout detected. Set breakpoint first, then cancel hooks.
+		// Sequential execution ensures SetBreakpointValue() completes before
+		// any hook can panic and call CleanInstance(), preventing race condition.
 		host.Runtime().FailExecution(vmhost.ErrExecutionFailedWithTimeout)
+
+		// Now safe to cancel hook context - FailExecution() has completed
+		cancelHook()
+
+		// Wait for execution to complete cleanup
 		<-done
 		err = vmhost.ErrExecutionFailedWithTimeout
 	}
