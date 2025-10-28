@@ -414,6 +414,23 @@ func (host *vmHost) getEffectiveTimeout() time.Duration {
 	}
 }
 
+// handleTimeout processes timeout during contract execution.
+// It ensures SetBreakpointValue() completes before hooks can panic and call CleanInstance().
+// This sequential execution prevents race conditions.
+func (host *vmHost) handleTimeout(cancelHook context.CancelFunc, done <-chan struct{}) error {
+	// Timeout detected. Set breakpoint first, then cancel hooks.
+	// Sequential execution ensures SetBreakpointValue() completes before
+	// any hook can panic and call CleanInstance(), preventing race condition.
+	host.Runtime().FailExecution(vmhost.ErrExecutionFailedWithTimeout)
+
+	// Now safe to cancel hook context - FailExecution() has completed
+	cancelHook()
+
+	// Wait for execution to complete cleanup
+	<-done
+	return vmhost.ErrExecutionFailedWithTimeout
+}
+
 // RunSmartContractCreate executes the deployment of a new contract
 func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) (vmOutput *vmcommon.VMOutput, err error) {
 	err = validateVMInput(&input.VMInput)
@@ -497,17 +514,7 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 		// Normal termination
 		return
 	case <-ctx.Done():
-		// Timeout detected. Set breakpoint first, then cancel hooks.
-		// Sequential execution ensures SetBreakpointValue() completes before
-		// any hook can panic and call CleanInstance(), preventing race condition.
-		host.Runtime().FailExecution(vmhost.ErrExecutionFailedWithTimeout)
-
-		// Now safe to cancel hook context - FailExecution() has completed
-		cancelHook()
-
-		// Wait for execution to complete cleanup
-		<-done
-		err = vmhost.ErrExecutionFailedWithTimeout
+		err = host.handleTimeout(cancelHook, done)
 	}
 
 	return
@@ -606,17 +613,7 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 	case <-done:
 		// Normal termination.
 	case <-ctx.Done():
-		// Timeout detected. Set breakpoint first, then cancel hooks.
-		// Sequential execution ensures SetBreakpointValue() completes before
-		// any hook can panic and call CleanInstance(), preventing race condition.
-		host.Runtime().FailExecution(vmhost.ErrExecutionFailedWithTimeout)
-
-		// Now safe to cancel hook context - FailExecution() has completed
-		cancelHook()
-
-		// Wait for execution to complete cleanup
-		<-done
-		err = vmhost.ErrExecutionFailedWithTimeout
+		err = host.handleTimeout(cancelHook, done)
 	}
 
 	return vmOutput, err
