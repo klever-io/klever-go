@@ -933,6 +933,58 @@ func TestTransactions_ProcessBlockTransactions(t *testing.T) {
 	assert.Equal(t, 3, processResult.Length())
 }
 
+func TestTransactions_ProcessBlockTransactions_TransactionResultMismatch(t *testing.T) {
+	t.Parallel()
+
+	// Create transactions with Result field NOT set to FAILED
+	// This ensures the error handling path is triggered
+	poolHolders := createCacheWithTransactions(t, []*txcache.WrappedTransaction{
+		{TxHash: []byte("TX1"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 0, Nonce: 1, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000, Result: transaction.Transaction_SUCCESS}},
+		{TxHash: []byte("TX2"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 2, Sender: []byte("addr1"), Data: [][]byte{[]byte("data")}}, GasLimit: 100000, Result: transaction.Transaction_SUCCESS}},
+		{TxHash: []byte("TX3"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 2, Nonce: 3, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000, Result: transaction.Transaction_SUCCESS}},
+	})
+
+	txs := createGoodPreprocessor(poolHolders)
+
+	// Create a mock block with transactions
+	blk := &block.Block{
+		TxHashes: [][]byte{
+			[]byte("TX1"),
+			[]byte("TX2"),
+			[]byte("TX3"),
+		},
+	}
+
+	haveTime := func() bool { return true }
+
+	// Mock TXProcessor to return ErrTransactionResultMismatch on second transaction
+	// This simulates a consensus mismatch scenario where the transaction result
+	// doesn't match what was expected from the block leader
+	callCount := 0
+	txs.GetTXProcessor().(*mock.TxProcessorMock).ProcessTransactionCalled = func(blk *block.Block, txHash []byte, tx *transaction.Transaction) error {
+		callCount++
+		if callCount == 2 {
+			// Return ErrTransactionResultMismatch on second transaction
+			// This should trigger the error handling path that logs the error
+			// and returns immediately, stopping block processing
+			return process.ErrTransactionResultMismatch
+		}
+		return nil
+	}
+
+	processResult, err := txs.ProcessBlockTransactions(blk, haveTime)
+
+	// Should return error when ErrTransactionResultMismatch occurs
+	// This validates that the block processing is aborted when consensus mismatch is detected
+	assert.NotNil(t, err)
+	assert.True(t, errors.Is(err, process.ErrTransactionResultMismatch))
+
+	// Result contains only transactions processed before the mismatch (TX1)
+	assert.NotNil(t, processResult)
+	assert.Equal(t, 1, processResult.Length())
+	assert.Equal(t, []byte("TX1"), processResult.Hashes()[0])
+}
+
 func TestTransactions_CreateAndProcessBlockTransactions(t *testing.T) {
 	t.Parallel()
 

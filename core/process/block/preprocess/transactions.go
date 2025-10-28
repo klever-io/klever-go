@@ -573,6 +573,14 @@ func (txs *transactions) ProcessBlockTransactions(
 		elapsedTime := time.Since(startTime)
 		totalTimeUsedForProcess += elapsedTime
 
+		// Check for consensus mismatch first - this must reject the entire block
+		if err != nil && errors.Is(err, process.ErrTransactionResultMismatch) {
+			log.Error("transaction result mismatch detected",
+				"hash", blockTxHashes[index],
+			)
+			return result, err
+		}
+
 		// if transaction have not been pre-processed successfully,
 		// or BW fee is not enough, Result is not set to FAILED
 		// then remove from pool as nothing can be done

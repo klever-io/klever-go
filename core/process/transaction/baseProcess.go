@@ -185,6 +185,10 @@ func (txProc *baseTxProcessor) checkTxValues(tx *transaction.Transaction, acntSn
 		),
 	}
 
+	// reset transaction result and result code prior to execution
+	tx.Result = transaction.Transaction_SUCCESS
+	tx.ResultCode = transaction.Transaction_Ok
+
 	// check if the transaction fee is valid based on contract types and network params
 	computedCost, err := txProc.economicsFee.CheckValidityTxValues(tx)
 	if err != nil {

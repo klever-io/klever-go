@@ -33,8 +33,10 @@ var MaximumRuntimeInstanceStackSize = uint64(10)
 
 var _ vmhost.VMHost = (*vmHost)(nil)
 
-const minExecutionTimeout = time.Millisecond * 400
-const internalVMErrors = "internalVMErrors"
+const (
+	minExecutionTimeout = time.Millisecond * 400
+	internalVMErrors    = "internalVMErrors"
+)
 
 // vmHost implements HostContext interface.
 type vmHost struct {
@@ -412,6 +414,55 @@ func (host *vmHost) getEffectiveTimeout() time.Duration {
 	}
 }
 
+// setupExecutionContext initializes the timeout context and sets up cleanup.
+// Returns the context and a cleanup function that should be deferred.
+func (host *vmHost) setupExecutionContext() (context.Context, func()) {
+	host.setGasTracerEnabledIfLogIsTrace()
+	effectiveTimeout := host.getEffectiveTimeout()
+
+	log.Trace("setupExecutionContext",
+		"executionTimeout", effectiveTimeout,
+		"executionMode", host.executionMode,
+	)
+
+	// Create main execution context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
+
+	// Hook context has no timeout - manually cancelled after FailExecution()
+	// This ensures SetBreakpointValue() completes before hooks can panic and call CleanInstance()
+	ctxHook, cancelHook := context.WithCancel(context.Background())
+
+	// Set execution context on vmHost instance (not global) for timeout protection
+	// This ensures each RunSmartContractCreate invocation has its own isolated context
+	// preventing race conditions from parallel queries and context overwrite from nested calls
+	host.executionContext = ctxHook
+
+	cleanup := func() {
+		cancelHook()
+		cancel()
+		host.executionContext = nil
+	}
+
+	return ctx, cleanup
+}
+
+// handleTimeout processes timeout during contract execution.
+// It ensures SetBreakpointValue() completes before hooks can panic and call CleanInstance().
+// This sequential execution prevents race conditions.
+func (host *vmHost) handleTimeout(cancelHook context.CancelFunc, done <-chan struct{}) error {
+	// Timeout detected. Set breakpoint first, then cancel hooks.
+	// Sequential execution ensures SetBreakpointValue() completes before
+	// any hook can panic and call CleanInstance(), preventing race condition.
+	host.Runtime().FailExecution(vmhost.ErrExecutionFailedWithTimeout)
+
+	// Now safe to cancel hook context - FailExecution() has completed
+	cancelHook()
+
+	// Wait for execution to complete cleanup
+	<-done
+	return vmhost.ErrExecutionFailedWithTimeout
+}
+
 // RunSmartContractCreate executes the deployment of a new contract
 func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) (vmOutput *vmcommon.VMOutput, err error) {
 	err = validateVMInput(&input.VMInput)
@@ -426,25 +477,14 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 		return nil, vmhost.ErrVMIsClosing
 	}
 
-	host.setGasTracerEnabledIfLogIsTrace()
-	effectiveTimeout := host.getEffectiveTimeout()
-	ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
+	ctx, cancel := host.setupExecutionContext()
 	defer cancel()
-
-	// Set execution context on vmHost instance (not global) for timeout protection
-	// This ensures each RunSmartContractCreate invocation has its own isolated context
-	// preventing race conditions from parallel queries and context overwrite from nested calls
-	host.executionContext = ctx
-	defer func() {
-		host.executionContext = nil
-	}()
 
 	log.Trace("RunSmartContractCreate begin",
 		"len(code)", len(input.ContractCode),
 		"metadata", input.ContractCodeMetadata,
 		"gasProvided", input.GasProvided,
-		"executionTimeout", effectiveTimeout,
-		"executionMode", host.executionMode)
+	)
 
 	// Track execution time
 	startTime := time.Now()
@@ -490,9 +530,7 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 		// Normal termination
 		return
 	case <-ctx.Done():
-		host.Runtime().FailExecution(vmhost.ErrExecutionFailedWithTimeout)
-		<-done
-		err = vmhost.ErrExecutionFailedWithTimeout
+		err = host.handleTimeout(cancel, done)
 	}
 
 	return
@@ -512,24 +550,13 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 		return nil, vmhost.ErrVMIsClosing
 	}
 
-	host.setGasTracerEnabledIfLogIsTrace()
-	effectiveTimeout := host.getEffectiveTimeout()
-	ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
+	ctx, cancel := host.setupExecutionContext()
 	defer cancel()
-
-	// Set execution context on vmHost instance (not global) for timeout protection
-	// This ensures each RunSmartContractCall invocation has its own isolated context
-	// preventing race conditions from parallel queries and context overwrite from nested calls
-	host.executionContext = ctx
-	defer func() {
-		host.executionContext = nil
-	}()
 
 	log.Trace("RunSmartContractCall begin",
 		"function", input.Function,
 		"gasProvided", input.GasProvided,
-		"executionTimeout", effectiveTimeout,
-		"executionMode", host.executionMode)
+	)
 
 	// Track execution time
 	startTime := time.Now()
@@ -586,14 +613,7 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 	case <-done:
 		// Normal termination.
 	case <-ctx.Done():
-		// Terminated due to timeout. The VM sets the `ExecutionFailed` breakpoint
-		// in Wasmer. Also, the VM must wait for Wasmer to reach the end of a WASM
-		// basic block in order to close the WASM instance cleanly. This is done by
-		// reading the `done` channel once more, awaiting the call to `close(done)`
-		// from above.
-		host.Runtime().FailExecution(vmhost.ErrExecutionFailedWithTimeout)
-		<-done
-		err = vmhost.ErrExecutionFailedWithTimeout
+		err = host.handleTimeout(cancel, done)
 	}
 
 	return vmOutput, err

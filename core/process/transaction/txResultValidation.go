@@ -233,6 +233,7 @@ func (txProc *txProcessor) validateToleranceBand(
 		"txHash", txHash,
 		"validatorTime", validatorExecTime,
 		"lowerBound", lowerBound)
+	tx.Result = transaction.Transaction_FAILED
 	tx.ResultCode = transaction.Transaction_TXResultCode(expectedResultCode)
-	return process.ErrTransactionResultMismatch
+	return process.ErrTransactionResultMismatchAcceptLeader
 }
