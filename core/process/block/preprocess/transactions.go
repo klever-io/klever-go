@@ -578,7 +578,7 @@ func (txs *transactions) ProcessBlockTransactions(
 			log.Error("transaction result mismatch detected",
 				"hash", blockTxHashes[index],
 			)
-			return nil, err
+			return result, err
 		}
 
 		// if transaction have not been pre-processed successfully,
