@@ -86,7 +86,7 @@ Examples of representing our community include:
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement at:
 
-**conduct@klever.io**
+**conduct@klever.org**
 
 All complaints will be reviewed and investigated promptly and fairly.
 
@@ -193,7 +193,7 @@ For answers to common questions about this code of conduct, see the FAQ at
 If you have questions about this Code of Conduct or concerns about how it's
 being enforced, please contact:
 
-**conduct@klever.io**
+**conduct@klever.org**
 
 ---
 

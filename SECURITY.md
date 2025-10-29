@@ -30,7 +30,7 @@ Report vulnerabilities through GitHub's private vulnerability reporting:
 
 ### Email
 
-Send details to: **security@klever.io**
+Send details to: **security@klever.org**
 
 Please include the following information in your report:
 
@@ -100,7 +100,7 @@ We value the security research community's contributions. Details about our bug 
 - **Rewards**: Determined based on severity and impact (see classification above)
 - **Eligibility**: Must follow responsible disclosure practices
 
-For current bounty amounts and specific program details, please contact **security@klever.io**.
+For current bounty amounts and specific program details, please contact **security@klever.org**.
 
 ## Out of Scope
 
@@ -150,7 +150,7 @@ Our codebase undergoes regular security audits by reputable third-party firms. A
 
 For any security-related questions or concerns:
 
-- **Email**: security@klever.io
+- **Email**: security@klever.org
 - **Website**: https://klever.org
 - **Documentation**: https://docs.klever.org
 
