@@ -399,7 +399,7 @@ func main() {
 	app.Authors = []cli.Author{
 		{
 			Name:  "The Klever Team",
-			Email: "contact@klever.io",
+			Email: "contact@klever.org",
 		},
 	}
 

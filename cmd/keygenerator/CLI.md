@@ -12,7 +12,7 @@ USAGE:
    keygenerator [global options]
    
 AUTHOR:
-   KleverIO <contact@klever.io>
+   KleverIO <contact@klever.org>
    
 GLOBAL OPTIONS:
    --num-keys value  How many keys should generate. Example: 1 (default: 1)

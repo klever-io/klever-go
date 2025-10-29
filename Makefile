@@ -24,20 +24,20 @@ endif
 ldflags := -X 'main.appVersion=${VERSION}'
 
 ifdef FOR_TESTNET
-FOR_TESTNET="-testnet"
+FOR_TESTNET := -testnet
 endif
 
 ifdef FOR_DEV
-FOR_DEV="dev-"
+FOR_DEV := dev-
 endif
 
 UNAME_S := $(shell uname -s)
 
 ENV_FLAG :=
 ifeq ($(UNAME_S),Darwin)
-	ENV_FLAG += "env DYLD_LIBRARY_PATH=$(shell pwd)/kvm/wasmer2"
+	ENV_FLAG += env DYLD_LIBRARY_PATH=$(shell pwd)/kvm/wasmer2
 else
-	ENV_FLAG += "env LD_LIBRARY_PATH=$(shell pwd)/kvm/wasmer2"
+	ENV_FLAG += env LD_LIBRARY_PATH=$(shell pwd)/kvm/wasmer2
 endif
 
 ifdef VERBOSE
@@ -52,36 +52,44 @@ GOCMD=go
 GORUN=$(GOCMD) run -exec $(ENV_FLAG) -ldflags="$(ldflags)"
 GOBUILD=$(GOCMD) build -ldflags="$(ldflags) -extldflags '-Wl,-rpath,\$$ORIGIN,-rpath,@executable_path'"
 
+.DEFAULT_GOAL := help
+
+############################
+###         HELP         ###
+############################
+.PHONY: help
+help: ## Show this help message
+	@echo "Klever Blockchain - Available Make Targets"
+	@echo ""
+	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 ############################
 ###        Run node      ###
 ############################
 .PHONY: all debug trace redundancy seednode
-all:
+all: ## Run validator node with default log level
 	$(GORUN) ./cmd/node --log-level="${LOG}" --use-log-view
 
-# run node in debug mode
-debug:
+debug: ## Run node in debug mode
 	$(GORUN) ./cmd/node --log-level=*:DEBUG --use-log-view
 
-# run node in trace mode
-trace:
+trace: ## Run node in trace mode (verbose logging)
 	$(GORUN) ./cmd/node --log-level=*:TRACE,ntp:INFO,debug/p2p:INFO,state:DEBUG,trie:INFO,facade:INFO,sharding/networksharding:INFO,p2p/libp2p:INFO,basichost:INFO,dht:INFO,pubsub:INFO,heartbeat/process:INFO,statistics/machine:INFO,process/rating:INFO,consensus/chronology:INFO --use-log-view --log-save
 
-redundancy:
+redundancy: ## Run node with redundancy for testing
 	$(GORUN) ./cmd/node --log-level="${LOG}" --redundancy-level=1 --working-directory=./db/db1  --p2p-seed=node1 --rest-api-interface=127.0.0.1:8091 --use-log-view #--log-save
 
-seednode:
+seednode: ## Run seednode for network bootstrap
 	$(GORUN) ./cmd/seednode --log-level=*:DEBUG --rest-api-interface=8081
 
-import-from-localdb:
+import-from-localdb: ## Import blockchain data from local database
 	$(GORUN) ./cmd/node --log-level="${LOG}" --use-log-view --import-db=./db/local --import-db-no-sig-check
 
 ############################
 ###       Key Tools      ###
 ############################
 .PHONY: newkey
-newkey:
+newkey: ## Generate new validator keys
 	$(GORUN) ./cmd/keygenerator
 
 
@@ -89,52 +97,60 @@ newkey:
 ###         BUILD        ###
 ############################
 
-.PHONY: build build-validator build-seenode build-operator build-keygenerator docker-build
-build: build-validator build-seenode build-operator build-keygenerator
+.PHONY: build build-validator build-seednode build-operator build-keygenerator docker-build clean
+build: build-validator build-seednode build-operator build-keygenerator ## Build all binaries
 
-build-validator:
+build-validator: ## Build validator node binary
 	$(GOBUILD) -o ./bin/validator ./cmd/node
 
-build-seenode:
+build-seednode: ## Build seednode binary
 	$(GOBUILD) -o ./bin/seednode ./cmd/seednode
 
-build-operator:
+build-operator: ## Build operator tools binary
 	$(GOBUILD) -o ./bin/operator ./cmd/operator
 
-build-keygenerator:
+build-keygenerator: ## Build key generator binary
 	$(GOBUILD) -o ./bin/keygenerator ./cmd/keygenerator
+
+clean: ## Remove build artifacts and caches
+	@echo "Cleaning build artifacts..."
+	@rm -rf ./bin/
+	@rm -rf ./vendor/
+	@go clean -testcache
+	@go clean -cache
+	@echo "Clean complete"
 
 docker-vendor:
 	go mod vendor
 	modvendor -copy="**/*.c **/*.h **/*.proto **/*.a" -v
 
-docker-build: docker-vendor
+docker-build: docker-vendor ## Build Docker image
 	echo "Building docker image for version ${VERSION}"
 	DOCKER_BUILDKIT=1 docker build --no-cache --pull --build-arg arg_version=${VERSION} -t kleverapp/klever-go:${FOR_DEV}${VERSION}${FOR_TESTNET} -t kleverapp/klever-go:${FOR_DEV}latest${FOR_TESTNET} -f docker/Dockerfile .
 
-docker-push:
+docker-push: ## Push Docker image to registry
 	docker push kleverapp/klever-go:${FOR_DEV}${VERSION}${FOR_TESTNET}
 
-docker-build-validator: docker-vendor
+docker-build-validator: docker-vendor ## Build validator-specific Docker image
 	DOCKER_BUILDKIT=1 docker build --no-cache --pull --build-arg arg_version=${VERSION} -t kleverapp/klever-go:val-${FOR_DEV}${VERSION}${FOR_TESTNET} -f docker/Dockerfile.validator .
 
-vm-generate-rs:
+vm-generate-rs: ## Generate VM hooks from Rust SDK
 	cd kvm/vmhost/vmhooks && go run generate/cmd/eiGenMain.go
 
 ############################
 ###    Test and Docs     ###
 ############################
 .PHONY: prepare ensure-dependencies gen-doc
-prepare:
+prepare: ## Install development dependencies
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install github.com/swaggo/swag/cmd/swag@latest
 	go install golang.org/x/tools/cmd/goimports@latest
 	go install github.com/goware/modvendor@latest
 
-ensure-dependencies:
+ensure-dependencies: ## Ensure Go dependencies are up to date
 	go mod tidy
 
-goimports:
+goimports: ## Format Go code and organize imports
 	@goimports -w -d $(shell find . -type f -name '*.go' \
 		! -name '*.pb.go' \
 		! -name '*_setter.go' \
@@ -146,51 +162,36 @@ goimports:
 		! -name 'gasCostWASM.go' \
 		! -path "./vendor/*")
 
-gen-doc:
+gen-doc: ## Generate Swagger API documentation
 	swag init -d ./cmd/node,./network/api -o ./docs --parseInternal --parseDependency --instanceName="node"
 
 runsc-trace:
 	rm -rf db
 	$(GORUN) ./cmd/node --use-log-view --log-level=*:INFO,process/block:DEBUG,process/transaction:DEBUG,process/transaction.smartcontract:TRACE,process/smartcontract:DEBUG,vm/host:TRACE,vm/metering:DEBUG
 
-run-consensus-trace:
-	$(GORUN) ./cmd/node --use-log-view --log-level=*:INFO,consensus/chronology:TRACE
-
-node1:
-	$(GORUN) ./cmd/node --log-level=*:DEBUG,ntp:INFO,debug/p2p:INFO,facade:INFO,sharding/networksharding:INFO,p2p/libp2p:INFO,basichost:INFO,dht:INFO,pubsub:INFO,heartbeat/process:INFO,statistics/machine:INFO,process/rating:INFO,consensus/chronology:INFO --validator-key-pem-file=./config/node/validatorKey1.pem --working-directory=./db/db1  --p2p-seed=node1 --rest-api-interface=127.0.0.1:8091 --use-log-view #--log-save
-
-node2:
-	$(GORUN) ./cmd/node --log-level=*:TRACE,ntp:INFO,debug/p2p:TRACE,facade:INFO,sharding/networksharding:INFO,p2p/libp2p:TRACE,basichost:INFO,dht:INFO,pubsub:INFO,heartbeat/process:INFO,statistics/machine:INFO,process/rating:INFO,consensus/chronology:INFO --validator-key-pem-file=./config/node/validatorKey2.pem --working-directory=./db/db2  --p2p-seed=node2 --rest-api-interface=127.0.0.1:8092 --use-log-view #--log-save
-
-node3:
-	$(GORUN) ./cmd/node --log-level=*:TRACE,ntp:INFO,debug/p2p:TRACE,facade:INFO,sharding/networksharding:INFO,p2p/libp2p:TRACE,basichost:INFO,dht:INFO,pubsub:INFO,heartbeat/process:INFO,statistics/machine:INFO,process/rating:INFO,consensus/chronology:INFO --validator-key-pem-file=./config/node/validatorKey3.pem --working-directory=./db/db3  --p2p-seed=node3 --rest-api-interface=127.0.0.1:8093 --use-log-view #--log-save
-
-
 ############################
 ###  Integration Tests   ###
 ############################
 
 .PHONY: tests tests-unit tests-integration tests-kvm tests-e2e
-tests: tests-unit tests-integration tests-kvm tests-e2e
+tests: tests-unit tests-integration tests-kvm tests-e2e ## Run all tests
 
-tests-unit:
+tests-unit: ## Run unit tests
 	go clean -testcache
 	go test ${VERBOSE} $(shell go list ./... | grep -v "integrationTest" | grep -v "kvm")
 
-tests-integration:
+tests-integration: ## Run integration tests
 	go clean -testcache
 	go test ${VERBOSE} ./integrationTest/...
 
-tests-kvm:
+tests-kvm: ## Run KVM (smart contract) tests
 	go clean -testcache
 	go test ${VERBOSE} -timeout 1500s ./kvm/...
 
-tests-e2e:
+tests-e2e: ## Run end-to-end tests
 	if [ ! -d klever-go-e2e ]; then git clone git@github.com:klever-io/klever-go-e2e.git; fi
 	cd klever-go-e2e && go mod tidy && make build && cd ..
 	klever-go-e2e/bin/klever-go-e2e --node="${E2E_NODE_URL}" --proxy="${E2E_PROXY_URL}"
 
-
-
-connector:
+connector: ## Run terminal UI connector
 	go run ./cmd/connector/main.go node --address="${NODE}" --log-level="${LOG}"
