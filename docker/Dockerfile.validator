@@ -66,7 +66,7 @@ WORKDIR ${KLEVER_HOME}
 
 # Add healthcheck
 HEALTHCHECK --interval=15s --timeout=10s --start-period=100s --retries=3 \
-    CMD if [ "$ENABLE_HEALTHCHECK" = "true" ]; then /usr/local/bin/healthcheck.sh; else exit 0; fi
+    CMD ["/bin/sh", "-c", "if [ \"$ENABLE_HEALTHCHECK\" = \"true\" ]; then /usr/local/bin/healthcheck.sh; else exit 0; fi"]
 
 # Add image metadata and security labels
 LABEL org.opencontainers.image.title="Klever Blockchain Validator Node" \
