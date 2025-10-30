@@ -1,16 +1,24 @@
-FROM golang:1.25-bookworm AS builder
+# syntax=docker/dockerfile:1
+FROM golang:1.25-trixie AS builder
 
 # NOSONAR
 COPY . /go/src/github.com/klever-io/klever-go
 
 WORKDIR /go/src/github.com/klever-io/klever-go
 
-ARG arg_version
+ARG arg_version=dev
 ENV VERSION=$arg_version
 
-RUN make build
+# Use cache mounts for faster incremental builds
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    make build
 
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
+
+# Redeclare ARG for second stage
+ARG arg_version=dev
+ENV VERSION=$arg_version
 
 # Install dependencies
 RUN apt-get update && \
@@ -61,8 +69,19 @@ WORKDIR ${KLEVER_HOME}
 HEALTHCHECK --interval=15s --timeout=10s --start-period=100s --retries=3 \
     CMD if [ "$ENABLE_HEALTHCHECK" = "true" ]; then /usr/local/bin/healthcheck.sh; else exit 0; fi
 
+# Add image metadata and security labels
+LABEL org.opencontainers.image.title="Klever Blockchain Node" \
+      org.opencontainers.image.description="Klever blockchain full node with all binaries" \
+      org.opencontainers.image.vendor="Klever" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/klever-io/klever-go" \
+      org.opencontainers.image.base.name="debian:trixie-slim"
+
+# Ensure proper graceful shutdown
+STOPSIGNAL SIGTERM
+
 # Use non-root user
 USER klever
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["/usr/local/bin/validator", "--use-log-view", "--log--save"]
+CMD ["/usr/local/bin/validator", "--use-log-view", "--log-save"]
