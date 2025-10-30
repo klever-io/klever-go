@@ -120,19 +120,13 @@ clean: ## Remove build artifacts and caches
 	@go clean -cache
 	@echo "Clean complete"
 
-docker-vendor:
-	go mod vendor
-	modvendor -copy="**/*.c **/*.h **/*.proto **/*.a" -v
+############################
+###    Docker Builds     ###
+############################
+# Docker-related targets are defined in docker/Makefile
+# This keeps the main Makefile focused on build and test targets
 
-docker-build: docker-vendor ## Build Docker image
-	echo "Building docker image for version ${VERSION}"
-	DOCKER_BUILDKIT=1 docker build --no-cache --pull --build-arg arg_version=${VERSION} -t kleverapp/klever-go:${FOR_DEV}${VERSION}${FOR_TESTNET} -t kleverapp/klever-go:${FOR_DEV}latest${FOR_TESTNET} -f docker/Dockerfile .
-
-docker-push: ## Push Docker image to registry
-	docker push kleverapp/klever-go:${FOR_DEV}${VERSION}${FOR_TESTNET}
-
-docker-build-validator: docker-vendor ## Build validator-specific Docker image
-	DOCKER_BUILDKIT=1 docker build --no-cache --pull --build-arg arg_version=${VERSION} -t kleverapp/klever-go:val-${FOR_DEV}${VERSION}${FOR_TESTNET} -f docker/Dockerfile.validator .
+include docker/Makefile
 
 vm-generate-rs: ## Generate VM hooks from Rust SDK
 	cd kvm/vmhost/vmhooks && go run generate/cmd/eiGenMain.go
