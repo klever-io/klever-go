@@ -10,9 +10,9 @@ import (
 // APIResolverStub -
 type APIResolverStub struct {
 	EstimateTransactionGasCalled func(tx *transaction.Transaction) (*transaction.CostResponse, error)
-	ExecuteSCQueryCalled          func(query *process.SCQuery) (*vmcommon.VMOutput, error)
-	StatusMetricsCalled           func() core.StatusMetricsHandler
-	GetTotalStakedValueCalled     func() (int64, error)
+	ExecuteSCQueryCalled         func(query *process.SCQuery) (*vmcommon.VMOutput, error)
+	StatusMetricsCalled          func() core.StatusMetricsHandler
+	GetTotalStakedValueCalled    func() (int64, error)
 }
 
 // EstimateTransactionGas -

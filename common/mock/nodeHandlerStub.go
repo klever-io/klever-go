@@ -18,7 +18,7 @@ import (
 // NodeHandlerStub - minimal stub for NodeHandler interface
 type NodeHandlerStub struct{}
 
-func (n *NodeHandlerStub) StartConsensus() error                          { return nil }
+func (n *NodeHandlerStub) StartConsensus() error { return nil }
 func (n *NodeHandlerStub) ValidateTransaction(*transaction.Transaction, bool) error {
 	return nil
 }
@@ -79,8 +79,8 @@ func (n *NodeHandlerStub) GetBlockByHash(string, bool) (*api.Block, error) { ret
 func (n *NodeHandlerStub) GetBlockByNonce(uint64, bool) (*api.Block, error) {
 	return nil, nil
 }
-func (n *NodeHandlerStub) SetRedundancy(int64) error               { return nil }
-func (n *NodeHandlerStub) GetRedundancy() int64                    { return 0 }
+func (n *NodeHandlerStub) SetRedundancy(int64) error { return nil }
+func (n *NodeHandlerStub) GetRedundancy() int64      { return 0 }
 func (n *NodeHandlerStub) GetEnableEpochs() (config.EnableEpochsConfig, error) {
 	return config.EnableEpochsConfig{}, nil
 }

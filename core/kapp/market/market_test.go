@@ -204,7 +204,7 @@ func TestMarketKApp_GetMarketplace(t *testing.T) {
 		marketplaceID := []byte("nonexistent")
 		kappAcc, marketplace, err := marketKApp.GetMarketplace(marketplaceID)
 		require.Error(t, err)
-		require.NotNil(t, kappAcc) // Returns kapp account even if not found
+		require.NotNil(t, kappAcc)     // Returns kapp account even if not found
 		require.NotNil(t, marketplace) // Returns empty struct when not found
 		require.Nil(t, marketplace.ID)
 	})
@@ -270,7 +270,7 @@ func TestMarketKApp_GetMarketOrder(t *testing.T) {
 		kappAcc, order, err := marketKApp.GetMarketOrder(orderID)
 		require.Error(t, err)
 		require.NotNil(t, kappAcc) // Returns kapp account even if not found
-		require.NotNil(t, order) // Returns empty struct when not found
+		require.NotNil(t, order)   // Returns empty struct when not found
 		require.Nil(t, order.ID)
 	})
 }
@@ -423,23 +423,23 @@ func TestMarketKApp_computeRoyaltiesFixedDeposit(t *testing.T) {
 	require.NoError(t, err)
 
 	marketOrder := &kapps.MarketOrderData{
-		ID:                      []byte("order-1"),
-		MarketplaceID:           []byte("marketplace-1"),
-		RoyaltiesFixedDeposit:   100000,
+		ID:                    []byte("order-1"),
+		MarketplaceID:         []byte("marketplace-1"),
+		RoyaltiesFixedDeposit: 100000,
 	}
 
 	asset := &kapps.KDAData{
 		Royalties: &kapps.RoyaltiesData{
-			Address:         defaultAddr,
-			SplitRoyalties:  make(map[string]*kapps.RoyaltySplitData),
+			Address:        defaultAddr,
+			SplitRoyalties: make(map[string]*kapps.RoyaltySplitData),
 		},
 	}
 
 	t.Run("ZeroRoyaltiesFixedDeposit", func(t *testing.T) {
 		orderZero := &kapps.MarketOrderData{
-			ID:                      []byte("order-zero"),
-			MarketplaceID:           []byte("marketplace-1"),
-			RoyaltiesFixedDeposit:   0,
+			ID:                    []byte("order-zero"),
+			MarketplaceID:         []byte("marketplace-1"),
+			RoyaltiesFixedDeposit: 0,
 		}
 		status, err := marketKApp.computeRoyaltiesFixedDeposit(ctx, orderZero, asset)
 		require.NoError(t, err)
@@ -448,9 +448,9 @@ func TestMarketKApp_computeRoyaltiesFixedDeposit(t *testing.T) {
 
 	t.Run("NegativeRoyaltiesFixedDeposit", func(t *testing.T) {
 		orderNeg := &kapps.MarketOrderData{
-			ID:                      []byte("order-neg"),
-			MarketplaceID:           []byte("marketplace-1"),
-			RoyaltiesFixedDeposit:   -100,
+			ID:                    []byte("order-neg"),
+			MarketplaceID:         []byte("marketplace-1"),
+			RoyaltiesFixedDeposit: -100,
 		}
 		status, err := marketKApp.computeRoyaltiesFixedDeposit(ctx, orderNeg, asset)
 		require.NoError(t, err)
@@ -506,9 +506,9 @@ func TestMarketKApp_computeRoyaltiesAmount(t *testing.T) {
 	asset := &kapps.KDAData{
 		OwnerAddress: defaultAddr,
 		Royalties: &kapps.RoyaltiesData{
-			Address:           defaultAddr,
-			MarketPercentage:  1000, // 10%
-			SplitRoyalties:    make(map[string]*kapps.RoyaltySplitData),
+			Address:          defaultAddr,
+			MarketPercentage: 1000, // 10%
+			SplitRoyalties:   make(map[string]*kapps.RoyaltySplitData),
 		},
 	}
 

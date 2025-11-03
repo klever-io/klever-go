@@ -18,10 +18,10 @@ func createMockArgNodeFacade() facade.ArgNodeFacade {
 		Node:        &mock.NodeHandlerStub{},
 		APIResolver: &mock.APIResolverStub{},
 		WsAntifloodConfig: config.WebServerAntifloodConfig{
-			SimultaneousRequests:          100,
-			SameSourceRequests:            10,
-			SameSourceResetIntervalInSec:  1,
-			EndpointsThrottlers:           []config.EndpointsThrottlersConfig{},
+			SimultaneousRequests:         100,
+			SameSourceRequests:           10,
+			SameSourceResetIntervalInSec: 1,
+			EndpointsThrottlers:          []config.EndpointsThrottlersConfig{},
 		},
 		FacadeConfig: config.FacadeConfig{
 			RestAPIInterface: "localhost:8080",

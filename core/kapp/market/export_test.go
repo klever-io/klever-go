@@ -39,4 +39,3 @@ func (m *marketKapp) ComputeMarketOwnerAmount(ctx kapp.KappContext, marketOrder 
 func (m *marketKapp) ExecuteBuyMarket(bidderAcc state.UserAccountHandler, marketKapp state.KAppAccountHandler, marketOrder *kapps.MarketOrderData, currencyID []byte) (transaction.Transaction_TXResultCode, error) {
 	return m.executeBuyMarket(bidderAcc, marketKapp, marketOrder, currencyID)
 }
-
