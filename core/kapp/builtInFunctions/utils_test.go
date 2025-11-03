@@ -194,6 +194,69 @@ func TestDecodeITOWhitelist(t *testing.T) {
 		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "extra bytes found in buffer")
 	})
+
+	t.Run("Error - Invalid length read", func(t *testing.T) {
+		data := []byte{0, 0, 0} // Incomplete length
+
+		result, err := DecodeITOWhitelist(data)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "unexpected EOF")
+	})
+
+	t.Run("Error - Max whitelist size exceeded", func(t *testing.T) {
+		// MaxWhitelistSize is 10000, so use 10001
+		data := []byte{
+			0, 0, 0x27, 0x11, // 10001 in big-endian - exceeds max (10001 > 10000)
+		}
+
+		result, err := DecodeITOWhitelist(data)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		// The function checks length > MaxWhitelistSize before trying to read data
+		// So we should get ErrMaxBytesExceeded
+		assert.ErrorIs(t, err, common.ErrMaxBytesExceeded)
+	})
+
+	t.Run("Error - Invalid address read", func(t *testing.T) {
+		data := []byte{
+			0, 0, 0, 1, // length of map
+			1, 2, 3, // Incomplete address (needs 32 bytes)
+		}
+
+		result, err := DecodeITOWhitelist(data)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "unexpected EOF")
+	})
+
+	t.Run("Error - Invalid limit read", func(t *testing.T) {
+		address := bytes.Repeat([]byte{1}, 32)
+		data := []byte{
+			0, 0, 0, 1, // length of map
+		}
+		data = append(data, address...)
+		data = append(data, 0, 0, 0) // Incomplete limit
+
+		result, err := DecodeITOWhitelist(data)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "unexpected EOF")
+	})
+
+	t.Run("Error - Invalid limit max length", func(t *testing.T) {
+		address := bytes.Repeat([]byte{1}, 32)
+		data := []byte{
+			0, 0, 0, 1, // length of map
+		}
+		data = append(data, address...)
+		data = append(data, 0, 0, 10, 0) // Invalid limit length
+
+		result, err := DecodeITOWhitelist(data)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Equal(t, common.ErrMaxBytesExceeded, err)
+	})
 }
 
 func TestDecodeURIs(t *testing.T) {
@@ -363,6 +426,122 @@ func TestDecodeRoyaltiesData(t *testing.T) {
 		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "extra bytes found in buffer")
 	})
+
+	t.Run("Error - Invalid address read", func(t *testing.T) {
+		testData := []byte{1, 2, 3} // Incomplete address
+
+		result, err := DecodeRoyaltiesData(testData)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "unexpected EOF")
+	})
+
+	t.Run("Error - Invalid transfer percentage length read", func(t *testing.T) {
+		testData := append([]byte(nil), address...)
+		testData = append(testData, 0, 0, 0) // Incomplete transfer percentage length (needs 4 bytes)
+
+		result, err := DecodeRoyaltiesData(testData)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "unexpected EOF")
+	})
+
+	t.Run("Error - Invalid transfer fixed length read", func(t *testing.T) {
+		testData := append([]byte(nil), address...)
+		testData = append(testData, []byte{
+			0, 0, 0, 0, // Empty TransferPercentage (length = 0)
+		}...)
+		testData = append(testData, 0, 0, 0) // Incomplete TransferFixed bigint length (needs 4 bytes)
+
+		result, err := DecodeRoyaltiesData(testData)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "unexpected EOF")
+	})
+
+	t.Run("Error - Invalid market percentage read", func(t *testing.T) {
+		testData := append([]byte(nil), address...)
+		testData = append(testData, []byte{
+			0, 0, 0, 0, // Empty TransferPercentage (length = 0)
+		}...)
+		testData = appendBigInt(testData, big.NewInt(200)) // TransferFixed - complete
+		testData = append(testData, 0, 0, 0)               // Incomplete MarketPercentage uint32 (needs 4 bytes)
+
+		result, err := DecodeRoyaltiesData(testData)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "unexpected EOF")
+	})
+
+	t.Run("Error - Invalid market fixed length read", func(t *testing.T) {
+		testData := append([]byte(nil), address...)
+		testData = append(testData, []byte{
+			0, 0, 0, 0, // Empty TransferPercentage (length = 0)
+		}...)
+		testData = appendBigInt(testData, big.NewInt(200)) // TransferFixed - complete
+		testData = append(testData, 0, 0, 0, 0x14)         // MarketPercentage - complete (20)
+		testData = append(testData, 0, 0, 0)               // Incomplete MarketFixed bigint length (needs 4 bytes)
+
+		result, err := DecodeRoyaltiesData(testData)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "unexpected EOF")
+	})
+
+	t.Run("Error - Invalid split royalties length read", func(t *testing.T) {
+		testData := append([]byte(nil), address...)
+		testData = append(testData, []byte{
+			0, 0, 0, 0, // Empty TransferPercentage (length = 0)
+		}...)
+		testData = appendBigInt(testData, big.NewInt(200)) // TransferFixed - complete
+		testData = append(testData, 0, 0, 0, 0x14)         // MarketPercentage - complete (20)
+		testData = appendBigInt(testData, big.NewInt(300)) // MarketFixed - complete
+		testData = append(testData, 0, 0, 0)               // Incomplete SplitRoyalties length (needs 4 bytes)
+
+		result, err := DecodeRoyaltiesData(testData)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "unexpected EOF")
+	})
+
+	t.Run("Error - Invalid ITO percentage read", func(t *testing.T) {
+		testData := append([]byte(nil), address...)
+		testData = append(testData, []byte{
+			0, 0, 0, 0, // Empty TransferPercentage (length = 0)
+		}...)
+		testData = appendBigInt(testData, big.NewInt(200)) // TransferFixed - complete
+		testData = append(testData, 0, 0, 0, 0x14)         // MarketPercentage - complete (20)
+		testData = appendBigInt(testData, big.NewInt(300)) // MarketFixed - complete
+		testData = append(testData, []byte{
+			0, 0, 0, 0, // Empty SplitRoyalties (length = 0)
+		}...)
+		testData = append(testData, 0, 0, 0) // Incomplete ITOPercentage uint32 (needs 4 bytes)
+
+		result, err := DecodeRoyaltiesData(testData)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "unexpected EOF")
+	})
+
+	t.Run("Error - Invalid ITO fixed length read", func(t *testing.T) {
+		testData := append([]byte(nil), address...)
+		testData = append(testData, []byte{
+			0, 0, 0, 0, // Empty TransferPercentage (length = 0)
+		}...)
+		testData = appendBigInt(testData, big.NewInt(200)) // TransferFixed - complete
+		testData = append(testData, 0, 0, 0, 0x14)         // MarketPercentage - complete (20)
+		testData = appendBigInt(testData, big.NewInt(300)) // MarketFixed - complete
+		testData = append(testData, []byte{
+			0, 0, 0, 0, // Empty SplitRoyalties (length = 0)
+		}...)
+		testData = append(testData, 0, 0, 0, 0x46) // ITOPercentage - complete (70)
+		testData = append(testData, 0, 0, 0)       // Incomplete ITOFixed bigint length (needs 4 bytes)
+
+		result, err := DecodeRoyaltiesData(testData)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "unexpected EOF")
+	})
 }
 
 // appendBigInt appends a big.Int to a byte slice in the format expected by DecodeRoyaltiesData
@@ -426,6 +605,48 @@ func TestEncodeAccountPermissionData(t *testing.T) {
 		assert.Equal(t, permissions[0].Signers[0].Weight, decodedPermissions[0].Signers[0].Weight)
 	})
 
+	t.Run("Success - Multiple permissions", func(t *testing.T) {
+		permissions := []*transaction.AccPermission{
+			{
+				Type:           transaction.AccPermission_Owner,
+				PermissionName: "Permission1",
+				Threshold:      100,
+				Operations:     []byte{1, 2, 3},
+				Signers: []*transaction.AccKey{
+					{
+						Address: bytes.Repeat([]byte{1}, 32),
+						Weight:  50,
+					},
+					{
+						Address: bytes.Repeat([]byte{2}, 32),
+						Weight:  30,
+					},
+				},
+			},
+			{
+				Type:           transaction.AccPermission_User,
+				PermissionName: "Permission2",
+				Threshold:      200,
+				Operations:     []byte{4, 5, 6},
+				Signers: []*transaction.AccKey{
+					{
+						Address: bytes.Repeat([]byte{3}, 32),
+						Weight:  100,
+					},
+				},
+			},
+		}
+
+		result, err := EncodeAccountPermissionData(permissions)
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+
+		// Decode the result to verify
+		decodedPermissions, err := DecodeAccountPermissionData(result)
+		assert.NoError(t, err)
+		assert.Len(t, decodedPermissions, 2)
+	})
+
 	t.Run("Error - Invalid address length", func(t *testing.T) {
 		permissions := []*transaction.AccPermission{
 			{
@@ -477,6 +698,115 @@ func TestDecodeAccountPermissionData(t *testing.T) {
 		result, err := DecodeAccountPermissionData(data)
 		assert.Error(t, err)
 		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "EOF")
+	})
+
+	t.Run("Error - Invalid permission type read", func(t *testing.T) {
+		data := []byte{
+			0, 0, 0, 1, // 1 permission
+			// Missing permission type
+		}
+		result, err := DecodeAccountPermissionData(data)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "EOF")
+	})
+
+	t.Run("Error - Invalid permission name read", func(t *testing.T) {
+		data := []byte{
+			0, 0, 0, 1, // 1 permission
+			1,       // permission type
+			0, 0, 0, // Incomplete name length
+		}
+		result, err := DecodeAccountPermissionData(data)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "EOF")
+	})
+
+	t.Run("Error - Invalid threshold read", func(t *testing.T) {
+		data := []byte{
+			0, 0, 0, 1, // 1 permission
+			1,          // permission type
+			0, 0, 0, 4, // name length
+			'n', 'a', 'm', 'e',
+			0, 0, 0, // Incomplete threshold
+		}
+		result, err := DecodeAccountPermissionData(data)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "EOF")
+	})
+
+	t.Run("Error - Invalid operations read", func(t *testing.T) {
+		data := []byte{
+			0, 0, 0, 1, // 1 permission
+			1,          // permission type
+			0, 0, 0, 4, // name length
+			'n', 'a', 'm', 'e',
+			0, 0, 0, 0, 0, 0, 0, 100, // threshold
+			0, 0, 0, // Incomplete operations length
+		}
+		result, err := DecodeAccountPermissionData(data)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "EOF")
+	})
+
+	t.Run("Error - Invalid signers read", func(t *testing.T) {
+		data := []byte{
+			0, 0, 0, 1, // 1 permission
+			1,          // permission type
+			0, 0, 0, 4, // name length
+			'n', 'a', 'm', 'e',
+			0, 0, 0, 0, 0, 0, 0, 100, // threshold
+			0, 0, 0, 4, // operations length
+			'0', '1', '0', '2', // operations hex
+			0, 0, 0, // Incomplete signers length
+		}
+		result, err := DecodeAccountPermissionData(data)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "EOF")
+	})
+
+	t.Run("Error - Invalid signer address read", func(t *testing.T) {
+		data := []byte{
+			0, 0, 0, 1, // 1 permission
+			1,          // permission type
+			0, 0, 0, 4, // name length
+			'n', 'a', 'm', 'e',
+			0, 0, 0, 0, 0, 0, 0, 100, // threshold
+			0, 0, 0, 4, // operations length
+			'0', '1', '0', '2', // operations hex
+			0, 0, 0, 1, // 1 signer
+			1, 2, 3, // Incomplete address
+		}
+		result, err := DecodeAccountPermissionData(data)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "EOF")
+	})
+
+	t.Run("Error - Invalid signer weight read", func(t *testing.T) {
+		address := bytes.Repeat([]byte{1}, 32)
+		data := []byte{
+			0, 0, 0, 1, // 1 permission
+			1,          // permission type
+			0, 0, 0, 4, // name length
+			'n', 'a', 'm', 'e',
+			0, 0, 0, 0, 0, 0, 0, 100, // threshold
+			0, 0, 0, 4, // operations length
+			'0', '1', '0', '2', // operations hex
+			0, 0, 0, 1, // 1 signer
+		}
+		data = append(data, address...)
+		data = append(data, 0, 0, 0) // Incomplete weight
+
+		result, err := DecodeAccountPermissionData(data)
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Contains(t, err.Error(), "EOF")
 	})
 }
 
@@ -551,6 +881,45 @@ func TestWriteAndReadHelpers(t *testing.T) {
 		value, err := readString(reader)
 		require.Error(t, err)
 		assert.Equal(t, "", value)
+	})
+
+	t.Run("readUint8 - Success", func(t *testing.T) {
+		buf := bytes.NewReader([]byte{255})
+		value, err := readUint8(buf)
+		require.NoError(t, err)
+		assert.Equal(t, uint8(255), value)
+	})
+
+	t.Run("readUint8 - Error", func(t *testing.T) {
+		buf := bytes.NewReader([]byte{})
+		value, err := readUint8(buf)
+		require.Error(t, err)
+		assert.Equal(t, uint8(0), value)
+	})
+
+	t.Run("readUint32 - Error", func(t *testing.T) {
+		buf := bytes.NewReader([]byte{0, 0, 0}) // Missing one byte
+		value, err := readUint32(buf)
+		require.Error(t, err)
+		assert.Equal(t, uint32(0), value)
+	})
+
+	t.Run("writeInt32 and readInt32", func(t *testing.T) {
+		buf := new(bytes.Buffer)
+		err := writeInt32(buf, -12345)
+		require.NoError(t, err)
+
+		reader := bytes.NewReader(buf.Bytes())
+		value, err := readInt32(reader)
+		require.NoError(t, err)
+		assert.Equal(t, int32(-12345), value)
+	})
+
+	t.Run("readInt32 - Error", func(t *testing.T) {
+		buf := bytes.NewReader([]byte{0, 0, 0}) // Missing one byte
+		value, err := readInt32(buf)
+		require.Error(t, err)
+		assert.Equal(t, int32(0), value)
 	})
 }
 
