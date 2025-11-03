@@ -93,19 +93,6 @@ func createTestMarketKApp(t *testing.T) (*marketKapp, state.AccountsCacher, *moc
 	return marketKApp, accCacher, forkController
 }
 
-// receiptsContextStub is a simple stub for testing receipt collection
-type receiptsContextStub struct {
-	receipts []*transaction.Transaction_Receipt
-}
-
-func (r *receiptsContextStub) Get() []*transaction.Transaction_Receipt {
-	return r.receipts
-}
-
-func (r *receiptsContextStub) Add(receipt *transaction.Transaction_Receipt) {
-	r.receipts = append(r.receipts, receipt)
-}
-
 func TestNewMarketKApp(t *testing.T) {
 	t.Parallel()
 
@@ -358,9 +345,7 @@ func TestMarketKApp_computeReferralAmount(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create KApp context with receipts mock
-	receiptsStub := &receiptsContextStub{
-		receipts: make([]*transaction.Transaction_Receipt, 0),
-	}
+	receiptsStub := mock.NewReceiptsContextStub()
 	ctx := &mock.KAppContextStub{
 		ContractIDCalled: func() int {
 			return 1
@@ -421,9 +406,7 @@ func TestMarketKApp_computeRoyaltiesFixedDeposit(t *testing.T) {
 	marketKApp, accCacher, _ := createTestMarketKApp(t)
 
 	// Create KApp context with receipts mock
-	receiptsStub := &receiptsContextStub{
-		receipts: make([]*transaction.Transaction_Receipt, 0),
-	}
+	receiptsStub := mock.NewReceiptsContextStub()
 	ctx := &mock.KAppContextStub{
 		ContractIDCalled: func() int {
 			return 1
@@ -498,9 +481,7 @@ func TestMarketKApp_computeRoyaltiesAmount(t *testing.T) {
 	forkController.KdaFprValue = true
 
 	// Create KApp context with receipts mock
-	receiptsStub := &receiptsContextStub{
-		receipts: make([]*transaction.Transaction_Receipt, 0),
-	}
+	receiptsStub := mock.NewReceiptsContextStub()
 	ctx := &mock.KAppContextStub{
 		ContractIDCalled: func() int {
 			return 1
