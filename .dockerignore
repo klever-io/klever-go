@@ -1,6 +1,7 @@
 # Version control
 .git
 .gitignore
+.gitattributes
 
 # Build artifacts
 bin/
@@ -13,12 +14,15 @@ build/
 
 # Test files
 *_test.go
+coverage/
+*.out
 
 # IDE and editor files
 .vscode/
 .idea/
 *.swp
 *.swo
+*.sublime-*
 
 # Logs
 *.log
@@ -27,6 +31,7 @@ logs/
 # OS generated files
 .DS_Store
 Thumbs.db
+*.bak
 
 # Sensitive or environment-specific files
 .env
@@ -34,10 +39,25 @@ Thumbs.db
 *.pem*
 *.key
 *_rsa
+credentials/
 
 # Docker files (to prevent recursion)
-Dockerfile
+Dockerfile*
 .dockerignore
+docker-compose*.yml
+
+# Documentation
+*.md
+!README.md
+
+# CI/CD
+.github/
+
+# Development and testing
+playground/
+klever-go-e2e/
+check_ports.sh
+*_local*
 
 # Any other sensitive or unnecessary directories/files
 secrets/
@@ -45,5 +65,6 @@ tmp/
 .cache
 *.tar*
 *.zip
+*.gz
 dbs/
 db/

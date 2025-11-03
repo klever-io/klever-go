@@ -1,0 +1,126 @@
+# syntax=docker/dockerfile:1
+FROM golang:1.25-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache \
+    g++ \
+    gcc \
+    git \
+    make \
+    musl-dev
+
+# NOSONAR
+COPY . /go/src/github.com/klever-io/klever-go
+
+WORKDIR /go/src/github.com/klever-io/klever-go
+
+ARG arg_version=dev
+ENV VERSION=$arg_version
+
+# Get target architecture from buildx
+ARG TARGETARCH
+
+# Replace glibc Wasmer2 library with musl version for Alpine
+# AMD64: libvmexeccapi-musl.so -> libvmexeccapi.so
+# ARM64: libvmexeccapi_arm-musl.so -> libvmexeccapi_arm.so
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        cp -f kvm/wasmer2/libvmexeccapi_arm-musl.so kvm/wasmer2/libvmexeccapi_arm.so; \
+    else \
+        cp -f kvm/wasmer2/libvmexeccapi-musl.so kvm/wasmer2/libvmexeccapi.so; \
+    fi
+
+# Force clean build to ensure Go 1.25 binaries
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    rm -rf ./bin/* && make build
+
+FROM alpine:3.19
+
+# Redeclare ARG for second stage
+ARG arg_version=dev
+ENV VERSION=$arg_version
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    bash \
+    ca-certificates \
+    coreutils \
+    curl \
+    findutils \
+    grep \
+    libgcc \
+    libstdc++ \
+    su-exec \
+    tzdata && \
+    update-ca-certificates
+
+# Create a non-root user with configurable UID/GID
+# Note: Alpine's ping group already uses GID 999, so we add user to ping group
+ARG USER_ID=999
+ARG GROUP_ID=999
+RUN adduser -u ${USER_ID} -S klever -G ping -h /home/klever
+
+# Set up directories and permissions
+ENV KLEVER_HOME=/opt/klever-blockchain
+ENV KLEVER_DIRS="stats db logs config compiledSCStorage"
+
+RUN mkdir -p ${KLEVER_HOME} && \
+    for dir in ${KLEVER_DIRS}; do \
+        mkdir -p "${KLEVER_HOME}/${dir}"; \
+        chown klever:ping "${KLEVER_HOME}/${dir}"; \
+        chmod 0750 "${KLEVER_HOME}/${dir}"; \
+    done && \
+    chown klever:ping ${KLEVER_HOME} && \
+    chmod 0750 ${KLEVER_HOME}
+
+# Get target architecture for runtime stage
+ARG TARGETARCH
+
+#  Copy binaries and config
+COPY --from=builder --chown=root:ping --chmod=550 /go/src/github.com/klever-io/klever-go/bin/* /usr/local/bin/
+
+# Copy the correct musl library for the target architecture
+# AMD64: libvmexeccapi.so -> /usr/local/lib/libvmexeccapi.so
+# ARM64: libvmexeccapi_arm.so -> /usr/local/lib/libvmexeccapi_arm.so
+RUN --mount=type=bind,from=builder,source=/go/src/github.com/klever-io/klever-go/kvm/wasmer2,target=/tmp/wasmer2 \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        cp /tmp/wasmer2/libvmexeccapi_arm-musl.so /usr/local/lib/libvmexeccapi_arm.so && \
+        chmod 444 /usr/local/lib/libvmexeccapi_arm.so; \
+    else \
+        cp /tmp/wasmer2/libvmexeccapi-musl.so /usr/local/lib/libvmexeccapi.so && \
+        chmod 444 /usr/local/lib/libvmexeccapi.so; \
+    fi
+
+COPY --chown=root:ping --chmod=440 config/seednode/config.yaml ${KLEVER_HOME}/config/seednode/config.yaml
+
+# Copy scripts (Alpine-compatible versions)
+COPY --chown=root:ping --chmod=550 docker/entrypoint.alpine.sh /usr/local/bin/entrypoint.sh
+COPY --chown=root:ping --chmod=550 docker/healthcheck.alpine.sh /usr/local/bin/healthcheck.sh
+
+# Set environment variables
+ENV ENABLE_HEALTHCHECK=false
+ENV STALE_THRESHOLD=20
+
+# Set working directory
+WORKDIR ${KLEVER_HOME}
+
+# Add healthcheck
+HEALTHCHECK --interval=15s --timeout=10s --start-period=100s --retries=3 \
+    CMD ["/bin/sh", "-c", "if [ \"$ENABLE_HEALTHCHECK\" = \"true\" ]; then /usr/local/bin/healthcheck.sh; else exit 0; fi"]
+
+# Add image metadata and security labels
+LABEL org.opencontainers.image.title="Klever Blockchain Node (Alpine)" \
+      org.opencontainers.image.description="Klever blockchain full node - Alpine Linux variant (minimal size)" \
+      org.opencontainers.image.vendor="Klever" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/klever-io/klever-go" \
+      org.opencontainers.image.base.name="alpine:3.19"
+
+# Ensure proper graceful shutdown
+STOPSIGNAL SIGTERM
+
+# Use non-root user
+USER klever
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["/usr/local/bin/validator", "--use-log-view", "--log-save"]

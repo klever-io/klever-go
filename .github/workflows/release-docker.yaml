@@ -17,7 +17,18 @@ on:
         description: 'Push Latest Image'
         required: false
         default: false
-    
+      flavor:
+        type: choice
+        description: 'Image Flavor'
+        required: true
+        default: 'all'
+        options:
+          - all
+          - full-debian
+          - validator-debian
+          - full-alpine
+          - validator-alpine
+
 jobs:
   setup-and-lint:
     uses: ./.github/workflows/go-setup-lint.yaml
@@ -28,50 +39,86 @@ jobs:
       git-user: ${{ secrets.GIT_USER }}
       git-pass: ${{ secrets.GIT_PASS }}
 
-  build:
+  build-multi-arch:
     needs: [setup-and-lint]
     runs-on: klever-pipe
+    strategy:
+      matrix:
+        include:
+          - flavor: full-debian
+            dockerfile: docker/Dockerfile
+            target: docker-buildx-full
+            enabled: ${{ github.event.inputs.flavor == 'all' || github.event.inputs.flavor == 'full-debian' }}
+          - flavor: validator-debian
+            dockerfile: docker/Dockerfile.validator
+            target: docker-buildx-validator
+            enabled: ${{ github.event.inputs.flavor == 'all' || github.event.inputs.flavor == 'validator-debian' }}
+          - flavor: full-alpine
+            dockerfile: docker/Dockerfile.alpine
+            target: docker-buildx-alpine-full
+            enabled: ${{ github.event.inputs.flavor == 'all' || github.event.inputs.flavor == 'full-alpine' }}
+          - flavor: validator-alpine
+            dockerfile: docker/Dockerfile.alpine.validator
+            target: docker-buildx-alpine-validator
+            enabled: ${{ github.event.inputs.flavor == 'all' || github.event.inputs.flavor == 'validator-alpine' }}
+
     steps:
       - name: Checkout repository
+        if: ${{ matrix.enabled }}
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Go Setup
+        if: ${{ matrix.enabled }}
         uses: ./.github/actions/go-setup-action
         with:
           go-version: ${{ vars.GO_VERSION || '1.25' }}
 
+      - name: Set up QEMU
+        if: ${{ matrix.enabled }}
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Set up Docker Buildx
+        if: ${{ matrix.enabled }}
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+            network=host
+
       - name: Login to Docker Hub
+        if: ${{ matrix.enabled }}
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_REGISTRY_USER }}
           password: ${{ secrets.DOCKER_REGISTRY_PASSWORD }}
 
-      - name: Set env and build docker image
+      - name: Set environment variables
+        if: ${{ matrix.enabled }}
         env:
           LABEL: ${{ github.event.inputs.label }}
+          LATEST: ${{ github.event.inputs.latest }}
         run: |
           if [[ $LABEL == 'testnet' ]]; then
-            export FOR_TESTNET=1
+            echo "FOR_TESTNET=-testnet" >> $GITHUB_ENV
           elif [[ $LABEL == 'devnet' ]]; then
-            export FOR_DEV=1
+            echo "FOR_DEV=dev-" >> $GITHUB_ENV
           fi
+          if [[ $LATEST == 'true' ]]; then
+            echo "PUSH_LATEST=1" >> $GITHUB_ENV
+          fi
+
+      - name: Install dependencies
+        if: ${{ matrix.enabled }}
+        run: |
           export PATH="$PATH:$(go env GOPATH)/bin"
           go install github.com/goware/modvendor@latest
-          make docker-build
-          make docker-push
-    
-      - name: Push latest image
-        env:
-          LABEL: ${{ github.event.inputs.label }}
-        if: ${{ github.event.inputs.latest == 'true' }}
+
+      - name: Build and push multi-arch image
+        if: ${{ matrix.enabled }}
         run: |
-          if [[ $LABEL == 'devnet' ]]; then
-            docker push kleverapp/klever-go:dev-latest
-          elif [[ $LABEL == 'testnet' ]]; then
-            docker push kleverapp/klever-go:latest-testnet
-          elif [[ $LABEL == 'mainnet' ]]; then
-            docker push kleverapp/klever-go:latest
-          fi
+          make ${{ matrix.target }}
 
