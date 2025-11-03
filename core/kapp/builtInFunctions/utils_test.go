@@ -255,7 +255,7 @@ func TestDecodeITOWhitelist(t *testing.T) {
 		result, err := DecodeITOWhitelist(data)
 		assert.Error(t, err)
 		assert.Nil(t, result)
-		assert.Equal(t, common.ErrMaxBytesExceeded, err)
+		assert.ErrorIs(t, err, common.ErrMaxBytesExceeded)
 	})
 }
 

@@ -223,7 +223,7 @@ func TestGetNodeOverview(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Equal(t, "testnet", overview.ChainID)
-		require.Equal(t, int64(250), overview.BaseTxSize) // core.BaseTxSize constant
+		require.Equal(t, int64(core.BaseTxSize), overview.BaseTxSize) // core.BaseTxSize constant
 		require.Equal(t, int64(10), overview.EpochNumber)
 		require.Equal(t, int64(1000), overview.Nonce)
 		require.Equal(t, int64(250), overview.CurrentSlot)

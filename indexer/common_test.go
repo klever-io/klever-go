@@ -976,10 +976,3 @@ func Test_receiptToMap(t *testing.T) {
 		require.Equal(t, "klv1account", result["address"])
 	})
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
