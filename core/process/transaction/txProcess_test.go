@@ -266,6 +266,10 @@ func loadPeerAccount(peersDB state.AccountsCacher, address []byte) state.PeerAcc
 }
 
 func initKLVAndKFIintoKapps(kdaKapp, stakingKapp state.KAppAccountHandler) {
+	initKLVAndKFIintoKappsWithTime(kdaKapp, stakingKapp, time.Now().AddDate(0, 0, -10).Unix())
+}
+
+func initKLVAndKFIintoKappsWithTime(kdaKapp, stakingKapp state.KAppAccountHandler, aprTimestamp int64) {
 	klvKey := kdautils.ToKDAKey(kdautils.KLVIdentifier, nil)
 	kfiKey := kdautils.ToKDAKey(kdautils.KFIIdentifier, nil)
 	aprKey := kdautils.ToKDAKey([]byte("APR"), nil)
@@ -304,7 +308,7 @@ func initKLVAndKFIintoKapps(kdaKapp, stakingKapp state.KAppAccountHandler) {
 		TotalStaked:  0,
 		APR: []*kapps.APRData{
 			{
-				Timestamp: time.Now().AddDate(0, 0, -10).Unix(),
+				Timestamp: aprTimestamp,
 				Epoch:     0,
 				Value:     1000,
 			},
@@ -2452,9 +2456,13 @@ func TestTxProcessor_ProcessClaimStakingShouldWork(t *testing.T) {
 	kdaKapp := loadKAppAccount(accCacher, kapps.KDAKAppAddress)
 	stakingKapp := loadKAppAccount(accCacher, kapps.StakingKAppAddress)
 
-	initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
+	// Use fixed timestamp for deterministic test
+	// 10 days ago from a reference point
+	baseTime := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	epoch0Time := baseTime.Unix()
 
-	epoch0Time := time.Now().AddDate(0, 0, -10).Unix()
+	// Initialize with deterministic timestamp for APR
+	initKLVAndKFIintoKappsWithTime(kdaKapp, stakingKapp, epoch0Time)
 
 	_ = ownerAcc.AddToBalance(1000000, kdautils.KLVIdentifier, true)
 
@@ -2476,11 +2484,11 @@ func TestTxProcessor_ProcessClaimStakingShouldWork(t *testing.T) {
 	APR_BALANCE := int64(1000000)
 	APR_FROZEN := int64(20_000_000_000_000_000)
 	APR := float64(1000) / float64(core.HundredPercent)
-	v, err := time.ParseDuration("241h")
-	require.Nil(t, err)
-	COMPUTE_TIME := float64(v.Seconds())
+
+	// Deterministic time calculation: 10 days + 1 hour (from block header)
+	claimTime := baseTime.Add(10*24*time.Hour + time.Hour)
+	COMPUTE_TIME := float64(claimTime.Unix() - epoch0Time)
 	APR_REWARDS := int64(COMPUTE_TIME * float64(APR_FROZEN) * APR / float64(core.OneYearTimestamp))
-	fmt.Println("reqrads", APR_REWARDS)
 	userKDA_APR := kapps.UserKDA{
 		Balance:       APR_BALANCE,
 		LastClaim:     &kapps.LastClaim{Epoch: 0, Timestamp: epoch0Time},
@@ -2528,7 +2536,8 @@ func TestTxProcessor_ProcessClaimStakingShouldWork(t *testing.T) {
 	execTx := NewTXProcessor(t, args)
 
 	block := createBlockHeader()
-
+	// Set deterministic timestamp for block (10 days + 1 hour from epoch0Time)
+	block.Header.Timestamp = claimTime.Unix()
 	block.Header.Epoch = 8
 
 	klvClaim := transaction.ClaimContract{
