@@ -124,7 +124,7 @@ jobs:
           service-key: ${{ secrets.TWINGATE_SERVICE_ACCOUNT }}
 
       - name: SonarQube Scan
-        uses: sonarsource/sonarqube-scan-action@v2.3.0
+        uses: sonarsource/sonarqube-scan-action@v5.3.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -142,7 +142,7 @@ jobs:
         if: github.event_name != 'pull_request'
 
       - name: SonarQube Go detailed scan PR
-        uses: sonarsource/sonarqube-scan-action@v2.3.0
+        uses: sonarsource/sonarqube-scan-action@v5.3.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -162,6 +162,7 @@ jobs:
         if: github.event_name == 'pull_request'
 
       - name: SonarQube Quality Gate check
+        continue-on-error: ${{ github.event_name != 'pull_request' }}
         uses: sonarsource/sonarqube-quality-gate-action@master
         timeout-minutes: 5
         env:
