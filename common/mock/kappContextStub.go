@@ -10,6 +10,7 @@ import (
 var _ kapp.KappContext = (*KAppContextStub)(nil)
 
 type KAppContextStub struct {
+	ReceiptsValue               kapp.ReceiptsContext
 	OriginalSenderCalled        func() []byte
 	ReceiptsCalled              func() kapp.ReceiptsContext
 	ContractIDCalled            func() int
@@ -39,7 +40,7 @@ func (k *KAppContextStub) Receipts() kapp.ReceiptsContext {
 	if k.ReceiptsCalled != nil {
 		return k.ReceiptsCalled()
 	}
-	return nil
+	return k.ReceiptsValue
 }
 
 func (k *KAppContextStub) ContractID() int {

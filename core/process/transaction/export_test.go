@@ -3,7 +3,6 @@ package transaction
 import (
 	"math/big"
 
-	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
@@ -99,8 +98,8 @@ func (txProc *TxProcessorExportTest) SetAccountsCacher(accountsCacher state.Acco
 	txProc.accountsCacher = accountsCacher
 }
 
-func (txProc *TxProcessorExportTest) GetAccountsCacher() *mock.AccountsCacherStub {
-	return txProc.accountsCacher.(*mock.AccountsCacherStub)
+func (txProc *TxProcessorExportTest) GetAccountsCacher() state.AccountsCacher {
+	return txProc.accountsCacher
 }
 
 func (txProc *TxProcessorExportTest) CheckTxValues(tx *transaction.Transaction, acntSnd state.UserAccountHandler, txHash []byte) error {
@@ -111,8 +110,8 @@ func (txProc *TxProcessorExportTest) SetEconomicsFee(economicsFee process.Econom
 	txProc.economicsFee = economicsFee
 }
 
-func (txProc *TxProcessorExportTest) GetEconomicsFee() *mock.EconomicsHandlerStub {
-	return txProc.economicsFee.(*mock.EconomicsHandlerStub)
+func (txProc *TxProcessorExportTest) GetEconomicsFee() process.EconomicsDataHandler {
+	return txProc.economicsFee
 }
 
 func (txProc *TxProcessorExportTest) ValidatePermissionOperation(tx *transaction.Transaction, permission *state.Permission, txHash []byte) ([][]byte, error) {
