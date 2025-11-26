@@ -31,6 +31,11 @@ const (
 	VALIDATOR_BLS_PREFIX = "BLS"
 	VALIDATOR_BUCKETS    = "VALB"
 	PENDING_REWARDS      = "PREW"
+
+	// MaxBucketsPerValidator limits the number of delegator buckets per validator
+	// to prevent exceeding the MaxLeafSize (786KB) storage limit.
+	// Each bucket is ~142 bytes serialized, so 4500 buckets ≈ 639KB (safe margin).
+	MaxBucketsPerValidator = 4500
 )
 
 type validatorActionType uint8
@@ -559,6 +564,15 @@ func (v *validatorsKApp) delegate(
 
 	// must use string to marshal proto map due UTF8 issue
 	encodedBucketID := hex.EncodeToString(bucketID)
+
+	// Check if adding a new bucket would exceed the maximum limit
+	// (skip check if bucket already exists - it's a re-delegation)
+	// Only enforced after EpochRewardsV2 fork to maintain consensus during upgrade
+	if v.forkController.EpochRewardsV2() {
+		if _, exists := pd.Buckets[encodedBucketID]; !exists && len(pd.Buckets) >= MaxBucketsPerValidator {
+			return common.ErrValidatorMaxDelegatorsReached
+		}
+	}
 
 	pd.Buckets[encodedBucketID] = &PeerBucket{
 		DelegatedAt:      blockTime,

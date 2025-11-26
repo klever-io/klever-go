@@ -21,6 +21,11 @@ import (
 
 var _ kapp.ProposalKapp = (*proposalKapp)(nil)
 
+// MaxVotersPerProposal limits the number of unique voters per proposal
+// to prevent exceeding the MaxLeafSize (786KB) storage limit.
+// Each voter entry is ~100 bytes serialized, so 7000 voters ≈ 700KB (safe margin).
+const MaxVotersPerProposal = 7000
+
 type proposalKapp struct {
 	hasher         hashing.Hasher
 	marshalizer    marshal.Marshalizer
@@ -384,6 +389,15 @@ func (p *proposalKapp) Vote(sender []byte, tc *transaction.VoteContract) (transa
 
 	// must use string to marshal proto map due UTF8 issue
 	encodedAddr := hex.EncodeToString(sender)
+
+	// Check if adding a new voter would exceed the maximum limit
+	// (skip check if voter already exists - it's a vote update)
+	// Only enforced after EpochRewardsV2 fork to maintain consensus during upgrade
+	if p.forkController.EpochRewardsV2() {
+		if _, exists := proposal.Voters[encodedAddr]; !exists && len(proposal.Voters) >= MaxVotersPerProposal {
+			return transaction.Transaction_ParameterInvalid, common.ErrProposalMaxVotersReached
+		}
+	}
 
 	oldAmount := int64(0)
 	if v, ok := proposal.Voters[encodedAddr]; ok && v != nil {
