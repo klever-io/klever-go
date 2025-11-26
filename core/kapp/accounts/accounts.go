@@ -1581,6 +1581,25 @@ func (a *accountsKapp) ClaimStaking(sender []byte, tc *transaction.ClaimContract
 	return transaction.Transaction_Ok, nil
 }
 
+func (a *accountsKapp) transferPendingRewardsToAllowance(sender []byte, ownerAcc state.UserAccountHandler) (transaction.Transaction_TXResultCode, error) {
+	if !a.forkController.EpochRewardsV2() {
+		return transaction.Transaction_Ok, nil
+	}
+
+	pendingRewards, err := a.KAppController.GetValidatorsKApp().ClaimPendingRewards(sender)
+	if err != nil {
+		return transaction.Transaction_ClaimError, err
+	}
+
+	if pendingRewards > 0 {
+		if err = ownerAcc.AddToAllowance(pendingRewards); err != nil {
+			return transaction.Transaction_ClaimError, err
+		}
+	}
+
+	return transaction.Transaction_Ok, nil
+}
+
 func (a *accountsKapp) ClaimAllowance(sender []byte, tc *transaction.ClaimContract) (transaction.Transaction_TXResultCode, error) {
 	ctx := a.KAppController.GetCurrentKAppContext()
 
@@ -1604,26 +1623,15 @@ func (a *accountsKapp) ClaimAllowance(sender []byte, tc *transaction.ClaimContra
 	}
 
 	// V2 Epoch Rewards: Transfer pending rewards to allowance before claiming
-	if a.forkController.EpochRewardsV2() {
-		pendingRewards, err := a.KAppController.GetValidatorsKApp().ClaimPendingRewards(sender)
-		if err != nil {
-			return transaction.Transaction_ClaimError, err
-		}
-		if pendingRewards > 0 {
-			err = ownerAcc.AddToAllowance(pendingRewards)
-			if err != nil {
-				return transaction.Transaction_ClaimError, err
-			}
-		}
+	if resultCode, err := a.transferPendingRewardsToAllowance(sender, ownerAcc); err != nil {
+		return resultCode, err
 	}
 
 	gains, err := a.ClaimBalance(transaction.ClaimContract_AllowanceClaim, kdautils.KLVIdentifier, ctx.Block(), ownerAcc, nil, nil, userKDA)
 	if err != nil {
-		var resultCode transaction.Transaction_TXResultCode
+		resultCode := transaction.Transaction_ClaimError
 		if err == common.ErrMaxSupplyExceeded {
 			resultCode = transaction.Transaction_MaxSupplyExceeded
-		} else {
-			resultCode = transaction.Transaction_ClaimError
 		}
 		return resultCode, err
 	}
