@@ -501,12 +501,12 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpochV2(currentEpoch uint32, valid
 		totalUnDelegated := int64(0)
 		selfDelegated := int64(0)
 		keysToDelete := make([]string, 0, len(pd.Buckets))
-		delegationAddrCache := make(map[string]string, len(pd.Buckets))
 
 		// Process buckets for this validator
 		for key, delegation := range pd.Buckets {
 			delegationValue := delegation.GetValue()
-			delegatedEpoch := delegation.DelegatedEpoch
+			originalDelegatedEpoch := delegation.DelegatedEpoch
+			delegatedEpoch := originalDelegatedEpoch
 			undelegatedEpoch := delegation.UndelegatedEpoch
 
 			if fixDelegationSameEpoch {
@@ -519,20 +519,17 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpochV2(currentEpoch uint32, valid
 				delegatedEpoch += 1
 			}
 
-			delegatorAddrStr, exists := delegationAddrCache[key]
-			if !exists {
-				delegatorAddrStr = string(delegation.GetAddress())
-				delegationAddrCache[key] = delegatorAddrStr
-			}
+			delegatorAddrStr := string(delegation.GetAddress())
 
-			// check self staking
-			if (delegatedEpoch == 0 || delegatedEpoch < currentEpoch) &&
+			// check self staking (use original epoch to match V1 behavior)
+			if (originalDelegatedEpoch == 0 || originalDelegatedEpoch < currentEpoch) &&
 				delegatorAddrStr == validatorAddrStr {
 				selfDelegated += delegationValue
 			}
 
 			// check if user has valid delegation over 1 epoch at least
-			if delegatedEpoch == 0 || delegatedEpoch < currentEpoch {
+			// Use original epoch for == 0 check, modified epoch for < currentEpoch (matches V1)
+			if originalDelegatedEpoch == 0 || delegatedEpoch < currentEpoch {
 				accumulatedDelegations[delegatorAddrStr] += delegationValue
 				totalDelegated += delegationValue
 			}
