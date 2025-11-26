@@ -616,7 +616,7 @@ func delegateBucket(t *testing.T, v *validatorsKApp, validator, sender, bucketID
 		return senderAcc, nil
 	}
 
-	_, _, err := v.Delegate([]byte("sender"), 1000, 1, tc)
+	_, _, err := v.Delegate(sender, 1000, 1, tc)
 	assert.NoError(t, err)
 }
 
@@ -634,4 +634,345 @@ func jailValidator(t *testing.T, v *validatorsKApp, validatorAddress []byte) {
 	peerAcc.SetListAndIndex(state.List_jailed, 0)
 	err = v.accountsCacher.UpdatePeer(peerAcc)
 	require.Nil(t, err)
+}
+
+// TestPendingRewards tests the pending rewards storage mechanism
+func TestPendingRewards(t *testing.T) {
+	t.Parallel()
+
+	setupTest := func(t *testing.T) *validatorsKApp {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+
+		// Setup mock KApp storage
+		storage := make(map[string][]byte)
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+			return &mock.KAppAccountHandlerStub{
+				GetStorageCalled: func(key []byte) []byte {
+					return storage[string(key)]
+				},
+				SetStorageCalled: func(key []byte, value []byte) error {
+					if value == nil {
+						delete(storage, string(key))
+					} else {
+						storage[string(key)] = value
+					}
+					return nil
+				},
+			}, nil
+		}
+
+		return v
+	}
+
+	t.Run("GetPendingRewards - no pending rewards", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		rewards, err := v.GetPendingRewards(userAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), rewards)
+	})
+
+	t.Run("GetPendingRewards - with pending rewards", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		// Set some pending rewards first
+		app, err := v.getKApp()
+		require.NoError(t, err)
+		err = v.setPendingRewards(app, userAddress, 500000)
+		require.NoError(t, err)
+
+		rewards, err := v.GetPendingRewards(userAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(500000), rewards)
+	})
+
+	t.Run("setPendingRewards - with zero amount clears entry", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		// First set a non-zero amount
+		err = v.setPendingRewards(app, userAddress, 100000)
+		require.NoError(t, err)
+
+		rewards, err := v.getPendingRewards(app, userAddress)
+		require.NoError(t, err)
+		assert.Equal(t, int64(100000), rewards)
+
+		// Now set to zero - should clear the entry
+		err = v.setPendingRewards(app, userAddress, 0)
+		require.NoError(t, err)
+
+		rewards, err = v.getPendingRewards(app, userAddress)
+		require.NoError(t, err)
+		assert.Equal(t, int64(0), rewards, "setting amount to 0 should clear the entry")
+	})
+
+	t.Run("addToPendingRewards - accumulates rewards", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		// Add first amount
+		err = v.addToPendingRewards(app, userAddress, 100000)
+		require.NoError(t, err)
+
+		// Add second amount
+		err = v.addToPendingRewards(app, userAddress, 200000)
+		require.NoError(t, err)
+
+		rewards, err := v.getPendingRewards(app, userAddress)
+		require.NoError(t, err)
+		assert.Equal(t, int64(300000), rewards)
+	})
+
+	t.Run("addToPendingRewards - with zero amount does nothing", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		// Set initial amount
+		err = v.setPendingRewards(app, userAddress, 100000)
+		require.NoError(t, err)
+
+		// Add zero - should not change anything
+		err = v.addToPendingRewards(app, userAddress, 0)
+		require.NoError(t, err)
+
+		rewards, err := v.getPendingRewards(app, userAddress)
+		require.NoError(t, err)
+		assert.Equal(t, int64(100000), rewards, "adding 0 should not change the value")
+	})
+
+	t.Run("getPendingRewards - invalid data length returns error", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		userAddress := makeAddress("user1")
+
+		// Setup storage with invalid data (not 8 bytes)
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+			return &mock.KAppAccountHandlerStub{
+				GetStorageCalled: func(key []byte) []byte {
+					return []byte{0x01, 0x02, 0x03} // Invalid: only 3 bytes instead of 8
+				},
+			}, nil
+		}
+
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		rewards, err := v.getPendingRewards(app, userAddress)
+		assert.Equal(t, common.ErrInvalidValue, err)
+		assert.Equal(t, int64(0), rewards)
+	})
+
+	t.Run("addToPendingRewards - error from getPendingRewards propagates", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		userAddress := makeAddress("user1")
+
+		// Setup storage with invalid data to trigger error in getPendingRewards
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+			return &mock.KAppAccountHandlerStub{
+				GetStorageCalled: func(key []byte) []byte {
+					return []byte{0x01, 0x02} // Invalid data
+				},
+			}, nil
+		}
+
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		err = v.addToPendingRewards(app, userAddress, 50000)
+		assert.Equal(t, common.ErrInvalidValue, err)
+	})
+}
+
+// TestClaimPendingRewards tests the claim pending rewards functionality
+func TestClaimPendingRewards(t *testing.T) {
+	t.Parallel()
+
+	setupTest := func(t *testing.T) *validatorsKApp {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+
+		// Setup mock KApp storage with save capability
+		storage := make(map[string][]byte)
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+			return &mock.KAppAccountHandlerStub{
+				GetStorageCalled: func(key []byte) []byte {
+					return storage[string(key)]
+				},
+				SetStorageCalled: func(key []byte, value []byte) error {
+					if value == nil {
+						delete(storage, string(key))
+					} else {
+						storage[string(key)] = value
+					}
+					return nil
+				},
+			}, nil
+		}
+
+		// Mock SaveKApp - just return nil for now
+		v.accountsCacher.(*mock.AccountsCacherStub).UpdateKappCalled = func(account state.AccountHandler) error {
+			return nil
+		}
+
+		return v
+	}
+
+	t.Run("ClaimPendingRewards - no pending rewards returns zero", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		claimed, err := v.ClaimPendingRewards(userAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), claimed)
+	})
+
+	t.Run("ClaimPendingRewards - claims and clears pending rewards", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		// Set some pending rewards first
+		app, err := v.getKApp()
+		require.NoError(t, err)
+		err = v.setPendingRewards(app, userAddress, 750000)
+		require.NoError(t, err)
+		err = v.saveKApp(app)
+		require.NoError(t, err)
+
+		// Claim rewards
+		claimed, err := v.ClaimPendingRewards(userAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(750000), claimed)
+
+		// Verify rewards are cleared
+		remaining, err := v.GetPendingRewards(userAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), remaining, "pending rewards should be cleared after claim")
+	})
+
+	t.Run("ClaimPendingRewards - multiple claims", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		// Set some pending rewards
+		app, err := v.getKApp()
+		require.NoError(t, err)
+		err = v.setPendingRewards(app, userAddress, 500000)
+		require.NoError(t, err)
+		err = v.saveKApp(app)
+		require.NoError(t, err)
+
+		// First claim
+		claimed1, err := v.ClaimPendingRewards(userAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(500000), claimed1)
+
+		// Second claim should return 0
+		claimed2, err := v.ClaimPendingRewards(userAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), claimed2, "second claim should return 0")
+	})
+
+	t.Run("ClaimPendingRewards - error getting KApp", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+			return nil, errors.New("kapp not found")
+		}
+
+		userAddress := makeAddress("user1")
+		claimed, err := v.ClaimPendingRewards(userAddress)
+		assert.Error(t, err)
+		assert.Equal(t, int64(0), claimed)
+	})
+
+	t.Run("ClaimPendingRewards - error from setPendingRewards", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		userAddress := makeAddress("user1")
+
+		storage := make(map[string][]byte)
+		setStorageError := errors.New("storage write error")
+
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+			return &mock.KAppAccountHandlerStub{
+				GetStorageCalled: func(key []byte) []byte {
+					return storage[string(key)]
+				},
+				SetStorageCalled: func(key []byte, value []byte) error {
+					// Allow writes initially, fail on clear (value == nil)
+					if value == nil {
+						return setStorageError
+					}
+					storage[string(key)] = value
+					return nil
+				},
+			}, nil
+		}
+
+		// Set some pending rewards first
+		app, err := v.getKApp()
+		require.NoError(t, err)
+		err = v.setPendingRewards(app, userAddress, 100000)
+		require.NoError(t, err)
+
+		// Claim should fail when trying to clear rewards
+		claimed, err := v.ClaimPendingRewards(userAddress)
+		assert.Equal(t, setStorageError, err)
+		assert.Equal(t, int64(0), claimed)
+	})
+
+	t.Run("ClaimPendingRewards - error from saveKApp", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		userAddress := makeAddress("user1")
+
+		storage := make(map[string][]byte)
+		saveKAppError := errors.New("save kapp error")
+
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+			return &mock.KAppAccountHandlerStub{
+				GetStorageCalled: func(key []byte) []byte {
+					return storage[string(key)]
+				},
+				SetStorageCalled: func(key []byte, value []byte) error {
+					if value == nil {
+						delete(storage, string(key))
+					} else {
+						storage[string(key)] = value
+					}
+					return nil
+				},
+			}, nil
+		}
+
+		v.accountsCacher.(*mock.AccountsCacherStub).UpdateKappCalled = func(account state.AccountHandler) error {
+			return saveKAppError
+		}
+
+		// Set some pending rewards first
+		app, err := v.getKApp()
+		require.NoError(t, err)
+		err = v.setPendingRewards(app, userAddress, 100000)
+		require.NoError(t, err)
+
+		// Claim should fail when trying to save KApp
+		claimed, err := v.ClaimPendingRewards(userAddress)
+		assert.Equal(t, saveKAppError, err)
+		assert.Equal(t, int64(0), claimed)
+	})
 }

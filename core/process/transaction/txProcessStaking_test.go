@@ -532,6 +532,14 @@ func (c *Controller) GetAllowance(addr []byte) int64 {
 	return ownerAcc.GetAllowance()
 }
 
+func (c *Controller) GetPendingRewards(addr []byte) int64 {
+	rewards, err := c.kappController.GetValidatorsKApp().GetPendingRewards(addr)
+	if err != nil {
+		return 0
+	}
+	return rewards
+}
+
 func (c *Controller) AddFeesToPeer(addr []byte, amount int64) error {
 	ownerPeer := loadPeerAccount(c.accCacher, addr)
 	ownerPeer.AddToAccumulatedFees(amount)
