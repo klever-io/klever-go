@@ -2,6 +2,7 @@ package validators
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"math"
 	"unicode/utf8"
@@ -29,6 +30,7 @@ const (
 	VALIDATOR_S_PREFIX   = "VALS"
 	VALIDATOR_BLS_PREFIX = "BLS"
 	VALIDATOR_BUCKETS    = "VALB"
+	PENDING_REWARDS      = "PREW"
 )
 
 type validatorActionType uint8
@@ -1003,6 +1005,97 @@ func (v *validatorsKApp) verifySignaturesBelowSignedThreshold(
 // IsInterfaceNil verifies if the underlying object is nil or not
 func (v *validatorsKApp) IsInterfaceNil() bool {
 	return v == nil
+}
+
+// pendingRewardsKey returns the key for storing pending rewards for a user address
+func (v *validatorsKApp) pendingRewardsKey(address []byte) []byte {
+	return append([]byte(PENDING_REWARDS+kapps.Sp), address...)
+}
+
+// getPendingRewards retrieves pending rewards for a user from the KApp data trie
+func (v *validatorsKApp) getPendingRewards(app state.KAppAccountHandler, address []byte) (int64, error) {
+	key := v.pendingRewardsKey(address)
+	data := app.GetStorage(key)
+	if len(data) == 0 {
+		return 0, nil
+	}
+
+	if len(data) != 8 {
+		return 0, common.ErrInvalidValue
+	}
+
+	return int64(binary.BigEndian.Uint64(data)), nil
+}
+
+// setPendingRewards stores pending rewards for a user in the KApp data trie
+func (v *validatorsKApp) setPendingRewards(app state.KAppAccountHandler, address []byte, amount int64) error {
+	key := v.pendingRewardsKey(address)
+
+	if amount == 0 {
+		// Remove entry if amount is zero
+		return app.SetStorage(key, nil)
+	}
+
+	data := make([]byte, 8)
+	binary.BigEndian.PutUint64(data, uint64(amount))
+
+	return app.SetStorage(key, data)
+}
+
+// addToPendingRewards adds to existing pending rewards for a user
+func (v *validatorsKApp) addToPendingRewards(app state.KAppAccountHandler, address []byte, amount int64) error {
+	if amount == 0 {
+		return nil
+	}
+
+	current, err := v.getPendingRewards(app, address)
+	if err != nil {
+		return err
+	}
+
+	return v.setPendingRewards(app, address, current+amount)
+}
+
+// GetPendingRewards retrieves pending rewards for a user address (public method for external access)
+func (v *validatorsKApp) GetPendingRewards(address []byte) (int64, error) {
+	app, err := v.getKApp()
+	if err != nil {
+		return 0, err
+	}
+
+	return v.getPendingRewards(app, address)
+}
+
+// ClaimPendingRewards claims pending rewards for a user from the KApp data trie
+// and returns the amount that was claimed. The caller is responsible for
+// adding this amount to the user's allowance.
+func (v *validatorsKApp) ClaimPendingRewards(address []byte) (int64, error) {
+	app, err := v.getKApp()
+	if err != nil {
+		return 0, err
+	}
+
+	pendingAmount, err := v.getPendingRewards(app, address)
+	if err != nil {
+		return 0, err
+	}
+
+	if pendingAmount == 0 {
+		return 0, nil
+	}
+
+	// Clear pending rewards from KApp trie
+	err = v.setPendingRewards(app, address, 0)
+	if err != nil {
+		return 0, err
+	}
+
+	err = v.saveKApp(app)
+	if err != nil {
+		return 0, err
+	}
+
+	return pendingAmount, nil
 }
 
 func (v *validatorsKApp) PeerAccountToValidatorInfo(pubkey []byte, revoked bool, peerAcc state.PeerAccountHandler) *state.ValidatorInfo {

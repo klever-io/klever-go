@@ -1603,6 +1603,20 @@ func (a *accountsKapp) ClaimAllowance(sender []byte, tc *transaction.ClaimContra
 		return transaction.Transaction_AccountError, err
 	}
 
+	// V2 Epoch Rewards: Transfer pending rewards to allowance before claiming
+	if a.forkController.EpochRewardsV2() {
+		pendingRewards, err := a.KAppController.GetValidatorsKApp().ClaimPendingRewards(sender)
+		if err != nil {
+			return transaction.Transaction_ClaimError, err
+		}
+		if pendingRewards > 0 {
+			err = ownerAcc.AddToAllowance(pendingRewards)
+			if err != nil {
+				return transaction.Transaction_ClaimError, err
+			}
+		}
+	}
+
 	gains, err := a.ClaimBalance(transaction.ClaimContract_AllowanceClaim, kdautils.KLVIdentifier, ctx.Block(), ownerAcc, nil, nil, userKDA)
 	if err != nil {
 		var resultCode transaction.Transaction_TXResultCode

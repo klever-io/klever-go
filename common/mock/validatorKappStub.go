@@ -133,6 +133,18 @@ func (v *ValidatorsKAppStub) DisplayRating(owners [][]byte) {
 	// Stub implementation
 }
 
+// GetPendingRewards retrieves pending rewards for a user address (v2 epoch rewards).
+func (v *ValidatorsKAppStub) GetPendingRewards(address []byte) (int64, error) {
+	// Stub implementation
+	return 0, nil
+}
+
+// ClaimPendingRewards claims pending rewards for a user from the KApp data trie.
+func (v *ValidatorsKAppStub) ClaimPendingRewards(address []byte) (int64, error) {
+	// Stub implementation
+	return 0, nil
+}
+
 // IsInterfaceNil checks if the interface is nil.
 func (v *ValidatorsKAppStub) IsInterfaceNil() bool {
 	// Stub implementation

@@ -38,6 +38,11 @@ type ValidatorsKapp interface {
 	UpdateValidatorInfoOnSuccessfulBlock(validatorList []sharding.Validator, signingBitmap []byte, accumulatedFees int64) error
 	DecreaseAll(validators [][]byte, missedSlots uint64, consensusGroupSize int) error
 	DisplayRating(owners [][]byte)
+
+	// V2 Epoch Rewards methods - for scalable rewards distribution
+	GetPendingRewards(address []byte) (int64, error)
+	ClaimPendingRewards(address []byte) (int64, error)
+
 	IsInterfaceNil() bool
 }
 
