@@ -1464,6 +1464,15 @@ func (ei *elasticProcessor) saveAccounts(
 			}
 		}
 
+		// V2 Epoch Rewards: Include pending rewards in allowance
+		allowance := userAccount.UserAccount.GetAllowance()
+		if !check.IfNil(ei.kappsController) {
+			pendingRewards, err := ei.kappsController.GetValidatorsKApp().GetPendingRewards(userAccount.UserAccount.AddressBytes())
+			if err == nil && pendingRewards > 0 {
+				allowance += pendingRewards
+			}
+		}
+
 		acc := &data.AccountInfo{
 			Address:         address,
 			Nonce:           userAccount.UserAccount.GetNonce(),
@@ -1472,7 +1481,7 @@ func (ei *elasticProcessor) saveAccounts(
 			Balance:         userAccount.UserAccount.GetBalance(kdautils.KLVIdentifier, true),
 			FrozenBalance:   userKDA.FrozenBalance,
 			UnfrozenBalance: unfrozenBalance,
-			Allowance:       userAccount.UserAccount.GetAllowance(),
+			Allowance:       allowance,
 			Permissions:     permissions,
 			Timestamp:       time.Duration(blockTimestamp * 1000),
 			CodeHash:        hex.EncodeToString(userAccount.UserAccount.GetCodeHash()),
