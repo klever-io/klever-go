@@ -10,6 +10,7 @@ type ForkControllerStub struct {
 	FixDelegationSameEpochCalled  func() bool
 	EnableSmartContractsCalled    func() bool
 	FixAuditChangesCalled         func() bool
+	EpochRewardsV2Called          func() bool
 }
 
 // ProcessorFlowITOPrice -
@@ -83,6 +84,14 @@ func (fc *ForkControllerStub) EnableSmartContracts() bool {
 func (fc *ForkControllerStub) FixAuditChanges() bool {
 	if fc.FixAuditChangesCalled != nil {
 		return fc.FixAuditChangesCalled()
+	}
+
+	return false
+}
+
+func (fc *ForkControllerStub) EpochRewardsV2() bool {
+	if fc.EpochRewardsV2Called != nil {
+		return fc.EpochRewardsV2Called()
 	}
 
 	return false

@@ -24,6 +24,7 @@ type EnableEpochs struct {
 	FixDelegationSameEpoch  uint32 `yaml:"fixDelegationSameEpoch"`
 	SmartContracts          uint32 `yaml:"smartContracts"`
 	FixAuditChanges         uint32 `yaml:"fixAuditChanges"`
+	EpochRewardsV2          uint32 `yaml:"epochRewardsV2"`
 }
 
 // GasScheduleByEpochs represents a gas schedule toml entry that will be applied from the provided epoch

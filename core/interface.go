@@ -78,6 +78,7 @@ type ForkController interface {
 	FixDelegationSameEpoch() bool
 	EnableSmartContracts() bool
 	FixAuditChanges() bool
+	EpochRewardsV2() bool
 	IsInterfaceNil() bool
 }
 

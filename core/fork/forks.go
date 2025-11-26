@@ -22,6 +22,7 @@ type forkController struct {
 	flagFixDelegationSameEpoch       atomic.Flag
 	flagEnableSmartContracts         atomic.Flag
 	flagFixAuditChanges              atomic.Flag
+	flagEpochRewardsV2               atomic.Flag
 }
 
 func NewForkController(cfg config.EnableEpochs, epochNotifier process.EpochNotifier) (*forkController, error) {
@@ -73,6 +74,10 @@ func (f *forkController) FixAuditChanges() bool {
 	return f.flagFixAuditChanges.IsSet()
 }
 
+func (f *forkController) EpochRewardsV2() bool {
+	return f.flagEpochRewardsV2.IsSet()
+}
+
 // EpochConfirmed is called whenever a new epoch is confirmed
 func (f *forkController) EpochConfirmed(epoch uint32) {
 	f.flagClaimKFIEnabled.Toggle(epoch >= f.enableEpochs.ClaimKFI)
@@ -101,6 +106,9 @@ func (f *forkController) EpochConfirmed(epoch uint32) {
 
 	f.flagFixAuditChanges.Toggle(epoch >= f.enableEpochs.FixAuditChanges)
 	log.Debug("forkController: FixAuditChanges", "enabled", f.flagFixAuditChanges.IsSet())
+
+	f.flagEpochRewardsV2.Toggle(epoch >= f.enableEpochs.EpochRewardsV2)
+	log.Debug("forkController: EpochRewardsV2", "enabled", f.flagEpochRewardsV2.IsSet())
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

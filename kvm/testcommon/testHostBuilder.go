@@ -49,6 +49,8 @@ func NewTestHostBuilder(tb testing.TB) *TestHostBuilder {
 		FPRComputeAndKdaFeeFlow: 0,
 		FixDelegationSameEpoch:  0,
 		SmartContracts:          0,
+		FixAuditChanges:         0,
+		EpochRewardsV2:          0,
 	}, epochNotifier)
 
 	return &TestHostBuilder{
