@@ -287,16 +287,65 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpoch(currentEpoch uint32, validat
 	return v.ProcessEconomicsEndOfEpochV2(currentEpoch, validatorInfos)
 }
 
+// getValidatorParams returns the minimum self-delegated and total-delegated amounts from proposal controller.
+func (v *validatorsKApp) getValidatorParams() (minSelfDelegated, minTotalDelegated int64) {
+	if check.IfNil(v.KAppController.GetProposalController()) {
+		return 0, 0
+	}
+	minSelfDelegated = v.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinSelfDelegatedAmount)
+	minTotalDelegated = v.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinTotalDelegatedAmount)
+	return minSelfDelegated, minTotalDelegated
+}
+
+// updateValidatorJailStatus synchronizes the validator's jail status with the peer account list.
+func (v *validatorsKApp) updateValidatorJailStatus(val *ValidatorData, peerAcc state.PeerAccountHandler, currentEpoch uint32) {
+	// Clear jail if peer is no longer in jailed list
+	if val.Jailed && peerAcc.GetList() != state.List_jailed {
+		val.Jailed = false
+		val.JailedEpoch = math.MaxUint32
+	}
+
+	// Set jail if peer was just jailed
+	if !val.Jailed && peerAcc.GetList() == state.List_jailed {
+		val.Jailed = true
+		val.JailedEpoch = currentEpoch
+		val.NumJailed++
+	}
+}
+
+// updatePeerListStatus updates the peer account's list status based on delegation amounts.
+func (v *validatorsKApp) updatePeerListStatus(val *ValidatorData, peerAcc state.PeerAccountHandler, minSelfDelegated, minTotalDelegated, totalDelegated int64) {
+	if val.Jailed {
+		return
+	}
+
+	if val.SelfStake < minSelfDelegated {
+		peerAcc.SetList(state.List_inactive)
+	} else if totalDelegated < minTotalDelegated {
+		peerAcc.SetList(state.List_waiting)
+	} else if peerAcc.GetList() != state.List_elected {
+		peerAcc.SetList(state.List_eligible)
+	}
+}
+
+// finalizeValidatorEpoch updates validator state and saves both peer and validator accounts.
+func (v *validatorsKApp) finalizeValidatorEpoch(app state.KAppAccountHandler, addr []byte, val *ValidatorData, peerAcc state.PeerAccountHandler) error {
+	val.Waiting = peerAcc.GetList() == state.List_waiting
+	val.TotalRewards += peerAcc.GetAccumulatedFees()
+
+	peerAcc.ResetAtNewEpoch()
+
+	if err := v.accountsCacher.UpdatePeer(peerAcc); err != nil {
+		return err
+	}
+
+	return v.setValidator(app, addr, val)
+}
+
 func (v *validatorsKApp) ProcessEconomicsEndOfEpochV1(currentEpoch uint32, validatorInfos []*state.ValidatorInfo) error {
 	totalDelegations := make(map[string]int64)
 
-	// Get Validators Param from KAPP
-	minSelfDelegated := int64(0)
-	minTotalDelegated := int64(0)
-	if !check.IfNil(v.KAppController.GetProposalController()) {
-		minSelfDelegated = v.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinSelfDelegatedAmount)
-		minTotalDelegated = v.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinTotalDelegatedAmount)
-	}
+	minSelfDelegated, minTotalDelegated := v.getValidatorParams()
 
 	// get App
 	app, err := v.getKApp()
@@ -381,17 +430,7 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpochV1(currentEpoch uint32, valid
 
 		val.SelfStaked = val.SelfStake >= minSelfDelegated
 
-		if val.Jailed && peerAcc.GetList() != state.List_jailed {
-			val.Jailed = false
-			val.JailedEpoch = math.MaxUint32
-		}
-
-		// Update Jail/List/Slash status
-		if !val.Jailed && peerAcc.GetList() == state.List_jailed {
-			val.Jailed = true
-			val.JailedEpoch = currentEpoch
-			val.NumJailed++
-		}
+		v.updateValidatorJailStatus(val, peerAcc, currentEpoch)
 
 		if v.forkController.FixStakingBuckets() {
 			if !v.forkController.EnableSmartContracts() {
@@ -404,28 +443,9 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpochV1(currentEpoch uint32, valid
 			}
 		}
 
-		if !val.Jailed {
-			if val.SelfStake < minSelfDelegated {
-				peerAcc.SetList(state.List_inactive)
-			} else if totalDelegated < minTotalDelegated {
-				peerAcc.SetList(state.List_waiting)
-			} else if peerAcc.GetList() != state.List_elected {
-				peerAcc.SetList(state.List_eligible)
-			}
-		}
+		v.updatePeerListStatus(val, peerAcc, minSelfDelegated, minTotalDelegated, totalDelegated)
 
-		val.Waiting = peerAcc.GetList() == state.List_waiting
-
-		val.TotalRewards += peerAcc.GetAccumulatedFees()
-
-		peerAcc.ResetAtNewEpoch()
-
-		err = v.accountsCacher.UpdatePeer(peerAcc)
-		if err != nil {
-			return err
-		}
-
-		err = v.setValidator(app, addr, val)
+		err = v.finalizeValidatorEpoch(app, addr, val, peerAcc)
 		if err != nil {
 			return err
 		}
@@ -463,13 +483,7 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpochV1(currentEpoch uint32, valid
 }
 
 func (v *validatorsKApp) ProcessEconomicsEndOfEpochV2(currentEpoch uint32, validatorInfos []*state.ValidatorInfo) error {
-	// Get Validators Param from KAPP
-	minSelfDelegated := int64(0)
-	minTotalDelegated := int64(0)
-	if !check.IfNil(v.KAppController.GetProposalController()) {
-		minSelfDelegated = v.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinSelfDelegatedAmount)
-		minTotalDelegated = v.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinTotalDelegatedAmount)
-	}
+	minSelfDelegated, minTotalDelegated := v.getValidatorParams()
 
 	// Cache fork controller results (called many times in hot loops)
 	// These return constant values throughout epoch processing
@@ -591,17 +605,7 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpochV2(currentEpoch uint32, valid
 		// Update validator and peer state
 		val.SelfStaked = val.SelfStake >= minSelfDelegated
 
-		if val.Jailed && peerAcc.GetList() != state.List_jailed {
-			val.Jailed = false
-			val.JailedEpoch = math.MaxUint32
-		}
-
-		// Update Jail/List/Slash status
-		if !val.Jailed && peerAcc.GetList() == state.List_jailed {
-			val.Jailed = true
-			val.JailedEpoch = currentEpoch
-			val.NumJailed++
-		}
+		v.updateValidatorJailStatus(val, peerAcc, currentEpoch)
 
 		if fixStakingBuckets {
 			if !enableSmartContracts {
@@ -614,28 +618,9 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpochV2(currentEpoch uint32, valid
 			}
 		}
 
-		if !val.Jailed {
-			if val.SelfStake < minSelfDelegated {
-				peerAcc.SetList(state.List_inactive)
-			} else if totalDelegated < minTotalDelegated {
-				peerAcc.SetList(state.List_waiting)
-			} else if peerAcc.GetList() != state.List_elected {
-				peerAcc.SetList(state.List_eligible)
-			}
-		}
+		v.updatePeerListStatus(val, peerAcc, minSelfDelegated, minTotalDelegated, totalDelegated)
 
-		val.Waiting = peerAcc.GetList() == state.List_waiting
-
-		val.TotalRewards += peerAcc.GetAccumulatedFees()
-
-		peerAcc.ResetAtNewEpoch()
-
-		err = v.accountsCacher.UpdatePeer(peerAcc)
-		if err != nil {
-			return err
-		}
-
-		err = v.setValidator(app, addr, val)
+		err = v.finalizeValidatorEpoch(app, addr, val, peerAcc)
 		if err != nil {
 			return err
 		}
