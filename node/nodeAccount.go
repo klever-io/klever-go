@@ -38,6 +38,15 @@ func (n *Node) GetAccount(address string) (state.UserAccountHandler, error) {
 		return nil, errors.New("this is not an user account address")
 	}
 
+	// V2 Epoch Rewards: Add pending rewards to allowance for API response
+	// Before fork activation, this returns 0 (no overhead impact on result)
+	if !check.IfNil(n.kappController) {
+		pendingRewards, err := n.kappController.GetValidatorsKApp().GetPendingRewards(account.AddressBytes())
+		if err == nil && pendingRewards > 0 {
+			_ = account.AddToAllowance(pendingRewards)
+		}
+	}
+
 	return account, nil
 }
 
@@ -188,6 +197,14 @@ func (n *Node) GetAvailableClaim(address string, assetId string) (int64, map[str
 	allowance := int64(0)
 	if assetId == "KLV" {
 		allowance = userAccount.GetAllowance()
+
+		// V2 Epoch Rewards: Add pending rewards from KApp data trie
+		if !check.IfNil(n.kappController) {
+			pendingRewards, err := n.kappController.GetValidatorsKApp().GetPendingRewards(userAccount.AddressBytes())
+			if err == nil && pendingRewards > 0 {
+				allowance += pendingRewards
+			}
+		}
 	}
 
 	computedRewards := int64(0)
