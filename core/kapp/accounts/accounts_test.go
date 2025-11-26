@@ -4143,3 +4143,591 @@ func TestIsUninitializedContractAddress(t *testing.T) {
 		})
 	}
 }
+
+////////////////////
+// ClaimAllowance //
+////////////////////
+
+func TestClaimAllowance(t *testing.T) {
+	var (
+		errAccNotFound     = errors.New("account not found")
+		errGetUserKDA      = errors.New("error getting user KDA")
+		errClaimPending    = errors.New("error claiming pending rewards")
+		errAddToAllowance  = errors.New("error adding to allowance")
+		errClaimBalance    = errors.New("error claiming balance")
+		errSetUserKDA      = errors.New("error setting user KDA")
+		errUpdateUser      = errors.New("error updating user")
+		testSender         = []byte("testSenderAddress")
+		testAllowanceGains = map[string]int64{"KLV": 100}
+		testPendingRewards = int64(500)
+	)
+
+	cases := []struct {
+		title             string
+		forkController    core.ForkController
+		accountsCacher    state.AccountsCacher
+		kappController    kapp.KAppController
+		claimContract     *transaction.ClaimContract
+		expectedErr       error
+		expectedTxResCode transaction.Transaction_TXResultCode
+	}{
+		{
+			title:          "Failing to retrieve user account",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return nil, errAccNotFound
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: testSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_ClaimContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			claimContract:     &transaction.ClaimContract{ClaimType: transaction.ClaimContract_AllowanceClaim},
+			expectedErr:       errAccNotFound,
+			expectedTxResCode: transaction.Transaction_LoadAccountError,
+		},
+		{
+			title:          "Invalid asset ID (non-KLV)",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: testSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_ClaimContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			claimContract: &transaction.ClaimContract{
+				ClaimType: transaction.ClaimContract_AllowanceClaim,
+				ID:        []byte("INVALID-ASSET"),
+			},
+			expectedErr:       common.ErrAssetIDInvalid,
+			expectedTxResCode: transaction.Transaction_AssetIDInvalid,
+		},
+		{
+			title:          "Failing to get user KDA",
+			forkController: &integrationMock.ForkControllerStub{},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return nil, errGetUserKDA
+						},
+					}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: testSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_ClaimContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			claimContract:     &transaction.ClaimContract{ClaimType: transaction.ClaimContract_AllowanceClaim},
+			expectedErr:       errGetUserKDA,
+			expectedTxResCode: transaction.Transaction_AccountError,
+		},
+		{
+			title: "V2: Failing to claim pending rewards",
+			forkController: &integrationMock.ForkControllerStub{
+				EpochRewardsV2Called: func() bool { return true },
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return &kapps.UserKDA{}, nil
+						},
+					}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: testSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_ClaimContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+				GetValidatorsKAppCalled: func() kapp.ValidatorsKapp {
+					return &commonMock.ValidatorsKAppStub{
+						ClaimPendingRewardsCalled: func(address []byte) (int64, error) {
+							return 0, errClaimPending
+						},
+					}
+				},
+			},
+			claimContract:     &transaction.ClaimContract{ClaimType: transaction.ClaimContract_AllowanceClaim},
+			expectedErr:       errClaimPending,
+			expectedTxResCode: transaction.Transaction_ClaimError,
+		},
+		{
+			title: "V2: Failing to add pending rewards to allowance",
+			forkController: &integrationMock.ForkControllerStub{
+				EpochRewardsV2Called: func() bool { return true },
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return &kapps.UserKDA{}, nil
+						},
+						AddToAllowanceCalled: func(value int64) error {
+							return errAddToAllowance
+						},
+					}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: testSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_ClaimContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+				GetValidatorsKAppCalled: func() kapp.ValidatorsKapp {
+					return &commonMock.ValidatorsKAppStub{
+						ClaimPendingRewardsCalled: func(address []byte) (int64, error) {
+							return testPendingRewards, nil
+						},
+					}
+				},
+			},
+			claimContract:     &transaction.ClaimContract{ClaimType: transaction.ClaimContract_AllowanceClaim},
+			expectedErr:       errAddToAllowance,
+			expectedTxResCode: transaction.Transaction_ClaimError,
+		},
+		{
+			title: "Failing to claim balance",
+			forkController: &integrationMock.ForkControllerStub{
+				EpochRewardsV2Called: func() bool { return false },
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return &kapps.UserKDA{}, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return nil, errClaimBalance
+						},
+					}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: testSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_ClaimContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			claimContract:     &transaction.ClaimContract{ClaimType: transaction.ClaimContract_AllowanceClaim},
+			expectedErr:       errClaimBalance,
+			expectedTxResCode: transaction.Transaction_ClaimError,
+		},
+		{
+			title: "MaxSupplyExceeded error on claim balance",
+			forkController: &integrationMock.ForkControllerStub{
+				EpochRewardsV2Called: func() bool { return false },
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return &kapps.UserKDA{}, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return nil, common.ErrMaxSupplyExceeded
+						},
+					}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: testSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_ClaimContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			claimContract:     &transaction.ClaimContract{ClaimType: transaction.ClaimContract_AllowanceClaim},
+			expectedErr:       common.ErrMaxSupplyExceeded,
+			expectedTxResCode: transaction.Transaction_MaxSupplyExceeded,
+		},
+		{
+			title: "Failing to set user KDA",
+			forkController: &integrationMock.ForkControllerStub{
+				EpochRewardsV2Called: func() bool { return false },
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return &kapps.UserKDA{}, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return testAllowanceGains, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return errSetUserKDA
+						},
+						AddressBytesCalled: func() []byte {
+							return testSender
+						},
+					}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: testSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_ClaimContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			claimContract:     &transaction.ClaimContract{ClaimType: transaction.ClaimContract_AllowanceClaim},
+			expectedErr:       errSetUserKDA,
+			expectedTxResCode: transaction.Transaction_AssetError,
+		},
+		{
+			title: "Failing to update user account",
+			forkController: &integrationMock.ForkControllerStub{
+				EpochRewardsV2Called: func() bool { return false },
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return &kapps.UserKDA{}, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return testAllowanceGains, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return testSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return errUpdateUser
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: testSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_ClaimContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			claimContract:     &transaction.ClaimContract{ClaimType: transaction.ClaimContract_AllowanceClaim},
+			expectedErr:       errUpdateUser,
+			expectedTxResCode: transaction.Transaction_SaveAccountError,
+		},
+		{
+			title: "Success without V2 epoch rewards",
+			forkController: &integrationMock.ForkControllerStub{
+				EpochRewardsV2Called: func() bool { return false },
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return &kapps.UserKDA{}, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return testAllowanceGains, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return testSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: testSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_ClaimContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			claimContract:     &transaction.ClaimContract{ClaimType: transaction.ClaimContract_AllowanceClaim},
+			expectedErr:       nil,
+			expectedTxResCode: transaction.Transaction_Ok,
+		},
+		{
+			title: "Success with V2 epoch rewards and pending rewards",
+			forkController: &integrationMock.ForkControllerStub{
+				EpochRewardsV2Called: func() bool { return true },
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return &kapps.UserKDA{}, nil
+						},
+						AddToAllowanceCalled: func(value int64) error {
+							assert.Equal(t, testPendingRewards, value)
+							return nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return testAllowanceGains, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return testSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: testSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_ClaimContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+				GetValidatorsKAppCalled: func() kapp.ValidatorsKapp {
+					return &commonMock.ValidatorsKAppStub{
+						ClaimPendingRewardsCalled: func(address []byte) (int64, error) {
+							return testPendingRewards, nil
+						},
+					}
+				},
+			},
+			claimContract:     &transaction.ClaimContract{ClaimType: transaction.ClaimContract_AllowanceClaim},
+			expectedErr:       nil,
+			expectedTxResCode: transaction.Transaction_Ok,
+		},
+		{
+			title: "Success with V2 but zero pending rewards (no AddToAllowance call)",
+			forkController: &integrationMock.ForkControllerStub{
+				EpochRewardsV2Called: func() bool { return true },
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							return &kapps.UserKDA{}, nil
+						},
+						AddToAllowanceCalled: func(value int64) error {
+							t.Error("AddToAllowance should not be called when pending rewards is 0")
+							return nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return testAllowanceGains, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return testSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: testSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_ClaimContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+				GetValidatorsKAppCalled: func() kapp.ValidatorsKapp {
+					return &commonMock.ValidatorsKAppStub{
+						ClaimPendingRewardsCalled: func(address []byte) (int64, error) {
+							return 0, nil // Zero pending rewards
+						},
+					}
+				},
+			},
+			claimContract:     &transaction.ClaimContract{ClaimType: transaction.ClaimContract_AllowanceClaim},
+			expectedErr:       nil,
+			expectedTxResCode: transaction.Transaction_Ok,
+		},
+		{
+			title: "Success with nil asset ID defaults to KLV",
+			forkController: &integrationMock.ForkControllerStub{
+				EpochRewardsV2Called: func() bool { return false },
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{
+						GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+							assert.Equal(t, kdautils.KLVIdentifier, assetID)
+							return &kapps.UserKDA{}, nil
+						},
+						ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+							return testAllowanceGains, nil
+						},
+						SetUserKDACalled: func(assetID []byte, nonce []byte, userKDA *kapps.UserKDA) error {
+							return nil
+						},
+						AddressBytesCalled: func() []byte {
+							return testSender
+						},
+					}, nil
+				},
+				UpdateUserCalled: func(account state.AccountHandler) error {
+					return nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: testSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_ClaimContractType,
+						Block: &block.Block{
+							Header: &block.BlockHeader{
+								Timestamp: 1000,
+								Epoch:     1,
+							},
+						},
+					})
+				},
+			},
+			claimContract: &transaction.ClaimContract{
+				ClaimType: transaction.ClaimContract_AllowanceClaim,
+				ID:        nil, // nil should default to KLV
+			},
+			expectedErr:       nil,
+			expectedTxResCode: transaction.Transaction_Ok,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.title, func(t *testing.T) {
+			accsKapp, _ := NewAccountKApp(&ArgsNewAccountKApp{
+				Hasher:         &commonMock.HasherMock{},
+				Marshalizer:    &commonMock.MarshalizerMock{},
+				PubkeyConv:     commonMock.NewPubkeyConverterMock(4),
+				ForkController: c.forkController,
+			})
+			require.NoError(t, accsKapp.SetKAppController(c.kappController))
+			require.NoError(t, accsKapp.SetAccountsCacher(c.accountsCacher))
+
+			txResCode, err := accsKapp.ClaimAllowance(testSender, c.claimContract)
+
+			assert.Equal(t, c.expectedTxResCode, txResCode)
+			if c.expectedErr != nil {
+				assert.ErrorIs(t, err, c.expectedErr)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}

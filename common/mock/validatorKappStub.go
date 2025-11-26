@@ -11,6 +11,8 @@ type ValidatorsKAppStub struct {
 	ResetValidatorStatisticsAtNewEpochCalled func([]*state.ValidatorInfo) ([]*state.ValidatorInfo, error)
 	ProcessRatingsEndOfEpochCalled           func([]*state.ValidatorInfo) error
 	UndelegateCalled                         func(blockEpoch uint32, validator []byte, sender []byte, tc *transaction.UndelegateContract) (transaction.Transaction_TXResultCode, error)
+	ClaimPendingRewardsCalled                func(address []byte) (int64, error)
+	GetPendingRewardsCalled                  func(address []byte) (int64, error)
 }
 
 // SetKAppController sets the KApp controller.
@@ -135,13 +137,17 @@ func (v *ValidatorsKAppStub) DisplayRating(owners [][]byte) {
 
 // GetPendingRewards retrieves pending rewards for a user address (v2 epoch rewards).
 func (v *ValidatorsKAppStub) GetPendingRewards(address []byte) (int64, error) {
-	// Stub implementation
+	if v.GetPendingRewardsCalled != nil {
+		return v.GetPendingRewardsCalled(address)
+	}
 	return 0, nil
 }
 
 // ClaimPendingRewards claims pending rewards for a user from the KApp data trie.
 func (v *ValidatorsKAppStub) ClaimPendingRewards(address []byte) (int64, error) {
-	// Stub implementation
+	if v.ClaimPendingRewardsCalled != nil {
+		return v.ClaimPendingRewardsCalled(address)
+	}
 	return 0, nil
 }
 
