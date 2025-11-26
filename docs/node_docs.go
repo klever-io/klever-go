@@ -1914,6 +1914,13 @@ const docTemplatenode = `{
                         }
                     }
                 },
+                "TxResults": {
+                    "description": "Transaction execution result codes for timeout validation",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
                 "hash": {
                     "type": "string"
                 },
@@ -2244,6 +2251,9 @@ const docTemplatenode = `{
                 "claimKFI": {
                     "type": "integer"
                 },
+                "epochRewardsV2": {
+                    "type": "integer"
+                },
                 "fixAuditChanges": {
                     "type": "integer"
                 },
@@ -2429,6 +2439,9 @@ const docTemplatenode = `{
             "type": "object",
             "properties": {
                 "address": {
+                    "type": "string"
+                },
+                "caller": {
                     "type": "string"
                 },
                 "contractId": {
