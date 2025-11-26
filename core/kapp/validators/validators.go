@@ -1043,6 +1043,10 @@ func (v *validatorsKApp) getPendingRewards(app state.KAppAccountHandler, address
 
 // setPendingRewards stores pending rewards for a user in the KApp data trie
 func (v *validatorsKApp) setPendingRewards(app state.KAppAccountHandler, address []byte, amount int64) error {
+	if amount < 0 {
+		return common.ErrInvalidValue
+	}
+
 	key := v.pendingRewardsKey(address)
 
 	if amount == 0 {

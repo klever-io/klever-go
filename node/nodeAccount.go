@@ -42,8 +42,12 @@ func (n *Node) GetAccount(address string) (state.UserAccountHandler, error) {
 	// Before fork activation, this returns 0 (no overhead impact on result)
 	if !check.IfNil(n.kappController) {
 		pendingRewards, err := n.kappController.GetValidatorsKApp().GetPendingRewards(account.AddressBytes())
-		if err == nil && pendingRewards > 0 {
-			_ = account.AddToAllowance(pendingRewards)
+		if err != nil {
+			log.Warn("Failed to get pending rewards for account", "address", address, "error", err)
+		} else if pendingRewards > 0 {
+			if err := account.AddToAllowance(pendingRewards); err != nil {
+				log.Warn("Failed to add pending rewards to allowance", "address", address, "error", err)
+			}
 		}
 	}
 
@@ -180,7 +184,9 @@ func (n *Node) getKLVAllowanceWithPending(userAccount state.UserAccountHandler) 
 	}
 
 	pendingRewards, err := n.kappController.GetValidatorsKApp().GetPendingRewards(userAccount.AddressBytes())
-	if err == nil && pendingRewards > 0 {
+	if err != nil {
+		log.Warn("Failed to get pending rewards for account", "address", userAccount.AddressBytes(), "error", err)
+	} else if pendingRewards > 0 {
 		allowance += pendingRewards
 	}
 
