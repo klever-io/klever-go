@@ -113,7 +113,92 @@ func (n *Node) GetUserKDA(address string, assetId string) (*kapps.UserKDA, error
 	return userAccount.GetUserKDA([]byte(assetId), nil, n.forkController.EnableSmartContracts())
 }
 
-// GetAvailableClaim returns the rewards available for a specific asset in an account
+// loadStakingData loads and unmarshals staking data for a given asset.
+func (n *Node) loadStakingData(assetId string) (*kapps.StakingData, error) {
+	stakingAcnt, err := n.kapps.LoadAccount(kapps.StakingKAppAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	stakingKapp, ok := stakingAcnt.(state.KAppAccountHandler)
+	if !ok {
+		return nil, common.ErrWrongTypeAssertion
+	}
+
+	key := kdautils.ToKDAKey([]byte(assetId), nil)
+	stakedBytes, err := stakingKapp.DataTrieTracker().RetrieveValue(key)
+	if err != nil {
+		return nil, err
+	}
+	if len(stakedBytes) == 0 {
+		return nil, common.ErrStakingNotFound
+	}
+
+	kdaStaking := &kapps.StakingData{}
+	if err = n.internalMarshalizer.Unmarshal(kdaStaking, stakedBytes); err != nil {
+		return nil, err
+	}
+
+	return kdaStaking, nil
+}
+
+// loadKDAData loads and unmarshals KDA data for a given asset.
+func (n *Node) loadKDAData(assetId string) (*kapps.KDAData, error) {
+	kdaAcnt, err := n.kapps.LoadAccount(kapps.KDAKAppAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	kdaKapp, ok := kdaAcnt.(state.KAppAccountHandler)
+	if !ok {
+		return nil, common.ErrWrongTypeAssertion
+	}
+
+	key := kdautils.ToKDAKey([]byte(assetId), nil)
+	kdaBytes, err := kdaKapp.DataTrieTracker().RetrieveValue(key)
+	if err != nil {
+		return nil, err
+	}
+	if len(kdaBytes) == 0 {
+		return nil, common.ErrAssetNotFound
+	}
+
+	kda := &kapps.KDAData{}
+	if err = n.internalMarshalizer.Unmarshal(kda, kdaBytes); err != nil {
+		return nil, err
+	}
+
+	return kda, nil
+}
+
+// getKLVAllowanceWithPending returns the KLV allowance including pending rewards from V2 epoch rewards.
+func (n *Node) getKLVAllowanceWithPending(userAccount state.UserAccountHandler) int64 {
+	allowance := userAccount.GetAllowance()
+
+	if check.IfNil(n.kappController) {
+		return allowance
+	}
+
+	pendingRewards, err := n.kappController.GetValidatorsKApp().GetPendingRewards(userAccount.AddressBytes())
+	if err == nil && pendingRewards > 0 {
+		allowance += pendingRewards
+	}
+
+	return allowance
+}
+
+// computeRewardsForAsset extracts the computed rewards for the given asset from the rewards map.
+func computeRewardsForAsset(rewards map[string]int64, assetId string) int64 {
+	if len(rewards) == 0 {
+		return 0
+	}
+	// if assetID is KFI, computedRewards must be in KLV stack
+	if assetId == string(kdautils.KFIIdentifier) {
+		assetId = string(kdautils.KLVIdentifier)
+	}
+	return rewards[assetId]
+}
+
 func (n *Node) GetAvailableClaim(address string, assetId string) (int64, map[string]int64, int64, error) {
 	account, err := n.getAccountHandler(address)
 	if err != nil {
@@ -125,54 +210,12 @@ func (n *Node) GetAvailableClaim(address string, assetId string) (int64, map[str
 		return 0, nil, 0, nil
 	}
 
-	currentBlockHeader := n.blkc.GetCurrentBlockHeader()
-
-	stakingAcnt, err := n.kapps.LoadAccount(kapps.StakingKAppAddress)
+	kdaStaking, err := n.loadStakingData(assetId)
 	if err != nil {
 		return 0, nil, 0, err
 	}
 
-	stakingKapp, ok := stakingAcnt.(state.KAppAccountHandler)
-	if !ok {
-		return 0, nil, 0, common.ErrWrongTypeAssertion
-	}
-
-	key := kdautils.ToKDAKey([]byte(assetId), nil)
-
-	stakedBytes, err := stakingKapp.DataTrieTracker().RetrieveValue(key)
-	if err != nil {
-		return 0, nil, 0, err
-	}
-	if len(stakedBytes) == 0 {
-		return 0, nil, 0, common.ErrStakingNotFound
-	}
-
-	kdaStaking := &kapps.StakingData{}
-	err = n.internalMarshalizer.Unmarshal(kdaStaking, stakedBytes)
-	if err != nil {
-		return 0, nil, 0, err
-	}
-
-	kdaAcnt, err := n.kapps.LoadAccount(kapps.KDAKAppAddress)
-	if err != nil {
-		return 0, nil, 0, err
-	}
-
-	kdaKapp, ok := kdaAcnt.(state.KAppAccountHandler)
-	if !ok {
-		return 0, nil, 0, common.ErrWrongTypeAssertion
-	}
-
-	kdaBytes, err := kdaKapp.DataTrieTracker().RetrieveValue(key)
-	if err != nil {
-		return 0, nil, 0, err
-	}
-	if len(kdaBytes) == 0 {
-		return 0, nil, 0, common.ErrAssetNotFound
-	}
-
-	kda := &kapps.KDAData{}
-	err = n.internalMarshalizer.Unmarshal(kda, kdaBytes)
+	_, err = n.loadKDAData(assetId)
 	if err != nil {
 		return 0, nil, 0, err
 	}
@@ -182,6 +225,7 @@ func (n *Node) GetAvailableClaim(address string, assetId string) (int64, map[str
 		return 0, nil, 0, err
 	}
 
+	currentBlockHeader := n.blkc.GetCurrentBlockHeader()
 	rewards, err := userAccount.ComputeAvailableClaim(
 		[]byte(assetId),
 		currentBlockHeader.GetEpoch(),
@@ -196,25 +240,10 @@ func (n *Node) GetAvailableClaim(address string, assetId string) (int64, map[str
 
 	allowance := int64(0)
 	if assetId == "KLV" {
-		allowance = userAccount.GetAllowance()
-
-		// V2 Epoch Rewards: Add pending rewards from KApp data trie
-		if !check.IfNil(n.kappController) {
-			pendingRewards, err := n.kappController.GetValidatorsKApp().GetPendingRewards(userAccount.AddressBytes())
-			if err == nil && pendingRewards > 0 {
-				allowance += pendingRewards
-			}
-		}
+		allowance = n.getKLVAllowanceWithPending(userAccount)
 	}
 
-	computedRewards := int64(0)
-	if len(rewards) > 0 {
-		// if assetID is KFI, computedRewards must be in KLV stack
-		if assetId == string(kdautils.KFIIdentifier) {
-			assetId = string(kdautils.KLVIdentifier)
-		}
-		computedRewards = rewards[assetId]
-	}
+	computedRewards := computeRewardsForAsset(rewards, assetId)
 
 	return computedRewards, rewards, allowance, nil
 }

@@ -1417,7 +1417,64 @@ func (ei *elasticProcessor) SaveAccounts(
 	return ei.doBulkRequests(accountsIndex, buffSlice.Buffers())
 }
 
-// SaveAccounts will prepare and save information about provided accounts in elasticsearch server
+// convertPermissions converts user account permissions to indexer format.
+func (ei *elasticProcessor) convertPermissions(perms []*state.Permission) []data.Permissions {
+	permissions := make([]data.Permissions, 0, len(perms))
+	for _, p := range perms {
+		keys := make([]data.PermissionKey, 0, len(p.Signers))
+		for _, k := range p.Signers {
+			keys = append(keys, data.PermissionKey{
+				Address: ei.addressPubkeyConverter.Encode(k.Address),
+				Weight:  k.Weight,
+			})
+		}
+		permissions = append(permissions, data.Permissions{
+			ID:             p.ID,
+			Type:           int32(p.Type),
+			PermissionName: p.PermissionName,
+			Threshold:      p.Threshold,
+			Operations:     hex.EncodeToString(p.Operations),
+			Signers:        keys,
+		})
+	}
+	return permissions
+}
+
+// calculateUnfrozenBalance sums the value of all unstaked buckets.
+func calculateUnfrozenBalance(buckets map[string]*kapps.UserBucket) int64 {
+	unfrozenBalance := int64(0)
+	for _, bucket := range buckets {
+		if bucket.UnstakedEpoch != core.DefaultUnstakedEpoch {
+			unfrozenBalance += bucket.Value
+		}
+	}
+	return unfrozenBalance
+}
+
+// getAllowanceWithPendingRewards returns the allowance including V2 pending rewards.
+func (ei *elasticProcessor) getAllowanceWithPendingRewards(userAccount state.UserAccountHandler) int64 {
+	allowance := userAccount.GetAllowance()
+	if check.IfNil(ei.kappsController) {
+		return allowance
+	}
+
+	pendingRewards, err := ei.kappsController.GetValidatorsKApp().GetPendingRewards(userAccount.AddressBytes())
+	if err == nil && pendingRewards > 0 {
+		allowance += pendingRewards
+	}
+	return allowance
+}
+
+// dispatchAccountEvents sends account events to the event queue if enabled.
+func dispatchAccountEvents(accountsMap map[string]*data.AccountInfo) {
+	if UseEventQueue && len(accountsMap) > 0 {
+		EventQueue <- Event{
+			EvType:  ACCOUNTS,
+			Message: accountsMap,
+		}
+	}
+}
+
 func (ei *elasticProcessor) saveAccounts(
 	blockTimestamp int64,
 	accountsSlice []*data.Account,
@@ -1430,100 +1487,61 @@ func (ei *elasticProcessor) saveAccounts(
 	newAccountsMap := make(map[string]*data.AccountInfo)
 	updateAccountsMap := make(map[string]*data.AccountInfo)
 	historyAccountsMap := make(map[string]*data.AccountInfo)
+
 	for _, userAccount := range accountsSlice {
-		address := ei.addressPubkeyConverter.Encode(userAccount.UserAccount.AddressBytes())
-
-		permissions := make([]data.Permissions, 0)
-		for _, p := range userAccount.UserAccount.GetPermissions() {
-			keys := make([]data.PermissionKey, 0)
-			for _, k := range p.Signers {
-				keys = append(keys, data.PermissionKey{
-					Address: ei.addressPubkeyConverter.Encode(k.Address),
-					Weight:  k.Weight,
-				})
-			}
-			permissions = append(permissions, data.Permissions{
-				ID:             p.ID,
-				Type:           int32(p.Type),
-				PermissionName: p.PermissionName,
-				Threshold:      p.Threshold,
-				Operations:     hex.EncodeToString(p.Operations),
-				Signers:        keys,
-			})
-		}
-
-		userKDA, err := userAccount.UserAccount.GetUserKDA(kdautils.KLVIdentifier, nil, true)
+		acc, err := ei.buildAccountInfo(userAccount, blockTimestamp)
 		if err != nil {
 			return err
 		}
 
-		unfrozenBalance := int64(0)
-		for _, bucket := range userKDA.Buckets {
-			if bucket.UnstakedEpoch != core.DefaultUnstakedEpoch {
-				unfrozenBalance += bucket.Value
-			}
-		}
-
-		// V2 Epoch Rewards: Include pending rewards in allowance
-		allowance := userAccount.UserAccount.GetAllowance()
-		if !check.IfNil(ei.kappsController) {
-			pendingRewards, err := ei.kappsController.GetValidatorsKApp().GetPendingRewards(userAccount.UserAccount.AddressBytes())
-			if err == nil && pendingRewards > 0 {
-				allowance += pendingRewards
-			}
-		}
-
-		acc := &data.AccountInfo{
-			Address:         address,
-			Nonce:           userAccount.UserAccount.GetNonce(),
-			Name:            string(userAccount.UserAccount.GetName()),
-			RootHash:        hex.EncodeToString(userAccount.UserAccount.GetRootHash()),
-			Balance:         userAccount.UserAccount.GetBalance(kdautils.KLVIdentifier, true),
-			FrozenBalance:   userKDA.FrozenBalance,
-			UnfrozenBalance: unfrozenBalance,
-			Allowance:       allowance,
-			Permissions:     permissions,
-			Timestamp:       time.Duration(blockTimestamp * 1000),
-			CodeHash:        hex.EncodeToString(userAccount.UserAccount.GetCodeHash()),
-			CodeMetadata:    hex.EncodeToString(userAccount.UserAccount.GetCodeMetadata()),
-			Foundation:      false,
-		}
-
-		exist := ei.elasticClient.DocExists(accountsIndex, address)
-		if !exist {
-			newAccountsMap[address] = acc
-		} else {
+		address := acc.Address
+		if ei.elasticClient.DocExists(accountsIndex, address) {
 			updateAccountsMap[address] = acc
+		} else {
+			newAccountsMap[address] = acc
 		}
 		historyAccountsMap[address] = acc
 	}
 
-	// Dispatch event
-	if UseEventQueue && len(newAccountsMap) > 0 {
-		EventQueue <- Event{
-			EvType:  ACCOUNTS,
-			Message: newAccountsMap,
-		}
-	}
+	dispatchAccountEvents(newAccountsMap)
+	dispatchAccountEvents(updateAccountsMap)
 
-	if UseEventQueue && len(updateAccountsMap) > 0 {
-		EventQueue <- Event{
-			EvType:  ACCOUNTS,
-			Message: updateAccountsMap,
-		}
-	}
-
-	err := serializeAccounts(newAccountsMap, buffSlice, accountsIndex)
-	if err != nil {
+	if err := serializeAccounts(newAccountsMap, buffSlice, accountsIndex); err != nil {
 		return err
 	}
 
-	err = serializedDataForUpdateAccounts(updateAccountsMap, buffSlice, accountsIndex)
-	if err != nil {
+	if err := serializedDataForUpdateAccounts(updateAccountsMap, buffSlice, accountsIndex); err != nil {
 		return err
 	}
 
 	return ei.saveAccountsHistory(blockTimestamp, historyAccountsMap)
+}
+
+// buildAccountInfo creates an AccountInfo from a user account.
+func (ei *elasticProcessor) buildAccountInfo(userAccount *data.Account, blockTimestamp int64) (*data.AccountInfo, error) {
+	address := ei.addressPubkeyConverter.Encode(userAccount.UserAccount.AddressBytes())
+	permissions := ei.convertPermissions(userAccount.UserAccount.GetPermissions())
+
+	userKDA, err := userAccount.UserAccount.GetUserKDA(kdautils.KLVIdentifier, nil, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return &data.AccountInfo{
+		Address:         address,
+		Nonce:           userAccount.UserAccount.GetNonce(),
+		Name:            string(userAccount.UserAccount.GetName()),
+		RootHash:        hex.EncodeToString(userAccount.UserAccount.GetRootHash()),
+		Balance:         userAccount.UserAccount.GetBalance(kdautils.KLVIdentifier, true),
+		FrozenBalance:   userKDA.FrozenBalance,
+		UnfrozenBalance: calculateUnfrozenBalance(userKDA.Buckets),
+		Allowance:       ei.getAllowanceWithPendingRewards(userAccount.UserAccount),
+		Permissions:     permissions,
+		Timestamp:       time.Duration(blockTimestamp * 1000),
+		CodeHash:        hex.EncodeToString(userAccount.UserAccount.GetCodeHash()),
+		CodeMetadata:    hex.EncodeToString(userAccount.UserAccount.GetCodeMetadata()),
+		Foundation:      false,
+	}, nil
 }
 
 func (ei *elasticProcessor) saveAccountsHistory(blockTimestamp int64, accountsInfoMap map[string]*data.AccountInfo) error {
