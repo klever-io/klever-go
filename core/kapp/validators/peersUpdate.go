@@ -505,7 +505,6 @@ type bucketProcessingResultV2 struct {
 func (v *validatorsKApp) processBucketDelegationsV2(
 	pd *PeerData,
 	currentEpoch uint32,
-	fixDelegationSameEpoch bool,
 ) bucketProcessingResultV2 {
 	result := bucketProcessingResultV2{
 		accumulatedDelegations: make(map[string]int64, len(pd.Buckets)),
@@ -517,7 +516,7 @@ func (v *validatorsKApp) processBucketDelegationsV2(
 		originalDelegatedEpoch := delegation.GetDelegatedEpoch()
 		delegatedEpoch := originalDelegatedEpoch
 
-		if fixDelegationSameEpoch {
+		if v.forkController.FixDelegationSameEpoch() {
 			if delegation.GetUndelegatedEpoch() <= currentEpoch {
 				result.keysToDelete = append(result.keysToDelete, key)
 				result.totalUnDelegated += delegationValue
@@ -542,7 +541,6 @@ func (v *validatorsKApp) calculateDelegationRewardsV2(
 	accumulatedFees int64,
 	accumulatedDelegations map[string]int64,
 	totalDelegated int64,
-	enableSmartContracts bool,
 ) map[string]int64 {
 	rewardsAddrStr := string(val.GetRewardsAddress())
 	commissionAmount := (accumulatedFees * int64(val.GetCommission())) / int64(core.HundredPercent)
@@ -561,7 +559,7 @@ func (v *validatorsKApp) calculateDelegationRewardsV2(
 		remainingFees -= userShare
 	}
 
-	if remainingFees != 0 && enableSmartContracts {
+	if remainingFees != 0 && v.forkController.EnableSmartContracts() {
 		localDelegations[rewardsAddrStr] += remainingFees
 	}
 
@@ -579,24 +577,23 @@ func (v *validatorsKApp) calculateUserShareV2(totalRemainingFees, amount, totalD
 	return result.Int64()
 }
 
-// updateStakingBucketsV2 updates staking buckets for V2 with cached fork flags.
+// updateStakingBucketsV2 updates staking buckets for V2.
 func (v *validatorsKApp) updateStakingBucketsV2(
 	app state.KAppAccountHandler,
 	addr []byte,
 	pd *PeerData,
 	keysToDelete []string,
 	totalDelegated, totalUnDelegated int64,
-	fixStakingBuckets, enableSmartContracts bool,
 ) (int64, error) {
 	for _, key := range keysToDelete {
 		delete(pd.Buckets, key)
 	}
 
-	if !fixStakingBuckets {
+	if !v.forkController.FixStakingBuckets() {
 		return totalDelegated, nil
 	}
 
-	if !enableSmartContracts {
+	if !v.forkController.EnableSmartContracts() {
 		totalDelegated -= totalUnDelegated
 	}
 
@@ -611,7 +608,6 @@ func (v *validatorsKApp) processValidatorEpochV2(
 	currentEpoch uint32,
 	minSelfDelegated, minTotalDelegated int64,
 	totalDelegations map[string]int64,
-	fixDelegationSameEpoch, enableSmartContracts, fixStakingBuckets bool,
 ) error {
 	addr := validatorInfo.GetOwnerAddress()
 
@@ -620,7 +616,7 @@ func (v *validatorsKApp) processValidatorEpochV2(
 		return err
 	}
 
-	bucketResult := v.processBucketDelegationsV2(pd, currentEpoch, fixDelegationSameEpoch)
+	bucketResult := v.processBucketDelegationsV2(pd, currentEpoch)
 
 	val, err := v.getValidator(app, addr)
 	if err != nil {
@@ -632,7 +628,7 @@ func (v *validatorsKApp) processValidatorEpochV2(
 		return err
 	}
 
-	localDelegations := v.calculateDelegationRewardsV2(val, peerAcc.GetAccumulatedFees(), bucketResult.accumulatedDelegations, bucketResult.totalDelegated, enableSmartContracts)
+	localDelegations := v.calculateDelegationRewardsV2(val, peerAcc.GetAccumulatedFees(), bucketResult.accumulatedDelegations, bucketResult.totalDelegated)
 
 	for a, amount := range localDelegations {
 		totalDelegations[a] += amount
@@ -641,7 +637,7 @@ func (v *validatorsKApp) processValidatorEpochV2(
 	val.SelfStaked = val.SelfStake >= minSelfDelegated
 	v.updateValidatorJailStatus(val, peerAcc, currentEpoch)
 
-	totalDelegated, err := v.updateStakingBucketsV2(app, addr, pd, bucketResult.keysToDelete, bucketResult.totalDelegated, bucketResult.totalUnDelegated, fixStakingBuckets, enableSmartContracts)
+	totalDelegated, err := v.updateStakingBucketsV2(app, addr, pd, bucketResult.keysToDelete, bucketResult.totalDelegated, bucketResult.totalUnDelegated)
 	if err != nil {
 		return err
 	}
@@ -708,11 +704,6 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpochV1(currentEpoch uint32, valid
 func (v *validatorsKApp) ProcessEconomicsEndOfEpochV2(currentEpoch uint32, validatorInfos []*state.ValidatorInfo) error {
 	minSelfDelegated, minTotalDelegated := v.getValidatorParams()
 
-	// Cache fork controller results (called many times in hot loops)
-	fixDelegationSameEpoch := v.forkController.FixDelegationSameEpoch()
-	enableSmartContracts := v.forkController.EnableSmartContracts()
-	fixStakingBuckets := v.forkController.FixStakingBuckets()
-
 	app, err := v.getKApp()
 	if err != nil {
 		return err
@@ -721,7 +712,7 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpochV2(currentEpoch uint32, valid
 	totalDelegations := make(map[string]int64)
 
 	for _, validatorInfo := range validatorInfos {
-		if err := v.processValidatorEpochV2(app, validatorInfo, currentEpoch, minSelfDelegated, minTotalDelegated, totalDelegations, fixDelegationSameEpoch, enableSmartContracts, fixStakingBuckets); err != nil {
+		if err := v.processValidatorEpochV2(app, validatorInfo, currentEpoch, minSelfDelegated, minTotalDelegated, totalDelegations); err != nil {
 			return err
 		}
 	}

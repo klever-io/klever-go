@@ -3,6 +3,7 @@ package validators
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -363,6 +364,203 @@ func TestValidatorsKApp_Delegate(t *testing.T) {
 		assert.Equal(t, transaction.Transaction_BucketIDInvalid, resultCode)
 		assert.Equal(t, common.ErrInvalidValue, err)
 		assert.Len(t, update, 0)
+	})
+
+	t.Run("Delegation fails when max buckets reached (EpochRewardsV2 enabled)", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		addStorageCacher(v)
+
+		// Ensure EpochRewardsV2 is enabled (default in mock)
+		v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = true
+
+		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
+
+		// Pre-populate validator with max buckets
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		pd := &PeerData{Buckets: make(map[string]*PeerBucket)}
+		for i := range MaxBucketsPerValidator {
+			bucketKey := hex.EncodeToString(fmt.Appendf(nil, "existingbucket%d", i))
+			pd.Buckets[bucketKey] = &PeerBucket{
+				Value:            1000,
+				DelegatedEpoch:   1,
+				UndelegatedEpoch: core.DefaultUndelegatedEpoch,
+				Address:          []byte("existingsender"),
+			}
+		}
+		err = v.setValidatorBuckets(app, validatorAddress, pd)
+		require.NoError(t, err)
+		err = v.saveKApp(app)
+		require.NoError(t, err)
+
+		// Try to delegate a new bucket
+		newBucketID := []byte("newbucket")
+		tc := &transaction.DelegateContract{
+			ToAddress: validatorAddress,
+			BucketID:  newBucketID,
+		}
+
+		senderAcc := &mock.UserAccountHandlerStub{
+			GetBucketsCalled: func(_ []byte, _ bool) map[string]*kapps.UserBucket {
+				return map[string]*kapps.UserBucket{
+					hex.EncodeToString(newBucketID): {
+						Value:         500,
+						UnstakedEpoch: core.DefaultUnstakedEpoch,
+					},
+				}
+			},
+		}
+		v.accountsCacher.(*mock.AccountsCacherStub).GetExistingUserCalled = func(address []byte) (state.UserAccountHandler, error) {
+			return senderAcc, nil
+		}
+
+		resultCode, update, err := v.Delegate([]byte("newsender"), 2000, 2, tc)
+
+		assert.Equal(t, transaction.Transaction_AccountError, resultCode)
+		assert.Equal(t, common.ErrValidatorMaxDelegatorsReached, err)
+		assert.Len(t, update, 0)
+	})
+
+	t.Run("Delegation allowed when EpochRewardsV2 disabled (no bucket limit)", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		addStorageCacher(v)
+
+		// Disable EpochRewardsV2 fork
+		v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = false
+
+		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
+
+		// Pre-populate validator with max buckets
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		pd := &PeerData{Buckets: make(map[string]*PeerBucket)}
+		for i := range MaxBucketsPerValidator {
+			bucketKey := hex.EncodeToString(fmt.Appendf(nil, "existingbucket%d", i))
+			pd.Buckets[bucketKey] = &PeerBucket{
+				Value:            1000,
+				DelegatedEpoch:   1,
+				UndelegatedEpoch: core.DefaultUndelegatedEpoch,
+				Address:          []byte("existingsender"),
+			}
+		}
+		err = v.setValidatorBuckets(app, validatorAddress, pd)
+		require.NoError(t, err)
+		err = v.saveKApp(app)
+		require.NoError(t, err)
+
+		// Try to delegate a new bucket - should succeed since fork is disabled
+		newBucketID := []byte("newbucket")
+		tc := &transaction.DelegateContract{
+			ToAddress: validatorAddress,
+			BucketID:  newBucketID,
+		}
+
+		senderAcc := &mock.UserAccountHandlerStub{
+			GetBucketsCalled: func(_ []byte, _ bool) map[string]*kapps.UserBucket {
+				return map[string]*kapps.UserBucket{
+					hex.EncodeToString(newBucketID): {
+						Value:         500,
+						UnstakedEpoch: core.DefaultUnstakedEpoch,
+					},
+				}
+			},
+		}
+		v.accountsCacher.(*mock.AccountsCacherStub).GetExistingUserCalled = func(address []byte) (state.UserAccountHandler, error) {
+			return senderAcc, nil
+		}
+
+		resultCode, update, err := v.Delegate([]byte("newsender"), 2000, 2, tc)
+
+		assert.Equal(t, transaction.Transaction_Ok, resultCode)
+		assert.Nil(t, err)
+		assert.Len(t, update, 1)
+
+		// Verify bucket count now exceeds max (only possible when fork disabled)
+		app, _ = v.getKApp()
+		pd, err = v.getValidatorBuckets(app, validatorAddress)
+		require.NoError(t, err)
+		assert.Equal(t, MaxBucketsPerValidator+1, len(pd.Buckets))
+	})
+
+	t.Run("Re-delegation allowed even when at max buckets (EpochRewardsV2 enabled)", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		addStorageCacher(v)
+
+		// Enable EpochRewardsV2 fork
+		v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = true
+
+		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
+
+		// Pre-populate validator with max buckets, including the one we'll re-delegate
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		existingBucketID := []byte("existingbucket0")
+		encodedExistingBucketID := hex.EncodeToString(existingBucketID)
+
+		pd := &PeerData{Buckets: make(map[string]*PeerBucket)}
+		// First bucket is the one we'll re-delegate
+		pd.Buckets[encodedExistingBucketID] = &PeerBucket{
+			Value:            500,
+			DelegatedEpoch:   1,
+			UndelegatedEpoch: core.DefaultUndelegatedEpoch,
+			Address:          []byte("originalsender"),
+		}
+		// Fill remaining buckets to reach max
+		for i := 1; i < MaxBucketsPerValidator; i++ {
+			bucketKey := hex.EncodeToString(fmt.Appendf(nil, "existingbucket%d", i))
+			pd.Buckets[bucketKey] = &PeerBucket{
+				Value:            1000,
+				DelegatedEpoch:   1,
+				UndelegatedEpoch: core.DefaultUndelegatedEpoch,
+				Address:          []byte("existingsender"),
+			}
+		}
+		err = v.setValidatorBuckets(app, validatorAddress, pd)
+		require.NoError(t, err)
+		err = v.saveKApp(app)
+		require.NoError(t, err)
+
+		// Re-delegate the existing bucket with updated value
+		tc := &transaction.DelegateContract{
+			ToAddress: validatorAddress,
+			BucketID:  existingBucketID,
+		}
+
+		senderAcc := &mock.UserAccountHandlerStub{
+			GetBucketsCalled: func(_ []byte, _ bool) map[string]*kapps.UserBucket {
+				return map[string]*kapps.UserBucket{
+					encodedExistingBucketID: {
+						Value:         1500, // Updated value
+						UnstakedEpoch: core.DefaultUnstakedEpoch,
+					},
+				}
+			},
+		}
+		v.accountsCacher.(*mock.AccountsCacherStub).GetExistingUserCalled = func(address []byte) (state.UserAccountHandler, error) {
+			return senderAcc, nil
+		}
+
+		resultCode, update, err := v.Delegate([]byte("originalsender"), 2000, 2, tc)
+
+		// Should succeed because bucket already exists (re-delegation)
+		assert.Equal(t, transaction.Transaction_Ok, resultCode)
+		assert.Nil(t, err)
+		assert.Len(t, update, 1)
+
+		// Verify bucket count remains at max (no new bucket added)
+		app, _ = v.getKApp()
+		pd, err = v.getValidatorBuckets(app, validatorAddress)
+		require.NoError(t, err)
+		assert.Equal(t, MaxBucketsPerValidator, len(pd.Buckets))
+
+		// Verify the re-delegated bucket has updated value
+		assert.Equal(t, int64(1500), pd.Buckets[encodedExistingBucketID].Value)
 	})
 }
 

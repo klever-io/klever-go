@@ -1,11 +1,15 @@
 package proposal
 
 import (
+	"encoding/hex"
+	"fmt"
 	"testing"
 
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
+	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
@@ -13,6 +17,7 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/data/trie"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/kvm/mock/stub"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/memorydb"
 	"github.com/klever-io/klever-go/storage/storageUnit"
@@ -424,4 +429,465 @@ func TestProposalKApp_SetAndGetProposal(t *testing.T) {
 	require.Equal(t, proposal.Proposer, retrievedProposal.Proposer)
 	require.Equal(t, proposal.ProposalStatus, retrievedProposal.ProposalStatus)
 	require.Equal(t, uint64(1), retrievedController.ProposalCount)
+}
+
+func TestProposalKApp_isVoterLimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns false when EpochRewardsV2 is disabled", func(t *testing.T) {
+		proposalKApp, _, forkController := createTestProposalKApp(t)
+		forkController.EpochRewardsV2Value = false
+
+		proposal := &kapps.ProposalData{
+			Voters: make(map[string]*kapps.ProposalData_VoteDetail),
+		}
+		// Fill to max voters
+		for i := range MaxVotersPerProposal {
+			addr := makeAddress("voter" + string(rune(i)))
+			proposal.Voters[string(addr)] = &kapps.ProposalData_VoteDetail{Amount: 100}
+		}
+
+		result := proposalKApp.IsVoterLimitExceeded(proposal, "newvoter")
+		require.False(t, result)
+	})
+
+	t.Run("returns false when voter already exists", func(t *testing.T) {
+		proposalKApp, _, forkController := createTestProposalKApp(t)
+		forkController.EpochRewardsV2Value = true
+
+		existingVoter := "existingvoter"
+		proposal := &kapps.ProposalData{
+			Voters: make(map[string]*kapps.ProposalData_VoteDetail),
+		}
+		// Fill to max voters including the existing voter
+		for i := range MaxVotersPerProposal {
+			addr := "voter" + string(rune(i))
+			proposal.Voters[addr] = &kapps.ProposalData_VoteDetail{Amount: 100}
+		}
+		proposal.Voters[existingVoter] = &kapps.ProposalData_VoteDetail{Amount: 200}
+
+		result := proposalKApp.IsVoterLimitExceeded(proposal, existingVoter)
+		require.False(t, result)
+	})
+
+	t.Run("returns false when under limit", func(t *testing.T) {
+		proposalKApp, _, forkController := createTestProposalKApp(t)
+		forkController.EpochRewardsV2Value = true
+
+		proposal := &kapps.ProposalData{
+			Voters: make(map[string]*kapps.ProposalData_VoteDetail),
+		}
+		// Add fewer than max voters
+		for i := range 10 {
+			addr := "voter" + string(rune(i))
+			proposal.Voters[addr] = &kapps.ProposalData_VoteDetail{Amount: 100}
+		}
+
+		result := proposalKApp.IsVoterLimitExceeded(proposal, "newvoter")
+		require.False(t, result)
+	})
+
+	t.Run("returns true when at limit and new voter", func(t *testing.T) {
+		proposalKApp, _, forkController := createTestProposalKApp(t)
+		forkController.EpochRewardsV2Value = true
+
+		proposal := &kapps.ProposalData{
+			Voters: make(map[string]*kapps.ProposalData_VoteDetail),
+		}
+		// Fill to exactly max voters
+		for i := range MaxVotersPerProposal {
+			addr := "voter" + string(rune(i))
+			proposal.Voters[addr] = &kapps.ProposalData_VoteDetail{Amount: 100}
+		}
+
+		result := proposalKApp.IsVoterLimitExceeded(proposal, "newvoter")
+		require.True(t, result)
+	})
+}
+
+func TestProposalKApp_processExistingVote(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns 0 for non-existing voter", func(t *testing.T) {
+		proposalKApp, _, _ := createTestProposalKApp(t)
+
+		proposal := &kapps.ProposalData{
+			Voters: make(map[string]*kapps.ProposalData_VoteDetail),
+			Votes:  make(map[int32]int64),
+		}
+
+		result := proposalKApp.ProcessExistingVote(proposal, "nonexistent", kapps.ProposalData_VoteDetail_Yes)
+		require.Equal(t, int64(0), result)
+	})
+
+	t.Run("returns 0 for nil voter detail", func(t *testing.T) {
+		proposalKApp, _, _ := createTestProposalKApp(t)
+
+		proposal := &kapps.ProposalData{
+			Voters: map[string]*kapps.ProposalData_VoteDetail{
+				"voter1": nil,
+			},
+			Votes: make(map[int32]int64),
+		}
+
+		result := proposalKApp.ProcessExistingVote(proposal, "voter1", kapps.ProposalData_VoteDetail_Yes)
+		require.Equal(t, int64(0), result)
+	})
+
+	t.Run("subtracts from old type when changing vote type", func(t *testing.T) {
+		proposalKApp, _, _ := createTestProposalKApp(t)
+
+		proposal := &kapps.ProposalData{
+			Voters: map[string]*kapps.ProposalData_VoteDetail{
+				"voter1": {Type: kapps.ProposalData_VoteDetail_Yes, Amount: 500},
+			},
+			Votes: map[int32]int64{
+				int32(kapps.ProposalData_VoteDetail_Yes): 1000,
+				int32(kapps.ProposalData_VoteDetail_No):  200,
+			},
+		}
+
+		// Change from Yes to No
+		result := proposalKApp.ProcessExistingVote(proposal, "voter1", kapps.ProposalData_VoteDetail_No)
+		require.Equal(t, int64(0), result)
+		// Yes votes should be reduced by the old amount
+		require.Equal(t, int64(500), proposal.Votes[int32(kapps.ProposalData_VoteDetail_Yes)])
+	})
+
+	t.Run("returns old amount when same vote type", func(t *testing.T) {
+		proposalKApp, _, _ := createTestProposalKApp(t)
+
+		proposal := &kapps.ProposalData{
+			Voters: map[string]*kapps.ProposalData_VoteDetail{
+				"voter1": {Type: kapps.ProposalData_VoteDetail_Yes, Amount: 500},
+			},
+			Votes: map[int32]int64{
+				int32(kapps.ProposalData_VoteDetail_Yes): 1000,
+			},
+		}
+
+		// Same vote type (Yes -> Yes)
+		result := proposalKApp.ProcessExistingVote(proposal, "voter1", kapps.ProposalData_VoteDetail_Yes)
+		require.Equal(t, int64(500), result)
+		// Votes should remain unchanged
+		require.Equal(t, int64(1000), proposal.Votes[int32(kapps.ProposalData_VoteDetail_Yes)])
+	})
+}
+
+// setupVoteTest creates a proposal kapp with KAppController and necessary dependencies for Vote tests
+func setupVoteTest(t *testing.T) (*proposalKapp, state.AccountsCacher, *mock.ForkControllerStub, *stub.KAppControllerStub) {
+	proposalKApp, accCacher, forkController := createTestProposalKApp(t)
+
+	// Create KAppController stub
+	kappController := &stub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			return &mock.KAppContextStub{
+				BlockCalled: func() *block.Block {
+					return &block.Block{
+						Header: &block.BlockHeader{
+							Epoch:     5,
+							Timestamp: 1234567890,
+						},
+					}
+				},
+				ContractIDCalled: func() int { return 1 },
+				ReceiptsCalled: func() kapp.ReceiptsContext {
+					return mock.NewReceiptsContextStub()
+				},
+			}
+		},
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &stub.KDAKappStub{
+				GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+					return nil, &kapps.StakingData{TotalStaked: 10000000}, nil
+				},
+			}
+		},
+		GetProposalControllerCalled: func() kapps.ActiveProposalController {
+			return &mock.ProposalControllerStub{
+				GetParameterIntCalled: func(param kapps.EnumParameter) int64 {
+					if param == kapps.EnumParameter_MinKFIStakedToEnableProposals {
+						return 1000 // Low threshold for testing
+					}
+					return 0
+				},
+			}
+		},
+	}
+
+	err := proposalKApp.SetKAppController(kappController)
+	require.NoError(t, err)
+
+	return proposalKApp, accCacher, forkController, kappController
+}
+
+// createActiveProposal creates and stores an active proposal with the given voters
+func createActiveProposal(t *testing.T, proposalKApp *proposalKapp, accCacher state.AccountsCacher, proposalID uint64, voters map[string]*kapps.ProposalData_VoteDetail) {
+	proposalKappAcc, err := accCacher.LoadKApp(kapps.ProposalKAppAddress)
+	require.NoError(t, err)
+
+	controller := &kapps.ProposalController{
+		ProposalCount:   proposalID,
+		ActiveProposals: make(map[uint32]*kapps.ActiveProposals),
+	}
+
+	proposal := &kapps.ProposalData{
+		Proposer:       proposerAddr,
+		TXHash:         []byte("tx-hash"),
+		ProposalStatus: kapps.ProposalData_ActiveProposal,
+		Parameters:     make(map[int32][]byte),
+		Votes:          make(map[int32]int64),
+		Voters:         voters,
+		EpochStart:     1,
+		EpochEnd:       100,
+		TotalStaked:    1000000,
+	}
+
+	err = proposalKApp.SetProposal(proposalKappAcc, proposalID, proposal, controller)
+	require.NoError(t, err)
+
+	err = accCacher.UpdateKapp(proposalKappAcc)
+	require.NoError(t, err)
+}
+
+// createVoterAccount creates a user account with KFI frozen balance for voting
+func createVoterAccount(t *testing.T, accCacher state.AccountsCacher, voterAddr []byte, frozenBalance int64) {
+	userAcc, err := accCacher.LoadUser(voterAddr)
+	require.NoError(t, err)
+
+	// Set KFI frozen balance for voting power
+	userKDA := &kapps.UserKDA{
+		Balance:       0,
+		FrozenBalance: frozenBalance,
+	}
+	err = userAcc.SetUserKDA(kdautils.KFIIdentifier, nil, userKDA)
+	require.NoError(t, err)
+
+	err = accCacher.UpdateUser(userAcc)
+	require.NoError(t, err)
+}
+
+func TestProposalKApp_Vote(t *testing.T) {
+	t.Parallel()
+
+	t.Run("fails with invalid vote type", func(t *testing.T) {
+		proposalKApp, _, _, _ := setupVoteTest(t)
+
+		tc := &transaction.VoteContract{
+			ProposalID: 1,
+			Amount:     100,
+			Type:       99, // Invalid type
+		}
+
+		resultCode, err := proposalKApp.Vote(proposerAddr, tc)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, resultCode)
+		require.Equal(t, common.ErrInvalidValue, err)
+	})
+
+	t.Run("fails with zero proposal ID", func(t *testing.T) {
+		proposalKApp, _, _, _ := setupVoteTest(t)
+
+		tc := &transaction.VoteContract{
+			ProposalID: 0,
+			Amount:     100,
+			Type:       transaction.VoteContract_Yes,
+		}
+
+		resultCode, err := proposalKApp.Vote(proposerAddr, tc)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, resultCode)
+		require.Equal(t, common.ErrInvalidValue, err)
+	})
+
+	t.Run("fails with zero amount", func(t *testing.T) {
+		proposalKApp, _, _, _ := setupVoteTest(t)
+
+		tc := &transaction.VoteContract{
+			ProposalID: 1,
+			Amount:     0,
+			Type:       transaction.VoteContract_Yes,
+		}
+
+		resultCode, err := proposalKApp.Vote(proposerAddr, tc)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, resultCode)
+		require.Equal(t, common.ErrInvalidValue, err)
+	})
+
+	t.Run("fails when max voters reached (EpochRewardsV2 enabled)", func(t *testing.T) {
+		proposalKApp, accCacher, forkController, _ := setupVoteTest(t)
+		forkController.EpochRewardsV2Value = true
+
+		// Create voters map at max capacity
+		voters := make(map[string]*kapps.ProposalData_VoteDetail)
+		for i := range MaxVotersPerProposal {
+			voterAddr := makeAddress(fmt.Sprintf("existingvoter%d", i))
+			encodedAddr := hex.EncodeToString(voterAddr)
+			voters[encodedAddr] = &kapps.ProposalData_VoteDetail{
+				Type:   kapps.ProposalData_VoteDetail_Yes,
+				Amount: 100,
+			}
+		}
+
+		createActiveProposal(t, proposalKApp, accCacher, 1, voters)
+
+		// Create new voter account
+		newVoter := makeAddress("newvoter")
+		createVoterAccount(t, accCacher, newVoter, 1000)
+
+		tc := &transaction.VoteContract{
+			ProposalID: 1,
+			Amount:     100,
+			Type:       transaction.VoteContract_Yes,
+		}
+
+		resultCode, err := proposalKApp.Vote(newVoter, tc)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, resultCode)
+		require.Equal(t, common.ErrProposalMaxVotersReached, err)
+	})
+
+	t.Run("succeeds when max voters reached but voter already exists (update vote)", func(t *testing.T) {
+		proposalKApp, accCacher, forkController, _ := setupVoteTest(t)
+		forkController.EpochRewardsV2Value = true
+
+		existingVoter := makeAddress("existingvoter0")
+		encodedExistingVoter := hex.EncodeToString(existingVoter)
+
+		// Create voters map at max capacity including existing voter
+		voters := make(map[string]*kapps.ProposalData_VoteDetail)
+		for i := range MaxVotersPerProposal {
+			voterAddr := makeAddress(fmt.Sprintf("existingvoter%d", i))
+			encodedAddr := hex.EncodeToString(voterAddr)
+			voters[encodedAddr] = &kapps.ProposalData_VoteDetail{
+				Type:   kapps.ProposalData_VoteDetail_Yes,
+				Amount: 100,
+			}
+		}
+
+		createActiveProposal(t, proposalKApp, accCacher, 1, voters)
+
+		// Create voter account with more frozen balance
+		createVoterAccount(t, accCacher, existingVoter, 5000)
+
+		tc := &transaction.VoteContract{
+			ProposalID: 1,
+			Amount:     500, // Update with higher amount
+			Type:       transaction.VoteContract_Yes,
+		}
+
+		resultCode, err := proposalKApp.Vote(existingVoter, tc)
+		require.Equal(t, transaction.Transaction_Ok, resultCode)
+		require.NoError(t, err)
+
+		// Verify vote was updated
+		_, updatedProposal, _, err := proposalKApp.GetProposal(1)
+		require.NoError(t, err)
+		require.Equal(t, int64(500), updatedProposal.Voters[encodedExistingVoter].Amount)
+	})
+
+	t.Run("succeeds when EpochRewardsV2 disabled (no voter limit)", func(t *testing.T) {
+		proposalKApp, accCacher, forkController, _ := setupVoteTest(t)
+		forkController.EpochRewardsV2Value = false
+
+		// Create voters map at max capacity
+		voters := make(map[string]*kapps.ProposalData_VoteDetail)
+		for i := range MaxVotersPerProposal {
+			voterAddr := makeAddress(fmt.Sprintf("existingvoter%d", i))
+			encodedAddr := hex.EncodeToString(voterAddr)
+			voters[encodedAddr] = &kapps.ProposalData_VoteDetail{
+				Type:   kapps.ProposalData_VoteDetail_Yes,
+				Amount: 100,
+			}
+		}
+
+		createActiveProposal(t, proposalKApp, accCacher, 1, voters)
+
+		// Create new voter account
+		newVoter := makeAddress("newvoter")
+		createVoterAccount(t, accCacher, newVoter, 1000)
+
+		tc := &transaction.VoteContract{
+			ProposalID: 1,
+			Amount:     100,
+			Type:       transaction.VoteContract_Yes,
+		}
+
+		resultCode, err := proposalKApp.Vote(newVoter, tc)
+		require.Equal(t, transaction.Transaction_Ok, resultCode)
+		require.NoError(t, err)
+
+		// Verify vote was added (exceeding max voters since fork is disabled)
+		_, updatedProposal, _, err := proposalKApp.GetProposal(1)
+		require.NoError(t, err)
+		require.Len(t, updatedProposal.Voters, MaxVotersPerProposal+1)
+	})
+
+	t.Run("vote type change updates vote counts correctly", func(t *testing.T) {
+		proposalKApp, accCacher, forkController, _ := setupVoteTest(t)
+		forkController.EpochRewardsV2Value = true
+
+		voterAddr := makeAddress("voter")
+		encodedVoter := hex.EncodeToString(voterAddr)
+
+		// Create proposal with initial vote
+		voters := map[string]*kapps.ProposalData_VoteDetail{
+			encodedVoter: {
+				Type:   kapps.ProposalData_VoteDetail_Yes,
+				Amount: 500,
+			},
+		}
+
+		// Create proposal with initial Yes votes
+		proposalKappAcc, err := accCacher.LoadKApp(kapps.ProposalKAppAddress)
+		require.NoError(t, err)
+
+		controller := &kapps.ProposalController{
+			ProposalCount:   1,
+			ActiveProposals: make(map[uint32]*kapps.ActiveProposals),
+		}
+
+		proposal := &kapps.ProposalData{
+			Proposer:       proposerAddr,
+			TXHash:         []byte("tx-hash"),
+			ProposalStatus: kapps.ProposalData_ActiveProposal,
+			Parameters:     make(map[int32][]byte),
+			Votes: map[int32]int64{
+				int32(kapps.ProposalData_VoteDetail_Yes): 500,
+				int32(kapps.ProposalData_VoteDetail_No):  0,
+			},
+			Voters:      voters,
+			EpochStart:  1,
+			EpochEnd:    100,
+			TotalStaked: 1000000,
+		}
+
+		err = proposalKApp.SetProposal(proposalKappAcc, 1, proposal, controller)
+		require.NoError(t, err)
+		err = accCacher.UpdateKapp(proposalKappAcc)
+		require.NoError(t, err)
+
+		// Create voter account
+		createVoterAccount(t, accCacher, voterAddr, 1000)
+
+		// Change vote from Yes to No
+		tc := &transaction.VoteContract{
+			ProposalID: 1,
+			Amount:     300,
+			Type:       transaction.VoteContract_No,
+		}
+
+		resultCode, err := proposalKApp.Vote(voterAddr, tc)
+		require.Equal(t, transaction.Transaction_Ok, resultCode)
+		require.NoError(t, err)
+
+		// Verify vote counts were updated correctly
+		_, updatedProposal, _, err := proposalKApp.GetProposal(1)
+		require.NoError(t, err)
+
+		// Yes votes should be reduced by old amount (500) to 0
+		require.Equal(t, int64(0), updatedProposal.Votes[int32(kapps.ProposalData_VoteDetail_Yes)])
+		// No votes should be set to new amount (300)
+		require.Equal(t, int64(300), updatedProposal.Votes[int32(kapps.ProposalData_VoteDetail_No)])
+		// Voter should have new type and amount
+		require.Equal(t, kapps.ProposalData_VoteDetail_No, updatedProposal.Voters[encodedVoter].Type)
+		require.Equal(t, int64(300), updatedProposal.Voters[encodedVoter].Amount)
+	})
 }
