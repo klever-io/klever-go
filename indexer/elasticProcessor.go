@@ -23,6 +23,7 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/indexer/logsevents"
+	"github.com/klever-io/klever-go/indexer/templates"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/memcache"
@@ -354,10 +355,206 @@ func (ei *elasticProcessor) RemoveTransactions(blk nodeData.HeaderHandler) error
 	encodedTXsHashes := make([]string, 0)
 	for _, txHash := range blk.GetTxHashes() {
 		encodedTXsHashes = append(encodedTXsHashes, hex.EncodeToString(txHash))
-
 	}
 
 	return ei.elasticClient.DoBulkRemove(txIndex, encodedTXsHashes)
+}
+
+// RemoveAccountsHistory will remove account history entries for a specific timestamp
+func (ei *elasticProcessor) RemoveAccountsHistory(blockTimestamp int64) error {
+	if !ei.isIndexEnabled(accountsHistoryIndex) {
+		return nil
+	}
+
+	err := ei.elasticClient.DoBulkRemoveByTimestamp(accountsHistoryIndex, blockTimestamp)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// RevertAccountBalances will revert account balances to their state before the given block
+func (ei *elasticProcessor) RevertAccountBalances(blockTimestamp int64) error {
+	if !ei.isIndexEnabled(accountsIndex) || !ei.isIndexEnabled(accountsHistoryIndex) {
+		return nil
+	}
+
+	// Query to get all account history entries from this block
+	query := templates.Object{
+		"query": templates.Object{
+			"term": templates.Object{
+				"timestamp": blockTimestamp,
+			},
+		},
+		"size": 10000,
+	}
+
+	body, err := encode(query)
+	if err != nil {
+		log.Warn("RevertAccountBalances: failed to encode query", "error", err.Error())
+		return err
+	}
+
+	// Search for all account history entries from this block
+	res, err := ei.elasticClient.DoSearch(accountsHistoryIndex, &body)
+	if err != nil {
+		log.Warn("RevertAccountBalances: failed to search accounts history", "blockTimestamp", blockTimestamp, "error", err.Error())
+		return err
+	}
+
+	accountHistoryEntries, err := ei.extractAccountHistoryEntries(res)
+	if err != nil {
+		log.Warn("RevertAccountBalances: failed to extract account history entries", "error", err.Error())
+		return err
+	}
+
+	if len(accountHistoryEntries) == 0 {
+		log.Debug("RevertAccountBalances: no accounts to revert", "blockTimestamp", blockTimestamp)
+		return nil
+	}
+
+	// For each account, find the previous balance and update
+	for _, historyEntry := range accountHistoryEntries {
+		err := ei.revertSingleAccountBalance(historyEntry.Address, blockTimestamp)
+		if err != nil {
+			log.Warn("RevertAccountBalances: failed to revert account", "address", historyEntry.Address, "error", err.Error())
+		}
+	}
+
+	return nil
+}
+
+func (ei *elasticProcessor) extractAccountHistoryEntries(response templates.Object) ([]*data.AccountHistoryEntry, error) {
+	hits, ok := response["hits"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid response format: missing hits")
+	}
+
+	innerHits, ok := hits["hits"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid response format: missing inner hits")
+	}
+
+	entries := make([]*data.AccountHistoryEntry, 0, len(innerHits))
+	for _, hit := range innerHits {
+		hitMap, ok := hit.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		source, ok := hitMap["_source"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		address, _ := source["address"].(string)
+		if address == "" {
+			continue
+		}
+
+		balance, _ := source["balance"].(float64)
+		frozenBalance, _ := source["frozenBalance"].(float64)
+		timestamp, _ := source["timestamp"].(float64)
+
+		entries = append(entries, &data.AccountHistoryEntry{
+			Address:       address,
+			Balance:       int64(balance),
+			FrozenBalance: int64(frozenBalance),
+			Timestamp:     int64(timestamp),
+		})
+	}
+
+	return entries, nil
+}
+
+func (ei *elasticProcessor) revertSingleAccountBalance(address string, currentBlockTimestamp int64) error {
+	query := templates.Object{
+		"query": templates.Object{
+			"bool": templates.Object{
+				"must": []templates.Object{
+					{
+						"term": templates.Object{
+							"address": address,
+						},
+					},
+					{
+						"range": templates.Object{
+							"timestamp": templates.Object{
+								"lte": currentBlockTimestamp,
+							},
+						},
+					},
+				},
+			},
+		},
+		"size": 2,
+		"sort": []templates.Object{
+			{
+				"timestamp": templates.Object{
+					"order": "desc",
+				},
+			},
+		},
+	}
+
+	body, err := encode(query)
+	if err != nil {
+		return err
+	}
+
+	res, err := ei.elasticClient.DoSearch(accountsHistoryIndex, &body)
+	if err != nil {
+		return err
+	}
+
+	historyEntries, err := ei.extractAccountHistoryEntries(res)
+	if err != nil {
+		return err
+	}
+
+	// Case 1: No history found (shouldn't happen if we got here, but handle it)
+	if len(historyEntries) == 0 {
+		log.Warn("No history found for account during rollback", "address", address)
+		return nil
+	}
+
+	// Case 2: Only 1 history entry - this account was created in this block
+	// Revert to balance 0
+	if len(historyEntries) == 1 {
+		log.Debug("Account created in this block, reverting to zero balance", "address", address)
+		return ei.updateAccountBalance(address, 0, 0)
+	}
+
+	// Case 3: 2 or more entries - revert to the second most recent (index 1)
+	previousEntry := historyEntries[1]
+	log.Debug("Reverting account to previous state",
+		"address", address,
+		"previousBalance", previousEntry.Balance,
+		"previousFrozenBalance", previousEntry.FrozenBalance,
+		"previousTimestamp", previousEntry.Timestamp)
+
+	return ei.updateAccountBalance(address, previousEntry.Balance, previousEntry.FrozenBalance)
+}
+
+func (ei *elasticProcessor) updateAccountBalance(address string, balance int64, frozenBalance int64) error {
+	// Create update script to modify only balance and frozenBalance fields
+	update := templates.Object{
+		"script": templates.Object{
+			"source": "ctx._source.balance = params.balance; ctx._source.frozenBalance = params.frozenBalance",
+			"params": templates.Object{
+				"balance":       balance,
+				"frozenBalance": frozenBalance,
+			},
+		},
+	}
+
+	updateBody, err := encode(update)
+	if err != nil {
+		return err
+	}
+
+	return ei.elasticClient.DoUpdate(accountsIndex, address, &updateBody)
 }
 
 // SaveTransactions will prepare and save information about a transactions in elasticsearch server

@@ -166,3 +166,10 @@ type ValidatorInfo struct {
 	Logo           string `json:"logo"`
 	URIs           []*URI `json:"uris"`
 }
+
+type AccountHistoryEntry struct {
+	Address       string
+	Balance       int64
+	FrozenBalance int64
+	Timestamp     int64
+}

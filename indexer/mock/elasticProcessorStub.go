@@ -66,6 +66,16 @@ func (eim *ElasticProcessorStub) RemoveTransactions(header nodeData.HeaderHandle
 	return nil
 }
 
+// RemoveAccountsHistory -
+func (eim *ElasticProcessorStub) RemoveAccountsHistory(_ int64) error {
+	return nil
+}
+
+// RevertAccountBalances -
+func (eim *ElasticProcessorStub) RevertAccountBalances(_ int64) error {
+	return nil
+}
+
 // SaveTransactions -
 func (eim *ElasticProcessorStub) SaveTransactions(header nodeData.HeaderHandler, pool *indexer.Pool) error {
 	if eim.SaveTransactionsCalled != nil {

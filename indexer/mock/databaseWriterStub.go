@@ -74,6 +74,21 @@ func (dwm *DatabaseWriterStub) DoBulkRemove(index string, hashes []string) error
 	return nil
 }
 
+// DoBulkRemoveByTimestamp -
+func (dwm *DatabaseWriterStub) DoBulkRemoveByTimestamp(_ string, _ int64) error {
+	return nil
+}
+
+// DoSearch -
+func (dwm *DatabaseWriterStub) DoSearch(_ string, _ *bytes.Buffer) (templates.Object, error) {
+	return nil, nil
+}
+
+// DoUpdate -
+func (dwm *DatabaseWriterStub) DoUpdate(_ string, _ string, _ *bytes.Buffer) error {
+	return nil
+}
+
 // ConvertObjectToOrder -
 func (dwm *DatabaseWriterStub) ConvertObjectToOrder(obj object) (*data.Order, error) {
 	if dwm.ConvertObjectToOrderCalled != nil {

@@ -26,3 +26,13 @@ func prepareHashesForBulkRemove(hashes []string) templates.Object {
 		},
 	}
 }
+
+func prepareTimestampForBulkRemove(timestamp int64) templates.Object {
+	return templates.Object{
+		"query": templates.Object{
+			"term": templates.Object{
+				"timestamp": timestamp,
+			},
+		},
+	}
+}

@@ -241,6 +241,88 @@ func (ec *elasticClient) DoBulkRemove(index string, hashes []string) error {
 	return nil
 }
 
+// DoBulkRemoveByTimestamp will do a bulk remove by timestamp to elasticsearch server
+func (ec *elasticClient) DoBulkRemoveByTimestamp(index string, timestamp int64) error {
+	obj := prepareTimestampForBulkRemove(timestamp)
+	body, err := encode(obj)
+	if err != nil {
+		return err
+	}
+
+	res, err := ec.es.DeleteByQuery(
+		[]string{index},
+		&body,
+		ec.es.DeleteByQuery.WithIgnoreUnavailable(true),
+	)
+
+	if err != nil {
+		log.Warn("elasticClient.DoBulkRemoveByTimestamp",
+			"cannot do bulk remove by timestamp", err.Error())
+		return err
+	}
+
+	defer func() {
+		if res != nil && res.Body != nil {
+			err := res.Body.Close()
+			if err != nil {
+				log.Warn("elasticClient.DoBulkRemoveByTimestamp",
+					"could not close body", err.Error())
+			}
+		}
+	}()
+
+	return nil
+}
+
+// DoSearch performs a search query on elasticsearch
+func (ec *elasticClient) DoSearch(index string, body *bytes.Buffer) (templates.Object, error) {
+	res, err := ec.es.Search(
+		ec.es.Search.WithIndex(index),
+		ec.es.Search.WithBody(body),
+	)
+	if err != nil {
+		log.Warn("elasticClient.DoSearch", "error", err.Error())
+		return nil, err
+	}
+
+	defer func() {
+		if res != nil && res.Body != nil {
+			_ = res.Body.Close()
+		}
+	}()
+
+	var decodedBody templates.Object
+	err = parseResponse(res, &decodedBody, elasticDefaultErrorResponseHandler)
+	if err != nil {
+		log.Warn("elasticClient.DoSearch", "error parsing response", err.Error())
+		return nil, err
+	}
+
+	return decodedBody, nil
+}
+
+// DoUpdate performs an update operation on a document
+func (ec *elasticClient) DoUpdate(index string, id string, body *bytes.Buffer) error {
+	res, err := ec.es.Update(index, id, body)
+	if err != nil {
+		log.Warn("elasticClient.DoUpdate", "error", err.Error())
+		return err
+	}
+
+	defer func() {
+		if res != nil && res.Body != nil {
+			_ = res.Body.Close()
+		}
+	}()
+
+	if res.IsError() {
+		bodyBytes, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("error updating document: %s - %s", res.Status(), string(bodyBytes))
+	}
+
+	return nil
+}
+
 // TemplateExists checks weather a template is already created
 func (ec *elasticClient) templateExists(index string) bool {
 	res, err := ec.es.Indices.ExistsTemplate([]string{index})
