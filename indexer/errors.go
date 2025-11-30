@@ -4,6 +4,10 @@ import (
 	"errors"
 )
 
+var ErrorParseResponse = "error parsing response"
+
+var ErrorCouldNotCloseBody = "could not close body"
+
 // ErrBackOff signals that an error was received from the server
 var ErrBackOff = errors.New("back off something is not working well")
 

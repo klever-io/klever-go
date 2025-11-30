@@ -123,7 +123,7 @@ func (ec *elasticClient) DoRequest(req *esapi.IndexRequest) error {
 			err := res.Body.Close()
 			if err != nil {
 				log.Warn("elasticClient.DoRequest",
-					"could not close body", err.Error())
+					ErrorCouldNotCloseBody, err.Error())
 			}
 		}
 	}()
@@ -176,7 +176,7 @@ func (ec *elasticClient) DoMultiGet(obj templates.Object, index string) (templat
 	err = parseResponse(res, &decodedBody, elasticDefaultErrorResponseHandler)
 	if err != nil {
 		log.Warn("elasticClient.DoMultiGet",
-			"error parsing response", err.Error())
+			ErrorParseResponse, err.Error())
 		return nil, err
 	}
 
@@ -201,7 +201,7 @@ func (ec *elasticClient) Get(index string, id string) (templates.Object, error) 
 	err = parseResponse(res, &decodedBody, elasticDefaultErrorResponseHandler)
 	if err != nil {
 		log.Warn("elasticClient.DoMultiGet",
-			"error parsing response", err.Error())
+			ErrorParseResponse, err.Error())
 		return nil, err
 	}
 
@@ -233,7 +233,7 @@ func (ec *elasticClient) DoBulkRemove(index string, hashes []string) error {
 			err := res.Body.Close()
 			if err != nil {
 				log.Warn("elasticClient.DoBulkRemove",
-					"could not close body", err.Error())
+					ErrorCouldNotCloseBody, err.Error())
 			}
 		}
 	}()
@@ -266,7 +266,7 @@ func (ec *elasticClient) DoBulkRemoveByTimestamp(index string, timestamp int64) 
 			err := res.Body.Close()
 			if err != nil {
 				log.Warn("elasticClient.DoBulkRemoveByTimestamp",
-					"could not close body", err.Error())
+					ErrorCouldNotCloseBody, err.Error())
 			}
 		}
 	}()
@@ -294,7 +294,7 @@ func (ec *elasticClient) DoSearch(index string, body *bytes.Buffer) (templates.O
 	var decodedBody templates.Object
 	err = parseResponse(res, &decodedBody, elasticDefaultErrorResponseHandler)
 	if err != nil {
-		log.Warn("elasticClient.DoSearch", "error parsing response", err.Error())
+		log.Warn("elasticClient.DoSearch", ErrorParseResponse, err.Error())
 		return nil, err
 	}
 
@@ -425,7 +425,7 @@ func (ec *elasticClient) createIndex(index string) error {
 			err := res.Body.Close()
 			if err != nil {
 				log.Warn("elasticClient.createIndex",
-					"could not close body", err.Error())
+					ErrorCouldNotCloseBody, err.Error())
 			}
 		}
 	}()
@@ -486,7 +486,7 @@ func (ec *elasticClient) createIndexTemplate(templateName string, template io.Re
 			err := res.Body.Close()
 			if err != nil {
 				log.Warn("elasticClient.createIndexTemplate",
-					"could not close body", err.Error())
+					ErrorCouldNotCloseBody, err.Error())
 			}
 		}
 	}()
@@ -506,7 +506,7 @@ func (ec *elasticClient) createAlias(alias string, index string) error {
 			err := res.Body.Close()
 			if err != nil {
 				log.Warn("elasticClient.createAlias",
-					"could not close body", err.Error())
+					ErrorCouldNotCloseBody, err.Error())
 			}
 		}
 	}()
