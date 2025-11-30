@@ -368,12 +368,7 @@ func (ei *elasticProcessor) RemoveAccountsHistory(blockTimestamp int64) error {
 		return nil
 	}
 
-	err := ei.elasticClient.DoBulkRemoveByTimestamp(accountsHistoryIndex, blockTimestamp)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return ei.elasticClient.DoBulkRemoveByTimestamp(accountsHistoryIndex, blockTimestamp)
 }
 
 // RevertAccountBalances will revert account balances to their state before the given block
