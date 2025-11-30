@@ -32,6 +32,8 @@ import (
 )
 
 const numDecimalsInFloatBalance = 10 //?
+const revertAccountBatchSize = 10_000
+
 var ZeroAddressDecoded = "klv1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpgm89z"
 
 type elasticProcessor struct {
@@ -387,7 +389,7 @@ func (ei *elasticProcessor) RevertAccountBalances(blockTimestamp int64) error {
 				"timestamp": blockTimestamp,
 			},
 		},
-		"size": 10000,
+		"size": revertAccountBatchSize,
 	}
 
 	body, err := encode(query)
