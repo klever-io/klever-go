@@ -53,7 +53,6 @@ func (wirb *itemRemoveBlock) Save() error {
 
 	// Step 3: Remove transactions
 	if len(blk.TxHashes) > 0 {
-		log.Info("Rollback: Step 3 - Removing transactions", "count", len(blk.TxHashes), "nonce", blockNonce)
 		err = wirb.indexer.RemoveTransactions(blk)
 		if err != nil {
 			log.Warn("itemRemoveBlock.Save could not remove block transactions", "nonce", blockNonce, "error", err.Error())
