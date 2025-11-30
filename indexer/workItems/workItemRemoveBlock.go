@@ -41,12 +41,14 @@ func (wirb *itemRemoveBlock) Save() error {
 	err := wirb.indexer.RevertAccountBalances(blockTimestamp)
 	if err != nil {
 		log.Warn("itemRemoveBlock.Save could not revert account balances", "nonce", blockNonce, "error", err.Error())
+		return err
 	}
 
 	// Step 2: Remove account history entries for this block
 	err = wirb.indexer.RemoveAccountsHistory(blockTimestamp)
 	if err != nil {
 		log.Warn("itemRemoveBlock.Save could not remove accounts history", "nonce", blockNonce, "error", err.Error())
+		return err
 	}
 
 	// Step 3: Remove transactions
