@@ -1,9 +1,9 @@
 package validators
 
 import (
-	"bytes"
 	"fmt"
 	"math"
+	"math/big"
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
@@ -279,155 +279,138 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpoch(currentEpoch uint32, validat
 		return err
 	}
 
-	totalDelegations := make(map[string]int64)
-
-	// Get Validators Param from KAPP
-	minSelfDelegated := int64(0)
-	minTotalDelegated := int64(0)
-	if !check.IfNil(v.KAppController.GetProposalController()) {
-		minSelfDelegated = v.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinSelfDelegatedAmount)
-		minTotalDelegated = v.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinTotalDelegatedAmount)
+	if !v.forkController.EpochRewardsV2() {
+		return v.ProcessEconomicsEndOfEpochV1(currentEpoch, validatorInfos)
 	}
 
-	// get App
-	app, err := v.getKApp()
-	if err != nil {
-		return err
+	return v.ProcessEconomicsEndOfEpochV2(currentEpoch, validatorInfos)
+}
+
+// getValidatorParams returns the minimum self-delegated and total-delegated amounts from proposal controller.
+func (v *validatorsKApp) getValidatorParams() (minSelfDelegated, minTotalDelegated int64) {
+	if check.IfNil(v.KAppController.GetProposalController()) {
+		return 0, 0
+	}
+	minSelfDelegated = v.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinSelfDelegatedAmount)
+	minTotalDelegated = v.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinTotalDelegatedAmount)
+	return minSelfDelegated, minTotalDelegated
+}
+
+// updateValidatorJailStatus synchronizes the validator's jail status with the peer account list.
+func (v *validatorsKApp) updateValidatorJailStatus(val *ValidatorData, peerAcc state.PeerAccountHandler, currentEpoch uint32) {
+	// Clear jail if peer is no longer in jailed list
+	if val.Jailed && peerAcc.GetList() != state.List_jailed {
+		val.Jailed = false
+		val.JailedEpoch = math.MaxUint32
 	}
 
-	for _, validatorInfo := range validatorInfos {
-		addr := validatorInfo.GetOwnerAddress()
-		pd, err := v.getValidatorBuckets(app, addr)
-		if err != nil {
-			return err
-		}
+	// Set jail if peer was just jailed
+	if !val.Jailed && peerAcc.GetList() == state.List_jailed {
+		val.Jailed = true
+		val.JailedEpoch = currentEpoch
+		val.NumJailed++
+	}
+}
 
-		accumulatedDelegations := make(map[string]int64)
-		totalDelegated := int64(0)
-		totalUnDelegated := int64(0)
-		selfDelegated := int64(0)
-		for key, delegation := range pd.Buckets {
+// updatePeerListStatus updates the peer account's list status based on delegation amounts.
+func (v *validatorsKApp) updatePeerListStatus(val *ValidatorData, peerAcc state.PeerAccountHandler, minSelfDelegated, minTotalDelegated, totalDelegated int64) {
+	if val.Jailed {
+		return
+	}
 
-			delegatedEpoch := delegation.DelegatedEpoch
+	if val.SelfStake < minSelfDelegated {
+		peerAcc.SetList(state.List_inactive)
+	} else if totalDelegated < minTotalDelegated {
+		peerAcc.SetList(state.List_waiting)
+	} else if peerAcc.GetList() != state.List_elected {
+		peerAcc.SetList(state.List_eligible)
+	}
+}
 
-			if v.forkController.FixDelegationSameEpoch() {
-				if delegation.UndelegatedEpoch <= currentEpoch {
-					// Delete staking from validator
-					delete(pd.Buckets, key)
-					totalUnDelegated += delegation.GetValue()
-					continue
-				}
+// bucketProcessingResultV1 holds the results of processing validator buckets in V1.
+type bucketProcessingResultV1 struct {
+	accumulatedDelegations map[string]int64
+	totalDelegated         int64
+	totalUnDelegated       int64
+}
 
-				delegatedEpoch += 1
-			}
+// processBucketDelegationsV1 processes all buckets for a validator and returns delegation metrics.
+func (v *validatorsKApp) processBucketDelegationsV1(
+	pd *PeerData,
+	currentEpoch uint32,
+) bucketProcessingResultV1 {
+	result := bucketProcessingResultV1{
+		accumulatedDelegations: make(map[string]int64),
+	}
 
-			// check self staking
-			if (delegation.DelegatedEpoch == 0 || delegation.DelegatedEpoch < currentEpoch) &&
-				bytes.Equal(addr, delegation.GetAddress()) {
-				selfDelegated += delegation.GetValue()
-			}
+	fixDelegationSameEpoch := v.forkController.FixDelegationSameEpoch()
 
-			// check if user has valid delegation over 1 epoch at least
-			if delegation.DelegatedEpoch == 0 || delegatedEpoch < currentEpoch {
-				accumulatedDelegations[string(delegation.GetAddress())] += delegation.GetValue()
-				totalDelegated += delegation.GetValue()
-			}
+	for key, delegation := range pd.Buckets {
+		delegatedEpoch := delegation.GetDelegatedEpoch()
 
-			if delegation.UndelegatedEpoch <= currentEpoch {
-				// Delete staking from validator
+		if fixDelegationSameEpoch {
+			if delegation.GetUndelegatedEpoch() <= currentEpoch {
 				delete(pd.Buckets, key)
-				totalUnDelegated += delegation.GetValue()
+				result.totalUnDelegated += delegation.GetValue()
+				continue
 			}
+			delegatedEpoch += 1
 		}
 
-		val, err := v.getValidator(app, addr)
-		if err != nil {
-			return err
-		}
+		v.processSingleBucketV1(&result, delegation, delegatedEpoch, currentEpoch)
 
-		peerAcc, err := v.loadPeerAccount(val.BlsPubKey)
-		if err != nil {
-			return err
-		}
-
-		validatorCommission := float64(val.GetCommission()) / float64(core.HundredPercent)
-		commissionAmount := int64(float64(peerAcc.GetAccumulatedFees()) * validatorCommission)
-
-		totalDelegations[string(val.GetRewardsAddress())] += commissionAmount
-
-		remainingFees := peerAcc.GetAccumulatedFees() - commissionAmount
-		accumulatedFees := float64(remainingFees)
-		// move accumulated to top of validators lop
-		for address, amount := range accumulatedDelegations {
-			userShare := int64(accumulatedFees * (float64(amount) / float64(totalDelegated)))
-			totalDelegations[address] += userShare
-			remainingFees -= userShare
-		}
-
-		// remaining fees should be added to validator
-		if remainingFees != 0 &&
-			v.forkController.EnableSmartContracts() {
-			totalDelegations[string(val.GetRewardsAddress())] += remainingFees
-		}
-
-		val.SelfStaked = val.SelfStake >= minSelfDelegated
-
-		if val.Jailed && peerAcc.GetList() != state.List_jailed {
-			val.Jailed = false
-			val.JailedEpoch = math.MaxUint32
-		}
-
-		// Update Jail/List/Slash status
-		if !val.Jailed && peerAcc.GetList() == state.List_jailed {
-			val.Jailed = true
-			val.JailedEpoch = currentEpoch
-			val.NumJailed++
-		}
-
-		if v.forkController.FixStakingBuckets() {
-			if !v.forkController.EnableSmartContracts() {
-				totalDelegated -= totalUnDelegated
-			}
-
-			err = v.setValidatorBuckets(app, addr, pd)
-			if err != nil {
-				return err
-			}
-		}
-
-		if !val.Jailed {
-			if val.SelfStake < minSelfDelegated {
-				peerAcc.SetList(state.List_inactive)
-			} else if totalDelegated < minTotalDelegated {
-				peerAcc.SetList(state.List_waiting)
-			} else if peerAcc.GetList() != state.List_elected {
-				peerAcc.SetList(state.List_eligible)
-			}
-		}
-
-		val.Waiting = peerAcc.GetList() == state.List_waiting
-
-		val.TotalRewards += peerAcc.GetAccumulatedFees()
-
-		peerAcc.ResetAtNewEpoch()
-
-		err = v.accountsCacher.UpdatePeer(peerAcc)
-		if err != nil {
-			return err
-		}
-
-		err = v.setValidator(app, addr, val)
-		if err != nil {
-			return err
+		if delegation.GetUndelegatedEpoch() <= currentEpoch {
+			delete(pd.Buckets, key)
+			result.totalUnDelegated += delegation.GetValue()
 		}
 	}
 
-	err = v.saveKApp(app)
-	if err != nil {
-		return err
+	return result
+}
+
+// processSingleBucketV1 processes a single bucket for delegation accumulation.
+func (v *validatorsKApp) processSingleBucketV1(
+	result *bucketProcessingResultV1,
+	delegation *PeerBucket,
+	delegatedEpoch, currentEpoch uint32,
+) {
+	// check if user has valid delegation over 1 epoch at least
+	if delegation.GetDelegatedEpoch() == 0 || delegatedEpoch < currentEpoch {
+		result.accumulatedDelegations[string(delegation.GetAddress())] += delegation.GetValue()
+		result.totalDelegated += delegation.GetValue()
+	}
+}
+
+// calculateDelegationRewardsV1 calculates commission and distributes rewards among delegators.
+func (v *validatorsKApp) calculateDelegationRewardsV1(
+	val *ValidatorData,
+	accumulatedFees int64,
+	accumulatedDelegations map[string]int64,
+	totalDelegated int64,
+	totalDelegations map[string]int64,
+) {
+	validatorCommission := float64(val.GetCommission()) / float64(core.HundredPercent)
+	commissionAmount := int64(float64(accumulatedFees) * validatorCommission)
+
+	totalDelegations[string(val.GetRewardsAddress())] += commissionAmount
+
+	remainingFees := accumulatedFees - commissionAmount
+	accumulatedFeesFloat := float64(remainingFees)
+
+	for address, amount := range accumulatedDelegations {
+		userShare := int64(accumulatedFeesFloat * (float64(amount) / float64(totalDelegated)))
+		totalDelegations[address] += userShare
+		remainingFees -= userShare
 	}
 
-	// update to account allowance (REAWARDS to claim)
+	// remaining fees should be added to validator
+	if remainingFees != 0 && v.forkController.EnableSmartContracts() {
+		totalDelegations[string(val.GetRewardsAddress())] += remainingFees
+	}
+}
+
+// updateUserAllowances updates user account allowances with their delegation rewards.
+func (v *validatorsKApp) updateUserAllowances(totalDelegations map[string]int64) error {
 	for address, amount := range totalDelegations {
 		if amount == 0 {
 			continue
@@ -438,16 +421,312 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpoch(currentEpoch uint32, validat
 			return err
 		}
 
-		err = userAcc.AddToAllowance(amount)
-		if err != nil {
+		if err = userAcc.AddToAllowance(amount); err != nil {
 			return err
 		}
 
-		err = v.accountsCacher.UpdateUser(userAcc)
-		if err != nil {
+		if err = v.accountsCacher.UpdateUser(userAcc); err != nil {
 			return err
 		}
 	}
+	return nil
+}
+
+// updateStakingBucketsV1 updates staking buckets if the fork is enabled.
+func (v *validatorsKApp) updateStakingBucketsV1(
+	app state.KAppAccountHandler,
+	addr []byte,
+	pd *PeerData,
+	totalDelegated, totalUnDelegated int64,
+) (int64, error) {
+	if !v.forkController.FixStakingBuckets() {
+		return totalDelegated, nil
+	}
+
+	if !v.forkController.EnableSmartContracts() {
+		totalDelegated -= totalUnDelegated
+	}
+
+	err := v.setValidatorBuckets(app, addr, pd)
+	return totalDelegated, err
+}
+
+// processValidatorEpochV1 processes a single validator's epoch economics.
+func (v *validatorsKApp) processValidatorEpochV1(
+	app state.KAppAccountHandler,
+	validatorInfo *state.ValidatorInfo,
+	currentEpoch uint32,
+	minSelfDelegated, minTotalDelegated int64,
+	totalDelegations map[string]int64,
+) error {
+	addr := validatorInfo.GetOwnerAddress()
+
+	pd, err := v.getValidatorBuckets(app, addr)
+	if err != nil {
+		return err
+	}
+
+	bucketResult := v.processBucketDelegationsV1(pd, currentEpoch)
+
+	val, err := v.getValidator(app, addr)
+	if err != nil {
+		return err
+	}
+
+	peerAcc, err := v.loadPeerAccount(val.BlsPubKey)
+	if err != nil {
+		return err
+	}
+
+	v.calculateDelegationRewardsV1(val, peerAcc.GetAccumulatedFees(), bucketResult.accumulatedDelegations, bucketResult.totalDelegated, totalDelegations)
+
+	val.SelfStaked = val.SelfStake >= minSelfDelegated
+	v.updateValidatorJailStatus(val, peerAcc, currentEpoch)
+
+	totalDelegated, err := v.updateStakingBucketsV1(app, addr, pd, bucketResult.totalDelegated, bucketResult.totalUnDelegated)
+	if err != nil {
+		return err
+	}
+
+	v.updatePeerListStatus(val, peerAcc, minSelfDelegated, minTotalDelegated, totalDelegated)
+
+	return v.finalizeValidatorEpoch(app, addr, val, peerAcc)
+}
+
+// bucketProcessingResultV2 holds the results of processing validator buckets in V2.
+type bucketProcessingResultV2 struct {
+	accumulatedDelegations map[string]int64
+	totalDelegated         int64
+	totalUnDelegated       int64
+	keysToDelete           []string
+}
+
+// processBucketDelegationsV2 processes all buckets for a validator and returns delegation metrics (V2 optimized).
+func (v *validatorsKApp) processBucketDelegationsV2(
+	pd *PeerData,
+	currentEpoch uint32,
+) bucketProcessingResultV2 {
+	result := bucketProcessingResultV2{
+		accumulatedDelegations: make(map[string]int64, len(pd.Buckets)),
+		keysToDelete:           make([]string, 0, len(pd.Buckets)),
+	}
+
+	for key, delegation := range pd.Buckets {
+		delegationValue := delegation.GetValue()
+		originalDelegatedEpoch := delegation.GetDelegatedEpoch()
+		delegatedEpoch := originalDelegatedEpoch
+
+		if v.forkController.FixDelegationSameEpoch() {
+			if delegation.GetUndelegatedEpoch() <= currentEpoch {
+				result.keysToDelete = append(result.keysToDelete, key)
+				result.totalUnDelegated += delegationValue
+				continue
+			}
+			delegatedEpoch += 1
+		}
+
+		// check if user has valid delegation over 1 epoch at least
+		if originalDelegatedEpoch == 0 || delegatedEpoch < currentEpoch {
+			result.accumulatedDelegations[string(delegation.GetAddress())] += delegationValue
+			result.totalDelegated += delegationValue
+		}
+	}
+
+	return result
+}
+
+// calculateDelegationRewardsV2 calculates commission and distributes rewards using big.Int for overflow prevention.
+func (v *validatorsKApp) calculateDelegationRewardsV2(
+	val *ValidatorData,
+	accumulatedFees int64,
+	accumulatedDelegations map[string]int64,
+	totalDelegated int64,
+) map[string]int64 {
+	rewardsAddrStr := string(val.GetRewardsAddress())
+	commissionAmount := (accumulatedFees * int64(val.GetCommission())) / int64(core.HundredPercent)
+
+	localDelegations := make(map[string]int64, len(accumulatedDelegations)+1)
+	localDelegations[rewardsAddrStr] = commissionAmount
+
+	remainingFees := accumulatedFees - commissionAmount
+	totalRemainingFees := remainingFees
+
+	for address, amount := range accumulatedDelegations {
+		userShare := v.calculateUserShareV2(totalRemainingFees, amount, totalDelegated)
+		userShare = min(userShare, remainingFees)
+
+		localDelegations[address] += userShare
+		remainingFees -= userShare
+	}
+
+	if remainingFees != 0 && v.forkController.EnableSmartContracts() {
+		localDelegations[rewardsAddrStr] += remainingFees
+	}
+
+	return localDelegations
+}
+
+// calculateUserShareV2 calculates a user's share using big.Int to prevent overflow.
+func (v *validatorsKApp) calculateUserShareV2(totalRemainingFees, amount, totalDelegated int64) int64 {
+	bigRemainingFees := big.NewInt(totalRemainingFees)
+	bigAmount := big.NewInt(amount)
+	bigTotalDelegated := big.NewInt(totalDelegated)
+
+	numerator := new(big.Int).Mul(bigRemainingFees, bigAmount)
+	result := new(big.Int).Div(numerator, bigTotalDelegated)
+	return result.Int64()
+}
+
+// updateStakingBucketsV2 updates staking buckets for V2.
+func (v *validatorsKApp) updateStakingBucketsV2(
+	app state.KAppAccountHandler,
+	addr []byte,
+	pd *PeerData,
+	keysToDelete []string,
+	totalDelegated, totalUnDelegated int64,
+) (int64, error) {
+	for _, key := range keysToDelete {
+		delete(pd.Buckets, key)
+	}
+
+	if !v.forkController.FixStakingBuckets() {
+		return totalDelegated, nil
+	}
+
+	if !v.forkController.EnableSmartContracts() {
+		totalDelegated -= totalUnDelegated
+	}
+
+	err := v.setValidatorBuckets(app, addr, pd)
+	return totalDelegated, err
+}
+
+// processValidatorEpochV2 processes a single validator's epoch economics (V2 optimized).
+func (v *validatorsKApp) processValidatorEpochV2(
+	app state.KAppAccountHandler,
+	validatorInfo *state.ValidatorInfo,
+	currentEpoch uint32,
+	minSelfDelegated, minTotalDelegated int64,
+	totalDelegations map[string]int64,
+) error {
+	addr := validatorInfo.GetOwnerAddress()
+
+	pd, err := v.getValidatorBuckets(app, addr)
+	if err != nil {
+		return err
+	}
+
+	bucketResult := v.processBucketDelegationsV2(pd, currentEpoch)
+
+	val, err := v.getValidator(app, addr)
+	if err != nil {
+		return err
+	}
+
+	peerAcc, err := v.loadPeerAccount(val.BlsPubKey)
+	if err != nil {
+		return err
+	}
+
+	localDelegations := v.calculateDelegationRewardsV2(val, peerAcc.GetAccumulatedFees(), bucketResult.accumulatedDelegations, bucketResult.totalDelegated)
+
+	for a, amount := range localDelegations {
+		totalDelegations[a] += amount
+	}
+
+	val.SelfStaked = val.SelfStake >= minSelfDelegated
+	v.updateValidatorJailStatus(val, peerAcc, currentEpoch)
+
+	totalDelegated, err := v.updateStakingBucketsV2(app, addr, pd, bucketResult.keysToDelete, bucketResult.totalDelegated, bucketResult.totalUnDelegated)
+	if err != nil {
+		return err
+	}
+
+	v.updatePeerListStatus(val, peerAcc, minSelfDelegated, minTotalDelegated, totalDelegated)
+
+	return v.finalizeValidatorEpoch(app, addr, val, peerAcc)
+}
+
+// savePendingRewardsV2 saves all pending rewards to the KApp data trie.
+func (v *validatorsKApp) savePendingRewardsV2(app state.KAppAccountHandler, totalDelegations map[string]int64) error {
+	for address, amount := range totalDelegations {
+		if amount == 0 {
+			continue
+		}
+
+		if err := v.addToPendingRewards(app, []byte(address), amount); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// finalizeValidatorEpoch updates validator state and saves both peer and validator accounts.
+func (v *validatorsKApp) finalizeValidatorEpoch(app state.KAppAccountHandler, addr []byte, val *ValidatorData, peerAcc state.PeerAccountHandler) error {
+	val.Waiting = peerAcc.GetList() == state.List_waiting
+	val.TotalRewards += peerAcc.GetAccumulatedFees()
+
+	peerAcc.ResetAtNewEpoch()
+
+	if err := v.accountsCacher.UpdatePeer(peerAcc); err != nil {
+		return err
+	}
+
+	return v.setValidator(app, addr, val)
+}
+
+func (v *validatorsKApp) ProcessEconomicsEndOfEpochV1(currentEpoch uint32, validatorInfos []*state.ValidatorInfo) error {
+	totalDelegations := make(map[string]int64)
+	minSelfDelegated, minTotalDelegated := v.getValidatorParams()
+
+	app, err := v.getKApp()
+	if err != nil {
+		return err
+	}
+
+	for _, validatorInfo := range validatorInfos {
+		if err := v.processValidatorEpochV1(app, validatorInfo, currentEpoch, minSelfDelegated, minTotalDelegated, totalDelegations); err != nil {
+			return err
+		}
+	}
+
+	if err = v.saveKApp(app); err != nil {
+		return err
+	}
+
+	if err = v.updateUserAllowances(totalDelegations); err != nil {
+		return err
+	}
+
+	return v.accountsCacher.SaveAll()
+}
+
+func (v *validatorsKApp) ProcessEconomicsEndOfEpochV2(currentEpoch uint32, validatorInfos []*state.ValidatorInfo) error {
+	minSelfDelegated, minTotalDelegated := v.getValidatorParams()
+
+	app, err := v.getKApp()
+	if err != nil {
+		return err
+	}
+
+	totalDelegations := make(map[string]int64)
+
+	for _, validatorInfo := range validatorInfos {
+		if err := v.processValidatorEpochV2(app, validatorInfo, currentEpoch, minSelfDelegated, minTotalDelegated, totalDelegations); err != nil {
+			return err
+		}
+	}
+
+	if err = v.savePendingRewardsV2(app, totalDelegations); err != nil {
+		return err
+	}
+
+	if err = v.saveKApp(app); err != nil {
+		return err
+	}
+
+	log.Debug("ProcessEconomicsEndOfEpoch v2: stored pending rewards in KApp trie",
+		"usersCount", len(totalDelegations))
 
 	return v.accountsCacher.SaveAll()
 }

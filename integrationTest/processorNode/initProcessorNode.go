@@ -280,6 +280,12 @@ func NewBaseProcessorNode(mainConfig config.Config) (*ProcessorNode, error) {
 		EnableSmartContractsCalled: func() bool {
 			return true
 		},
+		FixAuditChangesCalled: func() bool {
+			return true
+		},
+		EpochRewardsV2Called: func() bool {
+			return true
+		},
 	}
 
 	proposalController, err := kapps.NewProposalController(forkControllerStub)

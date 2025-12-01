@@ -248,6 +248,8 @@ func prepare(tb testing.TB, ownerAddress []byte) (*worldmock.MockWorld, *worldmo
 		FPRComputeAndKdaFeeFlow: 0,
 		FixDelegationSameEpoch:  0,
 		SmartContracts:          0,
+		FixAuditChanges:         0,
+		EpochRewardsV2:          0,
 	}, epochNotifier)
 
 	protectedKeys := [][]byte{

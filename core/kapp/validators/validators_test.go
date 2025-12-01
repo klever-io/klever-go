@@ -3,6 +3,7 @@ package validators
 import (
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -364,6 +365,203 @@ func TestValidatorsKApp_Delegate(t *testing.T) {
 		assert.Equal(t, common.ErrInvalidValue, err)
 		assert.Len(t, update, 0)
 	})
+
+	t.Run("Delegation fails when max buckets reached (EpochRewardsV2 enabled)", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		addStorageCacher(v)
+
+		// Ensure EpochRewardsV2 is enabled (default in mock)
+		v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = true
+
+		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
+
+		// Pre-populate validator with max buckets
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		pd := &PeerData{Buckets: make(map[string]*PeerBucket)}
+		for i := range MaxBucketsPerValidator {
+			bucketKey := hex.EncodeToString(fmt.Appendf(nil, "existingbucket%d", i))
+			pd.Buckets[bucketKey] = &PeerBucket{
+				Value:            1000,
+				DelegatedEpoch:   1,
+				UndelegatedEpoch: core.DefaultUndelegatedEpoch,
+				Address:          []byte("existingsender"),
+			}
+		}
+		err = v.setValidatorBuckets(app, validatorAddress, pd)
+		require.NoError(t, err)
+		err = v.saveKApp(app)
+		require.NoError(t, err)
+
+		// Try to delegate a new bucket
+		newBucketID := []byte("newbucket")
+		tc := &transaction.DelegateContract{
+			ToAddress: validatorAddress,
+			BucketID:  newBucketID,
+		}
+
+		senderAcc := &mock.UserAccountHandlerStub{
+			GetBucketsCalled: func(_ []byte, _ bool) map[string]*kapps.UserBucket {
+				return map[string]*kapps.UserBucket{
+					hex.EncodeToString(newBucketID): {
+						Value:         500,
+						UnstakedEpoch: core.DefaultUnstakedEpoch,
+					},
+				}
+			},
+		}
+		v.accountsCacher.(*mock.AccountsCacherStub).GetExistingUserCalled = func(address []byte) (state.UserAccountHandler, error) {
+			return senderAcc, nil
+		}
+
+		resultCode, update, err := v.Delegate([]byte("newsender"), 2000, 2, tc)
+
+		assert.Equal(t, transaction.Transaction_AccountError, resultCode)
+		assert.Equal(t, common.ErrValidatorMaxDelegatorsReached, err)
+		assert.Len(t, update, 0)
+	})
+
+	t.Run("Delegation allowed when EpochRewardsV2 disabled (no bucket limit)", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		addStorageCacher(v)
+
+		// Disable EpochRewardsV2 fork
+		v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = false
+
+		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
+
+		// Pre-populate validator with max buckets
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		pd := &PeerData{Buckets: make(map[string]*PeerBucket)}
+		for i := range MaxBucketsPerValidator {
+			bucketKey := hex.EncodeToString(fmt.Appendf(nil, "existingbucket%d", i))
+			pd.Buckets[bucketKey] = &PeerBucket{
+				Value:            1000,
+				DelegatedEpoch:   1,
+				UndelegatedEpoch: core.DefaultUndelegatedEpoch,
+				Address:          []byte("existingsender"),
+			}
+		}
+		err = v.setValidatorBuckets(app, validatorAddress, pd)
+		require.NoError(t, err)
+		err = v.saveKApp(app)
+		require.NoError(t, err)
+
+		// Try to delegate a new bucket - should succeed since fork is disabled
+		newBucketID := []byte("newbucket")
+		tc := &transaction.DelegateContract{
+			ToAddress: validatorAddress,
+			BucketID:  newBucketID,
+		}
+
+		senderAcc := &mock.UserAccountHandlerStub{
+			GetBucketsCalled: func(_ []byte, _ bool) map[string]*kapps.UserBucket {
+				return map[string]*kapps.UserBucket{
+					hex.EncodeToString(newBucketID): {
+						Value:         500,
+						UnstakedEpoch: core.DefaultUnstakedEpoch,
+					},
+				}
+			},
+		}
+		v.accountsCacher.(*mock.AccountsCacherStub).GetExistingUserCalled = func(address []byte) (state.UserAccountHandler, error) {
+			return senderAcc, nil
+		}
+
+		resultCode, update, err := v.Delegate([]byte("newsender"), 2000, 2, tc)
+
+		assert.Equal(t, transaction.Transaction_Ok, resultCode)
+		assert.Nil(t, err)
+		assert.Len(t, update, 1)
+
+		// Verify bucket count now exceeds max (only possible when fork disabled)
+		app, _ = v.getKApp()
+		pd, err = v.getValidatorBuckets(app, validatorAddress)
+		require.NoError(t, err)
+		assert.Equal(t, MaxBucketsPerValidator+1, len(pd.Buckets))
+	})
+
+	t.Run("Re-delegation allowed even when at max buckets (EpochRewardsV2 enabled)", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		addStorageCacher(v)
+
+		// Enable EpochRewardsV2 fork
+		v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = true
+
+		registerValidator(t, v, validatorAddress, []byte("blspubkey"))
+
+		// Pre-populate validator with max buckets, including the one we'll re-delegate
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		existingBucketID := []byte("existingbucket0")
+		encodedExistingBucketID := hex.EncodeToString(existingBucketID)
+
+		pd := &PeerData{Buckets: make(map[string]*PeerBucket)}
+		// First bucket is the one we'll re-delegate
+		pd.Buckets[encodedExistingBucketID] = &PeerBucket{
+			Value:            500,
+			DelegatedEpoch:   1,
+			UndelegatedEpoch: core.DefaultUndelegatedEpoch,
+			Address:          []byte("originalsender"),
+		}
+		// Fill remaining buckets to reach max
+		for i := 1; i < MaxBucketsPerValidator; i++ {
+			bucketKey := hex.EncodeToString(fmt.Appendf(nil, "existingbucket%d", i))
+			pd.Buckets[bucketKey] = &PeerBucket{
+				Value:            1000,
+				DelegatedEpoch:   1,
+				UndelegatedEpoch: core.DefaultUndelegatedEpoch,
+				Address:          []byte("existingsender"),
+			}
+		}
+		err = v.setValidatorBuckets(app, validatorAddress, pd)
+		require.NoError(t, err)
+		err = v.saveKApp(app)
+		require.NoError(t, err)
+
+		// Re-delegate the existing bucket with updated value
+		tc := &transaction.DelegateContract{
+			ToAddress: validatorAddress,
+			BucketID:  existingBucketID,
+		}
+
+		senderAcc := &mock.UserAccountHandlerStub{
+			GetBucketsCalled: func(_ []byte, _ bool) map[string]*kapps.UserBucket {
+				return map[string]*kapps.UserBucket{
+					encodedExistingBucketID: {
+						Value:         1500, // Updated value
+						UnstakedEpoch: core.DefaultUnstakedEpoch,
+					},
+				}
+			},
+		}
+		v.accountsCacher.(*mock.AccountsCacherStub).GetExistingUserCalled = func(address []byte) (state.UserAccountHandler, error) {
+			return senderAcc, nil
+		}
+
+		resultCode, update, err := v.Delegate([]byte("originalsender"), 2000, 2, tc)
+
+		// Should succeed because bucket already exists (re-delegation)
+		assert.Equal(t, transaction.Transaction_Ok, resultCode)
+		assert.Nil(t, err)
+		assert.Len(t, update, 1)
+
+		// Verify bucket count remains at max (no new bucket added)
+		app, _ = v.getKApp()
+		pd, err = v.getValidatorBuckets(app, validatorAddress)
+		require.NoError(t, err)
+		assert.Equal(t, MaxBucketsPerValidator, len(pd.Buckets))
+
+		// Verify the re-delegated bucket has updated value
+		assert.Equal(t, int64(1500), pd.Buckets[encodedExistingBucketID].Value)
+	})
 }
 
 func TestValidatorsKApp_Undelegate(t *testing.T) {
@@ -616,7 +814,7 @@ func delegateBucket(t *testing.T, v *validatorsKApp, validator, sender, bucketID
 		return senderAcc, nil
 	}
 
-	_, _, err := v.Delegate([]byte("sender"), 1000, 1, tc)
+	_, _, err := v.Delegate(sender, 1000, 1, tc)
 	assert.NoError(t, err)
 }
 
@@ -634,4 +832,345 @@ func jailValidator(t *testing.T, v *validatorsKApp, validatorAddress []byte) {
 	peerAcc.SetListAndIndex(state.List_jailed, 0)
 	err = v.accountsCacher.UpdatePeer(peerAcc)
 	require.Nil(t, err)
+}
+
+// TestPendingRewards tests the pending rewards storage mechanism
+func TestPendingRewards(t *testing.T) {
+	t.Parallel()
+
+	setupTest := func(t *testing.T) *validatorsKApp {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+
+		// Setup mock KApp storage
+		storage := make(map[string][]byte)
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+			return &mock.KAppAccountHandlerStub{
+				GetStorageCalled: func(key []byte) []byte {
+					return storage[string(key)]
+				},
+				SetStorageCalled: func(key []byte, value []byte) error {
+					if value == nil {
+						delete(storage, string(key))
+					} else {
+						storage[string(key)] = value
+					}
+					return nil
+				},
+			}, nil
+		}
+
+		return v
+	}
+
+	t.Run("GetPendingRewards - no pending rewards", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		rewards, err := v.GetPendingRewards(userAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), rewards)
+	})
+
+	t.Run("GetPendingRewards - with pending rewards", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		// Set some pending rewards first
+		app, err := v.getKApp()
+		require.NoError(t, err)
+		err = v.setPendingRewards(app, userAddress, 500000)
+		require.NoError(t, err)
+
+		rewards, err := v.GetPendingRewards(userAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(500000), rewards)
+	})
+
+	t.Run("setPendingRewards - with zero amount clears entry", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		// First set a non-zero amount
+		err = v.setPendingRewards(app, userAddress, 100000)
+		require.NoError(t, err)
+
+		rewards, err := v.getPendingRewards(app, userAddress)
+		require.NoError(t, err)
+		assert.Equal(t, int64(100000), rewards)
+
+		// Now set to zero - should clear the entry
+		err = v.setPendingRewards(app, userAddress, 0)
+		require.NoError(t, err)
+
+		rewards, err = v.getPendingRewards(app, userAddress)
+		require.NoError(t, err)
+		assert.Equal(t, int64(0), rewards, "setting amount to 0 should clear the entry")
+	})
+
+	t.Run("addToPendingRewards - accumulates rewards", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		// Add first amount
+		err = v.addToPendingRewards(app, userAddress, 100000)
+		require.NoError(t, err)
+
+		// Add second amount
+		err = v.addToPendingRewards(app, userAddress, 200000)
+		require.NoError(t, err)
+
+		rewards, err := v.getPendingRewards(app, userAddress)
+		require.NoError(t, err)
+		assert.Equal(t, int64(300000), rewards)
+	})
+
+	t.Run("addToPendingRewards - with zero amount does nothing", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		// Set initial amount
+		err = v.setPendingRewards(app, userAddress, 100000)
+		require.NoError(t, err)
+
+		// Add zero - should not change anything
+		err = v.addToPendingRewards(app, userAddress, 0)
+		require.NoError(t, err)
+
+		rewards, err := v.getPendingRewards(app, userAddress)
+		require.NoError(t, err)
+		assert.Equal(t, int64(100000), rewards, "adding 0 should not change the value")
+	})
+
+	t.Run("getPendingRewards - invalid data length returns error", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		userAddress := makeAddress("user1")
+
+		// Setup storage with invalid data (not 8 bytes)
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+			return &mock.KAppAccountHandlerStub{
+				GetStorageCalled: func(key []byte) []byte {
+					return []byte{0x01, 0x02, 0x03} // Invalid: only 3 bytes instead of 8
+				},
+			}, nil
+		}
+
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		rewards, err := v.getPendingRewards(app, userAddress)
+		assert.Equal(t, common.ErrInvalidValue, err)
+		assert.Equal(t, int64(0), rewards)
+	})
+
+	t.Run("addToPendingRewards - error from getPendingRewards propagates", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		userAddress := makeAddress("user1")
+
+		// Setup storage with invalid data to trigger error in getPendingRewards
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+			return &mock.KAppAccountHandlerStub{
+				GetStorageCalled: func(key []byte) []byte {
+					return []byte{0x01, 0x02} // Invalid data
+				},
+			}, nil
+		}
+
+		app, err := v.getKApp()
+		require.NoError(t, err)
+
+		err = v.addToPendingRewards(app, userAddress, 50000)
+		assert.Equal(t, common.ErrInvalidValue, err)
+	})
+}
+
+// TestClaimPendingRewards tests the claim pending rewards functionality
+func TestClaimPendingRewards(t *testing.T) {
+	t.Parallel()
+
+	setupTest := func(t *testing.T) *validatorsKApp {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+
+		// Setup mock KApp storage with save capability
+		storage := make(map[string][]byte)
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+			return &mock.KAppAccountHandlerStub{
+				GetStorageCalled: func(key []byte) []byte {
+					return storage[string(key)]
+				},
+				SetStorageCalled: func(key []byte, value []byte) error {
+					if value == nil {
+						delete(storage, string(key))
+					} else {
+						storage[string(key)] = value
+					}
+					return nil
+				},
+			}, nil
+		}
+
+		// Mock SaveKApp - just return nil for now
+		v.accountsCacher.(*mock.AccountsCacherStub).UpdateKappCalled = func(account state.AccountHandler) error {
+			return nil
+		}
+
+		return v
+	}
+
+	t.Run("ClaimPendingRewards - no pending rewards returns zero", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		claimed, err := v.ClaimPendingRewards(userAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), claimed)
+	})
+
+	t.Run("ClaimPendingRewards - claims and clears pending rewards", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		// Set some pending rewards first
+		app, err := v.getKApp()
+		require.NoError(t, err)
+		err = v.setPendingRewards(app, userAddress, 750000)
+		require.NoError(t, err)
+		err = v.saveKApp(app)
+		require.NoError(t, err)
+
+		// Claim rewards
+		claimed, err := v.ClaimPendingRewards(userAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(750000), claimed)
+
+		// Verify rewards are cleared
+		remaining, err := v.GetPendingRewards(userAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), remaining, "pending rewards should be cleared after claim")
+	})
+
+	t.Run("ClaimPendingRewards - multiple claims", func(t *testing.T) {
+		v := setupTest(t)
+		userAddress := makeAddress("user1")
+
+		// Set some pending rewards
+		app, err := v.getKApp()
+		require.NoError(t, err)
+		err = v.setPendingRewards(app, userAddress, 500000)
+		require.NoError(t, err)
+		err = v.saveKApp(app)
+		require.NoError(t, err)
+
+		// First claim
+		claimed1, err := v.ClaimPendingRewards(userAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(500000), claimed1)
+
+		// Second claim should return 0
+		claimed2, err := v.ClaimPendingRewards(userAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), claimed2, "second claim should return 0")
+	})
+
+	t.Run("ClaimPendingRewards - error getting KApp", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+			return nil, errors.New("kapp not found")
+		}
+
+		userAddress := makeAddress("user1")
+		claimed, err := v.ClaimPendingRewards(userAddress)
+		assert.Error(t, err)
+		assert.Equal(t, int64(0), claimed)
+	})
+
+	t.Run("ClaimPendingRewards - error from setPendingRewards", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		userAddress := makeAddress("user1")
+
+		storage := make(map[string][]byte)
+		setStorageError := errors.New("storage write error")
+
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+			return &mock.KAppAccountHandlerStub{
+				GetStorageCalled: func(key []byte) []byte {
+					return storage[string(key)]
+				},
+				SetStorageCalled: func(key []byte, value []byte) error {
+					// Allow writes initially, fail on clear (value == nil)
+					if value == nil {
+						return setStorageError
+					}
+					storage[string(key)] = value
+					return nil
+				},
+			}, nil
+		}
+
+		// Set some pending rewards first
+		app, err := v.getKApp()
+		require.NoError(t, err)
+		err = v.setPendingRewards(app, userAddress, 100000)
+		require.NoError(t, err)
+
+		// Claim should fail when trying to clear rewards
+		claimed, err := v.ClaimPendingRewards(userAddress)
+		assert.Equal(t, setStorageError, err)
+		assert.Equal(t, int64(0), claimed)
+	})
+
+	t.Run("ClaimPendingRewards - error from saveKApp", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		userAddress := makeAddress("user1")
+
+		storage := make(map[string][]byte)
+		saveKAppError := errors.New("save kapp error")
+
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+			return &mock.KAppAccountHandlerStub{
+				GetStorageCalled: func(key []byte) []byte {
+					return storage[string(key)]
+				},
+				SetStorageCalled: func(key []byte, value []byte) error {
+					if value == nil {
+						delete(storage, string(key))
+					} else {
+						storage[string(key)] = value
+					}
+					return nil
+				},
+			}, nil
+		}
+
+		v.accountsCacher.(*mock.AccountsCacherStub).UpdateKappCalled = func(account state.AccountHandler) error {
+			return saveKAppError
+		}
+
+		// Set some pending rewards first
+		app, err := v.getKApp()
+		require.NoError(t, err)
+		err = v.setPendingRewards(app, userAddress, 100000)
+		require.NoError(t, err)
+
+		// Claim should fail when trying to save KApp
+		claimed, err := v.ClaimPendingRewards(userAddress)
+		assert.Equal(t, saveKAppError, err)
+		assert.Equal(t, int64(0), claimed)
+	})
 }

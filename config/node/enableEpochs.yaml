@@ -21,6 +21,8 @@ enableEpochs:
   smartContracts: 0
   # Audit Changes
   fixAuditChanges: 0
+  # Epoch Rewards V2
+  epochRewardsV2: 0
 
 gasSchedule:
   gasScheduleByEpochs:

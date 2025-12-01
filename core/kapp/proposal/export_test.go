@@ -48,3 +48,13 @@ func (p *proposalKapp) ValidateCreateInput(tc *transaction.ProposalContract) err
 func (p *proposalKapp) CheckStakingRequirements(staking *kapps.StakingData, sender []byte) (transaction.Transaction_TXResultCode, error) {
 	return p.checkStakingRequirements(staking, sender)
 }
+
+// IsVoterLimitExceeded exports the private isVoterLimitExceeded method for testing
+func (p *proposalKapp) IsVoterLimitExceeded(proposal *kapps.ProposalData, encodedAddr string) bool {
+	return p.isVoterLimitExceeded(proposal, encodedAddr)
+}
+
+// ProcessExistingVote exports the private processExistingVote method for testing
+func (p *proposalKapp) ProcessExistingVote(proposal *kapps.ProposalData, encodedAddr string, newType kapps.ProposalData_VoteDetail_EnumVoteType) int64 {
+	return p.processExistingVote(proposal, encodedAddr, newType)
+}

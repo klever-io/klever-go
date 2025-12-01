@@ -307,6 +307,12 @@ var ErrNilNodesCoordinator = errors.New("nil nodes coordinator")
 // ErrValidatorNotFound signals that the validator has not been found
 var ErrValidatorNotFound = errors.New("validator not found")
 
+// ErrValidatorMaxDelegatorsReached signals that the validator has reached the maximum number of delegators
+var ErrValidatorMaxDelegatorsReached = errors.New("validator has reached maximum number of delegators")
+
+// ErrProposalMaxVotersReached signals that the proposal has reached the maximum number of voters
+var ErrProposalMaxVotersReached = errors.New("proposal has reached maximum number of voters")
+
 // ErrNilAddress defines the error when trying to work with a nil address
 var ErrNilAddress = errors.New("nil address")
 

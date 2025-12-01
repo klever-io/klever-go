@@ -82,6 +82,8 @@ func (ae *VMTestExecutor) InitVM(scenGasSchedule scenjsonmodel.GasSchedule) erro
 		FPRComputeAndKdaFeeFlow: 0,
 		FixDelegationSameEpoch:  0,
 		SmartContracts:          0,
+		FixAuditChanges:         0,
+		EpochRewardsV2:          0,
 	}, epochNotifier)
 
 	err = ae.World.InitBuiltinFunctions(gasSchedule, forkController)

@@ -1147,7 +1147,10 @@ func TestUpdateValidatorInfoOnSuccessfulBlock(t *testing.T) {
 	})
 }
 
-func TestProcessEconomicsEndOfEpoch(t *testing.T) {
+// TestProcessEconomicsEndOfEpoch_V1V2 tests epoch rewards distribution for both v1 and v2 modes
+// V1 (EpochRewardsV2=false): rewards go directly to user account allowance
+// V2 (EpochRewardsV2=true): rewards go to KApp pending rewards trie
+func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 	t.Parallel()
 
 	setupTest := func() *validatorsKApp {
@@ -1185,7 +1188,7 @@ func TestProcessEconomicsEndOfEpoch(t *testing.T) {
 		}
 	}
 
-	kappStorage := func(storage map[string]interface{}, v *validatorsKApp) {
+	kappStorage := func(storage map[string]any, v *validatorsKApp) {
 		rawData := make(map[string][]byte)
 		for key, value := range storage {
 			data, _ := v.marshalizer.Marshal(value)
@@ -1203,269 +1206,126 @@ func TestProcessEconomicsEndOfEpoch(t *testing.T) {
 				},
 			}, nil
 		}
-
 	}
 
+	// getRewards is a helper that retrieves rewards for an address based on fork mode
+	getRewards := func(v *validatorsKApp, address []byte, isV2 bool) int64 {
+		if isV2 {
+			rewards, err := v.GetPendingRewards(address)
+			if err != nil {
+				return 0
+			}
+			return rewards
+		}
+		// V1: rewards in user account allowance
+		userAcc, err := v.accountsCacher.LoadUser(address)
+		if err != nil {
+			return 0
+		}
+		return userAcc.GetAllowance()
+	}
+
+	// Common test fixtures
 	validatorAddress := []byte("validator1")
 	blsPubKey := []byte("blspubkey1")
-	storageData := map[string]interface{}{
-		"VALB/validator1": &PeerData{
-			Buckets: map[string]*PeerBucket{
-				"bucket1": {
-					DelegatedEpoch:   5,
-					UndelegatedEpoch: math.MaxUint32,
-					Value:            200000,
-					Address:          validatorAddress,
-				},
-				"bucket2": {
-					DelegatedEpoch:   8,
-					UndelegatedEpoch: 11,
-					Value:            100000,
-					Address:          []byte("delegator1"),
+	delegatorAddress := []byte("delegator1")
+	const currentEpoch = uint32(10)
+
+	// defaultStorageData creates the standard storage data for single validator tests
+	defaultStorageData := func() map[string]any {
+		return map[string]any{
+			"VALB/validator1": &PeerData{
+				Buckets: map[string]*PeerBucket{
+					"bucket1": {
+						DelegatedEpoch:   5,
+						UndelegatedEpoch: math.MaxUint32,
+						Value:            200000,
+						Address:          validatorAddress,
+					},
+					"bucket2": {
+						DelegatedEpoch:   8,
+						UndelegatedEpoch: math.MaxUint32,
+						Value:            100000,
+						Address:          delegatorAddress,
+					},
 				},
 			},
-		},
-		"VAL/validator1": &ValidatorData{
-			BlsPubKey:      blsPubKey,
-			RewardsAddress: validatorAddress,
-			Commission:     1000, // 10%
-			SelfStake:      200000,
-		},
+			"VAL/validator1": &ValidatorData{
+				BlsPubKey:      blsPubKey,
+				RewardsAddress: validatorAddress,
+				Commission:     1000, // 10%
+				SelfStake:      200000,
+			},
+		}
 	}
 
-	t.Run("Happy path - single validator", func(t *testing.T) {
-		v := setupTest()
-		currentEpoch := uint32(10)
-		validatorInfos := []*state.ValidatorInfo{
-			createMockValidatorInfo(validatorAddress, blsPubKey),
+	t.Run("V1 vs V2 - Single validator happy path", func(t *testing.T) {
+		storageData := defaultStorageData()
+
+		tests := []struct {
+			name                    string
+			epochRewardsV2          bool
+			expectedValidatorReward int64
+			expectedDelegatorReward int64
+		}{
+			{
+				name:           "V1 - rewards to user allowance",
+				epochRewardsV2: false,
+				// Validator: 2/3 of rewards (200k/300k) + 10% commission = 666666 + 33333 = 699999
+				// Plus remaining fees (1): 700000
+				expectedValidatorReward: 700000,
+				// Delegator: 1/3 of rewards (100k/300k) - 10% commission = 333333 - 33333 = 300000
+				expectedDelegatorReward: 300000,
+			},
+			{
+				name:           "V2 - rewards to KApp pending trie",
+				epochRewardsV2: true,
+				// Same distribution but stored in KApp trie
+				expectedValidatorReward: 700000,
+				expectedDelegatorReward: 300000,
+			},
 		}
 
-		kappStorage(storageData, v)
-		// set accumulated fees
-		peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
-		peerAcc.AddToAccumulatedFees(1000000)
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				v := setupTest()
+				v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = tc.epochRewardsV2
 
-		err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
-		assert.NoError(t, err)
+				validatorInfos := []*state.ValidatorInfo{
+					createMockValidatorInfo(validatorAddress, blsPubKey),
+				}
 
-		// Verify results
-		kappHandler, err := v.getKApp()
-		require.NoError(t, err)
-		updatedValidator, _ := v.getValidator(kappHandler, validatorAddress)
-		assert.True(t, updatedValidator.SelfStaked)
-		assert.False(t, updatedValidator.Jailed)
-		assert.Equal(t, int64(1000000), updatedValidator.TotalRewards)
+				kappStorage(storageData, v)
 
-		// Verify delegations
-		userAcc, _ := v.accountsCacher.LoadUser(validatorAddress)
-		// 2/3 of the rewards (self stake) + (1/3) 10% commission
-		// 666666 - 33333 = 699999
-		// validator gets roundup value after distributing rewards, total 700000
-		assert.Equal(t, int64(700000), userAcc.GetAllowance())
+				// Set accumulated fees
+				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
+				peerAcc.AddToAccumulatedFees(1000000)
 
-		delegatorAcc, _ := v.accountsCacher.LoadUser([]byte("delegator1"))
-		// 1/3 of the rewards - 10% commission
-		// 333333 - 10% = 300000
-		assert.Equal(t, int64(300000), delegatorAcc.GetAllowance())
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				assert.NoError(t, err)
+
+				// Verify rewards distribution
+				validatorReward := getRewards(v, validatorAddress, tc.epochRewardsV2)
+				delegatorReward := getRewards(v, delegatorAddress, tc.epochRewardsV2)
+
+				assert.Equal(t, tc.expectedValidatorReward, validatorReward,
+					"validator reward mismatch for %s", tc.name)
+				assert.Equal(t, tc.expectedDelegatorReward, delegatorReward,
+					"delegator reward mismatch for %s", tc.name)
+
+				// Verify validator state updates (same for both v1 and v2)
+				kappHandler, err := v.getKApp()
+				require.NoError(t, err)
+				updatedValidator, _ := v.getValidator(kappHandler, validatorAddress)
+				assert.True(t, updatedValidator.SelfStaked)
+				assert.False(t, updatedValidator.Jailed)
+				assert.Equal(t, int64(1000000), updatedValidator.TotalRewards)
+			})
+		}
 	})
 
-	t.Run("Validator gets jailed", func(t *testing.T) {
-		v := setupTest()
-		currentEpoch := uint32(10)
-
-		validatorInfos := []*state.ValidatorInfo{
-			createMockValidatorInfo(validatorAddress, blsPubKey),
-		}
-
-		kappStorage(storageData, v)
-		// set accumulated fees
-		peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
-		peerAcc.AddToAccumulatedFees(1000000)
-		peerAcc.SetList(state.List_jailed)
-
-		err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
-		assert.NoError(t, err)
-
-		// Verify results
-		kappHandler, err := v.getKApp()
-		require.NoError(t, err)
-		updatedValidator, err := v.getValidator(kappHandler, validatorAddress)
-		require.NoError(t, err)
-		assert.True(t, updatedValidator.Jailed)
-		assert.Equal(t, currentEpoch, updatedValidator.JailedEpoch)
-		assert.Equal(t, uint32(1), updatedValidator.NumJailed)
-	})
-
-	t.Run("Validator becomes inactive due to low self stake", func(t *testing.T) {
-		v := setupTest()
-		currentEpoch := uint32(10)
-
-		validatorInfos := []*state.ValidatorInfo{
-			createMockValidatorInfo(validatorAddress, blsPubKey),
-		}
-		kappStorage(storageData, v)
-
-		// Setup mock validator with low self stake
-		kapp, _ := v.accountsCacher.LoadKApp(nil)
-		data, _ := v.marshalizer.Marshal(&ValidatorData{
-			BlsPubKey:      blsPubKey,
-			RewardsAddress: validatorAddress,
-			Commission:     1000,  // 10%
-			SelfStake:      50000, // Below minSelfDelegated
-		})
-		require.NoError(t, kapp.SetStorage([]byte("VAL/validator1"), data))
-
-		err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
-		assert.NoError(t, err)
-
-		// Verify results
-		updatedPeerAcc, _ := v.loadPeerAccount(blsPubKey)
-		assert.Equal(t, state.List_inactive, updatedPeerAcc.GetList())
-	})
-
-	t.Run("Multiple validators with different statuses", func(t *testing.T) {
-		v := setupTest()
-		currentEpoch := uint32(10)
-
-		validatorAddress1 := []byte("validator1")
-		validatorAddress2 := []byte("validator2")
-		blsPubKey1 := []byte("blspubkey1")
-		blsPubKey2 := []byte("blspubkey2")
-
-		validatorInfos := []*state.ValidatorInfo{
-			createMockValidatorInfo(validatorAddress1, blsPubKey1),
-			createMockValidatorInfo(validatorAddress2, blsPubKey2),
-		}
-
-		storageData := map[string]interface{}{
-			"VALB/validator1": &PeerData{
-				Buckets: map[string]*PeerBucket{
-					"bucket1": {
-						DelegatedEpoch:   5,
-						UndelegatedEpoch: math.MaxUint32,
-						Value:            200000,
-						Address:          validatorAddress1,
-					},
-				},
-			},
-			"VAL/validator1": &ValidatorData{
-				BlsPubKey:      blsPubKey1,
-				RewardsAddress: validatorAddress1,
-				Commission:     1000,
-				SelfStake:      200000,
-			},
-			"VALB/validator2": &PeerData{
-				Buckets: map[string]*PeerBucket{
-					"bucket1": {
-						DelegatedEpoch:   5,
-						UndelegatedEpoch: math.MaxUint32,
-						Value:            400000,
-						Address:          validatorAddress2,
-					},
-				},
-			},
-			"VAL/validator2": &ValidatorData{
-				BlsPubKey:      blsPubKey2,
-				RewardsAddress: validatorAddress2,
-				Commission:     2000,
-				SelfStake:      400000,
-			},
-		}
-
-		kappStorage(storageData, v)
-
-		peerAcc1, _ := v.accountsCacher.LoadPeer(blsPubKey1)
-		peerAcc1.AddToAccumulatedFees(1000000)
-		peerAcc1.SetList(state.List_eligible)
-
-		peerAcc2, _ := v.accountsCacher.LoadPeer(blsPubKey2)
-		peerAcc2.AddToAccumulatedFees(2000000)
-		peerAcc2.SetList(state.List_waiting)
-
-		err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
-		assert.NoError(t, err)
-
-		// Verify results for validator1
-		kappHandler, _ := v.getKApp()
-		updatedValidator1, _ := v.getValidator(kappHandler, validatorAddress1)
-		assert.True(t, updatedValidator1.SelfStaked)
-		assert.False(t, updatedValidator1.Jailed)
-		assert.Equal(t, int64(1000000), updatedValidator1.TotalRewards)
-
-		// Verify results for validator2
-		updatedValidator2, _ := v.getValidator(kappHandler, validatorAddress2)
-		assert.True(t, updatedValidator2.SelfStaked)
-		assert.False(t, updatedValidator2.Jailed)
-		assert.Equal(t, int64(2000000), updatedValidator2.TotalRewards)
-		assert.True(t, updatedValidator2.Waiting)
-
-		updatedPeerAcc2, _ := v.loadPeerAccount(blsPubKey2)
-		assert.Equal(t, state.List_waiting, updatedPeerAcc2.GetList())
-	})
-
-	t.Run("Delegation and undelegation in the same epoch", func(t *testing.T) {
-		v := setupTest()
-		currentEpoch := uint32(10)
-
-		validatorAddress := []byte("validator1")
-		blsPubKey := []byte("blspubkey1")
-
-		validatorInfos := []*state.ValidatorInfo{
-			createMockValidatorInfo(validatorAddress, blsPubKey),
-		}
-
-		storageData := map[string]interface{}{
-			"VALB/validator1": &PeerData{
-				Buckets: map[string]*PeerBucket{
-					"bucket1": {
-						DelegatedEpoch:   10,
-						UndelegatedEpoch: 10,
-						Value:            100000,
-						Address:          []byte("delegator1"),
-					},
-					"bucket2": {
-						DelegatedEpoch:   5,
-						UndelegatedEpoch: math.MaxUint32,
-						Value:            200000,
-						Address:          validatorAddress,
-					},
-				},
-			},
-			"VAL/validator1": &ValidatorData{
-				BlsPubKey:      blsPubKey,
-				RewardsAddress: validatorAddress,
-				Commission:     1000,
-				SelfStake:      200000,
-			},
-		}
-
-		kappStorage(storageData, v)
-
-		peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
-		peerAcc.AddToAccumulatedFees(1000000)
-
-		err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
-		assert.NoError(t, err)
-
-		// Verify that the bucket delegated and undelegated in the same epoch is removed
-		kappHandler, _ := v.getKApp()
-		updatedBuckets, _ := v.getValidatorBuckets(kappHandler, validatorAddress)
-		assert.Len(t, updatedBuckets.Buckets, 1)
-		assert.NotContains(t, updatedBuckets.Buckets, "bucket1")
-	})
-
-	t.Run("Validator with zero accumulated fees", func(t *testing.T) {
-		v := setupTest()
-		currentEpoch := uint32(10)
-
-		validatorAddress := []byte("validator1")
-		blsPubKey := []byte("blspubkey1")
-
-		validatorInfos := []*state.ValidatorInfo{
-			createMockValidatorInfo(validatorAddress, blsPubKey),
-		}
-
-		storageData := map[string]interface{}{
+	t.Run("V1 vs V2 - Zero accumulated fees", func(t *testing.T) {
+		storageData := map[string]any{
 			"VALB/validator1": &PeerData{
 				Buckets: map[string]*PeerBucket{
 					"bucket1": {
@@ -1484,28 +1344,38 @@ func TestProcessEconomicsEndOfEpoch(t *testing.T) {
 			},
 		}
 
-		kappStorage(storageData, v)
-
-		err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
-		assert.NoError(t, err)
-
-		// Verify that no rewards are distributed
-		userAcc, _ := v.accountsCacher.LoadUser(validatorAddress)
-		assert.Equal(t, int64(0), userAcc.GetAllowance())
-	})
-
-	t.Run("Validator with maximum commission", func(t *testing.T) {
-		v := setupTest()
-		currentEpoch := uint32(10)
-
-		validatorAddress := []byte("validator1")
-		blsPubKey := []byte("blspubkey1")
-
-		validatorInfos := []*state.ValidatorInfo{
-			createMockValidatorInfo(validatorAddress, blsPubKey),
+		tests := []struct {
+			name           string
+			epochRewardsV2 bool
+		}{
+			{name: "V1 - zero fees", epochRewardsV2: false},
+			{name: "V2 - zero fees", epochRewardsV2: true},
 		}
 
-		storageData := map[string]interface{}{
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				v := setupTest()
+				v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = tc.epochRewardsV2
+
+				validatorInfos := []*state.ValidatorInfo{
+					createMockValidatorInfo(validatorAddress, blsPubKey),
+				}
+
+				kappStorage(storageData, v)
+				// No fees accumulated
+
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				assert.NoError(t, err)
+
+				// Verify no rewards distributed
+				validatorReward := getRewards(v, validatorAddress, tc.epochRewardsV2)
+				assert.Equal(t, int64(0), validatorReward)
+			})
+		}
+	})
+
+	t.Run("V1 vs V2 - Maximum commission (100%)", func(t *testing.T) {
+		storageData := map[string]any{
 			"VALB/validator1": &PeerData{
 				Buckets: map[string]*PeerBucket{
 					"bucket1": {
@@ -1518,7 +1388,7 @@ func TestProcessEconomicsEndOfEpoch(t *testing.T) {
 						DelegatedEpoch:   5,
 						UndelegatedEpoch: math.MaxUint32,
 						Value:            100000,
-						Address:          []byte("delegator1"),
+						Address:          delegatorAddress,
 					},
 				},
 			},
@@ -1530,6 +1400,334 @@ func TestProcessEconomicsEndOfEpoch(t *testing.T) {
 			},
 		}
 
+		tests := []struct {
+			name                    string
+			epochRewardsV2          bool
+			expectedValidatorReward int64
+			expectedDelegatorReward int64
+		}{
+			{
+				name:                    "V1 - max commission",
+				epochRewardsV2:          false,
+				expectedValidatorReward: 1000000, // All rewards go to validator
+				expectedDelegatorReward: 0,       // Delegator gets nothing
+			},
+			{
+				name:                    "V2 - max commission",
+				epochRewardsV2:          true,
+				expectedValidatorReward: 1000000,
+				expectedDelegatorReward: 0,
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				v := setupTest()
+				v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = tc.epochRewardsV2
+
+				validatorInfos := []*state.ValidatorInfo{
+					createMockValidatorInfo(validatorAddress, blsPubKey),
+				}
+
+				kappStorage(storageData, v)
+
+				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
+				peerAcc.AddToAccumulatedFees(1000000)
+
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				assert.NoError(t, err)
+
+				validatorReward := getRewards(v, validatorAddress, tc.epochRewardsV2)
+				delegatorReward := getRewards(v, delegatorAddress, tc.epochRewardsV2)
+
+				assert.Equal(t, tc.expectedValidatorReward, validatorReward)
+				assert.Equal(t, tc.expectedDelegatorReward, delegatorReward)
+			})
+		}
+	})
+
+	t.Run("V1 vs V2 - Remaining fees distribution", func(t *testing.T) {
+		storageData := map[string]any{
+			"VALB/validator1": &PeerData{
+				Buckets: map[string]*PeerBucket{
+					"bucket1": {
+						DelegatedEpoch:   5,
+						UndelegatedEpoch: math.MaxUint32,
+						Value:            200000,
+						Address:          validatorAddress,
+					},
+					"bucket2": {
+						DelegatedEpoch:   5,
+						UndelegatedEpoch: math.MaxUint32,
+						Value:            100000,
+						Address:          delegatorAddress,
+					},
+				},
+			},
+			"VAL/validator1": &ValidatorData{
+				BlsPubKey:      blsPubKey,
+				RewardsAddress: validatorAddress,
+				Commission:     1000, // 10%
+				SelfStake:      200000,
+			},
+		}
+
+		tests := []struct {
+			name                    string
+			epochRewardsV2          bool
+			enableSmartContracts    bool
+			expectedValidatorReward int64
+			expectedDelegatorReward int64
+		}{
+			{
+				name:                    "V1 - with smart contracts (remaining fees to validator)",
+				epochRewardsV2:          false,
+				enableSmartContracts:    true,
+				expectedValidatorReward: 700001, // 700000 + 1 remaining
+				expectedDelegatorReward: 300000,
+			},
+			{
+				name:                    "V1 - without smart contracts",
+				epochRewardsV2:          false,
+				enableSmartContracts:    false,
+				expectedValidatorReward: 700000, // No remaining fees added
+				expectedDelegatorReward: 300000,
+			},
+			{
+				name:                    "V2 - with smart contracts (remaining fees to validator)",
+				epochRewardsV2:          true,
+				enableSmartContracts:    true,
+				expectedValidatorReward: 700001,
+				expectedDelegatorReward: 300000,
+			},
+			{
+				name:                    "V2 - without smart contracts",
+				epochRewardsV2:          true,
+				enableSmartContracts:    false,
+				expectedValidatorReward: 700000,
+				expectedDelegatorReward: 300000,
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				v := setupTest()
+				v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = tc.epochRewardsV2
+				v.forkController.(*mock.ForkControllerStub).EnableSmartContractsValue = tc.enableSmartContracts
+
+				validatorInfos := []*state.ValidatorInfo{
+					createMockValidatorInfo(validatorAddress, blsPubKey),
+				}
+
+				kappStorage(storageData, v)
+
+				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
+				peerAcc.AddToAccumulatedFees(1000001) // Odd number to create remaining fees
+
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				assert.NoError(t, err)
+
+				validatorReward := getRewards(v, validatorAddress, tc.epochRewardsV2)
+				delegatorReward := getRewards(v, delegatorAddress, tc.epochRewardsV2)
+
+				assert.Equal(t, tc.expectedValidatorReward, validatorReward,
+					"validator reward mismatch for %s", tc.name)
+				assert.Equal(t, tc.expectedDelegatorReward, delegatorReward,
+					"delegator reward mismatch for %s", tc.name)
+			})
+		}
+	})
+
+	t.Run("V1 vs V2 - Multiple validators", func(t *testing.T) {
+		validator2Address := []byte("validator2")
+		blsPubKey2 := []byte("blspubkey2")
+
+		storageData := map[string]any{
+			"VALB/validator1": &PeerData{
+				Buckets: map[string]*PeerBucket{
+					"bucket1": {
+						DelegatedEpoch:   5,
+						UndelegatedEpoch: math.MaxUint32,
+						Value:            200000,
+						Address:          validatorAddress,
+					},
+				},
+			},
+			"VAL/validator1": &ValidatorData{
+				BlsPubKey:      blsPubKey,
+				RewardsAddress: validatorAddress,
+				Commission:     1000,
+				SelfStake:      200000,
+			},
+			"VALB/validator2": &PeerData{
+				Buckets: map[string]*PeerBucket{
+					"bucket1": {
+						DelegatedEpoch:   5,
+						UndelegatedEpoch: math.MaxUint32,
+						Value:            400000,
+						Address:          validator2Address,
+					},
+				},
+			},
+			"VAL/validator2": &ValidatorData{
+				BlsPubKey:      blsPubKey2,
+				RewardsAddress: validator2Address,
+				Commission:     2000, // 20%
+				SelfStake:      400000,
+			},
+		}
+
+		tests := []struct {
+			name                     string
+			epochRewardsV2           bool
+			expectedValidator1Reward int64
+			expectedValidator2Reward int64
+		}{
+			{
+				name:                     "V1 - multiple validators",
+				epochRewardsV2:           false,
+				expectedValidator1Reward: 1000000, // 100% of 1M (only self-staked)
+				expectedValidator2Reward: 2000000, // 100% of 2M (only self-staked)
+			},
+			{
+				name:                     "V2 - multiple validators",
+				epochRewardsV2:           true,
+				expectedValidator1Reward: 1000000,
+				expectedValidator2Reward: 2000000,
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				v := setupTest()
+				v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = tc.epochRewardsV2
+
+				validatorInfos := []*state.ValidatorInfo{
+					{
+						PublicKey:    blsPubKey,
+						OwnerAddress: validatorAddress,
+						List:         string(state.List_eligible),
+						TempRating:   5000000,
+					},
+					{
+						PublicKey:    blsPubKey2,
+						OwnerAddress: validator2Address,
+						List:         string(state.List_waiting),
+						TempRating:   5000000,
+					},
+				}
+
+				kappStorage(storageData, v)
+
+				peerAcc1, _ := v.accountsCacher.LoadPeer(blsPubKey)
+				peerAcc1.AddToAccumulatedFees(1000000)
+				peerAcc1.SetList(state.List_eligible)
+
+				peerAcc2, _ := v.accountsCacher.LoadPeer(blsPubKey2)
+				peerAcc2.AddToAccumulatedFees(2000000)
+				peerAcc2.SetList(state.List_waiting)
+
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				assert.NoError(t, err)
+
+				validator1Reward := getRewards(v, validatorAddress, tc.epochRewardsV2)
+				validator2Reward := getRewards(v, validator2Address, tc.epochRewardsV2)
+
+				assert.Equal(t, tc.expectedValidator1Reward, validator1Reward)
+				assert.Equal(t, tc.expectedValidator2Reward, validator2Reward)
+			})
+		}
+	})
+
+	t.Run("V1 vs V2 - Accumulated rewards across epochs", func(t *testing.T) {
+		storageData := map[string]any{
+			"VALB/validator1": &PeerData{
+				Buckets: map[string]*PeerBucket{
+					"bucket1": {
+						DelegatedEpoch:   5,
+						UndelegatedEpoch: math.MaxUint32,
+						Value:            200000,
+						Address:          validatorAddress,
+					},
+				},
+			},
+			"VAL/validator1": &ValidatorData{
+				BlsPubKey:      blsPubKey,
+				RewardsAddress: validatorAddress,
+				Commission:     0, // No commission for simplicity
+				SelfStake:      200000,
+			},
+		}
+
+		tests := []struct {
+			name                           string
+			epochRewardsV2                 bool
+			expectedRewardAfterFirstEpoch  int64
+			expectedRewardAfterSecondEpoch int64
+		}{
+			{
+				name:                           "V1 - accumulates in allowance",
+				epochRewardsV2:                 false,
+				expectedRewardAfterFirstEpoch:  500000,
+				expectedRewardAfterSecondEpoch: 1000000,
+			},
+			{
+				name:                           "V2 - accumulates in pending rewards",
+				epochRewardsV2:                 true,
+				expectedRewardAfterFirstEpoch:  500000,
+				expectedRewardAfterSecondEpoch: 1000000,
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				v := setupTest()
+				v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = tc.epochRewardsV2
+
+				validatorInfos := []*state.ValidatorInfo{
+					{
+						PublicKey:    blsPubKey,
+						OwnerAddress: validatorAddress,
+						List:         string(state.List_eligible),
+						TempRating:   5000000,
+					},
+				}
+
+				kappStorage(storageData, v)
+
+				// First epoch
+				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
+				peerAcc.AddToAccumulatedFees(500000)
+
+				err := v.ProcessEconomicsEndOfEpoch(10, validatorInfos)
+				assert.NoError(t, err)
+
+				rewardAfterFirst := getRewards(v, validatorAddress, tc.epochRewardsV2)
+				assert.Equal(t, tc.expectedRewardAfterFirstEpoch, rewardAfterFirst)
+
+				// Second epoch - reload peer account (it was reset)
+				peerAcc, _ = v.accountsCacher.LoadPeer(blsPubKey)
+				peerAcc.AddToAccumulatedFees(500000)
+
+				err = v.ProcessEconomicsEndOfEpoch(11, validatorInfos)
+				assert.NoError(t, err)
+
+				rewardAfterSecond := getRewards(v, validatorAddress, tc.epochRewardsV2)
+				assert.Equal(t, tc.expectedRewardAfterSecondEpoch, rewardAfterSecond)
+			})
+		}
+	})
+
+	t.Run("V2 - Verify pending rewards storage mechanism", func(t *testing.T) {
+		v := setupTest()
+		v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = true
+
+		storageData := defaultStorageData()
+
+		validatorInfos := []*state.ValidatorInfo{
+			createMockValidatorInfo(validatorAddress, blsPubKey),
+		}
+
 		kappStorage(storageData, v)
 
 		peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
@@ -1538,26 +1736,309 @@ func TestProcessEconomicsEndOfEpoch(t *testing.T) {
 		err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
 		assert.NoError(t, err)
 
-		// Verify that all rewards go to the validator
-		userAcc, _ := v.accountsCacher.LoadUser(validatorAddress)
-		assert.Equal(t, int64(1000000), userAcc.GetAllowance())
+		// V2 specific: Verify rewards are in KApp trie, NOT in user account
+		validatorPendingRewards, err := v.GetPendingRewards(validatorAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(700000), validatorPendingRewards)
 
-		delegatorAcc, _ := v.accountsCacher.LoadUser([]byte("delegator1"))
-		assert.Equal(t, int64(0), delegatorAcc.GetAllowance())
+		delegatorPendingRewards, err := v.GetPendingRewards(delegatorAddress)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(300000), delegatorPendingRewards)
+
+		// Verify user accounts have NO allowance in V2 (rewards not directly added)
+		validatorUserAcc, _ := v.accountsCacher.LoadUser(validatorAddress)
+		assert.Equal(t, int64(0), validatorUserAcc.GetAllowance(),
+			"V2 should NOT add rewards to user allowance directly")
+
+		delegatorUserAcc, _ := v.accountsCacher.LoadUser(delegatorAddress)
+		assert.Equal(t, int64(0), delegatorUserAcc.GetAllowance(),
+			"V2 should NOT add rewards to user allowance directly")
 	})
 
-	t.Run("Validator becomes eligible", func(t *testing.T) {
-		v := setupTest()
-		currentEpoch := uint32(10)
+	t.Run("V1 vs V2 - Undelegated buckets removal and rewards", func(t *testing.T) {
+		delegator1Address := []byte("delegator1")
+		delegator2Address := []byte("delegator2")
 
-		validatorAddress := []byte("validator1")
-		blsPubKey := []byte("blspubkey1")
-
-		validatorInfos := []*state.ValidatorInfo{
-			createMockValidatorInfo(validatorAddress, blsPubKey),
+		// Setup: 3 buckets with different undelegation states
+		// - bucket1: undelegated in epoch 9 (previous epoch) -> should be deleted, no rewards
+		// - bucket2: undelegated in epoch 10 (current epoch) -> should be deleted, no rewards
+		// - bucket3: still delegated (MaxUint32) -> should remain, receives rewards
+		storageData := map[string]any{
+			"VALB/validator1": &PeerData{
+				Buckets: map[string]*PeerBucket{
+					"bucket1": {
+						DelegatedEpoch:   5,
+						UndelegatedEpoch: 9, // Undelegated in previous epoch
+						Value:            100000,
+						Address:          delegator1Address,
+					},
+					"bucket2": {
+						DelegatedEpoch:   5,
+						UndelegatedEpoch: 10, // Undelegated in current epoch
+						Value:            200000,
+						Address:          delegator2Address,
+					},
+					"bucket3": {
+						DelegatedEpoch:   5,
+						UndelegatedEpoch: math.MaxUint32, // Still delegated
+						Value:            300000,
+						Address:          validatorAddress,
+					},
+				},
+			},
+			"VAL/validator1": &ValidatorData{
+				BlsPubKey:      blsPubKey,
+				RewardsAddress: validatorAddress,
+				Commission:     0, // No commission for simpler calculation
+				SelfStake:      300000,
+			},
 		}
 
-		storageData := map[string]interface{}{
+		tests := []struct {
+			name                     string
+			epochRewardsV2           bool
+			expectedValidatorReward  int64
+			expectedDelegator1Reward int64
+			expectedDelegator2Reward int64
+		}{
+			{
+				name:                     "V1 - undelegated buckets deleted, only active gets rewards",
+				epochRewardsV2:           false,
+				expectedValidatorReward:  1000000, // All rewards (only active bucket)
+				expectedDelegator1Reward: 0,       // Undelegated, no rewards
+				expectedDelegator2Reward: 0,       // Undelegated, no rewards
+			},
+			{
+				name:                     "V2 - undelegated buckets deleted, only active gets rewards",
+				epochRewardsV2:           true,
+				expectedValidatorReward:  1000000,
+				expectedDelegator1Reward: 0,
+				expectedDelegator2Reward: 0,
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				v := setupTest()
+				v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = tc.epochRewardsV2
+
+				validatorInfos := []*state.ValidatorInfo{
+					createMockValidatorInfo(validatorAddress, blsPubKey),
+				}
+
+				kappStorage(storageData, v)
+
+				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
+				peerAcc.AddToAccumulatedFees(1000000)
+
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				assert.NoError(t, err)
+
+				// Verify undelegated buckets are removed (same for V1 and V2)
+				kappHandler, err := v.getKApp()
+				require.NoError(t, err)
+				updatedBuckets, err := v.getValidatorBuckets(kappHandler, validatorAddress)
+				require.NoError(t, err)
+
+				assert.Len(t, updatedBuckets.Buckets, 1, "only 1 bucket should remain")
+				assert.NotContains(t, updatedBuckets.Buckets, "bucket1", "bucket1 should be deleted")
+				assert.NotContains(t, updatedBuckets.Buckets, "bucket2", "bucket2 should be deleted")
+				assert.Contains(t, updatedBuckets.Buckets, "bucket3", "bucket3 should remain")
+
+				// Verify rewards distribution
+				validatorReward := getRewards(v, validatorAddress, tc.epochRewardsV2)
+				delegator1Reward := getRewards(v, delegator1Address, tc.epochRewardsV2)
+				delegator2Reward := getRewards(v, delegator2Address, tc.epochRewardsV2)
+
+				assert.Equal(t, tc.expectedValidatorReward, validatorReward,
+					"validator should receive all rewards as only active delegation")
+				assert.Equal(t, tc.expectedDelegator1Reward, delegator1Reward,
+					"delegator1 should not receive rewards (undelegated)")
+				assert.Equal(t, tc.expectedDelegator2Reward, delegator2Reward,
+					"delegator2 should not receive rewards (undelegated)")
+			})
+		}
+	})
+
+	t.Run("V1 vs V2 - Delegation and undelegation same epoch", func(t *testing.T) {
+		// Setup: bucket delegated and undelegated in the same epoch should be removed
+		// and should not receive any rewards
+		storageData := map[string]any{
+			"VALB/validator1": &PeerData{
+				Buckets: map[string]*PeerBucket{
+					"bucket1": {
+						DelegatedEpoch:   10, // Delegated in current epoch
+						UndelegatedEpoch: 10, // Undelegated in current epoch
+						Value:            100000,
+						Address:          delegatorAddress,
+					},
+					"bucket2": {
+						DelegatedEpoch:   5,
+						UndelegatedEpoch: math.MaxUint32, // Still delegated
+						Value:            200000,
+						Address:          validatorAddress,
+					},
+				},
+			},
+			"VAL/validator1": &ValidatorData{
+				BlsPubKey:      blsPubKey,
+				RewardsAddress: validatorAddress,
+				Commission:     0,
+				SelfStake:      200000,
+			},
+		}
+
+		tests := []struct {
+			name                    string
+			epochRewardsV2          bool
+			expectedValidatorReward int64
+			expectedDelegatorReward int64
+		}{
+			{
+				name:                    "V1 - same epoch delegate/undelegate removed",
+				epochRewardsV2:          false,
+				expectedValidatorReward: 1000000, // All rewards
+				expectedDelegatorReward: 0,
+			},
+			{
+				name:                    "V2 - same epoch delegate/undelegate removed",
+				epochRewardsV2:          true,
+				expectedValidatorReward: 1000000,
+				expectedDelegatorReward: 0,
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				v := setupTest()
+				v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = tc.epochRewardsV2
+
+				validatorInfos := []*state.ValidatorInfo{
+					createMockValidatorInfo(validatorAddress, blsPubKey),
+				}
+
+				kappStorage(storageData, v)
+
+				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
+				peerAcc.AddToAccumulatedFees(1000000)
+
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				assert.NoError(t, err)
+
+				// Verify bucket1 (same epoch delegate/undelegate) is removed
+				kappHandler, err := v.getKApp()
+				require.NoError(t, err)
+				updatedBuckets, err := v.getValidatorBuckets(kappHandler, validatorAddress)
+				require.NoError(t, err)
+
+				assert.Len(t, updatedBuckets.Buckets, 1)
+				assert.NotContains(t, updatedBuckets.Buckets, "bucket1",
+					"bucket delegated and undelegated in same epoch should be removed")
+				assert.Contains(t, updatedBuckets.Buckets, "bucket2")
+
+				// Verify rewards
+				validatorReward := getRewards(v, validatorAddress, tc.epochRewardsV2)
+				delegatorReward := getRewards(v, delegatorAddress, tc.epochRewardsV2)
+
+				assert.Equal(t, tc.expectedValidatorReward, validatorReward)
+				assert.Equal(t, tc.expectedDelegatorReward, delegatorReward,
+					"delegator should not receive rewards (same epoch undelegate)")
+			})
+		}
+	})
+
+	t.Run("V1 vs V2 - Validator gets jailed", func(t *testing.T) {
+		storageData := defaultStorageData()
+
+		tests := []struct {
+			name           string
+			epochRewardsV2 bool
+		}{
+			{name: "V1 - validator jailed", epochRewardsV2: false},
+			{name: "V2 - validator jailed", epochRewardsV2: true},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				v := setupTest()
+				v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = tc.epochRewardsV2
+
+				validatorInfos := []*state.ValidatorInfo{
+					createMockValidatorInfo(validatorAddress, blsPubKey),
+				}
+
+				kappStorage(storageData, v)
+
+				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
+				peerAcc.AddToAccumulatedFees(1000000)
+				peerAcc.SetList(state.List_jailed) // Peer is jailed
+
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				assert.NoError(t, err)
+
+				// Verify validator is marked as jailed
+				kappHandler, err := v.getKApp()
+				require.NoError(t, err)
+				updatedValidator, err := v.getValidator(kappHandler, validatorAddress)
+				require.NoError(t, err)
+				assert.True(t, updatedValidator.Jailed)
+				assert.Equal(t, currentEpoch, updatedValidator.JailedEpoch)
+				assert.Equal(t, uint32(1), updatedValidator.NumJailed)
+			})
+		}
+	})
+
+	t.Run("V1 vs V2 - Validator becomes inactive due to low self stake", func(t *testing.T) {
+		tests := []struct {
+			name           string
+			epochRewardsV2 bool
+		}{
+			{name: "V1 - low self stake becomes inactive", epochRewardsV2: false},
+			{name: "V2 - low self stake becomes inactive", epochRewardsV2: true},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				v := setupTest()
+				v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = tc.epochRewardsV2
+
+				validatorInfos := []*state.ValidatorInfo{
+					createMockValidatorInfo(validatorAddress, blsPubKey),
+				}
+
+				storageData := map[string]any{
+					"VALB/validator1": &PeerData{
+						Buckets: map[string]*PeerBucket{
+							"bucket1": {
+								DelegatedEpoch:   5,
+								UndelegatedEpoch: math.MaxUint32,
+								Value:            50000, // Below minSelfDelegated
+								Address:          validatorAddress,
+							},
+						},
+					},
+					"VAL/validator1": &ValidatorData{
+						BlsPubKey:      blsPubKey,
+						RewardsAddress: validatorAddress,
+						Commission:     1000,
+						SelfStake:      50000, // Below minSelfDelegated (100000)
+					},
+				}
+
+				kappStorage(storageData, v)
+
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				assert.NoError(t, err)
+
+				// Verify validator becomes inactive
+				updatedPeerAcc, _ := v.loadPeerAccount(blsPubKey)
+				assert.Equal(t, state.List_inactive, updatedPeerAcc.GetList())
+			})
+		}
+	})
+
+	t.Run("V1 vs V2 - Validator becomes eligible", func(t *testing.T) {
+		storageData := map[string]any{
 			"VALB/validator1": &PeerData{
 				Buckets: map[string]*PeerBucket{
 					"bucket1": {
@@ -1576,21 +2057,42 @@ func TestProcessEconomicsEndOfEpoch(t *testing.T) {
 			},
 		}
 
-		kappStorage(storageData, v)
+		tests := []struct {
+			name           string
+			epochRewardsV2 bool
+		}{
+			{name: "V1 - waiting becomes eligible", epochRewardsV2: false},
+			{name: "V2 - waiting becomes eligible", epochRewardsV2: true},
+		}
 
-		peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
-		peerAcc.SetList(state.List_waiting)
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				v := setupTest()
+				v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = tc.epochRewardsV2
 
-		err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
-		assert.NoError(t, err)
+				validatorInfos := []*state.ValidatorInfo{
+					createMockValidatorInfo(validatorAddress, blsPubKey),
+				}
 
-		// Verify that the validator becomes eligible
-		updatedPeerAcc, _ := v.loadPeerAccount(blsPubKey)
-		assert.Equal(t, state.List_eligible, updatedPeerAcc.GetList())
+				kappStorage(storageData, v)
+
+				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
+				peerAcc.SetList(state.List_waiting) // Start as waiting
+
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				assert.NoError(t, err)
+
+				// Verify validator becomes eligible
+				updatedPeerAcc, _ := v.loadPeerAccount(blsPubKey)
+				assert.Equal(t, state.List_eligible, updatedPeerAcc.GetList())
+			})
+		}
 	})
 
-	t.Run("Remaining fees check fork", func(t *testing.T) {
-		storageData := map[string]interface{}{
+	t.Run("V1 vs V2 - Jailed validator gets unjailed", func(t *testing.T) {
+		// Validator data has Jailed=true, but peer account is NOT jailed
+		// This means validator should be unjailed
+		storageData := map[string]any{
 			"VALB/validator1": &PeerData{
 				Buckets: map[string]*PeerBucket{
 					"bucket1": {
@@ -1599,64 +2101,55 @@ func TestProcessEconomicsEndOfEpoch(t *testing.T) {
 						Value:            200000,
 						Address:          validatorAddress,
 					},
-					"bucket2": {
-						DelegatedEpoch:   5,
-						UndelegatedEpoch: math.MaxUint32,
-						Value:            100000,
-						Address:          []byte("delegator1"),
-					},
 				},
 			},
 			"VAL/validator1": &ValidatorData{
 				BlsPubKey:      blsPubKey,
 				RewardsAddress: validatorAddress,
-				Commission:     1000, // 10%
+				Commission:     1000,
 				SelfStake:      200000,
+				Jailed:         true, // Validator data says jailed
+				JailedEpoch:    5,
 			},
 		}
 
 		tests := []struct {
-			enableSmartContracts bool
-			value                int64
+			name           string
+			epochRewardsV2 bool
 		}{
-			{true, 700001},
-			{false, 700000},
+			{name: "V1 - jailed validator unjailed", epochRewardsV2: false},
+			{name: "V2 - jailed validator unjailed", epochRewardsV2: true},
 		}
 
-		for _, test := range tests {
-			v := setupTest()
-			currentEpoch := uint32(10)
-			validatorInfos := []*state.ValidatorInfo{
-				createMockValidatorInfo(validatorAddress, blsPubKey),
-			}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				v := setupTest()
+				v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = tc.epochRewardsV2
 
-			kappStorage(storageData, v)
+				validatorInfos := []*state.ValidatorInfo{
+					createMockValidatorInfo(validatorAddress, blsPubKey),
+				}
 
-			peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
-			peerAcc.AddToAccumulatedFees(1000001) // Odd number to ensure remaining fees
+				kappStorage(storageData, v)
 
-			// Enable smart contracts
-			v.forkController.(*mock.ForkControllerStub).EnableSmartContractsValue = test.enableSmartContracts
+				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
+				peerAcc.SetList(state.List_eligible) // Peer is NOT jailed
 
-			err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
-			assert.NoError(t, err)
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				assert.NoError(t, err)
 
-			// Verify that remaining fee is added to validator's rewards
-			userAcc, _ := v.accountsCacher.LoadUser(validatorAddress)
-			// 200000/300000 * 900000 (90% of rewards) + 100000 (10% commission) + 1 (remaining fee) = 700001
-			assert.Equal(t, test.value, userAcc.GetAllowance())
+				// Verify validator is unjailed
+				kappHandler, _ := v.getKApp()
+				updatedValidator, _ := v.getValidator(kappHandler, validatorAddress)
+				assert.False(t, updatedValidator.Jailed)
+				assert.Equal(t, uint32(math.MaxUint32), updatedValidator.JailedEpoch)
+			})
 		}
 	})
 
-	t.Run("Jailed validator status update", func(t *testing.T) {
-		v := setupTest()
-		currentEpoch := uint32(10)
-
-		validatorInfos := []*state.ValidatorInfo{
-			createMockValidatorInfo(validatorAddress, blsPubKey),
-		}
-
-		storageData := map[string]interface{}{
+	t.Run("V1 vs V2 - Validator remains jailed", func(t *testing.T) {
+		// Both validator data and peer account are jailed
+		storageData := map[string]any{
 			"VALB/validator1": &PeerData{
 				Buckets: map[string]*PeerBucket{
 					"bucket1": {
@@ -1677,132 +2170,38 @@ func TestProcessEconomicsEndOfEpoch(t *testing.T) {
 			},
 		}
 
-		kappStorage(storageData, v)
+		tests := []struct {
+			name           string
+			epochRewardsV2 bool
+		}{
+			{name: "V1 - validator remains jailed", epochRewardsV2: false},
+			{name: "V2 - validator remains jailed", epochRewardsV2: true},
+		}
 
-		peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
-		peerAcc.SetList(state.List_eligible) // Peer account is not jailed
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				v := setupTest()
+				v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = tc.epochRewardsV2
 
-		err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
-		assert.NoError(t, err)
+				validatorInfos := []*state.ValidatorInfo{
+					createMockValidatorInfo(validatorAddress, blsPubKey),
+				}
 
-		// Verify that the validator is no longer jailed
-		kappHandler, _ := v.getKApp()
-		updatedValidator, _ := v.getValidator(kappHandler, validatorAddress)
-		assert.False(t, updatedValidator.Jailed)
-		assert.Equal(t, uint32(math.MaxUint32), updatedValidator.JailedEpoch)
+				kappStorage(storageData, v)
+
+				peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
+				peerAcc.SetList(state.List_jailed) // Peer is also jailed
+
+				err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+				assert.NoError(t, err)
+
+				// Verify validator remains jailed
+				kappHandler, _ := v.getKApp()
+				updatedValidator, _ := v.getValidator(kappHandler, validatorAddress)
+				assert.True(t, updatedValidator.Jailed)
+				assert.Equal(t, uint32(5), updatedValidator.JailedEpoch) // Original jailed epoch preserved
+			})
+		}
 	})
 
-	t.Run("Validator remains jailed", func(t *testing.T) {
-		v := setupTest()
-		currentEpoch := uint32(10)
-
-		validatorAddress := []byte("validator1")
-		blsPubKey := []byte("blspubkey1")
-
-		validatorInfos := []*state.ValidatorInfo{
-			createMockValidatorInfo(validatorAddress, blsPubKey),
-		}
-
-		storageData := map[string]interface{}{
-			"VALB/validator1": &PeerData{
-				Buckets: map[string]*PeerBucket{
-					"bucket1": {
-						DelegatedEpoch:   5,
-						UndelegatedEpoch: math.MaxUint32,
-						Value:            200000,
-						Address:          validatorAddress,
-					},
-				},
-			},
-			"VAL/validator1": &ValidatorData{
-				BlsPubKey:      blsPubKey,
-				RewardsAddress: validatorAddress,
-				Commission:     1000,
-				SelfStake:      200000,
-				Jailed:         true,
-				JailedEpoch:    5,
-			},
-		}
-
-		kappStorage(storageData, v)
-
-		peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
-		peerAcc.SetList(state.List_jailed) // Peer account is jailed
-
-		err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
-		assert.NoError(t, err)
-
-		// Verify that the validator remains jailed
-		kappHandler, _ := v.getKApp()
-		updatedValidator, _ := v.getValidator(kappHandler, validatorAddress)
-		assert.True(t, updatedValidator.Jailed)
-		assert.Equal(t, uint32(5), updatedValidator.JailedEpoch)
-	})
-
-	t.Run("Remove undelegated buckets and calculate total undelegated amount", func(t *testing.T) {
-		v := setupTest()
-		currentEpoch := uint32(10)
-
-		validatorInfos := []*state.ValidatorInfo{
-			createMockValidatorInfo(validatorAddress, blsPubKey),
-		}
-
-		storageData := map[string]interface{}{
-			"VALB/validator1": &PeerData{
-				Buckets: map[string]*PeerBucket{
-					"bucket1": {
-						DelegatedEpoch:   5,
-						UndelegatedEpoch: 9, // Undelegated in previous epoch
-						Value:            100000,
-						Address:          []byte("delegator1"),
-					},
-					"bucket2": {
-						DelegatedEpoch:   5,
-						UndelegatedEpoch: 10, // Undelegated in current epoch
-						Value:            200000,
-						Address:          []byte("delegator2"),
-					},
-					"bucket3": {
-						DelegatedEpoch:   5,
-						UndelegatedEpoch: math.MaxUint32, // Still delegated
-						Value:            300000,
-						Address:          validatorAddress,
-					},
-				},
-			},
-			"VAL/validator1": &ValidatorData{
-				BlsPubKey:      blsPubKey,
-				RewardsAddress: validatorAddress,
-				Commission:     1000,
-				SelfStake:      300000,
-			},
-		}
-
-		kappStorage(storageData, v)
-
-		peerAcc, _ := v.accountsCacher.LoadPeer(blsPubKey)
-		peerAcc.AddToAccumulatedFees(1000000)
-
-		err := v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
-		assert.NoError(t, err)
-
-		// Verify that undelegated buckets are removed
-		kappHandler, _ := v.getKApp()
-		updatedBuckets, _ := v.getValidatorBuckets(kappHandler, validatorAddress)
-		assert.Len(t, updatedBuckets.Buckets, 1)
-		assert.NotContains(t, updatedBuckets.Buckets, "bucket1")
-		assert.NotContains(t, updatedBuckets.Buckets, "bucket2")
-		assert.Contains(t, updatedBuckets.Buckets, "bucket3")
-
-		// Verify rewards distribution
-		validatorAcc, _ := v.accountsCacher.LoadUser(validatorAddress)
-		// Validator gets all rewards as it's the only remaining delegation
-		assert.Equal(t, int64(1000000), validatorAcc.GetAllowance())
-
-		delegator1Acc, _ := v.accountsCacher.LoadUser([]byte("delegator1"))
-		assert.Equal(t, int64(0), delegator1Acc.GetAllowance())
-
-		delegator2Acc, _ := v.accountsCacher.LoadUser([]byte("delegator2"))
-		assert.Equal(t, int64(0), delegator2Acc.GetAllowance())
-	})
 }

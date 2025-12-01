@@ -21,6 +21,11 @@ import (
 
 var _ kapp.ProposalKapp = (*proposalKapp)(nil)
 
+// MaxVotersPerProposal limits the number of unique voters per proposal
+// to prevent exceeding the MaxLeafSize (786KB) storage limit.
+// Each voter entry is ~100 bytes serialized, so 7000 voters ≈ 700KB (safe margin).
+const MaxVotersPerProposal = 7000
+
 type proposalKapp struct {
 	hasher         hashing.Hasher
 	marshalizer    marshal.Marshalizer
@@ -331,6 +336,31 @@ func updateActiveProposals(controller *kapps.ProposalController, proposal *kapps
 	}
 }
 
+// isVoterLimitExceeded checks if adding a new voter would exceed the maximum limit.
+// Returns true only if: EpochRewardsV2 is enabled, voter doesn't exist, and limit is reached.
+func (p *proposalKapp) isVoterLimitExceeded(proposal *kapps.ProposalData, encodedAddr string) bool {
+	if !p.forkController.EpochRewardsV2() {
+		return false
+	}
+	_, exists := proposal.Voters[encodedAddr]
+	return !exists && len(proposal.Voters) >= MaxVotersPerProposal
+}
+
+// processExistingVote handles vote type changes and returns the old amount for same-type votes.
+// If the voter changed their vote type, it subtracts from the old type's count and returns 0.
+// If the voter is updating the same type, it returns the old amount for incremental update.
+func (p *proposalKapp) processExistingVote(proposal *kapps.ProposalData, encodedAddr string, newType kapps.ProposalData_VoteDetail_EnumVoteType) int64 {
+	v, ok := proposal.Voters[encodedAddr]
+	if !ok || v == nil {
+		return 0
+	}
+	if v.Type != newType {
+		proposal.Votes[int32(v.Type)] -= v.Amount
+		return 0
+	}
+	return v.Amount
+}
+
 func (p *proposalKapp) Vote(sender []byte, tc *transaction.VoteContract) (transaction.Transaction_TXResultCode, error) {
 	ctx := p.KAppController.GetCurrentKAppContext()
 
@@ -385,15 +415,14 @@ func (p *proposalKapp) Vote(sender []byte, tc *transaction.VoteContract) (transa
 	// must use string to marshal proto map due UTF8 issue
 	encodedAddr := hex.EncodeToString(sender)
 
-	oldAmount := int64(0)
-	if v, ok := proposal.Voters[encodedAddr]; ok && v != nil {
-		if v.Type != kapps.ProposalData_VoteDetail_EnumVoteType(tc.GetType()) {
-			proposal.Votes[int32(v.Type)] -= v.Amount
-		} else {
-			oldAmount = v.Amount
-		}
+	// Check if adding a new voter would exceed the maximum limit
+	// (skip check if voter already exists - it's a vote update)
+	// Only enforced after EpochRewardsV2 fork to maintain consensus during upgrade
+	if p.isVoterLimitExceeded(proposal, encodedAddr) {
+		return transaction.Transaction_ParameterInvalid, common.ErrProposalMaxVotersReached
 	}
 
+	oldAmount := p.processExistingVote(proposal, encodedAddr, kapps.ProposalData_VoteDetail_EnumVoteType(tc.GetType()))
 	proposal.Votes[int32(tc.GetType())] += tc.GetAmount() - oldAmount
 
 	proposal.Voters[encodedAddr] = &kapps.ProposalData_VoteDetail{

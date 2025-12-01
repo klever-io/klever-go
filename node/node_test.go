@@ -254,6 +254,101 @@ func createNodeWithFeeHandler(t *testing.T, feeHandler *mock.FeeHandlerStub) (*n
 	return n, nil
 }
 
+// nodeTestOptions holds optional parameters for creating test nodes.
+type nodeTestOptions struct {
+	accAdapter     *mock.AccountsStub
+	kappsAdapter   *mock.AccountsStub
+	kappController kapp.KAppController
+	blockchain     *mock.BlockChainMock
+}
+
+// createNodeWithOptions creates a node with customizable options for testing.
+// All fields in nodeTestOptions are optional - nil values are skipped.
+func createNodeWithOptions(t *testing.T, opts nodeTestOptions) (*node.Node, error) {
+	uint64Converter := mock.NewNonceHashConverterMock()
+	storerMock := mock.NewStorerMock("", 0)
+
+	dataPool := &mock.PoolsHolderStub{
+		TransactionsCalled: func() retriever.ShardedDataCacherNotifier {
+			return &mock.ShardedDataStub{}
+		},
+	}
+	keyGen := &cryptoMock.KeyGenMock{
+		PublicKeyFromByteArrayMock: func(b []byte) (crypto.PublicKey, error) {
+			return nil, nil
+		},
+	}
+	feeHandler := &mock.FeeHandlerStub{}
+
+	epochNotifier := &mock.EpochNotifierStub{}
+	forkController, _ := fork.NewForkController(config.EnableEpochs{
+		ClaimKFI:              0,
+		ProcessorFlowITOPrice: 0,
+		FixStakingBuckets:     0,
+		KdaFpr:                0,
+	}, epochNotifier)
+
+	proposalController, _ := kapps.NewProposalController(forkController)
+
+	// Build options list with required options
+	options := []node.Option{
+		node.WithDataPool(dataPool),
+		node.WithInternalMarshalizer(getMarshalizer()),
+		node.WithTxSignMarshalizer(getMarshalizer()),
+		node.WithDataStore(&mock.ChainStorerMock{
+			GetCalled: func(unitType retriever.UnitType, key []byte) ([]byte, error) {
+				return storerMock.Get(key)
+			},
+			GetStorerCalled: func(unitType retriever.UnitType) storage.Storer {
+				return storerMock
+			},
+		}),
+		node.WithUint64ByteSliceConverter(uint64Converter),
+		node.WithAddressPubkeyConverter(createMockPubkeyConverter()),
+		node.WithValidatorPubkeyConverter(createMockPubkeyConverter()),
+		node.WithWhiteListHandler(&mock.WhiteListHandlerStub{}),
+		node.WithWhiteListHandlerVerified(&mock.WhiteListHandlerStub{}),
+		node.WithHasher(getHasher()),
+		node.WithTxSignHasher(getHasher()),
+		node.WithKeyGen(createKeyGenMock()),
+		node.WithKeyGenForAccounts(keyGen),
+		node.WithTxFeeHandler(feeHandler),
+		node.WithSingleSigner(&cryptoMock.SignerMock{}),
+		node.WithTxSingleSigner(&disabledSig.DisabledSingleSig{}),
+		node.WithChainID(chainID),
+		node.WithProposalController(proposalController),
+		node.WithForkController(forkController),
+	}
+
+	// Add optional options only if provided
+	if opts.accAdapter != nil {
+		options = append(options, node.WithAccountsAdapter(opts.accAdapter))
+	}
+	if opts.kappsAdapter != nil {
+		options = append(options, node.WithKAppsAdapter(opts.kappsAdapter))
+	}
+	if opts.kappController != nil {
+		options = append(options, node.WithKAppController(opts.kappController))
+	}
+	if opts.blockchain != nil {
+		options = append(options, node.WithBlockChain(opts.blockchain))
+	}
+
+	n, err := node.NewNode(options...)
+	require.Nil(t, err)
+
+	return n, nil
+}
+
+// createNodeWithKAppController is a convenience wrapper for tests that only need
+// accounts adapter and kapp controller.
+func createNodeWithKAppController(t *testing.T, accAdapter *mock.AccountsStub, kappController kapp.KAppController) (*node.Node, error) {
+	return createNodeWithOptions(t, nodeTestOptions{
+		accAdapter:     accAdapter,
+		kappController: kappController,
+	})
+}
+
 func TestCreateTransaction_ShouldWork(t *testing.T) {
 	t.Parallel()
 
