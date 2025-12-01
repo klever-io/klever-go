@@ -257,7 +257,6 @@ func (ec *elasticClient) DoSearch(index string, body *bytes.Buffer) (templates.O
 		ec.es.Search.WithBody(body),
 	)
 	if err != nil {
-		log.Warn("elasticClient.DoSearch", "error", err.Error())
 		return nil, err
 	}
 
@@ -266,7 +265,6 @@ func (ec *elasticClient) DoSearch(index string, body *bytes.Buffer) (templates.O
 	var decodedBody templates.Object
 	err = parseResponse(res, &decodedBody, elasticDefaultErrorResponseHandler)
 	if err != nil {
-		log.Warn("elasticClient.DoSearch", ErrorParseResponse, err.Error())
 		return nil, err
 	}
 
