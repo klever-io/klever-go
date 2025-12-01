@@ -16,6 +16,8 @@ type ElasticProcessorStub struct {
 	SaveEpochInfoCalled                func(epoch uint32, validatorsPubkeys []kapp.ValidatorAccountInfoHandler) error
 	RemoveHeaderCalled                 func(header nodeData.HeaderHandler) error
 	RemoveTransactionsCalled           func(header nodeData.HeaderHandler) error
+	RemoveAccountsHistoryCalled        func(blockTimestamp int64) error
+	RevertAccountBalancesCalled        func(blockTimestamp int64) error
 	SaveTransactionsCalled             func(header nodeData.HeaderHandler, pool *indexer.Pool) error
 	SaveAccountsCalled                 func(timestamp int64, acc []*data.Account) error
 	SavePeerAccountCalled              func(account *data.ValidatorAccountInfo) error
@@ -67,12 +69,18 @@ func (eim *ElasticProcessorStub) RemoveTransactions(header nodeData.HeaderHandle
 }
 
 // RemoveAccountsHistory -
-func (eim *ElasticProcessorStub) RemoveAccountsHistory(_ int64) error {
+func (eim *ElasticProcessorStub) RemoveAccountsHistory(blockTimestamp int64) error {
+	if eim.RemoveAccountsHistoryCalled != nil {
+		return eim.RemoveAccountsHistoryCalled(blockTimestamp)
+	}
 	return nil
 }
 
 // RevertAccountBalances -
-func (eim *ElasticProcessorStub) RevertAccountBalances(_ int64) error {
+func (eim *ElasticProcessorStub) RevertAccountBalances(blockTimestamp int64) error {
+	if eim.RevertAccountBalancesCalled != nil {
+		return eim.RevertAccountBalancesCalled(blockTimestamp)
+	}
 	return nil
 }
 
