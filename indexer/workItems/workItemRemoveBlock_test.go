@@ -63,6 +63,7 @@ func TestItemRemoveBlock_SaveRevertAccountBalancesError(t *testing.T) {
 	indexer := &imock.ElasticProcessorStub{
 		RevertAccountBalancesCalled: func(blockTimestamp int64) error {
 			revertCalled = true
+			assert.Equal(t, int64(123456), blockTimestamp)
 			return expectedErr
 		},
 	}
@@ -127,14 +128,17 @@ func TestItemRemoveBlock_SaveRemoveTransactionsError(t *testing.T) {
 	indexer := &imock.ElasticProcessorStub{
 		RevertAccountBalancesCalled: func(blockTimestamp int64) error {
 			revertCalled = true
+			assert.Equal(t, int64(123456), blockTimestamp)
 			return nil
 		},
 		RemoveAccountsHistoryCalled: func(blockTimestamp int64) error {
 			removeHistoryCalled = true
+			assert.Equal(t, int64(123456), blockTimestamp)
 			return nil
 		},
 		RemoveTransactionsCalled: func(blk data.HeaderHandler) error {
 			removeTransactionsCalled = true
+			assert.Equal(t, uint64(100), blk.GetNonce())
 			return expectedErr
 		},
 	}
@@ -170,10 +174,12 @@ func TestItemRemoveBlock_SaveSkipRemoveTransactionsWhenNoTxHashes(t *testing.T) 
 	indexer := &imock.ElasticProcessorStub{
 		RevertAccountBalancesCalled: func(blockTimestamp int64) error {
 			revertCalled = true
+			assert.Equal(t, int64(123456), blockTimestamp)
 			return nil
 		},
 		RemoveAccountsHistoryCalled: func(blockTimestamp int64) error {
 			removeHistoryCalled = true
+			assert.Equal(t, int64(123456), blockTimestamp)
 			return nil
 		},
 		RemoveTransactionsCalled: func(blk data.HeaderHandler) error {
@@ -182,6 +188,7 @@ func TestItemRemoveBlock_SaveSkipRemoveTransactionsWhenNoTxHashes(t *testing.T) 
 		},
 		RemoveHeaderCalled: func(header data.HeaderHandler) error {
 			removeHeaderCalled = true
+			assert.Equal(t, uint64(100), header.GetNonce())
 			return nil
 		},
 	}
@@ -216,18 +223,22 @@ func TestItemRemoveBlock_SaveRemoveHeaderError(t *testing.T) {
 	indexer := &imock.ElasticProcessorStub{
 		RevertAccountBalancesCalled: func(blockTimestamp int64) error {
 			revertCalled = true
+			assert.Equal(t, int64(123456), blockTimestamp)
 			return nil
 		},
 		RemoveAccountsHistoryCalled: func(blockTimestamp int64) error {
 			removeHistoryCalled = true
+			assert.Equal(t, int64(123456), blockTimestamp)
 			return nil
 		},
 		RemoveTransactionsCalled: func(blk data.HeaderHandler) error {
 			removeTransactionsCalled = true
+			assert.Equal(t, uint64(100), blk.GetNonce())
 			return nil
 		},
 		RemoveHeaderCalled: func(header data.HeaderHandler) error {
 			removeHeaderCalled = true
+			assert.Equal(t, uint64(100), header.GetNonce())
 			return expectedErr
 		},
 	}
@@ -259,25 +270,26 @@ func TestItemRemoveBlock_SaveSuccessWithTransactions(t *testing.T) {
 	removeHistoryCalled := false
 	removeTransactionsCalled := false
 	removeHeaderCalled := false
-	var capturedTimestamp int64
 
 	indexer := &imock.ElasticProcessorStub{
 		RevertAccountBalancesCalled: func(blockTimestamp int64) error {
 			revertCalled = true
-			capturedTimestamp = blockTimestamp
+			assert.Equal(t, int64(123456), blockTimestamp)
 			return nil
 		},
 		RemoveAccountsHistoryCalled: func(blockTimestamp int64) error {
 			removeHistoryCalled = true
-			assert.Equal(t, capturedTimestamp, blockTimestamp)
+			assert.Equal(t, int64(123456), blockTimestamp)
 			return nil
 		},
 		RemoveTransactionsCalled: func(blk data.HeaderHandler) error {
 			removeTransactionsCalled = true
+			assert.Equal(t, uint64(100), blk.GetNonce())
 			return nil
 		},
 		RemoveHeaderCalled: func(header data.HeaderHandler) error {
 			removeHeaderCalled = true
+			assert.Equal(t, uint64(100), header.GetNonce())
 			return nil
 		},
 	}
@@ -302,7 +314,6 @@ func TestItemRemoveBlock_SaveSuccessWithTransactions(t *testing.T) {
 	require.True(t, removeHistoryCalled)
 	require.True(t, removeTransactionsCalled)
 	require.True(t, removeHeaderCalled)
-	require.Equal(t, int64(123456), capturedTimestamp)
 }
 
 func TestItemRemoveBlock_SaveSuccessWithoutTransactions(t *testing.T) {
@@ -316,10 +327,12 @@ func TestItemRemoveBlock_SaveSuccessWithoutTransactions(t *testing.T) {
 	indexer := &imock.ElasticProcessorStub{
 		RevertAccountBalancesCalled: func(blockTimestamp int64) error {
 			revertCalled = true
+			assert.Equal(t, int64(789012), blockTimestamp)
 			return nil
 		},
 		RemoveAccountsHistoryCalled: func(blockTimestamp int64) error {
 			removeHistoryCalled = true
+			assert.Equal(t, int64(789012), blockTimestamp)
 			return nil
 		},
 		RemoveTransactionsCalled: func(blk data.HeaderHandler) error {
@@ -328,6 +341,7 @@ func TestItemRemoveBlock_SaveSuccessWithoutTransactions(t *testing.T) {
 		},
 		RemoveHeaderCalled: func(header data.HeaderHandler) error {
 			removeHeaderCalled = true
+			assert.Equal(t, uint64(200), header.GetNonce())
 			return nil
 		},
 	}
@@ -358,18 +372,22 @@ func TestItemRemoveBlock_SaveExecutionOrder(t *testing.T) {
 	indexer := &imock.ElasticProcessorStub{
 		RevertAccountBalancesCalled: func(blockTimestamp int64) error {
 			executionOrder = append(executionOrder, "RevertAccountBalances")
+			assert.Equal(t, int64(123456), blockTimestamp)
 			return nil
 		},
 		RemoveAccountsHistoryCalled: func(blockTimestamp int64) error {
 			executionOrder = append(executionOrder, "RemoveAccountsHistory")
+			assert.Equal(t, int64(123456), blockTimestamp)
 			return nil
 		},
 		RemoveTransactionsCalled: func(blk data.HeaderHandler) error {
 			executionOrder = append(executionOrder, "RemoveTransactions")
+			assert.Equal(t, uint64(100), blk.GetNonce())
 			return nil
 		},
 		RemoveHeaderCalled: func(header data.HeaderHandler) error {
 			executionOrder = append(executionOrder, "RemoveHeader")
+			assert.Equal(t, uint64(100), header.GetNonce())
 			return nil
 		},
 	}
@@ -408,6 +426,7 @@ func TestItemRemoveBlock_SaveWithDifferentBlockData(t *testing.T) {
 			return nil
 		},
 		RemoveAccountsHistoryCalled: func(blockTimestamp int64) error {
+			assert.Equal(t, capturedTimestamp, blockTimestamp)
 			return nil
 		},
 		RemoveTransactionsCalled: func(blk data.HeaderHandler) error {
@@ -415,6 +434,7 @@ func TestItemRemoveBlock_SaveWithDifferentBlockData(t *testing.T) {
 			return nil
 		},
 		RemoveHeaderCalled: func(header data.HeaderHandler) error {
+			assert.Equal(t, capturedNonce, header.GetNonce())
 			return nil
 		},
 	}
@@ -459,8 +479,8 @@ func TestItemRemoveBlock_SaveWithDifferentBlockData(t *testing.T) {
 			err := itemRemoveBlock.Save()
 
 			require.NoError(t, err)
-			require.Equal(t, tc.timestamp, capturedTimestamp)
 			require.Equal(t, tc.nonce, capturedNonce)
+			require.Equal(t, tc.timestamp, capturedTimestamp)
 		})
 	}
 }
