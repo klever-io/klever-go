@@ -2393,9 +2393,10 @@ func serializedDataForUpdateAccounts(accounts map[string]*data.AccountInfo, buff
 			`ctx._source.unfrozenBalance = params.unfrozenBalance;`+
 			`ctx._source.allowance = params.allowance;`+
 			`ctx._source.permissions = params.permissions;`+
+			`ctx._source.updatedAt = params.updatedAt;`+
 			`","lang": "painless","params":`+
-			`{"name": "%s", "nonce": %d, "rootHash": "%s", "balance": %d, "frozenBalance": %d, "unfrozenBalance": %d, "allowance": %d, "permissions": %s}}}`,
-			acc.Name, acc.Nonce, acc.RootHash, acc.Balance, acc.FrozenBalance, acc.UnfrozenBalance, acc.Allowance, string(pData)))
+			`{"name": "%s", "nonce": %d, "rootHash": "%s", "balance": %d, "frozenBalance": %d, "unfrozenBalance": %d, "allowance": %d, "permissions": %s, "updatedAt": %d}}}`,
+			acc.Name, acc.Nonce, acc.RootHash, acc.Balance, acc.FrozenBalance, acc.UnfrozenBalance, acc.Allowance, string(pData), acc.UpdatedAt))
 
 		err = buffSlice.PutData(metaData, serializedData)
 		if err != nil {

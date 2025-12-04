@@ -33,6 +33,7 @@ type AccountInfo struct {
 	Allowance       int64         `json:"allowance"`
 	Permissions     []Permissions `json:"permissions"`
 	Timestamp       time.Duration `json:"timestamp"`
+	UpdatedAt       time.Duration `json:"updatedAt,omitempty"`
 	CodeHash        string        `json:"codeHash,omitempty"`
 	CodeMetadata    string        `json:"codeMetadata,omitempty"`
 	Foundation      bool          `json:"foundation,omitempty"`
