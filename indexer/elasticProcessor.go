@@ -368,61 +368,69 @@ func (ei *elasticProcessor) RemoveAccountsHistory(blockTimestamp int64) error {
 		return nil
 	}
 
-	return ei.elasticClient.DoBulkRemoveByTimestamp(accountsHistoryIndex, blockTimestamp)
+	return ei.elasticClient.DoBulkRemoveByTimestamp(accountsHistoryIndex, blockTimestamp*1000)
 }
 
-// RevertAccountBalances will revert account balances to their state before the given block
+// RevertAccountBalances reverts the accounts index to the current state from the account trie
+// This method should be called after RevertStateToBlock, as it reads the current balance from the trie
 func (ei *elasticProcessor) RevertAccountBalances(blockTimestamp int64) error {
-	if !ei.isIndexEnabled(accountsIndex) || !ei.isIndexEnabled(accountsHistoryIndex) {
+	if !ei.isIndexEnabled(accountsIndex) {
 		return nil
 	}
-
-	// Query to get all account history entries from this block
+	// Query accounts index to find all accounts modified at this timestamp
 	query := templates.Object{
 		"query": templates.Object{
 			"term": templates.Object{
-				"timestamp": blockTimestamp,
+				"updatedAt": time.Duration(blockTimestamp * 1000),
 			},
 		},
-		"size": revertAccountBatchSize,
+		"size":    revertAccountBatchSize,
+		"_source": []string{"address", "balance", "frozenBalance"},
 	}
 
 	body, err := encode(query)
 	if err != nil {
-		log.Warn("RevertAccountBalances: failed to encode query", "error", err.Error())
 		return err
 	}
 
-	// Search for all account history entries from this block
-	res, err := ei.elasticClient.DoSearch(accountsHistoryIndex, &body)
+	res, err := ei.elasticClient.DoSearch(accountsIndex, &body)
 	if err != nil {
-		log.Warn("RevertAccountBalances: failed to search accounts history", "blockTimestamp", blockTimestamp, "error", err.Error())
 		return err
 	}
 
-	accountHistoryEntries, err := ei.extractAccountHistoryEntries(res)
+	accounts, err := ei.extractAccountData(res)
 	if err != nil {
-		log.Warn("RevertAccountBalances: failed to extract account history entries", "error", err.Error())
+
 		return err
 	}
 
-	if len(accountHistoryEntries) == 0 {
+	if len(accounts) == 0 {
 		log.Debug("RevertAccountBalances: no accounts to revert", "blockTimestamp", blockTimestamp)
 		return nil
 	}
 
-	// For each account, find the previous balance and update
-	for _, historyEntry := range accountHistoryEntries {
-		err := ei.revertSingleAccountBalance(historyEntry.Address, blockTimestamp)
+	// For each account modified in this block, get current balance from trie and update index
+	for _, accountInfo := range accounts {
+		err := ei.revertSingleAccountBalanceFromTrie(accountInfo.Address, accountInfo.Balance, accountInfo.FrozenBalance)
 		if err != nil {
-			log.Warn("RevertAccountBalances: failed to revert account", "address", historyEntry.Address, "error", err.Error())
+			log.Debug("RevertAccountBalances: failed to revert account",
+				"address", accountInfo.Address,
+				"error", err.Error())
+			continue
 		}
 	}
 
 	return nil
 }
 
-func (ei *elasticProcessor) extractAccountHistoryEntries(response templates.Object) ([]*data.AccountHistoryEntry, error) {
+type accountBalanceInfo struct {
+	Address       string
+	Balance       int64
+	FrozenBalance int64
+}
+
+// extractAccountAddresses extracts account addresses and balance information from the search response
+func (ei *elasticProcessor) extractAccountData(response templates.Object) ([]*accountBalanceInfo, error) {
 	hits, ok := response["hits"].(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("invalid response format: missing hits")
@@ -433,7 +441,7 @@ func (ei *elasticProcessor) extractAccountHistoryEntries(response templates.Obje
 		return nil, fmt.Errorf("invalid response format: missing inner hits")
 	}
 
-	entries := make([]*data.AccountHistoryEntry, 0, len(innerHits))
+	accounts := make([]*accountBalanceInfo, 0, len(innerHits))
 	for _, hit := range innerHits {
 		hitMap, ok := hit.(map[string]interface{})
 		if !ok {
@@ -452,86 +460,62 @@ func (ei *elasticProcessor) extractAccountHistoryEntries(response templates.Obje
 
 		balance, _ := source["balance"].(float64)
 		frozenBalance, _ := source["frozenBalance"].(float64)
-		timestamp, _ := source["timestamp"].(float64)
 
-		entries = append(entries, &data.AccountHistoryEntry{
+		accounts = append(accounts, &accountBalanceInfo{
 			Address:       address,
 			Balance:       int64(balance),
 			FrozenBalance: int64(frozenBalance),
-			Timestamp:     int64(timestamp),
 		})
 	}
 
-	return entries, nil
+	return accounts, nil
 }
 
-func (ei *elasticProcessor) revertSingleAccountBalance(address string, currentBlockTimestamp int64) error {
-	query := templates.Object{
-		"query": templates.Object{
-			"bool": templates.Object{
-				"must": []templates.Object{
-					{
-						"term": templates.Object{
-							"address": address,
-						},
-					},
-					{
-						"range": templates.Object{
-							"timestamp": templates.Object{
-								"lte": currentBlockTimestamp,
-							},
-						},
-					},
-				},
-			},
-		},
-		"size": 2,
-		"sort": []templates.Object{
-			{
-				"timestamp": templates.Object{
-					"order": "desc",
-				},
-			},
-		},
-	}
-
-	body, err := encode(query)
+// revertSingleAccountBalanceFromTrie reads the current balance from the account trie
+// and updates the accounts index with that balance.
+// This assumes RevertStateToBlock has already been called, so the trie is at the correct state.
+// oldBalance and oldFrozenBalance are the values from the accounts-history index (for logging comparison).
+func (ei *elasticProcessor) revertSingleAccountBalanceFromTrie(address string, oldBalance, oldFrozenBalance int64) error {
+	addressBytes, err := ei.addressPubkeyConverter.Decode(address)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to decode address %s: %w", address, err)
 	}
 
-	res, err := ei.elasticClient.DoSearch(accountsHistoryIndex, &body)
+	account, err := ei.accountsDB.LoadAccount(addressBytes)
 	if err != nil {
-		return err
-	}
-
-	historyEntries, err := ei.extractAccountHistoryEntries(res)
-	if err != nil {
-		return err
-	}
-
-	// Case 1: No history found (shouldn't happen if we got here, but handle it)
-	if len(historyEntries) == 0 {
-		log.Warn("No history found for account during rollback", "address", address)
-		return nil
-	}
-
-	// Case 2: Only 1 history entry - this account was created in this block
-	// Revert to balance 0
-	if len(historyEntries) == 1 {
-		log.Debug("Account created in this block, reverting to zero balance", "address", address)
+		// If account doesn't exist in trie, revert to zero balance
+		log.Debug("RevertAccountBalances: account not found in trie, reverting to zero balance",
+			"address", address,
+			"oldBalance", oldBalance,
+			"oldFrozenBalance", oldFrozenBalance,
+			"newBalance", 0,
+			"newFrozenBalance", 0)
 		return ei.updateAccountBalance(address, 0, 0)
 	}
 
-	// Case 3: 2 or more entries - revert to the second most recent (index 1)
-	previousEntry := historyEntries[1]
-	log.Debug("Reverting account to previous state",
-		"address", address,
-		"previousBalance", previousEntry.Balance,
-		"previousFrozenBalance", previousEntry.FrozenBalance,
-		"previousTimestamp", previousEntry.Timestamp)
+	userAccount, ok := account.(state.UserAccountHandler)
+	if !ok {
+		return fmt.Errorf("account is not a user account: %s", address)
+	}
 
-	return ei.updateAccountBalance(address, previousEntry.Balance, previousEntry.FrozenBalance)
+	// Get balance and frozen balance from the trie
+	balance := userAccount.GetBalance(kdautils.KLVIdentifier, true)
+
+	// Get frozen balance from KLV KDA
+	frozenBalanceInt64 := int64(0)
+	userKDA, err := userAccount.GetUserKDA(kdautils.KLVIdentifier, nil, true)
+	if err == nil {
+		frozenBalanceInt64 = userKDA.FrozenBalance
+	}
+
+	log.Debug("RevertAccountBalances: reverting account balance",
+		"address", address,
+		"oldBalance", oldBalance,
+		"oldFrozenBalance", oldFrozenBalance,
+		"newBalance", balance,
+		"newFrozenBalance", frozenBalanceInt64)
+
+	return ei.updateAccountBalance(address, balance, frozenBalanceInt64)
 }
 
 func (ei *elasticProcessor) updateAccountBalance(address string, balance int64, frozenBalance int64) error {
@@ -1732,6 +1716,7 @@ func (ei *elasticProcessor) buildAccountInfo(userAccount *data.Account, blockTim
 		Allowance:       ei.getAllowanceWithPendingRewards(userAccount.UserAccount),
 		Permissions:     permissions,
 		Timestamp:       time.Duration(blockTimestamp * 1000),
+		UpdatedAt:       time.Duration(blockTimestamp * 1000),
 		CodeHash:        hex.EncodeToString(userAccount.UserAccount.GetCodeHash()),
 		CodeMetadata:    hex.EncodeToString(userAccount.UserAccount.GetCodeMetadata()),
 		Foundation:      false,

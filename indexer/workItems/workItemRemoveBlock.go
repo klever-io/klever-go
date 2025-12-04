@@ -34,20 +34,17 @@ func (wirb *itemRemoveBlock) Save() error {
 		return ErrBodyTypeAssertion
 	}
 
-	blockNonce := blk.GetNonce()
 	blockTimestamp := blk.GetTimestamp()
 
 	// Step 1: Revert account balances to their previous state
 	err := wirb.indexer.RevertAccountBalances(blockTimestamp)
 	if err != nil {
-		log.Warn("itemRemoveBlock.Save could not revert account balances", "nonce", blockNonce, "error", err.Error())
 		return err
 	}
 
 	// Step 2: Remove account history entries for this block
 	err = wirb.indexer.RemoveAccountsHistory(blockTimestamp)
 	if err != nil {
-		log.Warn("itemRemoveBlock.Save could not remove accounts history", "nonce", blockNonce, "error", err.Error())
 		return err
 	}
 
@@ -55,7 +52,6 @@ func (wirb *itemRemoveBlock) Save() error {
 	if len(blk.TxHashes) > 0 {
 		err = wirb.indexer.RemoveTransactions(blk)
 		if err != nil {
-			log.Warn("itemRemoveBlock.Save could not remove block transactions", "nonce", blockNonce, "error", err.Error())
 			return err
 		}
 	}
@@ -63,7 +59,6 @@ func (wirb *itemRemoveBlock) Save() error {
 	// Step 4: Remove block header
 	err = wirb.indexer.RemoveHeader(wirb.headerHandler)
 	if err != nil {
-		log.Warn("itemRemoveBlock.Save could not remove block", "nonce", blockNonce, "error", err.Error())
 		return err
 	}
 
