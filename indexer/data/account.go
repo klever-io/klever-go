@@ -168,9 +168,8 @@ type ValidatorInfo struct {
 	URIs           []*URI `json:"uris"`
 }
 
-type AccountHistoryEntry struct {
+type AccountBalanceInfo struct {
 	Address       string
 	Balance       int64
 	FrozenBalance int64
-	Timestamp     int64
 }

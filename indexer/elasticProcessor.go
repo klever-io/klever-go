@@ -423,14 +423,8 @@ func (ei *elasticProcessor) RevertAccountBalances(blockTimestamp int64) error {
 	return nil
 }
 
-type accountBalanceInfo struct {
-	Address       string
-	Balance       int64
-	FrozenBalance int64
-}
-
 // extractAccountAddresses extracts account addresses and balance information from the search response
-func (ei *elasticProcessor) extractAccountData(response templates.Object) ([]*accountBalanceInfo, error) {
+func (ei *elasticProcessor) extractAccountData(response templates.Object) ([]*data.AccountBalanceInfo, error) {
 	hits, ok := response["hits"].(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("invalid response format: missing hits")
@@ -441,7 +435,7 @@ func (ei *elasticProcessor) extractAccountData(response templates.Object) ([]*ac
 		return nil, fmt.Errorf("invalid response format: missing inner hits")
 	}
 
-	accounts := make([]*accountBalanceInfo, 0, len(innerHits))
+	accounts := make([]*data.AccountBalanceInfo, 0, len(innerHits))
 	for _, hit := range innerHits {
 		hitMap, ok := hit.(map[string]interface{})
 		if !ok {
@@ -461,7 +455,7 @@ func (ei *elasticProcessor) extractAccountData(response templates.Object) ([]*ac
 		balance, _ := source["balance"].(float64)
 		frozenBalance, _ := source["frozenBalance"].(float64)
 
-		accounts = append(accounts, &accountBalanceInfo{
+		accounts = append(accounts, &data.AccountBalanceInfo{
 			Address:       address,
 			Balance:       int64(balance),
 			FrozenBalance: int64(frozenBalance),
