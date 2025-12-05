@@ -5,7 +5,6 @@ import (
 
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data/block"
-	"github.com/klever-io/klever-go/data/transaction"
 )
 
 var _ kapp.KappContext = (*kappContext)(nil)
@@ -41,10 +40,6 @@ func (k *kappContext) ContractID() int {
 	return 0
 }
 
-func (k *kappContext) ContractType() transaction.TXContract_ContractType {
-	return 0
-}
-
 func (k *kappContext) Receipts() kapp.ReceiptsContext {
 	return k.receipts
 }
@@ -66,10 +61,6 @@ func (k *kappContext) IsScSimulation() bool {
 }
 
 func (k *kappContext) SetContractID(_ int) {
-	// intentionally empty - disabled implementation
-}
-
-func (k *kappContext) SetSender(_ []byte) {
 	// intentionally empty - disabled implementation
 }
 

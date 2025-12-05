@@ -4801,3 +4801,705 @@ func TestClaimAllowance(t *testing.T) {
 		})
 	}
 }
+
+// Tests for ComputeRoyalties
+
+func Test_ComputeRoyalties_LoadKDAError(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, nil, common.ErrAssetNotFound
+				},
+			}
+		},
+	})
+
+	klvRoyalties, assetRoyalties, err := accountsKapp.ComputeRoyalties([]byte("INVALID-ASSET"), 1000)
+	require.Error(t, err)
+	assert.Equal(t, int64(0), klvRoyalties)
+	assert.Equal(t, int64(0), assetRoyalties)
+}
+
+func Test_ComputeRoyalties_NilRoyalties(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, &kapps.KDAData{
+						Royalties: nil,
+					}, nil
+				},
+			}
+		},
+	})
+
+	klvRoyalties, assetRoyalties, err := accountsKapp.ComputeRoyalties([]byte("TEST-ASSET"), 1000)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), klvRoyalties)
+	assert.Equal(t, int64(0), assetRoyalties)
+}
+
+func Test_ComputeRoyalties_WithFixedRoyalty(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, &kapps.KDAData{
+						Royalties: &kapps.RoyaltiesData{
+							TransferFixed: 50,
+						},
+					}, nil
+				},
+			}
+		},
+	})
+
+	klvRoyalties, assetRoyalties, err := accountsKapp.ComputeRoyalties([]byte("TEST-ASSET"), 1000)
+	require.NoError(t, err)
+	assert.Equal(t, int64(50), klvRoyalties)
+	assert.Equal(t, int64(0), assetRoyalties)
+}
+
+func Test_ComputeRoyalties_WithPercentageRoyalty(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, &kapps.KDAData{
+						Royalties: &kapps.RoyaltiesData{
+							TransferPercentage: []*kapps.RoyaltyData{
+								{
+									Amount:     0,
+									Percentage: 1000, // 10%
+								},
+							},
+						},
+					}, nil
+				},
+			}
+		},
+	})
+
+	klvRoyalties, assetRoyalties, err := accountsKapp.ComputeRoyalties([]byte("TEST-ASSET"), 10000)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), klvRoyalties)
+	assert.Equal(t, int64(1000), assetRoyalties) // 10% of 10000
+}
+
+func Test_ComputeRoyalties_WithBothRoyalties(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, &kapps.KDAData{
+						Royalties: &kapps.RoyaltiesData{
+							TransferFixed: 100,
+							TransferPercentage: []*kapps.RoyaltyData{
+								{
+									Amount:     0,
+									Percentage: 500, // 5%
+								},
+							},
+						},
+					}, nil
+				},
+			}
+		},
+	})
+
+	klvRoyalties, assetRoyalties, err := accountsKapp.ComputeRoyalties([]byte("TEST-ASSET"), 10000)
+	require.NoError(t, err)
+	assert.Equal(t, int64(100), klvRoyalties)
+	assert.Equal(t, int64(500), assetRoyalties) // 5% of 10000
+}
+
+// Tests for Freeze
+
+func Test_Freeze_InvalidAmount(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetProposalControllerCalled: func() kapps.ActiveProposalController {
+			return &commonMock.ProposalControllerStub{
+				GetParameterIntCalled: func(p kapps.EnumParameter) int64 {
+					if p == kapps.EnumParameter_MinKLVBucketAmount {
+						return 100
+					}
+					return 10
+				},
+			}
+		},
+	})
+
+	tc := &transaction.FreezeContract{
+		Amount:  0,
+		AssetID: kdautils.KLVIdentifier,
+	}
+
+	code, err := accountsKapp.Freeze(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ValueInvalid, code)
+}
+
+func Test_Freeze_AmountBelowMinimumForKLV(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetProposalControllerCalled: func() kapps.ActiveProposalController {
+			return &commonMock.ProposalControllerStub{
+				GetParameterIntCalled: func(p kapps.EnumParameter) int64 {
+					if p == kapps.EnumParameter_MinKLVBucketAmount {
+						return 1000
+					}
+					return 10
+				},
+			}
+		},
+	})
+
+	tc := &transaction.FreezeContract{
+		Amount:  500, // Below minimum of 1000
+		AssetID: nil, // nil defaults to KLV
+	}
+
+	code, err := accountsKapp.Freeze(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ValueInvalid, code)
+}
+
+func Test_Freeze_LoadAccountError(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetProposalControllerCalled: func() kapps.ActiveProposalController {
+			return &commonMock.ProposalControllerStub{
+				GetParameterIntCalled: func(p kapps.EnumParameter) int64 {
+					return 100
+				},
+			}
+		},
+	})
+
+	_ = accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+		GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			return nil, errors.New("account not found")
+		},
+	})
+
+	tc := &transaction.FreezeContract{
+		Amount:  500,
+		AssetID: kdautils.KLVIdentifier,
+	}
+
+	code, err := accountsKapp.Freeze(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, transaction.Transaction_LoadAccountError, code)
+}
+
+func Test_Freeze_AssetNotFound(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetProposalControllerCalled: func() kapps.ActiveProposalController {
+			return &commonMock.ProposalControllerStub{
+				GetParameterIntCalled: func(p kapps.EnumParameter) int64 {
+					if p == kapps.EnumParameter_MinKLVBucketAmount {
+						return 100
+					}
+					if p == kapps.EnumParameter_MaxBucketSize {
+						return 100
+					}
+					return 10
+				},
+			}
+		},
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, nil, common.ErrAssetNotFound
+				},
+			}
+		},
+	})
+
+	_ = accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+		GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			return &commonMock.AccountWrapMock{}, nil
+		},
+	})
+
+	tc := &transaction.FreezeContract{
+		Amount:  500,
+		AssetID: []byte("INVALID-ASSET"),
+	}
+
+	code, err := accountsKapp.Freeze(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, common.ErrAssetNotFound, err)
+	assert.Equal(t, transaction.Transaction_KAPPError, code)
+}
+
+func Test_Freeze_NonFungibleAsset(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetProposalControllerCalled: func() kapps.ActiveProposalController {
+			return &commonMock.ProposalControllerStub{
+				GetParameterIntCalled: func(p kapps.EnumParameter) int64 {
+					if p == kapps.EnumParameter_MinKLVBucketAmount {
+						return 100
+					}
+					if p == kapps.EnumParameter_MaxBucketSize {
+						return 100
+					}
+					return 10
+				},
+			}
+		},
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, &kapps.KDAData{
+						AssetType: kapps.KDAData_NonFungible,
+					}, nil
+				},
+			}
+		},
+	})
+
+	_ = accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+		GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			return &commonMock.AccountWrapMock{}, nil
+		},
+	})
+
+	tc := &transaction.FreezeContract{
+		Amount:  500,
+		AssetID: []byte("NFT-ASSET"),
+	}
+
+	code, err := accountsKapp.Freeze(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, common.ErrAssetTypeInvalid, err)
+	assert.Equal(t, transaction.Transaction_AssetTypeInvalid, code)
+}
+
+func Test_Freeze_StakingNotFound(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetProposalControllerCalled: func() kapps.ActiveProposalController {
+			return &commonMock.ProposalControllerStub{
+				GetParameterIntCalled: func(p kapps.EnumParameter) int64 {
+					if p == kapps.EnumParameter_MinKLVBucketAmount {
+						return 100
+					}
+					if p == kapps.EnumParameter_MaxBucketSize {
+						return 100
+					}
+					return 10
+				},
+			}
+		},
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, &kapps.KDAData{
+						AssetType: kapps.KDAData_Fungible,
+					}, nil
+				},
+				GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+					return nil, nil, errors.New("staking not found")
+				},
+			}
+		},
+	})
+
+	_ = accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+		GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			return &commonMock.AccountWrapMock{}, nil
+		},
+	})
+
+	tc := &transaction.FreezeContract{
+		Amount:  500,
+		AssetID: []byte("FUNGIBLE-ASSET"),
+	}
+
+	code, err := accountsKapp.Freeze(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, transaction.Transaction_KAPPError, code)
+}
+
+// Tests for Delegate
+
+func Test_Delegate_InvalidToAddress(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	tc := &transaction.DelegateContract{
+		ToAddress: []byte("invalid"), // Invalid length
+		BucketID:  []byte("bucket1"),
+	}
+
+	code, err := accountsKapp.Delegate(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, transaction.Transaction_AccountError, code)
+}
+
+func Test_Delegate_EmptyBucketID(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	tc := &transaction.DelegateContract{
+		ToAddress: make([]byte, 32), // Valid length address (pubkeyConv.Len() = 32)
+		BucketID:  nil,              // Empty bucket ID
+	}
+
+	code, err := accountsKapp.Delegate(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, transaction.Transaction_BucketIDInvalid, code)
+}
+
+// Tests for Undelegate
+
+func Test_Undelegate_EmptyBucketID(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	tc := &transaction.UndelegateContract{
+		BucketID: nil, // Empty bucket ID
+	}
+
+	code, err := accountsKapp.Undelegate(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, transaction.Transaction_BucketIDInvalid, code)
+}
+
+func Test_Undelegate_LoadAccountError(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	_ = accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+		GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			return nil, errors.New("account not found")
+		},
+	})
+
+	tc := &transaction.UndelegateContract{
+		BucketID: []byte("bucket1"),
+	}
+
+	code, err := accountsKapp.Undelegate(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, transaction.Transaction_LoadAccountError, code)
+}
+
+// Tests for Withdraw
+
+func Test_Withdraw_LoadAccountError(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	_ = accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+		GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			return nil, errors.New("account not found")
+		},
+	})
+
+	tc := &transaction.WithdrawContract{
+		AssetID: kdautils.KLVIdentifier,
+	}
+
+	code, err := accountsKapp.Withdraw(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, transaction.Transaction_LoadAccountError, code)
+}
+
+// Tests for SetAccountName
+
+func Test_SetAccountName_InvalidUTF8Name(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	tc := &transaction.SetAccountNameContract{
+		Name: []byte{0xff, 0xfe}, // Invalid UTF-8
+	}
+
+	code, err := accountsKapp.SetAccountName(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_SetAccountName_NameTooLong(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	// Create a name longer than MaxNameSize (100)
+	longName := make([]byte, 101)
+	for i := range longName {
+		longName[i] = 'a'
+	}
+
+	tc := &transaction.SetAccountNameContract{
+		Name: longName,
+	}
+
+	code, err := accountsKapp.SetAccountName(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_SetAccountName_LoadAccountError(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	_ = accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+		LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			return nil, errors.New("account not found")
+		},
+	})
+
+	tc := &transaction.SetAccountNameContract{
+		Name: []byte("valid_name"),
+	}
+
+	code, err := accountsKapp.SetAccountName(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, transaction.Transaction_LoadAccountError, code)
+}
+
+// Tests for ClaimStaking
+
+func Test_ClaimStaking_LoadAccountError(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	_ = accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+		GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			return nil, errors.New("account not found")
+		},
+	})
+
+	tc := &transaction.ClaimContract{
+		ClaimType: transaction.ClaimContract_StakingClaim,
+		ID:        kdautils.KLVIdentifier,
+	}
+
+	code, err := accountsKapp.ClaimStaking(txSender, tc)
+	require.Error(t, err)
+	assert.Equal(t, transaction.Transaction_LoadAccountError, code)
+}

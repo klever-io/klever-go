@@ -1,17 +1,20 @@
 package market
 
 import (
+	"encoding/hex"
 	"testing"
 
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
+	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/state/factory"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/data/trie"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/kvm/mock/stub"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/memorydb"
 	"github.com/klever-io/klever-go/storage/storageUnit"
@@ -537,5 +540,448 @@ func TestMarketKApp_computeRoyaltiesAmount(t *testing.T) {
 		require.NoError(t, err)
 		finalBalance := updatedUserAcc.GetBalance([]byte("KLV"), false)
 		require.Equal(t, initialBalance+royaltiesAmount, finalBalance)
+	})
+}
+
+func TestMarketKApp_computeSplitRoyalties(t *testing.T) {
+	t.Parallel()
+
+	marketKApp, accCacher, _ := createTestMarketKApp(t)
+
+	// Create split royalty recipient account
+	splitRecipientAddr := makeAddress("splitRecipient")
+	splitRecipientAcc, err := accCacher.LoadUser(splitRecipientAddr)
+	require.NoError(t, err)
+	err = accCacher.UpdateUser(splitRecipientAcc)
+	require.NoError(t, err)
+
+	marketOrder := &kapps.MarketOrderData{
+		ID:            []byte("order-1"),
+		MarketplaceID: []byte("marketplace-1"),
+		Price:         1000000,
+	}
+
+	// Address needs to be hex encoded for computeSplitRoyalties
+	hexAddress := hex.EncodeToString(splitRecipientAddr)
+
+	t.Run("ValidSplitRoyalties", func(t *testing.T) {
+		// Create fresh receipts stub for this test
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int {
+				return 1
+			},
+			ReceiptsCalled: func() kapp.ReceiptsContext {
+				return receiptsStub
+			},
+		}
+
+		initialBalance := splitRecipientAcc.GetBalance([]byte("KLV"), false)
+		royaltiesToPay := int64(100000) // Total royalties
+		percentage := int64(5000)       // 50%
+
+		// Verify no receipts before
+		require.Len(t, receiptsStub.Get(), 0)
+
+		status, err := marketKApp.ComputeSplitRoyalties(ctx, hexAddress, marketOrder, []byte("KLV"), 100000, percentage, &royaltiesToPay)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		// Expected split amount: 100000 * 5000 / 10000 = 50000
+		expectedSplit := int64(50000)
+
+		// Verify royaltiesToPay was reduced
+		require.Equal(t, int64(50000), royaltiesToPay)
+
+		// Verify balance increased
+		updatedAcc, err := accCacher.LoadUser(splitRecipientAddr)
+		require.NoError(t, err)
+		finalBalance := updatedAcc.GetBalance([]byte("KLV"), false)
+		require.Equal(t, initialBalance+expectedSplit, finalBalance)
+
+		// Verify Transfer receipt was added
+		require.Len(t, receiptsStub.Get(), 1, "Expected 1 Transfer receipt")
+	})
+
+	t.Run("InvalidHexAddress", func(t *testing.T) {
+		royaltiesToPay := int64(100000)
+
+		status, err := marketKApp.ComputeSplitRoyalties(nil, "invalid-hex", marketOrder, []byte("KLV"), 100000, 5000, &royaltiesToPay)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_LoadAccountError, status)
+	})
+
+	t.Run("ZeroPercentage", func(t *testing.T) {
+		// Create fresh receipts stub for this test
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int {
+				return 1
+			},
+			ReceiptsCalled: func() kapp.ReceiptsContext {
+				return receiptsStub
+			},
+		}
+
+		royaltiesToPay := int64(100000)
+		initialRoyalties := royaltiesToPay
+
+		status, err := marketKApp.ComputeSplitRoyalties(ctx, hexAddress, marketOrder, []byte("KLV"), 100000, 0, &royaltiesToPay)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		// With 0% percentage, royaltiesToPay should remain unchanged
+		require.Equal(t, initialRoyalties, royaltiesToPay)
+
+		// Still adds a Transfer receipt even with 0 amount
+		require.Len(t, receiptsStub.Get(), 1, "Expected 1 Transfer receipt even with 0 amount")
+	})
+}
+
+func TestMarketKApp_computeMarketOwnerAmount(t *testing.T) {
+	t.Parallel()
+
+	marketKApp, accCacher, _ := createTestMarketKApp(t)
+
+	// Create market order owner account
+	ownerAddr := makeAddress("orderOwner")
+	ownerAcc, err := accCacher.LoadUser(ownerAddr)
+	require.NoError(t, err)
+	err = accCacher.UpdateUser(ownerAcc)
+	require.NoError(t, err)
+
+	marketOrder := &kapps.MarketOrderData{
+		ID:            []byte("order-1"),
+		MarketplaceID: []byte("marketplace-1"),
+		OwnerAddress:  ownerAddr,
+		Price:         1000000,
+	}
+
+	t.Run("ZeroMarketOwnerAmount", func(t *testing.T) {
+		status, err := marketKApp.ComputeMarketOwnerAmount(nil, marketOrder, []byte("KLV"), 0)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+	})
+
+	t.Run("NegativeMarketOwnerAmount", func(t *testing.T) {
+		status, err := marketKApp.ComputeMarketOwnerAmount(nil, marketOrder, []byte("KLV"), -100)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+	})
+
+	t.Run("ValidMarketOwnerAmount", func(t *testing.T) {
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int {
+				return 1
+			},
+			ReceiptsCalled: func() kapp.ReceiptsContext {
+				return receiptsStub
+			},
+		}
+
+		initialBalance := ownerAcc.GetBalance([]byte("KLV"), false)
+		marketOwnerAmount := int64(850000) // Amount after referral and royalties
+
+		status, err := marketKApp.ComputeMarketOwnerAmount(ctx, marketOrder, []byte("KLV"), marketOwnerAmount)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		// Verify balance increased
+		updatedAcc, err := accCacher.LoadUser(ownerAddr)
+		require.NoError(t, err)
+		finalBalance := updatedAcc.GetBalance([]byte("KLV"), false)
+		require.Equal(t, initialBalance+marketOwnerAmount, finalBalance)
+
+		// Verify Transfer receipt was added
+		require.Len(t, receiptsStub.Get(), 1, "Expected 1 Transfer receipt")
+	})
+}
+
+func TestMarketKApp_CreateMarketplace(t *testing.T) {
+	t.Parallel()
+
+	marketKApp, accCacher, _ := createTestMarketKApp(t)
+
+	// Load market kapp account to initialize it
+	marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
+	require.NoError(t, err)
+	err = accCacher.UpdateKapp(marketKappAcc)
+	require.NoError(t, err)
+
+	t.Run("NilName", func(t *testing.T) {
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		controllerStub := &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		}
+		_ = marketKApp.SetKAppController(controllerStub)
+
+		tc := &transaction.CreateMarketplaceContract{
+			Name: nil,
+		}
+
+		status, err := marketKApp.CreateMarketplace(defaultAddr, tc)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+	})
+
+	t.Run("InvalidUTF8Name", func(t *testing.T) {
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		controllerStub := &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		}
+		_ = marketKApp.SetKAppController(controllerStub)
+
+		tc := &transaction.CreateMarketplaceContract{
+			Name: []byte{0xff, 0xfe}, // Invalid UTF-8
+		}
+
+		status, err := marketKApp.CreateMarketplace(defaultAddr, tc)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+	})
+
+	t.Run("InvalidReferralAddress", func(t *testing.T) {
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		controllerStub := &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		}
+		_ = marketKApp.SetKAppController(controllerStub)
+
+		tc := &transaction.CreateMarketplaceContract{
+			Name:            []byte("Test Marketplace"),
+			ReferralAddress: []byte("short"), // Invalid length
+		}
+
+		status, err := marketKApp.CreateMarketplace(defaultAddr, tc)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+	})
+
+	t.Run("InvalidReferralPercentage", func(t *testing.T) {
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		controllerStub := &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		}
+		_ = marketKApp.SetKAppController(controllerStub)
+
+		tc := &transaction.CreateMarketplaceContract{
+			Name:               []byte("Test Marketplace"),
+			ReferralPercentage: 10001, // > 100%
+		}
+
+		status, err := marketKApp.CreateMarketplace(defaultAddr, tc)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		receiptsStub := mock.NewReceiptsContextStub()
+		returnData := make([][]byte, 0)
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			TxNonceCalled:    func() uint64 { return 1 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+			BlockCalled: func() *block.Block {
+				return &block.Block{Header: &block.BlockHeader{RandSeed: []byte("randseed")}}
+			},
+			SetReturnDataCalled: func(data [][]byte) {
+				returnData = data
+			},
+		}
+		controllerStub := &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		}
+		_ = marketKApp.SetKAppController(controllerStub)
+
+		tc := &transaction.CreateMarketplaceContract{
+			Name:               []byte("Test Marketplace"),
+			ReferralPercentage: 500, // 5%
+		}
+
+		status, err := marketKApp.CreateMarketplace(defaultAddr, tc)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		// Verify marketplace ID was returned
+		require.Len(t, returnData, 1)
+		require.NotEmpty(t, returnData[0])
+
+		// Verify receipt was added
+		require.Len(t, receiptsStub.Get(), 1)
+	})
+}
+
+func TestMarketKApp_ConfigMarketplace(t *testing.T) {
+	t.Parallel()
+
+	marketKApp, accCacher, _ := createTestMarketKApp(t)
+
+	// Load and setup market kapp account
+	marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
+	require.NoError(t, err)
+
+	// Create an existing marketplace
+	existingMarketplace := &kapps.Marketplace{
+		ID:                 []byte("existing-marketplace"),
+		OwnerAddress:       defaultAddr,
+		Name:               []byte("Existing Marketplace"),
+		ReferralAddress:    defaultAddr,
+		ReferralPercentage: 500,
+	}
+	err = marketKApp.SetMarketplace(marketKappAcc, existingMarketplace)
+	require.NoError(t, err)
+	err = accCacher.UpdateKapp(marketKappAcc)
+	require.NoError(t, err)
+
+	t.Run("InvalidReferralAddress", func(t *testing.T) {
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		controllerStub := &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		}
+		_ = marketKApp.SetKAppController(controllerStub)
+
+		tc := &transaction.ConfigMarketplaceContract{
+			MarketplaceID:   existingMarketplace.ID,
+			ReferralAddress: []byte("short"), // Invalid length
+		}
+
+		status, err := marketKApp.ConfigMarketplace(defaultAddr, tc)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+	})
+
+	t.Run("InvalidReferralPercentage", func(t *testing.T) {
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		controllerStub := &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		}
+		_ = marketKApp.SetKAppController(controllerStub)
+
+		tc := &transaction.ConfigMarketplaceContract{
+			MarketplaceID:      existingMarketplace.ID,
+			ReferralPercentage: 10001, // > 100%
+		}
+
+		status, err := marketKApp.ConfigMarketplace(defaultAddr, tc)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+	})
+
+	t.Run("MarketplaceNotFound", func(t *testing.T) {
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		controllerStub := &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		}
+		_ = marketKApp.SetKAppController(controllerStub)
+
+		tc := &transaction.ConfigMarketplaceContract{
+			MarketplaceID: []byte("nonexistent"),
+		}
+
+		status, err := marketKApp.ConfigMarketplace(defaultAddr, tc)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+	})
+
+	t.Run("NotOwner", func(t *testing.T) {
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		controllerStub := &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		}
+		_ = marketKApp.SetKAppController(controllerStub)
+
+		tc := &transaction.ConfigMarketplaceContract{
+			MarketplaceID: existingMarketplace.ID,
+		}
+
+		// Use different sender (not owner)
+		status, err := marketKApp.ConfigMarketplace(defaultOther, tc)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+	})
+
+	t.Run("InvalidName", func(t *testing.T) {
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		controllerStub := &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		}
+		_ = marketKApp.SetKAppController(controllerStub)
+
+		tc := &transaction.ConfigMarketplaceContract{
+			MarketplaceID: existingMarketplace.ID,
+			Name:          []byte{0xff, 0xfe}, // Invalid UTF-8
+		}
+
+		status, err := marketKApp.ConfigMarketplace(defaultAddr, tc)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+	})
+
+	t.Run("Success", func(t *testing.T) {
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		controllerStub := &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		}
+		_ = marketKApp.SetKAppController(controllerStub)
+
+		tc := &transaction.ConfigMarketplaceContract{
+			MarketplaceID:      existingMarketplace.ID,
+			Name:               []byte("Updated Marketplace"),
+			ReferralPercentage: 1000, // 10%
+		}
+
+		status, err := marketKApp.ConfigMarketplace(defaultAddr, tc)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		// Verify receipt was added
+		require.Len(t, receiptsStub.Get(), 1)
+
+		// Verify marketplace was updated
+		_, updatedMarketplace, err := marketKApp.GetMarketplace(existingMarketplace.ID)
+		require.NoError(t, err)
+		require.Equal(t, []byte("Updated Marketplace"), updatedMarketplace.Name)
+		require.Equal(t, uint32(1000), updatedMarketplace.ReferralPercentage)
 	})
 }

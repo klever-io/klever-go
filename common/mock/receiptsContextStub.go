@@ -63,3 +63,35 @@ func (r *ReceiptsContextStub) AddError(contractID int, params ...string) {
 func (r *ReceiptsContextStub) Add(receipt *transaction.Transaction_Receipt) {
 	r.receipts = append(r.receipts, receipt)
 }
+
+// GetErrors returns all error receipts (type == receiptTypeError)
+func (r *ReceiptsContextStub) GetErrors() []*transaction.Transaction_Receipt {
+	var errors []*transaction.Transaction_Receipt
+	for _, receipt := range r.receipts {
+		if len(receipt.Data) > 0 && len(receipt.Data[0]) > 0 && receipt.Data[0][0] == receiptTypeError {
+			errors = append(errors, receipt)
+		}
+	}
+	return errors
+}
+
+// GetErrorField extracts the error field from an error receipt (first param after type/contractID)
+func (r *ReceiptsContextStub) GetErrorField(receipt *transaction.Transaction_Receipt) string {
+	if len(receipt.Data) > 1 {
+		return string(receipt.Data[1])
+	}
+	return ""
+}
+
+// GetErrorReason extracts the error reason from an error receipt (second param after type/contractID)
+func (r *ReceiptsContextStub) GetErrorReason(receipt *transaction.Transaction_Receipt) string {
+	if len(receipt.Data) > 2 {
+		return string(receipt.Data[2])
+	}
+	return ""
+}
+
+// Clear removes all receipts (useful for resetting between test cases)
+func (r *ReceiptsContextStub) Clear() {
+	r.receipts = make([]*transaction.Transaction_Receipt, 0)
+}
