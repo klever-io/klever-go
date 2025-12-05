@@ -23,6 +23,7 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 
 	err := kda.CheckBasicCreateArguments(tc)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetParams, err.Error())
 		return transaction.Transaction_ContractInvalid, err
 	}
 
@@ -69,6 +70,7 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 
 	if tc.GetRoyalties() != nil && len(tc.GetRoyalties().GetAddress()) > 0 {
 		if len(tc.GetRoyalties().GetAddress()) != k.pubkeyConv.Len() {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, process.ErrInvalidOwnerAddr.Error())
 			return transaction.Transaction_AccountError, process.ErrInvalidOwnerAddr
 		}
 
@@ -77,6 +79,7 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 
 	// validate max transfer percentage
 	if err := validateRoyaltiesTransferLimit(tc.GetRoyalties()); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, err.Error())
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
@@ -84,7 +87,7 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 	case kapps.KDAData_NonFungible,
 		kapps.KDAData_SemiFungible:
 
-		result, err := k.createNFT(tc, &asset)
+		result, err := k.createNFT(ctx, tc, &asset)
 		if err != nil {
 			return result, err
 		}
@@ -95,6 +98,7 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 			return result, err
 		}
 	default:
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrAssetTypeInvalid.Error())
 		return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
 	}
 
@@ -170,14 +174,16 @@ func (k *kdaKapp) ValidateCreateAsset(ctx kapp.KappContext, sender []byte, tc *t
 	return assetIdentifier, roles, transaction.Transaction_Ok, nil
 }
 
-func (k *kdaKapp) createNFT(tc *transaction.CreateAssetContract, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+func (k *kdaKapp) createNFT(ctx kapp.KappContext, tc *transaction.CreateAssetContract, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
 	if !k.forkController.EnableSmartContracts() &&
 		asset.AssetType == kapps.KDAData_SemiFungible {
 		// check Create SFT only post fork
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrAssetTypeInvalid.Error())
 		return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
 	}
 
 	if !asset.Properties.CanMint {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetCannotMint, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -186,23 +192,27 @@ func (k *kdaKapp) createNFT(tc *transaction.CreateAssetContract, asset *kapps.KD
 		asset.Precision = tc.GetPrecision()
 
 		if tc.GetInitialSupply() != 0 {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidSupply, common.ErrInvalidValue.Error())
 			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 		if err := kda.CheckPrecision(asset.Precision); err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPrecision, err.Error())
 			return transaction.Transaction_ParameterInvalid, err
 		}
 
 	case kapps.KDAData_NonFungible:
 		if !kdautils.IsNFTContractValid(tc.GetInitialSupply(), tc.GetPrecision()) {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetParams, common.ErrInvalidValue.Error())
 			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 	}
 
 	if tc.GetAttributes().GetIsNFTMintStopped() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetMintStopped, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
-	result, err := k.nftSetRoyalties(tc, asset)
+	result, err := k.nftSetRoyalties(ctx, tc, asset)
 	if err != nil {
 		return result, err
 	}
@@ -210,7 +220,7 @@ func (k *kdaKapp) createNFT(tc *transaction.CreateAssetContract, asset *kapps.KD
 	return transaction.Transaction_Ok, nil
 }
 
-func (k *kdaKapp) nftSetRoyalties(tc *transaction.CreateAssetContract, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+func (k *kdaKapp) nftSetRoyalties(ctx kapp.KappContext, tc *transaction.CreateAssetContract, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
 	if tc.GetRoyalties() == nil {
 		return transaction.Transaction_Ok, nil
 	}
@@ -225,10 +235,12 @@ func (k *kdaKapp) nftSetRoyalties(tc *transaction.CreateAssetContract, asset *ka
 	for key, value := range tc.GetRoyalties().GetSplitRoyalties() {
 		decodedAddress, err := hex.DecodeString(key)
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidSplitRoyalties, process.ErrInvalidSplitRoyaltiesAddr.Error())
 			return transaction.Transaction_AccountError, process.ErrInvalidSplitRoyaltiesAddr
 		}
 
 		if len(decodedAddress) != k.pubkeyConv.Len() {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidSplitRoyalties, process.ErrInvalidSplitRoyaltiesAddr.Error())
 			return transaction.Transaction_AccountError, process.ErrInvalidSplitRoyaltiesAddr
 		}
 
@@ -250,24 +262,29 @@ func (k *kdaKapp) nftSetRoyalties(tc *transaction.CreateAssetContract, asset *ka
 
 	if !kda.CheckValid100Params(sumSplitMarketPercent, sumSplitMarketFixed,
 		sumSplitTransferFixed, sumSplitITOPercent, sumSplitITOFixed) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if !kda.CheckValid100Params(tc.GetRoyalties().GetMarketPercentage(),
 		tc.GetRoyalties().GetITOPercentage()) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 
 	}
 
 	if tc.GetRoyalties().GetMarketFixed() < 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if tc.GetRoyalties().GetITOFixed() < 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if tc.GetRoyalties().GetTransferFixed() < 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 

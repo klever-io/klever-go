@@ -248,6 +248,7 @@ func (i *itoKapp) Buy(sender []byte, tc *transaction.BuyContract) (transaction.T
 
 	err = ownerAcc.SubFromBalance(valueInt, currencyID, i.forkController.EnableSmartContracts())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, err.Error())
 		return transaction.Transaction_BalanceError, err
 	}
 
@@ -306,29 +307,35 @@ func (i *itoKapp) Buy(sender []byte, tc *transaction.BuyContract) (transaction.T
 
 func (i *itoKapp) ValidateBuyContract(ctx kapp.KappContext, sender []byte, assetID []byte, tc *transaction.BuyContract) (*kapps.ITOData, state.KAppAccountHandler, *kapps.KDAData, transaction.Transaction_TXResultCode, error) {
 	if tc.GetAmount() <= 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, common.ErrInvalidValue.Error())
 		return nil, nil, nil, transaction.Transaction_AssetError, common.ErrInvalidValue
 	}
 
 	_, asset, err := i.KAppController.GetKDAKApp().GetKDA(assetID)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return nil, nil, nil, transaction.Transaction_KAPPError, err
 	}
 
 	if !i.ValidAssetType(asset.AssetType) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrInvalidValue.Error())
 		return nil, nil, nil, transaction.Transaction_AssetTypeInvalid, common.ErrInvalidValue
 	}
 
 	itoKapp, ito, err := i.GetITO(assetID)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITONotFound, err.Error())
 		return nil, nil, nil, transaction.Transaction_ITOKAPPError, err
 	}
 
 	if !ito.IsActive {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITONotActive, common.ErrITONotActive.Error())
 		return nil, nil, nil, transaction.Transaction_ITONotActive, common.ErrITONotActive
 	}
 
 	if (ito.StartTime != 0 && ito.StartTime > ctx.Block().GetTimestamp()) ||
 		(ito.EndTime != 0 && ito.EndTime < ctx.Block().GetTimestamp()) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOTimeWindow, common.ErrInvalidValue.Error())
 		return nil, nil, nil, transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -596,37 +603,45 @@ func (i *itoKapp) Config(sender []byte, tc *transaction.ConfigITOContract) (tran
 	ctx := i.KAppController.GetCurrentKAppContext()
 
 	if tc.GetAssetID() == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetID, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	kdaKapp, asset, err := i.KAppController.GetKDAKApp().GetKDA(tc.GetAssetID())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	if !i.ValidAssetType(asset.AssetType) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrInvalidValue.Error())
 		return transaction.Transaction_AssetTypeInvalid, common.ErrInvalidValue
 	}
 
 	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if i.forkController.EnableSmartContracts() {
 		if !asset.Properties.CanMint || (asset.AssetType == kapps.KDAData_NonFungible && asset.Attributes.IsNFTMintStopped) {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetCannotMint, common.ErrAssetTypeInvalid.Error())
 			return transaction.Transaction_AssetCantBeMinted, common.ErrAssetTypeInvalid
 		}
 	} else {
 		if !asset.Properties.CanMint || asset.Attributes.IsNFTMintStopped {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetCannotMint, common.ErrAssetTypeInvalid.Error())
 			return transaction.Transaction_AssetCantBeMinted, common.ErrAssetTypeInvalid
 		}
 	}
 
 	itoKapp, ito, err := i.GetITO(tc.GetAssetID())
 	if err != nil && !errors.Is(err, common.ErrNotFoundInKApp) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITONotFound, err.Error())
 		return transaction.Transaction_ITOKAPPError, err
 	}
 	if i.forkController.KdaFpr() && err == nil && !proto.Equal(ito, &kapps.ITOData{}) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrITOAlreadyExists.Error())
 		return transaction.Transaction_AlreadyExists, common.ErrITOAlreadyExists
 	}
 
@@ -874,20 +889,24 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 	ctx := i.KAppController.GetCurrentKAppContext()
 
 	if tc.GetAssetID() == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetID, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	kdaKapp, asset, err := i.KAppController.GetKDAKApp().GetKDA(tc.GetAssetID())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	itoKapp, ito, err := i.GetITO(tc.GetAssetID())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITONotFound, err.Error())
 		return transaction.Transaction_ITOKAPPError, err
 	}
 
 	if !i.ValidAssetType(asset.AssetType) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrInvalidValue.Error())
 		return transaction.Transaction_AssetTypeInvalid, common.ErrInvalidValue
 	}
 
@@ -933,7 +952,7 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 			return status, err
 		}
 	case transaction.ITOTriggerContract_UpdateTimes:
-		status, err := i.UpdateTimes(ctx, tc, ito, asset, sender)
+		status, err := i.UpdateTimes(tc, ito, asset, sender)
 		if err != nil {
 			return status, err
 		}
@@ -962,7 +981,7 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 			return transaction.Transaction_ITOWhiteListError, err
 		}
 	case transaction.ITOTriggerContract_UpdateWhitelistTimes:
-		status, err := i.UpdateWhitelistTimes(ctx, tc, ito, asset, sender)
+		status, err := i.UpdateWhitelistTimes(tc, ito, asset, sender)
 		if err != nil {
 			return status, err
 		}
@@ -1001,33 +1020,40 @@ func (i *itoKapp) SetPrices(sender []byte, tc *transaction.SetITOPricesContract)
 	ctx := i.KAppController.GetCurrentKAppContext()
 
 	if tc.GetPackInfo() == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if tc.GetAssetID() == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetID, common.ErrInvalidValue.Error())
 		return transaction.Transaction_AssetError, common.ErrInvalidValue
 	}
 
 	if len(tc.GetPackInfo()) > core.MaxPacks {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	_, asset, err := i.KAppController.GetKDAKApp().GetKDA(tc.GetAssetID())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	role, err := asset.GetRoleByAddress(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, err.Error())
 		return transaction.Transaction_AssetError, err
 	}
 
 	if !role.HasRoleSetITOPrices {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrInvalidValue.Error())
 		return transaction.Transaction_AccountError, common.ErrInvalidValue
 	}
 
 	itoKapp, ito, err := i.GetITO(tc.GetAssetID())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITONotFound, err.Error())
 		return transaction.Transaction_ITOKAPPError, err
 	}
 
@@ -1035,27 +1061,31 @@ func (i *itoKapp) SetPrices(sender []byte, tc *transaction.SetITOPricesContract)
 
 	for key, packData := range tc.GetPackInfo() {
 		if len(packData.GetPacks()) > core.MaxPackItems {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 
 		// validate if at least one pack for the given asset exists
 		if len(packData.GetPacks()) == 0 {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 
 		//validate if provided pack asset exists
 		_, _, err := i.KAppController.GetKDAKApp().GetKDA([]byte(key))
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 			return transaction.Transaction_KAPPError, err
 		}
 
 		newPacks := make([]*kapps.Pack, len(packData.Packs))
-		for i, pack := range packData.Packs {
+		for idx, pack := range packData.Packs {
 			if pack.Amount <= 0 || pack.Price <= 0 {
+				ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPrice, common.ErrInvalidValue.Error())
 				return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 			}
 
-			newPacks[i] = &kapps.Pack{
+			newPacks[idx] = &kapps.Pack{
 				Amount: pack.Amount,
 				Price:  pack.Price,
 			}
@@ -1091,20 +1121,26 @@ func (i *itoKapp) SetPrices(sender []byte, tc *transaction.SetITOPricesContract)
 // Trigger Functions
 
 func (i *itoKapp) SetITOPrices(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	ctx := i.KAppController.GetCurrentKAppContext()
+
 	if triggerContract.GetPackInfo() == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if len(triggerContract.GetPackInfo()) > core.MaxPacks {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	role, err := asset.GetRoleByAddress(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, err.Error())
 		return transaction.Transaction_AssetError, err
 	}
 
 	if !role.HasRoleSetITOPrices {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrInvalidValue.Error())
 		return transaction.Transaction_AccountError, common.ErrInvalidValue
 	}
 
@@ -1112,17 +1148,20 @@ func (i *itoKapp) SetITOPrices(triggerContract *transaction.ITOTriggerContract, 
 
 	for key, packData := range triggerContract.GetPackInfo() {
 		if len(packData.GetPacks()) > core.MaxPackItems {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 
 		// validate if at least one pack for the given asset exists
 		if len(packData.GetPacks()) == 0 {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 
 		//validate if provided pack asset exists
 		_, _, err := i.KAppController.GetKDAKApp().GetKDA([]byte(key))
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 			return transaction.Transaction_KAPPError, err
 		}
 
@@ -1134,6 +1173,7 @@ func (i *itoKapp) SetITOPrices(triggerContract *transaction.ITOTriggerContract, 
 			}
 
 			if pack.Amount <= 0 || invalidPrice || (ito.MaxAmount > 0 && pack.Amount > ito.MaxAmount) {
+				ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPrice, common.ErrInvalidValue.Error())
 				return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 			}
 
@@ -1156,12 +1196,16 @@ func (i *itoKapp) SetITOPrices(triggerContract *transaction.ITOTriggerContract, 
 }
 
 func (i *itoKapp) UpdateStatus(triggerContract *transaction.ITOTriggerContract, kdaKapp state.KAppAccountHandler, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	ctx := i.KAppController.GetCurrentKAppContext()
+
 	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	switch triggerContract.GetStatus() {
 	case transaction.ITOTriggerContract_DefaultITO:
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	case transaction.ITOTriggerContract_ActiveITO:
 		ito.IsActive = true
@@ -1205,11 +1249,15 @@ func (i *itoKapp) UpdateStatus(triggerContract *transaction.ITOTriggerContract, 
 }
 
 func (i *itoKapp) UpdateReceiverAddress(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	ctx := i.KAppController.GetCurrentKAppContext()
+
 	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if len(triggerContract.GetReceiverAddress()) != i.pubkeyConv.Len() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidToAddress, process.ErrInvalidRcvAddr.Error())
 		return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
 	}
 
@@ -1219,15 +1267,20 @@ func (i *itoKapp) UpdateReceiverAddress(triggerContract *transaction.ITOTriggerC
 }
 
 func (i *itoKapp) UpdateMaxAmount(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	ctx := i.KAppController.GetCurrentKAppContext()
+
 	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if triggerContract.GetMaxAmount() < 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if triggerContract.GetMaxAmount() > 0 && ito.MintedAmount > triggerContract.GetMaxAmount() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -1237,11 +1290,15 @@ func (i *itoKapp) UpdateMaxAmount(triggerContract *transaction.ITOTriggerContrac
 }
 
 func (i *itoKapp) UpdateDefaultLimitPerAddress(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	ctx := i.KAppController.GetCurrentKAppContext()
+
 	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if triggerContract.GetDefaultLimitPerAddress() < 0 || (ito.MaxAmount > 0 && triggerContract.GetDefaultLimitPerAddress() > ito.MaxAmount) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -1250,14 +1307,18 @@ func (i *itoKapp) UpdateDefaultLimitPerAddress(triggerContract *transaction.ITOT
 	return transaction.Transaction_Ok, nil
 }
 
-func (i *itoKapp) UpdateTimes(ctx kapp.KappContext, triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+func (i *itoKapp) UpdateTimes(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	ctx := i.KAppController.GetCurrentKAppContext()
+
 	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if triggerContract.GetEndTime() <= triggerContract.GetStartTime() ||
 		triggerContract.GetStartTime() <= ctx.Block().GetTimestamp() ||
 		triggerContract.GetEndTime() <= ctx.Block().GetTimestamp() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOTimeWindow, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -1268,11 +1329,15 @@ func (i *itoKapp) UpdateTimes(ctx kapp.KappContext, triggerContract *transaction
 }
 
 func (i *itoKapp) AddToWhitelist(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte, whitelistData map[string]*kapps.WhitelistData) (transaction.Transaction_TXResultCode, error) {
+	ctx := i.KAppController.GetCurrentKAppContext()
+
 	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if len(triggerContract.GetWhitelistInfo()) == 0 || len(triggerContract.GetWhitelistInfo()) > core.MaxWhitelistSize {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -1309,11 +1374,15 @@ func (i *itoKapp) AddToWhitelist(triggerContract *transaction.ITOTriggerContract
 }
 
 func (i *itoKapp) RemoveFromWhitelist(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte, whitelistData map[string]*kapps.WhitelistData) (transaction.Transaction_TXResultCode, error) {
+	ctx := i.KAppController.GetCurrentKAppContext()
+
 	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if len(triggerContract.GetWhitelistInfo()) == 0 || len(triggerContract.GetWhitelistInfo()) > core.MaxWhitelistSize {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -1349,14 +1418,18 @@ func (i *itoKapp) RemoveFromWhitelist(triggerContract *transaction.ITOTriggerCon
 	return transaction.Transaction_Ok, nil
 }
 
-func (i *itoKapp) UpdateWhitelistTimes(ctx kapp.KappContext, triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+func (i *itoKapp) UpdateWhitelistTimes(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	ctx := i.KAppController.GetCurrentKAppContext()
+
 	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if triggerContract.GetWhitelistEndTime() <= triggerContract.GetWhitelistStartTime() ||
 		triggerContract.GetWhitelistStartTime() <= ctx.Block().GetTimestamp() ||
 		triggerContract.GetWhitelistEndTime() <= ctx.Block().GetTimestamp() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOTimeWindow, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -1367,18 +1440,23 @@ func (i *itoKapp) UpdateWhitelistTimes(ctx kapp.KappContext, triggerContract *tr
 }
 
 func (i *itoKapp) UpdateWhitelistStatus(triggerContract *transaction.ITOTriggerContract, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	ctx := i.KAppController.GetCurrentKAppContext()
+
 	if !bytes.Equal(asset.OwnerAddress, sender) && !bytes.Equal(asset.AdminAddress, sender) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	switch triggerContract.GetWhitelistStatus() {
 	case transaction.ITOTriggerContract_DefaultITO:
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	case transaction.ITOTriggerContract_ActiveITO:
 		ito.IsWhitelistActive = true
 	case transaction.ITOTriggerContract_PausedITO:
 		ito.IsWhitelistActive = false
 	default:
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrITOWhitelistStatusInvalid.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrITOWhitelistStatusInvalid
 	}
 

@@ -51,6 +51,19 @@ func setupITOKapp(t *testing.T, cfg config.EnableEpochs) *itoKapp {
 	itoKapp, err := NewITOKApp(&itoArgs)
 	require.NoError(t, err)
 
+	// Set up a basic KAppController mock with context for error tracking
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+				Block: &block.Block{
+					Header: &block.BlockHeader{
+						Timestamp: 100,
+					},
+				},
+			})
+		},
+	})
+
 	return itoKapp
 }
 
@@ -452,6 +465,15 @@ func Test_Trigger_SetITOPrices_InvalidPriceShouldErr(t *testing.T) {
 	ito := &kapps.ITOData{}
 
 	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+				Block: &block.Block{
+					Header: &block.BlockHeader{
+						Timestamp: 100,
+					},
+				},
+			})
+		},
 		GetKDAKAppCalled: func() kapp.KDAKapp {
 			return &vmStub.KDAKappStub{
 				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
@@ -491,6 +513,15 @@ func Test_Trigger_SetITOPrices_ShouldWork(t *testing.T) {
 	ito := &kapps.ITOData{}
 
 	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+				Block: &block.Block{
+					Header: &block.BlockHeader{
+						Timestamp: 100,
+					},
+				},
+			})
+		},
 		GetKDAKAppCalled: func() kapp.KDAKapp {
 			return &vmStub.KDAKappStub{
 				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {

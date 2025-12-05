@@ -203,28 +203,34 @@ func (v *validatorsKApp) Register(tc *transaction.CreateValidatorContract) (tran
 
 	// Check validator info
 	if len(tc.GetOwnerAddress()) != v.addressLen {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidOwnerAddress, process.ErrInvalidRcvAddr.Error())
 		return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
 	}
 
 	if len(tc.GetConfig().GetRewardAddress()) != v.addressLen {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRewardAddress, process.ErrInvalidRcvAddr.Error())
 		return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
 	}
 
 	commission := tc.GetConfig().GetCommission()
 	if commission > core.HundredPercent {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidCommission, common.ErrInvalidValue.Error())
 		return transaction.Transaction_CommissionTooHigh, common.ErrInvalidValue
 	}
 
 	maxDelegationAmount := tc.GetConfig().GetMaxDelegationAmount()
 	if maxDelegationAmount < 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidDelegation, common.ErrInvalidValue.Error())
 		return transaction.Transaction_DelegationAmountInvalid, common.ErrInvalidValue
 	}
 
 	if !utf8.ValidString(tc.GetConfig().GetLogo()) || len(tc.GetConfig().GetLogo()) > core.MaxLogoURISize {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidLogo, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if len(tc.GetConfig().GetURIs()) > core.MaxURIMapSize {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldURICountExceeded, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -233,12 +239,14 @@ func (v *validatorsKApp) Register(tc *transaction.CreateValidatorContract) (tran
 			!utf8.ValidString(uri) ||
 			len(key) > core.MaxURIKeySize ||
 			len(uri) > core.MaxURIValueSize {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidURI, common.ErrInvalidValue.Error())
 			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 	}
 
 	if !utf8.ValidString(tc.GetConfig().GetName()) ||
 		len(tc.GetConfig().GetName()) > core.MaxNameSize {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidName, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -252,6 +260,7 @@ func (v *validatorsKApp) Register(tc *transaction.CreateValidatorContract) (tran
 	vKey := v.validatorKey(tc.GetOwnerAddress())
 	data := app.GetStorage(vKey)
 	if len(data) > 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldValidatorAlreadySet, common.ErrAccountValidatorSet.Error())
 		return transaction.Transaction_AccountError, common.ErrAccountValidatorSet
 	}
 
@@ -262,11 +271,13 @@ func (v *validatorsKApp) Register(tc *transaction.CreateValidatorContract) (tran
 
 	// verify if BLS key is been used as validator...
 	if len(peerAcc.GetOwnerAddress()) > 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBLSKeyAlreadyUsed, common.ErrAccountValidatorSet.Error())
 		return transaction.Transaction_AccountError, common.ErrAccountValidatorSet
 	}
 
 	// check if bls has been revoked
 	if v.forkController.FixStakingBuckets() && peerAcc.GetRevoked() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBLSKeyRevoked, common.ErrAccountValidatorSet.Error())
 		return transaction.Transaction_AccountError, common.ErrAccountValidatorSet
 	}
 
@@ -338,16 +349,19 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 
 	if len(tc.GetConfig().GetRewardAddress()) != 0 &&
 		len(tc.GetConfig().GetRewardAddress()) != v.addressLen {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRewardAddress, process.ErrInvalidRcvAddr.Error())
 		return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
 	}
 
 	commission := tc.GetConfig().GetCommission()
 	if commission > core.HundredPercent {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidCommission, common.ErrInvalidValue.Error())
 		return transaction.Transaction_CommissionTooHigh, common.ErrInvalidValue
 	}
 
 	maxDelegationAmount := tc.GetConfig().GetMaxDelegationAmount()
 	if maxDelegationAmount < 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidDelegation, common.ErrInvalidValue.Error())
 		return transaction.Transaction_DelegationAmountInvalid, common.ErrInvalidValue
 	}
 
@@ -360,6 +374,7 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 	// Check if account already registered as validator
 	val, err := v.getValidator(app, sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldValidatorNotFound, err.Error())
 		return transaction.Transaction_AccountError, err
 	}
 
@@ -401,12 +416,14 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 		}
 
 		if peerAcc.GetRevoked() {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBLSKeyRevoked, common.ErrBLSKeyRevoked.Error())
 			return transaction.Transaction_InvalidPeerKey, common.ErrBLSKeyRevoked
 		}
 
 		// check inconsistences in peerAcc
 		if len(peerAcc.GetOwnerAddress()) > 0 &&
 			!bytes.Equal(sender, peerAcc.GetOwnerAddress()) {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBLSKeyNotOwned, common.ErrAccountValidatorNotOwner.Error())
 			return transaction.Transaction_InvalidPeerKey, common.ErrAccountValidatorNotOwner
 		}
 
@@ -431,6 +448,7 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 
 	if len(tc.GetConfig().GetLogo()) > 0 {
 		if !utf8.ValidString(tc.GetConfig().GetLogo()) || len(tc.GetConfig().GetLogo()) > core.MaxLogoURISize {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidLogo, common.ErrInvalidValue.Error())
 			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 
@@ -439,6 +457,7 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 
 	if len(tc.GetConfig().GetURIs()) > 0 {
 		if len(tc.GetConfig().GetURIs()) > core.MaxURIMapSize {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldURICountExceeded, common.ErrInvalidValue.Error())
 			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 
@@ -447,6 +466,7 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 				!utf8.ValidString(uri) ||
 				len(key) > core.MaxURIKeySize ||
 				len(uri) > core.MaxURIValueSize {
+				ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidURI, common.ErrInvalidValue.Error())
 				return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 			}
 		}
@@ -457,6 +477,7 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 	if len(tc.GetConfig().GetName()) > 0 {
 		if !utf8.ValidString(tc.GetConfig().GetName()) ||
 			len(tc.GetConfig().GetName()) > core.MaxNameSize {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidName, common.ErrInvalidValue.Error())
 			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 
@@ -722,6 +743,7 @@ func (v *validatorsKApp) Unjail(sender []byte, tc *transaction.UnjailContract) (
 
 	val, err := v.getValidator(app, sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldValidatorNotFound, err.Error())
 		return transaction.Transaction_Fail, err
 	}
 
@@ -731,6 +753,7 @@ func (v *validatorsKApp) Unjail(sender []byte, tc *transaction.UnjailContract) (
 	}
 
 	if peerAcc.GetList() != state.List_jailed {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldUnjailNotAvailable, common.ErrInvalidPeerList.Error())
 		return transaction.Transaction_AccountError, common.ErrInvalidPeerList
 	}
 

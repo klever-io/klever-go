@@ -79,6 +79,16 @@ func TestUnfreeze(t *testing.T) {
 					return nil, errAccNotFound
 				},
 			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block:          &block.Block{},
+					})
+				},
+			},
 			expectedErr:       errAccNotFound,
 			expectedTxResCode: transaction.Transaction_LoadAccountError,
 			unfreezeTx:        &transaction.UnfreezeContract{},
@@ -98,6 +108,14 @@ func TestUnfreeze(t *testing.T) {
 							return nil, nil, errGetKda
 						},
 					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block:          &block.Block{},
+					})
 				},
 			},
 			expectedErr:       errGetKda,
@@ -123,6 +141,14 @@ func TestUnfreeze(t *testing.T) {
 						},
 					}
 				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block:          &block.Block{},
+					})
+				},
 			},
 			expectedErr:       common.ErrAssetTypeInvalid,
 			expectedTxResCode: transaction.Transaction_AssetError,
@@ -146,6 +172,14 @@ func TestUnfreeze(t *testing.T) {
 							return nil, nil, errGetStaking
 						},
 					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block:          &block.Block{},
+					})
 				},
 			},
 			expectedErr:       errGetStaking,
@@ -174,6 +208,14 @@ func TestUnfreeze(t *testing.T) {
 							return nil, nil, nil
 						},
 					}
+				},
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: txSender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_UnfreezeContractType,
+						Block:          &block.Block{},
+					})
 				},
 			},
 			expectedErr:       errGetUserKda,
@@ -2067,10 +2109,28 @@ func setupAccCacher(accCacher *commonMock.AccountsCacherStub) *commonMock.Accoun
 
 func setupKappController(kappController *kvmStub.KAppControllerStub) *kvmStub.KAppControllerStub {
 	if kappController != nil {
+		// Ensure GetCurrentKAppContextCalled is set if not already provided
+		if kappController.GetCurrentKAppContextCalled == nil {
+			kappController.GetCurrentKAppContextCalled = func() kapp.KappContext {
+				return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+					OriginalSender: txSender,
+					ContractID:     0,
+					Block:          &block.Block{},
+				})
+			}
+		}
 		return kappController
 	}
 
-	return &kvmStub.KAppControllerStub{}
+	return &kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+				OriginalSender: txSender,
+				ContractID:     0,
+				Block:          &block.Block{},
+			})
+		},
+	}
 }
 
 func setupAccountsKapp(t *testing.T, cfg config.EnableEpochs) *accountsKapp {
@@ -2489,6 +2549,16 @@ func Test_ValidateAndLoadAccounts(t *testing.T) {
 			accKapp := setupAccountsKapp(t, config.EnableEpochs{})
 
 			_ = accKapp.SetAccountsCacher(setupAccCacher(tt.accCacher))
+			_ = accKapp.SetKAppController(&kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: tt.sender,
+						ContractID:     0,
+						ContractType:   transaction.TXContract_TransferContractType,
+						Block:          &block.Block{},
+					})
+				},
+			})
 
 			_, _, status, err := accKapp.validateAndLoadAccounts(tt.sender, tt.transactionContract)
 			assert.Equal(tt.expectedErr, err)

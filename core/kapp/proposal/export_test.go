@@ -45,8 +45,8 @@ func (p *proposalKapp) ValidateCreateInput(tc *transaction.ProposalContract) err
 }
 
 // CheckStakingRequirements exports the private checkStakingRequirements method for testing
-func (p *proposalKapp) CheckStakingRequirements(staking *kapps.StakingData, sender []byte) (transaction.Transaction_TXResultCode, error) {
-	return p.checkStakingRequirements(staking, sender)
+func (p *proposalKapp) CheckStakingRequirements(ctx kapp.KappContext, staking *kapps.StakingData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	return p.checkStakingRequirements(ctx, staking, sender)
 }
 
 // IsVoterLimitExceeded exports the private isVoterLimitExceeded method for testing

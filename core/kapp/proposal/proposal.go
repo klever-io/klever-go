@@ -214,8 +214,9 @@ func (p *proposalKapp) validateNewParameters(params map[int32][]byte, controller
 	return nil
 }
 
-func (p *proposalKapp) checkStakingRequirements(staking *kapps.StakingData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+func (p *proposalKapp) checkStakingRequirements(ctx kapp.KappContext, staking *kapps.StakingData, sender []byte) (transaction.Transaction_TXResultCode, error) {
 	if staking.TotalStaked < p.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinKFIStakedToEnableProposals) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMinKFIStakedUnreached, process.ErrMinKFIStaked.Error())
 		return transaction.Transaction_MinKFIStakedUnreached, process.ErrMinKFIStaked
 	}
 
@@ -230,6 +231,7 @@ func (p *proposalKapp) checkStakingRequirements(staking *kapps.StakingData, send
 	}
 
 	if userKFIStaking.FrozenBalance == 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFrozenKFI, common.ErrBalance.Error())
 		return transaction.Transaction_OutOfFunds, common.ErrBalance
 	}
 
@@ -241,6 +243,7 @@ func (p *proposalKapp) Create(sender []byte, tc *transaction.ProposalContract) (
 
 	// Validate input parameters
 	if err := p.validateCreateInput(tc); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidProposal, err.Error())
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
@@ -252,6 +255,7 @@ func (p *proposalKapp) Create(sender []byte, tc *transaction.ProposalContract) (
 
 	// Validate new parameters
 	if err := p.validateNewParameters(tc.GetParameters(), controller); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidProposalParams, err.Error())
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
@@ -262,7 +266,7 @@ func (p *proposalKapp) Create(sender []byte, tc *transaction.ProposalContract) (
 	}
 
 	// Check staking requirements
-	if errCode, err := p.checkStakingRequirements(staking, sender); err != nil {
+	if errCode, err := p.checkStakingRequirements(ctx, staking, sender); err != nil {
 		return errCode, err
 	}
 
@@ -365,19 +369,23 @@ func (p *proposalKapp) Vote(sender []byte, tc *transaction.VoteContract) (transa
 	ctx := p.KAppController.GetCurrentKAppContext()
 
 	if len(kapps.ProposalData_VoteDetail_EnumVoteType_name[int32(tc.GetType())]) == 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidVoteType, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if tc.GetProposalID() <= 0 || tc.GetAmount() <= 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidVoteAmount, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	proposalKapp, proposal, controller, err := p.GetProposal(tc.GetProposalID())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldProposalNotFound, err.Error())
 		return transaction.Transaction_AccountError, err
 	}
 
 	if proposal.ProposalStatus != kapps.ProposalData_ActiveProposal {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldProposalNotActive, common.ErrInvalidParameter.Error())
 		return transaction.Transaction_ProposalNotActive, common.ErrInvalidParameter
 	}
 
@@ -387,6 +395,7 @@ func (p *proposalKapp) Vote(sender []byte, tc *transaction.VoteContract) (transa
 	}
 
 	if staking.TotalStaked < p.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinKFIStakedToEnableProposals) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMinKFIStakedUnreached, process.ErrMinKFIStaked.Error())
 		return transaction.Transaction_MinKFIStakedUnreached, process.ErrMinKFIStaked
 	}
 
@@ -401,6 +410,7 @@ func (p *proposalKapp) Vote(sender []byte, tc *transaction.VoteContract) (transa
 	}
 
 	if tc.GetAmount() > userKFIStaking.FrozenBalance {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFrozenKFI, common.ErrBalance.Error())
 		return transaction.Transaction_OutOfFunds, common.ErrBalance
 	}
 
@@ -419,6 +429,7 @@ func (p *proposalKapp) Vote(sender []byte, tc *transaction.VoteContract) (transa
 	// (skip check if voter already exists - it's a vote update)
 	// Only enforced after EpochRewardsV2 fork to maintain consensus during upgrade
 	if p.isVoterLimitExceeded(proposal, encodedAddr) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldProposalMaxVoters, common.ErrProposalMaxVotersReached.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrProposalMaxVotersReached
 	}
 

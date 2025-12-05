@@ -20,19 +20,24 @@ import (
 var _ kapp.KDAFeesPoolKapp = (*kdaFeesPoolKApp)(nil)
 
 func (v *kdaFeesPoolKApp) UpdatePool(poolID []byte, assetOwner []byte, sender []byte, info *transaction.KDAPoolInfo) (transaction.Transaction_TXResultCode, error) {
+	ctx := v.KAppController.GetCurrentKAppContext()
+
 	// check if pool exists
 	app, err := v.getKApp()
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	pool, err := v.getPool(app, poolID)
 	if err != nil && err != common.ErrAssetPoolNotFound {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	if pool == nil {
 		if !bytes.Equal(assetOwner, sender) {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
@@ -44,6 +49,7 @@ func (v *kdaFeesPoolKApp) UpdatePool(poolID []byte, assetOwner []byte, sender []
 	}
 
 	if !bytes.Equal(sender, pool.AdminAddress) && !bytes.Equal(sender, assetOwner) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
@@ -52,10 +58,12 @@ func (v *kdaFeesPoolKApp) UpdatePool(poolID []byte, assetOwner []byte, sender []
 	}
 
 	if len(pool.AdminAddress) != v.pubkeyConv.Len() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, common.ErrAssetPoolInvalidAddress.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrAssetPoolInvalidAddress
 	}
 
 	if info.FRatioKLV == 0 || info.FRatioKDA == 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, common.ErrAssetPoolInvalidAmount.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrAssetPoolInvalidAmount
 	}
 
@@ -65,15 +73,15 @@ func (v *kdaFeesPoolKApp) UpdatePool(poolID []byte, assetOwner []byte, sender []
 
 	err = v.setPool(app, poolID, pool)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	err = v.saveKApp(app)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
-
-	ctx := v.KAppController.GetCurrentKAppContext()
 
 	// add receipt
 	ctx.Receipts().Add(txProcess.NewReceipt(
@@ -95,6 +103,7 @@ func (v *kdaFeesPoolKApp) ChangePoolOwner(assetID []byte, sender []byte, newOwne
 
 	app, err := v.getKApp()
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
@@ -103,14 +112,17 @@ func (v *kdaFeesPoolKApp) ChangePoolOwner(assetID []byte, sender []byte, newOwne
 		if err == common.ErrAssetPoolNotFound {
 			return transaction.Transaction_Ok, nil
 		}
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	if !bytes.Equal(sender, pool.OwnerAddress) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if len(newOwner) != v.pubkeyConv.Len() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, common.ErrAssetPoolInvalidAddress.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrAssetPoolInvalidAddress
 	}
 
@@ -118,11 +130,13 @@ func (v *kdaFeesPoolKApp) ChangePoolOwner(assetID []byte, sender []byte, newOwne
 
 	err = v.setPool(app, assetID, pool)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	err = v.saveKApp(app)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
@@ -157,11 +171,13 @@ func (v *kdaFeesPoolKApp) Deposit(sender []byte, tc *transaction.DepositContract
 
 	assetID := tc.GetID()
 	if assetID == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetID, common.ErrInvalidAsset.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidAsset
 	}
 
 	amount := tc.GetAmount()
 	if amount <= 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, common.ErrInvalidValue.Error())
 		return transaction.Transaction_AmountInvalid, common.ErrInvalidValue
 	}
 
@@ -173,15 +189,18 @@ func (v *kdaFeesPoolKApp) Deposit(sender []byte, tc *transaction.DepositContract
 	// check if pool exists
 	app, err := v.getKApp()
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	pool, err := v.getPool(app, assetID)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	if amount <= 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, common.ErrAssetPoolAmountError.Error())
 		return transaction.Transaction_AmountInvalid, common.ErrAssetPoolAmountError
 	}
 
@@ -190,21 +209,25 @@ func (v *kdaFeesPoolKApp) Deposit(sender []byte, tc *transaction.DepositContract
 	if !isPoolOwnerOrAdmin {
 		if !v.forkController.EnableSmartContracts() {
 			// Before fork, only owner or admin could deposit
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAssetPoolInvalidAddress.Error())
 			return transaction.Transaction_KAPPError, common.ErrAssetPoolInvalidAddress
 		}
 
 		// After fork, owner, admin and kda deposit role can deposit
 		_, kda, err := v.KAppController.GetKDAKApp().GetKDA(assetID)
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 			return transaction.Transaction_KAPPError, err
 		}
 
 		role, err := kda.GetRoleByAddress(sender)
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoleAddress, err.Error())
 			return transaction.Transaction_AssetError, err
 		}
 
 		if !role.HasRoleDeposit {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMissingDepositRole, common.ErrInvalidValue.Error())
 			return transaction.Transaction_AccountError, common.ErrInvalidValue
 		}
 	}
@@ -212,12 +235,14 @@ func (v *kdaFeesPoolKApp) Deposit(sender []byte, tc *transaction.DepositContract
 	// get sender acc
 	acc, err := v.accountsCacher.LoadUser(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, err.Error())
 		return transaction.Transaction_AccountError, err
 	}
 
 	// check if amount/kda is valid
 	balance := acc.GetBalance(currencyID, v.forkController.EnableSmartContracts())
 	if balance < amount {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, common.ErrBalance.Error())
 		return transaction.Transaction_OutOfFunds, common.ErrBalance
 	}
 
@@ -230,27 +255,32 @@ func (v *kdaFeesPoolKApp) Deposit(sender []byte, tc *transaction.DepositContract
 		pool.KDABalance += amount
 
 	default:
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetID, common.ErrAssetPoolInvalidAsset.Error())
 		return transaction.Transaction_AssetError, common.ErrAssetPoolInvalidAsset
 	}
 
 	// sub from account
 	err = acc.SubFromBalance(amount, currencyID, v.forkController.EnableSmartContracts())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, err.Error())
 		return transaction.Transaction_AccountError, err
 	}
 
 	err = v.accountsCacher.SaveUser(acc)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, err.Error())
 		return transaction.Transaction_AccountError, err
 	}
 
 	err = v.setPool(app, assetID, pool)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	err = v.saveKApp(app)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
@@ -289,26 +319,31 @@ func (v *kdaFeesPoolKApp) Withdraw(sender []byte, tc *transaction.WithdrawContra
 	// check if pool exists
 	app, err := v.getKApp()
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	pool, err := v.getPool(app, assetID)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	if tc.GetAmount() <= 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, common.ErrAssetPoolAmountError.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrAssetPoolAmountError
 	}
 
 	// check if addressTo is allowed to withdraw
 	if !bytes.Equal(sender, pool.AdminAddress) && !bytes.Equal(sender, pool.OwnerAddress) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAssetPoolInvalidAddress.Error())
 		return transaction.Transaction_KAPPError, common.ErrAssetPoolInvalidAddress
 	}
 
 	// get receiver
 	receiver, err := v.accountsCacher.LoadUser(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, err.Error())
 		return transaction.Transaction_AccountError, err
 	}
 
@@ -316,6 +351,7 @@ func (v *kdaFeesPoolKApp) Withdraw(sender []byte, tc *transaction.WithdrawContra
 	switch string(tc.GetCurrencyID()) {
 	case string(kdautils.KLVIdentifier):
 		if pool.KLVBalance < tc.GetAmount() {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, common.ErrAssetPoolOutOfFunds.Error())
 			return transaction.Transaction_OutOfFunds, common.ErrAssetPoolOutOfFunds
 		}
 		// remove from pool balance
@@ -323,11 +359,13 @@ func (v *kdaFeesPoolKApp) Withdraw(sender []byte, tc *transaction.WithdrawContra
 		// add to addressTo balance
 		err = receiver.AddToBalance(tc.GetAmount(), nil, v.forkController.EnableSmartContracts())
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, err.Error())
 			return transaction.Transaction_AccountError, err
 		}
 
 	case string(pool.KDA):
 		if pool.KDABalance < tc.GetAmount() {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, common.ErrAssetPoolOutOfFunds.Error())
 			return transaction.Transaction_OutOfFunds, common.ErrAssetPoolOutOfFunds
 		}
 		// remove from pool balance
@@ -335,25 +373,30 @@ func (v *kdaFeesPoolKApp) Withdraw(sender []byte, tc *transaction.WithdrawContra
 		// add to addressTo balance
 		err = receiver.AddToBalance(tc.GetAmount(), tc.GetCurrencyID(), v.forkController.EnableSmartContracts())
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, err.Error())
 			return transaction.Transaction_AccountError, err
 		}
 
 	default:
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetID, common.ErrAssetPoolInvalidAsset.Error())
 		return transaction.Transaction_AssetError, common.ErrAssetPoolInvalidAsset
 	}
 
 	err = v.accountsCacher.SaveUser(receiver)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, err.Error())
 		return transaction.Transaction_AccountError, err
 	}
 
 	err = v.setPool(app, assetID, pool)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	err = v.saveKApp(app)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 

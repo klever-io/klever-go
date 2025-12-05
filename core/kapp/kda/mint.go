@@ -15,7 +15,10 @@ import (
 )
 
 func (k *kdaKapp) Mint(sender []byte, tc *transaction.AssetTriggerContract) (transaction.Transaction_TXResultCode, error) {
+	ctx := k.KAppController.GetCurrentKAppContext()
+
 	if len(tc.GetToAddress()) != k.pubkeyConv.Len() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidToAddress, process.ErrInvalidRcvAddr.Error())
 		return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
 	}
 
@@ -30,21 +33,25 @@ func (k *kdaKapp) Mint(sender []byte, tc *transaction.AssetTriggerContract) (tra
 	}
 
 	if !kda.Properties.CanMint {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetCannotMint, common.ErrAssetTriggerInvalid.Error())
 		return transaction.Transaction_AssetCantBeMinted, common.ErrAssetTriggerInvalid
 	}
 
 	// if asset is an SFT, allow to mint with 0 amount (only creates the SFT internal ID place holder)
 	if tc.GetAmount() < 0 ||
 		(tc.GetAmount() == 0 && kda.AssetType != kapps.KDAData_SemiFungible) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, process.ErrInvalidArgument.Error())
 		return transaction.Transaction_ParameterInvalid, process.ErrInvalidArgument
 	}
 
 	role, err := kda.GetRoleByAddress(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoleAddress, err.Error())
 		return transaction.Transaction_AssetError, err
 	}
 
 	if !role.HasRoleMint {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
@@ -79,15 +86,20 @@ func (k *kdaKapp) processNonFungibleMint(
 	kdaAcc state.KAppAccountHandler,
 	kda *kapps.KDAData,
 ) (transaction.Transaction_TXResultCode, error) {
+	ctx := k.KAppController.GetCurrentKAppContext()
+
 	if kda.Attributes.IsNFTMintStopped {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetMintStopped, process.ErrInvalidArgument.Error())
 		return transaction.Transaction_NFTMintStopped, process.ErrInvalidArgument
 	}
 
 	if tc.GetAmount() > k.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MaxNFTMintBatch) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, process.ErrInvalidArgument.Error())
 		return transaction.Transaction_AssetError, process.ErrInvalidArgument
 	}
 
 	if kda.MaxSupply > 0 && kda.CirculatingSupply+tc.GetAmount() > kda.MaxSupply {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMaxSupplyExceeded, common.ErrMaxSupplyExceeded.Error())
 		return transaction.Transaction_AssetError, common.ErrMaxSupplyExceeded
 	}
 
@@ -143,7 +155,6 @@ func (k *kdaKapp) processNonFungibleMint(
 		return transaction.Transaction_SaveAccountError, err
 	}
 
-	ctx := k.KAppController.GetCurrentKAppContext()
 	ctx.SetReturnData(mintedTokens)
 
 	return transaction.Transaction_Ok, nil

@@ -205,6 +205,7 @@ func (m *marketKapp) Buy(sender []byte, tc *transaction.BuyContract) (transactio
 	ctx := m.KAppController.GetCurrentKAppContext()
 
 	if tc.GetID() == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldOrderIDMissing, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -216,23 +217,28 @@ func (m *marketKapp) Buy(sender []byte, tc *transaction.BuyContract) (transactio
 	}
 
 	if tc.GetAmount() <= 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, common.ErrInvalidValue.Error())
 		return transaction.Transaction_AmountInvalid, common.ErrInvalidValue
 	}
 
 	marketKapp, marketOrder, err := m.GetMarketOrder(orderID)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldOrderNotFound, err.Error())
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
 	if !bytes.Equal(marketOrder.CurrencyID, currencyID) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldOrderCurrencyInvalid, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if marketOrder.EndTime < ctx.Block().GetTimestamp() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldOrderExpired, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if marketOrder.CurrentBid >= tc.GetAmount() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBidTooLow, common.ErrInvalidValue.Error())
 		return transaction.Transaction_AmountInvalid, common.ErrInvalidValue
 	}
 
@@ -240,17 +246,20 @@ func (m *marketKapp) Buy(sender []byte, tc *transaction.BuyContract) (transactio
 	switch marketOrder.MarketType {
 	case kapps.MarketOrderData_BuyItNow:
 		if tc.GetAmount() < marketOrder.Price {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldPriceBelowMinimum, common.ErrInvalidValue.Error())
 			return transaction.Transaction_AmountInvalid, common.ErrInvalidValue
 		}
 		executeBuyMarket = true
 	case kapps.MarketOrderData_Auction:
 		if tc.GetAmount() < marketOrder.ReservePrice {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldPriceBelowMinimum, common.ErrInvalidValue.Error())
 			return transaction.Transaction_AmountInvalid, common.ErrInvalidValue
 		}
 		if marketOrder.Price > 0 && tc.GetAmount() >= marketOrder.Price {
 			executeBuyMarket = true
 		}
 	default:
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidMarketType, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -291,6 +300,7 @@ func (m *marketKapp) Buy(sender []byte, tc *transaction.BuyContract) (transactio
 
 	err = bidderAcc.SubFromBalance(tc.GetAmount(), currencyID, m.forkController.EnableSmartContracts())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, err.Error())
 		return transaction.Transaction_BalanceError, err
 	}
 
@@ -643,19 +653,23 @@ func (m *marketKapp) Claim(sender []byte, tc *transaction.ClaimContract) (transa
 	ctx := m.KAppController.GetCurrentKAppContext()
 
 	if tc.GetID() == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldOrderIDMissing, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	marketKapp, marketOrder, err := m.GetMarketOrder(tc.GetID())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldOrderNotFound, err.Error())
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
 	if marketOrder.GetIsClaimed() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldClaimNotAvailable, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if !bytes.Equal(sender, marketOrder.OwnerAddress) && !bytes.Equal(sender, marketOrder.CurrentBidder) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -679,6 +693,7 @@ func (m *marketKapp) Claim(sender []byte, tc *transaction.ClaimContract) (transa
 			marketOrder.CurrentBid >= marketOrder.ReservePrice {
 			bidderAcc, err := m.GetExistingUserAccount(marketOrder.CurrentBidder)
 			if err != nil {
+				ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, err.Error())
 				return transaction.Transaction_LoadAccountError, err
 			}
 
@@ -697,12 +712,14 @@ func (m *marketKapp) Claim(sender []byte, tc *transaction.ClaimContract) (transa
 			return transaction.Transaction_Ok, nil
 		}
 
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldClaimNotAvailable, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if marketOrder.ReservePrice > 0 && marketOrder.CurrentBid >= marketOrder.ReservePrice {
 		bidderAcc, err := m.GetExistingUserAccount(marketOrder.CurrentBidder)
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, err.Error())
 			return transaction.Transaction_LoadAccountError, err
 		}
 
@@ -726,16 +743,19 @@ func (m *marketKapp) Claim(sender []byte, tc *transaction.ClaimContract) (transa
 	} else {
 		marketOwnerAcc, err := m.GetExistingUserAccount(marketOrder.OwnerAddress)
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, err.Error())
 			return transaction.Transaction_LoadAccountError, err
 		}
 
 		data, err := marketKapp.SubInternalKDA(marketOrder.CollectionID, marketOrder.AssetID)
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 			return transaction.Transaction_BalanceError, err
 		}
 
 		err = marketOwnerAcc.AddInternalKDA(marketOrder.CollectionID, marketOrder.AssetID, data)
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 			return transaction.Transaction_AssetError, err
 		}
 
@@ -755,6 +775,7 @@ func (m *marketKapp) Claim(sender []byte, tc *transaction.ClaimContract) (transa
 		if marketOrder.RoyaltiesFixedDeposit > 0 {
 			err = marketOwnerAcc.AddToBalance(marketOrder.RoyaltiesFixedDeposit, kdautils.KLVIdentifier, m.forkController.EnableSmartContracts())
 			if err != nil {
+				ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 				return transaction.Transaction_BalanceError, err
 			}
 
@@ -779,11 +800,13 @@ func (m *marketKapp) Claim(sender []byte, tc *transaction.ClaimContract) (transa
 		if len(marketOrder.CurrentBidder) > 0 {
 			bidderAcc, err := m.GetExistingUserAccount(marketOrder.CurrentBidder)
 			if err != nil {
+				ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, err.Error())
 				return transaction.Transaction_LoadAccountError, err
 			}
 
 			err = bidderAcc.AddToBalance(marketOrder.CurrentBid, marketOrder.CurrencyID, m.forkController.EnableSmartContracts())
 			if err != nil {
+				ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 				return transaction.Transaction_BalanceError, err
 			}
 
@@ -808,6 +831,7 @@ func (m *marketKapp) Claim(sender []byte, tc *transaction.ClaimContract) (transa
 
 	err = m.SetMarketOrder(marketKapp, marketOrder)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 		return transaction.Transaction_SetMarketOrderErr, err
 	}
 
@@ -822,24 +846,29 @@ func (m *marketKapp) Sell(sender []byte, tc *transaction.SellContract) (transact
 	ctx := m.KAppController.GetCurrentKAppContext()
 
 	if tc.GetAssetID() == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetID, common.ErrInvalidValue.Error())
 		return transaction.Transaction_AssetError, common.ErrInvalidValue
 	}
 
 	if tc.GetMarketplaceID() == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	assetID := bytes.Split(tc.GetAssetID(), []byte(kapps.Sp))
 	if len(assetID) != 2 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, process.ErrInvalidArgument.Error())
 		return transaction.Transaction_AssetTypeInvalid, process.ErrInvalidArgument
 	}
 
 	if tc.GetPrice() < 0 || tc.GetReservePrice() < 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPrice, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	oneYearExpiration := time.Unix(ctx.Block().GetTimestamp(), 0).AddDate(1, 0, 0).Unix()
 	if tc.GetEndTime() <= ctx.Block().GetTimestamp() || tc.GetEndTime() > oneYearExpiration {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldOrderExpired, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -849,25 +878,30 @@ func (m *marketKapp) Sell(sender []byte, tc *transaction.SellContract) (transact
 	}
 
 	if len(kapps.MarketOrderData_EnumMarketType_name[int32(tc.GetMarketType())]) == 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidMarketType, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	_, asset, err := m.KAppController.GetKDAKApp().GetKDA(assetID[0])
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	// only allowed to sell non-fungible assets
 	if asset.AssetType != kapps.KDAData_NonFungible {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrInvalidValue.Error())
 		return transaction.Transaction_AssetTypeInvalid, common.ErrInvalidValue
 	}
 
 	_, marketplace, err := m.GetMarketplace(tc.GetMarketplaceID())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
 	if asset.Royalties.MarketPercentage+marketplace.ReferralPercentage > core.HundredPercent {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -875,6 +909,7 @@ func (m *marketKapp) Sell(sender []byte, tc *transaction.SellContract) (transact
 
 	marketKapp, _, err := m.GetMarketOrder(orderID)
 	if err != nil && !errors.Is(err, common.ErrNotFoundInKApp) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidOrder, err.Error())
 		return transaction.Transaction_KeyConflict, err
 	}
 
@@ -882,26 +917,31 @@ func (m *marketKapp) Sell(sender []byte, tc *transaction.SellContract) (transact
 	switch kapps.MarketOrderData_EnumMarketType(tc.GetMarketType()) {
 	case kapps.MarketOrderData_BuyItNow:
 		if tc.GetPrice() == 0 {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPrice, common.ErrInvalidValue.Error())
 			return transaction.Transaction_AmountInvalid, common.ErrInvalidValue
 		}
 	case kapps.MarketOrderData_Auction:
 		reservePrice = tc.GetReservePrice()
 	default:
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidMarketType, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	ownerAcc, err := m.GetExistingUserAccount(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, err.Error())
 		return transaction.Transaction_LoadAccountError, err
 	}
 
 	data, err := ownerAcc.SubInternalKDA(assetID[0], assetID[1])
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, err.Error())
 		return transaction.Transaction_BalanceError, err
 	}
 
 	err = marketKapp.AddInternalKDA(assetID[0], assetID[1], data)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 		return transaction.Transaction_AssetError, err
 	}
 
@@ -921,6 +961,7 @@ func (m *marketKapp) Sell(sender []byte, tc *transaction.SellContract) (transact
 	if asset.Royalties.MarketFixed > 0 {
 		err = ownerAcc.SubFromBalance(asset.Royalties.MarketFixed, kdautils.KLVIdentifier, m.forkController.EnableSmartContracts())
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, err.Error())
 			return transaction.Transaction_BalanceError, err
 		}
 
@@ -957,6 +998,7 @@ func (m *marketKapp) Sell(sender []byte, tc *transaction.SellContract) (transact
 
 	err = m.SetMarketOrder(marketKapp, marketOrder)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 		return transaction.Transaction_SetMarketOrderErr, err
 	}
 
@@ -984,34 +1026,41 @@ func (m *marketKapp) CancelOrder(sender []byte, tc *transaction.CancelMarketOrde
 	ctx := m.KAppController.GetCurrentKAppContext()
 
 	if tc.GetOrderID() == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldOrderIDMissing, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	marketKapp, marketOrder, err := m.GetMarketOrder(tc.GetOrderID())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldOrderNotFound, err.Error())
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
 	if marketOrder.IsClaimed {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidOrder, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if !bytes.Equal(marketOrder.OwnerAddress, sender) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if marketOrder.EndTime <= ctx.Block().GetTimestamp() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldOrderExpired, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	ownerAcc, err := m.GetExistingUserAccount(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, err.Error())
 		return transaction.Transaction_LoadAccountError, err
 	}
 
 	if marketOrder.RoyaltiesFixedDeposit > 0 {
 		err = ownerAcc.AddToBalance(marketOrder.RoyaltiesFixedDeposit, kdautils.KLVIdentifier, m.forkController.EnableSmartContracts())
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 			return transaction.Transaction_BalanceError, err
 		}
 
@@ -1037,11 +1086,13 @@ func (m *marketKapp) CancelOrder(sender []byte, tc *transaction.CancelMarketOrde
 			bidderAcc, err = m.GetExistingUserAccount(sender)
 		}
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, err.Error())
 			return transaction.Transaction_LoadAccountError, err
 		}
 
 		err = bidderAcc.AddToBalance(marketOrder.CurrentBid, marketOrder.CurrencyID, m.forkController.EnableSmartContracts())
 		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 			return transaction.Transaction_BalanceError, err
 		}
 
@@ -1071,11 +1122,13 @@ func (m *marketKapp) CancelOrder(sender []byte, tc *transaction.CancelMarketOrde
 
 	data, err := marketKapp.SubInternalKDA(marketOrder.CollectionID, marketOrder.AssetID)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 		return transaction.Transaction_BalanceError, err
 	}
 
 	err = ownerAcc.AddInternalKDA(marketOrder.CollectionID, marketOrder.AssetID, data)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 		return transaction.Transaction_AssetError, err
 	}
 
@@ -1101,6 +1154,7 @@ func (m *marketKapp) CancelOrder(sender []byte, tc *transaction.CancelMarketOrde
 
 	err = m.SetMarketOrder(marketKapp, marketOrder)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 		return transaction.Transaction_SetMarketOrderErr, err
 	}
 
@@ -1121,12 +1175,14 @@ func (m *marketKapp) CreateMarketplace(sender []byte, tc *transaction.CreateMark
 	if tc.GetName() == nil ||
 		!utf8.Valid(tc.GetName()) ||
 		len(tc.GetName()) > core.MaxNameSize {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidName, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	referralAddress := sender
 	if len(tc.GetReferralAddress()) > 0 {
 		if len(tc.GetReferralAddress()) != m.pubkeyConv.Len() {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidToAddress, common.ErrInvalidValue.Error())
 			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 
@@ -1134,6 +1190,7 @@ func (m *marketKapp) CreateMarketplace(sender []byte, tc *transaction.CreateMark
 	}
 
 	if tc.GetReferralPercentage() > core.HundredPercent {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -1141,6 +1198,7 @@ func (m *marketKapp) CreateMarketplace(sender []byte, tc *transaction.CreateMark
 
 	marketplaceKapp, _, err := m.GetMarketplace(marketplaceID)
 	if err != nil && !errors.Is(err, common.ErrNotFoundInKApp) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 		return transaction.Transaction_KeyConflict, err
 	}
 
@@ -1154,6 +1212,7 @@ func (m *marketKapp) CreateMarketplace(sender []byte, tc *transaction.CreateMark
 
 	err = m.SetMarketplace(marketplaceKapp, marketplace)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
@@ -1176,25 +1235,30 @@ func (m *marketKapp) ConfigMarketplace(sender []byte, tc *transaction.ConfigMark
 	ctx := m.KAppController.GetCurrentKAppContext()
 
 	if tc.GetReferralAddress() != nil && len(tc.GetReferralAddress()) != m.pubkeyConv.Len() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if tc.GetReferralPercentage() > core.HundredPercent {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	marketplaceKapp, marketplace, err := m.GetMarketplace(tc.GetMarketplaceID())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
 	if !bytes.Equal(marketplace.OwnerAddress, sender) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
 	if tc.GetName() != nil {
 		if !utf8.Valid(tc.GetName()) ||
 			len(tc.GetName()) > core.MaxNameSize {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidName, common.ErrInvalidValue.Error())
 			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 
@@ -1206,10 +1270,12 @@ func (m *marketKapp) ConfigMarketplace(sender []byte, tc *transaction.ConfigMark
 
 	err = m.SetMarketplace(marketplaceKapp, marketplace)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
 	if err := m.accountsCacher.UpdateKapp(marketplaceKapp); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 		return transaction.Transaction_SaveAccountError, err
 	}
 
