@@ -210,9 +210,17 @@ type KappContext interface {
 // SystemReceiptTypeStart marks the beginning of system receipt types (Debug, Warning, Error)
 const SystemReceiptTypeStart = 120
 
+// System receipt type offsets from SystemReceiptTypeStart
+const (
+	ReceiptTypeDebug   = SystemReceiptTypeStart + iota // 120
+	ReceiptTypeWarning                                 // 121
+	ReceiptTypeError                                   // 122
+)
+
 type ReceiptsContext interface {
 	Get() []*transaction.Transaction_Receipt
 	GetByType(receiptType int8) []*transaction.Transaction_Receipt
 	GetPreserved() []*transaction.Transaction_Receipt
 	Add(receipt *transaction.Transaction_Receipt)
+	AddError(contractID int, params ...string)
 }

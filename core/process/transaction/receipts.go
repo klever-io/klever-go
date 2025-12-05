@@ -45,9 +45,9 @@ const (
 
 // System receipt types - reserved range starting at kapp.SystemReceiptTypeStart
 const (
-	Debug   ReceiptType = kapp.SystemReceiptTypeStart + iota // diagnostic info on contract failures
-	Warning                                                  // warning messages
-	Error                                                    // error details
+	Debug   ReceiptType = ReceiptType(kapp.ReceiptTypeDebug)
+	Warning ReceiptType = ReceiptType(kapp.ReceiptTypeWarning)
+	Error   ReceiptType = ReceiptType(kapp.ReceiptTypeError)
 )
 
 var receiptTypeStrings = map[ReceiptType]string{

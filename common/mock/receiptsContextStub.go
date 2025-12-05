@@ -46,6 +46,16 @@ func (r *ReceiptsContextStub) GetPreserved() []*transaction.Transaction_Receipt 
 	return filtered
 }
 
+// AddError adds an error receipt with the given contract ID and parameters
+func (r *ReceiptsContextStub) AddError(contractID int, params ...string) {
+	data := make([][]byte, len(params)+1)
+	data[0] = []byte{byte(kapp.ReceiptTypeError), byte(contractID)}
+	for i, param := range params {
+		data[i+1] = []byte(param)
+	}
+	r.receipts = append(r.receipts, &transaction.Transaction_Receipt{Data: data})
+}
+
 // Add appends a receipt to the list
 func (r *ReceiptsContextStub) Add(receipt *transaction.Transaction_Receipt) {
 	r.receipts = append(r.receipts, receipt)

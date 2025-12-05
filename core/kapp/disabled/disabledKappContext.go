@@ -50,6 +50,15 @@ func (r *ReceiptSlice) GetPreserved() []*transaction.Transaction_Receipt {
 	return filtered
 }
 
+func (r *ReceiptSlice) AddError(contractID int, params ...string) {
+	data := make([][]byte, len(params)+1)
+	data[0] = []byte{byte(kapp.ReceiptTypeError), byte(contractID)}
+	for i, param := range params {
+		data[i+1] = []byte(param)
+	}
+	*r = append(*r, &transaction.Transaction_Receipt{Data: data})
+}
+
 func NewDisabledKappContext() kapp.KappContext {
 	receipts := make(ReceiptSlice, 0)
 	return &kappContext{

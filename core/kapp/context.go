@@ -65,6 +65,15 @@ func (r *ReceiptSlice) GetPreserved() []*transaction.Transaction_Receipt {
 	return filtered
 }
 
+func (r *ReceiptSlice) AddError(contractID int, params ...string) {
+	data := make([][]byte, len(params)+1)
+	data[0] = []byte{byte(ReceiptTypeError), byte(contractID)}
+	for i, param := range params {
+		data[i+1] = []byte(param)
+	}
+	*r = append(*r, &transaction.Transaction_Receipt{Data: data})
+}
+
 func NewKappContext(args ArgsNewKAppContext) KappContext {
 
 	// create empty TX if nil
