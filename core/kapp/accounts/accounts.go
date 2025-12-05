@@ -204,11 +204,13 @@ func (a *accountsKapp) validateAndLoadAccounts(sender []byte, tc *transaction.Tr
 
 	acntSrc, err := a.LoadUserAccount(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadSenderAccount, err.Error())
 		return nil, nil, transaction.Transaction_LoadAccountError, err
 	}
 
 	acntDst, err := a.LoadUserAccount(tc.GetToAddress())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadReceiverAccount, err.Error())
 		return nil, nil, transaction.Transaction_LoadAccountError, err
 	}
 
@@ -216,6 +218,7 @@ func (a *accountsKapp) validateAndLoadAccounts(sender []byte, tc *transaction.Tr
 }
 
 func (a *accountsKapp) loadKDA(kdaID []byte) ([]byte, []byte, *kapps.KDAData, transaction.Transaction_TXResultCode, error) {
+	ctx := a.KAppController.GetCurrentKAppContext()
 	parsedKDA := bytes.Split(kdaID, []byte(kapps.Sp))
 
 	assetID := parsedKDA[0]
@@ -225,12 +228,14 @@ func (a *accountsKapp) loadKDA(kdaID []byte) ([]byte, []byte, *kapps.KDAData, tr
 
 	_, kda, err := a.KAppController.GetKDAKApp().GetKDA(assetID)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return nil, nil, nil, transaction.Transaction_KAPPError, err
 	}
 
 	var internalID []byte
 	if len(parsedKDA) > 1 {
 		if !a.TokenTypeHasNonce(kda.AssetType) || len(parsedKDA) != 2 {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetID, common.ErrInvalidValue.Error())
 			return nil, nil, nil, transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 
@@ -688,6 +693,7 @@ func (a *accountsKapp) Freeze(sender []byte, tc *transaction.FreezeContract) (tr
 
 	ownerAcc, err := a.GetExistingUserAccount(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadSenderAccount, err.Error())
 		return transaction.Transaction_LoadAccountError, err
 	}
 
@@ -699,6 +705,7 @@ func (a *accountsKapp) Freeze(sender []byte, tc *transaction.FreezeContract) (tr
 
 	kdaKapp, kda, err := a.KAppController.GetKDAKApp().GetKDA(assetID)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
@@ -709,16 +716,19 @@ func (a *accountsKapp) Freeze(sender []byte, tc *transaction.FreezeContract) (tr
 
 	stakingKapp, staking, err := a.KAppController.GetKDAKApp().GetStaking(assetID)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldStakingError, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	userKDA, err := ownerAcc.GetUserKDA(assetID, nil, a.forkController.EnableSmartContracts())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_AssetError, err
 	}
 
 	gains, err := a.ClaimBalance(transaction.ClaimContract_StakingClaim, assetID, ctx.Block(), ownerAcc, staking, kda, userKDA)
 	if err != nil && !errors.Is(err, state.ErrClaimNotAvailable) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldClaimError, err.Error())
 		return transaction.Transaction_ClaimError, err
 	}
 
@@ -730,6 +740,7 @@ func (a *accountsKapp) Freeze(sender []byte, tc *transaction.FreezeContract) (tr
 
 	err = ownerAcc.SubFromBalance(value, assetID, a.forkController.EnableSmartContracts(), userKDA)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBalanceError, err.Error())
 		return transaction.Transaction_BalanceError, err
 	}
 
@@ -740,38 +751,46 @@ func (a *accountsKapp) Freeze(sender []byte, tc *transaction.FreezeContract) (tr
 
 	err = ownerAcc.Freeze(assetID, bucketID, value, ctx.Block().GetEpoch(), ctx.Block().GetTimestamp(), staking, userKDA, a.forkController.FixStakingBuckets())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldFreezeError, err.Error())
 		return transaction.Transaction_FreezeError, err
 	}
 
 	err = ownerAcc.SetUserKDA(assetID, nil, userKDA)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldKAppError, err.Error())
 		return transaction.Transaction_AssetError, err
 	}
 
 	if err := a.accountsCacher.UpdateUser(ownerAcc); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldSaveAccountError, err.Error())
 		return transaction.Transaction_SaveAccountError, err
 	}
 
 	err = a.updateFPRTotalStake(ctx.Block(), assetID, staking)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldStakingError, err.Error())
 		return transaction.Transaction_SetStakingErr, err
 	}
 
 	err = a.KAppController.GetKDAKApp().SetStaking(stakingKapp, assetID, staking)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldStakingError, err.Error())
 		return transaction.Transaction_SetStakingErr, err
 	}
 
 	if err := a.accountsCacher.UpdateKapp(stakingKapp); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldSaveAccountError, err.Error())
 		return transaction.Transaction_SaveAccountError, err
 	}
 
 	err = a.KAppController.GetKDAKApp().SetKDA(kdaKapp, assetID, kda)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldKAppError, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	if err := a.accountsCacher.UpdateKapp(kdaKapp); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldSaveAccountError, err.Error())
 		return transaction.Transaction_SaveAccountError, err
 	}
 
@@ -824,6 +843,7 @@ func (a *accountsKapp) Unfreeze(
 	// Retrieve owner account
 	ownerAcc, err := a.GetExistingUserAccount(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadSenderAccount, err.Error())
 		return transaction.Transaction_LoadAccountError, err
 	}
 
@@ -1175,6 +1195,7 @@ func (a *accountsKapp) Delegate(sender []byte, tc *transaction.DelegateContract)
 
 	ownerAcc, err := a.GetExistingUserAccount(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadSenderAccount, err.Error())
 		return transaction.Transaction_LoadAccountError, err
 	}
 
@@ -1295,6 +1316,7 @@ func (a *accountsKapp) Undelegate(sender []byte, tc *transaction.UndelegateContr
 
 	ownerAcc, err := a.GetExistingUserAccount(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadSenderAccount, err.Error())
 		return transaction.Transaction_LoadAccountError, err
 	}
 
@@ -1410,6 +1432,7 @@ func (a *accountsKapp) Withdraw(sender []byte, tc *transaction.WithdrawContract)
 
 	ownerAcc, err := a.GetExistingUserAccount(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadSenderAccount, err.Error())
 		return transaction.Transaction_LoadAccountError, err
 	}
 
@@ -1508,6 +1531,7 @@ func (a *accountsKapp) ClaimStaking(sender []byte, tc *transaction.ClaimContract
 
 	ownerAcc, err := a.GetExistingUserAccount(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadSenderAccount, err.Error())
 		return transaction.Transaction_LoadAccountError, err
 	}
 
@@ -1634,6 +1658,7 @@ func (a *accountsKapp) ClaimAllowance(sender []byte, tc *transaction.ClaimContra
 
 	ownerAcc, err := a.GetExistingUserAccount(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadSenderAccount, err.Error())
 		return transaction.Transaction_LoadAccountError, err
 	}
 
@@ -1840,6 +1865,7 @@ func (a *accountsKapp) UpdatePermission(sender []byte, tc *transaction.UpdateAcc
 
 	ownerAcc, err := a.GetExistingUserAccount(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadSenderAccount, err.Error())
 		return transaction.Transaction_LoadAccountError, err
 	}
 

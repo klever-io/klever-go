@@ -214,7 +214,9 @@ func (p *proposalKapp) validateNewParameters(params map[int32][]byte, controller
 	return nil
 }
 
-func (p *proposalKapp) checkStakingRequirements(ctx kapp.KappContext, staking *kapps.StakingData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+func (p *proposalKapp) checkStakingRequirements(staking *kapps.StakingData, sender []byte) (transaction.Transaction_TXResultCode, error) {
+	ctx := p.KAppController.GetCurrentKAppContext()
+
 	if staking.TotalStaked < p.KAppController.GetProposalController().GetParameterInt(kapps.EnumParameter_MinKFIStakedToEnableProposals) {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMinKFIStakedUnreached, process.ErrMinKFIStaked.Error())
 		return transaction.Transaction_MinKFIStakedUnreached, process.ErrMinKFIStaked
@@ -266,7 +268,7 @@ func (p *proposalKapp) Create(sender []byte, tc *transaction.ProposalContract) (
 	}
 
 	// Check staking requirements
-	if errCode, err := p.checkStakingRequirements(ctx, staking, sender); err != nil {
+	if errCode, err := p.checkStakingRequirements(staking, sender); err != nil {
 		return errCode, err
 	}
 
