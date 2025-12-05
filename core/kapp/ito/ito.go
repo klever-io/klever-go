@@ -1016,9 +1016,7 @@ func (i *itoKapp) Trigger(sender []byte, tc *transaction.ITOTriggerContract) (tr
 	return transaction.Transaction_Ok, nil
 }
 
-func (i *itoKapp) SetPrices(sender []byte, tc *transaction.SetITOPricesContract) (transaction.Transaction_TXResultCode, error) {
-	ctx := i.KAppController.GetCurrentKAppContext()
-
+func (i *itoKapp) validateSetPricesInput(ctx kapp.KappContext, tc *transaction.SetITOPricesContract) (transaction.Transaction_TXResultCode, error) {
 	if tc.GetPackInfo() == nil {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
@@ -1032,6 +1030,49 @@ func (i *itoKapp) SetPrices(sender []byte, tc *transaction.SetITOPricesContract)
 	if len(tc.GetPackInfo()) > core.MaxPacks {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	return transaction.Transaction_Ok, nil
+}
+
+func (i *itoKapp) processPackData(ctx kapp.KappContext, key string, packData *transaction.PackInfo) (*kapps.PackData, transaction.Transaction_TXResultCode, error) {
+	if len(packData.GetPacks()) == 0 || len(packData.GetPacks()) > core.MaxPackItems {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPacks, common.ErrInvalidValue.Error())
+		return nil, transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	// validate if provided pack asset exists
+	_, _, err := i.KAppController.GetKDAKApp().GetKDA([]byte(key))
+	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
+		return nil, transaction.Transaction_KAPPError, err
+	}
+
+	newPacks := make([]*kapps.Pack, len(packData.Packs))
+	for idx, pack := range packData.Packs {
+		if pack.Amount <= 0 || pack.Price <= 0 {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPrice, common.ErrInvalidValue.Error())
+			return nil, transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+		}
+
+		newPacks[idx] = &kapps.Pack{
+			Amount: pack.Amount,
+			Price:  pack.Price,
+		}
+	}
+
+	sort.SliceStable(newPacks, func(i, j int) bool {
+		return newPacks[i].Amount < newPacks[j].Amount
+	})
+
+	return &kapps.PackData{Packs: newPacks}, transaction.Transaction_Ok, nil
+}
+
+func (i *itoKapp) SetPrices(sender []byte, tc *transaction.SetITOPricesContract) (transaction.Transaction_TXResultCode, error) {
+	ctx := i.KAppController.GetCurrentKAppContext()
+
+	if code, err := i.validateSetPricesInput(ctx, tc); err != nil {
+		return code, err
 	}
 
 	_, asset, err := i.KAppController.GetKDAKApp().GetKDA(tc.GetAssetID())
@@ -1058,54 +1099,24 @@ func (i *itoKapp) SetPrices(sender []byte, tc *transaction.SetITOPricesContract)
 	}
 
 	newPackData := make(map[string]*kapps.PackData, len(tc.GetPackInfo()))
-
 	for key, packData := range tc.GetPackInfo() {
-		if len(packData.GetPacks()) > core.MaxPackItems {
-			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		}
-
-		// validate if at least one pack for the given asset exists
-		if len(packData.GetPacks()) == 0 {
-			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		}
-
-		//validate if provided pack asset exists
-		_, _, err := i.KAppController.GetKDAKApp().GetKDA([]byte(key))
+		processedPack, code, err := i.processPackData(ctx, key, packData)
 		if err != nil {
-			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
-			return transaction.Transaction_KAPPError, err
+			return code, err
 		}
-
-		newPacks := make([]*kapps.Pack, len(packData.Packs))
-		for idx, pack := range packData.Packs {
-			if pack.Amount <= 0 || pack.Price <= 0 {
-				ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPrice, common.ErrInvalidValue.Error())
-				return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-			}
-
-			newPacks[idx] = &kapps.Pack{
-				Amount: pack.Amount,
-				Price:  pack.Price,
-			}
-		}
-
-		sort.SliceStable(newPacks, func(i, j int) bool {
-			return newPacks[i].Amount < newPacks[j].Amount
-		})
-
-		newPackData[key] = &kapps.PackData{Packs: newPacks}
+		newPackData[key] = processedPack
 	}
 
 	ito.PackData = newPackData
 
 	err = i.SetITO(itoKapp, tc.GetAssetID(), ito)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, err.Error())
 		return transaction.Transaction_ITOKAPPError, err
 	}
 
 	if err := i.accountsCacher.UpdateKapp(itoKapp); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldSaveAccountError, err.Error())
 		return transaction.Transaction_SaveAccountError, err
 	}
 

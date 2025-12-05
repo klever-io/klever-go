@@ -112,6 +112,7 @@ const (
 	ErrFieldMaxDepositKDAsExceeded   = "MaxDepositKDAsExceeded"
 
 	// ITO/Market errors
+	ErrFieldInvalidPacks         = "InvalidPacks"
 	ErrFieldInvalidPrice         = "InvalidPrice"
 	ErrFieldPriceBelowMinimum    = "PriceBelowMinimum"
 	ErrFieldInvalidOrder         = "InvalidOrder"
