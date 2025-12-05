@@ -24,6 +24,28 @@ func (r *ReceiptsContextStub) Get() []*transaction.Transaction_Receipt {
 	return r.receipts
 }
 
+// GetByType returns receipts that match the given type
+func (r *ReceiptsContextStub) GetByType(receiptType int8) []*transaction.Transaction_Receipt {
+	var filtered []*transaction.Transaction_Receipt
+	for _, receipt := range r.receipts {
+		if len(receipt.Data) > 0 && len(receipt.Data[0]) > 0 && int8(receipt.Data[0][0]) == receiptType {
+			filtered = append(filtered, receipt)
+		}
+	}
+	return filtered
+}
+
+// GetPreserved returns system receipts (type >= kapp.SystemReceiptTypeStart) that should be preserved on TX failure
+func (r *ReceiptsContextStub) GetPreserved() []*transaction.Transaction_Receipt {
+	var filtered []*transaction.Transaction_Receipt
+	for _, receipt := range r.receipts {
+		if len(receipt.Data) > 0 && len(receipt.Data[0]) > 0 && receipt.Data[0][0] >= kapp.SystemReceiptTypeStart {
+			filtered = append(filtered, receipt)
+		}
+	}
+	return filtered
+}
+
 // Add appends a receipt to the list
 func (r *ReceiptsContextStub) Add(receipt *transaction.Transaction_Receipt) {
 	r.receipts = append(r.receipts, receipt)

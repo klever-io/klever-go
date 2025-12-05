@@ -45,6 +45,26 @@ func (r *ReceiptSlice) Get() []*transaction.Transaction_Receipt {
 	return append([]*transaction.Transaction_Receipt{}, *r...)
 }
 
+func (r *ReceiptSlice) GetByType(receiptType int8) []*transaction.Transaction_Receipt {
+	var filtered []*transaction.Transaction_Receipt
+	for _, receipt := range *r {
+		if len(receipt.Data) > 0 && len(receipt.Data[0]) > 0 && int8(receipt.Data[0][0]) == receiptType {
+			filtered = append(filtered, receipt)
+		}
+	}
+	return filtered
+}
+
+func (r *ReceiptSlice) GetPreserved() []*transaction.Transaction_Receipt {
+	var filtered []*transaction.Transaction_Receipt
+	for _, receipt := range *r {
+		if len(receipt.Data) > 0 && len(receipt.Data[0]) > 0 && receipt.Data[0][0] >= SystemReceiptTypeStart {
+			filtered = append(filtered, receipt)
+		}
+	}
+	return filtered
+}
+
 func NewKappContext(args ArgsNewKAppContext) KappContext {
 
 	// create empty TX if nil
