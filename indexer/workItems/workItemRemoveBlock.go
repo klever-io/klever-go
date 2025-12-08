@@ -39,12 +39,14 @@ func (wirb *itemRemoveBlock) Save() error {
 	// Step 1: Revert account balances to their previous state
 	err := wirb.indexer.RevertAccountBalances(blockTimestamp)
 	if err != nil {
+		log.Warn("itemRemoveBlock.Save could not revert account balances", "error", err.Error())
 		return err
 	}
 
 	// Step 2: Remove account history entries for this block
 	err = wirb.indexer.RemoveAccountsHistory(blockTimestamp)
 	if err != nil {
+		log.Warn("itemRemoveBlock.Save could not revert account history", "error", err.Error())
 		return err
 	}
 
@@ -52,6 +54,7 @@ func (wirb *itemRemoveBlock) Save() error {
 	if len(blk.TxHashes) > 0 {
 		err = wirb.indexer.RemoveTransactions(blk)
 		if err != nil {
+			log.Warn("itemRemoveBlock.Save could not remove block transactions", "error", err.Error())
 			return err
 		}
 	}
@@ -59,6 +62,7 @@ func (wirb *itemRemoveBlock) Save() error {
 	// Step 4: Remove block header
 	err = wirb.indexer.RemoveHeader(wirb.headerHandler)
 	if err != nil {
+		log.Warn("itemRemoveBlock.Save could not remove block header", "error", err.Error())
 		return err
 	}
 
