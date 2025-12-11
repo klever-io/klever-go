@@ -413,7 +413,7 @@ func (ei *elasticProcessor) RevertAccountBalances(blockTimestamp int64) error {
 	for _, accountInfo := range accounts {
 		err := ei.revertSingleAccountBalanceFromTrie(accountInfo.Address, accountInfo.Balance, accountInfo.FrozenBalance)
 		if err != nil {
-			log.Debug("RevertAccountBalances: failed to revert account",
+			log.Warn("RevertAccountBalances: failed to revert account",
 				"address", accountInfo.Address,
 				"error", err.Error())
 			continue
