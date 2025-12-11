@@ -76,7 +76,7 @@ func (a *kappAccount) SetStorage(key []byte, value []byte) error {
 	return a.dataTrieTracker.SaveKeyValue(key, value)
 }
 
-// Start -
+// StartProposalsKApp initializes or loads the proposal controller for the KApp account
 func (a *kappAccount) StartProposalsKApp(forks core.ForkController) (kapps.ActiveProposalController, error) {
 	marshalizer := marshal.NewProtoMarshalizer()
 
@@ -87,45 +87,45 @@ func (a *kappAccount) StartProposalsKApp(forks core.ForkController) (kapps.Activ
 
 	controllerBytes, err := a.dataTrieTracker.RetrieveValue(kdautils.ProposalControllerKey)
 	if err != nil || len(controllerBytes) == 0 {
-		proposalData, err := marshalizer.Marshal(initialProposal.ProposalController)
-		if err != nil {
-			return nil, err
+		proposalData, errMarshal := marshalizer.Marshal(initialProposal.ProposalController)
+		if errMarshal != nil {
+			return nil, errMarshal
 		}
 
-		err = a.dataTrieTracker.SaveKeyValue(kdautils.ProposalControllerKey, proposalData)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		current := &kapps.ProposalController{}
-
-		err = marshalizer.Unmarshal(current, controllerBytes)
-		if err != nil {
-			return nil, err
+		errSave := a.dataTrieTracker.SaveKeyValue(kdautils.ProposalControllerKey, proposalData)
+		if errSave != nil {
+			return nil, errSave
 		}
 
-		if len(initialProposal.ActiveParameters) > len(current.ActiveParameters) {
-			for key, v := range current.ActiveParameters {
-				initialProposal.ActiveParameters[key] = v
-			}
-
-			current.ActiveParameters = initialProposal.ActiveParameters
-
-			proposalData, err := marshalizer.Marshal(current)
-			if err != nil {
-				return nil, err
-			}
-
-			err = a.dataTrieTracker.SaveKeyValue(kdautils.ProposalControllerKey, proposalData)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		initialProposal.ProposalController = current
+		return initialProposal, nil
 	}
 
+	current := &kapps.ProposalController{}
+	if err = marshalizer.Unmarshal(current, controllerBytes); err != nil {
+		return nil, err
+	}
+
+	if len(initialProposal.ActiveParameters) > len(current.ActiveParameters) {
+		if err = a.mergeAndSaveParameters(marshalizer, initialProposal.ActiveParameters, current); err != nil {
+			return nil, err
+		}
+	}
+
+	initialProposal.ProposalController = current
 	return initialProposal, nil
+}
+
+func (a *kappAccount) mergeAndSaveParameters(marshalizer marshal.Marshalizer, initialParams map[int32]*kapps.Parameter, current *kapps.ProposalController) error {
+	for key, v := range current.ActiveParameters {
+		initialParams[key] = v
+	}
+	current.ActiveParameters = initialParams
+
+	proposalData, err := marshalizer.Marshal(current)
+	if err != nil {
+		return err
+	}
+	return a.dataTrieTracker.SaveKeyValue(kdautils.ProposalControllerKey, proposalData)
 }
 
 // AddInternalKDA adds new internal KDA to kapp
