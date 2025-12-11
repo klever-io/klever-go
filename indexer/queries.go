@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/klever-io/klever-go/indexer/templates"
 )
@@ -27,7 +28,7 @@ func prepareHashesForBulkRemove(hashes []string) templates.Object {
 	}
 }
 
-func prepareTimestampForBulkRemove(timestamp int64) templates.Object {
+func prepareTimestampForBulkRemove(timestamp time.Duration) templates.Object {
 	return templates.Object{
 		"query": templates.Object{
 			"term": templates.Object{

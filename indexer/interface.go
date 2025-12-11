@@ -3,6 +3,7 @@ package indexer
 import (
 	"bytes"
 	"context"
+	"time"
 
 	"github.com/klever-io/klever-go/core/kapp"
 	nodeData "github.com/klever-io/klever-go/data"
@@ -44,7 +45,7 @@ type DatabaseClientHandler interface {
 	DoRequest(req *esapi.IndexRequest) error
 	DoBulkRequest(ctx context.Context, buff *bytes.Buffer, index string) error
 	DoBulkRemove(index string, hashes []string) error
-	DoBulkRemoveByTimestamp(index string, timestamp int64) error
+	DoBulkRemoveByTimestamp(index string, timestamp time.Duration) error
 	DoMultiGet(query templates.Object, index string) (templates.Object, error)
 	DoSearch(index string, body *bytes.Buffer) (templates.Object, error)
 	DoUpdate(index string, id string, body *bytes.Buffer) error

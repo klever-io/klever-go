@@ -10,7 +10,6 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/elastic/go-elasticsearch/v8/esapi"
 	"github.com/klever-io/klever-go/common"
@@ -368,7 +367,7 @@ func (ei *elasticProcessor) RemoveAccountsHistory(blockTimestamp int64) error {
 		return nil
 	}
 
-	return ei.elasticClient.DoBulkRemoveByTimestamp(accountsHistoryIndex, blockTimestamp*1000)
+	return ei.elasticClient.DoBulkRemoveByTimestamp(accountsHistoryIndex, toMilliseconds(blockTimestamp))
 }
 
 // RevertAccountBalances reverts the accounts index to the current state from the account trie
@@ -381,7 +380,7 @@ func (ei *elasticProcessor) RevertAccountBalances(blockTimestamp int64) error {
 	query := templates.Object{
 		"query": templates.Object{
 			"term": templates.Object{
-				"updatedAt": time.Duration(blockTimestamp * 1000),
+				"updatedAt": toMilliseconds(blockTimestamp),
 			},
 		},
 		"size":    revertAccountBatchSize,
@@ -1709,8 +1708,8 @@ func (ei *elasticProcessor) buildAccountInfo(userAccount *data.Account, blockTim
 		UnfrozenBalance: calculateUnfrozenBalance(userKDA.Buckets),
 		Allowance:       ei.getAllowanceWithPendingRewards(userAccount.UserAccount),
 		Permissions:     permissions,
-		Timestamp:       time.Duration(blockTimestamp * 1000),
-		UpdatedAt:       time.Duration(blockTimestamp * 1000),
+		Timestamp:       toMilliseconds(blockTimestamp),
+		UpdatedAt:       toMilliseconds(blockTimestamp),
 		CodeHash:        hex.EncodeToString(userAccount.UserAccount.GetCodeHash()),
 		CodeMetadata:    hex.EncodeToString(userAccount.UserAccount.GetCodeMetadata()),
 		Foundation:      false,
@@ -1730,7 +1729,7 @@ func (ei *elasticProcessor) saveAccountsHistory(blockTimestamp int64, accountsIn
 			Address:       address,
 			Balance:       userAccount.Balance,
 			FrozenBalance: userAccount.FrozenBalance,
-			Timestamp:     time.Duration(blockTimestamp * 1000),
+			Timestamp:     toMilliseconds(blockTimestamp),
 		}
 		addressKey := fmt.Sprintf("%s_%d", address, blockTimestamp)
 		accountsMap[addressKey] = acc

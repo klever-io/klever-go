@@ -3,6 +3,7 @@ package mock
 import (
 	"bytes"
 	"context"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v8/esapi"
 	"github.com/klever-io/klever-go/indexer/data"
@@ -16,7 +17,7 @@ type DatabaseWriterStub struct {
 	DoRequestCalled               func(req *esapi.IndexRequest) error
 	DoBulkRequestCalled           func(buff *bytes.Buffer, index string) error
 	DoBulkRemoveCalled            func(index string, hashes []string) error
-	DoBulkRemoveByTimestampCalled func(index string, timestamp int64) error
+	DoBulkRemoveByTimestampCalled func(index string, timestamp time.Duration) error
 	DoMultiGetCalled              func(query templates.Object, index string) (templates.Object, error)
 	DoSearchCalled                func(index string, body *bytes.Buffer) (templates.Object, error)
 	DoUpdateCalled                func(index string, id string, body *bytes.Buffer) error
@@ -78,7 +79,7 @@ func (dwm *DatabaseWriterStub) DoBulkRemove(index string, hashes []string) error
 }
 
 // DoBulkRemoveByTimestamp -
-func (dwm *DatabaseWriterStub) DoBulkRemoveByTimestamp(index string, timestamp int64) error {
+func (dwm *DatabaseWriterStub) DoBulkRemoveByTimestamp(index string, timestamp time.Duration) error {
 	if dwm.DoBulkRemoveByTimestampCalled != nil {
 		return dwm.DoBulkRemoveByTimestampCalled(index, timestamp)
 	}

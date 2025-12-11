@@ -2535,3 +2535,7 @@ func prepareDeleteAccountKDAInfo(acc *data.AccountKDA, index string) []byte {
 
 	return meta
 }
+
+func toMilliseconds(timestamp int64) time.Duration {
+	return time.Duration(timestamp * 1000)
+}

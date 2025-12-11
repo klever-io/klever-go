@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/esapi"
@@ -226,7 +227,7 @@ func (ec *elasticClient) DoBulkRemove(index string, hashes []string) error {
 }
 
 // DoBulkRemoveByTimestamp will do a bulk remove by timestamp to elasticsearch server
-func (ec *elasticClient) DoBulkRemoveByTimestamp(index string, timestamp int64) error {
+func (ec *elasticClient) DoBulkRemoveByTimestamp(index string, timestamp time.Duration) error {
 	obj := prepareTimestampForBulkRemove(timestamp)
 	body, err := encode(obj)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/esapi"
@@ -84,7 +85,7 @@ func TestDoBulkRemoveByTimestamp_PrepareQuery(t *testing.T) {
 	t.Parallel()
 
 	// Test the query preparation function used by DoBulkRemoveByTimestamp
-	timestamp := int64(123456789)
+	timestamp := time.Duration(123456789)
 	obj := prepareTimestampForBulkRemove(timestamp)
 
 	require.NotNil(t, obj)
@@ -363,7 +364,7 @@ func TestDoBulkRemoveByTimestamp_QueryStructure(t *testing.T) {
 	// Test different timestamp values
 	testCases := []struct {
 		name      string
-		timestamp int64
+		timestamp time.Duration
 	}{
 		{
 			name:      "Positive timestamp",

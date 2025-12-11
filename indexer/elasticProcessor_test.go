@@ -891,11 +891,11 @@ func TestRemoveAccountsHistory_Success(t *testing.T) {
 	timestamp := int64(12345)
 	bulkRemoveCalled := false
 	var capturedIndex string
-	var capturedTimestamp int64
+	var capturedTimestamp time.Duration
 
 	args := createMockElasticProcessorArgs()
 	args.DBClient = &imock.DatabaseWriterStub{
-		DoBulkRemoveByTimestampCalled: func(index string, ts int64) error {
+		DoBulkRemoveByTimestampCalled: func(index string, ts time.Duration) error {
 			bulkRemoveCalled = true
 			capturedIndex = index
 			capturedTimestamp = ts
@@ -910,7 +910,7 @@ func TestRemoveAccountsHistory_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, bulkRemoveCalled)
 	require.Equal(t, accountsHistoryIndex, capturedIndex)
-	require.Equal(t, timestamp*1000, capturedTimestamp)
+	require.Equal(t, time.Duration(timestamp*1000), capturedTimestamp)
 }
 
 func TestRemoveAccountsHistory_BulkRemoveError(t *testing.T) {
@@ -922,10 +922,10 @@ func TestRemoveAccountsHistory_BulkRemoveError(t *testing.T) {
 
 	args := createMockElasticProcessorArgs()
 	args.DBClient = &imock.DatabaseWriterStub{
-		DoBulkRemoveByTimestampCalled: func(index string, ts int64) error {
+		DoBulkRemoveByTimestampCalled: func(index string, ts time.Duration) error {
 			bulkRemoveCalled = true
 			require.Equal(t, accountsHistoryIndex, index)
-			require.Equal(t, timestamp*1000, ts)
+			require.Equal(t, time.Duration(timestamp*1000), ts)
 			return expectedErr
 		},
 	}
@@ -961,11 +961,11 @@ func TestRemoveAccountsHistory_DifferentTimestamps(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			var capturedTimestamp int64
+			var capturedTimestamp time.Duration
 
 			args := createMockElasticProcessorArgs()
 			args.DBClient = &imock.DatabaseWriterStub{
-				DoBulkRemoveByTimestampCalled: func(index string, ts int64) error {
+				DoBulkRemoveByTimestampCalled: func(index string, ts time.Duration) error {
 					capturedTimestamp = ts
 					return nil
 				},
@@ -976,7 +976,7 @@ func TestRemoveAccountsHistory_DifferentTimestamps(t *testing.T) {
 
 			err = elasticProc.RemoveAccountsHistory(tc.timestamp)
 			require.NoError(t, err)
-			require.Equal(t, tc.timestamp*1000, capturedTimestamp)
+			require.Equal(t, time.Duration(tc.timestamp*1000), capturedTimestamp)
 		})
 	}
 }
@@ -990,7 +990,7 @@ func TestRemoveAccountsHistory_VerifyIndexParameter(t *testing.T) {
 
 	args := createMockElasticProcessorArgs()
 	args.DBClient = &imock.DatabaseWriterStub{
-		DoBulkRemoveByTimestampCalled: func(index string, ts int64) error {
+		DoBulkRemoveByTimestampCalled: func(index string, ts time.Duration) error {
 			callCount++
 			capturedIndexes = append(capturedIndexes, index)
 			return nil
