@@ -39,8 +39,8 @@ func CreateTableString(header []string, data []*LineData) (string, error) {
 	lastLineHadHR := false
 
 	for i := 0; i < len(data); i++ {
-		drawLine(builder, columnsWidths, data[i].Values)    //nolint:gosec // G602: bounds checked by loop condition
-		lastLineHadHR = data[i].HorizontalRuleAfter         //nolint:gosec // G602: bounds checked by loop condition
+		drawLine(builder, columnsWidths, data[i].Values) //nolint:gosec // G602: bounds checked by loop condition
+		lastLineHadHR = data[i].HorizontalRuleAfter      //nolint:gosec // G602: bounds checked by loop condition
 
 		if data[i].HorizontalRuleAfter { //nolint:gosec // G602: bounds checked by loop condition
 			drawHorizontalRule(builder, columnsWidths)
