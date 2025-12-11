@@ -31,8 +31,8 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 )
 
-const numDecimalsInFloatBalance = 10 //?
-const revertAccountBatchSize = 10_000
+const numDecimalsInFloatBalance = 10  // Number of decimals to use when storing balances as float64
+const revertAccountBatchSize = 10_000 // Elasticsearch max result window
 
 var ZeroAddressDecoded = "klv1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpgm89z"
 
