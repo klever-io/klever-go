@@ -105,6 +105,15 @@ func TestUpdatePool(t *testing.T) {
 		}
 		_ = kapp.SetAccountsCacher(cacher)
 
+		// Create mock KAppController
+		receipts := &mock.ReceiptsContextStub{}
+		kappContext := &mock.KAppContextStub{
+			ReceiptsValue: receipts,
+		}
+		controller := &mock.KappsControllerMock{}
+		controller.SetCurrentKAppContext(kappContext)
+		_ = kapp.SetKAppController(controller)
+
 		poolID := []byte("pool-id")
 		assetOwner := []byte("owner")
 		sender := []byte("sender")
@@ -138,6 +147,15 @@ func TestUpdatePool(t *testing.T) {
 		}
 		_ = kapp.SetAccountsCacher(cacher)
 
+		// Create mock KAppController
+		receipts := &mock.ReceiptsContextStub{}
+		kappContext := &mock.KAppContextStub{
+			ReceiptsValue: receipts,
+		}
+		controller := &mock.KappsControllerMock{}
+		controller.SetCurrentKAppContext(kappContext)
+		_ = kapp.SetKAppController(controller)
+
 		poolID := []byte("pool-id")
 		assetOwner := []byte("owner-address")
 		sender := []byte("different-sender")
@@ -170,6 +188,15 @@ func TestUpdatePool(t *testing.T) {
 			},
 		}
 		_ = kapp.SetAccountsCacher(cacher)
+
+		// Create mock KAppController
+		receipts := &mock.ReceiptsContextStub{}
+		kappContext := &mock.KAppContextStub{
+			ReceiptsValue: receipts,
+		}
+		controller := &mock.KappsControllerMock{}
+		controller.SetCurrentKAppContext(kappContext)
+		_ = kapp.SetKAppController(controller)
 
 		poolID := []byte("pool-id")
 		assetOwner := make([]byte, 32) // 32 bytes
@@ -205,6 +232,15 @@ func TestUpdatePool(t *testing.T) {
 			},
 		}
 		_ = kapp.SetAccountsCacher(cacher)
+
+		// Create mock KAppController
+		receipts := &mock.ReceiptsContextStub{}
+		kappContext := &mock.KAppContextStub{
+			ReceiptsValue: receipts,
+		}
+		controller := &mock.KappsControllerMock{}
+		controller.SetCurrentKAppContext(kappContext)
+		_ = kapp.SetKAppController(controller)
 
 		poolID := []byte("pool-id")
 		assetOwner := make([]byte, 32) // 32 bytes

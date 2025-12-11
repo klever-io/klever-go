@@ -5,7 +5,6 @@ import (
 
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data/block"
-	"github.com/klever-io/klever-go/data/transaction"
 )
 
 var _ kapp.KappContext = (*kappContext)(nil)
@@ -13,25 +12,15 @@ var _ kapp.KappContext = (*kappContext)(nil)
 type kappContext struct {
 	originalSender []byte
 	contractID     int
-	receipts       *ReceiptSlice
+	receipts       *kapp.ReceiptSlice
 	block          *block.Block
 	txHash         []byte
 	txNonce        uint64
 	returnData     [][]byte
 }
 
-type ReceiptSlice []*transaction.Transaction_Receipt
-
-func (r *ReceiptSlice) Add(receipt *transaction.Transaction_Receipt) {
-	*r = append(*r, receipt)
-}
-
-func (r *ReceiptSlice) Get() []*transaction.Transaction_Receipt {
-	return append([]*transaction.Transaction_Receipt{}, *r...)
-}
-
 func NewDisabledKappContext() kapp.KappContext {
-	receipts := make(ReceiptSlice, 0)
+	receipts := make(kapp.ReceiptSlice, 0)
 	return &kappContext{
 		originalSender: make([]byte, 0),
 		contractID:     0,
@@ -48,10 +37,6 @@ func (k *kappContext) OriginalSender() []byte {
 }
 
 func (k *kappContext) ContractID() int {
-	return 0
-}
-
-func (k *kappContext) ContractType() transaction.TXContract_ContractType {
 	return 0
 }
 
@@ -76,10 +61,6 @@ func (k *kappContext) IsScSimulation() bool {
 }
 
 func (k *kappContext) SetContractID(_ int) {
-	// intentionally empty - disabled implementation
-}
-
-func (k *kappContext) SetSender(_ []byte) {
 	// intentionally empty - disabled implementation
 }
 

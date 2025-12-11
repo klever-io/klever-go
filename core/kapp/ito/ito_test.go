@@ -51,6 +51,19 @@ func setupITOKapp(t *testing.T, cfg config.EnableEpochs) *itoKapp {
 	itoKapp, err := NewITOKApp(&itoArgs)
 	require.NoError(t, err)
 
+	// Set up a basic KAppController mock with context for error tracking
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+				Block: &block.Block{
+					Header: &block.BlockHeader{
+						Timestamp: 100,
+					},
+				},
+			})
+		},
+	})
+
 	return itoKapp
 }
 
@@ -452,6 +465,15 @@ func Test_Trigger_SetITOPrices_InvalidPriceShouldErr(t *testing.T) {
 	ito := &kapps.ITOData{}
 
 	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+				Block: &block.Block{
+					Header: &block.BlockHeader{
+						Timestamp: 100,
+					},
+				},
+			})
+		},
 		GetKDAKAppCalled: func() kapp.KDAKapp {
 			return &vmStub.KDAKappStub{
 				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
@@ -491,6 +513,15 @@ func Test_Trigger_SetITOPrices_ShouldWork(t *testing.T) {
 	ito := &kapps.ITOData{}
 
 	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+				Block: &block.Block{
+					Header: &block.BlockHeader{
+						Timestamp: 100,
+					},
+				},
+			})
+		},
 		GetKDAKAppCalled: func() kapp.KDAKapp {
 			return &vmStub.KDAKappStub{
 				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
@@ -2567,4 +2598,1052 @@ func Test_BuyITO_Retrieve_Account_To_Send_Percent_And_Fixed_Royalties(t *testing
 			require.Equal(t, tt.expectedErr, err)
 		})
 	}
+}
+
+// Tests for validateSetPricesInput
+
+func Test_validateSetPricesInput_NilPackInfo(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	tc := &transaction.SetITOPricesContract{
+		PackInfo: nil,
+	}
+
+	code, err := itoKapp.validateSetPricesInput(ctx, tc)
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_validateSetPricesInput_NilAssetID(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	tc := &transaction.SetITOPricesContract{
+		PackInfo: map[string]*transaction.PackInfo{
+			"KLV": {},
+		},
+		AssetID: nil,
+	}
+
+	code, err := itoKapp.validateSetPricesInput(ctx, tc)
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_AssetError, code)
+}
+
+func Test_validateSetPricesInput_ExceedMaxPacks(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	packInfo := make(map[string]*transaction.PackInfo)
+	for i := 0; i <= core.MaxPacks; i++ {
+		packInfo[fmt.Sprintf("ASSET-%d", i)] = &transaction.PackInfo{}
+	}
+
+	tc := &transaction.SetITOPricesContract{
+		PackInfo: packInfo,
+		AssetID:  []byte("ITO-ASSET"),
+	}
+
+	code, err := itoKapp.validateSetPricesInput(ctx, tc)
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_validateSetPricesInput_Success(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	tc := &transaction.SetITOPricesContract{
+		PackInfo: map[string]*transaction.PackInfo{
+			"KLV": {
+				Packs: []*transaction.PackItem{{Amount: 10, Price: 100}},
+			},
+		},
+		AssetID: []byte("ITO-ASSET"),
+	}
+
+	code, err := itoKapp.validateSetPricesInput(ctx, tc)
+	require.NoError(t, err)
+	assert.Equal(t, transaction.Transaction_Ok, code)
+}
+
+// Tests for processPackData
+
+func Test_processPackData_EmptyPacks(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	packData := &transaction.PackInfo{
+		Packs: []*transaction.PackItem{},
+	}
+
+	_, code, err := itoKapp.processPackData(ctx, "KLV", packData)
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_processPackData_ExceedMaxPackItems(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	packs := make([]*transaction.PackItem, core.MaxPackItems+1)
+	for i := range packs {
+		packs[i] = &transaction.PackItem{Amount: int64(i + 1), Price: 100}
+	}
+
+	packData := &transaction.PackInfo{
+		Packs: packs,
+	}
+
+	_, code, err := itoKapp.processPackData(ctx, "KLV", packData)
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_processPackData_AssetNotFound(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &vmStub.KDAKappStub{
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, nil, common.ErrAssetNotFound
+				},
+			}
+		},
+	})
+
+	packData := &transaction.PackInfo{
+		Packs: []*transaction.PackItem{{Amount: 10, Price: 100}},
+	}
+
+	_, code, err := itoKapp.processPackData(ctx, "INVALID-ASSET", packData)
+	require.Error(t, err)
+	assert.Equal(t, common.ErrAssetNotFound, err)
+	assert.Equal(t, transaction.Transaction_KAPPError, code)
+}
+
+func Test_processPackData_InvalidPackPrice(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &vmStub.KDAKappStub{
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, &kapps.KDAData{}, nil
+				},
+			}
+		},
+	})
+
+	packData := &transaction.PackInfo{
+		Packs: []*transaction.PackItem{{Amount: 10, Price: 0}},
+	}
+
+	_, code, err := itoKapp.processPackData(ctx, "KLV", packData)
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_processPackData_InvalidPackAmount(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &vmStub.KDAKappStub{
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, &kapps.KDAData{}, nil
+				},
+			}
+		},
+	})
+
+	packData := &transaction.PackInfo{
+		Packs: []*transaction.PackItem{{Amount: 0, Price: 100}},
+	}
+
+	_, code, err := itoKapp.processPackData(ctx, "KLV", packData)
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_processPackData_Success(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &vmStub.KDAKappStub{
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, &kapps.KDAData{}, nil
+				},
+			}
+		},
+	})
+
+	packData := &transaction.PackInfo{
+		Packs: []*transaction.PackItem{
+			{Amount: 20, Price: 200},
+			{Amount: 10, Price: 100},
+		},
+	}
+
+	result, code, err := itoKapp.processPackData(ctx, "KLV", packData)
+	require.NoError(t, err)
+	assert.Equal(t, transaction.Transaction_Ok, code)
+	require.NotNil(t, result)
+	// Verify packs are sorted by amount
+	assert.Equal(t, int64(10), result.Packs[0].Amount)
+	assert.Equal(t, int64(20), result.Packs[1].Amount)
+}
+
+// Tests for UpdateStatus
+
+func Test_UpdateStatus_NotOwner(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		Status: transaction.ITOTriggerContract_ActiveITO,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{}
+
+	code, err := itoKapp.UpdateStatus(triggerContract, nil, ito, asset, []byte("not-owner"))
+	require.Error(t, err)
+	assert.Equal(t, common.ErrAccNotOwner, err)
+	assert.Equal(t, transaction.Transaction_AccountNotOwner, code)
+}
+
+func Test_UpdateStatus_DefaultStatus(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		Status: transaction.ITOTriggerContract_DefaultITO,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{}
+
+	code, err := itoKapp.UpdateStatus(triggerContract, nil, ito, asset, []byte("owner"))
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_UpdateStatus_ActivateITO(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		Status: transaction.ITOTriggerContract_ActiveITO,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+		Roles:        []*kapps.RolesData{},
+	}
+
+	ito := &kapps.ITOData{
+		IsActive: false,
+	}
+
+	code, err := itoKapp.UpdateStatus(triggerContract, nil, ito, asset, []byte("owner"))
+	require.NoError(t, err)
+	assert.Equal(t, transaction.Transaction_Ok, code)
+	assert.True(t, ito.IsActive)
+	// Verify ITO role was added
+	assert.Len(t, asset.Roles, 1)
+	assert.True(t, asset.Roles[0].HasRoleMint)
+}
+
+func Test_UpdateStatus_ActivateITO_UpdateExistingRole(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		Status: transaction.ITOTriggerContract_ActiveITO,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+		Roles: []*kapps.RolesData{
+			{
+				Address:     kapps.ITOKAppAddress,
+				HasRoleMint: false,
+			},
+		},
+	}
+
+	ito := &kapps.ITOData{
+		IsActive: false,
+	}
+
+	code, err := itoKapp.UpdateStatus(triggerContract, nil, ito, asset, []byte("admin"))
+	require.NoError(t, err)
+	assert.Equal(t, transaction.Transaction_Ok, code)
+	assert.True(t, ito.IsActive)
+	// Verify ITO role was updated
+	assert.Len(t, asset.Roles, 1)
+	assert.True(t, asset.Roles[0].HasRoleMint)
+	assert.True(t, asset.Roles[0].HasRoleSetITOPrices)
+}
+
+func Test_UpdateStatus_PauseITO(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		Status: transaction.ITOTriggerContract_PausedITO,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+		Roles: []*kapps.RolesData{
+			{
+				Address:     kapps.ITOKAppAddress,
+				HasRoleMint: true,
+			},
+			{
+				Address:     []byte("other-address"),
+				HasRoleMint: true,
+			},
+		},
+	}
+
+	ito := &kapps.ITOData{
+		IsActive: true,
+	}
+
+	code, err := itoKapp.UpdateStatus(triggerContract, nil, ito, asset, []byte("owner"))
+	require.NoError(t, err)
+	assert.Equal(t, transaction.Transaction_Ok, code)
+	assert.False(t, ito.IsActive)
+	// Verify ITO role was removed
+	assert.Len(t, asset.Roles, 1)
+	assert.Equal(t, []byte("other-address"), asset.Roles[0].Address)
+}
+
+// Tests for UpdateReceiverAddress
+
+func Test_UpdateReceiverAddress_NotOwner(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		ReceiverAddress: makeAddress("receiver"),
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{}
+
+	code, err := itoKapp.UpdateReceiverAddress(triggerContract, ito, asset, []byte("not-owner"))
+	require.Error(t, err)
+	assert.Equal(t, common.ErrAccNotOwner, err)
+	assert.Equal(t, transaction.Transaction_AccountNotOwner, code)
+}
+
+func Test_UpdateReceiverAddress_InvalidAddressLength(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		ReceiverAddress: []byte("short"),
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{}
+
+	code, err := itoKapp.UpdateReceiverAddress(triggerContract, ito, asset, []byte("owner"))
+	require.Error(t, err)
+	assert.Equal(t, process.ErrInvalidRcvAddr, err)
+	assert.Equal(t, transaction.Transaction_AccountError, code)
+}
+
+func Test_UpdateReceiverAddress_Success(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	newReceiver := makeAddress("new-receiver")
+	triggerContract := &transaction.ITOTriggerContract{
+		ReceiverAddress: newReceiver,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{}
+
+	code, err := itoKapp.UpdateReceiverAddress(triggerContract, ito, asset, []byte("admin"))
+	require.NoError(t, err)
+	assert.Equal(t, transaction.Transaction_Ok, code)
+	assert.Equal(t, newReceiver, ito.ReceiverAddress)
+}
+
+// Tests for UpdateMaxAmount
+
+func Test_UpdateMaxAmount_NotOwner(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		MaxAmount: 1000,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{}
+
+	code, err := itoKapp.UpdateMaxAmount(triggerContract, ito, asset, []byte("not-owner"))
+	require.Error(t, err)
+	assert.Equal(t, common.ErrAccNotOwner, err)
+	assert.Equal(t, transaction.Transaction_AccountNotOwner, code)
+}
+
+func Test_UpdateMaxAmount_NegativeAmount(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		MaxAmount: -100,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{}
+
+	code, err := itoKapp.UpdateMaxAmount(triggerContract, ito, asset, []byte("owner"))
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_UpdateMaxAmount_LessThanMinted(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		MaxAmount: 50,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{
+		MintedAmount: 100,
+	}
+
+	code, err := itoKapp.UpdateMaxAmount(triggerContract, ito, asset, []byte("owner"))
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_UpdateMaxAmount_Success(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		MaxAmount: 1000,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{
+		MintedAmount: 50,
+	}
+
+	code, err := itoKapp.UpdateMaxAmount(triggerContract, ito, asset, []byte("owner"))
+	require.NoError(t, err)
+	assert.Equal(t, transaction.Transaction_Ok, code)
+	assert.Equal(t, int64(1000), ito.MaxAmount)
+}
+
+// Tests for UpdateDefaultLimitPerAddress
+
+func Test_UpdateDefaultLimitPerAddress_NotOwner(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		DefaultLimitPerAddress: 100,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{}
+
+	code, err := itoKapp.UpdateDefaultLimitPerAddress(triggerContract, ito, asset, []byte("not-owner"))
+	require.Error(t, err)
+	assert.Equal(t, common.ErrAccNotOwner, err)
+	assert.Equal(t, transaction.Transaction_AccountNotOwner, code)
+}
+
+func Test_UpdateDefaultLimitPerAddress_NegativeLimit(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		DefaultLimitPerAddress: -100,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{}
+
+	code, err := itoKapp.UpdateDefaultLimitPerAddress(triggerContract, ito, asset, []byte("owner"))
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_UpdateDefaultLimitPerAddress_ExceedsMaxAmount(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		DefaultLimitPerAddress: 200,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{
+		MaxAmount: 100,
+	}
+
+	code, err := itoKapp.UpdateDefaultLimitPerAddress(triggerContract, ito, asset, []byte("owner"))
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_UpdateDefaultLimitPerAddress_Success(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		DefaultLimitPerAddress: 50,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{
+		MaxAmount: 100,
+	}
+
+	code, err := itoKapp.UpdateDefaultLimitPerAddress(triggerContract, ito, asset, []byte("admin"))
+	require.NoError(t, err)
+	assert.Equal(t, transaction.Transaction_Ok, code)
+	assert.Equal(t, int64(50), ito.DefaultLimitPerAddress)
+}
+
+// Tests for UpdateTimes
+
+func Test_UpdateTimes_NotOwner(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		StartTime: 200,
+		EndTime:   300,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{}
+
+	code, err := itoKapp.UpdateTimes(triggerContract, ito, asset, []byte("not-owner"))
+	require.Error(t, err)
+	assert.Equal(t, common.ErrAccNotOwner, err)
+	assert.Equal(t, transaction.Transaction_AccountNotOwner, code)
+}
+
+func Test_UpdateTimes_EndBeforeStart(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+		BlockCalled: func() *block.Block {
+			return &block.Block{Header: &block.BlockHeader{Timestamp: 100}}
+		},
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		StartTime: 300,
+		EndTime:   200,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{}
+
+	code, err := itoKapp.UpdateTimes(triggerContract, ito, asset, []byte("owner"))
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_UpdateTimes_StartInPast(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+		BlockCalled: func() *block.Block {
+			return &block.Block{Header: &block.BlockHeader{Timestamp: 500}}
+		},
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		StartTime: 200,
+		EndTime:   600,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{}
+
+	code, err := itoKapp.UpdateTimes(triggerContract, ito, asset, []byte("owner"))
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_UpdateTimes_EndInPast(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+		BlockCalled: func() *block.Block {
+			return &block.Block{Header: &block.BlockHeader{Timestamp: 500}}
+		},
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		StartTime: 501,
+		EndTime:   400,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{}
+
+	code, err := itoKapp.UpdateTimes(triggerContract, ito, asset, []byte("owner"))
+	require.Error(t, err)
+	assert.Equal(t, common.ErrInvalidValue, err)
+	assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+}
+
+func Test_UpdateTimes_Success(t *testing.T) {
+	itoKapp := setupITOKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &mock.ReceiptsContextStub{}
+	ctx := &mock.KAppContextStub{
+		ReceiptsCalled: func() kapp.ReceiptsContext {
+			return receiptsCtx
+		},
+		ContractIDCalled: func() int { return 1 },
+		BlockCalled: func() *block.Block {
+			return &block.Block{Header: &block.BlockHeader{Timestamp: 100}}
+		},
+	}
+
+	_ = itoKapp.SetKAppController(&vmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+	})
+
+	triggerContract := &transaction.ITOTriggerContract{
+		StartTime: 200,
+		EndTime:   300,
+	}
+
+	asset := &kapps.KDAData{
+		OwnerAddress: []byte("owner"),
+		AdminAddress: []byte("admin"),
+	}
+
+	ito := &kapps.ITOData{}
+
+	code, err := itoKapp.UpdateTimes(triggerContract, ito, asset, []byte("admin"))
+	require.NoError(t, err)
+	assert.Equal(t, transaction.Transaction_Ok, code)
+	assert.Equal(t, int64(200), ito.StartTime)
+	assert.Equal(t, int64(300), ito.EndTime)
 }

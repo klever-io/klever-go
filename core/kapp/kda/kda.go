@@ -232,19 +232,23 @@ func (k *kdaKapp) Burn(sender []byte, tc *transaction.AssetTriggerContract) (tra
 
 	if tc.GetTriggerType() == transaction.AssetTriggerContract_Wipe {
 		if !bytes.Equal(kda.OwnerAddress, sender) && !bytes.Equal(kda.AdminAddress, sender) {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 			return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 		}
 
 		if !kda.GetProperties().GetCanWipe() {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetCannotWipe, common.ErrAssetTriggerInvalid.Error())
 			return transaction.Transaction_AssetCantBeWiped, common.ErrAssetTriggerInvalid
 		}
 	}
 
 	if !kda.Properties.CanBurn {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetCannotBurn, common.ErrAssetTriggerInvalid.Error())
 		return transaction.Transaction_AssetCantBeBurned, common.ErrAssetTriggerInvalid
 	}
 
 	if len(tc.GetToAddress()) != k.pubkeyConv.Len() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidToAddress, process.ErrInvalidRcvAddr.Error())
 		return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
 	}
 
@@ -384,24 +388,29 @@ func (k *kdaKapp) Deposit(sender []byte, tc *transaction.DepositContract) (trans
 
 	assetID := tc.GetID()
 	if assetID == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetID, common.ErrInvalidAsset.Error())
 		return transaction.Transaction_AssetError, common.ErrInvalidAsset
 	}
 
 	if tc.GetAmount() <= 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, common.ErrInvalidValue.Error())
 		return transaction.Transaction_AmountInvalid, common.ErrInvalidValue
 	}
 
 	kdaKapp, kda, err := k.GetKDA(assetID)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return transaction.Transaction_KAPPError, err
 	}
 
 	role, err := kda.GetRoleByAddress(sender)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoleAddress, err.Error())
 		return transaction.Transaction_AssetError, err
 	}
 
 	if !role.HasRoleDeposit {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMissingDepositRole, common.ErrInvalidValue.Error())
 		return transaction.Transaction_AccountError, common.ErrInvalidValue
 	}
 
@@ -418,10 +427,12 @@ func (k *kdaKapp) Deposit(sender []byte, tc *transaction.DepositContract) (trans
 
 	stakingKapp, staking, err := k.GetStaking(assetID)
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidStakingType, err.Error())
 		return transaction.Transaction_AssetError, err
 	}
 
 	if staking.InterestType != kapps.StakingData_FPRI {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidStakingType, common.ErrAssetTypeInvalid.Error())
 		return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
 	}
 
@@ -497,6 +508,7 @@ func (k *kdaKapp) Deposit(sender []byte, tc *transaction.DepositContract) (trans
 
 	//Max kdas per epoch is 20
 	if len(newFPR.KDAS) >= core.MaxDepositKDAs && !bytes.Equal(currencyID, kdautils.KLVIdentifier) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMaxDepositKDAsExceeded, common.ErrMaxSupplyExceeded.Error())
 		return transaction.Transaction_MaxSupplyExceeded, common.ErrMaxSupplyExceeded
 	}
 

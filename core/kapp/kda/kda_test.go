@@ -1,6 +1,8 @@
 package kda_test
 
 import (
+	"testing"
+
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
@@ -18,6 +20,8 @@ import (
 	"github.com/klever-io/klever-go/storage/memorydb"
 	"github.com/klever-io/klever-go/storage/storageUnit"
 	"github.com/klever-io/klever-go/tools/marshal"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var sender = "sender"
@@ -143,4 +147,25 @@ func createMockControllers() (kapp.KAppController, error) {
 
 	kc.SetCurrentKAppContext(ctx)
 	return kc, nil
+}
+
+func TestKDAKapp_IsInterfaceNil(t *testing.T) {
+	t.Parallel()
+
+	kc, err := createMockControllers()
+	require.NoError(t, err)
+
+	kdaKapp := kc.GetKDAKApp()
+	assert.False(t, kdaKapp.IsInterfaceNil())
+}
+
+func TestKDAKapp_GetAccountsCacher(t *testing.T) {
+	t.Parallel()
+
+	kc, err := createMockControllers()
+	require.NoError(t, err)
+
+	kdaKapp := kc.GetKDAKApp()
+	cacher := kdaKapp.GetAccountsCacher()
+	assert.NotNil(t, cacher)
 }

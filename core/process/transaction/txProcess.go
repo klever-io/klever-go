@@ -351,8 +351,8 @@ func (txProc *txProcessor) ProcessTransaction(block *block.Block, txHash []byte,
 	tx.Block = block.GetNonce()
 
 	if kAppFeeErr != nil {
-		// reset receipt if TX fail
-		tx.Receipts = bkpReceipts
+		// reset receipt if TX fail, but preserve system receipts (Debug, Warning, Error) for diagnostics
+		tx.Receipts = append(bkpReceipts, ctx.Receipts().GetPreserved()...)
 
 		if kAppFee > 0 {
 			txProc.txFeeHandler.RevertTransactionFee(txHash, 0, kAppFee)
@@ -476,6 +476,7 @@ func (txProc *txProcessor) transferContract(ctx kapp.KappContext, tx *transactio
 	// check if address isPayable
 	if txProc.forkController.EnableSmartContracts() {
 		if err := txProc.validatePayable(tc, tx); err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAddressNotPayable, err.Error())
 			return err
 		}
 	}

@@ -64,6 +64,8 @@ func (k *kdaKapp) processTriggerType(
 	asset *kapps.KDAData,
 	txData [][]byte,
 ) (transaction.Transaction_TXResultCode, error) {
+	ctx := k.KAppController.GetCurrentKAppContext()
+
 	switch tc.GetTriggerType() {
 	case transaction.AssetTriggerContract_Mint:
 		return k.mintAsset(sender, tc)
@@ -101,6 +103,7 @@ func (k *kdaKapp) processTriggerType(
 	case transaction.AssetTriggerContract_ChangeAdmin:
 		return k.handleChangeAdmin(sender, tc, kdaKApp, assetID, asset)
 	default:
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidTriggerType, common.ErrAssetTriggerInvalid.Error())
 		return transaction.Transaction_AssetError, common.ErrAssetTriggerInvalid
 	}
 
@@ -130,11 +133,15 @@ func (k *kdaKapp) burnAsset(sender []byte, tc *transaction.AssetTriggerContract)
 }
 
 func (k *kdaKapp) handlePauseOrResume(sender []byte, tc *transaction.AssetTriggerContract, kdaKApp state.KAppAccountHandler, assetID [][]byte, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	ctx := k.KAppController.GetCurrentKAppContext()
+
 	if !k.isOwnerOrAdmin(sender, asset) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if tc.GetTriggerType() == transaction.AssetTriggerContract_Pause && !asset.Properties.CanPause {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetCannotPause, common.ErrAssetTriggerInvalid.Error())
 		return transaction.Transaction_AssetCantBePaused, common.ErrAssetTriggerInvalid
 	}
 
@@ -144,16 +151,21 @@ func (k *kdaKapp) handlePauseOrResume(sender []byte, tc *transaction.AssetTrigge
 }
 
 func (k *kdaKapp) changeOwner(sender []byte, tc *transaction.AssetTriggerContract, kdaKApp state.KAppAccountHandler, assetID [][]byte, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	ctx := k.KAppController.GetCurrentKAppContext()
+
 	if !asset.Properties.CanChangeOwner {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetOwnerCantBeChanged, common.ErrAssetTriggerInvalid.Error())
 		return transaction.Transaction_AssetOwnerCantBeChanged, common.ErrAssetTriggerInvalid
 	}
 
 	// admin cannot change owner
 	if !bytes.Equal(asset.OwnerAddress, sender) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if len(tc.GetToAddress()) != k.pubkeyConv.Len() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidToAddress, process.ErrInvalidRcvAddr.Error())
 		return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
 	}
 
@@ -166,13 +178,15 @@ func (k *kdaKapp) changeOwner(sender []byte, tc *transaction.AssetTriggerContrac
 	return k.updateKApp(kdaKApp, assetID[0], asset)
 }
 
-func (k *kdaKapp) checkCanAddRoles(asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+func (k *kdaKapp) checkCanAddRoles(ctx kapp.KappContext, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
 	if asset.GetProperties().GetCanAddRoles() {
 		return transaction.Transaction_Ok, nil
 	}
 	if k.forkController.EnableSmartContracts() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetCantAddRoles, common.ErrAssetTriggerInvalid.Error())
 		return transaction.Transaction_AssetCantAddRoles, common.ErrAssetTriggerInvalid
 	}
+	ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetCantAddRoles, common.ErrAssetTriggerInvalid.Error())
 	return transaction.Transaction_AssetCantBeBurned, common.ErrAssetTriggerInvalid
 }
 
@@ -183,18 +197,23 @@ func (k *kdaKapp) handleAddRole(
 	assetID [][]byte,
 	asset *kapps.KDAData,
 ) (transaction.Transaction_TXResultCode, error) {
+	ctx := k.KAppController.GetCurrentKAppContext()
+
 	if !k.isOwnerOrAdmin(sender, asset) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
-	if resCode, err := k.checkCanAddRoles(asset); err != nil {
+	if resCode, err := k.checkCanAddRoles(ctx, asset); err != nil {
 		return resCode, err
 	}
 
 	if len(tc.GetRole().GetAddress()) != k.pubkeyConv.Len() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoleAddress, process.ErrInvalidRcvAddr.Error())
 		return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
 	}
 	if k.forkController.EnableSmartContracts() && len(asset.Roles) > core.MaxAssetRoles {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldRoleLimitReached, common.ErrRoleLimitReached.Error())
 		return transaction.Transaction_IteratorLimitReached, common.ErrRoleLimitReached
 	}
 
@@ -227,7 +246,10 @@ func (k *kdaKapp) handleAddRole(
 }
 
 func (k *kdaKapp) handleRemoveRole(sender []byte, tc *transaction.AssetTriggerContract, kdaKApp state.KAppAccountHandler, assetID [][]byte, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	ctx := k.KAppController.GetCurrentKAppContext()
+
 	if !k.isOwnerOrAdmin(sender, asset) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
@@ -367,15 +389,20 @@ func (k *kdaKapp) updateMetadataV2(assetID [][]byte, txData [][]byte) (transacti
 }
 
 func (k *kdaKapp) handleStopNFTMint(sender []byte, kdaKApp state.KAppAccountHandler, assetID [][]byte, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	ctx := k.KAppController.GetCurrentKAppContext()
+
 	if !k.isOwnerOrAdmin(sender, asset) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if k.forkController.EnableSmartContracts() && !k.TokeTypeHasNonce(asset.AssetType) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrAssetTypeInvalid.Error())
 		return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
 	}
 
 	if asset.Attributes.IsNFTMintStopped {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldNFTMintStopped, common.ErrAssetTriggerInvalid.Error())
 		return transaction.Transaction_NFTMintStopped, common.ErrAssetTriggerInvalid
 	}
 
@@ -385,11 +412,15 @@ func (k *kdaKapp) handleStopNFTMint(sender []byte, kdaKApp state.KAppAccountHand
 }
 
 func (k *kdaKapp) handleStopRoyaltiesChange(sender []byte, kdaKApp state.KAppAccountHandler, assetID [][]byte, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	ctx := k.KAppController.GetCurrentKAppContext()
+
 	if !k.isOwnerOrAdmin(sender, asset) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if asset.Attributes.IsRoyaltiesChangeStopped {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldRoyaltiesChangeStopped, common.ErrAssetTriggerInvalid.Error())
 		return transaction.Transaction_RoyaltiesChangeStopped, common.ErrAssetTriggerInvalid
 	}
 
@@ -521,15 +552,20 @@ func (k *kdaKapp) updateStaking(sender []byte, tc *transaction.AssetTriggerContr
 }
 
 func (k *kdaKapp) updateRoyalties(sender []byte, tc *transaction.AssetTriggerContract, kdaKApp state.KAppAccountHandler, assetID [][]byte, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	ctx := k.KAppController.GetCurrentKAppContext()
+
 	if !k.isOwnerOrAdmin(sender, asset) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if asset.Attributes.IsRoyaltiesChangeStopped {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldRoyaltiesChangeStopped, common.ErrAssetTriggerInvalid.Error())
 		return transaction.Transaction_RoyaltiesChangeStopped, common.ErrAssetTriggerInvalid
 	}
 
 	if tc.GetRoyalties() == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
@@ -776,15 +812,20 @@ func (k *kdaKapp) updateKDAFeePool(sender []byte, tc *transaction.AssetTriggerCo
 }
 
 func (k *kdaKapp) handleStopNFTMetadataChange(sender []byte, tc *transaction.AssetTriggerContract, kdaKApp state.KAppAccountHandler, assetID [][]byte, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	ctx := k.KAppController.GetCurrentKAppContext()
+
 	if !k.isOwnerOrAdmin(sender, asset) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if k.forkController.EnableSmartContracts() && !k.TokeTypeHasNonce(asset.AssetType) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrAssetTypeInvalid.Error())
 		return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
 	}
 
 	if asset.Attributes.IsNFTMetadataChangeStopped {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldNFTMetadataChangeStopped, common.ErrAssetTriggerInvalid.Error())
 		return transaction.Transaction_NFTMetadataChangeStopped, common.ErrAssetTriggerInvalid
 	}
 
@@ -794,11 +835,15 @@ func (k *kdaKapp) handleStopNFTMetadataChange(sender []byte, tc *transaction.Ass
 }
 
 func (k *kdaKapp) handleChangeAdmin(sender []byte, tc *transaction.AssetTriggerContract, kdaKApp state.KAppAccountHandler, assetID [][]byte, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	ctx := k.KAppController.GetCurrentKAppContext()
+
 	if !k.isOwnerOrAdmin(sender, asset) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 
 	if len(tc.GetToAddress()) > 0 && len(tc.GetToAddress()) != k.pubkeyConv.Len() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidToAddress, process.ErrInvalidRcvAddr.Error())
 		return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
 	}
 

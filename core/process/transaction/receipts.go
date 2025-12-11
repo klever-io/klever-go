@@ -3,6 +3,7 @@ package transaction
 import (
 	"bytes"
 
+	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
@@ -42,6 +43,13 @@ const (
 	SetAccountName
 )
 
+// System receipt types - reserved range starting at kapp.SystemReceiptTypeStart
+const (
+	Debug   ReceiptType = ReceiptType(kapp.ReceiptTypeDebug)
+	Warning ReceiptType = ReceiptType(kapp.ReceiptTypeWarning)
+	Error   ReceiptType = ReceiptType(kapp.ReceiptTypeError)
+)
+
 var receiptTypeStrings = map[ReceiptType]string{
 	Transfer:                "Transfer",
 	CreateKDA:               "CreateKDA",
@@ -70,6 +78,9 @@ var receiptTypeStrings = map[ReceiptType]string{
 	CancelOrder:             "CancelOrder",
 	SCTrigger:               "SCTrigger",
 	SetAccountName:          "SetAccountName",
+	Debug:                   "Debug",
+	Warning:                 "Warning",
+	Error:                   "Error",
 }
 
 func NewReceipt(receiptType ReceiptType, contractID int, params ...[]byte) *transaction.Transaction_Receipt {
