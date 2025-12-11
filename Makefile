@@ -49,7 +49,7 @@ LOG=*:INFO
 endif
 
 GOCMD=go
-GORUN=$(GOCMD) run -exec $(ENV_FLAG) -ldflags="$(ldflags)"
+GORUN=$(ENV_FLAG) $(GOCMD) run -ldflags="$(ldflags)"
 GOBUILD=$(GOCMD) build -ldflags="$(ldflags) -extldflags '-Wl,-rpath,\$$ORIGIN,-rpath,@executable_path'"
 
 .DEFAULT_GOAL := help
