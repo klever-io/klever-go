@@ -324,13 +324,13 @@ func createValidatorsProvider(args *ProcessComponentsFactoryArgs, validatorStati
 
 	cacheRefreshDuration := time.Duration(cacheRefreshIntervalInSec) * time.Second
 	argVSP := peer.ArgValidatorsProvider{
-		NodesCoordinator:                  args.nodesCoordinator,
-		StartEpoch:                        args.startEpochNum,
-		EpochStartEventNotifier:           args.epochStartNotifier,
-		CacheRefreshIntervalDurationInSec: cacheRefreshDuration,
-		ValidatorStatistics:               validatorStatisticsProcessor,
-		MaxRating:                         args.maxRating,
-		PubKeyConverter:                   args.validatorPubkeyConverter,
+		NodesCoordinator:        args.nodesCoordinator,
+		StartEpoch:              args.startEpochNum,
+		EpochStartEventNotifier: args.epochStartNotifier,
+		CacheRefreshInterval:    cacheRefreshDuration,
+		ValidatorStatistics:     validatorStatisticsProcessor,
+		MaxRating:               args.maxRating,
+		PubKeyConverter:         args.validatorPubkeyConverter,
 	}
 
 	return peer.NewValidatorsProvider(argVSP)

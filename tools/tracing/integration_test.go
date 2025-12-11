@@ -207,13 +207,3 @@ func simulateConsensusSubslot(tracer *ZipkinTracer) {
 	tracer.Stop("consensus.endSlot.commitBlock")
 	tracer.Stop("consensus.subslot.EndSlot")
 }
-
-// Helper to split environment variable
-func splitEnv(env string) []string {
-	for i := 0; i < len(env); i++ {
-		if env[i] == '=' {
-			return []string{env[:i], env[i+1:]}
-		}
-	}
-	return []string{env}
-}

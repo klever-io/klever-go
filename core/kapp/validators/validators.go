@@ -1061,6 +1061,7 @@ func (v *validatorsKApp) getPendingRewards(app state.KAppAccountHandler, address
 		return 0, common.ErrInvalidValue
 	}
 
+	//nolint:gosec // G115: rewards value stored as uint64 but returned as int64 for API compatibility
 	return int64(binary.BigEndian.Uint64(data)), nil
 }
 

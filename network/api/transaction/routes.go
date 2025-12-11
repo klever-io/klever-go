@@ -155,10 +155,7 @@ func SendTX(c *gin.Context) {
 
 	skipValidateQuery := c.Query("skipValidate")
 
-	skipValidate := false
-	if skipValidateQuery == "true" {
-		skipValidate = true
-	}
+	skipValidate := skipValidateQuery == "true"
 
 	var gtx = sendTXRequest{}
 	err := c.ShouldBindJSON(&gtx)
@@ -174,7 +171,7 @@ func SendTX(c *gin.Context) {
 		return
 	}
 
-	var contracts []json.RawMessage = gtx.Contracts
+	contracts := gtx.Contracts
 	if len(contracts) == 0 && gtx.Contract != nil {
 		contracts = []json.RawMessage{gtx.Contract}
 	}
@@ -633,7 +630,7 @@ func SimulateTransaction(c *gin.Context) {
 		return
 	}
 
-	var contracts []json.RawMessage = gtx.Contracts
+	contracts := gtx.Contracts
 	if len(contracts) == 0 && gtx.Contract != nil {
 		contracts = []json.RawMessage{gtx.Contract}
 	}

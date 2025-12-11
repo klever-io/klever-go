@@ -19,13 +19,14 @@ func RoleListToKDARole(roles []string) *kapps.RolesData {
 	HasRoleDeposit := false
 	HasRoleTransfer := false
 	for _, scenRoles := range roles {
-		if scenRoles == "KDARoleMint" {
+		switch scenRoles {
+		case "KDARoleMint":
 			HasRoleMint = true
-		} else if scenRoles == "KDARoleSetITOPrices" {
+		case "KDARoleSetITOPrices":
 			HasRoleSetITOPrices = true
-		} else if scenRoles == "KDARoleDeposit" {
+		case "KDARoleDeposit":
 			HasRoleDeposit = true
-		} else if scenRoles == "KDARoleTransfer" {
+		case "KDARoleTransfer":
 			HasRoleTransfer = true
 		}
 	}

@@ -60,7 +60,7 @@ func NewEpochStartBlockProcessor(
 	if check.IfNil(hasher) {
 		return nil, common.ErrNilHasher
 	}
-	if !(consensusPercentage > 0 && consensusPercentage <= 100) {
+	if consensusPercentage <= 0 || consensusPercentage > 100 {
 		return nil, common.ErrInvalidConsensusThreshold
 	}
 	if minNumConnectedPeersConfig < minNumConnectedPeers {

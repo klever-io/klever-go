@@ -121,7 +121,7 @@ func (hbmi *heartbeatMessageInfo) computeUptimeDowntime(
 ) (time.Duration, time.Duration) {
 	durationSinceLastHeartbeat := crtTime.Sub(hbmi.timestamp)
 	insideActiveWindowAfterHeartheat := durationSinceLastHeartbeat <= hbmi.maxDurationPeerUnresponsive
-	noHeartbeatReceived := hbmi.timestamp == hbmi.genesisTime && !hbmi.isActive
+	noHeartbeatReceived := hbmi.timestamp.Equal(hbmi.genesisTime) && !hbmi.isActive
 	outSideActiveWindowAfterHeartbeat := durationSinceLastHeartbeat-lastDuration > hbmi.maxDurationPeerUnresponsive
 
 	uptime := time.Duration(0)

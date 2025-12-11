@@ -96,13 +96,13 @@ func (h *healthService) setupCancellation() context.Context {
 }
 
 func (h *healthService) monitorContinuously(ctx context.Context) {
-	intervalVerifyMemoryInSeconds := time.Duration(h.config.IntervalVerifyMemoryInSeconds) * time.Second
-	intervalDiagnoseComponentsInSeconds := time.Duration(h.config.IntervalDiagnoseComponentsInSeconds) * time.Second
-	intervalDiagnoseComponentsDeeplyInSeconds := time.Duration(h.config.IntervalDiagnoseComponentsDeeplyInSeconds) * time.Second
+	memoryCheckInterval := time.Duration(h.config.IntervalVerifyMemoryInSeconds) * time.Second
+	diagnoseInterval := time.Duration(h.config.IntervalDiagnoseComponentsInSeconds) * time.Second
+	diagnoseDeepInterval := time.Duration(h.config.IntervalDiagnoseComponentsDeeplyInSeconds) * time.Second
 
-	chanMonitorMemory := h.clock.after(intervalVerifyMemoryInSeconds)
-	chanDiagnoseComponents := h.clock.after(intervalDiagnoseComponentsInSeconds)
-	chanDiagnoseComponentsDeeply := h.clock.after(intervalDiagnoseComponentsDeeplyInSeconds)
+	chanMonitorMemory := h.clock.after(memoryCheckInterval)
+	chanDiagnoseComponents := h.clock.after(diagnoseInterval)
+	chanDiagnoseComponentsDeeply := h.clock.after(diagnoseDeepInterval)
 
 	for {
 		h.onMonitorContinuouslyBeginIteration()
@@ -110,13 +110,13 @@ func (h *healthService) monitorContinuously(ctx context.Context) {
 		select {
 		case <-chanMonitorMemory:
 			h.monitorMemory()
-			chanMonitorMemory = h.clock.after(intervalVerifyMemoryInSeconds)
+			chanMonitorMemory = h.clock.after(memoryCheckInterval)
 		case <-chanDiagnoseComponents:
 			h.diagnoseComponents(false)
-			chanDiagnoseComponents = h.clock.after(intervalDiagnoseComponentsInSeconds)
+			chanDiagnoseComponents = h.clock.after(diagnoseInterval)
 		case <-chanDiagnoseComponentsDeeply:
 			h.diagnoseComponents(true)
-			chanDiagnoseComponentsDeeply = h.clock.after(intervalDiagnoseComponentsDeeplyInSeconds)
+			chanDiagnoseComponentsDeeply = h.clock.after(diagnoseDeepInterval)
 		case <-ctx.Done():
 			log.Info("healthService.monitorContinuously() ended")
 			return

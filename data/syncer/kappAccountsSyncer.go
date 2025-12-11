@@ -100,11 +100,7 @@ func (k *kappAccountsSyncer) syncAccountDataTries(rootHashes [][]byte, ssh data.
 	wg.Add(len(rootHashes))
 
 	for _, rootHash := range rootHashes {
-		for {
-			if k.throttler.CanProcess() {
-				break
-			}
-
+		for !k.throttler.CanProcess() {
 			select {
 			case <-time.After(timeBetweenRetries):
 				continue

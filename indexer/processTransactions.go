@@ -69,14 +69,14 @@ func (tdp *txDatabaseProcessor) prepareTransactionsForDatabase(
 	txs := getTransactions(txPool)
 	for hash, tx := range txs {
 		txHash := hex.EncodeToString([]byte(hash))
-		dbTx := tdp.commonProcessor.BuildTransaction(tx.Transaction, txHash, header)
+		dbTx := tdp.BuildTransaction(tx.Transaction, txHash, header)
 		// always index sender balance change
 		ad.Accounts.Add(dbTx.Sender, &data.AlteredAccount{
 			IsSender:      true,
 			BalanceChange: true,
 		})
 
-		err := tdp.commonProcessor.DecodeContract(dbTx, tx.Transaction, ad.Accounts, ad.ITO, ad.SC, header.GetTimestamp())
+		err := tdp.DecodeContract(dbTx, tx.Transaction, ad.Accounts, ad.ITO, ad.SC, header.GetTimestamp())
 		if err != nil {
 			return nil, nil, nil, err
 		}

@@ -32,7 +32,7 @@ func (po *PointGT) Equal(p crypto.Point) (bool, error) {
 		return false, crypto.ErrInvalidParam
 	}
 
-	return po.GT.IsEqual(po2.GT), nil
+	return po.IsEqual(po2.GT), nil
 }
 
 // Clone returns a clone of the receiver.
@@ -41,7 +41,7 @@ func (po *PointGT) Clone() crypto.Point {
 		GT: &bls.GT{},
 	}
 
-	strPo := po.GT.GetString(16)
+	strPo := po.GetString(16)
 	err := po2.SetString(strPo, 16)
 	if err != nil {
 		log.Error("PointGT Clone", "error", err.Error())
@@ -53,7 +53,7 @@ func (po *PointGT) Clone() crypto.Point {
 // Null returns the neutral identity element.
 func (po *PointGT) Null() crypto.Point {
 	p := NewPointGT()
-	p.GT.Clear()
+	p.Clear()
 
 	return p
 }
@@ -182,12 +182,12 @@ func (po *PointGT) GetUnderlyingObj() interface{} {
 
 // MarshalBinary converts the point into its byte array representation
 func (po *PointGT) MarshalBinary() ([]byte, error) {
-	return po.GT.Serialize(), nil
+	return po.Serialize(), nil
 }
 
 // UnmarshalBinary reconstructs a point from its byte array representation
 func (po *PointGT) UnmarshalBinary(point []byte) error {
-	return po.GT.Deserialize(point)
+	return po.Deserialize(point)
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

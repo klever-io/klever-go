@@ -315,43 +315,43 @@ func CreateTestContractCallInputBuilder() *ContractCallInputBuilder {
 
 // WithRecipientAddr provides the recepient address of ContractCallInputBuilder
 func (contractInput *ContractCallInputBuilder) WithRecipientAddr(address []byte) *ContractCallInputBuilder {
-	contractInput.ContractCallInput.RecipientAddr = address
+	contractInput.RecipientAddr = address
 	return contractInput
 }
 
 // WithCallerAddr provides the caller address of ContractCallInputBuilder
 func (contractInput *ContractCallInputBuilder) WithCallerAddr(address []byte) *ContractCallInputBuilder {
-	contractInput.ContractCallInput.CallerAddr = address
+	contractInput.CallerAddr = address
 	return contractInput
 }
 
 // WithKDATransfers provides the kda values to the called contract
 func (contractInput *ContractCallInputBuilder) WithKDATransfers(values []*vmcommon.KDATransfer) *ContractCallInputBuilder {
-	contractInput.ContractCallInput.KDATransfers = values
+	contractInput.KDATransfers = values
 	return contractInput
 }
 
 // WithGasProvided provides the gas of ContractCallInputBuilder
 func (contractInput *ContractCallInputBuilder) WithGasProvided(gas uint64) *ContractCallInputBuilder {
-	contractInput.ContractCallInput.VMInput.GasProvided = gas
+	contractInput.GasProvided = gas
 	return contractInput
 }
 
 // WithFunction provides the function to be called for ContractCallInputBuilder
 func (contractInput *ContractCallInputBuilder) WithFunction(function string) *ContractCallInputBuilder {
-	contractInput.ContractCallInput.Function = function
+	contractInput.Function = function
 	return contractInput
 }
 
 // WithArguments provides the arguments to be called for ContractCallInputBuilder
 func (contractInput *ContractCallInputBuilder) WithArguments(arguments ...[]byte) *ContractCallInputBuilder {
-	contractInput.ContractCallInput.VMInput.Arguments = arguments
+	contractInput.Arguments = arguments
 	return contractInput
 }
 
 // WithCurrentTxHash provides the CurrentTxHash for ContractCallInputBuilder
 func (contractInput *ContractCallInputBuilder) WithCurrentTxHash(txHash []byte) *ContractCallInputBuilder {
-	contractInput.ContractCallInput.CurrentTxHash = txHash
+	contractInput.CurrentTxHash = txHash
 	return contractInput
 }
 
@@ -405,31 +405,31 @@ func CreateTestContractCreateInputBuilder() *ContractCreateInputBuilder {
 
 // WithGasProvided provides the GasProvided for a ContractCreateInputBuilder
 func (contractInput *ContractCreateInputBuilder) WithGasProvided(gas uint64) *ContractCreateInputBuilder {
-	contractInput.ContractCreateInput.GasProvided = gas
+	contractInput.GasProvided = gas
 	return contractInput
 }
 
 // WithContractCode provides the ContractCode for a ContractCreateInputBuilder
 func (contractInput *ContractCreateInputBuilder) WithContractCode(code []byte) *ContractCreateInputBuilder {
-	contractInput.ContractCreateInput.ContractCode = code
+	contractInput.ContractCode = code
 	return contractInput
 }
 
 // WithCallerAddr provides the CallerAddr for a ContractCreateInputBuilder
 func (contractInput *ContractCreateInputBuilder) WithCallerAddr(address []byte) *ContractCreateInputBuilder {
-	contractInput.ContractCreateInput.CallerAddr = address
+	contractInput.CallerAddr = address
 	return contractInput
 }
 
 // WithKDATransfers provides the CallValue for a ContractCreateInputBuilder
 func (contractInput *ContractCreateInputBuilder) WithKDATransfers(values []*vmcommon.KDATransfer) *ContractCreateInputBuilder {
-	contractInput.ContractCreateInput.KDATransfers = values
+	contractInput.KDATransfers = values
 	return contractInput
 }
 
 // WithArguments provides the Arguments for a ContractCreateInputBuilder
 func (contractInput *ContractCreateInputBuilder) WithArguments(arguments ...[]byte) *ContractCreateInputBuilder {
-	contractInput.ContractCreateInput.Arguments = arguments
+	contractInput.Arguments = arguments
 	return contractInput
 }
 

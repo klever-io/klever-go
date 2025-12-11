@@ -751,6 +751,7 @@ func (txs *transactions) createAndProcessBlock(
 		txsSize += int64(tx.Size())
 
 		txHashes = append(txHashes, txHash)
+		//nolint:gosec // G115: ResultCode enum values are always within uint32 range
 		txResults = append(txResults, uint32(tx.ResultCode))
 	}
 

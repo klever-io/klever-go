@@ -20,7 +20,7 @@ func NewPointG2() *PointG2 {
 	}
 
 	bpG2Str := baseG2()
-	err := point.G2.SetString(bpG2Str, 10)
+	err := point.SetString(bpG2Str, 10)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -40,7 +40,7 @@ func (po *PointG2) Equal(p crypto.Point) (bool, error) {
 		return false, crypto.ErrInvalidParam
 	}
 
-	return po.G2.IsEqual(po2.G2), nil
+	return po.IsEqual(po2.G2), nil
 }
 
 // Clone returns a clone of the receiver.
@@ -49,8 +49,8 @@ func (po *PointG2) Clone() crypto.Point {
 		G2: &bls.G2{},
 	}
 
-	strPo := po.G2.GetString(16)
-	err := po2.G2.SetString(strPo, 16)
+	strPo := po.GetString(16)
+	err := po2.SetString(strPo, 16)
 	if err != nil {
 		log.Error("PointG2 Clone", "error", err.Error())
 	}
@@ -64,7 +64,7 @@ func (po *PointG2) Null() crypto.Point {
 		G2: &bls.G2{},
 	}
 
-	p.G2.Clear()
+	p.Clear()
 
 	return p
 }
@@ -80,8 +80,8 @@ func (po *PointG2) Set(p crypto.Point) error {
 		return crypto.ErrInvalidParam
 	}
 
-	strPo := po1.G2.GetString(16)
-	return po.G2.SetString(strPo, 16)
+	strPo := po1.GetString(16)
+	return po.SetString(strPo, 16)
 }
 
 // Add returns the result of adding receiver with Point p given as parameter,
@@ -182,12 +182,12 @@ func (po *PointG2) GetUnderlyingObj() interface{} {
 
 // MarshalBinary converts the point into its byte array representation
 func (po *PointG2) MarshalBinary() ([]byte, error) {
-	return po.G2.Serialize(), nil
+	return po.Serialize(), nil
 }
 
 // UnmarshalBinary reconstructs a point from its byte array representation
 func (po *PointG2) UnmarshalBinary(point []byte) error {
-	return po.G2.Deserialize(point)
+	return po.Deserialize(point)
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

@@ -805,12 +805,12 @@ func (mp *metaProcessor) getProposalController() (state.KAppAccountHandler, *kap
 		return nil, nil, err
 	}
 
-	if len(initialProposal.ProposalController.ActiveParameters) > len(currentProposal.ActiveParameters) {
+	if len(initialProposal.ActiveParameters) > len(currentProposal.ActiveParameters) {
 		for key, v := range currentProposal.ActiveParameters {
-			initialProposal.ProposalController.ActiveParameters[key] = v
+			initialProposal.ActiveParameters[key] = v
 		}
 
-		currentProposal.ActiveParameters = initialProposal.ProposalController.ActiveParameters
+		currentProposal.ActiveParameters = initialProposal.ActiveParameters
 
 		proposalData, err := mp.marshalizer.Marshal(currentProposal)
 		if err != nil {

@@ -32,14 +32,14 @@ func NewProposalController(forks core.ForkController) (*activeProposalController
 func (a *activeProposalController) UpdateParameters(params map[int32]*Parameter) {
 	//After All processing, updates block activeParams instance
 	for key, p := range params {
-		param := a.ProposalController.ActiveParameters[key]
+		param := a.ActiveParameters[key]
 		if param == nil {
-			a.ProposalController.ActiveParameters[key] = p
+			a.ActiveParameters[key] = p
 			continue
 		}
 
 		param.Value = make([]byte, len(p.Value))
-		copy(a.ProposalController.ActiveParameters[key].Value, p.Value)
+		copy(a.ActiveParameters[key].Value, p.Value)
 	}
 }
 

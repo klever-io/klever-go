@@ -164,9 +164,9 @@ func convertMockWorldAccount(testAcct *Account) (state.UserAccountHandler, error
 
 	acct.Nonce = testAcct.Nonce
 	if testAcct.Balance != nil {
-		acct.UserAccountData.Balance = testAcct.Balance.Int64()
+		acct.Balance = testAcct.Balance.Int64()
 	}
-	acct.UserAccountData.Name = testAcct.Username
+	acct.Name = testAcct.Username
 	acct.SetCode(testAcct.Code)
 	acct.SetCodeMetadata(testAcct.CodeMetadata)
 	acct.OwnerAddress = testAcct.OwnerAddress

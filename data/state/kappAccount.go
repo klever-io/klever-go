@@ -104,12 +104,12 @@ func (a *kappAccount) StartProposalsKApp(forks core.ForkController) (kapps.Activ
 			return nil, err
 		}
 
-		if len(initialProposal.ProposalController.ActiveParameters) > len(current.ActiveParameters) {
+		if len(initialProposal.ActiveParameters) > len(current.ActiveParameters) {
 			for key, v := range current.ActiveParameters {
-				initialProposal.ProposalController.ActiveParameters[key] = v
+				initialProposal.ActiveParameters[key] = v
 			}
 
-			current.ActiveParameters = initialProposal.ProposalController.ActiveParameters
+			current.ActiveParameters = initialProposal.ActiveParameters
 
 			proposalData, err := marshalizer.Marshal(current)
 			if err != nil {

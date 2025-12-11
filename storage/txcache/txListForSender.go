@@ -285,6 +285,7 @@ func (listForSender *txListForSender) selectBatchTo(isFirstBatch bool, destinati
 			break
 		}
 
+		//nolint:gosec // G602: bounds checked above (copied == availableSpace breaks the loop)
 		destination[copied] = value
 		element = element.Next()
 		previousNonce = txNonce

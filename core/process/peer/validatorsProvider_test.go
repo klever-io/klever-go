@@ -61,7 +61,7 @@ func TestNewValidatorsProvider_WithNilStartOfEpochTriggerShouldErr(t *testing.T)
 
 func TestNewValidatorsProvider_WithNilRefresCacheIntervalInSecShouldErr(t *testing.T) {
 	arg := createDefaultValidatorsProviderArg()
-	arg.CacheRefreshIntervalDurationInSec = 0
+	arg.CacheRefreshInterval = 0
 	vp, err := NewValidatorsProvider(arg)
 
 	assert.Equal(t, common.ErrInvalidCacheRefreshIntervalInSec, err)
@@ -71,12 +71,12 @@ func TestNewValidatorsProvider_WithNilRefresCacheIntervalInSecShouldErr(t *testi
 func TestValidatorsProvider_Cancel_startRefreshProcess(t *testing.T) {
 	arg := createDefaultValidatorsProviderArg()
 
-	arg.CacheRefreshIntervalDurationInSec = 1 * time.Millisecond
+	arg.CacheRefreshInterval = 1 * time.Millisecond
 	vsp := validatorsProvider{
 		nodesCoordinator:             arg.NodesCoordinator,
 		validatorStatistics:          arg.ValidatorStatistics,
 		cache:                        make(map[string]*state.ValidatorApiResponse),
-		cacheRefreshIntervalDuration: arg.CacheRefreshIntervalDurationInSec,
+		cacheRefreshIntervalDuration: arg.CacheRefreshInterval,
 		refreshCache:                 make(chan uint32),
 		lock:                         sync.RWMutex{},
 	}
@@ -126,7 +126,7 @@ func TestValidatorsProvider_GetLatestValidators(t *testing.T) {
 
 	t.Run("should update cache if it's stale", func(t *testing.T) {
 		arg := createDefaultValidatorsProviderArg()
-		arg.CacheRefreshIntervalDurationInSec = time.Millisecond
+		arg.CacheRefreshInterval = time.Millisecond
 		arg.ValidatorStatistics = &mock.ValidatorStatisticsProcessorStub{
 			LastFinalizedRootHashCalled: func() []byte {
 				return []byte("rootHash")
@@ -263,10 +263,10 @@ func TestValidatorsProvider_Close(t *testing.T) {
 
 func createDefaultValidatorsProviderArg() ArgValidatorsProvider {
 	return ArgValidatorsProvider{
-		NodesCoordinator:                  &mock.NodesCoordinatorMock{},
-		StartEpoch:                        1,
-		EpochStartEventNotifier:           &mock.EpochStartNotifierStub{},
-		CacheRefreshIntervalDurationInSec: 1 * time.Millisecond,
+		NodesCoordinator:        &mock.NodesCoordinatorMock{},
+		StartEpoch:              1,
+		EpochStartEventNotifier: &mock.EpochStartNotifierStub{},
+		CacheRefreshInterval:    1 * time.Millisecond,
 		ValidatorStatistics: &mock.ValidatorStatisticsProcessorStub{
 			LastFinalizedRootHashCalled: func() []byte {
 				return []byte("rootHash")
