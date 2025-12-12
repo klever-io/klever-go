@@ -31,14 +31,14 @@ on:
 
 env:
   GO_VERSION: ${{ inputs.go_version }}
-  GOLANGCI_VERSION: ${{ vars.GOLANGCI_VERSION || 'v1.61.0' }}
+  GOLANGCI_VERSION: ${{ vars.GOLANGCI_VERSION || 'latest' }}
 
 jobs:
   setup-and-lint:
     uses: ./.github/workflows/go-setup-lint.yaml
     with:
       go-version: ${{ inputs.go_version }}
-      golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'v1.61.0' }}
+      golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'latest' }}
     secrets:
       git-user: ${{ secrets.GIT_USER }}
       git-pass: ${{ secrets.GIT_PASS }}
@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Go Setup
         uses: ./.github/actions/go-setup-action
@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Go Setup
         uses: ./.github/actions/go-setup-action
@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Go Setup
         uses: ./.github/actions/go-setup-action

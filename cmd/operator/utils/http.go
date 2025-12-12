@@ -20,7 +20,7 @@ func GetURL(url string, target interface{}) error {
 	if err != nil {
 		return err
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	return json.NewDecoder(r.Body).Decode(target)
 }
@@ -41,7 +41,7 @@ func PostURL(url, body string, headers []string, target interface{}) error {
 	if err != nil {
 		return err
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	if target != nil {
 		data, errRead := io.ReadAll(r.Body)

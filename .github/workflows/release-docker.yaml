@@ -34,7 +34,7 @@ jobs:
     uses: ./.github/workflows/go-setup-lint.yaml
     with:
       go-version: ${{ vars.GO_VERSION || '1.25' }}
-      golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'v1.64.8' }}
+      golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'latest' }}
     secrets:
       git-user: ${{ secrets.GIT_USER }}
       git-pass: ${{ secrets.GIT_PASS }}
@@ -65,7 +65,7 @@ jobs:
     steps:
       - name: Checkout repository
         if: ${{ matrix.enabled }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 

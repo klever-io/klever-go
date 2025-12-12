@@ -25,7 +25,7 @@ func csvSend(fileName string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	txs := []*txDATA{}
 
@@ -76,7 +76,7 @@ func writeCSV(fileName string, data []*txDATA) {
 		dumpTXs(data)
 		return
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	err = gocsv.Marshal(data, out)
 	if err != nil {
@@ -135,5 +135,5 @@ func posString(slice []string, element string) int {
 
 // containsString returns true iff slice contains element
 func containsString(slice []string, element string) bool {
-	return !(posString(slice, element) == -1)
+	return posString(slice, element) != -1
 }

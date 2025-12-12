@@ -281,7 +281,7 @@ func (ec *elasticClient) PolicyExists(policy string) bool {
 			"error performing request", err.Error())
 		return false
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	response := &esapi.Response{
 		StatusCode: res.StatusCode,
@@ -320,7 +320,7 @@ func (ec *elasticClient) aliasExists(alias string) bool {
 			"error performing request", err.Error())
 		return false
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	response := &esapi.Response{
 		StatusCode: res.StatusCode,
@@ -370,7 +370,7 @@ func (ec *elasticClient) createPolicy(policyName string, policy *bytes.Buffer) e
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	response := &esapi.Response{
 		StatusCode: res.StatusCode,

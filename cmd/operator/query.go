@@ -264,7 +264,7 @@ func formatAndDumpTX(tx *api.Transaction, hash string, block *api.Block) error {
 		}
 	}
 
-	err = cp.DecodeContract(txDecoded, tx.Transaction, nil, nil, nil, block.Block.GetTimestamp())
+	err = cp.DecodeContract(txDecoded, tx.Transaction, nil, nil, nil, block.GetTimestamp())
 	if err != nil {
 		return err
 	}

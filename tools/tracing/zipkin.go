@@ -634,7 +634,7 @@ func (z *ZipkinTracer) attemptSend(data []byte) error {
 
 	// Always drain and close body
 	_, _ = io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		return &httpError{statusCode: resp.StatusCode}

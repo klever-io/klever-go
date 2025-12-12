@@ -292,7 +292,7 @@ func kdaTransferToParentMock(instanceMock *mock.InstanceMock, config interface{}
 				nil,
 				nil)
 			if ret != 0 {
-				host.Runtime().FailExecution(fmt.Errorf("Transfer KDA failed"))
+				host.Runtime().FailExecution(fmt.Errorf("transfer KDA failed"))
 			}
 
 		}

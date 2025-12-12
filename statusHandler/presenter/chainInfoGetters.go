@@ -124,18 +124,9 @@ func (psh *PresenterStatusHandler) CalculateSynchronizationSpeed(numMilliseconds
 
 	numSyncedBlocks := uint64(0)
 	cumulatedTime := uint64(0)
-	lastIndex := len(psh.synchronizationSpeedHistory) - 1
 	millisecondsInASecond := uint64(1000)
-	for {
-		if lastIndex < 0 {
-			break
-		}
-		if cumulatedTime >= millisecondsInASecond {
-			break
-		}
-
+	for lastIndex := len(psh.synchronizationSpeedHistory) - 1; lastIndex >= 0 && cumulatedTime < millisecondsInASecond; lastIndex-- {
 		numSyncedBlocks += psh.synchronizationSpeedHistory[lastIndex]
-		lastIndex--
 		cumulatedTime += uint64(numMillisecondsRefreshTime) // #nosec G115
 	}
 	if cumulatedTime == 0 || numSyncedBlocks == 0 {

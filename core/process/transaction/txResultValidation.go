@@ -86,6 +86,7 @@ func (txProc *txProcessor) validateTransactionResult(
 //   - uint32: Transaction_Ok if no error, otherwise tx.ResultCode
 func (txProc *txProcessor) getActualResultCode(tx *transaction.Transaction, localErr error) uint32 {
 	if localErr != nil {
+		//nolint:gosec // G115: ResultCode enum values are always within uint32 range
 		return uint32(tx.ResultCode)
 	}
 	return uint32(transaction.Transaction_Ok)
@@ -234,6 +235,7 @@ func (txProc *txProcessor) validateToleranceBand(
 		"validatorTime", validatorExecTime,
 		"lowerBound", lowerBound)
 	tx.Result = transaction.Transaction_FAILED
+	//nolint:gosec // G115: expectedResultCode comes from block.TxResults which are valid enum values
 	tx.ResultCode = transaction.Transaction_TXResultCode(expectedResultCode)
 	return process.ErrTransactionResultMismatchAcceptLeader
 }

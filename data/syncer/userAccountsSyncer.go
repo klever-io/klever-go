@@ -106,11 +106,7 @@ func (u *userAccountsSyncer) syncAccountDataTries(rootHashes [][]byte, ssh data.
 	wg.Add(len(rootHashes))
 
 	for _, rootHash := range rootHashes {
-		for {
-			if u.throttler.CanProcess() {
-				break
-			}
-
+		for !u.throttler.CanProcess() {
 			select {
 			case <-time.After(timeBetweenRetries):
 				continue

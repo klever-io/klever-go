@@ -2,11 +2,10 @@ package main
 
 import (
 	"github.com/klever-io/klever-go/kvm/testcommon"
-	test "github.com/klever-io/klever-go/kvm/testcommon"
 )
 
 func main() {
-	callGraph := test.CreateGraphTestSyncCalls()
+	callGraph := testcommon.CreateGraphTestSyncCalls()
 
 	graphviz := testcommon.ToGraphviz(callGraph, true)
 	testcommon.CreateSvg("1 call-graph", graphviz)

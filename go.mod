@@ -9,6 +9,7 @@ require (
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btcutil v1.0.2
+	github.com/bugsnag/bugsnag-go/v2 v2.1.2
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0
 	github.com/dustinkirkland/golang-petname v0.0.0-20191129215211-8e5a1ed0cff0
 	github.com/elastic/go-elasticsearch/v8 v8.4.0
@@ -25,6 +26,7 @@ require (
 	github.com/herumi/bls-go-binary v1.28.2
 	github.com/ipfs/go-log/v2 v2.8.2
 	github.com/jbenet/goprocess v0.1.4
+	github.com/joho/godotenv v1.4.0
 	github.com/keygen-sh/machineid v1.1.1
 	github.com/klever-io/klever-go-logger v1.3.1
 	github.com/libp2p/go-libp2p v0.44.0
@@ -43,10 +45,16 @@ require (
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.11.1
+	github.com/swaggo/files v1.0.1
+	github.com/swaggo/gin-swagger v1.4.2
+	github.com/swaggo/swag v1.16.6
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	github.com/urfave/cli v1.22.10
 	github.com/whyrusleeping/timecache v0.0.0-20160911033111-cfcb2f1abfee
-	golang.org/x/term v0.35.0
+	golang.org/x/crypto v0.45.0
+	golang.org/x/term v0.37.0
+	golang.org/x/text v0.31.0
+	google.golang.org/protobuf v1.36.9
 	gopkg.in/go-playground/validator.v8 v8.18.2
 	gopkg.in/yaml.v2 v2.4.0
 )
@@ -188,26 +196,15 @@ require (
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	golang.org/x/arch v0.10.0 // indirect
 	golang.org/x/exp v0.0.0-20250911091902-df9299821621 // indirect
-	golang.org/x/mod v0.28.0 // indirect
-	golang.org/x/net v0.44.0 // indirect
-	golang.org/x/sync v0.17.0 // indirect
-	golang.org/x/telemetry v0.0.0-20250908211612-aef8a434d053 // indirect
+	golang.org/x/mod v0.29.0 // indirect
+	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/telemetry v0.0.0-20251008203120-078029d740a8 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	golang.org/x/tools v0.37.0 // indirect
+	golang.org/x/tools v0.38.0 // indirect
 	gonum.org/v1/gonum v0.16.0 // indirect
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
-	lukechampine.com/blake3 v1.4.1 // indirect
-)
-
-require (
-	github.com/bugsnag/bugsnag-go/v2 v2.1.2
-	github.com/joho/godotenv v1.4.0
-	github.com/swaggo/files v1.0.1
-	github.com/swaggo/gin-swagger v1.4.2
-	github.com/swaggo/swag v1.16.6
-	golang.org/x/crypto v0.42.0
-	golang.org/x/sys v0.36.0 // indirect
-	golang.org/x/text v0.29.0
-	google.golang.org/protobuf v1.36.9
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	lukechampine.com/blake3 v1.4.1 // indirect
 )

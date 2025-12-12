@@ -1605,7 +1605,7 @@ func (ei *elasticProcessor) SavePeersAccounts(validators []kapp.ValidatorAccount
 			TotalRewards:                        val.GetTotalRewards(),
 			Name:                                val.GetName(),
 			Logo:                                val.GetLogo(),
-			URIs:                                ei.commonProcessor.convertURIs(val.GetURIs()),
+			URIs:                                ei.convertURIs(val.GetURIs()),
 			List:                                val.GetStats().GetListString(),
 			Index:                               val.GetStats().GetIndex(),
 			AccumulatedFees:                     val.GetStats().GetAccumulatedFees(),
@@ -1665,7 +1665,7 @@ func (ei *elasticProcessor) SaveEpochInfo(epoch uint32, validators []kapp.Valida
 			TotalRewards:   val.GetTotalRewards(),
 			Name:           val.GetName(),
 			Logo:           val.GetLogo(),
-			URIs:           ei.commonProcessor.convertURIs(val.GetURIs()),
+			URIs:           ei.convertURIs(val.GetURIs()),
 		})
 	}
 

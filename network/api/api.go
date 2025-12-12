@@ -13,8 +13,6 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 
-	_ "github.com/klever-io/klever-go/docs"
-
 	indexer "github.com/klever-io/klever-go/indexer"
 	clientSocket "github.com/klever-io/klever-go/websocket"
 

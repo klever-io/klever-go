@@ -14,7 +14,7 @@ on:
       golangci-lint-version:
         required: false
         type: string
-        default: 'v1.64.8'
+        default: 'latest'
     secrets:
       git-user:
         required: false
@@ -32,7 +32,7 @@ jobs:
       lint-results: ${{ steps.lint.outputs.results }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -63,10 +63,10 @@ jobs:
       - name: Install and Run golangci-lint
         run: |
           curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin ${{ inputs.golangci-lint-version }}
-          golangci-lint run > golangci-report.xml || true
+          golangci-lint run --output.checkstyle.path=golangci-report.xml || true
 
       - name: Upload lint results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: lint-results
           path: golangci-report.xml

@@ -184,7 +184,7 @@ func generateAssetIdentifier() []byte {
 		if char >= '0' && char <= '9' {
 			hasDigit = true
 		}
-		id[i] = char
+		id[i] = char //nolint:gosec // G602: i is bounded by len(id) in loop condition
 	}
 
 	// Ensure at least one digit on token id

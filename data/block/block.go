@@ -305,7 +305,7 @@ func (mt *merkletree) GetRootHash() ([]byte, error) {
 
 	var nodes []node
 	for i := 0; i < len(mt.nodes); i += 2 {
-		var left, right int = i, i + 1
+		left, right := i, i+1
 		if i+1 == len(mt.nodes) {
 			right = i
 		}
@@ -353,7 +353,7 @@ func (b *Block) ComputeRootHash(hasher hashing.Hasher) ([]byte, error) {
 	var size = len(b.TxHashes)
 
 	for i := 0; i < size; i += 2 {
-		var left, right int = i, i + 1
+		left, right := i, i+1
 		if i+1 == size {
 			right = i
 		}

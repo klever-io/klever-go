@@ -53,8 +53,8 @@ func (lep *logsAndEventsProcessor) ExtractDataFromLogs(
 
 		txHashHexEncoded := hex.EncodeToString([]byte(txLog.TxHash))
 
-		events := txLog.LogHandler.GetLogEvents()
-		lep.processEvents(txHashHexEncoded, txLog.LogHandler.GetAddress(), events)
+		events := txLog.GetLogEvents()
+		lep.processEvents(txHashHexEncoded, txLog.GetAddress(), events)
 
 		tx, ok := lep.logsData.txsMap[txHashHexEncoded]
 		if ok {

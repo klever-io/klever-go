@@ -217,11 +217,11 @@ func getInt64Value(value interface{}) int64 {
 	case int64:
 		return v
 	case uint64:
-		return int64(v)
+		return int64(v) //nolint:gosec // G115: intentional conversion for metrics display
 	case int:
 		return int64(v)
 	case uint:
-		return int64(v)
+		return int64(v) //nolint:gosec // G115: intentional conversion for metrics display
 	default:
 		return 0
 	}

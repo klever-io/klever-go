@@ -31,8 +31,8 @@ func (sc *scProcessor) createVMDeployInput(
 		return nil, nil, err
 	}
 
-	vmCreateInput.VMInput.GasProvided = gasLimit
-	vmCreateInput.VMInput.Arguments = deployData.Arguments
+	vmCreateInput.GasProvided = gasLimit
+	vmCreateInput.Arguments = deployData.Arguments
 
 	return vmCreateInput, deployData.VMType, nil
 }
@@ -93,8 +93,8 @@ func (sc *scProcessor) createVMCallInput(
 		return nil, err
 	}
 
-	vmCallInput.VMInput.GasProvided = gasLimit
-	vmCallInput.VMInput.Arguments = arguments
+	vmCallInput.GasProvided = gasLimit
+	vmCallInput.Arguments = arguments
 
 	// set all initialized transfer inputs as executed
 	for _, kdaTransfer := range vmCallInput.KDATransfers {

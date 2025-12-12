@@ -11,7 +11,7 @@ jobs:
     uses: ./.github/workflows/go-setup-lint.yaml
     with:
       go-version: ${{ vars.GO_VERSION || '1.25' }}
-      golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'v1.64.8' }}
+      golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'latest' }}
     secrets:
       git-user: ${{ secrets.GIT_USER }}
       git-pass: ${{ secrets.GIT_PASS }}
@@ -21,7 +21,7 @@ jobs:
     runs-on: klever-pipe
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -36,7 +36,7 @@ jobs:
           make build-validator
           
       - name: Save artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: build
           path: |

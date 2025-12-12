@@ -13,7 +13,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     with:
       go-version: ${{ vars.GO_VERSION || '1.25' }}
-      golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'v1.64.8' }}
+      golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'latest' }}
     secrets:
       git-user: ${{ secrets.GIT_USER }}
       git-pass: ${{ secrets.GIT_PASS }}
@@ -23,7 +23,7 @@ jobs:
     runs-on: klever-pipe
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Go Setup
         uses: ./.github/actions/go-setup-action
@@ -83,7 +83,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: test-artifacts
           path: |
@@ -105,17 +105,17 @@ jobs:
       github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Download lint results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: lint-results
 
       - name: Download test results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: test-artifacts
 
@@ -124,7 +124,7 @@ jobs:
           service-key: ${{ secrets.TWINGATE_SERVICE_ACCOUNT }}
 
       - name: SonarQube Scan
-        uses: sonarsource/sonarqube-scan-action@v5.3.1
+        uses: sonarsource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -133,8 +133,8 @@ jobs:
             -Dsonar.projectKey=${{ github.event.repository.name }}
             -Dsonar.plugins.downloadOnlyRequired=true
             -Dsonar.exclusions=**/*.json,**/*.xml,**/*_test.go,**/*.pb.go,vendor/**,coverage.out,integrationTest/**
-            -Dsonar.coverage.exclusions=cmd/**
-            -Dsonar.test.inclusions="**/*_test.go"
+            -Dsonar.coverage.exclusions=cmd/**,**/testcommon/**,**/mock/**,**/vmhost/testInitializer*.go,**/scenarioexec/**
+            "-Dsonar.test.inclusions=**/*_test.go"
             -Dsonar.go.coverage.reportPaths=coverage.out
             -Dsonar.go.tests.reportPaths=test-output.json
             -Dsonar.go.golangci-lint.reportPaths=golangci-report.xml
@@ -142,7 +142,7 @@ jobs:
         if: github.event_name != 'pull_request'
 
       - name: SonarQube Go detailed scan PR
-        uses: sonarsource/sonarqube-scan-action@v5.3.1
+        uses: sonarsource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -151,8 +151,8 @@ jobs:
             -Dsonar.projectKey=${{ github.event.repository.name }}
             -Dsonar.plugins.downloadOnlyRequired=true
             -Dsonar.exclusions=**/*.json,**/*.xml,**/*_test.go,**/*.pb.go,vendor/**,coverage.out,integrationTest/**
-            -Dsonar.coverage.exclusions=cmd/**
-            -Dsonar.test.inclusions="**/*_test.go"
+            -Dsonar.coverage.exclusions=cmd/**,**/testcommon/**,**/mock/**,**/vmhost/testInitializer*.go,**/scenarioexec/**
+            "-Dsonar.test.inclusions=**/*_test.go"
             -Dsonar.go.coverage.reportPaths=coverage.out
             -Dsonar.go.tests.reportPaths=test-output.json
             -Dsonar.go.golangci-lint.reportPaths=golangci-report.xml
@@ -180,7 +180,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 

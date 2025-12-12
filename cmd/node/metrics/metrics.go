@@ -10,7 +10,6 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/appStatusPolling"
 	"github.com/klever-io/klever-go/factory"
-	mainFactory "github.com/klever-io/klever-go/factory"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/sharding"
 	"github.com/klever-io/klever-go/tools"
@@ -110,7 +109,7 @@ func SaveStringMetric(ash core.AppStatusHandler, key, value string) {
 func StartStatusPolling(
 	ash core.AppStatusHandler,
 	pollingInterval time.Duration,
-	networkComponents *mainFactory.NetworkComponents,
+	networkComponents *factory.NetworkComponents,
 	processComponents *factory.Process,
 ) error {
 	if ash == nil {
@@ -145,7 +144,7 @@ func StartStatusPolling(
 
 func registerPollConnectedPeers(
 	appStatusPollingHandler *appStatusPolling.AppStatusPolling,
-	networkComponents *mainFactory.NetworkComponents,
+	networkComponents *factory.NetworkComponents,
 ) error {
 
 	p2pMetricsHandlerFunc := func(appStatusHandler core.AppStatusHandler) {
@@ -163,7 +162,7 @@ func registerPollConnectedPeers(
 
 func computeNumConnectedPeers(
 	appStatusHandler core.AppStatusHandler,
-	networkComponents *mainFactory.NetworkComponents,
+	networkComponents *factory.NetworkComponents,
 ) {
 	numOfConnectedPeers := uint64(len(networkComponents.NetMessenger.ConnectedAddresses()))
 	appStatusHandler.SetUInt64Value(core.MetricNumConnectedPeers, numOfConnectedPeers)
@@ -171,7 +170,7 @@ func computeNumConnectedPeers(
 
 func computeConnectedPeers(
 	appStatusHandler core.AppStatusHandler,
-	networkComponents *mainFactory.NetworkComponents,
+	networkComponents *factory.NetworkComponents,
 ) {
 	peersInfo := networkComponents.NetMessenger.GetConnectedPeersInfo()
 
@@ -211,7 +210,7 @@ func mapToString(input map[uint32][]string) string {
 
 func setCurrentP2pNodeAddresses(
 	appStatusHandler core.AppStatusHandler,
-	networkComponents *mainFactory.NetworkComponents,
+	networkComponents *factory.NetworkComponents,
 ) {
 	appStatusHandler.SetStringValue(core.MetricP2PPeerInfo, sliceToString(networkComponents.NetMessenger.Addresses()))
 }

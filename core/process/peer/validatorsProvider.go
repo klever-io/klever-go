@@ -35,13 +35,13 @@ type validatorsProvider struct {
 
 // ArgValidatorsProvider contains all parameters needed for creating a validatorsProvider
 type ArgValidatorsProvider struct {
-	NodesCoordinator                  process.NodesCoordinator
-	EpochStartEventNotifier           eventNotifier.EpochStartEventNotifier
-	CacheRefreshIntervalDurationInSec time.Duration
-	ValidatorStatistics               process.ValidatorStatisticsProcessor
-	PubKeyConverter                   core.PubkeyConverter
-	StartEpoch                        uint32
-	MaxRating                         uint32
+	NodesCoordinator        process.NodesCoordinator
+	EpochStartEventNotifier eventNotifier.EpochStartEventNotifier
+	CacheRefreshInterval    time.Duration
+	ValidatorStatistics     process.ValidatorStatisticsProcessor
+	PubKeyConverter         core.PubkeyConverter
+	StartEpoch              uint32
+	MaxRating               uint32
 }
 
 // NewValidatorsProvider instantiates a new validatorsProvider structure responsible of keeping account of
@@ -65,7 +65,7 @@ func NewValidatorsProvider(
 	if args.MaxRating == 0 {
 		return nil, common.ErrMaxRatingZero
 	}
-	if args.CacheRefreshIntervalDurationInSec <= 0 {
+	if args.CacheRefreshInterval <= 0 {
 		return nil, common.ErrInvalidCacheRefreshIntervalInSec
 	}
 
@@ -75,7 +75,7 @@ func NewValidatorsProvider(
 		nodesCoordinator:             args.NodesCoordinator,
 		validatorStatistics:          args.ValidatorStatistics,
 		cache:                        make(map[string]*state.ValidatorApiResponse),
-		cacheRefreshIntervalDuration: args.CacheRefreshIntervalDurationInSec,
+		cacheRefreshIntervalDuration: args.CacheRefreshInterval,
 		refreshCache:                 make(chan uint32),
 		lock:                         sync.RWMutex{},
 		cancelFunc:                   cancelfunc,

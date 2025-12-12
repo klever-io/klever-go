@@ -80,11 +80,7 @@ func (bldb *baseLevelDb) RangeKeys(handler func(key []byte, value []byte) bool) 
 	}
 
 	iterator := bldb.db.NewIterator(nil, nil)
-	for {
-		if !iterator.Next() {
-			break
-		}
-
+	for iterator.Next() {
 		key := iterator.Key()
 		clonedKey := make([]byte, len(key))
 		copy(clonedKey, key)
@@ -93,8 +89,7 @@ func (bldb *baseLevelDb) RangeKeys(handler func(key []byte, value []byte) bool) 
 		clonedVal := make([]byte, len(val))
 		copy(clonedVal, val)
 
-		shouldContinue := handler(clonedKey, clonedVal)
-		if !shouldContinue {
+		if !handler(clonedKey, clonedVal) {
 			break
 		}
 	}

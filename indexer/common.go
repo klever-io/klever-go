@@ -263,6 +263,7 @@ func (cm *commonProcessor) receiptToMap(data [][]byte) (map[string]interface{}, 
 		m["marketplaceId"] = hex.EncodeToString(data[1])
 	case ptx.SignedBy:
 		for idx := 1; idx < len(data)-1; idx += 2 {
+			//nolint:gosec // G602: bounds checked by loop condition (idx < len(data)-1)
 			m["signer"] = cm.addressPubkeyConverter.Encode(data[idx])
 			m["weight"] = string(data[idx+1])
 		}
