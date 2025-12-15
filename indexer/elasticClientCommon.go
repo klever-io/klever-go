@@ -244,7 +244,7 @@ func parseResponse(res *esapi.Response, dest interface{}, errorHandler responseE
 			err := res.Body.Close()
 			if err != nil {
 				log.Warn("elasticClient.parseResponse",
-					"could not close body", err.Error())
+					ErrorCouldNotCloseBody, err.Error())
 			}
 		}
 	}()

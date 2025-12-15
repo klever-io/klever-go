@@ -22,6 +22,8 @@ type saveBlockIndexer interface {
 type removeIndexer interface {
 	RemoveHeader(header nodeData.HeaderHandler) error
 	RemoveTransactions(blk nodeData.HeaderHandler) error
+	RemoveAccountsHistory(blockTimestamp int64) error
+	RevertAccountBalances(blockTimestamp int64) error
 }
 
 type saveEpochInfo interface {

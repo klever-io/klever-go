@@ -33,6 +33,7 @@ type AccountInfo struct {
 	Allowance       int64         `json:"allowance"`
 	Permissions     []Permissions `json:"permissions"`
 	Timestamp       time.Duration `json:"timestamp"`
+	UpdatedAt       time.Duration `json:"updatedAt,omitempty"`
 	CodeHash        string        `json:"codeHash,omitempty"`
 	CodeMetadata    string        `json:"codeMetadata,omitempty"`
 	Foundation      bool          `json:"foundation,omitempty"`
@@ -165,4 +166,10 @@ type ValidatorInfo struct {
 	Name           string `json:"name"`
 	Logo           string `json:"logo"`
 	URIs           []*URI `json:"uris"`
+}
+
+type AccountBalanceInfo struct {
+	Address       string
+	Balance       int64
+	FrozenBalance int64
 }

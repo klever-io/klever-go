@@ -28,21 +28,41 @@ func (wirb *itemRemoveBlock) IsInterfaceNil() bool {
 
 // Save will remove a block and miniblocks from elasticsearch database
 func (wirb *itemRemoveBlock) Save() error {
-	err := wirb.indexer.RemoveHeader(wirb.headerHandler)
-	if err != nil {
-		log.Warn("itemRemoveBlock.Save could not remove block", "error", err.Error())
-		return err
-	}
-
 	blk, ok := wirb.headerHandler.(*block.Block)
 	if !ok {
 		log.Warn("elasticProcessor.RemoveTransactions body", "error", ErrBodyTypeAssertion.Error())
 		return ErrBodyTypeAssertion
 	}
 
-	err = wirb.indexer.RemoveTransactions(blk)
+	blockTimestamp := blk.GetTimestamp()
+
+	// Step 1: Revert account balances to their previous state
+	err := wirb.indexer.RevertAccountBalances(blockTimestamp)
 	if err != nil {
-		log.Warn("itemRemoveBlock.Save could not remove block transactions", "error", err.Error())
+		log.Warn("itemRemoveBlock.Save could not revert account balances", "error", err.Error())
+		return err
+	}
+
+	// Step 2: Remove account history entries for this block
+	err = wirb.indexer.RemoveAccountsHistory(blockTimestamp)
+	if err != nil {
+		log.Warn("itemRemoveBlock.Save could not revert account history", "error", err.Error())
+		return err
+	}
+
+	// Step 3: Remove transactions
+	if len(blk.TxHashes) > 0 {
+		err = wirb.indexer.RemoveTransactions(blk)
+		if err != nil {
+			log.Warn("itemRemoveBlock.Save could not remove block transactions", "error", err.Error())
+			return err
+		}
+	}
+
+	// Step 4: Remove block header
+	err = wirb.indexer.RemoveHeader(wirb.headerHandler)
+	if err != nil {
+		log.Warn("itemRemoveBlock.Save could not remove block header", "error", err.Error())
 		return err
 	}
 

@@ -23,6 +23,7 @@ import (
 	"github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/indexer/logsevents"
 	imock "github.com/klever-io/klever-go/indexer/mock"
+	"github.com/klever-io/klever-go/indexer/templates"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
 	"github.com/stretchr/testify/require"
@@ -59,7 +60,23 @@ func newTestElasticSearchDatabase(elasticsearchWriter DatabaseClientHandler, arg
 
 func createMockElasticProcessorArgs() ArgElasticProcessor {
 	return ArgElasticProcessor{
-		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
+		AddressPubkeyConverter: &mock.PubkeyConverterStub{
+			DecodeCalled: func(humanReadable string) ([]byte, error) {
+				// Simple mock that accepts klv1 addresses and returns the address as bytes
+				if len(humanReadable) > 4 && humanReadable[:4] == "klv1" {
+					// Return a deterministic byte array based on the address
+					return []byte(humanReadable), nil
+				}
+				return hex.DecodeString(humanReadable)
+			},
+			EncodeCalled: func(pkBytes []byte) string {
+				// Return as-is for our test addresses
+				return string(pkBytes)
+			},
+			LenCalled: func() int {
+				return 32
+			},
+		},
 		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
 		Hasher:                   &mock.HasherMock{},
 		Marshalizer:              &mock.MarshalizerMock{},
@@ -308,6 +325,695 @@ func TestDoBulkRequestLimit(t *testing.T) {
 
 		err := esDatabase.SaveTransactions(header, &indexer.Pool{Txs: txsPool})
 		require.Nil(t, err)
+	}
+}
+
+func TestRevertAccountBalances_IndexNotEnabled(t *testing.T) {
+	t.Parallel()
+
+	args := createMockElasticProcessorArgs()
+	// Disable accounts index
+	args.EnabledIndexes = map[string]struct{}{
+		blockIndex: {},
+		txIndex:    {},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	err = elasticProc.RevertAccountBalances(12345)
+	require.NoError(t, err)
+}
+
+func TestRevertAccountBalances_OnlyAccountsIndexNeeded(t *testing.T) {
+	t.Parallel()
+
+	searchCalled := false
+
+	args := createMockElasticProcessorArgs()
+	// Enable only accounts index (accounts-history index no longer required)
+	args.EnabledIndexes = map[string]struct{}{
+		accountsIndex: {},
+	}
+
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoSearchCalled: func(index string, body *bytes.Buffer) (templates.Object, error) {
+			searchCalled = true
+			require.Equal(t, accountsIndex, index)
+			// Return empty results - no accounts to revert
+			return templates.Object{
+				"hits": map[string]interface{}{
+					"hits": []interface{}{},
+				},
+			}, nil
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	err = elasticProc.RevertAccountBalances(12345)
+	require.NoError(t, err)
+	require.True(t, searchCalled)
+}
+
+func TestRevertAccountBalances_SearchError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("search error")
+	searchCalled := false
+	timestamp := int64(12345)
+
+	args := createMockElasticProcessorArgs()
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoSearchCalled: func(index string, body *bytes.Buffer) (templates.Object, error) {
+			searchCalled = true
+			require.Equal(t, accountsIndex, index)
+
+			// Verify search query contains correct timestamp
+			var query map[string]interface{}
+			err := json.Unmarshal(body.Bytes(), &query)
+			require.NoError(t, err)
+
+			queryObj := query["query"].(map[string]interface{})
+			termObj := queryObj["term"].(map[string]interface{})
+			require.Equal(t, float64(timestamp*1000), termObj["updatedAt"])
+
+			return nil, expectedErr
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	err = elasticProc.RevertAccountBalances(timestamp)
+	require.True(t, searchCalled)
+	require.Equal(t, expectedErr, err)
+}
+
+func TestRevertAccountBalances_InvalidResponseFormat(t *testing.T) {
+	t.Parallel()
+
+	searchCalled := false
+	timestamp := int64(12345)
+
+	args := createMockElasticProcessorArgs()
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoSearchCalled: func(index string, body *bytes.Buffer) (templates.Object, error) {
+			searchCalled = true
+			require.Equal(t, accountsIndex, index)
+
+			// Verify search query contains correct timestamp
+			var query map[string]interface{}
+			err := json.Unmarshal(body.Bytes(), &query)
+			require.NoError(t, err)
+
+			queryObj := query["query"].(map[string]interface{})
+			termObj := queryObj["term"].(map[string]interface{})
+			require.Equal(t, float64(timestamp*1000), termObj["updatedAt"])
+
+			// Return invalid response structure
+			return templates.Object{
+				"invalid": "response",
+			}, nil
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	err = elasticProc.RevertAccountBalances(timestamp)
+	require.True(t, searchCalled)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid response format")
+}
+
+func TestRevertAccountBalances_NoAccountsToRevert(t *testing.T) {
+	t.Parallel()
+
+	searchCalled := false
+	timestamp := int64(12345)
+
+	args := createMockElasticProcessorArgs()
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoSearchCalled: func(index string, body *bytes.Buffer) (templates.Object, error) {
+			searchCalled = true
+			require.Equal(t, accountsIndex, index)
+
+			// Verify search query contains correct timestamp
+			var query map[string]interface{}
+			err := json.Unmarshal(body.Bytes(), &query)
+			require.NoError(t, err)
+
+			queryObj := query["query"].(map[string]interface{})
+			termObj := queryObj["term"].(map[string]interface{})
+			require.Equal(t, float64(timestamp*1000), termObj["updatedAt"])
+
+			// Return empty hits
+			return templates.Object{
+				"hits": map[string]interface{}{
+					"hits": []interface{}{},
+				},
+			}, nil
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	err = elasticProc.RevertAccountBalances(timestamp)
+	require.True(t, searchCalled)
+	require.NoError(t, err) // Should not error when no accounts to revert
+}
+
+func TestRevertAccountBalances_SingleAccountCreatedInBlock(t *testing.T) {
+	t.Parallel()
+
+	timestamp := int64(12345)
+	address := "klv1test123456789012345678901234567890123456789012345678901234"
+	searchCalled := false
+	updateCalled := false
+
+	args := createMockElasticProcessorArgs()
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoSearchCalled: func(index string, body *bytes.Buffer) (templates.Object, error) {
+			searchCalled = true
+			// Query should be against accounts index, not accounts-history
+			require.Equal(t, accountsIndex, index)
+
+			// Verify search query contains correct timestamp
+			var query map[string]interface{}
+			err := json.Unmarshal(body.Bytes(), &query)
+			require.NoError(t, err)
+
+			queryObj := query["query"].(map[string]interface{})
+			termObj := queryObj["term"].(map[string]interface{})
+			require.Equal(t, float64(timestamp*1000), termObj["updatedAt"])
+
+			return templates.Object{
+				"hits": map[string]interface{}{
+					"hits": []interface{}{
+						map[string]interface{}{
+							"_source": map[string]interface{}{
+								"address": address,
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		DoUpdateCalled: func(index string, id string, body *bytes.Buffer) error {
+			updateCalled = true
+			require.Equal(t, accountsIndex, index)
+			require.Equal(t, address, id)
+
+			// Verify the update sets balance to 0 (account not found in trie)
+			var updateDoc map[string]interface{}
+			err := json.Unmarshal(body.Bytes(), &updateDoc)
+			require.NoError(t, err)
+
+			script, ok := updateDoc["script"].(map[string]interface{})
+			require.True(t, ok)
+
+			params, ok := script["params"].(map[string]interface{})
+			require.True(t, ok)
+
+			require.Equal(t, float64(0), params["balance"])
+			require.Equal(t, float64(0), params["frozenBalance"])
+
+			return nil
+		},
+	}
+
+	// Mock AccountsDB to return error (account not found)
+	args.AccountsDB = &mock.AccountsStub{
+		LoadAccountCalled: func(container []byte) (state.AccountHandler, error) {
+			return nil, fmt.Errorf("account not found")
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	err = elasticProc.RevertAccountBalances(timestamp)
+	require.NoError(t, err)
+	require.True(t, searchCalled)
+	require.True(t, updateCalled)
+}
+
+func TestRevertAccountBalances_AccountWithPreviousState(t *testing.T) {
+	t.Parallel()
+
+	timestamp := int64(12345)
+	address := "klv1previousstate0123456789012345678901234567890123456789012"
+	balanceInTrie := int64(1500)
+	frozenBalanceInTrie := int64(750)
+
+	searchCalled := false
+	updateCalled := false
+
+	args := createMockElasticProcessorArgs()
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoSearchCalled: func(index string, body *bytes.Buffer) (templates.Object, error) {
+			searchCalled = true
+			// Return one account history entry for this block
+			require.Equal(t, accountsIndex, index)
+
+			// Verify search query contains correct timestamp
+			var query map[string]interface{}
+			err := json.Unmarshal(body.Bytes(), &query)
+			require.NoError(t, err)
+
+			queryObj := query["query"].(map[string]interface{})
+			termObj := queryObj["term"].(map[string]interface{})
+			require.Equal(t, float64(timestamp*1000), termObj["updatedAt"])
+
+			return templates.Object{
+				"hits": map[string]interface{}{
+					"hits": []interface{}{
+						map[string]interface{}{
+							"_source": map[string]interface{}{
+								"address":       address,
+								"balance":       float64(2000),
+								"frozenBalance": float64(1000),
+								"timestamp":     float64(timestamp),
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		DoUpdateCalled: func(index string, id string, body *bytes.Buffer) error {
+			updateCalled = true
+			require.Equal(t, accountsIndex, index)
+			require.Equal(t, address, id)
+
+			// Verify the update restores balance from trie
+			var updateDoc map[string]interface{}
+			err := json.Unmarshal(body.Bytes(), &updateDoc)
+			require.NoError(t, err)
+
+			script, ok := updateDoc["script"].(map[string]interface{})
+			require.True(t, ok)
+
+			params, ok := script["params"].(map[string]interface{})
+			require.True(t, ok)
+
+			require.Equal(t, float64(balanceInTrie), params["balance"])
+			require.Equal(t, float64(frozenBalanceInTrie), params["frozenBalance"])
+
+			return nil
+		},
+	}
+
+	// Mock AccountsDB to return an account with specific balance
+	args.AccountsDB = &mock.AccountsStub{
+		LoadAccountCalled: func(container []byte) (state.AccountHandler, error) {
+			return &mock.UserAccountHandlerStub{
+				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
+					return balanceInTrie
+				},
+				GetUserKDACalled: func(assetID []byte, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+					return &kapps.UserKDA{
+						FrozenBalance: frozenBalanceInTrie,
+					}, nil
+				},
+			}, nil
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	err = elasticProc.RevertAccountBalances(timestamp)
+	require.NoError(t, err)
+	require.True(t, searchCalled)
+	require.True(t, updateCalled)
+}
+
+func TestRevertAccountBalances_MultipleAccounts(t *testing.T) {
+	t.Parallel()
+
+	timestamp := int64(12345)
+	address1 := "klv1account1000000000000000000000000000000000000000000001"
+	address2 := "klv1account2000000000000000000000000000000000000000000002"
+	address3 := "klv1account3000000000000000000000000000000000000000000003"
+
+	searchCalled := false
+	updateCallCount := 0
+	updatedAddresses := make(map[string]bool)
+
+	args := createMockElasticProcessorArgs()
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoSearchCalled: func(index string, body *bytes.Buffer) (templates.Object, error) {
+			searchCalled = true
+			// Return all 3 accounts from the current block
+			require.Equal(t, accountsIndex, index)
+
+			// Verify search query contains correct timestamp
+			var query map[string]interface{}
+			err := json.Unmarshal(body.Bytes(), &query)
+			require.NoError(t, err)
+
+			queryObj := query["query"].(map[string]interface{})
+			termObj := queryObj["term"].(map[string]interface{})
+			require.Equal(t, float64(timestamp*1000), termObj["updatedAt"])
+
+			return templates.Object{
+				"hits": map[string]interface{}{
+					"hits": []interface{}{
+						map[string]interface{}{
+							"_source": map[string]interface{}{
+								"address":       address1,
+								"balance":       float64(1000),
+								"frozenBalance": float64(100),
+								"timestamp":     float64(timestamp),
+							},
+						},
+						map[string]interface{}{
+							"_source": map[string]interface{}{
+								"address":       address2,
+								"balance":       float64(2000),
+								"frozenBalance": float64(200),
+								"timestamp":     float64(timestamp),
+							},
+						},
+						map[string]interface{}{
+							"_source": map[string]interface{}{
+								"address":       address3,
+								"balance":       float64(3000),
+								"frozenBalance": float64(300),
+								"timestamp":     float64(timestamp),
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		DoUpdateCalled: func(index string, id string, body *bytes.Buffer) error {
+			updateCallCount++
+			updatedAddresses[id] = true
+			return nil
+		},
+	}
+
+	// Mock AccountsDB to return accounts with balances
+	args.AccountsDB = &mock.AccountsStub{
+		LoadAccountCalled: func(container []byte) (state.AccountHandler, error) {
+			// Return different balances for each account
+			balance := int64(500)
+			frozenBalance := int64(50)
+			return &mock.UserAccountHandlerStub{
+				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
+					return balance
+				},
+				GetUserKDACalled: func(assetID []byte, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+					return &kapps.UserKDA{
+						FrozenBalance: frozenBalance,
+					}, nil
+				},
+			}, nil
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	err = elasticProc.RevertAccountBalances(timestamp)
+	require.NoError(t, err)
+	require.True(t, searchCalled)
+	require.Equal(t, 3, updateCallCount)
+	require.True(t, updatedAddresses[address1])
+	require.True(t, updatedAddresses[address2])
+	require.True(t, updatedAddresses[address3])
+}
+
+func TestRevertAccountBalances_UpdateError(t *testing.T) {
+	t.Parallel()
+
+	timestamp := int64(12345)
+	address := "klv1testerror00000000000000000000000000000000000000000789"
+	expectedErr := errors.New("update error")
+
+	args := createMockElasticProcessorArgs()
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoSearchCalled: func(index string, body *bytes.Buffer) (templates.Object, error) {
+			// Verify search query contains correct timestamp
+			var query map[string]interface{}
+			err := json.Unmarshal(body.Bytes(), &query)
+			require.NoError(t, err)
+
+			queryObj := query["query"].(map[string]interface{})
+			termObj := queryObj["term"].(map[string]interface{})
+			require.Equal(t, float64(timestamp*1000), termObj["updatedAt"])
+
+			// Return a simple account entry
+			return templates.Object{
+				"hits": map[string]interface{}{
+					"hits": []interface{}{
+						map[string]interface{}{
+							"_source": map[string]interface{}{
+								"address":       address,
+								"balance":       float64(1000),
+								"frozenBalance": float64(100),
+								"timestamp":     float64(timestamp),
+							},
+						},
+					},
+				},
+			}, nil
+		},
+		DoUpdateCalled: func(index string, id string, body *bytes.Buffer) error {
+			return expectedErr
+		},
+	}
+
+	// Mock AccountsDB
+	args.AccountsDB = &mock.AccountsStub{
+		LoadAccountCalled: func(container []byte) (state.AccountHandler, error) {
+			return &mock.UserAccountHandlerStub{
+				GetBalanceCalled: func(assetID []byte, cdd bool) int64 {
+					return 500
+				},
+				GetUserKDACalled: func(assetID []byte, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+					return &kapps.UserKDA{
+						FrozenBalance: 50,
+					}, nil
+				},
+			}, nil
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	// Should not return error even if individual update fails (it logs warning)
+	err = elasticProc.RevertAccountBalances(timestamp)
+	require.NoError(t, err)
+}
+
+func TestRevertAccountBalances_AccountHistorySearchError(t *testing.T) {
+	t.Parallel()
+
+	timestamp := int64(12345)
+	expectedErr := errors.New("history search error")
+
+	args := createMockElasticProcessorArgs()
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoSearchCalled: func(index string, body *bytes.Buffer) (templates.Object, error) {
+			return nil, expectedErr
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	err = elasticProc.RevertAccountBalances(timestamp)
+	require.Error(t, err)
+	require.Equal(t, expectedErr, err)
+}
+
+func TestRevertAccountBalances_InvalidAccountHistoryData(t *testing.T) {
+	t.Parallel()
+
+	timestamp := int64(12345)
+
+	args := createMockElasticProcessorArgs()
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoSearchCalled: func(index string, body *bytes.Buffer) (templates.Object, error) {
+			// Return account with missing address field
+			return templates.Object{
+				"hits": map[string]interface{}{
+					"hits": []interface{}{
+						map[string]interface{}{
+							"_source": map[string]interface{}{
+								// Missing address
+								"balance":       float64(1000),
+								"frozenBalance": float64(100),
+								"timestamp":     float64(timestamp),
+							},
+						},
+					},
+				},
+			}, nil
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	// Should handle gracefully when address is missing
+	err = elasticProc.RevertAccountBalances(timestamp)
+	require.NoError(t, err)
+}
+
+func TestRemoveAccountsHistory_IndexNotEnabled(t *testing.T) {
+	t.Parallel()
+
+	args := createMockElasticProcessorArgs()
+	// Disable accounts history index
+	args.EnabledIndexes = map[string]struct{}{
+		blockIndex:    {},
+		txIndex:       {},
+		accountsIndex: {},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	err = elasticProc.RemoveAccountsHistory(12345)
+	require.NoError(t, err)
+}
+
+func TestRemoveAccountsHistory_Success(t *testing.T) {
+	t.Parallel()
+
+	timestamp := int64(12345)
+	bulkRemoveCalled := false
+	var capturedIndex string
+	var capturedTimestamp time.Duration
+
+	args := createMockElasticProcessorArgs()
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoBulkRemoveByTimestampCalled: func(index string, ts time.Duration) error {
+			bulkRemoveCalled = true
+			capturedIndex = index
+			capturedTimestamp = ts
+			return nil
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	err = elasticProc.RemoveAccountsHistory(timestamp)
+	require.NoError(t, err)
+	require.True(t, bulkRemoveCalled)
+	require.Equal(t, accountsHistoryIndex, capturedIndex)
+	require.Equal(t, time.Duration(timestamp*1000), capturedTimestamp)
+}
+
+func TestRemoveAccountsHistory_BulkRemoveError(t *testing.T) {
+	t.Parallel()
+
+	timestamp := int64(12345)
+	expectedErr := errors.New("bulk remove error")
+	bulkRemoveCalled := false
+
+	args := createMockElasticProcessorArgs()
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoBulkRemoveByTimestampCalled: func(index string, ts time.Duration) error {
+			bulkRemoveCalled = true
+			require.Equal(t, accountsHistoryIndex, index)
+			require.Equal(t, time.Duration(timestamp*1000), ts)
+			return expectedErr
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	err = elasticProc.RemoveAccountsHistory(timestamp)
+	require.True(t, bulkRemoveCalled)
+	require.Equal(t, expectedErr, err)
+}
+
+func TestRemoveAccountsHistory_DifferentTimestamps(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		timestamp int64
+	}{
+		{
+			name:      "Timestamp zero",
+			timestamp: 0,
+		},
+		{
+			name:      "Positive timestamp",
+			timestamp: 123456789,
+		},
+		{
+			name:      "Large timestamp",
+			timestamp: 9999999999,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var capturedTimestamp time.Duration
+
+			args := createMockElasticProcessorArgs()
+			args.DBClient = &imock.DatabaseWriterStub{
+				DoBulkRemoveByTimestampCalled: func(index string, ts time.Duration) error {
+					capturedTimestamp = ts
+					return nil
+				},
+			}
+
+			elasticProc, err := NewElasticProcessor(args)
+			require.NoError(t, err)
+
+			err = elasticProc.RemoveAccountsHistory(tc.timestamp)
+			require.NoError(t, err)
+			require.Equal(t, time.Duration(tc.timestamp*1000), capturedTimestamp)
+		})
+	}
+}
+
+func TestRemoveAccountsHistory_VerifyIndexParameter(t *testing.T) {
+	t.Parallel()
+
+	timestamp := int64(54321)
+	callCount := 0
+	var capturedIndexes []string
+
+	args := createMockElasticProcessorArgs()
+	args.DBClient = &imock.DatabaseWriterStub{
+		DoBulkRemoveByTimestampCalled: func(index string, ts time.Duration) error {
+			callCount++
+			capturedIndexes = append(capturedIndexes, index)
+			return nil
+		},
+	}
+
+	elasticProc, err := NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	// Call multiple times
+	err = elasticProc.RemoveAccountsHistory(timestamp)
+	require.NoError(t, err)
+
+	err = elasticProc.RemoveAccountsHistory(timestamp + 1)
+	require.NoError(t, err)
+
+	err = elasticProc.RemoveAccountsHistory(timestamp + 2)
+	require.NoError(t, err)
+
+	require.Equal(t, 3, callCount)
+	// Verify all calls use the correct index
+	for _, idx := range capturedIndexes {
+		require.Equal(t, accountsHistoryIndex, idx)
 	}
 }
 

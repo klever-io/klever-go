@@ -10,7 +10,6 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/elastic/go-elasticsearch/v8/esapi"
 	"github.com/klever-io/klever-go/common"
@@ -23,6 +22,7 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/indexer/logsevents"
+	"github.com/klever-io/klever-go/indexer/templates"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/memcache"
@@ -30,7 +30,9 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 )
 
-const numDecimalsInFloatBalance = 10 //?
+const numDecimalsInFloatBalance = 10  // Number of decimals to use when storing balances as float64
+const revertAccountBatchSize = 10_000 // Elasticsearch max result window
+
 var ZeroAddressDecoded = "klv1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqpgm89z"
 
 type elasticProcessor struct {
@@ -354,10 +356,179 @@ func (ei *elasticProcessor) RemoveTransactions(blk nodeData.HeaderHandler) error
 	encodedTXsHashes := make([]string, 0)
 	for _, txHash := range blk.GetTxHashes() {
 		encodedTXsHashes = append(encodedTXsHashes, hex.EncodeToString(txHash))
-
 	}
 
 	return ei.elasticClient.DoBulkRemove(txIndex, encodedTXsHashes)
+}
+
+// RemoveAccountsHistory will remove account history entries for a specific timestamp
+func (ei *elasticProcessor) RemoveAccountsHistory(blockTimestamp int64) error {
+	if !ei.isIndexEnabled(accountsHistoryIndex) {
+		return nil
+	}
+
+	return ei.elasticClient.DoBulkRemoveByTimestamp(accountsHistoryIndex, toMilliseconds(blockTimestamp))
+}
+
+// RevertAccountBalances reverts the accounts index to the current state from the account trie
+// This method should be called after RevertStateToBlock, as it reads the current balance from the trie
+func (ei *elasticProcessor) RevertAccountBalances(blockTimestamp int64) error {
+	if !ei.isIndexEnabled(accountsIndex) {
+		return nil
+	}
+	// Query accounts index to find all accounts modified at this timestamp
+	query := templates.Object{
+		"query": templates.Object{
+			"term": templates.Object{
+				"updatedAt": toMilliseconds(blockTimestamp),
+			},
+		},
+		"size":    revertAccountBatchSize,
+		"_source": []string{"address", "balance", "frozenBalance"},
+	}
+
+	body, err := encode(query)
+	if err != nil {
+		return err
+	}
+
+	res, err := ei.elasticClient.DoSearch(accountsIndex, &body)
+	if err != nil {
+		return err
+	}
+
+	accounts, err := ei.extractAccountData(res)
+	if err != nil {
+
+		return err
+	}
+
+	if len(accounts) == 0 {
+		log.Debug("RevertAccountBalances: no accounts to revert", "blockTimestamp", blockTimestamp)
+		return nil
+	}
+
+	// For each account modified in this block, get current balance from trie and update index
+	for _, accountInfo := range accounts {
+		err := ei.revertSingleAccountBalanceFromTrie(accountInfo.Address, accountInfo.Balance, accountInfo.FrozenBalance)
+		if err != nil {
+			log.Warn("RevertAccountBalances: failed to revert account",
+				"address", accountInfo.Address,
+				"error", err.Error())
+			continue
+		}
+	}
+
+	return nil
+}
+
+// extractAccountAddresses extracts account addresses and balance information from the search response
+func (ei *elasticProcessor) extractAccountData(response templates.Object) ([]*data.AccountBalanceInfo, error) {
+	hits, ok := response["hits"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid response format: missing hits")
+	}
+
+	innerHits, ok := hits["hits"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid response format: missing inner hits")
+	}
+
+	accounts := make([]*data.AccountBalanceInfo, 0, len(innerHits))
+	for _, hit := range innerHits {
+		hitMap, ok := hit.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		source, ok := hitMap["_source"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		address, _ := source["address"].(string)
+		if address == "" {
+			continue
+		}
+
+		balance, _ := source["balance"].(float64)
+		frozenBalance, _ := source["frozenBalance"].(float64)
+
+		accounts = append(accounts, &data.AccountBalanceInfo{
+			Address:       address,
+			Balance:       int64(balance),
+			FrozenBalance: int64(frozenBalance),
+		})
+	}
+
+	return accounts, nil
+}
+
+// revertSingleAccountBalanceFromTrie reads the current balance from the account trie
+// and updates the accounts index with that balance.
+// This assumes RevertStateToBlock has already been called, so the trie is at the correct state.
+// oldBalance and oldFrozenBalance are the values from the accounts-history index (for logging comparison).
+func (ei *elasticProcessor) revertSingleAccountBalanceFromTrie(address string, oldBalance, oldFrozenBalance int64) error {
+	addressBytes, err := ei.addressPubkeyConverter.Decode(address)
+	if err != nil {
+		return fmt.Errorf("failed to decode address %s: %w", address, err)
+	}
+
+	account, err := ei.accountsDB.LoadAccount(addressBytes)
+	if err != nil {
+		// If account doesn't exist in trie, revert to zero balance
+		log.Debug("RevertAccountBalances: account not found in trie, reverting to zero balance",
+			"address", address,
+			"oldBalance", oldBalance,
+			"oldFrozenBalance", oldFrozenBalance,
+			"newBalance", 0,
+			"newFrozenBalance", 0)
+		return ei.updateAccountBalance(address, 0, 0)
+	}
+
+	userAccount, ok := account.(state.UserAccountHandler)
+	if !ok {
+		return fmt.Errorf("account is not a user account: %s", address)
+	}
+
+	// Get balance and frozen balance from the trie
+	balance := userAccount.GetBalance(kdautils.KLVIdentifier, true)
+
+	// Get frozen balance from KLV KDA
+	frozenBalanceInt64 := int64(0)
+	userKDA, err := userAccount.GetUserKDA(kdautils.KLVIdentifier, nil, true)
+	if err == nil {
+		frozenBalanceInt64 = userKDA.FrozenBalance
+	}
+
+	log.Debug("RevertAccountBalances: reverting account balance",
+		"address", address,
+		"oldBalance", oldBalance,
+		"oldFrozenBalance", oldFrozenBalance,
+		"newBalance", balance,
+		"newFrozenBalance", frozenBalanceInt64)
+
+	return ei.updateAccountBalance(address, balance, frozenBalanceInt64)
+}
+
+func (ei *elasticProcessor) updateAccountBalance(address string, balance int64, frozenBalance int64) error {
+	// Create update script to modify only balance and frozenBalance fields
+	update := templates.Object{
+		"script": templates.Object{
+			"source": "ctx._source.balance = params.balance; ctx._source.frozenBalance = params.frozenBalance",
+			"params": templates.Object{
+				"balance":       balance,
+				"frozenBalance": frozenBalance,
+			},
+		},
+	}
+
+	updateBody, err := encode(update)
+	if err != nil {
+		return err
+	}
+
+	return ei.elasticClient.DoUpdate(accountsIndex, address, &updateBody)
 }
 
 // SaveTransactions will prepare and save information about a transactions in elasticsearch server
@@ -1537,7 +1708,8 @@ func (ei *elasticProcessor) buildAccountInfo(userAccount *data.Account, blockTim
 		UnfrozenBalance: calculateUnfrozenBalance(userKDA.Buckets),
 		Allowance:       ei.getAllowanceWithPendingRewards(userAccount.UserAccount),
 		Permissions:     permissions,
-		Timestamp:       time.Duration(blockTimestamp * 1000),
+		Timestamp:       toMilliseconds(blockTimestamp),
+		UpdatedAt:       toMilliseconds(blockTimestamp),
 		CodeHash:        hex.EncodeToString(userAccount.UserAccount.GetCodeHash()),
 		CodeMetadata:    hex.EncodeToString(userAccount.UserAccount.GetCodeMetadata()),
 		Foundation:      false,
@@ -1557,7 +1729,7 @@ func (ei *elasticProcessor) saveAccountsHistory(blockTimestamp int64, accountsIn
 			Address:       address,
 			Balance:       userAccount.Balance,
 			FrozenBalance: userAccount.FrozenBalance,
-			Timestamp:     time.Duration(blockTimestamp * 1000),
+			Timestamp:     toMilliseconds(blockTimestamp),
 		}
 		addressKey := fmt.Sprintf("%s_%d", address, blockTimestamp)
 		accountsMap[addressKey] = acc

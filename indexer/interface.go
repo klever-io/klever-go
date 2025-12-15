@@ -3,6 +3,7 @@ package indexer
 import (
 	"bytes"
 	"context"
+	"time"
 
 	"github.com/klever-io/klever-go/core/kapp"
 	nodeData "github.com/klever-io/klever-go/data"
@@ -28,6 +29,8 @@ type ElasticProcessor interface {
 	SaveHeader(header nodeData.HeaderHandler, signer []byte, txsSize int, validators []string) error
 	RemoveHeader(header nodeData.HeaderHandler) error
 	RemoveTransactions(blk nodeData.HeaderHandler) error
+	RemoveAccountsHistory(blockTimestamp int64) error
+	RevertAccountBalances(blockTimestamp int64) error
 	SaveTransactions(header nodeData.HeaderHandler, pool *indexer.Pool) error
 	SaveEpochInfo(epoch uint32, validators []kapp.ValidatorAccountInfoHandler) error
 	UpdateProposalsAndParameters(proposalIDs []string) error
@@ -42,7 +45,10 @@ type DatabaseClientHandler interface {
 	DoRequest(req *esapi.IndexRequest) error
 	DoBulkRequest(ctx context.Context, buff *bytes.Buffer, index string) error
 	DoBulkRemove(index string, hashes []string) error
+	DoBulkRemoveByTimestamp(index string, timestamp time.Duration) error
 	DoMultiGet(query templates.Object, index string) (templates.Object, error)
+	DoSearch(index string, body *bytes.Buffer) (templates.Object, error)
+	DoUpdate(index string, id string, body *bytes.Buffer) error
 	Get(index string, id string) (templates.Object, error)
 	CheckAndCreateIndex(index string) error
 	CheckAndCreateAlias(alias string, index string) error

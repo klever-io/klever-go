@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/esapi"
@@ -118,15 +119,7 @@ func (ec *elasticClient) DoRequest(req *esapi.IndexRequest) error {
 		return err
 	}
 
-	defer func() {
-		if res != nil && res.Body != nil {
-			err := res.Body.Close()
-			if err != nil {
-				log.Warn("elasticClient.DoRequest",
-					"could not close body", err.Error())
-			}
-		}
-	}()
+	defer closeResponseBody(res, "elasticClient.DoRequest")
 
 	return nil
 }
@@ -176,7 +169,7 @@ func (ec *elasticClient) DoMultiGet(obj templates.Object, index string) (templat
 	err = parseResponse(res, &decodedBody, elasticDefaultErrorResponseHandler)
 	if err != nil {
 		log.Warn("elasticClient.DoMultiGet",
-			"error parsing response", err.Error())
+			ErrorParseResponse, err.Error())
 		return nil, err
 	}
 
@@ -201,7 +194,7 @@ func (ec *elasticClient) Get(index string, id string) (templates.Object, error) 
 	err = parseResponse(res, &decodedBody, elasticDefaultErrorResponseHandler)
 	if err != nil {
 		log.Warn("elasticClient.DoMultiGet",
-			"error parsing response", err.Error())
+			ErrorParseResponse, err.Error())
 		return nil, err
 	}
 
@@ -228,15 +221,71 @@ func (ec *elasticClient) DoBulkRemove(index string, hashes []string) error {
 		return err
 	}
 
-	defer func() {
-		if res != nil && res.Body != nil {
-			err := res.Body.Close()
-			if err != nil {
-				log.Warn("elasticClient.DoBulkRemove",
-					"could not close body", err.Error())
-			}
-		}
-	}()
+	defer closeResponseBody(res, "elasticClient.DoBulkRemove")
+
+	return nil
+}
+
+// DoBulkRemoveByTimestamp will do a bulk remove by timestamp to elasticsearch server
+func (ec *elasticClient) DoBulkRemoveByTimestamp(index string, timestamp time.Duration) error {
+	obj := prepareTimestampForBulkRemove(timestamp)
+	body, err := encode(obj)
+	if err != nil {
+		return err
+	}
+
+	res, err := ec.es.DeleteByQuery(
+		[]string{index},
+		&body,
+		ec.es.DeleteByQuery.WithIgnoreUnavailable(true),
+	)
+
+	if err != nil {
+		log.Warn("elasticClient.DoBulkRemoveByTimestamp",
+			"cannot do bulk remove by timestamp", err.Error())
+		return err
+	}
+
+	defer closeResponseBody(res, "elasticClient.DoBulkRemoveByTimestamp")
+
+	return nil
+}
+
+// DoSearch performs a search query on elasticsearch
+func (ec *elasticClient) DoSearch(index string, body *bytes.Buffer) (templates.Object, error) {
+	res, err := ec.es.Search(
+		ec.es.Search.WithIndex(index),
+		ec.es.Search.WithBody(body),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer closeResponseBody(res, "elasticClient.DoSearch")
+
+	var decodedBody templates.Object
+	err = parseResponse(res, &decodedBody, elasticDefaultErrorResponseHandler)
+	if err != nil {
+		return nil, err
+	}
+
+	return decodedBody, nil
+}
+
+// DoUpdate performs an update operation on a document
+func (ec *elasticClient) DoUpdate(index string, id string, body *bytes.Buffer) error {
+	res, err := ec.es.Update(index, id, body)
+	if err != nil {
+		log.Warn("elasticClient.DoUpdate", "error", err.Error())
+		return err
+	}
+
+	defer closeResponseBody(res, "elasticClient.DoUpdate")
+
+	if res.IsError() {
+		bodyBytes, _ := io.ReadAll(res.Body)
+		return fmt.Errorf("error updating document: %s - %s", res.Status(), string(bodyBytes))
+	}
 
 	return nil
 }
@@ -338,15 +387,7 @@ func (ec *elasticClient) createIndex(index string) error {
 		return err
 	}
 
-	defer func() {
-		if res != nil && res.Body != nil {
-			err := res.Body.Close()
-			if err != nil {
-				log.Warn("elasticClient.createIndex",
-					"could not close body", err.Error())
-			}
-		}
-	}()
+	defer closeResponseBody(res, "elasticClient.createIndex")
 
 	return nil
 }
@@ -399,15 +440,7 @@ func (ec *elasticClient) createIndexTemplate(templateName string, template io.Re
 		return err
 	}
 
-	defer func() {
-		if res != nil && res.Body != nil {
-			err := res.Body.Close()
-			if err != nil {
-				log.Warn("elasticClient.createIndexTemplate",
-					"could not close body", err.Error())
-			}
-		}
-	}()
+	defer closeResponseBody(res, "elasticClient.createIndexTemplate")
 
 	return nil
 }
@@ -419,15 +452,7 @@ func (ec *elasticClient) createAlias(alias string, index string) error {
 		return err
 	}
 
-	defer func() {
-		if res != nil && res.Body != nil {
-			err := res.Body.Close()
-			if err != nil {
-				log.Warn("elasticClient.createAlias",
-					"could not close body", err.Error())
-			}
-		}
-	}()
+	defer closeResponseBody(res, "elasticClient.createAlias")
 
 	return nil
 }
@@ -454,6 +479,16 @@ func (ec *elasticClient) ConvertObjectToData(obj object, data any) error {
 	}
 
 	return nil
+}
+
+// closeResponseBody closes the response body and logs any errors
+func closeResponseBody(res *esapi.Response, callerName string) {
+	if res != nil && res.Body != nil {
+		err := res.Body.Close()
+		if err != nil {
+			log.Warn(callerName, ErrorCouldNotCloseBody, err.Error())
+		}
+	}
 }
 
 // IsInterfaceNil returns true if there is no value under the interface
