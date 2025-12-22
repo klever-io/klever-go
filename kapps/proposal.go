@@ -3,9 +3,12 @@ package kapps
 import (
 	reflect "reflect"
 
+	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 )
+
+var log = logger.GetOrCreate("kapps/proposal")
 
 type activeProposalController struct {
 	*ProposalController
@@ -16,7 +19,7 @@ type ActiveProposalController interface {
 	GetActiveParameters() map[int32]*Parameter
 	GetParameterInt(parameter EnumParameter) int64
 	GetParameterUint(parameter EnumParameter) uint64
-	ParseParamAndValidate(parameter EnumParameter, value []byte) (reflect.Value, error)
+	ParseParamAndValidate(parameter EnumParameter, value []byte, fc core.ForkController) (reflect.Value, error)
 	UpdateParameters(map[int32]*Parameter)
 }
 
@@ -250,7 +253,7 @@ func (p *ProposalController) ParseParam(parameter EnumParameter, value []byte) (
 }
 
 // ParseAndValidate parses the value and validates it against the constraints
-func (p *ProposalController) ParseParamAndValidate(parameter EnumParameter, value []byte) (reflect.Value, error) {
+func (p *ProposalController) ParseParamAndValidate(parameter EnumParameter, value []byte, fc core.ForkController) (reflect.Value, error) {
 	param := p.ActiveParameters[int32(parameter)]
 	if param == nil {
 		return reflect.Value{}, common.ErrInvalidParameter
@@ -266,25 +269,34 @@ func (p *ProposalController) ParseParamAndValidate(parameter EnumParameter, valu
 		return reflect.Value{}, err
 	}
 
-	return result, p.validateConstraints(parameter, result)
+	return result, p.validateConstraints(parameter, result, fc)
 }
 
-func (p *ProposalController) validateConstraints(parameter EnumParameter, value reflect.Value) error {
+func (p *ProposalController) validateConstraints(parameter EnumParameter, value reflect.Value, fc core.ForkController) error {
 	switch parameter {
 	case EnumParameter_LeaderValidatorRewardsPercentage:
 		if value.Uint() > uint64(core.HundredPercent) {
+			log.Error("invalid LeaderValidatorRewardsPercentage", "value", value.Uint(), "max", core.HundredPercent)
 			return common.ErrInvalidParameter
 		}
 	case EnumParameter_GasMultiplier:
 		if value.Int() < 1 {
+			log.Error("invalid GasMultiplier", "value", value.Int(), "min", 1)
 			return common.ErrInvalidParameter
 		}
 	case EnumParameter_MaxGasPerBlock:
 		if value.Int() < core.MinGasLimit {
+			log.Error("invalid MaxGasPerBlock", "value", value.Int(), "min", core.MinGasLimit)
 			return common.ErrInvalidParameter
 		}
 	case EnumParameter_MaxGasPerTX:
-		if value.Int() < core.MinGasLimit || value.Int() > core.MaxGasLimitPerTx {
+		maxValue := int64(core.MaxGasLimitPerTx)
+		if !fc.FixAuditChanges() {
+			maxValue = core.MaxGasBandwidthPerBatchPerSender
+		}
+
+		if value.Int() < core.MinGasLimit || value.Int() > maxValue {
+			log.Error("invalid MaxGasPerTX", "value", value.Int(), "min", core.MinGasLimit, "max", maxValue)
 			return common.ErrInvalidParameter
 		}
 	}
