@@ -204,12 +204,12 @@ func TestParseParamAndValidate_MaxGasPerTX_ForkAware(t *testing.T) {
 			value   []byte
 			wantErr bool
 		}{
-			{"valid at min limit", []byte("50000"), false},                  // core.MinGasLimit
-			{"valid mid range", []byte("250000000"), false},                 // 250M
-			{"valid at max limit", []byte("500000000"), false},              // core.MaxGasLimitPerTx
-			{"invalid below min", []byte("49999"), true},                    // below MinGasLimit
-			{"invalid above max", []byte("500000001"), true},                // above MaxGasLimitPerTx
-			{"invalid way above max", []byte("10000000000000"), true},       // way above max
+			{"valid at min limit", []byte("50000"), false},            // core.MinGasLimit
+			{"valid mid range", []byte("250000000"), false},           // 250M
+			{"valid at max limit", []byte("500000000"), false},        // core.MaxGasLimitPerTx
+			{"invalid below min", []byte("49999"), true},              // below MinGasLimit
+			{"invalid above max", []byte("500000001"), true},          // above MaxGasLimitPerTx
+			{"invalid way above max", []byte("10000000000000"), true}, // way above max
 		}
 
 		for _, tt := range tests {
@@ -234,11 +234,11 @@ func TestParseParamAndValidate_MaxGasPerTX_ForkAware(t *testing.T) {
 			value   []byte
 			wantErr bool
 		}{
-			{"valid at min limit", []byte("50000"), false},                  // core.MinGasLimit
-			{"valid mid range", []byte("25000000"), false},                  // 25M
-			{"valid at old max limit", []byte("50000000"), false},           // core.MaxGasBandwidthPerBatchPerSender
-			{"invalid below min", []byte("49999"), true},                    // below MinGasLimit
-			{"invalid above old max", []byte("50000001"), true},             // above MaxGasBandwidthPerBatchPerSender
+			{"valid at min limit", []byte("50000"), false},                    // core.MinGasLimit
+			{"valid mid range", []byte("25000000"), false},                    // 25M
+			{"valid at old max limit", []byte("50000000"), false},             // core.MaxGasBandwidthPerBatchPerSender
+			{"invalid below min", []byte("49999"), true},                      // below MinGasLimit
+			{"invalid above old max", []byte("50000001"), true},               // above MaxGasBandwidthPerBatchPerSender
 			{"invalid at new max (but above old)", []byte("500000000"), true}, // MaxGasLimitPerTx but invalid pre-fork
 		}
 
@@ -317,9 +317,9 @@ func TestValidateConstraints_AllParameters(t *testing.T) {
 			value   []byte
 			wantErr bool
 		}{
-			{"valid at min limit", []byte("50000"), false},        // core.MinGasLimit
-			{"valid higher value", []byte("1500000000"), false},   // 1.5B
-			{"valid large value", []byte("10000000000"), false},   // 10B
+			{"valid at min limit", []byte("50000"), false},      // core.MinGasLimit
+			{"valid higher value", []byte("1500000000"), false}, // 1.5B
+			{"valid large value", []byte("10000000000"), false}, // 10B
 			{"invalid below min", []byte("49999"), true},
 			{"invalid zero", []byte("0"), true},
 		}
