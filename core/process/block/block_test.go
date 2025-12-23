@@ -1588,11 +1588,23 @@ func TestMetaProcessor_UpdateState_ImportDbMode_SkipsEpochSnapshot(t *testing.T)
 			return true
 		},
 	}
+	kappAccountsStub := &mock.AccountsStub{
+		CommitCalled: func() ([]byte, error) {
+			return []byte("kappsRootHash"), nil
+		},
+		SnapshotStateCalled: func(rootHash []byte) {
+			snapshotCallCount++
+		},
+		IsPruningEnabledCalled: func() bool {
+			return true
+		},
+	}
 
 	arguments := createMockMetaArguments()
 	arguments.ProcessingMode = core.ImportDb
 	arguments.AccountsDB[state.UserAccountsState] = userAccountsStub
 	arguments.AccountsDB[state.PeerAccountsState] = peerAccountsStub
+	arguments.AccountsDB[state.KAppAccountsState] = kappAccountsStub
 
 	// Set up the data pool to return the previous header
 	prevHeader := &block.Block{
@@ -1669,11 +1681,23 @@ func TestMetaProcessor_UpdateState_NormalMode_CallsEpochSnapshot(t *testing.T) {
 			return true
 		},
 	}
+	kappAccountsStub := &mock.AccountsStub{
+		CommitCalled: func() ([]byte, error) {
+			return []byte("kappsRootHash"), nil
+		},
+		SnapshotStateCalled: func(rootHash []byte) {
+			snapshotCallCount++
+		},
+		IsPruningEnabledCalled: func() bool {
+			return true
+		},
+	}
 
 	arguments := createMockMetaArguments()
 	arguments.ProcessingMode = core.Normal // Normal mode
 	arguments.AccountsDB[state.UserAccountsState] = userAccountsStub
 	arguments.AccountsDB[state.PeerAccountsState] = peerAccountsStub
+	arguments.AccountsDB[state.KAppAccountsState] = kappAccountsStub
 
 	// Set up the data pool to return the previous header
 	prevHeader := &block.Block{
@@ -1718,6 +1742,6 @@ func TestMetaProcessor_UpdateState_NormalMode_CallsEpochSnapshot(t *testing.T) {
 	// Call updateState - in Normal mode, snapshots should be called
 	mpTest.UpdateState(epochStartHeader)
 
-	// Verify SnapshotState WAS called (at least for User and Peer accounts)
-	assert.GreaterOrEqual(t, snapshotCallCount, 2, "SnapshotState should be called in normal mode during epoch start")
+	// Verify SnapshotState WAS called for all 3 account types (User, Peer, KApp)
+	assert.Equal(t, 3, snapshotCallCount, "SnapshotState should be called 3 times in normal mode during epoch start")
 }
