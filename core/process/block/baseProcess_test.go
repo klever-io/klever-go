@@ -4,9 +4,11 @@ import (
 	"testing"
 
 	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/crypto/hashing/blake2b"
+	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -177,3 +179,66 @@ func Test_validateTxRootHash(t *testing.T) {
 		})
 	}
 }
+
+func Test_updateStateStorage_ImportDbMode_SkipsCheckpoint(t *testing.T) {
+	t.Parallel()
+
+	checkpointCalled := false
+	accountsStub := &mock.AccountsStub{
+		IsPruningEnabledCalled: func() bool {
+			return true
+		},
+		SetStateCheckpointCalled: func(rootHash []byte) {
+			checkpointCalled = true
+		},
+		CancelPruneCalled: func(rootHash []byte, identifier data.TriePruningIdentifier) {},
+		PruneTrieCalled:   func(rootHash []byte, identifier data.TriePruningIdentifier) {},
+	}
+
+	bp := baseProcessor{
+		processingMode:         core.ImportDb,
+		stateCheckpointModulus: 1, // checkpoint every block
+	}
+
+	header := &mock.HeaderHandlerStub{
+		GetNonceCalled: func() uint64 {
+			return 100 // divisible by modulus, would trigger checkpoint
+		},
+	}
+
+	bp.updateStateStorage(header, []byte("rootHash"), []byte("prevRootHash"), accountsStub)
+
+	assert.False(t, checkpointCalled, "SetStateCheckpoint should NOT be called in import-db mode")
+}
+
+func Test_updateStateStorage_NormalMode_CallsCheckpoint(t *testing.T) {
+	t.Parallel()
+
+	checkpointCalled := false
+	accountsStub := &mock.AccountsStub{
+		IsPruningEnabledCalled: func() bool {
+			return true
+		},
+		SetStateCheckpointCalled: func(rootHash []byte) {
+			checkpointCalled = true
+		},
+		CancelPruneCalled: func(rootHash []byte, identifier data.TriePruningIdentifier) {},
+		PruneTrieCalled:   func(rootHash []byte, identifier data.TriePruningIdentifier) {},
+	}
+
+	bp := baseProcessor{
+		processingMode:         core.Normal,
+		stateCheckpointModulus: 1, // checkpoint every block
+	}
+
+	header := &mock.HeaderHandlerStub{
+		GetNonceCalled: func() uint64 {
+			return 100 // divisible by modulus, should trigger checkpoint
+		},
+	}
+
+	bp.updateStateStorage(header, []byte("rootHash"), []byte("prevRootHash"), accountsStub)
+
+	assert.True(t, checkpointCalled, "SetStateCheckpoint should be called in normal mode")
+}
+
