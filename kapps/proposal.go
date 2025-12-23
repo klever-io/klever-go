@@ -252,7 +252,7 @@ func (p *ProposalController) ParseParam(parameter EnumParameter, value []byte) (
 	return parser(value)
 }
 
-// ParseAndValidate parses the value and validates it against the constraints
+// ParseParamAndValidate parses the value and validates it against the constraints
 func (p *ProposalController) ParseParamAndValidate(parameter EnumParameter, value []byte, fc core.ForkController) (reflect.Value, error) {
 	param := p.ActiveParameters[int32(parameter)]
 	if param == nil {
