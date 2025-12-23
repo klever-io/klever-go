@@ -134,6 +134,7 @@ func TestGetParameterUint(t *testing.T) {
 
 func TestParseParamAndValidate(t *testing.T) {
 	controller := NewProposalControllerForTests()
+	mockForks := mock.NewForkControllerStub()
 
 	tests := []struct {
 		name        string
@@ -158,7 +159,7 @@ func TestParseParamAndValidate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resultValue, err := controller.ParseParamAndValidate(tt.parameter, tt.value)
+			resultValue, err := controller.ParseParamAndValidate(tt.parameter, tt.value, mockForks)
 			if tt.wantErr {
 				assert.Error(t, err)
 				if _, ok := tt.err.(*strconv.NumError); ok {
@@ -178,6 +179,7 @@ func TestParseParamAndValidate(t *testing.T) {
 
 func TestParseParamAndValidate_InvalidTypes(t *testing.T) {
 	controller := NewProposalControllerForTests()
+	mockForks := mock.NewForkControllerStub()
 
 	// overwriting the parameter with a different type
 	controller.GetActiveParameters()[int32(kapps.EnumParameter_LeaderValidatorRewardsPercentage)] = &kapps.Parameter{
@@ -185,9 +187,154 @@ func TestParseParamAndValidate_InvalidTypes(t *testing.T) {
 		Value: []byte("5000"),
 	}
 
-	_, err := controller.ParseParamAndValidate(kapps.EnumParameter_LeaderValidatorRewardsPercentage, []byte("5000"))
+	_, err := controller.ParseParamAndValidate(kapps.EnumParameter_LeaderValidatorRewardsPercentage, []byte("5000"), mockForks)
 	assert.Error(t, err)
 
+}
+
+func TestParseParamAndValidate_MaxGasPerTX_ForkAware(t *testing.T) {
+	controller := NewProposalControllerForTests()
+
+	t.Run("FixAuditChanges enabled - uses MaxGasLimitPerTx", func(t *testing.T) {
+		mockForks := mock.NewForkControllerStub()
+		mockForks.FixAuditChangesValue = true
+
+		tests := []struct {
+			name    string
+			value   []byte
+			wantErr bool
+		}{
+			{"valid at min limit", []byte("50000"), false},            // core.MinGasLimit
+			{"valid mid range", []byte("250000000"), false},           // 250M
+			{"valid at max limit", []byte("500000000"), false},        // core.MaxGasLimitPerTx
+			{"invalid below min", []byte("49999"), true},              // below MinGasLimit
+			{"invalid above max", []byte("500000001"), true},          // above MaxGasLimitPerTx
+			{"invalid way above max", []byte("10000000000000"), true}, // way above max
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := controller.ParseParamAndValidate(kapps.EnumParameter_MaxGasPerTX, tt.value, mockForks)
+				if tt.wantErr {
+					assert.Error(t, err)
+					assert.Equal(t, common.ErrInvalidParameter, err)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
+		}
+	})
+
+	t.Run("FixAuditChanges disabled - uses MaxGasBandwidthPerBatchPerSender", func(t *testing.T) {
+		mockForks := mock.NewForkControllerStub()
+		mockForks.FixAuditChangesValue = false
+
+		tests := []struct {
+			name    string
+			value   []byte
+			wantErr bool
+		}{
+			{"valid at min limit", []byte("50000"), false},                    // core.MinGasLimit
+			{"valid mid range", []byte("25000000"), false},                    // 25M
+			{"valid at old max limit", []byte("50000000"), false},             // core.MaxGasBandwidthPerBatchPerSender
+			{"invalid below min", []byte("49999"), true},                      // below MinGasLimit
+			{"invalid above old max", []byte("50000001"), true},               // above MaxGasBandwidthPerBatchPerSender
+			{"invalid at new max (but above old)", []byte("500000000"), true}, // MaxGasLimitPerTx but invalid pre-fork
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := controller.ParseParamAndValidate(kapps.EnumParameter_MaxGasPerTX, tt.value, mockForks)
+				if tt.wantErr {
+					assert.Error(t, err)
+					assert.Equal(t, common.ErrInvalidParameter, err)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
+		}
+	})
+}
+
+func TestValidateConstraints_AllParameters(t *testing.T) {
+	controller := NewProposalControllerForTests()
+	mockForks := mock.NewForkControllerStub()
+	mockForks.FixAuditChangesValue = true
+
+	t.Run("LeaderValidatorRewardsPercentage", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			value   []byte
+			wantErr bool
+		}{
+			{"valid zero", []byte("0"), false},
+			{"valid mid range", []byte("5000"), false},
+			{"valid at max (HundredPercent)", []byte("10000"), false},
+			{"invalid above max", []byte("10001"), true},
+			{"invalid way above max", []byte("15000"), true},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := controller.ParseParamAndValidate(kapps.EnumParameter_LeaderValidatorRewardsPercentage, tt.value, mockForks)
+				if tt.wantErr {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
+		}
+	})
+
+	t.Run("GasMultiplier", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			value   []byte
+			wantErr bool
+		}{
+			{"valid minimum (1)", []byte("1"), false},
+			{"valid higher value", []byte("10"), false},
+			{"valid large value", []byte("1000"), false},
+			{"invalid zero", []byte("0"), true},
+			{"invalid negative", []byte("-1"), true},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := controller.ParseParamAndValidate(kapps.EnumParameter_GasMultiplier, tt.value, mockForks)
+				if tt.wantErr {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
+		}
+	})
+
+	t.Run("MaxGasPerBlock", func(t *testing.T) {
+		tests := []struct {
+			name    string
+			value   []byte
+			wantErr bool
+		}{
+			{"valid at min limit", []byte("50000"), false},      // core.MinGasLimit
+			{"valid higher value", []byte("1500000000"), false}, // 1.5B
+			{"valid large value", []byte("10000000000"), false}, // 10B
+			{"invalid below min", []byte("49999"), true},
+			{"invalid zero", []byte("0"), true},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, err := controller.ParseParamAndValidate(kapps.EnumParameter_MaxGasPerBlock, tt.value, mockForks)
+				if tt.wantErr {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
+		}
+	})
 }
 
 func TestIsInterfaceNil(t *testing.T) {

@@ -3,6 +3,7 @@ package mock
 import (
 	"reflect"
 
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/kapps"
 )
 
@@ -10,7 +11,7 @@ type ProposalControllerStub struct {
 	GetActiveParametersCalled   func() map[int32]*kapps.Parameter
 	GetParameterIntCalled       func(kapps.EnumParameter) int64
 	GetParameterUintCalled      func(kapps.EnumParameter) uint64
-	ParseParamAndValidateCalled func(parameter kapps.EnumParameter, value []byte) (reflect.Value, error)
+	ParseParamAndValidateCalled func(parameter kapps.EnumParameter, value []byte, forks core.ForkController) (reflect.Value, error)
 	UpdateParametersCalled      func(map[int32]*kapps.Parameter)
 	IsInterfaceNilCalled        func() bool
 }
@@ -39,9 +40,9 @@ func (stub *ProposalControllerStub) GetParameterUint(param kapps.EnumParameter) 
 	return 0
 }
 
-func (stub *ProposalControllerStub) ParseParamAndValidate(param kapps.EnumParameter, value []byte) (reflect.Value, error) {
+func (stub *ProposalControllerStub) ParseParamAndValidate(param kapps.EnumParameter, value []byte, fc core.ForkController) (reflect.Value, error) {
 	if stub.ParseParamAndValidateCalled != nil {
-		return stub.ParseParamAndValidateCalled(param, value)
+		return stub.ParseParamAndValidateCalled(param, value, fc)
 	}
 
 	return reflect.Value{}, nil

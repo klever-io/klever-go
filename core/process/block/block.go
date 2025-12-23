@@ -1247,7 +1247,7 @@ func (mp *metaProcessor) updateApprovedProposalParameters(proposal *kapps.Propos
 }
 
 func (mp *metaProcessor) validateAndApplyParameter(parameter int32, value []byte, controller *kapps.ProposalController) error {
-	_, err := controller.ParseParamAndValidate(kapps.EnumParameter(parameter), value)
+	_, err := controller.ParseParamAndValidate(kapps.EnumParameter(parameter), value, mp.forkController)
 	if err != nil {
 		return err
 	}
