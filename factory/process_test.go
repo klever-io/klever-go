@@ -203,6 +203,7 @@ func createMockArguments() *factory.ProcessComponentsFactoryArgs {
 		accCacher,
 		forkController,
 		txLogsProcessor,
+		core.Normal,
 	)
 
 }

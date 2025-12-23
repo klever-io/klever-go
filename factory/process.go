@@ -104,6 +104,7 @@ type ProcessComponentsFactoryArgs struct {
 	indexRating               bool
 	accountsCacher            state.AccountsCacher
 	forkController            core.ForkController
+	processingMode            core.NodeProcessingMode
 }
 
 type MetaInterceptorContainerFactoryArgs struct {
@@ -160,6 +161,7 @@ func NewProcessComponentsFactoryArgs(
 	cacher state.AccountsCacher,
 	forkController core.ForkController,
 	txLogProcessor process.TransactionLogProcessor,
+	processingMode core.NodeProcessingMode,
 ) *ProcessComponentsFactoryArgs {
 
 	minSizeInBytes := mainConfig.BlockSizeThrottle.MinSizeInBytes
@@ -214,6 +216,7 @@ func NewProcessComponentsFactoryArgs(
 		accountsCacher:            cacher,
 		forkController:            forkController,
 		txLogsProcessor:           txLogProcessor,
+		processingMode:            processingMode,
 	}
 
 }
@@ -1039,6 +1042,7 @@ func newBlockProcessor(
 		HeaderIntegrityVerifier: headerIntegrityVerifier,
 		KAppController:          processArgs.state.KAppController,
 		BlockChainHook:          virtualMachineFactory.BlockChainHookImpl(),
+		ProcessingMode:          processArgs.processingMode,
 	}
 
 	arguments := block.ArgMetaProcessor{

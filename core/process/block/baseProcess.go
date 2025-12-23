@@ -61,6 +61,7 @@ type baseProcessor struct {
 	headerIntegrityVerifier      process.HeaderIntegrityVerifier
 	appStatusHandler             core.AppStatusHandler
 	stateCheckpointModulus       uint
+	processingMode               core.NodeProcessingMode
 	txCounter                    *transactionCounter
 
 	tpsBenchmark statistics.TPSBenchmark
@@ -597,8 +598,10 @@ func (bp *baseProcessor) updateStateStorage(
 		return
 	}
 
-	// TODO generate checkpoint on a trigger
-	if bp.stateCheckpointModulus != 0 {
+	// Skip checkpoints during import-db mode to prevent pruning buffer overflow (see KLC-2057)
+	if bp.processingMode == core.ImportDb {
+		log.Trace("skipping checkpoint in import-db mode", "rootHash", rootHash)
+	} else if bp.stateCheckpointModulus != 0 {
 		if finalHeader.GetNonce()%uint64(bp.stateCheckpointModulus) == 0 {
 			log.Debug("trie checkpoint", "rootHash", rootHash)
 			ctx := context.Background()

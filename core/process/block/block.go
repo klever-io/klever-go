@@ -11,6 +11,7 @@ import (
 	"github.com/bugsnag/bugsnag-go/v2"
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/block/bootstrapStorage"
 	"github.com/klever-io/klever-go/data"
@@ -74,6 +75,7 @@ func NewMetaProcessor(arguments ArgMetaProcessor) (*metaProcessor, error) {
 		dataPool:                     arguments.DataPool,
 		blockChain:                   arguments.BlockChain,
 		stateCheckpointModulus:       arguments.StateCheckpointModulus,
+		processingMode:               arguments.ProcessingMode,
 		tpsBenchmark:                 arguments.TpsBenchmark,
 		genesisNonce:                 genesisHdr.GetNonce(),
 		epochNotifier:                arguments.EpochNotifier,
@@ -686,11 +688,17 @@ func (mp *metaProcessor) updateState(lastMetaBlock data.HeaderHandler) {
 	}
 
 	if lastMetaBlock.GetIsEpochStart() {
-		log.Debug("trie snapshot", "rootHash", lastMetaBlock.GetTrieRoot())
-		ctx := context.Background()
-		mp.accountsDB[state.UserAccountsState].SnapshotState(lastMetaBlock.GetTrieRoot(), ctx)
-		mp.accountsDB[state.PeerAccountsState].SnapshotState(lastMetaBlock.GetValidatorsTrieRoot(), ctx)
-		mp.accountsDB[state.KAppAccountsState].SnapshotState(lastMetaBlock.GetKAppsTrieRoot(), ctx)
+		// Skip epoch snapshots during import-db mode to prevent TrieSnapshot directory growth
+		// and memory accumulation from multiple LevelDB instances (see KLC-2057)
+		if mp.processingMode == core.ImportDb {
+			log.Trace("skipping epoch snapshot in import-db mode", "epoch", lastMetaBlock.GetEpoch())
+		} else {
+			log.Debug("trie snapshot", "rootHash", lastMetaBlock.GetTrieRoot())
+			ctx := context.Background()
+			mp.accountsDB[state.UserAccountsState].SnapshotState(lastMetaBlock.GetTrieRoot(), ctx)
+			mp.accountsDB[state.PeerAccountsState].SnapshotState(lastMetaBlock.GetValidatorsTrieRoot(), ctx)
+			mp.accountsDB[state.KAppAccountsState].SnapshotState(lastMetaBlock.GetKAppsTrieRoot(), ctx)
+		}
 	}
 
 	mp.updateStateStorage(

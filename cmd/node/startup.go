@@ -827,6 +827,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		accCacher,
 		forkController,
 		txLogsProcessor,
+		processingMode,
 	)
 	processComponents, err := factory.ProcessComponentsFactory(processArgs)
 	if err != nil {
