@@ -43,3 +43,13 @@ func (m *MetaProcessorForTests) SetProposalKApp(kdaKapp state.KAppAccountHandler
 func (m *MetaProcessorForTests) GetActiveParameters() map[int32]*kapps.Parameter {
 	return m.proposalController.GetActiveParameters()
 }
+
+// UpdateState exposes the updateState method for testing
+func (m *MetaProcessorForTests) UpdateState(lastMetaBlock data.HeaderHandler) {
+	m.updateState(lastMetaBlock)
+}
+
+// GetAccountsDB returns the accountsDB for testing
+func (m *MetaProcessorForTests) GetAccountsDB() map[state.AccountsDbIdentifier]state.AccountsAdapter {
+	return m.accountsDB
+}
