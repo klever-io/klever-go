@@ -241,4 +241,3 @@ func Test_updateStateStorage_NormalMode_CallsCheckpoint(t *testing.T) {
 
 	assert.True(t, checkpointCalled, "SetStateCheckpoint should be called in normal mode")
 }
-
