@@ -1559,3 +1559,189 @@ func TestMetaProcessor_CreateAndProcessWithInvalidProcess(t *testing.T) {
 	err = mp.ProcessBlock(metaHdr, haveTime)
 	assert.Nil(t, err)
 }
+
+func TestMetaProcessor_UpdateState_ImportDbMode_SkipsEpochSnapshot(t *testing.T) {
+	t.Parallel()
+
+	snapshotCallCount := 0
+
+	// Create mock accounts that track SnapshotState calls
+	userAccountsStub := &mock.AccountsStub{
+		CommitCalled: func() ([]byte, error) {
+			return []byte("rootHash"), nil
+		},
+		SnapshotStateCalled: func(rootHash []byte) {
+			snapshotCallCount++
+		},
+		IsPruningEnabledCalled: func() bool {
+			return true
+		},
+	}
+	peerAccountsStub := &mock.AccountsStub{
+		CommitCalled: func() ([]byte, error) {
+			return []byte("validatorsRootHash"), nil
+		},
+		SnapshotStateCalled: func(rootHash []byte) {
+			snapshotCallCount++
+		},
+		IsPruningEnabledCalled: func() bool {
+			return true
+		},
+	}
+	kappAccountsStub := &mock.AccountsStub{
+		CommitCalled: func() ([]byte, error) {
+			return []byte("kappsRootHash"), nil
+		},
+		SnapshotStateCalled: func(rootHash []byte) {
+			snapshotCallCount++
+		},
+		IsPruningEnabledCalled: func() bool {
+			return true
+		},
+	}
+
+	arguments := createMockMetaArguments()
+	arguments.ProcessingMode = core.ImportDb
+	arguments.AccountsDB[state.UserAccountsState] = userAccountsStub
+	arguments.AccountsDB[state.PeerAccountsState] = peerAccountsStub
+	arguments.AccountsDB[state.KAppAccountsState] = kappAccountsStub
+
+	// Set up the data pool to return the previous header
+	prevHeader := &block.Block{
+		Header: &block.BlockHeader{
+			Nonce:    0,
+			Slot:     0,
+			TrieRoot: []byte("prevRootHash"),
+		},
+	}
+	prevHeaderHash := []byte("prevHeaderHash")
+
+	arguments.DataPool.(*mock.PoolsHolderStub).HeadersCalled = func() retriever.HeadersPool {
+		return &mock.HeadersCacherStub{
+			GetHeaderByHashCalled: func(hash []byte) (data.HeaderHandler, error) {
+				if bytes.Equal(hash, prevHeaderHash) {
+					return prevHeader, nil
+				}
+				return nil, errors.New("not found")
+			},
+		}
+	}
+
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+
+	mpTest := blproc.NewMetaProcessorForTests(mp)
+
+	// Create an epoch start header
+	epochStartHeader := &block.Block{
+		Header: &block.BlockHeader{
+			Nonce:              1,
+			Slot:               1,
+			ParentHash:         prevHeaderHash,
+			TrieRoot:           []byte("newRootHash"),
+			ValidatorsTrieRoot: []byte("validatorsRoot"),
+			KAppsTrieRoot:      []byte("kappsRoot"),
+			IsEpochStart:       true,
+			Epoch:              1,
+		},
+	}
+
+	// Call updateState - in ImportDb mode, snapshots should be skipped
+	mpTest.UpdateState(epochStartHeader)
+
+	// Verify SnapshotState was NOT called
+	assert.Equal(t, 0, snapshotCallCount, "SnapshotState should NOT be called in import-db mode during epoch start")
+}
+
+func TestMetaProcessor_UpdateState_NormalMode_CallsEpochSnapshot(t *testing.T) {
+	t.Parallel()
+
+	snapshotCallCount := 0
+
+	// Create mock accounts that track SnapshotState calls
+	userAccountsStub := &mock.AccountsStub{
+		CommitCalled: func() ([]byte, error) {
+			return []byte("rootHash"), nil
+		},
+		SnapshotStateCalled: func(rootHash []byte) {
+			snapshotCallCount++
+		},
+		IsPruningEnabledCalled: func() bool {
+			return true
+		},
+	}
+	peerAccountsStub := &mock.AccountsStub{
+		CommitCalled: func() ([]byte, error) {
+			return []byte("validatorsRootHash"), nil
+		},
+		SnapshotStateCalled: func(rootHash []byte) {
+			snapshotCallCount++
+		},
+		IsPruningEnabledCalled: func() bool {
+			return true
+		},
+	}
+	kappAccountsStub := &mock.AccountsStub{
+		CommitCalled: func() ([]byte, error) {
+			return []byte("kappsRootHash"), nil
+		},
+		SnapshotStateCalled: func(rootHash []byte) {
+			snapshotCallCount++
+		},
+		IsPruningEnabledCalled: func() bool {
+			return true
+		},
+	}
+
+	arguments := createMockMetaArguments()
+	arguments.ProcessingMode = core.Normal // Normal mode
+	arguments.AccountsDB[state.UserAccountsState] = userAccountsStub
+	arguments.AccountsDB[state.PeerAccountsState] = peerAccountsStub
+	arguments.AccountsDB[state.KAppAccountsState] = kappAccountsStub
+
+	// Set up the data pool to return the previous header
+	prevHeader := &block.Block{
+		Header: &block.BlockHeader{
+			Nonce:    0,
+			Slot:     0,
+			TrieRoot: []byte("prevRootHash"),
+		},
+	}
+	prevHeaderHash := []byte("prevHeaderHash")
+
+	arguments.DataPool.(*mock.PoolsHolderStub).HeadersCalled = func() retriever.HeadersPool {
+		return &mock.HeadersCacherStub{
+			GetHeaderByHashCalled: func(hash []byte) (data.HeaderHandler, error) {
+				if bytes.Equal(hash, prevHeaderHash) {
+					return prevHeader, nil
+				}
+				return nil, errors.New("not found")
+			},
+		}
+	}
+
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+
+	mpTest := blproc.NewMetaProcessorForTests(mp)
+
+	// Create an epoch start header
+	epochStartHeader := &block.Block{
+		Header: &block.BlockHeader{
+			Nonce:              1,
+			Slot:               1,
+			ParentHash:         prevHeaderHash,
+			TrieRoot:           []byte("newRootHash"),
+			ValidatorsTrieRoot: []byte("validatorsRoot"),
+			KAppsTrieRoot:      []byte("kappsRoot"),
+			IsEpochStart:       true,
+			Epoch:              1,
+		},
+	}
+
+	// Call updateState - in Normal mode, snapshots should be called
+	mpTest.UpdateState(epochStartHeader)
+
+	// Verify SnapshotState WAS called for all 3 account types (User, Peer, KApp)
+	assert.Equal(t, 3, snapshotCallCount, "SnapshotState should be called 3 times in normal mode during epoch start")
+}

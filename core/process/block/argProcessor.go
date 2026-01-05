@@ -41,6 +41,7 @@ type ArgBaseProcessor struct {
 	BlockChainHook          process.BlockChainHookHandler
 	HeaderIntegrityVerifier process.HeaderIntegrityVerifier
 	KAppController          kapp.KAppController
+	ProcessingMode          core.NodeProcessingMode
 }
 
 // ArgMetaProcessor holds all dependencies required by the process data factory in order to create
