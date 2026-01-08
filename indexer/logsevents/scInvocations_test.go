@@ -204,16 +204,16 @@ func TestSCInvocationsProcessor_ProcessEvent(t *testing.T) {
 		result2 := processor.ProcessEventForTest(args2)
 		assert.True(t, result2.IsProcessedForTest())
 
-		// Verify the contract was tracked (de-duplicated by AlteredSmartContracts)
-		// The Add method de-duplicates based on IsNew flag, so same contract with IsNew=false
-		// will only have one entry
+		// Verify the contract was tracked with both invocations
+		// Each transaction interaction should be counted separately for accurate totalTransactions
 		contracts := alteredSC.GetAll()
 		require.Len(t, contracts, 1)
 
 		scContracts, exists := contracts[encodedSCAddress]
 		assert.True(t, exists)
-		assert.Len(t, scContracts, 1, "Should have one entry (de-duplicated by AlteredSmartContracts)")
+		assert.Len(t, scContracts, 2, "Should have two entries (one for each transaction)")
 		assert.False(t, scContracts[0].IsNew, "IsNew should be false")
+		assert.False(t, scContracts[1].IsNew, "IsNew should be false")
 	})
 
 	t.Run("CompletedTxEvent_DifferentSmartContracts", func(t *testing.T) {

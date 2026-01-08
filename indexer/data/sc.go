@@ -29,17 +29,10 @@ func (asc *alteredSmartContracts) Add(key string, smartContract *AlteredSmartCon
 	_, ok := asc.altered[key]
 	if !ok {
 		asc.altered[key] = make([]*AlteredSmartContract, 0)
-		asc.altered[key] = append(asc.altered[key], smartContract)
-		return
 	}
 
-	for _, elem := range asc.altered[key] {
-		alreadyExists := elem.IsNew == smartContract.IsNew
-		if alreadyExists {
-			return
-		}
-	}
-
+	// Always append to track each transaction interaction with the smart contract
+	// This ensures accurate transaction counting for totalTransactions
 	asc.altered[key] = append(asc.altered[key], smartContract)
 }
 
