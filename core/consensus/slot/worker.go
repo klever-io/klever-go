@@ -768,7 +768,7 @@ func (wrk *Worker) reportValidatorFail(leader string, consensusMessages []*conse
 		failList = append(failList, validatorHex)
 	}
 
-	if len(failList) > 0 {
+	if len(failList) >= 3 {
 		_ = bugsnag.Notify(fmt.Errorf("small consensus quorum"), bugsnag.MetaData{
 			"consensus": {
 				"sigsNum":   len(consensusMessages),
