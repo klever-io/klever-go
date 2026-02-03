@@ -42,3 +42,12 @@ type ArgElasticProcessor struct {
 	CacheExpirationTime      time.Duration
 	CacheCleanUpInterval     time.Duration
 }
+
+// ArgEventsProcessor is struct that is used to store all components needed for events dispatching
+type ArgEventsProcessor struct {
+	Marshalizer              marshal.Marshalizer
+	Hasher                   hashing.Hasher
+	AddressPubkeyConverter   core.PubkeyConverter
+	ValidatorPubkeyConverter core.PubkeyConverter
+	Indexer                  Indexer
+}

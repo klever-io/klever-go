@@ -75,3 +75,9 @@ type LogsAndEventsHandler interface {
 		timestamp int64,
 	) *data.PreparedLogsResults
 }
+
+type EventsProcessor interface {
+	ProcessBlockEvents(header nodeData.HeaderHandler, pool *indexer.Pool)
+	ProcessAccountEvents(accountsInfo map[string]*data.AccountInfo)
+	IsInterfaceNil() bool
+}
