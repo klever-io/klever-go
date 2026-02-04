@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"sync"
+	"math"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/config"
@@ -90,9 +90,11 @@ func (txProc *baseTxProcessor) validatePermission(tx *transaction.Transaction, p
 	}
 
 	signedBy, signWeight, err := txProc.verifySignatures(tx, permission, signersPub, txHash)
+	if err != nil {
+		return nil, fmt.Errorf("signature verification failed: %w", err)
+	}
 
-	if signWeight < permission.Threshold ||
-		err != nil {
+	if signWeight < permission.Threshold {
 		return nil, fmt.Errorf("%w: (%d/%d)", common.ErrSignatureThreshold, signWeight, permission.Threshold)
 	}
 
@@ -101,33 +103,14 @@ func (txProc *baseTxProcessor) validatePermission(tx *transaction.Transaction, p
 
 // loadSignerPublicKeys loads public keys for all signers in the permission
 func (txProc *baseTxProcessor) loadSignerPublicKeys(signers []*state.Key) (map[string]crypto.PublicKey, error) {
-	signersPub := make(map[string]crypto.PublicKey)
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	errChan := make(chan error, len(signers))
-
+	signersPub := make(map[string]crypto.PublicKey, len(signers))
 	for _, signer := range signers {
-		wg.Add(1)
-		go func(addrPub []byte) {
-			defer wg.Done()
-			senderPubKey, err := txProc.keyGen.PublicKeyFromByteArray(addrPub)
-			if err != nil {
-				errChan <- fmt.Errorf("invalid signer address: %w", err)
-				return
-			}
-			mu.Lock()
-			signersPub[string(addrPub)] = senderPubKey
-			mu.Unlock()
-		}(signer.Address)
+		senderPubKey, err := txProc.keyGen.PublicKeyFromByteArray(signer.Address)
+		if err != nil {
+			return nil, fmt.Errorf("invalid signer address: %w", err)
+		}
+		signersPub[string(signer.Address)] = senderPubKey
 	}
-
-	wg.Wait()
-	close(errChan)
-
-	if err := <-errChan; err != nil {
-		return nil, err
-	}
-
 	return signersPub, nil
 }
 
@@ -204,8 +187,13 @@ func (txProc *baseTxProcessor) checkTxValues(tx *transaction.Transaction, acntSn
 }
 
 func (txProc *baseTxProcessor) CheckPaymentFeeBalance(tx *transaction.Transaction, acntSnd state.UserAccountHandler) error {
-	// check balance and fee
-	totalFees := tx.GetBandwidthFee() + tx.GetKAppFee()
+	// check balance and fee with overflow protection
+	bandwidthFee := tx.GetBandwidthFee()
+	kappFee := tx.GetKAppFee()
+	if bandwidthFee > 0 && kappFee > math.MaxInt64-bandwidthFee {
+		return fmt.Errorf("%w: fee calculation overflow", process.ErrOverflow)
+	}
+	totalFees := bandwidthFee + kappFee
 
 	assetID, kdaFees, err := txProc.computeKDAFees(tx, totalFees)
 	if err != nil {

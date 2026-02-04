@@ -161,7 +161,7 @@ func (txProc *txProcessor) handleResultMismatch(
 		return process.ErrTransactionResultMismatch
 	}
 
-	// CASE 3: Both failed with different error codes, constinue based on execution mode - block rejected
+	// CASE 3: Both failed with different error codes, continue based on execution mode - block rejected
 	return localErr
 }
 
@@ -219,7 +219,7 @@ func (txProc *txProcessor) validateToleranceBand(
 		"lowerBound", lowerBound)
 
 	// If validator finished BEFORE lower bound, leader hardware is too weak
-	// cant update result and should reutnr local error to reject block
+	// can't update result and should return local error to reject block
 	if validatorExecTime < lowerBound {
 		log.Warn("Rejecting block: leader hardware too weak",
 			"txHash", txHash,

@@ -116,7 +116,33 @@ func TestCheckTxValues(t *testing.T) {
 			preSetup: func(txProc *transaction.TxProcessorExportTest, tx *dt.Transaction) {
 				tx.Signature = [][]byte{make([]byte, 64)}
 			},
-			ExpectedError: fmt.Errorf("%w: (%d/%d)", common.ErrSignatureThreshold, 0, 1),
+			ExpectedError: fmt.Errorf("signature verification failed: %w", common.ErrInvalidSignature),
+		},
+		{
+			name: "signature threshold not met",
+			tx:   &dt.Transaction_Raw{Sender: defaultSender, Nonce: 2, BandwidthFee: 100},
+			acntSender: func() state.UserAccountHandler {
+				secondKey, _ := defaultSigner.PrivateKeyFromByteArray(bytes.Repeat([]byte{1}, 32))
+				secondPub, _ := secondKey.GeneratePublic().ToByteArray()
+				acnt := NewUserAccountHandler(defaultSender, 2)
+				acnt.SetPermissions([]*state.Permission{
+					{
+						ID:        0,
+						Type:      state.Permission_Owner,
+						Threshold: 2,
+						Signers: []*state.Key{
+							{Address: defaultSender, Weight: 1},
+							{Address: secondPub, Weight: 1},
+						},
+					},
+				})
+				return acnt
+			}(),
+			txHash: []byte{1},
+			preSetup: func(txProc *transaction.TxProcessorExportTest, tx *dt.Transaction) {
+				signTX(tx, []byte{1}, txProc.SingleSigner())
+			},
+			ExpectedError: fmt.Errorf("%w: (%d/%d)", common.ErrSignatureThreshold, 1, 2),
 		},
 		{
 			name:       "invalid tx fee values",
@@ -276,7 +302,7 @@ func TestValidatePermission(t *testing.T) {
 			preSetup: func(txProc *transaction.TxProcessorExportTest, tx *dt.Transaction) {
 				tx.Signature = [][]byte{make([]byte, 64)} // Invalid signature
 			},
-			ExpectedError: fmt.Errorf("%w: (%d/%d)", common.ErrSignatureThreshold, 0, 1),
+			ExpectedError: fmt.Errorf("signature verification failed: %w", common.ErrInvalidSignature),
 		},
 		{
 			name: "insufficient weight for threshold",
@@ -351,7 +377,7 @@ func TestValidatePermission(t *testing.T) {
 			preSetup: func(txProc *transaction.TxProcessorExportTest, tx *dt.Transaction) {
 				signTX(tx, []byte{1}, txProc.SingleSigner(), defaultKey)
 			},
-			ExpectedError: fmt.Errorf("%w: (%d/%d)", common.ErrSignatureThreshold, 0, 1),
+			ExpectedError: fmt.Errorf("signature verification failed: %w", common.ErrInvalidSignature),
 		},
 		{
 			name: "duplicated signers",
@@ -368,7 +394,7 @@ func TestValidatePermission(t *testing.T) {
 			preSetup: func(txProc *transaction.TxProcessorExportTest, tx *dt.Transaction) {
 				signTX(tx, []byte{1}, txProc.SingleSigner(), defaultKey, defaultKey)
 			},
-			ExpectedError: fmt.Errorf("%w: (%d/%d)", common.ErrSignatureThreshold, 0, 2),
+			ExpectedError: fmt.Errorf("signature verification failed: %w", common.ErrInvalidSignature),
 		},
 	}
 

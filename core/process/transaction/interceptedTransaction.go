@@ -350,10 +350,10 @@ func (inTx *InterceptedTransaction) IsInterfaceNil() bool {
 	return inTx == nil
 }
 
-func (inTx *InterceptedTransaction) validateDataFieldSize(txClone *transaction.Transaction) error {
+func (inTx *InterceptedTransaction) validateDataFieldSize(tx *transaction.Transaction) error {
 	// check data field size
 	dataSize := 0
-	for _, data := range txClone.GetRawData().Data {
+	for _, data := range tx.GetRawData().Data {
 		dataSize += len(data)
 	}
 
@@ -370,18 +370,15 @@ func (inTx *InterceptedTransaction) validateDataFieldSize(txClone *transaction.T
 }
 
 func (inTx *InterceptedTransaction) validateTransactionSize() error {
-	txClone := inTx.tx.Clone()
+	tx := inTx.tx
 
-	if err := inTx.validateDataFieldSize(txClone); err != nil {
+	if err := inTx.validateDataFieldSize(tx); err != nil {
 		return err
 	}
 
-	// remove data field from size check
-	txClone.RawData.Data = nil
-
 	// check contracts field size
 	contractsSize := 0
-	for _, contract := range txClone.GetContracts() {
+	for _, contract := range tx.GetContracts() {
 		// only check contract size after fork
 		if inTx.forkController.EnableSmartContracts() &&
 			!transaction.IsContractSizeValid(contract.GetParameter().GetValue(), contract.GetType()) {
@@ -395,11 +392,21 @@ func (inTx *InterceptedTransaction) validateTransactionSize() error {
 		contractsSize += len(contract.GetParameter().GetValue()) + len(contract.GetParameter().GetTypeUrl()) + core.ContractSizeOverhead
 	}
 
-	// remove signature field from size check (signatures are checked separately)
-	txClone.Signature = nil
+	// save fields and guarantee restore via defer
+	savedData := tx.RawData.Data
+	savedSignature := tx.Signature
+	savedRawData := tx.RawData
+	defer func() {
+		tx.RawData = savedRawData
+		tx.RawData.Data = savedData
+		tx.Signature = savedSignature
+	}()
+
+	tx.RawData.Data = nil
+	tx.Signature = nil
 
 	// check raw data size without data and contracts
-	transactionRaw, err := inTx.protoMarshalizer.Marshal(txClone.RawData)
+	transactionRaw, err := inTx.protoMarshalizer.Marshal(tx.RawData)
 	if err != nil {
 		return err
 	}
@@ -410,14 +417,14 @@ func (inTx *InterceptedTransaction) validateTransactionSize() error {
 	}
 
 	// remove transaction raw from invalid fields checker (prevent unchecked values)
-	txClone.RawData = nil
-	transaction, err := inTx.protoMarshalizer.Marshal(txClone)
+	tx.RawData = nil
+	txBytes, err := inTx.protoMarshalizer.Marshal(tx)
 	if err != nil {
 		return err
 	}
 
 	// transaction must be empty after `PrepareForProcessing`, removing raw data and signatures
-	if len(transaction) > 0 && string(transaction) != common.EmptyJSonMarshalData {
+	if len(txBytes) > 0 && string(txBytes) != common.EmptyJSonMarshalData {
 		return common.ErrInvalidTransactionSize
 	}
 
