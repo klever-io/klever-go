@@ -3,6 +3,7 @@ package transaction_test
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -163,6 +164,16 @@ func TestCheckTxValues(t *testing.T) {
 				signTX(tx, []byte{1}, txProc.SingleSigner())
 			},
 			ExpectedError: fmt.Errorf("%w, has: %d, wanted: %d", process.ErrInsufficientFee, 10, 100),
+		},
+		{
+			name:       "fee overflow",
+			tx:         &dt.Transaction_Raw{Sender: defaultSender, Nonce: 2, BandwidthFee: math.MaxInt64 - 100, KAppFee: 200},
+			acntSender: NewUserAccountHandler(defaultSender, 2),
+			txHash:     []byte{1},
+			preSetup: func(txProc *transaction.TxProcessorExportTest, tx *dt.Transaction) {
+				signTX(tx, []byte{1}, txProc.SingleSigner())
+			},
+			ExpectedError: fmt.Errorf("%w: fee calculation overflow", process.ErrOverflow),
 		},
 		{
 			name:       "valid tx zero gas limit",
