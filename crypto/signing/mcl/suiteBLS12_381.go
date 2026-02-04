@@ -11,7 +11,7 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 )
 
-var log = logger.GetOrCreate("process/block")
+var log = logger.GetOrCreate("crypto/signing/mcl")
 
 var _ crypto.Group = (*SuiteBLS12)(nil)
 var _ crypto.Random = (*SuiteBLS12)(nil)

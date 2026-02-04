@@ -93,13 +93,13 @@ func IsPubKeyPointValid(pubKeyPoint *mcl.PointG2) bool {
 	return !pubKeyPoint.IsZero() && pubKeyPoint.IsValidOrder() && pubKeyPoint.IsValid()
 }
 
-// IsSigValidPoint validates that the signature isi a valid point on G1
+// IsSigValidPoint validates that the signature is a valid point on G1
 func IsSigValidPoint(sig *bls.Sign) bool {
 	g1Sig := bls.CastFromSign(sig)
 	return !g1Sig.IsZero() && g1Sig.IsValidOrder() && g1Sig.IsValid()
 }
 
-// IsSecretKeyValid validates  that the scalar is a valid secret key
+// IsSecretKeyValid validates that the scalar is a valid secret key
 func IsSecretKeyValid(scalar *mcl.Scalar) bool {
 	return !scalar.Scalar.IsZero() && scalar.Scalar.IsValid()
 }

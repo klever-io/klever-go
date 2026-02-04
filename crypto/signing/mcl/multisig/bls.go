@@ -178,7 +178,7 @@ func (bms *BlsMultiSigner) prepareSignatures(
 
 	var hPk []byte
 	var sPointG1 *mcl.PointG1
-	prepSigs := make([]bls.Sign, 0)
+	prepSigs := make([]bls.Sign, 0, len(signatures))
 
 	for i, sig := range signatures {
 		sigBLS := &bls.Sign{}
@@ -321,7 +321,7 @@ func concatPubKeys(pubKeys []crypto.PublicKey) ([]byte, error) {
 	return result, nil
 }
 
-// hashPublicKeyPoints hashes the concatenation of public keys with the given public key poiint
+// hashPublicKeyPoints hashes the concatenation of public keys with the given public key point
 func hashPublicKeyPoints(hasher hashing.Hasher, pubKeyPoint crypto.Point, concatPubKeys []byte) ([]byte, error) {
 	if check.IfNil(hasher) {
 		return nil, crypto.ErrNilHasher
@@ -359,7 +359,10 @@ func createScalar(suite crypto.Suite, scalarBytes []byte) (crypto.Scalar, error)
 	}
 
 	scalar := suite.CreateScalar()
-	sc, _ := scalar.(*mcl.Scalar)
+	sc, ok := scalar.(*mcl.Scalar)
+	if !ok {
+		return nil, crypto.ErrInvalidScalar
+	}
 
 	err := sc.Scalar.SetString(hex.EncodeToString(scalarBytes), 16)
 	if err != nil {

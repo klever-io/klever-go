@@ -64,6 +64,40 @@ func TestPointG1_Equal(t *testing.T) {
 	require.True(t, eq)
 }
 
+func TestPointG1_EqualNilParamShouldErr(t *testing.T) {
+	t.Parallel()
+
+	point := NewPointG1()
+	eq, err := point.Equal(nil)
+
+	assert.Equal(t, crypto.ErrNilParam, err)
+	assert.False(t, eq)
+}
+
+func TestPointG1_EqualNilInterfaceWrappedShouldErr(t *testing.T) {
+	t.Parallel()
+
+	point := NewPointG1()
+	// non-nil interface wrapping a nil concrete pointer —
+	// p == nil would be false, but check.IfNil(p) correctly returns true
+	var nilPoint *PointG1
+	eq, err := point.Equal(nilPoint)
+
+	assert.Equal(t, crypto.ErrNilParam, err)
+	assert.False(t, eq)
+}
+
+func TestPointG1_EqualInvalidParamShouldErr(t *testing.T) {
+	t.Parallel()
+
+	point := NewPointG1()
+	point2 := &mock.PointMock{}
+	eq, err := point.Equal(point2)
+
+	assert.Equal(t, crypto.ErrInvalidParam, err)
+	assert.False(t, eq)
+}
+
 func TestPointG1_CloneNilShouldPanic(t *testing.T) {
 	var p1 *PointG1
 
