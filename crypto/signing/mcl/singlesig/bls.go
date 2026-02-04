@@ -10,7 +10,7 @@ import (
 var _ crypto.SingleSigner = (*BlsSingleSigner)(nil)
 
 const (
-	SIGNATURE_SIZE = 48
+	SignatureSize = 48
 )
 
 // BlsSingleSigner is a SingleSigner implementation that uses a BLS signature scheme
@@ -106,7 +106,7 @@ func IsSecretKeyValid(scalar *mcl.Scalar) bool {
 
 // SignatureSize returns the size of the signature
 func (s *BlsSingleSigner) SignatureSize() int {
-	return SIGNATURE_SIZE
+	return SignatureSize
 }
 
 // IsInterfaceNil returns true if there is no value under the interface
