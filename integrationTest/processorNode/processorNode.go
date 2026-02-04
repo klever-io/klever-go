@@ -1112,7 +1112,6 @@ func (n *ProcessorNode) initBlockProcessor() error {
 			EpochNotifier:           n.EpochNotifier,
 			TxCoordinator:           tc,
 			FeeHandler:              txFeeHandler,
-			Indexer:                 n.Indexer,
 			HeaderIntegrityVerifier: n.HeaderIntegrityVerifier,
 			KAppController:          n.KappController,
 			BlockChainHook:          n.BlockChainHook,

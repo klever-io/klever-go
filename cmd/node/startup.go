@@ -46,6 +46,7 @@ import (
 	"github.com/klever-io/klever-go/factory"
 	"github.com/klever-io/klever-go/genesis/parsing"
 	"github.com/klever-io/klever-go/health"
+	"github.com/klever-io/klever-go/indexer"
 	indexerFactory "github.com/klever-io/klever-go/indexer/factory"
 	"github.com/klever-io/klever-go/ntp"
 	"github.com/klever-io/klever-go/sharding"
@@ -721,6 +722,17 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		return err
 	}
 
+	eventsProcessor, err := indexer.NewEventsProcessor(indexer.ArgEventsProcessor{
+		Marshalizer:              coreComponents.InternalMarshalizer,
+		Hasher:                   coreComponents.Hasher,
+		AddressPubkeyConverter:   addressPubkeyConverter,
+		ValidatorPubkeyConverter: validatorPubkeyConverter,
+		Indexer:                  esIndexer,
+	})
+	if err != nil {
+		return err
+	}
+
 	log.Trace("creating time cache for requested items components")
 	// #nosec G115
 	requestedItemsHandler := timecache.NewTimeCache(time.Duration(uint64(time.Millisecond) * genesisNodesConfig.SlotInterval))
@@ -817,6 +829,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		coreComponents.Uint64ByteSliceConverter,
 		workingDir,
 		esIndexer,
+		eventsProcessor,
 		tpsBenchmark,
 		epochNotifier,
 		ctx.GlobalString(importDbDirectory.Name),

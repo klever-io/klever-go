@@ -120,7 +120,6 @@ func createMockMetaArguments() blproc.ArgMetaProcessor {
 			TpsBenchmark:            &mock.TpsBenchmarkMock{},
 			EpochNotifier:           epochNotifier,
 			HeaderIntegrityVerifier: &mock.HeaderIntegrityVerifierStub{},
-			Indexer:                 &consensusMock.IndexerMock{},
 			KAppController:          kAppController,
 		},
 		EconomicsData:                &mock.EconomicsHandlerStub{},

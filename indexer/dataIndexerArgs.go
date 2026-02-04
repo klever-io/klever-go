@@ -7,10 +7,27 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/crypto/hashing"
+	"github.com/klever-io/klever-go/data"
+	indexerData "github.com/klever-io/klever-go/data/indexer"
 	"github.com/klever-io/klever-go/data/state"
+	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/sharding"
 	"github.com/klever-io/klever-go/tools/marshal"
 )
+
+// Indexer defines the interface for saving data to external storage (elasticsearch, etc.)
+type Indexer interface {
+	SaveBlock(args *indexerData.ArgsSaveBlockData)
+	RevertIndexedBlock(header data.HeaderHandler)
+	SaveEpochInfo(epoch uint32, validators []kapp.ValidatorAccountInfoHandler)
+	UpdateProposalsAndParameters(proposalIDs []string)
+	SaveAccounts(blockTimestamp int64, acc []state.UserAccountHandler)
+	SavePeersAccounts(validators []kapp.ValidatorAccountInfoHandler)
+	SaveAssets(asset []*kapps.KDAData)
+	Close() error
+	IsInterfaceNil() bool
+	IsNilIndexer() bool
+}
 
 // ArgDataIndexer is struct that is used to store all components that are needed to create a indexer
 type ArgDataIndexer struct {
