@@ -2,7 +2,7 @@
 
 Official Go implementation of the Klever blockchain protocol.
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-GPL%20v3-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8.svg)](https://golang.org/)
 [![Release](https://img.shields.io/github/v/release/klever-io/klever-go)](https://github.com/klever-io/klever-go/releases)
 
@@ -298,7 +298,7 @@ For bug bounty and security audit information, contact: security@klever.org
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
