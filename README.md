@@ -326,9 +326,3 @@ Built with:
 - [libp2p](https://libp2p.io/)
 - [Wasmer](https://wasmer.io/)
 - [Protocol Buffers](https://protobuf.dev/)
-
----
-
-**Maintained by**: Klever Core Team
-**Status**: Active Development
-**Version**: 1.7.14
