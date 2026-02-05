@@ -104,7 +104,7 @@ func main() {
 	rootCmd.Flags().IntVarP(&argsConfig.numKeys, "num-keys", "n", 1, "How many keys should generate. Example: 1")
 	// keyType defines a flag for setting what keys should generate
 	rootCmd.Flags().StringVarP(&argsConfig.keyType, "key-type", "t", "validator", fmt.Sprintf(
-		"What king of keys should generate. Available options: %s, %s, %s",
+		"What kind of keys should generate. Available options: %s, %s, %s",
 		validatorType,
 		walletType,
 		bothType))
