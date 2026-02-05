@@ -106,18 +106,18 @@ Generate validator and wallet keys for running a node or submitting transactions
 ### Run a Validator Node
 
 ```bash
-./bin/validator --config-path ./config/node
+./bin/validator
 ```
 
-See [Running a Node](#running-a-node) section below for detailed configuration.
+By default, the node looks for configuration files in `./config/node/`. See [Running a Node](#running-a-node) for details.
 
 ### Run a Seed Node
 
 ```bash
-./bin/seednode --config-path ./config/seednode
+./bin/seednode
 ```
 
-See [cmd/seednode/CLI.md](cmd/seednode/CLI.md) for detailed options.
+By default, the seed node looks for configuration in `./config/seednode/`. See [cmd/seednode/CLI.md](cmd/seednode/CLI.md) for detailed options.
 
 ### Use the Operator CLI
 
@@ -145,28 +145,36 @@ For comprehensive node setup and operation instructions, see the official docume
 
 ### Quick Reference
 
-**Validator Node** (participates in consensus):
+**Validator Node**:
 ```bash
-./bin/validator --config-path ./config/node
+./bin/validator
 ```
 
-**Observer Node** (syncs without consensus participation):
-```bash
-./bin/validator --config-path ./config/node --observer
-```
+> **Note:** A node participates in consensus only if its public key is registered and staked in the network. Otherwise, it syncs the blockchain as an observer.
 
 **Seed Node** (bootstrap peer for network discovery):
 ```bash
-./bin/seednode --config-path ./config/seednode
+./bin/seednode
 ```
 
 ### Configuration Files
 
-Configuration files are located in `config/node/`:
-- `config.yaml` - Main node configuration (network, storage, API)
-- `enableEpochs.yaml` - Feature activation schedule
-- `gasScheduleV1.yaml` - Smart contract gas costs
-- `api.yaml` - REST API endpoints
+By default, the node looks for configuration files in `./config/node/`. Each file can be overridden individually:
+
+| File | Flag | Description |
+|------|------|-------------|
+| `config.yaml` | `--config` | Main node configuration (P2P, logging, storage) |
+| `enableEpochs.yaml` | `--config-epochs` | Feature activation schedule by epoch |
+| `gasScheduleV1.yaml` | `--config-gas-schedule` | Smart contract gas costs |
+| `api.yaml` | `--config-api` | REST API endpoint configuration |
+| `external.yaml` | `--config-external` | External integrations (ElasticSearch) |
+| `genesis.json` | `--genesis-file` | Genesis block configuration |
+| `nodesSetup.json` | `--nodes-setup-file` | Initial validator set |
+
+**Example** - Override a specific config:
+```bash
+./bin/validator --config-external /path/to/custom/external.yaml
+```
 
 For detailed configuration options, see the [Node Operations documentation](https://docs.klever.org/node-operations).
 
