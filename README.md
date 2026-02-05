@@ -31,6 +31,8 @@ Klever is a high-performance blockchain network designed for decentralized appli
 - [Architecture](#architecture)
 - [Contributing](#contributing)
 - [Security](#security)
+- [Support](#support)
+- [Resources](#resources)
 - [License](#license)
 
 ## Installation
@@ -288,6 +290,15 @@ Quick start:
 **Report security vulnerabilities**: See [SECURITY.md](SECURITY.md)
 
 For bug bounty and security audit information, contact: security@klever.org
+
+## Support
+
+The **[Klever Forum](https://forum.klever.org)** is the official channel for technical support and community feedback. Use it to:
+- Ask technical questions about running nodes or development
+- Discuss ideas and get guidance from the community
+- Engage with the Klever team and other developers
+
+For **bug reports** and **feature requests**, please use [GitHub Issues](https://github.com/klever-io/klever-go/issues).
 
 ## Resources
 
