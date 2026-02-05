@@ -275,7 +275,7 @@ tags := map[string]string{"user": "alice", "action": "create"}
 defer tracing.StartSpanWithTags("user.action", tags)()
 ```
 
-#### `StartSpanf(format string, args ...interface{}) func()`
+#### `StartSpanf(format string, args ...any) func()`
 Starts a span with a formatted name.
 
 ```go
@@ -289,7 +289,7 @@ Adds a tag to the currently active span.
 tracing.AddTag("status", "success")
 ```
 
-#### `AddTagf(key, format string, args ...interface{})`
+#### `AddTagf(key, format string, args ...any)`
 Adds a formatted tag to the currently active span.
 
 ```go
@@ -303,7 +303,7 @@ Adds an annotation (event marker) to the currently active span.
 tracing.AddAnnotation("Cache miss occurred")
 ```
 
-#### `AddAnnotationf(format string, args ...interface{})`
+#### `AddAnnotationf(format string, args ...any)`
 Adds a formatted annotation to the currently active span.
 
 ```go

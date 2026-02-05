@@ -384,21 +384,20 @@ func (c *CustomConsensus) ProcessBlock(block *Block) error {
 }
 ```
 
-### Example 2: Analyzing Slow Consensus
+### Example 2: Analyzing Traces
 
-```go
-// Use the TraceAnalyzer to identify slow operations
-analyzer := tracing.NewTraceAnalyzer()
-analyzer.LoadFromFile("traces_20240829_120000.json")
+Traces are saved as JSON files in the `./traces` directory. You can analyze them using:
 
-// Get slowest operations
-fmt.Println(analyzer.GetSlowOperations(10))
+1. **Zipkin UI** - Import traces at http://localhost:9411 for visual analysis
+2. **Manual inspection** - Trace files contain span data with timing information
+3. **jq queries** - Parse JSON traces to find slow operations:
 
-// Get consensus statistics
-fmt.Println(analyzer.GetConsensusStats())
+```bash
+# Find spans longer than 100ms
+jq '.[] | select(.duration > 100000)' traces_*.json
 
-// View trace tree for specific slot
-fmt.Println(analyzer.GetTraceTree("trace-id-123"))
+# Get all consensus-related spans
+jq '.[] | select(.name | startswith("consensus"))' traces_*.json
 ```
 
 ## Future Enhancements
