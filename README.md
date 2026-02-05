@@ -321,6 +321,8 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 
 ## Acknowledgments
 
+This project is derived from [MultiversX](https://github.com/multiversx/mx-chain-go) (formerly Elrond), originally licensed under GPL v3. We acknowledge and thank the MultiversX team for their foundational work.
+
 Built with:
 - [Go](https://golang.org/)
 - [libp2p](https://libp2p.io/)
