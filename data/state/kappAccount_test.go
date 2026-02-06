@@ -1,6 +1,7 @@
 package state_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -1073,4 +1074,34 @@ func TestKAppAccount_SubInternalKDA_AssetNotFound(t *testing.T) {
 	// SubInternalKDA for a missing key returns ErrAssetNotFound
 	_, err := acc.SubInternalKDA([]byte("ASSET"), []byte("nonce"))
 	assert.Equal(t, common.ErrAssetNotFound, err)
+}
+
+func TestKAppAccount_GetUserKDA_NilAssetIDWithDirtyData(t *testing.T) {
+	t.Parallel()
+
+	acc, _ := state.NewKAppAccount([]byte("kapp-address"))
+
+	// Store data for a custom key to create dirty data
+	key := kdautils.ToKDAKey([]byte("CUSTOM"), nil)
+	_ = acc.SaveKeyValue(key, []byte("some-data"))
+
+	// nil assetID with checkDirtData=true: skips early return, defaults assetID to KLV
+	userKDA, err := acc.GetUserKDA(nil, nil, true)
+	assert.Nil(t, err)
+	assert.NotNil(t, userKDA)
+	assert.Equal(t, int64(0), userKDA.Balance)
+}
+
+func TestKAppAccount_GetUserKDA_RetrieveValueError(t *testing.T) {
+	t.Parallel()
+
+	acc, _ := state.NewKAppAccount([]byte("kapp-address"))
+
+	expectedErr := errors.New("trie get error")
+	acc.SetDataTrie(&mock.TrieStub{
+		GetCalled: func(key []byte) ([]byte, error) { return nil, expectedErr },
+	})
+
+	_, err := acc.GetUserKDA([]byte("ASSET"), nil, false)
+	assert.Equal(t, expectedErr, err)
 }

@@ -2029,3 +2029,200 @@ func TestUserAccount_SubInternalKDA_AssetNotFound(t *testing.T) {
 	_, err := account.SubInternalKDA([]byte("ASSET"), []byte("nonce"))
 	assert.Equal(t, common.ErrAssetNotFound, err)
 }
+
+func TestUserAccount_Equal_TypeAssertionAndBaseAccount(t *testing.T) {
+	t.Parallel()
+
+	addr1 := make([]byte, 32)
+	addr1[0] = 1
+	acc1, _ := state.NewUserAccount(addr1)
+	acc1.Balance = 500
+
+	// AccountWrapMock implements UserAccountHandler but is NOT *userAccount
+	// so Equal returns false on type assertion
+	wrapMock := &mock.AccountWrapMock{}
+	assert.False(t, acc1.Equal(wrapMock))
+
+	// Two real userAccounts with different addresses have different baseAccount
+	addr2 := make([]byte, 32)
+	addr2[0] = 2
+	acc2, _ := state.NewUserAccount(addr2)
+	acc2.Balance = 500
+	assert.False(t, acc1.Equal(acc2))
+
+	// Same address, same data → should be equal
+	acc3, _ := state.NewUserAccount(addr1)
+	acc3.Balance = 500
+	assert.True(t, acc1.Equal(acc3))
+
+	// Same address, different balance → not equal (proto difference)
+	acc4, _ := state.NewUserAccount(addr1)
+	acc4.Balance = 999
+	assert.False(t, acc1.Equal(acc4))
+}
+
+func TestUserAccount_AddToBalanceWithNonce_Validations(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount(make([]byte, 32))
+	assetID := []byte("TOKEN")
+
+	// zero value is a no-op
+	err := account.AddToBalanceWithNonce(0, assetID, []byte("1"), true)
+	assert.NoError(t, err)
+
+	// invalid nonce string
+	err = account.AddToBalanceWithNonce(100, assetID, []byte("abc"), true)
+	assert.Error(t, err)
+
+	// zero nonce → ErrInvalidNonce
+	err = account.AddToBalanceWithNonce(100, assetID, []byte("0"), true)
+	assert.Equal(t, state.ErrInvalidNonce, err)
+
+	// negative nonce → ErrInvalidNonce
+	err = account.AddToBalanceWithNonce(100, assetID, []byte("-1"), true)
+	assert.Equal(t, state.ErrInvalidNonce, err)
+}
+
+func TestUserAccount_AddToBalanceWithNonce_OverflowAndPreloadedKDA(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount(make([]byte, 32))
+	assetID := []byte("TOKEN")
+	nonce := []byte("1")
+
+	// Pre-load a UserKDA with max balance and pass it directly via vararg
+	userKDA := &kapps.UserKDA{
+		Balance:   math.MaxInt64,
+		LastClaim: &kapps.LastClaim{},
+		Buckets:   make(map[string]*kapps.UserBucket),
+	}
+	err := account.AddToBalanceWithNonce(1, assetID, nonce, true, userKDA)
+	assert.Equal(t, state.ErrAddBalanceOverflow, err)
+
+	// Passing pre-loaded KDA with room to add succeeds and updates the KDA in-place
+	userKDA2 := &kapps.UserKDA{
+		Balance:   100,
+		LastClaim: &kapps.LastClaim{},
+		Buckets:   make(map[string]*kapps.UserBucket),
+	}
+	err = account.AddToBalanceWithNonce(50, assetID, []byte("5"), true, userKDA2)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(150), userKDA2.Balance)
+}
+
+func TestUserAccount_SubFromBalanceWithNonce_Validations(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount(make([]byte, 32))
+	assetID := []byte("TOKEN")
+
+	// negative value → ErrInvalidValue
+	err := account.SubFromBalanceWithNonce(-100, assetID, []byte("1"), true)
+	assert.Equal(t, state.ErrInvalidValue, err)
+
+	// zero nonce → ErrInvalidNonce
+	err = account.SubFromBalanceWithNonce(100, assetID, []byte("0"), true)
+	assert.Equal(t, state.ErrInvalidNonce, err)
+}
+
+func TestUserAccount_Withdraw_NoEligibleBuckets(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount(make([]byte, 32))
+	bucketID := []byte("bucket1")
+	encodedBucketID := hex.EncodeToString(bucketID)
+
+	userKDA := &kapps.UserKDA{
+		Buckets: map[string]*kapps.UserBucket{
+			encodedBucketID: {
+				Value:         100,
+				StakedEpoch:   1,
+				UnstakedEpoch: 10,
+			},
+		},
+	}
+
+	// epoch=5, minEpochsToWithdraw=10 → 5 < 10+10 → not eligible
+	_, err := account.Withdraw(kdautils.KLVIdentifier, 5, 10, userKDA)
+	assert.Equal(t, state.ErrWithdrawNotAvailable, err)
+}
+
+func TestUserAccount_ComputeAvailableClaim_APRIWithZeroTimestamp(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount(make([]byte, 32))
+	forkController := mock.NewForkControllerStub()
+
+	userKDA := &kapps.UserKDA{
+		LastClaim: &kapps.LastClaim{
+			Timestamp: 0,
+			Epoch:     1,
+		},
+		Buckets: map[string]*kapps.UserBucket{
+			"KLV": {Value: 1000, StakedEpoch: 1, UnstakedEpoch: core.DefaultUnstakedEpoch},
+		},
+	}
+	staking := &kapps.StakingData{
+		InterestType: kapps.StakingData_APRI,
+		APR:          []*kapps.APRData{{Timestamp: 2000, Value: 1000}},
+	}
+
+	// Zero timestamp → nil gains (no claim computed)
+	gains, err := account.ComputeAvailableClaim(
+		kdautils.KLVIdentifier, 2, 3000, userKDA, staking, forkController,
+	)
+	assert.NoError(t, err)
+	assert.Nil(t, gains)
+}
+
+func TestUserAccount_ComputeAvailableClaim_FPRIEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount(make([]byte, 32))
+	forkController := mock.NewForkControllerStub()
+
+	// Epoch not yet met for claim
+	userKDA := &kapps.UserKDA{
+		LastClaim: &kapps.LastClaim{Epoch: 10},
+		Buckets: map[string]*kapps.UserBucket{
+			"b1": {Value: 1000, StakedEpoch: 1, UnstakedEpoch: core.DefaultUnstakedEpoch},
+		},
+	}
+	staking := &kapps.StakingData{
+		InterestType:     kapps.StakingData_FPRI,
+		MinEpochsToClaim: 5,
+		FPR: []*kapps.FPRData{
+			{Epoch: 12, TotalAmount: 100, TotalStaked: 5000},
+		},
+	}
+
+	// blockEpoch(11) - lastClaimEpoch(10) = 1 < minEpochsToClaim(5)
+	_, err := account.ComputeAvailableClaim(
+		kdautils.KLVIdentifier, 11, 3000, userKDA, staking, forkController,
+	)
+	assert.Equal(t, state.ErrClaimNotAvailable, err)
+
+	// Inconsistent data: bucket.Value > TotalStaked (old path without BigBucketsCompute)
+	forkController.BigBucketsComputeValue = false
+	userKDA2 := &kapps.UserKDA{
+		LastClaim: &kapps.LastClaim{Epoch: 1},
+		Buckets: map[string]*kapps.UserBucket{
+			"b1": {Value: 10000, StakedEpoch: 1, UnstakedEpoch: core.DefaultUnstakedEpoch},
+		},
+	}
+	staking2 := &kapps.StakingData{
+		InterestType:     kapps.StakingData_FPRI,
+		MinEpochsToClaim: 0,
+		FPR: []*kapps.FPRData{
+			{Epoch: 2, TotalAmount: 100, TotalStaked: 5000},
+		},
+	}
+
+	_, err = account.ComputeAvailableClaim(
+		kdautils.KLVIdentifier, 3, 3000, userKDA2, staking2, forkController,
+	)
+	assert.Equal(t, state.ErrInconsistentStakingData, err)
+}
+
+
