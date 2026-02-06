@@ -2,6 +2,7 @@ package state_test
 
 import (
 	"encoding/hex"
+	"errors"
 	"math"
 	"testing"
 
@@ -2410,4 +2411,80 @@ func TestUserAccount_Freeze_NewStakingFlowAccumulation(t *testing.T) {
 	assert.Equal(t, uint32(core.DefaultUnstakedEpoch), userKDA.Buckets[encodedBucketID].UnstakedEpoch)
 }
 
+func TestUserAccount_SubFromBalanceWithNonce_OverflowAndPreloadedKDA(t *testing.T) {
+	t.Parallel()
 
+	t.Run("overflow when newBalance goes negative", func(t *testing.T) {
+		t.Parallel()
+
+		account, _ := state.NewUserAccount([]byte("address"))
+		assetID := []byte("MYTOKEN")
+		nonce := []byte("1")
+
+		err := account.AddToBalanceWithNonce(100, assetID, nonce, true)
+		assert.NoError(t, err)
+
+		err = account.SubFromBalanceWithNonce(150, assetID, nonce, true)
+		assert.Equal(t, state.ErrAddBalanceOverflow, err)
+
+		balance := account.GetBalanceWithNonce(assetID, nonce, true)
+		assert.Equal(t, int64(100), balance)
+	})
+
+	t.Run("preloaded userKDA bypasses GetUserKDA call", func(t *testing.T) {
+		t.Parallel()
+
+		account, _ := state.NewUserAccount([]byte("address"))
+		assetID := []byte("MYTOKEN")
+		nonce := []byte("1")
+
+		preloadedKDA := &kapps.UserKDA{
+			Balance:   200,
+			LastClaim: &kapps.LastClaim{},
+			Buckets:   make(map[string]*kapps.UserBucket),
+		}
+
+		err := account.SubFromBalanceWithNonce(50, assetID, nonce, true, preloadedKDA)
+		assert.NoError(t, err)
+
+		assert.Equal(t, int64(150), preloadedKDA.Balance)
+	})
+}
+
+func TestUserAccount_SetUserKDA_NilAssetIDMapsToKLV(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount([]byte("address"))
+
+	userKDA := &kapps.UserKDA{
+		Balance:   500,
+		LastClaim: &kapps.LastClaim{},
+		Buckets:   make(map[string]*kapps.UserBucket),
+	}
+
+	err := account.SetUserKDA(nil, nil, userKDA)
+	assert.NoError(t, err)
+
+	retrieved, err := account.GetUserKDA(kdautils.KLVIdentifier, nil, true)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(500), retrieved.Balance)
+}
+
+func TestUserAccount_SubInternalKDA_RetrieveValueError(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount([]byte("address"))
+
+	expectedErr := errors.New("retrieval error")
+	account.SetDataTrie(&mock.TrieStub{
+		GetCalled: func(key []byte) ([]byte, error) {
+			return nil, expectedErr
+		},
+	})
+
+	assetID := []byte("TOKEN")
+	internalID := []byte("internal-1")
+
+	_, err := account.SubInternalKDA(assetID, internalID)
+	assert.Equal(t, expectedErr, err)
+}

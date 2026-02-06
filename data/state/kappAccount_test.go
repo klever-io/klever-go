@@ -1212,3 +1212,41 @@ func TestKAppAccount_StorageOperations(t *testing.T) {
 	})
 }
 
+func TestKAppAccount_StartProposalsKApp_MergePathTriggered(t *testing.T) {
+	t.Parallel()
+
+	address := []byte("kapp-address")
+	acc, _ := state.NewKAppAccount(address)
+
+	marshalizer := marshal.NewProtoMarshalizer()
+
+	forksWithoutKdaFpr := mock.NewForkControllerStub()
+	forksWithoutKdaFpr.KdaFprValue = false
+
+	initialController, err := kapps.NewProposalController(forksWithoutKdaFpr)
+	require.NoError(t, err)
+
+	paramsBefore := len(initialController.GetActiveParameters())
+
+	controllerData, err := marshalizer.Marshal(initialController.ProposalController)
+	require.NoError(t, err)
+
+	err = acc.SetStorage(kdautils.ProposalControllerKey, controllerData)
+	require.NoError(t, err)
+
+	forksWithKdaFpr := mock.NewForkControllerStub()
+	forksWithKdaFpr.KdaFprValue = true
+
+	newController, err := kapps.NewProposalController(forksWithKdaFpr)
+	require.NoError(t, err)
+	paramsAfter := len(newController.GetActiveParameters())
+
+	assert.True(t, paramsAfter > paramsBefore, "NewProposalController with KdaFpr should have more parameters")
+
+	controller, err := acc.StartProposalsKApp(forksWithKdaFpr)
+	require.NoError(t, err)
+	require.NotNil(t, controller)
+
+	mergedParams := controller.GetActiveParameters()
+	assert.Equal(t, paramsAfter, len(mergedParams), "Merged parameters should match the full parameter count")
+}
