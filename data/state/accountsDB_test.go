@@ -2935,3 +2935,91 @@ func TestAccountsDB_RemoveCode_ErrorPropagation(t *testing.T) {
 	err := adb.RemoveAccountCode(address)
 	assert.ErrorIs(t, err, expectedErr)
 }
+
+func TestAccountsDB_Commit_ObsoleteDataTrieHashesCleaned(t *testing.T) {
+	t.Parallel()
+
+	// Covers Commit line 777-779: obsolete data trie hashes appended to oldHashes
+	// Flow: save account with data trie → remove account (populates obsoleteDataTrieHashes) → commit
+	address := make([]byte, 32)
+	rootHash := []byte("data-root-hash")
+	marshalizer := &mock.MarshalizerMock{}
+
+	acc, _ := state.NewUserAccount(address)
+	acc.SetRootHash(rootHash)
+	accBytes, _ := marshalizer.Marshal(acc)
+
+	dataTrieHashes := [][]byte{[]byte("hash1"), []byte("hash2")}
+
+	ts := &mock.TrieStub{
+		GetCalled: func(key []byte) ([]byte, error) {
+			if bytes.Equal(key, address) {
+				return accBytes, nil
+			}
+			return nil, nil
+		},
+		UpdateCalled: func(key, value []byte) error { return nil },
+		RecreateCalled: func(root []byte) (data.Trie, error) {
+			return &mock.TrieStub{
+				GetAllHashesCalled: func() ([][]byte, error) {
+					return dataTrieHashes, nil
+				},
+				ResetOldHashesCalled: func() [][]byte { return nil },
+				CommitCalled:         func() error { return nil },
+			}, nil
+		},
+		RootCalled: func() ([]byte, error) {
+			return []byte("root"), nil
+		},
+		ResetOldHashesCalled:    func() [][]byte { return nil },
+		AppendToOldHashesCalled: func(hashes [][]byte) {},
+		CommitCalled:            func() error { return nil },
+		GetStorageManagerCalled: defaultStorageManager(),
+	}
+
+	adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, marshalizer, &factory.AccountCreator{}, core.Normal)
+
+	err := adb.RemoveAccount(address)
+	assert.NoError(t, err)
+
+	hash, err := adb.Commit()
+	assert.NoError(t, err)
+	assert.NotNil(t, hash)
+}
+
+func TestAccountsDB_SaveCode_GetCodeEntryUnmarshalError(t *testing.T) {
+	t.Parallel()
+
+	// Covers getCodeEntry line 329-331: unmarshal error when trie returns non-proto data
+	address := []byte("user-address")
+	hasher := &mock.HasherMock{}
+	oldCodeHash := hasher.Compute("old-code")
+	marshalizer := &mock.MarshalizerMock{}
+
+	oldAcc, _ := state.NewUserAccount(address)
+	oldAcc.SetCodeHash(oldCodeHash)
+	oldAccBytes, _ := marshalizer.Marshal(oldAcc)
+
+	ts := &mock.TrieStub{
+		GetCalled: func(key []byte) ([]byte, error) {
+			if bytes.Equal(key, address) {
+				return oldAccBytes, nil
+			}
+			if bytes.Equal(key, oldCodeHash) {
+				// Return garbage bytes that will fail unmarshal
+				return []byte{0xFF, 0xFE, 0xFD}, nil
+			}
+			return nil, nil
+		},
+		UpdateCalled:            func(key, value []byte) error { return nil },
+		GetStorageManagerCalled: defaultStorageManager(),
+	}
+
+	adb, _ := state.NewAccountsDB(ts, hasher, marshalizer, &factory.AccountCreator{}, core.Normal)
+
+	newAcc, _ := state.NewUserAccount(address)
+	newAcc.SetCode([]byte("new-code"))
+
+	err := adb.SaveAccount(newAcc)
+	assert.Error(t, err)
+}
