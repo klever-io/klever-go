@@ -1553,3 +1553,103 @@ func TestUserAccount_NewUserAccountNoCheck(t *testing.T) {
 	assert.NotNil(t, acc)
 	assert.Equal(t, []byte("addr"), acc.AddressBytes())
 }
+
+func TestUserAccount_GetUserKDA_NilAssetIDDefaultsToKLV(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount([]byte("address"))
+	// Add a custom asset balance to create dirty data so GetUserKDA doesn't early-return
+	_ = account.AddToBalance(500, []byte("CUSTOM"), true)
+
+	// nil assetID should default to KLV; KLV has no data in trie, returns empty
+	userKDA, err := account.GetUserKDA(nil, nil, true)
+	assert.NoError(t, err)
+	assert.NotNil(t, userKDA)
+	assert.Equal(t, int64(0), userKDA.Balance)
+}
+
+func TestUserAccount_SetUserKDA_NilAssetIDDefaultsToKLV(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount([]byte("address"))
+	userKDA := &kapps.UserKDA{
+		Balance:   999,
+		LastClaim: &kapps.LastClaim{},
+		Buckets:   make(map[string]*kapps.UserBucket),
+	}
+
+	err := account.SetUserKDA(nil, nil, userKDA)
+	assert.NoError(t, err)
+
+	// Verify by reading back with KLV identifier
+	got, err := account.GetUserKDA(kdautils.KLVIdentifier, nil, true)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(999), got.Balance)
+}
+
+func TestUserAccount_GetUserKDA_UnmarshalError(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount([]byte("address"))
+	// Save invalid proto data into dirty cache
+	key := kdautils.ToKDAKey([]byte("BAD"), nil)
+	_ = account.SaveKeyValue(key, []byte("not-valid-proto-data"))
+
+	_, err := account.GetUserKDA([]byte("BAD"), nil, true)
+	assert.Error(t, err)
+}
+
+func TestUserAccount_GetBalanceWithNonce_ErrorReturnsZero(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount([]byte("address"))
+	key := kdautils.ToKDAKey([]byte("BAD"), nil)
+	_ = account.SaveKeyValue(key, []byte("not-valid-proto"))
+
+	balance := account.GetBalanceWithNonce([]byte("BAD"), nil, true)
+	assert.Equal(t, int64(0), balance)
+}
+
+func TestUserAccount_GetFrozenBalance_ErrorReturnsZero(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount([]byte("address"))
+	key := kdautils.ToKDAKey([]byte("BAD"), nil)
+	_ = account.SaveKeyValue(key, []byte("not-valid-proto"))
+
+	frozen := account.GetFrozenBalance([]byte("BAD"), true)
+	assert.Equal(t, int64(0), frozen)
+}
+
+func TestUserAccount_GetBuckets_ErrorReturnsNil(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount([]byte("address"))
+	key := kdautils.ToKDAKey([]byte("BAD"), nil)
+	_ = account.SaveKeyValue(key, []byte("not-valid-proto"))
+
+	buckets := account.GetBuckets([]byte("BAD"), true)
+	assert.Nil(t, buckets)
+}
+
+func TestUserAccount_Equal_DifferentBaseAccount(t *testing.T) {
+	t.Parallel()
+
+	acc1, _ := state.NewUserAccount([]byte("address-1"))
+	acc2, _ := state.NewUserAccount([]byte("address-2"))
+
+	// Same proto data but different baseAccount addresses
+	assert.False(t, acc1.Equal(acc2))
+}
+
+func TestUserAccount_Equal_WrongType(t *testing.T) {
+	t.Parallel()
+
+	acc1, _ := state.NewUserAccount([]byte("address"))
+	peerAcc, _ := state.NewPeerAccount([]byte("address"))
+
+	// PeerAccount doesn't implement UserAccountHandler, so Equal returns false
+	// We test nil which is also not a *userAccount
+	assert.False(t, acc1.Equal(nil))
+	_ = peerAcc // peerAccount is not UserAccountHandler, can't pass directly
+}

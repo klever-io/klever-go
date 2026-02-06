@@ -1,12 +1,6 @@
 package mock
 
-import (
-	"math/big"
-
-	"github.com/klever-io/klever-go/core"
-	"github.com/klever-io/klever-go/data"
-	"github.com/klever-io/klever-go/data/state"
-)
+import "github.com/klever-io/klever-go/data/state"
 
 // PeerAccountHandlerMock -
 type PeerAccountHandlerMock struct {
@@ -25,90 +19,36 @@ type PeerAccountHandlerMock struct {
 	AddToAccumulatedFeesCalled                   func(int64)
 	GetAccumulatedFeesCalled                     func() int64
 	GetConsecutiveProposerMissesCalled           func() uint32
-	SetConsecutiveProposerMissesCalled           func(rating uint32)
-	SetListAndIndexCalled                        func(list string, index uint32)
-	GetListCalled                                func() string
-	GetUnStakedEpochCalled                       func() uint32
-	GetCanDelegateCalled                         func() bool
-	GetMaxDelegationAmountCalled                 func() int64
-	GetCommissionCalled                          func() float64
-	ClearDelegationsCalled                       func([]string) error
-	// DelegateCalled(address, bucketID []byte, value int64, epoch uint32) error
-	// Undelegate(bucketID []byte, epoch uint32) ([]byte, error)
-	state.AccountHandler
-}
-
-// GetUnStakedEpoch -
-func (p *PeerAccountHandlerMock) GetUnStakedEpoch() uint32 {
-	if p.GetUnStakedEpochCalled != nil {
-		return p.GetUnStakedEpochCalled()
-	}
-	return core.DefaultUnstakedEpoch
-}
-
-// SetUnStakedEpoch -
-func (p *PeerAccountHandlerMock) SetUnStakedEpoch(_ uint32) {
-}
-
-// GetList -
-func (p *PeerAccountHandlerMock) GetList() string {
-	if p.GetListCalled != nil {
-		return p.GetListCalled()
-	}
-	return ""
-}
-
-// GetIndexInList -
-func (p *PeerAccountHandlerMock) GetIndexInList() uint32 {
-	return 0
+	SetConsecutiveProposerMissesCalled           func(uint32)
+	SetListAndIndexCalled                        func(list state.List, index uint32)
+	GetListCalled                                func() state.List
+	CopyFromCalled                               func(state.PeerAccountHandler) error
 }
 
 // GetBLSPublicKey -
-func (p *PeerAccountHandlerMock) GetBLSPublicKey() []byte {
-	return nil
-}
+func (p *PeerAccountHandlerMock) GetBLSPublicKey() []byte { return nil }
 
 // SetBLSPublicKey -
-func (p *PeerAccountHandlerMock) SetBLSPublicKey([]byte) error {
-	return nil
-}
+func (p *PeerAccountHandlerMock) SetBLSPublicKey([]byte) error { return nil }
 
 // GetOwnerAddress -
-func (p *PeerAccountHandlerMock) GetOwnerAddress() []byte {
-	return nil
-}
+func (p *PeerAccountHandlerMock) GetOwnerAddress() []byte { return nil }
 
 // SetOwnerAddress -
-func (p *PeerAccountHandlerMock) SetOwnerAddress([]byte) error {
-	return nil
-}
+func (p *PeerAccountHandlerMock) SetOwnerAddress([]byte) error { return nil }
 
-// GetRewardAddress -
-func (p *PeerAccountHandlerMock) GetRewardAddress() []byte {
-	return nil
-}
+// SetRevoked -
+func (p *PeerAccountHandlerMock) SetRevoked() {}
 
-// SetRewardAddress -
-func (p *PeerAccountHandlerMock) SetRewardAddress([]byte) error {
-	return nil
-}
-
-// GetStake -
-func (p *PeerAccountHandlerMock) GetStake() *big.Int {
-	return nil
-}
-
-// SetStake -
-func (p *PeerAccountHandlerMock) SetStake(_ *big.Int) error {
-	return nil
-}
+// GetRevoked -
+func (p *PeerAccountHandlerMock) GetRevoked() bool { return false }
 
 // GetAccumulatedFees -
 func (p *PeerAccountHandlerMock) GetAccumulatedFees() int64 {
 	if p.GetAccumulatedFeesCalled != nil {
 		return p.GetAccumulatedFeesCalled()
 	}
-	return int64(0)
+	return 0
 }
 
 // AddToAccumulatedFees -
@@ -118,10 +58,53 @@ func (p *PeerAccountHandlerMock) AddToAccumulatedFees(val int64) {
 	}
 }
 
-// GetShardId -
-func (p *PeerAccountHandlerMock) GetShardId() uint32 {
-	return 0
+// GetList -
+func (p *PeerAccountHandlerMock) GetList() state.List {
+	if p.GetListCalled != nil {
+		return p.GetListCalled()
+	}
+	return state.List_inactive
 }
+
+// GetIndex -
+func (p *PeerAccountHandlerMock) GetIndex() uint32 { return 0 }
+
+// GetListString -
+func (p *PeerAccountHandlerMock) GetListString() string { return "" }
+
+// SetList -
+func (p *PeerAccountHandlerMock) SetList(_ state.List) {}
+
+// SetListAndIndex -
+func (p *PeerAccountHandlerMock) SetListAndIndex(list state.List, index uint32) {
+	if p.SetListAndIndexCalled != nil {
+		p.SetListAndIndexCalled(list, index)
+	}
+}
+
+// GetLeaderSuccessRateSuccess -
+func (p *PeerAccountHandlerMock) GetLeaderSuccessRateSuccess() uint32 { return 0 }
+
+// GetTotalLeaderSuccessRateSuccess -
+func (p *PeerAccountHandlerMock) GetTotalLeaderSuccessRateSuccess() uint32 { return 0 }
+
+// GetValidatorSuccessRateSuccess -
+func (p *PeerAccountHandlerMock) GetValidatorSuccessRateSuccess() uint32 { return 0 }
+
+// GetTotalValidatorSuccessRateSuccess -
+func (p *PeerAccountHandlerMock) GetTotalValidatorSuccessRateSuccess() uint32 { return 0 }
+
+// GetLeaderSuccessRateFailure -
+func (p *PeerAccountHandlerMock) GetLeaderSuccessRateFailure() uint32 { return 0 }
+
+// GetTotalLeaderSuccessRateFailure -
+func (p *PeerAccountHandlerMock) GetTotalLeaderSuccessRateFailure() uint32 { return 0 }
+
+// GetValidatorSuccessRateFailure -
+func (p *PeerAccountHandlerMock) GetValidatorSuccessRateFailure() uint32 { return 0 }
+
+// GetTotalValidatorSuccessRateFailure -
+func (p *PeerAccountHandlerMock) GetTotalValidatorSuccessRateFailure() uint32 { return 0 }
 
 // IncreaseLeaderSuccessRate -
 func (p *PeerAccountHandlerMock) IncreaseLeaderSuccessRate(val uint32) {
@@ -169,19 +152,13 @@ func (p *PeerAccountHandlerMock) IncreaseValidatorIgnoredSignaturesRate(val uint
 }
 
 // GetNumSelectedInSuccessBlocks -
-func (p *PeerAccountHandlerMock) GetNumSelectedInSuccessBlocks() uint32 {
-	return 0
-}
+func (p *PeerAccountHandlerMock) GetNumSelectedInSuccessBlocks() uint32 { return 0 }
 
 // IncreaseNumSelectedInSuccessBlocks -
-func (p *PeerAccountHandlerMock) IncreaseNumSelectedInSuccessBlocks() {
-
-}
+func (p *PeerAccountHandlerMock) IncreaseNumSelectedInSuccessBlocks() {}
 
 // GetLeaderSuccessRate -
-func (p *PeerAccountHandlerMock) GetLeaderSuccessRate() *state.SignRate {
-	return &state.SignRate{}
-}
+func (p *PeerAccountHandlerMock) GetLeaderSuccessRate() *state.SignRate { return &state.SignRate{} }
 
 // GetValidatorSuccessRate -
 func (p *PeerAccountHandlerMock) GetValidatorSuccessRate() *state.SignRate {
@@ -189,9 +166,7 @@ func (p *PeerAccountHandlerMock) GetValidatorSuccessRate() *state.SignRate {
 }
 
 // GetValidatorIgnoredSignaturesRate -
-func (p *PeerAccountHandlerMock) GetValidatorIgnoredSignaturesRate() uint32 {
-	return 0
-}
+func (p *PeerAccountHandlerMock) GetValidatorIgnoredSignaturesRate() uint32 { return 0 }
 
 // GetTotalLeaderSuccessRate -
 func (p *PeerAccountHandlerMock) GetTotalLeaderSuccessRate() *state.SignRate {
@@ -204,19 +179,13 @@ func (p *PeerAccountHandlerMock) GetTotalValidatorSuccessRate() *state.SignRate 
 }
 
 // GetTotalValidatorIgnoredSignaturesRate -
-func (p *PeerAccountHandlerMock) GetTotalValidatorIgnoredSignaturesRate() uint32 {
-	return 0
-}
+func (p *PeerAccountHandlerMock) GetTotalValidatorIgnoredSignaturesRate() uint32 { return 0 }
 
 // GetRating -
-func (p *PeerAccountHandlerMock) GetRating() uint32 {
-	return 0
-}
+func (p *PeerAccountHandlerMock) GetRating() uint32 { return 0 }
 
 // SetRating -
-func (p *PeerAccountHandlerMock) SetRating(uint32) {
-
-}
+func (p *PeerAccountHandlerMock) SetRating(uint32) {}
 
 // GetTempRating -
 func (p *PeerAccountHandlerMock) GetTempRating() uint32 {
@@ -233,69 +202,6 @@ func (p *PeerAccountHandlerMock) SetTempRating(val uint32) {
 	}
 }
 
-// ResetAtNewEpoch -
-func (p *PeerAccountHandlerMock) ResetAtNewEpoch() {
-}
-
-// AddressBytes -
-func (p *PeerAccountHandlerMock) AddressBytes() []byte {
-	return nil
-}
-
-// IncreaseNonce -
-func (p *PeerAccountHandlerMock) IncreaseNonce(_ uint64) {
-}
-
-// GetNonce -
-func (p *PeerAccountHandlerMock) GetNonce() uint64 {
-	return 0
-}
-
-// SetCode -
-func (p *PeerAccountHandlerMock) SetCode(_ []byte) {
-
-}
-
-// GetCode -
-func (p *PeerAccountHandlerMock) GetCode() []byte {
-	return nil
-}
-
-// SetCodeHash -
-func (p *PeerAccountHandlerMock) SetCodeHash(_ []byte) {
-
-}
-
-// GetCodeHash -
-func (p *PeerAccountHandlerMock) GetCodeHash() []byte {
-	return nil
-}
-
-// SetRootHash -
-func (p *PeerAccountHandlerMock) SetRootHash([]byte) {
-
-}
-
-// GetRootHash -
-func (p *PeerAccountHandlerMock) GetRootHash() []byte {
-	return nil
-}
-
-// SetDataTrie -
-func (p *PeerAccountHandlerMock) SetDataTrie(_ data.Trie) {
-
-}
-
-// DataTrie -
-func (p *PeerAccountHandlerMock) DataTrie() data.Trie {
-	return nil
-}
-
-// DataTrieTracker -
-func (p *PeerAccountHandlerMock) DataTrieTracker() state.DataTrieTracker {
-	return nil
-}
-
 // GetConsecutiveProposerMisses -
 func (p *PeerAccountHandlerMock) GetConsecutiveProposerMisses() uint32 {
 	if p.GetConsecutiveProposerMissesCalled != nil {
@@ -305,24 +211,31 @@ func (p *PeerAccountHandlerMock) GetConsecutiveProposerMisses() uint32 {
 }
 
 // SetConsecutiveProposerMisses -
-func (p *PeerAccountHandlerMock) SetConsecutiveProposerMisses(consecutiveMisses uint32) {
+func (p *PeerAccountHandlerMock) SetConsecutiveProposerMisses(val uint32) {
 	if p.SetConsecutiveProposerMissesCalled != nil {
-		p.SetConsecutiveProposerMissesCalled(consecutiveMisses)
+		p.SetConsecutiveProposerMissesCalled(val)
 	}
 }
 
-// SetListAndIndex -
-func (p *PeerAccountHandlerMock) SetListAndIndex(list string, index uint32) {
-	if p.SetListAndIndexCalled != nil {
-		p.SetListAndIndexCalled(list, index)
-	}
-}
+// ResetAtNewEpoch -
+func (p *PeerAccountHandlerMock) ResetAtNewEpoch() {}
 
-func (p *PeerAccountHandlerMock) CopyFrom(oldHandler state.PeerAccountHandler) error {
+// CopyFrom -
+func (p *PeerAccountHandlerMock) CopyFrom(handler state.PeerAccountHandler) error {
+	if p.CopyFromCalled != nil {
+		return p.CopyFromCalled(handler)
+	}
 	return nil
 }
 
+// AddressBytes -
+func (p *PeerAccountHandlerMock) AddressBytes() []byte { return nil }
+
+// IncreaseNonce -
+func (p *PeerAccountHandlerMock) IncreaseNonce(_ uint64) {}
+
+// GetNonce -
+func (p *PeerAccountHandlerMock) GetNonce() uint64 { return 0 }
+
 // IsInterfaceNil -
-func (p *PeerAccountHandlerMock) IsInterfaceNil() bool {
-	return false
-}
+func (p *PeerAccountHandlerMock) IsInterfaceNil() bool { return p == nil }

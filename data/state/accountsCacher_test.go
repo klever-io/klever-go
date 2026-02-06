@@ -778,3 +778,191 @@ func TestAccountsCacher_TypeAssertionErrors(t *testing.T) {
 		assert.Equal(t, common.ErrWrongTypeAssertion, err)
 	})
 }
+
+func TestAccountsCacher_GetCode(t *testing.T) {
+	t.Parallel()
+
+	expectedCode := []byte("contract-code-bytes")
+	codeHash := []byte("hash-of-code")
+	getCalled := false
+
+	acc, _ := state.NewAccountsCacher(
+		state.ArgsAcccountCacher{
+			Accounts: &mock.AccountsStub{
+				GetCodeCalled: func(hash []byte) []byte {
+					getCalled = true
+					assert.Equal(t, codeHash, hash)
+					return expectedCode
+				},
+			},
+			Kapps: &mock.AccountsStub{},
+			Peers: &mock.AccountsStub{},
+		},
+	)
+
+	code := acc.GetCode(codeHash)
+	assert.Equal(t, expectedCode, code)
+	assert.True(t, getCalled)
+}
+
+func TestAccountsCacher_SaveAll_UserSaveError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("user save error")
+	newUserAccount := state.NewEmptyUserAccount()
+
+	acc, _ := state.NewAccountsCacher(
+		state.ArgsAcccountCacher{
+			&mock.AccountsStub{
+				LoadAccountCalled: func(address []byte) (state.AccountHandler, error) {
+					newUserAccount.Address = address
+					return newUserAccount, nil
+				},
+				SaveAccountCalled: func(account state.AccountHandler) error {
+					return expectedErr
+				},
+			},
+			&mock.AccountsStub{},
+			&mock.AccountsStub{},
+		},
+	)
+
+	acc.ResetAll(true)
+
+	userAddress := make([]byte, 32)
+	_, err := acc.LoadUser(userAddress)
+	require.Nil(t, err)
+
+	err = acc.SaveAll()
+	assert.Equal(t, expectedErr, err)
+}
+
+func TestAccountsCacher_SaveAll_KappSaveError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("kapp save error")
+	newKappAccount := state.NewEmptyKAppAccount()
+
+	acc, _ := state.NewAccountsCacher(
+		state.ArgsAcccountCacher{
+			&mock.AccountsStub{},
+			&mock.AccountsStub{
+				LoadAccountCalled: func(address []byte) (state.AccountHandler, error) {
+					newKappAccount.Address = address
+					return newKappAccount, nil
+				},
+				SaveAccountCalled: func(account state.AccountHandler) error {
+					return expectedErr
+				},
+			},
+			&mock.AccountsStub{},
+		},
+	)
+
+	acc.ResetAll(true)
+
+	kappAddress := make([]byte, 32)
+	_, err := acc.LoadKApp(kappAddress)
+	require.Nil(t, err)
+
+	err = acc.SaveAll()
+	assert.Equal(t, expectedErr, err)
+}
+
+func TestAccountsCacher_SaveAll_PeerSaveError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("peer save error")
+	newPeerAccount := state.NewEmptyPeerAccount()
+
+	acc, _ := state.NewAccountsCacher(
+		state.ArgsAcccountCacher{
+			&mock.AccountsStub{},
+			&mock.AccountsStub{},
+			&mock.AccountsStub{
+				LoadAccountCalled: func(address []byte) (state.AccountHandler, error) {
+					newPeerAccount.OwnerAddress = address
+					return newPeerAccount, nil
+				},
+				SaveAccountCalled: func(account state.AccountHandler) error {
+					return expectedErr
+				},
+			},
+		},
+	)
+
+	acc.ResetAll(true)
+
+	peerAddress := make([]byte, 32)
+	_, err := acc.LoadPeer(peerAddress)
+	require.Nil(t, err)
+
+	err = acc.SaveAll()
+	assert.Equal(t, expectedErr, err)
+}
+
+func TestAccountsCacher_LoadUser_LoadAccountError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("load account error")
+
+	acc, _ := state.NewAccountsCacher(
+		state.ArgsAcccountCacher{
+			&mock.AccountsStub{
+				LoadAccountCalled: func(address []byte) (state.AccountHandler, error) {
+					return nil, expectedErr
+				},
+			},
+			&mock.AccountsStub{},
+			&mock.AccountsStub{},
+		},
+	)
+
+	address := make([]byte, 32)
+	_, err := acc.LoadUser(address)
+	assert.Equal(t, expectedErr, err)
+}
+
+func TestAccountsCacher_LoadKApp_LoadAccountError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("load kapp account error")
+
+	acc, _ := state.NewAccountsCacher(
+		state.ArgsAcccountCacher{
+			&mock.AccountsStub{},
+			&mock.AccountsStub{
+				LoadAccountCalled: func(address []byte) (state.AccountHandler, error) {
+					return nil, expectedErr
+				},
+			},
+			&mock.AccountsStub{},
+		},
+	)
+
+	address := make([]byte, 32)
+	_, err := acc.LoadKApp(address)
+	assert.Equal(t, expectedErr, err)
+}
+
+func TestAccountsCacher_LoadPeer_LoadAccountError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("load peer account error")
+
+	acc, _ := state.NewAccountsCacher(
+		state.ArgsAcccountCacher{
+			&mock.AccountsStub{},
+			&mock.AccountsStub{},
+			&mock.AccountsStub{
+				LoadAccountCalled: func(address []byte) (state.AccountHandler, error) {
+					return nil, expectedErr
+				},
+			},
+		},
+	)
+
+	address := make([]byte, 32)
+	_, err := acc.LoadPeer(address)
+	assert.Equal(t, expectedErr, err)
+}

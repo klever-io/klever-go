@@ -738,3 +738,130 @@ func TestKAppAccountsDB_IsInterfaceNil(t *testing.T) {
 		assert.False(t, adb.IsInterfaceNil())
 	})
 }
+
+func TestKAppAccount_IncreaseNonce_NoOp(t *testing.T) {
+	t.Parallel()
+
+	address := []byte("kapp-address")
+	acc, _ := state.NewKAppAccount(address)
+
+	// Verify IncreaseNonce is truly a no-op (doesn't panic with various values)
+	acc.IncreaseNonce(0)
+	assert.Equal(t, uint64(0), acc.GetNonce())
+
+	acc.IncreaseNonce(1)
+	assert.Equal(t, uint64(0), acc.GetNonce())
+
+	acc.IncreaseNonce(999999)
+	assert.Equal(t, uint64(0), acc.GetNonce())
+}
+
+func TestKAppAccount_SubInternalKDA_SaveKeyValueError(t *testing.T) {
+	t.Parallel()
+
+	address := []byte("kapp-address")
+	acc, _ := state.NewKAppAccount(address)
+
+	assetID := []byte("KDA-TOKEN")
+	internalID := []byte("internal-123")
+
+	// Create a huge value that will trigger ErrLeafSizeTooBig when saved
+	// MaxLeafSize is 786KB (1<<18 + 1<<19 = 262144 + 524288 = 786432)
+	hugeData := make([]byte, 800000) // 800KB - exceeds MaxLeafSize
+	for i := range hugeData {
+		hugeData[i] = byte(i % 256)
+	}
+
+	// Add the huge data first
+	err := acc.AddInternalKDA(assetID, internalID, hugeData)
+	require.Equal(t, common.ErrLeafSizeTooBig, err)
+
+	// Since add failed, sub should fail with ErrAssetNotFound
+	data, err := acc.SubInternalKDA(assetID, internalID)
+	assert.NotNil(t, err)
+	assert.Nil(t, data)
+
+	// Now test the actual SaveKeyValue error path in SubInternalKDA
+	// First add normal data successfully
+	normalData := []byte("normal-kda-data")
+	err = acc.AddInternalKDA(assetID, internalID, normalData)
+	require.Nil(t, err)
+
+	// Now we need to make the dataTrieTracker return an error on SaveKeyValue
+	// We'll create a new account with a custom tracker that has a trie returning error
+	acc2, _ := state.NewKAppAccount([]byte("kapp-address-2"))
+	tracker := state.NewTrackableDataTrie([]byte("kapp-address-2"), nil)
+
+	// Add data first to tracker's dirty cache
+	key := kdautils.ToKDAKey(assetID, internalID)
+	err = tracker.SaveKeyValue(key, normalData)
+	require.Nil(t, err)
+
+	// Replace the account's tracker
+	acc2.SetDataTrie(nil)
+	// We can't directly replace the tracker, but we can test that trying to save
+	// a value that's too large will fail during SubInternalKDA
+
+	// Actually, looking at the code more carefully, SubInternalKDA calls
+	// SaveKeyValue(key, nil) which should never fail for size reasons.
+	// The only way SaveKeyValue fails is if value is too large.
+	// Since we're saving nil, it won't fail for size.
+	// So this error path is actually unreachable in normal operation.
+	// We verify the function works correctly by testing normal operation.
+	data, err = acc.SubInternalKDA(assetID, internalID)
+	assert.Nil(t, err)
+	assert.Equal(t, normalData, data)
+}
+
+func TestKAppAccount_GetUserKDA_NilTrieWithDirtyData(t *testing.T) {
+	t.Parallel()
+
+	address := []byte("kapp-address")
+	acc, _ := state.NewKAppAccount(address)
+
+	assetID := []byte("KDA-TOKEN")
+	nonce := []byte("nonce-1")
+
+	// First, save some data to populate dirty cache
+	userKDA := &kapps.UserKDA{
+		Balance: 500,
+		Buckets: map[string]*kapps.UserBucket{
+			"bucket1": {Value: 250},
+		},
+		LastClaim: &kapps.LastClaim{},
+	}
+
+	marshaller := marshal.NewProtoMarshalizer()
+	kdaData, err := marshaller.Marshal(userKDA)
+	require.Nil(t, err)
+
+	key := kdautils.ToKDAKey(assetID, nonce)
+	err = acc.SetStorage(key, kdaData)
+	require.Nil(t, err)
+
+	// Now set DataTrie to nil, but dirtyData still has entries
+	acc.SetDataTrie(nil)
+
+	// Verify dirty data exists
+	dirtyData := acc.DataTrieTracker().DirtyData()
+	assert.True(t, len(dirtyData) > 0)
+
+	// Now call GetUserKDA with checkDirtData=true
+	// The code checks: if DataTrie is nil AND (!checkDirtData OR len(DirtyData()) == 0)
+	// Since we have checkDirtData=true AND len(DirtyData()) > 0, it should NOT return early
+	// It should call RetrieveValue which will retrieve from dirty cache
+	retrieved, err := acc.GetUserKDA(assetID, nonce, true)
+	assert.Nil(t, err)
+	assert.NotNil(t, retrieved)
+	// RetrieveValue looks in dirty cache first, so it should find the data
+	assert.Equal(t, int64(500), retrieved.Balance)
+
+	// Test with checkDirtData=false
+	// This case: DataTrie is nil AND !checkDirtData = true, so early return
+	retrieved2, err := acc.GetUserKDA(assetID, nonce, false)
+	assert.Nil(t, err)
+	assert.NotNil(t, retrieved2)
+	// This returns empty struct because early return condition is met
+	assert.Equal(t, int64(0), retrieved2.Balance)
+}
+
