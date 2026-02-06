@@ -1932,43 +1932,30 @@ func TestUserAccount_CalculateFPRAmount_FPRComputeAndKdaFeeFlowNegativeClamped(t
 	assert.Equal(t, int64(0), gains[string(kdautils.KLVIdentifier)])
 }
 
-func TestUserAccount_AddToBalanceWithNonce_SaveKeyValueError(t *testing.T) {
+func TestUserAccount_AddToBalanceWithNonce_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	account, _ := state.NewUserAccount([]byte("address"))
-
-	// Create a value that when marshalled + key would exceed leaf size
-	// MaxLeafSize is ~786KB, but we need to test SaveKeyValue error in SetUserKDA
-	// The easiest way is to set the trie to nil after creating dirty data
 	assetID := []byte("MYTOKEN")
 	nonce := []byte("1")
 
-	// First add some balance to create dirty data
 	err := account.AddToBalanceWithNonce(100, assetID, nonce, true)
 	assert.NoError(t, err)
 
-	// Now manually corrupt the account to make SaveKeyValue fail
-	// We can't easily trigger SaveKeyValue error without setting trie to nil
-	// But that would cause RetrieveValue to fail first
-	// The error path in AddToBalanceWithNonce from SaveKeyValue is hard to test
-	// because it's at line 237 after successful GetUserKDA
-	// Let's verify the function works correctly with normal flow
 	balance := account.GetBalanceWithNonce(assetID, nonce, true)
 	assert.Equal(t, int64(100), balance)
 }
 
-func TestUserAccount_SubFromBalanceWithNonce_SaveKeyValueError(t *testing.T) {
+func TestUserAccount_SubFromBalanceWithNonce_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	account, _ := state.NewUserAccount([]byte("address"))
 	assetID := []byte("MYTOKEN")
 	nonce := []byte("1")
 
-	// Add balance first
 	err := account.AddToBalanceWithNonce(200, assetID, nonce, true)
 	assert.NoError(t, err)
 
-	// Subtract should work
 	err = account.SubFromBalanceWithNonce(100, assetID, nonce, true)
 	assert.NoError(t, err)
 
@@ -1976,39 +1963,35 @@ func TestUserAccount_SubFromBalanceWithNonce_SaveKeyValueError(t *testing.T) {
 	assert.Equal(t, int64(100), balance)
 }
 
-func TestUserAccount_SubInternalKDA_SaveKeyValueErrorPath(t *testing.T) {
+func TestUserAccount_SubInternalKDA_AddThenSubThenSubAgain(t *testing.T) {
 	t.Parallel()
 
 	account, _ := state.NewUserAccount([]byte("address"))
 	assetID := []byte("KDA-TOKEN")
 	internalID := []byte("internal-123")
-	data := []byte("kda-data")
+	kdaData := []byte("kda-data")
 
-	// Add data first
-	err := account.AddInternalKDA(assetID, internalID, data)
+	err := account.AddInternalKDA(assetID, internalID, kdaData)
 	assert.NoError(t, err)
 
-	// SubInternalKDA should succeed
 	retrieved, err := account.SubInternalKDA(assetID, internalID)
 	assert.NoError(t, err)
-	assert.Equal(t, data, retrieved)
+	assert.Equal(t, kdaData, retrieved)
 
-	// Try to sub again - should fail with ErrAssetNotFound
+	// Sub again on removed key returns error
 	_, err = account.SubInternalKDA(assetID, internalID)
 	assert.Error(t, err)
 }
 
-func TestUserAccount_SubFromBalance_SetUserKDAError(t *testing.T) {
+func TestUserAccount_SubFromBalance_CustomAssetRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	account, _ := state.NewUserAccount([]byte("address"))
 	customAsset := []byte("TOKEN")
 
-	// Add balance
 	err := account.AddToBalance(500, customAsset, true)
 	assert.NoError(t, err)
 
-	// Subtract should work
 	err = account.SubFromBalance(200, customAsset, true)
 	assert.NoError(t, err)
 

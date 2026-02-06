@@ -241,15 +241,12 @@ func TestKAppAccount_StartProposalsKApp_LoadExisting(t *testing.T) {
 	assert.Equal(t, len(params1), len(params2))
 }
 
-func TestKAppAccount_StartProposalsKApp_SaveError(t *testing.T) {
+func TestKAppAccount_StartProposalsKApp_InitialSaveSucceeds(t *testing.T) {
 	t.Parallel()
 
 	address := []byte("kapp-address")
 	acc, _ := state.NewKAppAccount(address)
 
-	// We test that StartProposalsKApp succeeds normally
-	// The SaveKeyValue error path is hard to trigger without exposing internals
-	// but is covered by the happy path tests
 	forks := mock.NewForkControllerStub()
 	controller, err := acc.StartProposalsKApp(forks)
 	require.Nil(t, err)
@@ -757,7 +754,7 @@ func TestKAppAccount_IncreaseNonce_NoOp(t *testing.T) {
 	assert.Equal(t, uint64(0), acc.GetNonce())
 }
 
-func TestKAppAccount_SubInternalKDA_SaveKeyValueError(t *testing.T) {
+func TestKAppAccount_SubInternalKDA_OversizedAddFailsThenSubNotFound(t *testing.T) {
 	t.Parallel()
 
 	address := []byte("kapp-address")
@@ -766,49 +763,25 @@ func TestKAppAccount_SubInternalKDA_SaveKeyValueError(t *testing.T) {
 	assetID := []byte("KDA-TOKEN")
 	internalID := []byte("internal-123")
 
-	// Create a huge value that will trigger ErrLeafSizeTooBig when saved
-	// MaxLeafSize is 786KB (1<<18 + 1<<19 = 262144 + 524288 = 786432)
-	hugeData := make([]byte, 800000) // 800KB - exceeds MaxLeafSize
+	// Oversized data (>786KB) triggers ErrLeafSizeTooBig on AddInternalKDA
+	hugeData := make([]byte, 800000)
 	for i := range hugeData {
 		hugeData[i] = byte(i % 256)
 	}
 
-	// Add the huge data first
 	err := acc.AddInternalKDA(assetID, internalID, hugeData)
 	require.Equal(t, common.ErrLeafSizeTooBig, err)
 
-	// Since add failed, sub should fail with ErrAssetNotFound
+	// Since add failed, sub returns ErrAssetNotFound
 	data, err := acc.SubInternalKDA(assetID, internalID)
 	assert.NotNil(t, err)
 	assert.Nil(t, data)
 
-	// Now test the actual SaveKeyValue error path in SubInternalKDA
-	// First add normal data successfully
+	// Normal-sized add+sub round-trip works
 	normalData := []byte("normal-kda-data")
 	err = acc.AddInternalKDA(assetID, internalID, normalData)
 	require.Nil(t, err)
 
-	// Now we need to make the dataTrieTracker return an error on SaveKeyValue
-	// We'll create a new account with a custom tracker that has a trie returning error
-	acc2, _ := state.NewKAppAccount([]byte("kapp-address-2"))
-	tracker := state.NewTrackableDataTrie([]byte("kapp-address-2"), nil)
-
-	// Add data first to tracker's dirty cache
-	key := kdautils.ToKDAKey(assetID, internalID)
-	err = tracker.SaveKeyValue(key, normalData)
-	require.Nil(t, err)
-
-	// Replace the account's tracker
-	acc2.SetDataTrie(nil)
-	// We can't directly replace the tracker, but we can test that trying to save
-	// a value that's too large will fail during SubInternalKDA
-
-	// Actually, looking at the code more carefully, SubInternalKDA calls
-	// SaveKeyValue(key, nil) which should never fail for size reasons.
-	// The only way SaveKeyValue fails is if value is too large.
-	// Since we're saving nil, it won't fail for size.
-	// So this error path is actually unreachable in normal operation.
-	// We verify the function works correctly by testing normal operation.
 	data, err = acc.SubInternalKDA(assetID, internalID)
 	assert.Nil(t, err)
 	assert.Equal(t, normalData, data)

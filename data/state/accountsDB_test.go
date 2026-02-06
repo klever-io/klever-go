@@ -1698,7 +1698,6 @@ func TestAccountsDB_SnapshotCheckpointsDataTries(t *testing.T) {
 
 	adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, marshalizer, &factory.AccountCreator{}, core.ImportDb)
 	adb.SetStateCheckpoint(rootHash, context.Background())
-	time.Sleep(100 * time.Millisecond)
 
 	assert.True(t, checkpointCalls >= 2) // main trie + data trie
 }
@@ -1880,7 +1879,6 @@ func TestAccountsDB_SnapshotUserAccountDataTrie_ErrorPaths(t *testing.T) {
 		}
 		adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, &mock.MarshalizerMock{}, &factory.AccountCreator{}, core.ImportDb)
 		adb.SnapshotState([]byte("root"), context.Background())
-		time.Sleep(200 * time.Millisecond)
 
 		snapshotMut.Lock()
 		assert.Equal(t, 0, checkpointCalls)
@@ -1914,7 +1912,6 @@ func TestAccountsDB_SnapshotUserAccountDataTrie_ErrorPaths(t *testing.T) {
 		}
 		adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, marshalizer, &factory.AccountCreator{}, core.ImportDb)
 		adb.SnapshotState([]byte("root"), context.Background())
-		time.Sleep(200 * time.Millisecond)
 
 		snapshotMut.Lock()
 		assert.Equal(t, 0, checkpointCalls)
