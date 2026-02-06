@@ -2675,3 +2675,54 @@ func TestAccountsDB_RemoveCodeAndDataTrie_ErrorPropagation(t *testing.T) {
 	})
 }
 
+func TestAccountsDB_RemoveAccountCode_Scenarios(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil address returns error", func(t *testing.T) {
+		t.Parallel()
+
+		adb := generateAccountDBFromTrie(&mock.TrieStub{GetStorageManagerCalled: defaultStorageManager()})
+		err := adb.RemoveAccountCode(nil)
+		assert.True(t, errors.Is(err, common.ErrNilAddress))
+	})
+
+	t.Run("account not found returns error", func(t *testing.T) {
+		t.Parallel()
+
+		ts := &mock.TrieStub{
+			GetCalled: func(key []byte) ([]byte, error) {
+				return nil, nil
+			},
+			GetStorageManagerCalled: defaultStorageManager(),
+		}
+		adb := generateAccountDBFromTrie(ts)
+		err := adb.RemoveAccountCode([]byte("nonexistent"))
+		assert.True(t, errors.Is(err, common.ErrAccNotFound))
+	})
+
+	t.Run("non-UserAccountHandler skips code removal", func(t *testing.T) {
+		t.Parallel()
+
+		address := []byte("peer-address")
+		peerAcc, _ := state.NewPeerAccount(address)
+		marshalizer := &mock.MarshalizerMock{}
+		accountBytes, _ := marshalizer.Marshal(peerAcc)
+
+		ts := &mock.TrieStub{
+			GetCalled: func(key []byte) ([]byte, error) {
+				if bytes.Equal(key, address) {
+					return accountBytes, nil
+				}
+				return nil, nil
+			},
+			UpdateCalled:            func(key, value []byte) error { return nil },
+			GetStorageManagerCalled: defaultStorageManager(),
+		}
+
+		adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, marshalizer, &factory.PeerAccountCreator{}, core.Normal)
+		err := adb.RemoveAccountCode(address)
+		assert.NoError(t, err)
+		assert.True(t, adb.JournalLen() >= 1)
+	})
+}
+

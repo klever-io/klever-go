@@ -1105,3 +1105,110 @@ func TestKAppAccount_GetUserKDA_RetrieveValueError(t *testing.T) {
 	_, err := acc.GetUserKDA([]byte("ASSET"), nil, false)
 	assert.Equal(t, expectedErr, err)
 }
+
+func TestKAppAccount_StartProposalsKApp_Scenarios(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unmarshal error on existing controller data", func(t *testing.T) {
+		t.Parallel()
+
+		acc, _ := state.NewKAppAccount([]byte("kapp-address"))
+		forks := mock.NewForkControllerStub()
+
+		// Store garbage bytes at ProposalControllerKey to trigger unmarshal error
+		garbageData := []byte{0xFF, 0xFE, 0xFD, 0xFC, 0xAA, 0xBB, 0xCC}
+		err := acc.SetStorage(kdautils.ProposalControllerKey, garbageData)
+		require.NoError(t, err)
+
+		controller, err := acc.StartProposalsKApp(forks)
+		assert.NotNil(t, err)
+		assert.Nil(t, controller)
+	})
+
+	t.Run("mergeAndSaveParameters called when initial has more params", func(t *testing.T) {
+		t.Parallel()
+
+		acc, _ := state.NewKAppAccount([]byte("kapp-address"))
+		forks := mock.NewForkControllerStub()
+
+		// First, create initial controller to see how many params it has
+		initialController, err := kapps.NewProposalController(forks)
+		require.NoError(t, err)
+		initialParamCount := len(initialController.GetActiveParameters())
+
+		// Store a controller with fewer ActiveParameters than initial
+		storedController := &kapps.ProposalController{
+			ProposalCount: 1,
+			ActiveParameters: map[int32]*kapps.Parameter{
+				1: {Type: kapps.EnumType_Int64, Value: []byte("100")},
+			},
+			ActiveProposals: make(map[uint32]*kapps.ActiveProposals),
+		}
+
+		marshaller := marshal.NewProtoMarshalizer()
+		storedData, err := marshaller.Marshal(storedController)
+		require.NoError(t, err)
+
+		err = acc.SetStorage(kdautils.ProposalControllerKey, storedData)
+		require.NoError(t, err)
+
+		// Load - should trigger merge since initial has more parameters
+		controller, err := acc.StartProposalsKApp(forks)
+		assert.NoError(t, err)
+		assert.NotNil(t, controller)
+
+		// Verify merge happened - should have same count as initial
+		mergedParams := controller.GetActiveParameters()
+		assert.Equal(t, initialParamCount, len(mergedParams))
+	})
+}
+
+func TestKAppAccount_StorageOperations(t *testing.T) {
+	t.Parallel()
+
+	t.Run("SetStorage then GetStorage returns same value", func(t *testing.T) {
+		t.Parallel()
+
+		acc, _ := state.NewKAppAccount([]byte("kapp-address"))
+		key := []byte("storage-key")
+		value := []byte("storage-value")
+
+		err := acc.SetStorage(key, value)
+		require.NoError(t, err)
+
+		retrieved := acc.GetStorage(key)
+		assert.Equal(t, value, retrieved)
+	})
+
+	t.Run("GetStorage with retrieval error returns nil", func(t *testing.T) {
+		t.Parallel()
+
+		acc, _ := state.NewKAppAccount([]byte("kapp-address"))
+		key := []byte("storage-key")
+
+		expectedErr := errors.New("retrieval error")
+		mockTrie := &mock.TrieStub{
+			GetCalled: func(k []byte) ([]byte, error) {
+				return nil, expectedErr
+			},
+		}
+		acc.SetDataTrie(mockTrie)
+
+		retrieved := acc.GetStorage(key)
+		assert.Nil(t, retrieved)
+	})
+
+	t.Run("GetStorage with nil trie returns nil", func(t *testing.T) {
+		t.Parallel()
+
+		acc, _ := state.NewKAppAccount([]byte("kapp-address"))
+		key := []byte("storage-key")
+
+		// Set nil trie
+		acc.SetDataTrie(nil)
+
+		retrieved := acc.GetStorage(key)
+		assert.Nil(t, retrieved)
+	})
+}
+

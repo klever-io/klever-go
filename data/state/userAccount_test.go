@@ -2225,4 +2225,189 @@ func TestUserAccount_ComputeAvailableClaim_FPRIEdgeCases(t *testing.T) {
 	assert.Equal(t, state.ErrInconsistentStakingData, err)
 }
 
+func TestUserAccount_Withdraw_NonKLVWithMultipleBuckets(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount([]byte("address"))
+	customAsset := []byte("MYTOKEN")
+	bA := hex.EncodeToString([]byte("bucketA"))
+	bB := hex.EncodeToString([]byte("bucketB"))
+	bC := hex.EncodeToString([]byte("bucketC"))
+
+	userKDA := &kapps.UserKDA{
+		Balance: 50,
+		Buckets: map[string]*kapps.UserBucket{
+			bA: {
+				Value:         100,
+				StakedEpoch:   1,
+				UnstakedEpoch: 2,
+			},
+			bB: {
+				Value:         200,
+				StakedEpoch:   1,
+				UnstakedEpoch: 10,
+			},
+			bC: {
+				Value:         300,
+				StakedEpoch:   1,
+				UnstakedEpoch: 3,
+			},
+		},
+	}
+
+	// epoch=15, minEpochsToWithdraw=5
+	// bucketA: 15 >= 2+5=7 => eligible
+	// bucketB: 15 >= 10+5=15 => eligible (edge case)
+	// bucketC: 15 >= 3+5=8 => eligible
+	withdrawn, err := account.Withdraw(customAsset, 15, 5, userKDA)
+	assert.NoError(t, err)
+	assert.Equal(t, int64(600), withdrawn)
+	assert.Equal(t, int64(650), userKDA.Balance)
+	assert.Equal(t, int64(0), account.Balance)
+	assert.Len(t, userKDA.Buckets, 0)
+}
+
+func TestUserAccount_Unfreeze_Scenarios(t *testing.T) {
+	t.Parallel()
+
+	t.Run("already unstaked bucket returns error", func(t *testing.T) {
+		t.Parallel()
+
+		account, _ := state.NewUserAccount([]byte("address"))
+		bucketID := []byte("bucket1")
+		encodedBucketID := hex.EncodeToString(bucketID)
+
+		userKDA := &kapps.UserKDA{
+			Buckets: map[string]*kapps.UserBucket{
+				encodedBucketID: {
+					Value:         100,
+					StakedEpoch:   1,
+					UnstakedEpoch: 5,
+				},
+			},
+		}
+		staking := &kapps.StakingData{
+			MinEpochsToUnstake: 2,
+		}
+
+		_, _, err := account.Unfreeze(kdautils.KLVIdentifier, bucketID, 10, staking, userKDA, true)
+		assert.Equal(t, state.ErrUnstakeNotAvailable, err)
+	})
+
+	t.Run("epoch too early for unstake returns error", func(t *testing.T) {
+		t.Parallel()
+
+		account, _ := state.NewUserAccount([]byte("address"))
+		bucketID := []byte("bucket1")
+		encodedBucketID := hex.EncodeToString(bucketID)
+
+		userKDA := &kapps.UserKDA{
+			Buckets: map[string]*kapps.UserBucket{
+				encodedBucketID: {
+					Value:         100,
+					StakedEpoch:   5,
+					UnstakedEpoch: core.DefaultUnstakedEpoch,
+				},
+			},
+		}
+		staking := &kapps.StakingData{
+			MinEpochsToUnstake: 10,
+		}
+
+		// blockEpoch(7) - stakedEpoch(5) = 2 < minEpochsToUnstake(10)
+		_, _, err := account.Unfreeze(kdautils.KLVIdentifier, bucketID, 7, staking, userKDA, true)
+		assert.Equal(t, state.ErrUnstakeNotAvailable, err)
+	})
+
+	t.Run("non-KLV non-KFI uses string assetID as bucket key", func(t *testing.T) {
+		t.Parallel()
+
+		account, _ := state.NewUserAccount([]byte("address"))
+		customAsset := []byte("CUSTOM-ASSET")
+		bucketID := []byte("bucket1")
+
+		userKDA := &kapps.UserKDA{
+			FrozenBalance: 100,
+			Buckets: map[string]*kapps.UserBucket{
+				string(customAsset): {
+					Value:         100,
+					StakedEpoch:   1,
+					UnstakedEpoch: core.DefaultUnstakedEpoch,
+				},
+			},
+		}
+		staking := &kapps.StakingData{
+			TotalStaked:        100,
+			MinEpochsToUnstake: 2,
+		}
+
+		delegation, value, err := account.Unfreeze(customAsset, bucketID, 5, staking, userKDA, false)
+		assert.NoError(t, err)
+		assert.Nil(t, delegation)
+		assert.Equal(t, int64(100), value)
+		assert.Equal(t, uint32(5), userKDA.Buckets[string(customAsset)].UnstakedEpoch)
+		assert.Equal(t, int64(0), userKDA.FrozenBalance)
+		assert.Equal(t, int64(0), staking.TotalStaked)
+	})
+
+	t.Run("APRI with newStakingFlow resets FrozenBalance", func(t *testing.T) {
+		t.Parallel()
+
+		account, _ := state.NewUserAccount([]byte("address"))
+		bucketID := []byte("bucket1")
+		encodedBucketID := hex.EncodeToString(bucketID)
+
+		userKDA := &kapps.UserKDA{
+			FrozenBalance: 500,
+			Buckets: map[string]*kapps.UserBucket{
+				encodedBucketID: {
+					Value:         100,
+					StakedEpoch:   1,
+					UnstakedEpoch: core.DefaultUnstakedEpoch,
+				},
+			},
+		}
+		staking := &kapps.StakingData{
+			TotalStaked:        500,
+			MinEpochsToUnstake: 2,
+			InterestType:       kapps.StakingData_APRI,
+		}
+
+		_, _, err := account.Unfreeze(kdautils.KLVIdentifier, bucketID, 5, staking, userKDA, true)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), userKDA.FrozenBalance)
+		assert.Equal(t, int64(0), staking.TotalStaked)
+	})
+}
+
+func TestUserAccount_Freeze_NewStakingFlowAccumulation(t *testing.T) {
+	t.Parallel()
+
+	account, _ := state.NewUserAccount([]byte("address"))
+	bucketID := []byte("bucket1")
+	encodedBucketID := hex.EncodeToString(bucketID)
+
+	// Create bucket with existing UnstakedEpoch != DefaultUnstakedEpoch and value=50
+	userKDA := &kapps.UserKDA{
+		Buckets: map[string]*kapps.UserBucket{
+			encodedBucketID: {
+				Value:         50,
+				StakedEpoch:   1,
+				UnstakedEpoch: 5,
+			},
+		},
+	}
+	staking := &kapps.StakingData{}
+
+	// Freeze with newStakingFlow=true and value=100
+	err := account.Freeze(kdautils.KLVIdentifier, bucketID, 100, 10, 5000, staking, userKDA, true)
+	assert.NoError(t, err)
+
+	// Verify: toAdd includes oldValue (50+100=150), bucket.Value = old+new (150), FrozenBalance += 150
+	assert.Equal(t, int64(150), userKDA.Buckets[encodedBucketID].Value)
+	assert.Equal(t, int64(150), userKDA.FrozenBalance)
+	assert.Equal(t, int64(150), staking.TotalStaked)
+	assert.Equal(t, uint32(core.DefaultUnstakedEpoch), userKDA.Buckets[encodedBucketID].UnstakedEpoch)
+}
+
 
