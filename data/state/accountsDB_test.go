@@ -189,7 +189,7 @@ func TestAccountsDB_SetStateCheckpointSavesNumCheckpoints(t *testing.T) {
 		core.ImportDb,
 	)
 
-	for i := 0; i < numCheckpoints; i++ {
+	for range numCheckpoints {
 		adb.SetStateCheckpoint([]byte("rootHash"), context.Background())
 	}
 
@@ -1732,4 +1732,552 @@ func TestAccountsDB_RevertToSnapshot_AboveBoundsShouldErr(t *testing.T) {
 	t.Parallel()
 	adb := generateAccountDBFromTrie(&mock.TrieStub{GetStorageManagerCalled: defaultStorageManager()})
 	assert.Equal(t, common.ErrSnapshotValueOutOfBounds, adb.RevertToSnapshot(999))
+}
+
+func TestAccountsDB_RemoveAccount_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil address returns error", func(t *testing.T) {
+		adb := generateAccountDBFromTrie(newSimpleTrieStub())
+		err := adb.RemoveAccount(nil)
+		assert.True(t, errors.Is(err, common.ErrNilAddress))
+	})
+
+	t.Run("getAccount error propagates", func(t *testing.T) {
+		expectedErr := errors.New("get error")
+		ts := &mock.TrieStub{
+			GetCalled:               func(key []byte) ([]byte, error) { return nil, expectedErr },
+			GetStorageManagerCalled: defaultStorageManager(),
+		}
+		adb := generateAccountDBFromTrie(ts)
+		err := adb.RemoveAccount(make([]byte, 32))
+		assert.Equal(t, expectedErr, err)
+	})
+
+	t.Run("account not found returns error", func(t *testing.T) {
+		adb := generateAccountDBFromTrie(newSimpleTrieStub())
+		err := adb.RemoveAccount(make([]byte, 32))
+		assert.True(t, errors.Is(err, common.ErrAccNotFound))
+	})
+}
+
+func TestAccountsDB_RecreateAllTries_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("GetAllLeavesOnChannel error", func(t *testing.T) {
+		expectedErr := errors.New("leaves error")
+		ts := &mock.TrieStub{
+			GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) {
+				return nil, expectedErr
+			},
+			GetStorageManagerCalled: defaultStorageManager(),
+		}
+		adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, &mock.MarshalizerMock{}, &factory.AccountCreator{}, core.Normal)
+		_, err := adb.RecreateAllTries([]byte("root"), context.Background())
+		assert.Equal(t, expectedErr, err)
+	})
+
+	t.Run("Recreate error for main trie", func(t *testing.T) {
+		expectedErr := errors.New("recreate error")
+		ch := make(chan data.KeyValueHolder)
+		close(ch)
+		ts := &mock.TrieStub{
+			GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) { return ch, nil },
+			RecreateCalled:              func(root []byte) (data.Trie, error) { return nil, expectedErr },
+			GetStorageManagerCalled:     defaultStorageManager(),
+		}
+		adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, &mock.MarshalizerMock{}, &factory.AccountCreator{}, core.Normal)
+		_, err := adb.RecreateAllTries([]byte("root"), context.Background())
+		assert.Equal(t, expectedErr, err)
+	})
+
+	t.Run("Recreate error for data trie propagates", func(t *testing.T) {
+		marshalizer := &mock.MarshalizerMock{}
+		acc, _ := state.NewUserAccount([]byte("addr1"))
+		acc.SetRootHash([]byte("datatrie1"))
+		accBytes, _ := marshalizer.Marshal(acc)
+
+		ch := make(chan data.KeyValueHolder, 1)
+		ch <- &mock.KeyValueHolderStub{ValueCalled: func() []byte { return accBytes }}
+		close(ch)
+
+		expectedErr := errors.New("data trie recreate error")
+		mainRecreated := &mock.TrieStub{}
+		ts := &mock.TrieStub{
+			GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) { return ch, nil },
+			RecreateCalled: func(root []byte) (data.Trie, error) {
+				if string(root) == "datatrie1" {
+					return nil, expectedErr
+				}
+				return mainRecreated, nil
+			},
+			GetStorageManagerCalled: defaultStorageManager(),
+		}
+		adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, marshalizer, &factory.AccountCreator{}, core.Normal)
+		_, err := adb.RecreateAllTries([]byte("root"), context.Background())
+		assert.Equal(t, expectedErr, err)
+	})
+
+	t.Run("unmarshal error skips leaf continues", func(t *testing.T) {
+		ch := make(chan data.KeyValueHolder, 1)
+		ch <- &mock.KeyValueHolderStub{ValueCalled: func() []byte { return []byte("not-valid-proto") }}
+		close(ch)
+
+		mainRecreated := &mock.TrieStub{}
+		ts := &mock.TrieStub{
+			GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) { return ch, nil },
+			RecreateCalled:              func(root []byte) (data.Trie, error) { return mainRecreated, nil },
+			GetStorageManagerCalled:     defaultStorageManager(),
+		}
+		adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, &mock.MarshalizerMock{}, &factory.AccountCreator{}, core.Normal)
+		result, err := adb.RecreateAllTries([]byte("root"), context.Background())
+		assert.Nil(t, err)
+		assert.Equal(t, 1, len(result))
+	})
+}
+
+func TestAccountsDB_SnapshotUserAccountDataTrie_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("GetAllLeavesOnChannel error does not panic", func(t *testing.T) {
+		ts := &mock.TrieStub{
+			GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) {
+				return nil, errors.New("leaves error")
+			},
+			GetStorageManagerCalled: func() data.StorageManager {
+				return &mock.StorageManagerStub{
+					TakeSnapshotCalled: func(rootHash []byte) {},
+					DatabaseCalled:     func() data.DBWriteCacher { return mock.NewMemDbMock() },
+				}
+			},
+		}
+		adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, &mock.MarshalizerMock{}, &factory.AccountCreator{}, core.ImportDb)
+		assert.NotPanics(t, func() {
+			adb.SnapshotState([]byte("root"), context.Background())
+		})
+	})
+
+	t.Run("unmarshal error skips leaf", func(t *testing.T) {
+		ch := make(chan data.KeyValueHolder, 1)
+		ch <- &mock.KeyValueHolderStub{ValueCalled: func() []byte { return []byte("invalid-proto") }}
+		close(ch)
+
+		checkpointCalls := 0
+		snapshotMut := sync.Mutex{}
+		ts := &mock.TrieStub{
+			GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) { return ch, nil },
+			GetStorageManagerCalled: func() data.StorageManager {
+				return &mock.StorageManagerStub{
+					TakeSnapshotCalled: func(rootHash []byte) {},
+					SetCheckpointCalled: func(hash []byte) {
+						snapshotMut.Lock()
+						checkpointCalls++
+						snapshotMut.Unlock()
+					},
+					DatabaseCalled: func() data.DBWriteCacher { return mock.NewMemDbMock() },
+				}
+			},
+		}
+		adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, &mock.MarshalizerMock{}, &factory.AccountCreator{}, core.ImportDb)
+		adb.SnapshotState([]byte("root"), context.Background())
+		time.Sleep(200 * time.Millisecond)
+
+		snapshotMut.Lock()
+		assert.Equal(t, 0, checkpointCalls)
+		snapshotMut.Unlock()
+	})
+
+	t.Run("leaf with empty RootHash does not trigger checkpoint", func(t *testing.T) {
+		marshalizer := &mock.MarshalizerMock{}
+		acc, _ := state.NewUserAccount([]byte("addr"))
+		accBytes, _ := marshalizer.Marshal(acc)
+
+		ch := make(chan data.KeyValueHolder, 1)
+		ch <- &mock.KeyValueHolderStub{ValueCalled: func() []byte { return accBytes }}
+		close(ch)
+
+		checkpointCalls := 0
+		snapshotMut := sync.Mutex{}
+		ts := &mock.TrieStub{
+			GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) { return ch, nil },
+			GetStorageManagerCalled: func() data.StorageManager {
+				return &mock.StorageManagerStub{
+					TakeSnapshotCalled: func(rootHash []byte) {},
+					SetCheckpointCalled: func(hash []byte) {
+						snapshotMut.Lock()
+						checkpointCalls++
+						snapshotMut.Unlock()
+					},
+					DatabaseCalled: func() data.DBWriteCacher { return mock.NewMemDbMock() },
+				}
+			},
+		}
+		adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, marshalizer, &factory.AccountCreator{}, core.ImportDb)
+		adb.SnapshotState([]byte("root"), context.Background())
+		time.Sleep(200 * time.Millisecond)
+
+		snapshotMut.Lock()
+		assert.Equal(t, 0, checkpointCalls)
+		snapshotMut.Unlock()
+	})
+}
+
+func TestAccountsDB_RevertToSnapshot_RecreateFails(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+	hsh := mock.HasherMock{}
+	storageManager, _ := trie.NewTrieStorageManagerWithoutPruning(mock.NewMemDbMock())
+	tr, _ := trie.NewTrie(storageManager, marshalizer, hsh, uint(5))
+	adb, _ := state.NewAccountsDB(tr, hsh, marshalizer, factory.NewAccountCreator(), core.Normal)
+
+	acc, _ := adb.LoadAccount(make([]byte, 32))
+	_ = adb.SaveAccount(acc)
+	_, _ = adb.Commit()
+
+	acc2, _ := adb.LoadAccount(bytes.Repeat([]byte{1}, 32))
+	_ = adb.SaveAccount(acc2)
+	assert.True(t, adb.JournalLen() > 0)
+
+	err := adb.RevertToSnapshot(0)
+	assert.Nil(t, err)
+}
+
+func TestAccountsDB_Commit_DataTrieErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("data trie commit error propagates", func(t *testing.T) {
+		expectedErr := errors.New("data trie commit error")
+		marshalizer := &mock.MarshalizerMock{}
+		serializedAccount, _ := marshalizer.Marshal(mock.AccountWrapMock{})
+
+		ts := &mock.TrieStub{
+			GetCalled:    func(key []byte) ([]byte, error) { return serializedAccount, nil },
+			UpdateCalled: func(key, value []byte) error { return nil },
+			RecreateCalled: func(root []byte) (data.Trie, error) {
+				return &mock.TrieStub{
+					GetCalled:    func(key []byte) ([]byte, error) { return []byte("val"), nil },
+					UpdateCalled: func(key, value []byte) error { return nil },
+					CommitCalled: func() error { return expectedErr },
+				}, nil
+			},
+			GetStorageManagerCalled: defaultStorageManager(),
+		}
+		adb := generateAccountDBFromTrie(ts)
+
+		acc, _ := adb.LoadAccount(make([]byte, 32))
+		_ = acc.(state.UserAccountHandler).DataTrieTracker().SaveKeyValue([]byte("key"), []byte("val"))
+		_ = adb.SaveAccount(acc)
+
+		_, err := adb.Commit()
+		assert.Equal(t, expectedErr, err)
+	})
+
+	t.Run("main trie commit error propagates", func(t *testing.T) {
+		expectedErr := errors.New("main commit error")
+		ts := newSimpleTrieStub()
+		ts.CommitCalled = func() error { return expectedErr }
+		adb := generateAccountDBFromTrie(ts)
+
+		_, err := adb.Commit()
+		assert.Equal(t, expectedErr, err)
+	})
+
+	t.Run("main trie RootHash error propagates", func(t *testing.T) {
+		expectedErr := errors.New("root hash error")
+		ts := newSimpleTrieStub()
+		ts.CommitCalled = func() error { return nil }
+		ts.RootCalled = func() ([]byte, error) { return nil, expectedErr }
+		adb := generateAccountDBFromTrie(ts)
+
+		_, err := adb.Commit()
+		assert.Equal(t, expectedErr, err)
+	})
+}
+
+func TestAccountsDB_GetExistingAccount_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil address returns error", func(t *testing.T) {
+		adb := generateAccountDBFromTrie(newSimpleTrieStub())
+		_, err := adb.GetExistingAccount(nil)
+		assert.True(t, errors.Is(err, common.ErrNilAddress))
+	})
+
+	t.Run("getAccount trie error propagates", func(t *testing.T) {
+		expectedErr := errors.New("trie error")
+		ts := &mock.TrieStub{
+			GetCalled:               func(key []byte) ([]byte, error) { return nil, expectedErr },
+			GetStorageManagerCalled: defaultStorageManager(),
+		}
+		adb := generateAccountDBFromTrie(ts)
+		_, err := adb.GetExistingAccount(make([]byte, 32))
+		assert.Equal(t, expectedErr, err)
+	})
+
+	t.Run("account not found returns error", func(t *testing.T) {
+		adb := generateAccountDBFromTrie(newSimpleTrieStub())
+		_, err := adb.GetExistingAccount(make([]byte, 32))
+		assert.Equal(t, common.ErrAccNotFound, err)
+	})
+}
+
+func TestAccountsDB_LoadAccount_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil address returns error", func(t *testing.T) {
+		adb := generateAccountDBFromTrie(newSimpleTrieStub())
+		_, err := adb.LoadAccount(nil)
+		assert.True(t, errors.Is(err, common.ErrNilAddress))
+	})
+
+	t.Run("factory CreateAccount error propagates", func(t *testing.T) {
+		expectedErr := errors.New("factory error")
+		ts := newSimpleTrieStub()
+		adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, &mock.MarshalizerMock{}, &mock.AccountsFactoryStub{
+			CreateAccountCalled: func(address []byte) (state.AccountHandler, error) {
+				return nil, expectedErr
+			},
+		}, core.Normal)
+		_, err := adb.LoadAccount(make([]byte, 32))
+		assert.Equal(t, expectedErr, err)
+	})
+}
+
+func TestAccountsDB_SaveAccount_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil account returns error", func(t *testing.T) {
+		adb := generateAccountDBFromTrie(newSimpleTrieStub())
+		err := adb.SaveAccount(nil)
+		assert.True(t, errors.Is(err, common.ErrNilAccountHandler))
+	})
+
+	t.Run("getAccount trie error propagates", func(t *testing.T) {
+		expectedErr := errors.New("get error")
+		ts := &mock.TrieStub{
+			GetCalled:               func(key []byte) ([]byte, error) { return nil, expectedErr },
+			UpdateCalled:            func(key, value []byte) error { return nil },
+			GetStorageManagerCalled: defaultStorageManager(),
+		}
+		adb := generateAccountDBFromTrie(ts)
+		err := adb.SaveAccount(generateAccount())
+		assert.Equal(t, expectedErr, err)
+	})
+}
+
+func TestAccountsDB_SaveAccounts_StopsOnError(t *testing.T) {
+	t.Parallel()
+
+	adb := generateAccountDBFromTrie(newSimpleTrieStub())
+	err := adb.SaveAccounts(nil)
+	assert.True(t, errors.Is(err, common.ErrNilAccountHandler))
+}
+
+func TestAccountsDB_RevertToSnapshot_LoopBodyExecuted(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+	hsh := mock.HasherMock{}
+	storageManager, _ := trie.NewTrieStorageManagerWithoutPruning(mock.NewMemDbMock())
+	tr, _ := trie.NewTrie(storageManager, marshalizer, hsh, uint(5))
+	adb, _ := state.NewAccountsDB(tr, hsh, marshalizer, factory.NewAccountCreator(), core.Normal)
+
+	addr := make([]byte, 32)
+
+	// Save and commit to put account in trie
+	acc, _ := adb.LoadAccount(addr)
+	_ = adb.SaveAccount(acc)
+	_, _ = adb.Commit()
+
+	// Save a new account (creates journalEntryAccountCreation at index 0)
+	addr2 := bytes.Repeat([]byte{1}, 32)
+	acc2, _ := adb.LoadAccount(addr2)
+	_ = adb.SaveAccount(acc2)
+
+	// Modify existing account addr (creates journalEntryAccount at index 1 with old state)
+	acc, _ = adb.LoadAccount(addr)
+	acc.IncreaseNonce(1)
+	_ = adb.SaveAccount(acc)
+
+	assert.True(t, adb.JournalLen() >= 2)
+
+	// RevertToSnapshot(1) iterates the loop reverting entries[1..last],
+	// which includes journalEntryAccount that returns non-nil account from Revert()
+	err := adb.RevertToSnapshot(1)
+	assert.Nil(t, err)
+	assert.Equal(t, 1, adb.JournalLen())
+}
+
+func TestAccountsDB_Journalize_NilEntry(t *testing.T) {
+	t.Parallel()
+
+	adb := generateAccountDBFromTrie(newSimpleTrieStub())
+	initialLen := adb.JournalLen()
+
+	adb.Journalize(nil)
+	assert.Equal(t, initialLen, adb.JournalLen())
+}
+
+func TestAccountsDB_RemoveCodeAndDataTrie_NonUserAccount(t *testing.T) {
+	t.Parallel()
+
+	// Use a PeerAccountHandlerMock which implements AccountHandler but NOT UserAccountHandler
+	peerAcc, _ := state.NewPeerAccount(make([]byte, 32))
+	adb := generateAccountDBFromTrie(newSimpleTrieStub())
+	err := adb.RemoveCodeAndDataTrie(peerAcc)
+	assert.Nil(t, err)
+}
+
+func TestAccountsDB_RemoveAccount_WithPeerAccountFactory(t *testing.T) {
+	t.Parallel()
+
+	address := make([]byte, 32)
+	marshalizer := &mock.MarshalizerMock{}
+	peerAcc, _ := state.NewPeerAccount(address)
+	peerBytes, _ := marshalizer.Marshal(peerAcc)
+
+	ts := &mock.TrieStub{
+		GetCalled: func(key []byte) ([]byte, error) {
+			if bytes.Equal(key, address) {
+				return peerBytes, nil
+			}
+			return nil, nil
+		},
+		UpdateCalled:            func(key, value []byte) error { return nil },
+		GetStorageManagerCalled: defaultStorageManager(),
+	}
+
+	adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, marshalizer, &mock.AccountsFactoryStub{
+		CreateAccountCalled: func(addr []byte) (state.AccountHandler, error) {
+			return state.NewPeerAccount(addr)
+		},
+	}, core.Normal)
+
+	err := adb.RemoveAccount(address)
+	assert.Nil(t, err)
+	// removeCodeAndDataTrie returns nil early for non-UserAccountHandler
+	assert.Equal(t, 1, adb.JournalLen()) // only the account journal entry, no code entry
+}
+
+func TestAccountsDB_Commit_MainTrieRootHashError(t *testing.T) {
+	t.Parallel()
+
+	rootErr := errors.New("root hash error after commit")
+	ts := newSimpleTrieStub()
+	ts.CommitCalled = func() error { return nil }
+	ts.RootCalled = func() ([]byte, error) { return nil, rootErr }
+	adb := generateAccountDBFromTrie(ts)
+	_, err := adb.Commit()
+	assert.Equal(t, rootErr, err)
+}
+
+func TestAccountsDB_LoadDataTrie_CachedDataTrie(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+	hsh := mock.HasherMock{}
+	storageManager, _ := trie.NewTrieStorageManagerWithoutPruning(mock.NewMemDbMock())
+	tr, _ := trie.NewTrie(storageManager, marshalizer, hsh, uint(5))
+	adb, _ := state.NewAccountsDB(tr, hsh, marshalizer, factory.NewAccountCreator(), core.Normal)
+
+	address := make([]byte, 32)
+
+	// Load account, add dirty data to create a data trie
+	acc, _ := adb.LoadAccount(address)
+	userAcc := acc.(state.UserAccountHandler)
+	_ = userAcc.DataTrieTracker().SaveKeyValue([]byte("key"), []byte("val"))
+	_ = adb.SaveAccount(acc)
+
+	// Loading the same account again should find the data trie in cache
+	acc2, err := adb.LoadAccount(address)
+	assert.Nil(t, err)
+	assert.False(t, check.IfNil(acc2))
+}
+
+func TestAccountsDB_RemoveAccountCode_RemoveCodeError(t *testing.T) {
+	t.Parallel()
+
+	address := []byte("address")
+	codeHash := []byte("codehash")
+	expectedErr := errors.New("get code entry error")
+
+	userAcc, _ := state.NewUserAccount(address)
+	userAcc.SetCodeHash(codeHash)
+	marshalizer := &mock.MarshalizerMock{}
+	accountBytes, _ := marshalizer.Marshal(userAcc)
+
+	ts := &mock.TrieStub{
+		GetCalled: func(key []byte) ([]byte, error) {
+			if bytes.Equal(key, address) {
+				return accountBytes, nil
+			}
+			if bytes.Equal(key, codeHash) {
+				return nil, expectedErr
+			}
+			return nil, nil
+		},
+		UpdateCalled:            func(key, value []byte) error { return nil },
+		GetStorageManagerCalled: defaultStorageManager(),
+	}
+
+	adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, marshalizer, &factory.AccountCreator{}, core.Normal)
+	err := adb.RemoveAccountCode(address)
+	assert.Equal(t, expectedErr, err)
+}
+
+func TestAccountsDB_ImportAccount_MarshalError(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{Fail: true}
+	ts := newSimpleTrieStub()
+	adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, marshalizer, &mock.AccountsFactoryStub{
+		CreateAccountCalled: func(address []byte) (state.AccountHandler, error) {
+			return mock.NewAccountWrapMock(address), nil
+		},
+	}, core.Normal)
+
+	err := adb.ImportAccount(generateAccount())
+	assert.NotNil(t, err)
+}
+
+func TestAccountsDB_GetAccount_UnmarshalError(t *testing.T) {
+	t.Parallel()
+
+	ts := &mock.TrieStub{
+		GetCalled: func(key []byte) ([]byte, error) {
+			return []byte("invalid-proto-data"), nil
+		},
+		GetStorageManagerCalled: defaultStorageManager(),
+	}
+
+	adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, &mock.MarshalizerMock{}, &mock.AccountsFactoryStub{
+		CreateAccountCalled: func(address []byte) (state.AccountHandler, error) {
+			return mock.NewAccountWrapMock(address), nil
+		},
+	}, core.Normal)
+
+	_, err := adb.GetAccount(make([]byte, 32))
+	assert.NotNil(t, err)
+}
+
+func TestAccountsDB_GetAccount_FactoryError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("factory error")
+	ts := &mock.TrieStub{
+		GetCalled: func(key []byte) ([]byte, error) {
+			return []byte("some-data"), nil
+		},
+		GetStorageManagerCalled: defaultStorageManager(),
+	}
+
+	adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, &mock.MarshalizerMock{}, &mock.AccountsFactoryStub{
+		CreateAccountCalled: func(address []byte) (state.AccountHandler, error) {
+			return nil, expectedErr
+		},
+	}, core.Normal)
+
+	_, err := adb.GetAccount(make([]byte, 32))
+	assert.Equal(t, expectedErr, err)
 }

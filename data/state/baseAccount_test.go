@@ -132,4 +132,3 @@ func TestBaseAccount_AccountDataHandler(t *testing.T) {
 	ba := state.NewEmptyBaseAccount(nil, tracker)
 	assert.Equal(t, tracker, ba.AccountDataHandler())
 }
-

@@ -36,3 +36,11 @@ func (ss *snapshotStatistics) GetNumDataTries() uint64 {
 	defer ss.mutex.RUnlock()
 	return ss.numDataTries
 }
+
+func (adb *AccountsDB) Journalize(entry JournalAccountEntry) {
+	adb.journalize(entry)
+}
+
+func (adb *AccountsDB) RemoveCodeAndDataTrie(acnt AccountHandler) error {
+	return adb.removeCodeAndDataTrie(acnt)
+}
