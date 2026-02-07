@@ -285,6 +285,7 @@ func (vs *validatorStatistics) PeerAccountToValidatorInfo(peer state.PeerAccount
 	return &state.ValidatorInfo{
 		OwnerAddress:                    peer.GetOwnerAddress(),
 		PublicKey:                       peer.GetBLSPublicKey(),
+		Index:                           peer.GetIndex(),
 		List:                            peer.GetListString(),
 		TempRating:                      peer.GetTempRating(),
 		Rating:                          peer.GetRating(),
@@ -307,7 +308,6 @@ func (vs *validatorStatistics) PeerAccountToValidatorInfo(peer state.PeerAccount
 func (vs *validatorStatistics) getValidatorDataFromLeaves(
 	leavesChannel chan data.KeyValueHolder,
 ) ([]*state.ValidatorInfo, error) {
-
 	validators := make([]*state.ValidatorInfo, 0)
 
 	for pa := range leavesChannel {

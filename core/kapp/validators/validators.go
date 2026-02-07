@@ -1144,6 +1144,7 @@ func (v *validatorsKApp) PeerAccountToValidatorInfo(pubkey []byte, revoked bool,
 	return &state.ValidatorInfo{
 		OwnerAddress:                    peerAcc.GetOwnerAddress(),
 		PublicKey:                       pubkey,
+		Index:                           peerAcc.GetIndex(),
 		List:                            peerAcc.GetListString(),
 		TempRating:                      peerAcc.GetTempRating(),
 		Rating:                          peerAcc.GetRating(),

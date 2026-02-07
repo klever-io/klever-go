@@ -914,6 +914,7 @@ func (e *epochStartBootstrap) PeerAccountToValidatorInfo(peer state.PeerAccountH
 	return &state.ValidatorInfo{
 		OwnerAddress:                    peer.GetOwnerAddress(),
 		PublicKey:                       peer.GetBLSPublicKey(),
+		Index:                           peer.GetIndex(),
 		List:                            peer.GetListString(),
 		TempRating:                      peer.GetTempRating(),
 		Rating:                          peer.GetRating(),
