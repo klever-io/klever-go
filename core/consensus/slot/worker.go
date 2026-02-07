@@ -768,7 +768,18 @@ func (wrk *Worker) reportValidatorFail(leader string, consensusMessages []*conse
 		failList = append(failList, validatorHex)
 	}
 
-	if len(failList) >= 3 {
+	const minMonitoredFailedForAlert = 3
+	if len(failList) >= minMonitoredFailedForAlert {
+		_ = bugsnag.Notify(fmt.Errorf("validators health degraded"), bugsnag.MetaData{
+			"healthcheck": {
+				"failedCount": len(failList),
+				"failed":      failList,
+				"slot":        wrk.slotManager.Index(),
+				"threshold":   minMonitoredFailedForAlert,
+				"leader":      hex.EncodeToString([]byte(leader)),
+			},
+		})
+	} else if len(failList) > 0 {
 		_ = bugsnag.Notify(fmt.Errorf("small consensus quorum"), bugsnag.MetaData{
 			"consensus": {
 				"sigsNum":   len(consensusMessages),
