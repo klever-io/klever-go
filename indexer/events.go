@@ -1,6 +1,8 @@
 package indexer
 
-var EventQueue = make(chan Event)
+const eventQueueBufferSize = 1000
+
+var EventQueue = make(chan Event, eventQueueBufferSize)
 var UseEventQueue bool
 
 type Event struct {
@@ -8,7 +10,6 @@ type Event struct {
 	Message interface{}
 }
 
-// EventType TODO: we can improve this to have subtyping
 type EventType string
 
 const (
@@ -18,6 +19,14 @@ const (
 	BLOCKS           EventType = "blocks"
 	TRANSACTION      EventType = "transaction"
 )
+
+func trySendEvent(event Event) {
+	select {
+	case EventQueue <- event:
+	default:
+		log.Warn("event queue full, dropping event", "type", string(event.EvType))
+	}
+}
 
 func NewEventType(evType string) EventType {
 	switch evType {

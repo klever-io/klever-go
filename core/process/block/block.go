@@ -1040,7 +1040,7 @@ func (mp *metaProcessor) indexBlock(
 	metaBlock *block.Block,
 	lastMetaBlock data.HeaderHandler,
 ) {
-	if check.IfNil(mp.eventsProcessor) {
+	if check.IfNil(mp.eventsProcessor) || !mp.eventsProcessor.Enabled() {
 		return
 	}
 

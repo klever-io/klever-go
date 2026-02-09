@@ -733,6 +733,10 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		return err
 	}
 
+	if externalConfig.Websocket.Enabled {
+		indexer.UseEventQueue = true
+	}
+
 	log.Trace("creating time cache for requested items components")
 	// #nosec G115
 	requestedItemsHandler := timecache.NewTimeCache(time.Duration(uint64(time.Millisecond) * genesisNodesConfig.SlotInterval))

@@ -550,6 +550,7 @@ type Indexer interface {
 
 // EventsProcessor is an interface for dispatching block events to all subscribers (websocket, indexer, etc.)
 type EventsProcessor interface {
+	Enabled() bool
 	SaveBlock(args *indexer.ArgsSaveBlockData)
 	RevertIndexedBlock(header data.HeaderHandler)
 	SaveValidatorsRating(validators []kapp.ValidatorAccountInfoHandler)
