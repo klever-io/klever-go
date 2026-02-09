@@ -13,14 +13,14 @@ USAGE:
    
    
 GLOBAL OPTIONS:
-   --address value    Address and port number on which the application will try to connect to the klever-go node (default: "127.0.0.1:8080")
-   --log-level value  This flag specifies the logger level (default: "*:INFO ")
-   --log-correlation  Will include log correlation elements
-   --log-logger-name  Will include logger name
-   --interval value   This flag specifies the duration in seconds until new data is fetched from the node (default: 2)
-   --use-wss          Will use wss instead of ws when creating the web socket
-   --help, -h         show help
-   --version, -v      print the version
+   --address, -a value       Address and port number on which the application will try to connect to the klever-go node (default: "127.0.0.1:8080")
+   --log-level value         This flag specifies the logger level (default: "*:INFO")
+   --log-correlation, -c     Will include log correlation elements
+   --log-logger-name, -n     Will include logger name
+   --interval, -i value      This flag specifies the duration in milliseconds until new data is fetched from the node (default: 1000)
+   --use-wss, -w             Will use wss instead of ws when creating the web socket
+   --help, -h                show help
+   --version, -v             print the version
    
 
 ```

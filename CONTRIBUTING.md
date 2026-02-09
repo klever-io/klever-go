@@ -13,6 +13,7 @@ Thank you for your interest in contributing to the Klever blockchain! We welcome
 - [Commit Message Guidelines](#commit-message-guidelines)
 - [Pull Request Process](#pull-request-process)
 - [Issue Reporting](#issue-reporting)
+- [Use of Automated Tools and AI](#use-of-automated-tools-and-ai)
 - [Community](#community)
 
 ## Code of Conduct
@@ -619,6 +620,51 @@ When requesting features, include:
 - `question`: Further information requested
 - `wontfix`: This will not be worked on
 
+## Use of Automated Tools and AI
+
+We encourage contributors to leverage all available tools to maximize productivity, including AI assistants, code generators, and other automated solutions. However, all contributions must reflect meaningful human oversight, judgment, and quality assurance.
+
+### Quality Standards for AI-Assisted Contributions
+
+When using automated tools or AI to assist with contributions:
+
+1. **Review and refine all generated code** before submission. Ensure it meets our coding standards, follows project conventions, and integrates properly with the existing codebase.
+
+2. **Understand what you submit**. You should be able to explain and defend every line of code in your contribution. If you cannot explain why certain code exists or how it works, it requires further review.
+
+3. **Test thoroughly**. Automated tools may generate code that appears correct but contains subtle bugs or security issues. All contributions must pass our test suite and include appropriate new tests.
+
+4. **Provide meaningful context**. Pull request descriptions, commit messages, and comments should reflect genuine understanding of the changes, not generic or templated text.
+
+### Review Effort Consideration
+
+Before submitting a pull request, consider whether the effort you invested exceeds the effort required for us to review it. Contributions that appear to be unreviewed AI output—requiring significant maintainer effort to evaluate, correct, or rewrite—may be closed without detailed feedback.
+
+Our maintainers can use the same tools available to contributors. The value of external contributions lies in the human expertise, domain knowledge, and careful refinement applied to the work.
+
+### Automated and Low-Effort Submissions
+
+Pull requests, issues, or comments that appear to be generated without meaningful human review will be flagged and closed. This includes:
+
+- Code submissions with obvious AI artifacts or inconsistencies
+- Generic descriptions that do not reflect the actual changes
+- Bulk submissions that lack individual attention to quality
+- Comments or discussions that appear templated or contextually inappropriate
+
+Repeated submissions of this nature may result in account restrictions to protect maintainer resources.
+
+### Responsible Use
+
+Automated tools and AI are powerful aids for development. Use them responsibly:
+
+- **Do** use AI to accelerate research, drafting, and iteration
+- **Do** refine and validate all outputs before submission
+- **Do** apply your expertise to improve generated suggestions
+- **Do not** submit unreviewed automated output
+- **Do not** use automation to generate volume over quality
+
+We appreciate contributors who use these tools thoughtfully to deliver high-quality, well-considered contributions.
+
 ## Community
 
 ### Communication Channels
@@ -645,7 +691,7 @@ We value all contributions! Contributors are:
 
 ## License
 
-By contributing to Klever, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE).
+By contributing to Klever, you agree that your contributions will be licensed under the [GNU General Public License v3.0](LICENSE).
 
 ---
 

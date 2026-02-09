@@ -2,7 +2,7 @@
 
 Official Go implementation of the Klever blockchain protocol.
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-GPL%20v3-blue.svg)](LICENSE)
 [![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8.svg)](https://golang.org/)
 [![Release](https://img.shields.io/github/v/release/klever-io/klever-go)](https://github.com/klever-io/klever-go/releases)
 
@@ -31,6 +31,8 @@ Klever is a high-performance blockchain network designed for decentralized appli
 - [Architecture](#architecture)
 - [Contributing](#contributing)
 - [Security](#security)
+- [Support](#support)
+- [Resources](#resources)
 - [License](#license)
 
 ## Installation
@@ -104,18 +106,18 @@ Generate validator and wallet keys for running a node or submitting transactions
 ### Run a Validator Node
 
 ```bash
-./bin/validator --config-path ./config/node
+./bin/validator
 ```
 
-See [Running a Node](#running-a-node) section below for detailed configuration.
+By default, the node looks for configuration files in `./config/node/`. See [Running a Node](#running-a-node) for details.
 
 ### Run a Seed Node
 
 ```bash
-./bin/seednode --config-path ./config/seednode
+./bin/seednode
 ```
 
-See [cmd/seednode/CLI.md](cmd/seednode/CLI.md) for detailed options.
+By default, the seed node looks for configuration in `./config/seednode/`. See [cmd/seednode/CLI.md](cmd/seednode/CLI.md) for detailed options.
 
 ### Use the Operator CLI
 
@@ -143,28 +145,36 @@ For comprehensive node setup and operation instructions, see the official docume
 
 ### Quick Reference
 
-**Validator Node** (participates in consensus):
+**Validator Node**:
 ```bash
-./bin/validator --config-path ./config/node
+./bin/validator
 ```
 
-**Observer Node** (syncs without consensus participation):
-```bash
-./bin/validator --config-path ./config/node --observer
-```
+> **Note:** A node participates in consensus only if its public key is registered and staked in the network. Otherwise, it syncs the blockchain as an observer.
 
 **Seed Node** (bootstrap peer for network discovery):
 ```bash
-./bin/seednode --config-path ./config/seednode
+./bin/seednode
 ```
 
 ### Configuration Files
 
-Configuration files are located in `config/node/`:
-- `config.yaml` - Main node configuration (network, storage, API)
-- `enableEpochs.yaml` - Feature activation schedule
-- `gasScheduleV1.yaml` - Smart contract gas costs
-- `api.yaml` - REST API endpoints
+By default, the node looks for configuration files in `./config/node/`. Each file can be overridden individually:
+
+| File | Flag | Description |
+|------|------|-------------|
+| `config.yaml` | `--config` | Main node configuration (P2P, logging, storage) |
+| `enableEpochs.yaml` | `--config-epochs` | Feature activation schedule by epoch |
+| `gasScheduleV1.yaml` | `--config-gas-schedule` | Smart contract gas costs |
+| `api.yaml` | `--config-api` | REST API endpoint configuration |
+| `external.yaml` | `--config-external` | External integrations (ElasticSearch) |
+| `genesis.json` | `--genesis-file` | Genesis block configuration |
+| `nodesSetup.json` | `--nodes-setup-file` | Initial validator set |
+
+**Example** - Override a specific config:
+```bash
+./bin/validator --config-external /path/to/custom/external.yaml
+```
 
 For detailed configuration options, see the [Node Operations documentation](https://docs.klever.org/node-operations).
 
@@ -289,6 +299,15 @@ Quick start:
 
 For bug bounty and security audit information, contact: security@klever.org
 
+## Support
+
+The **[Klever Forum](https://forum.klever.org)** is the official channel for technical support and community feedback. Use it to:
+- Ask technical questions about running nodes or development
+- Discuss ideas and get guidance from the community
+- Engage with the Klever team and other developers
+
+For **bug reports** and **feature requests**, please use [GitHub Issues](https://github.com/klever-io/klever-go/issues).
+
 ## Resources
 
 - **Website**: https://klever.org
@@ -298,18 +317,14 @@ For bug bounty and security audit information, contact: security@klever.org
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
+
+This project is derived from [MultiversX](https://github.com/multiversx/mx-chain-go) (formerly Elrond), originally licensed under GPL v3. We acknowledge and thank the MultiversX team for their foundational work.
 
 Built with:
 - [Go](https://golang.org/)
 - [libp2p](https://libp2p.io/)
 - [Wasmer](https://wasmer.io/)
 - [Protocol Buffers](https://protobuf.dev/)
-
----
-
-**Maintained by**: Klever Core Team
-**Status**: Active Development
-**Version**: 1.7.14

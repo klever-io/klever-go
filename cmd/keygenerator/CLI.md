@@ -15,10 +15,14 @@ AUTHOR:
    KleverIO <contact@klever.org>
    
 GLOBAL OPTIONS:
-   --num-keys value  How many keys should generate. Example: 1 (default: 1)
-   --key-type value  What king of keys should generate. Available options: validator, wallet, both (default: "validator")
-   --help, -h        show help
-   --version, -v     print the version
+   --num-keys, -n value       How many keys should generate. Example: 1 (default: 1)
+   --key-type, -t value       What kind of keys should generate. Available options: validator, wallet, both (default: "validator")
+   --console-out, -c          Boolean option that will enable printing the generated keys directly on the console
+   --no-split, -s             Boolean option that will make each generated key added in the same file
+   --password, -p value       Password encryption for generated file. Example: --password=MY_SECRET
+   --password-file value      Path to a file containing the password for encryption
+   --help, -h                 show help
+   --version, -v              print the version
    
 
 ```
