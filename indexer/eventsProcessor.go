@@ -76,9 +76,8 @@ func (ep *eventsProcessor) dispatchWebsocketEvents(args *indexerData.ArgsSaveBlo
 
 	if ep.indexer == nil || ep.indexer.IsNilIndexer() {
 		ep.dispatchBlockEvent(args)
+		ep.processTransactionEvents(args.Header, args.TransactionsPool)
 	}
-
-	ep.processTransactionEvents(args.Header, args.TransactionsPool)
 }
 
 func (ep *eventsProcessor) dispatchBlockEvent(args *indexerData.ArgsSaveBlockData) {
@@ -183,7 +182,7 @@ func (ep *eventsProcessor) UpdateProposalsAndParameters(proposalIDs []string) {
 }
 
 func (ep *eventsProcessor) SaveAccounts(blockTimestamp int64, acc []dataState.UserAccountHandler) {
-	if UseEventQueue && len(acc) > 0 {
+	if UseEventQueue && len(acc) > 0 && (ep.indexer == nil || ep.indexer.IsNilIndexer()) {
 		accountsMap := make(map[string]*data.AccountInfo, len(acc))
 		for _, userAccount := range acc {
 			address := ep.addressPubkeyConverter.Encode(userAccount.AddressBytes())

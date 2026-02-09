@@ -1,9 +1,12 @@
 package indexer
 
 import (
+	"errors"
+	"sync/atomic"
 	"testing"
 
 	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core/kapp"
 	nodeData "github.com/klever-io/klever-go/data"
 	dataBlock "github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/indexer"
@@ -14,6 +17,51 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type indexerStub struct {
+	saveBlockCalled                    func(args *indexer.ArgsSaveBlockData)
+	revertIndexedBlockCalled           func(header nodeData.HeaderHandler)
+	saveEpochInfoCalled                func(epoch uint32, validators []kapp.ValidatorAccountInfoHandler)
+	saveAccountsCalled                 func(blockTimestamp int64, acc []state.UserAccountHandler)
+	savePeersAccountsCalled            func(validators []kapp.ValidatorAccountInfoHandler)
+	updateProposalsAndParametersCalled func(proposalIDs []string)
+	isNilIndexer                       bool
+}
+
+func (s *indexerStub) SaveBlock(args *indexer.ArgsSaveBlockData) {
+	if s.saveBlockCalled != nil {
+		s.saveBlockCalled(args)
+	}
+}
+func (s *indexerStub) RevertIndexedBlock(header nodeData.HeaderHandler) {
+	if s.revertIndexedBlockCalled != nil {
+		s.revertIndexedBlockCalled(header)
+	}
+}
+func (s *indexerStub) SaveEpochInfo(epoch uint32, validators []kapp.ValidatorAccountInfoHandler) {
+	if s.saveEpochInfoCalled != nil {
+		s.saveEpochInfoCalled(epoch, validators)
+	}
+}
+func (s *indexerStub) SaveAccounts(blockTimestamp int64, acc []state.UserAccountHandler) {
+	if s.saveAccountsCalled != nil {
+		s.saveAccountsCalled(blockTimestamp, acc)
+	}
+}
+func (s *indexerStub) SavePeersAccounts(validators []kapp.ValidatorAccountInfoHandler) {
+	if s.savePeersAccountsCalled != nil {
+		s.savePeersAccountsCalled(validators)
+	}
+}
+func (s *indexerStub) SaveAssets(_ []*kapps.KDAData) {}
+func (s *indexerStub) Close() error                  { return nil }
+func (s *indexerStub) IsInterfaceNil() bool          { return s == nil }
+func (s *indexerStub) IsNilIndexer() bool            { return s.isNilIndexer }
+func (s *indexerStub) UpdateProposalsAndParameters(proposalIDs []string) {
+	if s.updateProposalsAndParametersCalled != nil {
+		s.updateProposalsAndParametersCalled(proposalIDs)
+	}
+}
+
 func createTestEventsProcessor() *eventsProcessor {
 	ep, _ := NewEventsProcessor(ArgEventsProcessor{
 		Marshalizer:              &mock.MarshalizerMock{},
@@ -21,6 +69,17 @@ func createTestEventsProcessor() *eventsProcessor {
 		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
 		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
 		Indexer:                  nil,
+	})
+	return ep
+}
+
+func createTestEventsProcessorWithIndexer(idx Indexer) *eventsProcessor {
+	ep, _ := NewEventsProcessor(ArgEventsProcessor{
+		Marshalizer:              &mock.MarshalizerMock{},
+		Hasher:                   &mock.HasherMock{},
+		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
+		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
+		Indexer:                  idx,
 	})
 	return ep
 }
@@ -43,6 +102,20 @@ func createTestAccountStub() *mock.UserAccountHandlerStub {
 			}, nil
 		},
 	}
+}
+
+func saveAndRestoreEventQueue(t *testing.T, useQueue bool) chan Event {
+	t.Helper()
+	originalUseEventQueue := UseEventQueue
+	originalEventQueue := EventQueue
+	testQueue := make(chan Event, 10)
+	EventQueue = testQueue
+	UseEventQueue = useQueue
+	t.Cleanup(func() {
+		UseEventQueue = originalUseEventQueue
+		EventQueue = originalEventQueue
+	})
+	return testQueue
 }
 
 func TestNewEventsProcessor(t *testing.T) {
@@ -123,29 +196,28 @@ func TestEventsProcessor_Enabled(t *testing.T) {
 		ep := createTestEventsProcessor()
 		require.True(t, ep.Enabled())
 	})
+
+	t.Run("enabled when indexer is active", func(t *testing.T) {
+		originalUseEventQueue := UseEventQueue
+		UseEventQueue = false
+		defer func() { UseEventQueue = originalUseEventQueue }()
+
+		ep := createTestEventsProcessorWithIndexer(&indexerStub{isNilIndexer: false})
+		require.True(t, ep.Enabled())
+	})
 }
 
 func TestEventsProcessor_SaveBlock_DispatchesWhenEnabled(t *testing.T) {
-	originalUseEventQueue := UseEventQueue
-	originalEventQueue := EventQueue
-	testQueue := make(chan Event, 10)
-	EventQueue = testQueue
-	UseEventQueue = true
-	defer func() {
-		UseEventQueue = originalUseEventQueue
-		EventQueue = originalEventQueue
-	}()
-
+	testQueue := saveAndRestoreEventQueue(t, true)
 	ep := createTestEventsProcessor()
 
 	header := &dataBlock.Block{
 		Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100},
 	}
-	pool := &indexer.Pool{}
 
 	ep.SaveBlock(&indexer.ArgsSaveBlockData{
 		Header:           header,
-		TransactionsPool: pool,
+		TransactionsPool: &indexer.Pool{},
 	})
 
 	select {
@@ -158,26 +230,16 @@ func TestEventsProcessor_SaveBlock_DispatchesWhenEnabled(t *testing.T) {
 }
 
 func TestEventsProcessor_SaveBlock_SkipsWhenDisabled(t *testing.T) {
-	originalUseEventQueue := UseEventQueue
-	originalEventQueue := EventQueue
-	testQueue := make(chan Event, 10)
-	EventQueue = testQueue
-	UseEventQueue = false
-	defer func() {
-		UseEventQueue = originalUseEventQueue
-		EventQueue = originalEventQueue
-	}()
-
+	testQueue := saveAndRestoreEventQueue(t, false)
 	ep := createTestEventsProcessor()
 
 	header := &dataBlock.Block{
 		Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100},
 	}
-	pool := &indexer.Pool{}
 
 	ep.SaveBlock(&indexer.ArgsSaveBlockData{
 		Header:           header,
-		TransactionsPool: pool,
+		TransactionsPool: &indexer.Pool{},
 	})
 
 	select {
@@ -188,16 +250,7 @@ func TestEventsProcessor_SaveBlock_SkipsWhenDisabled(t *testing.T) {
 }
 
 func TestEventsProcessor_SaveBlock_DispatchesTransactionEvents(t *testing.T) {
-	originalUseEventQueue := UseEventQueue
-	originalEventQueue := EventQueue
-	testQueue := make(chan Event, 10)
-	EventQueue = testQueue
-	UseEventQueue = true
-	defer func() {
-		UseEventQueue = originalUseEventQueue
-		EventQueue = originalEventQueue
-	}()
-
+	testQueue := saveAndRestoreEventQueue(t, true)
 	ep := createTestEventsProcessor()
 
 	contract := transaction.TransferContract{
@@ -234,17 +287,61 @@ func TestEventsProcessor_SaveBlock_DispatchesTransactionEvents(t *testing.T) {
 	require.Equal(t, TRANSACTION, txEvent.EvType)
 }
 
-func TestEventsProcessor_SaveAccounts_DispatchesWhenEnabled(t *testing.T) {
-	originalUseEventQueue := UseEventQueue
-	originalEventQueue := EventQueue
-	testQueue := make(chan Event, 10)
-	EventQueue = testQueue
-	UseEventQueue = true
-	defer func() {
-		UseEventQueue = originalUseEventQueue
-		EventQueue = originalEventQueue
-	}()
+func TestEventsProcessor_SaveBlock_SkipsWebsocketWhenIndexerActive(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
 
+	var saveBlockCalled int32
+	idx := &indexerStub{
+		isNilIndexer: false,
+		saveBlockCalled: func(_ *indexer.ArgsSaveBlockData) {
+			atomic.AddInt32(&saveBlockCalled, 1)
+		},
+	}
+	ep := createTestEventsProcessorWithIndexer(idx)
+
+	header := &dataBlock.Block{
+		Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{
+		Header:           header,
+		TransactionsPool: &indexer.Pool{},
+	})
+
+	select {
+	case <-testQueue:
+		t.Fatal("expected no websocket events when indexer is active")
+	default:
+	}
+
+	require.Equal(t, int32(1), atomic.LoadInt32(&saveBlockCalled))
+}
+
+func TestEventsProcessor_SaveBlock_NilPool(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor()
+
+	header := &dataBlock.Block{
+		Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{
+		Header:           header,
+		TransactionsPool: nil,
+	})
+
+	event := <-testQueue
+	require.Equal(t, BLOCKS, event.EvType)
+
+	select {
+	case <-testQueue:
+		t.Fatal("expected no tx events with nil pool")
+	default:
+	}
+}
+
+func TestEventsProcessor_SaveAccounts_DispatchesWhenEnabled(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
 	ep := createTestEventsProcessor()
 	acc := createTestAccountStub()
 
@@ -269,16 +366,7 @@ func TestEventsProcessor_SaveAccounts_DispatchesWhenEnabled(t *testing.T) {
 }
 
 func TestEventsProcessor_SaveAccounts_SkipsWhenDisabled(t *testing.T) {
-	originalUseEventQueue := UseEventQueue
-	originalEventQueue := EventQueue
-	testQueue := make(chan Event, 10)
-	EventQueue = testQueue
-	UseEventQueue = false
-	defer func() {
-		UseEventQueue = originalUseEventQueue
-		EventQueue = originalEventQueue
-	}()
-
+	testQueue := saveAndRestoreEventQueue(t, false)
 	ep := createTestEventsProcessor()
 	acc := createTestAccountStub()
 
@@ -291,6 +379,199 @@ func TestEventsProcessor_SaveAccounts_SkipsWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestEventsProcessor_SaveAccounts_SkipsWebsocketWhenIndexerActive(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+
+	var called int32
+	idx := &indexerStub{
+		isNilIndexer: false,
+		saveAccountsCalled: func(_ int64, _ []state.UserAccountHandler) {
+			atomic.AddInt32(&called, 1)
+		},
+	}
+	ep := createTestEventsProcessorWithIndexer(idx)
+	acc := createTestAccountStub()
+
+	ep.SaveAccounts(100, []state.UserAccountHandler{acc})
+
+	select {
+	case <-testQueue:
+		t.Fatal("expected no websocket account events when indexer is active")
+	default:
+	}
+
+	require.Equal(t, int32(1), atomic.LoadInt32(&called))
+}
+
+func TestEventsProcessor_SaveAccounts_GetUserKDAError(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor()
+
+	failAcc := &mock.UserAccountHandlerStub{
+		AddressBytesCalled: func() []byte { return []byte("failaddr") },
+		GetUserKDACalled: func(_ []byte, _ []byte, _ bool) (*kapps.UserKDA, error) {
+			return nil, errors.New("kda error")
+		},
+	}
+	goodAcc := createTestAccountStub()
+
+	ep.SaveAccounts(100, []state.UserAccountHandler{failAcc, goodAcc})
+
+	select {
+	case event := <-testQueue:
+		accountsMap, ok := event.Message.(map[string]*data.AccountInfo)
+		require.True(t, ok)
+		require.Len(t, accountsMap, 1)
+	default:
+		t.Fatal("expected account event to be dispatched")
+	}
+}
+
+func TestEventsProcessor_SaveAccounts_EmptySlice(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor()
+
+	ep.SaveAccounts(100, []state.UserAccountHandler{})
+
+	select {
+	case <-testQueue:
+		t.Fatal("expected no event for empty accounts")
+	default:
+	}
+}
+
+func TestEventsProcessor_SaveAccounts_WithPermissions(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor()
+
+	acc := createTestAccountStub()
+	acc.GetPermissionsCalled = func() []*state.Permission {
+		return []*state.Permission{
+			{
+				ID:             1,
+				Type:           state.Permission_Owner,
+				PermissionName: "owner",
+				Threshold:      1,
+				Operations:     []byte{0x01, 0x02},
+				Signers: []*state.Key{
+					{
+						Address: []byte("signeraddr"),
+						Weight:  10,
+					},
+				},
+			},
+		}
+	}
+
+	ep.SaveAccounts(100, []state.UserAccountHandler{acc})
+
+	select {
+	case event := <-testQueue:
+		accountsMap, ok := event.Message.(map[string]*data.AccountInfo)
+		require.True(t, ok)
+		require.Len(t, accountsMap, 1)
+		for _, info := range accountsMap {
+			require.Len(t, info.Permissions, 1)
+			require.Equal(t, "owner", info.Permissions[0].PermissionName)
+			require.Len(t, info.Permissions[0].Signers, 1)
+		}
+	default:
+		t.Fatal("expected account event to be dispatched")
+	}
+}
+
+func TestEventsProcessor_RevertIndexedBlock(t *testing.T) {
+	t.Run("nil indexer does nothing", func(t *testing.T) {
+		ep := createTestEventsProcessor()
+		ep.RevertIndexedBlock(&dataBlock.Block{
+			Header: &dataBlock.BlockHeader{Nonce: 1},
+		})
+	})
+
+	t.Run("delegates to indexer", func(t *testing.T) {
+		var called int32
+		idx := &indexerStub{
+			isNilIndexer: false,
+			revertIndexedBlockCalled: func(_ nodeData.HeaderHandler) {
+				atomic.AddInt32(&called, 1)
+			},
+		}
+		ep := createTestEventsProcessorWithIndexer(idx)
+
+		ep.RevertIndexedBlock(&dataBlock.Block{
+			Header: &dataBlock.BlockHeader{Nonce: 1},
+		})
+
+		require.Equal(t, int32(1), atomic.LoadInt32(&called))
+	})
+}
+
+func TestEventsProcessor_SaveValidatorsRating(t *testing.T) {
+	t.Run("nil indexer does nothing", func(t *testing.T) {
+		ep := createTestEventsProcessor()
+		ep.SaveValidatorsRating(nil)
+	})
+
+	t.Run("delegates to indexer", func(t *testing.T) {
+		var called int32
+		idx := &indexerStub{
+			isNilIndexer: false,
+			savePeersAccountsCalled: func(_ []kapp.ValidatorAccountInfoHandler) {
+				atomic.AddInt32(&called, 1)
+			},
+		}
+		ep := createTestEventsProcessorWithIndexer(idx)
+
+		ep.SaveValidatorsRating(nil)
+
+		require.Equal(t, int32(1), atomic.LoadInt32(&called))
+	})
+}
+
+func TestEventsProcessor_SaveEpochInfo(t *testing.T) {
+	t.Run("nil indexer does nothing", func(t *testing.T) {
+		ep := createTestEventsProcessor()
+		ep.SaveEpochInfo(1, nil)
+	})
+
+	t.Run("delegates to indexer", func(t *testing.T) {
+		var called int32
+		idx := &indexerStub{
+			isNilIndexer: false,
+			saveEpochInfoCalled: func(_ uint32, _ []kapp.ValidatorAccountInfoHandler) {
+				atomic.AddInt32(&called, 1)
+			},
+		}
+		ep := createTestEventsProcessorWithIndexer(idx)
+
+		ep.SaveEpochInfo(1, nil)
+
+		require.Equal(t, int32(1), atomic.LoadInt32(&called))
+	})
+}
+
+func TestEventsProcessor_UpdateProposalsAndParameters(t *testing.T) {
+	t.Run("nil indexer does nothing", func(t *testing.T) {
+		ep := createTestEventsProcessor()
+		ep.UpdateProposalsAndParameters([]string{"1"})
+	})
+
+	t.Run("delegates to indexer", func(t *testing.T) {
+		var called int32
+		idx := &indexerStub{
+			isNilIndexer: false,
+			updateProposalsAndParametersCalled: func(_ []string) {
+				atomic.AddInt32(&called, 1)
+			},
+		}
+		ep := createTestEventsProcessorWithIndexer(idx)
+
+		ep.UpdateProposalsAndParameters([]string{"1"})
+
+		require.Equal(t, int32(1), atomic.LoadInt32(&called))
+	})
+}
+
 func TestEventsProcessor_IsInterfaceNil(t *testing.T) {
 	t.Parallel()
 
@@ -299,4 +580,17 @@ func TestEventsProcessor_IsInterfaceNil(t *testing.T) {
 
 	ep = createTestEventsProcessor()
 	require.False(t, ep.IsInterfaceNil())
+}
+
+func TestTrySendEvent_QueueFull(t *testing.T) {
+	originalEventQueue := EventQueue
+	fullQueue := make(chan Event, 1)
+	fullQueue <- Event{EvType: BLOCKS, Message: "filler"}
+	EventQueue = fullQueue
+	defer func() { EventQueue = originalEventQueue }()
+
+	trySendEvent(Event{EvType: TRANSACTION, Message: "dropped"})
+
+	event := <-fullQueue
+	require.Equal(t, BLOCKS, event.EvType)
 }

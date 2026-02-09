@@ -1328,6 +1328,93 @@ func TestDispatchAccountEvents(t *testing.T) {
 	})
 }
 
+func TestElasticProcessor_SaveHeader_DispatchesEventWhenQueueEnabled(t *testing.T) {
+	originalUseEventQueue := UseEventQueue
+	originalEventQueue := EventQueue
+	testQueue := make(chan Event, 10)
+	EventQueue = testQueue
+	UseEventQueue = true
+	defer func() {
+		UseEventQueue = originalUseEventQueue
+		EventQueue = originalEventQueue
+	}()
+
+	header := &dataBlock.Block{
+		Header: &dataBlock.BlockHeader{Nonce: 1},
+	}
+	signer := []byte("signer")
+	arguments := createMockElasticProcessorArgs()
+
+	dbWriter := &imock.DatabaseWriterStub{
+		DoRequestCalled: func(req *esapi.IndexRequest) error {
+			return nil
+		},
+	}
+
+	elasticDatabase := newTestElasticSearchDatabase(dbWriter, arguments)
+	err := elasticDatabase.SaveHeader(header, signer, 1, []string{})
+	require.Nil(t, err)
+
+	select {
+	case event := <-testQueue:
+		require.Equal(t, BLOCKS, event.EvType)
+		require.NotNil(t, event.Message)
+	default:
+		t.Fatal("expected block event to be dispatched")
+	}
+}
+
+func TestElasticProcessor_SaveTransactions_DispatchesEventsWhenQueueEnabled(t *testing.T) {
+	originalUseEventQueue := UseEventQueue
+	originalEventQueue := EventQueue
+	testQueue := make(chan Event, 10)
+	EventQueue = testQueue
+	UseEventQueue = true
+	defer func() {
+		UseEventQueue = originalUseEventQueue
+		EventQueue = originalEventQueue
+	}()
+
+	arguments := createMockElasticProcessorArgs()
+	dbWriter := &imock.DatabaseWriterStub{
+		DoBulkRequestCalled: func(buff *bytes.Buffer, index string) error {
+			return nil
+		},
+	}
+
+	contract := transaction.TransferContract{
+		ToAddress: []byte("klv1d05ju9jaj6u99zph0ant9jh7gksg"),
+		Amount:    45,
+	}
+
+	txHash1 := []byte("txHash1")
+	tx1, _ := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("klv1d05ju9jaj6u99zph0ant9jh7gksf"))
+
+	header := &dataBlock.Block{
+		Header:   &dataBlock.BlockHeader{},
+		TxHashes: [][]byte{txHash1},
+	}
+
+	txPool := map[string]nodeData.TransactionHandler{
+		string(txHash1): tx1,
+	}
+
+	logsPool := []*nodeData.LogData{}
+
+	elasticDatabase := newTestElasticSearchDatabase(dbWriter, arguments)
+	err := elasticDatabase.SaveTransactions(header, &indexer.Pool{Txs: txPool, Logs: logsPool})
+	require.Nil(t, err)
+
+	userTxEvent := <-testQueue
+	require.Equal(t, USER_TRANSACTION, userTxEvent.EvType)
+	txs, ok := userTxEvent.Message.([]*data.Transaction)
+	require.True(t, ok)
+	require.Len(t, txs, 1)
+
+	txEvent := <-testQueue
+	require.Equal(t, TRANSACTION, txEvent.EvType)
+}
+
 func TestBuildAccountInfo(t *testing.T) {
 	t.Parallel()
 

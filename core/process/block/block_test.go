@@ -27,6 +27,7 @@ import (
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/blockchain"
+	"github.com/klever-io/klever-go/data/indexer"
 	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/state/factory"
@@ -1743,4 +1744,86 @@ func TestMetaProcessor_UpdateState_NormalMode_CallsEpochSnapshot(t *testing.T) {
 
 	// Verify SnapshotState WAS called for all 3 account types (User, Peer, KApp)
 	assert.Equal(t, 3, snapshotCallCount, "SnapshotState should be called 3 times in normal mode during epoch start")
+}
+
+func TestMetaProcessor_CommitBlockCallsEventsProcessor(t *testing.T) {
+	t.Parallel()
+
+	mdp := initDataPool([]byte("tx_hash"))
+	rootHash := []byte("rootHash")
+	hdr := createMetaBlockHeader()
+	hdr.Header.PrevRandSeed = []byte("prevRandSeed")
+	hdr.PubKeysBitmap = []byte{0x01}
+
+	marshalerMock := &mock.MarshalizerMock{}
+	accounts := &mock.AccountsStub{
+		CommitCalled: func() ([]byte, error) {
+			return rootHash, nil
+		},
+		RootHashCalled: func() ([]byte, error) {
+			return rootHash, nil
+		},
+	}
+	fd := &mock.ForkDetectorMock{
+		AddHeaderCalled: func(header data.HeaderHandler, hash []byte, st process.BlockHeaderState, selfNotarizedHeaders []data.HeaderHandler, selfNotarizedHeadersHashes [][]byte) error {
+			return nil
+		},
+		GetHighestFinalBlockNonceCalled: func() uint64 {
+			return 0
+		},
+	}
+	hdrUnit := &mock.StorerStub{
+		PutCalled: func(key, d []byte) error {
+			return nil
+		},
+		GetCalled: func(key []byte) ([]byte, error) {
+			hdrBuff, _ := marshalerMock.Marshal(&block.Block{})
+			return hdrBuff, nil
+		},
+	}
+	store := initStore()
+	store.AddStorer(retriever.BlockUnit, hdrUnit)
+
+	var saveBlockCalled bool
+	eventsProc := &mock.EventsProcessorStub{
+		EnabledCalled: func() bool { return true },
+		SaveBlockCalled: func(args *indexer.ArgsSaveBlockData) {
+			saveBlockCalled = true
+		},
+	}
+
+	arguments := createMockMetaArguments()
+	arguments.EventsProcessor = eventsProc
+	arguments.DataPool = mdp
+	arguments.AccountsDB[state.UserAccountsState] = accounts
+	arguments.AccountsDB[state.PeerAccountsState] = accounts
+	arguments.ForkDetector = fd
+	arguments.Store = store
+	arguments.Hasher = &mock.HasherStub{
+		ComputeCalled: func(s string) []byte {
+			return nil
+		},
+	}
+
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+
+	controller, _ := kapps.NewProposalController(arguments.ForkController)
+	_ = mp.SetProposalController(controller)
+
+	mdp.HeadersCalled = func() retriever.HeadersPool {
+		cs := &mock.HeadersCacherStub{}
+		cs.RegisterHandlerCalled = func(i func(header data.HeaderHandler, key []byte)) {}
+		cs.GetHeaderByHashCalled = func(hash []byte) (data.HeaderHandler, error) {
+			return &block.Block{}, nil
+		}
+		cs.LenCalled = func() int { return 0 }
+		cs.MaxSizeCalled = func() int { return 1000 }
+		cs.NoncesCalled = func() []uint64 { return nil }
+		return cs
+	}
+
+	err = mp.CommitBlock(hdr)
+	assert.Nil(t, err)
+	assert.True(t, saveBlockCalled)
 }
