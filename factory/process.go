@@ -304,7 +304,7 @@ func setupGenesis(args *ProcessComponentsFactoryArgs) (data.HeaderHandler, error
 		return nil, err
 	}
 
-	if !check.IfNil(args.eventsProcessor) {
+	if !check.IfNil(args.eventsProcessor) && args.eventsProcessor.Enabled() {
 		err = indexGenesisAccounts(args.nodesConfig.GetStartTime(), args.state.AccountsAdapter, args.eventsProcessor, args.coreData.InternalMarshalizer)
 		if err != nil {
 			log.Warn("cannot index genesis accounts", "error", err)
