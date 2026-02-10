@@ -709,6 +709,7 @@ func (wrk *Worker) DisplayStatistics() {
 				"info", reportErr.Error(),
 			)
 
+			wrk.reportNetworkDegraded(leader, consensusMessages)
 			wrk.reportValidatorFail(leader, consensusMessages)
 		}
 
@@ -742,6 +743,31 @@ func (wrk *Worker) checkInMonitorList(validator string) bool {
 	return false
 }
 
+func (wrk *Worker) reportNetworkDegraded(leader string, consensusMessages []*consensus.Message) {
+	if consensusMessages == nil {
+		return
+	}
+
+	const networkDegradedThreshold = 3
+	expectedSignatures := wrk.consensusState.consensusGroupSize - 1
+
+	// alert if 3+ validators failed: len <= (20 - 3) means at least 3 missing
+	if len(consensusMessages) <= expectedSignatures-networkDegradedThreshold {
+		failedCount := expectedSignatures - len(consensusMessages)
+		_ = bugsnag.Notify(fmt.Errorf("network degraded"), bugsnag.MetaData{
+			"network": {
+				"failedCount":     failedCount,
+				"signaturesCount": len(consensusMessages),
+				"expectedSigs":    expectedSignatures,
+				"consensusSize":   wrk.consensusState.consensusGroupSize,
+				"slot":            wrk.slotManager.Index(),
+				"threshold":       networkDegradedThreshold,
+				"leader":          hex.EncodeToString([]byte(leader)),
+			},
+		})
+	}
+}
+
 func (wrk *Worker) reportValidatorFail(leader string, consensusMessages []*consensus.Message) {
 	// only compile data if node has validator report fail list
 	if len(wrk.consensusMonitorList) == 0 {
@@ -767,19 +793,7 @@ func (wrk *Worker) reportValidatorFail(leader string, consensusMessages []*conse
 		}
 		failList = append(failList, validatorHex)
 	}
-
-	const minMonitoredFailedForAlert = 3
-	if len(failList) >= minMonitoredFailedForAlert {
-		_ = bugsnag.Notify(fmt.Errorf("validators health degraded"), bugsnag.MetaData{
-			"healthcheck": {
-				"failedCount": len(failList),
-				"failed":      failList,
-				"slot":        wrk.slotManager.Index(),
-				"threshold":   minMonitoredFailedForAlert,
-				"leader":      hex.EncodeToString([]byte(leader)),
-			},
-		})
-	} else if len(failList) > 0 {
+	if len(failList) > 0 {
 		_ = bugsnag.Notify(fmt.Errorf("small consensus quorum"), bugsnag.MetaData{
 			"consensus": {
 				"sigsNum":   len(consensusMessages),
