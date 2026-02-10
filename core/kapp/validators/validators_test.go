@@ -1174,3 +1174,68 @@ func TestClaimPendingRewards(t *testing.T) {
 		assert.Equal(t, int64(0), claimed)
 	})
 }
+
+func TestValidatorsKApp_PeerAccountToValidatorInfo(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Correctly maps Index from PeerAccount", func(t *testing.T) {
+		args := createMockArgs()
+		v, err := NewValidatorKApp(args)
+		require.NoError(t, err)
+		require.NotNil(t, v)
+
+		// Create a peer account and set its properties
+		peerAcc, err := state.NewPeerAccount([]byte("peerAddress"))
+		require.NoError(t, err)
+
+		expectedIndex := uint32(42)
+		expectedOwnerAddress := []byte("ownerAddress12345678901234567890")
+		expectedPubKey := []byte("publicKey123456789012345678901234")
+
+		// Set the Index using SetListAndIndex
+		peerAcc.SetListAndIndex(state.List_eligible, expectedIndex)
+		err = peerAcc.SetOwnerAddress(expectedOwnerAddress)
+		require.NoError(t, err)
+		err = peerAcc.SetBLSPublicKey(expectedPubKey)
+		require.NoError(t, err)
+		peerAcc.SetTempRating(75)
+		peerAcc.SetRating(80)
+		peerAcc.IncreaseLeaderSuccessRate(10)
+		peerAcc.IncreaseValidatorSuccessRate(50)
+
+		// Test with revoked = false
+		validatorInfo := v.PeerAccountToValidatorInfo(expectedPubKey, false, peerAcc)
+
+		// Assert that Index is correctly mapped
+		assert.Equal(t, expectedIndex, validatorInfo.Index, "Index should match the value from PeerAccount.GetIndex()")
+		assert.Equal(t, expectedOwnerAddress, validatorInfo.OwnerAddress)
+		assert.Equal(t, expectedPubKey, validatorInfo.PublicKey)
+		assert.Equal(t, "eligible", validatorInfo.List)
+		assert.Equal(t, uint32(75), validatorInfo.TempRating)
+		assert.Equal(t, uint32(80), validatorInfo.Rating)
+		assert.Equal(t, false, validatorInfo.IsPubKeyRevoked)
+	})
+
+	t.Run("Maps Index correctly for revoked validator", func(t *testing.T) {
+		args := createMockArgs()
+		v, err := NewValidatorKApp(args)
+		require.NoError(t, err)
+
+		// Create a peer account for revoked validator
+		peerAcc, err := state.NewPeerAccount([]byte("revokedPeerAddress"))
+		require.NoError(t, err)
+
+		expectedIndex := uint32(99)
+		peerAcc.SetListAndIndex(state.List_leaving, expectedIndex)
+		peerAcc.SetRevoked()
+
+		expectedPubKey := []byte("revokedPubKey123456789012345678")
+		validatorInfo := v.PeerAccountToValidatorInfo(expectedPubKey, true, peerAcc)
+
+		// Assert Index is preserved even for revoked validators
+		assert.Equal(t, expectedIndex, validatorInfo.Index, "Index should be preserved for revoked validators")
+		assert.Equal(t, expectedPubKey, validatorInfo.PublicKey)
+		assert.Equal(t, "leaving", validatorInfo.List)
+		assert.Equal(t, true, validatorInfo.IsPubKeyRevoked)
+	})
+}

@@ -11,6 +11,7 @@ import (
 	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
 	cryptoMock "github.com/klever-io/klever-go/crypto/mock"
 	"github.com/klever-io/klever-go/data/retriever"
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/sharding"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/tools/check"
@@ -562,4 +563,68 @@ func TestSyncUserAccountsState(t *testing.T) {
 	rootHash := []byte("rootHash")
 	err = epochStartProvider.syncUserAccountsState(rootHash)
 	assert.Equal(t, common.ErrNilRequestHandler, err)
+}
+
+func TestEpochStartBootstrap_PeerAccountToValidatorInfo(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Correctly maps Index from PeerAccount", func(t *testing.T) {
+		args := createMockEpochStartBootstrapArgs()
+		epochStartBootstrap, err := NewEpochStartBootstrap(args)
+		require.NoError(t, err)
+		require.NotNil(t, epochStartBootstrap)
+
+		// Create a peer account and set its properties
+		peerAcc, err := state.NewPeerAccount([]byte("peerAddress"))
+		require.NoError(t, err)
+
+		expectedIndex := uint32(123)
+		expectedOwnerAddress := []byte("ownerAddress12345678901234567890")
+		expectedBLSPubKey := []byte("blsPublicKey12345678901234567890")
+
+		// Set the Index using SetListAndIndex
+		peerAcc.SetListAndIndex(state.List_eligible, expectedIndex)
+		err = peerAcc.SetOwnerAddress(expectedOwnerAddress)
+		require.NoError(t, err)
+		err = peerAcc.SetBLSPublicKey(expectedBLSPubKey)
+		require.NoError(t, err)
+		peerAcc.SetTempRating(85)
+		peerAcc.SetRating(90)
+		peerAcc.IncreaseLeaderSuccessRate(20)
+		peerAcc.IncreaseValidatorSuccessRate(100)
+
+		// Call PeerAccountToValidatorInfo
+		validatorInfo := epochStartBootstrap.PeerAccountToValidatorInfo(peerAcc)
+
+		// Assert that Index is correctly mapped
+		assert.Equal(t, expectedIndex, validatorInfo.Index, "Index should match the value from PeerAccount.GetIndex()")
+		assert.Equal(t, expectedOwnerAddress, validatorInfo.OwnerAddress)
+		assert.Equal(t, expectedBLSPubKey, validatorInfo.PublicKey)
+		assert.Equal(t, "eligible", validatorInfo.List)
+		assert.Equal(t, uint32(85), validatorInfo.TempRating)
+		assert.Equal(t, uint32(90), validatorInfo.Rating)
+		assert.Equal(t, false, validatorInfo.IsPubKeyRevoked)
+	})
+
+	t.Run("Maps Index correctly for revoked validator", func(t *testing.T) {
+		args := createMockEpochStartBootstrapArgs()
+		epochStartBootstrap, err := NewEpochStartBootstrap(args)
+		require.NoError(t, err)
+
+		// Create a real peer account for revoked validator
+		peerAcc, err := state.NewPeerAccount([]byte("revokedPeerAddress"))
+		require.NoError(t, err)
+
+		expectedIndex := uint32(456)
+		peerAcc.SetListAndIndex(state.List_jailed, expectedIndex)
+		peerAcc.SetRevoked()
+		peerAcc.SetTempRating(20)
+
+		validatorInfo := epochStartBootstrap.PeerAccountToValidatorInfo(peerAcc)
+
+		// Assert Index is preserved even for revoked validators
+		assert.Equal(t, expectedIndex, validatorInfo.Index, "Index should be preserved for revoked validators")
+		assert.Equal(t, "jailed", validatorInfo.List)
+		assert.Equal(t, true, validatorInfo.IsPubKeyRevoked)
+	})
 }

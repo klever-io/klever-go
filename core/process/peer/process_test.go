@@ -631,3 +631,67 @@ func TestValidatorStatistics_ProcessRatingsEndOfEpochWithNilValidatorInfos(t *te
 
 	require.Equal(t, process.ErrNilValidatorInfos, err)
 }
+
+func TestValidatorStatistics_PeerAccountToValidatorInfo(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Correctly maps Index from PeerAccount", func(t *testing.T) {
+		arguments := createMockArguments()
+		validatorStatistics, err := peer.NewValidatorStatisticsProcessor(arguments)
+		require.NoError(t, err)
+		require.NotNil(t, validatorStatistics)
+
+		// Create a peer account and set its properties
+		peerAcc, err := state.NewPeerAccount([]byte("peerAddress"))
+		require.NoError(t, err)
+
+		expectedIndex := uint32(777)
+		expectedOwnerAddress := []byte("ownerAddress12345678901234567890")
+		expectedBLSPubKey := []byte("blsPublicKey12345678901234567890")
+
+		// Set the Index using SetListAndIndex
+		peerAcc.SetListAndIndex(state.List_eligible, expectedIndex)
+		err = peerAcc.SetOwnerAddress(expectedOwnerAddress)
+		require.NoError(t, err)
+		err = peerAcc.SetBLSPublicKey(expectedBLSPubKey)
+		require.NoError(t, err)
+		peerAcc.SetTempRating(65)
+		peerAcc.SetRating(70)
+		peerAcc.IncreaseLeaderSuccessRate(15)
+		peerAcc.IncreaseValidatorSuccessRate(75)
+
+		// Call PeerAccountToValidatorInfo
+		validatorInfo := validatorStatistics.PeerAccountToValidatorInfo(peerAcc)
+
+		// Assert that Index is correctly mapped
+		assert.Equal(t, expectedIndex, validatorInfo.Index, "Index should match the value from PeerAccount.GetIndex()")
+		assert.Equal(t, expectedOwnerAddress, validatorInfo.OwnerAddress)
+		assert.Equal(t, expectedBLSPubKey, validatorInfo.PublicKey)
+		assert.Equal(t, "eligible", validatorInfo.List)
+		assert.Equal(t, uint32(65), validatorInfo.TempRating)
+		assert.Equal(t, uint32(70), validatorInfo.Rating)
+		assert.Equal(t, false, validatorInfo.IsPubKeyRevoked)
+	})
+
+	t.Run("Maps Index correctly for revoked validator", func(t *testing.T) {
+		arguments := createMockArguments()
+		validatorStatistics, err := peer.NewValidatorStatisticsProcessor(arguments)
+		require.NoError(t, err)
+
+		// Create a peer account for revoked validator
+		peerAcc, err := state.NewPeerAccount([]byte("revokedPeerAddress"))
+		require.NoError(t, err)
+
+		expectedIndex := uint32(888)
+		peerAcc.SetListAndIndex(state.List_leaving, expectedIndex)
+		peerAcc.SetRevoked()
+		peerAcc.SetTempRating(15)
+
+		validatorInfo := validatorStatistics.PeerAccountToValidatorInfo(peerAcc)
+
+		// Assert Index is preserved even for revoked validators
+		assert.Equal(t, expectedIndex, validatorInfo.Index, "Index should be preserved for revoked validators")
+		assert.Equal(t, "leaving", validatorInfo.List)
+		assert.Equal(t, true, validatorInfo.IsPubKeyRevoked)
+	})
+}
