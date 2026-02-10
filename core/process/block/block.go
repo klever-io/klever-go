@@ -82,7 +82,7 @@ func NewMetaProcessor(arguments ArgMetaProcessor) (*metaProcessor, error) {
 		validatorStatisticsProcessor: arguments.ValidatorStatisticsProcessor,
 		txCoordinator:                arguments.TxCoordinator,
 		feeHandler:                   arguments.FeeHandler,
-		indexer:                      arguments.Indexer,
+		eventsProcessor:              arguments.EventsProcessor,
 		headerIntegrityVerifier:      arguments.HeaderIntegrityVerifier,
 		kAppController:               arguments.KAppController,
 		blockChainHook:               arguments.BlockChainHook,
@@ -993,7 +993,7 @@ func (mp *metaProcessor) createBlockHeader(blk *block.Block, haveTime func() boo
 }
 
 func (mp *metaProcessor) indexValidatorsRating() {
-	if !mp.indexRating {
+	if !mp.indexRating || check.IfNil(mp.eventsProcessor) {
 		return
 	}
 
@@ -1009,12 +1009,15 @@ func (mp *metaProcessor) indexValidatorsRating() {
 		return
 	}
 
-	mp.indexer.SavePeersAccounts(validators)
+	mp.eventsProcessor.SaveValidatorsRating(validators)
 }
 
 func (mp *metaProcessor) indexEpochInfo(
 	epoch uint32,
 ) {
+	if check.IfNil(mp.eventsProcessor) {
+		return
+	}
 
 	latestHash, err := mp.validatorStatisticsProcessor.RootHash()
 	if err != nil {
@@ -1028,7 +1031,7 @@ func (mp *metaProcessor) indexEpochInfo(
 		return
 	}
 
-	mp.indexer.SaveEpochInfo(epoch, validators)
+	mp.eventsProcessor.SaveEpochInfo(epoch, validators)
 }
 
 func (mp *metaProcessor) indexBlock(
@@ -1037,16 +1040,16 @@ func (mp *metaProcessor) indexBlock(
 	metaBlock *block.Block,
 	lastMetaBlock data.HeaderHandler,
 ) {
-	if mp.indexer.IsNilIndexer() {
+	if check.IfNil(mp.eventsProcessor) || !mp.eventsProcessor.Enabled() {
 		return
 	}
-
-	log.Debug("preparing to index block", "hash", headerHash, "nonce", metaBlock.GetNonce(), "slot", metaBlock.GetSlot())
 
 	pool := &indexer.Pool{
 		Txs:  mp.txCoordinator.GetAllCurrentUsedTxs(),
 		Logs: mp.txCoordinator.GetAllCurrentLogs(),
 	}
+
+	log.Debug("preparing to index block", "hash", headerHash, "nonce", metaBlock.GetNonce(), "slot", metaBlock.GetSlot())
 
 	consensusValidators, err := mp.nodesCoordinator.ComputeConsensusGroup(metaBlock.GetPrevRandSeed(), metaBlock.GetSlot(), metaBlock.GetEpoch())
 	if err != nil {
@@ -1068,11 +1071,9 @@ func (mp *metaProcessor) indexBlock(
 		TransactionsPool: pool,
 		Validators:       publicKeys,
 	}
-	mp.indexer.SaveBlock(args)
+	mp.eventsProcessor.SaveBlock(args)
 	log.Debug("indexed block", "hash", headerHash, "nonce", metaBlock.GetNonce(), "slot", metaBlock.GetSlot())
 
-	// index all elected peers which may change current ratting
-	// do not run after epoch start as it will index all nodes
 	if lastMetaBlock != nil && lastMetaBlock.GetIsEpochStart() {
 		mp.indexEpochInfo(metaBlock.GetEpoch())
 		return
@@ -1193,7 +1194,9 @@ func (mp *metaProcessor) processProposalsEndOfEpoch(headerHandler data.HeaderHan
 		return err
 	}
 
-	mp.indexer.UpdateProposalsAndParameters(proposalsToUpdate)
+	if !check.IfNil(mp.eventsProcessor) {
+		mp.eventsProcessor.UpdateProposalsAndParameters(proposalsToUpdate)
+	}
 	delete(controller.ActiveProposals, headerHandler.GetEpoch())
 
 	return mp.finalizeProposalUpdates(proposalKApp, controller)

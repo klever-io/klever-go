@@ -56,7 +56,7 @@ type baseProcessor struct {
 	genesisNonce                 uint64
 	txCoordinator                process.TransactionCoordinator
 	feeHandler                   process.TransactionFeeHandler
-	indexer                      process.Indexer
+	eventsProcessor              process.EventsProcessor
 	blockChainHook               process.BlockChainHookHandler
 	headerIntegrityVerifier      process.HeaderIntegrityVerifier
 	appStatusHandler             core.AppStatusHandler

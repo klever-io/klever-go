@@ -55,6 +55,7 @@ import (
 	"github.com/klever-io/klever-go/storage/timecache"
 	"github.com/klever-io/klever-go/storage/txcache"
 	"github.com/klever-io/klever-go/tools"
+	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/klever-io/klever-go/tools/typeConverters"
 	"github.com/klever-io/klever-go/vmcommon"
@@ -93,6 +94,7 @@ type ProcessComponentsFactoryArgs struct {
 	version                   string
 	workingDir                string
 	indexer                   process.Indexer
+	eventsProcessor           process.EventsProcessor
 	txLogsProcessor           process.TransactionLogProcessor
 	uint64Converter           typeConverters.Uint64ByteSliceConverter
 	tpsBenchmark              statistics.TPSBenchmark
@@ -151,6 +153,7 @@ func NewProcessComponentsFactoryArgs(
 	uint64Converter typeConverters.Uint64ByteSliceConverter,
 	workingDir string,
 	indexer process.Indexer,
+	eventsProcessor process.EventsProcessor,
 	tpsBenchmark statistics.TPSBenchmark,
 	epochNotifier process.EpochNotifier,
 	storageReolverImportPath string,
@@ -206,6 +209,7 @@ func NewProcessComponentsFactoryArgs(
 		uint64Converter:           uint64Converter,
 		workingDir:                workingDir,
 		indexer:                   indexer,
+		eventsProcessor:           eventsProcessor,
 		tpsBenchmark:              tpsBenchmark,
 		epochNotifier:             epochNotifier,
 		storageReolverImportPath:  storageReolverImportPath,
@@ -300,19 +304,20 @@ func setupGenesis(args *ProcessComponentsFactoryArgs) (data.HeaderHandler, error
 		return nil, err
 	}
 
-	err = indexGenesisAccounts(args.nodesConfig.GetStartTime(), args.state.AccountsAdapter, args.indexer, args.coreData.InternalMarshalizer)
-	if err != nil {
-		log.Warn("cannot index genesis accounts", "error", err)
-	}
-
-	if args.startEpochNum == 0 {
-		err = indexGenesisBlock(args, genesisBlock)
+	if !check.IfNil(args.eventsProcessor) && args.eventsProcessor.Enabled() {
+		err = indexGenesisAccounts(args.nodesConfig.GetStartTime(), args.state.AccountsAdapter, args.eventsProcessor, args.coreData.InternalMarshalizer)
 		if err != nil {
-			return nil, err
+			log.Warn("cannot index genesis accounts", "error", err)
 		}
 
-		//Index active parameters
-		args.indexer.UpdateProposalsAndParameters([]string{})
+		if args.startEpochNum == 0 {
+			err = indexGenesisBlock(args, genesisBlock)
+			if err != nil {
+				return nil, err
+			}
+
+			args.eventsProcessor.UpdateProposalsAndParameters([]string{})
+		}
 	}
 
 	return genesisBlock, args.data.Blkc.SetGenesisHeader(genesisBlock)
@@ -1033,7 +1038,7 @@ func newBlockProcessor(
 		BlockChain:              processArgs.data.Blkc,
 		StateCheckpointModulus:  processArgs.stateCheckpointModulus,
 		BlockSizeThrottler:      blockSizeThrottler,
-		Indexer:                 processArgs.indexer,
+		EventsProcessor:         processArgs.eventsProcessor,
 		TpsBenchmark:            processArgs.tpsBenchmark,
 		EpochNotifier:           processArgs.epochNotifier,
 		EpochStartTrigger:       epochStartTrigger,
@@ -1067,11 +1072,7 @@ func newBlockProcessor(
 	return processor, txProcessor, nil
 }
 
-func indexGenesisAccounts(startTime int64, accountsAdapter state.AccountsAdapter, indexer process.Indexer, marshalizer marshal.Marshalizer) error {
-	if indexer.IsNilIndexer() {
-		return nil
-	}
-
+func indexGenesisAccounts(startTime int64, accountsAdapter state.AccountsAdapter, eventsProcessor process.EventsProcessor, marshalizer marshal.Marshalizer) error {
 	rootHash, err := accountsAdapter.RootHash()
 	if err != nil {
 		return err
@@ -1094,7 +1095,7 @@ func indexGenesisAccounts(startTime int64, accountsAdapter state.AccountsAdapter
 		genesisAccounts = append(genesisAccounts, userAccount)
 	}
 
-	indexer.SaveAccounts(startTime, genesisAccounts)
+	eventsProcessor.SaveAccounts(startTime, genesisAccounts)
 	return nil
 }
 
@@ -1139,15 +1140,15 @@ func indexGenesisBlock(args *ProcessComponentsFactoryArgs, genesisBlockHeader da
 		pool.Txs[string(txHash)] = &tx
 	}
 
-	if !args.indexer.IsNilIndexer() {
-		log.Info("indexGenesisBlocks(): indexer.SaveBlock", "hash", genesisBlockHash)
+	if !check.IfNil(args.eventsProcessor) {
+		log.Info("indexGenesisBlocks(): eventsProcessor.SaveBlock", "hash", genesisBlockHash)
 
 		arg := &indexer.ArgsSaveBlockData{
 			HeaderHash:       genesisBlockHash,
 			Header:           genesisBlockHeader,
 			TransactionsPool: pool,
 		}
-		args.indexer.SaveBlock(arg)
+		args.eventsProcessor.SaveBlock(arg)
 	}
 
 	return nil

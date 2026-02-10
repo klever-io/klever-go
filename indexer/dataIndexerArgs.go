@@ -6,11 +6,14 @@ import (
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
+	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/sharding"
 	"github.com/klever-io/klever-go/tools/marshal"
 )
+
+type Indexer = process.Indexer
 
 // ArgDataIndexer is struct that is used to store all components that are needed to create a indexer
 type ArgDataIndexer struct {
@@ -41,4 +44,13 @@ type ArgElasticProcessor struct {
 	IsInImportDBMode         bool
 	CacheExpirationTime      time.Duration
 	CacheCleanUpInterval     time.Duration
+}
+
+// ArgEventsProcessor is struct that is used to store all components needed for events dispatching
+type ArgEventsProcessor struct {
+	Marshalizer              marshal.Marshalizer
+	Hasher                   hashing.Hasher
+	AddressPubkeyConverter   core.PubkeyConverter
+	ValidatorPubkeyConverter core.PubkeyConverter
+	Indexer                  Indexer
 }

@@ -193,6 +193,7 @@ func createMockArguments() *factory.ProcessComponentsFactoryArgs {
 		&mock.Uint64ByteSliceConverterMock{},
 		"./",
 		&consensusMock.IndexerMock{},
+		nil,
 		tpsBenchmark,
 		epochNotifier,
 		"",

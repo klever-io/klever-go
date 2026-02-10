@@ -1,6 +1,13 @@
 package indexer
 
-var EventQueue = make(chan Event)
+import (
+	"sync/atomic"
+	"time"
+)
+
+const eventQueueBufferSize = 1000
+
+var EventQueue = make(chan Event, eventQueueBufferSize)
 var UseEventQueue bool
 
 type Event struct {
@@ -8,7 +15,6 @@ type Event struct {
 	Message interface{}
 }
 
-// EventType TODO: we can improve this to have subtyping
 type EventType string
 
 const (
@@ -18,6 +24,28 @@ const (
 	BLOCKS           EventType = "blocks"
 	TRANSACTION      EventType = "transaction"
 )
+
+const dropLogIntervalSeconds = 10
+
+var (
+	droppedEventCount int64
+	lastDropLogTime   int64
+)
+
+func trySendEvent(event Event) {
+	select {
+	case EventQueue <- event:
+	default:
+		atomic.AddInt64(&droppedEventCount, 1)
+		now := time.Now().Unix()
+		if last := atomic.LoadInt64(&lastDropLogTime); now-last >= dropLogIntervalSeconds {
+			if atomic.CompareAndSwapInt64(&lastDropLogTime, last, now) {
+				count := atomic.SwapInt64(&droppedEventCount, 0)
+				log.Warn("event queue full, dropping events", "type", string(event.EvType), "droppedCount", count)
+			}
+		}
+	}
+}
 
 func NewEventType(evType string) EventType {
 	switch evType {

@@ -328,10 +328,10 @@ func (ei *elasticProcessor) SaveHeader(
 	}
 
 	if UseEventQueue {
-		EventQueue <- Event{
+		trySendEvent(Event{
 			EvType:  BLOCKS,
 			Message: serializedBlock,
-		}
+		})
 	}
 
 	return nil
@@ -547,14 +547,14 @@ func (ei *elasticProcessor) SaveTransactions(
 
 	// Dispatch events
 	if UseEventQueue && len(txs) > 0 {
-		EventQueue <- Event{
+		trySendEvent(Event{
 			EvType:  USER_TRANSACTION,
 			Message: txs,
-		}
-		EventQueue <- Event{
+		})
+		trySendEvent(Event{
 			EvType:  TRANSACTION,
 			Message: txs,
-		}
+		})
 	}
 
 	buffers := data.NewBufferSlice(data.DefaultMaxBulkSize)
@@ -1639,10 +1639,10 @@ func (ei *elasticProcessor) getAllowanceWithPendingRewards(userAccount state.Use
 // dispatchAccountEvents sends account events to the event queue if enabled.
 func dispatchAccountEvents(accountsMap map[string]*data.AccountInfo) {
 	if UseEventQueue && len(accountsMap) > 0 {
-		EventQueue <- Event{
+		trySendEvent(Event{
 			EvType:  ACCOUNTS,
 			Message: accountsMap,
-		}
+		})
 	}
 }
 

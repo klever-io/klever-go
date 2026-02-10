@@ -3,6 +3,12 @@ package config
 // ExternalConfig will hold the configurations for external tools, such as Explorer or Elastic Search
 type ExternalConfig struct {
 	ElasticSearchConnector ElasticSearchConfig `yaml:"elasticSearchConnector"`
+	Websocket              WebsocketConfig     `yaml:"websocket"`
+}
+
+// WebsocketConfig holds the configuration for websocket event broadcasting
+type WebsocketConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // ElasticSearchConfig will hold the configuration for the elastic search

@@ -11,7 +11,7 @@ import (
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/data/state"
-	indexer "github.com/klever-io/klever-go/indexer"
+	"github.com/klever-io/klever-go/indexer"
 	"github.com/klever-io/klever-go/sharding"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
@@ -42,13 +42,13 @@ type ArgsIndexerFactory struct {
 
 // NewIndexer will create a new instance of Indexer
 func NewIndexer(args *ArgsIndexerFactory) (process.Indexer, error) {
+	if !args.Enabled {
+		return indexer.NewNilIndexer(), nil
+	}
+
 	err := checkDataIndexerParams(args)
 	if err != nil {
 		return nil, err
-	}
-
-	if !args.Enabled {
-		return indexer.NewNilIndexer(), nil
 	}
 
 	elasticProcessor, err := createElasticProcessor(args)
@@ -150,9 +150,6 @@ func checkDataIndexerParams(arguments *ArgsIndexerFactory) error {
 	if check.IfNil(arguments.EpochStartNotifier) {
 		return common.ErrNilEpochStartNotifier
 	}
-	// if check.IfNil(arguments.TransactionFeeCalculator) {
-	// 	return common.ErrNilTransactionFeeCalculator
-	// }
 
 	return nil
 }

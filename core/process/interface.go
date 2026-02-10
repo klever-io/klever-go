@@ -548,6 +548,18 @@ type Indexer interface {
 	IsNilIndexer() bool
 }
 
+// EventsProcessor is an interface for dispatching block events to all subscribers (websocket, indexer, etc.)
+type EventsProcessor interface {
+	Enabled() bool
+	SaveBlock(args *indexer.ArgsSaveBlockData)
+	RevertIndexedBlock(header data.HeaderHandler)
+	SaveValidatorsRating(validators []kapp.ValidatorAccountInfoHandler)
+	SaveEpochInfo(epoch uint32, validators []kapp.ValidatorAccountInfoHandler)
+	SaveAccounts(blockTimestamp int64, acc []state.UserAccountHandler)
+	UpdateProposalsAndParameters(proposalIDs []string)
+	IsInterfaceNil() bool
+}
+
 // FallbackHeaderValidator defines the behaviour of a component able to signal when a fallback header validation could be applied
 type FallbackHeaderValidator interface {
 	ShouldApplyFallbackValidation(headerHandler data.HeaderHandler) bool

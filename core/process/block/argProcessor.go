@@ -37,7 +37,7 @@ type ArgBaseProcessor struct {
 	EpochNotifier           process.EpochNotifier
 	TxCoordinator           process.TransactionCoordinator
 	FeeHandler              process.TransactionFeeHandler
-	Indexer                 process.Indexer
+	EventsProcessor         process.EventsProcessor
 	BlockChainHook          process.BlockChainHookHandler
 	HeaderIntegrityVerifier process.HeaderIntegrityVerifier
 	KAppController          kapp.KAppController
