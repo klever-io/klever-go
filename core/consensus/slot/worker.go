@@ -77,34 +77,40 @@ type Worker struct {
 	consensusMessageValidator *consensusMessageValidator
 	nodeRedundancyHandler     consensus.NodeRedundancyHandler
 
-	consensusMonitorList []string
+	consensusMonitorList            []string
+	lastNetworkDegradedAlertSlot    int64
+	mutNetworkDegradedAlertCooldown sync.RWMutex
+	networkDegradedThreshold        uint32
+	networkDegradedCooldownSlots    uint32
 }
 
 // WorkerArgs holds the consensus worker arguments
 type WorkerArgs struct {
-	ConsensusService         ConsensusService
-	BlockChain               data.ChainHandler
-	BlockProcessor           process.BlockProcessor
-	Bootstrapper             process.Bootstrapper
-	BroadcastMessenger       consensus.BroadcastMessenger
-	ConsensusState           *ConsensusState
-	ForkDetector             process.ForkDetector
-	Marshalizer              marshal.Marshalizer
-	Hasher                   hashing.Hasher
-	SlotManager              consensus.SlotManager
-	PeerSignatureHandler     crypto.PeerSignatureHandler
-	SyncTimer                ntp.SyncTimer
-	HeaderSigVerifier        RandSeedVerifier
-	HeaderIntegrityVerifier  HeaderIntegrityVerifier
-	ChainID                  []byte
-	NetworkShardingCollector consensus.NetworkShardingCollector
-	AntifloodHandler         consensus.P2PAntifloodHandler
-	TXPool                   retriever.ShardedDataCacherNotifier
-	OnRequestTransactionTo   func(txHashes [][]byte, peer core.PeerID)
-	SignatureSize            int
-	PublicKeySize            int
-	NodeRedundancyHandler    consensus.NodeRedundancyHandler
-	ConsensusMonitorList     []string
+	ConsensusService             ConsensusService
+	BlockChain                   data.ChainHandler
+	BlockProcessor               process.BlockProcessor
+	Bootstrapper                 process.Bootstrapper
+	BroadcastMessenger           consensus.BroadcastMessenger
+	ConsensusState               *ConsensusState
+	ForkDetector                 process.ForkDetector
+	Marshalizer                  marshal.Marshalizer
+	Hasher                       hashing.Hasher
+	SlotManager                  consensus.SlotManager
+	PeerSignatureHandler         crypto.PeerSignatureHandler
+	SyncTimer                    ntp.SyncTimer
+	HeaderSigVerifier            RandSeedVerifier
+	HeaderIntegrityVerifier      HeaderIntegrityVerifier
+	ChainID                      []byte
+	NetworkShardingCollector     consensus.NetworkShardingCollector
+	AntifloodHandler             consensus.P2PAntifloodHandler
+	TXPool                       retriever.ShardedDataCacherNotifier
+	OnRequestTransactionTo       func(txHashes [][]byte, peer core.PeerID)
+	SignatureSize                int
+	PublicKeySize                int
+	NodeRedundancyHandler        consensus.NodeRedundancyHandler
+	ConsensusMonitorList         []string
+	NetworkDegradedThreshold     uint32
+	NetworkDegradedCooldownSlots uint32
 }
 
 // NewWorker creates a new Worker object
@@ -130,27 +136,29 @@ func NewWorker(args *WorkerArgs) (*Worker, error) {
 	}
 
 	wrk := Worker{
-		consensusService:         args.ConsensusService,
-		blockChain:               args.BlockChain,
-		blockProcessor:           args.BlockProcessor,
-		bootstrapper:             args.Bootstrapper,
-		broadcastMessenger:       args.BroadcastMessenger,
-		consensusState:           args.ConsensusState,
-		forkDetector:             args.ForkDetector,
-		marshalizer:              args.Marshalizer,
-		hasher:                   args.Hasher,
-		slotManager:              args.SlotManager,
-		peerSignatureHandler:     args.PeerSignatureHandler,
-		syncTimer:                args.SyncTimer,
-		headerSigVerifier:        args.HeaderSigVerifier,
-		headerIntegrityVerifier:  args.HeaderIntegrityVerifier,
-		appStatusHandler:         statusHandler.NewNilStatusHandler(),
-		networkShardingCollector: args.NetworkShardingCollector,
-		antifloodHandler:         args.AntifloodHandler,
-		txPool:                   args.TXPool,
-		onRequestTransactionTo:   args.OnRequestTransactionTo,
-		nodeRedundancyHandler:    args.NodeRedundancyHandler,
-		consensusMonitorList:     args.ConsensusMonitorList,
+		consensusService:             args.ConsensusService,
+		blockChain:                   args.BlockChain,
+		blockProcessor:               args.BlockProcessor,
+		bootstrapper:                 args.Bootstrapper,
+		broadcastMessenger:           args.BroadcastMessenger,
+		consensusState:               args.ConsensusState,
+		forkDetector:                 args.ForkDetector,
+		marshalizer:                  args.Marshalizer,
+		hasher:                       args.Hasher,
+		slotManager:                  args.SlotManager,
+		peerSignatureHandler:         args.PeerSignatureHandler,
+		syncTimer:                    args.SyncTimer,
+		headerSigVerifier:            args.HeaderSigVerifier,
+		headerIntegrityVerifier:      args.HeaderIntegrityVerifier,
+		appStatusHandler:             statusHandler.NewNilStatusHandler(),
+		networkShardingCollector:     args.NetworkShardingCollector,
+		antifloodHandler:             args.AntifloodHandler,
+		txPool:                       args.TXPool,
+		onRequestTransactionTo:       args.OnRequestTransactionTo,
+		nodeRedundancyHandler:        args.NodeRedundancyHandler,
+		consensusMonitorList:         args.ConsensusMonitorList,
+		networkDegradedThreshold:     args.NetworkDegradedThreshold,
+		networkDegradedCooldownSlots: args.NetworkDegradedCooldownSlots,
 	}
 
 	wrk.consensusMessageValidator = consensusMessageValidatorObj
@@ -744,28 +752,44 @@ func (wrk *Worker) checkInMonitorList(validator string) bool {
 }
 
 func (wrk *Worker) reportNetworkDegraded(leader string, consensusMessages []*consensus.Message) {
-	if consensusMessages == nil {
+	// if threshold is 0, alerting is disabled
+	if wrk.networkDegradedThreshold == 0 {
 		return
 	}
 
-	const networkDegradedThreshold = 3
 	expectedSignatures := wrk.consensusState.consensusGroupSize - 1
+	failedCount := expectedSignatures - len(consensusMessages)
 
-	// alert if 3+ validators failed: len <= (20 - 3) means at least 3 missing
-	if len(consensusMessages) <= expectedSignatures-networkDegradedThreshold {
-		failedCount := expectedSignatures - len(consensusMessages)
-		_ = bugsnag.Notify(fmt.Errorf("network degraded"), bugsnag.MetaData{
-			"network": {
-				"failedCount":     failedCount,
-				"signaturesCount": len(consensusMessages),
-				"expectedSigs":    expectedSignatures,
-				"consensusSize":   wrk.consensusState.consensusGroupSize,
-				"slot":            wrk.slotManager.Index(),
-				"threshold":       networkDegradedThreshold,
-				"leader":          hex.EncodeToString([]byte(leader)),
-			},
-		})
+	// alert if networkDegradedThreshold+ validators failed
+	if failedCount < int(wrk.networkDegradedThreshold) {
+		return
 	}
+	// check cooldown
+	currentSlot := wrk.slotManager.Index()
+	wrk.mutNetworkDegradedAlertCooldown.RLock()
+	lastAlertSlot := wrk.lastNetworkDegradedAlertSlot
+	wrk.mutNetworkDegradedAlertCooldown.RUnlock()
+
+	if currentSlot-lastAlertSlot < int64(wrk.networkDegradedCooldownSlots) {
+		return
+	}
+
+	// update last alert slot
+	wrk.mutNetworkDegradedAlertCooldown.Lock()
+	wrk.lastNetworkDegradedAlertSlot = currentSlot
+	wrk.mutNetworkDegradedAlertCooldown.Unlock()
+
+	_ = bugsnag.Notify(fmt.Errorf("network degraded"), bugsnag.MetaData{
+		"network": {
+			"failedCount":     failedCount,
+			"signaturesCount": len(consensusMessages),
+			"expectedSigs":    expectedSignatures,
+			"consensusSize":   wrk.consensusState.consensusGroupSize,
+			"slot":            wrk.slotManager.Index(),
+			"threshold":       wrk.networkDegradedThreshold,
+			"leader":          hex.EncodeToString([]byte(leader)),
+		},
+	})
 }
 
 func (wrk *Worker) reportValidatorFail(leader string, consensusMessages []*consensus.Message) {
