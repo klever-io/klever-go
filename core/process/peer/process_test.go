@@ -632,10 +632,17 @@ func TestValidatorStatistics_ProcessRatingsEndOfEpochWithNilValidatorInfos(t *te
 	require.Equal(t, process.ErrNilValidatorInfos, err)
 }
 
+func assertValidatorInfoIndexMapping(t *testing.T, info *state.ValidatorInfo, expectedIndex uint32, expectedList string, expectedRevoked bool) {
+	t.Helper()
+	assert.Equal(t, expectedIndex, info.Index, "Index should match PeerAccount.GetIndex()")
+	assert.Equal(t, expectedList, info.List)
+	assert.Equal(t, expectedRevoked, info.IsPubKeyRevoked)
+}
+
 func TestValidatorStatistics_PeerAccountToValidatorInfo(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Correctly maps Index from PeerAccount", func(t *testing.T) {
+	t.Run("maps index from peer account", func(t *testing.T) {
 		arguments := createMockArguments()
 		validatorStatistics, err := peer.NewValidatorStatisticsProcessor(arguments)
 		require.NoError(t, err)
@@ -663,17 +670,15 @@ func TestValidatorStatistics_PeerAccountToValidatorInfo(t *testing.T) {
 		// Call PeerAccountToValidatorInfo
 		validatorInfo := validatorStatistics.PeerAccountToValidatorInfo(peerAcc)
 
-		// Assert that Index is correctly mapped
-		assert.Equal(t, expectedIndex, validatorInfo.Index, "Index should match the value from PeerAccount.GetIndex()")
+		// Assert that Index and related fields are correctly mapped
+		assertValidatorInfoIndexMapping(t, validatorInfo, expectedIndex, "eligible", false)
 		assert.Equal(t, expectedOwnerAddress, validatorInfo.OwnerAddress)
 		assert.Equal(t, expectedBLSPubKey, validatorInfo.PublicKey)
-		assert.Equal(t, "eligible", validatorInfo.List)
 		assert.Equal(t, uint32(65), validatorInfo.TempRating)
 		assert.Equal(t, uint32(70), validatorInfo.Rating)
-		assert.Equal(t, false, validatorInfo.IsPubKeyRevoked)
 	})
 
-	t.Run("Maps Index correctly for revoked validator", func(t *testing.T) {
+	t.Run("maps index correctly for revoked validator", func(t *testing.T) {
 		arguments := createMockArguments()
 		validatorStatistics, err := peer.NewValidatorStatisticsProcessor(arguments)
 		require.NoError(t, err)
@@ -690,8 +695,6 @@ func TestValidatorStatistics_PeerAccountToValidatorInfo(t *testing.T) {
 		validatorInfo := validatorStatistics.PeerAccountToValidatorInfo(peerAcc)
 
 		// Assert Index is preserved even for revoked validators
-		assert.Equal(t, expectedIndex, validatorInfo.Index, "Index should be preserved for revoked validators")
-		assert.Equal(t, "leaving", validatorInfo.List)
-		assert.Equal(t, true, validatorInfo.IsPubKeyRevoked)
+		assertValidatorInfoIndexMapping(t, validatorInfo, expectedIndex, "leaving", true)
 	})
 }

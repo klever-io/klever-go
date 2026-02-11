@@ -1175,10 +1175,17 @@ func TestClaimPendingRewards(t *testing.T) {
 	})
 }
 
+func assertValidatorInfoIndexMapping(t *testing.T, info *state.ValidatorInfo, expectedIndex uint32, expectedList string, expectedRevoked bool) {
+	t.Helper()
+	assert.Equal(t, expectedIndex, info.Index, "Index should match PeerAccount.GetIndex()")
+	assert.Equal(t, expectedList, info.List)
+	assert.Equal(t, expectedRevoked, info.IsPubKeyRevoked)
+}
+
 func TestValidatorsKApp_PeerAccountToValidatorInfo(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Correctly maps Index from PeerAccount", func(t *testing.T) {
+	t.Run("maps index from peer account", func(t *testing.T) {
 		args := createMockArgs()
 		v, err := NewValidatorKApp(args)
 		require.NoError(t, err)
@@ -1206,17 +1213,15 @@ func TestValidatorsKApp_PeerAccountToValidatorInfo(t *testing.T) {
 		// Test with revoked = false
 		validatorInfo := v.PeerAccountToValidatorInfo(expectedPubKey, false, peerAcc)
 
-		// Assert that Index is correctly mapped
-		assert.Equal(t, expectedIndex, validatorInfo.Index, "Index should match the value from PeerAccount.GetIndex()")
+		// Assert that Index and related fields are correctly mapped
+		assertValidatorInfoIndexMapping(t, validatorInfo, expectedIndex, "eligible", false)
 		assert.Equal(t, expectedOwnerAddress, validatorInfo.OwnerAddress)
 		assert.Equal(t, expectedPubKey, validatorInfo.PublicKey)
-		assert.Equal(t, "eligible", validatorInfo.List)
 		assert.Equal(t, uint32(75), validatorInfo.TempRating)
 		assert.Equal(t, uint32(80), validatorInfo.Rating)
-		assert.Equal(t, false, validatorInfo.IsPubKeyRevoked)
 	})
 
-	t.Run("Maps Index correctly for revoked validator", func(t *testing.T) {
+	t.Run("maps index correctly for revoked validator", func(t *testing.T) {
 		args := createMockArgs()
 		v, err := NewValidatorKApp(args)
 		require.NoError(t, err)
@@ -1233,9 +1238,7 @@ func TestValidatorsKApp_PeerAccountToValidatorInfo(t *testing.T) {
 		validatorInfo := v.PeerAccountToValidatorInfo(expectedPubKey, true, peerAcc)
 
 		// Assert Index is preserved even for revoked validators
-		assert.Equal(t, expectedIndex, validatorInfo.Index, "Index should be preserved for revoked validators")
+		assertValidatorInfoIndexMapping(t, validatorInfo, expectedIndex, "leaving", true)
 		assert.Equal(t, expectedPubKey, validatorInfo.PublicKey)
-		assert.Equal(t, "leaving", validatorInfo.List)
-		assert.Equal(t, true, validatorInfo.IsPubKeyRevoked)
 	})
 }
