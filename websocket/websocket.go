@@ -25,14 +25,14 @@ type SocketHub struct {
 	mu                      sync.Mutex
 	postConnectionURL       string
 	postConnectionAPIKey    string
+	facade                  WSFacade
 	blockSubscription       map[*client]struct{}
 	transactionSubscription map[*client]struct{}
 	addressSubscription     map[string]map[*client]userOptions
 	unregister              chan *client
 }
 
-// NewHub create a hub to manage new websocket connection
-func NewHub(postConnectionURL, postConnectionAPIKey string) *SocketHub {
+func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade) *SocketHub {
 	return &SocketHub{
 		unregister:              make(chan *client),
 		addressSubscription:     make(map[string]map[*client]userOptions),
@@ -40,6 +40,7 @@ func NewHub(postConnectionURL, postConnectionAPIKey string) *SocketHub {
 		transactionSubscription: make(map[*client]struct{}),
 		postConnectionURL:       postConnectionURL,
 		postConnectionAPIKey:    postConnectionAPIKey,
+		facade:                  facade,
 	}
 }
 
@@ -331,6 +332,149 @@ func (h *SocketHub) handleClientDelete(c *client) {
 			if cl == c {
 				delete(clients, c)
 			}
+		}
+	}
+}
+
+func (h *SocketHub) HandleClientRequest(c *client, req WSRequest) {
+	switch req.Method {
+	case MethodGetTransaction:
+		h.handleGetTransaction(c, req)
+	case MethodGetBlock:
+		h.handleGetBlock(c, req)
+	case MethodSubscribe:
+		h.handleDynamicSubscribe(c, req)
+	case MethodUnsubscribe:
+		h.handleDynamicUnsubscribe(c, req)
+	default:
+		c.out <- WSResponse{ID: req.ID, Error: "unknown method: " + req.Method}
+	}
+}
+
+func (h *SocketHub) handleGetTransaction(c *client, req WSRequest) {
+	if h.facade == nil {
+		c.out <- WSResponse{ID: req.ID, Error: "query not supported: facade unavailable"}
+		return
+	}
+
+	var params GetTransactionParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		c.out <- WSResponse{ID: req.ID, Error: "invalid params: " + err.Error()}
+		return
+	}
+
+	if params.Hash == "" {
+		c.out <- WSResponse{ID: req.ID, Error: "missing required param: hash"}
+		return
+	}
+
+	tx, err := h.facade.GetTransaction(params.Hash, params.WithResults)
+	if err != nil {
+		c.out <- WSResponse{ID: req.ID, Error: err.Error()}
+		return
+	}
+
+	c.out <- WSResponse{ID: req.ID, Data: tx}
+}
+
+func (h *SocketHub) handleGetBlock(c *client, req WSRequest) {
+	if h.facade == nil {
+		c.out <- WSResponse{ID: req.ID, Error: "query not supported: facade unavailable"}
+		return
+	}
+
+	var params GetBlockParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		c.out <- WSResponse{ID: req.ID, Error: "invalid params: " + err.Error()}
+		return
+	}
+
+	if params.Nonce == nil && params.Hash == "" {
+		c.out <- WSResponse{ID: req.ID, Error: "must provide nonce or hash"}
+		return
+	}
+
+	if params.Nonce != nil {
+		blk, err := h.facade.GetBlockByNonce(*params.Nonce, params.WithTxs)
+		if err != nil {
+			c.out <- WSResponse{ID: req.ID, Error: err.Error()}
+			return
+		}
+		c.out <- WSResponse{ID: req.ID, Data: blk}
+		return
+	}
+
+	blk, err := h.facade.GetBlockByHash(params.Hash, params.WithTxs)
+	if err != nil {
+		c.out <- WSResponse{ID: req.ID, Error: err.Error()}
+		return
+	}
+	c.out <- WSResponse{ID: req.ID, Data: blk}
+}
+
+func (h *SocketHub) handleDynamicSubscribe(c *client, req WSRequest) {
+	var params SubscribeParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		c.out <- WSResponse{ID: req.ID, Error: "invalid params: " + err.Error()}
+		return
+	}
+
+	var eventTypes []indexer.EventType
+	for _, t := range params.Types {
+		parsed, err := indexer.NewEventTypeStrict(t)
+		if err != nil {
+			c.out <- WSResponse{ID: req.ID, Error: "invalid subscription type: " + t}
+			return
+		}
+		eventTypes = append(eventTypes, parsed)
+	}
+
+	h.HandleClientInsertion(eventTypes, params.Addresses, c)
+	c.out <- WSResponse{ID: req.ID, Data: "subscribed"}
+}
+
+func (h *SocketHub) handleDynamicUnsubscribe(c *client, req WSRequest) {
+	var params UnsubscribeParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		c.out <- WSResponse{ID: req.ID, Error: "invalid params: " + err.Error()}
+		return
+	}
+
+	var eventTypes []indexer.EventType
+	for _, t := range params.Types {
+		parsed, err := indexer.NewEventTypeStrict(t)
+		if err != nil {
+			c.out <- WSResponse{ID: req.ID, Error: "invalid subscription type: " + t}
+			return
+		}
+		eventTypes = append(eventTypes, parsed)
+	}
+
+	h.HandleClientRemoval(eventTypes, params.Addresses, c)
+	c.out <- WSResponse{ID: req.ID, Data: "unsubscribed"}
+}
+
+func (h *SocketHub) HandleClientRemoval(eventTypes []indexer.EventType, addresses []string, c *client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for _, t := range eventTypes {
+		switch t {
+		case indexer.BLOCKS:
+			delete(h.blockSubscription, c)
+		case indexer.TRANSACTION:
+			delete(h.transactionSubscription, c)
+		}
+	}
+
+	for _, addr := range addresses {
+		clients, ok := h.addressSubscription[addr]
+		if !ok {
+			continue
+		}
+		delete(clients, c)
+		if len(clients) == 0 {
+			delete(h.addressSubscription, addr)
 		}
 	}
 }

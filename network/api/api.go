@@ -172,8 +172,13 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 			postConnUrl, postConnApiKey = apiHandler.WSConnectionURL(), apiHandler.WSConnectionAPIKey()
 		}
 
+		var wsFacade clientSocket.WSFacade
+		if f, ok := kleverFacade.(clientSocket.WSFacade); ok {
+			wsFacade = f
+		}
+
 		indexer.UseEventQueue = true
-		hub := clientSocket.NewHub(postConnUrl, postConnApiKey)
+		hub := clientSocket.NewHub(postConnUrl, postConnApiKey, wsFacade)
 		wsocket.SubscribeTopics(ws, hub)
 		go hub.StartServer(ctx)
 	}
