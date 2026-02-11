@@ -183,7 +183,7 @@ func (txProc *simulateTxProcessor) prepareAccountAndHash(tx *transaction.Transac
 	computedHash, err := tools.CalculateHash(txProc.marshalizer, txProc.hasher, tx.RawData)
 	if err != nil {
 		tx.ResultCode = transaction.Transaction_Fail
-		log.Error("invalid tx hash", "nonce", "computedHash", computedHash)
+		log.Error("invalid tx hash", "computedHash", computedHash)
 		return nil, nil, err
 	}
 

@@ -531,6 +531,17 @@ func TestNewTxProcessor_NilEpochNotifierShouldErr(t *testing.T) {
 	assert.Nil(t, txProc)
 }
 
+func TestNewTxProcessor_NilForkControllerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	args := createArgsForTxProcessor()
+	args.ForkController = nil
+	txProc, err := pTX.NewTxProcessor(args)
+
+	assert.Equal(t, common.ErrNilForkController, err)
+	assert.Nil(t, txProc)
+}
+
 func TestNewTxProcessor_OkValsShouldWork(t *testing.T) {
 	t.Parallel()
 

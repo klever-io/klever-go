@@ -97,6 +97,9 @@ func NewTxProcessor(args ArgsNewTxProcessor) (*txProcessor, error) {
 	if check.IfNil(args.ScProcessor) {
 		return nil, process.ErrNilSmartContractProcessor
 	}
+	if check.IfNil(args.ForkController) {
+		return nil, common.ErrNilForkController
+	}
 
 	baseTxProcess := &baseTxProcessor{
 		cfg:            args.Cfg,
@@ -247,7 +250,7 @@ func (txProc *txProcessor) PreProcessTransaction(tx *transaction.Transaction) (s
 	computedHash, err := tools.CalculateHash(txProc.marshalizer, txProc.hasher, tx.RawData)
 	if err != nil {
 		tx.ResultCode = transaction.Transaction_Fail
-		log.Error("invalid tx hash", "nonce", "computedHash", computedHash)
+		log.Error("invalid tx hash", "computedHash", computedHash)
 		return nil, nil, err
 	}
 
