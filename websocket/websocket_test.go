@@ -284,3 +284,74 @@ func TestHandleClientRequest_UnknownMethod(t *testing.T) {
 	assert.Equal(t, "req-12", resp.ID)
 	assert.Contains(t, resp.Error, "unknown method")
 }
+
+func TestDynamicSubscribe_MergesFlags(t *testing.T) {
+	hub := newTestHub(nil)
+	c := newTestClient(hub)
+
+	params1, _ := json.Marshal(SubscribeParams{
+		Types:     []string{"accounts"},
+		Addresses: []string{"klv1abc"},
+	})
+	hub.HandleClientRequest(c, WSRequest{ID: "s1", Method: MethodSubscribe, Params: params1})
+	drainResponse(c)
+
+	params2, _ := json.Marshal(SubscribeParams{
+		Types:     []string{"user_transaction"},
+		Addresses: []string{"klv1abc"},
+	})
+	hub.HandleClientRequest(c, WSRequest{ID: "s2", Method: MethodSubscribe, Params: params2})
+	drainResponse(c)
+
+	hub.mu.Lock()
+	opts := hub.addressSubscription["klv1abc"][c]
+	hub.mu.Unlock()
+
+	assert.True(t, opts.acceptAccount)
+	assert.True(t, opts.acceptTransaction)
+}
+
+func TestDynamicUnsubscribe_PartialFlags(t *testing.T) {
+	hub := newTestHub(nil)
+	c := newTestClient(hub)
+
+	hub.mu.Lock()
+	hub.addressSubscription["klv1abc"] = map[*client]userOptions{
+		c: {acceptAccount: true, acceptTransaction: true},
+	}
+	hub.mu.Unlock()
+
+	params, _ := json.Marshal(UnsubscribeParams{
+		Types:     []string{"accounts"},
+		Addresses: []string{"klv1abc"},
+	})
+	hub.HandleClientRequest(c, WSRequest{ID: "u1", Method: MethodUnsubscribe, Params: params})
+	drainResponse(c)
+
+	hub.mu.Lock()
+	opts, ok := hub.addressSubscription["klv1abc"][c]
+	hub.mu.Unlock()
+
+	require.True(t, ok)
+	assert.False(t, opts.acceptAccount)
+	assert.True(t, opts.acceptTransaction)
+}
+
+func TestSend_DoesNotPanicOnClosedClient(t *testing.T) {
+	hub := newTestHub(nil)
+	c := newTestClient(hub)
+
+	c.aliveLock.Lock()
+	c.alive = false
+	c.aliveLock.Unlock()
+
+	assert.NotPanics(t, func() {
+		c.send(WSResponse{ID: "x", Error: "test"})
+	})
+
+	select {
+	case <-c.out:
+		t.Fatal("expected no message on closed client")
+	default:
+	}
+}

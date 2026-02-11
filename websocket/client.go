@@ -35,6 +35,19 @@ func (c *client) IsAlive() bool {
 	return c.alive
 }
 
+func (c *client) send(msg interface{}) {
+	c.aliveLock.Lock()
+	defer c.aliveLock.Unlock()
+	if !c.alive {
+		return
+	}
+	select {
+	case c.out <- msg:
+	default:
+		log.Warn("ws.send", "msg", "client output buffer full, dropping message")
+	}
+}
+
 // close call this function to close client connection and remove from hub
 func (c *client) close() {
 	c.aliveLock.Lock()
@@ -80,7 +93,7 @@ func (c *client) loopIn() {
 		case ws.TextMessage:
 			var req WSRequest
 			if err := json.Unmarshal(message, &req); err != nil {
-				c.out <- WSResponse{Error: "invalid json: " + err.Error()}
+				c.send(WSResponse{Error: "invalid json: " + err.Error()})
 				continue
 			}
 			c.hub.HandleClientRequest(c, req)

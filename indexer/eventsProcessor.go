@@ -248,7 +248,12 @@ func (ep *eventsProcessor) getAllowanceWithPendingRewards(userAccount dataState.
 		return allowance
 	}
 
-	pendingRewards, err := ep.kappsController.GetValidatorsKApp().GetPendingRewards(userAccount.AddressBytes())
+	validatorsKApp := ep.kappsController.GetValidatorsKApp()
+	if check.IfNil(validatorsKApp) {
+		return allowance
+	}
+
+	pendingRewards, err := validatorsKApp.GetPendingRewards(userAccount.AddressBytes())
 	if err == nil && pendingRewards > 0 {
 		allowance += pendingRewards
 	}
