@@ -728,6 +728,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		AddressPubkeyConverter:   addressPubkeyConverter,
 		ValidatorPubkeyConverter: validatorPubkeyConverter,
 		Indexer:                  esIndexer,
+		KAppController:           stateComponents.KAppController,
 	})
 	if err != nil {
 		return err

@@ -53,4 +53,5 @@ type ArgEventsProcessor struct {
 	AddressPubkeyConverter   core.PubkeyConverter
 	ValidatorPubkeyConverter core.PubkeyConverter
 	Indexer                  Indexer
+	KAppController           kapp.KAppController
 }

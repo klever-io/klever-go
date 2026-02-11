@@ -14,6 +14,7 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/kvm/mock/stub"
 	"github.com/stretchr/testify/require"
 )
 
@@ -593,4 +594,159 @@ func TestTrySendEvent_QueueFull(t *testing.T) {
 
 	event := <-fullQueue
 	require.Equal(t, BLOCKS, event.EvType)
+}
+
+func createTestEventsProcessorWithKApp(ctrl kapp.KAppController) *eventsProcessor {
+	ep, _ := NewEventsProcessor(ArgEventsProcessor{
+		Marshalizer:              &mock.MarshalizerMock{},
+		Hasher:                   &mock.HasherMock{},
+		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
+		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
+		Indexer:                  nil,
+		KAppController:           ctrl,
+	})
+	return ep
+}
+
+func TestEventsProcessor_GetAllowanceWithPendingRewards(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil kappsController returns base allowance", func(t *testing.T) {
+		t.Parallel()
+
+		ep := createTestEventsProcessor()
+
+		userAccount := &mock.UserAccountHandlerStub{
+			GetAllowanceCalled: func() int64 {
+				return 1000
+			},
+		}
+
+		result := ep.getAllowanceWithPendingRewards(userAccount)
+		require.Equal(t, int64(1000), result)
+	})
+
+	t.Run("with pending rewards adds to allowance", func(t *testing.T) {
+		t.Parallel()
+
+		validatorsKapp := &mock.ValidatorsKAppStub{
+			GetPendingRewardsCalled: func(address []byte) (int64, error) {
+				return 500, nil
+			},
+		}
+
+		kappController := &stub.KAppControllerStub{
+			GetValidatorsKAppCalled: func() kapp.ValidatorsKapp {
+				return validatorsKapp
+			},
+		}
+
+		ep := createTestEventsProcessorWithKApp(kappController)
+
+		userAccount := &mock.UserAccountHandlerStub{
+			GetAllowanceCalled: func() int64 {
+				return 2000
+			},
+			AddressBytesCalled: func() []byte {
+				return []byte("testaddress")
+			},
+		}
+
+		result := ep.getAllowanceWithPendingRewards(userAccount)
+		require.Equal(t, int64(2500), result)
+	})
+
+	t.Run("zero pending rewards returns base allowance", func(t *testing.T) {
+		t.Parallel()
+
+		validatorsKapp := &mock.ValidatorsKAppStub{
+			GetPendingRewardsCalled: func(address []byte) (int64, error) {
+				return 0, nil
+			},
+		}
+
+		kappController := &stub.KAppControllerStub{
+			GetValidatorsKAppCalled: func() kapp.ValidatorsKapp {
+				return validatorsKapp
+			},
+		}
+
+		ep := createTestEventsProcessorWithKApp(kappController)
+
+		userAccount := &mock.UserAccountHandlerStub{
+			GetAllowanceCalled: func() int64 {
+				return 3000
+			},
+			AddressBytesCalled: func() []byte {
+				return []byte("testaddress")
+			},
+		}
+
+		result := ep.getAllowanceWithPendingRewards(userAccount)
+		require.Equal(t, int64(3000), result)
+	})
+
+	t.Run("error getting pending rewards returns base allowance", func(t *testing.T) {
+		t.Parallel()
+
+		validatorsKapp := &mock.ValidatorsKAppStub{
+			GetPendingRewardsCalled: func(address []byte) (int64, error) {
+				return 0, errors.New("some error")
+			},
+		}
+
+		kappController := &stub.KAppControllerStub{
+			GetValidatorsKAppCalled: func() kapp.ValidatorsKapp {
+				return validatorsKapp
+			},
+		}
+
+		ep := createTestEventsProcessorWithKApp(kappController)
+
+		userAccount := &mock.UserAccountHandlerStub{
+			GetAllowanceCalled: func() int64 {
+				return 4000
+			},
+			AddressBytesCalled: func() []byte {
+				return []byte("testaddress")
+			},
+		}
+
+		result := ep.getAllowanceWithPendingRewards(userAccount)
+		require.Equal(t, int64(4000), result)
+	})
+}
+
+func TestEventsProcessor_SaveAccounts_AllowanceIncludesPendingRewards(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+
+	validatorsKapp := &mock.ValidatorsKAppStub{
+		GetPendingRewardsCalled: func(address []byte) (int64, error) {
+			return 100, nil
+		},
+	}
+
+	kappController := &stub.KAppControllerStub{
+		GetValidatorsKAppCalled: func() kapp.ValidatorsKapp {
+			return validatorsKapp
+		},
+	}
+
+	ep := createTestEventsProcessorWithKApp(kappController)
+	acc := createTestAccountStub()
+
+	ep.SaveAccounts(100, []state.UserAccountHandler{acc})
+
+	select {
+	case event := <-testQueue:
+		require.Equal(t, ACCOUNTS, event.EvType)
+		accountsMap, ok := event.Message.(map[string]*data.AccountInfo)
+		require.True(t, ok)
+		require.Len(t, accountsMap, 1)
+		for _, info := range accountsMap {
+			require.Equal(t, int64(150), info.Allowance)
+		}
+	default:
+		t.Fatal("expected account event to be dispatched")
+	}
 }
