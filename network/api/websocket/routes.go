@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -12,54 +13,63 @@ import (
 
 var log = logger.GetOrCreate("subscribe")
 
+var upgrader = gorilla.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
+type subscribeRequest struct {
+	Addresses []string `json:"addresses"`
+	Types     []string `json:"subcribed_types"`
+}
+
 func SubscribeTopics(ws *gin.Engine, hub *websocket.SocketHub) {
 	ws.GET("/subscribe", func(c *gin.Context) {
-		upgrader := gorilla.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				return true
-			},
-		}
-
-		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-		if err != nil {
-			log.Error("ws.Subscribe", "err", err.Error())
-			return
-		}
-
-		var req struct {
-			Addresses []string `json:"addresses"`
-			Types     []string `json:"subcribed_types"`
-		}
-
-		err = conn.ReadJSON(&req)
-		if err != nil {
-			log.Error("ws.Subscribe", "err", err.Error())
-			return
-		}
-
-		var parsedTypes []indexer.EventType
-		for _, evType := range req.Types {
-			parsed, err := indexer.NewEventTypeStrict(evType)
-			if err != nil {
-				_ = conn.WriteJSON(map[string]string{"error": "invalid subscription type: " + evType})
-				_ = conn.Close()
-				return
-			}
-
-			var has bool
-			for _, v := range parsedTypes {
-				if v == parsed {
-					has = true
-					break
-				}
-			}
-
-			if !has {
-				parsedTypes = append(parsedTypes, parsed)
-			}
-		}
-
-		client := websocket.NewClient(conn, hub)
-		hub.HandleClientInsertion(parsedTypes, req.Addresses, client)
+		handleSubscribe(c, hub)
 	})
+}
+
+func handleSubscribe(c *gin.Context, hub *websocket.SocketHub) {
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		log.Error("ws.Subscribe", "err", err.Error())
+		return
+	}
+
+	var req subscribeRequest
+	if err = conn.ReadJSON(&req); err != nil {
+		log.Error("ws.Subscribe", "err", err.Error())
+		_ = conn.Close()
+		return
+	}
+
+	parsedTypes, err := parseEventTypes(req.Types)
+	if err != nil {
+		_ = conn.WriteJSON(map[string]string{"error": err.Error()})
+		_ = conn.Close()
+		return
+	}
+
+	client := websocket.NewClient(conn, hub)
+	hub.HandleClientInsertion(parsedTypes, req.Addresses, client)
+}
+
+func parseEventTypes(types []string) ([]indexer.EventType, error) {
+	var parsed []indexer.EventType
+	seen := make(map[indexer.EventType]struct{})
+
+	for _, evType := range types {
+		et, err := indexer.NewEventTypeStrict(evType)
+		if err != nil {
+			return nil, fmt.Errorf("invalid subscription type: %s", evType)
+		}
+		if _, ok := seen[et]; ok {
+			continue
+		}
+		seen[et] = struct{}{}
+		parsed = append(parsed, et)
+	}
+
+	return parsed, nil
 }

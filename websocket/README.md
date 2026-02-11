@@ -43,6 +43,8 @@ If any type in `subcribed_types` is invalid, the server responds with an error a
 - `accounts` and `user_transaction` are address-specific. You must provide at least one address for them to deliver events.
 - You can combine any types in a single connection.
 
+> **Note:** The handshake field `subcribed_types` is intentionally spelled without the second "b" — this is the legacy field name required by the server. Additionally, the subscription token `transactions` maps to push events where `"type": "transaction"` (singular) in the event payload.
+
 ---
 
 ## Receiving Push Events
