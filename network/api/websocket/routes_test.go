@@ -18,7 +18,7 @@ func TestSubscribeTopics(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ws := gin.New()
 	ws.Use(cors.Default())
-	hub := socket.NewHub("", "")
+	hub := socket.NewHub("", "", nil)
 	wsocket.SubscribeTopics(ws, hub)
 
 	srv := &http.Server{
