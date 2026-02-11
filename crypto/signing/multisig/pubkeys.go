@@ -5,7 +5,7 @@ import (
 )
 
 func convertStringsToPubKeys(pubKeys []string, kg crypto.KeyGenerator) ([]crypto.PublicKey, error) {
-	var pk []crypto.PublicKey
+	pk := make([]crypto.PublicKey, 0, len(pubKeys))
 
 	//convert pubKeys
 	for _, pubKeyStr := range pubKeys {

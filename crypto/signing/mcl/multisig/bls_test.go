@@ -709,6 +709,29 @@ func Test_ScalarMulPkOK(t *testing.T) {
 	require.NotNil(t, point)
 }
 
+func Test_ScalarMulPkInvalidScalarTypeShouldErr(t *testing.T) {
+	t.Parallel()
+
+	blsSuite := mcl.NewSuiteBLS12()
+	kg := signing.NewKeyGenerator(blsSuite)
+	_, pk := kg.GeneratePair()
+
+	// suite that returns a non-mcl scalar from CreateScalar,
+	// causing the type assertion in createScalar to fail
+	mockSuite := &mock.SuiteMock{
+		CreateScalarStub: func() crypto.Scalar {
+			return &mock.ScalarMock{}
+		},
+	}
+
+	scalarBytes := make([]byte, 32)
+	scalarBytes[0] = 1
+
+	point, err := multisig.ScalarMulPk(mockSuite, scalarBytes, pk.Point())
+	require.Equal(t, crypto.ErrInvalidScalar, err)
+	require.Nil(t, point)
+}
+
 func Test_HashPublicKeyPointsNilHasherShouldErr(t *testing.T) {
 	t.Parallel()
 

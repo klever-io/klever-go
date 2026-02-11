@@ -31,7 +31,7 @@ func NewPointG1() *PointG1 {
 // Equal tests if receiver is equal with the Point p given as parameter.
 // Both Points need to be derived from the same Group
 func (po *PointG1) Equal(p crypto.Point) (bool, error) {
-	if p == nil {
+	if check.IfNil(p) {
 		return false, crypto.ErrNilParam
 	}
 

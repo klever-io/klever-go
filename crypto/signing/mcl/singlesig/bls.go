@@ -10,7 +10,7 @@ import (
 var _ crypto.SingleSigner = (*BlsSingleSigner)(nil)
 
 const (
-	SIGNATURE_SIZE = 48
+	SignatureSize = 48
 )
 
 // BlsSingleSigner is a SingleSigner implementation that uses a BLS signature scheme
@@ -93,20 +93,20 @@ func IsPubKeyPointValid(pubKeyPoint *mcl.PointG2) bool {
 	return !pubKeyPoint.IsZero() && pubKeyPoint.IsValidOrder() && pubKeyPoint.IsValid()
 }
 
-// IsSigValidPoint validates that the signature isi a valid point on G1
+// IsSigValidPoint validates that the signature is a valid point on G1
 func IsSigValidPoint(sig *bls.Sign) bool {
 	g1Sig := bls.CastFromSign(sig)
 	return !g1Sig.IsZero() && g1Sig.IsValidOrder() && g1Sig.IsValid()
 }
 
-// IsSecretKeyValid validates  that the scalar is a valid secret key
+// IsSecretKeyValid validates that the scalar is a valid secret key
 func IsSecretKeyValid(scalar *mcl.Scalar) bool {
 	return !scalar.Scalar.IsZero() && scalar.Scalar.IsValid()
 }
 
 // SignatureSize returns the size of the signature
 func (s *BlsSingleSigner) SignatureSize() int {
-	return SIGNATURE_SIZE
+	return SignatureSize
 }
 
 // IsInterfaceNil returns true if there is no value under the interface
