@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"errors"
 	"sync/atomic"
 	"time"
 )
@@ -44,6 +45,23 @@ func trySendEvent(event Event) {
 				log.Warn("event queue full, dropping events", "type", string(event.EvType), "droppedCount", count)
 			}
 		}
+	}
+}
+
+var ErrUnknownEventType = errors.New("unknown event type")
+
+func NewEventTypeStrict(evType string) (EventType, error) {
+	switch evType {
+	case "transactions":
+		return TRANSACTION, nil
+	case "accounts":
+		return ACCOUNTS, nil
+	case "blocks":
+		return BLOCKS, nil
+	case "user_transaction":
+		return USER_TRANSACTION, nil
+	default:
+		return UNKNOWN, ErrUnknownEventType
 	}
 }
 

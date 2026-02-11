@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -59,7 +60,7 @@ func (c *client) loopIn() {
 	}()
 
 	for {
-		messageType, _, err := c.conn.ReadMessage()
+		messageType, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if ws.IsUnexpectedCloseError(err, ws.CloseGoingAway, ws.CloseAbnormalClosure) {
 				log.Error("ws.loopIn", "err", err.Error())
@@ -76,6 +77,13 @@ func (c *client) loopIn() {
 				log.Error("ws.loopIn", "err", err.Error())
 				return
 			}
+		case ws.TextMessage:
+			var req WSRequest
+			if err := json.Unmarshal(message, &req); err != nil {
+				c.out <- WSResponse{Error: "invalid json: " + err.Error()}
+				continue
+			}
+			c.hub.HandleClientRequest(c, req)
 		}
 	}
 }

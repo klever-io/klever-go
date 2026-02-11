@@ -39,7 +39,12 @@ func SubscribeTopics(ws *gin.Engine, hub *websocket.SocketHub) {
 
 		var parsedTypes []indexer.EventType
 		for _, evType := range req.Types {
-			parsed := indexer.NewEventType(evType)
+			parsed, err := indexer.NewEventTypeStrict(evType)
+			if err != nil {
+				_ = conn.WriteJSON(map[string]string{"error": "invalid subscription type: " + evType})
+				_ = conn.Close()
+				return
+			}
 
 			var has bool
 			for _, v := range parsedTypes {
