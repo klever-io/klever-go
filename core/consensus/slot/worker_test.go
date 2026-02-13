@@ -1541,3 +1541,140 @@ func TestWorker_ProcessReceivedMessageShouldErrIfAntifloodHandlerRejects(t *test
 
 	assert.Equal(t, expectedErr, err)
 }
+
+func TestWorker_ReportNetworkDegraded_CooldownBehavior(t *testing.T) {
+	t.Parallel()
+
+	// Setup
+	workerArgs := createDefaultWorkerArgs()
+	workerArgs.NetworkDegradedThreshold = 3
+	workerArgs.NetworkDegradedCooldownSlots = 10
+
+	slotMgr := &mock.SlotManagerMock{
+		SlotIndex: 100,
+		TimestampCalled: func() time.Time {
+			return time.Unix(0, 0)
+		},
+		TimeDurationCalled: func() time.Duration {
+			return 5 * time.Second
+		},
+	}
+	workerArgs.SlotManager = slotMgr
+
+	wrk, _ := slot.NewWorker(workerArgs)
+
+	// Setup consensus state with 20 validators
+	consensusGroupSize := 20
+	wrk.ConsensusState().SetConsensusGroupSize(consensusGroupSize)
+
+	leader := "leader"
+	// Create messages from only 14 validators (20 - 1 leader - 5 failed = 14)
+	// This means 5 validators failed (expectedSignatures=19, actual=14, failed=5 >= threshold=3)
+	msgs := make([]*consensus.Message, 14)
+	for i := 0; i < 14; i++ {
+		msgs[i] = &consensus.Message{
+			PubKey: []byte(fmt.Sprintf("validator%d", i)),
+			Nonce:  1,
+		}
+	}
+
+	// First call should fire (updates last alert slot)
+	wrk.ReportNetworkDegraded(leader, msgs)
+	assert.Equal(t, int64(100), wrk.LastNetworkDegradedAlertSlot())
+
+	// Same slot: should be suppressed by cooldown
+	wrk.ReportNetworkDegraded(leader, msgs)
+	assert.Equal(t, int64(100), wrk.LastNetworkDegradedAlertSlot())
+
+	// Advance slot but still within cooldown (100 + 10 = 110, slot 105 < 110)
+	slotMgr.SlotIndex = 105
+	wrk.ReportNetworkDegraded(leader, msgs)
+	assert.Equal(t, int64(100), wrk.LastNetworkDegradedAlertSlot())
+
+	// Advance past cooldown (100 + 10 = 110, slot 115 >= 110)
+	slotMgr.SlotIndex = 115
+	wrk.ReportNetworkDegraded(leader, msgs)
+	assert.Equal(t, int64(115), wrk.LastNetworkDegradedAlertSlot())
+}
+
+func TestWorker_ReportNetworkDegraded_ThresholdZeroDisablesAlerting(t *testing.T) {
+	t.Parallel()
+
+	// Setup
+	workerArgs := createDefaultWorkerArgs()
+	workerArgs.NetworkDegradedThreshold = 0 // Disabled
+	workerArgs.NetworkDegradedCooldownSlots = 10
+
+	slotMgr := &mock.SlotManagerMock{
+		SlotIndex: 100,
+	}
+	workerArgs.SlotManager = slotMgr
+
+	wrk, _ := slot.NewWorker(workerArgs)
+
+	consensusGroupSize := 20
+	wrk.ConsensusState().SetConsensusGroupSize(consensusGroupSize)
+
+	leader := "leader"
+	msgs := make([]*consensus.Message, 10) // 9 failed (should trigger if enabled)
+
+	// Should not update last alert slot because threshold is 0
+	wrk.ReportNetworkDegraded(leader, msgs)
+	assert.Equal(t, int64(0), wrk.LastNetworkDegradedAlertSlot())
+}
+
+func TestWorker_ReportNetworkDegraded_BelowThresholdDoesNotAlert(t *testing.T) {
+	t.Parallel()
+
+	// Setup
+	workerArgs := createDefaultWorkerArgs()
+	workerArgs.NetworkDegradedThreshold = 5 // Need 5+ failures
+	workerArgs.NetworkDegradedCooldownSlots = 10
+
+	slotMgr := &mock.SlotManagerMock{
+		SlotIndex: 100,
+	}
+	workerArgs.SlotManager = slotMgr
+
+	wrk, _ := slot.NewWorker(workerArgs)
+
+	consensusGroupSize := 20
+	wrk.ConsensusState().SetConsensusGroupSize(consensusGroupSize)
+
+	leader := "leader"
+	// Create messages from 15 validators (20 - 1 leader - 4 failed = 15)
+	// This means 4 validators failed (< threshold of 5)
+	msgs := make([]*consensus.Message, 15)
+
+	// Should not alert because failed count (4) < threshold (5)
+	wrk.ReportNetworkDegraded(leader, msgs)
+	assert.Equal(t, int64(0), wrk.LastNetworkDegradedAlertSlot())
+}
+
+func TestWorker_ReportNetworkDegraded_AtThresholdDoesAlert(t *testing.T) {
+	t.Parallel()
+
+	// Setup
+	workerArgs := createDefaultWorkerArgs()
+	workerArgs.NetworkDegradedThreshold = 3
+	workerArgs.NetworkDegradedCooldownSlots = 10
+
+	slotMgr := &mock.SlotManagerMock{
+		SlotIndex: 100,
+	}
+	workerArgs.SlotManager = slotMgr
+
+	wrk, _ := slot.NewWorker(workerArgs)
+
+	consensusGroupSize := 20
+	wrk.ConsensusState().SetConsensusGroupSize(consensusGroupSize)
+
+	leader := "leader"
+	// Create messages from 16 validators (20 - 1 leader - 3 failed = 16)
+	// This means exactly 3 validators failed (== threshold)
+	msgs := make([]*consensus.Message, 16)
+
+	// Should alert because failed count (3) >= threshold (3)
+	wrk.ReportNetworkDegraded(leader, msgs)
+	assert.Equal(t, int64(100), wrk.LastNetworkDegradedAlertSlot())
+}

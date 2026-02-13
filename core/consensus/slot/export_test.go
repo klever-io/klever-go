@@ -2,6 +2,7 @@ package slot
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	cMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
@@ -162,6 +163,14 @@ func (wrk *Worker) CheckSelfState(cnsDta *consensus.Message) error {
 
 func (wrk *Worker) AppStatusHandler() core.AppStatusHandler {
 	return wrk.appStatusHandler
+}
+
+func (wrk *Worker) ReportNetworkDegraded(leader string, consensusMessages []*consensus.Message) {
+	wrk.reportNetworkDegraded(leader, consensusMessages)
+}
+
+func (wrk *Worker) LastNetworkDegradedAlertSlot() int64 {
+	return atomic.LoadInt64(&wrk.lastNetworkDegradedAlertSlot)
 }
 
 // consensusMessageValidator
