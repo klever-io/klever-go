@@ -130,8 +130,8 @@ type Config struct {
 	// Shuffler
 	MaxNodesChangeEnableEpoch []MaxNodesChangeConfig
 
-	ConsensusMonitorList []string                  `yaml:"consensusMonitorList"`
-	ConsensusMonitoring  ConsensusMonitoringConfig `yaml:"consensusMonitoring"`
+	ConsensusMonitorList []string                   `yaml:"consensusMonitorList"`
+	ConsensusMonitoring  *ConsensusMonitoringConfig `yaml:"consensusMonitoring"`
 }
 
 // LogsAndEventsConfig hold the configuration for the logs and events

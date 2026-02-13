@@ -803,15 +803,17 @@ func WithConsensusMonitorList(list []string) Option {
 }
 
 // WithConsensusMonitoring sets the consensus monitoring configuration
-func WithConsensusMonitoring(config config.ConsensusMonitoringConfig) Option {
+func WithConsensusMonitoring(cfg *config.ConsensusMonitoringConfig) Option {
 	return func(n *Node) error {
-		// If cooldown is set (> 0), it means the config section exists in YAML
-		// In this case, use all values including threshold (which can be 0 to disable)
-		if config.NetworkDegradedCooldownSlots > 0 {
-			n.networkDegradedThreshold = config.NetworkDegradedThreshold
-			n.networkDegradedCooldownSlots = config.NetworkDegradedCooldownSlots
+		// if nil, monitoring is disabled
+		if cfg == nil || cfg.NetworkDegradedThreshold == 0 {
+			n.networkDegradedThreshold = 0
+			n.networkDegradedCooldownSlots = 0
+			return nil
 		}
-		// If cooldown is 0, the config section is missing - keep defaults
+
+		n.networkDegradedThreshold = cfg.NetworkDegradedThreshold
+		n.networkDegradedCooldownSlots = cfg.NetworkDegradedCooldownSlots
 
 		return nil
 	}
