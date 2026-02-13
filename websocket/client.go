@@ -96,7 +96,7 @@ func (c *client) loopIn() {
 				c.send(WSResponse{Error: "invalid json: " + err.Error()})
 				continue
 			}
-			c.hub.HandleClientRequest(c, req)
+			go c.hub.HandleClientRequest(c, req)
 		}
 	}
 }

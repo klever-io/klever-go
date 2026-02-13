@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -94,10 +93,16 @@ func startServerEnv(t *testing.T, facade WSFacade) *serverEnv {
 		hub.StartServer(ctx)
 		close(done)
 	}()
-	return &serverEnv{
+	env := &serverEnv{
 		hub: hub, queue: testQueue, cancel: cancel, done: done,
 		restoreFn: func() { indexer.EventQueue = origQueue },
 	}
+	t.Cleanup(func() {
+		cancel()
+		<-done
+		indexer.EventQueue = origQueue
+	})
+	return env
 }
 
 func (e *serverEnv) teardown(clients ...*client) {
@@ -167,7 +172,7 @@ func TestHandleGetTransaction_EmptyHash(t *testing.T) {
 func TestHandleGetTransaction_FacadeError(t *testing.T) {
 	facade := &mockFacade{
 		getTransactionFn: func(hash string, withResults bool) (*api.Transaction, error) {
-			return nil, errors.New("not found")
+			return nil, errors.New("db connection refused")
 		},
 	}
 	hub := newTestHub(facade)
@@ -177,7 +182,7 @@ func TestHandleGetTransaction_FacadeError(t *testing.T) {
 	resp := sendRequest(hub, c, WSRequest{ID: "req-4", Method: MethodGetTransaction, Params: params})
 
 	assert.Equal(t, "req-4", resp.ID)
-	assert.Equal(t, "not found", resp.Error)
+	assert.Equal(t, errTxNotFound, resp.Error)
 }
 
 func TestHandleGetTransaction_InvalidJSON(t *testing.T) {
@@ -263,7 +268,7 @@ func TestHandleGetBlock_ByNonce_FacadeError(t *testing.T) {
 	nonce := uint64(99)
 	facade := &mockFacade{
 		getBlockByNonceFn: func(n uint64, withTxs bool) (*api.Block, error) {
-			return nil, errors.New("block not found")
+			return nil, errors.New("storage error")
 		},
 	}
 	hub := newTestHub(facade)
@@ -273,13 +278,13 @@ func TestHandleGetBlock_ByNonce_FacadeError(t *testing.T) {
 	resp := sendRequest(hub, c, WSRequest{ID: "be", Method: MethodGetBlock, Params: params})
 
 	assert.Equal(t, "be", resp.ID)
-	assert.Equal(t, "block not found", resp.Error)
+	assert.Equal(t, errBlockNotFound, resp.Error)
 }
 
 func TestHandleGetBlock_ByHash_FacadeError(t *testing.T) {
 	facade := &mockFacade{
 		getBlockByHashFn: func(hash string, withTxs bool) (*api.Block, error) {
-			return nil, errors.New("hash not found")
+			return nil, errors.New("storage error")
 		},
 	}
 	hub := newTestHub(facade)
@@ -289,7 +294,7 @@ func TestHandleGetBlock_ByHash_FacadeError(t *testing.T) {
 	resp := sendRequest(hub, c, WSRequest{ID: "bhe", Method: MethodGetBlock, Params: params})
 
 	assert.Equal(t, "bhe", resp.ID)
-	assert.Equal(t, "hash not found", resp.Error)
+	assert.Equal(t, errBlockNotFound, resp.Error)
 }
 
 func TestHandleDynamicSubscribe_Success(t *testing.T) {
@@ -659,14 +664,11 @@ func TestPostWSConnection_EmptyConfig(t *testing.T) {
 }
 
 func TestPostWSConnection_WithServer(t *testing.T) {
-	var received []byte
-	var mu sync.Mutex
+	receivedCh := make(chan []byte, 1)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
 		buf := make([]byte, 4096)
 		n, _ := r.Body.Read(buf)
-		received = buf[:n]
+		receivedCh <- buf[:n]
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
@@ -675,10 +677,12 @@ func TestPostWSConnection_WithServer(t *testing.T) {
 	err := hub.postWSConnection(&Send{Type: indexer.BLOCKS, Data: []byte(`{}`)})
 	assert.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond)
-	mu.Lock()
-	assert.NotEmpty(t, received)
-	mu.Unlock()
+	select {
+	case received := <-receivedCh:
+		assert.NotEmpty(t, received)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for POST request")
+	}
 }
 
 func TestStartServer_ContextCancel(t *testing.T) {

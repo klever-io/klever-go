@@ -101,7 +101,7 @@ On error:
 }
 ```
 
-The `id` in the response always matches the `id` from your request, allowing you to correlate responses when sending multiple concurrent requests.
+When your request is valid JSON and includes an `id`, the `id` in the response matches the `id` from your request, allowing you to correlate responses when sending multiple concurrent requests. For parse errors where the incoming frame is not valid JSON, the server may return an error without an `id` because it cannot reliably extract it.
 
 ---
 

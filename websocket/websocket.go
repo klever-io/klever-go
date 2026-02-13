@@ -23,6 +23,8 @@ const (
 	errUnknownMethod    = "unknown method: "
 	errMissingHash      = "missing required param: hash"
 	errMissingNonceHash = "must provide nonce or hash"
+	errTxNotFound       = "transaction not found"
+	errBlockNotFound    = "block not found"
 )
 
 type userOptions struct {
@@ -148,35 +150,44 @@ func (h *SocketHub) handleUserTransactionEvent(event indexer.Event) {
 	for _, tx := range transactions {
 		var wg sync.WaitGroup
 		wg.Add(3)
-		go func() {
-			defer wg.Done()
-			parsed := h.marshalAndPost(event.EvType, tx.Sender, "", tx)
-			if parsed == nil {
-				return
-			}
-			h.notifyAddressSubscribers(tx.Sender, parsed, acceptTx)
-		}()
-		go func(tx *data.Transaction) {
-			defer wg.Done()
-			for _, receipts := range tx.Receipts {
-				to := receipts["to"]
-				if to == nil {
-					continue
-				}
-				address := to.(string)
-				parsed := h.marshalAndPost(event.EvType, address, "", tx)
-				if parsed == nil {
-					return
-				}
-				h.notifyAddressSubscribers(address, parsed, acceptTx)
-			}
-		}(tx)
-		go func() {
-			defer wg.Done()
-			h.marshalAndPost(event.EvType, "", tx.Hash, tx)
-		}()
+		go h.notifyTxSender(&wg, event.EvType, tx, acceptTx)
+		go h.notifyTxReceipts(&wg, event.EvType, tx, acceptTx)
+		go h.postTxHash(&wg, event.EvType, tx)
 		wg.Wait()
 	}
+}
+
+func (h *SocketHub) notifyTxSender(wg *sync.WaitGroup, evType indexer.EventType, tx *data.Transaction, acceptTx func(userOptions) bool) {
+	defer wg.Done()
+	parsed := h.marshalAndPost(evType, tx.Sender, "", tx)
+	if parsed == nil {
+		return
+	}
+	h.notifyAddressSubscribers(tx.Sender, parsed, acceptTx)
+}
+
+func (h *SocketHub) notifyTxReceipts(wg *sync.WaitGroup, evType indexer.EventType, tx *data.Transaction, acceptTx func(userOptions) bool) {
+	defer wg.Done()
+	for _, receipts := range tx.Receipts {
+		to := receipts["to"]
+		if to == nil {
+			continue
+		}
+		address, ok := to.(string)
+		if !ok {
+			continue
+		}
+		parsed := h.marshalAndPost(evType, address, "", tx)
+		if parsed == nil {
+			return
+		}
+		h.notifyAddressSubscribers(address, parsed, acceptTx)
+	}
+}
+
+func (h *SocketHub) postTxHash(wg *sync.WaitGroup, evType indexer.EventType, tx *data.Transaction) {
+	defer wg.Done()
+	h.marshalAndPost(evType, "", tx.Hash, tx)
 }
 
 func (h *SocketHub) handleBroadcastEvent(event indexer.Event, subscription map[*client]struct{}) {
@@ -349,7 +360,8 @@ func (h *SocketHub) handleGetTransaction(c *client, req WSRequest) {
 
 	tx, err := h.facade.GetTransaction(params.Hash, params.WithResults)
 	if err != nil {
-		c.send(WSResponse{ID: req.ID, Error: err.Error()})
+		log.Warn("ws.handleGetTransaction", "hash", params.Hash, "err", err.Error())
+		c.send(WSResponse{ID: req.ID, Error: errTxNotFound})
 		return
 	}
 
@@ -376,7 +388,8 @@ func (h *SocketHub) handleGetBlock(c *client, req WSRequest) {
 	if params.Nonce != nil {
 		blk, err := h.facade.GetBlockByNonce(*params.Nonce, params.WithTxs)
 		if err != nil {
-			c.send(WSResponse{ID: req.ID, Error: err.Error()})
+			log.Warn("ws.handleGetBlock", "nonce", *params.Nonce, "err", err.Error())
+			c.send(WSResponse{ID: req.ID, Error: errBlockNotFound})
 			return
 		}
 		c.send(WSResponse{ID: req.ID, Data: blk})
@@ -385,7 +398,8 @@ func (h *SocketHub) handleGetBlock(c *client, req WSRequest) {
 
 	blk, err := h.facade.GetBlockByHash(params.Hash, params.WithTxs)
 	if err != nil {
-		c.send(WSResponse{ID: req.ID, Error: err.Error()})
+		log.Warn("ws.handleGetBlock", "hash", params.Hash, "err", err.Error())
+		c.send(WSResponse{ID: req.ID, Error: errBlockNotFound})
 		return
 	}
 	c.send(WSResponse{ID: req.ID, Data: blk})
