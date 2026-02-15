@@ -52,7 +52,7 @@ var ErrUnknownEventType = errors.New("unknown event type")
 
 func NewEventTypeStrict(evType string) (EventType, error) {
 	switch evType {
-	case "transactions":
+	case "transaction":
 		return TRANSACTION, nil
 	case "accounts":
 		return ACCOUNTS, nil
@@ -67,7 +67,7 @@ func NewEventTypeStrict(evType string) (EventType, error) {
 
 func NewEventType(evType string) EventType {
 	switch evType {
-	case "transactions":
+	case "transaction":
 		return TRANSACTION
 	case "accounts":
 		return ACCOUNTS

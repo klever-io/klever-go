@@ -55,8 +55,8 @@ func TestSubscribeTopics(t *testing.T) {
 	defer conn.Close()
 
 	msg := map[string]interface{}{
-		"addresses":       []string{"klv1test"},
-		"subcribed_types": []string{"blocks"},
+		"addresses":        []string{"klv1test"},
+		"subscribed_types": []string{"blocks"},
 	}
 	err = conn.WriteJSON(msg)
 	assert.NoError(t, err)
@@ -73,8 +73,8 @@ func TestSubscribeTopics_InvalidType(t *testing.T) {
 	defer conn.Close()
 
 	msg := map[string]interface{}{
-		"addresses":       []string{},
-		"subcribed_types": []string{"invalid_type"},
+		"addresses":        []string{},
+		"subscribed_types": []string{"invalid_type"},
 	}
 	err = conn.WriteJSON(msg)
 	require.NoError(t, err)
@@ -97,8 +97,8 @@ func TestSubscribeTopics_ValidTypes(t *testing.T) {
 	defer conn.Close()
 
 	msg := map[string]interface{}{
-		"addresses":       []string{"klv1abc"},
-		"subcribed_types": []string{"blocks", "transactions", "accounts", "user_transaction"},
+		"addresses":        []string{"klv1abc"},
+		"subscribed_types": []string{"blocks", "transaction", "accounts", "user_transaction"},
 	}
 	err = conn.WriteJSON(msg)
 	assert.NoError(t, err)
@@ -115,8 +115,8 @@ func TestSubscribeTopics_DuplicateTypes(t *testing.T) {
 	defer conn.Close()
 
 	msg := map[string]interface{}{
-		"addresses":       []string{"klv1abc"},
-		"subcribed_types": []string{"blocks", "blocks"},
+		"addresses":        []string{"klv1abc"},
+		"subscribed_types": []string{"blocks", "blocks"},
 	}
 	err = conn.WriteJSON(msg)
 	assert.NoError(t, err)
@@ -151,8 +151,8 @@ func TestSubscribeTopics_ThenSendRequest(t *testing.T) {
 	defer conn.Close()
 
 	msg := map[string]interface{}{
-		"addresses":       []string{},
-		"subcribed_types": []string{"blocks"},
+		"addresses":        []string{},
+		"subscribed_types": []string{"blocks"},
 	}
 	err = conn.WriteJSON(msg)
 	require.NoError(t, err)

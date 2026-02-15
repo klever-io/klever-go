@@ -21,7 +21,7 @@ var upgrader = gorilla.Upgrader{
 
 type subscribeRequest struct {
 	Addresses []string `json:"addresses"`
-	Types     []string `json:"subcribed_types"`
+	Types     []string `json:"subscribed_types"`
 }
 
 func SubscribeTopics(ws *gin.Engine, hub *websocket.SocketHub) {

@@ -301,7 +301,7 @@ func TestHandleDynamicSubscribe_Success(t *testing.T) {
 	hub := newTestHub(nil)
 	c := newTestClient(hub)
 
-	params, _ := json.Marshal(SubscribeParams{Types: []string{"blocks", "transactions"}, Addresses: []string{"klv1abc"}})
+	params, _ := json.Marshal(SubscribeParams{Types: []string{"blocks", "transaction"}, Addresses: []string{"klv1abc"}})
 	resp := sendRequest(hub, c, WSRequest{ID: "req-9", Method: MethodSubscribe, Params: params})
 
 	assert.Equal(t, "req-9", resp.ID)

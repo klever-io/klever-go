@@ -12,7 +12,7 @@ func TestNewEventTypeStrict_ValidTypes(t *testing.T) {
 		input    string
 		expected EventType
 	}{
-		{"transactions", TRANSACTION},
+		{"transaction", TRANSACTION},
 		{"accounts", ACCOUNTS},
 		{"blocks", BLOCKS},
 		{"user_transaction", USER_TRANSACTION},
@@ -37,6 +37,6 @@ func TestNewEventType_BackwardCompatibility(t *testing.T) {
 	result := NewEventType("invalid_type")
 	assert.Equal(t, UNKNOWN, result)
 
-	result = NewEventType("transactions")
+	result = NewEventType("transaction")
 	assert.Equal(t, TRANSACTION, result)
 }

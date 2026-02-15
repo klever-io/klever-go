@@ -13,16 +13,16 @@ Immediately after the connection is established, send an initial JSON message to
 ```json
 {
   "addresses": ["klv1abc...", "klv1def..."],
-  "subcribed_types": ["blocks", "transactions", "accounts", "user_transaction"]
+  "subscribed_types": ["blocks", "transaction", "accounts", "user_transaction"]
 }
 ```
 
 | Field | Description |
 |---|---|
 | `addresses` | List of Klever addresses to watch for address-specific events. |
-| `subcribed_types` | List of event types to subscribe to (see Subscription Types below). |
+| `subscribed_types` | List of event types to subscribe to (see Subscription Types below). |
 
-If any type in `subcribed_types` is invalid, the server responds with an error and closes the connection:
+If any type in `subscribed_types` is invalid, the server responds with an error and closes the connection:
 
 ```json
 {"error": "invalid subscription type: bad_type"}
@@ -35,15 +35,14 @@ If any type in `subcribed_types` is invalid, the server responds with an error a
 | Type | Requires Addresses | Description |
 |---|---|---|
 | `blocks` | No | Receive every new block as it is produced. |
-| `transactions` | No | Receive all transactions globally. |
+| `transaction` | No | Receive all transactions globally. |
 | `accounts` | Yes | Receive account state changes for the specified addresses. |
 | `user_transaction` | Yes | Receive transactions where the specified addresses appear as sender or receiver. |
 
-- `blocks` and `transactions` are global subscriptions and do not require any addresses.
+- `blocks` and `transaction` are global subscriptions and do not require any addresses.
 - `accounts` and `user_transaction` are address-specific. You must provide at least one address for them to deliver events.
 - You can combine any types in a single connection.
 
-> **Note:** The handshake field `subcribed_types` is intentionally spelled without the second "b" — this is the legacy field name required by the server. Additionally, the subscription token `transactions` maps to push events where `"type": "transaction"` (singular) in the event payload.
 
 ---
 
@@ -62,7 +61,7 @@ After subscribing, the server pushes events as JSON messages:
 
 | Field | Description |
 |---|---|
-| `type` | The event type (`blocks`, `transaction`, `accounts`, `user_transaction`). |
+| `type` | The event type (`blocks`, `transaction`, `accounts`, `user_transaction`). Matches the subscription type token. |
 | `address` | The relevant address (populated for address-specific events, empty for global). |
 | `hash` | The transaction hash (populated for transaction-related events). |
 | `data` | The event payload (block data, account info, or transaction details). |
@@ -196,7 +195,7 @@ Dynamically add new subscriptions to the current connection without reconnecting
 
 | Param | Required | Description |
 |---|---|---|
-| `types` | Yes | List of event types to add (`blocks`, `transactions`, `accounts`, `user_transaction`). |
+| `types` | Yes | List of event types to add (`blocks`, `transaction`, `accounts`, `user_transaction`). |
 | `addresses` | No | List of addresses to watch (required for `accounts` and `user_transaction`). |
 
 **Response (success):**
@@ -254,7 +253,7 @@ For address-specific types (`accounts`, `user_transaction`), only the specified 
 
 Errors can occur in two contexts:
 
-**During initial handshake:** If you send an invalid subscription type in the initial `subcribed_types` message, the server returns an error and closes the connection immediately.
+**During initial handshake:** If you send an invalid subscription type in the initial `subscribed_types` message, the server returns an error and closes the connection immediately.
 
 **During request/response messaging:** If a request fails (invalid params, unknown method, resource not found), the server returns an error response with the matching `id`. The connection stays open.
 
