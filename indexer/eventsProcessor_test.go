@@ -280,14 +280,14 @@ func TestEventsProcessor_SaveBlock_DispatchesTransactionEvents(t *testing.T) {
 	require.Equal(t, BLOCKS, blockEvent.EvType)
 
 	userTxEvent := <-testQueue
-	require.Equal(t, USER_TRANSACTION, userTxEvent.EvType)
+	require.Equal(t, USER_TRANSACTIONS, userTxEvent.EvType)
 	txs, ok := userTxEvent.Message.([]*data.Transaction)
 	require.True(t, ok)
 	require.Len(t, txs, 1)
 	require.NotEmpty(t, txs[0].Contracts)
 
 	txEvent := <-testQueue
-	require.Equal(t, TRANSACTION, txEvent.EvType)
+	require.Equal(t, TRANSACTIONS, txEvent.EvType)
 }
 
 func TestEventsProcessor_SaveBlock_SkipsWebsocketWhenIndexerActive(t *testing.T) {
@@ -592,7 +592,7 @@ func TestTrySendEvent_QueueFull(t *testing.T) {
 	EventQueue = fullQueue
 	defer func() { EventQueue = originalEventQueue }()
 
-	trySendEvent(Event{EvType: TRANSACTION, Message: "dropped"})
+	trySendEvent(Event{EvType: TRANSACTIONS, Message: "dropped"})
 
 	event := <-fullQueue
 	require.Equal(t, BLOCKS, event.EvType)

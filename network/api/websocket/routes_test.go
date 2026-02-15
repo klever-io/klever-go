@@ -11,6 +11,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/klever-io/klever-go/indexer"
 	wsocket "github.com/klever-io/klever-go/network/api/websocket"
 	socket "github.com/klever-io/klever-go/websocket"
 	"github.com/stretchr/testify/assert"
@@ -98,7 +99,7 @@ func TestSubscribeTopics_ValidTypes(t *testing.T) {
 
 	msg := map[string]interface{}{
 		"addresses":        []string{"klv1abc"},
-		"subscribed_types": []string{"blocks", "transaction", "accounts", "user_transaction"},
+		"subscribed_types": []string{"blocks", "transactions", "accounts", "user_transactions"},
 	}
 	err = conn.WriteJSON(msg)
 	assert.NoError(t, err)
@@ -122,6 +123,30 @@ func TestSubscribeTopics_DuplicateTypes(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestSubscribeTopics_EmptyTypes(t *testing.T) {
+	hub := socket.NewHub("", "", nil)
+	addr, cleanup := startTestServer(t, hub)
+	defer cleanup()
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/subscribe", nil)
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	defer conn.Close()
+
+	msg := map[string]interface{}{
+		"addresses":        []string{},
+		"subscribed_types": []string{},
+	}
+	err = conn.WriteJSON(msg)
+	require.NoError(t, err)
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var resp map[string]string
+	err = conn.ReadJSON(&resp)
+	require.NoError(t, err)
+	assert.Equal(t, "subscribed_types must not be empty", resp["error"])
+}
+
 func TestSubscribeTopics_InvalidJSON(t *testing.T) {
 	hub := socket.NewHub("", "", nil)
 	addr, cleanup := startTestServer(t, hub)
@@ -138,6 +163,42 @@ func TestSubscribeTopics_InvalidJSON(t *testing.T) {
 	conn.SetReadDeadline(time.Now().Add(1 * time.Second))
 	_, _, err = conn.ReadMessage()
 	assert.Error(t, err)
+}
+
+func TestSubscribeTopics_BlockEventDelivery(t *testing.T) {
+	hub := socket.NewHub("", "", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go hub.StartServer(ctx)
+
+	addr, cleanup := startTestServer(t, hub)
+	defer cleanup()
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/subscribe", nil)
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	defer conn.Close()
+
+	msg := map[string]interface{}{
+		"addresses":        []string{},
+		"subscribed_types": []string{"blocks"},
+	}
+	err = conn.WriteJSON(msg)
+	require.NoError(t, err)
+
+	time.Sleep(100 * time.Millisecond)
+
+	blockJSON := []byte(`{"nonce":1,"hash":"abc123"}`)
+	indexer.EventQueue <- indexer.Event{
+		EvType:  indexer.BLOCKS,
+		Message: blockJSON,
+	}
+
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	var received socket.Send
+	err = conn.ReadJSON(&received)
+	require.NoError(t, err, "expected to receive block event but got nothing")
+	assert.Equal(t, indexer.BLOCKS, received.Type)
 }
 
 func TestSubscribeTopics_ThenSendRequest(t *testing.T) {

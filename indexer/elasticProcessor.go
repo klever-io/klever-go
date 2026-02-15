@@ -548,11 +548,11 @@ func (ei *elasticProcessor) SaveTransactions(
 	// Dispatch events
 	if UseEventQueue && len(txs) > 0 {
 		trySendEvent(Event{
-			EvType:  USER_TRANSACTION,
+			EvType:  USER_TRANSACTIONS,
 			Message: txs,
 		})
 		trySendEvent(Event{
-			EvType:  TRANSACTION,
+			EvType:  TRANSACTIONS,
 			Message: txs,
 		})
 	}

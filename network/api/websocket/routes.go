@@ -3,6 +3,7 @@ package websocket
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	gorilla "github.com/gorilla/websocket"
@@ -12,6 +13,11 @@ import (
 )
 
 var log = logger.GetOrCreate("subscribe")
+
+const (
+	subscribeReadTimeout = 30 * time.Second
+	subscribeOp          = "ws.Subscribe"
+)
 
 var upgrader = gorilla.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -33,13 +39,35 @@ func SubscribeTopics(ws *gin.Engine, hub *websocket.SocketHub) {
 func handleSubscribe(c *gin.Context, hub *websocket.SocketHub) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Error("ws.Subscribe", "err", err.Error())
+		log.Error(subscribeOp, "err", err.Error())
+		return
+	}
+
+	go processSubscription(conn, hub)
+}
+
+func processSubscription(conn *gorilla.Conn, hub *websocket.SocketHub) {
+	if err := conn.SetReadDeadline(time.Now().Add(subscribeReadTimeout)); err != nil {
+		log.Error(subscribeOp, "err", err.Error())
+		_ = conn.Close()
 		return
 	}
 
 	var req subscribeRequest
-	if err = conn.ReadJSON(&req); err != nil {
-		log.Error("ws.Subscribe", "err", err.Error())
+	if err := conn.ReadJSON(&req); err != nil {
+		log.Error(subscribeOp, "err", err.Error())
+		_ = conn.Close()
+		return
+	}
+
+	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+		log.Error(subscribeOp, "err", err.Error())
+		_ = conn.Close()
+		return
+	}
+
+	if len(req.Types) == 0 {
+		_ = conn.WriteJSON(map[string]string{"error": "subscribed_types must not be empty"})
 		_ = conn.Close()
 		return
 	}
@@ -51,6 +79,7 @@ func handleSubscribe(c *gin.Context, hub *websocket.SocketHub) {
 		return
 	}
 
+	log.Debug(subscribeOp, "types", fmt.Sprintf("%v", parsedTypes), "addresses", fmt.Sprintf("%v", req.Addresses))
 	client := websocket.NewClient(conn, hub)
 	hub.HandleClientInsertion(parsedTypes, req.Addresses, client)
 }

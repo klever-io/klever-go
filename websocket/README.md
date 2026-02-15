@@ -13,7 +13,7 @@ Immediately after the connection is established, send an initial JSON message to
 ```json
 {
   "addresses": ["klv1abc...", "klv1def..."],
-  "subscribed_types": ["blocks", "transaction", "accounts", "user_transaction"]
+  "subscribed_types": ["blocks", "transactions", "accounts", "user_transactions"]
 }
 ```
 
@@ -35,12 +35,12 @@ If any type in `subscribed_types` is invalid, the server responds with an error 
 | Type | Requires Addresses | Description |
 |---|---|---|
 | `blocks` | No | Receive every new block as it is produced. |
-| `transaction` | No | Receive all transactions globally. |
+| `transactions` | No | Receive all transactions globally. |
 | `accounts` | Yes | Receive account state changes for the specified addresses. |
-| `user_transaction` | Yes | Receive transactions where the specified addresses appear as sender or receiver. |
+| `user_transactions` | Yes | Receive transactions where the specified addresses appear as sender or receiver. |
 
-- `blocks` and `transaction` are global subscriptions and do not require any addresses.
-- `accounts` and `user_transaction` are address-specific. You must provide at least one address for them to deliver events.
+- `blocks` and `transactions` are global subscriptions and do not require any addresses.
+- `accounts` and `user_transactions` are address-specific. You must provide at least one address for them to deliver events.
 - You can combine any types in a single connection.
 
 
@@ -61,7 +61,7 @@ After subscribing, the server pushes events as JSON messages:
 
 | Field | Description |
 |---|---|
-| `type` | The event type (`blocks`, `transaction`, `accounts`, `user_transaction`). Matches the subscription type token. |
+| `type` | The event type (`blocks`, `transactions`, `accounts`, `user_transactions`). Matches the subscription type token. |
 | `address` | The relevant address (populated for address-specific events, empty for global). |
 | `hash` | The transaction hash (populated for transaction-related events). |
 | `data` | The event payload (block data, account info, or transaction details). |
@@ -195,8 +195,8 @@ Dynamically add new subscriptions to the current connection without reconnecting
 
 | Param | Required | Description |
 |---|---|---|
-| `types` | Yes | List of event types to add (`blocks`, `transaction`, `accounts`, `user_transaction`). |
-| `addresses` | No | List of addresses to watch (required for `accounts` and `user_transaction`). |
+| `types` | Yes | List of event types to add (`blocks`, `transactions`, `accounts`, `user_transactions`). |
+| `addresses` | No | List of addresses to watch (required for `accounts` and `user_transactions`). |
 
 **Response (success):**
 ```json
@@ -235,9 +235,9 @@ Remove specific subscriptions from the current connection. Unsubscribe is granul
 | Param | Required | Description |
 |---|---|---|
 | `types` | Yes | List of event types to remove. |
-| `addresses` | No | List of addresses to stop watching (required for `accounts` and `user_transaction`). |
+| `addresses` | No | List of addresses to stop watching (required for `accounts` and `user_transactions`). |
 
-For address-specific types (`accounts`, `user_transaction`), only the specified type is unsubscribed. If an address still has the other type active, it remains subscribed for that type. The address entry is fully removed only when both `accounts` and `user_transaction` are unsubscribed.
+For address-specific types (`accounts`, `user_transactions`), only the specified type is unsubscribed. If an address still has the other type active, it remains subscribed for that type. The address entry is fully removed only when both `accounts` and `user_transactions` are unsubscribed.
 
 **Response (success):**
 ```json

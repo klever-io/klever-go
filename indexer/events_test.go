@@ -12,10 +12,10 @@ func TestNewEventTypeStrict_ValidTypes(t *testing.T) {
 		input    string
 		expected EventType
 	}{
-		{"transaction", TRANSACTION},
+		{"transactions", TRANSACTIONS},
 		{"accounts", ACCOUNTS},
 		{"blocks", BLOCKS},
-		{"user_transaction", USER_TRANSACTION},
+		{"user_transactions", USER_TRANSACTIONS},
 	}
 
 	for _, tt := range tests {
@@ -37,6 +37,6 @@ func TestNewEventType_BackwardCompatibility(t *testing.T) {
 	result := NewEventType("invalid_type")
 	assert.Equal(t, UNKNOWN, result)
 
-	result = NewEventType("transaction")
-	assert.Equal(t, TRANSACTION, result)
+	result = NewEventType("transactions")
+	assert.Equal(t, TRANSACTIONS, result)
 }

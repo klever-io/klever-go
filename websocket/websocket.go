@@ -1,6 +1,5 @@
 package websocket
 
-import "C"
 import (
 	"context"
 	"encoding/json"
@@ -118,12 +117,16 @@ func (h *SocketHub) StartServer(ctx context.Context) {
 		case client := <-h.unregister:
 			h.handleClientDelete(client)
 		case event := <-indexer.EventQueue:
+			h.mu.RLock()
+			blockCount, txCount := len(h.blockSubscription), len(h.transactionSubscription)
+			h.mu.RUnlock()
+			log.Debug("ws.EventReceived", "type", string(event.EvType), "blockSubs", blockCount, "txSubs", txCount)
 			switch event.EvType {
 			case indexer.ACCOUNTS:
 				h.handleAccountsEvent(event)
-			case indexer.USER_TRANSACTION:
+			case indexer.USER_TRANSACTIONS:
 				h.handleUserTransactionEvent(event)
-			case indexer.TRANSACTION:
+			case indexer.TRANSACTIONS:
 				h.handleBroadcastEvent(event, h.transactionSubscription)
 			default:
 				h.handleBroadcastEvent(event, h.blockSubscription)
@@ -179,7 +182,7 @@ func (h *SocketHub) notifyTxReceipts(wg *sync.WaitGroup, evType indexer.EventTyp
 		}
 		parsed := h.marshalAndPost(evType, address, "", tx)
 		if parsed == nil {
-			return
+			continue
 		}
 		h.notifyAddressSubscribers(address, parsed, acceptTx)
 	}
@@ -215,7 +218,7 @@ type Send struct {
 	Type    indexer.EventType `json:"type"`
 	Address string            `json:"address"`
 	Hash    string            `json:"hash"`
-	Data    []byte            `json:"data"`
+	Data    json.RawMessage   `json:"data"`
 }
 
 func marshalMessage(evType indexer.EventType, address string, hash string, message interface{}) (*Send, error) {
@@ -260,9 +263,9 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 		switch types {
 		case indexer.BLOCKS:
 			h.blockSubscription[c] = struct{}{}
-		case indexer.TRANSACTION:
+		case indexer.TRANSACTIONS:
 			h.transactionSubscription[c] = struct{}{}
-		case indexer.USER_TRANSACTION:
+		case indexer.USER_TRANSACTIONS:
 			acceptTransactions = true
 		case indexer.ACCOUNTS:
 			acceptAccounts = true
@@ -460,11 +463,11 @@ func (h *SocketHub) HandleClientRemoval(eventTypes []indexer.EventType, addresse
 		switch t {
 		case indexer.BLOCKS:
 			delete(h.blockSubscription, c)
-		case indexer.TRANSACTION:
+		case indexer.TRANSACTIONS:
 			delete(h.transactionSubscription, c)
 		case indexer.ACCOUNTS:
 			removeAccounts = true
-		case indexer.USER_TRANSACTION:
+		case indexer.USER_TRANSACTIONS:
 			removeTransactions = true
 		}
 	}

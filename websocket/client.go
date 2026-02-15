@@ -55,7 +55,7 @@ func (c *client) close() {
 	defer c.aliveLock.Unlock()
 	if c.alive {
 		if err := c.conn.Close(); err != nil {
-			log.Error("ws.close", "err", err.Error())
+			log.Warn("ws.close", "err", err.Error())
 		}
 		c.alive = false
 		c.cancel()
@@ -77,7 +77,7 @@ func (c *client) loopIn() {
 		messageType, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if ws.IsUnexpectedCloseError(err, ws.CloseGoingAway, ws.CloseAbnormalClosure) {
-				log.Error("ws.loopIn", "err", err.Error())
+				log.Warn("ws.loopIn", "err", err.Error())
 			}
 			break
 		}
@@ -88,7 +88,7 @@ func (c *client) loopIn() {
 		case ws.PingMessage:
 			err = c.conn.WriteControl(ws.PongMessage, nil, time.Now().Add(pingPeriod))
 			if err != nil {
-				log.Error("ws.loopIn", "err", err.Error())
+				log.Warn("ws.loopIn.pong", "err", err.Error())
 				return
 			}
 		case ws.TextMessage:
@@ -98,10 +98,16 @@ func (c *client) loopIn() {
 				continue
 			}
 			c.sem <- struct{}{}
-			go func() {
+			ctx := c.ctx
+			go func(ctx context.Context, req WSRequest) {
 				defer func() { <-c.sem }()
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
 				c.hub.HandleClientRequest(c, req)
-			}()
+			}(ctx, req)
 		}
 	}
 }
@@ -111,11 +117,15 @@ func (c *client) loopOut() {
 		select {
 		case <-c.ctx.Done():
 			return
-		case m := <-c.out:
+		case m, ok := <-c.out:
+			if !ok {
+				return
+			}
 			err := c.conn.WriteJSON(m)
 			if err != nil {
-				log.Error("ws.loopOut", "err", err.Error())
+				log.Warn("ws.loopOut", "err", err.Error())
 				c.close()
+				return
 			}
 		}
 	}

@@ -60,12 +60,17 @@ func newTestClient(hub *SocketHub) *client {
 
 func sendRequest(hub *SocketHub, c *client, req WSRequest) WSResponse {
 	hub.HandleClientRequest(c, req)
-	msg := <-c.out
-	resp, ok := msg.(WSResponse)
-	if !ok {
-		return WSResponse{}
+
+	select {
+	case msg := <-c.out:
+		resp, ok := msg.(WSResponse)
+		if !ok {
+			return WSResponse{}
+		}
+		return resp
+	case <-time.After(2 * time.Second):
+		panic("timeout waiting for response in sendRequest")
 	}
-	return resp
 }
 
 func killClient(c *client) {
@@ -302,7 +307,7 @@ func TestHandleDynamicSubscribe_Success(t *testing.T) {
 	hub := newTestHub(nil)
 	c := newTestClient(hub)
 
-	params, _ := json.Marshal(SubscribeParams{Types: []string{"blocks", "transaction"}, Addresses: []string{"klv1abc"}})
+	params, _ := json.Marshal(SubscribeParams{Types: []string{"blocks", "transactions"}, Addresses: []string{"klv1abc"}})
 	resp := sendRequest(hub, c, WSRequest{ID: "req-9", Method: MethodSubscribe, Params: params})
 
 	assert.Equal(t, "req-9", resp.ID)
@@ -386,7 +391,7 @@ func TestDynamicSubscribe_MergesFlags(t *testing.T) {
 	params1, _ := json.Marshal(SubscribeParams{Types: []string{"accounts"}, Addresses: []string{"klv1abc"}})
 	sendRequest(hub, c, WSRequest{ID: "s1", Method: MethodSubscribe, Params: params1})
 
-	params2, _ := json.Marshal(SubscribeParams{Types: []string{"user_transaction"}, Addresses: []string{"klv1abc"}})
+	params2, _ := json.Marshal(SubscribeParams{Types: []string{"user_transactions"}, Addresses: []string{"klv1abc"}})
 	sendRequest(hub, c, WSRequest{ID: "s2", Method: MethodSubscribe, Params: params2})
 
 	hub.mu.Lock()
@@ -474,7 +479,7 @@ func TestMarshalMessage_Blocks(t *testing.T) {
 	msg, err := marshalMessage("blocks", "", "hash1", blockData)
 	require.NoError(t, err)
 	assert.Equal(t, indexer.BLOCKS, msg.Type)
-	assert.Equal(t, blockData, msg.Data)
+	assert.Equal(t, json.RawMessage(blockData), msg.Data)
 	assert.Equal(t, "hash1", msg.Hash)
 }
 
@@ -486,9 +491,9 @@ func TestMarshalMessage_BlocksInvalidType(t *testing.T) {
 
 func TestMarshalMessage_NonBlocks(t *testing.T) {
 	payload := map[string]string{"key": "value"}
-	msg, err := marshalMessage("transaction", "addr1", "hash1", payload)
+	msg, err := marshalMessage("transactions", "addr1", "hash1", payload)
 	require.NoError(t, err)
-	assert.Equal(t, indexer.EventType("transaction"), msg.Type)
+	assert.Equal(t, indexer.EventType("transactions"), msg.Type)
 	assert.Equal(t, "addr1", msg.Address)
 	assert.Equal(t, "hash1", msg.Hash)
 	assert.NotEmpty(t, msg.Data)
@@ -498,7 +503,7 @@ func TestHandleClientInsertion_BlocksAndTransactions(t *testing.T) {
 	hub := newTestHub(nil)
 	c := newTestClient(hub)
 
-	hub.HandleClientInsertion([]indexer.EventType{indexer.BLOCKS, indexer.TRANSACTION}, nil, c)
+	hub.HandleClientInsertion([]indexer.EventType{indexer.BLOCKS, indexer.TRANSACTIONS}, nil, c)
 
 	hub.mu.Lock()
 	_, hasBlock := hub.blockSubscription[c]
@@ -513,7 +518,7 @@ func TestHandleClientInsertion_AddressTypes(t *testing.T) {
 	hub := newTestHub(nil)
 	c := newTestClient(hub)
 
-	hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS, indexer.USER_TRANSACTION}, []string{"klv1test"}, c)
+	hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS, indexer.USER_TRANSACTIONS}, []string{"klv1test"}, c)
 
 	hub.mu.Lock()
 	opts := hub.addressSubscription["klv1test"][c]
@@ -532,7 +537,7 @@ func TestHandleClientRemoval_BlocksAndTransactions(t *testing.T) {
 	hub.transactionSubscription[c] = struct{}{}
 	hub.mu.Unlock()
 
-	hub.HandleClientRemoval([]indexer.EventType{indexer.BLOCKS, indexer.TRANSACTION}, nil, c)
+	hub.HandleClientRemoval([]indexer.EventType{indexer.BLOCKS, indexer.TRANSACTIONS}, nil, c)
 
 	hub.mu.Lock()
 	_, hasBlock := hub.blockSubscription[c]
@@ -727,10 +732,10 @@ func TestStartServer_TransactionEvent(t *testing.T) {
 	env.hub.transactionSubscription[c] = struct{}{}
 	env.hub.mu.Unlock()
 
-	env.queue <- indexer.Event{EvType: indexer.TRANSACTION, Message: map[string]string{"hash": "abc"}}
+	env.queue <- indexer.Event{EvType: indexer.TRANSACTIONS, Message: map[string]string{"hash": "abc"}}
 
 	s := awaitSend(t, c)
-	assert.Equal(t, indexer.TRANSACTION, s.Type)
+	assert.Equal(t, indexer.TRANSACTIONS, s.Type)
 
 	env.teardown(c)
 }
@@ -776,7 +781,7 @@ func TestStartServer_UserTransactionEvent(t *testing.T) {
 	env.hub.mu.Unlock()
 
 	env.queue <- indexer.Event{
-		EvType: indexer.USER_TRANSACTION,
+		EvType: indexer.USER_TRANSACTIONS,
 		Message: []*data.Transaction{{
 			Hash: "tx1", Sender: "klv1sender",
 			Receipts: []map[string]interface{}{{"to": "klv1receiver"}},
@@ -784,7 +789,7 @@ func TestStartServer_UserTransactionEvent(t *testing.T) {
 	}
 
 	s := awaitSend(t, c)
-	assert.Equal(t, indexer.USER_TRANSACTION, s.Type)
+	assert.Equal(t, indexer.USER_TRANSACTIONS, s.Type)
 
 	env.teardown(c)
 }
@@ -798,7 +803,7 @@ func TestStartServer_UserTransaction_NoReceiptTo(t *testing.T) {
 	env.hub.mu.Unlock()
 
 	env.queue <- indexer.Event{
-		EvType: indexer.USER_TRANSACTION,
+		EvType: indexer.USER_TRANSACTIONS,
 		Message: []*data.Transaction{{
 			Hash: "tx-no-to", Sender: "klv1sender",
 			Receipts: []map[string]interface{}{{"amount": "100"}},
@@ -806,7 +811,7 @@ func TestStartServer_UserTransaction_NoReceiptTo(t *testing.T) {
 	}
 
 	s := awaitSend(t, c)
-	assert.Equal(t, indexer.USER_TRANSACTION, s.Type)
+	assert.Equal(t, indexer.USER_TRANSACTIONS, s.Type)
 
 	env.teardown(c)
 }

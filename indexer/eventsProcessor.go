@@ -123,11 +123,11 @@ func (ep *eventsProcessor) processTransactionEvents(header nodeData.HeaderHandle
 	}
 
 	trySendEvent(Event{
-		EvType:  USER_TRANSACTION,
+		EvType:  USER_TRANSACTIONS,
 		Message: txs,
 	})
 	trySendEvent(Event{
-		EvType:  TRANSACTION,
+		EvType:  TRANSACTIONS,
 		Message: txs,
 	})
 }
