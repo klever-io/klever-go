@@ -17,11 +17,12 @@ type client struct {
 	out       chan interface{}
 	ctx       context.Context
 	cancel    context.CancelFunc
+	sem       chan struct{}
 }
 
 // NewClient create a new client, add into hub and start ping and watch
 func NewClient(conn *ws.Conn, hub *SocketHub) *client {
-	client := &client{conn: conn, hub: hub, out: make(chan interface{}, outChannelSize), alive: true}
+	client := &client{conn: conn, hub: hub, out: make(chan interface{}, outChannelSize), alive: true, sem: make(chan struct{}, maxWorkers)}
 	client.ctx, client.cancel = context.WithCancel(context.Background())
 	go client.loopIn()
 	go client.loopOut()
@@ -96,7 +97,11 @@ func (c *client) loopIn() {
 				c.send(WSResponse{Error: "invalid json: " + err.Error()})
 				continue
 			}
-			go c.hub.HandleClientRequest(c, req)
+			c.sem <- struct{}{}
+			go func() {
+				defer func() { <-c.sem }()
+				c.hub.HandleClientRequest(c, req)
+			}()
 		}
 	}
 }

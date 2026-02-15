@@ -63,14 +63,16 @@ func (s *indexerStub) UpdateProposalsAndParameters(proposalIDs []string) {
 	}
 }
 
-func createTestEventsProcessor() *eventsProcessor {
-	ep, _ := NewEventsProcessor(ArgEventsProcessor{
+func createTestEventsProcessor(t *testing.T) *eventsProcessor {
+	t.Helper()
+	ep, err := NewEventsProcessor(ArgEventsProcessor{
 		Marshalizer:              &mock.MarshalizerMock{},
 		Hasher:                   &mock.HasherMock{},
 		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
 		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
 		Indexer:                  nil,
 	})
+	require.NoError(t, err)
 	return ep
 }
 
@@ -185,7 +187,7 @@ func TestEventsProcessor_Enabled(t *testing.T) {
 		UseEventQueue = false
 		defer func() { UseEventQueue = originalUseEventQueue }()
 
-		ep := createTestEventsProcessor()
+		ep := createTestEventsProcessor(t)
 		require.False(t, ep.Enabled())
 	})
 
@@ -194,7 +196,7 @@ func TestEventsProcessor_Enabled(t *testing.T) {
 		UseEventQueue = true
 		defer func() { UseEventQueue = originalUseEventQueue }()
 
-		ep := createTestEventsProcessor()
+		ep := createTestEventsProcessor(t)
 		require.True(t, ep.Enabled())
 	})
 
@@ -210,7 +212,7 @@ func TestEventsProcessor_Enabled(t *testing.T) {
 
 func TestEventsProcessor_SaveBlock_DispatchesWhenEnabled(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
-	ep := createTestEventsProcessor()
+	ep := createTestEventsProcessor(t)
 
 	header := &dataBlock.Block{
 		Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100},
@@ -232,7 +234,7 @@ func TestEventsProcessor_SaveBlock_DispatchesWhenEnabled(t *testing.T) {
 
 func TestEventsProcessor_SaveBlock_SkipsWhenDisabled(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, false)
-	ep := createTestEventsProcessor()
+	ep := createTestEventsProcessor(t)
 
 	header := &dataBlock.Block{
 		Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100},
@@ -252,7 +254,7 @@ func TestEventsProcessor_SaveBlock_SkipsWhenDisabled(t *testing.T) {
 
 func TestEventsProcessor_SaveBlock_DispatchesTransactionEvents(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
-	ep := createTestEventsProcessor()
+	ep := createTestEventsProcessor(t)
 
 	contract := transaction.TransferContract{
 		ToAddress: []byte("receiver"),
@@ -320,7 +322,7 @@ func TestEventsProcessor_SaveBlock_SkipsWebsocketWhenIndexerActive(t *testing.T)
 
 func TestEventsProcessor_SaveBlock_NilPool(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
-	ep := createTestEventsProcessor()
+	ep := createTestEventsProcessor(t)
 
 	header := &dataBlock.Block{
 		Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100},
@@ -343,7 +345,7 @@ func TestEventsProcessor_SaveBlock_NilPool(t *testing.T) {
 
 func TestEventsProcessor_SaveAccounts_DispatchesWhenEnabled(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
-	ep := createTestEventsProcessor()
+	ep := createTestEventsProcessor(t)
 	acc := createTestAccountStub()
 
 	ep.SaveAccounts(100, []state.UserAccountHandler{acc})
@@ -368,7 +370,7 @@ func TestEventsProcessor_SaveAccounts_DispatchesWhenEnabled(t *testing.T) {
 
 func TestEventsProcessor_SaveAccounts_SkipsWhenDisabled(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, false)
-	ep := createTestEventsProcessor()
+	ep := createTestEventsProcessor(t)
 	acc := createTestAccountStub()
 
 	ep.SaveAccounts(100, []state.UserAccountHandler{acc})
@@ -406,7 +408,7 @@ func TestEventsProcessor_SaveAccounts_SkipsWebsocketWhenIndexerActive(t *testing
 
 func TestEventsProcessor_SaveAccounts_GetUserKDAError(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
-	ep := createTestEventsProcessor()
+	ep := createTestEventsProcessor(t)
 
 	failAcc := &mock.UserAccountHandlerStub{
 		AddressBytesCalled: func() []byte { return []byte("failaddr") },
@@ -430,7 +432,7 @@ func TestEventsProcessor_SaveAccounts_GetUserKDAError(t *testing.T) {
 
 func TestEventsProcessor_SaveAccounts_EmptySlice(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
-	ep := createTestEventsProcessor()
+	ep := createTestEventsProcessor(t)
 
 	ep.SaveAccounts(100, []state.UserAccountHandler{})
 
@@ -443,7 +445,7 @@ func TestEventsProcessor_SaveAccounts_EmptySlice(t *testing.T) {
 
 func TestEventsProcessor_SaveAccounts_WithPermissions(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
-	ep := createTestEventsProcessor()
+	ep := createTestEventsProcessor(t)
 
 	acc := createTestAccountStub()
 	acc.GetPermissionsCalled = func() []*state.Permission {
@@ -483,7 +485,7 @@ func TestEventsProcessor_SaveAccounts_WithPermissions(t *testing.T) {
 
 func TestEventsProcessor_RevertIndexedBlock(t *testing.T) {
 	t.Run("nil indexer does nothing", func(t *testing.T) {
-		ep := createTestEventsProcessor()
+		ep := createTestEventsProcessor(t)
 		ep.RevertIndexedBlock(&dataBlock.Block{
 			Header: &dataBlock.BlockHeader{Nonce: 1},
 		})
@@ -509,7 +511,7 @@ func TestEventsProcessor_RevertIndexedBlock(t *testing.T) {
 
 func TestEventsProcessor_SaveValidatorsRating(t *testing.T) {
 	t.Run("nil indexer does nothing", func(t *testing.T) {
-		ep := createTestEventsProcessor()
+		ep := createTestEventsProcessor(t)
 		ep.SaveValidatorsRating(nil)
 	})
 
@@ -531,7 +533,7 @@ func TestEventsProcessor_SaveValidatorsRating(t *testing.T) {
 
 func TestEventsProcessor_SaveEpochInfo(t *testing.T) {
 	t.Run("nil indexer does nothing", func(t *testing.T) {
-		ep := createTestEventsProcessor()
+		ep := createTestEventsProcessor(t)
 		ep.SaveEpochInfo(1, nil)
 	})
 
@@ -553,7 +555,7 @@ func TestEventsProcessor_SaveEpochInfo(t *testing.T) {
 
 func TestEventsProcessor_UpdateProposalsAndParameters(t *testing.T) {
 	t.Run("nil indexer does nothing", func(t *testing.T) {
-		ep := createTestEventsProcessor()
+		ep := createTestEventsProcessor(t)
 		ep.UpdateProposalsAndParameters([]string{"1"})
 	})
 
@@ -579,7 +581,7 @@ func TestEventsProcessor_IsInterfaceNil(t *testing.T) {
 	var ep *eventsProcessor
 	require.True(t, ep.IsInterfaceNil())
 
-	ep = createTestEventsProcessor()
+	ep = createTestEventsProcessor(t)
 	require.False(t, ep.IsInterfaceNil())
 }
 
@@ -596,8 +598,9 @@ func TestTrySendEvent_QueueFull(t *testing.T) {
 	require.Equal(t, BLOCKS, event.EvType)
 }
 
-func createTestEventsProcessorWithKApp(ctrl kapp.KAppController) *eventsProcessor {
-	ep, _ := NewEventsProcessor(ArgEventsProcessor{
+func createTestEventsProcessorWithKApp(t *testing.T, ctrl kapp.KAppController) *eventsProcessor {
+	t.Helper()
+	ep, err := NewEventsProcessor(ArgEventsProcessor{
 		Marshalizer:              &mock.MarshalizerMock{},
 		Hasher:                   &mock.HasherMock{},
 		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
@@ -605,6 +608,7 @@ func createTestEventsProcessorWithKApp(ctrl kapp.KAppController) *eventsProcesso
 		Indexer:                  nil,
 		KAppController:           ctrl,
 	})
+	require.NoError(t, err)
 	return ep
 }
 
@@ -614,7 +618,7 @@ func TestEventsProcessor_GetAllowanceWithPendingRewards(t *testing.T) {
 	t.Run("nil kappsController returns base allowance", func(t *testing.T) {
 		t.Parallel()
 
-		ep := createTestEventsProcessor()
+		ep := createTestEventsProcessor(t)
 
 		userAccount := &mock.UserAccountHandlerStub{
 			GetAllowanceCalled: func() int64 {
@@ -641,7 +645,7 @@ func TestEventsProcessor_GetAllowanceWithPendingRewards(t *testing.T) {
 			},
 		}
 
-		ep := createTestEventsProcessorWithKApp(kappController)
+		ep := createTestEventsProcessorWithKApp(t, kappController)
 
 		userAccount := &mock.UserAccountHandlerStub{
 			GetAllowanceCalled: func() int64 {
@@ -671,7 +675,7 @@ func TestEventsProcessor_GetAllowanceWithPendingRewards(t *testing.T) {
 			},
 		}
 
-		ep := createTestEventsProcessorWithKApp(kappController)
+		ep := createTestEventsProcessorWithKApp(t, kappController)
 
 		userAccount := &mock.UserAccountHandlerStub{
 			GetAllowanceCalled: func() int64 {
@@ -701,7 +705,7 @@ func TestEventsProcessor_GetAllowanceWithPendingRewards(t *testing.T) {
 			},
 		}
 
-		ep := createTestEventsProcessorWithKApp(kappController)
+		ep := createTestEventsProcessorWithKApp(t, kappController)
 
 		userAccount := &mock.UserAccountHandlerStub{
 			GetAllowanceCalled: func() int64 {
@@ -732,7 +736,7 @@ func TestEventsProcessor_SaveAccounts_AllowanceIncludesPendingRewards(t *testing
 		},
 	}
 
-	ep := createTestEventsProcessorWithKApp(kappController)
+	ep := createTestEventsProcessorWithKApp(t, kappController)
 	acc := createTestAccountStub()
 
 	ep.SaveAccounts(100, []state.UserAccountHandler{acc})

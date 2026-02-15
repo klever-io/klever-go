@@ -54,6 +54,7 @@ func newTestClient(hub *SocketHub) *client {
 		hub:   hub,
 		out:   make(chan interface{}, 10),
 		alive: true,
+		sem:   make(chan struct{}, maxWorkers),
 	}
 }
 
