@@ -85,10 +85,12 @@ COPY --from=builder --chown=root:ping --chmod=550 /go/src/github.com/klever-io/k
 RUN --mount=type=bind,from=builder,source=/go/src/github.com/klever-io/klever-go/kvm/wasmer2,target=/tmp/wasmer2 \
     if [ "$TARGETARCH" = "arm64" ]; then \
         cp /tmp/wasmer2/libvmexeccapi_arm-musl.so /usr/local/lib/libvmexeccapi_arm.so && \
-        chmod 444 /usr/local/lib/libvmexeccapi_arm.so; \
+        chown root:ping /usr/local/lib/libvmexeccapi_arm.so && \
+        chmod 440 /usr/local/lib/libvmexeccapi_arm.so; \
     else \
         cp /tmp/wasmer2/libvmexeccapi-musl.so /usr/local/lib/libvmexeccapi.so && \
-        chmod 444 /usr/local/lib/libvmexeccapi.so; \
+        chown root:ping /usr/local/lib/libvmexeccapi.so && \
+        chmod 440 /usr/local/lib/libvmexeccapi.so; \
     fi
 
 COPY --chown=root:ping --chmod=440 config/seednode/config.yaml ${KLEVER_HOME}/config/seednode/config.yaml

@@ -49,9 +49,25 @@ RUN mkdir -p ${KLEVER_HOME} && \
     chown klever:klever ${KLEVER_HOME} && \
     chmod 0750 ${KLEVER_HOME}
 
+# Get target architecture for runtime stage
+ARG TARGETARCH
+
 # Copy binaries
 COPY --from=builder --chown=root:klever --chmod=550 /go/src/github.com/klever-io/klever-go/bin/* /usr/local/bin/
-COPY --from=builder --chown=root:klever --chmod=440 /go/src/github.com/klever-io/klever-go/kvm/wasmer2/libvmexeccapi.so /lib/libvmexeccapi.so
+
+# Copy the correct library for the target architecture
+# AMD64: libvmexeccapi.so -> /lib/libvmexeccapi.so
+# ARM64: libvmexeccapi_arm.so -> /lib/libvmexeccapi_arm.so
+RUN --mount=type=bind,from=builder,source=/go/src/github.com/klever-io/klever-go/kvm/wasmer2,target=/tmp/wasmer2 \
+    if [ "$TARGETARCH" = "arm64" ]; then \
+        cp /tmp/wasmer2/libvmexeccapi_arm.so /lib/libvmexeccapi_arm.so && \
+        chown root:klever /lib/libvmexeccapi_arm.so && \
+        chmod 440 /lib/libvmexeccapi_arm.so; \
+    else \
+        cp /tmp/wasmer2/libvmexeccapi.so /lib/libvmexeccapi.so && \
+        chown root:klever /lib/libvmexeccapi.so && \
+        chmod 440 /lib/libvmexeccapi.so; \
+    fi
 
 # Copy scripts
 COPY --chown=root:klever --chmod=550 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
