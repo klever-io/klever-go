@@ -813,8 +813,9 @@ func WithConsensusMonitoring(cfg *config.ConsensusMonitoringConfig) Option {
 		}
 
 		n.networkDegradedThreshold = cfg.NetworkDegradedThreshold
-		n.networkDegradedCooldownSlots = cfg.NetworkDegradedCooldownSlots
-
+		if cfg.NetworkDegradedCooldownSlots > 0 {
+			n.networkDegradedCooldownSlots = cfg.NetworkDegradedCooldownSlots
+		}
 		return nil
 	}
 }
