@@ -113,7 +113,7 @@ build-keygenerator: ## Build key generator binary
 	$(GOBUILD) -o ./bin/keygenerator ./cmd/keygenerator
 
 build-benchmark: ## Build validator benchmark tool
-	$(GOBUILD) -o -ldflags="$(ldflags)" -o ./bin/benchmark ./cmd/benchmark
+	$(GOBUILD) -o ./bin/benchmark ./cmd/benchmark
 
 clean: ## Remove build artifacts and caches
 	@echo "Cleaning build artifacts..."
