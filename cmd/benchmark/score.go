@@ -46,8 +46,8 @@ const (
 	randWriteExcellentIPS = 15_000.0
 	randReadExcellentIPS  = 30_000.0
 
-	netLatP50ExcellentUs      = 10.0
-	netLatP99ExcellentUs      = 50.0
+	netLatP50ExcellentUs       = 10.0
+	netLatP99ExcellentUs       = 50.0
 	netThroughputExcellentMBps = 10_000.0
 
 	kvWriteExcellentOps = 2_000_000.0

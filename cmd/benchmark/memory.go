@@ -33,12 +33,12 @@ import (
 )
 
 const (
-	memBufSizeMB   = 256              // buffer size for bandwidth tests (exceeds L3)
-	memBufSize     = memBufSizeMB * 1024 * 1024
-	memWordSize    = 8                // uint64 — natural word for 64-bit CPUs
-	memRandProbes  = 10_000_000      // pointer-chase probes for latency test
-	memAllocDur    = 3 * time.Second  // duration for allocation throughput test
-	memAllocSzB    = 64              // bytes per allocation (small object, like a trie node)
+	memBufSizeMB  = 256 // buffer size for bandwidth tests (exceeds L3)
+	memBufSize    = memBufSizeMB * 1024 * 1024
+	memWordSize   = 8               // uint64 — natural word for 64-bit CPUs
+	memRandProbes = 10_000_000      // pointer-chase probes for latency test
+	memAllocDur   = 3 * time.Second // duration for allocation throughput test
+	memAllocSzB   = 64              // bytes per allocation (small object, like a trie node)
 )
 
 // MemoryResult holds all memory subsystem performance metrics.

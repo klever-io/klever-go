@@ -19,7 +19,7 @@ var appVersion = "dev"
 func main() {
 	var (
 		// Goroutine benchmark
-		maxWorkers      = flag.Int("goroutines", runtime.NumCPU()*4, "Maximum number of concurrent goroutines to test")
+		maxWorkers       = flag.Int("goroutines", runtime.NumCPU()*4, "Maximum number of concurrent goroutines to test")
 		levelDurationSec = flag.Int("duration", 3, "Duration in seconds for each concurrency level")
 
 		// Disk I/O benchmark

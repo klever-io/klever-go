@@ -30,8 +30,8 @@ import (
 )
 
 const (
-	kvNumKeys       = 100_000        // keys pre-loaded before read/mixed tests
-	kvValueSize     = 256            // bytes per value (avg account/state entry)
+	kvNumKeys       = 100_000 // keys pre-loaded before read/mixed tests
+	kvValueSize     = 256     // bytes per value (avg account/state entry)
 	kvBenchDuration = 3 * time.Second
 )
 

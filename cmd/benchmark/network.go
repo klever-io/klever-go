@@ -22,16 +22,16 @@ import (
 )
 
 const (
-	netPingOps     = 1_000      // round-trips for the latency test
-	netStreamMB    = 128        // MB of data for the throughput test
-	netStreamBlock = 64 * 1024  // 64 KB send buffer
+	netPingOps     = 1_000     // round-trips for the latency test
+	netStreamMB    = 128       // MB of data for the throughput test
+	netStreamBlock = 64 * 1024 // 64 KB send buffer
 )
 
 // NetworkResult holds all TCP loopback performance metrics.
 type NetworkResult struct {
-	LatP50        time.Duration // median round-trip time
-	LatP99        time.Duration // 99th-percentile round-trip time
-	ThroughputMBps float64      // streaming throughput in MB/s (receiver-side)
+	LatP50         time.Duration // median round-trip time
+	LatP99         time.Duration // 99th-percentile round-trip time
+	ThroughputMBps float64       // streaming throughput in MB/s (receiver-side)
 }
 
 // RunNetworkBenchmark executes the latency and throughput sub-benchmarks.
