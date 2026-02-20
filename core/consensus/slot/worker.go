@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bugsnag/bugsnag-go/v2"
@@ -77,7 +78,10 @@ type Worker struct {
 	consensusMessageValidator *consensusMessageValidator
 	nodeRedundancyHandler     consensus.NodeRedundancyHandler
 
-	consensusMonitorList []string
+	consensusMonitorList         []string
+	lastNetworkDegradedAlertSlot int64
+	networkDegradedThreshold     uint32
+	networkDegradedCooldownSlots uint32
 }
 
 // WorkerArgs holds the consensus worker arguments
@@ -105,6 +109,9 @@ type WorkerArgs struct {
 	PublicKeySize            int
 	NodeRedundancyHandler    consensus.NodeRedundancyHandler
 	ConsensusMonitorList     []string
+
+	NetworkDegradedThreshold     uint32
+	NetworkDegradedCooldownSlots uint32
 }
 
 // NewWorker creates a new Worker object
@@ -151,6 +158,9 @@ func NewWorker(args *WorkerArgs) (*Worker, error) {
 		onRequestTransactionTo:   args.OnRequestTransactionTo,
 		nodeRedundancyHandler:    args.NodeRedundancyHandler,
 		consensusMonitorList:     args.ConsensusMonitorList,
+
+		networkDegradedThreshold:     args.NetworkDegradedThreshold,
+		networkDegradedCooldownSlots: args.NetworkDegradedCooldownSlots,
 	}
 
 	wrk.consensusMessageValidator = consensusMessageValidatorObj
@@ -709,6 +719,7 @@ func (wrk *Worker) DisplayStatistics() {
 				"info", reportErr.Error(),
 			)
 
+			wrk.reportNetworkDegraded(leader, consensusMessages)
 			wrk.reportValidatorFail(leader, consensusMessages)
 		}
 
@@ -742,6 +753,48 @@ func (wrk *Worker) checkInMonitorList(validator string) bool {
 	return false
 }
 
+func (wrk *Worker) reportNetworkDegraded(leader string, consensusMessages []*consensus.Message) {
+	// if threshold is 0, alerting is disabled
+	if wrk.networkDegradedThreshold == 0 {
+		return
+	}
+
+	expectedSignatures := wrk.consensusState.consensusGroupSize - 1
+	failedCount := expectedSignatures - len(consensusMessages)
+
+	// alert if at least networkDegradedThreshold validators failed
+	if failedCount < int(wrk.networkDegradedThreshold) {
+		return
+	}
+	// check cooldown
+	currentSlot := wrk.slotManager.Index()
+
+	if currentSlot-atomic.LoadInt64(&wrk.lastNetworkDegradedAlertSlot) < int64(wrk.networkDegradedCooldownSlots) {
+		return
+	}
+
+	atomic.StoreInt64(&wrk.lastNetworkDegradedAlertSlot, currentSlot)
+
+	log.Warn("network degraded alert",
+		"failedCount", failedCount,
+		"signaturesCount", len(consensusMessages),
+		"expectedSigs", expectedSignatures,
+		"slot", currentSlot,
+	)
+
+	_ = bugsnag.Notify(fmt.Errorf("network degraded"), bugsnag.MetaData{
+		"network": {
+			"failedCount":     failedCount,
+			"signaturesCount": len(consensusMessages),
+			"expectedSigs":    expectedSignatures,
+			"consensusSize":   wrk.consensusState.consensusGroupSize,
+			"slot":            currentSlot,
+			"threshold":       wrk.networkDegradedThreshold,
+			"leader":          hex.EncodeToString([]byte(leader)),
+		},
+	})
+}
+
 func (wrk *Worker) reportValidatorFail(leader string, consensusMessages []*consensus.Message) {
 	// only compile data if node has validator report fail list
 	if len(wrk.consensusMonitorList) == 0 {
@@ -767,7 +820,6 @@ func (wrk *Worker) reportValidatorFail(leader string, consensusMessages []*conse
 		}
 		failList = append(failList, validatorHex)
 	}
-
 	if len(failList) > 0 {
 		_ = bugsnag.Notify(fmt.Errorf("small consensus quorum"), bugsnag.MetaData{
 			"consensus": {

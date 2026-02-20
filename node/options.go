@@ -802,6 +802,24 @@ func WithConsensusMonitorList(list []string) Option {
 	}
 }
 
+// WithConsensusMonitoring sets the consensus monitoring configuration
+func WithConsensusMonitoring(cfg *config.ConsensusMonitoringConfig) Option {
+	return func(n *Node) error {
+		// if nil, monitoring is disabled
+		if cfg == nil || cfg.NetworkDegradedThreshold == 0 {
+			n.networkDegradedThreshold = 0
+			n.networkDegradedCooldownSlots = 0
+			return nil
+		}
+
+		n.networkDegradedThreshold = cfg.NetworkDegradedThreshold
+		if cfg.NetworkDegradedCooldownSlots > 0 {
+			n.networkDegradedCooldownSlots = cfg.NetworkDegradedCooldownSlots
+		}
+		return nil
+	}
+}
+
 // WithSyncUntil sets epochs to end config info
 func WithSyncUntil(syncUntil uint32) Option {
 	return func(n *Node) error {

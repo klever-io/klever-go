@@ -182,6 +182,7 @@ func createNode(
 		node.WithEnableEpochsConfig(enableEpochsConfig),
 		node.WithForkController(process.ForkController),
 		node.WithConsensusMonitorList(config.ConsensusMonitorList),
+		node.WithConsensusMonitoring(config.ConsensusMonitoring),
 		node.WithSyncUntil(syncUntil),
 		node.WithStartInSync(startWithInSync),
 	)

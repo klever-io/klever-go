@@ -349,6 +349,119 @@ func createNodeWithKAppController(t *testing.T, accAdapter *mock.AccountsStub, k
 	})
 }
 
+func TestWithConsensusMonitoring(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil config disables monitoring", func(t *testing.T) {
+		t.Parallel()
+
+		n, err := createNode(t)
+		require.NoError(t, err)
+
+		err = n.ApplyOptions(node.WithConsensusMonitoring(nil))
+		require.NoError(t, err)
+		assert.Equal(t, uint32(0), n.GetNetworkDegradedThreshold())
+		assert.Equal(t, uint32(0), n.GetNetworkDegradedCooldownSlots())
+	})
+
+	t.Run("zero threshold disables monitoring", func(t *testing.T) {
+		t.Parallel()
+
+		n, err := createNode(t)
+		require.NoError(t, err)
+
+		cfg := &config.ConsensusMonitoringConfig{
+			NetworkDegradedThreshold:     0,
+			NetworkDegradedCooldownSlots: 10,
+		}
+
+		err = n.ApplyOptions(node.WithConsensusMonitoring(cfg))
+		require.NoError(t, err)
+		assert.Equal(t, uint32(0), n.GetNetworkDegradedThreshold())
+		assert.Equal(t, uint32(0), n.GetNetworkDegradedCooldownSlots())
+	})
+
+	t.Run("valid config sets threshold and cooldown", func(t *testing.T) {
+		t.Parallel()
+
+		n, err := createNode(t)
+		require.NoError(t, err)
+
+		cfg := &config.ConsensusMonitoringConfig{
+			NetworkDegradedThreshold:     3,
+			NetworkDegradedCooldownSlots: 15,
+		}
+
+		err = n.ApplyOptions(node.WithConsensusMonitoring(cfg))
+		require.NoError(t, err)
+		assert.Equal(t, uint32(3), n.GetNetworkDegradedThreshold())
+		assert.Equal(t, uint32(15), n.GetNetworkDegradedCooldownSlots())
+	})
+
+	t.Run("valid config via NewNode sets threshold and cooldown", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &config.ConsensusMonitoringConfig{
+			NetworkDegradedThreshold:     5,
+			NetworkDegradedCooldownSlots: 20,
+		}
+
+		accAdapter := getAccAdapter(100)
+		uint64Converter := mock.NewNonceHashConverterMock()
+		storerMock := mock.NewStorerMock("", 0)
+		dataPool := &mock.PoolsHolderStub{
+			TransactionsCalled: func() retriever.ShardedDataCacherNotifier {
+				return &mock.ShardedDataStub{}
+			},
+		}
+		keyGen := &cryptoMock.KeyGenMock{
+			PublicKeyFromByteArrayMock: func(b []byte) (crypto.PublicKey, error) {
+				return nil, nil
+			},
+		}
+		epochNotifier := &mock.EpochNotifierStub{}
+		forkController, _ := fork.NewForkController(config.EnableEpochs{}, epochNotifier)
+		proposalController, _ := kapps.NewProposalController(forkController)
+		kappController := getKAppController(t, accAdapter)
+
+		n, err := node.NewNode(
+			node.WithDataPool(dataPool),
+			node.WithInternalMarshalizer(getMarshalizer()),
+			node.WithTxSignMarshalizer(getMarshalizer()),
+			node.WithDataStore(&mock.ChainStorerMock{
+				GetCalled: func(unitType retriever.UnitType, key []byte) ([]byte, error) {
+					return storerMock.Get(key)
+				},
+				GetStorerCalled: func(unitType retriever.UnitType) storage.Storer {
+					return storerMock
+				},
+			}),
+			node.WithUint64ByteSliceConverter(uint64Converter),
+			node.WithAddressPubkeyConverter(createMockPubkeyConverter()),
+			node.WithValidatorPubkeyConverter(createMockPubkeyConverter()),
+			node.WithAccountsAdapter(accAdapter),
+			node.WithWhiteListHandler(&mock.WhiteListHandlerStub{}),
+			node.WithWhiteListHandlerVerified(&mock.WhiteListHandlerStub{}),
+			node.WithHasher(getHasher()),
+			node.WithTxSignHasher(getHasher()),
+			node.WithKeyGen(createKeyGenMock()),
+			node.WithKeyGenForAccounts(keyGen),
+			node.WithTxFeeHandler(&mock.FeeHandlerStub{}),
+			node.WithSingleSigner(&cryptoMock.SignerMock{}),
+			node.WithTxSingleSigner(&disabledSig.DisabledSingleSig{}),
+			node.WithChainID(chainID),
+			node.WithProposalController(proposalController),
+			node.WithKAppController(kappController),
+			node.WithForkController(forkController),
+			node.WithConsensusMonitoring(cfg),
+		)
+
+		require.NoError(t, err)
+		assert.Equal(t, uint32(5), n.GetNetworkDegradedThreshold())
+		assert.Equal(t, uint32(20), n.GetNetworkDegradedCooldownSlots())
+	})
+}
+
 func TestCreateTransaction_ShouldWork(t *testing.T) {
 	t.Parallel()
 

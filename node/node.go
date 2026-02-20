@@ -172,7 +172,9 @@ type Node struct {
 	forkController     core.ForkController
 	enableEpochsConfig config.EnableEpochsConfig
 
-	consensusMonitorList []string
+	consensusMonitorList         []string
+	networkDegradedThreshold     uint32
+	networkDegradedCooldownSlots uint32
 
 	// For Backtest Purpose
 	syncUntil uint32
@@ -192,11 +194,13 @@ func (n *Node) ApplyOptions(opts ...Option) error {
 // NewNode creates a new Node instance
 func NewNode(opts ...Option) (*Node, error) {
 	node := &Node{
-		ctx:                      context.Background(),
-		currentSendingGoRoutines: 0,
-		appStatusHandler:         statusHandler.NewNilStatusHandler(),
-		queryHandlers:            make(map[string]debug.QueryHandler),
-		consensusMonitorList:     make([]string, 0),
+		ctx:                          context.Background(),
+		currentSendingGoRoutines:     0,
+		appStatusHandler:             statusHandler.NewNilStatusHandler(),
+		queryHandlers:                make(map[string]debug.QueryHandler),
+		consensusMonitorList:         make([]string, 0),
+		networkDegradedThreshold:     0,
+		networkDegradedCooldownSlots: 15,
 	}
 	for _, opt := range opts {
 		err := opt(node)
@@ -397,6 +401,9 @@ func (n *Node) StartConsensus() error {
 		PublicKeySize:            n.publicKeySize,
 		NodeRedundancyHandler:    n.nodeRedundancyHandler,
 		ConsensusMonitorList:     n.consensusMonitorList,
+
+		NetworkDegradedThreshold:     n.networkDegradedThreshold,
+		NetworkDegradedCooldownSlots: n.networkDegradedCooldownSlots,
 	}
 
 	worker, err := slot.NewWorker(workerArgs)
