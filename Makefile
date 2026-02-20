@@ -115,9 +115,6 @@ build-keygenerator: ## Build key generator binary
 build-benchmark: ## Build validator benchmark tool
 	$(GOBUILD) -o -ldflags="$(ldflags)" -o ./bin/benchmark ./cmd/benchmark
 
-benchmark: ## Run full validator benchmark (goroutine + disk). Override with ARGS="--duration 2 --disk-size 128"
-	$(GOCMD) run -ldflags="$(ldflags)" ./cmd/benchmark $(ARGS)
-
 clean: ## Remove build artifacts and caches
 	@echo "Cleaning build artifacts..."
 	@rm -rf ./bin/
@@ -195,3 +192,6 @@ tests-e2e: ## Run end-to-end tests
 
 connector: ## Run terminal UI connector
 	go run ./cmd/connector/main.go node --address="${NODE}" --log-level="${LOG}"
+
+benchmark: ## Run full validator benchmark
+	$(GOCMD) run -ldflags="$(ldflags)" ./cmd/benchmark $(ARGS)

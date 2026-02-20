@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -22,7 +23,7 @@ func main() {
 		levelDurationSec = flag.Int("duration", 3, "Duration in seconds for each concurrency level")
 
 		// Disk I/O benchmark
-		diskDir  = flag.String("disk-dir", os.TempDir(), "Directory to use for disk I/O tests")
+		diskDir  = flag.String("disk-dir", "", "Directory to use for disk I/O tests (default: auto temp dir inside the project)")
 		diskSize = flag.Int("disk-size", 256, "Size in MB for sequential read/write test")
 
 		// Control
@@ -56,6 +57,23 @@ func main() {
 	if *diskSize < 1 {
 		fmt.Fprintln(os.Stderr, "error: --disk-size must be >= 1")
 		os.Exit(1)
+	}
+
+	// If no disk dir was specified, create a temp dir inside the project and
+	// remove it automatically when the benchmark finishes.
+	if *diskDir == "" {
+		execPath, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error resolving executable path: %v\n", err)
+			os.Exit(1)
+		}
+		tmp, err := os.MkdirTemp(filepath.Dir(execPath), "bench-")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error creating temp dir: %v\n", err)
+			os.Exit(1)
+		}
+		defer os.RemoveAll(tmp)
+		*diskDir = tmp
 	}
 	if *outputFmt != "text" && *outputFmt != "json" {
 		fmt.Fprintln(os.Stderr, "error: --output must be 'text' or 'json'")
