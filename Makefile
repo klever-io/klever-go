@@ -113,9 +113,8 @@ build-keygenerator: ## Build key generator binary
 	$(GOBUILD) -o ./bin/keygenerator ./cmd/keygenerator
 
 build-benchmark: ## Build validator benchmark tool
-	$(GOCMD) build -ldflags="$(ldflags)" -o ./bin/benchmark ./cmd/benchmark
+	$(GOBUILD) -o -ldflags="$(ldflags)" -o ./bin/benchmark ./cmd/benchmark
 
-.PHONY: benchmark benchmark-goroutine benchmark-disk
 benchmark: ## Run full validator benchmark (goroutine + disk). Override with ARGS="--duration 2 --disk-size 128"
 	$(GOCMD) run -ldflags="$(ldflags)" ./cmd/benchmark $(ARGS)
 
