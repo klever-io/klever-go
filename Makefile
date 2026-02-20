@@ -97,8 +97,8 @@ newkey: ## Generate new validator keys
 ###         BUILD        ###
 ############################
 
-.PHONY: build build-validator build-seednode build-operator build-keygenerator docker-build clean
-build: build-validator build-seednode build-operator build-keygenerator ## Build all binaries
+.PHONY: build build-validator build-seednode build-operator build-keygenerator build-benchmark docker-build clean
+build: build-validator build-seednode build-operator build-keygenerator build-benchmark ## Build all binaries
 
 build-validator: ## Build validator node binary
 	$(GOBUILD) -o ./bin/validator ./cmd/node
@@ -111,6 +111,13 @@ build-operator: ## Build operator tools binary
 
 build-keygenerator: ## Build key generator binary
 	$(GOBUILD) -o ./bin/keygenerator ./cmd/keygenerator
+
+build-benchmark: ## Build validator benchmark tool
+	$(GOCMD) build -ldflags="$(ldflags)" -o ./bin/benchmark ./cmd/benchmark
+
+.PHONY: benchmark benchmark-goroutine benchmark-disk
+benchmark: ## Run full validator benchmark (goroutine + disk). Override with ARGS="--duration 2 --disk-size 128"
+	$(GOCMD) run -ldflags="$(ldflags)" ./cmd/benchmark $(ARGS)
 
 clean: ## Remove build artifacts and caches
 	@echo "Cleaning build artifacts..."
