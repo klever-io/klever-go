@@ -170,7 +170,7 @@ runsc-trace:
 ###  Integration Tests   ###
 ############################
 
-.PHONY: tests tests-unit tests-integration tests-kvm tests-e2e
+.PHONY: tests tests-unit tests-integration tests-kvm tests-e2e benchmark
 tests: tests-unit tests-integration tests-kvm tests-e2e ## Run all tests
 
 tests-unit: ## Run unit tests
