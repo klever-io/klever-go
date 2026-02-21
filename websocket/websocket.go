@@ -1,6 +1,5 @@
 package websocket
 
-import "C"
 import (
 	"context"
 	"encoding/json"
@@ -16,23 +15,34 @@ import (
 
 var log = logger.GetOrCreate("websocket")
 
+const (
+	errInvalidParams    = "invalid params: "
+	errInvalidSubType   = "invalid subscription type: "
+	errFacadeUnavail    = "query not supported: facade unavailable"
+	errUnknownMethod    = "unknown method: "
+	errMissingHash      = "missing required param: hash"
+	errMissingNonceHash = "must provide nonce or hash"
+	errTxNotFound       = "transaction not found"
+	errBlockNotFound    = "block not found"
+)
+
 type userOptions struct {
 	acceptAccount     bool
 	acceptTransaction bool
 }
 
 type SocketHub struct {
-	mu                      sync.Mutex
+	mu                      sync.RWMutex
 	postConnectionURL       string
 	postConnectionAPIKey    string
+	facade                  WSFacade
 	blockSubscription       map[*client]struct{}
 	transactionSubscription map[*client]struct{}
 	addressSubscription     map[string]map[*client]userOptions
 	unregister              chan *client
 }
 
-// NewHub create a hub to manage new websocket connection
-func NewHub(postConnectionURL, postConnectionAPIKey string) *SocketHub {
+func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade) *SocketHub {
 	return &SocketHub{
 		unregister:              make(chan *client),
 		addressSubscription:     make(map[string]map[*client]userOptions),
@@ -40,10 +50,63 @@ func NewHub(postConnectionURL, postConnectionAPIKey string) *SocketHub {
 		transactionSubscription: make(map[*client]struct{}),
 		postConnectionURL:       postConnectionURL,
 		postConnectionAPIKey:    postConnectionAPIKey,
+		facade:                  facade,
 	}
 }
 
-// StartServer start the hub to receive clients and send messages
+func (h *SocketHub) asyncPost(parsed *Send) {
+	go func() {
+		if err := h.postWSConnection(parsed); err != nil {
+			log.Warn("ws.EventReceive.postWSConnection", "failed to post", err.Error())
+		}
+	}()
+}
+
+func (h *SocketHub) notifyAddressSubscribers(address string, parsed *Send, filterFn func(userOptions) bool) {
+	h.mu.RLock()
+	original, ok := h.addressSubscription[address]
+	if !ok {
+		h.mu.RUnlock()
+		return
+	}
+	snapshot := make(map[*client]userOptions, len(original))
+	for c, opts := range original {
+		snapshot[c] = opts
+	}
+	h.mu.RUnlock()
+
+	for c, opts := range snapshot {
+		if c.IsAlive() && filterFn(opts) {
+			c.send(parsed)
+		}
+	}
+}
+
+func (h *SocketHub) broadcastToSubscription(parsed *Send, subscription map[*client]struct{}) {
+	h.mu.RLock()
+	snapshot := make([]*client, 0, len(subscription))
+	for c := range subscription {
+		snapshot = append(snapshot, c)
+	}
+	h.mu.RUnlock()
+
+	for _, c := range snapshot {
+		if c.IsAlive() {
+			c.send(parsed)
+		}
+	}
+}
+
+func (h *SocketHub) marshalAndPost(evType indexer.EventType, address, hash string, message interface{}) *Send {
+	parsed, err := marshalMessage(evType, address, hash, message)
+	if err != nil {
+		log.Error("ws.EventReceive", "cannot marshal message", err.Error())
+		return nil
+	}
+	h.asyncPost(parsed)
+	return parsed
+}
+
 func (h *SocketHub) StartServer(ctx context.Context) {
 	for {
 		select {
@@ -54,155 +117,88 @@ func (h *SocketHub) StartServer(ctx context.Context) {
 		case client := <-h.unregister:
 			h.handleClientDelete(client)
 		case event := <-indexer.EventQueue:
+			h.mu.RLock()
+			blockCount, txCount := len(h.blockSubscription), len(h.transactionSubscription)
+			h.mu.RUnlock()
+			log.Debug("ws.EventReceived", "type", string(event.EvType), "blockSubs", blockCount, "txSubs", txCount)
 			switch event.EvType {
 			case indexer.ACCOUNTS:
-				accounts := event.Message.(map[string]*data.AccountInfo)
-				for account, info := range accounts {
-					parsed, err := marshalMessage(event.EvType, account, "", info)
-					if err != nil {
-						log.Error("ws.EventReceive", "cannot marshal message", err.Error())
-						continue
-					}
-
-					go func() {
-						if err := h.postWSConnection(parsed); err != nil {
-							log.Warn("ws.EventReceive.postWSConnection", "failed to post", err.Error())
-						}
-					}()
-
-					clients, ok := h.addressSubscription[account]
-					if !ok {
-						continue
-					}
-
-					for c, opts := range clients {
-						if c.IsAlive() && opts.acceptAccount {
-							c.out <- parsed
-						}
-					}
-				}
-			case indexer.USER_TRANSACTION:
-				transactions := event.Message.([]*data.Transaction)
-				for _, tx := range transactions {
-					var wg sync.WaitGroup
-					wg.Add(3)
-					go func() {
-						defer wg.Done()
-						parsed, err := marshalMessage(event.EvType, tx.Sender, "", tx)
-						if err != nil {
-							log.Error("ws.EventReceive", "cannot marshal message", err.Error())
-							return
-						}
-
-						go func() {
-							if err := h.postWSConnection(parsed); err != nil {
-								log.Warn("ws.EventReceive.postWSConnection", "failed to post", err.Error())
-							}
-						}()
-
-						clients, ok := h.addressSubscription[tx.Sender]
-						if !ok {
-							return
-						}
-
-						for c, opts := range clients {
-							if c.IsAlive() && opts.acceptTransaction {
-								c.out <- parsed
-							}
-						}
-					}()
-					go func(tx *data.Transaction) {
-						defer wg.Done()
-						for _, receipts := range tx.Receipts {
-							to := receipts["to"]
-							if to == nil {
-								continue
-							}
-
-							address := to.(string)
-
-							parsed, err := marshalMessage(event.EvType, address, "", tx)
-							if err != nil {
-								log.Error("ws.EventReceive", "cannot marshal message", err.Error())
-								return
-							}
-
-							go func() {
-								if err := h.postWSConnection(parsed); err != nil {
-									log.Warn("ws.EventReceive.postWSConnection", "failed to post", err.Error())
-								}
-							}()
-
-							clients, ok := h.addressSubscription[address]
-							if !ok {
-								continue
-							}
-
-							for c, opts := range clients {
-								if c.IsAlive() && opts.acceptTransaction {
-									c.out <- parsed
-								}
-							}
-						}
-					}(tx)
-					go func() {
-						defer wg.Done()
-						parsed, err := marshalMessage(event.EvType, "", tx.Hash, tx)
-						if err != nil {
-							log.Error("ws.EventReceive", "cannot marshal message", err.Error())
-							return
-						}
-
-						go func() {
-							if err := h.postWSConnection(parsed); err != nil {
-								log.Warn("ws.EventReceive.postWSConnection", "failed to post", err.Error())
-							}
-						}()
-					}()
-
-					wg.Wait()
-				}
-			case indexer.TRANSACTION:
-				parsed, err := marshalMessage(event.EvType, "", "", event.Message)
-				if err != nil {
-					log.Error("ws.EventReceive", "cannot marshal message", err.Error())
-					continue
-				}
-
-				go func() {
-					if err := h.postWSConnection(parsed); err != nil {
-						log.Warn("ws.EventReceive.postWSConnection", "failed to post", err.Error())
-					}
-				}()
-
-				clients := h.transactionSubscription
-				for c := range clients {
-					if c.IsAlive() {
-						c.out <- parsed
-					}
-				}
+				h.handleAccountsEvent(event)
+			case indexer.USER_TRANSACTIONS:
+				h.handleUserTransactionEvent(event)
+			case indexer.TRANSACTIONS:
+				h.handleBroadcastEvent(event, h.transactionSubscription)
 			default:
-				parsed, err := marshalMessage(event.EvType, "", "", event.Message)
-				if err != nil {
-					log.Error("ws.EventReceive", "cannot marshal message", err.Error())
-					continue
-				}
-
-				go func() {
-					if err := h.postWSConnection(parsed); err != nil {
-						log.Warn("ws.EventReceive.postWSConnection", "failed to post", err.Error())
-					}
-				}()
-
-				clients := h.blockSubscription
-				for c := range clients {
-					if c.IsAlive() {
-						c.out <- parsed
-					}
-				}
+				h.handleBroadcastEvent(event, h.blockSubscription)
 			}
 		}
 	}
+}
+
+func (h *SocketHub) handleAccountsEvent(event indexer.Event) {
+	accounts := event.Message.(map[string]*data.AccountInfo)
+	acceptAccount := func(opts userOptions) bool { return opts.acceptAccount }
+	for account, info := range accounts {
+		parsed := h.marshalAndPost(event.EvType, account, "", info)
+		if parsed == nil {
+			continue
+		}
+		h.notifyAddressSubscribers(account, parsed, acceptAccount)
+	}
+}
+
+func (h *SocketHub) handleUserTransactionEvent(event indexer.Event) {
+	transactions := event.Message.([]*data.Transaction)
+	acceptTx := func(opts userOptions) bool { return opts.acceptTransaction }
+	for _, tx := range transactions {
+		var wg sync.WaitGroup
+		wg.Add(3)
+		go h.notifyTxSender(&wg, event.EvType, tx, acceptTx)
+		go h.notifyTxReceipts(&wg, event.EvType, tx, acceptTx)
+		go h.postTxHash(&wg, event.EvType, tx)
+		wg.Wait()
+	}
+}
+
+func (h *SocketHub) notifyTxSender(wg *sync.WaitGroup, evType indexer.EventType, tx *data.Transaction, acceptTx func(userOptions) bool) {
+	defer wg.Done()
+	parsed := h.marshalAndPost(evType, tx.Sender, "", tx)
+	if parsed == nil {
+		return
+	}
+	h.notifyAddressSubscribers(tx.Sender, parsed, acceptTx)
+}
+
+func (h *SocketHub) notifyTxReceipts(wg *sync.WaitGroup, evType indexer.EventType, tx *data.Transaction, acceptTx func(userOptions) bool) {
+	defer wg.Done()
+	for _, receipts := range tx.Receipts {
+		to := receipts["to"]
+		if to == nil {
+			continue
+		}
+		address, ok := to.(string)
+		if !ok {
+			continue
+		}
+		parsed := h.marshalAndPost(evType, address, "", tx)
+		if parsed == nil {
+			continue
+		}
+		h.notifyAddressSubscribers(address, parsed, acceptTx)
+	}
+}
+
+func (h *SocketHub) postTxHash(wg *sync.WaitGroup, evType indexer.EventType, tx *data.Transaction) {
+	defer wg.Done()
+	h.marshalAndPost(evType, "", tx.Hash, tx)
+}
+
+func (h *SocketHub) handleBroadcastEvent(event indexer.Event, subscription map[*client]struct{}) {
+	parsed := h.marshalAndPost(event.EvType, "", "", event.Message)
+	if parsed == nil {
+		return
+	}
+	h.broadcastToSubscription(parsed, subscription)
 }
 
 func (h *SocketHub) postWSConnection(message *Send) error {
@@ -222,7 +218,7 @@ type Send struct {
 	Type    indexer.EventType `json:"type"`
 	Address string            `json:"address"`
 	Hash    string            `json:"hash"`
-	Data    []byte            `json:"data"`
+	Data    json.RawMessage   `json:"data"`
 }
 
 func marshalMessage(evType indexer.EventType, address string, hash string, message interface{}) (*Send, error) {
@@ -267,9 +263,9 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 		switch types {
 		case indexer.BLOCKS:
 			h.blockSubscription[c] = struct{}{}
-		case indexer.TRANSACTION:
+		case indexer.TRANSACTIONS:
 			h.transactionSubscription[c] = struct{}{}
-		case indexer.USER_TRANSACTION:
+		case indexer.USER_TRANSACTIONS:
 			acceptTransactions = true
 		case indexer.ACCOUNTS:
 			acceptAccounts = true
@@ -282,12 +278,23 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 		}
 
 		value := h.addressSubscription[address]
-		value[c] = userOptions{
-			acceptAccount:     acceptAccounts,
-			acceptTransaction: acceptTransactions,
+		existing := value[c]
+		if acceptAccounts {
+			existing.acceptAccount = true
 		}
+		if acceptTransactions {
+			existing.acceptTransaction = true
+		}
+		value[c] = existing
 
 		h.addressSubscription[address] = value
+	}
+}
+
+func closeAndClear(subscription map[*client]struct{}) {
+	for c := range subscription {
+		c.close()
+		delete(subscription, c)
 	}
 }
 
@@ -302,21 +309,8 @@ func (h *SocketHub) deleteAll() {
 		}
 	}
 
-	for client := range h.blockSubscription {
-		if client.alive {
-			client.close()
-		}
-
-		delete(h.blockSubscription, client)
-	}
-
-	for client := range h.transactionSubscription {
-		if client.alive {
-			client.close()
-		}
-
-		delete(h.transactionSubscription, client)
-	}
+	closeAndClear(h.blockSubscription)
+	closeAndClear(h.transactionSubscription)
 }
 
 func (h *SocketHub) handleClientDelete(c *client) {
@@ -332,5 +326,178 @@ func (h *SocketHub) handleClientDelete(c *client) {
 				delete(clients, c)
 			}
 		}
+	}
+}
+
+func (h *SocketHub) HandleClientRequest(c *client, req WSRequest) {
+	switch req.Method {
+	case MethodGetTransaction:
+		h.handleGetTransaction(c, req)
+	case MethodGetBlock:
+		h.handleGetBlock(c, req)
+	case MethodSubscribe:
+		h.handleDynamicSubscribe(c, req)
+	case MethodUnsubscribe:
+		h.handleDynamicUnsubscribe(c, req)
+	default:
+		c.send(WSResponse{ID: req.ID, Error: errUnknownMethod + req.Method})
+	}
+}
+
+func (h *SocketHub) handleGetTransaction(c *client, req WSRequest) {
+	if h.facade == nil {
+		c.send(WSResponse{ID: req.ID, Error: errFacadeUnavail})
+		return
+	}
+
+	var params GetTransactionParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		c.send(WSResponse{ID: req.ID, Error: errInvalidParams + err.Error()})
+		return
+	}
+
+	if params.Hash == "" {
+		c.send(WSResponse{ID: req.ID, Error: errMissingHash})
+		return
+	}
+
+	tx, err := h.facade.GetTransaction(params.Hash, params.WithResults)
+	if err != nil {
+		log.Warn("ws.handleGetTransaction", "hash", params.Hash, "err", err.Error())
+		c.send(WSResponse{ID: req.ID, Error: errTxNotFound})
+		return
+	}
+
+	c.send(WSResponse{ID: req.ID, Data: tx})
+}
+
+func (h *SocketHub) handleGetBlock(c *client, req WSRequest) {
+	if h.facade == nil {
+		c.send(WSResponse{ID: req.ID, Error: errFacadeUnavail})
+		return
+	}
+
+	var params GetBlockParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		c.send(WSResponse{ID: req.ID, Error: errInvalidParams + err.Error()})
+		return
+	}
+
+	if params.Nonce == nil && params.Hash == "" {
+		c.send(WSResponse{ID: req.ID, Error: errMissingNonceHash})
+		return
+	}
+
+	if params.Nonce != nil {
+		blk, err := h.facade.GetBlockByNonce(*params.Nonce, params.WithTxs)
+		if err != nil {
+			log.Warn("ws.handleGetBlock", "nonce", *params.Nonce, "err", err.Error())
+			c.send(WSResponse{ID: req.ID, Error: errBlockNotFound})
+			return
+		}
+		c.send(WSResponse{ID: req.ID, Data: blk})
+		return
+	}
+
+	blk, err := h.facade.GetBlockByHash(params.Hash, params.WithTxs)
+	if err != nil {
+		log.Warn("ws.handleGetBlock", "hash", params.Hash, "err", err.Error())
+		c.send(WSResponse{ID: req.ID, Error: errBlockNotFound})
+		return
+	}
+	c.send(WSResponse{ID: req.ID, Data: blk})
+}
+
+func parseStrictEventTypes(c *client, reqID string, types []string) ([]indexer.EventType, bool) {
+	var eventTypes []indexer.EventType
+	for _, t := range types {
+		parsed, err := indexer.NewEventTypeStrict(t)
+		if err != nil {
+			c.send(WSResponse{ID: reqID, Error: errInvalidSubType + t})
+			return nil, false
+		}
+		eventTypes = append(eventTypes, parsed)
+	}
+	return eventTypes, true
+}
+
+func (h *SocketHub) handleDynamicSubscribe(c *client, req WSRequest) {
+	var params SubscribeParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		c.send(WSResponse{ID: req.ID, Error: errInvalidParams + err.Error()})
+		return
+	}
+
+	eventTypes, ok := parseStrictEventTypes(c, req.ID, params.Types)
+	if !ok {
+		return
+	}
+
+	h.HandleClientInsertion(eventTypes, params.Addresses, c)
+	c.send(WSResponse{ID: req.ID, Data: "subscribed"})
+}
+
+func (h *SocketHub) handleDynamicUnsubscribe(c *client, req WSRequest) {
+	var params UnsubscribeParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		c.send(WSResponse{ID: req.ID, Error: errInvalidParams + err.Error()})
+		return
+	}
+
+	eventTypes, ok := parseStrictEventTypes(c, req.ID, params.Types)
+	if !ok {
+		return
+	}
+
+	h.HandleClientRemoval(eventTypes, params.Addresses, c)
+	c.send(WSResponse{ID: req.ID, Data: "unsubscribed"})
+}
+
+func (h *SocketHub) HandleClientRemoval(eventTypes []indexer.EventType, addresses []string, c *client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	var removeAccounts bool
+	var removeTransactions bool
+	for _, t := range eventTypes {
+		switch t {
+		case indexer.BLOCKS:
+			delete(h.blockSubscription, c)
+		case indexer.TRANSACTIONS:
+			delete(h.transactionSubscription, c)
+		case indexer.ACCOUNTS:
+			removeAccounts = true
+		case indexer.USER_TRANSACTIONS:
+			removeTransactions = true
+		}
+	}
+
+	for _, addr := range addresses {
+		h.removeClientFromAddress(addr, c, removeAccounts, removeTransactions)
+	}
+}
+
+func (h *SocketHub) removeClientFromAddress(addr string, c *client, removeAccounts, removeTransactions bool) {
+	clients, ok := h.addressSubscription[addr]
+	if !ok {
+		return
+	}
+	existing, ok := clients[c]
+	if !ok {
+		return
+	}
+	if removeAccounts {
+		existing.acceptAccount = false
+	}
+	if removeTransactions {
+		existing.acceptTransaction = false
+	}
+	if !existing.acceptAccount && !existing.acceptTransaction {
+		delete(clients, c)
+	} else {
+		clients[c] = existing
+	}
+	if len(clients) == 0 {
+		delete(h.addressSubscription, addr)
 	}
 }

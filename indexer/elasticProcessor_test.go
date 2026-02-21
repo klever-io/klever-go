@@ -1406,13 +1406,13 @@ func TestElasticProcessor_SaveTransactions_DispatchesEventsWhenQueueEnabled(t *t
 	require.Nil(t, err)
 
 	userTxEvent := <-testQueue
-	require.Equal(t, USER_TRANSACTION, userTxEvent.EvType)
+	require.Equal(t, USER_TRANSACTIONS, userTxEvent.EvType)
 	txs, ok := userTxEvent.Message.([]*data.Transaction)
 	require.True(t, ok)
 	require.Len(t, txs, 1)
 
 	txEvent := <-testQueue
-	require.Equal(t, TRANSACTION, txEvent.EvType)
+	require.Equal(t, TRANSACTIONS, txEvent.EvType)
 }
 
 func TestBuildAccountInfo(t *testing.T) {

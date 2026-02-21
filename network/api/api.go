@@ -98,63 +98,27 @@ func Start(ctx context.Context, kleverFacade MainAPIHandler, routesConfig config
 	return ws.Run(kleverFacade.RestAPIInterface())
 }
 
+func registerRouteGroup(ws *gin.Engine, name string, routesConfig config.APIRoutesConfig, authHandler gin.HandlerFunc, register func(*wrapper.RouterWrapper)) {
+	group := ws.Group("/" + name)
+	w, err := wrapper.NewRouterWrapper(name, group, routesConfig, authHandler)
+	if err == nil {
+		register(w)
+	}
+}
+
 // RegisterRoutes will register all routes available on the web server
 func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.APIRoutesConfig, kleverFacade middleware.Handler) {
 	authHandler := middleware.NewAuthenticationFunc(routesConfig)
 
-	nodeRoutes := ws.Group("/node")
-	wrappedNodeRouter, err := wrapper.NewRouterWrapper("node", nodeRoutes, routesConfig, authHandler)
-	if err == nil {
-		node.Routes(wrappedNodeRouter)
-	}
-
-	addressRoutes := ws.Group("/address")
-	wrappedAddressRouter, err := wrapper.NewRouterWrapper("address", addressRoutes, routesConfig, authHandler)
-	if err == nil {
-		address.Routes(wrappedAddressRouter)
-	}
-
-	networkRoutes := ws.Group("/network")
-	wrappedNetworkRoutes, err := wrapper.NewRouterWrapper("network", networkRoutes, routesConfig, authHandler)
-	if err == nil {
-		network.Routes(wrappedNetworkRoutes)
-	}
-
-	txRoutes := ws.Group("/transaction")
-	wrappedTransactionRouter, err := wrapper.NewRouterWrapper("transaction", txRoutes, routesConfig, authHandler)
-	if err == nil {
-		transaction.Routes(wrappedTransactionRouter)
-	}
-
-	validatorRoutes := ws.Group("/validator")
-	wrappedValidatorsRouter, err := wrapper.NewRouterWrapper("validator", validatorRoutes, routesConfig, authHandler)
-	if err == nil {
-		valStats.Routes(wrappedValidatorsRouter)
-	}
-
-	blockRoutes := ws.Group("/block")
-	wrappedBlockRouter, err := wrapper.NewRouterWrapper("block", blockRoutes, routesConfig, authHandler)
-	if err == nil {
-		block.Routes(wrappedBlockRouter)
-	}
-
-	assetRoutes := ws.Group("/asset")
-	wrappedAssetRouter, err := wrapper.NewRouterWrapper("asset", assetRoutes, routesConfig, authHandler)
-	if err == nil {
-		asset.Routes(wrappedAssetRouter)
-	}
-
-	marketplaceRoutes := ws.Group("/marketplace")
-	wrappedMarketplaceRouter, err := wrapper.NewRouterWrapper("marketplace", marketplaceRoutes, routesConfig, authHandler)
-	if err == nil {
-		marketplace.Routes(wrappedMarketplaceRouter)
-	}
-
-	vmRoutes := ws.Group("/vm")
-	wrappedVMRouter, err := wrapper.NewRouterWrapper("vm", vmRoutes, routesConfig, authHandler)
-	if err == nil {
-		vm.Routes(wrappedVMRouter)
-	}
+	registerRouteGroup(ws, "node", routesConfig, authHandler, node.Routes)
+	registerRouteGroup(ws, "address", routesConfig, authHandler, address.Routes)
+	registerRouteGroup(ws, "network", routesConfig, authHandler, network.Routes)
+	registerRouteGroup(ws, "transaction", routesConfig, authHandler, transaction.Routes)
+	registerRouteGroup(ws, "validator", routesConfig, authHandler, valStats.Routes)
+	registerRouteGroup(ws, "block", routesConfig, authHandler, block.Routes)
+	registerRouteGroup(ws, "asset", routesConfig, authHandler, asset.Routes)
+	registerRouteGroup(ws, "marketplace", routesConfig, authHandler, marketplace.Routes)
+	registerRouteGroup(ws, "vm", routesConfig, authHandler, vm.Routes)
 
 	apiHandler, ok := kleverFacade.(MainAPIHandler)
 	if ok && apiHandler.PprofEnabled() {
@@ -172,8 +136,13 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 			postConnUrl, postConnApiKey = apiHandler.WSConnectionURL(), apiHandler.WSConnectionAPIKey()
 		}
 
+		var wsFacade clientSocket.WSFacade
+		if f, ok := kleverFacade.(clientSocket.WSFacade); ok {
+			wsFacade = f
+		}
+
 		indexer.UseEventQueue = true
-		hub := clientSocket.NewHub(postConnUrl, postConnApiKey)
+		hub := clientSocket.NewHub(postConnUrl, postConnApiKey, wsFacade)
 		wsocket.SubscribeTopics(ws, hub)
 		go hub.StartServer(ctx)
 	}

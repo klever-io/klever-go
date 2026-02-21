@@ -16,8 +16,9 @@ import (
 
 type eventsProcessor struct {
 	*txDatabaseProcessor
-	indexer Indexer
-	parser  *dataParser
+	indexer         Indexer
+	parser          *dataParser
+	kappsController kapp.KAppController
 }
 
 func NewEventsProcessor(arguments ArgEventsProcessor) (*eventsProcessor, error) {
@@ -39,6 +40,7 @@ func NewEventsProcessor(arguments ArgEventsProcessor) (*eventsProcessor, error) 
 			hasher:      arguments.Hasher,
 			marshalizer: arguments.Marshalizer,
 		},
+		kappsController: arguments.KAppController,
 	}
 
 	return ep, nil
@@ -121,11 +123,11 @@ func (ep *eventsProcessor) processTransactionEvents(header nodeData.HeaderHandle
 	}
 
 	trySendEvent(Event{
-		EvType:  USER_TRANSACTION,
+		EvType:  USER_TRANSACTIONS,
 		Message: txs,
 	})
 	trySendEvent(Event{
-		EvType:  TRANSACTION,
+		EvType:  TRANSACTIONS,
 		Message: txs,
 	})
 }
@@ -201,7 +203,7 @@ func (ep *eventsProcessor) SaveAccounts(blockTimestamp int64, acc []dataState.Us
 				Balance:         userAccount.GetBalance(kdautils.KLVIdentifier, true),
 				FrozenBalance:   userKDA.FrozenBalance,
 				UnfrozenBalance: calculateUnfrozenBalance(userKDA.Buckets),
-				Allowance:       userAccount.GetAllowance(),
+				Allowance:       ep.getAllowanceWithPendingRewards(userAccount),
 				Permissions:     ep.convertPermissions(userAccount.GetPermissions()),
 				Timestamp:       toMilliseconds(blockTimestamp),
 				UpdatedAt:       toMilliseconds(blockTimestamp),
@@ -238,6 +240,24 @@ func (ep *eventsProcessor) convertPermissions(perms []*dataState.Permission) []d
 		})
 	}
 	return permissions
+}
+
+func (ep *eventsProcessor) getAllowanceWithPendingRewards(userAccount dataState.UserAccountHandler) int64 {
+	allowance := userAccount.GetAllowance()
+	if check.IfNil(ep.kappsController) {
+		return allowance
+	}
+
+	validatorsKApp := ep.kappsController.GetValidatorsKApp()
+	if check.IfNil(validatorsKApp) {
+		return allowance
+	}
+
+	pendingRewards, err := validatorsKApp.GetPendingRewards(userAccount.AddressBytes())
+	if err == nil && pendingRewards > 0 {
+		allowance += pendingRewards
+	}
+	return allowance
 }
 
 func (ep *eventsProcessor) IsInterfaceNil() bool {

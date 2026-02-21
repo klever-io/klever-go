@@ -1,0 +1,277 @@
+# Klever Node WebSocket API
+
+## Connecting
+
+Open a WebSocket connection to:
+
+```
+ws://<node-host>:<port>/subscribe
+```
+
+Immediately after the connection is established, send an initial JSON message to declare your subscriptions:
+
+```json
+{
+  "addresses": ["klv1abc...", "klv1def..."],
+  "subscribed_types": ["blocks", "transactions", "accounts", "user_transactions"]
+}
+```
+
+| Field | Description |
+|---|---|
+| `addresses` | List of Klever addresses to watch for address-specific events. |
+| `subscribed_types` | List of event types to subscribe to (see Subscription Types below). |
+
+If any type in `subscribed_types` is invalid, the server responds with an error and closes the connection:
+
+```json
+{"error": "invalid subscription type: bad_type"}
+```
+
+---
+
+## Subscription Types
+
+| Type | Requires Addresses | Description |
+|---|---|---|
+| `blocks` | No | Receive every new block as it is produced. |
+| `transactions` | No | Receive all transactions globally. |
+| `accounts` | Yes | Receive account state changes for the specified addresses. |
+| `user_transactions` | Yes | Receive transactions where the specified addresses appear as sender or receiver. |
+
+- `blocks` and `transactions` are global subscriptions and do not require any addresses.
+- `accounts` and `user_transactions` are address-specific. You must provide at least one address for them to deliver events.
+- You can combine any types in a single connection.
+
+
+---
+
+## Receiving Push Events
+
+After subscribing, the server pushes events as JSON messages:
+
+```json
+{
+  "type": "blocks",
+  "address": "",
+  "hash": "",
+  "data": { ... }
+}
+```
+
+| Field | Description |
+|---|---|
+| `type` | The event type (`blocks`, `transactions`, `accounts`, `user_transactions`). Matches the subscription type token. |
+| `address` | The relevant address (populated for address-specific events, empty for global). |
+| `hash` | The transaction hash (populated for transaction-related events). |
+| `data` | The event payload (block data, account info, or transaction details). |
+
+---
+
+## Request/Response Messaging
+
+After the initial subscription handshake, you can send JSON requests at any time to query data or manage subscriptions dynamically. Every request must include an `id` field (a client-chosen correlation string) and a `method` field.
+
+### Request Format
+
+```json
+{
+  "id": "your-correlation-id",
+  "method": "method_name",
+  "params": { ... }
+}
+```
+
+### Response Format
+
+On success:
+```json
+{
+  "id": "your-correlation-id",
+  "data": { ... }
+}
+```
+
+On error:
+```json
+{
+  "id": "your-correlation-id",
+  "error": "description of what went wrong"
+}
+```
+
+When your request is valid JSON and includes an `id`, the `id` in the response matches the `id` from your request, allowing you to correlate responses when sending multiple concurrent requests. For parse errors where the incoming frame is not valid JSON, the server may return an error without an `id` because it cannot reliably extract it.
+
+---
+
+## Available Methods
+
+### `get_transaction`
+
+Retrieve a transaction by its hash.
+
+**Request:**
+```json
+{
+  "id": "1",
+  "method": "get_transaction",
+  "params": {
+    "hash": "abc123def456...",
+    "withResults": true
+  }
+}
+```
+
+| Param | Required | Description |
+|---|---|---|
+| `hash` | Yes | The transaction hash to look up. |
+| `withResults` | No | Whether to include execution results. Defaults to `false`. |
+
+**Response (success):**
+```json
+{
+  "id": "1",
+  "data": {
+    "hash": "abc123def456...",
+    "status": "onChain",
+    ...
+  }
+}
+```
+
+---
+
+### `get_block`
+
+Retrieve a block by nonce or hash. Provide one of the two; if both are provided, nonce takes priority.
+
+**Request by nonce:**
+```json
+{
+  "id": "2",
+  "method": "get_block",
+  "params": {
+    "nonce": 12345,
+    "withTxs": true
+  }
+}
+```
+
+**Request by hash:**
+```json
+{
+  "id": "3",
+  "method": "get_block",
+  "params": {
+    "hash": "blockhash123...",
+    "withTxs": false
+  }
+}
+```
+
+| Param | Required | Description |
+|---|---|---|
+| `nonce` | One of `nonce` or `hash` | The block nonce (height). |
+| `hash` | One of `nonce` or `hash` | The block hash. |
+| `withTxs` | No | Whether to include full transaction details in the block. Defaults to `false`. |
+
+---
+
+### `subscribe`
+
+Dynamically add new subscriptions to the current connection without reconnecting. Subscriptions are additive: calling subscribe multiple times merges the new types and addresses with existing ones.
+
+**Request:**
+```json
+{
+  "id": "4",
+  "method": "subscribe",
+  "params": {
+    "types": ["accounts", "blocks"],
+    "addresses": ["klv1newaddress..."]
+  }
+}
+```
+
+| Param | Required | Description |
+|---|---|---|
+| `types` | Yes | List of event types to add (`blocks`, `transactions`, `accounts`, `user_transactions`). |
+| `addresses` | No | List of addresses to watch (required for `accounts` and `user_transactions`). |
+
+**Response (success):**
+```json
+{
+  "id": "4",
+  "data": "subscribed"
+}
+```
+
+**Response (invalid type):**
+```json
+{
+  "id": "4",
+  "error": "invalid subscription type: bad_type"
+}
+```
+
+---
+
+### `unsubscribe`
+
+Remove specific subscriptions from the current connection. Unsubscribe is granular: it only removes the specified types and addresses without affecting other active subscriptions.
+
+**Request:**
+```json
+{
+  "id": "5",
+  "method": "unsubscribe",
+  "params": {
+    "types": ["accounts"],
+    "addresses": ["klv1oldaddress..."]
+  }
+}
+```
+
+| Param | Required | Description |
+|---|---|---|
+| `types` | Yes | List of event types to remove. |
+| `addresses` | No | List of addresses to stop watching (required for `accounts` and `user_transactions`). |
+
+For address-specific types (`accounts`, `user_transactions`), only the specified type is unsubscribed. If an address still has the other type active, it remains subscribed for that type. The address entry is fully removed only when both `accounts` and `user_transactions` are unsubscribed.
+
+**Response (success):**
+```json
+{
+  "id": "5",
+  "data": "unsubscribed"
+}
+```
+
+---
+
+## Error Handling
+
+Errors can occur in two contexts:
+
+**During initial handshake:** If you send an invalid subscription type in the initial `subscribed_types` message, the server returns an error and closes the connection immediately.
+
+**During request/response messaging:** If a request fails (invalid params, unknown method, resource not found), the server returns an error response with the matching `id`. The connection stays open.
+
+Common error responses:
+
+| Error | Cause |
+|---|---|
+| `"invalid json: ..."` | The message could not be parsed as JSON. |
+| `"unknown method: ..."` | The `method` field is not one of the supported methods. |
+| `"missing required param: hash"` | A `get_transaction` request was sent without a `hash`. |
+| `"must provide nonce or hash"` | A `get_block` request was sent without either `nonce` or `hash`. |
+| `"invalid subscription type: ..."` | A `subscribe` or `unsubscribe` request included an unrecognized type. |
+| `"query not supported: facade unavailable"` | The node does not support data queries over WebSocket (non-indexer node). |
+
+---
+
+## Connection Lifecycle
+
+- The server sends periodic ping frames. The client does not need to send pings, but must respond to pings (most WebSocket libraries handle this automatically).
+- To disconnect, close the WebSocket connection normally. The server cleans up all subscriptions for the client automatically.
+- If the server detects a broken connection, it removes the client and all associated subscriptions.

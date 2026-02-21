@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"errors"
 	"sync/atomic"
 	"time"
 )
@@ -18,11 +19,11 @@ type Event struct {
 type EventType string
 
 const (
-	UNKNOWN          EventType = ""
-	USER_TRANSACTION EventType = "user_transaction"
-	ACCOUNTS         EventType = "accounts"
-	BLOCKS           EventType = "blocks"
-	TRANSACTION      EventType = "transaction"
+	UNKNOWN           EventType = ""
+	USER_TRANSACTIONS EventType = "user_transactions"
+	ACCOUNTS          EventType = "accounts"
+	BLOCKS            EventType = "blocks"
+	TRANSACTIONS      EventType = "transactions"
 )
 
 const dropLogIntervalSeconds = 10
@@ -47,16 +48,33 @@ func trySendEvent(event Event) {
 	}
 }
 
+var ErrUnknownEventType = errors.New("unknown event type")
+
+func NewEventTypeStrict(evType string) (EventType, error) {
+	switch evType {
+	case "transactions":
+		return TRANSACTIONS, nil
+	case "accounts":
+		return ACCOUNTS, nil
+	case "blocks":
+		return BLOCKS, nil
+	case "user_transactions":
+		return USER_TRANSACTIONS, nil
+	default:
+		return UNKNOWN, ErrUnknownEventType
+	}
+}
+
 func NewEventType(evType string) EventType {
 	switch evType {
 	case "transactions":
-		return TRANSACTION
+		return TRANSACTIONS
 	case "accounts":
 		return ACCOUNTS
 	case "blocks":
 		return BLOCKS
-	case "user_transaction":
-		return USER_TRANSACTION
+	case "user_transactions":
+		return USER_TRANSACTIONS
 	default:
 		return UNKNOWN
 	}
