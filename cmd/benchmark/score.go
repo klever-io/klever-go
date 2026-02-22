@@ -41,28 +41,36 @@ import (
 const (
 	cpuEffExcellentPct = 0.95
 
-	seqWriteExcellentMBps = 500.0
-	seqReadExcellentMBps  = 1_000.0
-	randWriteExcellentIPS = 15_000.0
-	randReadExcellentIPS  = 30_000.0
+	// Disk: top validators achieve 570-1076 MB/s write, 1436-6781 MB/s read,
+	// 622-1346 IOPS rand-write (fsynced), 32K-118K IOPS rand-read.
+	seqWriteExcellentMBps = 1_500.0
+	seqReadExcellentMBps  = 7_000.0
+	randWriteExcellentIPS = 2_000.0
+	randReadExcellentIPS  = 100_000.0
 
+	// Network: top validators achieve 12-25 µs P50, 26-73 µs P99, 1940-4939 MB/s.
 	netLatP50ExcellentUs       = 10.0
 	netLatP99ExcellentUs       = 50.0
-	netThroughputExcellentMBps = 10_000.0
+	netThroughputExcellentMBps = 5_000.0
 
+	// KV: top validators achieve 5.9-10.9 M/s write, 2.1-6.1 M/s read, 1.3-2.0 M/s mixed.
 	kvWriteExcellentOps = 2_000_000.0
-	kvReadExcellentOps  = 10_000_000.0
-	kvMixedExcellentOps = 5_000_000.0
+	kvReadExcellentOps  = 8_000_000.0
+	kvMixedExcellentOps = 3_000_000.0
 
-	memSeqReadExcellentGBps  = 40.0
-	memSeqWriteExcellentGBps = 30.0
-	memRandLatExcellentNs    = 30.0
-	memAllocExcellentMOps    = 100.0
+	// Memory: top validators achieve 5-11 GB/s read, 4-9 GB/s write,
+	// 126-242 ns rand-lat, 3.75-5.24 M/s alloc.
+	memSeqReadExcellentGBps  = 15.0
+	memSeqWriteExcellentGBps = 12.0
+	memRandLatExcellentNs    = 80.0
+	memAllocExcellentMOps    = 10.0
 
+	// BigNum: top validators achieve 170-221 ops/s modexp, 1.3-1.9 M/s modmul,
+	// 5.1-6.8 M/s float64, 14-15.5 M/s intdiv.
 	bigModExpExcellentOps  = 500.0
 	bigModMulExcellentOps  = 2_000_000.0
-	bigFloat64ExcellentOps = 50_000_000.0
-	bigIntDivExcellentOps  = 300_000_000.0
+	bigFloat64ExcellentOps = 10_000_000.0
+	bigIntDivExcellentOps  = 30_000_000.0
 )
 
 // ---------------------------------------------------------------------------

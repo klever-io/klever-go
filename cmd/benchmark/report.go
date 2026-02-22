@@ -45,11 +45,11 @@ type BenchmarkResults struct {
 //   - CPUEfficiency at numCPU workers ≥ 60 %  → WARN  (scheduling overhead / throttling)
 //   - CPUEfficiency at numCPU workers < 60 %  → FAIL
 //
-// Disk I/O thresholds (conservative production-grade NVMe/SSD minimums)
+// Disk I/O thresholds (calibrated against production Kleverchain validators)
 //
 //	Sequential write   ≥ 150 MB/s → PASS   |  < 50 MB/s → FAIL
 //	Sequential read    ≥ 250 MB/s → PASS   |  < 80 MB/s → FAIL
-//	Random write IOPS  ≥ 3 000    → PASS   |  < 500    → FAIL
+//	Random write IOPS  ≥ 600      → PASS   |  < 100    → FAIL  (fsynced; NVMe cap ~600-1300)
 //	Random read IOPS   ≥ 5 000    → PASS   |  < 1 000  → FAIL
 //
 // Network thresholds (TCP loopback — reflects OS networking stack health)
@@ -63,6 +63,17 @@ type BenchmarkResults struct {
 //	Sequential write  ≥ 500 K ops/s → PASS   |  < 100 K ops/s → FAIL
 //	Random read       ≥ 2 M ops/s   → PASS   |  < 500 K ops/s → FAIL
 //	Mixed workload    ≥ 1 M ops/s   → PASS   |  < 300 K ops/s → FAIL
+//
+// Memory thresholds (calibrated against production Kleverchain validators)
+//
+//	Sequential read    ≥ 5 GB/s  → PASS   |  < 1.5 GB/s → FAIL
+//	Sequential write   ≥ 4 GB/s  → PASS   |  < 1.5 GB/s → FAIL
+//	Random read latency < 250 ns → PASS   |  ≥ 500 ns   → FAIL
+//	Alloc throughput   ≥ 3 M/s   → PASS   |  < 0.5 M/s  → FAIL
+//
+// BigNum thresholds (calibrated against production Kleverchain validators)
+//
+//	Integer division (uint64)  ≥ 13 M ops/s → PASS   |  < 3 M ops/s → FAIL
 
 const (
 	cpuEffPassPct = 0.80
@@ -72,8 +83,8 @@ const (
 	seqWriteFailMBps = 50.0
 	seqReadPassMBps  = 250.0
 	seqReadFailMBps  = 80.0
-	randWritePassIPS = 3_000.0
-	randWriteFailIPS = 500.0
+	randWritePassIPS = 600.0
+	randWriteFailIPS = 100.0
 	randReadPassIPS  = 5_000.0
 	randReadFailIPS  = 1_000.0
 
@@ -92,24 +103,26 @@ const (
 	kvMixedFailOps = 300_000.0
 
 	// Memory thresholds (256 MB DRAM buffer, 64-byte allocs)
-	memSeqReadPassGBps  = 10.0
-	memSeqReadFailGBps  = 3.0
-	memSeqWritePassGBps = 8.0
-	memSeqWriteFailGBps = 3.0
-	memRandLatPassNs    = 100.0
-	memRandLatFailNs    = 300.0
-	memAllocPassMOps    = 20.0
-	memAllocFailMOps    = 5.0
+	// Calibrated against production Kleverchain validators (top nodes: 5-11 GB/s read, 4-9 GB/s write).
+	memSeqReadPassGBps  = 5.0
+	memSeqReadFailGBps  = 1.5
+	memSeqWritePassGBps = 4.0
+	memSeqWriteFailGBps = 1.5
+	memRandLatPassNs    = 250.0
+	memRandLatFailNs    = 500.0
+	memAllocPassMOps    = 3.0
+	memAllocFailMOps    = 0.5
 
 	// BigNum thresholds
+	// IntDiv calibrated: top validators achieve 14-15 M ops/s (uint64, in-loop).
 	bigModExpPassOps  = 100.0
 	bigModExpFailOps  = 30.0
 	bigModMulPassOps  = 500_000.0
 	bigModMulFailOps  = 100_000.0
 	bigFloat64PassOps = 5_000_000.0
 	bigFloat64FailOps = 1_000_000.0
-	bigIntDivPassOps  = 50_000_000.0
-	bigIntDivFailOps  = 10_000_000.0
+	bigIntDivPassOps  = 13_000_000.0
+	bigIntDivFailOps  = 3_000_000.0
 )
 
 type verdict int

@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"time"
 
@@ -59,16 +58,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// If no disk dir was specified, create a temp dir inside the project and
-	// remove it automatically when the benchmark finishes.
+	// If no disk dir was specified, create a temp dir and remove it
+	// automatically when the benchmark finishes.
 	if *diskDir == "" {
-		execPath, err := os.Executable()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error resolving executable path: %v\n", err)
-			os.Exit(1)
-		}
-		tmp, err := os.MkdirTemp(filepath.Dir(execPath), "bench-")
-		if err != nil {
+		tmp := "bench"
+		if err := os.MkdirAll(tmp, 0o700); err != nil {
 			fmt.Fprintf(os.Stderr, "error creating temp dir: %v\n", err)
 			os.Exit(1)
 		}
