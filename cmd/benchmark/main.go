@@ -49,9 +49,11 @@ func main() {
 	}
 
 	if *maxWorkers < 1 {
+		fmt.Fprintln(os.Stderr, "warning: --goroutines must be >= 1; clamped to 1")
 		*maxWorkers = 1
 	}
 	if *levelDurationSec < 1 {
+		fmt.Fprintln(os.Stderr, "warning: --duration must be >= 1; clamped to 1")
 		*levelDurationSec = 1
 	}
 	if *diskSize < 1 {

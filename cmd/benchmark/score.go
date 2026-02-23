@@ -124,7 +124,7 @@ type BenchmarkScore struct {
 // ComputeScore builds a BenchmarkScore from all benchmark results.
 func ComputeScore(r *BenchmarkResults) BenchmarkScore {
 	if r == nil {
-		return BenchmarkScore{}
+		return BenchmarkScore{Grade: "F"}
 	}
 
 	var s BenchmarkScore
@@ -142,8 +142,10 @@ func ComputeScore(r *BenchmarkResults) BenchmarkScore {
 	}
 	if s.MaxTotal > 0 {
 		s.Pct = float64(s.Total) / float64(s.MaxTotal)
+		s.Grade = scoreGrade(s.Pct)
+	} else {
+		s.Grade = "N/A"
 	}
-	s.Grade = scoreGrade(s.Pct)
 	return s
 }
 

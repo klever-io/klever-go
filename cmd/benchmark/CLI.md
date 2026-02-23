@@ -3,7 +3,7 @@
 
 The **Klever Benchmark Tool** exposes the following Command Line Interface:
 
-```
+```text
 $ benchmark --help
 
 NAME:

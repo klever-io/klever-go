@@ -53,6 +53,9 @@ type DiskResult struct {
 // dir is the directory where temporary files are created; it must be on the
 // filesystem to be measured.  sizeMB controls the sequential test file size.
 func RunDiskBenchmark(dir string, sizeMB int) (*DiskResult, error) {
+	if sizeMB <= 0 {
+		return nil, fmt.Errorf("invalid sizeMB: must be > 0")
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("creating test directory %q: %w", dir, err)
 	}
@@ -119,7 +122,10 @@ func seqWrite(path string, sizeMB int) (float64, error) {
 	}
 	defer f.Close()
 
-	block := randomBlock(seqBlockSize)
+	block, err := randomBlock(seqBlockSize)
+	if err != nil {
+		return 0, err
+	}
 	target := sizeMB * 1024 * 1024
 	written := 0
 
@@ -179,7 +185,10 @@ func seqRead(path string) (float64, error) {
 // Files are written in sequential order; the randomness comes from the data
 // content and the independent fsync latency of each file.
 func randWrite(dir string) (float64, error) {
-	block := randomBlock(randBlockSize)
+	block, err := randomBlock(randBlockSize)
+	if err != nil {
+		return 0, err
+	}
 
 	start := time.Now()
 	for i := range numRandOps {
@@ -211,7 +220,9 @@ func randRead(dir string) (float64, error) {
 	for i := range indices {
 		indices[i] = i
 	}
-	shuffle(indices)
+	if err := shuffle(indices); err != nil {
+		return 0, err
+	}
 
 	buf := make([]byte, randBlockSize)
 
@@ -241,19 +252,25 @@ func randRead(dir string) (float64, error) {
 // Using crypto/rand produces non-compressible data, preventing the filesystem
 // or storage layer from applying transparent compression that would inflate
 // throughput numbers.
-func randomBlock(n int) []byte {
+func randomBlock(n int) ([]byte, error) {
 	b := make([]byte, n)
-	_, _ = io.ReadFull(rand.Reader, b)
-	return b
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		return nil, fmt.Errorf("reading random bytes: %w", err)
+	}
+	return b, nil
 }
 
 // shuffle randomly reorders a slice of ints using crypto/rand.
-func shuffle(s []int) {
+func shuffle(s []int) error {
 	for i := len(s) - 1; i > 0; i-- {
-		jBig, _ := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		jBig, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			return fmt.Errorf("generating random index: %w", err)
+		}
 		j := int(jBig.Int64())
 		s[i], s[j] = s[j], s[i]
 	}
+	return nil
 }
 
 // clearLine prints a progress message that overwrites the current terminal line.
