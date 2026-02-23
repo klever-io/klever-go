@@ -11,8 +11,6 @@ import (
 	logger "github.com/klever-io/klever-go-logger"
 )
 
-var log = logger.GetOrCreate("benchmark")
-
 // appVersion is injected at build time via ldflags.
 var appVersion = "dev"
 

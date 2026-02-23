@@ -56,7 +56,7 @@ func RunDiskBenchmark(dir string, sizeMB int) (*DiskResult, error) {
 	if sizeMB <= 0 {
 		return nil, fmt.Errorf("invalid sizeMB: must be > 0")
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("creating test directory %q: %w", dir, err)
 	}
 
@@ -65,8 +65,14 @@ func RunDiskBenchmark(dir string, sizeMB int) (*DiskResult, error) {
 	randDir := filepath.Join(dir, "klever_bench_rand")
 
 	defer func() {
-		os.Remove(seqPath)
-		os.RemoveAll(randDir)
+		err := os.Remove(seqPath)
+		if err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "warning: removing sequential test file: %v\n", err)
+		}
+		err = os.RemoveAll(randDir)
+		if err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "warning: removing random I/O test directory: %v\n", err)
+		}
 	}()
 
 	// 1. Sequential write -------------------------------------------------------
@@ -86,7 +92,7 @@ func RunDiskBenchmark(dir string, sizeMB int) (*DiskResult, error) {
 	result.SeqReadMBps = mbps
 
 	// 3. Random write IOPS (with fsync) -----------------------------------------
-	if err = os.MkdirAll(randDir, 0o755); err != nil {
+	if err = os.MkdirAll(randDir, 0o750); err != nil {
 		return nil, fmt.Errorf("creating random I/O directory: %w", err)
 	}
 	clearLine("  Random write (%d × %d KB, fsync per op)...", numRandOps, randBlockSize/1024)
@@ -116,7 +122,7 @@ func RunDiskBenchmark(dir string, sizeMB int) (*DiskResult, error) {
 // seqWrite creates a file at path and writes sizeMB of random data in
 // seqBlockSize chunks, finishing with an fsync.
 func seqWrite(path string, sizeMB int) (float64, error) {
-	f, err := os.Create(path)
+	f, err := os.Create(path) // #nosec G304 — path is constructed via filepath.Join from a user-chosen benchmark directory
 	if err != nil {
 		return 0, err
 	}
@@ -152,7 +158,7 @@ func seqWrite(path string, sizeMB int) (float64, error) {
 
 // seqRead reads an existing file sequentially in seqBlockSize chunks.
 func seqRead(path string) (float64, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 — path is constructed via filepath.Join from a user-chosen benchmark directory
 	if err != nil {
 		return 0, err
 	}
@@ -193,7 +199,7 @@ func randWrite(dir string) (float64, error) {
 	start := time.Now()
 	for i := range numRandOps {
 		path := filepath.Join(dir, fmt.Sprintf("r%06d.tmp", i))
-		f, err := os.Create(path)
+		f, err := os.Create(path) // #nosec G304 — path is constructed via filepath.Join from a user-chosen benchmark directory
 		if err != nil {
 			return 0, err
 		}
@@ -229,7 +235,7 @@ func randRead(dir string) (float64, error) {
 	start := time.Now()
 	for _, idx := range indices {
 		path := filepath.Join(dir, fmt.Sprintf("r%06d.tmp", idx))
-		f, err := os.Open(path)
+		f, err := os.Open(path) // #nosec G304 — path is constructed via filepath.Join from a user-chosen benchmark directory
 		if err != nil {
 			return 0, err
 		}
