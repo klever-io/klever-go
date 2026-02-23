@@ -102,7 +102,7 @@ func RunDiskBenchmark(dir string, sizeMB int) (*DiskResult, error) {
 	result.RandReadIOPS = iops
 
 	// Erase progress line.
-	fmt.Printf("  %s\r", strings.Repeat(" ", 60))
+	fmt.Fprintf(os.Stderr, "  %s\r", strings.Repeat(" ", 60))
 	return result, nil
 }
 
