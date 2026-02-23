@@ -61,8 +61,9 @@ func RunDiskBenchmark(dir string, sizeMB int) (*DiskResult, error) {
 	}
 
 	result := &DiskResult{Dir: dir, FileSizeMB: sizeMB}
-	seqPath := filepath.Join(dir, "klever_bench_seq.tmp")
-	randDir := filepath.Join(dir, "klever_bench_rand")
+	uniqueSuffix := fmt.Sprintf("%d-%d", time.Now().UnixNano(), os.Getpid())
+	seqPath := filepath.Join(dir, fmt.Sprintf("klever_bench_seq_%s.tmp", uniqueSuffix))
+	randDir := filepath.Join(dir, fmt.Sprintf("klever_bench_rand_%s", uniqueSuffix))
 
 	defer func() {
 		err := os.Remove(seqPath)

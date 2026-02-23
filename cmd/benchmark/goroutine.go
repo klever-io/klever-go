@@ -24,6 +24,7 @@ package main
 import (
 	"crypto/sha256"
 	"fmt"
+	"os"
 	"runtime"
 	"sort"
 	"strings"
@@ -121,7 +122,7 @@ func RunGoroutineBenchmark(maxWorkers int, levelDuration time.Duration) (*Gorout
 	}
 
 	// Erase the progress line.
-	fmt.Printf("  %s\r", strings.Repeat(" ", 50))
+	fmt.Fprintf(os.Stderr, "  %s\r", strings.Repeat(" ", 50))
 
 	result.BaselineOps = baseline
 	return result, nil

@@ -791,5 +791,7 @@ func printJSON(results *BenchmarkResults) {
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	_ = enc.Encode(report)
+	if err := enc.Encode(report); err != nil {
+		fmt.Fprintf(os.Stderr, "error: failed to encode benchmark report as JSON: %v\n", err)
+	}
 }

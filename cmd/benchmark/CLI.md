@@ -4,41 +4,22 @@
 The **Klever Benchmark Tool** exposes the following Command Line Interface:
 
 ```text
-$ benchmark --help
+$ benchmark -help
 
-NAME:
-   Klever Benchmark Tool - Measures hardware performance for Kleverchain validator nodes
-                           across six categories and produces a pass/fail verdict and
-                           a 0–1000 point score with a letter grade (S/A/B/C/D/F).
-
-USAGE:
-   benchmark [global options]
-
-AUTHOR:
-   KleverIO <contact@klever.org>
-
-GLOBAL OPTIONS:
-
-   -- Goroutine benchmark --
-   --goroutines value    Maximum number of concurrent goroutines to test (default: NumCPU×4)
-   --duration value      Duration in seconds for each concurrency level (default: 3)
-
-   -- Disk I/O benchmark --
-   --disk-dir value      Directory for disk I/O test files (default: auto temp dir next to binary)
-   --disk-size value     Sequential test file size in MB (default: 256)
-
-   -- Control --
-   --skip-goroutine      Skip goroutine / CPU scalability benchmark
-   --skip-disk           Skip disk I/O benchmark
-   --skip-network        Skip network TCP loopback benchmark
-   --skip-kv             Skip KV store benchmark
-   --skip-memory         Skip memory bandwidth and latency benchmark
-   --skip-bignum         Skip big-number / FPU benchmark
-
-   --output value        Output format: text or json (default: "text")
-   --verbose             Enable verbose logging
-   --version             Print version and exit
-   --help, -h            Show help
+Usage of benchmark:
+  -goroutines int     Maximum number of concurrent goroutines to test (default: NumCPU×4)
+  -duration int       Duration in seconds for each concurrency level (default: 3)
+  -disk-dir string    Directory for disk I/O test files (default: auto temp dir next to binary)
+  -disk-size int      Sequential test file size in MB (default: 256)
+  -skip-goroutine     Skip goroutine / CPU scalability benchmark
+  -skip-disk          Skip disk I/O benchmark
+  -skip-network       Skip network TCP loopback benchmark
+  -skip-kv            Skip KV store benchmark
+  -skip-memory        Skip memory bandwidth and latency benchmark
+  -skip-bignum        Skip big-number / FPU benchmark
+  -output string      Output format: text or json (default: "text")
+  -verbose            Enable verbose logging
+  -version            Print version and exit
 ```
 
 ---
