@@ -52,7 +52,7 @@ GLOBAL OPTIONS:
 | **Network** | TCP loopback latency and streaming throughput | P50/P99 µs, MB/s |
 | **KV Store** | In-memory state-access patterns (80/20 read-write) | ops/s |
 | **Memory** | DRAM bandwidth, random latency, allocator speed | GB/s, ns, M allocs/s |
-| **BigNum / FPU** | 2048-bit modexp/mulmul and float64 transcendentals | ops/s |
+| **BigNum / FPU** | 2048-bit modexp/modmul and float64 transcendentals | ops/s |
 
 ---
 
