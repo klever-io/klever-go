@@ -71,8 +71,13 @@ func main() {
 		}
 		tmp, err := os.MkdirTemp(filepath.Dir(execPath), "bench-*")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "error creating temp dir: %v\n", err)
-			os.Exit(1)
+			// Binary location may be read-only (e.g. system install); fall back
+			// to the OS temp directory.
+			tmp, err = os.MkdirTemp(os.TempDir(), "bench-*")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error creating temp dir: %v\n", err)
+				os.Exit(1)
+			}
 		}
 		defer os.RemoveAll(tmp)
 		*diskDir = tmp
