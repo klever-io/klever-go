@@ -123,6 +123,10 @@ type BenchmarkScore struct {
 
 // ComputeScore builds a BenchmarkScore from all benchmark results.
 func ComputeScore(r *BenchmarkResults) BenchmarkScore {
+	if r == nil {
+		return BenchmarkScore{}
+	}
+
 	var s BenchmarkScore
 
 	s.Goroutine = scoreCategory(goroutineCatScore(r.GoroutineResult), weightGoroutine, r.GoroutineResult == nil)

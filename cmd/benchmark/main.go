@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -22,7 +23,7 @@ func main() {
 		levelDurationSec = flag.Int("duration", 3, "Duration in seconds for each concurrency level")
 
 		// Disk I/O benchmark
-		diskDir  = flag.String("disk-dir", "", "Directory to use for disk I/O tests (default: auto temp dir inside the project)")
+		diskDir  = flag.String("disk-dir", "", "Directory to use for disk I/O tests (default: auto temp dir next to binary)")
 		diskSize = flag.Int("disk-size", 256, "Size in MB for sequential read/write test")
 
 		// Control
@@ -58,11 +59,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	// If no disk dir was specified, create a temp dir and remove it
-	// automatically when the benchmark finishes.
-	if *diskDir == "" {
-		tmp := "bench"
-		if err := os.MkdirAll(tmp, 0o700); err != nil {
+	// If no disk dir was specified and the disk benchmark will run, create a
+	// unique temp dir next to the binary and remove it when done.
+	if *diskDir == "" && !*skipDisk {
+		execPath, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error resolving executable path: %v\n", err)
+			os.Exit(1)
+		}
+		tmp, err := os.MkdirTemp(filepath.Dir(execPath), "bench-*")
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "error creating temp dir: %v\n", err)
 			os.Exit(1)
 		}
