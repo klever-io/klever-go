@@ -99,7 +99,9 @@ func bigModExp() (float64, error) {
 		"DE2BCBF6955817183995497CEA956AE515D2261898FA0510" +
 		"15728E5A8AACAA68FFFFFFFFFFFFFFFF"
 	mod := new(big.Int)
-	mod.SetString(modHex, 16)
+	if _, ok := mod.SetString(modHex, 16); !ok {
+		return 0, fmt.Errorf("bigModExp: failed to parse modulus hex constant")
+	}
 
 	base := new(big.Int).SetUint64(65537)
 	exp := new(big.Int).Sub(mod, big.NewInt(1)) // worst-case exponent = mod-1
@@ -137,7 +139,9 @@ func bigModMul() (float64, error) {
 		"DE2BCBF6955817183995497CEA956AE515D2261898FA0510" +
 		"15728E5A8AACAA68FFFFFFFFFFFFFFFF"
 	mod := new(big.Int)
-	mod.SetString(modHex, 16)
+	if _, ok := mod.SetString(modHex, 16); !ok {
+		return 0, fmt.Errorf("bigModMul: failed to parse modulus hex constant")
+	}
 
 	a := new(big.Int).SetUint64(0xDEADBEEFCAFEBABE)
 	b := new(big.Int).SetUint64(0xFEEDFACEDEADC0DE)
