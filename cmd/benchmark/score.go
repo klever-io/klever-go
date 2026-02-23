@@ -264,7 +264,7 @@ func scoreCategory(raw float64, weight int, skipped bool) CategoryScore {
 		return CategoryScore{Skipped: true}
 	}
 	return CategoryScore{
-		Points: int(math.Round(raw / 100 * float64(weight))),
+		Points: int(math.Round(raw * float64(weight) / 100)),
 		Max:    weight,
 	}
 }
