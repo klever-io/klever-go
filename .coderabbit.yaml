@@ -1,21 +1,247 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 language: "en-US"
 early_access: false
+tone_instructions: >
+  Be direct and technical. Focus on correctness, security, and performance.
+  When flagging issues, explain the concrete risk (e.g., data race, memory leak,
+  panic). Provide fix suggestions when possible.
+
 reviews:
-  profile: "chill"
-  request_changes_workflow: false
+  profile: "assertive"
+  request_changes_workflow: true
   high_level_summary: true
+  high_level_summary_placeholder: "@coderabbitai summary"
+  high_level_summary_instructions: >
+    Focus the summary on: what blockchain-critical components are affected
+    (consensus, transaction processing, state management, KVM, networking),
+    whether the change affects node stability or data integrity, and any
+    cross-cutting concerns like concurrency or error handling changes.
   poem: false
   review_status: true
+  review_details: true
+  commit_status: true
   collapse_walkthrough: false
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+  suggested_labels: true
+  auto_apply_labels: true
+  suggested_reviewers: true
+  abort_on_close: true
+
   auto_review:
     enabled: true
     drafts: false
+    auto_incremental_review: true
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+      - "DRAFT"
     base_branches:
       - master
       - develop
       - release.*
       - rc\/.*
-      - \d+?\.\d+[.\d]{0,} # matches 43.4 and 43.4.1
-      - v\d+?\.\d+[.\d]{0,} # matches v43.4 and v43.4.1
+      - \d+?\.\d+[.\d]{0,}
+      - v\d+?\.\d+[.\d]{0,}
+
+  # ──────────────────────────────────────────────
+  # Path filters: exclude generated/vendored code
+  # ──────────────────────────────────────────────
+  path_filters:
+    - "!vendor/**"
+    - "!protobuf/**"
+    - "!**/*.pb.go"
+    - "!**/*_generated.go"
+
+  # ──────────────────────────────────────────────
+  # Path-specific review instructions
+  # ──────────────────────────────────────────────
+  path_instructions:
+    - path: "core/consensus/**"
+      instructions: >
+        This is the consensus engine. Review with extreme care:
+        - Check for race conditions in concurrent block processing
+        - Verify correct mutex/lock ordering to prevent deadlocks
+        - Ensure deterministic behavior (no maps iteration without sorting, no random)
+        - Validate message signing and verification logic
+        - Flag any changes that could cause consensus forks or chain splits
+
+    - path: "core/kapp/**"
+      instructions: >
+        KApps (blockchain application layer) processes on-chain transactions.
+        - Verify correct balance/state changes are atomic and consistent
+        - Check for integer overflow/underflow in financial calculations
+        - Ensure all error paths properly revert state changes
+        - Validate access control and permission checks
+        - Flag any missing input validation on transaction parameters
+
+    - path: "kvm/**"
+      instructions: >
+        KVM (Klever Virtual Machine) executes smart contracts.
+        - Check for memory safety issues, especially in CGO/WASM interop
+        - Verify gas metering is correct and cannot be bypassed
+        - Look for potential denial-of-service vectors (unbounded loops, excessive allocations)
+        - Ensure host function calls properly validate inputs
+        - Check unsafe pointer usage is justified and correct
+
+    - path: "crypto/**"
+      instructions: >
+        Cryptographic code is security-critical.
+        - Verify constant-time operations where needed (signature verification, key comparison)
+        - Check for proper random number generation (crypto/rand, not math/rand)
+        - Ensure keys and sensitive data are zeroed after use
+        - Flag any custom crypto implementations that should use standard libraries
+        - Check for proper error handling (don't silently ignore crypto errors)
+
+    - path: "network/**"
+      instructions: >
+        Peer-to-peer networking layer.
+        - Check for proper input validation on all received messages
+        - Verify rate limiting and DoS protection mechanisms
+        - Ensure connection handling is goroutine-safe
+        - Look for potential message amplification attacks
+        - Verify TLS/authentication on peer connections
+
+    - path: "data/**"
+      instructions: >
+        Core data structures and state management.
+        - Verify protobuf serialization/deserialization is correct and backwards-compatible
+        - Check for proper nil/empty checks on decoded data
+        - Ensure trie operations maintain data integrity
+        - Validate state transitions are deterministic
+
+    - path: "storage/**"
+      instructions: >
+        Storage and persistence layer.
+        - Check for proper database transaction handling (commit/rollback)
+        - Verify concurrent access patterns are safe
+        - Look for potential data corruption from incomplete writes
+        - Ensure proper cleanup/closing of resources
+
+    - path: "**/*_test.go"
+      instructions: >
+        Test files. Review for:
+        - Adequate coverage of edge cases and error paths
+        - Proper use of test helpers and assertions
+        - Race condition coverage (tests should use -race flag patterns)
+        - No hardcoded sleep for synchronization (use channels or sync primitives)
+        - Test isolation (no shared mutable state between tests)
+
+    - path: "docker/**"
+      instructions: >
+        Docker configuration.
+        - Check for security best practices (non-root user, minimal base image)
+        - Verify multi-stage builds minimize final image size
+        - Ensure no secrets or credentials are baked into images
+        - Check for proper signal handling (SIGTERM propagation)
+
+  # ──────────────────────────────────────────────
+  # Label configuration
+  # ──────────────────────────────────────────────
+  labeling_instructions:
+    - label: "security"
+      instructions: >
+        Apply when changes touch crypto/, authentication, authorization,
+        input validation, or when potential security vulnerabilities are found.
+    - label: "consensus-critical"
+      instructions: >
+        Apply when changes affect consensus logic, block validation,
+        or anything that could cause chain forks if nodes disagree.
+    - label: "breaking-change"
+      instructions: >
+        Apply when changes modify protobuf schemas, public APIs,
+        configuration formats, or database schemas in non-backwards-compatible ways.
+    - label: "performance"
+      instructions: >
+        Apply when changes affect hot paths, add allocations in loops,
+        change data structures, or modify concurrency patterns.
+    - label: "needs-tests"
+      instructions: >
+        Apply when significant logic changes lack corresponding test updates.
+
+  # ──────────────────────────────────────────────
+  # Tool configuration
+  # ──────────────────────────────────────────────
+  tools:
+    golangci-lint:
+      enabled: false
+    github-checks:
+      enabled: true
+    gitleaks:
+      enabled: true
+    hadolint:
+      enabled: true
+    yamllint:
+      enabled: true
+    buf:
+      enabled: true
+    actionlint:
+      enabled: true
+    trivy:
+      enabled: true
+    osvScanner:
+      enabled: true
+    checkov:
+      enabled: true
+
+  # ──────────────────────────────────────────────
+  # Finishing touches
+  # ──────────────────────────────────────────────
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: true
+
+  # ──────────────────────────────────────────────
+  # Pre-merge quality gates
+  # ──────────────────────────────────────────────
+  pre_merge_checks:
+    title:
+      mode: "warning"
+      requirements: >
+        PR title must follow format: [KLC-XXXX] type: description.
+        Type should be one of: feat, fix, refactor, perf, test, docs, chore, ci.
+    description:
+      mode: "warning"
+    custom_checks:
+      - name: "Concurrency Safety"
+        mode: "warning"
+        instructions: >
+          Verify that any new or modified concurrent code (goroutines, channels,
+          mutexes, sync primitives) is free of race conditions. Check for:
+          proper lock/unlock pairing, no goroutine leaks, correct channel
+          lifecycle management, and proper context cancellation propagation.
+      - name: "Error Handling"
+        mode: "warning"
+        instructions: >
+          Verify that errors are not silently discarded. Check for:
+          unchecked error returns, error wrapping with context, proper
+          error propagation up the call chain, and no bare panic() calls
+          outside of init() functions.
+      - name: "State Consistency"
+        mode: "warning"
+        instructions: >
+          For changes touching blockchain state (accounts, balances, storage),
+          verify that state modifications are atomic and properly rolled back
+          on error. Check that no partial state updates can occur.
+
 chat:
   auto_reply: true
+
+knowledge_base:
+  opt_out: false
+  learnings:
+    scope: "auto"
+  issues:
+    scope: "auto"
+  pull_requests:
+    scope: "auto"
+  code_guidelines:
+    enabled: true
+  web_search:
+    enabled: true
