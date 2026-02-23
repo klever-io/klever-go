@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -55,7 +56,7 @@ func RunNetworkBenchmark() (*NetworkResult, error) {
 	}
 	result.ThroughputMBps = mbps
 
-	fmt.Printf("  %s\r", strings.Repeat(" ", 60))
+	fmt.Fprintf(os.Stderr, "  %s\r", strings.Repeat(" ", 60))
 	return result, nil
 }
 

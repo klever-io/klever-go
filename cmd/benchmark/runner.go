@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"time"
 )
@@ -44,7 +45,7 @@ func (r *Runner) Run() (*BenchmarkResults, error) {
 	}
 
 	if !r.cfg.SkipNetwork {
-		fmt.Printf("Running network benchmark (TCP loopback latency + throughput)...\n")
+		fmt.Fprintf(os.Stderr, "Running network benchmark (TCP loopback latency + throughput)...\n")
 		nr, err := RunNetworkBenchmark()
 		if err != nil {
 			return nil, fmt.Errorf("network benchmark: %w", err)
@@ -53,7 +54,7 @@ func (r *Runner) Run() (*BenchmarkResults, error) {
 	}
 
 	if !r.cfg.SkipKV {
-		fmt.Printf("Running KV store benchmark (%d keys, 80/20 read-write mixed)...\n", kvNumKeys)
+		fmt.Fprintf(os.Stderr, "Running KV store benchmark (%d keys, 80/20 read-write mixed)...\n", kvNumKeys)
 		kr, err := RunKVBenchmark()
 		if err != nil {
 			return nil, fmt.Errorf("kv benchmark: %w", err)
@@ -62,7 +63,7 @@ func (r *Runner) Run() (*BenchmarkResults, error) {
 	}
 
 	if !r.cfg.SkipGoroutine {
-		fmt.Printf("Running goroutine scalability benchmark (max %d workers, %s/level)...\n",
+		fmt.Fprintf(os.Stderr, "Running goroutine scalability benchmark (max %d workers, %s/level)...\n",
 			r.cfg.MaxWorkers, r.cfg.LevelDuration)
 		gr, err := RunGoroutineBenchmark(r.cfg.MaxWorkers, r.cfg.LevelDuration)
 		if err != nil {
@@ -72,7 +73,7 @@ func (r *Runner) Run() (*BenchmarkResults, error) {
 	}
 
 	if !r.cfg.SkipDisk {
-		fmt.Printf("Running disk I/O benchmark (dir: %s, size: %d MB)...\n",
+		fmt.Fprintf(os.Stderr, "Running disk I/O benchmark (dir: %s, size: %d MB)...\n",
 			r.cfg.DiskDir, r.cfg.DiskSizeMB)
 		dr, err := RunDiskBenchmark(r.cfg.DiskDir, r.cfg.DiskSizeMB)
 		if err != nil {
@@ -82,7 +83,7 @@ func (r *Runner) Run() (*BenchmarkResults, error) {
 	}
 
 	if !r.cfg.SkipMemory {
-		fmt.Printf("Running memory benchmark (%d MB buffer, %s alloc test)...\n",
+		fmt.Fprintf(os.Stderr, "Running memory benchmark (%d MB buffer, %s alloc test)...\n",
 			memBufSizeMB, memAllocDur)
 		mr, err := RunMemoryBenchmark()
 		if err != nil {
@@ -92,7 +93,7 @@ func (r *Runner) Run() (*BenchmarkResults, error) {
 	}
 
 	if !r.cfg.SkipBigNum {
-		fmt.Printf("Running big-number benchmark (2048-bit modexp/mulmul, float64, %s)...\n",
+		fmt.Fprintf(os.Stderr, "Running big-number benchmark (2048-bit modexp/modmul, float64, %s)...\n",
 			bigNumDuration)
 		br, err := RunBigNumBenchmark()
 		if err != nil {

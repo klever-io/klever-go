@@ -22,6 +22,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -107,7 +108,7 @@ func RunKVBenchmark() (*KVResult, error) {
 	}
 	result.MixedOpsPerSec = mOps
 
-	fmt.Printf("  %s\r", strings.Repeat(" ", 60))
+	fmt.Fprintf(os.Stderr, "  %s\r", strings.Repeat(" ", 60))
 	return result, nil
 }
 

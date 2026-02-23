@@ -257,7 +257,8 @@ func shuffle(s []int) {
 }
 
 // clearLine prints a progress message that overwrites the current terminal line.
+// Output goes to stderr so it never corrupts JSON written to stdout.
 func clearLine(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
-	fmt.Printf("  %-60s\r", msg)
+	fmt.Fprintf(os.Stderr, "  %-60s\r", msg)
 }

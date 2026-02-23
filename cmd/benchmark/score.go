@@ -25,7 +25,7 @@ package main
 //	≥ 90 %  → S   Elite — top-tier validator hardware
 //	≥ 75 %  → A   Excellent — production-ready for high-traffic networks
 //	≥ 60 %  → B   Good — suitable for standard validator operation
-//	≥ 45 %  → C   Acceptable — meets minimum requirements
+//	≥ 45 %  → C   Acceptable — meets minimum validator requirements
 //	≥ 30 %  → D   Marginal — several metrics below recommended levels
 //	< 30 %  → F   Insufficient — does not meet validator requirements
 

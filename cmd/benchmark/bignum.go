@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"os"
 	"strings"
 	"time"
 )
@@ -74,7 +75,7 @@ func RunBigNumBenchmark() (*BigNumResult, error) {
 	}
 	result.IntDivOpsPerSec = ops
 
-	fmt.Printf("  %s\r", strings.Repeat(" ", 60))
+	fmt.Fprintf(os.Stderr, "  %s\r", strings.Repeat(" ", 60))
 	return result, nil
 }
 

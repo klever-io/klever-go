@@ -26,10 +26,10 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"runtime"
 	"strings"
 	"time"
-	"unsafe"
 )
 
 const (
@@ -85,7 +85,7 @@ func RunMemoryBenchmark() (*MemoryResult, error) {
 	}
 	result.AllocMOpsPerS = mops
 
-	fmt.Printf("  %s\r", strings.Repeat(" ", 60))
+	fmt.Fprintf(os.Stderr, "  %s\r", strings.Repeat(" ", 60))
 	return result, nil
 }
 
@@ -144,7 +144,7 @@ func memSeqWrite() (float64, error) {
 // The padding ensures each node occupies exactly one cache line (64 bytes).
 type node struct {
 	next *node
-	_    [64 - unsafe.Sizeof((*node)(nil))]byte
+	_    [64 - 8]byte // 8 = sizeof(*node) on 64-bit; total struct = 64 bytes
 }
 
 // memRandLatency builds a shuffled linked list that spans the full memBufSize
