@@ -191,13 +191,13 @@ func memRandLatency() (float64, error) {
 // alive in a ring buffer to force real heap activity and GC pressure.
 func memAllocThroughput() (float64, error) {
 	const ringSize = 1024
-	ring := make([]*[]byte, ringSize)
+	ring := make([][]byte, ringSize)
 
 	deadline := time.Now().Add(memAllocDur)
 	var ops int64
 	for time.Now().Before(deadline) {
 		b := make([]byte, memAllocSzB)
-		ring[ops%ringSize] = &b
+		ring[ops%ringSize] = b
 		ops++
 	}
 

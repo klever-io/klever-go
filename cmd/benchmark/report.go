@@ -131,6 +131,7 @@ const (
 	verdictPass verdict = iota
 	verdictWarn
 	verdictFail
+	verdictSkip // category was not run; excluded from overall verdict
 )
 
 func (v verdict) String() string {
@@ -139,8 +140,10 @@ func (v verdict) String() string {
 		return "PASS"
 	case verdictWarn:
 		return "WARN"
-	default:
+	case verdictFail:
 		return "FAIL"
+	default:
+		return "N/A"
 	}
 }
 
@@ -150,14 +153,16 @@ func (v verdict) Icon() string {
 		return "[OK]"
 	case verdictWarn:
 		return "[!!]"
-	default:
+	case verdictFail:
 		return "[XX]"
+	default:
+		return "[--]"
 	}
 }
 
 func goroutineVerdict(r *GoroutineResult) verdict {
 	if r == nil {
-		return verdictPass
+		return verdictSkip
 	}
 	if r.CPUEfficiency < cpuEffWarnPct {
 		return verdictFail
@@ -170,7 +175,7 @@ func goroutineVerdict(r *GoroutineResult) verdict {
 
 func diskVerdict(r *DiskResult) verdict {
 	if r == nil {
-		return verdictPass
+		return verdictSkip
 	}
 	if r.SeqWriteMBps < seqWriteFailMBps ||
 		r.SeqReadMBps < seqReadFailMBps ||
@@ -199,7 +204,7 @@ func metricVerdict(val, passThreshold, failThreshold float64) verdict {
 
 func networkVerdict(r *NetworkResult) verdict {
 	if r == nil {
-		return verdictPass
+		return verdictSkip
 	}
 	p50us := float64(r.LatP50) / float64(time.Microsecond)
 	p99us := float64(r.LatP99) / float64(time.Microsecond)
@@ -214,7 +219,7 @@ func networkVerdict(r *NetworkResult) verdict {
 
 func kvVerdict(r *KVResult) verdict {
 	if r == nil {
-		return verdictPass
+		return verdictSkip
 	}
 	if r.WriteOpsPerSec < kvWriteFailOps || r.ReadOpsPerSec < kvReadFailOps || r.MixedOpsPerSec < kvMixedFailOps {
 		return verdictFail
@@ -227,7 +232,7 @@ func kvVerdict(r *KVResult) verdict {
 
 func memoryVerdict(r *MemoryResult) verdict {
 	if r == nil {
-		return verdictPass
+		return verdictSkip
 	}
 	if r.SeqReadGBps < memSeqReadFailGBps || r.SeqWriteGBps < memSeqWriteFailGBps ||
 		r.RandLatencyNs >= memRandLatFailNs || r.AllocMOpsPerS < memAllocFailMOps {
@@ -242,7 +247,7 @@ func memoryVerdict(r *MemoryResult) verdict {
 
 func bigNumVerdict(r *BigNumResult) verdict {
 	if r == nil {
-		return verdictPass
+		return verdictSkip
 	}
 	if r.ModExpOpsPerSec < bigModExpFailOps || r.ModMulOpsPerSec < bigModMulFailOps ||
 		r.Float64OpsPerSec < bigFloat64FailOps || r.IntDivOpsPerSec < bigIntDivFailOps {
@@ -257,10 +262,18 @@ func bigNumVerdict(r *BigNumResult) verdict {
 
 func overallVerdict(vs ...verdict) verdict {
 	best := verdictPass
+	anyRan := false
 	for _, v := range vs {
+		if v == verdictSkip {
+			continue
+		}
+		anyRan = true
 		if v > best {
 			best = v
 		}
+	}
+	if !anyRan {
+		return verdictSkip
 	}
 	return best
 }
@@ -577,8 +590,10 @@ func verdictSummary(v verdict) string {
 		return "This node meets Kleverchain validator requirements."
 	case verdictWarn:
 		return "Minimum requirements met but some metrics are below recommended levels."
-	default:
+	case verdictFail:
 		return "This node does NOT meet Kleverchain validator requirements."
+	default:
+		return "No benchmarks were run; results are unavailable."
 	}
 }
 
