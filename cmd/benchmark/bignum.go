@@ -105,11 +105,12 @@ func bigModExp() (float64, error) {
 	exp := new(big.Int).Sub(mod, big.NewInt(1)) // worst-case exponent = mod-1
 	result := new(big.Int)
 
+	inc := big.NewInt(1)
 	deadline := time.Now().Add(bigNumDuration)
 	var count int64
 	for time.Now().Before(deadline) {
 		result.Exp(base, exp, mod)
-		base.Add(base, big.NewInt(1)) // vary base to avoid trivial shortcuts
+		base.Add(base, inc) // vary base to avoid trivial shortcuts
 		count++
 	}
 	_ = result

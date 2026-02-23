@@ -302,6 +302,8 @@ func scoreGradeSummary(g string) string {
 		return "Acceptable — meets minimum validator requirements"
 	case "D":
 		return "Marginal — several metrics below recommended levels"
+	case "N/A":
+		return "No benchmarks were run; all categories were skipped."
 	default:
 		return "Insufficient — hardware does not meet validator requirements"
 	}

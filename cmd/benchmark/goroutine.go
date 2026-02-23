@@ -139,11 +139,8 @@ func hashLoop(n int, duration time.Duration, data []byte) int64 {
 		go func() {
 			defer wg.Done()
 			var count int64
-			h := sha256.New()
 			for time.Now().Before(deadline) {
-				h.Reset()
-				_, _ = h.Write(data)
-				h.Sum(nil)
+				_ = sha256.Sum256(data)
 				count++
 			}
 			total.Add(count)
