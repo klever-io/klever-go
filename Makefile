@@ -194,4 +194,4 @@ connector: ## Run terminal UI connector
 	go run ./cmd/connector/main.go node --address="${NODE}" --log-level="${LOG}"
 
 benchmark: ## Run full validator benchmark
-	$(GOCMD) run -ldflags="$(ldflags)" ./cmd/benchmark $(ARGS)
+	$(GORUN) ./cmd/benchmark $(ARGS)
