@@ -58,6 +58,7 @@ jobs:
         run: |
           make build-operator
           make build-validator
+          make build-benchmark
 
       - name: Create tarball
         run: |
@@ -72,6 +73,7 @@ jobs:
 
           tar -czf klevergo-operator${{ matrix.extension }} operator $LIB_FILE
           tar -czf klevergo-node${{ matrix.extension }} validator $LIB_FILE
+          tar -czf klevergo-benchmark${{ matrix.extension }} benchmark
           
           # Prepare extension files
           mkdir ${{ matrix.name }}
@@ -85,6 +87,7 @@ jobs:
           files: |
             bin/klevergo-node${{ matrix.extension }}
             bin/klevergo-operator${{ matrix.extension }}
+            bin/klevergo-benchmark${{ matrix.extension }}
           generate_release_notes: true
           draft: true
           prerelease: true
@@ -116,6 +119,13 @@ jobs:
         with:
           path: 'bin/klevergo-node${{ matrix.extension }}'
           destination: 'kleverchain-public/knode/${{ matrix.name }}/${{ env.VERSION }}'
+          predefinedAcl: 'publicRead'
+
+      - name: Upload benchmark files to bucket
+        uses: 'google-github-actions/upload-cloud-storage@v2'
+        with:
+          path: 'bin/klevergo-benchmark${{ matrix.extension }}'
+          destination: 'kleverchain-public/kbenchmark/${{ matrix.name }}/${{ env.VERSION }}'
           predefinedAcl: 'publicRead'
 
       - name: Upload Klever Blockchain IDE operator files to bucket

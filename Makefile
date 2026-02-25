@@ -97,8 +97,8 @@ newkey: ## Generate new validator keys
 ###         BUILD        ###
 ############################
 
-.PHONY: build build-validator build-seednode build-operator build-keygenerator docker-build clean
-build: build-validator build-seednode build-operator build-keygenerator ## Build all binaries
+.PHONY: build build-validator build-seednode build-operator build-keygenerator build-benchmark docker-build clean
+build: build-validator build-seednode build-operator build-keygenerator build-benchmark ## Build all binaries
 
 build-validator: ## Build validator node binary
 	$(GOBUILD) -o ./bin/validator ./cmd/node
@@ -111,6 +111,9 @@ build-operator: ## Build operator tools binary
 
 build-keygenerator: ## Build key generator binary
 	$(GOBUILD) -o ./bin/keygenerator ./cmd/keygenerator
+
+build-benchmark: ## Build validator benchmark tool
+	$(GOBUILD) -o ./bin/benchmark ./cmd/benchmark
 
 clean: ## Remove build artifacts and caches
 	@echo "Cleaning build artifacts..."
@@ -167,7 +170,7 @@ runsc-trace:
 ###  Integration Tests   ###
 ############################
 
-.PHONY: tests tests-unit tests-integration tests-kvm tests-e2e
+.PHONY: tests tests-unit tests-integration tests-kvm tests-e2e benchmark
 tests: tests-unit tests-integration tests-kvm tests-e2e ## Run all tests
 
 tests-unit: ## Run unit tests
@@ -189,3 +192,6 @@ tests-e2e: ## Run end-to-end tests
 
 connector: ## Run terminal UI connector
 	go run ./cmd/connector/main.go node --address="${NODE}" --log-level="${LOG}"
+
+benchmark: ## Run full validator benchmark
+	$(GORUN) ./cmd/benchmark $(ARGS)
