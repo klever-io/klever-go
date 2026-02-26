@@ -39,7 +39,8 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-	cpuEffExcellentPct = 0.95
+	cpuEffScoreFloor   = 0.25 // scoring floor (separate from verdict threshold cpuEffWarnPct)
+	cpuEffExcellentPct = 1.10 // superlinear scaling (turbo boost) counts as excellent
 
 	// Disk: top validators achieve 570-1076 MB/s write, 1436-6781 MB/s read,
 	// 622-1346 IOPS rand-write (fsynced), 32K-118K IOPS rand-read.
@@ -157,7 +158,7 @@ func goroutineCatScore(r *GoroutineResult) float64 {
 	if r == nil {
 		return 0
 	}
-	return normHigh(r.CPUEfficiency, cpuEffWarnPct, cpuEffExcellentPct)
+	return normHigh(r.CPUEfficiency, cpuEffScoreFloor, cpuEffExcellentPct)
 }
 
 func diskCatScore(r *DiskResult) float64 {
@@ -299,12 +300,12 @@ func scoreGradeSummary(g string) string {
 	case "B":
 		return "Good — suitable for standard validator operation"
 	case "C":
-		return "Acceptable — meets minimum validator requirements"
+		return "Below standard — not recommended for production use"
 	case "D":
-		return "Marginal — several metrics below recommended levels"
+		return "Poor — critical subsystems underperform validator requirements"
 	case "N/A":
 		return "No benchmarks were run; all categories were skipped."
 	default:
-		return "Insufficient — hardware does not meet validator requirements"
+		return "Failing — hardware does not meet minimum validator requirements"
 	}
 }

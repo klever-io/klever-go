@@ -306,7 +306,8 @@ func printText(results *BenchmarkResults) {
 	kv := kvVerdict(results.KVResult)
 	mv := memoryVerdict(results.MemoryResult)
 	bv := bigNumVerdict(results.BigNumResult)
-	ov := overallVerdict(gv, dv, nv, kv, mv, bv)
+	sc := ComputeScore(results)
+	ov := gradeToVerdict(sc.Grade, overallVerdict(gv, dv, nv, kv, mv, bv))
 
 	fmt.Println()
 	fmt.Println(sep)
@@ -345,7 +346,7 @@ func printText(results *BenchmarkResults) {
 	}
 	fmt.Println(sep)
 
-	printScoreSection(ComputeScore(results), sep)
+	printScoreSection(sc, sep)
 	fmt.Println()
 }
 
@@ -584,12 +585,32 @@ func humanOps(ops float64) string {
 	}
 }
 
+// gradeToVerdict derives the overall verdict from the BenchmarkScore grade.
+// If any individual category is verdictFail that hard-overrides the grade —
+// a node with a broken subsystem must not be promoted by a high aggregate score.
+// Otherwise the grade is the source of truth so both systems stay consistent.
+func gradeToVerdict(grade string, worstCategory verdict) verdict {
+	if worstCategory == verdictFail {
+		return verdictFail
+	}
+	switch grade {
+	case "S", "A", "B":
+		return verdictPass
+	case "C":
+		return verdictWarn
+	case "N/A":
+		return verdictSkip
+	default: // D, F
+		return verdictFail
+	}
+}
+
 func verdictSummary(v verdict) string {
 	switch v {
 	case verdictPass:
 		return "This node meets Kleverchain validator requirements."
 	case verdictWarn:
-		return "Minimum requirements met but some metrics are below recommended levels."
+		return "Performance is below recommended levels; review individual sections before deploying."
 	case verdictFail:
 		return "This node does NOT meet Kleverchain validator requirements."
 	default:
@@ -697,7 +718,8 @@ func printJSON(results *BenchmarkResults) {
 	kv := kvVerdict(results.KVResult)
 	mv := memoryVerdict(results.MemoryResult)
 	bv := bigNumVerdict(results.BigNumResult)
-	ov := overallVerdict(gv, dv, nv, kv, mv, bv)
+	sc := ComputeScore(results)
+	ov := gradeToVerdict(sc.Grade, overallVerdict(gv, dv, nv, kv, mv, bv))
 
 	report := jsonReport{
 		RunAt:          results.RunAt.Format(time.RFC3339),
@@ -775,7 +797,6 @@ func printJSON(results *BenchmarkResults) {
 		}
 	}
 
-	sc := ComputeScore(results)
 	report.Score = jsonScore{
 		Total:     sc.Total,
 		MaxTotal:  sc.MaxTotal,
