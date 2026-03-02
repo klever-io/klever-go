@@ -307,7 +307,6 @@ func printText(results *BenchmarkResults) {
 	mv := memoryVerdict(results.MemoryResult)
 	bv := bigNumVerdict(results.BigNumResult)
 	sc := ComputeScore(results)
-	ov := gradeToVerdict(sc.Grade, overallVerdict(gv, dv, nv, kv, mv, bv))
 
 	fmt.Println()
 	fmt.Println(sep)
@@ -336,15 +335,6 @@ func printText(results *BenchmarkResults) {
 	if results.BigNumResult != nil {
 		printBigNumSection(results.BigNumResult, bv, sep)
 	}
-
-	fmt.Printf("  Overall Verdict : %s  %s\n", ov.Icon(), verdictSummary(ov))
-	if results.GoroutineResult != nil && gv != verdictPass {
-		fmt.Printf("  Goroutine note  : CPU efficiency at %d workers = %.1f%% (need ≥ %.0f%%)\n",
-			runtime.NumCPU(),
-			results.GoroutineResult.CPUEfficiency*100,
-			cpuEffPassPct*100)
-	}
-	fmt.Println(sep)
 
 	printScoreSection(sc, sep)
 	fmt.Println()
@@ -524,7 +514,6 @@ func printBigNumSection(r *BigNumResult, v verdict, sep string) {
 // ---------------------------------------------------------------------------
 
 func printScoreSection(s BenchmarkScore, sep string) {
-	fmt.Println(sep)
 	fmt.Printf("  SCORE : %d / %d   Grade: %s   %s\n",
 		s.Total, s.MaxTotal, s.Grade, scoreGradeSummary(s.Grade))
 	fmt.Println()
