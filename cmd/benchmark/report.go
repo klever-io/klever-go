@@ -578,8 +578,8 @@ func humanOps(ops float64) string {
 // If any individual category is verdictFail that hard-overrides the grade —
 // a node with a broken subsystem must not be promoted by a high aggregate score.
 // Otherwise the grade is the source of truth so both systems stay consistent.
-func gradeToVerdict(grade string, worstCategory verdict) verdict {
-	if worstCategory == verdictFail {
+func gradeToVerdict(grade string, overallCategoryVerdict verdict) verdict {
+	if overallCategoryVerdict == verdictFail {
 		return verdictFail
 	}
 	switch grade {
