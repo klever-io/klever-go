@@ -7,6 +7,7 @@ import (
 	"github.com/klever-io/klever-go/storage"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	pubsub_pb "github.com/libp2p/go-libp2p-pubsub/pb"
+	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/whyrusleeping/timecache"
@@ -61,4 +62,9 @@ func (ip *identityProvider) HandleStreams(s network.Stream) {
 
 func (ip *identityProvider) ProcessReceivedData(recvBuff []byte) error {
 	return ip.processReceivedData(recvBuff)
+}
+
+// CreateP2PPrivKey exports createP2PPrivKey for testing.
+func CreateP2PPrivKey(seed string, legacySeed bool) (libp2pCrypto.PrivKey, error) {
+	return createP2PPrivKey(seed, legacySeed)
 }

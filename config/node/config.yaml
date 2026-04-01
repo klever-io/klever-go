@@ -2,6 +2,7 @@ p2p:
   node:
     port: 37373-38383
     seed:
+    legacySeed: false
     maximumExpectedPeerCount: 0
     thresholdMinConnectedPeers: 0
     broadcastIP:
