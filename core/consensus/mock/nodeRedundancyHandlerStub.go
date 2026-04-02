@@ -13,6 +13,7 @@ type NodeRedundancyHandlerStub struct {
 	AdjustInactivityIfNeededCalled func(selfPubKey string, consensusPubKeys []string, roundIndex int64)
 	ResetInactivityIfNeededCalled  func(selfPubKey string, consensusMsgPubKey string, consensusMsgPeerID core.PeerID)
 	ObserverPrivateKeyCalled       func() crypto.PrivateKey
+	GetSlotsOfInactivityCalled     func() uint64
 }
 
 // IsRedundancyNode -
@@ -61,6 +62,14 @@ func (nrhs *NodeRedundancyHandlerStub) ObserverPrivateKey() crypto.PrivateKey {
 	}
 
 	return &cryptoMock.PrivateKeyMock{}
+}
+
+// GetSlotsOfInactivity -
+func (nrhs *NodeRedundancyHandlerStub) GetSlotsOfInactivity() uint64 {
+	if nrhs.GetSlotsOfInactivityCalled != nil {
+		return nrhs.GetSlotsOfInactivityCalled()
+	}
+	return 0
 }
 
 // IsInterfaceNil -

@@ -141,6 +141,15 @@ func (sm *statusMetrics) StatusMetricsWithoutP2PPrometheusString() string {
 		}
 	}
 
+	version := sm.loadStringMetric(core.MetricAppVersion)
+	if version != "" {
+		nodeType := sm.loadStringMetric(core.MetricNodeType)
+		stringBuilder.WriteString(fmt.Sprintf(
+			"klv_build_info{version=\"%s\",chain_id=\"%s\",node_type=\"%s\"} 1\n",
+			version, chainID, nodeType,
+		))
+	}
+
 	return stringBuilder.String()
 }
 

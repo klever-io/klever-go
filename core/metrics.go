@@ -251,3 +251,36 @@ const MetricRedundancyLevel = "klv_redundancy_level" // #nosec G101: false posit
 
 // MetricRedundancyIsMainActive is the metric that specifies data about the redundancy main machine
 const MetricRedundancyIsMainActive = "klv_redundancy_is_main_active"
+
+// MetricBlockProcessDuration is the metric for the duration in milliseconds of ProcessBlock()
+const MetricBlockProcessDuration = "klv_block_process_duration_ms"
+
+// MetricBlockCommitDuration is the metric for the duration in milliseconds of CommitBlock()
+const MetricBlockCommitDuration = "klv_block_commit_duration_ms"
+
+// MetricTxProcessingDuration is the metric for the duration in milliseconds of transaction processing
+const MetricTxProcessingDuration = "klv_tx_processing_duration_ms"
+
+// MetricSystemCPUPercent is the metric for total system-wide CPU usage percent (all processes)
+const MetricSystemCPUPercent = "klv_system_cpu_percent"
+
+// MetricDiskTotalBytes is the metric for total disk space in bytes
+const MetricDiskTotalBytes = "klv_disk_total_bytes"
+
+// MetricDiskAvailableBytes is the metric for available disk space in bytes
+const MetricDiskAvailableBytes = "klv_disk_available_bytes"
+
+// MetricDiskUsagePercent is the metric for disk usage percentage
+const MetricDiskUsagePercent = "klv_disk_usage_percent"
+
+// MetricDbSizeBytes is the metric for total database directory size in bytes
+const MetricDbSizeBytes = "klv_db_size_bytes"
+
+// MetricNodeUptimeSeconds is the metric for node uptime in seconds since start
+const MetricNodeUptimeSeconds = "klv_node_uptime_seconds"
+
+// MetricNodeStartTimestamp is the metric for node start unix timestamp
+const MetricNodeStartTimestamp = "klv_node_start_timestamp"
+
+// MetricRedundancySlotsInactive is the metric for the redundancy slots of inactivity counter
+const MetricRedundancySlotsInactive = "klv_redundancy_slots_inactive"

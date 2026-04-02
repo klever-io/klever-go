@@ -10,6 +10,43 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestStatusMetrics_PrometheusString_ContainsBuildInfo(t *testing.T) {
+	t.Parallel()
+
+	sm := statusHandler.NewStatusMetrics()
+	sm.SetStringValue(core.MetricAppVersion, "v1.2.3")
+	sm.SetStringValue(core.MetricChainID, "testnet")
+	sm.SetStringValue(core.MetricNodeType, "validator")
+
+	result := sm.StatusMetricsWithoutP2PPrometheusString()
+
+	assert.True(t, strings.Contains(result, `klv_build_info{version="v1.2.3",chain_id="testnet",node_type="validator"} 1`))
+}
+
+func TestStatusMetrics_PrometheusString_NoBuildInfoWhenVersionEmpty(t *testing.T) {
+	t.Parallel()
+
+	sm := statusHandler.NewStatusMetrics()
+	sm.SetStringValue(core.MetricAppVersion, "")
+	sm.SetStringValue(core.MetricChainID, "testnet")
+
+	result := sm.StatusMetricsWithoutP2PPrometheusString()
+
+	assert.False(t, strings.Contains(result, "klv_build_info"))
+}
+
+func TestStatusMetrics_PrometheusString_NumericMetricsPresent(t *testing.T) {
+	t.Parallel()
+
+	sm := statusHandler.NewStatusMetrics()
+	sm.SetUInt64Value("klv_some_counter", uint64(42))
+	sm.SetStringValue(core.MetricChainID, "1")
+
+	result := sm.StatusMetricsWithoutP2PPrometheusString()
+
+	assert.True(t, strings.Contains(result, fmt.Sprintf(`klv_some_counter{chainID="1"} 42`)))
+}
+
 func TestNewStatusMetricsProvider(t *testing.T) {
 	t.Parallel()
 

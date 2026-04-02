@@ -226,6 +226,29 @@ func TestResetInactivityIfNeeded_ShouldResetSlotsOfInactivity(t *testing.T) {
 	assert.Equal(t, uint64(0), nr.GetSlotsOfInactivity())
 }
 
+func TestNodeRedundancy_GetSlotsOfInactivity_InitiallyZero(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArguments(1)
+	nr, _ := redundancy.NewNodeRedundancy(arg)
+
+	assert.Equal(t, uint64(0), nr.GetSlotsOfInactivity())
+}
+
+func TestNodeRedundancy_GetSlotsOfInactivity_AfterAdjust(t *testing.T) {
+	t.Parallel()
+
+	selfPubKey := "self"
+	arg := createMockArguments(1)
+	nr, _ := redundancy.NewNodeRedundancy(arg)
+
+	nr.AdjustInactivityIfNeeded(selfPubKey, []string{selfPubKey}, 1)
+	assert.Equal(t, uint64(1), nr.GetSlotsOfInactivity())
+
+	nr.AdjustInactivityIfNeeded(selfPubKey, []string{selfPubKey}, 2)
+	assert.Equal(t, uint64(2), nr.GetSlotsOfInactivity())
+}
+
 func TestNodeRedundancy_ObserverPrivateKey(t *testing.T) {
 	t.Parallel()
 
