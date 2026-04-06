@@ -31,7 +31,8 @@ func TestDiskStatistics_InitialValuesAreZero(t *testing.T) {
 func TestDiskStatistics_ComputeDiskUsage_SetsValues(t *testing.T) {
 	t.Parallel()
 
-	ds := NewDiskStatistics("/tmp", "/tmp")
+	tmpDir := t.TempDir()
+	ds := NewDiskStatistics(tmpDir, tmpDir)
 	ds.computeDiskUsage()
 
 	assert.Greater(t, ds.DiskTotal(), uint64(0))

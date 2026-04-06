@@ -8,6 +8,7 @@ import (
 	"github.com/klever-io/klever-go/core/redundancy/mock"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func createMockArguments(redundancyLevel int64) redundancy.ArgNodeRedundancy {
@@ -230,7 +231,8 @@ func TestNodeRedundancy_GetSlotsOfInactivity_InitiallyZero(t *testing.T) {
 	t.Parallel()
 
 	arg := createMockArguments(1)
-	nr, _ := redundancy.NewNodeRedundancy(arg)
+	nr, err := redundancy.NewNodeRedundancy(arg)
+	require.NoError(t, err)
 
 	assert.Equal(t, uint64(0), nr.GetSlotsOfInactivity())
 }
@@ -240,7 +242,8 @@ func TestNodeRedundancy_GetSlotsOfInactivity_AfterAdjust(t *testing.T) {
 
 	selfPubKey := "self"
 	arg := createMockArguments(1)
-	nr, _ := redundancy.NewNodeRedundancy(arg)
+	nr, err := redundancy.NewNodeRedundancy(arg)
+	require.NoError(t, err)
 
 	nr.AdjustInactivityIfNeeded(selfPubKey, []string{selfPubKey}, 1)
 	assert.Equal(t, uint64(1), nr.GetSlotsOfInactivity())

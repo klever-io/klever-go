@@ -47,6 +47,20 @@ func TestStatusMetrics_PrometheusString_NumericMetricsPresent(t *testing.T) {
 	assert.True(t, strings.Contains(result, fmt.Sprintf(`klv_some_counter{chainID="1"} 42`)))
 }
 
+func TestStatusMetrics_PrometheusString_BuildInfoEscapesLabels(t *testing.T) {
+	t.Parallel()
+
+	sm := statusHandler.NewStatusMetrics()
+	sm.SetStringValue(core.MetricAppVersion, "v1\"2\\3")
+	sm.SetStringValue(core.MetricChainID, "test\nnet")
+	sm.SetStringValue(core.MetricNodeType, "validator")
+
+	result := sm.StatusMetricsWithoutP2PPrometheusString()
+
+	assert.NotContains(t, result, "test\nnet")
+	assert.Contains(t, result, `version="v1\"2\\3"`)
+}
+
 func TestNewStatusMetricsProvider(t *testing.T) {
 	t.Parallel()
 

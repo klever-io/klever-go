@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -521,10 +522,13 @@ func TestStartNodeMetricsPolling_NilRedundancyHandler(t *testing.T) {
 func TestStartNodeMetricsPolling_Valid(t *testing.T) {
 	t.Parallel()
 
+	var mu sync.Mutex
 	setValues := make(map[string]uint64)
 	handler := &mock.AppStatusHandlerStub{
 		SetUInt64ValueHandler: func(key string, value uint64) {
+			mu.Lock()
 			setValues[key] = value
+			mu.Unlock()
 		},
 	}
 	redundancyHandler := &consensusMock.NodeRedundancyHandlerStub{
@@ -535,7 +539,10 @@ func TestStartNodeMetricsPolling_Valid(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Start timestamp should be set immediately (non-zero)
-	assert.Greater(t, setValues[core.MetricNodeStartTimestamp], uint64(0))
+	mu.Lock()
+	ts := setValues[core.MetricNodeStartTimestamp]
+	mu.Unlock()
+	assert.Greater(t, ts, uint64(0))
 }
 
 func TestSliceToString(t *testing.T) {

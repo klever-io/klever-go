@@ -246,7 +246,7 @@ func StartNodeMetricsPolling(
 
 	appStatusPollingHandler, err := appStatusPolling.NewAppStatusPolling(ash, pollingInterval)
 	if err != nil {
-		return errors.New("cannot init AppStatusPolling for node metrics")
+		return fmt.Errorf("cannot init AppStatusPolling for node metrics: %w", err)
 	}
 
 	err = appStatusPollingHandler.RegisterPollingFunc(func(appStatusHandler core.AppStatusHandler) {
@@ -254,7 +254,7 @@ func StartNodeMetricsPolling(
 		appStatusHandler.SetUInt64Value(core.MetricRedundancySlotsInactive, redundancyHandler.GetSlotsOfInactivity())
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot register node metrics polling function: %w", err)
 	}
 
 	appStatusPollingHandler.Poll()
