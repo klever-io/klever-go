@@ -119,7 +119,7 @@ jobs:
         with:
           name: test-artifacts
 
-      - uses: twingate/github-action@V1.1
+      - uses: twingate/github-action@V1.8
         with:
           service-key: ${{ secrets.TWINGATE_SERVICE_ACCOUNT }}
 
@@ -163,7 +163,7 @@ jobs:
 
       - name: SonarQube Quality Gate check
         continue-on-error: ${{ github.event_name != 'pull_request' }}
-        uses: sonarsource/sonarqube-quality-gate-action@master
+        uses: sonarsource/sonarqube-quality-gate-action@v1.2.0
         timeout-minutes: 5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
