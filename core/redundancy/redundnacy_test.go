@@ -1,6 +1,7 @@
 package redundancy_test
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/klever-io/klever-go/core"
@@ -250,6 +251,30 @@ func TestNodeRedundancy_GetSlotsOfInactivity_AfterAdjust(t *testing.T) {
 
 	nr.AdjustInactivityIfNeeded(selfPubKey, []string{selfPubKey}, 2)
 	assert.Equal(t, uint64(2), nr.GetSlotsOfInactivity())
+}
+
+func TestNodeRedundancy_GetSlotsOfInactivity_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArguments(1)
+	nr, err := redundancy.NewNodeRedundancy(arg)
+	require.NoError(t, err)
+
+	selfPubKey := "self"
+	consensusKeys := []string{selfPubKey}
+
+	var wg sync.WaitGroup
+	for i := int64(1); i <= 100; i++ {
+		wg.Add(1)
+		go func(slot int64) {
+			defer wg.Done()
+			nr.AdjustInactivityIfNeeded(selfPubKey, consensusKeys, slot)
+			_ = nr.GetSlotsOfInactivity()
+		}(i)
+	}
+	wg.Wait()
+
+	assert.GreaterOrEqual(t, nr.GetSlotsOfInactivity(), uint64(1))
 }
 
 func TestNodeRedundancy_ObserverPrivateKey(t *testing.T) {

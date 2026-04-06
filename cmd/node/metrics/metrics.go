@@ -9,7 +9,7 @@ import (
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/appStatusPolling"
-	consensus "github.com/klever-io/klever-go/core/consensus"
+	"github.com/klever-io/klever-go/core/consensus"
 	"github.com/klever-io/klever-go/factory"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/sharding"

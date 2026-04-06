@@ -45,14 +45,23 @@ func TestDiskStatistics_DbSize_CachesResult(t *testing.T) {
 	tmpDir := t.TempDir()
 	ds := NewDiskStatistics(tmpDir, tmpDir)
 
-	// First call should compute and set lastDbCheck
+	err := os.WriteFile(filepath.Join(tmpDir, "db.dat"), make([]byte, 100), 0600)
+	require.NoError(t, err)
+
+	// First call should compute and set lastDbCheck and DbSize
 	ds.computeDbSizeIfNeeded()
 	firstCheck := ds.lastDbCheck
+	firstSize := ds.DbSize()
 	assert.Greater(t, firstCheck, int64(0))
+	assert.Equal(t, uint64(100), firstSize)
 
-	// Immediate second call should skip (cached), lastDbCheck unchanged
+	err = os.WriteFile(filepath.Join(tmpDir, "db2.dat"), make([]byte, 100), 0600)
+	require.NoError(t, err)
+
+	// Immediate second call should skip (cached), both lastDbCheck and DbSize unchanged
 	ds.computeDbSizeIfNeeded()
 	assert.Equal(t, firstCheck, ds.lastDbCheck)
+	assert.Equal(t, firstSize, ds.DbSize())
 }
 
 func TestGetDirSizeBytes_EmptyDir(t *testing.T) {

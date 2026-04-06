@@ -61,6 +61,19 @@ func TestStatusMetrics_PrometheusString_BuildInfoEscapesLabels(t *testing.T) {
 	assert.Contains(t, result, `version="v1\"2\\3"`)
 }
 
+func TestStatusMetrics_PrometheusString_NumericMetricsEscapesChainID(t *testing.T) {
+	t.Parallel()
+
+	sm := statusHandler.NewStatusMetrics()
+	sm.SetUInt64Value("klv_some_counter", uint64(42))
+	sm.SetStringValue(core.MetricChainID, "te\"st\\\nnet")
+
+	result := sm.StatusMetricsWithoutP2PPrometheusString()
+
+	assert.NotContains(t, result, "te\"st\\\nnet")
+	assert.Contains(t, result, `klv_some_counter{chainID="te\"st\\\nnet"} 42`)
+}
+
 func TestNewStatusMetricsProvider(t *testing.T) {
 	t.Parallel()
 
