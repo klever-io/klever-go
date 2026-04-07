@@ -224,13 +224,11 @@ func (mp *metaProcessor) ProcessBlock(
 
 	// Process Transactions
 	startTx := time.Now()
-	defer func() {
-		mp.appStatusHandler.SetUInt64Value(
-			core.MetricTxProcessingDuration,
-			uint64(time.Since(startTx).Milliseconds()), // #nosec G115
-		)
-	}()
 	processResults, err := mp.txCoordinator.ProcessBlockTransactions(header, haveTime)
+	mp.appStatusHandler.SetUInt64Value(
+		core.MetricTxProcessingDuration,
+		uint64(time.Since(startTx).Milliseconds()), // #nosec G115
+	)
 	if err != nil {
 		_ = bugsnag.Notify(fmt.Errorf("process block transactions: %w", err), bugsnag.MetaData{"data": {"header": header}})
 		return err
