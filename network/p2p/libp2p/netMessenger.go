@@ -220,8 +220,8 @@ func createP2PPrivKey(seed string, legacySeed bool) (libp2pCrypto.PrivKey, error
 		return nil, err
 	}
 
-	// secp256k1 curve order
-	secp256k1N, _ := new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
+	// secp256k1 curve order from the already-imported package
+	secp256k1N := secp256k1.Params().N
 	one := big.NewInt(1)
 	k := new(big.Int).SetBytes(b)
 	nMinusOne := new(big.Int).Sub(secp256k1N, one)

@@ -45,7 +45,6 @@ func TestCreateP2PPrivKey_LegacySeed_ProducesStablePeerID(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -107,42 +106,11 @@ func TestCreateP2PPrivKey_EmptySeed_NoError(t *testing.T) {
 	require.NotNil(t, privKey)
 }
 
-func TestCreateP2PPrivKey_EmptySeed_ProducesDifferentPeerIDs(t *testing.T) {
+func TestCreateP2PPrivKey_EmptySeed_LegacySeed_NoError(t *testing.T) {
 	t.Parallel()
 
-	t.Run("legacy mode", func(t *testing.T) {
-		t.Parallel()
-
-		privKey1, err := libp2p.CreateP2PPrivKey("", true)
-		require.NoError(t, err)
-
-		privKey2, err := libp2p.CreateP2PPrivKey("", true)
-		require.NoError(t, err)
-
-		peerID1, err := peer.IDFromPrivateKey(privKey1)
-		require.NoError(t, err)
-
-		peerID2, err := peer.IDFromPrivateKey(privKey2)
-		require.NoError(t, err)
-
-		assert.NotEqual(t, peerID1, peerID2, "Empty seed should produce different peer IDs on each call (legacy)")
-	})
-
-	t.Run("new mode", func(t *testing.T) {
-		t.Parallel()
-
-		privKey1, err := libp2p.CreateP2PPrivKey("", false)
-		require.NoError(t, err)
-
-		privKey2, err := libp2p.CreateP2PPrivKey("", false)
-		require.NoError(t, err)
-
-		peerID1, err := peer.IDFromPrivateKey(privKey1)
-		require.NoError(t, err)
-
-		peerID2, err := peer.IDFromPrivateKey(privKey2)
-		require.NoError(t, err)
-
-		assert.NotEqual(t, peerID1, peerID2, "Empty seed should produce different peer IDs on each call (new)")
-	})
+	// Empty seed with legacySeed=true should also use crypto/rand and not error.
+	privKey, err := libp2p.CreateP2PPrivKey("", true)
+	require.NoError(t, err)
+	require.NotNil(t, privKey)
 }

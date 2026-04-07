@@ -1,3 +1,12 @@
+// Copyright 2009 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found at https://go.dev/LICENSE
+//
+// This file contains a frozen copy of Go 1.18's math/rand PRNG
+// (rng.go and rand.go) and crypto/ecdsa key derivation (ecdsa.go),
+// used to produce deterministic P2P peer IDs identical to the original
+// Go 1.18 build. Source: https://go.googlesource.com/go/+/refs/tags/go1.18
+
 package rand
 
 import (
@@ -271,7 +280,7 @@ func NewLegacySeedRandReader(seed []byte) (*legacySeedRandReader, error) {
 // matching Go 1.18's (*Rand).Read behavior exactly.
 func (srr *legacySeedRandReader) Read(p []byte) (n int, err error) {
 	if len(p) == 0 {
-		return 0, p2p.ErrEmptyBuffer
+		return 0, nil
 	}
 
 	rng := newRngSource(srr.seedNumber)
