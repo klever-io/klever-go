@@ -41,7 +41,8 @@ func TestLegacySeedRandReader_ReadEmptyBufferShouldReturnZero(t *testing.T) {
 	t.Parallel()
 
 	seed := []byte("seed")
-	srr, _ := rand.NewLegacySeedRandReader(seed)
+	srr, err := rand.NewLegacySeedRandReader(seed)
+	require.NoError(t, err)
 
 	n, err := srr.Read(nil)
 
@@ -57,7 +58,8 @@ func TestLegacySeedRandReader_ReadShouldMatchGo118(t *testing.T) {
 	t.Parallel()
 
 	seed := []byte("seed")
-	srr, _ := rand.NewLegacySeedRandReader(seed)
+	srr, err := rand.NewLegacySeedRandReader(seed)
+	require.NoError(t, err)
 
 	testTbl := []struct {
 		pSize int
@@ -96,7 +98,8 @@ func TestLegacySeedRandReader_ReadIsIdempotent(t *testing.T) {
 	t.Parallel()
 
 	seed := []byte("seed")
-	srr, _ := rand.NewLegacySeedRandReader(seed)
+	srr, err := rand.NewLegacySeedRandReader(seed)
+	require.NoError(t, err)
 
 	buf1 := make([]byte, 40)
 	buf2 := make([]byte, 40)
@@ -114,14 +117,21 @@ func TestLegacySeedRandReader_ReadIsIdempotent(t *testing.T) {
 func TestLegacySeedRandReader_DifferentSeedsShouldDiffer(t *testing.T) {
 	t.Parallel()
 
-	srr1, _ := rand.NewLegacySeedRandReader([]byte("seed"))
-	srr2, _ := rand.NewLegacySeedRandReader([]byte("test"))
+	srr1, err := rand.NewLegacySeedRandReader([]byte("seed"))
+	require.NoError(t, err)
+	srr2, err := rand.NewLegacySeedRandReader([]byte("test"))
+	require.NoError(t, err)
 
 	buf1 := make([]byte, 40)
 	buf2 := make([]byte, 40)
 
-	srr1.Read(buf1)
-	srr2.Read(buf2)
+	n1, err := srr1.Read(buf1)
+	require.NoError(t, err)
+	assert.Equal(t, 40, n1)
+
+	n2, err := srr2.Read(buf2)
+	require.NoError(t, err)
+	assert.Equal(t, 40, n2)
 
 	assert.NotEqual(t, buf1, buf2, "Different seeds must produce different output")
 }
