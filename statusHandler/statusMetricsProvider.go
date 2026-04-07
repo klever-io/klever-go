@@ -147,17 +147,17 @@ func (sm *statusMetrics) StatusMetricsWithoutP2PPrometheusString() string {
 		_, isInt64 := value.(int64)
 		isNumericValue := isUint64 || isInt64
 		if isNumericValue {
-			stringBuilder.WriteString(fmt.Sprintf("%s{chainID=\"%s\"} %v\n", key, escapePrometheusLabel(chainID), value))
+			fmt.Fprintf(&stringBuilder, "%s{chainID=\"%s\"} %v\n", key, escapePrometheusLabel(chainID), value)
 		}
 	}
 
 	version := sm.loadStringMetric(core.MetricAppVersion)
 	if version != "" {
 		nodeType := sm.loadStringMetric(core.MetricNodeType)
-		stringBuilder.WriteString(fmt.Sprintf(
+		fmt.Fprintf(&stringBuilder,
 			"klv_build_info{version=\"%s\",chain_id=\"%s\",node_type=\"%s\"} 1\n",
 			escapePrometheusLabel(version), escapePrometheusLabel(chainID), escapePrometheusLabel(nodeType),
-		))
+		)
 	}
 
 	return stringBuilder.String()

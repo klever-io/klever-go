@@ -115,7 +115,7 @@ func (mp *metaProcessor) ProcessBlock(
 	defer func() {
 		mp.appStatusHandler.SetUInt64Value(
 			core.MetricBlockProcessDuration,
-			uint64(time.Since(startProcess).Milliseconds()),
+			uint64(time.Since(startProcess).Milliseconds()), // #nosec G115
 		)
 	}()
 
@@ -227,7 +227,7 @@ func (mp *metaProcessor) ProcessBlock(
 	defer func() {
 		mp.appStatusHandler.SetUInt64Value(
 			core.MetricTxProcessingDuration,
-			uint64(time.Since(startTx).Milliseconds()),
+			uint64(time.Since(startTx).Milliseconds()), // #nosec G115
 		)
 	}()
 	processResults, err := mp.txCoordinator.ProcessBlockTransactions(header, haveTime)
@@ -555,7 +555,7 @@ func (mp *metaProcessor) CommitBlock(
 	defer func() {
 		mp.appStatusHandler.SetUInt64Value(
 			core.MetricBlockCommitDuration,
-			uint64(time.Since(startCommitBlock).Milliseconds()),
+			uint64(time.Since(startCommitBlock).Milliseconds()), // #nosec G115
 		)
 	}()
 	var err error
