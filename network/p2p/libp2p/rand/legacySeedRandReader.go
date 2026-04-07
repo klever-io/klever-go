@@ -218,7 +218,7 @@ func newRngSource(seed int64) *rngSource {
 		seed = 89482311
 	}
 
-	x := int32(seed)
+	x := int32(seed) // #nosec G115 -- seed is already in [1, int32max) range
 	for i := -20; i < rngLen; i++ {
 		x = seedrand(x)
 		if i >= 0 {
@@ -252,7 +252,7 @@ func (rng *rngSource) uint64() uint64 {
 
 	x := rng.vec[rng.feed] + rng.vec[rng.tap]
 	rng.vec[rng.feed] = x
-	return uint64(x)
+	return uint64(x) // #nosec G115 -- intentional bit-preserving cast, matches Go 1.18
 }
 
 type legacySeedRandReader struct {

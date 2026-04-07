@@ -30,3 +30,24 @@ func TestNewRandFactory_NotEmptySeedShouldSeedRandReader(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, reflect.TypeOf(r), reflect.TypeOf(srrExpected))
 }
+
+func TestNewLegacyRandFactory_EmptySeedShouldReturnCryptoRand(t *testing.T) {
+	t.Parallel()
+
+	r, err := factory.NewLegacyRandFactory("")
+
+	assert.Nil(t, err)
+	assert.True(t, r == rand.Reader)
+}
+
+func TestNewLegacyRandFactory_NotEmptySeedShouldReturnLegacySeedRandReader(t *testing.T) {
+	t.Parallel()
+
+	seed := "seed"
+	srrExpected, _ := rand2.NewLegacySeedRandReader([]byte(seed))
+
+	r, err := factory.NewLegacyRandFactory(seed)
+
+	assert.Nil(t, err)
+	assert.Equal(t, reflect.TypeOf(r), reflect.TypeOf(srrExpected))
+}
