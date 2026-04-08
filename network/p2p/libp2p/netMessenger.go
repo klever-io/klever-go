@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"math/big"
 	"sort"
 	"strings"
 	"sync"
@@ -117,7 +119,7 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 		return nil, fmt.Errorf("%w when creating a new network messenger", p2p.ErrNilSyncTimer)
 	}
 
-	p2pPrivKey, err := createP2PPrivKey(args.P2pConfig.Node.Seed)
+	p2pPrivKey, err := createP2PPrivKey(args.P2pConfig.Node.Seed, args.P2pConfig.Node.LegacySeed)
 	if err != nil {
 		return nil, err
 	}
@@ -186,19 +188,56 @@ func setupExternalP2PLoggers() {
 	}
 }
 
-func createP2PPrivKey(seed string) (libp2pCrypto.PrivKey, error) {
-	randReader, err := randFactory.NewRandFactory(seed)
+func createP2PPrivKey(seed string, legacySeed bool) (libp2pCrypto.PrivKey, error) {
+	if seed == "" || !legacySeed {
+		randReader, err := randFactory.NewRandFactory(seed)
+		if err != nil {
+			return nil, err
+		}
+
+		prvKey, err := secp256k1.GeneratePrivateKeyFromRand(randReader)
+		if err != nil {
+			return nil, err
+		}
+
+		k := (*libp2pCrypto.Secp256k1PrivateKey)(prvKey)
+		return k, nil
+	}
+
+	// Legacy path: replicate Go 1.18's ecdsa.GenerateKey(btcec.S256(), randReader)
+	// behavior using the frozen PRNG. Go 1.18's randFieldElement reads
+	// BitSize/8 + 8 = 40 bytes, then computes k = (bytes mod (N-1)) + 1.
+	// This is needed because the code was later changed from ecdsa.GenerateKey
+	// to secp256k1.GeneratePrivateKeyFromRand (which reads 32 bytes),
+	// and both the reader and key derivation must match the original.
+	randReader, err := randFactory.NewLegacyRandFactory(seed)
 	if err != nil {
 		return nil, err
 	}
 
-	prvKey, err := secp256k1.GeneratePrivateKeyFromRand(randReader)
-	if err != nil {
+	b := make([]byte, 40) // secp256k1 BitSize/8 + 8 = 32 + 8
+	if _, err := io.ReadFull(randReader, b); err != nil {
 		return nil, err
 	}
 
-	k := (*libp2pCrypto.Secp256k1PrivateKey)(prvKey)
-	return k, nil
+	// secp256k1 curve order from the already-imported package
+	secp256k1N := secp256k1.Params().N
+	one := big.NewInt(1)
+	k := new(big.Int).SetBytes(b)
+	nMinusOne := new(big.Int).Sub(secp256k1N, one)
+	k.Mod(k, nMinusOne)
+	k.Add(k, one)
+
+	// Pad to 32 bytes
+	keyBytes := k.Bytes()
+	if len(keyBytes) < 32 {
+		padded := make([]byte, 32)
+		copy(padded[32-len(keyBytes):], keyBytes)
+		keyBytes = padded
+	}
+
+	privKey := secp256k1.PrivKeyFromBytes(keyBytes)
+	return (*libp2pCrypto.Secp256k1PrivateKey)(privKey), nil
 }
 
 func createMessenger(

@@ -2,6 +2,10 @@ p2p:
   node:
     port: 37373-38383
     seed:
+    # legacySeed enables the frozen Go 1.18 PRNG for deterministic peer ID generation.
+    # Set to true only for nodes with p2p.node.seed configured that need to preserve
+    # their original peer ID from builds compiled with Go 1.18.
+    legacySeed: false
     maximumExpectedPeerCount: 0
     thresholdMinConnectedPeers: 0
     broadcastIP:
