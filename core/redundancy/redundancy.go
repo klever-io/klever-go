@@ -120,6 +120,14 @@ func (nr *nodeRedundancy) GetInternalRedundancyLevel() int64 {
 	return nr.redundancyLevel
 }
 
+// GetSlotsOfInactivity returns the current slots of inactivity counter
+func (nr *nodeRedundancy) GetSlotsOfInactivity() uint64 {
+	nr.mutNodeRedundancy.RLock()
+	defer nr.mutNodeRedundancy.RUnlock()
+
+	return nr.slotsOfInactivity
+}
+
 func (nr *nodeRedundancy) isMainMachineActive() bool {
 	if nr.redundancyLevel < 0 {
 		return true

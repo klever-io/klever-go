@@ -1,12 +1,14 @@
 package metrics
 
 import (
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/appStatusPolling"
+	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/factory"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/sharding"
@@ -499,6 +501,48 @@ func TestRegisterPollProbableHighestNonce(t *testing.T) {
 	if exists {
 		assert.Equal(t, probableNonce, value)
 	}
+}
+
+func TestStartNodeMetricsPolling_NilHandler(t *testing.T) {
+	t.Parallel()
+
+	redundancyHandler := &consensusMock.NodeRedundancyHandlerStub{}
+	err := StartNodeMetricsPolling(nil, time.Second, redundancyHandler)
+	assert.Error(t, err)
+}
+
+func TestStartNodeMetricsPolling_NilRedundancyHandler(t *testing.T) {
+	t.Parallel()
+
+	handler := &mock.AppStatusHandlerStub{}
+	err := StartNodeMetricsPolling(handler, time.Second, nil)
+	assert.Error(t, err)
+}
+
+func TestStartNodeMetricsPolling_Valid(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	setValues := make(map[string]uint64)
+	handler := &mock.AppStatusHandlerStub{
+		SetUInt64ValueHandler: func(key string, value uint64) {
+			mu.Lock()
+			setValues[key] = value
+			mu.Unlock()
+		},
+	}
+	redundancyHandler := &consensusMock.NodeRedundancyHandlerStub{
+		GetSlotsOfInactivityCalled: func() uint64 { return 3 },
+	}
+
+	err := StartNodeMetricsPolling(handler, time.Second, redundancyHandler)
+	assert.NoError(t, err)
+
+	// Start timestamp should be set immediately (non-zero)
+	mu.Lock()
+	ts := setValues[core.MetricNodeStartTimestamp]
+	mu.Unlock()
+	assert.Greater(t, ts, uint64(0))
 }
 
 func TestSliceToString(t *testing.T) {

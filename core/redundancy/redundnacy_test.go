@@ -1,6 +1,7 @@
 package redundancy_test
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/klever-io/klever-go/core"
@@ -8,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/core/redundancy/mock"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func createMockArguments(redundancyLevel int64) redundancy.ArgNodeRedundancy {
@@ -224,6 +226,55 @@ func TestResetInactivityIfNeeded_ShouldResetSlotsOfInactivity(t *testing.T) {
 
 	nr.ResetInactivityIfNeeded(selfPubKey, consensusMsgPubKey, "PeerID_2")
 	assert.Equal(t, uint64(0), nr.GetSlotsOfInactivity())
+}
+
+func TestNodeRedundancy_GetSlotsOfInactivity_InitiallyZero(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArguments(1)
+	nr, err := redundancy.NewNodeRedundancy(arg)
+	require.NoError(t, err)
+
+	assert.Equal(t, uint64(0), nr.GetSlotsOfInactivity())
+}
+
+func TestNodeRedundancy_GetSlotsOfInactivity_AfterAdjust(t *testing.T) {
+	t.Parallel()
+
+	selfPubKey := "self"
+	arg := createMockArguments(1)
+	nr, err := redundancy.NewNodeRedundancy(arg)
+	require.NoError(t, err)
+
+	nr.AdjustInactivityIfNeeded(selfPubKey, []string{selfPubKey}, 1)
+	assert.Equal(t, uint64(1), nr.GetSlotsOfInactivity())
+
+	nr.AdjustInactivityIfNeeded(selfPubKey, []string{selfPubKey}, 2)
+	assert.Equal(t, uint64(2), nr.GetSlotsOfInactivity())
+}
+
+func TestNodeRedundancy_GetSlotsOfInactivity_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArguments(1)
+	nr, err := redundancy.NewNodeRedundancy(arg)
+	require.NoError(t, err)
+
+	selfPubKey := "self"
+	consensusKeys := []string{selfPubKey}
+
+	var wg sync.WaitGroup
+	for i := int64(1); i <= 100; i++ {
+		wg.Add(1)
+		go func(slot int64) {
+			defer wg.Done()
+			nr.AdjustInactivityIfNeeded(selfPubKey, consensusKeys, slot)
+			_ = nr.GetSlotsOfInactivity()
+		}(i)
+	}
+	wg.Wait()
+
+	assert.GreaterOrEqual(t, nr.GetSlotsOfInactivity(), uint64(1))
 }
 
 func TestNodeRedundancy_ObserverPrivateKey(t *testing.T) {

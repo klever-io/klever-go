@@ -5,11 +5,6 @@ func GetMaxSlotsOfInactivityAccepted() uint64 {
 	return maxSlotsOfInactivityAccepted
 }
 
-// GetSlotsOfInactivity -
-func (nr *nodeRedundancy) GetSlotsOfInactivity() uint64 {
-	return nr.slotsOfInactivity
-}
-
 // SetSlotsOfInactivity -
 func (nr *nodeRedundancy) SetSlotsOfInactivity(slotsOfInactivity uint64) {
 	nr.slotsOfInactivity = slotsOfInactivity

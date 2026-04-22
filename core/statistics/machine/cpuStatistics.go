@@ -13,8 +13,9 @@ var errCpuCount = errors.New("cpu count is zero")
 
 // CpuStatistics can compute the cpu usage percent
 type CpuStatistics struct {
-	numCpu          int
-	cpuUsagePercent uint64
+	numCpu                int
+	cpuUsagePercent       uint64
+	systemCpuUsagePercent uint64
 }
 
 // NewCpuStatistics will create a CpuStatistics object
@@ -41,17 +42,26 @@ func (cs *CpuStatistics) ComputeStatistics() {
 		return
 	}
 
-	percent, err := currentProcess.Percent(time.Second)
+	percent, err := currentProcess.Percent(durationSecond)
 	if err != nil {
 		return
 	}
 
-	cpuUsagePercent := percent / float64(cs.numCpu)
+	atomic.StoreUint64(&cs.cpuUsagePercent, uint64(percent/float64(cs.numCpu)))
 
-	atomic.StoreUint64(&cs.cpuUsagePercent, uint64(cpuUsagePercent))
+	percents, err := cpu.Percent(0, false)
+	if err != nil || len(percents) == 0 {
+		return
+	}
+	atomic.StoreUint64(&cs.systemCpuUsagePercent, uint64(percents[0]))
 }
 
 // CpuPercentUsage will return the cpu percent usage. Concurrent safe.
 func (cs *CpuStatistics) CpuPercentUsage() uint64 {
 	return atomic.LoadUint64(&cs.cpuUsagePercent)
+}
+
+// SystemCpuPercentUsage will return the total system cpu percent usage
+func (cs *CpuStatistics) SystemCpuPercentUsage() uint64 {
+	return atomic.LoadUint64(&cs.systemCpuUsagePercent)
 }

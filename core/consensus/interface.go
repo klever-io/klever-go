@@ -141,5 +141,6 @@ type NodeRedundancyHandler interface {
 	ObserverPrivateKey() crypto.PrivateKey
 	SetInternalRedundancyLevel(level int64) error
 	GetInternalRedundancyLevel() int64
+	GetSlotsOfInactivity() uint64
 	IsInterfaceNil() bool
 }

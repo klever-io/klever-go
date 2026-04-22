@@ -127,6 +127,16 @@ func (sm *statusMetrics) StatusP2pMetricsMap() map[string]interface{} {
 	return statusMetricsMap
 }
 
+var prometheusLabelEscaper = strings.NewReplacer(
+	`\`, `\\`,
+	"\n", `\n`,
+	`"`, `\"`,
+)
+
+func escapePrometheusLabel(v string) string {
+	return prometheusLabelEscaper.Replace(v)
+}
+
 // StatusMetricsWithoutP2PPrometheusString returns the metrics in a string format which respects prometheus style
 func (sm *statusMetrics) StatusMetricsWithoutP2PPrometheusString() string {
 	chainID := sm.loadStringMetric(core.MetricChainID)
@@ -137,8 +147,17 @@ func (sm *statusMetrics) StatusMetricsWithoutP2PPrometheusString() string {
 		_, isInt64 := value.(int64)
 		isNumericValue := isUint64 || isInt64
 		if isNumericValue {
-			stringBuilder.WriteString(fmt.Sprintf("%s{chainID=\"%s\"} %v\n", key, chainID, value))
+			fmt.Fprintf(&stringBuilder, "%s{chainID=\"%s\"} %v\n", key, escapePrometheusLabel(chainID), value)
 		}
+	}
+
+	version := sm.loadStringMetric(core.MetricAppVersion)
+	if version != "" {
+		nodeType := sm.loadStringMetric(core.MetricNodeType)
+		fmt.Fprintf(&stringBuilder,
+			"klv_build_info{version=\"%s\",chain_id=\"%s\",node_type=\"%s\"} 1\n",
+			escapePrometheusLabel(version), escapePrometheusLabel(chainID), escapePrometheusLabel(nodeType),
+		)
 	}
 
 	return stringBuilder.String()

@@ -7,9 +7,10 @@ import (
 
 // RedundancyHandlerStub -
 type RedundancyHandlerStub struct {
-	IsRedundancyNodeCalled    func() bool
-	IsMainMachineActiveCalled func() bool
-	ObserverPrivateKeyCalled  func() crypto.PrivateKey
+	IsRedundancyNodeCalled     func() bool
+	IsMainMachineActiveCalled  func() bool
+	ObserverPrivateKeyCalled   func() crypto.PrivateKey
+	GetSlotsOfInactivityCalled func() uint64
 }
 
 func (rhs *RedundancyHandlerStub) AdjustInactivityIfNeeded(selfPubKey string, consensusPubKeys []string, slotIndex int64) {
@@ -51,6 +52,14 @@ func (rhs *RedundancyHandlerStub) ObserverPrivateKey() crypto.PrivateKey {
 	}
 
 	return &PrivateKeyStub{}
+}
+
+// GetSlotsOfInactivity -
+func (rhs *RedundancyHandlerStub) GetSlotsOfInactivity() uint64 {
+	if rhs.GetSlotsOfInactivityCalled != nil {
+		return rhs.GetSlotsOfInactivityCalled()
+	}
+	return 0
 }
 
 // IsInterfaceNil -

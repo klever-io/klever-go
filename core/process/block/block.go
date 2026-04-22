@@ -110,6 +110,14 @@ func (mp *metaProcessor) ProcessBlock(
 	headerHandler data.HeaderHandler,
 	haveTime func() time.Duration,
 ) error {
+	startProcess := time.Now()
+
+	defer func() {
+		mp.appStatusHandler.SetUInt64Value(
+			core.MetricBlockProcessDuration,
+			uint64(time.Since(startProcess).Milliseconds()), // #nosec G115
+		)
+	}()
 
 	if haveTime == nil {
 		return process.ErrNilHaveTimeHandler
@@ -215,7 +223,12 @@ func (mp *metaProcessor) ProcessBlock(
 	}
 
 	// Process Transactions
+	startTx := time.Now()
 	processResults, err := mp.txCoordinator.ProcessBlockTransactions(header, haveTime)
+	mp.appStatusHandler.SetUInt64Value(
+		core.MetricTxProcessingDuration,
+		uint64(time.Since(startTx).Milliseconds()), // #nosec G115
+	)
 	if err != nil {
 		_ = bugsnag.Notify(fmt.Errorf("process block transactions: %w", err), bugsnag.MetaData{"data": {"header": header}})
 		return err
@@ -535,6 +548,14 @@ func (mp *metaProcessor) CreateEpochStartHeader(blk *block.Block) error {
 func (mp *metaProcessor) CommitBlock(
 	headerHandler data.HeaderHandler,
 ) error {
+	startCommitBlock := time.Now()
+
+	defer func() {
+		mp.appStatusHandler.SetUInt64Value(
+			core.MetricBlockCommitDuration,
+			uint64(time.Since(startCommitBlock).Milliseconds()), // #nosec G115
+		)
+	}()
 	var err error
 	defer func() {
 		if err != nil {
@@ -1083,7 +1104,6 @@ func (mp *metaProcessor) indexBlock(
 }
 
 func (mp *metaProcessor) processEconomicsEndOfEpoch(validatorInfos []*state.ValidatorInfo, headerHandler data.HeaderHandler) error {
-
 	err := mp.kAppController.GetValidatorsKApp().ProcessEconomicsEndOfEpoch(mp.epochStartTrigger.Epoch(), validatorInfos)
 	if err != nil {
 		return err
@@ -1278,7 +1298,7 @@ func (mp *metaProcessor) finalizeProposalUpdates(proposalKApp state.KAppAccountH
 		return err
 	}
 
-	//After All processing, updates block activeParams instance
+	// After All processing, updates block activeParams instance
 	mp.proposalController.UpdateParameters(controller.ActiveParameters)
 
 	return nil

@@ -9,6 +9,7 @@ import (
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/appStatusPolling"
+	"github.com/klever-io/klever-go/core/consensus"
 	"github.com/klever-io/klever-go/factory"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/sharding"
@@ -83,6 +84,17 @@ func InitMetrics(
 	appStatusHandler.SetStringValue(core.MetricDevRewards, initZeroString)
 	appStatusHandler.SetStringValue(core.MetricTotalFees, initZeroString)
 	appStatusHandler.SetUInt64Value(core.MetricEpochForEconomicsData, initUint)
+	appStatusHandler.SetUInt64Value(core.MetricBlockProcessDuration, initUint)
+	appStatusHandler.SetUInt64Value(core.MetricBlockCommitDuration, initUint)
+	appStatusHandler.SetUInt64Value(core.MetricTxProcessingDuration, initUint)
+	appStatusHandler.SetUInt64Value(core.MetricSystemCPUPercent, initUint)
+	appStatusHandler.SetUInt64Value(core.MetricDiskTotalBytes, initUint)
+	appStatusHandler.SetUInt64Value(core.MetricDiskAvailableBytes, initUint)
+	appStatusHandler.SetUInt64Value(core.MetricDiskUsagePercent, initUint)
+	appStatusHandler.SetUInt64Value(core.MetricDbSizeBytes, initUint)
+	appStatusHandler.SetUInt64Value(core.MetricNodeUptimeSeconds, initUint)
+	appStatusHandler.SetUInt64Value(core.MetricNodeStartTimestamp, initUint)
+	appStatusHandler.SetUInt64Value(core.MetricRedundancySlotsInactive, initUint)
 
 	validatorsNodes, _, err := nodesConfig.InitialNodesInfo()
 	if err != nil {
@@ -213,6 +225,40 @@ func setCurrentP2pNodeAddresses(
 	networkComponents *factory.NetworkComponents,
 ) {
 	appStatusHandler.SetStringValue(core.MetricP2PPeerInfo, sliceToString(networkComponents.NetMessenger.Addresses()))
+}
+
+// StartNodeMetricsPolling starts polling for uptime and redundancy metrics on a single shared
+// polling goroutine, avoiding the overhead of separate AppStatusPolling instances for each.
+func StartNodeMetricsPolling(
+	ash core.AppStatusHandler,
+	pollingInterval time.Duration,
+	redundancyHandler consensus.NodeRedundancyHandler,
+) error {
+	if check.IfNil(ash) {
+		return errors.New("nil AppStatusHandler")
+	}
+	if check.IfNil(redundancyHandler) {
+		return errors.New("nil NodeRedundancyHandler")
+	}
+
+	startTime := time.Now()
+	ash.SetUInt64Value(core.MetricNodeStartTimestamp, uint64(startTime.Unix())) // #nosec G115
+
+	appStatusPollingHandler, err := appStatusPolling.NewAppStatusPolling(ash, pollingInterval)
+	if err != nil {
+		return fmt.Errorf("cannot init AppStatusPolling for node metrics: %w", err)
+	}
+
+	err = appStatusPollingHandler.RegisterPollingFunc(func(appStatusHandler core.AppStatusHandler) {
+		appStatusHandler.SetUInt64Value(core.MetricNodeUptimeSeconds, uint64(time.Since(startTime).Seconds())) // #nosec G115
+		appStatusHandler.SetUInt64Value(core.MetricRedundancySlotsInactive, redundancyHandler.GetSlotsOfInactivity())
+	})
+	if err != nil {
+		return fmt.Errorf("cannot register node metrics polling function: %w", err)
+	}
+
+	appStatusPollingHandler.Poll()
+	return nil
 }
 
 func registerPollProbableHighestNonce(

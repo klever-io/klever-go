@@ -2,17 +2,19 @@ package metrics
 
 import (
 	"errors"
+	"path/filepath"
 	"time"
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/appStatusPolling"
 	"github.com/klever-io/klever-go/core/statistics/machine"
 	"github.com/klever-io/klever-go/eventNotifier"
+	"github.com/klever-io/klever-go/factory"
 	"github.com/klever-io/klever-go/tools/check"
 )
 
 // StartMachineStatisticsPolling will start read information about current running machine
-func StartMachineStatisticsPolling(ash core.AppStatusHandler, notifier eventNotifier.EpochStartEventNotifier, pollingInterval time.Duration) error {
+func StartMachineStatisticsPolling(ash core.AppStatusHandler, notifier eventNotifier.EpochStartEventNotifier, pollingInterval time.Duration, workingDir string) error {
 	if check.IfNil(ash) {
 		return errors.New("nil AppStatusHandler")
 	}
@@ -33,6 +35,11 @@ func StartMachineStatisticsPolling(ash core.AppStatusHandler, notifier eventNoti
 	}
 
 	err = registerNetStatistics(appStatusPollingHandler, notifier)
+	if err != nil {
+		return err
+	}
+
+	err = registerDiskStatistics(appStatusPollingHandler, workingDir)
 	if err != nil {
 		return err
 	}
@@ -78,6 +85,24 @@ func registerNetStatistics(appStatusPollingHandler *appStatusPolling.AppStatusPo
 	})
 }
 
+func registerDiskStatistics(appStatusPollingHandler *appStatusPolling.AppStatusPolling, workingDir string) error {
+	dbPath := filepath.Join(workingDir, factory.DefaultDBPath)
+	diskStats := machine.NewDiskStatistics(workingDir, dbPath)
+	go func() {
+		for {
+			diskStats.ComputeStatistics()
+			time.Sleep(60 * time.Second)
+		}
+	}()
+
+	return appStatusPollingHandler.RegisterPollingFunc(func(appStatusHandler core.AppStatusHandler) {
+		appStatusHandler.SetUInt64Value(core.MetricDiskTotalBytes, diskStats.DiskTotal())
+		appStatusHandler.SetUInt64Value(core.MetricDiskAvailableBytes, diskStats.DiskAvailable())
+		appStatusHandler.SetUInt64Value(core.MetricDiskUsagePercent, diskStats.DiskPercent())
+		appStatusHandler.SetUInt64Value(core.MetricDbSizeBytes, diskStats.DbSize())
+	})
+}
+
 func registerCPUStatistics(appStatusPollingHandler *appStatusPolling.AppStatusPolling) error {
 	cpuStats, err := machine.NewCpuStatistics()
 	if err != nil {
@@ -92,5 +117,6 @@ func registerCPUStatistics(appStatusPollingHandler *appStatusPolling.AppStatusPo
 
 	return appStatusPollingHandler.RegisterPollingFunc(func(appStatusHandler core.AppStatusHandler) {
 		appStatusHandler.SetUInt64Value(core.MetricCPULoadPercent, cpuStats.CpuPercentUsage())
+		appStatusHandler.SetUInt64Value(core.MetricSystemCPUPercent, cpuStats.SystemCpuPercentUsage())
 	})
 }
