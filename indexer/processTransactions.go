@@ -280,10 +280,6 @@ func (tdp *txDatabaseProcessor) indexReceipt(
 			ad.Accounts.Add(m["address"].(string), &data.AlteredAccount{
 				IsSender: false,
 			})
-
-		case ptx.SignedBy:
-			// nothing to do
-
 		case ptx.Buy:
 			ad.Orders.Add(m["orderId"].(string), &data.MarketOperations{
 				IsNew:   false,
@@ -428,6 +424,8 @@ func (tdp *txDatabaseProcessor) indexReceipt(
 				IsSender:        isSender,
 				IsSmartContract: isSmartContract,
 			})
+		case ptx.Error, ptx.Debug, ptx.Warning, ptx.SignedBy:
+			// nothing to do
 		default:
 			_ = bugsnag.Notify(fmt.Errorf("indexReceipt not able to index. Hash: %s, Type: %v", txHash, m["type"]))
 			log.Error("indexReceipt not able to index", "type", m["type"], "txHash", txHash)
