@@ -18,8 +18,8 @@ const (
 	getNFTAssetsPath = "/nft/:owner/*id"
 	getKDAPoolPath   = "/pool/:id/"
 
-	KLVAssetID = "KLV"
-	KFIAssetID = "KFI"
+	klvAssetID = "KLV"
+	kfiAssetID = "KFI"
 )
 
 // FacadeHandler interface defines methods that can be used by the gin webserver
@@ -119,12 +119,12 @@ func replaceKDAInfo(asset *kapps.KDAData) {
 	}
 
 	id := string(asset.ID)
-	if id != KLVAssetID && id != KFIAssetID {
+	if id != klvAssetID && id != kfiAssetID {
 		return
 	}
 
 	asset.Logo = "https://kleverscan.org/assets/klv-logo.png"
-	if id == KFIAssetID {
+	if id == kfiAssetID {
 		asset.Logo = "https://kleverscan.org/assets/kfi-logo.png"
 	}
 

@@ -17,6 +17,7 @@ import (
 	"github.com/klever-io/klever-go/network/api/shared"
 	"github.com/klever-io/klever-go/network/api/wrapper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func init() {
@@ -26,7 +27,7 @@ func init() {
 func TestAssetRoute_EmptyTrailReturns404(t *testing.T) {
 	t.Parallel()
 	facade := mock.Facade{}
-	ws := startNodeServer(&facade)
+	ws := startNodeServer(t, &facade)
 
 	req, _ := http.NewRequest("GET", "/asset", nil)
 	resp := httptest.NewRecorder()
@@ -123,7 +124,7 @@ func TestGetAsset(t *testing.T) {
 			facade := mock.Facade{}
 			facade.GetAssetHandler = tc.mockHandler
 
-			ws := startNodeServer(&facade)
+			ws := startNodeServer(t, &facade)
 
 			req, _ := http.NewRequest("GET", fmt.Sprintf("/asset/%s", tc.assetID), nil)
 			resp := httptest.NewRecorder()
@@ -172,7 +173,8 @@ func TestGetAsset_InvalidFacade(t *testing.T) {
 		c.Set("facade", "not a facade")
 		c.Next()
 	})
-	assetRoute, _ := wrapper.NewRouterWrapper("asset", assetRoutes, getRoutesConfig())
+	assetRoute, err := wrapper.NewRouterWrapper("asset", assetRoutes, getRoutesConfig())
+	require.NoError(t, err)
 	asset.Routes(assetRoute)
 
 	req, _ := http.NewRequest("GET", "/asset/KLV", nil)
@@ -182,19 +184,21 @@ func TestGetAsset_InvalidFacade(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, resp.Code)
 
 	var response shared.GenericAPIResponse
-	err := json.Unmarshal(resp.Body.Bytes(), &response)
+	err = json.Unmarshal(resp.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	assert.Equal(t, shared.ReturnCodeInternalError, response.Code)
 }
 
-func startNodeServer(handler asset.FacadeHandler) *gin.Engine {
+func startNodeServer(t *testing.T, handler asset.FacadeHandler) *gin.Engine {
+	t.Helper()
 	ws := gin.New()
 	ws.Use(cors.Default())
 	assetRoutes := ws.Group("/asset")
 	if handler != nil {
 		assetRoutes.Use(middleware.WithFacade(handler))
 	}
-	assetRoute, _ := wrapper.NewRouterWrapper("asset", assetRoutes, getRoutesConfig())
+	assetRoute, err := wrapper.NewRouterWrapper("asset", assetRoutes, getRoutesConfig())
+	require.NoError(t, err)
 	asset.Routes(assetRoute)
 	return ws
 }
