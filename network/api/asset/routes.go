@@ -17,6 +17,9 @@ const (
 	getAssetsPath    = "/"
 	getNFTAssetsPath = "/nft/:owner/*id"
 	getKDAPoolPath   = "/pool/:id/"
+
+	KLVAssetID = "KLV"
+	KFIAssetID = "KFI"
 )
 
 // FacadeHandler interface defines methods that can be used by the gin webserver
@@ -94,6 +97,9 @@ func GetAsset(c *gin.Context) {
 		return
 	}
 
+	// We replace the KDA info for KLV and KFI to avoid showing outdated information that is registered at genesis.
+	replaceKDAInfo(asset)
+
 	c.JSON(
 		http.StatusOK,
 		shared.GenericAPIResponse{
@@ -102,6 +108,35 @@ func GetAsset(c *gin.Context) {
 			Code:  shared.ReturnCodeSuccess,
 		},
 	)
+}
+
+// replaceKDAInfo overrides the Logo and URIs returned for KLV and KFI.
+// Their values are registered at genesis and updating them on-chain would
+// require a hard fork, so we patch the API response instead.
+func replaceKDAInfo(asset *kapps.KDAData) {
+	if asset == nil {
+		return
+	}
+
+	id := string(asset.ID)
+	if id != KLVAssetID && id != KFIAssetID {
+		return
+	}
+
+	asset.Logo = "https://kleverscan.org/assets/klv-logo.png"
+	if id == KFIAssetID {
+		asset.Logo = "https://kleverscan.org/assets/kfi-logo.png"
+	}
+
+	asset.URIs = map[string]string{
+		"Whitepaper": "https://bc.klever.finance/wp",
+		"Exchange":   "https://bitcoin.me/",
+		"Github":     "https://github.com/klever-io",
+		"Instagram":  "https://instagram.com/klever.io",
+		"Twitter":    "https://x.com/klever_org",
+		"Wallet":     "https://klever.io/",
+		"Website":    "https://klever.org/",
+	}
 }
 
 type NFTAsset struct {
