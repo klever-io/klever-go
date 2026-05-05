@@ -23,6 +23,17 @@ VERSION := $(shell git describe --always --long --dirty --tag)
 endif
 ldflags := -X 'main.appVersion=${VERSION}'
 
+# Release builds strip DWARF, build IDs, and trim source paths for smaller,
+# reproducible binaries. Set RELEASE=1 in CI / docker release builds.
+# Local `make build` keeps DWARF + symbols so delve still works on developer
+# machines. Panic stack traces and pprof remain readable on RELEASE=1 builds
+# because Go's runtime symbol table (pclntab) is independent of DWARF.
+GO_BUILD_FLAGS :=
+ifeq ($(RELEASE),1)
+ldflags += -s -w -buildid=
+GO_BUILD_FLAGS := -trimpath -buildvcs=false
+endif
+
 ifdef FOR_TESTNET
 FOR_TESTNET := -testnet
 endif
@@ -50,7 +61,7 @@ endif
 
 GOCMD=go
 GORUN=$(ENV_FLAG) $(GOCMD) run -ldflags="$(ldflags)"
-GOBUILD=$(GOCMD) build -ldflags="$(ldflags) -extldflags '-Wl,-rpath,\$$ORIGIN,-rpath,@executable_path'"
+GOBUILD=$(GOCMD) build $(GO_BUILD_FLAGS) -ldflags="$(ldflags) -extldflags '-Wl,-rpath,\$$ORIGIN,-rpath,@executable_path'"
 
 .DEFAULT_GOAL := help
 

@@ -12,7 +12,7 @@ ENV VERSION=$arg_version
 # Use cache mounts for faster incremental builds
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    make build-validator
+    make build-validator RELEASE=1
 
 FROM debian:trixie-slim
 
