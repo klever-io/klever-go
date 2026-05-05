@@ -29,7 +29,7 @@ ldflags := -X 'main.appVersion=${VERSION}'
 # machines. Panic stack traces and pprof remain readable on RELEASE=1 builds
 # because Go's runtime symbol table (pclntab) is independent of DWARF.
 GO_BUILD_FLAGS :=
-ifdef RELEASE
+ifeq ($(RELEASE),1)
 ldflags += -s -w -buildid=
 GO_BUILD_FLAGS := -trimpath -buildvcs=false
 endif
