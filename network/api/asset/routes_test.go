@@ -126,14 +126,15 @@ func TestGetAsset(t *testing.T) {
 
 			ws := startNodeServer(t, &facade)
 
-			req, _ := http.NewRequest("GET", fmt.Sprintf("/asset/%s", tc.assetID), nil)
+			req, err := http.NewRequest("GET", fmt.Sprintf("/asset/%s", tc.assetID), nil)
+			require.NoError(t, err)
 			resp := httptest.NewRecorder()
 			ws.ServeHTTP(resp, req)
 
 			assert.Equal(t, tc.expectedCode, resp.Code)
 
 			var response shared.GenericAPIResponse
-			err := json.Unmarshal(resp.Body.Bytes(), &response)
+			err = json.Unmarshal(resp.Body.Bytes(), &response)
 			assert.NoError(t, err)
 
 			if tc.expectedErr != "" {
@@ -177,7 +178,8 @@ func TestGetAsset_InvalidFacade(t *testing.T) {
 	require.NoError(t, err)
 	asset.Routes(assetRoute)
 
-	req, _ := http.NewRequest("GET", "/asset/KLV", nil)
+	req, err := http.NewRequest("GET", "/asset/KLV", nil)
+	require.NoError(t, err)
 	resp := httptest.NewRecorder()
 	ws.ServeHTTP(resp, req)
 
