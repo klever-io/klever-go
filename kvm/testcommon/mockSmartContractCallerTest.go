@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	logger "github.com/klever-io/klever-go-logger"
+	blockchainConfig "github.com/klever-io/klever-go/config"
 	mock "github.com/klever-io/klever-go/kvm/mock/context"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 	"github.com/klever-io/klever-go/kvm/vmhost"
@@ -45,6 +46,7 @@ type MockInstancesTestTemplate struct {
 	contracts     *[]MockTestSmartContract
 	setup         SetupFunction
 	assertResults func(*TestCallNode, *worldmock.MockWorld, *VMOutputVerifier, []string)
+	enableEpochs  *blockchainConfig.EnableEpochs
 }
 
 // BuildMockInstanceCallTest starts the building process for a mock contract call test
@@ -74,6 +76,14 @@ func (callerTest *MockInstancesTestTemplate) WithInput(input *vmcommon.ContractC
 // WithSetup provides the setup function to be used by the mock contract call test
 func (callerTest *MockInstancesTestTemplate) WithSetup(setup SetupFunction) *MockInstancesTestTemplate {
 	callerTest.setup = setup
+	return callerTest
+}
+
+// WithEnableEpochs overrides the default fork-flag config (all flags enabled at epoch 0)
+// with the supplied EnableEpochs. Use to exercise pre-activation behavior of fork-gated
+// changes (e.g. set FixAuditChangesV2 to a high epoch to assert old behavior).
+func (callerTest *MockInstancesTestTemplate) WithEnableEpochs(epochs blockchainConfig.EnableEpochs) *MockInstancesTestTemplate {
+	callerTest.enableEpochs = &epochs
 	return callerTest
 }
 
@@ -151,10 +161,13 @@ func (callerTest *MockInstancesTestTemplate) runTest(
 	}
 
 	executorFactory := mock.NewExecutorMockFactory(world)
-	host := NewTestHostBuilder(callerTest.tb).
+	hostBuilder := NewTestHostBuilder(callerTest.tb).
 		WithExecutorFactory(executorFactory).
-		WithBlockchainHook(world).
-		Build()
+		WithBlockchainHook(world)
+	if callerTest.enableEpochs != nil {
+		hostBuilder = hostBuilder.WithEnableEpochs(*callerTest.enableEpochs)
+	}
+	host := hostBuilder.Build()
 
 	defer func() {
 		host.Reset()

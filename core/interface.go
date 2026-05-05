@@ -79,6 +79,7 @@ type ForkController interface {
 	EnableSmartContracts() bool
 	FixAuditChanges() bool
 	EpochRewardsV2() bool
+	FixAuditChangesV2() bool
 	IsInterfaceNil() bool
 }
 

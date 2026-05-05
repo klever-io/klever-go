@@ -3,6 +3,7 @@ package interceptors_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/interceptors"
+	"github.com/klever-io/klever-go/core/throttler"
 	"github.com/klever-io/klever-go/data/batch"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
@@ -153,6 +155,8 @@ func TestMultiDataInterceptor_ProcessReceivedMessageUnmarshalFailsShouldErr(t *t
 	originatorBlackListed := false
 	fromConnectedPeerBlackListed := false
 	arg := createMockArgMultiDataInterceptor()
+	throttler := createMockThrottler()
+	arg.Throttler = throttler
 	arg.Marshalizer = &mock.MarshalizerStub{
 		UnmarshalCalled: func(obj interface{}, buff []byte) error {
 			return errExpeced
@@ -180,12 +184,18 @@ func TestMultiDataInterceptor_ProcessReceivedMessageUnmarshalFailsShouldErr(t *t
 	assert.Equal(t, errExpeced, err)
 	assert.True(t, originatorBlackListed)
 	assert.True(t, fromConnectedPeerBlackListed)
+	// Regression GHSA-74m6-4hjp-7226 / KLC-2348: every synchronous error path
+	// after preProcessMessage must release the throttler slot exactly once.
+	assert.Equal(t, int32(1), throttler.StartProcessingCount())
+	assert.Equal(t, int32(1), throttler.EndProcessingCount())
 }
 
 func TestMultiDataInterceptor_ProcessReceivedMessageUnmarshalReturnsEmptySliceShouldErr(t *testing.T) {
 	t.Parallel()
 
 	arg := createMockArgMultiDataInterceptor()
+	throttler := createMockThrottler()
+	arg.Throttler = throttler
 	arg.Marshalizer = &mock.MarshalizerStub{
 		UnmarshalCalled: func(obj interface{}, buff []byte) error {
 			return nil
@@ -199,6 +209,9 @@ func TestMultiDataInterceptor_ProcessReceivedMessageUnmarshalReturnsEmptySliceSh
 	err := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
 
 	assert.Equal(t, process.ErrNoDataInMessage, err)
+	// Regression GHSA-74m6-4hjp-7226 / KLC-2348.
+	assert.Equal(t, int32(1), throttler.StartProcessingCount())
+	assert.Equal(t, int32(1), throttler.EndProcessingCount())
 }
 
 func TestMultiDataInterceptor_ProcessReceivedCreateFailsShouldErr(t *testing.T) {
@@ -571,4 +584,86 @@ func TestMultiDataInterceptor_IsInterfaceNil(t *testing.T) {
 	var mdi *interceptors.MultiDataInterceptor
 
 	assert.True(t, check.IfNil(mdi))
+}
+
+//------- regression: GHSA-74m6-4hjp-7226 / KLC-2348 (Finding 2.1)
+
+func malformedCompressedBatchPayload(t *testing.T, m *mock.MarshalizerMock) []byte {
+	t.Helper()
+
+	payload, err := m.Marshal(&batch.Batch{
+		IsCompressed: true,
+		Stream:       []byte("not-a-gzip-stream"),
+		DataSize:     1,
+	})
+	require.NoError(t, err)
+	return payload
+}
+
+// A malformed compressed P2P batch must not leak a throttler slot:
+// every path after preProcessMessage's StartProcessing must release the slot exactly once.
+func TestMultiDataInterceptor_ProcessReceivedMessage_DecompressionErrorShouldReleaseThrottlerSlot(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+	payload := malformedCompressedBatchPayload(t, marshalizer)
+
+	countingThrottler := &mock.InterceptorThrottlerStub{
+		CanProcessCalled: func() bool { return true },
+	}
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.Marshalizer = marshalizer
+	arg.Throttler = countingThrottler
+
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+	require.NoError(t, err)
+
+	msg := &mock.P2PMessageMock{
+		DataField:  payload,
+		PeerField:  core.PeerID("origin-peer"),
+		SeqNoField: []byte("seq-1"),
+	}
+
+	processErr := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+	require.Error(t, processErr, "expected a decompression error to reach the vulnerable branch")
+
+	assert.Equal(t, int32(1), countingThrottler.StartProcessingCount(),
+		"preProcessMessage should call StartProcessing exactly once")
+	assert.Equal(t, int32(1), countingThrottler.EndProcessingCount(),
+		"regression GHSA-74m6-4hjp-7226 / KLC-2348: decompression-error path must release the throttler slot")
+}
+
+// Repeated malformed compressed batches must not exhaust a real, bounded throttler.
+// On the unfixed code, the third malformed batch returns common.ErrSystemBusy because the
+// previous two leaked their slots in the gzip-error branch.
+func TestMultiDataInterceptor_ProcessReceivedMessage_RepeatedDecompressionErrorsMustNotExhaustThrottler(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+	payload := malformedCompressedBatchPayload(t, marshalizer)
+
+	const throttlerCapacity int32 = 2
+	realThrottler, err := throttler.NewNumGoRoutinesThrottler(throttlerCapacity)
+	require.NoError(t, err)
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.Marshalizer = marshalizer
+	arg.Throttler = realThrottler
+
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+	require.NoError(t, err)
+
+	const attempts = 5
+	for i := 0; i < attempts; i++ {
+		msg := &mock.P2PMessageMock{
+			DataField:  payload,
+			PeerField:  core.PeerID("origin-peer"),
+			SeqNoField: fmt.Appendf(nil, "seq-%d", i+1),
+		}
+		processErr := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+		require.Error(t, processErr, "expected gzip error on iteration %d", i)
+		require.Falsef(t, errors.Is(processErr, common.ErrSystemBusy),
+			"regression GHSA-74m6-4hjp-7226 / KLC-2348: throttler exhausted on iteration %d: %v", i, processErr)
+	}
 }

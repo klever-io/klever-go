@@ -51,6 +51,7 @@ func NewTestHostBuilder(tb testing.TB) *TestHostBuilder {
 		SmartContracts:          0,
 		FixAuditChanges:         0,
 		EpochRewardsV2:          0,
+		FixAuditChangesV2:       0,
 	}, epochNotifier)
 
 	return &TestHostBuilder{
@@ -68,6 +69,18 @@ func NewTestHostBuilder(tb testing.TB) *TestHostBuilder {
 			ForkController:           forkController,
 		},
 	}
+}
+
+// WithEnableEpochs replaces the ForkController on this host with one constructed from
+// the supplied EnableEpochs config. Useful for tests that need to exercise pre-activation
+// behavior of fork-gated changes (e.g. set FixAuditChangesV2 to a high epoch to keep the
+// flag disabled at epoch 0).
+func (thb *TestHostBuilder) WithEnableEpochs(epochs blockchainConfig.EnableEpochs) *TestHostBuilder {
+	epochNotifier := &commonMock.EpochNotifierStub{}
+	forkController, _ := fork.NewForkController(epochs, epochNotifier)
+	thb.vmHostParameters.EpochNotifier = epochNotifier
+	thb.vmHostParameters.ForkController = forkController
+	return thb
 }
 
 // Ensures gas costs are initialized.

@@ -14,6 +14,7 @@ type ForkControllerStub struct {
 	EnableSmartContractsValue    bool
 	FixAuditChangesValue         bool
 	EpochRewardsV2Value          bool
+	FixAuditChangesV2Value       bool
 	EpochConfirmedCalled         bool
 	LastConfirmedEpoch           uint32
 }
@@ -48,6 +49,8 @@ func (s *ForkControllerStub) SetFork(forkName string, value bool) *ForkControlle
 		s.FixAuditChangesValue = value
 	case "EpochRewardsV2":
 		s.EpochRewardsV2Value = value
+	case "FixAuditChangesV2":
+		s.FixAuditChangesV2Value = value
 	}
 
 	return s
@@ -65,6 +68,7 @@ func (s *ForkControllerStub) SetAll(value bool) {
 	s.EnableSmartContractsValue = value
 	s.FixAuditChangesValue = value
 	s.EpochRewardsV2Value = value
+	s.FixAuditChangesV2Value = value
 	s.LastConfirmedEpoch = 0
 }
 
@@ -80,6 +84,7 @@ func (s *ForkControllerStub) SetByConfig(config config.EnableEpochs) {
 	s.EnableSmartContractsValue = config.SmartContracts == 0
 	s.FixAuditChangesValue = config.FixAuditChanges == 0
 	s.EpochRewardsV2Value = config.EpochRewardsV2 == 0
+	s.FixAuditChangesV2Value = config.FixAuditChangesV2 == 0
 	s.LastConfirmedEpoch = 0
 }
 
@@ -131,6 +136,11 @@ func (s *ForkControllerStub) FixAuditChanges() bool {
 // EpochRewardsV2 returns the stubbed value
 func (s *ForkControllerStub) EpochRewardsV2() bool {
 	return s.EpochRewardsV2Value
+}
+
+// FixAuditChangesV2 returns the stubbed value
+func (s *ForkControllerStub) FixAuditChangesV2() bool {
+	return s.FixAuditChangesV2Value
 }
 
 // EpochConfirmed records that the method was called and stores the epoch

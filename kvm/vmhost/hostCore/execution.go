@@ -236,6 +236,10 @@ func (host *vmHost) doRunSmartContractDelete(input *vmcommon.ContractCallInput) 
 
 func (host *vmHost) doExecContractDelete(input *vmcommon.ContractCallInput) *vmcommon.VMOutput {
 	output := host.Output()
+	// KLC-2347 defense-in-depth: primary read-only enforcement is at execute() dispatch.
+	if host.ForkController().FixAuditChangesV2() && host.Runtime().ReadOnly() {
+		return output.CreateVMOutputInCaseOfError(vmhost.ErrInvalidCallOnReadOnlyMode)
+	}
 	err := host.checkUpgradePermission(input)
 	if err != nil {
 		log.Trace("doExecContractDelete", "error", vmhost.ErrUpgradeNotAllowed)
@@ -792,6 +796,11 @@ func (host *vmHost) checkUpgradePermission(vmInput *vmcommon.ContractCallInput) 
 func (host *vmHost) executeUpgrade(input *vmcommon.ContractCallInput) error {
 	_, _, metering, output, runtime, _ := host.GetContexts()
 
+	// KLC-2347 defense-in-depth: primary read-only enforcement is at execute() dispatch.
+	if host.ForkController().FixAuditChangesV2() && runtime.ReadOnly() {
+		return vmhost.ErrInvalidCallOnReadOnlyMode
+	}
+
 	err := host.checkUpgradePermission(input)
 	if err != nil {
 		return err
@@ -838,6 +847,12 @@ func (host *vmHost) executeUpgrade(input *vmcommon.ContractCallInput) error {
 
 func (host *vmHost) executeDelete(input *vmcommon.ContractCallInput) error {
 	_, _, metering, _, runtime, _ := host.GetContexts()
+
+	// KLC-2347 defense-in-depth: primary read-only enforcement is at execute() dispatch.
+	if host.ForkController().FixAuditChangesV2() && runtime.ReadOnly() {
+		return vmhost.ErrInvalidCallOnReadOnlyMode
+	}
+
 	// end previous runtime if any, prevent points to the previous runtime
 	runtime.EndExecution()
 
@@ -877,11 +892,18 @@ func (host *vmHost) execute(input *vmcommon.ContractCallInput) error {
 	metering.UseGas(input.GasProvided)
 
 	isUpgrade := input.Function == vmhost.UpgradeFunctionName
+	isDelete := input.Function == vmhost.DeleteFunctionName
+
+	// KLC-2347: read-only nested execution must not produce delete/upgrade side effects.
+	// This is the primary guard for indirect dispatch; per-helper guards below are defense-in-depth.
+	if (isUpgrade || isDelete) && host.ForkController().FixAuditChangesV2() && runtime.ReadOnly() {
+		return vmhost.ErrInvalidCallOnReadOnlyMode
+	}
+
 	if isUpgrade {
 		return host.executeUpgrade(input)
 	}
 
-	isDelete := input.Function == vmhost.DeleteFunctionName
 	if isDelete {
 		return host.executeDelete(input)
 	}

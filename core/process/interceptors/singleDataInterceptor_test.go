@@ -11,6 +11,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/interceptors"
+	"github.com/klever-io/klever-go/core/throttler"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -164,6 +165,8 @@ func TestSingleDataInterceptor_ProcessReceivedMessageFactoryCreationErrorShouldE
 	originatorBlackListed := false
 	fromConnectedPeerBlackListed := false
 	arg := createMockArgSingleDataInterceptor()
+	throttler := createMockThrottler()
+	arg.Throttler = throttler
 	arg.DataFactory = &mock.InterceptedDataFactoryStub{
 		CreateCalled: func(buff []byte) (data process.InterceptedData, e error) {
 			return nil, errExpected
@@ -190,6 +193,10 @@ func TestSingleDataInterceptor_ProcessReceivedMessageFactoryCreationErrorShouldE
 	assert.Equal(t, errExpected, err)
 	assert.True(t, originatorBlackListed)
 	assert.True(t, fromConnectedPeerBlackListed)
+	// Regression GHSA-74m6-4hjp-7226 / KLC-2348: every synchronous error path
+	// after preProcessMessage must release the throttler slot exactly once.
+	assert.Equal(t, int32(1), throttler.StartProcessingCount())
+	assert.Equal(t, int32(1), throttler.EndProcessingCount())
 }
 
 func TestSingleDataInterceptor_ProcessReceivedMessageIsNotValidShouldNotCallProcess(t *testing.T) {
@@ -435,4 +442,43 @@ func TestSingleDataInterceptor_IsInterfaceNil(t *testing.T) {
 	var sdi *interceptors.SingleDataInterceptor
 
 	assert.True(t, check.IfNil(sdi))
+}
+
+//------- regression: GHSA-74m6-4hjp-7226 / KLC-2348 (defensive hardening of SingleDataInterceptor)
+
+// Mirror of the MultiDataInterceptor regression test: repeated synchronous
+// error returns (here via factory.Create errors) on a real bounded throttler
+// must not leak slots. On code where a synchronous error branch fails to
+// release the slot, the third attempt would return common.ErrSystemBusy.
+func TestSingleDataInterceptor_ProcessReceivedMessage_RepeatedFactoryErrorsMustNotExhaustThrottler(t *testing.T) {
+	t.Parallel()
+
+	errExpected := errors.New("expected error")
+
+	const throttlerCapacity int32 = 2
+	realThrottler, err := throttler.NewNumGoRoutinesThrottler(throttlerCapacity)
+	require.NoError(t, err)
+
+	arg := createMockArgSingleDataInterceptor()
+	arg.Throttler = realThrottler
+	arg.DataFactory = &mock.InterceptedDataFactoryStub{
+		CreateCalled: func(buff []byte) (process.InterceptedData, error) {
+			return nil, errExpected
+		},
+	}
+
+	sdi, err := interceptors.NewSingleDataInterceptor(arg)
+	require.NoError(t, err)
+
+	const attempts = 5
+	for i := 0; i < attempts; i++ {
+		msg := &mock.P2PMessageMock{
+			DataField: []byte("data to be processed"),
+			PeerField: core.PeerID("origin-peer"),
+		}
+		processErr := sdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+		require.Equal(t, errExpected, processErr, "attempt %d", i)
+		require.Falsef(t, errors.Is(processErr, common.ErrSystemBusy),
+			"regression GHSA-74m6-4hjp-7226 / KLC-2348: throttler exhausted on iteration %d: %v", i, processErr)
+	}
 }

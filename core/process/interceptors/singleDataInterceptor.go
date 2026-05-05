@@ -77,10 +77,19 @@ func (sdi *SingleDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P,
 		return err
 	}
 
+	// Guard the throttler slot reserved by preProcessMessage so every synchronous
+	// return below releases it exactly once. Ownership transfers to the async
+	// goroutine on the success path. Mirrors the fix from GHSA-74m6-4hjp-7226 /
+	// KLC-2348 and hardens this path against the same class of leak.
+	ownershipTransferred := false
+	defer func() {
+		if !ownershipTransferred {
+			sdi.throttler.EndProcessing()
+		}
+	}()
+
 	interceptedData, err := sdi.factory.Create(message.Data())
 	if err != nil {
-		sdi.throttler.EndProcessing()
-
 		//this situation is so severe that we need to black list the peers
 		reason := "can not create object from received bytes, topic " + sdi.topic + ", error " + err.Error()
 		sdi.antifloodHandler.BlacklistPeer(message.Peer(), reason, core.InvalidMessageBlacklistDuration)
@@ -93,7 +102,6 @@ func (sdi *SingleDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P,
 
 	err = interceptedData.CheckValidity()
 	if err != nil {
-		sdi.throttler.EndProcessing()
 		sdi.processDebugInterceptedData(interceptedData, err)
 
 		isWrongVersion := err == process.ErrInvalidTransactionVersion || err == process.ErrInvalidChainID
@@ -113,13 +121,11 @@ func (sdi *SingleDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P,
 		log.Trace("got message from peer on topic only for validators",
 			"originator", p2p.PeerIDToShortString(message.Peer()), "topic",
 			sdi.topic, "err", errOriginator)
-		sdi.throttler.EndProcessing()
 		return errOriginator
 	}
 
 	shouldProcess := isWhiteListed || true // always process same chain id TODO:
 	if !shouldProcess {
-		sdi.throttler.EndProcessing()
 		log.Trace("intercepted data is for other shards",
 			"pid", p2p.MessageOriginatorPid(message),
 			"seq no", p2p.MessageOriginatorSeq(message),
@@ -131,9 +137,19 @@ func (sdi *SingleDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P,
 		return nil
 	}
 
+	ownershipTransferred = true
 	go func() {
+		defer func() {
+			// Release the throttler slot before logging so the slot release
+			// is unconditional even if logging itself panics on an
+			// attacker-influenced panic value (CWE-400 defense-in-depth).
+			r := recover()
+			sdi.throttler.EndProcessing()
+			if r != nil {
+				log.Error("SingleDataInterceptor.ProcessReceivedMessage goroutine panicked", "panic", r)
+			}
+		}()
 		sdi.processInterceptedData(interceptedData, message)
-		sdi.throttler.EndProcessing()
 	}()
 
 	return nil

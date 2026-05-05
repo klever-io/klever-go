@@ -81,10 +81,20 @@ func (mdi *MultiDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P, 
 	if err != nil {
 		return err
 	}
+
+	// Guard the throttler slot reserved by preProcessMessage so every synchronous
+	// return below releases it exactly once. Ownership transfers to the async
+	// goroutine on the success path. See GHSA-74m6-4hjp-7226 / KLC-2348.
+	ownershipTransferred := false
+	defer func() {
+		if !ownershipTransferred {
+			mdi.throttler.EndProcessing()
+		}
+	}()
+
 	b := batch.Batch{}
 	err = mdi.marshalizer.Unmarshal(&b, message.Data())
 	if err != nil {
-		mdi.throttler.EndProcessing()
 		//this situation is so severe that we need to black list de peers
 		reason := "unmarshalable data got on topic " + mdi.topic
 		mdi.antifloodHandler.BlacklistPeer(message.Peer(), reason, core.InvalidMessageBlacklistDuration)
@@ -98,13 +108,11 @@ func (mdi *MultiDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P, 
 			log.Error("MultiDataInterceptor.ProcessReceivedMessage", "err", err.Error())
 			return err
 		}
-
 	}
 
 	multiDataBuff := b.Data
 	lenMultiData := len(multiDataBuff)
 	if lenMultiData == 0 {
-		mdi.throttler.EndProcessing()
 		return process.ErrNoDataInMessage
 	}
 
@@ -116,7 +124,6 @@ func (mdi *MultiDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P, 
 		message.SeqNo(),
 	)
 	if err != nil {
-		mdi.throttler.EndProcessing()
 		return err
 	}
 
@@ -128,13 +135,11 @@ func (mdi *MultiDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P, 
 		interceptedData, err = mdi.interceptedData(dataBuff, message.Peer(), fromConnectedPeer)
 		listInterceptedData[index] = interceptedData
 		if err != nil {
-			mdi.throttler.EndProcessing()
 			return err
 		}
 
 		isWhiteListed := mdi.whiteListRequest.IsWhiteListed(interceptedData)
 		if !isWhiteListed && errOriginator != nil {
-			mdi.throttler.EndProcessing()
 			log.Trace("got message from peer on topic only for validators", "originator",
 				p2p.PeerIDToShortString(message.Peer()),
 				"topic", mdi.topic,
@@ -143,11 +148,21 @@ func (mdi *MultiDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P, 
 		}
 	}
 
+	ownershipTransferred = true
 	go func() {
+		defer func() {
+			// Release the throttler slot before logging so the slot release
+			// is unconditional even if logging itself panics on an
+			// attacker-influenced panic value (CWE-400 defense-in-depth).
+			r := recover()
+			mdi.throttler.EndProcessing()
+			if r != nil {
+				log.Error("MultiDataInterceptor.ProcessReceivedMessage goroutine panicked", "panic", r)
+			}
+		}()
 		for _, interceptedData := range listInterceptedData {
 			mdi.processInterceptedData(interceptedData, message)
 		}
-		mdi.throttler.EndProcessing()
 	}()
 
 	return nil
