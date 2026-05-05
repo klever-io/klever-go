@@ -56,9 +56,9 @@ jobs:
 
       - name: Build
         run: |
-          make build-operator
-          make build-validator
-          make build-benchmark
+          make build-operator RELEASE=1
+          make build-validator RELEASE=1
+          make build-benchmark RELEASE=1
 
       - name: Create tarball
         run: |

@@ -32,7 +32,7 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 # Force clean build to ensure Go 1.25 binaries
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    rm -rf ./bin/* && make build
+    rm -rf ./bin/* && make build RELEASE=1
 
 FROM alpine:3.19
 
