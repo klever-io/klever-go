@@ -395,6 +395,13 @@ func (cm *commonProcessor) receiptToMap(data [][]byte) (map[string]interface{}, 
 			return nil, fmt.Errorf("%w: (%d/%d)", ErrInvalidDataMapLen, len(data), 2)
 		}
 		m["address"] = cm.addressPubkeyConverter.Encode(data[1])
+	case ptx.Error:
+		if len(data) > 1 {
+			m["title"] = string(data[1])
+		}
+		if len(data) > 2 {
+			m["description"] = string(data[2])
+		}
 	}
 
 	return m, nil

@@ -975,4 +975,46 @@ func Test_receiptToMap(t *testing.T) {
 		require.Equal(t, ptx.UpdateAccountPermission, result["type"])
 		require.Equal(t, "klv1account", result["address"])
 	})
+
+	t.Run("Error", func(t *testing.T) {
+		data := [][]byte{
+			{byte(ptx.Error), 0},
+			[]byte("InvalidAmount"),
+			[]byte("amount must be positive"),
+		}
+
+		result, err := cp.receiptToMap(data)
+		require.NoError(t, err)
+		require.Equal(t, ptx.Error, result["type"])
+		require.Equal(t, 0, result["cID"])
+		require.Equal(t, "Error", result["typeString"])
+		require.Equal(t, "InvalidAmount", result["title"])
+		require.Equal(t, "amount must be positive", result["description"])
+	})
+
+	t.Run("Error_TitleOnly", func(t *testing.T) {
+		data := [][]byte{
+			{byte(ptx.Error), 3},
+			[]byte("InvalidPermission"),
+		}
+
+		result, err := cp.receiptToMap(data)
+		require.NoError(t, err)
+		require.Equal(t, ptx.Error, result["type"])
+		require.Equal(t, 3, result["cID"])
+		require.Equal(t, "InvalidPermission", result["title"])
+		require.NotContains(t, result, "description")
+	})
+
+	t.Run("Error_NoParams", func(t *testing.T) {
+		data := [][]byte{
+			{byte(ptx.Error), 0},
+		}
+
+		result, err := cp.receiptToMap(data)
+		require.NoError(t, err)
+		require.Equal(t, ptx.Error, result["type"])
+		require.NotContains(t, result, "title")
+		require.NotContains(t, result, "description")
+	})
 }
