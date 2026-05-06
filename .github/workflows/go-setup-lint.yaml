@@ -6,7 +6,7 @@ on:
       go-version:
         required: false
         type: string
-        default: '1.25'
+        default: '1.25.7'
       go-private:
         required: false
         type: string
