@@ -19,6 +19,7 @@ type Config struct {
 	SkipKV        bool
 	SkipMemory    bool
 	SkipBigNum    bool
+	SkipCrypto    bool
 	OutputFmt     string
 }
 
@@ -100,6 +101,16 @@ func (r *Runner) Run() (*BenchmarkResults, error) {
 			return nil, fmt.Errorf("bignum benchmark: %w", err)
 		}
 		results.BigNumResult = br
+	}
+
+	if !r.cfg.SkipCrypto {
+		fmt.Fprintf(os.Stderr, "Running crypto benchmark (SHA-256/Blake2b/Keccak/Ed25519, %s/primitive)...\n",
+			cryptoBenchDuration)
+		cr, err := RunCryptoBenchmark()
+		if err != nil {
+			return nil, fmt.Errorf("crypto benchmark: %w", err)
+		}
+		results.CryptoResult = cr
 	}
 
 	return results, nil

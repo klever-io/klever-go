@@ -60,6 +60,17 @@ preferences:
   # MaxComputableSlots represents the max number of slots computable in a round
   # by the validator statistics processor
   maxComputableSlots: 100
+  # EnforceCPUPreflight refuses to start the validator when measured SHA-256
+  # throughput falls below 800 MB/s on a 200 ms self-bench (stricter than
+  # the standalone klever-benchmark tool, which only hard-vetoes below
+  # 500 MB/s — see cmd/node/PREFLIGHT.md). Hosts lacking SHA-NI hardware
+  # acceleration (Skylake-X / Cascade Lake / Haswell on amd64, or ARM
+  # without ARMv8 SHA2) typically measure ~250 MB/s and will be rejected.
+  # Use KLEVER_SKIP_CPU_CHECK=1 as an emergency override.
+  # Set to false to downgrade the failure to a warning instead of refusing.
+  # If this key is omitted from an existing operator config, enforcement
+  # defaults to true (safe upgrade behavior).
+  enforceCpuPreflight: true
 
 blockSizeThrottleConfig:
   minSizeInBytes: 104857 # 104857 is 10% from 1MB

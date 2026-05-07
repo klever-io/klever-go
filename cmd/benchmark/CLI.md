@@ -17,6 +17,7 @@ Usage of benchmark:
   -skip-kv            Skip KV store benchmark
   -skip-memory        Skip memory bandwidth and latency benchmark
   -skip-bignum        Skip big-number / FPU benchmark
+  -skip-crypto        Skip crypto benchmark (SHA-256/Blake2b/Keccak/Ed25519)
   -output string      Output format: text or json (default: "text")
   -verbose            Enable verbose logging
   -version            Print version and exit
@@ -34,6 +35,7 @@ Usage of benchmark:
 | **KV Store** | In-memory state-access patterns (80/20 read-write) | ops/s |
 | **Memory** | DRAM bandwidth, random latency, allocator speed | GB/s, ns, M allocs/s |
 | **BigNum / FPU** | 2048-bit modexp/modmul and float64 transcendentals | ops/s |
+| **Crypto / Hashing** | SHA-256 / Blake2b / Keccak-256 / Ed25519 throughput + CPU feature flags | MB/s, ops/s |
 
 ---
 
@@ -57,21 +59,48 @@ Skipped categories are excluded from the denominator so the grade stays fair.
 
 | Category | Weight |
 |----------|--------|
-| Goroutine (CPU) | 200 |
 | Disk I/O | 200 |
 | KV Store | 200 |
-| Network | 150 |
-| Memory | 150 |
-| BigNum / FPU | 100 |
+| Crypto / Hashing | 200 |
+| Goroutine (CPU) | 150 |
+| Network | 100 |
+| Memory | 100 |
+| BigNum / FPU | 50 |
 
 | Grade | % of enabled max | Description |
 |-------|-----------------|-------------|
 | **S** | ≥ 90 % | Elite — top-tier validator hardware |
 | **A** | ≥ 75 % | Excellent — production-ready for high-traffic networks |
 | **B** | ≥ 60 % | Good — suitable for standard validator operation |
-| **C** | ≥ 45 % | Acceptable — meets minimum validator requirements |
+| **C** | ≥ 45 % | Acceptable — meets minimum validator requirements; consider a hardware upgrade |
 | **D** | ≥ 30 % | Marginal — several metrics below recommended levels |
 | **F** | < 30 % | Insufficient — does not meet validator requirements |
+
+### Hard veto: SHA-256 throughput floor
+
+Klever's TX hot path hashes SHA-256 per-TX, per-header, and per-state-entry.
+The protocol tolerates some hardware variance — a leader has a 500 ms
+baseline timeout with a 425 ms lower bound below which validators
+attribute leader failure to weak hardware. To prevent operators from
+deploying nodes that cannot consistently process TXs as leader within
+that window, the Crypto category applies a **hard veto** on the measured
+SHA-256 throughput: hosts whose 16 KiB SHA-256 throughput is below
+**500 MB/s** have their overall grade capped at **F** regardless of total
+points.
+
+The veto is grounded in the measurement, not in any specific CPU feature
+flag. SHA-NI absence is the most common cause of low throughput in
+practice (Skylake-X / Cascade Lake / Haswell on amd64), and the report
+calls this out informationally. The text report highlights the reason;
+the JSON report sets `score.grade = "F"`, populates `score.vetoed=true`
+and `score.veto_reason`, and exposes the underlying CPU flags under
+`crypto.cpu_features`.
+
+**Note on validator startup:** the `klever-node` validator binary applies
+a *stricter* CPU preflight at startup, requiring ≥ 800 MB/s on a 200 ms
+self-bench (vs the 500 MB/s benchmark veto). A host can pass this
+benchmark with a non-`F` grade and still be refused by validator
+startup. See `cmd/node/PREFLIGHT.md` for the rationale.
 
 ---
 

@@ -32,6 +32,7 @@ type BenchmarkResults struct {
 	KVResult        *KVResult
 	MemoryResult    *MemoryResult
 	BigNumResult    *BigNumResult
+	CryptoResult    *CryptoResult
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +124,25 @@ const (
 	bigFloat64FailOps = 1_000_000.0
 	bigIntDivPassOps  = 13_000_000.0
 	bigIntDivFailOps  = 3_000_000.0
+
+	// Crypto thresholds (calibrated against the validator-fleet investigation:
+	// AMD EPYC Zen4 with SHA-NI hits ~1740 MB/s at 16 KiB; Intel Skylake-IBRS
+	// without SHA-NI sits at ~310 MB/s on the same blocks. The fail floor is
+	// set above the Skylake number so any SHA-NI-deficient amd64 host fails.)
+	cryptoSHA256SmallPassMBps = 1_200.0 // SHA-256 on 1 KiB blocks
+	cryptoSHA256SmallFailMBps = 500.0
+	cryptoSHA256LargePassMBps = 1_500.0 // SHA-256 on 16 KiB blocks
+	cryptoSHA256LargeFailMBps = 600.0
+	cryptoBlake2bPassMBps     = 700.0 // Blake2b-512 on 16 KiB blocks (AVX2)
+	cryptoBlake2bFailMBps     = 300.0
+	// Pure-Go Keccak (no SIMD path); calibrated against three healthy AMD
+	// Zen2/Zen4 chips that landed in the 295–390 MB/s range. The pass
+	// threshold is set just below the slowest observed healthy value so a
+	// production AMD chip does not show a misleading WARN.
+	cryptoKeccak256PassMBps    = 350.0
+	cryptoKeccak256FailMBps    = 100.0
+	cryptoEd25519VerifyPassOps = 12_000.0 // Ed25519.Verify (SHA-512-bound)
+	cryptoEd25519VerifyFailOps = 5_000.0
 )
 
 type verdict int
@@ -245,6 +265,27 @@ func memoryVerdict(r *MemoryResult) verdict {
 	return verdictPass
 }
 
+func cryptoVerdict(r *CryptoResult) verdict {
+	if r == nil {
+		return verdictSkip
+	}
+	if r.SHA256MBps < cryptoSHA256SmallFailMBps ||
+		r.SHA256LargeMBps < cryptoSHA256LargeFailMBps ||
+		r.Blake2bMBps < cryptoBlake2bFailMBps ||
+		r.Keccak256MBps < cryptoKeccak256FailMBps ||
+		r.Ed25519VerifyOpsPerSec < cryptoEd25519VerifyFailOps {
+		return verdictFail
+	}
+	if r.SHA256MBps < cryptoSHA256SmallPassMBps ||
+		r.SHA256LargeMBps < cryptoSHA256LargePassMBps ||
+		r.Blake2bMBps < cryptoBlake2bPassMBps ||
+		r.Keccak256MBps < cryptoKeccak256PassMBps ||
+		r.Ed25519VerifyOpsPerSec < cryptoEd25519VerifyPassOps {
+		return verdictWarn
+	}
+	return verdictPass
+}
+
 func bigNumVerdict(r *BigNumResult) verdict {
 	if r == nil {
 		return verdictSkip
@@ -306,6 +347,7 @@ func printText(results *BenchmarkResults) {
 	kv := kvVerdict(results.KVResult)
 	mv := memoryVerdict(results.MemoryResult)
 	bv := bigNumVerdict(results.BigNumResult)
+	cv := cryptoVerdict(results.CryptoResult)
 	sc := ComputeScore(results)
 
 	fmt.Println()
@@ -315,6 +357,10 @@ func printText(results *BenchmarkResults) {
 	fmt.Println(sep)
 	fmt.Printf("  System : %s/%s   CPUs: %d   Go: %s\n",
 		si.GOOS, si.GOARCH, si.CPUs, si.GoVersion)
+	if c := results.CryptoResult; c != nil {
+		fmt.Printf("  CPU    : SHA-NI=%s  AVX-512 IFMA=%s  VAES=%s  GFNI=%s\n",
+			yesNo(c.HasSHA_NI), yesNo(c.HasAVX512IFMA), yesNo(c.HasVAES), yesNo(c.HasGFNI))
+	}
 	fmt.Println(sep)
 
 	if results.GoroutineResult != nil {
@@ -334,6 +380,9 @@ func printText(results *BenchmarkResults) {
 	}
 	if results.BigNumResult != nil {
 		printBigNumSection(results.BigNumResult, bv, sep)
+	}
+	if results.CryptoResult != nil {
+		printCryptoSection(results.CryptoResult, cv, sep)
 	}
 
 	printScoreSection(sc, sep)
@@ -509,6 +558,49 @@ func printBigNumSection(r *BigNumResult, v verdict, sep string) {
 	fmt.Println(sep)
 }
 
+func printCryptoSection(r *CryptoResult, v verdict, sep string) {
+	fmt.Printf("  CRYPTO / HASHING   %s %s\n", v.Icon(), v)
+	fmt.Println()
+
+	s256V := metricVerdict(r.SHA256MBps, cryptoSHA256SmallPassMBps, cryptoSHA256SmallFailMBps)
+	s256LV := metricVerdict(r.SHA256LargeMBps, cryptoSHA256LargePassMBps, cryptoSHA256LargeFailMBps)
+	b2V := metricVerdict(r.Blake2bMBps, cryptoBlake2bPassMBps, cryptoBlake2bFailMBps)
+	kV := metricVerdict(r.Keccak256MBps, cryptoKeccak256PassMBps, cryptoKeccak256FailMBps)
+	edV := metricVerdict(r.Ed25519VerifyOpsPerSec, cryptoEd25519VerifyPassOps, cryptoEd25519VerifyFailOps)
+
+	fmt.Printf("  %-32s  %7.1f MB/s  %s  (pass≥%.0f, fail<%.0f MB/s)\n",
+		"SHA-256 (1 KiB blocks):", r.SHA256MBps, s256V.Icon(),
+		cryptoSHA256SmallPassMBps, cryptoSHA256SmallFailMBps)
+	fmt.Printf("  %-32s  %7.1f MB/s  %s  (pass≥%.0f, fail<%.0f MB/s)\n",
+		"SHA-256 (16 KiB blocks):", r.SHA256LargeMBps, s256LV.Icon(),
+		cryptoSHA256LargePassMBps, cryptoSHA256LargeFailMBps)
+	fmt.Printf("  %-32s  %7.1f MB/s  %s  (pass≥%.0f, fail<%.0f MB/s)\n",
+		"Blake2b-512 (16 KiB):", r.Blake2bMBps, b2V.Icon(),
+		cryptoBlake2bPassMBps, cryptoBlake2bFailMBps)
+	fmt.Printf("  %-32s  %7.1f MB/s  %s  (pass≥%.0f, fail<%.0f MB/s)\n",
+		"Keccak-256 (16 KiB):", r.Keccak256MBps, kV.Icon(),
+		cryptoKeccak256PassMBps, cryptoKeccak256FailMBps)
+	fmt.Printf("  %-32s  %s  %s  (pass≥%.0fK, fail<%.0fK ops/s)\n",
+		"Ed25519 verify:", humanOps(r.Ed25519VerifyOpsPerSec), edV.Icon(),
+		cryptoEd25519VerifyPassOps/1000, cryptoEd25519VerifyFailOps/1000)
+
+	if runtime.GOARCH == "amd64" && !r.HasSHA_NI {
+		fmt.Println()
+		fmt.Println("  ! CPU lacks SHA-NI; this is the most common cause of low SHA-256 throughput.")
+		fmt.Println("  ! If the throughput numbers above are below the pass thresholds, migrate to")
+		fmt.Println("  ! AMD Zen, Intel Ice Lake-SP+, or modern ARM (with ARMv8 SHA2).")
+	}
+	fmt.Println()
+	fmt.Println(sep)
+}
+
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
 // ---------------------------------------------------------------------------
 // Score section
 // ---------------------------------------------------------------------------
@@ -516,6 +608,9 @@ func printBigNumSection(r *BigNumResult, v verdict, sep string) {
 func printScoreSection(s BenchmarkScore, sep string) {
 	fmt.Printf("  SCORE : %d / %d   Grade: %s   %s\n",
 		s.Total, s.MaxTotal, s.Grade, scoreGradeSummary(s.Grade))
+	if s.Vetoed {
+		fmt.Printf("  ! Hard veto: %s\n", s.VetoedReason)
+	}
 	fmt.Println()
 
 	printScoreRow("Goroutine (CPU)", s.Goroutine, weightGoroutine)
@@ -524,6 +619,7 @@ func printScoreSection(s BenchmarkScore, sep string) {
 	printScoreRow("KV Store", s.KV, weightKV)
 	printScoreRow("Memory", s.Memory, weightMemory)
 	printScoreRow("BigNum / FPU", s.BigNum, weightBigNum)
+	printScoreRow("Crypto / Hashing", s.Crypto, weightCrypto)
 }
 
 func printScoreRow(name string, c CategoryScore, weight int) {
@@ -599,7 +695,7 @@ func verdictSummary(v verdict) string {
 	case verdictPass:
 		return "This node meets Kleverchain validator requirements."
 	case verdictWarn:
-		return "Performance is below recommended levels; review individual sections before deploying."
+		return "Performance meets minimum requirements but is below recommended levels — consider a hardware upgrade and review individual sections before deploying."
 	case verdictFail:
 		return "This node does NOT meet Kleverchain validator requirements."
 	default:
@@ -620,6 +716,7 @@ type jsonReport struct {
 	KV             *jsonKV        `json:"kv,omitempty"`
 	Memory         *jsonMemory    `json:"memory,omitempty"`
 	BigNum         *jsonBigNum    `json:"bignum,omitempty"`
+	Crypto         *jsonCrypto    `json:"crypto,omitempty"`
 	Score          jsonScore      `json:"score"`
 	OverallVerdict string         `json:"overall_verdict"`
 }
@@ -632,16 +729,19 @@ type jsonCategoryScore struct {
 }
 
 type jsonScore struct {
-	Total     int               `json:"total"`
-	MaxTotal  int               `json:"max_total"`
-	Pct       float64           `json:"pct"`
-	Grade     string            `json:"grade"`
-	Goroutine jsonCategoryScore `json:"goroutine"`
-	Disk      jsonCategoryScore `json:"disk"`
-	Network   jsonCategoryScore `json:"network"`
-	KV        jsonCategoryScore `json:"kv"`
-	Memory    jsonCategoryScore `json:"memory"`
-	BigNum    jsonCategoryScore `json:"bignum"`
+	Total        int               `json:"total"`
+	MaxTotal     int               `json:"max_total"`
+	Pct          float64           `json:"pct"`
+	Grade        string            `json:"grade"`
+	Vetoed       bool              `json:"vetoed"`
+	VetoedReason string            `json:"veto_reason,omitempty"`
+	Goroutine    jsonCategoryScore `json:"goroutine"`
+	Disk         jsonCategoryScore `json:"disk"`
+	Network      jsonCategoryScore `json:"network"`
+	KV           jsonCategoryScore `json:"kv"`
+	Memory       jsonCategoryScore `json:"memory"`
+	BigNum       jsonCategoryScore `json:"bignum"`
+	Crypto       jsonCategoryScore `json:"crypto"`
 }
 
 type jsonGoroutineLevel struct {
@@ -700,6 +800,23 @@ type jsonBigNum struct {
 	Verdict          string  `json:"verdict"`
 }
 
+type jsonCPUFeatures struct {
+	HasSHA_NI     bool `json:"sha_ni"`
+	HasAVX512IFMA bool `json:"avx512_ifma"`
+	HasVAES       bool `json:"vaes"`
+	HasGFNI       bool `json:"gfni"`
+}
+
+type jsonCrypto struct {
+	SHA256MBps             float64         `json:"sha256_1k_mbps"`
+	SHA256LargeMBps        float64         `json:"sha256_16k_mbps"`
+	Blake2bMBps            float64         `json:"blake2b_16k_mbps"`
+	Keccak256MBps          float64         `json:"keccak256_16k_mbps"`
+	Ed25519VerifyOpsPerSec float64         `json:"ed25519_verify_ops_per_sec"`
+	CPUFeatures            jsonCPUFeatures `json:"cpu_features"`
+	Verdict                string          `json:"verdict"`
+}
+
 func printJSON(results *BenchmarkResults) {
 	gv := goroutineVerdict(results.GoroutineResult)
 	dv := diskVerdict(results.DiskResult)
@@ -707,8 +824,9 @@ func printJSON(results *BenchmarkResults) {
 	kv := kvVerdict(results.KVResult)
 	mv := memoryVerdict(results.MemoryResult)
 	bv := bigNumVerdict(results.BigNumResult)
+	cv := cryptoVerdict(results.CryptoResult)
 	sc := ComputeScore(results)
-	ov := gradeToVerdict(sc.Grade, overallVerdict(gv, dv, nv, kv, mv, bv))
+	ov := gradeToVerdict(sc.Grade, overallVerdict(gv, dv, nv, kv, mv, bv, cv))
 
 	report := jsonReport{
 		RunAt:          results.RunAt.Format(time.RFC3339),
@@ -786,17 +904,37 @@ func printJSON(results *BenchmarkResults) {
 		}
 	}
 
+	if r := results.CryptoResult; r != nil {
+		report.Crypto = &jsonCrypto{
+			SHA256MBps:             r.SHA256MBps,
+			SHA256LargeMBps:        r.SHA256LargeMBps,
+			Blake2bMBps:            r.Blake2bMBps,
+			Keccak256MBps:          r.Keccak256MBps,
+			Ed25519VerifyOpsPerSec: r.Ed25519VerifyOpsPerSec,
+			CPUFeatures: jsonCPUFeatures{
+				HasSHA_NI:     r.HasSHA_NI,
+				HasAVX512IFMA: r.HasAVX512IFMA,
+				HasVAES:       r.HasVAES,
+				HasGFNI:       r.HasGFNI,
+			},
+			Verdict: cv.String(),
+		}
+	}
+
 	report.Score = jsonScore{
-		Total:     sc.Total,
-		MaxTotal:  sc.MaxTotal,
-		Pct:       sc.Pct,
-		Grade:     sc.Grade,
-		Goroutine: jsonCategoryScore{Points: sc.Goroutine.Points, Max: sc.Goroutine.Max, Pct: sc.Goroutine.Pct(), Skipped: sc.Goroutine.Skipped},
-		Disk:      jsonCategoryScore{Points: sc.Disk.Points, Max: sc.Disk.Max, Pct: sc.Disk.Pct(), Skipped: sc.Disk.Skipped},
-		Network:   jsonCategoryScore{Points: sc.Network.Points, Max: sc.Network.Max, Pct: sc.Network.Pct(), Skipped: sc.Network.Skipped},
-		KV:        jsonCategoryScore{Points: sc.KV.Points, Max: sc.KV.Max, Pct: sc.KV.Pct(), Skipped: sc.KV.Skipped},
-		Memory:    jsonCategoryScore{Points: sc.Memory.Points, Max: sc.Memory.Max, Pct: sc.Memory.Pct(), Skipped: sc.Memory.Skipped},
-		BigNum:    jsonCategoryScore{Points: sc.BigNum.Points, Max: sc.BigNum.Max, Pct: sc.BigNum.Pct(), Skipped: sc.BigNum.Skipped},
+		Total:        sc.Total,
+		MaxTotal:     sc.MaxTotal,
+		Pct:          sc.Pct,
+		Grade:        sc.Grade,
+		Vetoed:       sc.Vetoed,
+		VetoedReason: sc.VetoedReason,
+		Goroutine:    jsonCategoryScore{Points: sc.Goroutine.Points, Max: sc.Goroutine.Max, Pct: sc.Goroutine.Pct(), Skipped: sc.Goroutine.Skipped},
+		Disk:         jsonCategoryScore{Points: sc.Disk.Points, Max: sc.Disk.Max, Pct: sc.Disk.Pct(), Skipped: sc.Disk.Skipped},
+		Network:      jsonCategoryScore{Points: sc.Network.Points, Max: sc.Network.Max, Pct: sc.Network.Pct(), Skipped: sc.Network.Skipped},
+		KV:           jsonCategoryScore{Points: sc.KV.Points, Max: sc.KV.Max, Pct: sc.KV.Pct(), Skipped: sc.KV.Skipped},
+		Memory:       jsonCategoryScore{Points: sc.Memory.Points, Max: sc.Memory.Max, Pct: sc.Memory.Pct(), Skipped: sc.Memory.Skipped},
+		BigNum:       jsonCategoryScore{Points: sc.BigNum.Points, Max: sc.BigNum.Max, Pct: sc.BigNum.Pct(), Skipped: sc.BigNum.Skipped},
+		Crypto:       jsonCategoryScore{Points: sc.Crypto.Points, Max: sc.Crypto.Max, Pct: sc.Crypto.Pct(), Skipped: sc.Crypto.Skipped},
 	}
 
 	enc := json.NewEncoder(os.Stdout)

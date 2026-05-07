@@ -31,6 +31,7 @@ func main() {
 		skipKV        = flag.Bool("skip-kv", false, "Skip KV store benchmark")
 		skipMemory    = flag.Bool("skip-memory", false, "Skip memory bandwidth and latency benchmark")
 		skipBigNum    = flag.Bool("skip-bignum", false, "Skip big-number / FPU benchmark")
+		skipCrypto    = flag.Bool("skip-crypto", false, "Skip crypto benchmark (SHA-256/Blake2b/Keccak/Ed25519)")
 		outputFmt     = flag.String("output", "text", "Output format: text or json")
 		verbose       = flag.Bool("verbose", false, "Enable verbose logging")
 		version       = flag.Bool("version", false, "Print version and exit")
@@ -96,6 +97,7 @@ func main() {
 		SkipKV:        *skipKV,
 		SkipMemory:    *skipMemory,
 		SkipBigNum:    *skipBigNum,
+		SkipCrypto:    *skipCrypto,
 		OutputFmt:     *outputFmt,
 	}
 

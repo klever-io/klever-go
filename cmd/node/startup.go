@@ -249,6 +249,17 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		return err
 	}
 
+	// Run the CPU preflight before loading the validator's BLS private key:
+	// on a host that fails the gate we want to refuse startup without
+	// having unlocked the key file (defense-in-depth, CWE-316).
+	if err := validatorCPUPreflight(log); err != nil {
+		if cfg.Preferences.ShouldEnforceCPUPreflight() {
+			return err
+		}
+		log.Warn("validator CPU preflight failed (continuing because preferences.enforceCpuPreflight=false)",
+			"error", err.Error())
+	}
+
 	validatorKeyPemFileName := ctx.GlobalString(validatorKeyPemFile.Name)
 	cryptoParamsLoader, err := factory.NewCryptoSigningParamsLoader(
 		validatorPubkeyConverter,

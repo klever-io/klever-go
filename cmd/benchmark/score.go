@@ -13,26 +13,46 @@ package main
 //
 // Point weights (total = 1000 when all categories are enabled):
 //
-//	Goroutine (CPU scalability)  200
 //	Disk I/O                     200
 //	KV Store (state access)      200
-//	Network (P2P stack)          150
-//	Memory (DRAM + allocator)    150
-//	BigNum / FPU                 100
+//	Crypto / Hashing             200   ← consensus + TX hashing
+//	Goroutine (CPU scalability)  150
+//	Network (P2P stack)          100
+//	Memory (DRAM + allocator)    100
+//	BigNum / FPU                  50
+//
+// The Crypto category is gated by a hard veto on measured SHA-256
+// throughput: hosts that cannot sustain enough hashing throughput to keep
+// leader-mode TX processing within the protocol's hardware-tolerance
+// window (lowerBound = 425 ms = 85% of the 500 ms baseTimeout) have their
+// overall grade capped at F regardless of total points. SHA-NI absence is
+// the most common reason for low throughput in practice but is not
+// asserted as the sole cause — the veto is grounded in the measured
+// number, not a CPU flag. See ComputeScore for the gating logic.
 //
 // Grade thresholds (% of enabled max):
 //
 //	≥ 90 %  → S   Elite — top-tier validator hardware
 //	≥ 75 %  → A   Excellent — production-ready for high-traffic networks
 //	≥ 60 %  → B   Good — suitable for standard validator operation
-//	≥ 45 %  → C   Acceptable — meets minimum validator requirements
+//	≥ 45 %  → C   Acceptable — meets minimum validator requirements; consider a hardware upgrade
 //	≥ 30 %  → D   Marginal — several metrics below recommended levels
 //	< 30 %  → F   Insufficient — does not meet validator requirements
 
 import (
+	"fmt"
 	"math"
 	"time"
 )
+
+// minLeaderSHA256MBps is the SHA-256 throughput floor below which a node
+// cannot reliably process TXs as leader within the protocol's hardware-
+// tolerance window (lowerBound = 425 ms). Calibrated from field data: a
+// validator measured at ~250 MB/s on 16 KiB blocks took ~600 ms to process
+// a representative SC TX as leader, well above the 425 ms lowerBound.
+// Setting the floor at 500 MB/s gives ~2× margin to the lowerBound and
+// matches the existing fail floor for SHA-256 16 KiB blocks.
+const minLeaderSHA256MBps = 500.0
 
 // ---------------------------------------------------------------------------
 // Excellent thresholds (score = 100)
@@ -72,6 +92,14 @@ const (
 	bigModMulExcellentOps  = 2_000_000.0
 	bigFloat64ExcellentOps = 10_000_000.0
 	bigIntDivExcellentOps  = 30_000_000.0
+
+	// Crypto excellent ceilings (matches AMD Zen4 with SHA-NI; openssl-speed
+	// 16 KiB SHA-256 ≈ 1.7 GB/s, Blake2b ≈ 0.9 GB/s; ed25519 stdlib ≈ 30K/s).
+	cryptoSHA256SmallExcellentMBps  = 1_500.0
+	cryptoSHA256LargeExcellentMBps  = 1_800.0
+	cryptoBlake2bExcellentMBps      = 900.0
+	cryptoKeccak256ExcellentMBps    = 600.0
+	cryptoEd25519VerifyExcellentOps = 25_000.0
 )
 
 // ---------------------------------------------------------------------------
@@ -79,12 +107,13 @@ const (
 // ---------------------------------------------------------------------------
 
 const (
-	weightGoroutine = 200
 	weightDisk      = 200
 	weightKV        = 200
-	weightNetwork   = 150
-	weightMemory    = 150
-	weightBigNum    = 100
+	weightCrypto    = 200
+	weightGoroutine = 150
+	weightNetwork   = 100
+	weightMemory    = 100
+	weightBigNum    = 50
 )
 
 // ---------------------------------------------------------------------------
@@ -115,11 +144,16 @@ type BenchmarkScore struct {
 	KV        CategoryScore
 	Memory    CategoryScore
 	BigNum    CategoryScore
+	Crypto    CategoryScore
 
 	Total    int     // sum of enabled category points
 	MaxTotal int     // sum of enabled category maxes
 	Pct      float64 // Total / MaxTotal (0.0–1.0); 0 if nothing enabled
 	Grade    string  // S / A / B / C / D / F
+	// Vetoed is true when a hard requirement failed (e.g., missing SHA-NI
+	// on amd64). When set, Grade is forced to "F" regardless of point total.
+	Vetoed       bool
+	VetoedReason string
 }
 
 // ComputeScore builds a BenchmarkScore from all benchmark results.
@@ -136,8 +170,9 @@ func ComputeScore(r *BenchmarkResults) BenchmarkScore {
 	s.KV = scoreCategory(kvCatScore(r.KVResult), weightKV, r.KVResult == nil)
 	s.Memory = scoreCategory(memoryCatScore(r.MemoryResult), weightMemory, r.MemoryResult == nil)
 	s.BigNum = scoreCategory(bigNumCatScore(r.BigNumResult), weightBigNum, r.BigNumResult == nil)
+	s.Crypto = scoreCategory(cryptoCatScore(r.CryptoResult), weightCrypto, r.CryptoResult == nil)
 
-	for _, c := range []CategoryScore{s.Goroutine, s.Disk, s.Network, s.KV, s.Memory, s.BigNum} {
+	for _, c := range []CategoryScore{s.Goroutine, s.Disk, s.Network, s.KV, s.Memory, s.BigNum, s.Crypto} {
 		s.Total += c.Points
 		s.MaxTotal += c.Max
 	}
@@ -147,6 +182,24 @@ func ComputeScore(r *BenchmarkResults) BenchmarkScore {
 	} else {
 		s.Grade = "N/A"
 	}
+
+	// Hard veto: SHA-256 throughput below the leader-mode floor caps the
+	// grade at F regardless of other category scores. Field investigation
+	// of slow validators showed measured SHA-256 throughput correlates
+	// with leader-mode TX processing time well enough to predict whether
+	// a node will exceed the protocol's hardware-tolerance window. SHA-NI
+	// absence is the most common cause of low throughput on amd64 but is
+	// not asserted as the sole cause — the veto fires on the measurement.
+	if c := r.CryptoResult; c != nil && c.SHA256LargeMBps < minLeaderSHA256MBps {
+		s.Vetoed = true
+		s.VetoedReason = fmt.Sprintf(
+			"SHA-256 throughput %.0f MB/s < %.0f MB/s minimum — node likely cannot sustain "+
+				"leader-mode TX processing within the consensus hardware-tolerance window. "+
+				"Most common cause: missing SHA-NI on amd64 (Skylake-X / Cascade Lake / Haswell)",
+			c.SHA256LargeMBps, minLeaderSHA256MBps)
+		s.Grade = "F"
+	}
+
 	return s
 }
 
@@ -218,6 +271,19 @@ func bigNumCatScore(r *BigNumResult) float64 {
 		normHigh(r.ModMulOpsPerSec, bigModMulFailOps, bigModMulExcellentOps),
 		normHigh(r.Float64OpsPerSec, bigFloat64FailOps, bigFloat64ExcellentOps),
 		normHigh(r.IntDivOpsPerSec, bigIntDivFailOps, bigIntDivExcellentOps),
+	)
+}
+
+func cryptoCatScore(r *CryptoResult) float64 {
+	if r == nil {
+		return 0
+	}
+	return mean(
+		normHigh(r.SHA256MBps, cryptoSHA256SmallFailMBps, cryptoSHA256SmallExcellentMBps),
+		normHigh(r.SHA256LargeMBps, cryptoSHA256LargeFailMBps, cryptoSHA256LargeExcellentMBps),
+		normHigh(r.Blake2bMBps, cryptoBlake2bFailMBps, cryptoBlake2bExcellentMBps),
+		normHigh(r.Keccak256MBps, cryptoKeccak256FailMBps, cryptoKeccak256ExcellentMBps),
+		normHigh(r.Ed25519VerifyOpsPerSec, cryptoEd25519VerifyFailOps, cryptoEd25519VerifyExcellentOps),
 	)
 }
 
@@ -300,9 +366,9 @@ func scoreGradeSummary(g string) string {
 	case "B":
 		return "Good — suitable for standard validator operation"
 	case "C":
-		return "Below standard — not recommended for production use"
+		return "Acceptable — meets minimum validator requirements; consider a hardware upgrade"
 	case "D":
-		return "Poor — critical subsystems underperform validator requirements"
+		return "Marginal — several metrics below recommended levels"
 	case "N/A":
 		return "No benchmarks were run; all categories were skipped."
 	default:
