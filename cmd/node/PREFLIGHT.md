@@ -94,12 +94,14 @@ Recommended CPU classes:
   every datacenter ARM CPU since 2018, including AWS Graviton and Apple
   Silicon).
 
-For Hetzner Cloud specifically: CCX (dedicated AMD EPYC) and CPX (shared
-AMD EPYC) instances always satisfy the preflight. The CX series is a mixed
-Intel/AMD pool, and Skylake-class instances within it do not. Run
+For Hetzner Cloud specifically (based on current fleet observations):
+CCX (dedicated AMD EPYC) and CPX (shared AMD EPYC) instances typically
+satisfy the preflight. The CX series is a mixed Intel/AMD pool, and
+Skylake-class instances within it may not. Cloud SKUs and underlying
+hardware can change over time, so always confirm by running
 `klever-benchmark --skip-disk --skip-network --skip-kv --skip-memory \
---skip-goroutine --skip-bignum` on a candidate instance before deploying as
-a validator to confirm.
+--skip-goroutine --skip-bignum` on a candidate instance before
+deploying as a validator.
 
 ## Related
 

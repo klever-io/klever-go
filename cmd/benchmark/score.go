@@ -50,8 +50,12 @@ import (
 // tolerance window (lowerBound = 425 ms). Calibrated from field data: a
 // validator measured at ~250 MB/s on 16 KiB blocks took ~600 ms to process
 // a representative SC TX as leader, well above the 425 ms lowerBound.
-// Setting the floor at 500 MB/s gives ~2× margin to the lowerBound and
-// matches the existing fail floor for SHA-256 16 KiB blocks.
+// Setting the floor at 500 MB/s gives ~2× margin to the lowerBound. This
+// veto threshold is deliberately below the per-metric category fail
+// threshold (cryptoSHA256LargeFailMBps = 600 MB/s in report.go) so a
+// host in [500, 600) MB/s shows a per-metric FAIL label without the
+// hard grade-cap firing — the overall verdict still resolves to FAIL via
+// the category-fail path in gradeToVerdict.
 const minLeaderSHA256MBps = 500.0
 
 // ---------------------------------------------------------------------------

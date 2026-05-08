@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -137,13 +136,13 @@ func benchSHA256(d time.Duration) float64 {
 	if d <= 0 {
 		return 0
 	}
+	// Deterministic init — avoids crypto/rand which can block on entropy
+	// starvation during early boot (validator startup may run before the
+	// kernel RNG pool is fully initialised). SHA-256's amd64/arm64 fast
+	// paths are data-independent so the contents do not affect throughput.
 	buf := make([]byte, benchBlockSize)
-	if _, err := rand.Read(buf); err != nil {
-		// Deterministic fallback so the bench remains representative of a
-		// non-zero working set even when the system RNG is unavailable.
-		for i := range buf {
-			buf[i] = byte(i)
-		}
+	for i := range buf {
+		buf[i] = byte(i)
 	}
 	h := sha256.New()
 	digest := make([]byte, 0, h.Size())
