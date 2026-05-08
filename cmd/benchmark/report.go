@@ -345,6 +345,11 @@ func PrintReport(results *BenchmarkResults, format string) {
 
 const reportWidth = 70
 
+// metricThroughputMBpsRowFmt is the printf template for MB/s metric rows
+// (network throughput + every crypto MB/s metric). Centralised so column
+// width and pass/fail label format stay consistent across sections.
+const metricThroughputMBpsRowFmt = "  %-32s  %7.1f MB/s  %s  (pass≥%.0f, fail<%.0f MB/s)\n"
+
 func printText(results *BenchmarkResults) {
 	sep := strings.Repeat("─", reportWidth)
 	si := results.SystemInfo
@@ -479,7 +484,7 @@ func printNetworkSection(r *NetworkResult, v verdict, sep string) {
 		"Latency P50:", p50us, p50v.Icon(), netLatP50PassUs, netLatP50FailUs)
 	fmt.Printf("  %-32s  %8.1f µs  %s  (pass<%.0f, fail≥%.0f µs)\n",
 		"Latency P99:", p99us, p99v.Icon(), netLatP99PassUs, netLatP99FailUs)
-	fmt.Printf("  %-32s  %7.1f MB/s  %s  (pass≥%.0f, fail<%.0f MB/s)\n",
+	fmt.Printf(metricThroughputMBpsRowFmt,
 		"Throughput:", r.ThroughputMBps, thrV.Icon(), netThroughputPassMBps, netThroughputFailMBps)
 
 	fmt.Println()
@@ -575,16 +580,16 @@ func printCryptoSection(r *CryptoResult, v verdict, sep string) {
 	kV := metricVerdict(r.Keccak256MBps, cryptoKeccak256PassMBps, cryptoKeccak256FailMBps)
 	edV := metricVerdict(r.Ed25519VerifyOpsPerSec, cryptoEd25519VerifyPassOps, cryptoEd25519VerifyFailOps)
 
-	fmt.Printf("  %-32s  %7.1f MB/s  %s  (pass≥%.0f, fail<%.0f MB/s)\n",
+	fmt.Printf(metricThroughputMBpsRowFmt,
 		"SHA-256 (1 KiB blocks):", r.SHA256MBps, s256V.Icon(),
 		cryptoSHA256SmallPassMBps, cryptoSHA256SmallFailMBps)
-	fmt.Printf("  %-32s  %7.1f MB/s  %s  (pass≥%.0f, fail<%.0f MB/s)\n",
+	fmt.Printf(metricThroughputMBpsRowFmt,
 		"SHA-256 (16 KiB blocks):", r.SHA256LargeMBps, s256LV.Icon(),
 		cryptoSHA256LargePassMBps, cryptoSHA256LargeFailMBps)
-	fmt.Printf("  %-32s  %7.1f MB/s  %s  (pass≥%.0f, fail<%.0f MB/s)\n",
+	fmt.Printf(metricThroughputMBpsRowFmt,
 		"Blake2b-512 (16 KiB):", r.Blake2bMBps, b2V.Icon(),
 		cryptoBlake2bPassMBps, cryptoBlake2bFailMBps)
-	fmt.Printf("  %-32s  %7.1f MB/s  %s  (pass≥%.0f, fail<%.0f MB/s)\n",
+	fmt.Printf(metricThroughputMBpsRowFmt,
 		"Keccak-256 (16 KiB):", r.Keccak256MBps, kV.Icon(),
 		cryptoKeccak256PassMBps, cryptoKeccak256FailMBps)
 	fmt.Printf("  %-32s  %s  %s  (pass≥%.0fK, fail<%.0fK ops/s)\n",
