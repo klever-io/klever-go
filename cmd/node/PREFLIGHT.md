@@ -1,10 +1,16 @@
 # Validator CPU Preflight
 
 The validator binary runs a CPU preflight check at startup, immediately before
-loading the BLS signing key — defense-in-depth so a host that fails the gate
-never unlocks the key file. The preflight verifies that the host has
-sufficient SHA-256 hardware acceleration to keep up with consensus and TX
-processing on a production network.
+loading the BLS signing key. When the preflight is enforced (the default,
+`preferences.enforceCpuPreflight=true`), a host that fails the gate exits
+before the key file is unlocked — defense-in-depth against deploying a
+validator key on hardware that cannot keep up with consensus. The
+warn-only path (`enforceCpuPreflight=false`) and the emergency env
+bypass (`KLEVER_SKIP_CPU_CHECK=1`) deliberately allow startup to
+continue past a failure; both log a loud Warn so the bypass is auditable
+in fleet logs. The preflight verifies that the host has sufficient SHA-256
+hardware acceleration to keep up with consensus and TX processing on a
+production network.
 
 ## Why this exists
 
@@ -56,7 +62,7 @@ Every preflight run logs a single `Info` line with the measured throughput
 failure error):
 
 ```text
-INFO  validator CPU preflight measurement  arch=amd64 sha_ni=true avx512_ifma=true sha256_mbps=1742.3
+INFO  validator CPU preflight measurement  arch=amd64 sha_accel=true avx512_ifma=true sha256_mbps=1742.3
 ```
 
 ## Override

@@ -370,8 +370,9 @@ func printText(results *BenchmarkResults) {
 	fmt.Printf("  System : %s/%s   CPUs: %d   Go: %s\n",
 		si.GOOS, si.GOARCH, si.CPUs, si.GoVersion)
 	if c := results.CryptoResult; c != nil {
-		fmt.Printf("  CPU    : SHA-NI=%s  AVX-512 IFMA=%s  VAES=%s  GFNI=%s\n",
-			yesNo(c.HasSHA_NI), yesNo(c.HasAVX512IFMA), yesNo(c.HasVAES), yesNo(c.HasGFNI))
+		fmt.Printf("  CPU    : %s=%s  AVX-512 IFMA=%s  VAES=%s  GFNI=%s\n",
+			shaAccelName(si.GOARCH), yesNo(c.HasSHAAccel),
+			yesNo(c.HasAVX512IFMA), yesNo(c.HasVAES), yesNo(c.HasGFNI))
 	}
 	fmt.Println(sep)
 
@@ -596,9 +597,10 @@ func printCryptoSection(r *CryptoResult, v verdict, sep string) {
 		"Ed25519 verify:", humanOps(r.Ed25519VerifyOpsPerSec), edV.Icon(),
 		cryptoEd25519VerifyPassOps/1000, cryptoEd25519VerifyFailOps/1000)
 
-	if runtime.GOARCH == "amd64" && !r.HasSHA_NI {
+	if !r.HasSHAAccel && (runtime.GOARCH == "amd64" || runtime.GOARCH == "arm64") {
 		fmt.Println()
-		fmt.Println("  ! CPU lacks SHA-NI; this is the most common cause of low SHA-256 throughput.")
+		fmt.Printf("  ! CPU lacks %s; this is the most common cause of low SHA-256 throughput.\n",
+			shaAccelName(runtime.GOARCH))
 		fmt.Println("  ! If the throughput numbers above are below the pass thresholds, migrate to")
 		fmt.Println("  ! AMD Zen, Intel Ice Lake-SP+, or modern ARM (with ARMv8 SHA2).")
 	}
@@ -813,7 +815,7 @@ type jsonBigNum struct {
 }
 
 type jsonCPUFeatures struct {
-	HasSHA_NI     bool `json:"sha_ni"`
+	HasSHAAccel   bool `json:"sha_accel"`
 	HasAVX512IFMA bool `json:"avx512_ifma"`
 	HasVAES       bool `json:"vaes"`
 	HasGFNI       bool `json:"gfni"`
@@ -924,7 +926,7 @@ func printJSON(results *BenchmarkResults) {
 			Keccak256MBps:          r.Keccak256MBps,
 			Ed25519VerifyOpsPerSec: r.Ed25519VerifyOpsPerSec,
 			CPUFeatures: jsonCPUFeatures{
-				HasSHA_NI:     r.HasSHA_NI,
+				HasSHAAccel:   r.HasSHAAccel,
 				HasAVX512IFMA: r.HasAVX512IFMA,
 				HasVAES:       r.HasVAES,
 				HasGFNI:       r.HasGFNI,

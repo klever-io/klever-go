@@ -95,7 +95,7 @@ func validatorCPUPreflightWithInfo(
 	}
 	log.Info("validator CPU preflight measurement",
 		"arch", info.arch,
-		"sha_ni", info.hasSHA,
+		"sha_accel", info.hasSHA,
 		"avx512_ifma", info.hasAVX512IFMA,
 		"sha256_mbps", fmt.Sprintf("%.1f", mbps))
 
@@ -105,7 +105,7 @@ func validatorCPUPreflightWithInfo(
 
 	if !info.hasSHA {
 		log.Warn("CPU lacks SHA-256 hardware acceleration "+
-			"(SHA-NI on amd64 / ARMv8 SHA2 on arm64); "+
+			"("+shaAccelName(info.arch)+"); "+
 			"this is the most common cause of low SHA-256 throughput",
 			"arch", info.arch)
 	}
@@ -113,15 +113,47 @@ func validatorCPUPreflightWithInfo(
 	if mbps < minSHA256ThroughputMBps {
 		return fmt.Errorf(
 			"validator CPU preflight failed: measured SHA-256 throughput %.1f MB/s < %d MB/s minimum. "+
-				"This typically indicates missing SHA-NI (Skylake-X / Cascade Lake / Haswell on amd64) "+
+				"This typically indicates missing %s%s "+
 				"or a degraded host (frequency cap, thermal throttle, hypervisor masking). "+
 				"Migrate to AMD Zen, Intel Ice Lake-SP+, or modern ARM with ARMv8 SHA2. "+
 				"To downgrade this failure to a warning during a coordinated fleet migration, "+
 				"set preferences.enforceCpuPreflight=false in the validator config. "+
 				"Emergency override (NOT for production): %s=1",
-			mbps, minSHA256ThroughputMBps, envSkipCPUCheck)
+			mbps, minSHA256ThroughputMBps,
+			shaAccelName(info.arch),
+			shaAccelArchSuffix(info.arch),
+			envSkipCPUCheck)
 	}
 	return nil
+}
+
+// shaAccelName returns the operator-facing name of the SHA-256 hardware
+// acceleration ISA on the given architecture (so log lines on arm64 do
+// not misdirect operators to "SHA-NI" — the arm64 instruction set is
+// ARMv8 SHA2, not Intel's SHA-NI).
+func shaAccelName(arch string) string {
+	switch arch {
+	case "amd64":
+		return "SHA-NI"
+	case "arm64":
+		return "ARMv8 SHA2"
+	default:
+		return "SHA-256 hardware acceleration"
+	}
+}
+
+// shaAccelArchSuffix returns the arch-specific "common cause" suffix for
+// the preflight error message. Empty on unknown archs so the label stands
+// alone.
+func shaAccelArchSuffix(arch string) string {
+	switch arch {
+	case "amd64":
+		return " (Skylake-X / Cascade Lake / Haswell on amd64)"
+	case "arm64":
+		return " (any ARMv7 or ARMv8 chip without the SHA2 feature flag)"
+	default:
+		return ""
+	}
 }
 
 // benchSHA256 hashes 16 KiB blocks for d and returns sustained throughput in

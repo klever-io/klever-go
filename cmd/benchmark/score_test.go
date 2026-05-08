@@ -44,7 +44,7 @@ func excellentResults() *BenchmarkResults {
 			Blake2bMBps:            cryptoBlake2bExcellentMBps,
 			Keccak256MBps:          cryptoKeccak256ExcellentMBps,
 			Ed25519VerifyOpsPerSec: cryptoEd25519VerifyExcellentOps,
-			HasSHA_NI:              true,
+			HasSHAAccel:            true,
 			HasAVX512IFMA:          true,
 		},
 	}
@@ -125,7 +125,7 @@ func TestComputeScore_ThroughputVeto_DoesNotApply_AboveFloor(t *testing.T) {
 	// Throughput just above the floor — veto must not trigger even though
 	// the host could in principle be a non-SHA-NI amd64.
 	r.CryptoResult.SHA256LargeMBps = minLeaderSHA256MBps + 1
-	r.CryptoResult.HasSHA_NI = false
+	r.CryptoResult.HasSHAAccel = false
 
 	s := ComputeScore(r)
 	if s.Vetoed {

@@ -203,8 +203,10 @@ func ComputeScore(r *BenchmarkResults) BenchmarkScore {
 		s.VetoedReason = fmt.Sprintf(
 			"SHA-256 throughput %.0f MB/s < %.0f MB/s minimum — node likely cannot sustain "+
 				"leader-mode TX processing within the consensus hardware-tolerance window. "+
-				"Most common cause: missing SHA-NI on amd64 (Skylake-X / Cascade Lake / Haswell)",
-			c.SHA256LargeMBps, minLeaderSHA256MBps)
+				"Most common cause: missing %s%s",
+			c.SHA256LargeMBps, minLeaderSHA256MBps,
+			shaAccelName(r.SystemInfo.GOARCH),
+			shaCommonCauseSuffix(r.SystemInfo.GOARCH))
 		s.Grade = "F"
 	}
 

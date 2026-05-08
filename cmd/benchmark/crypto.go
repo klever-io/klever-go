@@ -67,12 +67,13 @@ type CryptoResult struct {
 	// (see BenchmarkScore.Vetoed). The flags are informational and help
 	// operators correlate measured throughput to the underlying ISA.
 	//
-	// HasSHA_NI is the cross-platform shorthand: true means SHA-256
-	// hardware acceleration is available — Intel/AMD SHA-NI on amd64,
-	// ARMv8 SHA2 on arm64 — false on every other architecture.
+	// HasSHAAccel is true when SHA-256 hardware acceleration is available
+	// on the current architecture: Intel/AMD SHA-NI on amd64, ARMv8 SHA2
+	// on arm64. False on every other architecture. Use shaAccelName(arch)
+	// to render an arch-appropriate label in user-facing output.
 	// AVX-512 IFMA on amd64 indicates whether the BLS pairing fast path
 	// is available (~1.5x speedup vs scalar fallback).
-	HasSHA_NI     bool
+	HasSHAAccel   bool
 	HasAVX512IFMA bool
 	HasVAES       bool
 	HasGFNI       bool
@@ -82,7 +83,7 @@ type CryptoResult struct {
 // feature flags. Returns a populated CryptoResult on success.
 func RunCryptoBenchmark() (*CryptoResult, error) {
 	r := &CryptoResult{
-		HasSHA_NI:     hasSHAAcceleration(),
+		HasSHAAccel:   hasSHAAcceleration(),
 		HasAVX512IFMA: cpuid.CPU.Has(cpuid.AVX512IFMA),
 		HasVAES:       cpuid.CPU.Has(cpuid.VAES),
 		HasGFNI:       cpuid.CPU.Has(cpuid.GFNI),
@@ -109,6 +110,35 @@ func RunCryptoBenchmark() (*CryptoResult, error) {
 
 	fmt.Fprintf(os.Stderr, "  %s\r", strings.Repeat(" ", 60))
 	return r, nil
+}
+
+// shaAccelName returns the operator-facing name of the SHA-256 hardware
+// acceleration ISA on the given architecture. Used in reports and
+// remediation messages so the output is correct on every supported arch
+// (rather than hardcoding the x86 brand on arm64).
+func shaAccelName(arch string) string {
+	switch arch {
+	case "amd64":
+		return "SHA-NI"
+	case "arm64":
+		return "ARMv8 SHA2"
+	default:
+		return "SHA-256 hardware acceleration"
+	}
+}
+
+// shaCommonCauseSuffix returns the arch-specific "common cause" suffix
+// for veto / preflight error messages. Empty on unknown archs so the
+// generic shaAccelName label stands alone.
+func shaCommonCauseSuffix(arch string) string {
+	switch arch {
+	case "amd64":
+		return " on amd64 (Skylake-X / Cascade Lake / Haswell)"
+	case "arm64":
+		return " on arm64"
+	default:
+		return ""
+	}
 }
 
 // hasSHAAcceleration reports whether SHA-256 hardware acceleration is
