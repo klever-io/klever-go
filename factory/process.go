@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"path/filepath"
 	"sync"
 	"time"
@@ -27,6 +29,7 @@ import (
 	"github.com/klever-io/klever-go/core/process/smartContract/builtInFunctions"
 	"github.com/klever-io/klever-go/core/process/smartContract/hooks"
 	"github.com/klever-io/klever-go/core/process/smartContract/hooks/counters"
+	"github.com/klever-io/klever-go/core/process/smartContract/prewarmer"
 	processSync "github.com/klever-io/klever-go/core/process/sync"
 	"github.com/klever-io/klever-go/core/process/throttle"
 	"github.com/klever-io/klever-go/core/process/transaction"
@@ -47,6 +50,8 @@ import (
 	"github.com/klever-io/klever-go/eventNotifier/notifier"
 	"github.com/klever-io/klever-go/genesis"
 	"github.com/klever-io/klever-go/genesis/process/disabled"
+	"github.com/klever-io/klever-go/kvm/executor"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/sharding"
 	"github.com/klever-io/klever-go/storage"
 	storageFactory "github.com/klever-io/klever-go/storage/factory"
@@ -244,6 +249,28 @@ type Process struct {
 	HeaderSigVerifier       HeaderSigVerifierHandler
 	HeaderIntegrityVerifier HeaderIntegrityVerifierHandler
 	ForkController          core.ForkController
+
+	// Closers holds background services that need orderly shutdown when the
+	// node is stopping (e.g. the SC prewarmer's worker pool). Iterated by Close.
+	Closers []io.Closer
+}
+
+// Close shuts down every registered background service in registration order.
+// Returns the first error encountered; subsequent errors are still attempted.
+func (p *Process) Close() error {
+	if p == nil {
+		return nil
+	}
+	var firstErr error
+	for _, c := range p.Closers {
+		if c == nil {
+			continue
+		}
+		if err := c.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 func createHeaderSigVerifier(args *ProcessComponentsFactoryArgs) (*headerCheck.HeaderSigVerifier, error) {
@@ -421,7 +448,7 @@ func createBaseProcessor(
 		Marshalizer:            args.coreData.InternalMarshalizer,
 	}
 
-	blockProcessor, transactionProcessor, err := newBlockProcessor(
+	blockProcessor, transactionProcessor, processClosers, err := newBlockProcessor(
 		args,
 		requestHandler,
 		forkDetector,
@@ -463,6 +490,7 @@ func createBaseProcessor(
 		HeaderIntegrityVerifier: headerIntegrityVerifier,
 		SlotManager:             args.slotManager,
 		ForkController:          args.forkController,
+		Closers:                 processClosers,
 	}, nil
 }
 
@@ -819,10 +847,10 @@ func newBlockProcessor(
 	txSimulatorProcessorArgs *txsimulator.ArgsTxSimulator,
 	headerIntegrityVerifier HeaderIntegrityVerifierHandler,
 	indexRating bool,
-) (process.BlockProcessor, process.TransactionProcessor, error) {
+) (process.BlockProcessor, process.TransactionProcessor, []io.Closer, error) {
 	txFeeHandler, err := postprocess.NewFeeAccumulator()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	wasmVMChangeLocker := &sync.RWMutex{}
@@ -833,7 +861,7 @@ func newBlockProcessor(
 	}
 	gasScheduleNotifier, err := notifier.NewGasScheduleNotifier(argsGasScheduleNotifier)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	argsBuiltIn := builtInFunctions.ArgsCreateBuiltInFunctionContainer{
@@ -848,17 +876,17 @@ func newBlockProcessor(
 
 	builtInFuncFactory, err := builtInFunctions.CreateBuiltInFunctionsFactory(argsBuiltIn)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	kdaTransferParser, err := parsers.NewKDATransferParser(processArgs.coreData.InternalMarshalizer)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	counter, err := counters.NewUsageCounter(kdaTransferParser)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	argsHook := hooks.ArgBlockChainHook{
@@ -883,7 +911,7 @@ func newBlockProcessor(
 
 	blockChainHookImpl, err := hooks.NewBlockChainHookImpl(argsHook)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	argsNewVMFactory := chain.ArgVMContainerFactory{
@@ -899,18 +927,20 @@ func newBlockProcessor(
 	}
 	virtualMachineFactory, err := chain.NewVMContainerFactory(argsNewVMFactory)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	err = builtInFuncFactory.SetPayableHandler(virtualMachineFactory.BlockChainHookImpl())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	vmContainer, err := virtualMachineFactory.Create()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
+
+	processClosers := startSCPrewarmer(processArgs, blockChainHookImpl, vmContainer, gasScheduleNotifier)
 
 	argsParser := smartContract.NewArgumentParser()
 	argsNewSCProcessor := smartContract.ArgsNewSmartContractProcessor{
@@ -933,12 +963,12 @@ func newBlockProcessor(
 	}
 	scProcessor, err := smartContract.NewSmartContractProcessor(argsNewSCProcessor)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	err = createMetaTxSimulatorProcessor(txSimulatorProcessorArgs, processArgs, argsNewSCProcessor, kdaTransferParser, gasScheduleNotifier)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	args := transaction.ArgsNewTxProcessor{
@@ -960,7 +990,7 @@ func newBlockProcessor(
 
 	txProcessor, err := transaction.NewTxProcessor(args)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	txPreProcessor, err := preprocess.NewTransactionPreprocessor(
@@ -978,7 +1008,7 @@ func newBlockProcessor(
 		processArgs.forkController,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	txCoordinator, err := coordinator.NewTransactionCoordinator(
@@ -995,12 +1025,12 @@ func newBlockProcessor(
 		scProcessor,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	blockSizeThrottler, err := throttle.NewBlockSizeThrottle(processArgs.minSizeInBytes, processArgs.maxSizeInBytes)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	genesisHdr := processArgs.data.Blkc.GetGenesisHeader()
@@ -1015,7 +1045,7 @@ func newBlockProcessor(
 	}
 	epochStartDataCreator, err := epochStart.NewEpochStartData(argsEpochStartData)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	accountsDb := make(map[state.AccountsDbIdentifier]state.AccountsAdapter)
@@ -1061,15 +1091,15 @@ func newBlockProcessor(
 
 	processor, err := block.NewMetaProcessor(arguments)
 	if err != nil {
-		return nil, nil, errors.New("could not create block processor: " + err.Error())
+		return nil, nil, nil, errors.New("could not create block processor: " + err.Error())
 	}
 
 	err = processor.SetAppStatusHandler(processArgs.coreData.StatusHandler)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	return processor, txProcessor, nil
+	return processor, txProcessor, processClosers, nil
 }
 
 func indexGenesisAccounts(startTime int64, accountsAdapter state.AccountsAdapter, eventsProcessor process.EventsProcessor, marshalizer marshal.Marshalizer) error {
@@ -1305,4 +1335,112 @@ func createMetaTxSimulatorProcessor(
 	}
 
 	return nil
+}
+
+// prewarmerMetricsTick is the sampling interval for SC prewarmer metrics.
+// 5 seconds matches typical scrape intervals and is fine-grained enough to
+// catch queue-saturation episodes without taxing the AppStatusHandler.
+const prewarmerMetricsTick = 5 * time.Second
+
+// startSCPrewarmer wires a background SC prewarmer onto the TX pool. When a
+// SC-invoke TX enters the pool, the prewarmer JIT-compiles the target
+// contract on a worker goroutine and writes the AOT bytes into the
+// compiledScPool / compiledScStorage cache. By the time the block processor
+// dispatches that TX, StartWasmerInstance can take the precompiled-code path
+// (cWasmerInstanceFromCache, ~µs) instead of full Wasmer Singlepass JIT
+// (hundreds of µs to milliseconds, depending on contract size).
+//
+// The prewarmer is best-effort: any wiring failure is logged and an empty
+// closer slice is returned. Block processing always works, prewarmed or not.
+// On success the returned slice contains the prewarmer (worker pool) and
+// optionally a metrics reporter; both must be Close()d during node shutdown.
+//
+// Configuration is read from processArgs.mainConfig.SmartContractPrewarmer.
+// If Enabled is false, the prewarmer is not started and the empty slice is
+// returned.
+//
+// Gas-schedule reactivity: registers as a GasSchedule notify handler so the
+// CompilationOptions track the active schedule. The block processor's
+// existing ClearCompiledCodes() on activation epochs handles invalidation of
+// any stale AOT bytes produced under prior options.
+//
+// Metrics: when an AppStatusHandler is available, a MetricsReporter samples
+// Stats() every prewarmerMetricsTick and publishes to the handler under the
+// klv_sc_prewarmer_* keys defined in core/metrics.go.
+func startSCPrewarmer(
+	processArgs *ProcessComponentsFactoryArgs,
+	hook *hooks.BlockChainHookImpl,
+	vmContainer process.VirtualMachinesContainer,
+	gasNotifier core.GasScheduleNotifier,
+) []io.Closer {
+	cfg := processArgs.mainConfig.SmartContractPrewarmer
+	if !cfg.Enabled {
+		log.Info("SC prewarmer disabled by config")
+		return nil
+	}
+
+	vmHandler, err := vmContainer.Get(common.WasmVirtualMachine)
+	if err != nil {
+		log.Warn("SC prewarmer disabled: cannot resolve wasm VM", "err", err)
+		return nil
+	}
+	host, ok := vmHandler.(vmhost.VMHost)
+	if !ok {
+		log.Warn("SC prewarmer disabled: VM does not expose vmhost.VMHost", "type", fmt.Sprintf("%T", vmHandler))
+		return nil
+	}
+	exec := host.Runtime().GetVMExecutor()
+	if exec == nil {
+		log.Warn("SC prewarmer disabled: vm has no executor")
+		return nil
+	}
+
+	wasmCost := gasNotifier.LatestGasSchedule()["WASMOpcodeCost"]
+	adapter := prewarmer.NewHookAdapter(hook)
+	pw, err := prewarmer.New(prewarmer.Args{
+		CodeFetcher:   adapter,
+		CompiledStore: adapter,
+		Compiler:      prewarmer.NewExecutorCompiler(exec),
+		CompileOptions: executor.CompilationOptions{
+			GasLimit:           math.MaxUint64,
+			UnmeteredLocals:    wasmCost["LocalsUnmetered"],
+			MaxMemoryGrow:      wasmCost["MaxMemoryGrow"],
+			MaxMemoryGrowDelta: wasmCost["MaxMemoryGrowDelta"],
+			Metering:           true,
+			RuntimeBreakpoints: true,
+		},
+		Workers:   cfg.Workers,
+		QueueSize: cfg.QueueSize,
+	})
+	if err != nil {
+		log.Warn("SC prewarmer disabled: construction failed", "err", err)
+		return nil
+	}
+	pw.Start()
+	processArgs.data.Datapool.Transactions().RegisterOnAdded(pw.OnTxAdded)
+	gasNotifier.RegisterNotifyHandler(pw)
+	log.Info("SC prewarmer started", "workers", cfg.Workers, "queue", cfg.QueueSize)
+
+	closers := []io.Closer{pw}
+
+	// Metrics: only start a reporter when an AppStatusHandler is wired. The
+	// initial bring-up uses a NilStatusHandler, which is harmless to publish
+	// to but useful only when the real handler is in place.
+	if statusHandler := processArgs.coreData.StatusHandler; statusHandler != nil {
+		reporter := prewarmer.NewMetricsReporter(pw, statusHandler, prewarmer.MetricKeys{
+			Enqueued:                 core.MetricSCPrewarmerEnqueued,
+			Dropped:                  core.MetricSCPrewarmerDropped,
+			CompileSucceeded:         core.MetricSCPrewarmerCompileSucceeded,
+			CompileFailed:            core.MetricSCPrewarmerCompileFailed,
+			SkippedAlreadyCached:     core.MetricSCPrewarmerSkippedAlreadyCached,
+			SkippedDuplicateInFlight: core.MetricSCPrewarmerSkippedDuplicateInFlight,
+			SkippedFetchFailed:       core.MetricSCPrewarmerSkippedFetchFailed,
+			QueueDepth:               core.MetricSCPrewarmerQueueDepth,
+			QueueCapacity:            core.MetricSCPrewarmerQueueCapacity,
+		}, prewarmerMetricsTick)
+		reporter.Start()
+		closers = append(closers, reporter)
+	}
+
+	return closers
 }

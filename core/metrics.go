@@ -284,3 +284,39 @@ const MetricNodeStartTimestamp = "klv_node_start_timestamp"
 
 // MetricRedundancySlotsInactive is the metric for the redundancy slots of inactivity counter
 const MetricRedundancySlotsInactive = "klv_redundancy_slots_inactive"
+
+// MetricSCPrewarmerEnqueued is the running total of SC-invoke addresses
+// successfully enqueued for background prewarm.
+const MetricSCPrewarmerEnqueued = "klv_sc_prewarmer_enqueued"
+
+// MetricSCPrewarmerDropped is the running total of prewarms dropped because
+// the worker queue was full when the TX entered the pool.
+const MetricSCPrewarmerDropped = "klv_sc_prewarmer_dropped"
+
+// MetricSCPrewarmerCompileSucceeded is the running total of prewarms that
+// produced AOT bytes and saved them to the compiled-code cache.
+const MetricSCPrewarmerCompileSucceeded = "klv_sc_prewarmer_compile_succeeded"
+
+// MetricSCPrewarmerCompileFailed is the running total of prewarms where the
+// Wasmer compile returned an error.
+const MetricSCPrewarmerCompileFailed = "klv_sc_prewarmer_compile_failed"
+
+// MetricSCPrewarmerSkippedAlreadyCached is the running total of prewarms that
+// found AOT bytes already present and skipped recompilation.
+const MetricSCPrewarmerSkippedAlreadyCached = "klv_sc_prewarmer_skipped_already_cached"
+
+// MetricSCPrewarmerSkippedDuplicateInFlight is the running total of prewarms
+// that bailed because another worker was already compiling the same codeHash.
+const MetricSCPrewarmerSkippedDuplicateInFlight = "klv_sc_prewarmer_skipped_duplicate_inflight"
+
+// MetricSCPrewarmerSkippedFetchFailed is the running total of prewarms where
+// FetchCode returned an error or the account had no contract code.
+const MetricSCPrewarmerSkippedFetchFailed = "klv_sc_prewarmer_skipped_fetch_failed"
+
+// MetricSCPrewarmerQueueDepth is the most-recently-sampled depth of the
+// prewarmer's worker queue.
+const MetricSCPrewarmerQueueDepth = "klv_sc_prewarmer_queue_depth"
+
+// MetricSCPrewarmerQueueCapacity is the configured capacity of the
+// prewarmer's worker queue.
+const MetricSCPrewarmerQueueCapacity = "klv_sc_prewarmer_queue_capacity"

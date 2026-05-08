@@ -484,6 +484,17 @@ smartContractDataPool:
   type: SizeLRU
   sizeInBytes: 209715200 #200MB
 
+# smartContractPrewarmer: background SC compilation triggered on TX-pool insert.
+# When a TX targeting an existing contract enters the mempool, the prewarmer
+# JIT-compiles the contract on a worker goroutine and writes the AOT bytes
+# into compiledScPool / compiledScStorage, so the block processor takes the
+# precompiled-code path (~µs) instead of full Wasmer JIT (ms scale).
+# Best-effort: queue full or compile failure → block processor falls back to JIT.
+smartContractPrewarmer:
+  enabled: true
+  workers: 8
+  queueSize: 256
+
 #PublicKeyPeerID represents the main cache used to map Klever block signing public keys to their associated peer id's.
 publicKeyPeerID:
   name: PublicKeyPeerID

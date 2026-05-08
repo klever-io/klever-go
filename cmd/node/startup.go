@@ -1040,7 +1040,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 
 	chanCloseComponents := make(chan struct{})
 	go func() {
-		closeAllComponents(log, healthService, dataComponents, triesComponents, networkComponents, chanCloseComponents)
+		closeAllComponents(log, healthService, processComponents, dataComponents, triesComponents, networkComponents, chanCloseComponents)
 	}()
 
 	_ = tracing.Shutdown() // errors logged internally
@@ -1130,6 +1130,7 @@ func applyPreferencesConfigs(ctx *cli.Context, cfg *config.Config) {
 func closeAllComponents(
 	log logger.Logger,
 	healthService io.Closer,
+	processComponents *factory.Process,
 	dataComponents *factory.DataComponents,
 	triesComponents *factory.TriesComponents,
 	networkComponents *factory.NetworkComponents,
@@ -1137,6 +1138,10 @@ func closeAllComponents(
 ) {
 	log.Debug("closing health service...")
 	err := healthService.Close()
+	log.LogIfError(err)
+
+	log.Debug("closing process components...")
+	err = processComponents.Close()
 	log.LogIfError(err)
 
 	log.Debug("closing all store units....")

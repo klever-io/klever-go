@@ -93,8 +93,9 @@ type Config struct {
 	TxDataPool            CacheConfig                  `yaml:"txDataPool"`
 	HeadersPoolConfig     HeadersPoolConfig            `yaml:"headersPoolConfig"`
 	TrieNodesDataPool     CacheConfig                  `yaml:"trieNodesDataPool"`
-	SmartContractDataPool CacheConfig                  `yaml:"smartContractDataPool"`
-	VirtualMachine        VirtualMachineServicesConfig `yaml:"virtualMachine"`
+	SmartContractDataPool  CacheConfig                  `yaml:"smartContractDataPool"`
+	SmartContractPrewarmer SmartContractPrewarmerConfig `yaml:"smartContractPrewarmer"`
+	VirtualMachine         VirtualMachineServicesConfig `yaml:"virtualMachine"`
 
 	// Network Cache Configs
 	PublicKeyPeerID       CacheConfig `yaml:"publicKeyPeerID"`
@@ -138,6 +139,16 @@ type Config struct {
 type LogsAndEventsConfig struct {
 	SaveInStorageEnabled bool          `yaml:"saveInStorageEnabled"`
 	TxLogsStorage        StorageConfig `yaml:"txLogsStorage"`
+}
+
+// SmartContractPrewarmerConfig configures the background SC prewarmer that
+// JIT-compiles contracts as TXs enter the pool, so the block processor can
+// take the precompiled-code path on first invocation. All values are optional
+// and have safe defaults applied at construction.
+type SmartContractPrewarmerConfig struct {
+	Enabled   bool `yaml:"enabled"`
+	Workers   int  `yaml:"workers"`
+	QueueSize int  `yaml:"queueSize"`
 }
 
 // VirtualMachineConfig holds configuration for a Virtual Machine service
