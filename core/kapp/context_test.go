@@ -1,6 +1,7 @@
 package kapp_test
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
@@ -74,6 +75,99 @@ func TestKappContext_ExecutionTimeStorage(t *testing.T) {
 	// Verify it can be retrieved for validation (txProcess.go:337)
 	retrieved := ctx.GetExecutionTime()
 	assert.Equal(t, executionTime, retrieved)
+}
+
+// TestKappContext_ReturnData_RoundTrip exercises the returnData lifecycle:
+// SetReturnData -> GetAndClearReturnData empties the context, the returned
+// slice exposes the stored payload, and re-using the context after a Get
+// works (Add/Set on a freshly cleared context behave identically to a
+// brand-new context).
+func TestKappContext_ReturnData_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
+		OriginalSender: []byte("sender"),
+		ContractID:     0,
+		Block:          &block.Block{},
+	})
+
+	// initial Get on empty context returns an empty slice
+	first := ctx.GetAndClearReturnData()
+	assert.Empty(t, first, "fresh context has no return data")
+
+	payload := [][]byte{
+		[]byte("alpha"),
+		[]byte("beta"),
+		[]byte("gamma"),
+	}
+	ctx.SetReturnData(payload)
+
+	out := ctx.GetAndClearReturnData()
+	assert.Equal(t, payload, out, "Get returns the previously Set payload")
+
+	// context is empty after Get
+	again := ctx.GetAndClearReturnData()
+	assert.Empty(t, again, "context cleared after Get")
+
+	// reuse: Add after a Get works
+	ctx.AddReturnData([]byte("delta"))
+	ctx.AddReturnData([]byte("epsilon"))
+	out2 := ctx.GetAndClearReturnData()
+	assert.Equal(t, [][]byte{[]byte("delta"), []byte("epsilon")}, out2)
+}
+
+// TestKappContext_ReturnData_GetNeverReturnsNil pins the invariant that
+// GetAndClearReturnData always returns a non-nil slice — matching the
+// original implementation's `make([][]byte, 0)` reset. VMOutputApi carries
+// a `json:"returnData"` tag, so a nil slice would JSON-render as null
+// while an empty slice renders as []; downstream API consumers can
+// distinguish.
+func TestKappContext_ReturnData_GetNeverReturnsNil(t *testing.T) {
+	t.Parallel()
+
+	ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
+		OriginalSender: []byte("sender"),
+		ContractID:     0,
+		Block:          &block.Block{},
+	})
+
+	first := ctx.GetAndClearReturnData()
+	assert.NotNil(t, first, "Get on a fresh context returns non-nil")
+	assert.Empty(t, first)
+
+	ctx.SetReturnData([][]byte{[]byte("payload")})
+	_ = ctx.GetAndClearReturnData() // drain
+
+	second := ctx.GetAndClearReturnData()
+	assert.NotNil(t, second, "Get on a drained context returns non-nil")
+	assert.Empty(t, second)
+}
+
+// TestKappContext_ReturnData_GetIsolatesFromFutureWrites guards against a
+// regression of the move-semantics optimization: the slice returned to the
+// caller must not be observably mutated by subsequent Set/Add on the same
+// context (the context allocates fresh storage on each Set/Add, so the
+// returned slice keeps pointing at the prior payload).
+func TestKappContext_ReturnData_GetIsolatesFromFutureWrites(t *testing.T) {
+	t.Parallel()
+
+	ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
+		OriginalSender: []byte("sender"),
+		ContractID:     0,
+		Block:          &block.Block{},
+	})
+
+	ctx.SetReturnData([][]byte{[]byte("first")})
+	out := ctx.GetAndClearReturnData()
+
+	// Subsequent context writes must not bleed into the previously
+	// returned slice.
+	ctx.SetReturnData([][]byte{[]byte("second"), []byte("third")})
+	ctx.AddReturnData([]byte("fourth"))
+
+	assert.Equal(t, 1, len(out), "previously returned slice length is stable")
+	assert.True(t, bytes.Equal(out[0], []byte("first")),
+		"previously returned bytes are stable")
 }
 
 // TestReceiptSlice_GetByType tests filtering receipts by type

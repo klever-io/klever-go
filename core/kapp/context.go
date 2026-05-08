@@ -46,7 +46,7 @@ func (r *ReceiptSlice) Get() []*transaction.Transaction_Receipt {
 }
 
 func (r *ReceiptSlice) GetByType(receiptType int8) []*transaction.Transaction_Receipt {
-	var filtered []*transaction.Transaction_Receipt
+	filtered := make([]*transaction.Transaction_Receipt, 0, len(*r))
 	for _, receipt := range *r {
 		if len(receipt.Data) > 0 && len(receipt.Data[0]) > 0 && int8(receipt.Data[0][0]) == receiptType {
 			filtered = append(filtered, receipt)
@@ -56,7 +56,7 @@ func (r *ReceiptSlice) GetByType(receiptType int8) []*transaction.Transaction_Re
 }
 
 func (r *ReceiptSlice) GetPreserved() []*transaction.Transaction_Receipt {
-	var filtered []*transaction.Transaction_Receipt
+	filtered := make([]*transaction.Transaction_Receipt, 0, len(*r))
 	for _, receipt := range *r {
 		if len(receipt.Data) > 0 && len(receipt.Data[0]) > 0 && receipt.Data[0][0] >= SystemReceiptTypeStart {
 			filtered = append(filtered, receipt)
@@ -150,19 +150,22 @@ func (k *kappContext) AddReturnData(data []byte) {
 }
 
 func (k *kappContext) GetAndClearReturnData() [][]byte {
-	// Create a new outer slice with the same length as src
-	dst := make([][]byte, len(k.returnData))
-
-	// Iterate over each inner slice
-	for i, s := range k.returnData {
-		// Create a new inner slice with the same length as s
-		dst[i] = make([]byte, len(s))
-		// Copy the bytes from s to dst[i]
-		copy(dst[i], s)
+	// Move semantics: ownership of returnData transfers to the caller and
+	// the context resets to a fresh empty slice. SetReturnData and
+	// AddReturnData both allocate fresh storage on every write, so no
+	// aliasing of the returned slice remains via this struct.
+	//
+	// Preserve the original guarantee that this method never returns nil
+	// and that the field is non-nil-empty after the call: VMOutputApi
+	// carries a json:"returnData" tag, where nil JSON-renders to null
+	// while []byte{} renders to []. Downstream API consumers may
+	// distinguish.
+	out := k.returnData
+	if out == nil {
+		out = [][]byte{}
 	}
-
 	k.returnData = make([][]byte, 0)
-	return dst
+	return out
 }
 
 func (k *kappContext) GetExecData() []byte {
