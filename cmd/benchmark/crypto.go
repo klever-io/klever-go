@@ -62,10 +62,16 @@ type CryptoResult struct {
 	Keccak256MBps          float64 // Keccak-256 throughput on 16 KiB blocks
 	Ed25519VerifyOpsPerSec float64 // Ed25519 signature verifications per second
 
-	// CPU feature flags — reported but not directly scored. The overall
-	// score applies a hard veto when HasSHA_NI is false on amd64 (see
-	// score.go). The other flags are informational; AVX-512 IFMA in
-	// particular indicates whether the BLS pairing fast path is available.
+	// CPU feature flags — reported but not directly scored. The hard veto
+	// in score.go fires on measured SHA-256 throughput, not on these flags
+	// (see BenchmarkScore.Vetoed). The flags are informational and help
+	// operators correlate measured throughput to the underlying ISA.
+	//
+	// HasSHA_NI is the cross-platform shorthand: true means SHA-256
+	// hardware acceleration is available — Intel/AMD SHA-NI on amd64,
+	// ARMv8 SHA2 on arm64 — false on every other architecture.
+	// AVX-512 IFMA on amd64 indicates whether the BLS pairing fast path
+	// is available (~1.5x speedup vs scalar fallback).
 	HasSHA_NI     bool
 	HasAVX512IFMA bool
 	HasVAES       bool
@@ -149,6 +155,7 @@ func benchHashMBps(newHash func() hash.Hash, blockSize int) float64 {
 		}
 	}
 	h := newHash()
+	digest := make([]byte, 0, h.Size())
 	deadline := time.Now().Add(cryptoBenchDuration)
 	start := time.Now()
 	var bytes int64
@@ -157,7 +164,7 @@ func benchHashMBps(newHash func() hash.Hash, blockSize int) float64 {
 		for range innerLoop {
 			h.Reset()
 			_, _ = h.Write(buf)
-			_ = h.Sum(nil)
+			digest = h.Sum(digest[:0])
 		}
 		bytes += int64(blockSize) * innerLoop
 	}

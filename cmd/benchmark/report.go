@@ -132,6 +132,13 @@ const (
 	cryptoSHA256SmallPassMBps = 1_200.0 // SHA-256 on 1 KiB blocks
 	cryptoSHA256SmallFailMBps = 500.0
 	cryptoSHA256LargePassMBps = 1_500.0 // SHA-256 on 16 KiB blocks
+	// cryptoSHA256LargeFailMBps drives the per-metric category verdict
+	// (WARN/FAIL labels in the text report); minLeaderSHA256MBps in score.go
+	// (500 MB/s) drives the hard grade-F veto. The category fail floor is
+	// set slightly above the veto so a host in [500, 600) MB/s shows a
+	// per-metric FAIL label without triggering the grade-cap veto path —
+	// gradeToVerdict still surfaces the overall verdict as FAIL via the
+	// category-fail route, so behavior is consistent across both paths.
 	cryptoSHA256LargeFailMBps = 600.0
 	cryptoBlake2bPassMBps     = 700.0 // Blake2b-512 on 16 KiB blocks (AVX2)
 	cryptoBlake2bFailMBps     = 300.0

@@ -150,8 +150,12 @@ type BenchmarkScore struct {
 	MaxTotal int     // sum of enabled category maxes
 	Pct      float64 // Total / MaxTotal (0.0–1.0); 0 if nothing enabled
 	Grade    string  // S / A / B / C / D / F
-	// Vetoed is true when a hard requirement failed (e.g., missing SHA-NI
-	// on amd64). When set, Grade is forced to "F" regardless of point total.
+	// Vetoed is true when a hard requirement failed — currently only the
+	// measured SHA-256 throughput floor (SHA256LargeMBps < minLeaderSHA256MBps).
+	// SHA-NI absence is the most common cause of low throughput on amd64 but
+	// is not asserted as the sole cause; the gate fires on the measurement,
+	// not on a CPU feature flag. When set, Grade is forced to "F" regardless
+	// of point total. VetoedReason carries an operator-facing explanation.
 	Vetoed       bool
 	VetoedReason string
 }

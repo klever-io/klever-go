@@ -1,7 +1,8 @@
 # Validator CPU Preflight
 
-The validator binary runs a CPU preflight check at startup, immediately after
-loading the BLS signing key. The preflight verifies that the host has
+The validator binary runs a CPU preflight check at startup, immediately before
+loading the BLS signing key — defense-in-depth so a host that fails the gate
+never unlocks the key file. The preflight verifies that the host has
 sufficient SHA-256 hardware acceleration to keep up with consensus and TX
 processing on a production network.
 
@@ -103,6 +104,7 @@ a validator to confirm.
 ## Related
 
 - `cmd/node/preflight.go` — the preflight implementation.
-- `cmd/benchmark/CLI.md` — the operator-facing benchmark, which applies the
-  same SHA-NI veto and produces a more detailed report.
+- `cmd/benchmark/CLI.md` — the operator-facing benchmark, which applies a
+  measured-throughput veto (SHA-256 < 500 MB/s) — not a SHA-NI feature-bit
+  check — and produces a more detailed report.
 - `config/prefsConfig.go` — `EnforceCPUPreflight` is the runtime flag.

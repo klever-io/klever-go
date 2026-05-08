@@ -28,6 +28,7 @@ require (
 	github.com/jbenet/goprocess v0.1.4
 	github.com/joho/godotenv v1.4.0
 	github.com/keygen-sh/machineid v1.1.1
+	github.com/klauspost/cpuid/v2 v2.3.0
 	github.com/klever-io/klever-go-logger v1.3.1
 	github.com/libp2p/go-libp2p v0.48.0
 	github.com/libp2p/go-libp2p-kad-dht v0.39.1
@@ -108,7 +109,6 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0 // indirect
-	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/koron/go-ssdp v0.0.6 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect

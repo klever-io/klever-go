@@ -117,7 +117,9 @@ func validatorCPUPreflightWithInfo(
 				"This typically indicates missing SHA-NI (Skylake-X / Cascade Lake / Haswell on amd64) "+
 				"or a degraded host (frequency cap, thermal throttle, hypervisor masking). "+
 				"Migrate to AMD Zen, Intel Ice Lake-SP+, or modern ARM with ARMv8 SHA2. "+
-				"Override (NOT for production): %s=1",
+				"To downgrade this failure to a warning during a coordinated fleet migration, "+
+				"set preferences.enforceCpuPreflight=false in the validator config. "+
+				"Emergency override (NOT for production): %s=1",
 			mbps, minSHA256ThroughputMBps, envSkipCPUCheck)
 	}
 	return nil
@@ -144,6 +146,7 @@ func benchSHA256(d time.Duration) float64 {
 		}
 	}
 	h := sha256.New()
+	digest := make([]byte, 0, h.Size())
 	var bytes int64
 	start := time.Now()
 	deadline := start.Add(d)
@@ -152,7 +155,7 @@ func benchSHA256(d time.Duration) float64 {
 		for i := 0; i < innerLoop; i++ {
 			h.Reset()
 			_, _ = h.Write(buf)
-			_ = h.Sum(nil)
+			digest = h.Sum(digest[:0])
 		}
 		bytes += benchBlockSize * innerLoop
 	}
