@@ -56,6 +56,10 @@ var ErrEmptyPeerID = errors.New("empty peer ID")
 // ErrNoDataInMessage signals that no data was found after parsing received p2p message
 var ErrNoDataInMessage = errors.New("no data found in received message")
 
+// ErrTooManyItemsInBatch signals that a received Batch carries more items than allowed,
+// guarding against pre-allocation amplification (CWE-789 / CWE-770).
+var ErrTooManyItemsInBatch = errors.New("too many items in batch")
+
 // ErrInterceptedDataNotForCurrentShard signals that intercepted data is not for current shard
 var ErrInterceptedDataNotForCurrentShard = errors.New("intercepted data not for current shard")
 

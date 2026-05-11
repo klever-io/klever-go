@@ -2,6 +2,7 @@ package interceptors_test
 
 import (
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -481,4 +482,104 @@ func TestSingleDataInterceptor_ProcessReceivedMessage_RepeatedFactoryErrorsMustN
 		require.Falsef(t, errors.Is(processErr, common.ErrSystemBusy),
 			"regression GHSA-74m6-4hjp-7226 / KLC-2348: throttler exhausted on iteration %d: %v", i, processErr)
 	}
+}
+
+//------- regression: data race on bdi.debugHandler from worker goroutine (Finding 4.2)
+
+// SingleDataInterceptor.ProcessReceivedMessage previously held mutDebugHandler.RLock
+// only for the synchronous frame; the worker goroutine spawned at the end read
+// bdi.debugHandler after the lock had already been released. Concurrent
+// SetInterceptedDebugHandler calls must not race with that worker-side read.
+// Run with `go test -race` to enforce.
+//
+// The validate/save/whitelist stubs all return nil/true so ProcessReceivedMessage
+// reaches the success path that spawns the worker goroutine and ultimately
+// dispatches LogProcessedHashes through bdi.debugHandler — that is precisely
+// the read site the rotation goroutine races with. Changing any of those mocks
+// to err-return would silently un-cover the race.
+func TestSingleDataInterceptor_ProcessReceivedMessage_DebugHandlerRotation_NoRace(t *testing.T) {
+	t.Parallel()
+
+	interceptedData := &mock.InterceptedDataStub{
+		CheckValidityCalled: func() error { return nil },
+		IdentifiersCalled:   func() [][]byte { return [][]byte{[]byte("id-0")} },
+	}
+
+	arg := createMockArgSingleDataInterceptor()
+	arg.DataFactory = &mock.InterceptedDataFactoryStub{
+		CreateCalled: func(_ []byte) (process.InterceptedData, error) { return interceptedData, nil },
+	}
+	arg.Processor = &mock.InterceptorProcessorStub{
+		ValidateCalled: func(_ process.InterceptedData) error { return nil },
+		SaveCalled:     func(_ process.InterceptedData) error { return nil },
+	}
+	arg.WhiteListRequest = &mock.WhiteListHandlerStub{
+		IsWhiteListedCalled: func(_ process.InterceptedData) bool { return true },
+	}
+
+	sdi, err := interceptors.NewSingleDataInterceptor(arg)
+	require.NoError(t, err)
+
+	// workersWG tracks the spawned async LogProcessedHashes calls so we can
+	// deterministically wait for every worker goroutine's debugHandler read
+	// to complete before exiting (replaces the previous timing-based sleep).
+	var workersWG sync.WaitGroup
+
+	logProcessed := func(_ string, _ [][]byte, _ error) {
+		workersWG.Done()
+	}
+	dh1 := &mock.InterceptedDebugHandlerStub{
+		LogProcessedHashesCalled: logProcessed,
+		LogReceivedHashesCalled:  func(_ string, _ [][]byte) {},
+	}
+	dh2 := &mock.InterceptedDebugHandlerStub{
+		LogProcessedHashesCalled: logProcessed,
+		LogReceivedHashesCalled:  func(_ string, _ [][]byte) {},
+	}
+
+	// One-time sanity check that the rotation API itself works before we
+	// drown its return value in the race loop. Without this, a regression
+	// that made SetInterceptedDebugHandler always-error would silently turn
+	// every iteration below into a no-op rotation and leave the race
+	// detector with nothing to observe (false negative).
+	require.NoError(t, sdi.SetInterceptedDebugHandler(dh1),
+		"SetInterceptedDebugHandler must accept a valid handler — sanity check")
+
+	const iterations = 1000
+	done := make(chan struct{}, 2)
+
+	go func() {
+		for i := 0; i < iterations; i++ {
+			workersWG.Add(1) // optimistic Add; refunded below on err
+			msg := &mock.P2PMessageMock{
+				DataField:  []byte("any-non-empty-payload"),
+				PeerField:  core.PeerID("origin-peer"),
+				SeqNoField: []byte("seq"),
+			}
+			if procErr := sdi.ProcessReceivedMessage(msg, core.PeerID("from-peer")); procErr != nil {
+				// No worker goroutine was spawned for this iteration, so the
+				// LogProcessedHashes Done() will never fire — refund the Add.
+				workersWG.Done()
+			}
+		}
+		done <- struct{}{}
+	}()
+
+	go func() {
+		for i := 0; i < iterations; i++ {
+			if i%2 == 0 {
+				_ = sdi.SetInterceptedDebugHandler(dh1)
+			} else {
+				_ = sdi.SetInterceptedDebugHandler(dh2)
+			}
+		}
+		done <- struct{}{}
+	}()
+
+	<-done
+	<-done
+	// Block until every spawned worker has executed its LogProcessedHashes
+	// callback (i.e. its debugHandler read has happened) so the race detector
+	// has had a chance to observe each read.
+	workersWG.Wait()
 }

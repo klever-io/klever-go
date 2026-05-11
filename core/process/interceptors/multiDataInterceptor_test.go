@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -666,4 +667,250 @@ func TestMultiDataInterceptor_ProcessReceivedMessage_RepeatedDecompressionErrors
 		require.Falsef(t, errors.Is(processErr, common.ErrSystemBusy),
 			"regression GHSA-74m6-4hjp-7226 / KLC-2348: throttler exhausted on iteration %d: %v", i, processErr)
 	}
+}
+
+//------- regression: GHSA-74m6-4hjp-7226 / KLC-2353 (Finding C3 / M4)
+
+// Regression: an uncompressed Batch carrying len(Data) > MaxItemsPerBatch must be
+// rejected with ErrTooManyItemsInBatch *before* the make([]InterceptedData, ...) below.
+// Without the cap, ~16 B per attacker-controlled entry is allocated before any
+// per-item validation runs (CWE-789 / CWE-770).
+func TestMultiDataInterceptor_ProcessReceivedMessage_RejectsItemCountBomb_Uncompressed(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+	bomb := &batch.Batch{Data: make([][]byte, interceptors.MaxItemsPerBatch+1)}
+	payload, err := marshalizer.Marshal(bomb)
+	require.NoError(t, err)
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.Marshalizer = marshalizer
+
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+	require.NoError(t, err)
+
+	msg := &mock.P2PMessageMock{
+		DataField:  payload,
+		PeerField:  core.PeerID("origin-peer"),
+		SeqNoField: []byte("seq-1"),
+	}
+
+	processErr := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+	require.ErrorIs(t, processErr, process.ErrTooManyItemsInBatch)
+}
+
+// Regression: a *compressed* Batch whose inflated payload encodes more than
+// MaxItemsPerBatch entries must also be rejected. The 10 MiB gzip-bomb cap
+// (KLC-2352) is necessary but not sufficient — a 10 MiB inflated stream of mostly
+// empty entries can still encode millions of items.
+func TestMultiDataInterceptor_ProcessReceivedMessage_RejectsItemCountBomb_Compressed(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+	bomb := &batch.Batch{
+		Algo: batch.CType_GZip,
+		Data: make([][]byte, interceptors.MaxItemsPerBatch+1),
+	}
+	require.NoError(t, bomb.Compress(marshalizer))
+
+	payload, err := marshalizer.Marshal(bomb)
+	require.NoError(t, err)
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.Marshalizer = marshalizer
+
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+	require.NoError(t, err)
+
+	msg := &mock.P2PMessageMock{
+		DataField:  payload,
+		PeerField:  core.PeerID("origin-peer"),
+		SeqNoField: []byte("seq-1"),
+	}
+
+	processErr := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+	require.ErrorIs(t, processErr, process.ErrTooManyItemsInBatch)
+}
+
+// The uncompressed cap rejection must not leak a throttler slot — the same defense
+// added in KLC-2348 must cover this new return path too.
+func TestMultiDataInterceptor_ProcessReceivedMessage_ItemCountBomb_ReleasesThrottlerSlot(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+	bomb := &batch.Batch{Data: make([][]byte, interceptors.MaxItemsPerBatch+1)}
+	payload, err := marshalizer.Marshal(bomb)
+	require.NoError(t, err)
+
+	countingThrottler := &mock.InterceptorThrottlerStub{
+		CanProcessCalled: func() bool { return true },
+	}
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.Marshalizer = marshalizer
+	arg.Throttler = countingThrottler
+
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+	require.NoError(t, err)
+
+	msg := &mock.P2PMessageMock{
+		DataField:  payload,
+		PeerField:  core.PeerID("origin-peer"),
+		SeqNoField: []byte("seq-1"),
+	}
+
+	processErr := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+	require.ErrorIs(t, processErr, process.ErrTooManyItemsInBatch)
+	assert.Equal(t, int32(1), countingThrottler.StartProcessingCount())
+	assert.Equal(t, int32(1), countingThrottler.EndProcessingCount(),
+		"the items-per-batch rejection path must release the throttler slot")
+}
+
+// Same KLC-2348 invariant on the post-Decompress return path: a compressed batch
+// whose inflated Data exceeds MaxItemsPerBatch hits a different return statement
+// (multiDataInterceptor.go after b.Decompress) and must still release the throttler
+// slot. Pinning this with its own test prevents a future refactor of
+// ProcessReceivedMessage from regressing the slot accounting on the compressed path.
+func TestMultiDataInterceptor_ProcessReceivedMessage_CompressedItemCountBomb_ReleasesThrottlerSlot(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+	bomb := &batch.Batch{
+		Algo: batch.CType_GZip,
+		Data: make([][]byte, interceptors.MaxItemsPerBatch+1),
+	}
+	require.NoError(t, bomb.Compress(marshalizer))
+
+	payload, err := marshalizer.Marshal(bomb)
+	require.NoError(t, err)
+
+	countingThrottler := &mock.InterceptorThrottlerStub{
+		CanProcessCalled: func() bool { return true },
+	}
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.Marshalizer = marshalizer
+	arg.Throttler = countingThrottler
+
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+	require.NoError(t, err)
+
+	msg := &mock.P2PMessageMock{
+		DataField:  payload,
+		PeerField:  core.PeerID("origin-peer"),
+		SeqNoField: []byte("seq-1"),
+	}
+
+	processErr := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+	require.ErrorIs(t, processErr, process.ErrTooManyItemsInBatch)
+	assert.Equal(t, int32(1), countingThrottler.StartProcessingCount())
+	assert.Equal(t, int32(1), countingThrottler.EndProcessingCount(),
+		"the post-Decompress items-per-batch rejection path must release the throttler slot")
+}
+
+//------- regression: data race on bdi.debugHandler from worker goroutine (Finding 4.2)
+
+// MultiDataInterceptor.ProcessReceivedMessage spawns a worker goroutine that
+// reads bdi.debugHandler via processInterceptedData → processDebugInterceptedData
+// after the synchronous frame returns. Concurrent SetInterceptedDebugHandler
+// calls must not race with that read. Run with `go test -race` to enforce.
+//
+// The validate/save/whitelist stubs all return nil/true so ProcessReceivedMessage
+// reaches the success path that spawns the worker goroutine and ultimately
+// dispatches LogProcessedHashes through bdi.debugHandler — that is precisely
+// the read site the rotation goroutine races with. Changing any of those mocks
+// to err-return would silently un-cover the race.
+func TestMultiDataInterceptor_ProcessReceivedMessage_DebugHandlerRotation_NoRace(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+
+	interceptedData := &mock.InterceptedDataStub{
+		CheckValidityCalled: func() error { return nil },
+		IdentifiersCalled:   func() [][]byte { return [][]byte{[]byte("id-0")} },
+	}
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.Marshalizer = marshalizer
+	arg.DataFactory = &mock.InterceptedDataFactoryStub{
+		CreateCalled: func(_ []byte) (process.InterceptedData, error) { return interceptedData, nil },
+	}
+	arg.Processor = &mock.InterceptorProcessorStub{
+		ValidateCalled: func(_ process.InterceptedData) error { return nil },
+		SaveCalled:     func(_ process.InterceptedData) error { return nil },
+	}
+	arg.WhiteListRequest = &mock.WhiteListHandlerStub{
+		IsWhiteListedCalled: func(_ process.InterceptedData) bool { return true },
+	}
+
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+	require.NoError(t, err)
+
+	payload, err := marshalizer.Marshal(&batch.Batch{Data: [][]byte{[]byte("x")}})
+	require.NoError(t, err)
+
+	// workersWG tracks the spawned async LogProcessedHashes calls so we can
+	// deterministically wait for every worker goroutine's debugHandler read
+	// to complete before exiting (replaces the previous timing-based sleep).
+	var workersWG sync.WaitGroup
+
+	logProcessed := func(_ string, _ [][]byte, _ error) {
+		workersWG.Done()
+	}
+	dh1 := &mock.InterceptedDebugHandlerStub{
+		LogProcessedHashesCalled: logProcessed,
+		LogReceivedHashesCalled:  func(_ string, _ [][]byte) {},
+	}
+	dh2 := &mock.InterceptedDebugHandlerStub{
+		LogProcessedHashesCalled: logProcessed,
+		LogReceivedHashesCalled:  func(_ string, _ [][]byte) {},
+	}
+
+	// One-time sanity check that the rotation API itself works before we
+	// drown its return value in the race loop. Without this, a regression
+	// that made SetInterceptedDebugHandler always-error would silently turn
+	// every iteration below into a no-op rotation and leave the race
+	// detector with nothing to observe (false negative).
+	require.NoError(t, mdi.SetInterceptedDebugHandler(dh1),
+		"SetInterceptedDebugHandler must accept a valid handler — sanity check")
+
+	const iterations = 1000
+	// One item per batch (Data: [][]byte{[]byte("x")}), so success ⇒ exactly
+	// one worker goroutine ⇒ exactly one LogProcessedHashes per iteration.
+	done := make(chan struct{}, 2)
+
+	go func() {
+		for i := 0; i < iterations; i++ {
+			workersWG.Add(1) // optimistic Add; refunded below on err
+			msg := &mock.P2PMessageMock{
+				DataField:  payload,
+				PeerField:  core.PeerID("origin-peer"),
+				SeqNoField: []byte("seq"),
+			}
+			if procErr := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID); procErr != nil {
+				// No worker goroutine was spawned for this iteration, so the
+				// LogProcessedHashes Done() will never fire — refund the Add.
+				workersWG.Done()
+			}
+		}
+		done <- struct{}{}
+	}()
+
+	go func() {
+		for i := 0; i < iterations; i++ {
+			if i%2 == 0 {
+				_ = mdi.SetInterceptedDebugHandler(dh1)
+			} else {
+				_ = mdi.SetInterceptedDebugHandler(dh2)
+			}
+		}
+		done <- struct{}{}
+	}()
+
+	<-done
+	<-done
+	// Block until every spawned worker has executed its LogProcessedHashes
+	// callback (i.e. its debugHandler read has happened) so the race detector
+	// has had a chance to observe each read.
+	workersWG.Wait()
 }

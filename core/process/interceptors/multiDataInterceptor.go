@@ -10,6 +10,17 @@ import (
 	"github.com/klever-io/klever-go/tools/marshal"
 )
 
+// MaxItemsPerBatch is the hard upper bound on the number of items a single P2P Batch
+// may carry. It guards ProcessReceivedMessage's pre-allocation
+// (make([]process.InterceptedData, len(b.Data))) against attacker-controlled lengths
+// that would otherwise force ~16 B per entry of allocation before any anti-flood check.
+// See GHSA-74m6-4hjp-7226 / KLC-2353 (CWE-789 / CWE-770).
+//
+// Sized at 8192 — comfortably above the ~1700 minimum-sized txs that fit inside
+// core.MaxBulkTransactionSize (256 KiB), and above any legitimate trie-node response
+// bounded by core.MaxBufferSizeToSendTrieNodes (also 256 KiB).
+const MaxItemsPerBatch = 8192
+
 // ArgMultiDataInterceptor is the argument for the multi-data interceptor
 type ArgMultiDataInterceptor struct {
 	Topic            string
@@ -92,6 +103,13 @@ func (mdi *MultiDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P, 
 		}
 	}()
 
+	// We deliberately do NOT add a wire-size pre-check before Unmarshal:
+	// ProcessReceivedMessage is only invoked from networkMessenger.pubsubCallback
+	// (network/p2p/libp2p/netMessenger.go), so the libp2p pubsub
+	// DefaultMaxMessageSize (1 MiB) is always upstream of us. A duplicate cap at
+	// our layer would be dead code today. If pubsub.WithMaxMessageSize is ever
+	// raised, reintroduce a MaxRawBatchSize check here. See GHSA-74m6-4hjp-7226 /
+	// KLC-2353.
 	b := batch.Batch{}
 	err = mdi.marshalizer.Unmarshal(&b, message.Data())
 	if err != nil {
@@ -102,11 +120,32 @@ func (mdi *MultiDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P, 
 
 		return err
 	}
+
+	// Enforce the items-per-batch cap before any further work: an uncompressed Batch
+	// with millions of empty Data entries must not reach the make() below.
+	// See GHSA-74m6-4hjp-7226 / KLC-2353.
+	if len(b.Data) > MaxItemsPerBatch {
+		return process.ErrTooManyItemsInBatch
+	}
+
 	if b.IsCompressed {
 		err = b.Decompress(mdi.marshalizer)
 		if err != nil {
+			// A peer that ships a malformed compressed batch is producing
+			// data we can never act on; treat it the same as the unmarshal-error
+			// path and blacklist both the originator and the connected peer
+			// (CWE-755 / CWE-703).
 			log.Error("MultiDataInterceptor.ProcessReceivedMessage", "err", err.Error())
+			reason := "decompression failure on topic " + mdi.topic + ", error " + err.Error()
+			mdi.antifloodHandler.BlacklistPeer(message.Peer(), reason, core.InvalidMessageBlacklistDuration)
+			mdi.antifloodHandler.BlacklistPeer(fromConnectedPeer, reason, core.InvalidMessageBlacklistDuration)
 			return err
+		}
+		// Decompress replaces b.Data wholesale, so re-check the cap on the inflated
+		// payload to defend against compressed bombs that fit under the gzip cap
+		// but still encode many empty entries (each empty entry is ~1 wire byte).
+		if len(b.Data) > MaxItemsPerBatch {
+			return process.ErrTooManyItemsInBatch
 		}
 	}
 

@@ -135,6 +135,8 @@ func TestPreProcessMessage_CanProcessReturnsNilAndCallsStartProcessing(t *testin
 	assert.Equal(t, int32(1), throttler.StartProcessingCount())
 }
 
+// Self-to-self bypasses the per-peer antiflood handler (rate-limiting yourself is
+// meaningless) but MUST still go through the local throttler. See KLC-2356.
 func TestPreProcessMessage_CanProcessFromSelf(t *testing.T) {
 	t.Parallel()
 
@@ -147,17 +149,16 @@ func TestPreProcessMessage_CanProcessFromSelf(t *testing.T) {
 	}
 	throttler := &mock.InterceptorThrottlerStub{
 		CanProcessCalled: func() bool {
-			assert.Fail(t, "should have not called CanProcessCalled")
-			return false
+			return true
 		},
 	}
 	antifloodHandler := &mock.P2PAntifloodHandlerStub{
 		CanProcessMessageCalled: func(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
-			assert.Fail(t, "should have not called CanProcessMessageCalled")
+			assert.Fail(t, "antiflood CanProcessMessage must be skipped on self-to-self")
 			return nil
 		},
 		CanProcessMessagesOnTopicCalled: func(peer core.PeerID, topic string, numMessages uint32, totalSize uint64, sequence []byte) error {
-			assert.Fail(t, "should have not called CanProcessMessagesOnTopicCalled")
+			assert.Fail(t, "antiflood CanProcessMessagesOnTopic must be skipped on self-to-self")
 			return nil
 		},
 	}
@@ -167,6 +168,41 @@ func TestPreProcessMessage_CanProcessFromSelf(t *testing.T) {
 
 	assert.Nil(t, err)
 	assert.Equal(t, int32(1), throttler.StartProcessingCount())
+}
+
+// Regression: GHSA-74m6-4hjp-7226 / KLC-2356.
+// A self-flagged message (whether genuinely self-broadcast or a spoofed envelope on
+// some future non-pubsub code path) must still be rejected with ErrSystemBusy when
+// the local throttler is full. Without this defense, a flood of self-flagged
+// messages would blow past the goroutine ceiling because the sentinel skipped the
+// CanProcess gate.
+func TestPreProcessMessage_SelfPath_StillEnforcesThrottlerCapacity(t *testing.T) {
+	t.Parallel()
+
+	currentPeerID := core.PeerID("current peer ID")
+
+	msg := &mock.P2PMessageMock{
+		DataField:      []byte("data to process"),
+		FromField:      currentPeerID.Bytes(),
+		SignatureField: currentPeerID.Bytes(),
+	}
+	throttler := &mock.InterceptorThrottlerStub{
+		CanProcessCalled: func() bool { return false }, // throttler is full
+	}
+	antifloodHandler := &mock.P2PAntifloodHandlerStub{
+		CanProcessMessageCalled: func(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
+			assert.Fail(t, "antiflood must be skipped on self-to-self even when throttler is full")
+			return nil
+		},
+	}
+	bdi := newBaseDataInterceptorForPreProcess(throttler, antifloodHandler)
+	bdi.currentPeerID = currentPeerID
+
+	err := bdi.preProcessMessage(msg, currentPeerID)
+
+	assert.Equal(t, common.ErrSystemBusy, err)
+	assert.Equal(t, int32(0), throttler.StartProcessingCount(),
+		"StartProcessing must not be called when CanProcess returns false")
 }
 
 //------- processInterceptedData

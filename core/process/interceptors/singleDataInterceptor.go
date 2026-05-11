@@ -69,9 +69,21 @@ func NewSingleDataInterceptor(arg ArgSingleDataInterceptor) (*SingleDataIntercep
 // ProcessReceivedMessage is the callback func from the p2p.Messenger and will be called each time a new message was received
 // (for the topic this validator was registered to)
 func (sdi *SingleDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
-	sdi.mutDebugHandler.RLock()
-	defer sdi.mutDebugHandler.RUnlock()
-
+	// Note: synchronization for bdi.debugHandler is handled inside
+	// processDebugInterceptedData / receivedDebugInterceptedData themselves
+	// (each takes mutDebugHandler.RLock() locally on the goroutine that
+	// actually performs the read).
+	//
+	// An outer RLock here would NOT have prevented CWE-362: ProcessReceivedMessage
+	// returns before the worker goroutine spawned at the bottom reads
+	// bdi.debugHandler, so the synchronous-frame defer-RUnlock fires too early
+	// to cover the race. Per-callsite RLocks are what the race detector requires.
+	//
+	// Secondary reason: stacking an outer RLock with the per-callsite RLocks
+	// would also be unsafe under writer contention. Go's sync.RWMutex is not
+	// recursion-aware — once a writer is queued, a nested RLock() blocks behind
+	// it (writer preference) and self-deadlocks while the outer RLock is still
+	// held (CWE-667).
 	err := sdi.preProcessMessage(message, fromConnectedPeer)
 	if err != nil {
 		return err
@@ -122,19 +134,6 @@ func (sdi *SingleDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P,
 			"originator", p2p.PeerIDToShortString(message.Peer()), "topic",
 			sdi.topic, "err", errOriginator)
 		return errOriginator
-	}
-
-	shouldProcess := isWhiteListed || true // always process same chain id TODO:
-	if !shouldProcess {
-		log.Trace("intercepted data is for other shards",
-			"pid", p2p.MessageOriginatorPid(message),
-			"seq no", p2p.MessageOriginatorSeq(message),
-			"topic", message.Topic(),
-			"hash", interceptedData.Hash(),
-			"is white listed", isWhiteListed,
-		)
-
-		return nil
 	}
 
 	ownershipTransferred = true

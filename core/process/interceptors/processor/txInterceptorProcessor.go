@@ -70,7 +70,13 @@ func (txip *TxInterceptorProcessor) Save(data process.InterceptedData, _ core.Pe
 		return process.ErrWrongTypeAssertion
 	}
 
-	tx := interceptedTx.Transaction().(*transaction.Transaction)
+	// Guarded type assertion: an interceptor reached here with a non-Transaction
+	// payload would panic the goroutine and silently leak its throttler slot
+	// (CWE-704).
+	tx, ok := interceptedTx.Transaction().(*transaction.Transaction)
+	if !ok {
+		return process.ErrWrongTypeAssertion
+	}
 	size := tx.GetSize()
 
 	txip.dataPool.AddData(
@@ -90,7 +96,11 @@ func (txip *TxInterceptorProcessor) Notify(data process.InterceptedData, _ core.
 		return process.ErrWrongTypeAssertion
 	}
 
-	tx := interceptedTx.Transaction().(*transaction.Transaction)
+	// See Save above; same guard, same rationale.
+	tx, ok := interceptedTx.Transaction().(*transaction.Transaction)
+	if !ok {
+		return process.ErrWrongTypeAssertion
+	}
 	size := tx.GetSize()
 
 	txip.dataPool.Notify(data.Hash(),

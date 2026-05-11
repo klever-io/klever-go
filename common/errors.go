@@ -778,6 +778,12 @@ var ErrNotCompressed = errors.New("not compressed")
 // ErrAlreadyCompressed ...
 var ErrAlreadyCompressed = errors.New("already compressed")
 
+// ErrDecompressionTooLarge signals that a compressed payload inflated past the allowed limit
+var ErrDecompressionTooLarge = errors.New("decompressed payload exceeds maximum allowed size")
+
+// ErrDecompressedSizeMismatch signals that the inflated payload size does not match the advertised DataSize
+var ErrDecompressedSizeMismatch = errors.New("decompressed payload size does not match advertised data size")
+
 // ErrInvalidParameter signals that a wrong parameter has been provided
 var ErrInvalidParameter = errors.New("invalid parameter")
 
