@@ -22,13 +22,17 @@ import (
 var errBenchInvalidPubKey = errors.New("bench: invalid pubkey")
 
 // benchKeyGen returns a KeyGenMock whose PublicKeyFromByteArray simulates
-// `cost` rounds of sha256 work per call. cost=0 measures pure overhead;
-// cost>0 approximates real elliptic-curve point decoding.
+// `cost` rounds of sha256 work per call. cost=0 returns immediately and
+// measures pure scaffolding overhead; cost>0 performs exactly `cost`
+// sha256 rounds to approximate real elliptic-curve point decoding.
 func benchKeyGen(cost int) *cryptoMock.KeyGenMock {
 	return &cryptoMock.KeyGenMock{
 		PublicKeyFromByteArrayMock: func(b []byte) (crypto.PublicKey, error) {
+			if cost == 0 {
+				return &cryptoMock.PublicKeyMock{}, nil
+			}
 			h := sha256.Sum256(b)
-			for range cost {
+			for i := 1; i < cost; i++ {
 				h = sha256.Sum256(h[:])
 			}
 			_ = h
@@ -40,7 +44,8 @@ func benchKeyGen(cost int) *cryptoMock.KeyGenMock {
 // buildBenchValidator creates a tx validator whose account has `numSigners`
 // signers, all sharing the same address. Threshold=1, each weight=1, so
 // any one valid Verify clears the threshold check.
-func buildBenchValidator(numSigners int, keygenCost int) (process.TxValidator, []byte) {
+func buildBenchValidator(tb testing.TB, numSigners int, keygenCost int) (process.TxValidator, []byte) {
+	tb.Helper()
 	addressMock := bytes.Repeat([]byte{0xAB}, 32)
 
 	signers := make([]*state.Key, numSigners)
@@ -62,7 +67,7 @@ func buildBenchValidator(numSigners int, keygenCost int) (process.TxValidator, [
 		},
 	}
 
-	v, _ := dataValidators.NewTxValidator(
+	v, err := dataValidators.NewTxValidator(
 		adb,
 		storageTest,
 		getTxPoolsHolder(),
@@ -75,6 +80,9 @@ func buildBenchValidator(numSigners int, keygenCost int) (process.TxValidator, [
 		getKAppController(),
 		core.MaxTxNonceDeltaAllowed,
 	)
+	if err != nil {
+		tb.Fatalf("NewTxValidator: %v", err)
+	}
 	return v, addressMock
 }
 
@@ -99,7 +107,7 @@ func makeBenchInterceptedTx(addr []byte) interface {
 func BenchmarkCheckTxValidity_Signers(b *testing.B) {
 	for _, n := range []int{1, 2, 3, 5, 10, 20} {
 		b.Run(fmt.Sprintf("signers=%d", n), func(b *testing.B) {
-			v, addr := buildBenchValidator(n, 0)
+			v, addr := buildBenchValidator(b, n, 0)
 			tx := makeBenchInterceptedTx(addr)
 
 			b.ReportAllocs()
@@ -119,7 +127,7 @@ func BenchmarkCheckTxValidity_Signers(b *testing.B) {
 func BenchmarkCheckTxValidity_SignersWithCost(b *testing.B) {
 	for _, n := range []int{1, 3, 10} {
 		b.Run(fmt.Sprintf("signers=%d", n), func(b *testing.B) {
-			v, addr := buildBenchValidator(n, 50)
+			v, addr := buildBenchValidator(b, n, 50)
 			tx := makeBenchInterceptedTx(addr)
 
 			b.ReportAllocs()
@@ -261,7 +269,7 @@ func BenchmarkCheckTxValidity_RealEd25519(b *testing.B) {
 					return acc, nil
 				},
 			}
-			v, _ := dataValidators.NewTxValidator(
+			v, err := dataValidators.NewTxValidator(
 				adb, storageTest, getTxPoolsHolder(), &mock.WhiteListHandlerStub{},
 				mock.NewPubkeyConverterMock(32),
 				&cryptoMock.SingleSignerStub{
@@ -269,6 +277,9 @@ func BenchmarkCheckTxValidity_RealEd25519(b *testing.B) {
 				},
 				kg, getKAppController(), core.MaxTxNonceDeltaAllowed,
 			)
+			if err != nil {
+				b.Fatalf("NewTxValidator: %v", err)
+			}
 			tx := makeBenchInterceptedTx(sharedAddr)
 
 			b.ReportAllocs()
@@ -288,7 +299,7 @@ func BenchmarkCheckTxValidity_RealEd25519(b *testing.B) {
 func TestBenchScaffolding_MultiSignerPathExecutes(t *testing.T) {
 	t.Parallel()
 	for _, n := range []int{1, 3, 10} {
-		v, addr := buildBenchValidator(n, 0)
+		v, addr := buildBenchValidator(t, n, 0)
 		tx := makeBenchInterceptedTx(addr)
 		if err := v.CheckTxValidity(tx); err != nil {
 			t.Fatalf("signers=%d: %v", n, err)
@@ -304,7 +315,7 @@ func TestBenchScaffolding_MultiSignerPathExecutes(t *testing.T) {
 			return acc, nil
 		},
 	}
-	v, _ := dataValidators.NewTxValidator(
+	v, err := dataValidators.NewTxValidator(
 		adb,
 		storageTest,
 		getTxPoolsHolder(),
@@ -319,8 +330,11 @@ func TestBenchScaffolding_MultiSignerPathExecutes(t *testing.T) {
 		getKAppController(),
 		core.MaxTxNonceDeltaAllowed,
 	)
+	if err != nil {
+		t.Fatalf("NewTxValidator: %v", err)
+	}
 	tx := makeBenchInterceptedTx(addressMock)
-	if err := v.CheckTxValidity(tx); err == nil {
-		t.Fatal("expected error from invalid keygen, got nil")
+	if err := v.CheckTxValidity(tx); !errors.Is(err, errBenchInvalidPubKey) {
+		t.Fatalf("expected %v, got %v", errBenchInvalidPubKey, err)
 	}
 }
