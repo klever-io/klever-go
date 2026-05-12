@@ -2,7 +2,6 @@ package dataValidators
 
 import (
 	"fmt"
-	"sync"
 
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
@@ -184,29 +183,13 @@ func (txv *txValidator) CheckTxValidity(interceptedTx process.TxValidatorHandler
 		}
 	}
 
-	signersPub := make(map[string]crypto.PublicKey)
-	wait := sync.WaitGroup{}
-	var mu sync.Mutex
-	var loadErr error
+	signersPub := make(map[string]crypto.PublicKey, len(permission.Signers))
 	for _, signer := range permission.Signers {
-		wait.Add(1)
-		go func(addrPub string, wg *sync.WaitGroup, sig map[string]crypto.PublicKey, mut *sync.Mutex) {
-			defer wg.Done()
-			senderPubKey, err := txv.keyGen.PublicKeyFromByteArray([]byte(addrPub))
-			if err != nil {
-				// signer address is invalid
-				loadErr = err
-				return
-			}
-			mut.Lock()
-			sig[addrPub] = senderPubKey
-			mut.Unlock()
-		}(string(signer.Address), &wait, signersPub, &mu)
-	}
-
-	wait.Wait()
-	if loadErr != nil {
-		return loadErr
+		senderPubKey, err := txv.keyGen.PublicKeyFromByteArray(signer.Address)
+		if err != nil {
+			return err
+		}
+		signersPub[string(signer.Address)] = senderPubKey
 	}
 
 	signWeight := int64(0)
