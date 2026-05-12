@@ -208,7 +208,7 @@ func IncrementAndPrintSlot(slot uint64) uint64 {
 // UpdateSlot updates the slot for every node
 func UpdateSlot(nodes []*processorNode.ProcessorNode, slot uint64) {
 	for _, n := range nodes {
-		n.SlotManager.SlotIndex = int64(slot) // #nosec G115
+		n.SlotManager.SlotIndex.Store(int64(slot)) // #nosec G115
 	}
 }
 
