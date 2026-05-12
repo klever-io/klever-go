@@ -20,16 +20,6 @@ func genReturnData(n, size int) [][]byte {
 	return out
 }
 
-func newCtxWithReturnData(n, size int) kapp.KappContext {
-	ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
-		OriginalSender: []byte("sender"),
-		ContractID:     0,
-		Block:          &block.Block{},
-	})
-	ctx.SetReturnData(genReturnData(n, size))
-	return ctx
-}
-
 // BenchmarkGetAndClearReturnData measures the per-call cost of pulling
 // return data out of the context. Sweep across realistic SC return shapes:
 //
