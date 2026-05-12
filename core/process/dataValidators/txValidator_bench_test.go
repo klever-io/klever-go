@@ -55,7 +55,10 @@ func buildBenchValidator(tb testing.TB, numSigners int, keygenCost int) (process
 
 	adb := &mock.AccountsStub{
 		GetExistingAccountCalled: func(_ []byte) (state.AccountHandler, error) {
-			acc, _ := state.NewUserAccount(addressMock)
+			acc, err := state.NewUserAccount(addressMock)
+			if err != nil {
+				return nil, err
+			}
 			acc.Permissions = []*state.Permission{
 				{
 					Type:      state.Permission_Owner,
@@ -262,7 +265,10 @@ func BenchmarkCheckTxValidity_RealEd25519(b *testing.B) {
 			}
 			adb := &mock.AccountsStub{
 				GetExistingAccountCalled: func(_ []byte) (state.AccountHandler, error) {
-					acc, _ := state.NewUserAccount(sharedAddr)
+					acc, err := state.NewUserAccount(sharedAddr)
+					if err != nil {
+						return nil, err
+					}
 					acc.Permissions = []*state.Permission{
 						{Type: state.Permission_Owner, Threshold: 1, Signers: signers},
 					}
@@ -310,7 +316,10 @@ func TestBenchScaffolding_MultiSignerPathExecutes(t *testing.T) {
 	signers := []*state.Key{{Address: addressMock, Weight: 1}, {Address: addressMock, Weight: 1}}
 	adb := &mock.AccountsStub{
 		GetExistingAccountCalled: func(_ []byte) (state.AccountHandler, error) {
-			acc, _ := state.NewUserAccount(addressMock)
+			acc, err := state.NewUserAccount(addressMock)
+			if err != nil {
+				return nil, err
+			}
 			acc.Permissions = []*state.Permission{{Type: state.Permission_Owner, Threshold: 1, Signers: signers}}
 			return acc, nil
 		},
