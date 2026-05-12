@@ -346,14 +346,9 @@ func TestSubslotSignature_ReceivedSignature(t *testing.T) {
 func TestSubslotSignature_ReceivedSignature_HonestyScore(t *testing.T) {
 	t.Parallel()
 
-	container := mock.InitConsensusCore()
-	sr := *initSubslotSignatureWithContainer(container)
-	// Set self as leader, validating other nodes
-	sr.SetSelfPubKey(sr.ConsensusGroup()[0])
-
 	var testCases = []struct {
 		name              string
-		pubKey            string
+		pubKeyIndex       int // index into ConsensusGroup() of the validator under test
 		signature         string
 		shouldJobBeDone   bool
 		shouldBeAccepted  bool
@@ -362,7 +357,7 @@ func TestSubslotSignature_ReceivedSignature_HonestyScore(t *testing.T) {
 	}{
 		{
 			name:              "valid signature",
-			pubKey:            sr.ConsensusGroup()[1],
+			pubKeyIndex:       1,
 			signature:         "i am valid!",
 			shouldBeAccepted:  true,
 			shouldJobBeDone:   true,
@@ -371,7 +366,7 @@ func TestSubslotSignature_ReceivedSignature_HonestyScore(t *testing.T) {
 		},
 		{
 			name:              "invalid signature",
-			pubKey:            sr.ConsensusGroup()[2],
+			pubKeyIndex:       2,
 			signature:         "signature share", // mocked to be invalid
 			shouldBeAccepted:  false,
 			shouldJobBeDone:   false,
@@ -384,12 +379,22 @@ func TestSubslotSignature_ReceivedSignature_HonestyScore(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			// setup
+			// Each parallel subtest needs its own container + subslotSignature.
+			// SetPeerHonestyHandler below mutates the container; sharing it across
+			// parallel subtests races and lets one subtest's handler closure run
+			// inside the other's sr.ReceivedSignature call, which then panics
+			// with "Fail in goroutine after [subtest] has completed".
+			container := mock.InitConsensusCore()
+			sr := *initSubslotSignatureWithContainer(container)
+			// Set self as leader, validating other nodes
+			sr.SetSelfPubKey(sr.ConsensusGroup()[0])
+
+			pubKey := sr.ConsensusGroup()[tc.pubKeyIndex]
 			called := false
 			container.SetPeerHonestyHandler(&cMock.PeerHonestyHandlerStub{
 				ChangeScoreCalled: func(pk string, topic string, units int) {
 					called = true
-					assert.Equal(t, tc.pubKey, pk)
+					assert.Equal(t, pubKey, pk)
 					assert.Equal(t, "consensus", topic)
 					assert.Equal(t, tc.expectedUnits, units)
 				},
@@ -399,7 +404,7 @@ func TestSubslotSignature_ReceivedSignature_HonestyScore(t *testing.T) {
 				sr.Data,
 				[]byte(tc.signature),
 				nil,
-				[]byte(tc.pubKey),
+				[]byte(pubKey),
 				[]byte("sig"),
 				int(bls.MtSignature),
 				0,
@@ -413,7 +418,7 @@ func TestSubslotSignature_ReceivedSignature_HonestyScore(t *testing.T) {
 			// assert
 			accepted := sr.ReceivedSignature(cnsMsg)
 			assert.Equal(t, tc.shouldBeAccepted, accepted)
-			assert.Equal(t, tc.shouldJobBeDone, sr.IsJobDone(tc.pubKey, bls.SrSignature))
+			assert.Equal(t, tc.shouldJobBeDone, sr.IsJobDone(pubKey, bls.SrSignature))
 			assert.Equal(t, tc.shouldChangeScore, called)
 		})
 	}
