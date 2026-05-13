@@ -327,21 +327,14 @@ func (sr *subslotSignature) waitAllSignatures(spawnSlot int64) {
 		// All signatures collected (100%), exit immediately
 		return
 	case <-timeout.C:
-		sr.RLockSlotState()
-		currentSlot := sr.SlotIndex
-		sr.RUnlockSlotState()
-		if currentSlot != spawnSlot {
-			// Slot has advanced — this goroutine belongs to a stale slot. Do
-			// not touch shared state; the current slot has its own goroutine.
-			return
-		}
-
 		// Timeout reached, check if subslot is already finished by threshold signatures
 		if sr.IsSubslotFinished(sr.Current()) {
 			return
 		}
 
-		sr.SetWaitingAllSignaturesTimeOut(true)
+		if !sr.SetWaitingAllSignaturesTimeOutIfSlot(spawnSlot, true) {
+			return
+		}
 		select {
 		case sr.ConsensusChannel() <- true:
 		default:

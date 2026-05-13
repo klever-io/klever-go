@@ -786,18 +786,18 @@ func (ihgs *indexHashedNodesCoordinator) EpochStartPrepare(metaHdr data.HeaderHa
 
 	ihgs.mutNodesConfig.RLock()
 	displayCfg := ihgs.nodesConfig[newEpoch]
-	displayElected := displayCfg.electedList
-	displayEligible := displayCfg.eligibleList
-	displayWaiting := displayCfg.waitingList
-	displayLeaving := displayCfg.leavingList
 	ihgs.mutNodesConfig.RUnlock()
 
-	displayNodesConfiguration(
-		displayElected,
-		displayEligible,
-		displayWaiting,
-		displayLeaving,
-	)
+	if displayCfg != nil {
+		displayCfg.mutNodesMaps.RLock()
+		elected := displayCfg.electedList
+		eligible := displayCfg.eligibleList
+		waiting := displayCfg.waitingList
+		leaving := displayCfg.leavingList
+		displayCfg.mutNodesMaps.RUnlock()
+
+		displayNodesConfiguration(elected, eligible, waiting, leaving)
+	}
 
 	ihgs.mutSavedStateKey.Lock()
 	ihgs.savedStateKey = randomness

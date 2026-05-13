@@ -75,6 +75,20 @@ func (cns *ConsensusState) SetWaitingAllSignaturesTimeOut(timedOut bool) {
 	cns.mutSlotState.Unlock()
 }
 
+// SetWaitingAllSignaturesTimeOutIfSlot atomically sets WaitingAllSignaturesTimeOut
+// only when SlotIndex still equals spawnSlot. Returns true when the write was
+// applied. Used by waitAllSignatures to ensure a stale goroutine cannot set the
+// flag after BeginNewSlot has already advanced the slot and cleared state.
+func (cns *ConsensusState) SetWaitingAllSignaturesTimeOutIfSlot(spawnSlot int64, timedOut bool) bool {
+	cns.mutSlotState.Lock()
+	defer cns.mutSlotState.Unlock()
+	if cns.SlotIndex != spawnSlot {
+		return false
+	}
+	cns.WaitingAllSignaturesTimeOut = timedOut
+	return true
+}
+
 // NewConsensusState creates a new ConsensusState object
 func NewConsensusState(
 	slotConsensus *slotConsensus,

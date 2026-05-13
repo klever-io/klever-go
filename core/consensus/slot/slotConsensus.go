@@ -13,8 +13,12 @@ import (
 //   - mutConsensusGroup protects consensusGroup
 //   - mut           protects validatorSlotStates
 //
-// SetConsensusGroup acquires mutConsensusGroup and mut in that order to swap
-// both atomically with respect to combined readers; never the reverse order.
+// SetConsensusGroup installs consensusGroup and validatorSlotStates in two
+// separate critical sections (mutConsensusGroup, then mut); the writes are
+// intentionally not atomic against combined readers, and a concurrent
+// ComputeSize can undercount for one poll cycle before self-healing on the
+// next poll. Lock order is fixed: mutConsensusGroup before mut, never the
+// reverse, so readers holding mut.RLock can safely call ConsensusGroup().
 type slotConsensus struct {
 	electedNodes        map[string]struct{}
 	mutElected          sync.RWMutex

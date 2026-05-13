@@ -439,12 +439,14 @@ func (netMes *networkMessenger) createConnectionMonitor(p2pConfig config.P2PConf
 		// goroutine had no termination signal and leaked on Close(), which
 		// accumulated under test rigs that spin clusters up and down in the
 		// same process (-count=N integration tests).
+		ticker := time.NewTicker(durationCheckConnections)
+		defer ticker.Stop()
 		for {
 			cmw.CheckConnectionsBlocking()
 			select {
 			case <-netMes.ctx.Done():
 				return
-			case <-time.After(durationCheckConnections):
+			case <-ticker.C:
 			}
 		}
 	}()
