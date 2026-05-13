@@ -9,6 +9,7 @@ import (
 
 	"github.com/klever-io/klever-go/core/statistics"
 	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/statusHandler"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
 )
@@ -32,6 +33,7 @@ func updateTpsBenchmark(tpsBenchmark *statistics.TpsBenchmark, txCount uint32, n
 	_ = tpsBenchmark.TotalProcessedTxCount()
 	_ = tpsBenchmark.LiveTPS()
 	_ = tpsBenchmark.PeakTPS()
+	_ = tpsBenchmark.AverageTPS()
 }
 
 func TestTpsBenchmark_NewTPSBenchmarkReturnsErrorOnInvalidDuration(t *testing.T) {
@@ -296,6 +298,103 @@ func TestTpsBenchmark_ZeroTxMetaBlockAndEmptyShardHeader(t *testing.T) {
 
 	bigTxCount := big.NewInt(0)
 	assert.Equal(t, bigTxCount, tpsBenchmark.TotalProcessedTxCount())
+}
+
+func TestTpsBenchmark_NewTPSBenchmarkWithInitialData(t *testing.T) {
+	t.Parallel()
+
+	t.Run("zero slotInterval returns ErrInvalidSlotInterval", func(t *testing.T) {
+		t.Parallel()
+		tps, err := statistics.NewTPSBenchmarkWithInitialData(
+			statusHandler.NewNilStatusHandler(),
+			&statistics.TpsPersistentData{},
+			0,
+		)
+		assert.Nil(t, tps)
+		assert.Equal(t, statistics.ErrInvalidSlotInterval, err)
+	})
+
+	t.Run("nil initial benchmark returns ErrNilInitialTPSBenchmarks", func(t *testing.T) {
+		t.Parallel()
+		tps, err := statistics.NewTPSBenchmarkWithInitialData(
+			statusHandler.NewNilStatusHandler(),
+			nil,
+			6,
+		)
+		assert.Nil(t, tps)
+		assert.Equal(t, statistics.ErrNilInitialTPSBenchmarks, err)
+	})
+
+	t.Run("nil status handler returns ErrNilStatusHandler", func(t *testing.T) {
+		t.Parallel()
+		tps, err := statistics.NewTPSBenchmarkWithInitialData(
+			nil,
+			&statistics.TpsPersistentData{
+				AverageTPS:            big.NewInt(0),
+				AverageBlockTxCount:   big.NewInt(0),
+				TotalProcessedTxCount: big.NewInt(0),
+			},
+			6,
+		)
+		assert.Nil(t, tps)
+		assert.Equal(t, statistics.ErrNilStatusHandler, err)
+	})
+
+	t.Run("happy path with full data and aliasing protection", func(t *testing.T) {
+		t.Parallel()
+		// The constructor must defensively copy *big.Int inputs so callers that mutate
+		// the source after construction cannot race the writer.
+		totalTxs := big.NewInt(1234)
+		avgBlockTxs := big.NewInt(5)
+		avgTPS := big.NewInt(2)
+
+		tps, err := statistics.NewTPSBenchmarkWithInitialData(
+			statusHandler.NewNilStatusHandler(),
+			&statistics.TpsPersistentData{
+				BlockNumber:           42,
+				SlotNumber:            100,
+				PeakTPS:               7.5,
+				CurrentBlockTxCount:   30,
+				AverageTPS:            avgTPS,
+				AverageBlockTxCount:   avgBlockTxs,
+				TotalProcessedTxCount: totalTxs,
+			},
+			6,
+		)
+		assert.NoError(t, err)
+		assert.NotNil(t, tps)
+		assert.Equal(t, uint64(42), tps.BlockNumber())
+		assert.Equal(t, uint64(100), tps.SlotNumber())
+		assert.Equal(t, big.NewInt(1234), tps.TotalProcessedTxCount())
+		assert.Equal(t, big.NewInt(5), tps.AverageBlockTxCount())
+		assert.Equal(t, big.NewInt(2), tps.AverageTPS())
+
+		// Mutate the source *big.Int values — the benchmark must be unaffected.
+		totalTxs.SetInt64(9999)
+		avgBlockTxs.SetInt64(9999)
+		avgTPS.SetInt64(9999)
+
+		assert.Equal(t, big.NewInt(1234), tps.TotalProcessedTxCount())
+		assert.Equal(t, big.NewInt(5), tps.AverageBlockTxCount())
+		assert.Equal(t, big.NewInt(2), tps.AverageTPS())
+	})
+
+	t.Run("nil *big.Int fields are tolerated and exposed as zero", func(t *testing.T) {
+		t.Parallel()
+		tps, err := statistics.NewTPSBenchmarkWithInitialData(
+			statusHandler.NewNilStatusHandler(),
+			&statistics.TpsPersistentData{
+				BlockNumber: 1,
+				// AverageTPS, AverageBlockTxCount, TotalProcessedTxCount left nil
+			},
+			6,
+		)
+		assert.NoError(t, err)
+		assert.NotNil(t, tps)
+		assert.Equal(t, big.NewInt(0), tps.TotalProcessedTxCount())
+		assert.Equal(t, big.NewInt(0), tps.AverageBlockTxCount())
+		assert.Equal(t, big.NewInt(0), tps.AverageTPS())
+	})
 }
 
 // TestTpsBenchmark_SnapshotConsistencyUnderConcurrentUpdates verifies that Snapshot()
