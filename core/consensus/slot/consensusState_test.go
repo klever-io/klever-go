@@ -554,6 +554,7 @@ func TestConsensusState_BeginNewSlotResetsFlagsAndUpdatesIndex(t *testing.T) {
 	cns.SetWaitingAllSignaturesTimeOut(true)
 	cns.LockSlotState()
 	cns.Data = []byte("stale")
+	cns.Header = &block.Block{}
 	cns.UnlockSlotState()
 
 	ts := time.Unix(1700000000, 0)

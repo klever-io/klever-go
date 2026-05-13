@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -230,7 +231,7 @@ func (mp *metaProcessor) validateBlockAndRequestMissing(headerHandler data.Heade
 		return nil
 	}
 
-	if err == process.ErrBlockHashDoesNotMatch {
+	if errors.Is(err, process.ErrBlockHashDoesNotMatch) {
 		log.Debug("requested missing header",
 			"hash", headerHandler.GetParentHash(),
 		)
@@ -277,7 +278,7 @@ func (mp *metaProcessor) handleEpochStartBlock(header *block.Block) error {
 		_ = bugsnag.Notify(fmt.Errorf("process verify fees: %w", err), bugsnag.MetaData{"data": {"header": header}})
 	}
 
-	return nil
+	return err
 }
 
 // verifyBlockTrieRoots runs the three post-transaction trie-root checks
@@ -293,7 +294,7 @@ func (mp *metaProcessor) verifyBlockTrieRoots(header *block.Block) error {
 
 	err := mp.verifyValidatorStatisticsRootHash(header)
 	if err != nil {
-		_ = bugsnag.Notify(fmt.Errorf("process epoch valdiator state: %w", err), bugsnag.MetaData{"data": {"header": header}})
+		_ = bugsnag.Notify(fmt.Errorf("process epoch validator state: %w", err), bugsnag.MetaData{"data": {"header": header}})
 		return err
 	}
 

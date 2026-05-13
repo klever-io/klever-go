@@ -211,7 +211,7 @@ func (ihgs *indexHashedNodesCoordinator) EpochStartAction(hdr data.HeaderHandler
 	ihgs.currentEpoch.Store(newEpoch)
 
 	ihgs.mutSavedStateKey.RLock()
-	savedStateKey := ihgs.savedStateKey
+	savedStateKey := bytes.Clone(ihgs.savedStateKey)
 	ihgs.mutSavedStateKey.RUnlock()
 	err := ihgs.saveState(savedStateKey)
 	if err != nil {
