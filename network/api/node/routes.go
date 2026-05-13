@@ -235,18 +235,18 @@ func statsFromTpsBenchmark(tpsBenchmark *statistics.TpsBenchmark) statisticsResp
 	if tpsBenchmark == nil {
 		return statisticsResponse{}
 	}
-	sr := statisticsResponse{}
-	sr.LiveTPS = tpsBenchmark.LiveTPS()
-	sr.AverageTPS = tpsBenchmark.AverageTPS()
-	sr.PeakTPS = tpsBenchmark.PeakTPS()
-	sr.SlotTime = tpsBenchmark.SlotTime()
-	sr.BlockNumber = tpsBenchmark.BlockNumber()
-	sr.SlotNumber = tpsBenchmark.SlotNumber()
-	sr.AverageBlockTxCount = tpsBenchmark.AverageBlockTxCount()
-	sr.CurrentBlockTxCount = tpsBenchmark.CurrentBlockTxCount()
-	sr.TotalProcessedTxCount = tpsBenchmark.TotalProcessedTxCount()
-
-	return sr
+	snap := tpsBenchmark.Snapshot()
+	return statisticsResponse{
+		LiveTPS:               snap.LiveTPS,
+		AverageTPS:            snap.AverageTPS,
+		PeakTPS:               snap.PeakTPS,
+		SlotTime:              snap.SlotTime,
+		BlockNumber:           snap.BlockNumber,
+		SlotNumber:            snap.SlotNumber,
+		AverageBlockTxCount:   snap.AverageBlockTxCount,
+		CurrentBlockTxCount:   snap.CurrentBlockTxCount,
+		TotalProcessedTxCount: snap.TotalProcessedTxCount,
+	}
 }
 
 // @Summary returns the debug information after the query has been interpreted

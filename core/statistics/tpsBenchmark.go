@@ -30,6 +30,28 @@ type TpsPersistentData struct {
 	CurrentBlockTxCount   uint32
 }
 
+// TpsBenchmarkSnapshot is a consistent point-in-time copy of a TpsBenchmark.
+// All *big.Int fields are defensive copies — safe to read or mutate without affecting the source.
+type TpsBenchmarkSnapshot struct {
+	BlockNumber           uint64
+	SlotNumber            uint64
+	SlotTime              uint64
+	PeakTPS               float64
+	LiveTPS               float64
+	CurrentBlockTxCount   uint32
+	AverageTPS            *big.Int
+	AverageBlockTxCount   *big.Int
+	TotalProcessedTxCount *big.Int
+}
+
+// copyBigInt returns a defensive deep copy of b, or a fresh zero when b is nil.
+func copyBigInt(b *big.Int) *big.Int {
+	if b == nil {
+		return big.NewInt(0)
+	}
+	return new(big.Int).Set(b)
+}
+
 // TpsBenchmark will calculate statistics for the network activity
 type TpsBenchmark struct {
 	mut         sync.RWMutex
@@ -65,12 +87,12 @@ func NewTPSBenchmarkWithInitialData(
 	return &TpsBenchmark{
 		slotTime:              slotInterval,
 		peakTPS:               initialTpsBenchmark.PeakTPS,
-		averageTPS:            initialTpsBenchmark.AverageTPS,
+		averageTPS:            copyBigInt(initialTpsBenchmark.AverageTPS),
 		currentBlockTxCount:   initialTpsBenchmark.CurrentBlockTxCount,
 		blockNumber:           initialTpsBenchmark.BlockNumber,
 		slotNumber:            initialTpsBenchmark.SlotNumber,
-		totalProcessedTxCount: initialTpsBenchmark.TotalProcessedTxCount,
-		averageBlockTxCount:   initialTpsBenchmark.AverageBlockTxCount,
+		totalProcessedTxCount: copyBigInt(initialTpsBenchmark.TotalProcessedTxCount),
+		averageBlockTxCount:   copyBigInt(initialTpsBenchmark.AverageBlockTxCount),
 		statusHandler:         appStatusHandler,
 		initialBlockNumber:    int64(initialTpsBenchmark.BlockNumber), // #nosec G115
 	}, nil
@@ -123,7 +145,7 @@ func (s *TpsBenchmark) SlotNumber() uint64 {
 func (s *TpsBenchmark) AverageBlockTxCount() *big.Int {
 	s.mut.RLock()
 	defer s.mut.RUnlock()
-	return new(big.Int).Set(s.averageBlockTxCount)
+	return copyBigInt(s.averageBlockTxCount)
 }
 
 // CurrentBlockTxCount returns the number of transactions processed in the current block
@@ -137,7 +159,7 @@ func (s *TpsBenchmark) CurrentBlockTxCount() uint32 {
 func (s *TpsBenchmark) TotalProcessedTxCount() *big.Int {
 	s.mut.RLock()
 	defer s.mut.RUnlock()
-	return new(big.Int).Set(s.totalProcessedTxCount)
+	return copyBigInt(s.totalProcessedTxCount)
 }
 
 // LiveTPS returns tps for the current block
@@ -158,7 +180,27 @@ func (s *TpsBenchmark) PeakTPS() float64 {
 func (s *TpsBenchmark) AverageTPS() *big.Int {
 	s.mut.RLock()
 	defer s.mut.RUnlock()
-	return new(big.Int).Set(s.averageTPS)
+	return copyBigInt(s.averageTPS)
+}
+
+// Snapshot returns a consistent, defensively-copied view of all benchmark fields under a single read lock.
+// Prefer this over per-getter calls when consuming multiple fields together (e.g. for API responses) —
+// it guarantees the returned values all come from the same block.
+func (s *TpsBenchmark) Snapshot() TpsBenchmarkSnapshot {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+
+	return TpsBenchmarkSnapshot{
+		BlockNumber:           s.blockNumber,
+		SlotNumber:            s.slotNumber,
+		SlotTime:              s.slotTime,
+		PeakTPS:               s.peakTPS,
+		LiveTPS:               float64(uint64(s.currentBlockTxCount) / s.slotTime),
+		CurrentBlockTxCount:   s.currentBlockTxCount,
+		AverageTPS:            copyBigInt(s.averageTPS),
+		AverageBlockTxCount:   copyBigInt(s.averageBlockTxCount),
+		TotalProcessedTxCount: copyBigInt(s.totalProcessedTxCount),
+	}
 }
 
 // Update receives a metablock and updates all fields accordingly for each shard available in the meta block

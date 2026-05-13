@@ -3,6 +3,7 @@ package statistics_test
 import (
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -295,4 +296,59 @@ func TestTpsBenchmark_ZeroTxMetaBlockAndEmptyShardHeader(t *testing.T) {
 
 	bigTxCount := big.NewInt(0)
 	assert.Equal(t, bigTxCount, tpsBenchmark.TotalProcessedTxCount())
+}
+
+// TestTpsBenchmark_SnapshotConsistencyUnderConcurrentUpdates verifies that Snapshot()
+// returns a cross-field-consistent view: every snapshot must satisfy the invariant
+// enforced by updateStatistics — averageBlockTxCount = totalProcessedTxCount / blockNumber
+// (integer quotient). Per-getter calls would tear this invariant when Update() interleaves
+// between calls; Snapshot() takes a single RLock so all three fields advance together.
+func TestTpsBenchmark_SnapshotConsistencyUnderConcurrentUpdates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("this is not a short test")
+	}
+	t.Parallel()
+
+	tpsBenchmark, _ := statistics.NewTPSBenchmark(uint64(6))
+	txCount := uint32(10)
+	nrUpdates := 2000
+
+	done := make(chan struct{})
+	var inconsistent atomic.Uint64
+	var observed atomic.Uint64
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			snap := tpsBenchmark.Snapshot()
+			if snap.BlockNumber == 0 {
+				continue
+			}
+			observed.Add(1)
+			blockNumber := new(big.Int).SetUint64(snap.BlockNumber)
+			lo := new(big.Int).Mul(snap.AverageBlockTxCount, blockNumber)
+			hi := new(big.Int).Add(lo, blockNumber)
+			if snap.TotalProcessedTxCount.Cmp(lo) < 0 || snap.TotalProcessedTxCount.Cmp(hi) >= 0 {
+				inconsistent.Add(1)
+			}
+		}
+	}()
+
+	for i := 1; i <= nrUpdates; i++ {
+		updateTpsBenchmark(tpsBenchmark, txCount, uint64(i))
+	}
+	close(done)
+	wg.Wait()
+
+	assert.Equal(t, uint64(0), inconsistent.Load(),
+		"Snapshot returned %d inconsistent views out of %d observations",
+		inconsistent.Load(), observed.Load())
+	assert.Greater(t, observed.Load(), uint64(0), "reader should have observed at least one non-zero snapshot")
 }
