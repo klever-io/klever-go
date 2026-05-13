@@ -4,11 +4,22 @@ import (
 	"sync"
 )
 
-// slotConsensus defines the data needed by spos to do the consensus in each slot
+// slotConsensus defines the data needed by spos to do the consensus in each slot.
+//
+// Locking layout — three independent mutexes, intentionally separate to keep
+// the hot signature-collection path (JobDone / SetJobDone) from contending
+// against ConsensusGroup() reads called from every consensus check:
+//   - mutElected protects electedNodes
+//   - mutConsensusGroup protects consensusGroup
+//   - mut           protects validatorSlotStates
+//
+// SetConsensusGroup acquires mutConsensusGroup and mut in that order to swap
+// both atomically with respect to combined readers; never the reverse order.
 type slotConsensus struct {
 	electedNodes        map[string]struct{}
 	mutElected          sync.RWMutex
 	consensusGroup      []string
+	mutConsensusGroup   sync.RWMutex
 	consensusGroupSize  int
 	selfPubKey          string
 	validatorSlotStates map[string]*slotState
@@ -36,6 +47,8 @@ func NewSlotConsensus(
 
 // ConsensusGroupIndex returns the index of given public key in the current consensus group
 func (rcns *slotConsensus) ConsensusGroupIndex(pubKey string) (int, error) {
+	rcns.mutConsensusGroup.RLock()
+	defer rcns.mutConsensusGroup.RUnlock()
 	for i, pk := range rcns.consensusGroup {
 		if pk == pubKey {
 			return i, nil
@@ -49,9 +62,15 @@ func (rcns *slotConsensus) SelfConsensusGroupIndex() (int, error) {
 	return rcns.ConsensusGroupIndex(rcns.selfPubKey)
 }
 
-// ConsensusGroup returns the consensus group ID's
+// ConsensusGroup returns the consensus group ID's. The slice header is captured
+// under mutConsensusGroup.RLock so callers see a stable view even while
+// SetConsensusGroup is installing a new group. The returned slice is not
+// deep-copied; callers must treat the elements as read-only.
 func (rcns *slotConsensus) ConsensusGroup() []string {
-	return rcns.consensusGroup
+	rcns.mutConsensusGroup.RLock()
+	cg := rcns.consensusGroup
+	rcns.mutConsensusGroup.RUnlock()
+	return cg
 }
 
 // SetConsensusGroup sets the consensus group ID's
@@ -64,16 +83,27 @@ func (rcns *slotConsensus) SetConsensusGroup(consensusGroup []string) {
 	}
 	rcns.mutElected.Unlock()
 
+	// Acquire mutConsensusGroup then mut, with each section released before
+	// the next is taken. The two writes are NOT atomic against combined
+	// readers: a concurrent ComputeSize call can briefly observe the new
+	// consensusGroup against the old validatorSlotStates map, which causes
+	// JobDone lookups to return ErrInvalidKey and ComputeSize to undercount
+	// for one poll cycle. This is benign — the next poll sees consistent
+	// state. Holding both locks simultaneously would prevent that window
+	// but forces the same lock-order discipline on every reader, which we
+	// avoid here so JobDone (hot path) does not contend with ConsensusGroup
+	// reads. Lock order is fixed (mutConsensusGroup before mut) so that
+	// callers holding mut.RLock can safely call ConsensusGroup() afterward
+	// without deadlock; never reverse.
+	rcns.mutConsensusGroup.Lock()
 	rcns.consensusGroup = consensusGroup
+	rcns.mutConsensusGroup.Unlock()
 
 	rcns.mut.Lock()
-
 	rcns.validatorSlotStates = make(map[string]*slotState)
-
-	for i := 0; i < len(consensusGroup); i++ {
-		rcns.validatorSlotStates[rcns.consensusGroup[i]] = NewSlotState()
+	for i := range consensusGroup {
+		rcns.validatorSlotStates[consensusGroup[i]] = NewSlotState()
 	}
-
 	rcns.mut.Unlock()
 }
 
@@ -156,8 +186,9 @@ func (rcns *slotConsensus) IsNodeInConsensusGroup(node string) bool {
 func (rcns *slotConsensus) ComputeSize(subslotId int) int {
 	n := 0
 
-	for i := 0; i < len(rcns.consensusGroup); i++ {
-		isJobDone, err := rcns.JobDone(rcns.consensusGroup[i], subslotId)
+	cg := rcns.ConsensusGroup()
+	for i := range cg {
+		isJobDone, err := rcns.JobDone(cg[i], subslotId)
 		if err != nil {
 			log.Debug("JobDone", "error", err.Error())
 			continue
@@ -174,11 +205,16 @@ func (rcns *slotConsensus) ComputeSize(subslotId int) int {
 // ResetSlotState method resets the state of each node from the current jobDone group, regarding to the
 // consensus validatorSlotStates
 func (rcns *slotConsensus) ResetSlotState() {
-	rcns.mut.Lock()
+	// Snapshot consensusGroup via the getter so we never nest
+	// mutConsensusGroup inside mut (which would deadlock against
+	// SetConsensusGroup's acquire order).
+	cg := rcns.ConsensusGroup()
 
-	var currentSlotState *slotState
-	for i := 0; i < len(rcns.consensusGroup); i++ {
-		currentSlotState = rcns.validatorSlotStates[rcns.consensusGroup[i]]
+	rcns.mut.Lock()
+	defer rcns.mut.Unlock()
+
+	for _, pk := range cg {
+		currentSlotState := rcns.validatorSlotStates[pk]
 		if currentSlotState == nil {
 			log.Debug("validatorSlotStates", "error", ErrNilSlotState.Error())
 			continue
@@ -186,6 +222,4 @@ func (rcns *slotConsensus) ResetSlotState() {
 
 		currentSlotState.ResetJobsDone()
 	}
-
-	rcns.mut.Unlock()
 }

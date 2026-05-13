@@ -106,13 +106,17 @@ func (cmv *consensusMessageValidator) checkConsensusMessageValidity(cnsMsg *cons
 
 	msgType := consensus.MessageType(cnsMsg.MsgType)
 
-	if cmv.consensusState.SlotIndex+1 < cnsMsg.SlotIndex {
+	cmv.consensusState.RLockSlotState()
+	currentSlotIndex := cmv.consensusState.SlotIndex
+	cmv.consensusState.RUnlockSlotState()
+
+	if currentSlotIndex+1 < cnsMsg.SlotIndex {
 		log.Trace("received message from consensus topic has a future slot",
 			"msg type", cmv.consensusService.GetStringValue(msgType),
 			"from", cnsMsg.PubKey,
 			"header hash", cnsMsg.BlockHeaderHash,
 			"msg slot", cnsMsg.SlotIndex,
-			"slot", cmv.consensusState.SlotIndex,
+			"slot", currentSlotIndex,
 		)
 
 		return fmt.Errorf("%w : received message from consensus topic has a future slot: %d",
@@ -120,13 +124,13 @@ func (cmv *consensusMessageValidator) checkConsensusMessageValidity(cnsMsg *cons
 			cnsMsg.SlotIndex)
 	}
 
-	if cmv.consensusState.SlotIndex > cnsMsg.SlotIndex {
+	if currentSlotIndex > cnsMsg.SlotIndex {
 		log.Trace("received message from consensus topic has a past slot",
 			"msg type", cmv.consensusService.GetStringValue(msgType),
 			"from", cnsMsg.PubKey,
 			"header hash", cnsMsg.BlockHeaderHash,
 			"msg slot", cnsMsg.SlotIndex,
-			"slot", cmv.consensusState.SlotIndex,
+			"slot", currentSlotIndex,
 		)
 
 		return fmt.Errorf("%w : received message from consensus topic has a past slot: %d",

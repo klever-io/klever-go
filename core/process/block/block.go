@@ -156,12 +156,21 @@ func (mp *metaProcessor) ProcessBlock(
 	txCounts := mp.txCounter.getPoolCounts(mp.dataPool)
 	log.Debug("total txs in pool", "counts", txCounts.String())
 
-	go getMetricsFromHeader(
-		header,
-		tools.SafeI64ToU64(txCounts.GetTotal()),
-		mp.marshalizer,
-		mp.appStatusHandler,
-	)
+	// Clone the header before handing it to the async metrics goroutine —
+	// ProcessBlock's main path keeps mutating the same pointer (e.g.,
+	// epochStartNativeStakingKapps -> SetBurnedUnclaimed), so a shared
+	// reference races on every field read inside getMetricsFromHeader.
+	metricsHeader, ok := header.Clone().(*block.Block)
+	if ok {
+		go getMetricsFromHeader(
+			metricsHeader,
+			tools.SafeI64ToU64(txCounts.GetTotal()),
+			mp.marshalizer,
+			mp.appStatusHandler,
+		)
+	} else {
+		log.Error("ProcessBlock: cloned header has unexpected type, skipping async metrics")
+	}
 
 	defer func() {
 		if err != nil {

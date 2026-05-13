@@ -75,7 +75,12 @@ func (sr *subslotSignature) doSignatureJob() bool {
 		return false
 	}
 
-	signatureShare, err := sr.MultiSigner().CreateSignatureShare(sr.GetData(), nil)
+	sr.RLockSlotState()
+	data := sr.Data
+	header := sr.Header
+	sr.RUnlockSlotState()
+
+	signatureShare, err := sr.MultiSigner().CreateSignatureShare(data, nil)
 	if err != nil {
 		log.Debug("doSignatureJob.CreateSignatureShare", "error", err.Error())
 		return false
@@ -86,14 +91,14 @@ func (sr *subslotSignature) doSignatureJob() bool {
 	if !isSelfLeader {
 		//TODO: Analyze it is possible to send message only to leader with O(1) instead of O(n)
 		cnsMsg := consensus.NewConsensusMessage(
-			sr.GetData(),
+			data,
 			signatureShare,
 			nil,
 			[]byte(sr.SelfPubKey()),
 			nil,
 			int(MtSignature),
 			sr.SlotManager().Index(),
-			sr.Header.GetNonce(),
+			header.GetNonce(),
 			sr.ChainID(),
 			nil,
 			nil,
@@ -120,7 +125,10 @@ func (sr *subslotSignature) doSignatureJob() bool {
 
 	if isSelfLeader {
 		sr.resetSignatureCompleteChan()
-		go sr.waitAllSignatures()
+		sr.RLockSlotState()
+		spawnSlot := sr.SlotIndex
+		sr.RUnlockSlotState()
+		go sr.waitAllSignatures(spawnSlot)
 	}
 
 	return true
@@ -204,7 +212,13 @@ func (sr *subslotSignature) receivedSignature(cnsDta *consensus.Message) bool {
 
 // doSignatureConsensusCheck method checks if the consensus in the subslot Signature is achieved
 func (sr *subslotSignature) doSignatureConsensusCheck() bool {
-	if sr.SlotCanceled {
+	sr.RLockSlotState()
+	canceled := sr.SlotCanceled
+	header := sr.Header
+	timedOut := sr.WaitingAllSignaturesTimeOut
+	sr.RUnlockSlotState()
+
+	if canceled {
 		return false
 	}
 
@@ -218,7 +232,7 @@ func (sr *subslotSignature) doSignatureConsensusCheck() bool {
 	isSelfInConsensusGroup := sr.IsNodeInConsensusGroup(sr.SelfPubKey())
 
 	threshold := sr.Threshold(sr.Current())
-	if sr.FallbackHeaderValidator().ShouldApplyFallbackValidation(sr.Header) {
+	if sr.FallbackHeaderValidator().ShouldApplyFallbackValidation(header) {
 		threshold = sr.FallbackThreshold(sr.Current())
 		log.Warn("subslotSignature.doSignatureConsensusCheck: fallback validation has been applied",
 			"minimum number of signatures required", threshold,
@@ -229,7 +243,7 @@ func (sr *subslotSignature) doSignatureConsensusCheck() bool {
 	areSignaturesCollected, numSigs := sr.areSignaturesCollected(threshold)
 	areAllSignaturesCollected := numSigs == sr.ConsensusGroupSize()
 
-	isJobDoneByLeader := isSelfLeader && (areAllSignaturesCollected || (areSignaturesCollected && sr.WaitingAllSignaturesTimeOut))
+	isJobDoneByLeader := isSelfLeader && (areAllSignaturesCollected || (areSignaturesCollected && timedOut))
 	isJobDoneByConsensusNode := !isSelfLeader && isSelfInConsensusGroup && sr.IsSelfJobDone(sr.Current())
 
 	isSubslotFinished := !isSelfInConsensusGroup || isJobDoneByConsensusNode || isJobDoneByLeader
@@ -291,7 +305,19 @@ func (sr *subslotSignature) getNumOfSignaturesCollected() int {
 	return n
 }
 
-func (sr *subslotSignature) waitAllSignatures() {
+// waitAllSignatures runs in a goroutine spawned per leader-slot. It signals
+// WaitingAllSignaturesTimeOut on the shared ConsensusState if neither the
+// full-signature-set channel fires nor the subslot finishes within the
+// threshold window.
+//
+// spawnSlot pins the goroutine to the slot that spawned it. Slot duration is
+// real-time; the timer can outlive the slot when downstream slots run very
+// fast (e.g., test rigs with mocked SlotManager.RemainingTime). Without the
+// pin, a stale goroutine would set WaitingAllSignaturesTimeOut=true on a
+// LATER slot's ConsensusState, causing that slot's leader to commit with
+// minimum quorum well before its own threshold expires. Verify the slot
+// hasn't advanced before mutating state.
+func (sr *subslotSignature) waitAllSignatures(spawnSlot int64) {
 	remainingTime := sr.remainingTime()
 	timeout := time.NewTimer(remainingTime)
 	defer timeout.Stop()
@@ -301,12 +327,21 @@ func (sr *subslotSignature) waitAllSignatures() {
 		// All signatures collected (100%), exit immediately
 		return
 	case <-timeout.C:
+		sr.RLockSlotState()
+		currentSlot := sr.SlotIndex
+		sr.RUnlockSlotState()
+		if currentSlot != spawnSlot {
+			// Slot has advanced — this goroutine belongs to a stale slot. Do
+			// not touch shared state; the current slot has its own goroutine.
+			return
+		}
+
 		// Timeout reached, check if subslot is already finished by threshold signatures
 		if sr.IsSubslotFinished(sr.Current()) {
 			return
 		}
 
-		sr.WaitingAllSignaturesTimeOut = true
+		sr.SetWaitingAllSignaturesTimeOut(true)
 		select {
 		case sr.ConsensusChannel() <- true:
 		default:

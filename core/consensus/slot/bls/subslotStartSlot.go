@@ -76,9 +76,8 @@ func (sr *subslotStartSlot) SetIndexer(indexer slot.ConsensusDataIndexer) {
 
 // doStartSlotJob method does the job of the subslot StartSlot
 func (sr *subslotStartSlot) doStartSlotJob() bool {
-	sr.ResetConsensusState()
-	sr.SlotIndex = sr.SlotManager().Index()
-	sr.SlotTimestamp = sr.SlotManager().Timestamp()
+	sr.BeginNewSlot(sr.SlotManager().Index(), sr.SlotManager().Timestamp())
+
 	sr.GetAntiFloodHandler().ResetForTopic(common.ConsensusTopic)
 	sr.resetConsensusMessages()
 	return true
@@ -86,7 +85,10 @@ func (sr *subslotStartSlot) doStartSlotJob() bool {
 
 // doStartSlotConsensusCheck method checks if the consensus is achieved in the subslot StartSlot
 func (sr *subslotStartSlot) doStartSlotConsensusCheck() bool {
-	if sr.SlotCanceled {
+	sr.RLockSlotState()
+	canceled := sr.SlotCanceled
+	sr.RUnlockSlotState()
+	if canceled {
 		return false
 	}
 
@@ -111,7 +113,7 @@ func (sr *subslotStartSlot) initCurrentSlot() bool {
 			"slot index", sr.SlotManager().Index(),
 			"error", err.Error())
 
-		sr.SlotCanceled = true
+		sr.SetSlotCanceled(true)
 
 		return false
 	}
@@ -131,7 +133,7 @@ func (sr *subslotStartSlot) initCurrentSlot() bool {
 	if err != nil {
 		log.Debug("initCurrentSlot.GetLeader", "error", err.Error())
 
-		sr.SlotCanceled = true
+		sr.SetSlotCanceled(true)
 
 		return false
 	}
@@ -164,20 +166,22 @@ func (sr *subslotStartSlot) initCurrentSlot() bool {
 		if err != nil {
 			log.Debug("initCurrentSlot.Reset", "error", err.Error())
 
-			sr.SlotCanceled = true
+			sr.SetSlotCanceled(true)
 
 			return false
 		}
 	}
 
+	sr.RLockSlotState()
 	startTime := sr.SlotTimestamp
+	sr.RUnlockSlotState()
 	maxTime := sr.SlotManager().TimeDuration() * time.Duration(sr.processingThresholdPercentage) / 100
 	if sr.SlotManager().RemainingTime(startTime, maxTime) < 0 {
 		log.Debug("canceled slot, time is out",
 			"slot", sr.SyncTimer().FormattedCurrentTime(), sr.SlotManager().Index(),
 			"subslot", sr.Name())
 
-		sr.SlotCanceled = true
+		sr.SetSlotCanceled(true)
 
 		return false
 	}
@@ -204,9 +208,12 @@ func (sr *subslotStartSlot) generateNextConsensusGroup(slotIndex int64) error {
 	log.Debug("random source for the next consensus group",
 		"rand", randomSeed)
 
+	sr.RLockSlotState()
+	currentSlotIndex := sr.SlotIndex
+	sr.RUnlockSlotState()
 	nextConsensusGroup, err := sr.GetNextConsensusGroup(
 		randomSeed,
-		tools.SafeI64ToU64(sr.SlotIndex),
+		tools.SafeI64ToU64(currentSlotIndex),
 		sr.NodesCoordinator(),
 		currentHeader.GetEpoch(),
 	)

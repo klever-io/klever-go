@@ -187,34 +187,42 @@ func waitForBlockConditionOrTimeOut(t *testing.T, nodes []*processorNode.Process
 	maxTime := time.After(time.Duration(timeout) * time.Second)
 	backoff := 100 * time.Millisecond
 	maxBackoff := time.Second
+
+	check := func() bool {
+		for i, n := range nodes {
+			if nodesComplete[i] {
+				continue
+			}
+			if condition.check(n) {
+				nodesComplete[i] = true
+			}
+		}
+		for _, c := range nodesComplete {
+			if !c {
+				return false
+			}
+		}
+		return true
+	}
+
 	for {
+		if check() {
+			return
+		}
 		select {
 		case <-maxTime:
-			// Timeouts used to be silently logged, which made later assertions
-			// fire against an out-of-sync cluster and surface the flake far
-			// from its origin. Fail at the source instead.
-			t.Fatalf("%s: value=%d nodesComplete=%v", condition.errorMsg, condition.value, nodesComplete)
-			return
-		default:
-			for i, n := range nodes {
-				if nodesComplete[i] {
-					continue
-				}
-				if condition.check(n) {
-					nodesComplete[i] = true
-				}
-			}
-			allComplete := true
-			for _, c := range nodesComplete {
-				if !c {
-					allComplete = false
-					break
-				}
-			}
-			if allComplete {
+			// One final check right at the deadline: the previous sleep could
+			// have run up to maxBackoff (1s) and a node that finished between
+			// the prior poll and now would otherwise be misreported as a
+			// timeout. Timeouts used to be silently logged, which made later
+			// assertions fire against an out-of-sync cluster — fail at the
+			// source instead.
+			if check() {
 				return
 			}
-			time.Sleep(backoff)
+			t.Fatalf("%s: value=%d nodesComplete=%v", condition.errorMsg, condition.value, nodesComplete)
+			return
+		case <-time.After(backoff):
 			backoff *= 2
 			if backoff > maxBackoff {
 				backoff = maxBackoff

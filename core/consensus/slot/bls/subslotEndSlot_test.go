@@ -760,9 +760,10 @@ func TestSubslotEndSlot_CreateAndBroadcastHeaderFinalInfoBroadcastShouldBeCalled
 	}
 	container.SetBroadcastMessenger(messenger)
 	sr := *initSubslotEndSlotWithContainer(container)
-	sr.Header = &block.Block{ProducerSignature: leaderSigInHdr}
+	header := &block.Block{ProducerSignature: leaderSigInHdr}
+	sr.Header = header
 
-	sr.CreateAndBroadcastHeaderFinalInfo()
+	sr.CreateAndBroadcastHeaderFinalInfo(header)
 
 	select {
 	case <-chanRcv:

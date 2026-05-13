@@ -140,7 +140,9 @@ func (sr *subslotBlock) sendBlock(header data.HeaderHandler) bool {
 }
 
 func (sr *subslotBlock) createBlock(header data.HeaderHandler) (data.HeaderHandler, error) {
+	sr.RLockSlotState()
 	startTime := sr.SlotTimestamp
+	sr.RUnlockSlotState()
 	maxTime := time.Duration(sr.EndTime())
 	haveTimeInCurrentSubslot := func() bool {
 		return sr.SlotManager().RemainingTime(startTime, maxTime) > 0
@@ -189,8 +191,10 @@ func (sr *subslotBlock) sendBlockHeader(
 		"nonce", headerHandler.GetNonce(),
 		"hash", headerHash)
 
+	sr.LockSlotState()
 	sr.Data = headerHash
 	sr.Header = headerHandler
+	sr.UnlockSlotState()
 
 	return true
 }
@@ -262,16 +266,21 @@ func (sr *subslotBlock) receivedBlockHeader(cnsDta *consensus.Message) bool {
 		return false
 	}
 
-	sr.Data = cnsDta.BlockHeaderHash
-	sr.Header = sr.BlockProcessor().DecodeBlockHeader(cnsDta.Header)
+	headerHash := cnsDta.BlockHeaderHash
+	decodedHeader := sr.BlockProcessor().DecodeBlockHeader(cnsDta.Header)
 
-	if sr.Data == nil || check.IfNil(sr.Header) {
+	if headerHash == nil || check.IfNil(decodedHeader) {
 		return false
 	}
 
+	sr.LockSlotState()
+	sr.Data = headerHash
+	sr.Header = decodedHeader
+	sr.UnlockSlotState()
+
 	log.Debug("step 1: block header have been received",
-		"nonce", sr.Header.GetNonce(),
-		"hash", cnsDta.BlockHeaderHash)
+		"nonce", decodedHeader.GetNonce(),
+		"hash", headerHash)
 
 	sw.Start("processReceivedBlock")
 	blockProcessedWithSuccess := sr.processReceivedBlock(cnsDta)
@@ -287,7 +296,12 @@ func (sr *subslotBlock) receivedBlockHeader(cnsDta *consensus.Message) bool {
 }
 
 func (sr *subslotBlock) processReceivedBlock(cnsDta *consensus.Message) bool {
-	if check.IfNil(sr.Header) {
+	sr.RLockSlotState()
+	header := sr.Header
+	startTime := sr.SlotTimestamp
+	sr.RUnlockSlotState()
+
+	if check.IfNil(header) {
 		return false
 	}
 
@@ -297,20 +311,33 @@ func (sr *subslotBlock) processReceivedBlock(cnsDta *consensus.Message) bool {
 
 	sr.SetProcessingBlock(true)
 
-	shouldNotProcessBlock := sr.ExtendedCalled || cnsDta.SlotIndex < sr.SlotManager().Index()
+	// Read ExtendedCalled AFTER SetProcessingBlock(true). Worker.Extend sets
+	// ExtendedCalled=true and only then waits for ProcessingBlock to clear,
+	// so our SetProcessingBlock(true) creates the happens-before that guarantees
+	// either (a) Extend sees our ProcessingBlock and waits — in which case our
+	// later snapshot of extendedCalled may still be false but it doesn't matter
+	// because Extend's revert is blocked until we finish, or (b) Extend already
+	// flipped ExtendedCalled before our SetProcessingBlock — in which case the
+	// post-snapshot read sees true and we bail. Snapshotting extendedCalled
+	// BEFORE SetProcessingBlock would let Extend slip in between, set the flag,
+	// see ProcessingBlock=false, and start reverting state under us.
+	sr.RLockSlotState()
+	extendedCalled := sr.ExtendedCalled
+	sr.RUnlockSlotState()
+
+	shouldNotProcessBlock := extendedCalled || cnsDta.SlotIndex < sr.SlotManager().Index()
 	if shouldNotProcessBlock {
 		log.Debug("canceled slot, extended has been called or slot index has been changed",
 			"slot", sr.SlotManager().Index(),
 			"subslot", sr.Name(),
 			"cnsDta slot", cnsDta.SlotIndex,
-			"extended called", sr.ExtendedCalled,
+			"extended called", extendedCalled,
 		)
 		return false
 	}
 
 	node := string(cnsDta.PubKey)
 
-	startTime := sr.SlotTimestamp
 	maxTime := sr.SlotManager().TimeDuration() * time.Duration(sr.processingThresholdPercentage) / 100
 	remainingTimeInCurrentSlot := func() time.Duration {
 		return sr.SlotManager().RemainingTime(startTime, maxTime)
@@ -320,7 +347,7 @@ func (sr *subslotBlock) processReceivedBlock(cnsDta *consensus.Message) bool {
 	defer sr.computeSubslotProcessingMetric(metricStatTime, core.MetricProcessedProposedBlock)
 
 	err := sr.BlockProcessor().ProcessBlock(
-		sr.Header,
+		header,
 		remainingTimeInCurrentSlot,
 	)
 
@@ -339,7 +366,7 @@ func (sr *subslotBlock) processReceivedBlock(cnsDta *consensus.Message) bool {
 			"subslot", sr.Name(),
 			"error", err.Error())
 
-		sr.SlotCanceled = true
+		sr.SetSlotCanceled(true)
 
 		return false
 	}
@@ -369,7 +396,10 @@ func (sr *subslotBlock) computeSubslotProcessingMetric(startTime time.Time, metr
 
 // doBlockConsensusCheck method checks if the consensus in the subslot Block is achieved
 func (sr *subslotBlock) doBlockConsensusCheck() bool {
-	if sr.SlotCanceled {
+	sr.RLockSlotState()
+	canceled := sr.SlotCanceled
+	sr.RUnlockSlotState()
+	if canceled {
 		return false
 	}
 

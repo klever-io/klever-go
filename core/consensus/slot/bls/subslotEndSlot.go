@@ -127,11 +127,15 @@ func (sr *subslotEndSlot) receivedBlockHeaderFinalInfo(cnsDta *consensus.Message
 }
 
 func (sr *subslotEndSlot) isBlockHeaderFinalInfoValid(cnsDta *consensus.Message) bool {
-	if check.IfNil(sr.Header) {
+	sr.RLockSlotState()
+	currentHeader := sr.Header
+	sr.RUnlockSlotState()
+
+	if check.IfNil(currentHeader) {
 		return false
 	}
 
-	header := sr.Header.Clone()
+	header := currentHeader.Clone()
 	header.SetPubKeysBitmap(cnsDta.PubKeysBitmap)
 	header.SetSignature(cnsDta.AggregateSignature)
 	header.SetProducerSignature(cnsDta.LeaderSignature)
@@ -193,25 +197,40 @@ func (sr *subslotEndSlot) doEndSlotJobByLeader() bool {
 		return false
 	}
 
-	sr.Header.SetPubKeysBitmap(bitmap)
-	sr.Header.SetSignature(sig)
+	// Snapshot the consensus header pointer once. The invariant this relies on:
+	// from this point until the leader finishes endSlot, the leader's chronology
+	// goroutine is the SOLE mutator of the underlying header object — the
+	// interceptor path (subslotBlock.receivedBlockHeader) does not write
+	// sr.Header for the self-leader case, and ResetConsensusState runs only at
+	// the next slot boundary, which is sequenced after this endSlot completes on
+	// the same chronology goroutine. We pass this snapshot explicitly to every
+	// downstream call (signBlockHeader, createAndBroadcastHeaderFinalInfo,
+	// BroadcastBlock, CommitBlock, broadcastBlockDataLeader) so the
+	// "leader-owned" guarantee is encoded in the call signatures rather than
+	// the implicit field aliasing on sr.Header.
+	sr.RLockSlotState()
+	header := sr.Header
+	sr.RUnlockSlotState()
+
+	header.SetPubKeysBitmap(bitmap)
+	header.SetSignature(sig)
 
 	// Header is complete so the leader can sign it
-	leaderSignature, err := sr.signBlockHeader()
+	leaderSignature, err := sr.signBlockHeader(header)
 	if err != nil {
 		log.Error(err.Error())
 		return false
 	}
-	sr.Header.SetProducerSignature(leaderSignature)
+	header.SetProducerSignature(leaderSignature)
 
 	// validate has block signature prior commit
-	if len(sr.Header.GetSignature()) == 0 ||
-		len(sr.Header.GetProducerSignature()) == 0 ||
-		len(sr.Header.GetPubKeysBitmap()) == 0 {
+	if len(header.GetSignature()) == 0 ||
+		len(header.GetProducerSignature()) == 0 ||
+		len(header.GetPubKeysBitmap()) == 0 {
 		log.Error("doEndSlotJobByLeader invalid block",
-			"signature", sr.Header.GetSignature(),
-			"producerSignature", sr.Header.GetProducerSignature(),
-			"pubKeysBitmap", sr.Header.GetPubKeysBitmap(),
+			"signature", header.GetSignature(),
+			"producerSignature", header.GetProducerSignature(),
+			"pubKeysBitmap", header.GetPubKeysBitmap(),
 		)
 		return false
 	}
@@ -224,14 +243,18 @@ func (sr *subslotEndSlot) doEndSlotJobByLeader() bool {
 
 	sr.SetProcessingBlock(true)
 
-	shouldNotCommitBlock := sr.ExtendedCalled ||
-		sr.Header.GetSlot() < tools.SafeI64ToU64(sr.SlotManager().Index())
+	sr.RLockSlotState()
+	extendedCalled := sr.ExtendedCalled
+	sr.RUnlockSlotState()
+
+	shouldNotCommitBlock := extendedCalled ||
+		header.GetSlot() < tools.SafeI64ToU64(sr.SlotManager().Index())
 	if shouldNotCommitBlock {
 		log.Debug("canceled slot, extended has been called or slot index has been changed",
 			"slot", sr.SlotManager().Index(),
 			"subslot", sr.Name(),
-			"header slot", sr.Header.GetSlot(),
-			"extended called", sr.ExtendedCalled,
+			"header slot", header.GetSlot(),
+			"extended called", extendedCalled,
 		)
 		return false
 	}
@@ -241,16 +264,16 @@ func (sr *subslotEndSlot) doEndSlotJobByLeader() bool {
 	}
 
 	// create and broadcast header final info
-	sr.createAndBroadcastHeaderFinalInfo()
+	sr.createAndBroadcastHeaderFinalInfo(header)
 
 	// broadcast header
-	err = sr.BroadcastMessenger().BroadcastBlock(sr.Header)
+	err = sr.BroadcastMessenger().BroadcastBlock(header)
 	if err != nil {
 		log.Debug("doEndSlotJob.BroadcastHeader", "error", err.Error())
 	}
 
 	startTime := time.Now()
-	err = sr.BlockProcessor().CommitBlock(sr.Header)
+	err = sr.BlockProcessor().CommitBlock(header)
 	elapsedTime := time.Since(startTime)
 	if elapsedTime >= core.CommitMaxTime {
 		log.Warn("doEndSlotJobByLeader.CommitBlock", "elapsed time", elapsedTime)
@@ -270,12 +293,12 @@ func (sr *subslotEndSlot) doEndSlotJobByLeader() bool {
 
 	log.Debug("step 3: Header have been committed and header has been broadcast")
 
-	err = sr.broadcastBlockDataLeader()
+	err = sr.broadcastBlockDataLeader(header)
 	if err != nil {
 		log.Debug("doEndRoundJobByLeader.broadcastBlockDataLeader", "error", err.Error())
 	}
 
-	msg := fmt.Sprintf("Added proposed block with nonce  %d  in blockchain", sr.Header.GetNonce())
+	msg := fmt.Sprintf("Added proposed block with nonce  %d  in blockchain", header.GetNonce())
 	log.Debug(display.Headline(msg, sr.SyncTimer().FormattedCurrentTime(), "+"))
 
 	sr.updateMetricsForLeader()
@@ -283,7 +306,7 @@ func (sr *subslotEndSlot) doEndSlotJobByLeader() bool {
 	return true
 }
 
-func (sr *subslotEndSlot) createAndBroadcastHeaderFinalInfo() {
+func (sr *subslotEndSlot) createAndBroadcastHeaderFinalInfo(header data.HeaderHandler) {
 	cnsMsg := consensus.NewConsensusMessage(
 		sr.GetData(),
 		nil,
@@ -292,11 +315,11 @@ func (sr *subslotEndSlot) createAndBroadcastHeaderFinalInfo() {
 		nil,
 		int(MtBlockHeaderFinalInfo),
 		sr.SlotManager().Index(),
-		sr.Header.GetNonce(),
+		header.GetNonce(),
 		sr.ChainID(),
-		sr.Header.GetPubKeysBitmap(),
-		sr.Header.GetSignature(),
-		sr.Header.GetProducerSignature(),
+		header.GetPubKeysBitmap(),
+		header.GetSignature(),
+		header.GetProducerSignature(),
 		sr.CurrentPid(),
 	)
 
@@ -307,19 +330,24 @@ func (sr *subslotEndSlot) createAndBroadcastHeaderFinalInfo() {
 	}
 
 	log.Debug("step 3: block header final info has been sent",
-		"PubKeysBitmap", sr.Header.GetPubKeysBitmap(),
-		"AggregateSignature", sr.Header.GetSignature(),
-		"LeaderSignature", sr.Header.GetProducerSignature())
+		"PubKeysBitmap", header.GetPubKeysBitmap(),
+		"AggregateSignature", header.GetSignature(),
+		"LeaderSignature", header.GetProducerSignature())
 }
 
 func (sr *subslotEndSlot) doEndSlotJobByParticipant(cnsDta *consensus.Message) bool {
 	sr.mutProcessingEndSlot.Lock()
 	defer sr.mutProcessingEndSlot.Unlock()
 
-	if sr.SlotCanceled {
+	sr.RLockSlotState()
+	canceled := sr.SlotCanceled
+	dataSet := sr.Data != nil
+	sr.RUnlockSlotState()
+
+	if canceled {
 		return false
 	}
-	if !sr.IsConsensusDataSet() {
+	if !dataSet {
 		return false
 	}
 	if !sr.IsSubslotFinished(sr.Previous()) {
@@ -340,13 +368,17 @@ func (sr *subslotEndSlot) doEndSlotJobByParticipant(cnsDta *consensus.Message) b
 
 	sr.SetProcessingBlock(true)
 
-	shouldNotCommitBlock := sr.ExtendedCalled || header.GetSlot() < tools.SafeI64ToU64(sr.SlotManager().Index())
+	sr.RLockSlotState()
+	extendedCalled := sr.ExtendedCalled
+	sr.RUnlockSlotState()
+
+	shouldNotCommitBlock := extendedCalled || header.GetSlot() < tools.SafeI64ToU64(sr.SlotManager().Index())
 	if shouldNotCommitBlock {
 		log.Debug("canceled slot, extended has been called or slot index has been changed",
 			"slot", sr.SlotManager().Index(),
 			"subslot", sr.Name(),
 			"header slot", header.GetSlot(),
-			"extended called", sr.ExtendedCalled,
+			"extended called", extendedCalled,
 		)
 		return false
 	}
@@ -398,11 +430,15 @@ func (sr *subslotEndSlot) haveConsensusHeaderWithFullInfo(cnsDta *consensus.Mess
 		return sr.isConsensusHeaderReceived()
 	}
 
-	if check.IfNil(sr.Header) {
+	sr.RLockSlotState()
+	currentHeader := sr.Header
+	sr.RUnlockSlotState()
+
+	if check.IfNil(currentHeader) {
 		return false, nil
 	}
 
-	header := sr.Header.Clone()
+	header := currentHeader.Clone()
 	header.SetPubKeysBitmap(cnsDta.PubKeysBitmap)
 	header.SetSignature(cnsDta.AggregateSignature)
 	header.SetProducerSignature(cnsDta.LeaderSignature)
@@ -411,11 +447,15 @@ func (sr *subslotEndSlot) haveConsensusHeaderWithFullInfo(cnsDta *consensus.Mess
 }
 
 func (sr *subslotEndSlot) isConsensusHeaderReceived() (bool, data.HeaderHandler) {
-	if check.IfNil(sr.Header) {
+	sr.RLockSlotState()
+	currentHeader := sr.Header
+	sr.RUnlockSlotState()
+
+	if check.IfNil(currentHeader) {
 		return false, nil
 	}
 
-	consensusHeaderHash, err := tools.CalculateHash(sr.Marshalizer(), sr.Hasher(), sr.Header.GetBlockHeader())
+	consensusHeaderHash, err := tools.CalculateHash(sr.Marshalizer(), sr.Hasher(), currentHeader.GetBlockHeader())
 	if err != nil {
 		log.Debug("isConsensusHeaderReceived: calculate consensus header hash", "error", err.Error())
 		return false, nil
@@ -441,8 +481,8 @@ func (sr *subslotEndSlot) isConsensusHeaderReceived() (bool, data.HeaderHandler)
 	return false, nil
 }
 
-func (sr *subslotEndSlot) signBlockHeader() ([]byte, error) {
-	marshalizedHdr, err := sr.Marshalizer().Marshal(sr.Header.GetBlockHeader())
+func (sr *subslotEndSlot) signBlockHeader(header data.HeaderHandler) ([]byte, error) {
+	marshalizedHdr, err := sr.Marshalizer().Marshal(header.GetBlockHeader())
 	if err != nil {
 		return nil, err
 	}
@@ -457,7 +497,11 @@ func (sr *subslotEndSlot) updateMetricsForLeader() {
 
 // doEndSlotConsensusCheck method checks if the consensus is achieved
 func (sr *subslotEndSlot) doEndSlotConsensusCheck() bool {
-	if sr.SlotCanceled {
+	sr.RLockSlotState()
+	canceled := sr.SlotCanceled
+	sr.RUnlockSlotState()
+
+	if canceled {
 		return false
 	}
 
@@ -509,14 +553,16 @@ func (sr *subslotEndSlot) checkSignaturesValidity(bitmap []byte) error {
 }
 
 func (sr *subslotEndSlot) isOutOfTime() bool {
+	sr.RLockSlotState()
 	startTime := sr.SlotTimestamp
+	sr.RUnlockSlotState()
 	maxTime := sr.SlotManager().TimeDuration() * time.Duration(sr.processingThresholdPercentage) / 100
 	if sr.SlotManager().RemainingTime(startTime, maxTime) < 0 {
 		log.Debug("canceled slot, time is out",
 			"slot", sr.SyncTimer().FormattedCurrentTime(), sr.SlotManager().Index(),
 			"subslot", sr.Name())
 
-		sr.SlotCanceled = true
+		sr.SetSlotCanceled(true)
 		return true
 	}
 
@@ -529,7 +575,11 @@ func (sr *subslotEndSlot) getIndexPkAndDataToBroadcast() (int, []byte, []byte, [
 		return -1, nil, nil, nil, err
 	}
 
-	blockBuffer, transactions, err := sr.BlockProcessor().MarshalizedDataToBroadcast(sr.Header)
+	sr.RLockSlotState()
+	header := sr.Header
+	sr.RUnlockSlotState()
+
+	blockBuffer, transactions, err := sr.BlockProcessor().MarshalizedDataToBroadcast(header)
 	if err != nil {
 		return -1, nil, nil, nil, err
 	}
@@ -541,13 +591,13 @@ func (sr *subslotEndSlot) getIndexPkAndDataToBroadcast() (int, []byte, []byte, [
 
 }
 
-func (sr *subslotEndSlot) broadcastBlockDataLeader() error {
-	data, transactions, err := sr.BlockProcessor().MarshalizedDataToBroadcast(sr.Header)
+func (sr *subslotEndSlot) broadcastBlockDataLeader(header data.HeaderHandler) error {
+	data, transactions, err := sr.BlockProcessor().MarshalizedDataToBroadcast(header)
 	if err != nil {
 		return err
 	}
 
-	return sr.BroadcastMessenger().BroadcastBlockDataLeader(sr.Header, data, transactions)
+	return sr.BroadcastMessenger().BroadcastBlockDataLeader(header, data, transactions)
 }
 
 func (sr *subslotEndSlot) setHeaderForValidator(header data.HeaderHandler) error {
@@ -567,7 +617,11 @@ func (sr *subslotEndSlot) prepareBroadcastBlockDataForValidator() error {
 		return err
 	}
 
-	go sr.BroadcastMessenger().PrepareBroadcastBlockDataValidator(sr.Header, transactions, index, pk)
+	sr.RLockSlotState()
+	header := sr.Header
+	sr.RUnlockSlotState()
+
+	go sr.BroadcastMessenger().PrepareBroadcastBlockDataValidator(header, transactions, index, pk)
 
 	return nil
 }

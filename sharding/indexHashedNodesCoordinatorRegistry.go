@@ -28,7 +28,7 @@ func (ihgs *indexHashedNodesCoordinator) NodesCoordinatorToRegistry() *NodesCoor
 	defer ihgs.mutNodesConfig.RUnlock()
 
 	registry := &NodesCoordinatorRegistry{
-		CurrentEpoch: ihgs.currentEpoch,
+		CurrentEpoch: ihgs.currentEpoch.Load(),
 		EpochsConfig: make(map[string]*EpochValidators, len(ihgs.nodesConfig)),
 	}
 
