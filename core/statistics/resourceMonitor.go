@@ -11,8 +11,8 @@ import (
 	"github.com/klever-io/klever-go/core/statistics/machine"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/tools"
-	"github.com/shirou/gopsutil/net"
-	"github.com/shirou/gopsutil/process"
+	"github.com/shirou/gopsutil/v4/net"
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 // ResourceMonitor outputs statistics about resources used by the binary

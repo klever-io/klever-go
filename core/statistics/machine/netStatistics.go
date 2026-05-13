@@ -8,7 +8,7 @@ import (
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/eventNotifier"
 	"github.com/klever-io/klever-go/eventNotifier/notifier"
-	"github.com/shirou/gopsutil/net"
+	"github.com/shirou/gopsutil/v4/net"
 )
 
 // netStatistics can compute the network statistics

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/klever-io/klever-go/tools"
-	"github.com/shirou/gopsutil/net"
+	"github.com/shirou/gopsutil/v4/net"
 	"github.com/stretchr/testify/assert"
 )
 
