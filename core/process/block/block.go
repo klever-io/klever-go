@@ -123,16 +123,8 @@ func (mp *metaProcessor) ProcessBlock(
 		return process.ErrNilHaveTimeHandler
 	}
 
-	err := mp.checkBlockValidity(headerHandler)
+	err := mp.validateBlockAndRequestMissing(headerHandler)
 	if err != nil {
-		if err == process.ErrBlockHashDoesNotMatch {
-			log.Debug("requested missing header",
-				"hash", headerHandler.GetParentHash(),
-			)
-
-			go mp.requestHandler.RequestHeader(headerHandler.GetParentHash())
-		}
-
 		return err
 	}
 
@@ -153,24 +145,7 @@ func (mp *metaProcessor) ProcessBlock(
 		return common.ErrWrongTypeAssertion
 	}
 
-	txCounts := mp.txCounter.getPoolCounts(mp.dataPool)
-	log.Debug("total txs in pool", "counts", txCounts.String())
-
-	// Clone the header before handing it to the async metrics goroutine —
-	// ProcessBlock's main path keeps mutating the same pointer (e.g.,
-	// epochStartNativeStakingKapps -> SetBurnedUnclaimed), so a shared
-	// reference races on every field read inside getMetricsFromHeader.
-	metricsHeader, ok := header.Clone().(*block.Block)
-	if ok {
-		go getMetricsFromHeader(
-			metricsHeader,
-			tools.SafeI64ToU64(txCounts.GetTotal()),
-			mp.marshalizer,
-			mp.appStatusHandler,
-		)
-	} else {
-		log.Error("ProcessBlock: cloned header has unexpected type, skipping async metrics")
-	}
+	mp.dispatchAsyncHeaderMetrics(header)
 
 	defer func() {
 		if err != nil {
@@ -212,17 +187,7 @@ func (mp *metaProcessor) ProcessBlock(
 	}
 
 	if header.GetIsEpochStart() {
-		err = mp.processEpochStartBlock(header)
-		if err != nil {
-			_ = bugsnag.Notify(fmt.Errorf("process epoch start block: %w", err), bugsnag.MetaData{"data": {"header": header}})
-			return err
-		}
-
-		err = mp.verifyFees(header)
-		if err != nil {
-			_ = bugsnag.Notify(fmt.Errorf("process verify fees: %w", err), bugsnag.MetaData{"data": {"header": header}})
-		}
-		return err
+		return mp.handleEpochStartBlock(header)
 	}
 
 	err = mp.verifyFees(header)
@@ -248,14 +213,85 @@ func (mp *metaProcessor) ProcessBlock(
 		mp.appStatusHandler,
 	)
 
+	err = mp.verifyBlockTrieRoots(header)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateBlockAndRequestMissing wraps checkBlockValidity and, on an
+// ErrBlockHashDoesNotMatch result, fires an async request for the missing
+// parent header before returning the error to the caller.
+func (mp *metaProcessor) validateBlockAndRequestMissing(headerHandler data.HeaderHandler) error {
+	err := mp.checkBlockValidity(headerHandler)
+	if err == nil {
+		return nil
+	}
+
+	if err == process.ErrBlockHashDoesNotMatch {
+		log.Debug("requested missing header",
+			"hash", headerHandler.GetParentHash(),
+		)
+		go mp.requestHandler.RequestHeader(headerHandler.GetParentHash())
+	}
+
+	return err
+}
+
+// dispatchAsyncHeaderMetrics clones the header and emits per-block metrics in
+// a goroutine. ProcessBlock keeps mutating the original header pointer (e.g.,
+// epochStartNativeStakingKapps -> SetBurnedUnclaimed), so handing the same
+// reference to a background reader races on every field access.
+func (mp *metaProcessor) dispatchAsyncHeaderMetrics(header *block.Block) {
+	txCounts := mp.txCounter.getPoolCounts(mp.dataPool)
+	log.Debug("total txs in pool", "counts", txCounts.String())
+
+	metricsHeader, ok := header.Clone().(*block.Block)
+	if !ok {
+		log.Error("ProcessBlock: cloned header has unexpected type, skipping async metrics")
+		return
+	}
+
+	go getMetricsFromHeader(
+		metricsHeader,
+		tools.SafeI64ToU64(txCounts.GetTotal()),
+		mp.marshalizer,
+		mp.appStatusHandler,
+	)
+}
+
+// handleEpochStartBlock runs the epoch-start branch of ProcessBlock: process
+// the epoch-start block, then verify fees. The fees error is reported and
+// returned, but does not skip the bugsnag notification.
+func (mp *metaProcessor) handleEpochStartBlock(header *block.Block) error {
+	err := mp.processEpochStartBlock(header)
+	if err != nil {
+		_ = bugsnag.Notify(fmt.Errorf("process epoch start block: %w", err), bugsnag.MetaData{"data": {"header": header}})
+		return err
+	}
+
+	err = mp.verifyFees(header)
+	if err != nil {
+		_ = bugsnag.Notify(fmt.Errorf("process verify fees: %w", err), bugsnag.MetaData{"data": {"header": header}})
+	}
+
+	return nil
+}
+
+// verifyBlockTrieRoots runs the three post-transaction trie-root checks
+// (account, validator-statistics, kapp). Each failure is reported via bugsnag
+// before being returned to the caller.
+func (mp *metaProcessor) verifyBlockTrieRoots(header *block.Block) error {
 	if !mp.verifyStateRootAccount(header.GetTrieRoot()) {
 		log.Debug("processBlock.verifyStateRootAccount", "blockTrieRoot", logger.DisplayByteSlice(header.GetTrieRoot()))
-		err = process.ErrRootStateDoesNotMatch
+		err := process.ErrRootStateDoesNotMatch
 		_ = bugsnag.Notify(fmt.Errorf("process account state: %w", err), bugsnag.MetaData{"data": {"header": header}})
 		return err
 	}
 
-	err = mp.verifyValidatorStatisticsRootHash(header)
+	err := mp.verifyValidatorStatisticsRootHash(header)
 	if err != nil {
 		_ = bugsnag.Notify(fmt.Errorf("process epoch valdiator state: %w", err), bugsnag.MetaData{"data": {"header": header}})
 		return err
