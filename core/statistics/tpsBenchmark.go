@@ -107,42 +107,58 @@ func (s *TpsBenchmark) SlotTime() uint64 {
 
 // BlockNumber returns the last processed block number
 func (s *TpsBenchmark) BlockNumber() uint64 {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
 	return s.blockNumber
 }
 
 // SlotNumber returns the slot index for this benchmark object
 func (s *TpsBenchmark) SlotNumber() uint64 {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
 	return s.slotNumber
 }
 
 // AverageBlockTxCount returns an average of the tx/block
 func (s *TpsBenchmark) AverageBlockTxCount() *big.Int {
-	return s.averageBlockTxCount
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+	return new(big.Int).Set(s.averageBlockTxCount)
 }
 
 // CurrentBlockTxCount returns the number of transactions processed in the current block
 func (s *TpsBenchmark) CurrentBlockTxCount() uint32 {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
 	return s.currentBlockTxCount
 }
 
 // TotalProcessedTxCount returns the total number of processed transactions
 func (s *TpsBenchmark) TotalProcessedTxCount() *big.Int {
-	return s.totalProcessedTxCount
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+	return new(big.Int).Set(s.totalProcessedTxCount)
 }
 
 // LiveTPS returns tps for the current block
 func (s *TpsBenchmark) LiveTPS() float64 {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
 	return float64(uint64(s.currentBlockTxCount) / s.slotTime)
 }
 
 // PeakTPS returns tps for the last block
 func (s *TpsBenchmark) PeakTPS() float64 {
+	s.mut.RLock()
+	defer s.mut.RUnlock()
 	return s.peakTPS
 }
 
 // AverageTPS returns the average tps for the last block
 func (s *TpsBenchmark) AverageTPS() *big.Int {
-	return s.averageTPS
+	s.mut.RLock()
+	defer s.mut.RUnlock()
+	return new(big.Int).Set(s.averageTPS)
 }
 
 // Update receives a metablock and updates all fields accordingly for each shard available in the meta block
