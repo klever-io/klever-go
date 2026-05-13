@@ -34,6 +34,7 @@ func updateTpsBenchmark(tpsBenchmark *statistics.TpsBenchmark, txCount uint32, n
 	_ = tpsBenchmark.LiveTPS()
 	_ = tpsBenchmark.PeakTPS()
 	_ = tpsBenchmark.AverageTPS()
+	_ = tpsBenchmark.Snapshot()
 }
 
 func TestTpsBenchmark_NewTPSBenchmarkReturnsErrorOnInvalidDuration(t *testing.T) {
@@ -397,6 +398,72 @@ func TestTpsBenchmark_NewTPSBenchmarkWithInitialData(t *testing.T) {
 	})
 }
 
+func TestTpsBenchmark_Snapshot(t *testing.T) {
+	t.Parallel()
+
+	t.Run("after an update, fields match underlying state", func(t *testing.T) {
+		t.Parallel()
+		slotInterval := uint64(4)
+		tpsBenchmark, err := statistics.NewTPSBenchmark(slotInterval)
+		assert.NoError(t, err)
+
+		metaBlock := &block.Block{
+			Header: &block.BlockHeader{
+				Nonce:   3,
+				Slot:    6,
+				TxCount: 24,
+			},
+		}
+		tpsBenchmark.Update(metaBlock)
+
+		snap := tpsBenchmark.Snapshot()
+		assert.Equal(t, uint64(3), snap.BlockNumber)
+		assert.Equal(t, uint64(6), snap.SlotNumber)
+		assert.Equal(t, slotInterval, snap.SlotTime)
+		assert.Equal(t, uint32(24), snap.CurrentBlockTxCount)
+		assert.Equal(t, float64(24/slotInterval), snap.LiveTPS)
+		assert.Equal(t, float64(24/slotInterval), snap.PeakTPS)
+		assert.Equal(t, big.NewInt(24), snap.TotalProcessedTxCount)
+		assert.Equal(t, big.NewInt(8), snap.AverageBlockTxCount) // 24 / 3 nonce
+		assert.Equal(t, big.NewInt(4), snap.AverageTPS)          // 24 / 6 slot
+	})
+
+	t.Run("returns defensive copies for *big.Int fields", func(t *testing.T) {
+		t.Parallel()
+		tpsBenchmark, _ := statistics.NewTPSBenchmark(uint64(4))
+		tpsBenchmark.Update(&block.Block{
+			Header: &block.BlockHeader{Nonce: 1, Slot: 2, TxCount: 10},
+		})
+
+		// Mutating the snapshot's *big.Int values must not affect subsequent reads.
+		snap := tpsBenchmark.Snapshot()
+		snap.TotalProcessedTxCount.SetInt64(9999)
+		snap.AverageBlockTxCount.SetInt64(9999)
+		snap.AverageTPS.SetInt64(9999)
+
+		snap2 := tpsBenchmark.Snapshot()
+		assert.Equal(t, big.NewInt(10), snap2.TotalProcessedTxCount)
+		assert.Equal(t, big.NewInt(10), snap2.AverageBlockTxCount)
+		assert.Equal(t, big.NewInt(5), snap2.AverageTPS) // 10 / 2 slot
+	})
+
+	t.Run("zero-state snapshot from fresh benchmark", func(t *testing.T) {
+		t.Parallel()
+		tpsBenchmark, _ := statistics.NewTPSBenchmark(uint64(4))
+		snap := tpsBenchmark.Snapshot()
+
+		assert.Equal(t, uint64(0), snap.BlockNumber)
+		assert.Equal(t, uint64(0), snap.SlotNumber)
+		assert.Equal(t, uint64(4), snap.SlotTime)
+		assert.Equal(t, uint32(0), snap.CurrentBlockTxCount)
+		assert.Equal(t, float64(0), snap.LiveTPS)
+		assert.Equal(t, float64(0), snap.PeakTPS)
+		assert.Equal(t, big.NewInt(0), snap.TotalProcessedTxCount)
+		assert.Equal(t, big.NewInt(0), snap.AverageBlockTxCount)
+		assert.Equal(t, big.NewInt(0), snap.AverageTPS)
+	})
+}
+
 // TestTpsBenchmark_SnapshotConsistencyUnderConcurrentUpdates verifies that Snapshot()
 // returns a cross-field-consistent view: every snapshot must satisfy the invariant
 // enforced by updateStatistics — averageBlockTxCount = totalProcessedTxCount / blockNumber
@@ -413,6 +480,7 @@ func TestTpsBenchmark_SnapshotConsistencyUnderConcurrentUpdates(t *testing.T) {
 	nrUpdates := 2000
 
 	done := make(chan struct{})
+	firstObserved := make(chan struct{})
 	var inconsistent atomic.Uint64
 	var observed atomic.Uint64
 
@@ -420,6 +488,7 @@ func TestTpsBenchmark_SnapshotConsistencyUnderConcurrentUpdates(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		var onceObserved bool
 		for {
 			select {
 			case <-done:
@@ -429,6 +498,10 @@ func TestTpsBenchmark_SnapshotConsistencyUnderConcurrentUpdates(t *testing.T) {
 			snap := tpsBenchmark.Snapshot()
 			if snap.BlockNumber == 0 {
 				continue
+			}
+			if !onceObserved {
+				close(firstObserved)
+				onceObserved = true
 			}
 			observed.Add(1)
 			blockNumber := new(big.Int).SetUint64(snap.BlockNumber)
@@ -440,7 +513,15 @@ func TestTpsBenchmark_SnapshotConsistencyUnderConcurrentUpdates(t *testing.T) {
 		}
 	}()
 
-	for i := 1; i <= nrUpdates; i++ {
+	// Prime the benchmark with one Update so the reader sees a non-zero snapshot
+	// on its first observation. Wait for that observation before continuing the
+	// main writer loop — this removes the test's dependency on scheduler timing
+	// for the `observed > 0` assertion, without weakening the in-flight
+	// consistency check (the reader still runs concurrently with the remaining updates).
+	updateTpsBenchmark(tpsBenchmark, txCount, uint64(1))
+	<-firstObserved
+
+	for i := 2; i <= nrUpdates; i++ {
 		updateTpsBenchmark(tpsBenchmark, txCount, uint64(i))
 	}
 	close(done)
