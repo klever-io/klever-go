@@ -7,7 +7,7 @@ import (
 	"time"
 
 	logger "github.com/klever-io/klever-go-logger"
-	"github.com/shirou/gopsutil/disk"
+	"github.com/shirou/gopsutil/v4/disk"
 )
 
 var diskLog = logger.GetOrCreate("statistics/machine/disk")

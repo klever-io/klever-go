@@ -4,7 +4,7 @@ import (
 	"os"
 
 	logger "github.com/klever-io/klever-go-logger"
-	"github.com/shirou/gopsutil/process"
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 var log = logger.GetOrCreate("statistics/machine")

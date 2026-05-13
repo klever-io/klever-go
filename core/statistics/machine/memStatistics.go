@@ -5,7 +5,7 @@ import (
 	"runtime"
 
 	"github.com/klever-io/klever-go/tools"
-	"github.com/shirou/gopsutil/mem"
+	"github.com/shirou/gopsutil/v4/mem"
 )
 
 // MemStatistics holds memory statistics
