@@ -156,7 +156,7 @@ func TestCheckDupTransaction(t *testing.T) {
 			assert.Equal(t, finalNonce, header.GetNonce())
 			continue
 		}
-		assert.Equal(t, int64(slot), n.SlotManager.SlotIndex+1, "Node should be at previous slot")
+		assert.Equal(t, int64(slot), n.SlotManager.SlotIndex.Load()+1, "Node should be at previous slot")
 		// other nodes then proposed should be reverted
 		// current block nonce should be equal to the last block nonce -1
 		assert.Equal(t, finalNonce-1, header.GetNonce())

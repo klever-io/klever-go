@@ -387,9 +387,13 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 		return err
 	}
 
-	if cnsMsg.SlotIndex > wrk.consensusState.SlotIndex {
+	wrk.consensusState.RLockSlotState()
+	currentSlotIndex := wrk.consensusState.SlotIndex
+	wrk.consensusState.RUnlockSlotState()
+
+	if cnsMsg.SlotIndex > currentSlotIndex {
 		log.Trace("storing consensus message due to slot mismatch",
-			"wrk.consensusState.SlotIndex", wrk.consensusState.SlotIndex,
+			"wrk.consensusState.SlotIndex", currentSlotIndex,
 			"cnsDta.SlotIndex", cnsMsg.SlotIndex,
 		)
 		wrk.storeMessage(cnsMsg)
@@ -552,7 +556,12 @@ func (wrk *Worker) checkSelfState(cnsDta *consensus.Message) error {
 		return ErrMessageFromItself
 	}
 
-	if wrk.consensusState.SlotCanceled && wrk.consensusState.SlotIndex == cnsDta.SlotIndex {
+	wrk.consensusState.RLockSlotState()
+	canceled := wrk.consensusState.SlotCanceled
+	currentSlotIndex := wrk.consensusState.SlotIndex
+	wrk.consensusState.RUnlockSlotState()
+
+	if canceled && currentSlotIndex == cnsDta.SlotIndex {
 		return ErrSlotCanceled
 	}
 
@@ -584,11 +593,14 @@ func (wrk *Worker) executeStoredMessages() {
 }
 
 func (wrk *Worker) executeMessage(cnsDtaList []*consensus.Message) {
+	wrk.consensusState.RLockSlotState()
+	currentSlotIndex := wrk.consensusState.SlotIndex
+	wrk.consensusState.RUnlockSlotState()
 	for i, cnsDta := range cnsDtaList {
 		if cnsDta == nil {
 			continue
 		}
-		if wrk.consensusState.SlotIndex != cnsDta.SlotIndex {
+		if currentSlotIndex != cnsDta.SlotIndex {
 			continue
 		}
 
@@ -636,7 +648,7 @@ func (wrk *Worker) checkChannels(ctx context.Context) {
 
 // Extend does an extension for the subslot with subslotId
 func (wrk *Worker) Extend(subslotId int) {
-	wrk.consensusState.ExtendedCalled = true
+	wrk.consensusState.SetExtendedCalled(true)
 	log.Debug("extend function is called",
 		"subslot", wrk.consensusService.GetSubslotName(subslotId))
 
@@ -668,10 +680,14 @@ func (wrk *Worker) Extend(subslotId int) {
 			}})
 	}
 
-	wrk.blockProcessor.RevertStateToSnapshot(wrk.consensusState.Header)
+	wrk.consensusState.RLockSlotState()
+	header := wrk.consensusState.Header
+	wrk.consensusState.RUnlockSlotState()
 
-	if wrk.consensusState.Header != nil &&
-		wrk.consensusState.Header.GetNonce() == wrk.forkDetector.ProbableHighestNonce() {
+	wrk.blockProcessor.RevertStateToSnapshot(header)
+
+	if header != nil &&
+		header.GetNonce() == wrk.forkDetector.ProbableHighestNonce() {
 		wrk.forkDetector.ResetProbableHighestNonce()
 	}
 }

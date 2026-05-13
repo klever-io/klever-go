@@ -224,7 +224,7 @@ func CheckTXInBlock(nodes []*processorNode.ProcessorNode, txHash []byte, blockNo
 		txResult, err := GetAndCheckTransaction(n, txHash)
 		if err != nil {
 			finalErr = WrapError(finalErr, err)
-			log.Warn("TX not found", "nodeIdx", i, "slot", n.SlotManager.SlotIndex, "nonce", n.Blkc.GetCurrentBlockHeader().GetNonce())
+			log.Warn("TX not found", "nodeIdx", i, "slot", n.SlotManager.SlotIndex.Load(), "nonce", n.Blkc.GetCurrentBlockHeader().GetNonce())
 			continue
 
 		}
@@ -232,7 +232,7 @@ func CheckTXInBlock(nodes []*processorNode.ProcessorNode, txHash []byte, blockNo
 		// check if TX is in the block or pending
 		if txResult.Block != blockNonce {
 			finalErr = WrapError(finalErr, ErrNotInBlock)
-			log.Warn("TX block does not match", "nodeIdx", i, "slot", n.SlotManager.SlotIndex, "nodeHight", n.Blkc.GetCurrentBlockHeader().GetNonce(), "foundBlock", txResult.Block, "expectedBlock", blockNonce)
+			log.Warn("TX block does not match", "nodeIdx", i, "slot", n.SlotManager.SlotIndex.Load(), "nodeHight", n.Blkc.GetCurrentBlockHeader().GetNonce(), "foundBlock", txResult.Block, "expectedBlock", blockNonce)
 			continue
 		}
 
@@ -240,7 +240,7 @@ func CheckTXInBlock(nodes []*processorNode.ProcessorNode, txHash []byte, blockNo
 		b, err := n.GetBlockByNonce(txResult.Block)
 		if err != nil {
 			finalErr = WrapError(finalErr, err)
-			log.Warn("Block not found", "nodeIdx", i, "slot", n.SlotManager.SlotIndex, "nonce", txResult.Block, "nodeBlock", n.Blkc.GetCurrentBlockHeader().GetBlockHeader())
+			log.Warn("Block not found", "nodeIdx", i, "slot", n.SlotManager.SlotIndex.Load(), "nonce", txResult.Block, "nodeBlock", n.Blkc.GetCurrentBlockHeader().GetBlockHeader())
 			continue
 		}
 
@@ -261,7 +261,7 @@ func CheckTXIsPending(nodes []*processorNode.ProcessorNode, txHash []byte) error
 		_, err := GetAndCheckTransaction(n, txHash)
 		if err != ErrNotInBlock {
 			finalErr = WrapError(finalErr, err)
-			log.Warn("TX not pending", "nodeIdx", i, "slot", n.SlotManager.SlotIndex, "nonce", n.Blkc.GetCurrentBlockHeader().GetNonce(), "error", err)
+			log.Warn("TX not pending", "nodeIdx", i, "slot", n.SlotManager.SlotIndex.Load(), "nonce", n.Blkc.GetCurrentBlockHeader().GetNonce(), "error", err)
 			continue
 		}
 	}

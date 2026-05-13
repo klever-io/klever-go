@@ -346,14 +346,9 @@ func TestSubslotSignature_ReceivedSignature(t *testing.T) {
 func TestSubslotSignature_ReceivedSignature_HonestyScore(t *testing.T) {
 	t.Parallel()
 
-	container := mock.InitConsensusCore()
-	sr := *initSubslotSignatureWithContainer(container)
-	// Set self as leader, validating other nodes
-	sr.SetSelfPubKey(sr.ConsensusGroup()[0])
-
 	var testCases = []struct {
 		name              string
-		pubKey            string
+		pubKeyIndex       int
 		signature         string
 		shouldJobBeDone   bool
 		shouldBeAccepted  bool
@@ -362,7 +357,7 @@ func TestSubslotSignature_ReceivedSignature_HonestyScore(t *testing.T) {
 	}{
 		{
 			name:              "valid signature",
-			pubKey:            sr.ConsensusGroup()[1],
+			pubKeyIndex:       1,
 			signature:         "i am valid!",
 			shouldBeAccepted:  true,
 			shouldJobBeDone:   true,
@@ -371,7 +366,7 @@ func TestSubslotSignature_ReceivedSignature_HonestyScore(t *testing.T) {
 		},
 		{
 			name:              "invalid signature",
-			pubKey:            sr.ConsensusGroup()[2],
+			pubKeyIndex:       2,
 			signature:         "signature share", // mocked to be invalid
 			shouldBeAccepted:  false,
 			shouldJobBeDone:   false,
@@ -384,22 +379,29 @@ func TestSubslotSignature_ReceivedSignature_HonestyScore(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			// setup
+			// Build a fresh container + subslot per subtest. Sharing one
+			// container across t.Parallel() subtests races on the mock's
+			// peerHonestyHandler slot via SetPeerHonestyHandler below.
+			container := mock.InitConsensusCore()
+			sr := *initSubslotSignatureWithContainer(container)
+			sr.SetSelfPubKey(sr.ConsensusGroup()[0])
+			pubKey := sr.ConsensusGroup()[tc.pubKeyIndex]
+
 			called := false
 			container.SetPeerHonestyHandler(&cMock.PeerHonestyHandlerStub{
 				ChangeScoreCalled: func(pk string, topic string, units int) {
 					called = true
-					assert.Equal(t, tc.pubKey, pk)
+					assert.Equal(t, pubKey, pk)
 					assert.Equal(t, "consensus", topic)
 					assert.Equal(t, tc.expectedUnits, units)
 				},
 			})
 
 			cnsMsg := consensus.NewConsensusMessage(
-				sr.Data,
+				sr.GetData(),
 				[]byte(tc.signature),
 				nil,
-				[]byte(tc.pubKey),
+				[]byte(pubKey),
 				[]byte("sig"),
 				int(bls.MtSignature),
 				0,
@@ -410,10 +412,9 @@ func TestSubslotSignature_ReceivedSignature_HonestyScore(t *testing.T) {
 				nil,
 				currentPid,
 			)
-			// assert
 			accepted := sr.ReceivedSignature(cnsMsg)
 			assert.Equal(t, tc.shouldBeAccepted, accepted)
-			assert.Equal(t, tc.shouldJobBeDone, sr.IsJobDone(tc.pubKey, bls.SrSignature))
+			assert.Equal(t, tc.shouldJobBeDone, sr.IsJobDone(pubKey, bls.SrSignature))
 			assert.Equal(t, tc.shouldChangeScore, called)
 		})
 	}

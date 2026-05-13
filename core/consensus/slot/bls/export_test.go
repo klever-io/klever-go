@@ -250,8 +250,8 @@ func (sr *subslotEndSlot) HaveConsensusHeaderWithFullInfo(cnsDta *consensus.Mess
 	return sr.haveConsensusHeaderWithFullInfo(cnsDta)
 }
 
-func (sr *subslotEndSlot) CreateAndBroadcastHeaderFinalInfo() {
-	sr.createAndBroadcastHeaderFinalInfo()
+func (sr *subslotEndSlot) CreateAndBroadcastHeaderFinalInfo(header data.HeaderHandler) {
+	sr.createAndBroadcastHeaderFinalInfo(header)
 }
 
 func (sr *subslotEndSlot) ReceivedBlockHeaderFinalInfo(cnsDta *consensus.Message) bool {

@@ -590,7 +590,7 @@ func TestNodesCoordinator_allValidatorsInfo_EpochNodesConfigDoesNotExist(t *test
 	ihgs, err := NewNodesCoordinator(arguments)
 	require.Nil(t, err)
 
-	ihgs.currentEpoch = 1
+	ihgs.currentEpoch.Store(1)
 }
 
 func TestNodesCoordinator_allValidatorsInfo_KeepLeavingIfNotEnoughValidators(t *testing.T) {

@@ -72,10 +72,10 @@ type indexHashedNodesCoordinator struct {
 	shuffler                      NodesShuffler
 	consensusGroupCacher          Cacher
 	consensusGroupSize            int
-	currentEpoch                  uint32
+	currentEpoch                  atomic.Uint32
 	startEpoch                    uint32
 
-	stateReady bool
+	stateReady atomic.Bool
 }
 
 type indexHashedNodesCoordinatorWithRater struct {
@@ -114,10 +114,10 @@ func NewNodesCoordinator(arguments ArgNodesCoordinator) (*indexHashedNodesCoordi
 		consensusGroupSize:            arguments.ConsensusGroupSize,
 		publicKeyToValidatorMap:       make(map[string]Validator),
 		startEpoch:                    arguments.StartEpoch,
-		currentEpoch:                  arguments.StartEpoch,
-		// no need to wait for load state, as we have the initial configuration
-		stateReady: arguments.StartEpoch == 0,
 	}
+	ihgs.currentEpoch.Store(arguments.StartEpoch)
+	// no need to wait for load state, as we have the initial configuration
+	ihgs.stateReady.Store(arguments.StartEpoch == 0)
 
 	ihgs.loadingFromDisk.Store(false)
 
@@ -208,9 +208,12 @@ func (ihgs *indexHashedNodesCoordinator) EpochStartAction(hdr data.HeaderHandler
 	newEpoch := hdr.GetEpoch()
 	epochToRemove := int32(newEpoch) - nodeCoordinatorStoredEpochs // #nosec G115
 	needToRemove := epochToRemove >= 0
-	ihgs.currentEpoch = newEpoch
+	ihgs.currentEpoch.Store(newEpoch)
 
-	err := ihgs.saveState(ihgs.savedStateKey)
+	ihgs.mutSavedStateKey.RLock()
+	savedStateKey := bytes.Clone(ihgs.savedStateKey)
+	ihgs.mutSavedStateKey.RUnlock()
+	err := ihgs.saveState(savedStateKey)
 	if err != nil {
 		log.Error("saving nodes coordinator config failed", "error", err.Error())
 	}
@@ -269,7 +272,7 @@ func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 	ihgs.savedStateKey = key
 	ihgs.mutSavedStateKey.Unlock()
 
-	ihgs.currentEpoch = config.CurrentEpoch
+	ihgs.currentEpoch.Store(config.CurrentEpoch)
 	log.Debug("loaded nodes config", "current epoch", config.CurrentEpoch)
 
 	nodesConfig, err := ihgs.registryToNodesCoordinator(config)
@@ -282,7 +285,7 @@ func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 	ihgs.nodesConfig = nodesConfig
 	ihgs.mutNodesConfig.Unlock()
 
-	ihgs.stateReady = true
+	ihgs.stateReady.Store(true)
 
 	return nil
 }
@@ -476,7 +479,7 @@ func (ihgs *indexHashedNodesCoordinator) ComputeConsensusGroup(
 	epoch uint32,
 ) (validatorsGroup []Validator, err error) {
 	// check if component is ready (previous epoch nodes config is loaded)
-	if !ihgs.stateReady {
+	if !ihgs.stateReady.Load() {
 		return nil, ErrNodesCoordinatorNotReady
 	}
 
@@ -781,12 +784,20 @@ func (ihgs *indexHashedNodesCoordinator) EpochStartPrepare(metaHdr data.HeaderHa
 		log.Error("saving nodes coordinator config failed", "error", err.Error())
 	}
 
-	displayNodesConfiguration(
-		ihgs.nodesConfig[newEpoch].electedList,
-		ihgs.nodesConfig[newEpoch].eligibleList,
-		ihgs.nodesConfig[newEpoch].waitingList,
-		ihgs.nodesConfig[newEpoch].leavingList,
-	)
+	ihgs.mutNodesConfig.RLock()
+	displayCfg := ihgs.nodesConfig[newEpoch]
+	ihgs.mutNodesConfig.RUnlock()
+
+	if displayCfg != nil {
+		displayCfg.mutNodesMaps.RLock()
+		elected := displayCfg.electedList
+		eligible := displayCfg.eligibleList
+		waiting := displayCfg.waitingList
+		leaving := displayCfg.leavingList
+		displayCfg.mutNodesMaps.RUnlock()
+
+		displayNodesConfiguration(elected, eligible, waiting, leaving)
+	}
 
 	ihgs.mutSavedStateKey.Lock()
 	ihgs.savedStateKey = randomness

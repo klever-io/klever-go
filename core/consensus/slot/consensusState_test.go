@@ -3,6 +3,7 @@ package slot_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core/consensus"
@@ -459,4 +460,118 @@ func TestConsensusState_SetAndGetProcessingBlockShouldWork(t *testing.T) {
 	cns.SetProcessingBlock(true)
 
 	assert.Equal(t, true, cns.ProcessingBlock())
+}
+
+func TestConsensusState_LockUnlockSlotStateAllowsReentryAfterRelease(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+
+	cns.LockSlotState()
+	cns.SlotIndex = 7
+	cns.UnlockSlotState()
+
+	cns.RLockSlotState()
+	got := cns.SlotIndex
+	cns.RUnlockSlotState()
+
+	assert.Equal(t, int64(7), got)
+}
+
+func TestConsensusState_SetSlotCanceledTogglesFlag(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+	cns.SetSlotCanceled(true)
+	assert.True(t, cns.SlotCanceled)
+
+	cns.SetSlotCanceled(false)
+	assert.False(t, cns.SlotCanceled)
+}
+
+func TestConsensusState_SetExtendedCalledTogglesFlag(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+	cns.SetExtendedCalled(true)
+	assert.True(t, cns.ExtendedCalled)
+
+	cns.SetExtendedCalled(false)
+	assert.False(t, cns.ExtendedCalled)
+}
+
+func TestConsensusState_SetWaitingAllSignaturesTimeOutTogglesFlag(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+	cns.SetWaitingAllSignaturesTimeOut(true)
+	assert.True(t, cns.WaitingAllSignaturesTimeOut)
+
+	cns.SetWaitingAllSignaturesTimeOut(false)
+	assert.False(t, cns.WaitingAllSignaturesTimeOut)
+}
+
+func TestConsensusState_SetWaitingAllSignaturesTimeOutIfSlot_AppliesOnSameSlot(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+	cns.BeginNewSlot(42, time.Unix(1700000000, 0))
+
+	applied := cns.SetWaitingAllSignaturesTimeOutIfSlot(42, true)
+	assert.True(t, applied)
+	assert.True(t, cns.WaitingAllSignaturesTimeOut)
+}
+
+func TestConsensusState_SetWaitingAllSignaturesTimeOutIfSlot_SkipsOnSlotMismatch(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+	cns.BeginNewSlot(42, time.Unix(1700000000, 0))
+
+	applied := cns.SetWaitingAllSignaturesTimeOutIfSlot(41, true)
+	assert.False(t, applied)
+	assert.False(t, cns.WaitingAllSignaturesTimeOut)
+}
+
+func TestConsensusState_GetDataReadsUnderLock(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+
+	cns.LockSlotState()
+	cns.Data = []byte("payload")
+	cns.UnlockSlotState()
+
+	assert.Equal(t, []byte("payload"), cns.GetData())
+}
+
+func TestConsensusState_BeginNewSlotResetsFlagsAndUpdatesIndex(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+	cns.SetSlotCanceled(true)
+	cns.SetExtendedCalled(true)
+	cns.SetWaitingAllSignaturesTimeOut(true)
+	cns.LockSlotState()
+	cns.Data = []byte("stale")
+	cns.Header = &block.Block{}
+	cns.UnlockSlotState()
+
+	ts := time.Unix(1700000000, 0)
+	cns.BeginNewSlot(99, ts)
+
+	cns.RLockSlotState()
+	idx := cns.SlotIndex
+	stamp := cns.SlotTimestamp
+	data := cns.Data
+	header := cns.Header
+	cns.RUnlockSlotState()
+
+	assert.Equal(t, int64(99), idx)
+	assert.Equal(t, ts, stamp)
+	assert.Nil(t, data)
+	assert.Nil(t, header)
+	assert.False(t, cns.SlotCanceled)
+	assert.False(t, cns.ExtendedCalled)
+	assert.False(t, cns.WaitingAllSignaturesTimeOut)
 }

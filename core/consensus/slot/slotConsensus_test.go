@@ -229,8 +229,6 @@ func TestSlotConsensus_ResetValidationMap(t *testing.T) {
 	jobDone, _ := rcns.JobDone("1", bls.SrBlock)
 	assert.Equal(t, true, jobDone)
 
-	rcns.ConsensusGroup()[1] = "X"
-
 	rcns.ResetSlotState()
 
 	jobDone, err := rcns.JobDone("1", bls.SrBlock)

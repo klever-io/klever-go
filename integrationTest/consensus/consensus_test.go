@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +15,19 @@ import (
 )
 
 var log = logger.GetOrCreate("integrationTest/consensus")
+
+// simulatedSlotDuration is the per-slot interval baked into the synthetic
+// timestamps these tests feed to consensus via TimestampCalled. It matches
+// the 4-second slot used on mainnet, and the tests are deliberately bounded
+// by the same budget — if consensus cannot commit a block within one slot
+// duration on a healthy 7-node cluster, that is a real regression, not a
+// flake, and the test should surface it.
+const simulatedSlotDuration = 4 * time.Second
+
+// blockWaitTimeoutSeconds is the per-step wait used by these tests. Pinned
+// to the mainnet slot duration so the test also validates that consensus
+// keeps up with the production cadence.
+const blockWaitTimeoutSeconds = int(simulatedSlotDuration / time.Second)
 
 func initTest(t *testing.T, numOfNodes int) ([]*processorNode.ProcessorNode, []*processorNode.NodeAccount, error) {
 	initialBalance := int64(1_000_000_000_000)
@@ -42,19 +56,23 @@ func TestConsensus_RevertBlockAndTransactions(t *testing.T) {
 	require.Nil(t, err)
 	assert.Len(t, wallets, 2)
 
-	currentSlot := int64(0)
+	// currentSlot is mutated by the test goroutine (via Add) and read by the
+	// per-node UpdateSlot/Timestamp closures invoked from the chronology
+	// goroutine, so it must be accessed atomically.
+	var currentSlot atomic.Int64
 
 	integrationTest.UpdateSlot(nodes, 0)
 	for _, n := range nodes {
-		n.SlotManager.TimeDurationField = 4 // 4 seconds simulation
-		n.SlotManager.UpdateSlotCalled = func(t time.Time) {
-			n.SlotManager.SlotIndex = currentSlot
+		n.SlotManager.TimeDurationField = simulatedSlotDuration
+		n.SlotManager.UpdateSlotCalled = func(_ time.Time) {
+			n.SlotManager.SlotIndex.Store(currentSlot.Load())
 		}
 		n.SlotManager.TimestampCalled = func() time.Time {
-			// compute Timestamp based on slot
-			return n.SlotManager.GenesisTimeField.Add(time.Duration(currentSlot*int64(n.SlotManager.TimeDurationField)) * time.Second) // 4 seconds simulation
+			return n.SlotManager.GenesisTimeField.Add(
+				time.Duration(currentSlot.Load()) * simulatedSlotDuration,
+			)
 		}
-		n.SlotManager.RemainingTimeCalled = func(startTime time.Time, maxTime time.Duration) time.Duration {
+		n.SlotManager.RemainingTimeCalled = func(_ time.Time, maxTime time.Duration) time.Duration {
 			return maxTime // always return maxTime
 		}
 
@@ -62,13 +80,13 @@ func TestConsensus_RevertBlockAndTransactions(t *testing.T) {
 	}
 
 	// inc slot and wait for block proposal
-	currentSlot++
+	slot := currentSlot.Add(1)
 	// wait for block proposal
-	WaitForBlockSlotOrTimeOut(nodes, uint64(currentSlot), 4)
+	WaitForBlockSlotOrTimeOut(t, nodes, uint64(slot), blockWaitTimeoutSeconds)
 
 	// create another block
-	currentSlot++
-	WaitForBlockSlotOrTimeOut(nodes, uint64(currentSlot), 4)
+	slot = currentSlot.Add(1)
+	WaitForBlockSlotOrTimeOut(t, nodes, uint64(slot), blockWaitTimeoutSeconds)
 
 	log.Info("*********************** SEND TX ***********************")
 	// send transaction
@@ -76,15 +94,15 @@ func TestConsensus_RevertBlockAndTransactions(t *testing.T) {
 	log.Info("TX Sent", "hash", txHash, "sender", tx.GetSender(), "nonce", tx.GetNonce())
 
 	// create another block
-	currentSlot++
-	WaitForBlockSlotOrTimeOut(nodes, uint64(currentSlot), 4)
+	slot = currentSlot.Add(1)
+	WaitForBlockSlotOrTimeOut(t, nodes, uint64(slot), blockWaitTimeoutSeconds)
 
 	// check tx in block
-	err = commonTxTest.CheckTXInBlock(nodes, txHash, uint64(currentSlot))
+	err = commonTxTest.CheckTXInBlock(nodes, txHash, uint64(slot))
 	require.Nil(t, err)
 
 	// revert last block
-	err = integrationTest.RevertOneBlock(nodes, uint64(currentSlot))
+	err = integrationTest.RevertOneBlock(nodes, uint64(slot))
 	require.Nil(t, err)
 
 	// check tx in block
@@ -92,12 +110,12 @@ func TestConsensus_RevertBlockAndTransactions(t *testing.T) {
 	require.Nil(t, err)
 
 	// create another block
-	currentSlot++
-	WaitForBlockSlotOrTimeOut(nodes, uint64(currentSlot), 4)
+	slot = currentSlot.Add(1)
+	WaitForBlockSlotOrTimeOut(t, nodes, uint64(slot), blockWaitTimeoutSeconds)
 
 	// TX should be processed on next blok after revert
-	txBlockNonce := uint64(currentSlot) - 1
-	txBlockSlot := uint64(currentSlot)
+	txBlockNonce := uint64(slot) - 1
+	txBlockSlot := uint64(slot)
 
 	// check TX in block again
 	err = commonTxTest.CheckTXInBlock(nodes, txHash, txBlockNonce)
@@ -105,8 +123,8 @@ func TestConsensus_RevertBlockAndTransactions(t *testing.T) {
 
 	// produce 12 should create 2 epochs (6 slots each)
 	for i := 0; i < 12; i++ {
-		currentSlot++
-		WaitForBlockSlotOrTimeOut(nodes, uint64(currentSlot), 4)
+		slot = currentSlot.Add(1)
+		WaitForBlockSlotOrTimeOut(t, nodes, uint64(slot), blockWaitTimeoutSeconds)
 	}
 
 	// wait for block sync
@@ -123,16 +141,18 @@ func TestConsensus_RevertBlockAndTransactions(t *testing.T) {
 	assert.Equal(t, txHash, b.TxHashes[0])
 
 	// get current block header and check slot/nonce/epoch
+	finalSlot := currentSlot.Load()
 	header, _ := nodes[0].GetCurrentBlockHeaderAndHash()
-	assert.Equal(t, uint64(currentSlot), header.GetSlot())
-	assert.Equal(t, uint64(currentSlot-1), header.GetNonce())
+	assert.Equal(t, uint64(finalSlot), header.GetSlot())
+	assert.Equal(t, uint64(finalSlot-1), header.GetNonce())
 	// Since slots start at 1, we subtract 1 to align with zero-based indexing.
 	// in this tests we have 6 slots per epoch
-	assert.Equal(t, uint32(currentSlot-1)/uint32(6), header.GetEpoch())
+	assert.Equal(t, uint32(finalSlot-1)/uint32(6), header.GetEpoch())
 }
 
-func WaitForBlockNonceOrTimeOut(nodes []*processorNode.ProcessorNode, nonce uint64, timeout int) {
-	waitForBlockConditionOrTimeOut(nodes, blockWaitCondition{
+func WaitForBlockNonceOrTimeOut(t *testing.T, nodes []*processorNode.ProcessorNode, nonce uint64, timeout int) {
+	t.Helper()
+	waitForBlockConditionOrTimeOut(t, nodes, blockWaitCondition{
 		check: func(n *processorNode.ProcessorNode) bool {
 			// get current block header, check if slot is in
 			header, _ := n.GetCurrentBlockHeaderAndHash()
@@ -143,8 +163,9 @@ func WaitForBlockNonceOrTimeOut(nodes []*processorNode.ProcessorNode, nonce uint
 	}, timeout)
 }
 
-func WaitForBlockSlotOrTimeOut(nodes []*processorNode.ProcessorNode, slot uint64, timeout int) {
-	waitForBlockConditionOrTimeOut(nodes, blockWaitCondition{
+func WaitForBlockSlotOrTimeOut(t *testing.T, nodes []*processorNode.ProcessorNode, slot uint64, timeout int) {
+	t.Helper()
+	waitForBlockConditionOrTimeOut(t, nodes, blockWaitCondition{
 		check: func(n *processorNode.ProcessorNode) bool {
 			header, _ := n.GetCurrentBlockHeaderAndHash()
 			return header != nil && header.GetSlot() == slot
@@ -160,36 +181,48 @@ type blockWaitCondition struct {
 	value    uint64
 }
 
-func waitForBlockConditionOrTimeOut(nodes []*processorNode.ProcessorNode, condition blockWaitCondition, timeout int) {
+func waitForBlockConditionOrTimeOut(t *testing.T, nodes []*processorNode.ProcessorNode, condition blockWaitCondition, timeout int) {
+	t.Helper()
 	nodesComplete := make([]bool, len(nodes))
 	maxTime := time.After(time.Duration(timeout) * time.Second)
 	backoff := 100 * time.Millisecond
 	maxBackoff := time.Second
+
+	check := func() bool {
+		for i, n := range nodes {
+			if nodesComplete[i] {
+				continue
+			}
+			if condition.check(n) {
+				nodesComplete[i] = true
+			}
+		}
+		for _, c := range nodesComplete {
+			if !c {
+				return false
+			}
+		}
+		return true
+	}
+
 	for {
+		if check() {
+			return
+		}
 		select {
 		case <-maxTime:
-			log.Error(condition.errorMsg, condition.value, "recMap", nodesComplete)
-			return
-		default:
-			for i, n := range nodes {
-				if nodesComplete[i] {
-					continue
-				}
-				if condition.check(n) {
-					nodesComplete[i] = true
-				}
-			}
-			allComplete := true
-			for _, c := range nodesComplete {
-				if !c {
-					allComplete = false
-					break
-				}
-			}
-			if allComplete {
+			// One final check right at the deadline: the previous sleep could
+			// have run up to maxBackoff (1s) and a node that finished between
+			// the prior poll and now would otherwise be misreported as a
+			// timeout. Timeouts used to be silently logged, which made later
+			// assertions fire against an out-of-sync cluster — fail at the
+			// source instead.
+			if check() {
 				return
 			}
-			time.Sleep(backoff)
+			t.Fatalf("%s: value=%d nodesComplete=%v", condition.errorMsg, condition.value, nodesComplete)
+			return
+		case <-time.After(backoff):
 			backoff *= 2
 			if backoff > maxBackoff {
 				backoff = maxBackoff

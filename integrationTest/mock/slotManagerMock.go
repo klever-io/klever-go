@@ -1,14 +1,19 @@
 package mock
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/klever-io/klever-go/ntp"
 )
 
 // SlotManagerMock -
+//
+// SlotIndex is read by background sync/consensus goroutines via Index() while
+// integration tests typically mutate it from the test goroutine; using
+// atomic.Int64 keeps that access race-free.
 type SlotManagerMock struct {
-	SlotIndex              int64
+	SlotIndex              atomic.Int64
 	IndexField             int64
 	TimestampField         time.Time
 	TimeDurationField      time.Duration
@@ -43,7 +48,7 @@ func (smm *SlotManagerMock) Index() int64 {
 		return smm.IndexCalled()
 	}
 
-	return smm.SlotIndex
+	return smm.SlotIndex.Load()
 }
 
 // TimeDuration -
@@ -71,7 +76,7 @@ func (smm *SlotManagerMock) UpdateSlot(timestamp time.Time) {
 		return
 	}
 
-	smm.SlotIndex++
+	smm.SlotIndex.Add(1)
 }
 
 // RemainingTime -

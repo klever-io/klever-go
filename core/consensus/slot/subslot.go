@@ -160,7 +160,7 @@ func (sr *Subslot) DoWork(slotManager consensus.SlotManager) bool {
 			}
 		case <-timer.C:
 			if sr.Extend != nil {
-				sr.SlotCanceled = true
+				sr.SetSlotCanceled(true)
 				sr.Extend(sr.current)
 			}
 

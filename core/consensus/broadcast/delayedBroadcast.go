@@ -201,12 +201,6 @@ func (d *delayedBlockBroadcaster) SetHeaderForValidator(vData *validatorHeaderBr
 		return common.ErrNilHeaderHash
 	}
 
-	log.Trace("delayedBlockBroadcaster.SetHeaderForValidator",
-		"nbDelayedBroadcastData", len(d.delayedBroadcastData),
-		"nbValBroadcastData", len(d.valBroadcastData),
-		"nbValHeaderBroadcastData", len(d.valHeaderBroadcastData),
-	)
-
 	// skip alarm if the block was not finalized yet
 	if len(vData.header.GetSignature()) == 0 {
 		log.Trace("delayedBlockBroadcaster.SetHeaderForValidator: header alarm has not been set",
@@ -221,9 +215,23 @@ func (d *delayedBlockBroadcaster) SetHeaderForValidator(vData *validatorHeaderBr
 		return nil
 	}
 
+	// Take mutDataForBroadcast around all reads / writes of the broadcast
+	// slices. Without this, the append on valHeaderBroadcastData races with
+	// the locked iteration in interceptedHeader, which can corrupt the slice
+	// and cause interceptedHeader to cancel the wrong header alarm —
+	// validators then miss the leader header, fail to sign within the slot,
+	// and the cluster stalls below quorum.
+	d.mutDataForBroadcast.Lock()
+	log.Trace("delayedBlockBroadcaster.SetHeaderForValidator",
+		"nbDelayedBroadcastData", len(d.delayedBroadcastData),
+		"nbValBroadcastData", len(d.valBroadcastData),
+		"nbValHeaderBroadcastData", len(d.valHeaderBroadcastData),
+	)
 	duration := validatorDelayPerOrder * time.Duration(vData.order)
 	d.valHeaderBroadcastData = append(d.valHeaderBroadcastData, vData)
 	alarmID := prefixHeaderAlarm + hex.EncodeToString(vData.headerHash)
+	d.mutDataForBroadcast.Unlock()
+
 	// set an callback to execute after X seconds
 	d.alarm.Add(d.headerAlarmExpired, duration, alarmID)
 	log.Trace("delayedBlockBroadcaster.SetHeaderForValidator: header alarm has been set",

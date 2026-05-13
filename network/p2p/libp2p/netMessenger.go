@@ -435,9 +435,19 @@ func (netMes *networkMessenger) createConnectionMonitor(p2pConfig config.P2PConf
 	netMes.connMonitorWrapper = cmw
 
 	go func() {
+		// Bound this loop to the messenger's lifetime. Previously this
+		// goroutine had no termination signal and leaked on Close(), which
+		// accumulated under test rigs that spin clusters up and down in the
+		// same process (-count=N integration tests).
+		ticker := time.NewTicker(durationCheckConnections)
+		defer ticker.Stop()
 		for {
 			cmw.CheckConnectionsBlocking()
-			time.Sleep(durationCheckConnections)
+			select {
+			case <-netMes.ctx.Done():
+				return
+			case <-ticker.C:
+			}
 		}
 	}()
 

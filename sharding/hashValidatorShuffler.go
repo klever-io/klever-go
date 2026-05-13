@@ -72,8 +72,14 @@ func (rhs *randHashShuffler) UpdateParams(
 func (rhs *randHashShuffler) UpdateNodeLists(args ArgsUpdateNodes) (*ResUpdateNodes, error) {
 	rhs.UpdateShufflerConfig(args.Epoch)
 
+	// Capture both knobs in a single critical section. UpdateShufflerConfig
+	// can race with us via a concurrent epoch start on a different goroutine
+	// (NotifyAllPrepare fans out), so reading rhs.activeNodesConfig.NodesToShuffle
+	// without holding mutShufflerParams creates a real race with UpdateShufflerConfig's
+	// assignment to activeNodesConfig.
 	rhs.mutShufflerParams.RLock()
 	nodes := rhs.nodes
+	maxNodesToSwap := rhs.activeNodesConfig.NodesToShuffle
 	rhs.mutShufflerParams.RUnlock()
 
 	return shuffleNodes(shuffleNodesArg{
@@ -81,7 +87,7 @@ func (rhs *randHashShuffler) UpdateNodeLists(args ArgsUpdateNodes) (*ResUpdateNo
 		eligible:       args.Eligible,
 		randomness:     args.Rand,
 		nodes:          nodes,
-		maxNodesToSwap: rhs.activeNodesConfig.NodesToShuffle,
+		maxNodesToSwap: maxNodesToSwap,
 	})
 }
 

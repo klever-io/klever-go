@@ -13,21 +13,26 @@ import (
 
 var log = logger.GetOrCreate("consensus/slot")
 
-// ConsensusState defines the data needed by slot to do the consensus in each slot
+// ConsensusState defines the data needed by slot to do the consensus in each slot.
+//
+// mutSlotState guards the slot-scoped fields. Fields stay public; callers
+// Lock/RLock at handler boundaries. Even chronology must hold the lock —
+// interceptor goroutines write Data/Header for followers.
 type ConsensusState struct {
+	// mutSlotState guards every field in this block.
+	mutSlotState sync.RWMutex
 	// hold the data on which validators do the consensus (could be for example a hash of the block header
 	// proposed by the leader)
-	Data   []byte
-	Header data.HeaderHandler
-
-	receivedHeaders    []data.HeaderHandler
-	mutReceivedHeaders sync.RWMutex
-
+	Data                        []byte
+	Header                      data.HeaderHandler
 	SlotIndex                   int64
 	SlotTimestamp               time.Time
 	SlotCanceled                bool
 	ExtendedCalled              bool
 	WaitingAllSignaturesTimeOut bool
+
+	receivedHeaders    []data.HeaderHandler
+	mutReceivedHeaders sync.RWMutex
 
 	processingBlock    bool
 	mutProcessingBlock sync.RWMutex
@@ -35,6 +40,53 @@ type ConsensusState struct {
 	*slotConsensus
 	*slotThreshold
 	*slotStatus
+}
+
+// LockSlotState locks mutSlotState for writing.
+func (cns *ConsensusState) LockSlotState() { cns.mutSlotState.Lock() }
+
+// UnlockSlotState unlocks mutSlotState.
+func (cns *ConsensusState) UnlockSlotState() { cns.mutSlotState.Unlock() }
+
+// RLockSlotState locks mutSlotState for reading.
+func (cns *ConsensusState) RLockSlotState() { cns.mutSlotState.RLock() }
+
+// RUnlockSlotState releases the read lock on mutSlotState.
+func (cns *ConsensusState) RUnlockSlotState() { cns.mutSlotState.RUnlock() }
+
+// SetSlotCanceled writes SlotCanceled under mutSlotState.
+func (cns *ConsensusState) SetSlotCanceled(canceled bool) {
+	cns.mutSlotState.Lock()
+	cns.SlotCanceled = canceled
+	cns.mutSlotState.Unlock()
+}
+
+// SetExtendedCalled writes ExtendedCalled under mutSlotState.
+func (cns *ConsensusState) SetExtendedCalled(extended bool) {
+	cns.mutSlotState.Lock()
+	cns.ExtendedCalled = extended
+	cns.mutSlotState.Unlock()
+}
+
+// SetWaitingAllSignaturesTimeOut writes WaitingAllSignaturesTimeOut under mutSlotState.
+func (cns *ConsensusState) SetWaitingAllSignaturesTimeOut(timedOut bool) {
+	cns.mutSlotState.Lock()
+	cns.WaitingAllSignaturesTimeOut = timedOut
+	cns.mutSlotState.Unlock()
+}
+
+// SetWaitingAllSignaturesTimeOutIfSlot atomically sets WaitingAllSignaturesTimeOut
+// only when SlotIndex still equals spawnSlot. Returns true when the write was
+// applied. Used by waitAllSignatures to ensure a stale goroutine cannot set the
+// flag after BeginNewSlot has already advanced the slot and cleared state.
+func (cns *ConsensusState) SetWaitingAllSignaturesTimeOutIfSlot(spawnSlot int64, timedOut bool) bool {
+	cns.mutSlotState.Lock()
+	defer cns.mutSlotState.Unlock()
+	if cns.SlotIndex != spawnSlot {
+		return false
+	}
+	cns.WaitingAllSignaturesTimeOut = timedOut
+	return true
 }
 
 // NewConsensusState creates a new ConsensusState object
@@ -55,17 +107,45 @@ func NewConsensusState(
 	return &cns
 }
 
-// ResetConsensusState method resets all the consensus data
-func (cns *ConsensusState) ResetConsensusState() {
+// resetSlotStateLocked clears slot-scoped consensus fields.
+// Caller must hold mutSlotState for writing.
+func (cns *ConsensusState) resetSlotStateLocked() {
 	cns.Header = nil
 	cns.Data = nil
-
-	cns.initReceivedHeaders()
-
 	cns.SlotCanceled = false
 	cns.ExtendedCalled = false
 	cns.WaitingAllSignaturesTimeOut = false
+}
 
+// ResetConsensusState clears slot-scoped state without touching SlotIndex or
+// SlotTimestamp. Use at construction only; for slot transitions in the
+// chronology, use BeginNewSlot.
+func (cns *ConsensusState) ResetConsensusState() {
+	cns.mutSlotState.Lock()
+	cns.resetSlotStateLocked()
+	cns.mutSlotState.Unlock()
+
+	cns.initReceivedHeaders()
+	cns.ResetSlotStatus()
+	cns.ResetSlotState()
+}
+
+// BeginNewSlot atomically transitions ConsensusState into the next slot,
+// updating SlotIndex + SlotTimestamp and clearing slot-scoped flags under a
+// single mutSlotState write. The atomicity guards waitAllSignatures: if
+// SlotIndex were updated separately from the flag reset, a stale goroutine
+// from the prior slot could fire in the gap, observe SlotIndex still equal
+// to its spawnSlot, and set WaitingAllSignaturesTimeOut on the freshly-cleared
+// state — causing the next slot's leader to commit with minimum quorum
+// prematurely.
+func (cns *ConsensusState) BeginNewSlot(slotIndex int64, slotTimestamp time.Time) {
+	cns.mutSlotState.Lock()
+	cns.resetSlotStateLocked()
+	cns.SlotIndex = slotIndex
+	cns.SlotTimestamp = slotTimestamp
+	cns.mutSlotState.Unlock()
+
+	cns.initReceivedHeaders()
 	cns.ResetSlotStatus()
 	cns.ResetSlotState()
 }
@@ -110,15 +190,16 @@ func (cns *ConsensusState) IsSelfLeaderInCurrentSlot() bool {
 
 // GetLeader method gets the leader of the current slot
 func (cns *ConsensusState) GetLeader() (string, error) {
-	if cns.consensusGroup == nil {
+	cg := cns.ConsensusGroup()
+	if cg == nil {
 		return "", ErrNilConsensusGroup
 	}
 
-	if len(cns.consensusGroup) == 0 {
+	if len(cg) == 0 {
 		return "", ErrEmptyConsensusGroup
 	}
 
-	return cns.consensusGroup[0], nil
+	return cg[0], nil
 }
 
 // GetNextConsensusGroup gets the new consensus group for the current slot based on current eligible list and a random
@@ -151,17 +232,21 @@ func (cns *ConsensusState) GetNextConsensusGroup(
 	return newConsensusGroup, nil
 }
 
-// IsConsensusDataSet method returns true if the consensus data for the current slot is set and false otherwise
+// IsConsensusDataSet method returns true if the consensus data for the current slot is set and false otherwise.
 func (cns *ConsensusState) IsConsensusDataSet() bool {
+	cns.mutSlotState.RLock()
 	isConsensusDataSet := cns.Data != nil
+	cns.mutSlotState.RUnlock()
 
 	return isConsensusDataSet
 }
 
 // IsConsensusDataEqual method returns true if the consensus data for the current slot is the same with the given
-// one and false otherwise
+// one and false otherwise.
 func (cns *ConsensusState) IsConsensusDataEqual(data []byte) bool {
+	cns.mutSlotState.RLock()
 	isConsensusDataEqual := bytes.Equal(cns.Data, data)
+	cns.mutSlotState.RUnlock()
 
 	return isConsensusDataEqual
 }
@@ -196,9 +281,11 @@ func (cns *ConsensusState) IsNodeSelf(node string) bool {
 	return isNodeSelf
 }
 
-// IsHeaderAlreadyReceived method returns true if header is already received and false otherwise
+// IsHeaderAlreadyReceived method returns true if header is already received and false otherwise.
 func (cns *ConsensusState) IsHeaderAlreadyReceived() bool {
+	cns.mutSlotState.RLock()
 	isHeaderAlreadyReceived := cns.Header != nil
+	cns.mutSlotState.RUnlock()
 
 	return isHeaderAlreadyReceived
 }
@@ -286,7 +373,10 @@ func (cns *ConsensusState) SetProcessingBlock(processingBlock bool) {
 	cns.mutProcessingBlock.Unlock()
 }
 
-// GetData gets the Data of the consensusState
+// GetData returns the consensus data slice header. The slice contents must not be mutated by callers.
 func (cns *ConsensusState) GetData() []byte {
-	return cns.Data
+	cns.mutSlotState.RLock()
+	data := cns.Data
+	cns.mutSlotState.RUnlock()
+	return data
 }

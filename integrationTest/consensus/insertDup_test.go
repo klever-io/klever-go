@@ -1,6 +1,7 @@
 package consensus
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,28 +24,29 @@ func TestConsensus_InsertDupTransaction(t *testing.T) {
 	require.Nil(t, err)
 	assert.Len(t, wallets, 2)
 
-	currentSlot := int64(0)
+	var currentSlot atomic.Int64
 
 	integrationTest.UpdateSlot(nodes, 0)
 	for _, n := range nodes {
-		n.SlotManager.TimeDurationField = 4 // 4 seconds simulation
-		n.SlotManager.UpdateSlotCalled = func(t time.Time) {
-			n.SlotManager.SlotIndex = currentSlot
+		n.SlotManager.TimeDurationField = simulatedSlotDuration
+		n.SlotManager.UpdateSlotCalled = func(_ time.Time) {
+			n.SlotManager.SlotIndex.Store(currentSlot.Load())
 		}
 		n.SlotManager.TimestampCalled = func() time.Time {
-			// compute Timestamp based on slot
-			return n.SlotManager.GenesisTimeField.Add(time.Duration(currentSlot*int64(n.SlotManager.TimeDurationField)) * time.Second) // 4 seconds simulation
+			return n.SlotManager.GenesisTimeField.Add(
+				time.Duration(currentSlot.Load()) * simulatedSlotDuration,
+			)
 		}
-		n.SlotManager.RemainingTimeCalled = func(startTime time.Time, maxTime time.Duration) time.Duration {
+		n.SlotManager.RemainingTimeCalled = func(_ time.Time, maxTime time.Duration) time.Duration {
 			return maxTime // always return maxTime
 		}
 		require.NoError(t, n.Node.StartConsensus())
 	}
 
 	// inc slot and wait for block proposal
-	currentSlot++
+	slot := currentSlot.Add(1)
 	// wait for block proposal
-	WaitForBlockSlotOrTimeOut(nodes, uint64(currentSlot), 4)
+	WaitForBlockSlotOrTimeOut(t, nodes, uint64(slot), blockWaitTimeoutSeconds)
 
 	log.Info("*********************** SEND TX ***********************")
 	// send transaction
@@ -52,9 +54,9 @@ func TestConsensus_InsertDupTransaction(t *testing.T) {
 	log.Info("TX Sent", "hash", txHash, "sender", tx.GetSender(), "nonce", tx.GetNonce())
 
 	// create with transaction
-	currentSlot++
-	WaitForBlockSlotOrTimeOut(nodes, uint64(currentSlot), 4)
-	txInBlock := uint64(currentSlot)
+	slot = currentSlot.Add(1)
+	WaitForBlockSlotOrTimeOut(t, nodes, uint64(slot), blockWaitTimeoutSeconds)
+	txInBlock := uint64(slot)
 
 	// check tx in block
 	err = commonTxTest.CheckTXInBlock(nodes, txHash, txInBlock)
@@ -66,8 +68,8 @@ func TestConsensus_InsertDupTransaction(t *testing.T) {
 	}
 
 	// create another block
-	currentSlot++
-	WaitForBlockSlotOrTimeOut(nodes, uint64(currentSlot), 4)
+	slot = currentSlot.Add(1)
+	WaitForBlockSlotOrTimeOut(t, nodes, uint64(slot), blockWaitTimeoutSeconds)
 
 	// get block
 	header, _ := nodes[0].GetCurrentBlockHeaderAndHash()
