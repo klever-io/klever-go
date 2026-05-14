@@ -102,6 +102,8 @@ func (k *kdaKapp) processTriggerType(
 		return k.handleStopNFTMetadataChange(sender, tc, kdaKApp, assetID, asset)
 	case transaction.AssetTriggerContract_ChangeAdmin:
 		return k.handleChangeAdmin(sender, tc, kdaKApp, assetID, asset)
+	case transaction.AssetTriggerContract_SetController:
+		return k.handleSetController(sender, tc, kdaKApp, assetID, asset)
 	default:
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidTriggerType, common.ErrAssetTriggerInvalid.Error())
 		return transaction.Transaction_AssetError, common.ErrAssetTriggerInvalid
@@ -854,6 +856,29 @@ func (k *kdaKapp) handleChangeAdmin(sender []byte, tc *transaction.AssetTriggerC
 
 func (k *kdaKapp) isOwnerOrAdmin(sender []byte, asset *kapps.KDAData) bool {
 	return bytes.Equal(asset.OwnerAddress, sender) || bytes.Equal(asset.AdminAddress, sender)
+}
+
+func (k *kdaKapp) handleSetController(sender []byte, tc *transaction.AssetTriggerContract, kdaKApp state.KAppAccountHandler, assetID [][]byte, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	ctx := k.KAppController.GetCurrentKAppContext()
+
+	if !bytes.Equal(asset.OwnerAddress, sender) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
+		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
+	}
+
+	if len(asset.ControllerAddress) > 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidTriggerType, common.ErrAssetTriggerInvalid.Error())
+		return transaction.Transaction_AssetError, common.ErrAssetTriggerInvalid
+	}
+
+	if len(tc.GetToAddress()) != k.pubkeyConv.Len() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidToAddress, process.ErrInvalidControllerAddr.Error())
+		return transaction.Transaction_AccountError, process.ErrInvalidControllerAddr
+	}
+
+	asset.ControllerAddress = tc.GetToAddress()
+
+	return k.updateKApp(kdaKApp, assetID[0], asset)
 }
 
 func (k *kdaKapp) updateKApp(kdaKApp state.KAppAccountHandler, assetID []byte, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {

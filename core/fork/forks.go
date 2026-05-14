@@ -24,6 +24,7 @@ type forkController struct {
 	flagFixAuditChanges              atomic.Flag
 	flagEpochRewardsV2               atomic.Flag
 	flagFixAuditChangesV2            atomic.Flag
+	flagEnableRWAPermissions         atomic.Flag
 }
 
 func NewForkController(cfg config.EnableEpochs, epochNotifier process.EpochNotifier) (*forkController, error) {
@@ -83,6 +84,10 @@ func (f *forkController) FixAuditChangesV2() bool {
 	return f.flagFixAuditChangesV2.IsSet()
 }
 
+func (f *forkController) EnableRWAPermissions() bool {
+	return f.flagEnableRWAPermissions.IsSet()
+}
+
 // EpochConfirmed is called whenever a new epoch is confirmed
 func (f *forkController) EpochConfirmed(epoch uint32) {
 	f.flagClaimKFIEnabled.Toggle(epoch >= f.enableEpochs.ClaimKFI)
@@ -117,6 +122,9 @@ func (f *forkController) EpochConfirmed(epoch uint32) {
 
 	f.flagFixAuditChangesV2.Toggle(epoch >= f.enableEpochs.FixAuditChangesV2)
 	log.Debug("forkController: FixAuditChangesV2", "enabled", f.flagFixAuditChangesV2.IsSet())
+
+	f.flagEnableRWAPermissions.Toggle(epoch >= f.enableEpochs.RWAPermissions)
+	log.Debug("forkController: EnableRWAPermissions", "enabled", f.flagEnableRWAPermissions.IsSet())
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

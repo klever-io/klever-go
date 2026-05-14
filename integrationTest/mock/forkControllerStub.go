@@ -12,6 +12,7 @@ type ForkControllerStub struct {
 	FixAuditChangesCalled         func() bool
 	EpochRewardsV2Called          func() bool
 	FixAuditChangesV2Called       func() bool
+	EnableRWAPermissionsCalled    func() bool
 }
 
 // ProcessorFlowITOPrice -
@@ -101,6 +102,14 @@ func (fc *ForkControllerStub) EpochRewardsV2() bool {
 func (fc *ForkControllerStub) FixAuditChangesV2() bool {
 	if fc.FixAuditChangesV2Called != nil {
 		return fc.FixAuditChangesV2Called()
+	}
+
+	return false
+}
+
+func (fc *ForkControllerStub) EnableRWAPermissions() bool {
+	if fc.EnableRWAPermissionsCalled != nil {
+		return fc.EnableRWAPermissionsCalled()
 	}
 
 	return false

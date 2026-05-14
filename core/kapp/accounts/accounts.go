@@ -147,6 +147,16 @@ func (a *accountsKapp) Transfer(cType transaction.TXContract_ContractType, sende
 		return transaction.Transaction_AssetPaused, process.ErrAssetIsPaused
 	}
 
+	if a.forkController.EnableRWAPermissions() && len(kda.ControllerAddress) > 0 {
+		senderIsController := bytes.Equal(sender, kda.ControllerAddress)
+		depositToController := cType == transaction.TXContract_SmartContractType &&
+			bytes.Equal(tc.GetToAddress(), kda.ControllerAddress)
+		if !senderIsController && !depositToController {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldTransferRestricted, process.ErrTransferRestrictedToController.Error())
+			return transaction.Transaction_TransferRestricted, process.ErrTransferRestrictedToController
+		}
+	}
+
 	if a.forkController.EnableSmartContracts() {
 		// check for transfer roles if SC fork enabled
 		if !kda.IsTransferAllowed(sender, tc.GetToAddress()) {

@@ -3547,6 +3547,146 @@ func Test_Transfer_ShouldFail(t *testing.T) {
 			expectedStatus: transaction.Transaction_KDATransferNotAllowed,
 		},
 		{
+			description:  "should fail when controller is set and EOA transfers to another EOA",
+			contractType: transaction.TXContract_TransferContractType,
+			transactionContract: &transaction.TransferContract{
+				ToAddress: makeAddress("valid-1"),
+				AssetID:   []byte("valid"),
+			},
+			sender: validAddressBytes,
+			accCacher: &commonMock.AccountsCacherStub{
+				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetForkControllerCalled: func() core.ForkController {
+					return &integrationMock.ForkControllerStub{
+						EnableSmartContractsCalled: func() bool { return true },
+					}
+				},
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{
+								AssetType:         kapps.KDAData_Fungible,
+								Attributes:        &kapps.AttributesData{},
+								Properties:        &kapps.PropertiesData{},
+								ControllerAddress: makeAddress("controller"),
+							}, nil
+						},
+					}
+				},
+			},
+			expectedErr:    process.ErrTransferRestrictedToController,
+			expectedStatus: transaction.Transaction_TransferRestricted,
+		},
+		{
+			description:  "should fail when controller is set and user attaches value to a non-controller SC",
+			contractType: transaction.TXContract_SmartContractType,
+			transactionContract: &transaction.TransferContract{
+				ToAddress: makeAddress("other-sc"),
+				AssetID:   []byte("valid"),
+			},
+			sender: validAddressBytes,
+			accCacher: &commonMock.AccountsCacherStub{
+				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetForkControllerCalled: func() core.ForkController {
+					return &integrationMock.ForkControllerStub{
+						EnableSmartContractsCalled: func() bool { return true },
+					}
+				},
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{
+								AssetType:         kapps.KDAData_Fungible,
+								Attributes:        &kapps.AttributesData{},
+								Properties:        &kapps.PropertiesData{},
+								ControllerAddress: makeAddress("controller"),
+							}, nil
+						},
+					}
+				},
+			},
+			expectedErr:    process.ErrTransferRestrictedToController,
+			expectedStatus: transaction.Transaction_TransferRestricted,
+		},
+		{
+			description:  "should fail when controller is set and a non-controller SC pushes a transfer",
+			contractType: transaction.TXContract_TransferContractType,
+			transactionContract: &transaction.TransferContract{
+				ToAddress: makeAddress("valid-1"),
+				AssetID:   []byte("valid"),
+			},
+			sender: makeAddress("other-sc"),
+			accCacher: &commonMock.AccountsCacherStub{
+				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetForkControllerCalled: func() core.ForkController {
+					return &integrationMock.ForkControllerStub{
+						EnableSmartContractsCalled: func() bool { return true },
+					}
+				},
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{
+								AssetType:         kapps.KDAData_Fungible,
+								Attributes:        &kapps.AttributesData{},
+								Properties:        &kapps.PropertiesData{},
+								ControllerAddress: makeAddress("controller"),
+							}, nil
+						},
+					}
+				},
+			},
+			expectedErr:    process.ErrTransferRestrictedToController,
+			expectedStatus: transaction.Transaction_TransferRestricted,
+		},
+		{
+			description:  "should fail when controller is set and user deposits to controller via direct TransferContract",
+			contractType: transaction.TXContract_TransferContractType,
+			transactionContract: &transaction.TransferContract{
+				ToAddress: makeAddress("controller"),
+				AssetID:   []byte("valid"),
+			},
+			sender: validAddressBytes,
+			accCacher: &commonMock.AccountsCacherStub{
+				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			kappController: &kvmStub.KAppControllerStub{
+				GetForkControllerCalled: func() core.ForkController {
+					return &integrationMock.ForkControllerStub{
+						EnableSmartContractsCalled: func() bool { return true },
+					}
+				},
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{
+								AssetType:         kapps.KDAData_Fungible,
+								Attributes:        &kapps.AttributesData{},
+								Properties:        &kapps.PropertiesData{},
+								ControllerAddress: makeAddress("controller"),
+							}, nil
+						},
+					}
+				},
+			},
+			expectedErr:    process.ErrTransferRestrictedToController,
+			expectedStatus: transaction.Transaction_TransferRestricted,
+		},
+		{
 			description:  "should fail when transferring to uninitialized contract address (non-SmartContractType)",
 			contractType: transaction.TXContract_TransferContractType,
 			transactionContract: &transaction.TransferContract{

@@ -30,6 +30,7 @@ const (
 	ErrFieldAddressNotPayable     = "AddressNotPayable"
 	ErrFieldAssetPaused           = "AssetPaused"
 	ErrFieldTransferNotAllowed    = "TransferNotAllowed"
+	ErrFieldTransferRestricted    = "TransferRestricted"
 	ErrFieldUninitializedContract = "UninitializedContract"
 	ErrFieldInvalidAddress        = "InvalidAddress"
 	ErrFieldInvalidToAddress      = "InvalidToAddress"

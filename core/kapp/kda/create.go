@@ -39,6 +39,7 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 		Ticker:            tc.GetTicker(),
 		OwnerAddress:      tc.GetOwnerAddress(),
 		AdminAddress:      tc.GetAdminAddress(),
+		ControllerAddress: tc.GetControllerAddress(),
 		Logo:              tc.GetLogo(),
 		URIs:              tc.GetURIs(),
 		Precision:         0,

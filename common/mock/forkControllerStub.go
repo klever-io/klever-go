@@ -15,6 +15,7 @@ type ForkControllerStub struct {
 	FixAuditChangesValue         bool
 	EpochRewardsV2Value          bool
 	FixAuditChangesV2Value       bool
+	EnableRWAPermissionsValue    bool
 	EpochConfirmedCalled         bool
 	LastConfirmedEpoch           uint32
 }
@@ -51,6 +52,8 @@ func (s *ForkControllerStub) SetFork(forkName string, value bool) *ForkControlle
 		s.EpochRewardsV2Value = value
 	case "FixAuditChangesV2":
 		s.FixAuditChangesV2Value = value
+	case "EnableRWAPermissions":
+		s.EnableRWAPermissionsValue = value
 	}
 
 	return s
@@ -69,6 +72,7 @@ func (s *ForkControllerStub) SetAll(value bool) {
 	s.FixAuditChangesValue = value
 	s.EpochRewardsV2Value = value
 	s.FixAuditChangesV2Value = value
+	s.EnableRWAPermissionsValue = value
 	s.LastConfirmedEpoch = 0
 }
 
@@ -85,6 +89,7 @@ func (s *ForkControllerStub) SetByConfig(config config.EnableEpochs) {
 	s.FixAuditChangesValue = config.FixAuditChanges == 0
 	s.EpochRewardsV2Value = config.EpochRewardsV2 == 0
 	s.FixAuditChangesV2Value = config.FixAuditChangesV2 == 0
+	s.EnableRWAPermissionsValue = config.RWAPermissions == 0
 	s.LastConfirmedEpoch = 0
 }
 
@@ -141,6 +146,11 @@ func (s *ForkControllerStub) EpochRewardsV2() bool {
 // FixAuditChangesV2 returns the stubbed value
 func (s *ForkControllerStub) FixAuditChangesV2() bool {
 	return s.FixAuditChangesV2Value
+}
+
+// EnableRWAPermissions returns the stubbed value
+func (s *ForkControllerStub) EnableRWAPermissions() bool {
+	return s.EnableRWAPermissionsValue
 }
 
 // EpochConfirmed records that the method was called and stores the epoch

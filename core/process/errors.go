@@ -118,6 +118,9 @@ var ErrInvalidOwnerAddr = errors.New("invalid owner address")
 // ErrInvalidAdminAddr signals that an invalid admin address was provided
 var ErrInvalidAdminAddr = errors.New("invalid admin address")
 
+// ErrInvalidControllerAddr signals that an invalid controller address was provided
+var ErrInvalidControllerAddr = errors.New("invalid controller address")
+
 // ErrInvalidRoleAddr signals that an invalid role address was provided
 var ErrInvalidRoleAddr = errors.New("invalid role address")
 
@@ -327,6 +330,9 @@ var ErrAssetIsPaused = errors.New("asset is paused")
 
 // ErrKDATransferNotAllowed signals that kda transfer is not allowed and account from/to has no role to override
 var ErrKDATransferNotAllowed = errors.New("kda transfer is not allowed")
+
+// ErrTransferRestrictedToController signals that the asset has a ControllerAddress set and the transfer does not involve the controller
+var ErrTransferRestrictedToController = errors.New("kda transfer restricted to controller")
 
 // ErrInvalidArgument signals that invalid argument has been provided
 var ErrInvalidArgument = errors.New("invalid argument")

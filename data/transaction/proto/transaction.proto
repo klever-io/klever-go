@@ -128,6 +128,8 @@ message Transaction {
         VMSimulateFailed           = 64;
         // KDA Transfer not allowed
         KDATransferNotAllowed      = 65;
+        // TransferRestricted is returned when a KDA with a ControllerAddress is moved by a path that does not involve the controller.
+        TransferRestricted         = 66;
 
 
         Fail                     = 99;

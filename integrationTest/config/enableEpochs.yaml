@@ -19,6 +19,8 @@ enableEpochs:
   fixDelegationSameEpoch: 0
   # SmartContracts
   smartContracts: 0
+  # RWA Permissions (Real World Assets transfer controller restrictions)
+  rwaPermissions: 0
 
 gasSchedule:
   gasScheduleByEpochs:
