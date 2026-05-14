@@ -327,13 +327,8 @@ func (ei *elasticProcessor) SaveHeader(
 		return err
 	}
 
-	if UseEventQueue {
-		trySendEvent(Event{
-			EvType:  BLOCKS,
-			Message: serializedBlock,
-		})
-	}
-
+	// Websocket BLOCKS dispatch is performed by eventsProcessor.SaveBlock on the
+	// commit goroutine so it is decoupled from elastic write timing/health.
 	return nil
 }
 
@@ -531,31 +526,34 @@ func (ei *elasticProcessor) updateAccountBalance(address string, balance int64, 
 	return ei.elasticClient.DoUpdate(accountsIndex, address, &updateBody)
 }
 
-// SaveTransactions will prepare and save information about a transactions in elasticsearch server
+// SaveTransactions will prepare and save information about a transactions in elasticsearch server.
+// When prepared is a non-nil *data.PreparedBlockData, its contents are reused (single-source-of-truth
+// produced by the events orchestrator on the commit goroutine); otherwise, the legacy path runs
+// prepareTransactionsForDatabase here. Websocket dispatch is NOT performed in this path — the
+// orchestrator owns it so events are decoupled from elastic write success and timing.
 func (ei *elasticProcessor) SaveTransactions(
 	header nodeData.HeaderHandler,
 	pool *indexer.Pool,
+	prepared any,
 ) error {
 	headerTimestamp := header.GetTimestamp()
 
-	txs, txsMap, ad, err := ei.prepareTransactionsForDatabase(header, pool)
-	if err != nil {
-		return err
+	var (
+		txs    []*data.Transaction
+		txsMap map[string]*data.Transaction
+		ad     *data.AlteredData
+		err    error
+	)
+	if p, ok := prepared.(*data.PreparedBlockData); ok && p != nil {
+		txs, txsMap, ad = p.Txs, p.TxsMap, p.Altered
+	} else {
+		txs, txsMap, ad, err = ei.prepareTransactionsForDatabase(header, pool)
+		if err != nil {
+			return err
+		}
 	}
 
 	ld := ei.logsAndEventsProc.ExtractDataFromLogs(pool, txs, headerTimestamp)
-
-	// Dispatch events
-	if UseEventQueue && len(txs) > 0 {
-		trySendEvent(Event{
-			EvType:  USER_TRANSACTIONS,
-			Message: txs,
-		})
-		trySendEvent(Event{
-			EvType:  TRANSACTIONS,
-			Message: txs,
-		})
-	}
 
 	buffers := data.NewBufferSlice(data.DefaultMaxBulkSize)
 
@@ -1588,54 +1586,6 @@ func (ei *elasticProcessor) SaveAccounts(
 	return ei.doBulkRequests(accountsIndex, buffSlice.Buffers())
 }
 
-// convertPermissions converts user account permissions to indexer format.
-func (ei *elasticProcessor) convertPermissions(perms []*state.Permission) []data.Permissions {
-	permissions := make([]data.Permissions, 0, len(perms))
-	for _, p := range perms {
-		keys := make([]data.PermissionKey, 0, len(p.Signers))
-		for _, k := range p.Signers {
-			keys = append(keys, data.PermissionKey{
-				Address: ei.addressPubkeyConverter.Encode(k.Address),
-				Weight:  k.Weight,
-			})
-		}
-		permissions = append(permissions, data.Permissions{
-			ID:             p.ID,
-			Type:           int32(p.Type),
-			PermissionName: p.PermissionName,
-			Threshold:      p.Threshold,
-			Operations:     hex.EncodeToString(p.Operations),
-			Signers:        keys,
-		})
-	}
-	return permissions
-}
-
-// calculateUnfrozenBalance sums the value of all unstaked buckets.
-func calculateUnfrozenBalance(buckets map[string]*kapps.UserBucket) int64 {
-	unfrozenBalance := int64(0)
-	for _, bucket := range buckets {
-		if bucket.UnstakedEpoch != core.DefaultUnstakedEpoch {
-			unfrozenBalance += bucket.Value
-		}
-	}
-	return unfrozenBalance
-}
-
-// getAllowanceWithPendingRewards returns the allowance including V2 pending rewards.
-func (ei *elasticProcessor) getAllowanceWithPendingRewards(userAccount state.UserAccountHandler) int64 {
-	allowance := userAccount.GetAllowance()
-	if check.IfNil(ei.kappsController) {
-		return allowance
-	}
-
-	pendingRewards, err := ei.kappsController.GetValidatorsKApp().GetPendingRewards(userAccount.AddressBytes())
-	if err == nil && pendingRewards > 0 {
-		allowance += pendingRewards
-	}
-	return allowance
-}
-
 // dispatchAccountEvents sends account events to the event queue if enabled.
 func dispatchAccountEvents(accountsMap map[string]*data.AccountInfo) {
 	if UseEventQueue && len(accountsMap) > 0 {
@@ -1660,7 +1610,7 @@ func (ei *elasticProcessor) saveAccounts(
 	historyAccountsMap := make(map[string]*data.AccountInfo)
 
 	for _, userAccount := range accountsSlice {
-		acc, err := ei.buildAccountInfo(userAccount, blockTimestamp)
+		acc, err := buildAccountInfo(ei.addressPubkeyConverter, ei.kappsController, userAccount.UserAccount, blockTimestamp)
 		if err != nil {
 			return err
 		}
@@ -1674,8 +1624,9 @@ func (ei *elasticProcessor) saveAccounts(
 		historyAccountsMap[address] = acc
 	}
 
-	dispatchAccountEvents(newAccountsMap)
-	dispatchAccountEvents(updateAccountsMap)
+	// Websocket ACCOUNTS dispatch is performed by eventsProcessor.SaveBlock on
+	// the commit goroutine. No event emission here — keeps the elastic write
+	// path side-effect free for subscribers.
 
 	if err := serializeAccounts(newAccountsMap, buffSlice, accountsIndex); err != nil {
 		return err
@@ -1686,34 +1637,6 @@ func (ei *elasticProcessor) saveAccounts(
 	}
 
 	return ei.saveAccountsHistory(blockTimestamp, historyAccountsMap)
-}
-
-// buildAccountInfo creates an AccountInfo from a user account.
-func (ei *elasticProcessor) buildAccountInfo(userAccount *data.Account, blockTimestamp int64) (*data.AccountInfo, error) {
-	address := ei.addressPubkeyConverter.Encode(userAccount.UserAccount.AddressBytes())
-	permissions := ei.convertPermissions(userAccount.UserAccount.GetPermissions())
-
-	userKDA, err := userAccount.UserAccount.GetUserKDA(kdautils.KLVIdentifier, nil, true)
-	if err != nil {
-		return nil, err
-	}
-
-	return &data.AccountInfo{
-		Address:         address,
-		Nonce:           userAccount.UserAccount.GetNonce(),
-		Name:            string(userAccount.UserAccount.GetName()),
-		RootHash:        hex.EncodeToString(userAccount.UserAccount.GetRootHash()),
-		Balance:         userAccount.UserAccount.GetBalance(kdautils.KLVIdentifier, true),
-		FrozenBalance:   userKDA.FrozenBalance,
-		UnfrozenBalance: calculateUnfrozenBalance(userKDA.Buckets),
-		Allowance:       ei.getAllowanceWithPendingRewards(userAccount.UserAccount),
-		Permissions:     permissions,
-		Timestamp:       toMilliseconds(blockTimestamp),
-		UpdatedAt:       toMilliseconds(blockTimestamp),
-		CodeHash:        hex.EncodeToString(userAccount.UserAccount.GetCodeHash()),
-		CodeMetadata:    hex.EncodeToString(userAccount.UserAccount.GetCodeMetadata()),
-		Foundation:      false,
-	}, nil
 }
 
 func (ei *elasticProcessor) saveAccountsHistory(blockTimestamp int64, accountsInfoMap map[string]*data.AccountInfo) error {

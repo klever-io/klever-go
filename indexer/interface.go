@@ -31,7 +31,7 @@ type ElasticProcessor interface {
 	RemoveTransactions(blk nodeData.HeaderHandler) error
 	RemoveAccountsHistory(blockTimestamp int64) error
 	RevertAccountBalances(blockTimestamp int64) error
-	SaveTransactions(header nodeData.HeaderHandler, pool *indexer.Pool) error
+	SaveTransactions(header nodeData.HeaderHandler, pool *indexer.Pool, prepared any) error
 	SaveEpochInfo(epoch uint32, validators []kapp.ValidatorAccountInfoHandler) error
 	UpdateProposalsAndParameters(proposalIDs []string) error
 	SaveAssets(assets []*data.Asset) error

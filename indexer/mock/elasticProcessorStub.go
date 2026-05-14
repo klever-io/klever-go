@@ -18,7 +18,7 @@ type ElasticProcessorStub struct {
 	RemoveTransactionsCalled           func(header nodeData.HeaderHandler) error
 	RemoveAccountsHistoryCalled        func(blockTimestamp int64) error
 	RevertAccountBalancesCalled        func(blockTimestamp int64) error
-	SaveTransactionsCalled             func(header nodeData.HeaderHandler, pool *indexer.Pool) error
+	SaveTransactionsCalled             func(header nodeData.HeaderHandler, pool *indexer.Pool, prepared any) error
 	SaveAccountsCalled                 func(timestamp int64, acc []*data.Account) error
 	SavePeerAccountCalled              func(account *data.ValidatorAccountInfo) error
 	UpdateProposalsAndParametersCalled func([]string) error
@@ -85,9 +85,9 @@ func (eim *ElasticProcessorStub) RevertAccountBalances(blockTimestamp int64) err
 }
 
 // SaveTransactions -
-func (eim *ElasticProcessorStub) SaveTransactions(header nodeData.HeaderHandler, pool *indexer.Pool) error {
+func (eim *ElasticProcessorStub) SaveTransactions(header nodeData.HeaderHandler, pool *indexer.Pool, prepared any) error {
 	if eim.SaveTransactionsCalled != nil {
-		return eim.SaveTransactionsCalled(header, pool)
+		return eim.SaveTransactionsCalled(header, pool, prepared)
 	}
 	return nil
 }

@@ -1,12 +1,15 @@
 package indexer
 
 import (
+	"encoding/hex"
 	"errors"
 	"sync/atomic"
 	"testing"
 
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core/kapp"
+	ptx "github.com/klever-io/klever-go/core/process/transaction"
 	nodeData "github.com/klever-io/klever-go/data"
 	dataBlock "github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/indexer"
@@ -87,6 +90,33 @@ func createTestEventsProcessorWithIndexer(idx Indexer) *eventsProcessor {
 	return ep
 }
 
+func createTestEventsProcessorWithKApp(t *testing.T, ctrl kapp.KAppController) *eventsProcessor {
+	t.Helper()
+	ep, err := NewEventsProcessor(ArgEventsProcessor{
+		Marshalizer:              &mock.MarshalizerMock{},
+		Hasher:                   &mock.HasherMock{},
+		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
+		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
+		Indexer:                  nil,
+		KAppController:           ctrl,
+	})
+	require.NoError(t, err)
+	return ep
+}
+
+func createTestEventsProcessorWithAccountsDB(t *testing.T, accountsDB state.AccountsAdapter) *eventsProcessor {
+	t.Helper()
+	ep, err := NewEventsProcessor(ArgEventsProcessor{
+		Marshalizer:              &mock.MarshalizerMock{},
+		Hasher:                   &mock.HasherMock{},
+		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
+		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
+		AccountsDB:               accountsDB,
+	})
+	require.NoError(t, err)
+	return ep
+}
+
 func createTestAccountStub() *mock.UserAccountHandlerStub {
 	return &mock.UserAccountHandlerStub{
 		AddressBytesCalled:    func() []byte { return []byte("testaddr") },
@@ -119,6 +149,67 @@ func saveAndRestoreEventQueue(t *testing.T, useQueue bool) chan Event {
 		EventQueue = originalEventQueue
 	})
 	return testQueue
+}
+
+func drainTestQueue(ch chan Event) {
+	for {
+		select {
+		case <-ch:
+		default:
+			return
+		}
+	}
+}
+
+// pad32 returns a 32-byte slice with s copied into it, zero-padded.
+func pad32(s string) []byte {
+	b := make([]byte, 32)
+	copy(b, s)
+	return b
+}
+
+// bareTransactionWithReceipts creates a minimal transaction (no contracts) carrying
+// the given receipts, exercising the receipt-based account-detection path.
+func bareTransactionWithReceipts(senderBytes []byte, receipts ...*transaction.Transaction_Receipt) *transaction.Transaction {
+	return &transaction.Transaction{
+		Signature: [][]byte{[]byte("sig")},
+		RawData:   &transaction.Transaction_Raw{Sender: senderBytes},
+		Result:    transaction.Transaction_SUCCESS,
+		Receipts:  receipts,
+	}
+}
+
+// makeReceipt builds a Transaction_Receipt where data[0] is {receiptType, cID=0}
+// followed by fields.
+func makeReceipt(receiptType ptx.ReceiptType, fields ...[]byte) *transaction.Transaction_Receipt {
+	d := make([][]byte, 0, 1+len(fields))
+	d = append(d, []byte{byte(receiptType), 0})
+	d = append(d, fields...)
+	return &transaction.Transaction_Receipt{Data: d}
+}
+
+// runReceiptAddressTest is a shared helper for single-address receipt tests: it
+// runs SaveBlock and asserts that expectedAddrBytes was loaded from accountsDB.
+func runReceiptAddressTest(t *testing.T, tx *transaction.Transaction, expectedAddrBytes []byte) {
+	t.Helper()
+	testQueue := saveAndRestoreEventQueue(t, true)
+
+	loaded := make(map[string]struct{})
+	acc := createTestAccountStub()
+	ep := createTestEventsProcessorWithAccountsDB(t, &mock.AccountsStub{
+		GetExistingAccountCalled: func(addrBytes []byte) (state.AccountHandler, error) {
+			loaded[hex.EncodeToString(addrBytes)] = struct{}{}
+			return acc, nil
+		},
+	})
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{Txs: map[string]nodeData.TransactionHandler{"tx1": tx}}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+	drainTestQueue(testQueue)
+
+	require.Contains(t, loaded, hex.EncodeToString(expectedAddrBytes))
 }
 
 func TestNewEventsProcessor(t *testing.T) {
@@ -260,7 +351,8 @@ func TestEventsProcessor_SaveBlock_DispatchesTransactionEvents(t *testing.T) {
 		ToAddress: []byte("receiver"),
 		Amount:    100,
 	}
-	tx, _ := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	require.NoError(t, err)
 
 	header := &dataBlock.Block{
 		Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100},
@@ -290,7 +382,9 @@ func TestEventsProcessor_SaveBlock_DispatchesTransactionEvents(t *testing.T) {
 	require.Equal(t, TRANSACTIONS, txEvent.EvType)
 }
 
-func TestEventsProcessor_SaveBlock_SkipsWebsocketWhenIndexerActive(t *testing.T) {
+// With centralization, BLOCKS now fires on every websocket-enabled config —
+// including indexer-active nodes — directly from the commit goroutine.
+func TestEventsProcessor_SaveBlock_DispatchesBlocksEventWithIndexerActive(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
 
 	var saveBlockCalled int32
@@ -311,9 +405,12 @@ func TestEventsProcessor_SaveBlock_SkipsWebsocketWhenIndexerActive(t *testing.T)
 		TransactionsPool: &indexer.Pool{},
 	})
 
+	ev := <-testQueue
+	require.Equal(t, BLOCKS, ev.EvType)
+
 	select {
-	case <-testQueue:
-		t.Fatal("expected no websocket events when indexer is active")
+	case extra := <-testQueue:
+		t.Fatalf("unexpected extra event: %s", extra.EvType)
 	default:
 	}
 
@@ -341,6 +438,274 @@ func TestEventsProcessor_SaveBlock_NilPool(t *testing.T) {
 		t.Fatal("expected no tx events with nil pool")
 	default:
 	}
+}
+
+func TestEventsProcessor_SaveBlock_DispatchesAccountEvents(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+
+	acc := createTestAccountStub()
+	accountsDB := &mock.AccountsStub{
+		GetExistingAccountCalled: func(_ []byte) (state.AccountHandler, error) {
+			return acc, nil
+		},
+	}
+	ep := createTestEventsProcessorWithAccountsDB(t, accountsDB)
+
+	contract := transaction.TransferContract{
+		ToAddress: []byte("receiver"),
+		Amount:    100,
+	}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	require.NoError(t, err)
+
+	header := &dataBlock.Block{
+		Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100},
+	}
+	pool := &indexer.Pool{
+		Txs: map[string]nodeData.TransactionHandler{
+			"txHash1": tx,
+		},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{
+		Header:           header,
+		TransactionsPool: pool,
+	})
+
+	var accountEvent *Event
+	for i := 0; i < 10; i++ {
+		select {
+		case ev := <-testQueue:
+			if ev.EvType == ACCOUNTS {
+				evCopy := ev
+				accountEvent = &evCopy
+			}
+		default:
+			i = 10
+		}
+	}
+	require.NotNil(t, accountEvent, "expected an ACCOUNTS event to be dispatched")
+	accountsMap, ok := accountEvent.Message.(map[string]*data.AccountInfo)
+	require.True(t, ok)
+	require.NotEmpty(t, accountsMap)
+}
+
+func TestEventsProcessor_SaveBlock_SkipsAccountEventsWhenNoAccountsDB(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor(t)
+
+	contract := transaction.TransferContract{
+		ToAddress: []byte("receiver"),
+		Amount:    100,
+	}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	require.NoError(t, err)
+
+	header := &dataBlock.Block{
+		Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100},
+	}
+	pool := &indexer.Pool{
+		Txs: map[string]nodeData.TransactionHandler{
+			"txHash1": tx,
+		},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{
+		Header:           header,
+		TransactionsPool: pool,
+	})
+
+	for i := 0; i < 10; i++ {
+		select {
+		case ev := <-testQueue:
+			require.NotEqual(t, ACCOUNTS, ev.EvType, "expected no ACCOUNTS event when accountsDB is nil")
+		default:
+			i = 10
+		}
+	}
+}
+
+// With centralization: indexer-active path also dispatches BLOCKS, TX, and
+// ACCOUNTS websocket events, AND the indexer receives a non-nil Prepared
+// payload (no duplicate prep downstream). This is the (true, true) cell of
+// the (UseEventQueue, indexer) test matrix.
+func TestEventsProcessor_SaveBlock_DispatchesAllEventsAndPreparesIndexer(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+
+	acc := createTestAccountStub()
+	accountsDB := &mock.AccountsStub{
+		GetExistingAccountCalled: func(_ []byte) (state.AccountHandler, error) {
+			return acc, nil
+		},
+	}
+
+	var receivedPrepared any
+	var saveBlockCount int32
+	idx := &indexerStub{
+		isNilIndexer: false,
+		saveBlockCalled: func(args *indexer.ArgsSaveBlockData) {
+			atomic.AddInt32(&saveBlockCount, 1)
+			receivedPrepared = args.Prepared
+		},
+	}
+
+	ep, err := NewEventsProcessor(ArgEventsProcessor{
+		Marshalizer:              &mock.MarshalizerMock{},
+		Hasher:                   &mock.HasherMock{},
+		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
+		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
+		Indexer:                  idx,
+		AccountsDB:               accountsDB,
+	})
+	require.NoError(t, err)
+
+	contract := transaction.TransferContract{
+		ToAddress: []byte("receiver"),
+		Amount:    100,
+	}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	require.NoError(t, err)
+	header := &dataBlock.Block{
+		Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100},
+	}
+	pool := &indexer.Pool{
+		Txs: map[string]nodeData.TransactionHandler{"txHash1": tx},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{
+		Header:           header,
+		TransactionsPool: pool,
+	})
+
+	seen := map[EventType]bool{}
+	for i := 0; i < 8; i++ {
+		select {
+		case ev := <-testQueue:
+			seen[ev.EvType] = true
+		default:
+			i = 8
+		}
+	}
+	require.True(t, seen[BLOCKS], "BLOCKS event must fire with indexer active")
+	require.True(t, seen[USER_TRANSACTIONS], "USER_TRANSACTIONS event must fire with indexer active")
+	require.True(t, seen[TRANSACTIONS], "TRANSACTIONS event must fire with indexer active")
+	require.True(t, seen[ACCOUNTS], "ACCOUNTS event must fire with indexer active")
+
+	require.Equal(t, int32(1), atomic.LoadInt32(&saveBlockCount))
+	prepared, ok := receivedPrepared.(*data.PreparedBlockData)
+	require.True(t, ok, "indexer must receive *data.PreparedBlockData via args.Prepared")
+	require.NotNil(t, prepared)
+	require.NotEmpty(t, prepared.Txs)
+	require.NotNil(t, prepared.Altered)
+}
+
+// Regression: the orchestrator must NOT mutate args.TransactionsPool.Txs. The
+// elastic worker reads it later (ComputeSizeOfTxs on the work item, and the
+// fallback prepareTransactionsForDatabase path), and a drained pool produced a
+// SizeTxs=0 block in the elastic index. Asserting non-mutation here is the
+// invariant — not the bytes-vs-count of SizeTxs, which is a separate concern.
+func TestEventsProcessor_SaveBlock_DoesNotMutatePool(t *testing.T) {
+	saveAndRestoreEventQueue(t, true)
+
+	acc := createTestAccountStub()
+	accountsDB := &mock.AccountsStub{
+		GetExistingAccountCalled: func(_ []byte) (state.AccountHandler, error) { return acc, nil },
+	}
+	idx := &indexerStub{isNilIndexer: false, saveBlockCalled: func(_ *indexer.ArgsSaveBlockData) {}}
+
+	ep, err := NewEventsProcessor(ArgEventsProcessor{
+		Marshalizer:              &mock.MarshalizerMock{},
+		Hasher:                   &mock.HasherMock{},
+		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
+		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
+		Indexer:                  idx,
+		AccountsDB:               accountsDB,
+	})
+	require.NoError(t, err)
+
+	tx1, err := createTransactionHandlerMock(
+		&transaction.TransferContract{ToAddress: []byte("rcv1"), Amount: 100},
+		transaction.TXContract_TransferContractType, []byte("snd1"))
+	require.NoError(t, err)
+	tx2, err := createTransactionHandlerMock(
+		&transaction.TransferContract{ToAddress: []byte("rcv2"), Amount: 200},
+		transaction.TXContract_TransferContractType, []byte("snd2"))
+	require.NoError(t, err)
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Txs: map[string]nodeData.TransactionHandler{
+			"h1": tx1,
+			"h2": tx2,
+		},
+	}
+	require.Len(t, pool.Txs, 2)
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	require.Len(t, pool.Txs, 2, "SaveBlock must not drain TransactionsPool.Txs — work item still reads it for ComputeSizeOfTxs")
+}
+
+// (false, true) cell: indexer enabled but websocket disabled — no events fire
+// but the indexer still receives a Prepared payload (single prep invariant).
+func TestEventsProcessor_SaveBlock_NoEventsButPreparedWhenWebsocketDisabled(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, false)
+
+	acc := createTestAccountStub()
+	accountsDB := &mock.AccountsStub{
+		GetExistingAccountCalled: func(_ []byte) (state.AccountHandler, error) {
+			return acc, nil
+		},
+	}
+
+	var receivedPrepared any
+	idx := &indexerStub{
+		isNilIndexer:    false,
+		saveBlockCalled: func(args *indexer.ArgsSaveBlockData) { receivedPrepared = args.Prepared },
+	}
+
+	ep, err := NewEventsProcessor(ArgEventsProcessor{
+		Marshalizer:              &mock.MarshalizerMock{},
+		Hasher:                   &mock.HasherMock{},
+		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
+		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
+		Indexer:                  idx,
+		AccountsDB:               accountsDB,
+	})
+	require.NoError(t, err)
+
+	tx, err := createTransactionHandlerMock(&transaction.TransferContract{ToAddress: []byte("rcv"), Amount: 1},
+		transaction.TXContract_TransferContractType, []byte("snd"))
+	require.NoError(t, err)
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{Txs: map[string]nodeData.TransactionHandler{"h": tx}}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	select {
+	case ev := <-testQueue:
+		t.Fatalf("expected no events when UseEventQueue=false, got %s", ev.EvType)
+	default:
+	}
+
+	prepared, ok := receivedPrepared.(*data.PreparedBlockData)
+	require.True(t, ok)
+	require.NotNil(t, prepared)
+}
+
+// (false, false) cell: when nothing is enabled, SaveBlock must short-circuit —
+// no prep work, no events, no indexer call.
+func TestEventsProcessor_SaveBlock_NoOpWhenNothingEnabled(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, false)
+
+	ep := createTestEventsProcessor(t)
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{Txs: map[string]nodeData.TransactionHandler{"h": nil}}
+
+	require.NotPanics(t, func() {
+		ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+	})
+	require.Len(t, testQueue, 0)
 }
 
 func TestEventsProcessor_SaveAccounts_DispatchesWhenEnabled(t *testing.T) {
@@ -382,7 +747,9 @@ func TestEventsProcessor_SaveAccounts_SkipsWhenDisabled(t *testing.T) {
 	}
 }
 
-func TestEventsProcessor_SaveAccounts_SkipsWebsocketWhenIndexerActive(t *testing.T) {
+// With centralization: standalone SaveAccounts dispatches websocket ACCOUNTS
+// independently of indexer enablement, AND still forwards to the indexer.
+func TestEventsProcessor_SaveAccounts_DispatchesWebsocketAndForwardsToIndexer(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
 
 	var called int32
@@ -397,12 +764,8 @@ func TestEventsProcessor_SaveAccounts_SkipsWebsocketWhenIndexerActive(t *testing
 
 	ep.SaveAccounts(100, []state.UserAccountHandler{acc})
 
-	select {
-	case <-testQueue:
-		t.Fatal("expected no websocket account events when indexer is active")
-	default:
-	}
-
+	ev := <-testQueue
+	require.Equal(t, ACCOUNTS, ev.EvType)
 	require.Equal(t, int32(1), atomic.LoadInt32(&called))
 }
 
@@ -477,6 +840,40 @@ func TestEventsProcessor_SaveAccounts_WithPermissions(t *testing.T) {
 			require.Len(t, info.Permissions, 1)
 			require.Equal(t, "owner", info.Permissions[0].PermissionName)
 			require.Len(t, info.Permissions[0].Signers, 1)
+		}
+	default:
+		t.Fatal("expected account event to be dispatched")
+	}
+}
+
+func TestEventsProcessor_SaveAccounts_AllowanceIncludesPendingRewards(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+
+	validatorsKapp := &mock.ValidatorsKAppStub{
+		GetPendingRewardsCalled: func(address []byte) (int64, error) {
+			return 100, nil
+		},
+	}
+
+	kappController := &stub.KAppControllerStub{
+		GetValidatorsKAppCalled: func() kapp.ValidatorsKapp {
+			return validatorsKapp
+		},
+	}
+
+	ep := createTestEventsProcessorWithKApp(t, kappController)
+	acc := createTestAccountStub()
+
+	ep.SaveAccounts(100, []state.UserAccountHandler{acc})
+
+	select {
+	case event := <-testQueue:
+		require.Equal(t, ACCOUNTS, event.EvType)
+		accountsMap, ok := event.Message.(map[string]*data.AccountInfo)
+		require.True(t, ok)
+		require.Len(t, accountsMap, 1)
+		for _, info := range accountsMap {
+			require.Equal(t, int64(150), info.Allowance)
 		}
 	default:
 		t.Fatal("expected account event to be dispatched")
@@ -598,20 +995,6 @@ func TestTrySendEvent_QueueFull(t *testing.T) {
 	require.Equal(t, BLOCKS, event.EvType)
 }
 
-func createTestEventsProcessorWithKApp(t *testing.T, ctrl kapp.KAppController) *eventsProcessor {
-	t.Helper()
-	ep, err := NewEventsProcessor(ArgEventsProcessor{
-		Marshalizer:              &mock.MarshalizerMock{},
-		Hasher:                   &mock.HasherMock{},
-		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
-		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
-		Indexer:                  nil,
-		KAppController:           ctrl,
-	})
-	require.NoError(t, err)
-	return ep
-}
-
 func TestEventsProcessor_GetAllowanceWithPendingRewards(t *testing.T) {
 	t.Parallel()
 
@@ -626,7 +1009,7 @@ func TestEventsProcessor_GetAllowanceWithPendingRewards(t *testing.T) {
 			},
 		}
 
-		result := ep.getAllowanceWithPendingRewards(userAccount)
+		result := getAllowanceWithPendingRewards(ep.kappsController, userAccount)
 		require.Equal(t, int64(1000), result)
 	})
 
@@ -656,7 +1039,7 @@ func TestEventsProcessor_GetAllowanceWithPendingRewards(t *testing.T) {
 			},
 		}
 
-		result := ep.getAllowanceWithPendingRewards(userAccount)
+		result := getAllowanceWithPendingRewards(ep.kappsController, userAccount)
 		require.Equal(t, int64(2500), result)
 	})
 
@@ -686,7 +1069,7 @@ func TestEventsProcessor_GetAllowanceWithPendingRewards(t *testing.T) {
 			},
 		}
 
-		result := ep.getAllowanceWithPendingRewards(userAccount)
+		result := getAllowanceWithPendingRewards(ep.kappsController, userAccount)
 		require.Equal(t, int64(3000), result)
 	})
 
@@ -716,41 +1099,322 @@ func TestEventsProcessor_GetAllowanceWithPendingRewards(t *testing.T) {
 			},
 		}
 
-		result := ep.getAllowanceWithPendingRewards(userAccount)
+		result := getAllowanceWithPendingRewards(ep.kappsController, userAccount)
 		require.Equal(t, int64(4000), result)
 	})
 }
 
-func TestEventsProcessor_SaveAccounts_AllowanceIncludesPendingRewards(t *testing.T) {
+func TestEventsProcessor_DispatchAccountEventsFromAlteredAccounts_IncludesAllAddresses(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
 
-	validatorsKapp := &mock.ValidatorsKAppStub{
-		GetPendingRewardsCalled: func(address []byte) (int64, error) {
-			return 100, nil
-		},
-	}
-
-	kappController := &stub.KAppControllerStub{
-		GetValidatorsKAppCalled: func() kapp.ValidatorsKapp {
-			return validatorsKapp
-		},
-	}
-
-	ep := createTestEventsProcessorWithKApp(t, kappController)
+	var loadCount int32
 	acc := createTestAccountStub()
+	accountsDB := &mock.AccountsStub{
+		GetExistingAccountCalled: func(_ []byte) (state.AccountHandler, error) {
+			atomic.AddInt32(&loadCount, 1)
+			return acc, nil
+		},
+	}
+	ep := createTestEventsProcessorWithAccountsDB(t, accountsDB)
 
-	ep.SaveAccounts(100, []state.UserAccountHandler{acc})
+	senderAddr := hex.EncodeToString([]byte("sender"))
+	fromAddr := hex.EncodeToString([]byte("from_sc"))
+	toAddr := hex.EncodeToString([]byte("receiver"))
 
-	select {
-	case event := <-testQueue:
-		require.Equal(t, ACCOUNTS, event.EvType)
-		accountsMap, ok := event.Message.(map[string]*data.AccountInfo)
-		require.True(t, ok)
-		require.Len(t, accountsMap, 1)
-		for _, info := range accountsMap {
-			require.Equal(t, int64(150), info.Allowance)
+	alteredAccounts := data.NewAlteredAccounts()
+	alteredAccounts.Add(senderAddr, &data.AlteredAccount{IsSender: true, BalanceChange: true})
+	alteredAccounts.Add(fromAddr, &data.AlteredAccount{IsSender: true, BalanceChange: true})
+	alteredAccounts.Add(toAddr, &data.AlteredAccount{BalanceChange: true})
+
+	ep.dispatchAccountEventsFromAlteredAccounts(100, alteredAccounts)
+
+	require.Equal(t, int32(3), atomic.LoadInt32(&loadCount), "expected LoadAccount called for sender, from, and to")
+
+	var accountEvent *Event
+	for i := 0; i < 10; i++ {
+		select {
+		case ev := <-testQueue:
+			if ev.EvType == ACCOUNTS {
+				evCopy := ev
+				accountEvent = &evCopy
+			}
+		default:
+			i = 10
 		}
-	default:
-		t.Fatal("expected account event to be dispatched")
+	}
+	require.NotNil(t, accountEvent, "expected an ACCOUNTS event to be dispatched")
+	_, ok := accountEvent.Message.(map[string]*data.AccountInfo)
+	require.True(t, ok)
+}
+
+func TestEventsProcessor_DispatchAccountEventsFromAlteredAccounts_SkipsZeroAddress(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+
+	var loadCount int32
+	acc := createTestAccountStub()
+	accountsDB := &mock.AccountsStub{
+		GetExistingAccountCalled: func(_ []byte) (state.AccountHandler, error) {
+			atomic.AddInt32(&loadCount, 1)
+			return acc, nil
+		},
+	}
+	ep := createTestEventsProcessorWithAccountsDB(t, accountsDB)
+
+	alteredAccounts := data.NewAlteredAccounts()
+	alteredAccounts.Add(ZeroAddressDecoded, &data.AlteredAccount{IsSender: true})
+	alteredAccounts.Add(hex.EncodeToString([]byte("validaddr1234567")), &data.AlteredAccount{IsSender: false})
+
+	ep.dispatchAccountEventsFromAlteredAccounts(100, alteredAccounts)
+
+	require.Equal(t, int32(1), atomic.LoadInt32(&loadCount), "zero address must not trigger a trie lookup")
+
+	for {
+		select {
+		case ev := <-testQueue:
+			if ev.EvType == ACCOUNTS {
+				accountsMap, ok := ev.Message.(map[string]*data.AccountInfo)
+				require.True(t, ok)
+				for addr := range accountsMap {
+					require.NotEqual(t, ZeroAddressDecoded, addr, "zero address must not appear in dispatched accounts")
+				}
+			}
+		default:
+			return
+		}
 	}
 }
+
+func TestEventsProcessor_DispatchAccountEventsFromAlteredAccounts_ErrAccNotFoundIgnoredQuietly(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+
+	accountsDB := &mock.AccountsStub{
+		GetExistingAccountCalled: func(_ []byte) (state.AccountHandler, error) {
+			return nil, common.ErrAccNotFound
+		},
+	}
+	ep := createTestEventsProcessorWithAccountsDB(t, accountsDB)
+
+	alteredAccounts := data.NewAlteredAccounts()
+	alteredAccounts.Add(hex.EncodeToString([]byte("missingaddr12345")), &data.AlteredAccount{IsSender: true})
+
+	ep.dispatchAccountEventsFromAlteredAccounts(100, alteredAccounts)
+
+	select {
+	case ev := <-testQueue:
+		require.NotEqual(t, ACCOUNTS, ev.EvType, "missing account must not produce an ACCOUNTS event")
+	default:
+	}
+}
+
+func TestEventsProcessor_SaveBlock_TransferDispatchesSenderAndRecipient(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+
+	senderAddr := pad32("sender")
+	recipientAddr := pad32("recipient")
+
+	loaded := make(map[string]struct{})
+	acc := createTestAccountStub()
+	ep := createTestEventsProcessorWithAccountsDB(t, &mock.AccountsStub{
+		GetExistingAccountCalled: func(addrBytes []byte) (state.AccountHandler, error) {
+			loaded[hex.EncodeToString(addrBytes)] = struct{}{}
+			return acc, nil
+		},
+	})
+
+	tx := bareTransactionWithReceipts(senderAddr,
+		makeReceipt(ptx.Transfer,
+			senderAddr, recipientAddr,
+			[]byte("100"), []byte("KLV"),
+			[]byte(nil), []byte{0}, []byte(nil), []byte(nil),
+		),
+	)
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{Txs: map[string]nodeData.TransactionHandler{"tx1": tx}}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+	drainTestQueue(testQueue)
+
+	require.Contains(t, loaded, hex.EncodeToString(senderAddr), "sender must be dispatched")
+	require.Contains(t, loaded, hex.EncodeToString(recipientAddr), "recipient must be dispatched")
+}
+
+func TestEventsProcessor_SaveBlock_UpdateValidatorDispatchesValidatorAddress(t *testing.T) {
+	validatorAddr := pad32("validator")
+	tx := bareTransactionWithReceipts(pad32("sender"),
+		makeReceipt(ptx.UpdateValidator, validatorAddr),
+	)
+	runReceiptAddressTest(t, tx, validatorAddr)
+}
+
+func TestEventsProcessor_SaveBlock_UpdateAccountPermissionDispatchesTargetAddress(t *testing.T) {
+	targetAddr := pad32("permission_target_ab")
+	tx := bareTransactionWithReceipts(pad32("sender"),
+		makeReceipt(ptx.UpdateAccountPermission, targetAddr),
+	)
+	runReceiptAddressTest(t, tx, targetAddr)
+}
+
+func TestEventsProcessor_SaveBlock_UpdateMetadataDispatchesOwnerAddress(t *testing.T) {
+	ownerAddr := pad32("nft_owner_address_ab")
+	tx := bareTransactionWithReceipts(pad32("sender"),
+		makeReceipt(ptx.UpdateMetadata, ownerAddr, []byte("KDA-1"), []byte("1")),
+	)
+	runReceiptAddressTest(t, tx, ownerAddr)
+}
+
+func TestEventsProcessor_SaveBlock_SCTriggerDispatchesContractAddress(t *testing.T) {
+	contractAddr := pad32("smart_contract_12345")
+	tx := bareTransactionWithReceipts(pad32("sender"),
+		makeReceipt(ptx.SCTrigger, []byte("0"), pad32("from_addr_12345678"), contractAddr),
+	)
+	runReceiptAddressTest(t, tx, contractAddr)
+}
+
+func TestEventsProcessor_SaveBlock_SetAccountNameDispatchesTargetAddress(t *testing.T) {
+	targetAddr := pad32("account_owner_12345a")
+	tx := bareTransactionWithReceipts(pad32("sender"),
+		makeReceipt(ptx.SetAccountName, []byte("myname"), targetAddr),
+	)
+	runReceiptAddressTest(t, tx, targetAddr)
+}
+
+func TestEventsProcessor_WebsocketAndIndexerProduceSameAddressSet(t *testing.T) {
+	senderBytes := pad32("sender_address_12345")
+	validatorBytes := pad32("validator_address_ab")
+
+	makeTx := func() *transaction.Transaction {
+		return bareTransactionWithReceipts(senderBytes,
+			makeReceipt(ptx.UpdateValidator, validatorBytes),
+		)
+	}
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+
+	// Step 1: collect the indexer's altered account set.
+	proc := newTxDatabaseProcessor(
+		&mock.HasherMock{},
+		&mock.MarshalizerMock{},
+		mock.NewPubkeyConverterMock(32),
+		mock.NewPubkeyConverterMock(32),
+		false,
+	)
+	_, _, ad, err := proc.prepareTransactionsForDatabase(header,
+		&indexer.Pool{Txs: map[string]nodeData.TransactionHandler{"tx1": makeTx()}},
+	)
+	require.NoError(t, err)
+
+	// websocket path no longer applies a manual ZeroAddress skip; instead,
+	// GetExistingAccount returns ErrAccNotFound for missing addresses (incl.
+	// zero address) and the loop silently drops them. So we now compare the
+	// raw indexer set to the addresses the websocket actually attempted to
+	// load — they must match.
+	indexerAddrs := make(map[string]struct{})
+	for addr := range ad.Accounts.GetAll() {
+		indexerAddrs[addr] = struct{}{}
+	}
+
+	// Step 2: collect addresses loaded by the websocket fallback path.
+	testQueue := saveAndRestoreEventQueue(t, true)
+	wsLoadedAddrs := make(map[string]struct{})
+	acc := createTestAccountStub()
+	ep := createTestEventsProcessorWithAccountsDB(t, &mock.AccountsStub{
+		GetExistingAccountCalled: func(addrBytes []byte) (state.AccountHandler, error) {
+			wsLoadedAddrs[hex.EncodeToString(addrBytes)] = struct{}{}
+			return acc, nil
+		},
+	})
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{
+		Header:           header,
+		TransactionsPool: &indexer.Pool{Txs: map[string]nodeData.TransactionHandler{"tx1": makeTx()}},
+	})
+	drainTestQueue(testQueue)
+
+	require.Equal(t, indexerAddrs, wsLoadedAddrs,
+		"websocket fallback must query exactly the same accounts as the indexer path")
+}
+
+// benchSaveBlock runs ep.SaveBlock against a synthetic pool of transferTxs
+// transfer txs. Use it to anchor commit-thread cost of the orchestrator
+// (prepareTransactionsForDatabase + dispatch + indexer enqueue).
+//
+//	go test -bench=BenchmarkEventsProcessor_SaveBlock -benchmem ./indexer/
+//
+// Read each result as cost-per-block, not per-tx; b.N is the number of blocks
+// processed in the run, each containing transferTxs synthetic transactions.
+func benchSaveBlock(b *testing.B, transferTxs int, wsEnabled bool, indexerEnabled bool) {
+	b.Helper()
+
+	originalUseEventQueue := UseEventQueue
+	originalEventQueue := EventQueue
+	testQueue := make(chan Event, 1024)
+	UseEventQueue = wsEnabled
+	EventQueue = testQueue
+	b.Cleanup(func() {
+		UseEventQueue = originalUseEventQueue
+		EventQueue = originalEventQueue
+		// Close the local channel (not the global, which may have been swapped)
+		// so the drain goroutine exits cleanly instead of leaking across benches.
+		close(testQueue)
+	})
+	go func() {
+		// drain the local channel so trySendEvent's non-blocking send doesn't
+		// fall back to drop logging. Ranging over testQueue (local) instead of
+		// the package-level EventQueue avoids racing with the cleanup-time write.
+		for range testQueue {
+		}
+	}()
+
+	acc := createTestAccountStub()
+	accountsDB := &mock.AccountsStub{
+		GetExistingAccountCalled: func(_ []byte) (state.AccountHandler, error) { return acc, nil },
+	}
+
+	args := ArgEventsProcessor{
+		Marshalizer:              &mock.MarshalizerMock{},
+		Hasher:                   &mock.HasherMock{},
+		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
+		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
+		AccountsDB:               accountsDB,
+	}
+	if indexerEnabled {
+		args.Indexer = &indexerStub{
+			isNilIndexer:    false,
+			saveBlockCalled: func(_ *indexer.ArgsSaveBlockData) {},
+		}
+	}
+	ep, err := NewEventsProcessor(args)
+	require.NoError(b, err)
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+
+	// Pre-build the pool template once; cloning into a fresh map per iter is the
+	// only mutation the orchestrator could perform on it (it shouldn't, post-fix —
+	// but we want the bench to measure steady-state, not first-iteration warmup).
+	contract := transaction.TransferContract{ToAddress: pad32("rcv"), Amount: 1}
+	template := make(map[string]nodeData.TransactionHandler, transferTxs)
+	for i := 0; i < transferTxs; i++ {
+		tx, err := createTransactionHandlerMock(&contract,
+			transaction.TXContract_TransferContractType, pad32("snd"))
+		require.NoError(b, err)
+		template[hex.EncodeToString([]byte{byte(i >> 8), byte(i)})] = tx
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pool := make(map[string]nodeData.TransactionHandler, transferTxs)
+		for k, v := range template {
+			pool[k] = v
+		}
+		ep.SaveBlock(&indexer.ArgsSaveBlockData{
+			Header:           header,
+			TransactionsPool: &indexer.Pool{Txs: pool},
+		})
+	}
+}
+
+func BenchmarkEventsProcessor_SaveBlock_Empty_WSOnly(b *testing.B) { benchSaveBlock(b, 0, true, false) }
+func BenchmarkEventsProcessor_SaveBlock_50tx_WSOnly(b *testing.B)  { benchSaveBlock(b, 50, true, false) }
+func BenchmarkEventsProcessor_SaveBlock_500tx_WSOnly(b *testing.B) { benchSaveBlock(b, 500, true, false) }
+func BenchmarkEventsProcessor_SaveBlock_50tx_Both(b *testing.B)    { benchSaveBlock(b, 50, true, true) }
+func BenchmarkEventsProcessor_SaveBlock_500tx_Both(b *testing.B)   { benchSaveBlock(b, 500, true, true) }
