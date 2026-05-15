@@ -12,9 +12,8 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 )
 
-// buildAccountInfo is the single source of truth for AccountInfo payloads consumed
-// by both the elastic indexer and the websocket dispatcher. Keep this in sync — any
-// new field must appear here, not in a caller-local helper.
+// buildAccountInfo builds the AccountInfo payload shared by the elastic
+// indexer and the websocket dispatcher.
 func buildAccountInfo(
 	addressPubkeyConverter core.PubkeyConverter,
 	kappsController kapp.KAppController,
@@ -44,7 +43,6 @@ func buildAccountInfo(
 	}, nil
 }
 
-// convertPermissions converts user account permissions to the indexer payload type.
 func convertPermissions(
 	addressPubkeyConverter core.PubkeyConverter,
 	perms []*dataState.Permission,
@@ -70,7 +68,6 @@ func convertPermissions(
 	return permissions
 }
 
-// calculateUnfrozenBalance sums the value of all unstaked buckets.
 func calculateUnfrozenBalance(buckets map[string]*kapps.UserBucket) int64 {
 	unfrozenBalance := int64(0)
 	for _, bucket := range buckets {
@@ -81,9 +78,9 @@ func calculateUnfrozenBalance(buckets map[string]*kapps.UserBucket) int64 {
 	return unfrozenBalance
 }
 
-// getAllowanceWithPendingRewards returns the user allowance including V2 pending
-// validator rewards. A nil controller (or missing validators kapp) returns the
-// raw allowance, matching prior behavior on both code paths.
+// getAllowanceWithPendingRewards returns the user allowance plus any V2
+// pending validator rewards. A nil controller or missing validators kapp
+// returns the raw allowance.
 func getAllowanceWithPendingRewards(
 	kappsController kapp.KAppController,
 	userAccount dataState.UserAccountHandler,

@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core/kapp"
@@ -64,52 +65,54 @@ func checkArgEventsProcessor(arguments ArgEventsProcessor) error {
 }
 
 func (ep *eventsProcessor) Enabled() bool {
-	return UseEventQueue || (ep.indexer != nil && !ep.indexer.IsNilIndexer())
+	return UseEventQueue || ep.indexerEnabled()
 }
 
-// SaveBlock is the single per-block orchestrator. It runs on the commit
-// goroutine and is the only place that calls prepareTransactionsForDatabase
-// for a given block. Websocket events are enqueued here (non-blocking
-// trySendEvent) so subscribers see consistent timing across configurations,
-// and the prepared payload is then forwarded to the indexer via
-// ArgsSaveBlockData.Prepared so the elastic worker never re-preps.
+func (ep *eventsProcessor) indexerEnabled() bool {
+	return !check.IfNil(ep.indexer) && !ep.indexer.IsNilIndexer()
+}
+
 func (ep *eventsProcessor) SaveBlock(args *indexerData.ArgsSaveBlockData) {
 	wsEnabled := UseEventQueue
-	indexerEnabled := !check.IfNil(ep.indexer) && !ep.indexer.IsNilIndexer()
+	indexerEnabled := ep.indexerEnabled()
 	if !wsEnabled && !indexerEnabled {
 		return
 	}
 
-	var prepared *data.PreparedBlockData
-	if args.TransactionsPool != nil && len(args.TransactionsPool.Txs) > 0 {
-		txs, txsMap, ad, err := ep.prepareTransactionsForDatabase(args.Header, args.TransactionsPool)
-		if err != nil {
-			// Per-block prep failure: ws subscribers get no TXN/ACCOUNT events for this
-			// block, and the indexer worker's fallback re-prep will hit the same error.
-			// Loud signal so it shows up in node operator alerting.
-			log.Error("eventsProcessor.SaveBlock: prepare failed", "nonce", args.Header.GetNonce(), "error", err)
-		} else {
-			prepared = &data.PreparedBlockData{Txs: txs, TxsMap: txsMap, Altered: ad}
-		}
-	}
-
+	// Prep runs on the commit goroutine only when websocket subscribers need
+	// it. Indexer-only nodes let the elastic worker re-prep on its own
+	// goroutine via the fallback in elasticProcessor.SaveTransactions.
 	if wsEnabled {
+		prepared := ep.prepare(args)
 		ep.dispatchBlockEvent(args)
 		if prepared != nil {
 			ep.dispatchTransactionEvents(prepared.Txs)
 			ep.dispatchAccountEventsFromAlteredAccounts(args.Header.GetTimestamp(), prepared.Altered.Accounts)
 		}
+		if indexerEnabled {
+			args.Prepared = prepared
+		}
 	}
 
 	if indexerEnabled {
-		args.Prepared = prepared
 		ep.indexer.SaveBlock(args)
 	}
 }
 
+func (ep *eventsProcessor) prepare(args *indexerData.ArgsSaveBlockData) *data.PreparedBlockData {
+	if args.TransactionsPool == nil || len(args.TransactionsPool.Txs) == 0 {
+		return nil
+	}
+	txs, txsMap, ad, err := ep.prepareTransactionsForDatabase(args.Header, args.TransactionsPool)
+	if err != nil {
+		log.Error("eventsProcessor.SaveBlock: prepare failed", "nonce", args.Header.GetNonce(), "error", err)
+		return nil
+	}
+	return &data.PreparedBlockData{Txs: txs, TxsMap: txsMap, Altered: ad}
+}
+
 func (ep *eventsProcessor) dispatchBlockEvent(args *indexerData.ArgsSaveBlockData) {
-	// Use byte-size (not tx count) so the BLOCKS event payload's SizeTxs/VirtualBlockSize
-	// match what the elastic indexer writes via workItems.ComputeSizeOfTxs in SaveHeader.
+	// byte-size to match SaveHeader's SizeTxs.
 	txsSize := 0
 	if args.TransactionsPool != nil {
 		txsSize = workItems.ComputeSizeOfTxs(args.TransactionsPool)
@@ -146,6 +149,9 @@ func (ep *eventsProcessor) dispatchTransactionEvents(txs []*data.Transaction) {
 	})
 }
 
+// dispatchAccountEventsFromAlteredAccounts uses GetExistingAccount so that
+// addresses with no persisted state (e.g. ZeroAddress) are silently dropped
+// rather than broadcast as empty ghost accounts.
 func (ep *eventsProcessor) dispatchAccountEventsFromAlteredAccounts(blockTimestamp int64, alteredAccounts data.AlteredAccountsHandler) {
 	if check.IfNil(ep.accountsDB) || alteredAccounts.Len() == 0 {
 		return
@@ -153,33 +159,12 @@ func (ep *eventsProcessor) dispatchAccountEventsFromAlteredAccounts(blockTimesta
 
 	accountsMap := make(map[string]*data.AccountInfo, alteredAccounts.Len())
 	for address := range alteredAccounts.GetAll() {
-		addrBytes, err := ep.addressPubkeyConverter.Decode(address)
+		info, err := ep.buildAlteredAccountInfo(address, blockTimestamp)
 		if err != nil {
-			log.Warn("eventsProcessor.dispatchAccountEventsFromAlteredAccounts: cannot decode address", "address", address, "error", err)
+			log.Warn("eventsProcessor.dispatchAccountEventsFromAlteredAccounts", "address", address, "error", err)
 			continue
 		}
-
-		// GetExistingAccount (vs LoadAccount used by the indexer): we do not
-		// want to broadcast empty ghost-account payloads for addresses that
-		// have no persisted state (e.g., ZeroAddress); a missing account is
-		// a no-op for subscribers.
-		accountHandler, err := ep.accountsDB.GetExistingAccount(addrBytes)
-		if err != nil {
-			if !errors.Is(err, common.ErrAccNotFound) {
-				log.Warn("eventsProcessor.dispatchAccountEventsFromAlteredAccounts: cannot load account", "address", address, "error", err)
-			}
-			continue
-		}
-
-		userAccount, ok := accountHandler.(dataState.UserAccountHandler)
-		if !ok {
-			log.Warn("eventsProcessor.dispatchAccountEventsFromAlteredAccounts: cannot cast AccountHandler to UserAccountHandler", "address", address)
-			continue
-		}
-
-		info, err := buildAccountInfo(ep.addressPubkeyConverter, ep.kappsController, userAccount, blockTimestamp)
-		if err != nil {
-			log.Warn("eventsProcessor.dispatchAccountEventsFromAlteredAccounts: cannot build account info", "address", address, "error", err)
+		if info == nil {
 			continue
 		}
 		accountsMap[info.Address] = info
@@ -192,38 +177,59 @@ func (ep *eventsProcessor) dispatchAccountEventsFromAlteredAccounts(blockTimesta
 	dispatchAccountEvents(accountsMap)
 }
 
+// buildAlteredAccountInfo resolves an altered address into an AccountInfo.
+// Returns (nil, nil) when the account doesn't exist — a normal no-op skip.
+func (ep *eventsProcessor) buildAlteredAccountInfo(address string, blockTimestamp int64) (*data.AccountInfo, error) {
+	addrBytes, err := ep.addressPubkeyConverter.Decode(address)
+	if err != nil {
+		return nil, fmt.Errorf("decode address: %w", err)
+	}
+
+	accountHandler, err := ep.accountsDB.GetExistingAccount(addrBytes)
+	if err != nil {
+		if errors.Is(err, common.ErrAccNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("load account: %w", err)
+	}
+
+	userAccount, ok := accountHandler.(dataState.UserAccountHandler)
+	if !ok {
+		return nil, fmt.Errorf("account is not a UserAccountHandler")
+	}
+
+	return buildAccountInfo(ep.addressPubkeyConverter, ep.kappsController, userAccount, blockTimestamp)
+}
+
 func (ep *eventsProcessor) RevertIndexedBlock(header nodeData.HeaderHandler) {
-	if ep.indexer == nil || ep.indexer.IsNilIndexer() {
+	if !ep.indexerEnabled() {
 		return
 	}
 	ep.indexer.RevertIndexedBlock(header)
 }
 
 func (ep *eventsProcessor) SaveValidatorsRating(validators []kapp.ValidatorAccountInfoHandler) {
-	if ep.indexer == nil || ep.indexer.IsNilIndexer() {
+	if !ep.indexerEnabled() {
 		return
 	}
 	ep.indexer.SavePeersAccounts(validators)
 }
 
 func (ep *eventsProcessor) SaveEpochInfo(epoch uint32, validators []kapp.ValidatorAccountInfoHandler) {
-	if ep.indexer == nil || ep.indexer.IsNilIndexer() {
+	if !ep.indexerEnabled() {
 		return
 	}
 	ep.indexer.SaveEpochInfo(epoch, validators)
 }
 
 func (ep *eventsProcessor) UpdateProposalsAndParameters(proposalIDs []string) {
-	if ep.indexer == nil || ep.indexer.IsNilIndexer() {
+	if !ep.indexerEnabled() {
 		return
 	}
 	ep.indexer.UpdateProposalsAndParameters(proposalIDs)
 }
 
 func (ep *eventsProcessor) SaveAccounts(blockTimestamp int64, acc []dataState.UserAccountHandler) {
-	// Websocket dispatch is independent of indexer enablement — fire whenever
-	// the event queue is on. The duplicate dispatch in elasticProcessor.saveAccounts
-	// has been removed so this is the single source of ACCOUNTS events.
 	if UseEventQueue && len(acc) > 0 {
 		accountsMap := make(map[string]*data.AccountInfo, len(acc))
 		for _, userAccount := range acc {
@@ -237,7 +243,7 @@ func (ep *eventsProcessor) SaveAccounts(blockTimestamp int64, acc []dataState.Us
 		dispatchAccountEvents(accountsMap)
 	}
 
-	if ep.indexer == nil || ep.indexer.IsNilIndexer() {
+	if !ep.indexerEnabled() {
 		return
 	}
 	ep.indexer.SaveAccounts(blockTimestamp, acc)

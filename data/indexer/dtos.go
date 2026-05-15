@@ -11,11 +11,9 @@ type ArgsSaveBlockData struct {
 	Signer           []byte
 	TransactionsPool *Pool
 	Validators       []string
-	// Prepared optionally carries pre-computed block data produced by the
-	// events orchestrator (concretely a *indexer/data.PreparedBlockData). When
-	// non-nil, downstream consumers (e.g., elasticProcessor.SaveTransactions)
-	// must reuse it instead of recomputing. Typed as any so this public DTO
-	// does not depend on the internal indexer/data package.
+	// Prepared, when non-nil, is a *indexer/data.PreparedBlockData consumers
+	// reuse instead of re-prepping. Typed as any to avoid importing the
+	// internal indexer/data package.
 	Prepared any
 }
 

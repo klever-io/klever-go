@@ -327,8 +327,6 @@ func (ei *elasticProcessor) SaveHeader(
 		return err
 	}
 
-	// Websocket BLOCKS dispatch is performed by eventsProcessor.SaveBlock on the
-	// commit goroutine so it is decoupled from elastic write timing/health.
 	return nil
 }
 
@@ -526,11 +524,9 @@ func (ei *elasticProcessor) updateAccountBalance(address string, balance int64, 
 	return ei.elasticClient.DoUpdate(accountsIndex, address, &updateBody)
 }
 
-// SaveTransactions will prepare and save information about a transactions in elasticsearch server.
-// When prepared is a non-nil *data.PreparedBlockData, its contents are reused (single-source-of-truth
-// produced by the events orchestrator on the commit goroutine); otherwise, the legacy path runs
-// prepareTransactionsForDatabase here. Websocket dispatch is NOT performed in this path — the
-// orchestrator owns it so events are decoupled from elastic write success and timing.
+// SaveTransactions saves a block's transactions to elasticsearch. If prepared
+// is a non-nil *data.PreparedBlockData, its contents are reused; otherwise
+// prepareTransactionsForDatabase runs here as a fallback.
 func (ei *elasticProcessor) SaveTransactions(
 	header nodeData.HeaderHandler,
 	pool *indexer.Pool,
@@ -1623,10 +1619,6 @@ func (ei *elasticProcessor) saveAccounts(
 		}
 		historyAccountsMap[address] = acc
 	}
-
-	// Websocket ACCOUNTS dispatch is performed by eventsProcessor.SaveBlock on
-	// the commit goroutine. No event emission here — keeps the elastic write
-	// path side-effect free for subscribers.
 
 	if err := serializeAccounts(newAccountsMap, buffSlice, accountsIndex); err != nil {
 		return err

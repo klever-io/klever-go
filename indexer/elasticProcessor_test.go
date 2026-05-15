@@ -167,11 +167,7 @@ func TestElasticseachDatabaseSaveHeader_CheckRequestBody(t *testing.T) {
 	require.Nil(t, err)
 }
 
-// TestElasticProcessor_SaveTransactions_FallbackPrepWhenPreparedNil locks in the
-// safety-net contract: when the orchestrator did NOT pre-compute a payload (or
-// is bypassed entirely, e.g., direct test calls), SaveTransactions must run
-// prepareTransactionsForDatabase itself rather than no-op or panic on a nil
-// payload. The bulk write is the observable side effect.
+// Fallback: when Prepared is nil, SaveTransactions must run prep itself.
 func TestElasticProcessor_SaveTransactions_FallbackPrepWhenPreparedNil(t *testing.T) {
 	var bulkInvocations int32
 	dbWriter := &imock.DatabaseWriterStub{
@@ -1366,10 +1362,6 @@ func TestDispatchAccountEvents(t *testing.T) {
 	})
 }
 
-// TestElasticProcessor_SaveHeader_DoesNotDispatchEvents verifies the
-// centralization invariant: elasticProcessor.SaveHeader must NOT emit a BLOCKS
-// event. The orchestrator (eventsProcessor.SaveBlock) owns BLOCKS dispatch on
-// the commit goroutine, decoupled from elastic write timing/health.
 func TestElasticProcessor_SaveHeader_DoesNotDispatchEvents(t *testing.T) {
 	originalUseEventQueue := UseEventQueue
 	originalEventQueue := EventQueue
@@ -1400,10 +1392,6 @@ func TestElasticProcessor_SaveHeader_DoesNotDispatchEvents(t *testing.T) {
 	require.Len(t, testQueue, 0, "elasticProcessor must not enqueue BLOCKS events; dispatch is owned by eventsProcessor")
 }
 
-// TestElasticProcessor_SaveTransactions_DoesNotDispatchEvents verifies the
-// centralization invariant: elasticProcessor.SaveTransactions must NOT emit
-// USER_TRANSACTIONS/TRANSACTIONS events even when UseEventQueue is enabled.
-// Those events are owned by eventsProcessor.SaveBlock on the commit goroutine.
 func TestElasticProcessor_SaveTransactions_DoesNotDispatchEvents(t *testing.T) {
 	originalUseEventQueue := UseEventQueue
 	originalEventQueue := EventQueue

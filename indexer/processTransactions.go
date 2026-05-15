@@ -49,11 +49,9 @@ func newTxDatabaseProcessor(
 	}
 }
 
-// prepareTransactionsForDatabase builds the indexer's view of a block's transactions and
-// the set of altered accounts/assets/etc. It does NOT mutate txPool — the caller may
-// safely reuse txPool afterwards (e.g., ComputeSizeOfTxs on the work item, or a fallback
-// re-prep). Centralized by eventsProcessor.SaveBlock so on the happy path it runs once
-// per block and the result is forwarded to the elastic worker via PreparedBlockData.
+// prepareTransactionsForDatabase builds the indexer view of a block's
+// transactions and altered accounts/assets. Must not mutate txPool: callers
+// (work-item ComputeSizeOfTxs, fallback re-prep) read it afterwards.
 func (tdp *txDatabaseProcessor) prepareTransactionsForDatabase(
 	header nodeData.HeaderHandler,
 	txPool *indexer.Pool,

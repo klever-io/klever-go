@@ -382,8 +382,6 @@ func TestEventsProcessor_SaveBlock_DispatchesTransactionEvents(t *testing.T) {
 	require.Equal(t, TRANSACTIONS, txEvent.EvType)
 }
 
-// With centralization, BLOCKS now fires on every websocket-enabled config —
-// including indexer-active nodes — directly from the commit goroutine.
 func TestEventsProcessor_SaveBlock_DispatchesBlocksEventWithIndexerActive(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
 
@@ -525,10 +523,6 @@ func TestEventsProcessor_SaveBlock_SkipsAccountEventsWhenNoAccountsDB(t *testing
 	}
 }
 
-// With centralization: indexer-active path also dispatches BLOCKS, TX, and
-// ACCOUNTS websocket events, AND the indexer receives a non-nil Prepared
-// payload (no duplicate prep downstream). This is the (true, true) cell of
-// the (UseEventQueue, indexer) test matrix.
 func TestEventsProcessor_SaveBlock_DispatchesAllEventsAndPreparesIndexer(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
 
@@ -599,11 +593,8 @@ func TestEventsProcessor_SaveBlock_DispatchesAllEventsAndPreparesIndexer(t *test
 	require.NotNil(t, prepared.Altered)
 }
 
-// Regression: the orchestrator must NOT mutate args.TransactionsPool.Txs. The
-// elastic worker reads it later (ComputeSizeOfTxs on the work item, and the
-// fallback prepareTransactionsForDatabase path), and a drained pool produced a
-// SizeTxs=0 block in the elastic index. Asserting non-mutation here is the
-// invariant — not the bytes-vs-count of SizeTxs, which is a separate concern.
+// Regression: SaveBlock must not drain TransactionsPool.Txs — the work item
+// later calls ComputeSizeOfTxs and the elastic fallback re-preps.
 func TestEventsProcessor_SaveBlock_DoesNotMutatePool(t *testing.T) {
 	saveAndRestoreEventQueue(t, true)
 
@@ -646,9 +637,10 @@ func TestEventsProcessor_SaveBlock_DoesNotMutatePool(t *testing.T) {
 	require.Len(t, pool.Txs, 2, "SaveBlock must not drain TransactionsPool.Txs — work item still reads it for ComputeSizeOfTxs")
 }
 
-// (false, true) cell: indexer enabled but websocket disabled — no events fire
-// but the indexer still receives a Prepared payload (single prep invariant).
-func TestEventsProcessor_SaveBlock_NoEventsButPreparedWhenWebsocketDisabled(t *testing.T) {
+// When ws is disabled and only the indexer is enabled, SaveBlock must NOT
+// prep on the commit goroutine — the worker re-preps via the fallback in
+// elasticProcessor.SaveTransactions, keeping commit-thread cost flat.
+func TestEventsProcessor_SaveBlock_IndexerOnlySkipsCommitThreadPrep(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, false)
 
 	acc := createTestAccountStub()
@@ -688,13 +680,9 @@ func TestEventsProcessor_SaveBlock_NoEventsButPreparedWhenWebsocketDisabled(t *t
 	default:
 	}
 
-	prepared, ok := receivedPrepared.(*data.PreparedBlockData)
-	require.True(t, ok)
-	require.NotNil(t, prepared)
+	require.Nil(t, receivedPrepared, "Prepared must be nil when ws is disabled — worker re-preps on its own goroutine")
 }
 
-// (false, false) cell: when nothing is enabled, SaveBlock must short-circuit —
-// no prep work, no events, no indexer call.
 func TestEventsProcessor_SaveBlock_NoOpWhenNothingEnabled(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, false)
 
@@ -747,8 +735,6 @@ func TestEventsProcessor_SaveAccounts_SkipsWhenDisabled(t *testing.T) {
 	}
 }
 
-// With centralization: standalone SaveAccounts dispatches websocket ACCOUNTS
-// independently of indexer enablement, AND still forwards to the indexer.
 func TestEventsProcessor_SaveAccounts_DispatchesWebsocketAndForwardsToIndexer(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
 
@@ -1303,11 +1289,6 @@ func TestEventsProcessor_WebsocketAndIndexerProduceSameAddressSet(t *testing.T) 
 	)
 	require.NoError(t, err)
 
-	// websocket path no longer applies a manual ZeroAddress skip; instead,
-	// GetExistingAccount returns ErrAccNotFound for missing addresses (incl.
-	// zero address) and the loop silently drops them. So we now compare the
-	// raw indexer set to the addresses the websocket actually attempted to
-	// load — they must match.
 	indexerAddrs := make(map[string]struct{})
 	for addr := range ad.Accounts.GetAll() {
 		indexerAddrs[addr] = struct{}{}
@@ -1413,8 +1394,10 @@ func benchSaveBlock(b *testing.B, transferTxs int, wsEnabled bool, indexerEnable
 	}
 }
 
-func BenchmarkEventsProcessor_SaveBlock_Empty_WSOnly(b *testing.B) { benchSaveBlock(b, 0, true, false) }
-func BenchmarkEventsProcessor_SaveBlock_50tx_WSOnly(b *testing.B)  { benchSaveBlock(b, 50, true, false) }
-func BenchmarkEventsProcessor_SaveBlock_500tx_WSOnly(b *testing.B) { benchSaveBlock(b, 500, true, false) }
-func BenchmarkEventsProcessor_SaveBlock_50tx_Both(b *testing.B)    { benchSaveBlock(b, 50, true, true) }
-func BenchmarkEventsProcessor_SaveBlock_500tx_Both(b *testing.B)   { benchSaveBlock(b, 500, true, true) }
+func BenchmarkEventsProcessor_SaveBlock_Empty_WSOnly(b *testing.B)      { benchSaveBlock(b, 0, true, false) }
+func BenchmarkEventsProcessor_SaveBlock_50tx_WSOnly(b *testing.B)       { benchSaveBlock(b, 50, true, false) }
+func BenchmarkEventsProcessor_SaveBlock_500tx_WSOnly(b *testing.B)      { benchSaveBlock(b, 500, true, false) }
+func BenchmarkEventsProcessor_SaveBlock_50tx_IndexerOnly(b *testing.B)  { benchSaveBlock(b, 50, false, true) }
+func BenchmarkEventsProcessor_SaveBlock_500tx_IndexerOnly(b *testing.B) { benchSaveBlock(b, 500, false, true) }
+func BenchmarkEventsProcessor_SaveBlock_50tx_Both(b *testing.B)         { benchSaveBlock(b, 50, true, true) }
+func BenchmarkEventsProcessor_SaveBlock_500tx_Both(b *testing.B)        { benchSaveBlock(b, 500, true, true) }
