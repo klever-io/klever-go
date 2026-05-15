@@ -23,6 +23,28 @@ func (psh *PresenterStatusHandler) getFromCacheAsUint64(metric string) uint64 {
 	return valUint64
 }
 
+// getFromCacheAsInt64 reads an int64 metric. The uint64 fallback (for legacy
+// writers) is bound-checked so values above MaxInt64 return 0 instead of
+// wrapping negative. Returns 0 when missing or of an unsupported type.
+func (psh *PresenterStatusHandler) getFromCacheAsInt64(metric string) int64 {
+	val, ok := psh.presenterMetrics.Load(metric)
+	if !ok {
+		return 0
+	}
+
+	switch v := val.(type) {
+	case int64:
+		return v
+	case uint64:
+		if v > math.MaxInt64 {
+			return 0
+		}
+		return int64(v) // #nosec G115: bound-checked above
+	default:
+		return 0
+	}
+}
+
 func (psh *PresenterStatusHandler) getFromCacheAsString(metric string) string {
 	val, ok := psh.presenterMetrics.Load(metric)
 	if !ok {

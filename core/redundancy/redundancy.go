@@ -116,7 +116,13 @@ func (nr *nodeRedundancy) SetInternalRedundancyLevel(level int64) error {
 	return nil
 }
 
+// GetInternalRedundancyLevel returns the configured redundancy level. RLock
+// matches sibling accessors so the call stays safe if redundancyLevel ever
+// becomes mutable.
 func (nr *nodeRedundancy) GetInternalRedundancyLevel() int64 {
+	nr.mutNodeRedundancy.RLock()
+	defer nr.mutNodeRedundancy.RUnlock()
+
 	return nr.redundancyLevel
 }
 
@@ -126,6 +132,16 @@ func (nr *nodeRedundancy) GetSlotsOfInactivity() uint64 {
 	defer nr.mutNodeRedundancy.RUnlock()
 
 	return nr.slotsOfInactivity
+}
+
+// Snapshot returns (level, slotsOfInactivity, isMainMachineActive) read under a
+// single RLock so observers (metric writers, dashboards) cannot see a torn state
+// where the three fields disagree across separate getter calls.
+func (nr *nodeRedundancy) Snapshot() (int64, uint64, bool) {
+	nr.mutNodeRedundancy.RLock()
+	defer nr.mutNodeRedundancy.RUnlock()
+
+	return nr.redundancyLevel, nr.slotsOfInactivity, nr.isMainMachineActive()
 }
 
 func (nr *nodeRedundancy) isMainMachineActive() bool {

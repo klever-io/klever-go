@@ -246,10 +246,26 @@ const MetricCreatedProposedBlock = "klv_consensus_created_proposed_block"
 // subslot spare duration)
 const MetricProcessedProposedBlock = "klv_consensus_processed_proposed_block"
 
-// MetricRedundancyLevel is the metric that specifies the redundancy level of the current node
+// MetricRedundancyLevel is the redundancy level: -1 inactive, 0 main producer,
+// N>0 backup rank (lower N takes over sooner when upstream is silent).
 const MetricRedundancyLevel = "klv_redundancy_level" // #nosec G101: false positive
 
-// MetricRedundancyIsMainActive is the metric that specifies data about the redundancy main machine
+// MetricRedundancyIsActive reports whether this node is currently the active
+// block producer (uint64, 1/0). The value's meaning is uniform across roles:
+//
+//	1 = this node is producing for its slots right now,
+//	0 = standby (backup whose upstream is still alive) or inactive.
+//
+// The role-aware computation lives in cmd/node/metrics.buildNodeMetricsPollingFunc.
+const MetricRedundancyIsActive = "klv_redundancy_is_active"
+
+// MetricRedundancyIsMainActive reports whether the upstream producer chain is
+// alive, from this backup's perspective (uint64, 1/0). Only emitted when
+// redundancy level > 0 — the question does not apply to main producers or
+// inactive nodes, so the metric is absent for them (canonical Prometheus
+// idiom for "not applicable to this role"). Pair with klv_redundancy_is_active
+// to distinguish "I'm a backup on standby" (is_main_active=1, is_active=0)
+// from "I'm a backup that has taken over" (is_main_active=0, is_active=1).
 const MetricRedundancyIsMainActive = "klv_redundancy_is_main_active"
 
 // MetricBlockProcessDuration is the metric for the duration in milliseconds of ProcessBlock()

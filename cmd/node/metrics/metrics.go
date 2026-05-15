@@ -95,6 +95,11 @@ func InitMetrics(
 	appStatusHandler.SetUInt64Value(core.MetricNodeUptimeSeconds, initUint)
 	appStatusHandler.SetUInt64Value(core.MetricNodeStartTimestamp, initUint)
 	appStatusHandler.SetUInt64Value(core.MetricRedundancySlotsInactive, initUint)
+	appStatusHandler.SetInt64Value(core.MetricRedundancyLevel, 0)
+	// MetricRedundancyIsActive is intentionally NOT pre-initialised so the
+	// presenter sees "key absent" and hides the TUI redundancy row until the
+	// first polling run publishes the real value. MetricRedundancyIsMainActive
+	// is only emitted at runtime when level>0, so it is also not pre-initialised.
 
 	validatorsNodes, _, err := nodesConfig.InitialNodesInfo()
 	if err != nil {
@@ -249,16 +254,63 @@ func StartNodeMetricsPolling(
 		return fmt.Errorf("cannot init AppStatusPolling for node metrics: %w", err)
 	}
 
-	err = appStatusPollingHandler.RegisterPollingFunc(func(appStatusHandler core.AppStatusHandler) {
-		appStatusHandler.SetUInt64Value(core.MetricNodeUptimeSeconds, uint64(time.Since(startTime).Seconds())) // #nosec G115
-		appStatusHandler.SetUInt64Value(core.MetricRedundancySlotsInactive, redundancyHandler.GetSlotsOfInactivity())
-	})
+	pollingFunc := buildNodeMetricsPollingFunc(startTime, redundancyHandler)
+	err = appStatusPollingHandler.RegisterPollingFunc(pollingFunc)
 	if err != nil {
 		return fmt.Errorf("cannot register node metrics polling function: %w", err)
 	}
 
+	// Prime before the recurring poll so /node/status returns the real level on
+	// request 1 (AppStatusPolling.Poll sleeps before its first tick).
+	pollingFunc(ash)
+
 	appStatusPollingHandler.Poll()
 	return nil
+}
+
+func buildNodeMetricsPollingFunc(
+	startTime time.Time,
+	redundancyHandler consensus.NodeRedundancyHandler,
+) func(core.AppStatusHandler) {
+	return func(appStatusHandler core.AppStatusHandler) {
+		appStatusHandler.SetUInt64Value(core.MetricNodeUptimeSeconds, uint64(time.Since(startTime).Seconds())) // #nosec G115
+
+		// Snapshot the redundancy state under a single lock so the metrics
+		// triple cannot disagree across separate getter calls (e.g. slots
+		// reported pre-increment while is_main_active reflects post-increment).
+		// redundancyLevel itself is effectively immutable post-construction —
+		// SetInternalRedundancyLevel mutates slotsOfInactivity, not the level —
+		// but reading slots and isMainMachineActive together still requires the
+		// shared lock to stay consistent across slot-handler activity.
+		level, slotsOfInactivity, upstreamAlive := redundancyHandler.Snapshot()
+
+		appStatusHandler.SetUInt64Value(core.MetricRedundancySlotsInactive, slotsOfInactivity)
+		appStatusHandler.SetInt64Value(core.MetricRedundancyLevel, level)
+
+		var isActive uint64
+		switch {
+		case level == 0:
+			// Main producer: active for its slots whenever it is emitting metrics.
+			isActive = 1
+		case level > 0:
+			// Backup: active only when the upstream chain has gone silent.
+			// Also emit is_main_active so operators can monitor upstream health
+			// independently of failover status; this metric is backup-only.
+			if !upstreamAlive {
+				isActive = 1
+			}
+			var isMainActive uint64
+			if upstreamAlive {
+				isMainActive = 1
+			}
+			appStatusHandler.SetUInt64Value(core.MetricRedundancyIsMainActive, isMainActive)
+		case level < 0:
+			// Inactive node: never produces. The upstreamAlive bit from the
+			// snapshot reflects the backup-perspective formula and is not
+			// meaningful here, so it is deliberately ignored.
+		}
+		appStatusHandler.SetUInt64Value(core.MetricRedundancyIsActive, isActive)
+	}
 }
 
 func registerPollProbableHighestNonce(

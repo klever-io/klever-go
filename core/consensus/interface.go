@@ -142,5 +142,9 @@ type NodeRedundancyHandler interface {
 	SetInternalRedundancyLevel(level int64) error
 	GetInternalRedundancyLevel() int64
 	GetSlotsOfInactivity() uint64
+	// Snapshot returns (level, slotsOfInactivity, isMainMachineActive) read atomically
+	// under a single lock so observers see a consistent triple. Prefer this over
+	// chained getter calls when publishing all three together.
+	Snapshot() (int64, uint64, bool)
 	IsInterfaceNil() bool
 }

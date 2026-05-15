@@ -37,9 +37,6 @@ const AccStateCheckpointsKey = "klv_num_accounts_state_checkpoints"
 // PeerStateCheckpointsKey is used as a key for the number of peer state checkpoints in the api response
 const PeerStateCheckpointsKey = "klv_num_peer_state_checkpoints"
 
-// RedundancyLevelKey is used as a key for the redundancy level in the api response
-const RedundancyLevelKey = "klv_redundancy_level"
-
 // FacadeHandler interface defines methods that can be used by the gin webserver
 type FacadeHandler interface {
 	GetHeartbeats() ([]data.PubKeyHeartbeat, error)
@@ -48,7 +45,6 @@ type FacadeHandler interface {
 	GetQueryHandler(name string) (debug.QueryHandler, error)
 	GetPeerInfo(pid string) ([]core.QueryP2PPeerInfo, error)
 	SetRedundancy(level int64) error
-	GetRedundancy() int64
 	GetEnableEpochs() (config.EnableEpochsConfig, error)
 	GetNodeOverview() (models.NodeOverview, error)
 	IsInterfaceNil() bool
@@ -193,7 +189,6 @@ func StatusMetrics(c *gin.Context) {
 	}
 
 	details := facade.StatusMetrics().StatusMetricsMapWithoutP2P()
-	details[RedundancyLevelKey] = facade.GetRedundancy()
 
 	// TODO:
 	//details[AccStateCheckpointsKey] = facade.GetNumCheckpointsFromAccountState()
