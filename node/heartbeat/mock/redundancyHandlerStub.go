@@ -62,6 +62,11 @@ func (rhs *RedundancyHandlerStub) GetSlotsOfInactivity() uint64 {
 	return 0
 }
 
+// Snapshot -
+func (rhs *RedundancyHandlerStub) Snapshot() (int64, uint64, bool) {
+	return rhs.GetInternalRedundancyLevel(), rhs.GetSlotsOfInactivity(), rhs.IsMainMachineActive()
+}
+
 // IsInterfaceNil -
 func (rhs *RedundancyHandlerStub) IsInterfaceNil() bool {
 	return rhs == nil

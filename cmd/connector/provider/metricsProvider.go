@@ -129,18 +129,20 @@ func (smp *StatusMetricsProvider) setPresenterValue(key string, value interface{
 		// JSON numbers decode as float64; route signed metrics through SetInt64Value
 		// to preserve the sign (see signedMetricKeys). Bound-check both casts —
 		// `int64(NaN/±Inf/out-of-range float64)` is implementation-defined per the
-		// Go spec, same trap this allowlist exists to avoid for uint64.
+		// Go spec, same trap this allowlist exists to avoid for uint64. Use `>=`
+		// because float64 cannot represent MaxInt64 / MaxUint64 exactly — both
+		// round up to 2^63 / 2^64, and `int64(2^63)` / `uint64(2^64)` are UB.
 		if math.IsNaN(v) || math.IsInf(v, 0) {
 			return ErrTypeAssertionFailed
 		}
 		if _, signed := signedMetricKeys[key]; signed {
-			if v < math.MinInt64 || v > math.MaxInt64 {
+			if v < math.MinInt64 || v >= math.MaxInt64 {
 				return ErrTypeAssertionFailed
 			}
 			smp.presenter.SetInt64Value(key, int64(v))
 			return nil
 		}
-		if v < 0 || v > math.MaxUint64 {
+		if v < 0 || v >= math.MaxUint64 {
 			return ErrTypeAssertionFailed
 		}
 		smp.presenter.SetUInt64Value(key, uint64(v))
