@@ -329,6 +329,11 @@ func (tc *AssetTriggerContract) Validate(fc core.ForkController) error {
 		AssetTriggerContract_RemoveRole,
 		AssetTriggerContract_ChangeRoyaltiesReceiver:
 		allowed = allowedAssetTriggerFields{ToAddress: true}
+	case AssetTriggerContract_SetController:
+		if !fc.EnableRWAPermissions() {
+			return ErrInvalidTriggerType
+		}
+		allowed = allowedAssetTriggerFields{ToAddress: true}
 	case AssetTriggerContract_UpdateMetadata:
 		allowed = allowedAssetTriggerFields{ToAddress: true, MIME: true}
 	case AssetTriggerContract_UpdateLogo:

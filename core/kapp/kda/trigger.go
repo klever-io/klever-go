@@ -861,6 +861,11 @@ func (k *kdaKapp) isOwnerOrAdmin(sender []byte, asset *kapps.KDAData) bool {
 func (k *kdaKapp) handleSetController(sender []byte, tc *transaction.AssetTriggerContract, kdaKApp state.KAppAccountHandler, assetID [][]byte, asset *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
 	ctx := k.KAppController.GetCurrentKAppContext()
 
+	if !k.forkController.EnableRWAPermissions() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidTriggerType, common.ErrAssetTriggerInvalid.Error())
+		return transaction.Transaction_AssetError, common.ErrAssetTriggerInvalid
+	}
+
 	if !bytes.Equal(asset.OwnerAddress, sender) {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrAccNotOwner.Error())
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
