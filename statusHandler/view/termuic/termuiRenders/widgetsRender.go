@@ -167,7 +167,7 @@ func (wr *WidgetsRender) prepareInstanceInfo() {
 	countAcceptedBlocks := wr.presenter.GetCountAcceptedBlocks()
 	rows[4] = []string{fmt.Sprintf("Blocks proposed: %d | Blocks accepted:  %d", countLeader, countAcceptedBlocks)}
 
-	rows[5] = []string{computeRedundancyStr(wr.presenter.GetRedundancyLevel(), wr.presenter.GetRedundancyIsMainActive())}
+	rows[5] = []string{computeRedundancyStr(wr.presenter.GetRedundancyLevel(), wr.presenter.GetRedundancyIsActive())}
 	rows[6] = []string{fmt.Sprintf("Chain ID: %s", chainID)}
 
 	wr.instanceInfo.Title = "Klever instance info"
@@ -243,20 +243,27 @@ func (wr *WidgetsRender) prepareChainInfo(numMillisecondsRefreshTime int) {
 	wr.chainInfo.Rows = rows
 }
 
-func computeRedundancyStr(redundancyLevel int64, redundancyIsMainActive string) string {
-	if redundancyIsMainActive == statusNotApplicable {
+// computeRedundancyStr formats the TUI redundancy row. It returns the empty
+// string while the metric is unavailable (pre-first-poll) so the row stays
+// hidden at startup. Main and inactive nodes show only their role; backups
+// also show whether they are currently producing.
+func computeRedundancyStr(redundancyLevel int64, redundancyIsActive string) string {
+	if redundancyIsActive == statusNotApplicable {
 		return ""
 	}
 
 	redundancyStr := "Redundancy: "
-	if redundancyLevel < 0 {
+	switch {
+	case redundancyLevel < 0:
 		redundancyStr += "inactive"
-	} else {
-		if redundancyLevel == 0 {
-			redundancyStr += "main machine"
+	case redundancyLevel == 0:
+		redundancyStr += "main machine"
+	default:
+		redundancyStr += fmt.Sprintf("back-up #%d", redundancyLevel)
+		if redundancyIsActive == "true" {
+			redundancyStr += " (taking over)"
 		} else {
-			redundancyStr += fmt.Sprintf("back-up #%d", redundancyLevel)
-			redundancyStr += fmt.Sprintf(" (is main active: %s)", redundancyIsMainActive)
+			redundancyStr += " (standby)"
 		}
 	}
 

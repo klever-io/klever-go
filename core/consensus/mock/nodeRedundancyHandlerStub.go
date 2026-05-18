@@ -8,12 +8,14 @@ import (
 
 // NodeRedundancyHandlerStub -
 type NodeRedundancyHandlerStub struct {
-	IsRedundancyNodeCalled         func() bool
-	IsMainMachineActiveCalled      func() bool
-	AdjustInactivityIfNeededCalled func(selfPubKey string, consensusPubKeys []string, roundIndex int64)
-	ResetInactivityIfNeededCalled  func(selfPubKey string, consensusMsgPubKey string, consensusMsgPeerID core.PeerID)
-	ObserverPrivateKeyCalled       func() crypto.PrivateKey
-	GetSlotsOfInactivityCalled     func() uint64
+	IsRedundancyNodeCalled           func() bool
+	IsMainMachineActiveCalled        func() bool
+	AdjustInactivityIfNeededCalled   func(selfPubKey string, consensusPubKeys []string, roundIndex int64)
+	ResetInactivityIfNeededCalled    func(selfPubKey string, consensusMsgPubKey string, consensusMsgPeerID core.PeerID)
+	ObserverPrivateKeyCalled         func() crypto.PrivateKey
+	GetSlotsOfInactivityCalled       func() uint64
+	GetInternalRedundancyLevelCalled func() int64
+	SnapshotCalled                   func() (int64, uint64, bool)
 }
 
 // IsRedundancyNode -
@@ -51,7 +53,11 @@ func (nrhs *NodeRedundancyHandlerStub) SetInternalRedundancyLevel(level int64) e
 	return nil
 }
 
+// GetInternalRedundancyLevel -
 func (nrhs *NodeRedundancyHandlerStub) GetInternalRedundancyLevel() int64 {
+	if nrhs.GetInternalRedundancyLevelCalled != nil {
+		return nrhs.GetInternalRedundancyLevelCalled()
+	}
 	return 0
 }
 
@@ -70,6 +76,17 @@ func (nrhs *NodeRedundancyHandlerStub) GetSlotsOfInactivity() uint64 {
 		return nrhs.GetSlotsOfInactivityCalled()
 	}
 	return 0
+}
+
+// Snapshot -
+// If SnapshotCalled is nil, falls back to composing the result from the other
+// stub fields so existing tests that only configure the per-field handlers keep
+// working without setting Snapshot explicitly.
+func (nrhs *NodeRedundancyHandlerStub) Snapshot() (int64, uint64, bool) {
+	if nrhs.SnapshotCalled != nil {
+		return nrhs.SnapshotCalled()
+	}
+	return nrhs.GetInternalRedundancyLevel(), nrhs.GetSlotsOfInactivity(), nrhs.IsMainMachineActive()
 }
 
 // IsInterfaceNil -

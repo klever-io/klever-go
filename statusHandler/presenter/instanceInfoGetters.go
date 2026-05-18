@@ -2,7 +2,6 @@ package presenter
 
 import (
 	"math/big"
-	"strconv"
 	"strings"
 
 	"github.com/klever-io/klever-go/core"
@@ -30,21 +29,38 @@ func (psh *PresenterStatusHandler) GetPublicKeyBlockSign() string {
 	return psh.getFromCacheAsString(core.MetricPublicKeyBlockSign)
 }
 
-// GetRedundancyLevel will return the redundancy level of the node
+// GetRedundancyLevel returns the redundancy level (see core.MetricRedundancyLevel).
+// Returns 0 for missing/wrong-type AND for the real level=0 main producer; to
+// distinguish those, check GetRedundancyIsActive() for "N/A".
 func (psh *PresenterStatusHandler) GetRedundancyLevel() int64 {
-	// redundancy level is sent as string as JSON unmarshal doesn't treat well the casting from interface{} to int64
-	redundancyLevelStr := psh.getFromCacheAsString(core.MetricRedundancyLevel)
-	i64Val, err := strconv.ParseInt(redundancyLevelStr, 10, 64)
-	if err != nil {
-		return 0
-	}
-
-	return i64Val
+	return psh.getFromCacheAsInt64(core.MetricRedundancyLevel)
 }
 
-// GetRedundancyIsMainActive will return the info about redundancy main machine
-func (psh *PresenterStatusHandler) GetRedundancyIsMainActive() string {
-	return psh.getFromCacheAsString(core.MetricRedundancyIsMainActive)
+// GetRedundancyIsActive returns "true"/"false" from the uint64 metric (1/0),
+// or metricNotAvailable when unset or out of range — the TUI uses the absent
+// signal to hide the redundancy row at startup. The value's meaning is uniform
+// across roles: "true" means this node is currently the active block producer.
+func (psh *PresenterStatusHandler) GetRedundancyIsActive() string {
+	val, ok := psh.presenterMetrics.Load(core.MetricRedundancyIsActive)
+	if !ok {
+		return metricNotAvailable
+	}
+
+	valUint64, ok := val.(uint64)
+	if !ok {
+		return metricNotAvailable
+	}
+
+	switch valUint64 {
+	case 1:
+		return "true"
+	case 0:
+		return "false"
+	default:
+		// Surface N/A rather than coercing unknown values, which would
+		// misreport an undefined state.
+		return metricNotAvailable
+	}
 }
 
 // GetChainID will return node chainID

@@ -1,6 +1,7 @@
 package presenter
 
 import (
+	"math"
 	"math/big"
 	"testing"
 
@@ -39,6 +40,96 @@ func TestPresenterStatusHandler_GetPublicKeyBlockSign(t *testing.T) {
 	result := presenterStatusHandler.GetPublicKeyBlockSign()
 
 	assert.Equal(t, publicKeyBlock, result)
+}
+
+func TestPresenterStatusHandler_GetRedundancyIsActive(t *testing.T) {
+	t.Parallel()
+
+	t.Run("metric not present returns N/A so TUI hides redundancy row", func(t *testing.T) {
+		t.Parallel()
+		psh := NewPresenterStatusHandler()
+		assert.Equal(t, metricNotAvailable, psh.GetRedundancyIsActive())
+	})
+
+	t.Run("uint64 1 returns true", func(t *testing.T) {
+		t.Parallel()
+		psh := NewPresenterStatusHandler()
+		psh.SetUInt64Value(core.MetricRedundancyIsActive, 1)
+		assert.Equal(t, "true", psh.GetRedundancyIsActive())
+	})
+
+	t.Run("uint64 0 returns false", func(t *testing.T) {
+		t.Parallel()
+		psh := NewPresenterStatusHandler()
+		psh.SetUInt64Value(core.MetricRedundancyIsActive, 0)
+		assert.Equal(t, "false", psh.GetRedundancyIsActive())
+	})
+
+	t.Run("wrong cached type returns N/A", func(t *testing.T) {
+		t.Parallel()
+		psh := NewPresenterStatusHandler()
+		psh.SetStringValue(core.MetricRedundancyIsActive, "true")
+		assert.Equal(t, metricNotAvailable, psh.GetRedundancyIsActive())
+	})
+
+	t.Run("uint64 outside {0,1} returns N/A instead of false", func(t *testing.T) {
+		t.Parallel()
+		psh := NewPresenterStatusHandler()
+		psh.SetUInt64Value(core.MetricRedundancyIsActive, 2)
+		assert.Equal(t, metricNotAvailable, psh.GetRedundancyIsActive())
+	})
+}
+
+func TestPresenterStatusHandler_GetRedundancyLevel(t *testing.T) {
+	t.Parallel()
+
+	t.Run("not set returns 0", func(t *testing.T) {
+		t.Parallel()
+		psh := NewPresenterStatusHandler()
+		assert.Equal(t, int64(0), psh.GetRedundancyLevel())
+	})
+
+	t.Run("main producer", func(t *testing.T) {
+		t.Parallel()
+		psh := NewPresenterStatusHandler()
+		psh.SetInt64Value(core.MetricRedundancyLevel, 0)
+		assert.Equal(t, int64(0), psh.GetRedundancyLevel())
+	})
+
+	t.Run("backup level 2", func(t *testing.T) {
+		t.Parallel()
+		psh := NewPresenterStatusHandler()
+		psh.SetInt64Value(core.MetricRedundancyLevel, 2)
+		assert.Equal(t, int64(2), psh.GetRedundancyLevel())
+	})
+
+	t.Run("permanently inactive (negative)", func(t *testing.T) {
+		t.Parallel()
+		psh := NewPresenterStatusHandler()
+		psh.SetInt64Value(core.MetricRedundancyLevel, -1)
+		assert.Equal(t, int64(-1), psh.GetRedundancyLevel())
+	})
+
+	t.Run("legacy uint64 storage tolerated for non-negative values", func(t *testing.T) {
+		t.Parallel()
+		psh := NewPresenterStatusHandler()
+		psh.SetUInt64Value(core.MetricRedundancyLevel, 3)
+		assert.Equal(t, int64(3), psh.GetRedundancyLevel())
+	})
+
+	t.Run("uint64 above MaxInt64 returns 0 instead of wrapping negative", func(t *testing.T) {
+		t.Parallel()
+		psh := NewPresenterStatusHandler()
+		psh.SetUInt64Value(core.MetricRedundancyLevel, math.MaxInt64+1)
+		assert.Equal(t, int64(0), psh.GetRedundancyLevel())
+	})
+
+	t.Run("wrong cached type returns 0", func(t *testing.T) {
+		t.Parallel()
+		psh := NewPresenterStatusHandler()
+		psh.SetStringValue(core.MetricRedundancyLevel, "2")
+		assert.Equal(t, int64(0), psh.GetRedundancyLevel())
+	})
 }
 
 func TestPresenterStatusHandler_GetCountConsensus(t *testing.T) {
