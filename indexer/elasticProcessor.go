@@ -534,86 +534,68 @@ func (ei *elasticProcessor) SaveTransactions(
 ) error {
 	headerTimestamp := header.GetTimestamp()
 
-	var (
-		txs    []*data.Transaction
-		txsMap map[string]*data.Transaction
-		ad     *data.AlteredData
-		err    error
-	)
-	if p, ok := prepared.(*data.PreparedBlockData); ok && p != nil {
-		txs, txsMap, ad = p.Txs, p.TxsMap, p.Altered
-	} else {
-		txs, txsMap, ad, err = ei.prepareTransactionsForDatabase(header, pool)
-		if err != nil {
-			return err
-		}
+	txs, txsMap, ad, err := ei.resolvePreparedBlockData(header, pool, prepared)
+	if err != nil {
+		return err
 	}
 
 	ld := ei.logsAndEventsProc.ExtractDataFromLogs(pool, txs, headerTimestamp)
-
 	buffers := data.NewBufferSlice(data.DefaultMaxBulkSize)
 
-	err = ei.indexTransactions(txs, buffers)
-	if err != nil {
+	if err := ei.indexBlockArtifacts(buffers, headerTimestamp, txs, txsMap, ad, ld, pool); err != nil {
 		return err
 	}
 
-	err = ei.indexKDAPools(ad.KDAPool.GetAll(), buffers)
-	if err != nil {
+	if err := ei.doBulkRequests("", buffers.Buffers()); err != nil {
+		log.Warn("indexer indexing bulk of transactions", "error", err.Error())
 		return err
 	}
 
-	err = ei.indexAssets(ad.Assets.GetAll(), buffers)
-	if err != nil {
-		return err
-	}
+	return nil
+}
 
-	err = ei.indexProposals(ad.Proposals.GetAll(), buffers)
-	if err != nil {
-		return err
+// resolvePreparedBlockData returns the prepared block data if provided,
+// otherwise it runs prepareTransactionsForDatabase as a fallback.
+func (ei *elasticProcessor) resolvePreparedBlockData(
+	header nodeData.HeaderHandler,
+	pool *indexer.Pool,
+	prepared any,
+) ([]*data.Transaction, map[string]*data.Transaction, *data.AlteredData, error) {
+	if p, ok := prepared.(*data.PreparedBlockData); ok && p != nil {
+		return p.Txs, p.TxsMap, p.Altered, nil
 	}
+	return ei.prepareTransactionsForDatabase(header, pool)
+}
 
-	err = ei.indexITOs(ad.ITO.GetAll(), buffers)
-	if err != nil {
-		return err
+// indexBlockArtifacts runs every sub-index step for a block. The list is
+// linear; on the first error the pipeline stops and the error is returned.
+func (ei *elasticProcessor) indexBlockArtifacts(
+	buffers *data.BufferSlice,
+	headerTimestamp int64,
+	txs []*data.Transaction,
+	txsMap map[string]*data.Transaction,
+	ad *data.AlteredData,
+	ld *data.PreparedLogsResults,
+	pool *indexer.Pool,
+) error {
+	steps := []func() error{
+		func() error { return ei.indexTransactions(txs, buffers) },
+		func() error { return ei.indexKDAPools(ad.KDAPool.GetAll(), buffers) },
+		func() error { return ei.indexAssets(ad.Assets.GetAll(), buffers) },
+		func() error { return ei.indexProposals(ad.Proposals.GetAll(), buffers) },
+		func() error { return ei.indexITOs(ad.ITO.GetAll(), buffers) },
+		func() error { return ei.indexMarketplaces(ad.Marketplaces.GetAll(), buffers) },
+		func() error { return ei.indexOrders(ad.Orders.GetAll(), buffers) },
+		func() error { return ei.indexAlteredAccounts(headerTimestamp, ad.Accounts.GetAll(), buffers) },
+		func() error { return ei.prepareAndIndexLogs(pool.Logs, txsMap, headerTimestamp, buffers) },
+		func() error { return ei.indexScDeploys(ld.ScDeploys, buffers) },
+		func() error { return ei.indexAlteredSmartContracts(ld.AlteredSCs, buffers) },
 	}
-
-	err = ei.indexMarketplaces(ad.Marketplaces.GetAll(), buffers)
-	if err != nil {
-		return err
+	for _, step := range steps {
+		if err := step(); err != nil {
+			return err
+		}
 	}
-
-	err = ei.indexOrders(ad.Orders.GetAll(), buffers)
-	if err != nil {
-		return err
-	}
-
-	if err := ei.indexAlteredAccounts(headerTimestamp, ad.Accounts.GetAll(), buffers); err != nil {
-		return err
-	}
-
-	err = ei.prepareAndIndexLogs(pool.Logs, txsMap, headerTimestamp, buffers)
-	if err != nil {
-		return err
-	}
-
-	err = ei.indexScDeploys(ld.ScDeploys, buffers)
-	if err != nil {
-		return err
-	}
-
-	err = ei.indexAlteredSmartContracts(ld.AlteredSCs, buffers)
-	if err != nil {
-		return err
-	}
-
-	err = ei.doBulkRequests("", buffers.Buffers())
-	if err != nil {
-		log.Warn("indexer indexing bulk of transactions",
-			"error", err.Error())
-		return err
-	}
-
 	return nil
 }
 
