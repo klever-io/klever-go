@@ -225,9 +225,11 @@ func formatAndDumpRawTX(tx *transaction.Transaction) error {
 	// safe (and stable) to display at this point.
 	var hashHex string
 	if tx != nil && tx.RawData != nil {
-		if hash, err := computeTxHash(tx); err == nil {
-			hashHex = hex.EncodeToString(hash)
+		hash, err := computeTxHash(tx)
+		if err != nil {
+			return fmt.Errorf("failed to compute tx hash from raw data: %w", err)
 		}
+		hashHex = hex.EncodeToString(hash)
 	}
 
 	return formatAndDumpTX(&api.Transaction{
