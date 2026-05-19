@@ -1394,10 +1394,16 @@ func benchSaveBlock(b *testing.B, transferTxs int, wsEnabled bool, indexerEnable
 	}
 }
 
-func BenchmarkEventsProcessor_SaveBlock_Empty_WSOnly(b *testing.B)      { benchSaveBlock(b, 0, true, false) }
-func BenchmarkEventsProcessor_SaveBlock_50tx_WSOnly(b *testing.B)       { benchSaveBlock(b, 50, true, false) }
-func BenchmarkEventsProcessor_SaveBlock_500tx_WSOnly(b *testing.B)      { benchSaveBlock(b, 500, true, false) }
-func BenchmarkEventsProcessor_SaveBlock_50tx_IndexerOnly(b *testing.B)  { benchSaveBlock(b, 50, false, true) }
-func BenchmarkEventsProcessor_SaveBlock_500tx_IndexerOnly(b *testing.B) { benchSaveBlock(b, 500, false, true) }
-func BenchmarkEventsProcessor_SaveBlock_50tx_Both(b *testing.B)         { benchSaveBlock(b, 50, true, true) }
-func BenchmarkEventsProcessor_SaveBlock_500tx_Both(b *testing.B)        { benchSaveBlock(b, 500, true, true) }
+func BenchmarkEventsProcessor_SaveBlock_Empty_WSOnly(b *testing.B) { benchSaveBlock(b, 0, true, false) }
+func BenchmarkEventsProcessor_SaveBlock_50tx_WSOnly(b *testing.B)  { benchSaveBlock(b, 50, true, false) }
+func BenchmarkEventsProcessor_SaveBlock_500tx_WSOnly(b *testing.B) {
+	benchSaveBlock(b, 500, true, false)
+}
+func BenchmarkEventsProcessor_SaveBlock_50tx_IndexerOnly(b *testing.B) {
+	benchSaveBlock(b, 50, false, true)
+}
+func BenchmarkEventsProcessor_SaveBlock_500tx_IndexerOnly(b *testing.B) {
+	benchSaveBlock(b, 500, false, true)
+}
+func BenchmarkEventsProcessor_SaveBlock_50tx_Both(b *testing.B)  { benchSaveBlock(b, 50, true, true) }
+func BenchmarkEventsProcessor_SaveBlock_500tx_Both(b *testing.B) { benchSaveBlock(b, 500, true, true) }
