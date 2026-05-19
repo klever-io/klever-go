@@ -219,9 +219,22 @@ func fetchBlockByNonce(nonce uint64) (*api.Block, error) {
 }
 
 func formatAndDumpRawTX(tx *transaction.Transaction) error {
+	// Compute the hash from the unsigned RawData so reviewers can see the
+	// final tx hash before authorizing the signature. The hash is fully
+	// determined by RawData and does not depend on the signature, so it is
+	// safe (and stable) to display at this point.
+	var hashHex string
+	if tx != nil && tx.RawData != nil {
+		hash, err := computeTxHash(tx)
+		if err != nil {
+			return fmt.Errorf("failed to compute tx hash from raw data: %w", err)
+		}
+		hashHex = hex.EncodeToString(hash)
+	}
+
 	return formatAndDumpTX(&api.Transaction{
 		Transaction: tx,
-	}, "", &api.Block{
+	}, hashHex, &api.Block{
 		Block:        &block.Block{},
 		Hash:         "",
 		Status:       "",
