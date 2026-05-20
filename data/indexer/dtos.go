@@ -11,6 +11,10 @@ type ArgsSaveBlockData struct {
 	Signer           []byte
 	TransactionsPool *Pool
 	Validators       []string
+	// Prepared, when non-nil, is a *indexer/data.PreparedBlockData consumers
+	// reuse instead of re-prepping. Typed as any to avoid importing the
+	// internal indexer/data package.
+	Prepared any
 }
 
 // Pool will holds all types of transaction

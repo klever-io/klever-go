@@ -327,13 +327,6 @@ func (ei *elasticProcessor) SaveHeader(
 		return err
 	}
 
-	if UseEventQueue {
-		trySendEvent(Event{
-			EvType:  BLOCKS,
-			Message: serializedBlock,
-		})
-	}
-
 	return nil
 }
 
@@ -531,95 +524,78 @@ func (ei *elasticProcessor) updateAccountBalance(address string, balance int64, 
 	return ei.elasticClient.DoUpdate(accountsIndex, address, &updateBody)
 }
 
-// SaveTransactions will prepare and save information about a transactions in elasticsearch server
+// SaveTransactions saves a block's transactions to elasticsearch. If prepared
+// is a non-nil *data.PreparedBlockData, its contents are reused; otherwise
+// prepareTransactionsForDatabase runs here as a fallback.
 func (ei *elasticProcessor) SaveTransactions(
 	header nodeData.HeaderHandler,
 	pool *indexer.Pool,
+	prepared any,
 ) error {
 	headerTimestamp := header.GetTimestamp()
 
-	txs, txsMap, ad, err := ei.prepareTransactionsForDatabase(header, pool)
+	txs, txsMap, ad, err := ei.resolvePreparedBlockData(header, pool, prepared)
 	if err != nil {
 		return err
 	}
 
 	ld := ei.logsAndEventsProc.ExtractDataFromLogs(pool, txs, headerTimestamp)
-
-	// Dispatch events
-	if UseEventQueue && len(txs) > 0 {
-		trySendEvent(Event{
-			EvType:  USER_TRANSACTIONS,
-			Message: txs,
-		})
-		trySendEvent(Event{
-			EvType:  TRANSACTIONS,
-			Message: txs,
-		})
-	}
-
 	buffers := data.NewBufferSlice(data.DefaultMaxBulkSize)
 
-	err = ei.indexTransactions(txs, buffers)
-	if err != nil {
+	if err := ei.indexBlockArtifacts(buffers, headerTimestamp, txs, txsMap, ad, ld, pool); err != nil {
 		return err
 	}
 
-	err = ei.indexKDAPools(ad.KDAPool.GetAll(), buffers)
-	if err != nil {
+	if err := ei.doBulkRequests("", buffers.Buffers()); err != nil {
+		log.Warn("indexer indexing bulk of transactions", "error", err.Error())
 		return err
 	}
 
-	err = ei.indexAssets(ad.Assets.GetAll(), buffers)
-	if err != nil {
-		return err
-	}
+	return nil
+}
 
-	err = ei.indexProposals(ad.Proposals.GetAll(), buffers)
-	if err != nil {
-		return err
+// resolvePreparedBlockData returns the prepared block data if provided,
+// otherwise it runs prepareTransactionsForDatabase as a fallback.
+func (ei *elasticProcessor) resolvePreparedBlockData(
+	header nodeData.HeaderHandler,
+	pool *indexer.Pool,
+	prepared any,
+) ([]*data.Transaction, map[string]*data.Transaction, *data.AlteredData, error) {
+	if p, ok := prepared.(*data.PreparedBlockData); ok && p != nil {
+		return p.Txs, p.TxsMap, p.Altered, nil
 	}
+	return ei.prepareTransactionsForDatabase(header, pool)
+}
 
-	err = ei.indexITOs(ad.ITO.GetAll(), buffers)
-	if err != nil {
-		return err
+// indexBlockArtifacts runs every sub-index step for a block. The list is
+// linear; on the first error the pipeline stops and the error is returned.
+func (ei *elasticProcessor) indexBlockArtifacts(
+	buffers *data.BufferSlice,
+	headerTimestamp int64,
+	txs []*data.Transaction,
+	txsMap map[string]*data.Transaction,
+	ad *data.AlteredData,
+	ld *data.PreparedLogsResults,
+	pool *indexer.Pool,
+) error {
+	steps := []func() error{
+		func() error { return ei.indexTransactions(txs, buffers) },
+		func() error { return ei.indexKDAPools(ad.KDAPool.GetAll(), buffers) },
+		func() error { return ei.indexAssets(ad.Assets.GetAll(), buffers) },
+		func() error { return ei.indexProposals(ad.Proposals.GetAll(), buffers) },
+		func() error { return ei.indexITOs(ad.ITO.GetAll(), buffers) },
+		func() error { return ei.indexMarketplaces(ad.Marketplaces.GetAll(), buffers) },
+		func() error { return ei.indexOrders(ad.Orders.GetAll(), buffers) },
+		func() error { return ei.indexAlteredAccounts(headerTimestamp, ad.Accounts.GetAll(), buffers) },
+		func() error { return ei.prepareAndIndexLogs(pool.Logs, txsMap, headerTimestamp, buffers) },
+		func() error { return ei.indexScDeploys(ld.ScDeploys, buffers) },
+		func() error { return ei.indexAlteredSmartContracts(ld.AlteredSCs, buffers) },
 	}
-
-	err = ei.indexMarketplaces(ad.Marketplaces.GetAll(), buffers)
-	if err != nil {
-		return err
+	for _, step := range steps {
+		if err := step(); err != nil {
+			return err
+		}
 	}
-
-	err = ei.indexOrders(ad.Orders.GetAll(), buffers)
-	if err != nil {
-		return err
-	}
-
-	if err := ei.indexAlteredAccounts(headerTimestamp, ad.Accounts.GetAll(), buffers); err != nil {
-		return err
-	}
-
-	err = ei.prepareAndIndexLogs(pool.Logs, txsMap, headerTimestamp, buffers)
-	if err != nil {
-		return err
-	}
-
-	err = ei.indexScDeploys(ld.ScDeploys, buffers)
-	if err != nil {
-		return err
-	}
-
-	err = ei.indexAlteredSmartContracts(ld.AlteredSCs, buffers)
-	if err != nil {
-		return err
-	}
-
-	err = ei.doBulkRequests("", buffers.Buffers())
-	if err != nil {
-		log.Warn("indexer indexing bulk of transactions",
-			"error", err.Error())
-		return err
-	}
-
 	return nil
 }
 
@@ -1588,54 +1564,6 @@ func (ei *elasticProcessor) SaveAccounts(
 	return ei.doBulkRequests(accountsIndex, buffSlice.Buffers())
 }
 
-// convertPermissions converts user account permissions to indexer format.
-func (ei *elasticProcessor) convertPermissions(perms []*state.Permission) []data.Permissions {
-	permissions := make([]data.Permissions, 0, len(perms))
-	for _, p := range perms {
-		keys := make([]data.PermissionKey, 0, len(p.Signers))
-		for _, k := range p.Signers {
-			keys = append(keys, data.PermissionKey{
-				Address: ei.addressPubkeyConverter.Encode(k.Address),
-				Weight:  k.Weight,
-			})
-		}
-		permissions = append(permissions, data.Permissions{
-			ID:             p.ID,
-			Type:           int32(p.Type),
-			PermissionName: p.PermissionName,
-			Threshold:      p.Threshold,
-			Operations:     hex.EncodeToString(p.Operations),
-			Signers:        keys,
-		})
-	}
-	return permissions
-}
-
-// calculateUnfrozenBalance sums the value of all unstaked buckets.
-func calculateUnfrozenBalance(buckets map[string]*kapps.UserBucket) int64 {
-	unfrozenBalance := int64(0)
-	for _, bucket := range buckets {
-		if bucket.UnstakedEpoch != core.DefaultUnstakedEpoch {
-			unfrozenBalance += bucket.Value
-		}
-	}
-	return unfrozenBalance
-}
-
-// getAllowanceWithPendingRewards returns the allowance including V2 pending rewards.
-func (ei *elasticProcessor) getAllowanceWithPendingRewards(userAccount state.UserAccountHandler) int64 {
-	allowance := userAccount.GetAllowance()
-	if check.IfNil(ei.kappsController) {
-		return allowance
-	}
-
-	pendingRewards, err := ei.kappsController.GetValidatorsKApp().GetPendingRewards(userAccount.AddressBytes())
-	if err == nil && pendingRewards > 0 {
-		allowance += pendingRewards
-	}
-	return allowance
-}
-
 // dispatchAccountEvents sends account events to the event queue if enabled.
 func dispatchAccountEvents(accountsMap map[string]*data.AccountInfo) {
 	if UseEventQueue && len(accountsMap) > 0 {
@@ -1660,7 +1588,7 @@ func (ei *elasticProcessor) saveAccounts(
 	historyAccountsMap := make(map[string]*data.AccountInfo)
 
 	for _, userAccount := range accountsSlice {
-		acc, err := ei.buildAccountInfo(userAccount, blockTimestamp)
+		acc, err := buildAccountInfo(ei.addressPubkeyConverter, ei.kappsController, userAccount.UserAccount, blockTimestamp)
 		if err != nil {
 			return err
 		}
@@ -1674,9 +1602,6 @@ func (ei *elasticProcessor) saveAccounts(
 		historyAccountsMap[address] = acc
 	}
 
-	dispatchAccountEvents(newAccountsMap)
-	dispatchAccountEvents(updateAccountsMap)
-
 	if err := serializeAccounts(newAccountsMap, buffSlice, accountsIndex); err != nil {
 		return err
 	}
@@ -1686,34 +1611,6 @@ func (ei *elasticProcessor) saveAccounts(
 	}
 
 	return ei.saveAccountsHistory(blockTimestamp, historyAccountsMap)
-}
-
-// buildAccountInfo creates an AccountInfo from a user account.
-func (ei *elasticProcessor) buildAccountInfo(userAccount *data.Account, blockTimestamp int64) (*data.AccountInfo, error) {
-	address := ei.addressPubkeyConverter.Encode(userAccount.UserAccount.AddressBytes())
-	permissions := ei.convertPermissions(userAccount.UserAccount.GetPermissions())
-
-	userKDA, err := userAccount.UserAccount.GetUserKDA(kdautils.KLVIdentifier, nil, true)
-	if err != nil {
-		return nil, err
-	}
-
-	return &data.AccountInfo{
-		Address:         address,
-		Nonce:           userAccount.UserAccount.GetNonce(),
-		Name:            string(userAccount.UserAccount.GetName()),
-		RootHash:        hex.EncodeToString(userAccount.UserAccount.GetRootHash()),
-		Balance:         userAccount.UserAccount.GetBalance(kdautils.KLVIdentifier, true),
-		FrozenBalance:   userKDA.FrozenBalance,
-		UnfrozenBalance: calculateUnfrozenBalance(userKDA.Buckets),
-		Allowance:       ei.getAllowanceWithPendingRewards(userAccount.UserAccount),
-		Permissions:     permissions,
-		Timestamp:       toMilliseconds(blockTimestamp),
-		UpdatedAt:       toMilliseconds(blockTimestamp),
-		CodeHash:        hex.EncodeToString(userAccount.UserAccount.GetCodeHash()),
-		CodeMetadata:    hex.EncodeToString(userAccount.UserAccount.GetCodeMetadata()),
-		Foundation:      false,
-	}, nil
 }
 
 func (ei *elasticProcessor) saveAccountsHistory(blockTimestamp int64, accountsInfoMap map[string]*data.AccountInfo) error {

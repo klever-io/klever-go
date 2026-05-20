@@ -49,6 +49,9 @@ func newTxDatabaseProcessor(
 	}
 }
 
+// prepareTransactionsForDatabase builds the indexer view of a block's
+// transactions and altered accounts/assets. Must not mutate txPool: callers
+// (work-item ComputeSizeOfTxs, fallback re-prep) read it afterwards.
 func (tdp *txDatabaseProcessor) prepareTransactionsForDatabase(
 	header nodeData.HeaderHandler,
 	txPool *indexer.Pool,
@@ -90,7 +93,6 @@ func (tdp *txDatabaseProcessor) prepareTransactionsForDatabase(
 		)
 
 		transactions[hash] = dbTx
-		delete(txPool.Txs, hash)
 	}
 
 	transactions = tdp.setTransactionSearchOrder(transactions)

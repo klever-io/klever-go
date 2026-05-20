@@ -1,16 +1,16 @@
 package indexer
 
 import (
-	"encoding/hex"
+	"errors"
+	"fmt"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core/kapp"
-	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	nodeData "github.com/klever-io/klever-go/data"
 	indexerData "github.com/klever-io/klever-go/data/indexer"
 	dataState "github.com/klever-io/klever-go/data/state"
-	dataTx "github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/indexer/data"
+	"github.com/klever-io/klever-go/indexer/workItems"
 	"github.com/klever-io/klever-go/tools/check"
 )
 
@@ -19,6 +19,7 @@ type eventsProcessor struct {
 	indexer         Indexer
 	parser          *dataParser
 	kappsController kapp.KAppController
+	accountsDB      dataState.AccountsAdapter
 }
 
 func NewEventsProcessor(arguments ArgEventsProcessor) (*eventsProcessor, error) {
@@ -41,6 +42,7 @@ func NewEventsProcessor(arguments ArgEventsProcessor) (*eventsProcessor, error) 
 			marshalizer: arguments.Marshalizer,
 		},
 		kappsController: arguments.KAppController,
+		accountsDB:      arguments.AccountsDB,
 	}
 
 	return ep, nil
@@ -63,29 +65,57 @@ func checkArgEventsProcessor(arguments ArgEventsProcessor) error {
 }
 
 func (ep *eventsProcessor) Enabled() bool {
-	return UseEventQueue || (ep.indexer != nil && !ep.indexer.IsNilIndexer())
+	return UseEventQueue || ep.indexerEnabled()
+}
+
+func (ep *eventsProcessor) indexerEnabled() bool {
+	return !check.IfNil(ep.indexer) && !ep.indexer.IsNilIndexer()
 }
 
 func (ep *eventsProcessor) SaveBlock(args *indexerData.ArgsSaveBlockData) {
-	ep.dispatchWebsocketEvents(args)
-	ep.dispatchToIndexer(args)
-}
-
-func (ep *eventsProcessor) dispatchWebsocketEvents(args *indexerData.ArgsSaveBlockData) {
-	if !UseEventQueue {
+	wsEnabled := UseEventQueue
+	indexerEnabled := ep.indexerEnabled()
+	if !wsEnabled && !indexerEnabled {
 		return
 	}
 
-	if ep.indexer == nil || ep.indexer.IsNilIndexer() {
+	// Prep runs on the commit goroutine only when websocket subscribers need
+	// it. Indexer-only nodes let the elastic worker re-prep on its own
+	// goroutine via the fallback in elasticProcessor.SaveTransactions.
+	if wsEnabled {
+		prepared := ep.prepare(args)
 		ep.dispatchBlockEvent(args)
-		ep.processTransactionEvents(args.Header, args.TransactionsPool)
+		if prepared != nil {
+			ep.dispatchTransactionEvents(prepared.Txs)
+			ep.dispatchAccountEventsFromAlteredAccounts(args.Header.GetTimestamp(), prepared.Altered.Accounts)
+		}
+		if indexerEnabled {
+			args.Prepared = prepared
+		}
+	}
+
+	if indexerEnabled {
+		ep.indexer.SaveBlock(args)
 	}
 }
 
+func (ep *eventsProcessor) prepare(args *indexerData.ArgsSaveBlockData) *data.PreparedBlockData {
+	if args.TransactionsPool == nil || len(args.TransactionsPool.Txs) == 0 {
+		return nil
+	}
+	txs, txsMap, ad, err := ep.prepareTransactionsForDatabase(args.Header, args.TransactionsPool)
+	if err != nil {
+		log.Error("eventsProcessor.SaveBlock: prepare failed", "nonce", args.Header.GetNonce(), "error", err)
+		return nil
+	}
+	return &data.PreparedBlockData{Txs: txs, TxsMap: txsMap, Altered: ad}
+}
+
 func (ep *eventsProcessor) dispatchBlockEvent(args *indexerData.ArgsSaveBlockData) {
+	// byte-size to match SaveHeader's SizeTxs.
 	txsSize := 0
 	if args.TransactionsPool != nil {
-		txsSize = len(args.TransactionsPool.Txs)
+		txsSize = workItems.ComputeSizeOfTxs(args.TransactionsPool)
 	}
 
 	serializedBlock, _, err := ep.parser.getSerializedElasticBlockAndHeaderHash(
@@ -105,23 +135,10 @@ func (ep *eventsProcessor) dispatchBlockEvent(args *indexerData.ArgsSaveBlockDat
 	})
 }
 
-func (ep *eventsProcessor) dispatchToIndexer(args *indexerData.ArgsSaveBlockData) {
-	if ep.indexer == nil || ep.indexer.IsNilIndexer() {
-		return
-	}
-	ep.indexer.SaveBlock(args)
-}
-
-func (ep *eventsProcessor) processTransactionEvents(header nodeData.HeaderHandler, pool *indexerData.Pool) {
-	if pool == nil || len(pool.Txs) == 0 {
-		return
-	}
-
-	txs := ep.prepareTransactionsForEvents(header, pool)
+func (ep *eventsProcessor) dispatchTransactionEvents(txs []*data.Transaction) {
 	if len(txs) == 0 {
 		return
 	}
-
 	trySendEvent(Event{
 		EvType:  USER_TRANSACTIONS,
 		Message: txs,
@@ -132,132 +149,104 @@ func (ep *eventsProcessor) processTransactionEvents(header nodeData.HeaderHandle
 	})
 }
 
-func (ep *eventsProcessor) prepareTransactionsForEvents(header nodeData.HeaderHandler, pool *indexerData.Pool) []*data.Transaction {
-	txs := make([]*data.Transaction, 0, len(pool.Txs))
-
-	for txHash, txHandler := range pool.Txs {
-		tx, ok := txHandler.(*dataTx.Transaction)
-		if !ok {
-			continue
-		}
-
-		hash := hex.EncodeToString([]byte(txHash))
-		dbTx := ep.BuildTransaction(tx, hash, header)
-		if dbTx == nil {
-			continue
-		}
-
-		_ = ep.DecodeContract(dbTx, tx, nil, nil, nil, header.GetTimestamp())
-
-		txs = append(txs, dbTx)
+// dispatchAccountEventsFromAlteredAccounts uses GetExistingAccount so that
+// addresses with no persisted state (e.g. ZeroAddress) are silently dropped
+// rather than broadcast as empty ghost accounts.
+func (ep *eventsProcessor) dispatchAccountEventsFromAlteredAccounts(blockTimestamp int64, alteredAccounts data.AlteredAccountsHandler) {
+	if check.IfNil(ep.accountsDB) || alteredAccounts.Len() == 0 {
+		return
 	}
 
-	return txs
+	accountsMap := make(map[string]*data.AccountInfo, alteredAccounts.Len())
+	for address := range alteredAccounts.GetAll() {
+		info, err := ep.buildAlteredAccountInfo(address, blockTimestamp)
+		if err != nil {
+			log.Warn("eventsProcessor.dispatchAccountEventsFromAlteredAccounts", "address", address, "error", err)
+			continue
+		}
+		if info == nil {
+			continue
+		}
+		accountsMap[info.Address] = info
+	}
+
+	if len(accountsMap) == 0 {
+		return
+	}
+
+	dispatchAccountEvents(accountsMap)
+}
+
+// buildAlteredAccountInfo resolves an altered address into an AccountInfo.
+// Returns (nil, nil) when the account doesn't exist — a normal no-op skip.
+func (ep *eventsProcessor) buildAlteredAccountInfo(address string, blockTimestamp int64) (*data.AccountInfo, error) {
+	addrBytes, err := ep.addressPubkeyConverter.Decode(address)
+	if err != nil {
+		return nil, fmt.Errorf("decode address: %w", err)
+	}
+
+	accountHandler, err := ep.accountsDB.GetExistingAccount(addrBytes)
+	if err != nil {
+		if errors.Is(err, common.ErrAccNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("load account: %w", err)
+	}
+
+	userAccount, ok := accountHandler.(dataState.UserAccountHandler)
+	if !ok {
+		return nil, fmt.Errorf("account is not a UserAccountHandler")
+	}
+
+	return buildAccountInfo(ep.addressPubkeyConverter, ep.kappsController, userAccount, blockTimestamp)
 }
 
 func (ep *eventsProcessor) RevertIndexedBlock(header nodeData.HeaderHandler) {
-	if ep.indexer == nil || ep.indexer.IsNilIndexer() {
+	if !ep.indexerEnabled() {
 		return
 	}
 	ep.indexer.RevertIndexedBlock(header)
 }
 
 func (ep *eventsProcessor) SaveValidatorsRating(validators []kapp.ValidatorAccountInfoHandler) {
-	if ep.indexer == nil || ep.indexer.IsNilIndexer() {
+	if !ep.indexerEnabled() {
 		return
 	}
 	ep.indexer.SavePeersAccounts(validators)
 }
 
 func (ep *eventsProcessor) SaveEpochInfo(epoch uint32, validators []kapp.ValidatorAccountInfoHandler) {
-	if ep.indexer == nil || ep.indexer.IsNilIndexer() {
+	if !ep.indexerEnabled() {
 		return
 	}
 	ep.indexer.SaveEpochInfo(epoch, validators)
 }
 
 func (ep *eventsProcessor) UpdateProposalsAndParameters(proposalIDs []string) {
-	if ep.indexer == nil || ep.indexer.IsNilIndexer() {
+	if !ep.indexerEnabled() {
 		return
 	}
 	ep.indexer.UpdateProposalsAndParameters(proposalIDs)
 }
 
 func (ep *eventsProcessor) SaveAccounts(blockTimestamp int64, acc []dataState.UserAccountHandler) {
-	if UseEventQueue && len(acc) > 0 && (ep.indexer == nil || ep.indexer.IsNilIndexer()) {
+	if UseEventQueue && len(acc) > 0 {
 		accountsMap := make(map[string]*data.AccountInfo, len(acc))
 		for _, userAccount := range acc {
-			address := ep.addressPubkeyConverter.Encode(userAccount.AddressBytes())
-
-			userKDA, err := userAccount.GetUserKDA(kdautils.KLVIdentifier, nil, true)
+			info, err := buildAccountInfo(ep.addressPubkeyConverter, ep.kappsController, userAccount, blockTimestamp)
 			if err != nil {
 				log.Warn("eventsProcessor.SaveAccounts", "error", err.Error())
 				continue
 			}
-
-			accountsMap[address] = &data.AccountInfo{
-				Address:         address,
-				Nonce:           userAccount.GetNonce(),
-				Name:            string(userAccount.GetName()),
-				RootHash:        hex.EncodeToString(userAccount.GetRootHash()),
-				Balance:         userAccount.GetBalance(kdautils.KLVIdentifier, true),
-				FrozenBalance:   userKDA.FrozenBalance,
-				UnfrozenBalance: calculateUnfrozenBalance(userKDA.Buckets),
-				Allowance:       ep.getAllowanceWithPendingRewards(userAccount),
-				Permissions:     ep.convertPermissions(userAccount.GetPermissions()),
-				Timestamp:       toMilliseconds(blockTimestamp),
-				UpdatedAt:       toMilliseconds(blockTimestamp),
-				CodeHash:        hex.EncodeToString(userAccount.GetCodeHash()),
-				CodeMetadata:    hex.EncodeToString(userAccount.GetCodeMetadata()),
-			}
+			accountsMap[info.Address] = info
 		}
 		dispatchAccountEvents(accountsMap)
 	}
 
-	if ep.indexer == nil || ep.indexer.IsNilIndexer() {
+	if !ep.indexerEnabled() {
 		return
 	}
 	ep.indexer.SaveAccounts(blockTimestamp, acc)
-}
-
-func (ep *eventsProcessor) convertPermissions(perms []*dataState.Permission) []data.Permissions {
-	permissions := make([]data.Permissions, 0, len(perms))
-	for _, p := range perms {
-		keys := make([]data.PermissionKey, 0, len(p.Signers))
-		for _, k := range p.Signers {
-			keys = append(keys, data.PermissionKey{
-				Address: ep.addressPubkeyConverter.Encode(k.Address),
-				Weight:  k.Weight,
-			})
-		}
-		permissions = append(permissions, data.Permissions{
-			ID:             p.ID,
-			Type:           int32(p.Type),
-			PermissionName: p.PermissionName,
-			Threshold:      p.Threshold,
-			Operations:     hex.EncodeToString(p.Operations),
-			Signers:        keys,
-		})
-	}
-	return permissions
-}
-
-func (ep *eventsProcessor) getAllowanceWithPendingRewards(userAccount dataState.UserAccountHandler) int64 {
-	allowance := userAccount.GetAllowance()
-	if check.IfNil(ep.kappsController) {
-		return allowance
-	}
-
-	validatorsKApp := ep.kappsController.GetValidatorsKApp()
-	if check.IfNil(validatorsKApp) {
-		return allowance
-	}
-
-	pendingRewards, err := validatorsKApp.GetPendingRewards(userAccount.AddressBytes())
-	if err == nil && pendingRewards > 0 {
-		allowance += pendingRewards
-	}
-	return allowance
 }
 
 func (ep *eventsProcessor) IsInterfaceNil() bool {

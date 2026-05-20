@@ -54,4 +54,5 @@ type ArgEventsProcessor struct {
 	ValidatorPubkeyConverter core.PubkeyConverter
 	Indexer                  Indexer
 	KAppController           kapp.KAppController
+	AccountsDB               state.AccountsAdapter
 }

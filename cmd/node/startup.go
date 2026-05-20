@@ -729,6 +729,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		ValidatorPubkeyConverter: validatorPubkeyConverter,
 		Indexer:                  esIndexer,
 		KAppController:           stateComponents.KAppController,
+		AccountsDB:               stateComponents.AccountsAdapter,
 	})
 	if err != nil {
 		return err

@@ -52,7 +52,7 @@ func TestItemBlock_SaveTransactionsShouldErr(t *testing.T) {
 	localErr := errors.New("local err")
 	itemBlock := workItems.NewItemBlock(
 		&imock.ElasticProcessorStub{
-			SaveTransactionsCalled: func(header data.HeaderHandler, pool *indexer.Pool) error {
+			SaveTransactionsCalled: func(header data.HeaderHandler, pool *indexer.Pool, prepared any) error {
 				return localErr
 			},
 		},
@@ -78,7 +78,7 @@ func TestItemBlock_SaveShouldWork(t *testing.T) {
 				countCalled++
 				return nil
 			},
-			SaveTransactionsCalled: func(header data.HeaderHandler, pool *indexer.Pool) error {
+			SaveTransactionsCalled: func(header data.HeaderHandler, pool *indexer.Pool, prepared any) error {
 				countCalled++
 				return nil
 			},

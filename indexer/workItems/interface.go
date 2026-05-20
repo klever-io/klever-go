@@ -16,7 +16,7 @@ type WorkItemHandler interface {
 
 type saveBlockIndexer interface {
 	SaveHeader(header nodeData.HeaderHandler, signer []byte, txsSize int, validators []string) error
-	SaveTransactions(header nodeData.HeaderHandler, pool *indexer.Pool) error
+	SaveTransactions(header nodeData.HeaderHandler, pool *indexer.Pool, prepared any) error
 }
 
 type removeIndexer interface {

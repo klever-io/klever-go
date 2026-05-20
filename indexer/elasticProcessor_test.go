@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -166,6 +167,39 @@ func TestElasticseachDatabaseSaveHeader_CheckRequestBody(t *testing.T) {
 	require.Nil(t, err)
 }
 
+// Fallback: when Prepared is nil, SaveTransactions must run prep itself.
+func TestElasticProcessor_SaveTransactions_FallbackPrepWhenPreparedNil(t *testing.T) {
+	var bulkInvocations int32
+	dbWriter := &imock.DatabaseWriterStub{
+		DoBulkRequestCalled: func(_ *bytes.Buffer, _ string) error {
+			atomic.AddInt32(&bulkInvocations, 1)
+			return nil
+		},
+	}
+
+	contract := transaction.TransferContract{
+		ToAddress: []byte("klv1d05ju9jaj6u99zph0ant9jh7gksg"),
+		Amount:    45,
+	}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType,
+		[]byte("klv1d05ju9jaj6u99zph0ant9jh7gksf"))
+	require.NoError(t, err)
+
+	header := &dataBlock.Block{
+		Header:   &dataBlock.BlockHeader{Nonce: 7, Timestamp: 100},
+		TxHashes: [][]byte{[]byte("h1")},
+	}
+	pool := &indexer.Pool{
+		Txs:  map[string]nodeData.TransactionHandler{"h1": tx},
+		Logs: []*nodeData.LogData{},
+	}
+
+	ep := newTestElasticSearchDatabase(dbWriter, createMockElasticProcessorArgs())
+	require.NoError(t, ep.SaveTransactions(header, pool, nil))
+	require.Greater(t, atomic.LoadInt32(&bulkInvocations), int32(0),
+		"fallback must run the full indexing pipeline when prepared is nil")
+}
+
 func TestElasticseachSaveTransactions_ShouldReturnErr(t *testing.T) {
 	localErr := errors.New("localErr")
 	arguments := createMockElasticProcessorArgs()
@@ -201,7 +235,7 @@ func TestElasticseachSaveTransactions_ShouldReturnErr(t *testing.T) {
 	logsPool := []*nodeData.LogData{}
 
 	elasticDatabase := newTestElasticSearchDatabase(dbWriter, arguments)
-	err := elasticDatabase.SaveTransactions(header, &indexer.Pool{Txs: txPool, Logs: logsPool})
+	err := elasticDatabase.SaveTransactions(header, &indexer.Pool{Txs: txPool, Logs: logsPool}, nil)
 	require.Equal(t, localErr, err)
 }
 
@@ -269,7 +303,7 @@ func TestUpdateTransaction(t *testing.T) {
 	}
 
 	// insert
-	err = esDatabase.SaveTransactions(body, &indexer.Pool{Txs: txPool})
+	err = esDatabase.SaveTransactions(body, &indexer.Pool{Txs: txPool}, nil)
 	require.Nil(t, err)
 
 	fmt.Println(hex.EncodeToString(txHash1))
@@ -283,7 +317,7 @@ func TestUpdateTransaction(t *testing.T) {
 	body.TxHashes = append(body.TxHashes, txHash3)
 
 	// update
-	err = esDatabase.SaveTransactions(body, &indexer.Pool{Txs: txPool})
+	err = esDatabase.SaveTransactions(body, &indexer.Pool{Txs: txPool}, nil)
 	require.Nil(t, err)
 }
 
@@ -323,7 +357,7 @@ func TestDoBulkRequestLimit(t *testing.T) {
 
 		header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1}}
 
-		err := esDatabase.SaveTransactions(header, &indexer.Pool{Txs: txsPool})
+		err := esDatabase.SaveTransactions(header, &indexer.Pool{Txs: txsPool}, nil)
 		require.Nil(t, err)
 	}
 }
@@ -1096,7 +1130,7 @@ func TestGetAllowanceWithPendingRewards(t *testing.T) {
 			},
 		}
 
-		result := ep.getAllowanceWithPendingRewards(userAccount)
+		result := getAllowanceWithPendingRewards(ep.kappsController, userAccount)
 		require.Equal(t, int64(1000), result)
 	})
 
@@ -1128,7 +1162,7 @@ func TestGetAllowanceWithPendingRewards(t *testing.T) {
 			},
 		}
 
-		result := ep.getAllowanceWithPendingRewards(userAccount)
+		result := getAllowanceWithPendingRewards(ep.kappsController, userAccount)
 		require.Equal(t, int64(2500), result)
 	})
 
@@ -1160,7 +1194,7 @@ func TestGetAllowanceWithPendingRewards(t *testing.T) {
 			},
 		}
 
-		result := ep.getAllowanceWithPendingRewards(userAccount)
+		result := getAllowanceWithPendingRewards(ep.kappsController, userAccount)
 		require.Equal(t, int64(3000), result)
 	})
 
@@ -1192,7 +1226,7 @@ func TestGetAllowanceWithPendingRewards(t *testing.T) {
 			},
 		}
 
-		result := ep.getAllowanceWithPendingRewards(userAccount)
+		result := getAllowanceWithPendingRewards(ep.kappsController, userAccount)
 		require.Equal(t, int64(4000), result)
 	})
 }
@@ -1204,13 +1238,13 @@ func TestConvertPermissions(t *testing.T) {
 	ep := newTestElasticSearchDatabase(&imock.DatabaseWriterStub{}, args)
 
 	t.Run("nil permissions returns empty slice", func(t *testing.T) {
-		result := ep.convertPermissions(nil)
+		result := convertPermissions(ep.addressPubkeyConverter, nil)
 		require.Empty(t, result)
 		require.NotNil(t, result)
 	})
 
 	t.Run("empty permissions returns empty slice", func(t *testing.T) {
-		result := ep.convertPermissions([]*state.Permission{})
+		result := convertPermissions(ep.addressPubkeyConverter, []*state.Permission{})
 		require.Empty(t, result)
 	})
 
@@ -1229,7 +1263,7 @@ func TestConvertPermissions(t *testing.T) {
 			},
 		}
 
-		result := ep.convertPermissions(perms)
+		result := convertPermissions(ep.addressPubkeyConverter, perms)
 		require.Len(t, result, 1)
 		require.Equal(t, int32(1), result[0].ID)
 		require.Equal(t, int32(state.Permission_Owner), result[0].Type)
@@ -1328,7 +1362,7 @@ func TestDispatchAccountEvents(t *testing.T) {
 	})
 }
 
-func TestElasticProcessor_SaveHeader_DispatchesEventWhenQueueEnabled(t *testing.T) {
+func TestElasticProcessor_SaveHeader_DoesNotDispatchEvents(t *testing.T) {
 	originalUseEventQueue := UseEventQueue
 	originalEventQueue := EventQueue
 	testQueue := make(chan Event, 10)
@@ -1355,16 +1389,10 @@ func TestElasticProcessor_SaveHeader_DispatchesEventWhenQueueEnabled(t *testing.
 	err := elasticDatabase.SaveHeader(header, signer, 1, []string{})
 	require.Nil(t, err)
 
-	select {
-	case event := <-testQueue:
-		require.Equal(t, BLOCKS, event.EvType)
-		require.NotNil(t, event.Message)
-	default:
-		t.Fatal("expected block event to be dispatched")
-	}
+	require.Len(t, testQueue, 0, "elasticProcessor must not enqueue BLOCKS events; dispatch is owned by eventsProcessor")
 }
 
-func TestElasticProcessor_SaveTransactions_DispatchesEventsWhenQueueEnabled(t *testing.T) {
+func TestElasticProcessor_SaveTransactions_DoesNotDispatchEvents(t *testing.T) {
 	originalUseEventQueue := UseEventQueue
 	originalEventQueue := EventQueue
 	testQueue := make(chan Event, 10)
@@ -1402,17 +1430,10 @@ func TestElasticProcessor_SaveTransactions_DispatchesEventsWhenQueueEnabled(t *t
 	logsPool := []*nodeData.LogData{}
 
 	elasticDatabase := newTestElasticSearchDatabase(dbWriter, arguments)
-	err := elasticDatabase.SaveTransactions(header, &indexer.Pool{Txs: txPool, Logs: logsPool})
+	err := elasticDatabase.SaveTransactions(header, &indexer.Pool{Txs: txPool, Logs: logsPool}, nil)
 	require.Nil(t, err)
 
-	userTxEvent := <-testQueue
-	require.Equal(t, USER_TRANSACTIONS, userTxEvent.EvType)
-	txs, ok := userTxEvent.Message.([]*data.Transaction)
-	require.True(t, ok)
-	require.Len(t, txs, 1)
-
-	txEvent := <-testQueue
-	require.Equal(t, TRANSACTIONS, txEvent.EvType)
+	require.Len(t, testQueue, 0, "elasticProcessor must not enqueue events; events are dispatched by eventsProcessor")
 }
 
 func TestBuildAccountInfo(t *testing.T) {
@@ -1466,7 +1487,7 @@ func TestBuildAccountInfo(t *testing.T) {
 			IsSender:    true,
 		}
 
-		result, err := ep.buildAccountInfo(account, 1234567890)
+		result, err := buildAccountInfo(ep.addressPubkeyConverter, ep.kappsController, account.UserAccount, 1234567890)
 
 		require.NoError(t, err)
 		require.NotNil(t, result)
@@ -1500,7 +1521,7 @@ func TestBuildAccountInfo(t *testing.T) {
 			IsSender:    true,
 		}
 
-		result, err := ep.buildAccountInfo(account, 1234567890)
+		result, err := buildAccountInfo(ep.addressPubkeyConverter, ep.kappsController, account.UserAccount, 1234567890)
 
 		require.Error(t, err)
 		require.Nil(t, result)
@@ -1567,7 +1588,7 @@ func TestBuildAccountInfo(t *testing.T) {
 			IsSender:    true,
 		}
 
-		result, err := ep.buildAccountInfo(account, 1234567890)
+		result, err := buildAccountInfo(ep.addressPubkeyConverter, ep.kappsController, account.UserAccount, 1234567890)
 
 		require.NoError(t, err)
 		require.NotNil(t, result)
