@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"sort"
 	"strings"
@@ -154,19 +155,9 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 	address := fmt.Sprintf(args.ListenAddress+"%d", port)
 
 	sourceMultiAddr, _ := ma.NewMultiaddr(address)
-	var extMultiAddr ma.Multiaddr
-	if len(args.P2pConfig.Node.BroadcastIP) > 0 {
-		extMultiAddr, err = ma.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", args.P2pConfig.Node.BroadcastIP, port))
-		if err != nil {
-			log.Error("broadcastIP", "err", err.Error())
-			return nil, err
-		}
-	}
-	addressFactory := func(addrs []ma.Multiaddr) []ma.Multiaddr {
-		if extMultiAddr != nil {
-			addrs = append(addrs, extMultiAddr)
-		}
-		return addrs
+	addressFactory, err := buildAddressFactory(args.P2pConfig.Node.BroadcastIP, port)
+	if err != nil {
+		return nil, err
 	}
 
 	opts := []libp2p.Option{
@@ -212,6 +203,23 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 	}
 
 	return p2pNode, nil
+}
+
+// buildAddressFactory returns an AddrsFactory that appends the operator-supplied
+// external multiaddr (built from broadcastIP and port) to the host's advertised
+// addresses. Returns an identity factory when broadcastIP is empty.
+func buildAddressFactory(broadcastIP string, port int) (func([]ma.Multiaddr) []ma.Multiaddr, error) {
+	if len(broadcastIP) == 0 {
+		return func(addrs []ma.Multiaddr) []ma.Multiaddr { return addrs }, nil
+	}
+	extMultiAddr, err := ma.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", broadcastIP, port))
+	if err != nil {
+		log.Error("broadcastIP", "err", err.Error())
+		return nil, err
+	}
+	return func(addrs []ma.Multiaddr) []ma.Multiaddr {
+		return append(addrs, extMultiAddr)
+	}, nil
 }
 
 func setupExternalP2PLoggers() {
@@ -1271,6 +1279,9 @@ func getFDLimit() int {
 	var rLimit syscall.Rlimit
 	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
 		return 0
+	}
+	if rLimit.Cur > math.MaxInt {
+		return math.MaxInt
 	}
 	return int(rLimit.Cur)
 }

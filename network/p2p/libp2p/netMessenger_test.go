@@ -316,6 +316,34 @@ func TestNewNetworkMessenger_ResourceManagerStrategyInvalidReturnsError(t *testi
 	assert.Contains(t, err.Error(), "invalid p2p.resourceManager.strategy")
 }
 
+func TestBuildAddressFactory_EmptyBroadcastIPReturnsIdentity(t *testing.T) {
+	factory, err := libp2p.BuildAddressFactory("", 1234)
+	require.NoError(t, err)
+	require.NotNil(t, factory)
+
+	listen, _ := multiaddr.NewMultiaddr("/ip4/127.0.0.1/tcp/1234")
+	got := factory([]multiaddr.Multiaddr{listen})
+	require.Equal(t, []multiaddr.Multiaddr{listen}, got)
+}
+
+func TestBuildAddressFactory_ValidBroadcastIPAppendsExternalAddr(t *testing.T) {
+	factory, err := libp2p.BuildAddressFactory("203.0.113.5", 4242)
+	require.NoError(t, err)
+	require.NotNil(t, factory)
+
+	listen, _ := multiaddr.NewMultiaddr("/ip4/0.0.0.0/tcp/4242")
+	got := factory([]multiaddr.Multiaddr{listen})
+	require.Len(t, got, 2)
+	assert.Equal(t, listen, got[0])
+	assert.Equal(t, "/ip4/203.0.113.5/tcp/4242", got[1].String())
+}
+
+func TestBuildAddressFactory_InvalidBroadcastIPReturnsError(t *testing.T) {
+	factory, err := libp2p.BuildAddressFactory("not-an-ip", 1234)
+	require.Error(t, err)
+	require.Nil(t, factory)
+}
+
 //------- Messenger functionality
 
 func TestLibp2pMessenger_ConnectToPeerShouldCallUpgradedHost(t *testing.T) {

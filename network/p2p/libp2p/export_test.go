@@ -10,6 +10,7 @@ import (
 	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	ma "github.com/multiformats/go-multiaddr"
 	"github.com/whyrusleeping/timecache"
 )
 
@@ -71,4 +72,9 @@ func (ip *identityProvider) ProcessReceivedData(recvBuff []byte) error {
 // CreateP2PPrivKey exports createP2PPrivKey for testing.
 func CreateP2PPrivKey(seed string, legacySeed bool) (libp2pCrypto.PrivKey, error) {
 	return createP2PPrivKey(seed, legacySeed)
+}
+
+// BuildAddressFactory exports buildAddressFactory for testing.
+func BuildAddressFactory(broadcastIP string, port int) (func([]ma.Multiaddr) []ma.Multiaddr, error) {
+	return buildAddressFactory(broadcastIP, port)
 }
