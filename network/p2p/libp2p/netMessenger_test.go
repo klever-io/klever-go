@@ -22,6 +22,7 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	pubsub_pb "github.com/libp2p/go-libp2p-pubsub/pb"
+	"github.com/libp2p/go-libp2p/core/connmgr"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
@@ -205,6 +206,31 @@ func TestNewNetworkMessenger_WithKadDiscovererListSharderShouldWork(t *testing.T
 	assert.Nil(t, err)
 
 	_ = mes.Close()
+}
+
+func TestNewNetworkMessenger_SeedNodeUsesNullConnMgr(t *testing.T) {
+	arg := createMockNetworkArgs()
+	arg.IsSeedNode = true
+
+	mes, err := libp2p.NewNetworkMessenger(arg)
+	require.NoError(t, err)
+	require.False(t, check.IfNil(mes))
+	defer func() { _ = mes.Close() }()
+
+	_, isNull := mes.Host().ConnManager().(connmgr.NullConnMgr)
+	assert.True(t, isNull, "seed node should use NullConnMgr to avoid the libp2p default 160/192 peer cap")
+}
+
+func TestNewNetworkMessenger_RegularNodeKeepsDefaultConnMgr(t *testing.T) {
+	arg := createMockNetworkArgs() // IsSeedNode defaults to false
+
+	mes, err := libp2p.NewNetworkMessenger(arg)
+	require.NoError(t, err)
+	require.False(t, check.IfNil(mes))
+	defer func() { _ = mes.Close() }()
+
+	_, isNull := mes.Host().ConnManager().(connmgr.NullConnMgr)
+	assert.False(t, isNull, "regular node should keep the libp2p default BasicConnMgr")
 }
 
 //------- Messenger functionality

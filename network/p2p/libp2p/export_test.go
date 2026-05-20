@@ -24,6 +24,10 @@ func (netMes *networkMessenger) SetHost(newHost ConnectableHost) {
 	netMes.p2pHost = newHost
 }
 
+func (netMes *networkMessenger) Host() ConnectableHost {
+	return netMes.p2pHost
+}
+
 func (netMes *networkMessenger) SetLoadBalancer(outgoingPLB p2p.ChannelLoadBalancer) {
 	netMes.outgoingPLB = outgoingPLB
 }

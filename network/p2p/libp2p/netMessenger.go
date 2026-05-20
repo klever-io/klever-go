@@ -32,6 +32,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	pubsub_pb "github.com/libp2p/go-libp2p-pubsub/pb"
+	"github.com/libp2p/go-libp2p/core/connmgr"
 	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -108,6 +109,11 @@ type ArgsNetworkMessenger struct {
 	Marshalizer   p2p.Marshalizer
 	P2pConfig     config.P2PConfig
 	SyncTimer     p2p.SyncTimer
+	// IsSeedNode disables the default libp2p BasicConnMgr peer trimming so peer
+	// count is bounded only by the ResourceManager. Seed nodes rely on yamux
+	// keepalives for stale connection cleanup and should accept as many peers
+	// as resources allow.
+	IsSeedNode bool
 }
 
 // NewNetworkMessenger creates a libP2P messenger by opening a port on the current machine
@@ -157,6 +163,12 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 		//we need the disable relay option in order to save the node's bandwidth as much as possible
 		libp2p.DisableRelay(),
 		libp2p.NATPortMap(),
+	}
+
+	// Seed nodes disable the default BasicConnMgr so peer count is bounded only
+	// by the ResourceManager rather than the 160/192 watermarks.
+	if args.IsSeedNode {
+		opts = append(opts, libp2p.ConnectionManager(connmgr.NullConnMgr{}))
 	}
 
 	setupExternalP2PLoggers()
