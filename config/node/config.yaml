@@ -29,6 +29,18 @@ p2p:
     #              the shard membership of the connected peers
     #  `NilListSharder` will disable connection trimming (sharder is off)
     type: NilListSharder
+  # Optional libp2p ResourceManager tuning. Omitting this section is equivalent
+  # to strategy "" / "default": libp2p's auto-scaled DefaultResourceManager
+  # (memory budget = TotalRAM/8) is used. Available strategies:
+  #   ""        leave libp2p's auto-scaled DefaultResourceManager in place.
+  #   "default" same as "" — explicit libp2p auto-scale.
+  #   "null"    disable libp2p resource limits (bounded only by OS ulimit and RAM).
+  #   "scaled"  auto-scale limits as if the host had `scaledMemoryMiB` MiB of memory.
+  # Example: lift caps on a small host without going fully unbounded:
+  #
+  # resourceManager:
+  #   strategy: scaled
+  #   scaledMemoryMiB: 16384
 
 logs:
   logFileLifeSpanInSec: 86400

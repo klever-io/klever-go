@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
@@ -38,6 +39,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
@@ -70,7 +72,23 @@ var maxSendBuffSize = (1 << 20) - messageHeader
 var log = logger.GetOrCreate("p2p/libp2p")
 
 var _ p2p.Messenger = (*networkMessenger)(nil)
-var externalPackages = []string{"dht", "nat", "basichost", "pubsub"}
+
+// externalPackages are libp2p subsystem logger names bridged into klever-go's
+// "external/<name>" namespace; setting external/<name>:TRACE flips the libp2p
+// subsystem to DEBUG. rcmgr/swarm2/connmgr are needed to diagnose
+// connection-acceptance issues (e.g. "failed to negotiate security protocol:
+// EOF" when ResourceManager scopes fill).
+var externalPackages = []string{
+	"dht",
+	"nat",
+	"basichost",
+	"pubsub",
+	"swarm2",
+	"rcmgr",
+	"connmgr",
+	"net/identify",
+	"autonat",
+}
 
 func init() {
 	for _, external := range externalPackages {
@@ -109,10 +127,8 @@ type ArgsNetworkMessenger struct {
 	Marshalizer   p2p.Marshalizer
 	P2pConfig     config.P2PConfig
 	SyncTimer     p2p.SyncTimer
-	// IsSeedNode disables the default libp2p BasicConnMgr peer trimming so peer
-	// count is bounded only by the ResourceManager. Seed nodes rely on yamux
-	// keepalives for stale connection cleanup and should accept as many peers
-	// as resources allow.
+	// IsSeedNode replaces libp2p's default BasicConnMgr with NullConnMgr.
+	// ResourceManager is configured separately via P2pConfig.ResourceManager.
 	IsSeedNode bool
 }
 
@@ -165,10 +181,16 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 		libp2p.NATPortMap(),
 	}
 
-	// Seed nodes disable the default BasicConnMgr so peer count is bounded only
-	// by the ResourceManager rather than the 160/192 watermarks.
 	if args.IsSeedNode {
 		opts = append(opts, libp2p.ConnectionManager(connmgr.NullConnMgr{}))
+	}
+
+	rmOpt, rmCloser, err := buildResourceManagerOption(args.P2pConfig.ResourceManager)
+	if err != nil {
+		return nil, err
+	}
+	if rmOpt != nil {
+		opts = append(opts, rmOpt)
 	}
 
 	setupExternalP2PLoggers()
@@ -177,6 +199,9 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 	h, err := libp2p.New(opts...)
 	if err != nil {
 		cancelFunc()
+		if rmCloser != nil {
+			_ = rmCloser.Close()
+		}
 		return nil, err
 	}
 
@@ -1200,4 +1225,52 @@ func (netMes *networkMessenger) GetConnectedPeersInfo() *p2p.ConnectedPeersInfo 
 // IsInterfaceNil returns true if there is no value under the interface
 func (netMes *networkMessenger) IsInterfaceNil() bool {
 	return netMes == nil
+}
+
+// buildResourceManagerOption returns the libp2p ResourceManager option dictated
+// by rmCfg. The closer is non-nil only when a fresh rcmgr was constructed
+// (currently only the "scaled" strategy); callers must Close() it if
+// libp2p.New() fails, since the host can no longer take ownership.
+// A nil option means "let libp2p use its DefaultResourceManager".
+func buildResourceManagerOption(rmCfg config.ResourceManagerConfig) (libp2p.Option, io.Closer, error) {
+	switch rmCfg.Strategy {
+	case config.ResourceManagerStrategyDefault, config.ResourceManagerStrategyLibp2pDefault:
+		return nil, nil, nil
+
+	case config.ResourceManagerStrategyNull:
+		return libp2p.ResourceManager(&network.NullResourceManager{}), nil, nil
+
+	case config.ResourceManagerStrategyScaled:
+		if rmCfg.ScaledMemoryMiB <= 0 {
+			return nil, nil, fmt.Errorf("p2p.resourceManager.strategy=%q requires scaledMemoryMiB > 0",
+				rmCfg.Strategy)
+		}
+		memBytes := int64(rmCfg.ScaledMemoryMiB) << 20
+		limits := rcmgr.DefaultLimits.Scale(memBytes, getFDLimit()/2)
+		rm, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(limits))
+		if err != nil {
+			return nil, nil, fmt.Errorf("creating scaled resource manager: %w", err)
+		}
+		return libp2p.ResourceManager(rm), rm, nil
+
+	default:
+		return nil, nil, fmt.Errorf("invalid p2p.resourceManager.strategy %q (valid: %q, %q, %q, %q)",
+			rmCfg.Strategy,
+			config.ResourceManagerStrategyDefault,
+			config.ResourceManagerStrategyLibp2pDefault,
+			config.ResourceManagerStrategyNull,
+			config.ResourceManagerStrategyScaled,
+		)
+	}
+}
+
+// getFDLimit returns the soft RLIMIT_NOFILE — the effective per-process FD cap
+// the operator chose via ulimit. Returns 0 on error; rcmgr then falls back to
+// its base FD limits.
+func getFDLimit() int {
+	var rLimit syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
+		return 0
+	}
+	return int(rLimit.Cur)
 }

@@ -233,6 +233,89 @@ func TestNewNetworkMessenger_RegularNodeKeepsDefaultConnMgr(t *testing.T) {
 	assert.False(t, isNull, "regular node should keep the libp2p default BasicConnMgr")
 }
 
+func TestNewNetworkMessenger_EmptyStrategyUsesLibp2pAutoScaleRM(t *testing.T) {
+	// Empty Strategy → libp2p's auto-scaled default, independent of IsSeedNode.
+	// (The seed-binary policy of using "null" lives in config/seednode/config.yaml.)
+	for _, isSeed := range []bool{false, true} {
+		isSeed := isSeed
+		t.Run(fmt.Sprintf("isSeedNode=%v", isSeed), func(t *testing.T) {
+			arg := createMockNetworkArgs()
+			arg.IsSeedNode = isSeed
+
+			mes, err := libp2p.NewNetworkMessenger(arg)
+			require.NoError(t, err)
+			require.False(t, check.IfNil(mes))
+			defer func() { _ = mes.Close() }()
+
+			_, isNull := mes.Host().Network().ResourceManager().(*network.NullResourceManager)
+			assert.False(t, isNull, "empty strategy should produce libp2p's default ResourceManager (not Null) regardless of IsSeedNode")
+		})
+	}
+}
+
+func TestNewNetworkMessenger_ResourceManagerStrategyNullProducesNullRM(t *testing.T) {
+	arg := createMockNetworkArgs()
+	arg.P2pConfig.ResourceManager.Strategy = config.ResourceManagerStrategyNull
+
+	mes, err := libp2p.NewNetworkMessenger(arg)
+	require.NoError(t, err)
+	require.False(t, check.IfNil(mes))
+	defer func() { _ = mes.Close() }()
+
+	_, isNull := mes.Host().Network().ResourceManager().(*network.NullResourceManager)
+	assert.True(t, isNull, "strategy=null should force NullResourceManager")
+}
+
+func TestNewNetworkMessenger_ResourceManagerStrategyLibp2pDefaultIsNotNull(t *testing.T) {
+	arg := createMockNetworkArgs()
+	arg.P2pConfig.ResourceManager.Strategy = config.ResourceManagerStrategyLibp2pDefault
+
+	mes, err := libp2p.NewNetworkMessenger(arg)
+	require.NoError(t, err)
+	require.False(t, check.IfNil(mes))
+	defer func() { _ = mes.Close() }()
+
+	_, isNull := mes.Host().Network().ResourceManager().(*network.NullResourceManager)
+	assert.False(t, isNull, "strategy=default should NOT use NullResourceManager")
+}
+
+func TestNewNetworkMessenger_ResourceManagerStrategyScaledBuildsCustomLimiter(t *testing.T) {
+	arg := createMockNetworkArgs()
+	arg.P2pConfig.ResourceManager.Strategy = config.ResourceManagerStrategyScaled
+	arg.P2pConfig.ResourceManager.ScaledMemoryMiB = 16384
+
+	mes, err := libp2p.NewNetworkMessenger(arg)
+	require.NoError(t, err)
+	require.False(t, check.IfNil(mes))
+	defer func() { _ = mes.Close() }()
+
+	rm := mes.Host().Network().ResourceManager()
+	require.NotNil(t, rm)
+	_, isNull := rm.(*network.NullResourceManager)
+	assert.False(t, isNull, "strategy=scaled should produce a bounded ResourceManager, not the null one")
+}
+
+func TestNewNetworkMessenger_ResourceManagerStrategyScaledRejectsZeroMemory(t *testing.T) {
+	arg := createMockNetworkArgs()
+	arg.P2pConfig.ResourceManager.Strategy = config.ResourceManagerStrategyScaled
+	arg.P2pConfig.ResourceManager.ScaledMemoryMiB = 0
+
+	mes, err := libp2p.NewNetworkMessenger(arg)
+	require.Error(t, err)
+	require.True(t, check.IfNil(mes))
+	assert.Contains(t, err.Error(), "scaledMemoryMiB")
+}
+
+func TestNewNetworkMessenger_ResourceManagerStrategyInvalidReturnsError(t *testing.T) {
+	arg := createMockNetworkArgs()
+	arg.P2pConfig.ResourceManager.Strategy = "garbage"
+
+	mes, err := libp2p.NewNetworkMessenger(arg)
+	require.Error(t, err)
+	require.True(t, check.IfNil(mes))
+	assert.Contains(t, err.Error(), "invalid p2p.resourceManager.strategy")
+}
+
 //------- Messenger functionality
 
 func TestLibp2pMessenger_ConnectToPeerShouldCallUpgradedHost(t *testing.T) {
