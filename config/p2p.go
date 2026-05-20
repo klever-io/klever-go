@@ -5,6 +5,7 @@ type P2PConfig struct {
 	Node                NodeConfig                `yaml:"node"`
 	KadDhtPeerDiscovery KadDhtPeerDiscoveryConfig `yaml:"kadDhtPeerDiscovery"`
 	Sharding            ShardingConfig            `yaml:"sharding"`
+	ResourceManager     ResourceManagerConfig     `yaml:"resourceManager"`
 }
 
 // NodeConfig will hold basic p2p settings
@@ -35,4 +36,19 @@ type ShardingConfig struct {
 	MaxIntraShardObservers  uint32 `yaml:"maxIntraShardObservers"`
 	MaxCrossShardObservers  uint32 `yaml:"maxCrossShardObservers"`
 	Type                    string `yaml:"type"`
+}
+
+// Values for ResourceManagerConfig.Strategy. The empty string is equivalent to
+// "default" and selects libp2p's auto-scaled DefaultResourceManager.
+const (
+	ResourceManagerStrategyDefault       = ""
+	ResourceManagerStrategyLibp2pDefault = "default"
+	ResourceManagerStrategyNull          = "null"
+	ResourceManagerStrategyScaled        = "scaled"
+)
+
+// ResourceManagerConfig configures libp2p's ResourceManager.
+type ResourceManagerConfig struct {
+	Strategy        string `yaml:"strategy"`
+	ScaledMemoryMiB int    `yaml:"scaledMemoryMiB"`
 }

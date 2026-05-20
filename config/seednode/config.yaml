@@ -27,6 +27,21 @@ p2p:
     #              the shard membership of the connected peers
     #  `NilListSharder` will disable connection trimming (sharder is off)
     type: NilListSharder
+  resourceManager:
+    # Seed-node policy. Available strategies:
+    #   ""        leave libp2p's auto-scaled DefaultResourceManager in place
+    #             (caps inbound peer count at TotalMemory/8 × constants — for a
+    #             4 GiB host that's ~187 connections; seeds outgrow this fast).
+    #   "default" same as "" — explicit libp2p auto-scale.
+    #   "null"    disable libp2p resource limits entirely so peer count is
+    #             bounded only by the OS (ulimit, available RAM). Recommended
+    #             default for seeds; matches the legacy seed-fork behavior.
+    #   "scaled"  auto-scale as if the host had `scaledMemoryMiB` MiB of memory.
+    #             Useful to lift caps on small hosts while keeping a safety net.
+    strategy: "null"
+    # Memory budget (MiB) used when strategy = "scaled" (ignored otherwise).
+    # Example: 16384 = scale limits as if the host had 16 GiB of RAM.
+    scaledMemoryMiB: 0
 
 logs:
   logFileLifeSpanInSec: 86400
