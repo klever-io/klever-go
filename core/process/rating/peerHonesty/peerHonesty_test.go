@@ -2,6 +2,7 @@ package peerHonesty
 
 import (
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -172,13 +173,53 @@ func TestP2pPeerHonesty_Close(t *testing.T) {
 		handler,
 	)
 
-	time.Sleep(time.Second*2 + time.Millisecond*100) //this will call the handler 3 times
+	time.Sleep(time.Second*2 + time.Millisecond*100) //this will call the handler 2 times
 
 	err := pph.Close()
 	assert.Nil(t, err)
 
 	time.Sleep(time.Second*2 + time.Millisecond*100)
-	assert.Equal(t, int32(2), numCalls)
+	assert.Equal(t, int32(2), atomic.LoadInt32(&numCalls))
+}
+
+func TestP2pPeerHonesty_DoubleCloseShouldNotPanic(t *testing.T) {
+	t.Parallel()
+
+	cfg := createMockPeerHonestyConfig()
+	cfg.DecayUpdateIntervalInSeconds = 1
+	pph, _ := NewP2pPeerHonestyWithCustomExecuteDelayFunction(
+		cfg,
+		&mock.TimeCacheStub{},
+		&testscommon.CacherStub{},
+		func() {},
+	)
+
+	assert.Nil(t, pph.Close())
+	assert.Nil(t, pph.Close()) // second call must not panic or block
+}
+
+func TestP2pPeerHonesty_ConcurrentCloseShouldNotPanic(t *testing.T) {
+	t.Parallel()
+
+	cfg := createMockPeerHonestyConfig()
+	cfg.DecayUpdateIntervalInSeconds = 1
+	pph, _ := NewP2pPeerHonestyWithCustomExecuteDelayFunction(
+		cfg,
+		&mock.TimeCacheStub{},
+		&testscommon.CacherStub{},
+		func() {},
+	)
+
+	const callers = 4
+	var wg sync.WaitGroup
+	wg.Add(callers)
+	for range callers {
+		go func() {
+			defer wg.Done()
+			assert.Nil(t, pph.Close())
+		}()
+	}
+	wg.Wait()
 }
 
 func TestP2pPeerHonesty_ChangeScoreShouldWork(t *testing.T) {

@@ -36,6 +36,7 @@ type p2pPeerHonesty struct {
 	mut                    sync.RWMutex
 	blackListedPkCache     process.TimeCacher
 	cancelFunc             func()
+	done                   chan struct{}
 }
 
 // NewP2pPeerHonesty creates a new peer honesty handler able to manage a provided set of public keys withing
@@ -59,12 +60,16 @@ func NewP2pPeerHonesty(
 		unitValue:              peerHonestyConfig.UnitValue,
 		cache:                  cache,
 		blackListedPkCache:     blackListedPkCache,
+		done:                   make(chan struct{}),
 	}
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	instance.cancelFunc = cancelFunc
 
-	go instance.executeDecayContinuously(ctx, instance.applyDecay)
+	go func() {
+		defer close(instance.done)
+		instance.executeDecayContinuously(ctx, instance.applyDecay)
+	}()
 
 	return instance, nil
 }
@@ -247,9 +252,11 @@ func (pph *p2pPeerHonesty) checkBlacklistNoLock(ps *peerScore) {
 	}
 }
 
-// Close closes the running go routines related to this instance
+// Close stops the decay goroutine and blocks until it has exited.
+// Safe to call multiple times.
 func (pph *p2pPeerHonesty) Close() error {
 	pph.cancelFunc()
+	<-pph.done
 	return nil
 }
 
