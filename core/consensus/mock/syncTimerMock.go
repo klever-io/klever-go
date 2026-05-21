@@ -6,8 +6,9 @@ import (
 
 // SyncTimerMock mocks the implementation for a SyncTimer
 type SyncTimerMock struct {
-	ClockOffsetCalled func() time.Duration
-	CurrentTimeCalled func() time.Time
+	ClockOffsetCalled       func() time.Duration
+	LastSyncTimestampCalled func() time.Time
+	CurrentTimeCalled       func() time.Time
 }
 
 // StartSyncingTime method does the time synchronization at every syncPeriod time elapsed. This should be started as a go routine
@@ -22,6 +23,15 @@ func (stm *SyncTimerMock) ClockOffset() time.Duration {
 	}
 
 	return time.Duration(0)
+}
+
+// LastSyncTimestamp returns the configured last sync timestamp or the zero time
+func (stm *SyncTimerMock) LastSyncTimestamp() time.Time {
+	if stm.LastSyncTimestampCalled != nil {
+		return stm.LastSyncTimestampCalled()
+	}
+
+	return time.Time{}
 }
 
 // FormattedCurrentTime method gets the formatted current time on which is added a given offset

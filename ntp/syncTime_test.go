@@ -319,3 +319,82 @@ func TestCallQueryShouldNotUpdateOnOutOfBoundValuesNegative(t *testing.T) {
 
 	assert.Equal(t, currentValue, st.ClockOffset())
 }
+
+func TestLastSyncTimestampStartsAtZero(t *testing.T) {
+	t.Parallel()
+
+	st := ntp.NewSyncTime(config.NTPConfig{SyncPeriodSeconds: 1}, nil)
+
+	assert.True(t, st.LastSyncTimestamp().IsZero(),
+		"timestamp must be zero before first successful sync — the polling code "+
+			"checks IsZero() to publish 0 (operator alarms on `time() - value > threshold`)")
+}
+
+func TestLastSyncTimestampStaysZeroWhenAllQueriesFail(t *testing.T) {
+	t.Parallel()
+
+	// Mirrors the "i/o timeout" failure mode at startup: every UDP query fails.
+	// The metric must honestly say "this node has never synced" so operator
+	// alarms can fire.
+	st := ntp.NewSyncTime(
+		config.NTPConfig{
+			SyncPeriodSeconds: 1,
+			Hosts:             []string{"host1"},
+		},
+		func(options ntp.NTPOptions, hostIndex int) (*beevikNtp.Response, error) {
+			return nil, errNtpMock
+		},
+	)
+
+	st.Sync()
+
+	assert.True(t, st.LastSyncTimestamp().IsZero(),
+		"unreachable NTP must not stamp a timestamp")
+}
+
+func TestLastSyncTimestampStaysZeroOnOutOfBoundsRejection(t *testing.T) {
+	t.Parallel()
+
+	// All queries returned but the harmonic mean was rejected (> 1s). No
+	// usable correction was produced, so the timestamp must not advance —
+	// otherwise the "sync stalled" alarm would silently clear on a rejected
+	// sync, hiding the broken state.
+	st := ntp.NewSyncTime(
+		config.NTPConfig{
+			SyncPeriodSeconds: 3600,
+			Hosts:             []string{"host1"},
+		},
+		func(options ntp.NTPOptions, hostIndex int) (*beevikNtp.Response, error) {
+			return &beevikNtp.Response{
+				ClockOffset: ntp.OutOfBoundsDuration + time.Nanosecond,
+			}, nil
+		},
+	)
+
+	st.Sync()
+
+	assert.True(t, st.LastSyncTimestamp().IsZero())
+}
+
+func TestLastSyncTimestampStampedOnSuccess(t *testing.T) {
+	t.Parallel()
+
+	st := ntp.NewSyncTime(
+		config.NTPConfig{
+			SyncPeriodSeconds: 1,
+			Hosts:             []string{"host1"},
+		},
+		func(options ntp.NTPOptions, hostIndex int) (*beevikNtp.Response, error) {
+			return &beevikNtp.Response{ClockOffset: 23456}, nil
+		},
+	)
+
+	before := time.Now()
+	st.Sync()
+	after := time.Now()
+
+	ts := st.LastSyncTimestamp()
+	assert.False(t, ts.IsZero())
+	assert.False(t, ts.Before(before), "timestamp must be set on or after the sync started")
+	assert.False(t, ts.After(after), "timestamp must not be set in the future")
+}

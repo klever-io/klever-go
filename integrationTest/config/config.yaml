@@ -38,7 +38,7 @@ ntp:
     - time.cloudflare.com
     - time.apple.com
   port: 123
-  timeoutMilliseconds: 100
+  timeoutMilliseconds: 500
   syncPeriodSeconds: 3600
   version: 0
 
