@@ -195,19 +195,25 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 	require.Nil(t, err)
 	require.NotNil(t, asset)
 
-	// Block timestamps in tests are deterministic: blockTs(s) = genesis + s*slotDuration.
+	// Block timestamps in tests are deterministic: blockTs(s) = slot0Ts + s*slotDuration,
+	// where slot0Ts is the proposer's slot-0 reference time (SlotManagerMock captures
+	// time.Now() at node construction — not actual chain genesis, just the anchor the
+	// proposer uses to compute block timestamps in block.go).
 	// Pin the ITO window to slot-relative anchors so it doesn't race wall-clock — KAPP
 	// validates ITO windows against ctx.Block().GetTimestamp(), not time.Now().
-	//   configITOTxHash is processed at block(slot)   → ts = genesisTs + slot*slotDuration
-	//   buy txs are processed at block(slot+1)        → ts = genesisTs + (slot+1)*slotDuration
-	//   "out of window" buy at block(slot+2)          → ts = genesisTs + (slot+2)*slotDuration
+	//   configITOTxHash is processed at block(slot)   → ts = slot0Ts + slot*slotDuration
+	//   buy txs are processed at block(slot+1)        → ts = slot0Ts + (slot+1)*slotDuration
+	//   "out of window" buy at block(slot+2)          → ts = slot0Ts + (slot+2)*slotDuration
 	// Required: blockTs(slot) < itoStart ≤ blockTs(slot+1) ≤ itoEnd < blockTs(slot+2).
 	slotDuration := int64(nodes[xidProposerBlock].SlotManager.TimeDuration().Seconds())
-	genesisTs := nodes[xidProposerBlock].SlotManager.Timestamp().Unix()
-	itoStart := genesisTs + int64(slot+1)*slotDuration
-	itoEnd := itoStart + 1
+	slot0Ts := nodes[xidProposerBlock].SlotManager.Timestamp().Unix()
+	itoStart := slot0Ts + int64(slot+1)*slotDuration
+	// Strictly less than blockTs(slot+2) regardless of slotDuration — the buy rejection
+	// at ito.go:336-337 is `EndTime < block.Timestamp`, so equality at block(slot+2)
+	// would leave the final "out of window" buy in-window if slotDuration ever became 1s.
+	itoEnd := slot0Ts + int64(slot+2)*slotDuration - 1
 	// Deliberately end-before-start values for the two malformed-time test cases.
-	itoTimeInvertedStart := genesisTs + int64(slot+2)*slotDuration
+	itoTimeInvertedStart := slot0Ts + int64(slot+2)*slotDuration
 	itoTimeInvertedEnd := itoStart
 
 	// ################### CONFIG ITO TESTS ###################
