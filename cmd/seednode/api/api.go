@@ -98,7 +98,7 @@ type peerSnapshot struct {
 }
 
 func (s *server) snapshot() peerSnapshot {
-	connected := s.messenger.ConnectedAddresses()
+	connected := append([]string(nil), s.messenger.ConnectedAddresses()...)
 	sort.Strings(connected)
 	return peerSnapshot{
 		connectedAddrs: connected,

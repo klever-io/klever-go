@@ -173,6 +173,27 @@ func TestNodeMetrics_versionLabelEscaped(t *testing.T) {
 	}
 }
 
+func TestSnapshot_doesNotMutateMessengerSlices(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	stub := &stubMessenger{
+		connected: []string{"/ip4/9/tcp/1/p2p/Z", "/ip4/1/tcp/1/p2p/A", "/ip4/5/tcp/1/p2p/M"},
+	}
+	srv := newTestServer(stub, "", time.Now())
+
+	wantConnected := append([]string(nil), stub.connected...)
+
+	for range 3 {
+		_ = srv.snapshot()
+	}
+
+	for i, addr := range stub.connected {
+		if addr != wantConnected[i] {
+			t.Fatalf("snapshot mutated stub.connected[%d]: got %q, want %q (full got: %v)",
+				i, addr, wantConnected[i], stub.connected)
+		}
+	}
+}
+
 func countNonEmptyLines(body string) int {
 	n := 0
 	for line := range strings.SplitSeq(body, "\n") {

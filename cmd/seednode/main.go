@@ -250,7 +250,7 @@ func displayStartupAddresses(messenger p2p.Messenger) {
 }
 
 func emitPeerStatus(messenger p2p.Messenger, prevConnected map[string]struct{}) {
-	connected := messenger.ConnectedAddresses()
+	connected := append([]string(nil), messenger.ConnectedAddresses()...)
 	sort.Strings(connected)
 
 	known := len(messenger.Peers())
