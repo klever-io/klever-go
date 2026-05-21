@@ -195,6 +195,21 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 	require.Nil(t, err)
 	require.NotNil(t, asset)
 
+	// Block timestamps in tests are deterministic: blockTs(s) = genesis + s*slotDuration.
+	// Pin the ITO window to slot-relative anchors so it doesn't race wall-clock — KAPP
+	// validates ITO windows against ctx.Block().GetTimestamp(), not time.Now().
+	//   configITOTxHash is processed at block(slot)   → ts = genesisTs + slot*slotDuration
+	//   buy txs are processed at block(slot+1)        → ts = genesisTs + (slot+1)*slotDuration
+	//   "out of window" buy at block(slot+2)          → ts = genesisTs + (slot+2)*slotDuration
+	// Required: blockTs(slot) < itoStart ≤ blockTs(slot+1) ≤ itoEnd < blockTs(slot+2).
+	slotDuration := int64(nodes[xidProposerBlock].SlotManager.TimeDuration().Seconds())
+	genesisTs := nodes[xidProposerBlock].SlotManager.Timestamp().Unix()
+	itoStart := genesisTs + int64(slot+1)*slotDuration
+	itoEnd := itoStart + 1
+	// Deliberately end-before-start values for the two malformed-time test cases.
+	itoTimeInvertedStart := genesisTs + int64(slot+2)*slotDuration
+	itoTimeInvertedEnd := itoStart
+
 	// ################### CONFIG ITO TESTS ###################
 
 	// error: invalid asset
@@ -211,10 +226,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: 10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: 1}, whitelistAddress2: {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 4).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 9).Unix(),
-			StartTime:              time.Now().Add(time.Second * 4).Unix(),
-			EndTime:                time.Now().Add(time.Second * 9).Unix(),
+			WhitelistStartTime:     itoStart,
+			WhitelistEndTime:       itoEnd,
+			StartTime:              itoStart,
+			EndTime:                itoEnd,
 		},
 	)
 	require.Nil(t, err)
@@ -233,10 +248,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: 10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: 1}, whitelistAddress2: {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 4).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 9).Unix(),
-			StartTime:              time.Now().Add(time.Second * 4).Unix(),
-			EndTime:                time.Now().Add(time.Second * 9).Unix(),
+			WhitelistStartTime:     itoStart,
+			WhitelistEndTime:       itoEnd,
+			StartTime:              itoStart,
+			EndTime:                itoEnd,
 		},
 	)
 	require.Error(t, err)
@@ -255,10 +270,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: 10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: 1}, whitelistAddress2: {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 4).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 9).Unix(),
-			StartTime:              time.Now().Add(time.Second * 4).Unix(),
-			EndTime:                time.Now().Add(time.Second * 9).Unix(),
+			WhitelistStartTime:     itoStart,
+			WhitelistEndTime:       itoEnd,
+			StartTime:              itoStart,
+			EndTime:                itoEnd,
 		},
 	)
 	require.Error(t, err)
@@ -277,10 +292,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: 10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: 1}, whitelistAddress2: {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 4).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 9).Unix(),
-			StartTime:              time.Now().Add(time.Second * 4).Unix(),
-			EndTime:                time.Now().Add(time.Second * 9).Unix(),
+			WhitelistStartTime:     itoStart,
+			WhitelistEndTime:       itoEnd,
+			StartTime:              itoStart,
+			EndTime:                itoEnd,
 		},
 	)
 	require.Error(t, err)
@@ -299,10 +314,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: 10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: 1}, whitelistAddress2: {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 4).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 9).Unix(),
-			StartTime:              time.Now().Add(time.Second * 4).Unix(),
-			EndTime:                time.Now().Add(time.Second * 9).Unix(),
+			WhitelistStartTime:     itoStart,
+			WhitelistEndTime:       itoEnd,
+			StartTime:              itoStart,
+			EndTime:                itoEnd,
 		},
 	)
 	require.Error(t, err)
@@ -321,10 +336,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: 10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: 1}, whitelistAddress2: {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 4).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 9).Unix(),
-			StartTime:              time.Now().Add(time.Second * 4).Unix(),
-			EndTime:                time.Now().Add(time.Second * 9).Unix(),
+			WhitelistStartTime:     itoStart,
+			WhitelistEndTime:       itoEnd,
+			StartTime:              itoStart,
+			EndTime:                itoEnd,
 		},
 	)
 	require.Error(t, err)
@@ -343,10 +358,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: 10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: 1}, whitelistAddress2: {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 4).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 9).Unix(),
-			StartTime:              time.Now().Add(time.Second * 4).Unix(),
-			EndTime:                time.Now().Add(time.Second * 9).Unix(),
+			WhitelistStartTime:     itoStart,
+			WhitelistEndTime:       itoEnd,
+			StartTime:              itoStart,
+			EndTime:                itoEnd,
 		},
 	)
 	require.Nil(t, err)
@@ -365,10 +380,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: 10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: 1}, whitelistAddress2: {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 4).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 9).Unix(),
-			StartTime:              time.Now().Add(time.Second * 4).Unix(),
-			EndTime:                time.Now().Add(time.Second * 9).Unix(),
+			WhitelistStartTime:     itoStart,
+			WhitelistEndTime:       itoEnd,
+			StartTime:              itoStart,
+			EndTime:                itoEnd,
 		},
 	)
 	require.Error(t, err)
@@ -387,10 +402,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: -10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: 1}, whitelistAddress2: {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 4).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 9).Unix(),
-			StartTime:              time.Now().Add(time.Second * 4).Unix(),
-			EndTime:                time.Now().Add(time.Second * 9).Unix(),
+			WhitelistStartTime:     itoStart,
+			WhitelistEndTime:       itoEnd,
+			StartTime:              itoStart,
+			EndTime:                itoEnd,
 		},
 	)
 	require.Error(t, err)
@@ -409,10 +424,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: 10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: 1}, whitelistAddress2: {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 4).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 9).Unix(),
-			StartTime:              time.Now().Add(time.Second * 4).Unix(),
-			EndTime:                time.Now().Add(time.Second * 9).Unix(),
+			WhitelistStartTime:     itoStart,
+			WhitelistEndTime:       itoEnd,
+			StartTime:              itoStart,
+			EndTime:                itoEnd,
 		},
 	)
 	require.Error(t, err)
@@ -431,10 +446,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: 10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: 1}, "INVALID": {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 4).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 9).Unix(),
-			StartTime:              time.Now().Add(time.Second * 4).Unix(),
-			EndTime:                time.Now().Add(time.Second * 9).Unix(),
+			WhitelistStartTime:     itoStart,
+			WhitelistEndTime:       itoEnd,
+			StartTime:              itoStart,
+			EndTime:                itoEnd,
 		},
 	)
 	require.Error(t, err)
@@ -453,10 +468,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: 10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: -1}, whitelistAddress2: {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 4).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 9).Unix(),
-			StartTime:              time.Now().Add(time.Second * 4).Unix(),
-			EndTime:                time.Now().Add(time.Second * 9).Unix(),
+			WhitelistStartTime:     itoStart,
+			WhitelistEndTime:       itoEnd,
+			StartTime:              itoStart,
+			EndTime:                itoEnd,
 		},
 	)
 	require.Error(t, err)
@@ -475,10 +490,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: 10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: 1}, whitelistAddress2: {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 10).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 5).Unix(),
-			StartTime:              time.Now().Add(time.Second * 4).Unix(),
-			EndTime:                time.Now().Add(time.Second * 9).Unix(),
+			WhitelistStartTime:     itoTimeInvertedStart,
+			WhitelistEndTime:       itoTimeInvertedEnd,
+			StartTime:              itoStart,
+			EndTime:                itoEnd,
 		},
 	)
 	require.Error(t, err)
@@ -497,10 +512,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: 10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: 1}, whitelistAddress2: {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 4).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 9).Unix(),
-			StartTime:              time.Now().Add(time.Second * 10).Unix(),
-			EndTime:                time.Now().Add(time.Second * 5).Unix(),
+			WhitelistStartTime:     itoStart,
+			WhitelistEndTime:       itoEnd,
+			StartTime:              itoTimeInvertedStart,
+			EndTime:                itoTimeInvertedEnd,
 		},
 	)
 	require.Error(t, err)
@@ -519,10 +534,10 @@ func TestTransaction_CreateConfigITO_ShouldError(t *testing.T) {
 			DefaultLimitPerAddress: 10,
 			WhitelistStatus:        int32(*transaction.ConfigITOContract_ActiveITO.Enum()),
 			WhitelistInfo:          map[string]models.WhitelistInfoRequest{whitelistAddress1: {Limit: 1}, whitelistAddress2: {Limit: 1}},
-			WhitelistStartTime:     time.Now().Add(time.Second * 4).Unix(),
-			WhitelistEndTime:       time.Now().Add(time.Second * 9).Unix(),
-			StartTime:              time.Now().Add(time.Second * 4).Unix(),
-			EndTime:                time.Now().Add(time.Second * 9).Unix(),
+			WhitelistStartTime:     itoStart,
+			WhitelistEndTime:       itoEnd,
+			StartTime:              itoStart,
+			EndTime:                itoEnd,
 		},
 	)
 	require.Nil(t, err)
