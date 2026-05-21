@@ -3,7 +3,7 @@ package mock
 // PeerHonestyHandlerStub -
 type PeerHonestyHandlerStub struct {
 	ChangeScoreCalled func(pk string, topic string, units int)
-	CloseCalled      func() error
+	CloseCalled       func() error
 }
 
 // ChangeScore -

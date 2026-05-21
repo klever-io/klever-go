@@ -249,7 +249,18 @@ func TestP2pPeerHonesty_ConcurrentCloseShouldNotPanic(t *testing.T) {
 			errs <- pph.Close()
 		}()
 	}
-	wg.Wait()
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for concurrent Close calls to return")
+	}
+
 	close(errs)
 	for closeErr := range errs {
 		assert.Nil(t, closeErr)
