@@ -988,8 +988,14 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		return err
 	}
 
-	// Pollers are independent; order doesn't matter.
-	pollingClosers := []io.Closer{statusPollingCloser, machineStatsCloser, nodeMetricsCloser}
+	// Background goroutines that must be drained before component teardown.
+	// Order within the slice doesn't matter; they're independent of each other.
+	backgroundClosers := []io.Closer{
+		statusPollingCloser,
+		machineStatsCloser,
+		nodeMetricsCloser,
+		currentNode.GetPeerHonestyHandler(),
+	}
 
 	log.Trace("creating klever node facade")
 	restAPIServerDebugMode := ctx.GlobalBool(restAPIDebug.Name)
@@ -1044,7 +1050,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 
 	chanCloseComponents := make(chan struct{})
 	go func() {
-		closeAllComponents(log, healthService, dataComponents, triesComponents, networkComponents, pollingClosers, chanCloseComponents)
+		closeAllComponents(log, healthService, dataComponents, triesComponents, networkComponents, backgroundClosers, chanCloseComponents)
 	}()
 
 	_ = tracing.Shutdown() // errors logged internally
@@ -1137,12 +1143,13 @@ func closeAllComponents(
 	dataComponents *factory.DataComponents,
 	triesComponents *factory.TriesComponents,
 	networkComponents *factory.NetworkComponents,
-	pollingClosers []io.Closer,
+	backgroundClosers []io.Closer,
 	chanCloseComponents chan struct{},
 ) {
-	// Stop polling first so handlers cannot fire against components being torn down below.
-	log.Debug("closing status polling goroutines...")
-	for _, c := range pollingClosers {
+	// Drain background goroutines first so their handlers cannot fire
+	// against components being torn down below.
+	log.Debug("closing background goroutines...")
+	for _, c := range backgroundClosers {
 		if c == nil {
 			continue
 		}

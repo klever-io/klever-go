@@ -221,6 +221,12 @@ func (n *Node) GetAppStatusHandler() core.AppStatusHandler {
 	return n.appStatusHandler
 }
 
+// GetPeerHonestyHandler returns the peer honesty handler attached to this node.
+// Returned for shutdown wiring so the caller can Close it on process exit.
+func (n *Node) GetPeerHonestyHandler() consensus.PeerHonestyHandler {
+	return n.peerHonestyHandler
+}
+
 // CreateStores instantiate cachers for Transactions and Headers
 func (n *Node) CreateStores() error {
 	if n.dataPool == nil {

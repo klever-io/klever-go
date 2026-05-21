@@ -2,6 +2,7 @@ package peerHonesty
 
 import (
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -161,24 +162,109 @@ func TestP2pPeerHonesty_Close(t *testing.T) {
 
 	cfg := createMockPeerHonestyConfig()
 	cfg.DecayUpdateIntervalInSeconds = 1
+
+	// Signal each handler invocation through a buffered channel so the test
+	// synchronizes on events instead of wall-clock sleeps.
+	const expectedTicks = 2
+	called := make(chan struct{}, 16)
 	numCalls := int32(0)
 	handler := func() {
 		atomic.AddInt32(&numCalls, 1)
+		select {
+		case called <- struct{}{}:
+		default:
+		}
 	}
-	pph, _ := NewP2pPeerHonestyWithCustomExecuteDelayFunction(
+	pph, err := NewP2pPeerHonestyWithCustomExecuteDelayFunction(
 		cfg,
 		&mock.TimeCacheStub{},
 		&testscommon.CacherStub{},
 		handler,
 	)
-
-	time.Sleep(time.Second*2 + time.Millisecond*100) //this will call the handler 3 times
-
-	err := pph.Close()
 	assert.Nil(t, err)
+	assert.NotNil(t, pph)
 
-	time.Sleep(time.Second*2 + time.Millisecond*100)
-	assert.Equal(t, int32(2), numCalls)
+	tickerWindow := time.Duration(cfg.DecayUpdateIntervalInSeconds) * time.Second
+	tickTimeout := tickerWindow*expectedTicks + time.Second
+	for range expectedTicks {
+		select {
+		case <-called:
+		case <-time.After(tickTimeout):
+			t.Fatalf("handler not invoked %d times within %s", expectedTicks, tickTimeout)
+		}
+	}
+
+	assert.Nil(t, pph.Close())
+
+	// After Close returns, the goroutine has exited (happens-before via done).
+	// Confirm no further signals arrive within a full ticker window.
+	select {
+	case <-called:
+		t.Fatal("handler was invoked after Close returned")
+	case <-time.After(tickerWindow + 500*time.Millisecond):
+	}
+
+	assert.Equal(t, int32(expectedTicks), atomic.LoadInt32(&numCalls))
+}
+
+func TestP2pPeerHonesty_DoubleCloseShouldNotPanic(t *testing.T) {
+	t.Parallel()
+
+	cfg := createMockPeerHonestyConfig()
+	cfg.DecayUpdateIntervalInSeconds = 1
+	pph, err := NewP2pPeerHonestyWithCustomExecuteDelayFunction(
+		cfg,
+		&mock.TimeCacheStub{},
+		&testscommon.CacherStub{},
+		func() {},
+	)
+	assert.Nil(t, err)
+	assert.NotNil(t, pph)
+
+	assert.Nil(t, pph.Close())
+	assert.Nil(t, pph.Close()) // second call must not panic or block
+}
+
+func TestP2pPeerHonesty_ConcurrentCloseShouldNotPanic(t *testing.T) {
+	t.Parallel()
+
+	cfg := createMockPeerHonestyConfig()
+	cfg.DecayUpdateIntervalInSeconds = 1
+	pph, err := NewP2pPeerHonestyWithCustomExecuteDelayFunction(
+		cfg,
+		&mock.TimeCacheStub{},
+		&testscommon.CacherStub{},
+		func() {},
+	)
+	assert.Nil(t, err)
+	assert.NotNil(t, pph)
+
+	const callers = 4
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	wg.Add(callers)
+	for range callers {
+		go func() {
+			defer wg.Done()
+			errs <- pph.Close()
+		}()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for concurrent Close calls to return")
+	}
+
+	close(errs)
+	for closeErr := range errs {
+		assert.Nil(t, closeErr)
+	}
 }
 
 func TestP2pPeerHonesty_ChangeScoreShouldWork(t *testing.T) {

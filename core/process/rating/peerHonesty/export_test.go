@@ -24,12 +24,16 @@ func NewP2pPeerHonestyWithCustomExecuteDelayFunction(
 		unitValue:              peerHonestyConfig.UnitValue,
 		cache:                  cache,
 		blackListedPkCache:     blackListedPkCache,
+		done:                   make(chan struct{}),
 	}
 
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	instance.cancelFunc = cancelFunc
 
-	go instance.executeDecayContinuously(ctx, handler)
+	go func() {
+		defer close(instance.done)
+		instance.executeDecayContinuously(ctx, handler)
+	}()
 
 	return instance, nil
 }
