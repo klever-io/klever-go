@@ -988,6 +988,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		return err
 	}
 
+	// Pollers are independent; order doesn't matter.
 	pollingClosers := []io.Closer{statusPollingCloser, machineStatsCloser, nodeMetricsCloser}
 
 	log.Trace("creating klever node facade")
@@ -1139,8 +1140,7 @@ func closeAllComponents(
 	pollingClosers []io.Closer,
 	chanCloseComponents chan struct{},
 ) {
-	// Stop background polling first so handlers cannot fire against components
-	// being torn down below.
+	// Stop polling first so handlers cannot fire against components being torn down below.
 	log.Debug("closing status polling goroutines...")
 	for _, c := range pollingClosers {
 		if c == nil {

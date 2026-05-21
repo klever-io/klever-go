@@ -10,6 +10,7 @@ import (
 	"github.com/klever-io/klever-go/core/appStatusPolling"
 	"github.com/klever-io/klever-go/statusHandler"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewAppStatusPooling_NilAppStatusHandlerShouldErr(t *testing.T) {
@@ -76,7 +77,7 @@ func TestAppStatusPolling_Poll_TestNumOfConnectedAddressesCalled(t *testing.T) {
 
 	select {
 	case <-chDone:
-	case <-time.After(pollingDuration * 2 * time.Second):
+	case <-time.After(2 * pollingDuration):
 		assert.Fail(t, "timeout calling SetInt64Value")
 	}
 }
@@ -110,15 +111,19 @@ func TestAppStatusPolling_Close_StopsGoroutine(t *testing.T) {
 	assert.Nil(t, err)
 
 	asp.Poll()
-	// Wait for at least one tick to confirm the goroutine is running.
-	time.Sleep(pollingDuration + 200*time.Millisecond)
-	beforeClose := atomic.LoadInt32(&callCount)
-	assert.Greater(t, beforeClose, int32(0), "expected goroutine to fire at least once before Close")
+	// Poll until the goroutine has fired at least once — tolerant of -race jitter.
+	require.Eventually(t, func() bool {
+		return atomic.LoadInt32(&callCount) > 0
+	}, 3*pollingDuration, 50*time.Millisecond, "expected goroutine to fire at least once before Close")
 
 	assert.NoError(t, asp.Close())
 
-	// Wait long enough that the next tick would have fired had the goroutine not exited.
+	// Close does not synchronously join the goroutine, so a tick already
+	// selected may complete after Close returns. Wait long enough that the
+	// goroutine has observed `done`, then assert the count is stable across a
+	// second polling interval.
 	time.Sleep(2 * pollingDuration)
-	afterClose := atomic.LoadInt32(&callCount)
-	assert.Equal(t, beforeClose, afterClose, "expected no further handler invocations after Close")
+	stable := atomic.LoadInt32(&callCount)
+	time.Sleep(2 * pollingDuration)
+	assert.Equal(t, stable, atomic.LoadInt32(&callCount), "expected no further handler invocations after Close settles")
 }

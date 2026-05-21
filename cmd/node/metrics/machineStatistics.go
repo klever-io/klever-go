@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 	"time"
@@ -15,17 +16,19 @@ import (
 )
 
 // StartMachineStatisticsPolling will start read information about current running machine.
-// The returned io.Closer stops the AppStatusPolling goroutine; the per-statistic
-// goroutines in registerCPUStatistics, registerNetStatistics, and registerDiskStatistics
-// still leak — tracked as a separate follow-up.
+// The returned io.Closer stops the AppStatusPolling goroutine; the inner goroutines in
+// registerCPUStatistics / registerNetStatistics / registerDiskStatistics still leak
 func StartMachineStatisticsPolling(ash core.AppStatusHandler, notifier eventNotifier.EpochStartEventNotifier, pollingInterval time.Duration, workingDir string) (io.Closer, error) {
 	if check.IfNil(ash) {
 		return nil, errors.New("nil AppStatusHandler")
 	}
+	if check.IfNil(notifier) {
+		return nil, errors.New("nil EpochStartEventNotifier")
+	}
 
 	appStatusPollingHandler, err := appStatusPolling.NewAppStatusPolling(ash, pollingInterval)
 	if err != nil {
-		return nil, errors.New("cannot init AppStatusPolling")
+		return nil, fmt.Errorf("cannot init AppStatusPolling: %w", err)
 	}
 
 	err = registerCPUStatistics(appStatusPollingHandler)

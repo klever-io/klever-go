@@ -131,7 +131,7 @@ func StartStatusPolling(
 	networkComponents *factory.NetworkComponents,
 	processComponents *factory.Process,
 ) (io.Closer, error) {
-	if ash == nil {
+	if check.IfNil(ash) {
 		return nil, errors.New("nil AppStatusHandler")
 	}
 	if networkComponents == nil {
@@ -143,7 +143,7 @@ func StartStatusPolling(
 
 	appStatusPollingHandler, err := appStatusPolling.NewAppStatusPolling(ash, pollingInterval)
 	if err != nil {
-		return nil, errors.New("cannot init AppStatusPolling")
+		return nil, fmt.Errorf("cannot init AppStatusPolling: %w", err)
 	}
 
 	err = registerPollConnectedPeers(appStatusPollingHandler, networkComponents)
