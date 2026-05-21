@@ -262,7 +262,7 @@ func TestStartStatusPolling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Call the function to test
-			err := StartStatusPolling(
+			closer, err := StartStatusPolling(
 				tt.appStatusHandler,
 				time.Second,
 				tt.networkComponents,
@@ -272,8 +272,11 @@ func TestStartStatusPolling(t *testing.T) {
 			// Assert the result
 			if tt.expectedError {
 				assert.Error(t, err)
+				assert.Nil(t, closer)
 			} else {
 				assert.Nil(t, err)
+				require.NotNil(t, closer)
+				t.Cleanup(func() { _ = closer.Close() })
 			}
 		})
 	}
@@ -451,6 +454,7 @@ func TestRegisterPollConnectedPeers(t *testing.T) {
 	assert.NotPanics(t, func() {
 		pollingHandler.Poll()
 	})
+	t.Cleanup(func() { _ = pollingHandler.Close() })
 }
 
 // TestRegisterPollProbableHighestNonce tests the function that registers a polling function for the probable highest nonce
@@ -485,6 +489,7 @@ func TestRegisterPollProbableHighestNonce(t *testing.T) {
 	assert.NotPanics(t, func() {
 		pollingHandler.Poll()
 	})
+	t.Cleanup(func() { _ = pollingHandler.Close() })
 
 	// Optionally, verify that the metric gets set when Poll() is called
 	// This requires a metricsMap to track what values are set
@@ -498,6 +503,7 @@ func TestRegisterPollProbableHighestNonce(t *testing.T) {
 	pollingWithMetricsHandler, _ := appStatusPolling.NewAppStatusPolling(metricsHandler, time.Second)
 	_ = registerPollProbableHighestNonce(pollingWithMetricsHandler, processComponents)
 	pollingWithMetricsHandler.Poll()
+	t.Cleanup(func() { _ = pollingWithMetricsHandler.Close() })
 
 	// Verify that the metric was set correctly
 	// Note: This might not be reliable depending on the implementation of AppStatusPolling
@@ -553,16 +559,18 @@ func TestStartNodeMetricsPolling_NilHandler(t *testing.T) {
 	t.Parallel()
 
 	redundancyHandler := &consensusMock.NodeRedundancyHandlerStub{}
-	err := StartNodeMetricsPolling(nil, time.Second, redundancyHandler)
+	closer, err := StartNodeMetricsPolling(nil, time.Second, redundancyHandler)
 	assert.Error(t, err)
+	assert.Nil(t, closer)
 }
 
 func TestStartNodeMetricsPolling_NilRedundancyHandler(t *testing.T) {
 	t.Parallel()
 
 	handler := &mock.AppStatusHandlerStub{}
-	err := StartNodeMetricsPolling(handler, time.Second, nil)
+	closer, err := StartNodeMetricsPolling(handler, time.Second, nil)
 	assert.Error(t, err)
+	assert.Nil(t, closer)
 }
 
 func TestStartNodeMetricsPolling_Valid(t *testing.T) {
@@ -583,8 +591,10 @@ func TestStartNodeMetricsPolling_Valid(t *testing.T) {
 		GetSlotsOfInactivityCalled: func() uint64 { return 3 },
 	}
 
-	err := StartNodeMetricsPolling(handler, time.Second, redundancyHandler)
+	closer, err := StartNodeMetricsPolling(handler, time.Second, redundancyHandler)
 	assert.NoError(t, err)
+	require.NotNil(t, closer)
+	t.Cleanup(func() { _ = closer.Close() })
 
 	// Start timestamp should be set immediately (non-zero)
 	mu.Lock()

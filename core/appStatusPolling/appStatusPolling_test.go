@@ -1,6 +1,7 @@
 package appStatusPolling_test
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -53,10 +54,13 @@ func TestAppStatusPolling_Poll_TestNumOfConnectedAddressesCalled(t *testing.T) {
 	t.Parallel()
 
 	pollingDuration := time.Second
-	chDone := make(chan struct{})
+	chDone := make(chan struct{}, 1)
 	ash := mock.AppStatusHandlerStub{
 		SetInt64ValueHandler: func(key string, value int64) {
-			chDone <- struct{}{}
+			select {
+			case chDone <- struct{}{}:
+			default:
+			}
 		},
 	}
 	asp, err := appStatusPolling.NewAppStatusPolling(&ash, pollingDuration)
@@ -68,10 +72,53 @@ func TestAppStatusPolling_Poll_TestNumOfConnectedAddressesCalled(t *testing.T) {
 	assert.Nil(t, err)
 
 	asp.Poll()
+	t.Cleanup(func() { _ = asp.Close() })
 
 	select {
 	case <-chDone:
 	case <-time.After(pollingDuration * 2 * time.Second):
 		assert.Fail(t, "timeout calling SetInt64Value")
 	}
+}
+
+func TestAppStatusPolling_Close_IsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	asp, err := appStatusPolling.NewAppStatusPolling(&statusHandler.NilStatusHandler{}, time.Second)
+	assert.Nil(t, err)
+
+	assert.NoError(t, asp.Close())
+	assert.NoError(t, asp.Close())
+}
+
+func TestAppStatusPolling_Close_StopsGoroutine(t *testing.T) {
+	t.Parallel()
+
+	pollingDuration := time.Second
+	var callCount int32
+	ash := mock.AppStatusHandlerStub{
+		SetInt64ValueHandler: func(key string, value int64) {
+			atomic.AddInt32(&callCount, 1)
+		},
+	}
+	asp, err := appStatusPolling.NewAppStatusPolling(&ash, pollingDuration)
+	assert.Nil(t, err)
+
+	err = asp.RegisterPollingFunc(func(appStatusHandler core.AppStatusHandler) {
+		appStatusHandler.SetInt64Value(core.MetricNumConnectedPeers, int64(10))
+	})
+	assert.Nil(t, err)
+
+	asp.Poll()
+	// Wait for at least one tick to confirm the goroutine is running.
+	time.Sleep(pollingDuration + 200*time.Millisecond)
+	beforeClose := atomic.LoadInt32(&callCount)
+	assert.Greater(t, beforeClose, int32(0), "expected goroutine to fire at least once before Close")
+
+	assert.NoError(t, asp.Close())
+
+	// Wait long enough that the next tick would have fired had the goroutine not exited.
+	time.Sleep(2 * pollingDuration)
+	afterClose := atomic.LoadInt32(&callCount)
+	assert.Equal(t, beforeClose, afterClose, "expected no further handler invocations after Close")
 }

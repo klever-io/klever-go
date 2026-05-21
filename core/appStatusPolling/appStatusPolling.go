@@ -16,6 +16,8 @@ type AppStatusPolling struct {
 	mutRegisteredFunc   sync.RWMutex
 	registeredFunctions []func(appStatusHandler core.AppStatusHandler)
 	appStatusHandler    core.AppStatusHandler
+	done                chan struct{}
+	closeOnce           sync.Once
 }
 
 // NewAppStatusPolling will return an instance of AppStatusPolling
@@ -29,6 +31,7 @@ func NewAppStatusPolling(appStatusHandler core.AppStatusHandler, pollingDuration
 	return &AppStatusPolling{
 		pollingDuration:  pollingDuration,
 		appStatusHandler: appStatusHandler,
+		done:             make(chan struct{}),
 	}, nil
 }
 
@@ -43,17 +46,32 @@ func (asp *AppStatusPolling) RegisterPollingFunc(handler func(appStatusHandler c
 	return nil
 }
 
-// Poll will notify the AppStatusHandler at a given time
+// Poll will notify the AppStatusHandler at a given time. The goroutine runs
+// until Close is called.
 func (asp *AppStatusPolling) Poll() {
 	go func() {
-		for {
-			time.Sleep(asp.pollingDuration)
+		ticker := time.NewTicker(asp.pollingDuration)
+		defer ticker.Stop()
 
-			asp.mutRegisteredFunc.RLock()
-			for _, handler := range asp.registeredFunctions {
-				handler(asp.appStatusHandler)
+		for {
+			select {
+			case <-asp.done:
+				return
+			case <-ticker.C:
+				asp.mutRegisteredFunc.RLock()
+				for _, handler := range asp.registeredFunctions {
+					handler(asp.appStatusHandler)
+				}
+				asp.mutRegisteredFunc.RUnlock()
 			}
-			asp.mutRegisteredFunc.RUnlock()
 		}
 	}()
+}
+
+// Close stops the polling goroutine. Idempotent; always returns nil.
+func (asp *AppStatusPolling) Close() error {
+	asp.closeOnce.Do(func() {
+		close(asp.done)
+	})
+	return nil
 }

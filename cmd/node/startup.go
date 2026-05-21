@@ -967,7 +967,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 
 	log.Trace("starting status pooling components")
 	statusPollingInterval := time.Duration(cfg.Preferences.StatusPollingIntervalSec) * time.Second
-	err = metrics.StartStatusPolling(
+	statusPollingCloser, err := metrics.StartStatusPolling(
 		currentNode.GetAppStatusHandler(),
 		statusPollingInterval,
 		networkComponents,
@@ -978,15 +978,17 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 	}
 
 	updateMachineStatisticsDuration := time.Second
-	err = metrics.StartMachineStatisticsPolling(coreComponents.StatusHandler, epochStartNotifier, updateMachineStatisticsDuration, workingDir)
+	machineStatsCloser, err := metrics.StartMachineStatisticsPolling(coreComponents.StatusHandler, epochStartNotifier, updateMachineStatisticsDuration, workingDir)
 	if err != nil {
 		return err
 	}
 
-	err = metrics.StartNodeMetricsPolling(coreComponents.StatusHandler, statusPollingInterval, nodeRedundancy)
+	nodeMetricsCloser, err := metrics.StartNodeMetricsPolling(coreComponents.StatusHandler, statusPollingInterval, nodeRedundancy)
 	if err != nil {
 		return err
 	}
+
+	pollingClosers := []io.Closer{statusPollingCloser, machineStatsCloser, nodeMetricsCloser}
 
 	log.Trace("creating klever node facade")
 	restAPIServerDebugMode := ctx.GlobalBool(restAPIDebug.Name)
@@ -1041,7 +1043,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 
 	chanCloseComponents := make(chan struct{})
 	go func() {
-		closeAllComponents(log, healthService, dataComponents, triesComponents, networkComponents, chanCloseComponents)
+		closeAllComponents(log, healthService, dataComponents, triesComponents, networkComponents, pollingClosers, chanCloseComponents)
 	}()
 
 	_ = tracing.Shutdown() // errors logged internally
@@ -1134,8 +1136,19 @@ func closeAllComponents(
 	dataComponents *factory.DataComponents,
 	triesComponents *factory.TriesComponents,
 	networkComponents *factory.NetworkComponents,
+	pollingClosers []io.Closer,
 	chanCloseComponents chan struct{},
 ) {
+	// Stop background polling first so handlers cannot fire against components
+	// being torn down below.
+	log.Debug("closing status polling goroutines...")
+	for _, c := range pollingClosers {
+		if c == nil {
+			continue
+		}
+		log.LogIfError(c.Close())
+	}
+
 	log.Debug("closing health service...")
 	err := healthService.Close()
 	log.LogIfError(err)
