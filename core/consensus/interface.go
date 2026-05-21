@@ -73,6 +73,7 @@ type HeadersPoolSubscriber interface {
 // participating in consensus
 type PeerHonestyHandler interface {
 	ChangeScore(pk string, topic string, units int)
+	Close() error
 	IsInterfaceNil() bool
 }
 
