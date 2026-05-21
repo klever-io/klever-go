@@ -3,6 +3,7 @@ package metrics
 import (
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -122,41 +123,42 @@ func SaveStringMetric(ash core.AppStatusHandler, key, value string) {
 	ash.SetStringValue(key, value)
 }
 
-// StartStatusPolling will start save information in status handler about network
+// StartStatusPolling will start save information in status handler about network.
+// The returned io.Closer stops the polling goroutine.
 func StartStatusPolling(
 	ash core.AppStatusHandler,
 	pollingInterval time.Duration,
 	networkComponents *factory.NetworkComponents,
 	processComponents *factory.Process,
-) error {
-	if ash == nil {
-		return errors.New("nil AppStatusHandler")
+) (io.Closer, error) {
+	if check.IfNil(ash) {
+		return nil, errors.New("nil AppStatusHandler")
 	}
 	if networkComponents == nil {
-		return errors.New("nil networkComponents")
+		return nil, errors.New("nil networkComponents")
 	}
 	if processComponents == nil {
-		return errors.New("nil processComponents")
+		return nil, errors.New("nil processComponents")
 	}
 
 	appStatusPollingHandler, err := appStatusPolling.NewAppStatusPolling(ash, pollingInterval)
 	if err != nil {
-		return errors.New("cannot init AppStatusPolling")
+		return nil, fmt.Errorf("cannot init AppStatusPolling: %w", err)
 	}
 
 	err = registerPollConnectedPeers(appStatusPollingHandler, networkComponents)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = registerPollProbableHighestNonce(appStatusPollingHandler, processComponents)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	appStatusPollingHandler.Poll()
 
-	return nil
+	return appStatusPollingHandler, nil
 }
 
 func registerPollConnectedPeers(
@@ -234,16 +236,17 @@ func setCurrentP2pNodeAddresses(
 
 // StartNodeMetricsPolling starts polling for uptime and redundancy metrics on a single shared
 // polling goroutine, avoiding the overhead of separate AppStatusPolling instances for each.
+// The returned io.Closer stops the polling goroutine.
 func StartNodeMetricsPolling(
 	ash core.AppStatusHandler,
 	pollingInterval time.Duration,
 	redundancyHandler consensus.NodeRedundancyHandler,
-) error {
+) (io.Closer, error) {
 	if check.IfNil(ash) {
-		return errors.New("nil AppStatusHandler")
+		return nil, errors.New("nil AppStatusHandler")
 	}
 	if check.IfNil(redundancyHandler) {
-		return errors.New("nil NodeRedundancyHandler")
+		return nil, errors.New("nil NodeRedundancyHandler")
 	}
 
 	startTime := time.Now()
@@ -251,13 +254,13 @@ func StartNodeMetricsPolling(
 
 	appStatusPollingHandler, err := appStatusPolling.NewAppStatusPolling(ash, pollingInterval)
 	if err != nil {
-		return fmt.Errorf("cannot init AppStatusPolling for node metrics: %w", err)
+		return nil, fmt.Errorf("cannot init AppStatusPolling for node metrics: %w", err)
 	}
 
 	pollingFunc := buildNodeMetricsPollingFunc(startTime, redundancyHandler)
 	err = appStatusPollingHandler.RegisterPollingFunc(pollingFunc)
 	if err != nil {
-		return fmt.Errorf("cannot register node metrics polling function: %w", err)
+		return nil, fmt.Errorf("cannot register node metrics polling function: %w", err)
 	}
 
 	// Prime before the recurring poll so /node/status returns the real level on
@@ -265,7 +268,7 @@ func StartNodeMetricsPolling(
 	pollingFunc(ash)
 
 	appStatusPollingHandler.Poll()
-	return nil
+	return appStatusPollingHandler, nil
 }
 
 func buildNodeMetricsPollingFunc(

@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"path/filepath"
 	"time"
 
@@ -13,40 +15,45 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 )
 
-// StartMachineStatisticsPolling will start read information about current running machine
-func StartMachineStatisticsPolling(ash core.AppStatusHandler, notifier eventNotifier.EpochStartEventNotifier, pollingInterval time.Duration, workingDir string) error {
+// StartMachineStatisticsPolling will start read information about current running machine.
+// The returned io.Closer stops the AppStatusPolling goroutine; the inner goroutines in
+// registerCPUStatistics / registerNetStatistics / registerDiskStatistics still leak
+func StartMachineStatisticsPolling(ash core.AppStatusHandler, notifier eventNotifier.EpochStartEventNotifier, pollingInterval time.Duration, workingDir string) (io.Closer, error) {
 	if check.IfNil(ash) {
-		return errors.New("nil AppStatusHandler")
+		return nil, errors.New("nil AppStatusHandler")
+	}
+	if check.IfNil(notifier) {
+		return nil, errors.New("nil EpochStartEventNotifier")
 	}
 
 	appStatusPollingHandler, err := appStatusPolling.NewAppStatusPolling(ash, pollingInterval)
 	if err != nil {
-		return errors.New("cannot init AppStatusPolling")
+		return nil, fmt.Errorf("cannot init AppStatusPolling: %w", err)
 	}
 
 	err = registerCPUStatistics(appStatusPollingHandler)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = registerMemStatistics(appStatusPollingHandler)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = registerNetStatistics(appStatusPollingHandler, notifier)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	err = registerDiskStatistics(appStatusPollingHandler, workingDir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	appStatusPollingHandler.Poll()
 
-	return nil
+	return appStatusPollingHandler, nil
 }
 
 func registerMemStatistics(appStatusPollingHandler *appStatusPolling.AppStatusPolling) error {
