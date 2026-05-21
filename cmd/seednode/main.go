@@ -251,9 +251,7 @@ func displayStartupAddresses(messenger p2p.Messenger) {
 
 func emitPeerStatus(messenger p2p.Messenger, prevConnected map[string]struct{}) {
 	connected := messenger.ConnectedAddresses()
-	sort.Slice(connected, func(i, j int) bool {
-		return strings.Compare(connected[i], connected[j]) < 0
-	})
+	sort.Strings(connected)
 
 	known := len(messenger.Peers())
 

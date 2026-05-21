@@ -140,6 +140,9 @@ func TestNodeMetrics_emptyVersionOmitsBuildInfo(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
 	if strings.Contains(w.Body.String(), "klv_build_info") {
 		t.Errorf("expected klv_build_info to be omitted when version empty, got:\n%s", w.Body.String())
 	}
@@ -156,6 +159,9 @@ func TestNodeMetrics_versionLabelEscaped(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
 	body := w.Body.String()
 	// If escaping worked, every newline in the body is a line terminator —
 	// no raw newline leaked from the version label into the middle of a line.
@@ -169,7 +175,7 @@ func TestNodeMetrics_versionLabelEscaped(t *testing.T) {
 
 func countNonEmptyLines(body string) int {
 	n := 0
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		if line != "" {
 			n++
 		}

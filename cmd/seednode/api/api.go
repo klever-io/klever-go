@@ -47,7 +47,11 @@ func Start(restAPIInterface string, marshalizer marshal.Marshalizer, messenger p
 		startTime:   startTime,
 	}
 
-	ws := gin.Default()
+	gin.SetMode(gin.ReleaseMode)
+
+	// gin.New skips the access logger so /node/metrics scrapes don't spam stdout.
+	ws := gin.New()
+	ws.Use(gin.Recovery())
 	ws.Use(cors.Default())
 
 	srv.registerRoutes(ws)
@@ -86,8 +90,7 @@ func (s *server) registerLoggerWsRoute(ws *gin.Engine) {
 	})
 }
 
-// snapshot reads the peer view in one shot so the response cannot tear
-// across separate getter calls under churn.
+// peerSnapshot: connected count matches its slice; knownPeers is a separate read and may drift under churn.
 type peerSnapshot struct {
 	connectedAddrs []string
 	knownPeers     int
