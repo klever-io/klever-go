@@ -127,10 +127,10 @@ func main() {
 }
 
 func startNode(ctx *cli.Context) error {
-	var err error
+	startTime := time.Now()
 
 	logLevelFlagValue := ctx.GlobalString(logLevel.Name)
-	err = logger.SetLogLevel(logLevelFlagValue)
+	err := logger.SetLogLevel(logLevelFlagValue)
 	if err != nil {
 		return err
 	}
@@ -164,8 +164,6 @@ func startNode(ctx *cli.Context) error {
 		}
 	}
 
-	startRestServices(ctx, internalMarshalizer)
-
 	log.Info("starting seednode...")
 
 	sigs := make(chan os.Signal, 1)
@@ -193,6 +191,8 @@ func startNode(ctx *cli.Context) error {
 		return err
 	}
 
+	startRestServices(ctx, internalMarshalizer, messenger, startTime)
+
 	log.Info("application is now running...")
 	mainLoop(messenger, sigs)
 
@@ -205,15 +205,24 @@ func startNode(ctx *cli.Context) error {
 	return nil
 }
 
+const peerStatusTickInterval = 30 * time.Second
+
 func mainLoop(messenger p2p.Messenger, stop chan os.Signal) {
-	displayMessengerInfo(messenger)
+	displayStartupAddresses(messenger)
+
+	prevConnected := make(map[string]struct{})
+	emitPeerStatus(messenger, prevConnected)
+
+	ticker := time.NewTicker(peerStatusTickInterval)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-stop:
 			log.Info("terminating at user's signal...")
 			return
-		case <-time.After(time.Second * 5):
-			displayMessengerInfo(messenger)
+		case <-ticker.C:
+			emitPeerStatus(messenger, prevConnected)
 		}
 	}
 }
@@ -230,32 +239,86 @@ func createNode(p2pConfig config.P2PConfig, marshalizer marshal.Marshalizer) (p2
 	return libp2p.NewNetworkMessenger(arg)
 }
 
-func displayMessengerInfo(messenger p2p.Messenger) {
-	headerSeedAddresses := []string{"Seednode addresses:"}
+func displayStartupAddresses(messenger p2p.Messenger) {
 	addresses := make([]*display.LineData, 0)
-
 	for _, address := range messenger.Addresses() {
 		addresses = append(addresses, display.NewLineData(false, []string{address}))
 	}
 
-	tbl, _ := display.CreateTableString(headerSeedAddresses, addresses)
+	tbl, _ := display.CreateTableString([]string{"Seednode addresses:"}, addresses)
 	log.Info("\n" + tbl)
+}
 
-	mesConnectedAddrs := messenger.ConnectedAddresses()
-	sort.Slice(mesConnectedAddrs, func(i, j int) bool {
-		return strings.Compare(mesConnectedAddrs[i], mesConnectedAddrs[j]) < 0
-	})
+func emitPeerStatus(messenger p2p.Messenger, prevConnected map[string]struct{}) {
+	connected := append([]string(nil), messenger.ConnectedAddresses()...)
+	sort.Strings(connected)
 
-	log.Info("known peers", "num peers", len(messenger.Peers()))
-	headerConnectedAddresses := []string{fmt.Sprintf("Seednode is connected to %d peers:", len(mesConnectedAddrs))}
-	connAddresses := make([]*display.LineData, len(mesConnectedAddrs))
+	known := len(messenger.Peers())
 
-	for idx, address := range mesConnectedAddrs {
-		connAddresses[idx] = display.NewLineData(false, []string{address})
+	curConnected := make(map[string]struct{}, len(connected))
+	for _, addr := range connected {
+		curConnected[addr] = struct{}{}
 	}
 
-	tbl2, _ := display.CreateTableString(headerConnectedAddresses, connAddresses)
-	log.Info("\n" + tbl2)
+	var gained, lost int
+	for addr := range curConnected {
+		if _, ok := prevConnected[addr]; !ok {
+			gained++
+		}
+	}
+	for addr := range prevConnected {
+		if _, ok := curConnected[addr]; !ok {
+			lost++
+		}
+	}
+
+	listen := pickReportableListenAddress(messenger.Addresses())
+
+	log.Info("seednode status",
+		"connected", len(connected),
+		"known", known,
+		"gained", gained,
+		"lost", lost,
+		"listen", listen,
+	)
+
+	if log.GetLevel() <= logger.LogDebug {
+		headerConnectedAddresses := []string{fmt.Sprintf("Seednode is connected to %d peers:", len(connected))}
+		rows := make([]*display.LineData, len(connected))
+		for idx, address := range connected {
+			rows[idx] = display.NewLineData(false, []string{address})
+		}
+		tbl, _ := display.CreateTableString(headerConnectedAddresses, rows)
+		log.Debug("\n" + tbl)
+	}
+
+	for addr := range prevConnected {
+		delete(prevConnected, addr)
+	}
+	for addr := range curConnected {
+		prevConnected[addr] = struct{}{}
+	}
+}
+
+// pickReportableListenAddress returns the first multiaddr useful to a human
+// reading the single-line status log: skip loopback and the Docker default
+// bridge (172.17.x), which appears on every container-hosted seed but never
+// helps operators find the node. Falls back to the first address so the log
+// line is never empty.
+func pickReportableListenAddress(addresses []string) string {
+	for _, addr := range addresses {
+		if strings.HasPrefix(addr, "/ip4/127.") || strings.HasPrefix(addr, "/ip6/::1/") {
+			continue
+		}
+		if strings.HasPrefix(addr, "/ip4/172.17.") {
+			continue
+		}
+		return addr
+	}
+	if len(addresses) > 0 {
+		return addresses[0]
+	}
+	return ""
 }
 
 func getWorkingDir(log logger.Logger) string {
@@ -292,17 +355,17 @@ func checkExpectedPeerCount(p2pConfig config.P2PConfig) error {
 	return nil
 }
 
-func startRestServices(ctx *cli.Context, marshalizer marshal.Marshalizer) {
+func startRestServices(ctx *cli.Context, marshalizer marshal.Marshalizer, messenger p2p.Messenger, startTime time.Time) {
 	restAPIInterface := ctx.GlobalString(restAPIInterfaceFlag.Name)
 	if restAPIInterface != facade.DefaultRestPortOff {
-		go startGinServer(restAPIInterface, marshalizer)
+		go startGinServer(restAPIInterface, marshalizer, messenger, startTime)
 	} else {
 		log.Info("rest api is disabled")
 	}
 }
 
-func startGinServer(restAPIInterface string, marshalizer marshal.Marshalizer) {
-	err := api.Start(restAPIInterface, marshalizer)
+func startGinServer(restAPIInterface string, marshalizer marshal.Marshalizer, messenger p2p.Messenger, startTime time.Time) {
+	err := api.Start(restAPIInterface, marshalizer, messenger, appVersion, startTime)
 	if err != nil {
 		log.LogIfError(err)
 	}
