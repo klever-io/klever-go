@@ -2,6 +2,7 @@ package node_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -281,6 +282,93 @@ func TestGetAccount(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, addToAllowanceCalled, "AddToAllowance should not be called when pending rewards is 0")
 	})
+
+	t.Run("returns new account when ErrAccNotFound (also via wrapped error)", func(t *testing.T) {
+		cases := []struct {
+			name string
+			err  error
+		}{
+			{"direct sentinel", common.ErrAccNotFound},
+			{"wrapped sentinel", fmt.Errorf("lookup: %w", common.ErrAccNotFound)},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				accDB := &mock.AccountsStub{
+					GetExistingAccountCalled: func(address []byte) (state.AccountHandler, error) {
+						return nil, c.err
+					},
+				}
+				n, err := createNodeWithKAppController(t, accDB, &stub.KAppControllerStub{})
+				require.NoError(t, err)
+
+				account, err := n.GetAccount("AABB")
+				require.NoError(t, err)
+				require.NotNil(t, account)
+			})
+		}
+	})
+
+	t.Run("wraps non-sentinel errors with %w", func(t *testing.T) {
+		underlying := errors.New("disk failure")
+		accDB := &mock.AccountsStub{
+			GetExistingAccountCalled: func(address []byte) (state.AccountHandler, error) {
+				return nil, underlying
+			},
+		}
+		n, err := createNodeWithKAppController(t, accDB, &stub.KAppControllerStub{})
+		require.NoError(t, err)
+
+		account, err := n.GetAccount("AABB")
+		require.Nil(t, account)
+		require.Error(t, err)
+		require.True(t, errors.Is(err, underlying), "underlying error must remain in the chain")
+	})
+}
+
+func TestGetNextNonce_AccountNotFound(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"direct sentinel", common.ErrAccNotFound},
+		{"wrapped sentinel", fmt.Errorf("lookup: %w", common.ErrAccNotFound)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			accDB := &mock.AccountsStub{
+				GetExistingAccountCalled: func(address []byte) (state.AccountHandler, error) {
+					return nil, c.err
+				},
+			}
+			n, err := createNodeWithKAppController(t, accDB, &stub.KAppControllerStub{})
+			require.NoError(t, err)
+
+			nonce, firstPending, numPending, err := n.GetNextNonce("AABB")
+			require.NoError(t, err)
+			require.Zero(t, nonce)
+			require.Zero(t, firstPending)
+			require.Zero(t, numPending)
+		})
+	}
+}
+
+func TestGetNextNonce_WrapsNonSentinelError(t *testing.T) {
+	t.Parallel()
+
+	underlying := errors.New("disk failure")
+	accDB := &mock.AccountsStub{
+		GetExistingAccountCalled: func(address []byte) (state.AccountHandler, error) {
+			return nil, underlying
+		},
+	}
+	n, err := createNodeWithKAppController(t, accDB, &stub.KAppControllerStub{})
+	require.NoError(t, err)
+
+	_, _, _, err = n.GetNextNonce("AABB")
+	require.Error(t, err)
+	require.True(t, errors.Is(err, underlying), "underlying error must remain in the chain")
 }
 
 func TestGetAvailableClaim(t *testing.T) {

@@ -2,6 +2,7 @@ package node
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
@@ -30,7 +31,7 @@ func (n *Node) GetAccount(address string) (state.UserAccountHandler, error) {
 		if errors.Is(err, common.ErrAccNotFound) {
 			return state.NewUserAccount(addr)
 		}
-		return nil, errors.New("could not fetch sender address from provided param: " + err.Error())
+		return nil, fmt.Errorf("could not fetch sender address from provided param: %w", err)
 	}
 
 	account, ok := n.castAccountToUserAccount(accWrp)
@@ -73,7 +74,7 @@ func (n *Node) GetNextNonce(address string) (uint64, uint64, uint64, error) {
 		if errors.Is(err, common.ErrAccNotFound) {
 			return 0, 0, 0, nil
 		}
-		return 0, 0, 0, errors.New("could not fetch sender address from provided param: " + err.Error())
+		return 0, 0, 0, fmt.Errorf("could not fetch sender address from provided param: %w", err)
 	}
 
 	accNonce := accWrp.GetNonce()

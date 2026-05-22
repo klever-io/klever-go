@@ -1558,13 +1558,7 @@ func (a *accountsKapp) ClaimStaking(sender []byte, tc *transaction.ClaimContract
 	gains, err := a.ClaimBalance(transaction.ClaimContract_StakingClaim, assetID, ctx.Block(), ownerAcc, staking, kda, userKDA)
 	if err != nil {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldClaimNotAvailable, err.Error())
-		var resultCode transaction.Transaction_TXResultCode
-		if errors.Is(err, common.ErrMaxSupplyExceeded) {
-			resultCode = transaction.Transaction_MaxSupplyExceeded
-		} else {
-			resultCode = transaction.Transaction_ClaimError
-		}
-		return resultCode, err
+		return claimErrorResultCode(err, transaction.Transaction_ClaimError), err
 	}
 
 	validClaims := 0
@@ -1685,11 +1679,7 @@ func (a *accountsKapp) ClaimAllowance(sender []byte, tc *transaction.ClaimContra
 	gains, err := a.ClaimBalance(transaction.ClaimContract_AllowanceClaim, kdautils.KLVIdentifier, ctx.Block(), ownerAcc, nil, nil, userKDA)
 	if err != nil {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldClaimNotAvailable, err.Error())
-		resultCode := transaction.Transaction_ClaimError
-		if errors.Is(err, common.ErrMaxSupplyExceeded) {
-			resultCode = transaction.Transaction_MaxSupplyExceeded
-		}
-		return resultCode, err
+		return claimErrorResultCode(err, transaction.Transaction_ClaimError), err
 	}
 
 	for key, value := range gains {
@@ -1928,4 +1918,14 @@ func claimAddress(interestType kapps.StakingData_EnumInterestType) []byte {
 	}
 	// return StakingKApp address
 	return kapps.StakingKAppAddress
+}
+
+// claimErrorResultCode maps a ClaimBalance failure to a transaction result code.
+// ErrMaxSupplyExceeded surfaces a dedicated code so it can be distinguished from
+// generic claim errors by downstream receipts and clients.
+func claimErrorResultCode(err error, defaultCode transaction.Transaction_TXResultCode) transaction.Transaction_TXResultCode {
+	if errors.Is(err, common.ErrMaxSupplyExceeded) {
+		return transaction.Transaction_MaxSupplyExceeded
+	}
+	return defaultCode
 }

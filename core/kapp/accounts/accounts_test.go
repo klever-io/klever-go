@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math"
 	"testing"
 
@@ -5502,4 +5503,143 @@ func Test_ClaimStaking_LoadAccountError(t *testing.T) {
 	code, err := accountsKapp.ClaimStaking(txSender, tc)
 	require.Error(t, err)
 	assert.Equal(t, transaction.Transaction_LoadAccountError, code)
+}
+
+func Test_ClaimStaking_MaxSupplyExceeded(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsCtx },
+		ContractIDCalled: func() int { return 1 },
+		BlockCalled: func() *block.Block {
+			return &block.Block{Header: &block.BlockHeader{Timestamp: 1000, Epoch: 1}}
+		},
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+					return nil, &kapps.StakingData{}, nil
+				},
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+				},
+			}
+		},
+	})
+
+	_ = accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+		GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			return &commonMock.UserAccountHandlerStub{
+				GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+					return &kapps.UserKDA{}, nil
+				},
+				ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+					return nil, common.ErrMaxSupplyExceeded
+				},
+			}, nil
+		},
+	})
+
+	tc := &transaction.ClaimContract{
+		ClaimType: transaction.ClaimContract_StakingClaim,
+		ID:        kdautils.KLVIdentifier,
+	}
+
+	code, err := accountsKapp.ClaimStaking(txSender, tc)
+	require.ErrorIs(t, err, common.ErrMaxSupplyExceeded)
+	assert.Equal(t, transaction.Transaction_MaxSupplyExceeded, code)
+}
+
+func Test_ClaimStaking_MaxSupplyExceeded_Wrapped(t *testing.T) {
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+	wrapped := fmt.Errorf("ctx: %w", common.ErrMaxSupplyExceeded)
+
+	receiptsCtx := &commonMock.ReceiptsContextStub{}
+	ctx := &commonMock.KAppContextStub{
+		ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsCtx },
+		ContractIDCalled: func() int { return 1 },
+		BlockCalled: func() *block.Block {
+			return &block.Block{Header: &block.BlockHeader{Timestamp: 1000, Epoch: 1}}
+		},
+	}
+
+	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetStakingCalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.StakingData, error) {
+					return nil, &kapps.StakingData{}, nil
+				},
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+				},
+			}
+		},
+	})
+
+	_ = accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+		GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			return &commonMock.UserAccountHandlerStub{
+				GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+					return &kapps.UserKDA{}, nil
+				},
+				ClaimCalled: func(claimType transaction.ClaimContract_EnumClaimType, assetID []byte, epoch uint32, blockTime int64, staking *kapps.StakingData, kda *kapps.KDAData, userKDA *kapps.UserKDA, forkController core.ForkController) (map[string]int64, error) {
+					return nil, wrapped
+				},
+			}, nil
+		},
+	})
+
+	tc := &transaction.ClaimContract{
+		ClaimType: transaction.ClaimContract_StakingClaim,
+		ID:        kdautils.KLVIdentifier,
+	}
+
+	code, err := accountsKapp.ClaimStaking(txSender, tc)
+	require.ErrorIs(t, err, common.ErrMaxSupplyExceeded)
+	assert.Equal(t, transaction.Transaction_MaxSupplyExceeded, code)
+}
+
+func Test_claimErrorResultCode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		err      error
+		fallback transaction.Transaction_TXResultCode
+		want     transaction.Transaction_TXResultCode
+	}{
+		{
+			name:     "direct ErrMaxSupplyExceeded -> MaxSupplyExceeded",
+			err:      common.ErrMaxSupplyExceeded,
+			fallback: transaction.Transaction_ClaimError,
+			want:     transaction.Transaction_MaxSupplyExceeded,
+		},
+		{
+			name:     "wrapped ErrMaxSupplyExceeded -> MaxSupplyExceeded",
+			err:      errWrap("ctx", common.ErrMaxSupplyExceeded),
+			fallback: transaction.Transaction_ClaimError,
+			want:     transaction.Transaction_MaxSupplyExceeded,
+		},
+		{
+			name:     "unrelated error -> fallback",
+			err:      errors.New("something else"),
+			fallback: transaction.Transaction_ClaimError,
+			want:     transaction.Transaction_ClaimError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, claimErrorResultCode(tt.err, tt.fallback))
+		})
+	}
+}
+
+func errWrap(msg string, err error) error {
+	return fmt.Errorf("%s: %w", msg, err)
 }

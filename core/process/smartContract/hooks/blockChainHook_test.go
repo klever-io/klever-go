@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klever-io/klever-go/common"
 	commonMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
@@ -34,6 +35,7 @@ import (
 	"github.com/klever-io/klever-go/storage/memorydb"
 	"github.com/klever-io/klever-go/storage/storageUnit"
 	"github.com/klever-io/klever-go/tools/marshal"
+	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -711,6 +713,51 @@ func TestBlockChainHookImpl_GetKDAToken(t *testing.T) {
 			}
 			assert.Equal(t, tt.expectedKDA, actualKDA)
 			assert.Equal(t, tt.expectedUserKDA, actualUserKDA)
+		})
+	}
+}
+
+// blockChainHookCounterPassthroughStub is a minimal BlockChainHookCounter that
+// reports no errors and no-ops everything else, used to isolate higher-layer
+// branches under test.
+type blockChainHookCounterPassthroughStub struct{}
+
+func (s *blockChainHookCounterPassthroughStub) ProcessCrtNumberOfTrieReadsCounter() error {
+	return nil
+}
+func (s *blockChainHookCounterPassthroughStub) ProcessMaxBuiltInCounters(_ *vmcommon.ContractCallInput) error {
+	return nil
+}
+func (s *blockChainHookCounterPassthroughStub) ResetCounters()                       {}
+func (s *blockChainHookCounterPassthroughStub) SetMaximumValues(_ map[string]uint64) {}
+func (s *blockChainHookCounterPassthroughStub) GetCounterValues() map[string]uint64  { return nil }
+func (s *blockChainHookCounterPassthroughStub) IsInterfaceNil() bool                 { return s == nil }
+
+func TestGetStorageData_AccNotFoundReturnsEmpty(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"direct ErrAccNotFound", common.ErrAccNotFound},
+		{"wrapped ErrAccNotFound", fmt.Errorf("load: %w", common.ErrAccNotFound)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			bh := &BlockChainHookImpl{
+				counter: &blockChainHookCounterPassthroughStub{},
+				accountsCacher: &commonMock.AccountsCacherStub{
+					GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+						return nil, c.err
+					},
+				},
+			}
+
+			value, code, err := bh.GetStorageData([]byte("addr"), []byte("key"))
+			assert.NoError(t, err)
+			assert.Equal(t, uint32(0), code)
+			assert.Equal(t, []byte{}, value)
 		})
 	}
 }
