@@ -284,6 +284,19 @@ func (s *syncTime) LastSyncTimestamp() time.Time {
 	return ts
 }
 
+// ClockSnapshot returns the current offset and last-sync timestamp under a
+// single RLock so callers see a coherent pair. Without this, a sync landing
+// between two separate getter calls could mix a fresh offset with a stale
+// timestamp on the same scrape.
+func (s *syncTime) ClockSnapshot() (offset time.Duration, lastSync time.Time) {
+	s.mut.RLock()
+	offset = s.clockOffset
+	lastSync = s.lastSyncTimestamp
+	s.mut.RUnlock()
+
+	return
+}
+
 // recordSyncSuccess updates offset and timestamp under a single lock so
 // /node/metrics scrapes can't observe a fresh offset paired with a stale
 // timestamp (or vice versa) mid-update.

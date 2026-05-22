@@ -53,18 +53,26 @@ func StartClockMetricsPolling(
 
 func buildClockMetricsPollingFunc(syncTimer ntp.SyncTimer) func(core.AppStatusHandler) {
 	return func(appStatusHandler core.AppStatusHandler) {
+		// Read offset and last-sync timestamp under a single RLock so a scrape
+		// can't observe a fresh offset paired with a stale timestamp (or vice
+		// versa) if a sync lands between two separate getter calls.
+		offset, lastSync := syncTimer.ClockSnapshot()
+
 		// ClockOffset is signed: negative means OS clock is fast relative to NTP
-		// servers, positive means it is slow. Route through SetInt64Value so the
-		// sign survives the float64 round-trip done by the metrics provider.
-		appStatusHandler.SetInt64Value(core.MetricClockOffsetNs, syncTimer.ClockOffset().Nanoseconds())
+		// servers, positive means it is slow. SetInt64Value (not SetUInt64Value)
+		// is required because uint64 can't represent negative values.
+		appStatusHandler.SetInt64Value(core.MetricClockOffsetNs, offset.Nanoseconds())
 
 		// Zero before the first successful sync — publish 0 explicitly so
 		// `time() - value > threshold` alarms only fire once a sync has
-		// actually happened (avoids the "node booted but NTP is broken" alarm
-		// firing identically to "node has been up for years without resync").
+		// actually happened. The unix > 0 guard defends against a pathological
+		// pre-1970 RTC: uint64(negative-int64) wraps to a huge value that
+		// would silently keep "stale-sync" alarms quiet forever.
 		var lastSyncUnix uint64
-		if ts := syncTimer.LastSyncTimestamp(); !ts.IsZero() {
-			lastSyncUnix = uint64(ts.Unix()) // #nosec G115 -- unix seconds fit in uint64 well beyond year 2262
+		if !lastSync.IsZero() {
+			if unix := lastSync.Unix(); unix > 0 {
+				lastSyncUnix = uint64(unix)
+			}
 		}
 		appStatusHandler.SetUInt64Value(core.MetricClockLastSyncTimestamp, lastSyncUnix)
 	}

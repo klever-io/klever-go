@@ -398,3 +398,33 @@ func TestLastSyncTimestampStampedOnSuccess(t *testing.T) {
 	assert.False(t, ts.Before(before), "timestamp must be set on or after the sync started")
 	assert.False(t, ts.After(after), "timestamp must not be set in the future")
 }
+
+func TestClockSnapshotReturnsConsistentPair(t *testing.T) {
+	t.Parallel()
+
+	// After a successful sync, ClockSnapshot must return the offset and
+	// timestamp written by that same sync — they're set together under one
+	// lock in recordSyncSuccess and must be read together for callers
+	// publishing them as paired metrics.
+	st := ntp.NewSyncTime(
+		config.NTPConfig{
+			SyncPeriodSeconds: 1,
+			Hosts:             []string{"host1"},
+		},
+		func(options ntp.NTPOptions, hostIndex int) (*beevikNtp.Response, error) {
+			return &beevikNtp.Response{ClockOffset: 23456}, nil
+		},
+	)
+
+	offset, ts := st.ClockSnapshot()
+	assert.Equal(t, time.Duration(0), offset, "no sync yet, offset is zero")
+	assert.True(t, ts.IsZero(), "no sync yet, timestamp is zero")
+
+	st.Sync()
+
+	offset, ts = st.ClockSnapshot()
+	assert.Equal(t, time.Duration(23456), offset)
+	assert.False(t, ts.IsZero())
+	assert.Equal(t, st.ClockOffset(), offset, "snapshot offset must match individual getter")
+	assert.Equal(t, st.LastSyncTimestamp(), ts, "snapshot timestamp must match individual getter")
+}

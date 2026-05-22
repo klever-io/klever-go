@@ -167,6 +167,59 @@ func TestBuildClockMetricsPollingFunc_LastSyncTimestampPublished(t *testing.T) {
 	assert.Equal(t, uint64(syncTs.Unix()), cap.u64[core.MetricClockLastSyncTimestamp])
 }
 
+func TestBuildClockMetricsPollingFunc_NegativeUnixGuard(t *testing.T) {
+	// Pathological case: a non-zero timestamp whose Unix() is negative (pre-1970
+	// RTC after a successful sync). Without the guard, uint64(negative-int64)
+	// wraps to ~1.8e19, which would silently bypass any "stale sync" alarm
+	// expressed as `time() - value > threshold`. Must publish 0 instead.
+	preEpoch := time.Date(1969, 6, 1, 0, 0, 0, 0, time.UTC)
+	require.True(t, preEpoch.Unix() < 0, "test setup: timestamp must precede 1970")
+
+	cap, stub := newCaptureHandler()
+	syncTimer := &consensusMock.SyncTimerMock{
+		LastSyncTimestampCalled: func() time.Time { return preEpoch },
+	}
+
+	pollingFunc := buildClockMetricsPollingFunc(syncTimer)
+	pollingFunc(stub)
+
+	cap.mu.Lock()
+	defer cap.mu.Unlock()
+	assert.Equal(t, uint64(0), cap.u64[core.MetricClockLastSyncTimestamp],
+		"negative Unix seconds must publish 0, not the uint64 wrap-around")
+}
+
+func TestBuildClockMetricsPollingFunc_UsesAtomicSnapshot(t *testing.T) {
+	// Verify the polling func reads (offset, lastSync) via the single-RLock
+	// snapshot, not as two independent getter calls. Forcing the legacy getters
+	// to fail the assertion proves the snapshot path is what publishes the metrics.
+	const offset = 1234 * time.Nanosecond
+	syncTs := time.Unix(1_700_000_000, 0)
+
+	cap, stub := newCaptureHandler()
+	syncTimer := &consensusMock.SyncTimerMock{
+		ClockOffsetCalled: func() time.Duration {
+			t.Errorf("ClockOffset() must not be called — polling must use ClockSnapshot()")
+			return 0
+		},
+		LastSyncTimestampCalled: func() time.Time {
+			t.Errorf("LastSyncTimestamp() must not be called — polling must use ClockSnapshot()")
+			return time.Time{}
+		},
+		ClockSnapshotCalled: func() (time.Duration, time.Time) {
+			return offset, syncTs
+		},
+	}
+
+	pollingFunc := buildClockMetricsPollingFunc(syncTimer)
+	pollingFunc(stub)
+
+	cap.mu.Lock()
+	defer cap.mu.Unlock()
+	assert.Equal(t, offset.Nanoseconds(), cap.i64[core.MetricClockOffsetNs])
+	assert.Equal(t, uint64(syncTs.Unix()), cap.u64[core.MetricClockLastSyncTimestamp])
+}
+
 // TestClockMetricsAppearInPrometheusOutput is an end-to-end check that
 // exercises the real statusHandler + clockMetrics polling combination,
 // ensuring both metrics appear in the /node/metrics scrape output with the

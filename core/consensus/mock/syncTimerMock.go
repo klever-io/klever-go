@@ -8,6 +8,7 @@ import (
 type SyncTimerMock struct {
 	ClockOffsetCalled       func() time.Duration
 	LastSyncTimestampCalled func() time.Time
+	ClockSnapshotCalled     func() (time.Duration, time.Time)
 	CurrentTimeCalled       func() time.Time
 }
 
@@ -32,6 +33,18 @@ func (stm *SyncTimerMock) LastSyncTimestamp() time.Time {
 	}
 
 	return time.Time{}
+}
+
+// ClockSnapshot returns the configured (offset, lastSync) pair under a single
+// callback so tests can assert atomic-pair semantics. Falls back to the
+// individual getters when no explicit snapshot stub is set, which preserves
+// the existing behavior for tests that only configure one or both fields.
+func (stm *SyncTimerMock) ClockSnapshot() (time.Duration, time.Time) {
+	if stm.ClockSnapshotCalled != nil {
+		return stm.ClockSnapshotCalled()
+	}
+
+	return stm.ClockOffset(), stm.LastSyncTimestamp()
 }
 
 // FormattedCurrentTime method gets the formatted current time on which is added a given offset
