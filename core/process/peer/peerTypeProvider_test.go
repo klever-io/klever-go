@@ -205,6 +205,31 @@ func TestNewPeerTypeProvider_ComputeForKeyNotFoundInCacheReturnsObserver(t *test
 	assert.Nil(t, err)
 }
 
+func TestPeerTypeProvider_IsCachePopulated_FalseAtConstruction(t *testing.T) {
+	arg := createDefaultArgPeerTypeProvider()
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+	require.NotNil(t, ptp)
+
+	assert.False(t, ptp.IsCachePopulated())
+}
+
+func TestPeerTypeProvider_IsCachePopulated_TrueAfterEpochStart(t *testing.T) {
+	arg := createDefaultArgPeerTypeProvider()
+	epochStartNotifier := &mock.EpochStartNotifierStub{}
+	arg.EpochStartEventNotifier = epochStartNotifier
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+	require.NotNil(t, ptp)
+	require.False(t, ptp.IsCachePopulated())
+
+	epochStartNotifier.NotifyAll(&block.Block{Header: &block.BlockHeader{Nonce: 1, Epoch: 1}})
+
+	assert.True(t, ptp.IsCachePopulated())
+}
+
 func TestNewPeerTypeProvider_IsInterfaceNil(t *testing.T) {
 	arg := createDefaultArgPeerTypeProvider()
 

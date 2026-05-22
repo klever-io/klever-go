@@ -23,6 +23,7 @@ type PeerTypeProvider struct {
 	nodesCoordinator sharding.NodesCoordinator
 	cache            map[string]*peerListAndShard
 	mutCache         sync.RWMutex
+	isReady          bool
 }
 
 // ArgPeerTypeProvider contains all parameters needed for creating a PeerTypeProvider
@@ -52,6 +53,16 @@ func NewPeerTypeProvider(arg ArgPeerTypeProvider) (*PeerTypeProvider, error) {
 	arg.EpochStartEventNotifier.RegisterHandler(ptp.epochStartEventHandler())
 
 	return ptp, nil
+}
+
+// IsCachePopulated returns true once the cache has been refreshed by an epoch-start event.
+// During the bootstrap window before the first epoch-start notification fires, the cache
+// is either empty or seeded from a NodesCoordinator that is not yet fully populated, so
+// callers should treat its peer-type result as unreliable.
+func (ptp *PeerTypeProvider) IsCachePopulated() bool {
+	ptp.mutCache.RLock()
+	defer ptp.mutCache.RUnlock()
+	return ptp.isReady
 }
 
 // ComputeForPubKey returns the peer type for a given public key and shard id
@@ -92,6 +103,7 @@ func (ptp *PeerTypeProvider) epochStartEventHandler() sharding.EpochStartActionH
 				"slot", hdr.GetSlot(),
 				"epoch", hdr.GetEpoch())
 			ptp.updateCache(hdr.GetEpoch())
+			ptp.markReady()
 		},
 		func(_ data.HeaderHandler) {},
 		core.IndexerOrder,
@@ -105,6 +117,12 @@ func (ptp *PeerTypeProvider) updateCache(epoch uint32) {
 
 	ptp.mutCache.Lock()
 	ptp.cache = newCache
+	ptp.mutCache.Unlock()
+}
+
+func (ptp *PeerTypeProvider) markReady() {
+	ptp.mutCache.Lock()
+	ptp.isReady = true
 	ptp.mutCache.Unlock()
 }
 
