@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/big"
 	"path"
@@ -230,7 +231,7 @@ func (bh *BlockChainHookImpl) GetStorageData(accountAddress []byte, index []byte
 	}
 
 	userAcc, err := bh.GetUserAccount(accountAddress)
-	if err == common.ErrAccNotFound {
+	if errors.Is(err, common.ErrAccNotFound) {
 		return make([]byte, 0), 0, nil
 	}
 	if err != nil {

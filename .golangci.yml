@@ -15,6 +15,14 @@ linters:
     - staticcheck
     - ineffassign
     - errcheck
+    - errorlint
+  settings:
+    errorlint:
+      # Only catch err==sentinel / err!=sentinel patterns. Leave fmt.Errorf
+      # %w hygiene and type-assertion checks alone to keep this PR focused.
+      comparison: true
+      asserts: false
+      errorf: false
   exclusions:
     generated: strict
     rules:

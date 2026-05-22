@@ -421,6 +421,20 @@ func TestMultiDataInterceptor_InvalidTxChainIDShouldBackList(t *testing.T) {
 	processReceivedMessageMultiDataInvalidVersion(t, process.ErrInvalidChainID)
 }
 
+func TestMultiDataInterceptor_WrappedInvalidTxVersionShouldBackList(t *testing.T) {
+	t.Parallel()
+
+	wrapped := fmt.Errorf("intercepted-tx: %w", process.ErrInvalidTransactionVersion)
+	processReceivedMessageMultiDataInvalidVersion(t, wrapped)
+}
+
+func TestMultiDataInterceptor_WrappedInvalidChainIDShouldBackList(t *testing.T) {
+	t.Parallel()
+
+	wrapped := fmt.Errorf("intercepted-tx: %w", process.ErrInvalidChainID)
+	processReceivedMessageMultiDataInvalidVersion(t, wrapped)
+}
+
 func processReceivedMessageMultiDataInvalidVersion(t *testing.T, expectedErr error) {
 	buffData := [][]byte{[]byte("buff1"), []byte("buff2")}
 	marshalizer := &mock.MarshalizerMock{}

@@ -1,6 +1,8 @@
 package systemAccount
 
 import (
+	"errors"
+
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
@@ -142,7 +144,7 @@ func (s *systemAccountKApp) SFTAddCirculation(asset, nonce []byte, amount int64)
 
 func (s *systemAccountKApp) SFTGetMeta(asset, nonce []byte) (*kapps.MetaV2, error) {
 	data, err := s.getKDAData(asset, nonce)
-	if err == common.ErrNilTrie {
+	if errors.Is(err, common.ErrNilTrie) {
 		return &kapps.MetaV2{Metadata: &kapps.MetaV2Data{}}, nil
 	}
 

@@ -66,7 +66,7 @@ func (b *MockWorld) GetStorageData(accountAddress []byte, key []byte) ([]byte, u
 	}
 
 	value, err := userAcc.DataTrieTracker().RetrieveValue(key)
-	if err == common.ErrNilTrie {
+	if errors.Is(err, common.ErrNilTrie) {
 		return make([]byte, 0), 0, nil
 
 	}

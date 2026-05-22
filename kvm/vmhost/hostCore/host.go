@@ -2,6 +2,7 @@ package hostCore
 
 import (
 	"context"
+	"errors"
 	"math"
 	"runtime/debug"
 	"sync"
@@ -492,7 +493,7 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 		elapsedTime := time.Since(startTime)
 		log.Trace("RunSmartContractCreate execTime",
 			"time [ms]", elapsedTime.Milliseconds(),
-			"timedOut", err == vmhost.ErrExecutionFailedWithTimeout)
+			"timedOut", errors.Is(err, vmhost.ErrExecutionFailedWithTimeout))
 	}()
 
 	done := make(chan struct{})
@@ -565,7 +566,7 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 		log.Trace("RunSmartContractCall execTime",
 			"function", input.Function,
 			"time [ms]", elapsedTime.Milliseconds(),
-			"timedOut", err == vmhost.ErrExecutionFailedWithTimeout)
+			"timedOut", errors.Is(err, vmhost.ErrExecutionFailedWithTimeout))
 	}()
 
 	done := make(chan struct{})
