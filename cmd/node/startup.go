@@ -988,12 +988,18 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		return err
 	}
 
+	clockMetricsCloser, err := metrics.StartClockMetricsPolling(coreComponents.StatusHandler, syncer, statusPollingInterval)
+	if err != nil {
+		return err
+	}
+
 	// Background goroutines that must be drained before component teardown.
 	// Order within the slice doesn't matter; they're independent of each other.
 	backgroundClosers := []io.Closer{
 		statusPollingCloser,
 		machineStatsCloser,
 		nodeMetricsCloser,
+		clockMetricsCloser,
 		currentNode.GetPeerHonestyHandler(),
 	}
 

@@ -300,3 +300,9 @@ const MetricNodeStartTimestamp = "klv_node_start_timestamp"
 
 // MetricRedundancySlotsInactive is the metric for the redundancy slots of inactivity counter
 const MetricRedundancySlotsInactive = "klv_redundancy_slots_inactive"
+
+// MetricClockOffsetNs is the metric for the NTP-corrected clock offset in nanoseconds (signed)
+const MetricClockOffsetNs = "klv_clock_offset_ns"
+
+// MetricClockLastSyncTimestamp is the metric for the unix-seconds timestamp of the last successful NTP sync (0 before first success)
+const MetricClockLastSyncTimestamp = "klv_clock_last_sync_timestamp"

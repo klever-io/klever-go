@@ -9,6 +9,8 @@ type SyncTimer interface {
 	Close() error
 	StartSyncingTime()
 	ClockOffset() time.Duration
+	LastSyncTimestamp() time.Time
+	ClockSnapshot() (offset time.Duration, lastSync time.Time)
 	FormattedCurrentTime() string
 	CurrentTime() time.Time
 	IsInterfaceNil() bool

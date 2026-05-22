@@ -96,12 +96,13 @@ func queryNTP(options NTPOptions, hostIndex int) (*ntp.Response, error) {
 
 // syncTime defines an object for time synchronization
 type syncTime struct {
-	mut         sync.RWMutex
-	clockOffset time.Duration
-	syncPeriod  time.Duration
-	ntpOptions  NTPOptions
-	query       func(options NTPOptions, hostIndex int) (*ntp.Response, error)
-	cancelFunc  func()
+	mut               sync.RWMutex
+	clockOffset       time.Duration
+	lastSyncTimestamp time.Time
+	syncPeriod        time.Duration
+	ntpOptions        NTPOptions
+	query             func(options NTPOptions, hostIndex int) (*ntp.Response, error)
+	cancelFunc        func()
 }
 
 // NewSyncTime creates a syncTime object. The customQueryFunc argument allows the caller to set a different NTP-querying
@@ -162,11 +163,13 @@ func (s *syncTime) getSleepTime() time.Duration {
 // and servers time which have been used in synchronization
 func (s *syncTime) sync() {
 	clockOffsets := make([]time.Duration, 0)
+	queryFailures := 0
 	for hostIndex := 0; hostIndex < len(s.ntpOptions.Hosts); hostIndex++ {
 		for requests := 0; requests < numRequestsFromHost; requests++ {
 			response, err := s.query(s.ntpOptions, hostIndex)
 			if err != nil {
-				log.Debug("sync.query",
+				queryFailures++
+				log.Trace("sync.query",
 					"host", s.ntpOptions.Hosts[hostIndex],
 					"port", s.ntpOptions.Port,
 					"error", err.Error())
@@ -189,9 +192,11 @@ func (s *syncTime) sync() {
 	numTotalRequests := len(s.ntpOptions.Hosts) * numRequestsFromHost
 	minClockOffsetsToAllowUpdate := math.Ceil(float64(numTotalRequests) * minResponsesPercent / (1 - cuttingOutPercent))
 	if len(clockOffsets) < int(minClockOffsetsToAllowUpdate) {
-		log.Debug("sync.setClockOffset NOT done",
-			"clock offsets", len(clockOffsets),
-			"min clock offsets to allow update", int(minClockOffsetsToAllowUpdate))
+		log.Warn("ntp sync FAILED: insufficient responses",
+			"ok", len(clockOffsets),
+			"failed", queryFailures,
+			"total", numTotalRequests,
+			"min required", int(minClockOffsetsToAllowUpdate))
 
 		return
 	}
@@ -200,17 +205,21 @@ func (s *syncTime) sync() {
 	clockOffsetHarmonicMean := s.getHarmonicMean(clockOffsetsWithoutEdges)
 	isOutOfBounds := tools.AbsDuration(clockOffsetHarmonicMean)-outOfBoundsDuration > 0
 	if isOutOfBounds {
-		log.Error("syncTime.sync: clock offset is out of expected bounds",
-			"clock offset harmonic mean", clockOffsetHarmonicMean)
+		log.Error("ntp sync FAILED: offset out of bounds",
+			"ok", len(clockOffsets),
+			"failed", queryFailures,
+			"total", numTotalRequests,
+			"offset", clockOffsetHarmonicMean)
 
 		return
 	}
-	s.setClockOffset(clockOffsetHarmonicMean)
+	s.recordSyncSuccess(clockOffsetHarmonicMean, time.Now())
 
-	log.Debug("sync.setClockOffset done",
-		"num clock offsets", len(clockOffsets),
-		"num clock offsets without edges", len(clockOffsetsWithoutEdges),
-		"clock offset harmonic mean", clockOffsetHarmonicMean)
+	log.Debug("ntp sync OK",
+		"ok", len(clockOffsets),
+		"failed", queryFailures,
+		"total", numTotalRequests,
+		"offset", clockOffsetHarmonicMean)
 }
 
 func (s *syncTime) getClockOffsetsWithoutEdges(clockOffsets []time.Duration) []time.Duration {
@@ -260,6 +269,41 @@ func (s *syncTime) ClockOffset() time.Duration {
 func (s *syncTime) setClockOffset(clockOffset time.Duration) {
 	s.mut.Lock()
 	s.clockOffset = clockOffset
+	s.mut.Unlock()
+}
+
+// LastSyncTimestamp returns the wall-clock time of the most recent successful
+// sync. Zero-value time before the first success — exposed as metric value 0
+// so operators alarming on `time() - last_sync > threshold` only fire once a
+// sync has actually happened.
+func (s *syncTime) LastSyncTimestamp() time.Time {
+	s.mut.RLock()
+	ts := s.lastSyncTimestamp
+	s.mut.RUnlock()
+
+	return ts
+}
+
+// ClockSnapshot returns the current offset and last-sync timestamp under a
+// single RLock so callers see a coherent pair. Without this, a sync landing
+// between two separate getter calls could mix a fresh offset with a stale
+// timestamp on the same scrape.
+func (s *syncTime) ClockSnapshot() (offset time.Duration, lastSync time.Time) {
+	s.mut.RLock()
+	offset = s.clockOffset
+	lastSync = s.lastSyncTimestamp
+	s.mut.RUnlock()
+
+	return
+}
+
+// recordSyncSuccess updates offset and timestamp under a single lock so
+// /node/metrics scrapes can't observe a fresh offset paired with a stale
+// timestamp (or vice versa) mid-update.
+func (s *syncTime) recordSyncSuccess(offset time.Duration, at time.Time) {
+	s.mut.Lock()
+	s.clockOffset = offset
+	s.lastSyncTimestamp = at
 	s.mut.Unlock()
 }
 
