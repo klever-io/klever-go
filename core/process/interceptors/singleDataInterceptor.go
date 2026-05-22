@@ -1,6 +1,8 @@
 package interceptors
 
 import (
+	"errors"
+
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/network/p2p"
@@ -116,7 +118,8 @@ func (sdi *SingleDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P,
 	if err != nil {
 		sdi.processDebugInterceptedData(interceptedData, err)
 
-		isWrongVersion := err == process.ErrInvalidTransactionVersion || err == process.ErrInvalidChainID
+		isWrongVersion := errors.Is(err, process.ErrInvalidTransactionVersion) ||
+			errors.Is(err, process.ErrInvalidChainID)
 		if isWrongVersion {
 			//this situation is so severe that we need to black list de peers
 			reason := "wrong version of received intercepted data, topic " + sdi.topic + ", error " + err.Error()

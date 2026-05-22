@@ -3,6 +3,7 @@ package kda
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -747,7 +748,7 @@ func (k *kdaKapp) processSplitRoyalties(tc *transaction.AssetTriggerContract) (m
 }
 
 func processErrorCode(err error) (transaction.Transaction_TXResultCode, error) {
-	if err == common.ErrInvalidValue {
+	if errors.Is(err, common.ErrInvalidValue) {
 		return transaction.Transaction_ParameterInvalid, err
 	}
 

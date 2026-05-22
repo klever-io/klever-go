@@ -2,6 +2,7 @@ package leveldb
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -144,7 +145,7 @@ func (s *DB) Get(key []byte) ([]byte, error) {
 	}
 
 	data, err := s.db.Get(key, nil)
-	if err == leveldb.ErrNotFound {
+	if errors.Is(err, leveldb.ErrNotFound) {
 		return nil, storage.ErrKeyNotFound
 	}
 	if err != nil {

@@ -3,6 +3,7 @@ package leveldb
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -155,7 +156,7 @@ func (s *SerialDB) Get(key []byte) ([]byte, error) {
 	result := <-ch
 	close(ch)
 
-	if result.err == leveldb.ErrNotFound {
+	if errors.Is(result.err, leveldb.ErrNotFound) {
 		return nil, storage.ErrKeyNotFound
 	}
 	if result.err != nil {

@@ -2,6 +2,7 @@ package interceptors_test
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -297,7 +298,21 @@ func TestSingleDataInterceptor_InvalidTxVersionShouldBlackList(t *testing.T) {
 func TestSingleDataInterceptor_InvalidTxChainIDShouldBlackList(t *testing.T) {
 	t.Parallel()
 
-	processReceivedMessageSingleDataInvalidVersion(t, process.ErrInvalidTransactionVersion)
+	processReceivedMessageSingleDataInvalidVersion(t, process.ErrInvalidChainID)
+}
+
+func TestSingleDataInterceptor_WrappedInvalidTxVersionShouldBlackList(t *testing.T) {
+	t.Parallel()
+
+	wrapped := fmt.Errorf("intercepted-tx: %w", process.ErrInvalidTransactionVersion)
+	processReceivedMessageSingleDataInvalidVersion(t, wrapped)
+}
+
+func TestSingleDataInterceptor_WrappedInvalidChainIDShouldBlackList(t *testing.T) {
+	t.Parallel()
+
+	wrapped := fmt.Errorf("intercepted-tx: %w", process.ErrInvalidChainID)
+	processReceivedMessageSingleDataInvalidVersion(t, wrapped)
 }
 
 func processReceivedMessageSingleDataInvalidVersion(t *testing.T, expectedErr error) {

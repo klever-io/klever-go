@@ -2,6 +2,7 @@ package kdafeespool
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math/big"
 	"strconv"
@@ -109,7 +110,7 @@ func (v *kdaFeesPoolKApp) ChangePoolOwner(assetID []byte, sender []byte, newOwne
 
 	pool, err := v.getPool(app, assetID)
 	if err != nil {
-		if err == common.ErrAssetPoolNotFound {
+		if errors.Is(err, common.ErrAssetPoolNotFound) {
 			return transaction.Transaction_Ok, nil
 		}
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())

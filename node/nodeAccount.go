@@ -27,7 +27,7 @@ func (n *Node) GetAccount(address string) (state.UserAccountHandler, error) {
 
 	accWrp, err := n.accounts.GetExistingAccount(addr)
 	if err != nil {
-		if err == common.ErrAccNotFound {
+		if errors.Is(err, common.ErrAccNotFound) {
 			return state.NewUserAccount(addr)
 		}
 		return nil, errors.New("could not fetch sender address from provided param: " + err.Error())
@@ -70,7 +70,7 @@ func (n *Node) GetNextNonce(address string) (uint64, uint64, uint64, error) {
 
 	accWrp, err := n.accounts.GetExistingAccount(addr)
 	if err != nil {
-		if err == common.ErrAccNotFound {
+		if errors.Is(err, common.ErrAccNotFound) {
 			return 0, 0, 0, nil
 		}
 		return 0, 0, 0, errors.New("could not fetch sender address from provided param: " + err.Error())

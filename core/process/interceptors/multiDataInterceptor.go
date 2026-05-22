@@ -1,6 +1,8 @@
 package interceptors
 
 import (
+	"errors"
+
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data/batch"
@@ -224,7 +226,8 @@ func (mdi *MultiDataInterceptor) interceptedData(dataBuff []byte, originator cor
 	if err != nil {
 		mdi.processDebugInterceptedData(interceptedData, err)
 
-		isWrongVersion := err == process.ErrInvalidTransactionVersion || err == process.ErrInvalidChainID
+		isWrongVersion := errors.Is(err, process.ErrInvalidTransactionVersion) ||
+			errors.Is(err, process.ErrInvalidChainID)
 		if isWrongVersion {
 			//this situation is so severe that we need to black list de peers
 			reason := "wrong version of received intercepted data, topic " + mdi.topic + ", error " + err.Error()

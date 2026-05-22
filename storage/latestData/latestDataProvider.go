@@ -2,6 +2,7 @@ package latestData
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -77,7 +78,7 @@ func (ldp *latestDataProvider) Get() (storage.LatestDataFromStorage, error) {
 	}
 
 	ldfs, err := ldp.getLastEpochAndSlotFromStorage(parentDir, lastEpoch)
-	if err == storage.ErrBootstrapDataNotFoundInStorage && lastEpoch > 0 {
+	if errors.Is(err, storage.ErrBootstrapDataNotFoundInStorage) && lastEpoch > 0 {
 		// retry with epoch before
 		return ldp.getLastEpochAndSlotFromStorage(parentDir, lastEpoch-1)
 	}

@@ -1559,7 +1559,7 @@ func (a *accountsKapp) ClaimStaking(sender []byte, tc *transaction.ClaimContract
 	if err != nil {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldClaimNotAvailable, err.Error())
 		var resultCode transaction.Transaction_TXResultCode
-		if err == common.ErrMaxSupplyExceeded {
+		if errors.Is(err, common.ErrMaxSupplyExceeded) {
 			resultCode = transaction.Transaction_MaxSupplyExceeded
 		} else {
 			resultCode = transaction.Transaction_ClaimError
@@ -1686,7 +1686,7 @@ func (a *accountsKapp) ClaimAllowance(sender []byte, tc *transaction.ClaimContra
 	if err != nil {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldClaimNotAvailable, err.Error())
 		resultCode := transaction.Transaction_ClaimError
-		if err == common.ErrMaxSupplyExceeded {
+		if errors.Is(err, common.ErrMaxSupplyExceeded) {
 			resultCode = transaction.Transaction_MaxSupplyExceeded
 		}
 		return resultCode, err
