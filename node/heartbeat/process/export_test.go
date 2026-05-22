@@ -92,6 +92,11 @@ func VerifyLengths(hbmi *data.Heartbeat) error {
 	return verifyLengths(hbmi)
 }
 
+// UpdateMetrics -
+func (s *Sender) UpdateMetrics(hb *data.Heartbeat) {
+	s.updateMetrics(hb)
+}
+
 // GetMaxSizeInBytes -
 func GetMaxSizeInBytes() int {
 	return maxSizeInBytes

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	cMock "github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/node/heartbeat"
 	"github.com/klever-io/klever-go/node/heartbeat/data"
@@ -620,4 +621,63 @@ func TestSender_SendHeartbeatAfterTriggerWithRecorededPayloadShouldWork(t *testi
 	assert.True(t, signCalled)
 	assert.True(t, genPubKeyCalled)
 	assert.True(t, marshalCalled)
+}
+
+func TestSender_UpdateMetricsSkipsWritesWhenCacheNotPopulated(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatSender()
+	arg.PeerTypeProvider = &mock.PeerTypeProviderStub{
+		IsCachePopulatedCalled: func() bool {
+			return false
+		},
+		ComputeForPubKeyCalled: func(pubKey []byte) (core.PeerType, uint32, error) {
+			t.Fatalf("ComputeForPubKey must not be called when cache is not populated")
+			return "", 0, nil
+		},
+	}
+	setStringCalls := make(map[string]string)
+	arg.StatusHandler = &mock.AppStatusHandlerStub{
+		SetStringValueHandler: func(key string, value string) {
+			setStringCalls[key] = value
+		},
+	}
+
+	sender, err := process.NewSender(arg)
+	assert.Nil(t, err)
+
+	sender.UpdateMetrics(&data.Heartbeat{Pubkey: []byte("pk")})
+
+	_, gotNodeType := setStringCalls[core.MetricNodeType]
+	_, gotPeerType := setStringCalls[core.MetricPeerType]
+	assert.False(t, gotNodeType)
+	assert.False(t, gotPeerType)
+}
+
+func TestSender_UpdateMetricsWritesWhenCachePopulated(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatSender()
+	arg.PeerTypeProvider = &mock.PeerTypeProviderStub{
+		IsCachePopulatedCalled: func() bool {
+			return true
+		},
+		ComputeForPubKeyCalled: func(pubKey []byte) (core.PeerType, uint32, error) {
+			return core.EligibleList, 0, nil
+		},
+	}
+	setStringCalls := make(map[string]string)
+	arg.StatusHandler = &mock.AppStatusHandlerStub{
+		SetStringValueHandler: func(key string, value string) {
+			setStringCalls[key] = value
+		},
+	}
+
+	sender, err := process.NewSender(arg)
+	assert.Nil(t, err)
+
+	sender.UpdateMetrics(&data.Heartbeat{Pubkey: []byte("pk")})
+
+	assert.Equal(t, string(core.NodeTypeValidator), setStringCalls[core.MetricNodeType])
+	assert.Equal(t, string(core.EligibleList), setStringCalls[core.MetricPeerType])
 }

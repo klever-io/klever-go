@@ -174,6 +174,10 @@ func (s *Sender) getCurrentPrivateAndPublicKeys() (crypto.PrivateKey, crypto.Pub
 }
 
 func (s *Sender) updateMetrics(hb *heartbeatData.Heartbeat) {
+	if !s.peerTypeProvider.IsCachePopulated() {
+		return
+	}
+
 	result := s.computePeerList(hb.Pubkey)
 
 	nodeType := ""
