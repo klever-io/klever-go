@@ -8,6 +8,7 @@ import (
 // PeerTypeProviderStub -
 type PeerTypeProviderStub struct {
 	ComputeForPubKeyCalled func(pubKey []byte) (core.PeerType, uint32, error)
+	IsCachePopulatedCalled func() bool
 }
 
 // ComputeForPubKey -
@@ -22,6 +23,15 @@ func (p *PeerTypeProviderStub) ComputeForPubKey(pubKey []byte) (core.PeerType, u
 // GetAllPeerTypeInfos -
 func (p *PeerTypeProviderStub) GetAllPeerTypeInfos() []*state.PeerTypeInfo {
 	return nil
+}
+
+// IsCachePopulated -
+func (p *PeerTypeProviderStub) IsCachePopulated() bool {
+	if p.IsCachePopulatedCalled != nil {
+		return p.IsCachePopulatedCalled()
+	}
+
+	return true
 }
 
 // IsInterfaceNil -

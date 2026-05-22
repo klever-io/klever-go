@@ -80,6 +80,7 @@ type P2PAntifloodHandler interface {
 type PeerTypeProviderHandler interface {
 	ComputeForPubKey(pubKey []byte) (core.PeerType, uint32, error)
 	GetAllPeerTypeInfos() []*state.PeerTypeInfo
+	IsCachePopulated() bool
 	IsInterfaceNil() bool
 }
 
