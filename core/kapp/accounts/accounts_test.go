@@ -5517,7 +5517,7 @@ func Test_ClaimStaking_MaxSupplyExceeded(t *testing.T) {
 		},
 	}
 
-	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+	require.NoError(t, accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
 		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
 		GetKDAKAppCalled: func() kapp.KDAKapp {
 			return &kvmStub.KDAKappStub{
@@ -5529,9 +5529,9 @@ func Test_ClaimStaking_MaxSupplyExceeded(t *testing.T) {
 				},
 			}
 		},
-	})
+	}))
 
-	_ = accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+	require.NoError(t, accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
 		GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 			return &commonMock.UserAccountHandlerStub{
 				GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
@@ -5542,7 +5542,7 @@ func Test_ClaimStaking_MaxSupplyExceeded(t *testing.T) {
 				},
 			}, nil
 		},
-	})
+	}))
 
 	tc := &transaction.ClaimContract{
 		ClaimType: transaction.ClaimContract_StakingClaim,
@@ -5567,7 +5567,7 @@ func Test_ClaimStaking_MaxSupplyExceeded_Wrapped(t *testing.T) {
 		},
 	}
 
-	_ = accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+	require.NoError(t, accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
 		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
 		GetKDAKAppCalled: func() kapp.KDAKapp {
 			return &kvmStub.KDAKappStub{
@@ -5579,9 +5579,9 @@ func Test_ClaimStaking_MaxSupplyExceeded_Wrapped(t *testing.T) {
 				},
 			}
 		},
-	})
+	}))
 
-	_ = accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+	require.NoError(t, accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
 		GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
 			return &commonMock.UserAccountHandlerStub{
 				GetUserKDACalled: func(assetID, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
@@ -5592,7 +5592,7 @@ func Test_ClaimStaking_MaxSupplyExceeded_Wrapped(t *testing.T) {
 				},
 			}, nil
 		},
-	})
+	}))
 
 	tc := &transaction.ClaimContract{
 		ClaimType: transaction.ClaimContract_StakingClaim,

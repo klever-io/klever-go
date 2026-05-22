@@ -25,11 +25,11 @@ func TestSFTGetMeta_NilTrieReturnsEmptyMeta(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := &systemAccountKApp{}
-			_ = s.SetAccountsCacher(&commonMock.AccountsCacherStub{
+			require.NoError(t, s.SetAccountsCacher(&commonMock.AccountsCacherStub{
 				LoadKAppCalled: func(address []byte) (state.KAppAccountHandler, error) {
 					return nil, c.err
 				},
-			})
+			}))
 
 			meta, err := s.SFTGetMeta([]byte("ASSET"), nil)
 			require.NoError(t, err)
@@ -44,11 +44,11 @@ func TestSFTGetMeta_OtherErrorPropagates(t *testing.T) {
 
 	other := errors.New("disk failure")
 	s := &systemAccountKApp{}
-	_ = s.SetAccountsCacher(&commonMock.AccountsCacherStub{
+	require.NoError(t, s.SetAccountsCacher(&commonMock.AccountsCacherStub{
 		LoadKAppCalled: func(address []byte) (state.KAppAccountHandler, error) {
 			return nil, other
 		},
-	})
+	}))
 
 	meta, err := s.SFTGetMeta([]byte("ASSET"), nil)
 	assert.Nil(t, meta)
