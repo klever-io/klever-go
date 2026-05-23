@@ -6,15 +6,17 @@ import (
 
 // BlockChainStub is a mock implementation of the blockchain interface
 type BlockChainStub struct {
-	GetGenesisHeaderCalled          func() data.HeaderHandler
-	SetGenesisHeaderCalled          func(handler data.HeaderHandler) error
-	GetGenesisHeaderHashCalled      func() []byte
-	SetGenesisHeaderHashCalled      func([]byte)
-	GetCurrentBlockHeaderCalled     func() data.HeaderHandler
-	SetCurrentBlockHeaderCalled     func(data.HeaderHandler) error
-	GetCurrentBlockHeaderHashCalled func() []byte
-	SetCurrentBlockHeaderHashCalled func([]byte)
-	CreateNewHeaderCalled           func() data.HeaderHandler
+	GetGenesisHeaderCalled             func() data.HeaderHandler
+	SetGenesisHeaderCalled             func(handler data.HeaderHandler) error
+	GetGenesisHeaderHashCalled         func() []byte
+	SetGenesisHeaderHashCalled         func([]byte)
+	GetCurrentBlockHeaderCalled        func() data.HeaderHandler
+	SetCurrentBlockHeaderCalled        func(data.HeaderHandler) error
+	GetCurrentBlockHeaderHashCalled    func() []byte
+	SetCurrentBlockHeaderHashCalled    func([]byte)
+	SetCurrentBlockHeaderAndHashCalled func(data.HeaderHandler, []byte) error
+	GetCurrentBlockHeaderAndHashCalled func() (data.HeaderHandler, []byte)
+	CreateNewHeaderCalled              func() data.HeaderHandler
 }
 
 // GetGenesisHeader returns the genesis block header pointer
@@ -77,6 +79,22 @@ func (bcs *BlockChainStub) SetCurrentBlockHeaderHash(hash []byte) {
 	if bcs.SetCurrentBlockHeaderHashCalled != nil {
 		bcs.SetCurrentBlockHeaderHashCalled(hash)
 	}
+}
+
+// SetCurrentBlockHeaderAndHash atomically sets the current block header and its hash
+func (bcs *BlockChainStub) SetCurrentBlockHeaderAndHash(header data.HeaderHandler, hash []byte) error {
+	if bcs.SetCurrentBlockHeaderAndHashCalled != nil {
+		return bcs.SetCurrentBlockHeaderAndHashCalled(header, hash)
+	}
+	return nil
+}
+
+// GetCurrentBlockHeaderAndHash atomically returns the current block header and its hash
+func (bcs *BlockChainStub) GetCurrentBlockHeaderAndHash() (data.HeaderHandler, []byte) {
+	if bcs.GetCurrentBlockHeaderAndHashCalled != nil {
+		return bcs.GetCurrentBlockHeaderAndHashCalled()
+	}
+	return nil, nil
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

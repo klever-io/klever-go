@@ -176,8 +176,9 @@ func TestStorageBootstrapper_LoadAndApplyBlocks(t *testing.T) {
 		var headerCalled []byte
 
 		sb := newValidStorageBootstrapper(bootstrapData)
-		sb.blkc.(*mock.BlockChainMock).SetCurrentBlockHeaderHashCalled = func(hash []byte) {
+		sb.blkc.(*mock.BlockChainMock).SetCurrentBlockHeaderAndHashCalled = func(_ data.HeaderHandler, hash []byte) error {
 			headerCalled = hash
+			return nil
 		}
 
 		result, err := sb.loadAndApplyBlocks(98)
@@ -268,16 +269,14 @@ func TestStorageBootstrapper_HandleBlockLoadingError(t *testing.T) {
 		sb.blkc.(*mock.BlockChainMock).GetGenesisHeaderCalled = func() data.HeaderHandler {
 			return &block.Block{}
 		}
-		sb.blkc.(*mock.BlockChainMock).SetCurrentBlockHeaderCalled = func(header data.HeaderHandler) error {
+		sb.blkc.(*mock.BlockChainMock).SetCurrentBlockHeaderAndHashCalled = func(header data.HeaderHandler, hash []byte) error {
 			if header == nil {
 				headerCleared = true
 			}
-			return nil
-		}
-		sb.blkc.(*mock.BlockChainMock).SetCurrentBlockHeaderHashCalled = func(hash []byte) {
 			if hash == nil {
 				headerHashCleared = true
 			}
+			return nil
 		}
 
 		testErr := errors.New("test error")

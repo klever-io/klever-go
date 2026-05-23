@@ -1465,28 +1465,33 @@ func (n *ProcessorNode) ConnectTo(connectable Connectable) error {
 }
 
 func (n *ProcessorNode) GetCurrentBlockHeaderAndHash() (data.HeaderHandler, []byte) {
-	return n.Blkc.GetCurrentBlockHeader(), n.Blkc.GetCurrentBlockHeaderHash()
+	return n.Blkc.GetCurrentBlockHeaderAndHash()
 }
 
+// RevertOneBlock mirrors the production rollBackOneBlock flow in baseBootstrap:
+// atomically swap the current header/hash to the previous block, revert state,
+// restore the current block's body to pools, then clean caches and storage so
+// the rolled-back block does not snap back via fork detector or nonce->hash storage.
 func (n *ProcessorNode) RevertOneBlock(nonce uint64) error {
-	// get current block
 	currHeader, err := n.GetBlock(nonce)
 	if err != nil {
 		return err
 	}
 
-	// get last block
 	prevHeader, err := n.GetBlock(nonce - 1)
 	if err != nil {
 		return err
 	}
 
-	err = n.Blkc.SetCurrentBlockHeader(prevHeader)
+	prevHash, err := tools.CalculateHash(n.InternalMarshalizer, n.Hasher, prevHeader.GetBlockHeader())
 	if err != nil {
 		return err
 	}
 
-	n.Blkc.SetCurrentBlockHeaderHash(prevHeader.GetParentHash())
+	err = n.Blkc.SetCurrentBlockHeaderAndHash(prevHeader, prevHash)
+	if err != nil {
+		return err
+	}
 
 	err = n.BlockProcessor.RevertStateToBlock(prevHeader)
 	if err != nil {
@@ -1500,7 +1505,40 @@ func (n *ProcessorNode) RevertOneBlock(nonce uint64) error {
 		return err
 	}
 
+	n.cleanCachesAndStorageOnRollback(currHeader)
 	return nil
+}
+
+// cleanCachesAndStorageOnRollback mirrors baseBootstrap.cleanCachesAndStorageOnRollback:
+// removes the rolled-back header from the data pool, the fork detector, and the
+// nonce->hash storage unit. Returns silently on any per-step failure (mirroring
+// production, which logs at Debug and ignores errors here).
+func (n *ProcessorNode) cleanCachesAndStorageOnRollback(header data.HeaderHandler) {
+	hash := n.removeHeaderFromPools(header)
+	n.ForkDetector.RemoveHeader(header.GetNonce(), hash)
+	nonceBytes := n.Uint64ByteSliceConverter.ToByteSlice(header.GetNonce())
+	storer := n.Store.GetStorer(retriever.HdrNonceHashDataUnit)
+	if storer != nil {
+		_ = storer.Remove(nonceBytes)
+	}
+}
+
+// removeHeaderFromPools mirrors baseBootstrap.removeHeaderFromPools: compute the
+// block's own header hash and evict it from the data pool. Returns nil on any
+// failure (matching production), with a Debug-level log to preserve symmetry.
+func (n *ProcessorNode) removeHeaderFromPools(hdr data.HeaderHandler) []byte {
+	blk, ok := hdr.(*block.Block)
+	if !ok {
+		log.Debug("removeHeaderFromPools: type assertion to *block.Block failed")
+		return nil
+	}
+	hash, err := tools.CalculateHash(n.InternalMarshalizer, n.Hasher, blk.Header)
+	if err != nil {
+		log.Debug("removeHeaderFromPools: CalculateHash failed", "error", err.Error())
+		return nil
+	}
+	n.DataPool.Headers().RemoveHeaderByHash(hash)
+	return hash
 }
 
 // SyncNode tries to process and commit a block already stored in data pool with provided nonce

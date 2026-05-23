@@ -6,22 +6,24 @@ import (
 
 // BlockChainMock is a mock implementation of the blockchain interface
 type BlockChainMock struct {
-	GetGenesisHeaderCalled          func() data.HeaderHandler
-	SetGenesisHeaderCalled          func(handler data.HeaderHandler) error
-	GetGenesisHeaderHashCalled      func() []byte
-	SetGenesisHeaderHashCalled      func([]byte)
-	GetCurrentBlockHeaderCalled     func() data.HeaderHandler
-	SetCurrentBlockHeaderCalled     func(data.HeaderHandler) error
-	GetCurrentBlockHeaderHashCalled func() []byte
-	SetCurrentBlockHeaderHashCalled func([]byte)
-	GetCurrentBlockRootHashCalled   func() []byte
-	GetLocalHeightCalled            func() int64
-	SetLocalHeightCalled            func(int64)
-	GetNetworkHeightCalled          func() int64
-	SetNetworkHeightCalled          func(int64)
-	HasBadBlockCalled               func([]byte) bool
-	PutBadBlockCalled               func([]byte)
-	CreateNewHeaderCalled           func() data.HeaderHandler
+	GetGenesisHeaderCalled             func() data.HeaderHandler
+	SetGenesisHeaderCalled             func(handler data.HeaderHandler) error
+	GetGenesisHeaderHashCalled         func() []byte
+	SetGenesisHeaderHashCalled         func([]byte)
+	GetCurrentBlockHeaderCalled        func() data.HeaderHandler
+	SetCurrentBlockHeaderCalled        func(data.HeaderHandler) error
+	GetCurrentBlockHeaderHashCalled    func() []byte
+	SetCurrentBlockHeaderHashCalled    func([]byte)
+	SetCurrentBlockHeaderAndHashCalled func(data.HeaderHandler, []byte) error
+	GetCurrentBlockHeaderAndHashCalled func() (data.HeaderHandler, []byte)
+	GetCurrentBlockRootHashCalled      func() []byte
+	GetLocalHeightCalled               func() int64
+	SetLocalHeightCalled               func(int64)
+	GetNetworkHeightCalled             func() int64
+	SetNetworkHeightCalled             func(int64)
+	HasBadBlockCalled                  func([]byte) bool
+	PutBadBlockCalled                  func([]byte)
+	CreateNewHeaderCalled              func() data.HeaderHandler
 }
 
 // GetGenesisHeader returns the genesis block header pointer
@@ -84,6 +86,22 @@ func (bc *BlockChainMock) SetCurrentBlockHeaderHash(hash []byte) {
 	if bc.SetCurrentBlockHeaderHashCalled != nil {
 		bc.SetCurrentBlockHeaderHashCalled(hash)
 	}
+}
+
+// SetCurrentBlockHeaderAndHash atomically sets the current block header and its hash
+func (bc *BlockChainMock) SetCurrentBlockHeaderAndHash(header data.HeaderHandler, hash []byte) error {
+	if bc.SetCurrentBlockHeaderAndHashCalled != nil {
+		return bc.SetCurrentBlockHeaderAndHashCalled(header, hash)
+	}
+	return nil
+}
+
+// GetCurrentBlockHeaderAndHash atomically returns the current block header and its hash
+func (bc *BlockChainMock) GetCurrentBlockHeaderAndHash() (data.HeaderHandler, []byte) {
+	if bc.GetCurrentBlockHeaderAndHashCalled != nil {
+		return bc.GetCurrentBlockHeaderAndHashCalled()
+	}
+	return nil, nil
 }
 
 // GetCurrentBlockRootHash returns the current block root hash

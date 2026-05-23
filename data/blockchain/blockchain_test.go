@@ -1,7 +1,9 @@
 package blockchain_test
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
@@ -111,6 +113,191 @@ func TestBlockChain_SettersWithInvalidBlock(t *testing.T) {
 
 	err = bc.SetGenesisHeader(&mock.HeaderHandlerStub{})
 	assert.Equal(t, common.ErrInvalidHeaderType, err)
+}
+
+func TestBlockChain_SetCurrentBlockHeaderAndHashShouldWork(t *testing.T) {
+	t.Parallel()
+
+	bc := blockchain.NewBlockChain()
+
+	hdr := &block.Block{
+		Header: &block.BlockHeader{
+			Nonce: 7,
+		},
+	}
+	hash := []byte("matching-hash")
+
+	err := bc.SetCurrentBlockHeaderAndHash(hdr, hash)
+	assert.Nil(t, err)
+
+	assert.Equal(t, hdr.Clone(), bc.GetCurrentBlockHeader())
+	assert.Equal(t, hash, bc.GetCurrentBlockHeaderHash())
+}
+
+func TestBlockChain_SetCurrentBlockHeaderAndHashNilHeader(t *testing.T) {
+	t.Parallel()
+
+	bc := blockchain.NewBlockChain()
+
+	hdr := &block.Block{
+		Header: &block.BlockHeader{
+			Nonce: 3,
+		},
+	}
+	require.NoError(t, bc.SetCurrentBlockHeader(hdr))
+	bc.SetCurrentBlockHeaderHash([]byte("old"))
+
+	err := bc.SetCurrentBlockHeaderAndHash(nil, []byte("new"))
+	assert.Nil(t, err)
+
+	assert.Nil(t, bc.GetCurrentBlockHeader())
+	assert.Equal(t, []byte("new"), bc.GetCurrentBlockHeaderHash())
+}
+
+func TestBlockChain_SetCurrentBlockHeaderAndHashInvalidHeaderType(t *testing.T) {
+	t.Parallel()
+
+	bc := blockchain.NewBlockChain()
+
+	hdr := &block.Block{
+		Header: &block.BlockHeader{
+			Nonce: 1,
+		},
+	}
+	hash := []byte("preserved")
+	require.NoError(t, bc.SetCurrentBlockHeader(hdr))
+	bc.SetCurrentBlockHeaderHash(hash)
+
+	err := bc.SetCurrentBlockHeaderAndHash(&mock.HeaderHandlerStub{}, []byte("ignored"))
+	assert.Equal(t, common.ErrInvalidHeaderType, err)
+
+	assert.Equal(t, hdr.Clone(), bc.GetCurrentBlockHeader())
+	assert.Equal(t, hash, bc.GetCurrentBlockHeaderHash())
+}
+
+func TestBlockChain_GetCurrentBlockHeaderAndHashAtomicPairs(t *testing.T) {
+	t.Parallel()
+
+	bc := blockchain.NewBlockChain()
+
+	hdrA := &block.Block{Header: &block.BlockHeader{Nonce: 10}}
+	hashA := []byte("hash-10")
+	hdrB := &block.Block{Header: &block.BlockHeader{Nonce: 9}}
+	hashB := []byte("hash-9")
+
+	// The pair (nonce, hash) must always be one of these two valid combinations.
+	pairs := map[uint64]string{
+		10: "hash-10",
+		9:  "hash-9",
+	}
+	require.NoError(t, bc.SetCurrentBlockHeaderAndHash(hdrA, hashA))
+
+	stop := make(chan struct{})
+	mismatch := make(chan string, 1)
+	done := make(chan struct{}, 2)
+
+	go func() {
+		defer func() { done <- struct{}{} }()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			h, hash := bc.GetCurrentBlockHeaderAndHash()
+			if h == nil {
+				continue
+			}
+			want, ok := pairs[h.GetNonce()]
+			if !ok || want != string(hash) {
+				select {
+				case mismatch <- fmt.Sprintf("nonce=%d hash=%q", h.GetNonce(), string(hash)):
+				default:
+				}
+				return
+			}
+		}
+	}()
+
+	go func() {
+		defer func() { done <- struct{}{} }()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			_ = bc.SetCurrentBlockHeaderAndHash(hdrB, hashB)
+			_ = bc.SetCurrentBlockHeaderAndHash(hdrA, hashA)
+		}
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	close(stop)
+	<-done
+	<-done
+
+	select {
+	case m := <-mismatch:
+		t.Fatalf("observed mismatched (header, hash) pair via paired-read getter: %s", m)
+	default:
+	}
+}
+
+func TestBlockChain_GetCurrentBlockHeaderAndHashEmpty(t *testing.T) {
+	t.Parallel()
+
+	bc := blockchain.NewBlockChain()
+
+	h, hash := bc.GetCurrentBlockHeaderAndHash()
+	assert.Nil(t, h)
+	assert.Nil(t, hash)
+}
+
+func TestBlockChain_SetCurrentBlockHeaderAndHashRaceClean(t *testing.T) {
+	t.Parallel()
+
+	bc := blockchain.NewBlockChain()
+
+	hdrA := &block.Block{Header: &block.BlockHeader{Nonce: 10}}
+	hashA := []byte("hash-10")
+	hdrB := &block.Block{Header: &block.BlockHeader{Nonce: 9}}
+	hashB := []byte("hash-9")
+	require.NoError(t, bc.SetCurrentBlockHeaderAndHash(hdrA, hashA))
+
+	stop := make(chan struct{})
+	done := make(chan struct{}, 2)
+
+	go func() {
+		defer func() { done <- struct{}{} }()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			_ = bc.GetCurrentBlockHeader()
+			_ = bc.GetCurrentBlockHeaderHash()
+		}
+	}()
+
+	go func() {
+		defer func() { done <- struct{}{} }()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			_ = bc.SetCurrentBlockHeaderAndHash(hdrB, hashB)
+			_ = bc.SetCurrentBlockHeaderAndHash(hdrA, hashA)
+		}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	close(stop)
+	<-done
+	<-done
 }
 
 func TestBlockChain_GetCurrentBlockRootHash(t *testing.T) {
