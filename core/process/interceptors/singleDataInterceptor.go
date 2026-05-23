@@ -1,8 +1,6 @@
 package interceptors
 
 import (
-	"errors"
-
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/network/p2p"
@@ -105,9 +103,12 @@ func (sdi *SingleDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P,
 	interceptedData, err := sdi.factory.Create(message.Data())
 	if err != nil {
 		//this situation is so severe that we need to black list the peers
-		reason := "can not create object from received bytes, topic " + sdi.topic + ", error " + err.Error()
-		sdi.antifloodHandler.BlacklistPeer(message.Peer(), reason, core.InvalidMessageBlacklistDuration)
-		sdi.antifloodHandler.BlacklistPeer(fromConnectedPeer, reason, core.InvalidMessageBlacklistDuration)
+		log.Debug("SingleDataInterceptor: factory.Create failed",
+			"topic", sdi.topic,
+			"originator", p2p.PeerIDToShortString(message.Peer()),
+			"err", process.SanitizeBlacklistReason(err.Error()))
+		sdi.antifloodHandler.BlacklistPeer(message.Peer(), process.BlacklistReasonFactoryCreateFailed, core.InvalidMessageBlacklistDuration)
+		sdi.antifloodHandler.BlacklistPeer(fromConnectedPeer, process.BlacklistReasonFactoryCreateFailed, core.InvalidMessageBlacklistDuration)
 
 		return err
 	}
@@ -118,13 +119,14 @@ func (sdi *SingleDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P,
 	if err != nil {
 		sdi.processDebugInterceptedData(interceptedData, err)
 
-		isWrongVersion := errors.Is(err, process.ErrInvalidTransactionVersion) ||
-			errors.Is(err, process.ErrInvalidChainID)
-		if isWrongVersion {
+		if process.IsWrongVersionError(err) {
 			//this situation is so severe that we need to black list de peers
-			reason := "wrong version of received intercepted data, topic " + sdi.topic + ", error " + err.Error()
-			sdi.antifloodHandler.BlacklistPeer(message.Peer(), reason, core.InvalidMessageBlacklistDuration)
-			sdi.antifloodHandler.BlacklistPeer(fromConnectedPeer, reason, core.InvalidMessageBlacklistDuration)
+			log.Debug("SingleDataInterceptor: wrong version of intercepted data",
+				"topic", sdi.topic,
+				"originator", p2p.PeerIDToShortString(message.Peer()),
+				"err", process.SanitizeBlacklistReason(err.Error()))
+			sdi.antifloodHandler.BlacklistPeer(message.Peer(), process.BlacklistReasonWrongVersion, core.InvalidMessageBlacklistDuration)
+			sdi.antifloodHandler.BlacklistPeer(fromConnectedPeer, process.BlacklistReasonWrongVersion, core.InvalidMessageBlacklistDuration)
 		}
 
 		return err
