@@ -160,15 +160,19 @@ func (bc *blockChain) GetCurrentBlockHeaderHash() []byte {
 // calling GetCurrentBlockHeader and GetCurrentBlockHeaderHash separately when
 // the (header, hash) pair must be consistent — those two calls take separate
 // RLocks and can observe an update interleaved between them.
+//
+// The returned hash is a defensive copy so callers cannot mutate the
+// backing array and corrupt the atomic snapshot.
 func (bc *blockChain) GetCurrentBlockHeaderAndHash() (data.HeaderHandler, []byte) {
 	bc.mut.RLock()
 	defer bc.mut.RUnlock()
 
+	hashCopy := append([]byte(nil), bc.currentBlockHeaderHash...)
 	if check.IfNil(bc.currentBlockHeader) {
-		return nil, bc.currentBlockHeaderHash
+		return nil, hashCopy
 	}
 
-	return bc.currentBlockHeader.Clone(), bc.currentBlockHeaderHash
+	return bc.currentBlockHeader.Clone(), hashCopy
 }
 
 // SetCurrentBlockHeaderHash returns the current block header hash
@@ -181,15 +185,20 @@ func (bc *blockChain) SetCurrentBlockHeaderHash(hash []byte) {
 // SetCurrentBlockHeaderAndHash atomically sets the current block header and its hash
 // under a single mutex acquisition, preventing concurrent readers from observing a
 // mismatched (header, hash) pair between the two updates.
+//
+// The hash bytes are defensively copied so subsequent caller-side mutation of the
+// input slice cannot corrupt the stored snapshot.
 func (bc *blockChain) SetCurrentBlockHeaderAndHash(header data.HeaderHandler, hash []byte) error {
 	clone, err := bc.prepareCurrentBlockHeader(header)
 	if err != nil {
 		return err
 	}
 
+	hashCopy := append([]byte(nil), hash...)
+
 	bc.mut.Lock()
 	bc.currentBlockHeader = clone
-	bc.currentBlockHeaderHash = hash
+	bc.currentBlockHeaderHash = hashCopy
 	bc.mut.Unlock()
 
 	return nil

@@ -195,6 +195,7 @@ func TestBlockChain_GetCurrentBlockHeaderAndHashAtomicPairs(t *testing.T) {
 
 	stop := make(chan struct{})
 	mismatch := make(chan string, 1)
+	writeErr := make(chan error, 1)
 	done := make(chan struct{}, 2)
 
 	go func() {
@@ -222,14 +223,23 @@ func TestBlockChain_GetCurrentBlockHeaderAndHashAtomicPairs(t *testing.T) {
 
 	go func() {
 		defer func() { done <- struct{}{} }()
+		recordErr := func(err error) {
+			if err == nil {
+				return
+			}
+			select {
+			case writeErr <- err:
+			default:
+			}
+		}
 		for {
 			select {
 			case <-stop:
 				return
 			default:
 			}
-			_ = bc.SetCurrentBlockHeaderAndHash(hdrB, hashB)
-			_ = bc.SetCurrentBlockHeaderAndHash(hdrA, hashA)
+			recordErr(bc.SetCurrentBlockHeaderAndHash(hdrB, hashB))
+			recordErr(bc.SetCurrentBlockHeaderAndHash(hdrA, hashA))
 			runtime.Gosched()
 		}
 	}()
@@ -242,6 +252,11 @@ func TestBlockChain_GetCurrentBlockHeaderAndHashAtomicPairs(t *testing.T) {
 	select {
 	case m := <-mismatch:
 		t.Fatalf("observed mismatched (header, hash) pair via paired-read getter: %s", m)
+	default:
+	}
+	select {
+	case err := <-writeErr:
+		t.Fatalf("writer goroutine reported error: %v", err)
 	default:
 	}
 }
@@ -268,6 +283,7 @@ func TestBlockChain_SetCurrentBlockHeaderAndHashRaceClean(t *testing.T) {
 	require.NoError(t, bc.SetCurrentBlockHeaderAndHash(hdrA, hashA))
 
 	stop := make(chan struct{})
+	writeErr := make(chan error, 1)
 	done := make(chan struct{}, 2)
 
 	go func() {
@@ -286,14 +302,23 @@ func TestBlockChain_SetCurrentBlockHeaderAndHashRaceClean(t *testing.T) {
 
 	go func() {
 		defer func() { done <- struct{}{} }()
+		recordErr := func(err error) {
+			if err == nil {
+				return
+			}
+			select {
+			case writeErr <- err:
+			default:
+			}
+		}
 		for {
 			select {
 			case <-stop:
 				return
 			default:
 			}
-			_ = bc.SetCurrentBlockHeaderAndHash(hdrB, hashB)
-			_ = bc.SetCurrentBlockHeaderAndHash(hdrA, hashA)
+			recordErr(bc.SetCurrentBlockHeaderAndHash(hdrB, hashB))
+			recordErr(bc.SetCurrentBlockHeaderAndHash(hdrA, hashA))
 			runtime.Gosched()
 		}
 	}()
@@ -302,6 +327,12 @@ func TestBlockChain_SetCurrentBlockHeaderAndHashRaceClean(t *testing.T) {
 	close(stop)
 	<-done
 	<-done
+
+	select {
+	case err := <-writeErr:
+		t.Fatalf("writer goroutine reported error: %v", err)
+	default:
+	}
 }
 
 func TestBlockChain_GetCurrentBlockRootHash(t *testing.T) {

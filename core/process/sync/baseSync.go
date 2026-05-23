@@ -888,12 +888,13 @@ func (boot *baseBootstrap) restoreState(
 
 	err := boot.chainHandler.SetCurrentBlockHeaderAndHash(currHeader, currHeaderHash)
 	if err != nil {
-		log.Debug("SetCurrentBlockHeaderAndHash", "error", err.Error())
+		// recovery path after a failed rollback — surface double-failures so ops can react
+		log.Warn("restoreState: SetCurrentBlockHeaderAndHash", "error", err.Error())
 	}
 
 	err = boot.blockProcessor.RevertStateToBlock(currHeader)
 	if err != nil {
-		log.Debug("RevertState", "error", err.Error())
+		log.Warn("restoreState: RevertStateToBlock", "error", err.Error())
 	}
 }
 

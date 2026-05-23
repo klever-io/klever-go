@@ -1483,12 +1483,19 @@ func (n *ProcessorNode) RevertOneBlock(nonce uint64) error {
 		return err
 	}
 
-	prevHash, err := tools.CalculateHash(n.InternalMarshalizer, n.Hasher, prevHeader.GetBlockHeader())
-	if err != nil {
-		return err
+	// Mirror production rollBackOneBlock: when reverting block 1 (back to
+	// genesis), clear the current pair instead of pointing at the genesis
+	// block. See core/process/sync/baseSync.go rollBackOneBlock.
+	if nonce <= 1 {
+		err = n.Blkc.SetCurrentBlockHeaderAndHash(nil, nil)
+	} else {
+		var prevHash []byte
+		prevHash, err = tools.CalculateHash(n.InternalMarshalizer, n.Hasher, prevHeader.GetBlockHeader())
+		if err != nil {
+			return err
+		}
+		err = n.Blkc.SetCurrentBlockHeaderAndHash(prevHeader, prevHash)
 	}
-
-	err = n.Blkc.SetCurrentBlockHeaderAndHash(prevHeader, prevHash)
 	if err != nil {
 		return err
 	}
