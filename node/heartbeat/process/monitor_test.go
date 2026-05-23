@@ -196,6 +196,7 @@ func TestNewMonitor_OkValsShouldCreatePubkeyMap(t *testing.T) {
 	mon, err := process.NewMonitor(arg)
 
 	assert.Nil(t, err)
+	defer mon.Close()
 	assert.False(t, check.IfNil(mon))
 
 	hbStatus := mon.GetHeartbeats()

@@ -57,6 +57,7 @@ type HeartbeatHandler struct {
 	arg              ArgHeartbeat
 	peerTypeProvider *peer.PeerTypeProvider
 	cancelFunc       func()
+	senderDone       chan struct{}
 }
 
 // NewHeartbeatHandler will create a heartbeat handler containing both a monitor and a sender
@@ -184,6 +185,7 @@ func (hbh *HeartbeatHandler) create() error {
 		return err
 	}
 
+	hbh.senderDone = make(chan struct{})
 	go hbh.startSendingHeartbeats(ctx)
 
 	return nil
@@ -204,6 +206,7 @@ func (hbh *HeartbeatHandler) getLatestValidators() ([]*state.ValidatorInfo, map[
 }
 
 func (hbh *HeartbeatHandler) startSendingHeartbeats(ctx context.Context) {
+	defer close(hbh.senderDone)
 	// #nosec G404: required for randomness
 	r := rand.New(rand.NewSource(time.Now().Unix()))
 	cfg := hbh.arg.HeartbeatConfig
@@ -263,11 +266,18 @@ func (hbh *HeartbeatHandler) Sender() *process.Sender {
 	return hbh.sender
 }
 
-// Close will close the endless running go routine
+// Close stops the heartbeat sender and monitor background goroutines and waits
+// for both to exit. Idempotent: each step (cancelFunc, channel receive on closed
+// channel, monitor.Close) is safe to repeat.
 func (hbh *HeartbeatHandler) Close() error {
 	hbh.cancelFunc()
 	log.Debug("calling close on heartbeat system")
 
+	<-hbh.senderDone
+
+	if hbh.monitor != nil {
+		return hbh.monitor.Close()
+	}
 	return nil
 }
 

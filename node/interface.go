@@ -76,6 +76,7 @@ type Accumulator interface {
 type HeartbeatHandler interface {
 	Monitor() *process.Monitor
 	Sender() *process.Sender
+	Close() error
 	IsInterfaceNil() bool
 }
 

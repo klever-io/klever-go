@@ -60,6 +60,9 @@ type Monitor struct {
 	validatorPubkeyConverter           core.PubkeyConverter
 	heartbeatRefreshIntervalInSec      uint32
 	hideInactiveValidatorIntervalInSec uint32
+	stopCh                             chan struct{}
+	wg                                 sync.WaitGroup
+	closeOnce                          sync.Once
 }
 
 // NewMonitor returns a new monitor instance
@@ -110,6 +113,7 @@ func NewMonitor(arg ArgHeartbeatMonitor) (*Monitor, error) {
 		heartbeatRefreshIntervalInSec:      arg.HeartbeatRefreshIntervalInSec,
 		hideInactiveValidatorIntervalInSec: arg.HideInactiveValidatorIntervalInSec,
 		doubleSignerPeers:                  make(map[string]process.TimeCacher),
+		stopCh:                             make(chan struct{}),
 	}
 
 	err := mon.storer.UpdateGenesisTime(arg.GenesisTime)
@@ -540,14 +544,32 @@ func (m *Monitor) convertFromExportedStruct(hbDTO *data.HeartbeatDTO, maxDuratio
 
 // startValidatorProcessing will start the updating of the information about the nodes
 func (m *Monitor) startValidatorProcessing() {
+	m.wg.Add(1)
 	go func() {
+		defer m.wg.Done()
 		refreshInterval := time.Duration(m.heartbeatRefreshIntervalInSec) * time.Second
+		ticker := time.NewTicker(refreshInterval)
+		defer ticker.Stop()
 
 		for {
-			m.refreshHeartbeatMessageInfo()
-			time.Sleep(refreshInterval)
+			select {
+			case <-m.stopCh:
+				return
+			case <-ticker.C:
+				m.refreshHeartbeatMessageInfo()
+			}
 		}
 	}()
+}
+
+// Close will stop the background processing goroutine and wait for it to exit.
+// Safe to call multiple times; subsequent calls are no-ops.
+func (m *Monitor) Close() error {
+	m.closeOnce.Do(func() {
+		close(m.stopCh)
+	})
+	m.wg.Wait()
+	return nil
 }
 
 func (m *Monitor) refreshHeartbeatMessageInfo() {

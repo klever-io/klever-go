@@ -227,6 +227,12 @@ func (n *Node) GetPeerHonestyHandler() consensus.PeerHonestyHandler {
 	return n.peerHonestyHandler
 }
 
+// GetHeartbeatHandler returns the heartbeat handler attached to this node.
+// Returned for shutdown wiring so the caller can Close it on process exit.
+func (n *Node) GetHeartbeatHandler() HeartbeatHandler {
+	return n.heartbeatHandler
+}
+
 // CreateStores instantiate cachers for Transactions and Headers
 func (n *Node) CreateStores() error {
 	if n.dataPool == nil {

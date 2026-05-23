@@ -69,6 +69,7 @@ func TestMonitor_ObserverGapValidatorOffline(t *testing.T) {
 
 	genesisTime := timer.Now()
 	mon1 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon1.Close()
 	time.Sleep(sleepDuration)
 	timer.SetSeconds(tenSeconds)
 	mon1.RefreshHeartbeatMessageInfo()
@@ -82,6 +83,7 @@ func TestMonitor_ObserverGapValidatorOffline(t *testing.T) {
 
 	timer.SetSeconds(hundredSeconds)
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon2.Close()
 
 	time.Sleep(sleepDuration)
 	timer.SetSeconds(hundredFiftySeconds)
@@ -108,6 +110,7 @@ func TestMonitor_ObserverGapValidatorOnline(t *testing.T) {
 	genesisTime := timer.Now()
 
 	mon1 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon1.Close()
 	mon1.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
 
 	mon1.RefreshHeartbeatMessageInfo()
@@ -127,6 +130,7 @@ func TestMonitor_ObserverGapValidatorOnline(t *testing.T) {
 
 	timer.SetSeconds(hundredSeconds)
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon2.Close()
 	mon2.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
 	mon2.RefreshHeartbeatMessageInfo()
 	heartBeats = mon2.GetHeartbeats()
@@ -158,6 +162,7 @@ func TestMonitor_ObserverGapValidatorActiveUnitlMaxPeriodEnds(t *testing.T) {
 	genesisTime := timer.Now()
 
 	mon1 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon1.Close()
 	mon1.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
 	mon1.RefreshHeartbeatMessageInfo()
 	heartBeats := mon1.GetHeartbeats()
@@ -198,6 +203,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline1(t *testing.T) {
 	genesisTime := timer.Now()
 
 	mon1 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon1.Close()
 	mon1.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
 
 	mon1.RefreshHeartbeatMessageInfo()
@@ -217,6 +223,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline1(t *testing.T) {
 
 	timer.SetSeconds(hundredSeconds)
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon2.Close()
 	time.Sleep(20 * time.Millisecond)
 	mon2.RefreshHeartbeatMessageInfo()
 	heartBeats = mon2.GetHeartbeats()
@@ -251,6 +258,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline2(t *testing.T) {
 	genesisTime := timer.Now()
 
 	mon1 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon1.Close()
 	mon1.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
 
 	mon1.RefreshHeartbeatMessageInfo()
@@ -273,6 +281,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline2(t *testing.T) {
 
 	timer.SetSeconds(hundredSeconds)
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon2.Close()
 
 	mon2.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
 	mon2.RefreshHeartbeatMessageInfo()
@@ -304,6 +313,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline3(t *testing.T) {
 	genesisTime := timer.Now()
 
 	mon1 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon1.Close()
 	mon1.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
 
 	mon1.RefreshHeartbeatMessageInfo()
@@ -324,6 +334,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline3(t *testing.T) {
 
 	timer.SetSeconds(hundredSeconds)
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon2.Close()
 	mon2.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
 	mon2.RefreshHeartbeatMessageInfo()
 	heartBeats = mon2.GetHeartbeats()
@@ -357,6 +368,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline4(t *testing.T) {
 	genesisTime := timer.Now()
 
 	mon1 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon1.Close()
 	time.Sleep(20 * time.Millisecond)
 	mon1.RefreshHeartbeatMessageInfo()
 	heartBeats := mon1.GetHeartbeats()
@@ -376,6 +388,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline4(t *testing.T) {
 
 	timer.SetSeconds(hundredSeconds)
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon2.Close()
 	mon2.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
 	mon2.RefreshHeartbeatMessageInfo()
 	heartBeats = mon2.GetHeartbeats()
@@ -407,6 +420,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline5(t *testing.T) {
 	genesisTime := timer.Now()
 
 	mon1 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon1.Close()
 	heartBeats := mon1.GetHeartbeats()
 	verifyHeartBeat(t, heartBeats[0], false, 0, 0)
 
@@ -424,6 +438,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline5(t *testing.T) {
 
 	timer.SetSeconds(hundredSeconds)
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon2.Close()
 	mon2.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
 	mon2.RefreshHeartbeatMessageInfo()
 	heartBeats = mon2.GetHeartbeats()
@@ -459,6 +474,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline6(t *testing.T) {
 	genesisTime := timer.Now()
 
 	mon1 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon1.Close()
 	time.Sleep(20 * time.Millisecond)
 	mon1.RefreshHeartbeatMessageInfo()
 	heartBeats := mon1.GetHeartbeats()
@@ -476,6 +492,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline6(t *testing.T) {
 
 	timer.SetSeconds(hundredSeconds)
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon2.Close()
 	mon2.RefreshHeartbeatMessageInfo()
 	heartBeats = mon2.GetHeartbeats()
 	verifyHeartBeat(t, heartBeats[0], false, 0, 100)
@@ -506,6 +523,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline7(t *testing.T) {
 	genesisTime := timer.Now()
 
 	mon1 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon1.Close()
 	mon1.RefreshHeartbeatMessageInfo()
 	mon1.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
 	heartBeats := mon1.GetHeartbeats()
@@ -524,6 +542,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline7(t *testing.T) {
 
 	timer.SetSeconds(hundredSeconds)
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
+	defer mon2.Close()
 	mon2.RefreshHeartbeatMessageInfo()
 	heartBeats = mon2.GetHeartbeats()
 	verifyHeartBeat(t, heartBeats[0], true, 100, 0)
