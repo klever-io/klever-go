@@ -24,6 +24,14 @@ const (
 // amplification through the log shipper.
 const MaxSanitizedBlacklistReason = 256
 
+// MaxSanitizeScanRunes caps how many runes SanitizeBlacklistReason will examine
+// in the input. Without this, a long string of all-stripped runes (e.g. all
+// control chars) would force O(len(s)) work even though the output cap never
+// triggers — CPU/time amplification. 4× the output cap allows a generous 75 %
+// strip ratio for legitimate verbose error strings while bounding worst-case
+// work at a constant.
+const MaxSanitizeScanRunes = MaxSanitizedBlacklistReason * 4
+
 // SanitizeBlacklistReason strips control characters and Unicode "format" runes
 // from s and caps the result at MaxSanitizedBlacklistReason runes. The filter
 // removes:
@@ -34,12 +42,21 @@ const MaxSanitizedBlacklistReason = 256
 //     U+FEFF BOM;
 //   - U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR, which some log
 //     shippers treat as record separators.
+//
+// The function bounds total work at MaxSanitizeScanRunes input runes so a
+// pathological input cannot force unbounded iteration even when every rune
+// gets stripped.
 func SanitizeBlacklistReason(s string) string {
 	if s == "" {
 		return s
 	}
 	out := make([]rune, 0, min(len(s), MaxSanitizedBlacklistReason))
+	scanned := 0
 	for _, r := range s {
+		scanned++
+		if scanned > MaxSanitizeScanRunes {
+			break
+		}
 		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029' {
 			continue
 		}

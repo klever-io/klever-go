@@ -26,7 +26,9 @@ const blacklistInjectionPayload = "\r\n2026-05-03 INFO  fake admin login from 10
 
 func assertCleanBlacklistReason(t *testing.T, reasons []string, want string) {
 	t.Helper()
-	require.NotEmpty(t, reasons, "expected at least one BlacklistPeer call")
+	// Every M5 site blacklists BOTH the originator and the connected peer; a
+	// regression that drops one of the two calls must not slip through.
+	require.Len(t, reasons, 2, "expected exactly two BlacklistPeer calls (originator + connected peer)")
 	for i, r := range reasons {
 		assert.Equal(t, want, r, "reason[%d] must be the fixed enumerator", i)
 		assert.NotContains(t, r, "fake admin login", "reason[%d] must not carry attacker err string", i)
