@@ -33,13 +33,11 @@ func TestHeartbeatHandler_CloseStopsMonitorGoroutine(t *testing.T) {
 	assert.Nil(t, err)
 	require.NotNil(t, hbh.Monitor())
 
-	// Let the monitor goroutine actually start and park in its select.
-	time.Sleep(100 * time.Millisecond)
-	runtime.Gosched()
-
-	monGoroutinesBefore := countHeartbeatGoroutines(t, "startValidatorProcessing")
-	t.Logf("monitor goroutines BEFORE close: %d", monGoroutinesBefore)
-	require.GreaterOrEqual(t, monGoroutinesBefore, 1,
+	// Wait until the monitor goroutine is visible in pprof.
+	require.Eventually(t, func() bool {
+		runtime.Gosched()
+		return countHeartbeatGoroutines(t, "startValidatorProcessing") >= 1
+	}, 2*time.Second, 10*time.Millisecond,
 		"expected at least one monitor goroutine after construction")
 
 	// Call Close with a watchdog so we fail loudly if Wait() blocks forever.
@@ -53,15 +51,12 @@ func TestHeartbeatHandler_CloseStopsMonitorGoroutine(t *testing.T) {
 		t.Fatal("hbh.Close did not return within 5s — monitor.Close() blocked on wg.Wait")
 	}
 
-	// Allow scheduler to reflect the exit in pprof.
-	time.Sleep(100 * time.Millisecond)
-	runtime.GC()
-	runtime.Gosched()
-
-	monGoroutinesAfter := countHeartbeatGoroutines(t, "startValidatorProcessing")
-	t.Logf("monitor goroutines AFTER close: %d", monGoroutinesAfter)
-
-	assert.Equal(t, 0, monGoroutinesAfter,
+	// Wait until pprof reflects the goroutine exit.
+	require.Eventually(t, func() bool {
+		runtime.GC()
+		runtime.Gosched()
+		return countHeartbeatGoroutines(t, "startValidatorProcessing") == 0
+	}, 2*time.Second, 10*time.Millisecond,
 		"monitor goroutine should be gone after HeartbeatHandler.Close")
 }
 

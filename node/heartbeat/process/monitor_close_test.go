@@ -34,7 +34,8 @@ func (w *logWriter) Write(p []byte) (int, error) {
 func TestMonitor_CloseStopsGoroutine(t *testing.T) {
 	// No t.Parallel: depends on global goroutine count.
 
-	storer, _ := storage.NewHeartbeatDbStorer(mock.NewStorerMock(), &mock.MarshalizerMock{})
+	storer, err := storage.NewHeartbeatDbStorer(mock.NewStorerMock(), &mock.MarshalizerMock{})
+	require.NoError(t, err)
 	timer := mock.NewTimerMock()
 	genesisTime := timer.Now()
 
@@ -43,44 +44,32 @@ func TestMonitor_CloseStopsGoroutine(t *testing.T) {
 
 	mon := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
 
-	// Give the goroutine a moment to actually start and park in select
-	time.Sleep(50 * time.Millisecond)
-	runtime.Gosched()
+	// Wait until the new goroutine is visible in pprof.
+	require.Eventually(t, func() bool {
+		runtime.Gosched()
+		return countMonitorGoroutines(t) > before
+	}, 2*time.Second, 10*time.Millisecond,
+		"expected new startValidatorProcessing goroutine to appear")
 
-	afterCreate := countMonitorGoroutines(t)
-	t.Logf("monitor goroutines AFTER create: %d", afterCreate)
-
-	if afterCreate <= before {
-		t.Fatalf("expected new startValidatorProcessing goroutine to appear, before=%d after=%d", before, afterCreate)
-	}
-
-	// Now call Close and verify the goroutine actually exits
+	// Now call Close and verify the goroutine actually exits.
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- mon.Close() }()
 
 	select {
 	case err := <-closeDone:
-		if err != nil {
-			t.Fatalf("Close returned error: %v", err)
-		}
+		require.NoError(t, err, "Close returned error")
 	case <-time.After(5 * time.Second):
 		t.Fatal("Close did not return within 5s — goroutine leak / Wait blocked forever")
 	}
 
-	// Give scheduler a tick to reflect the goroutine exit in pprof
-	time.Sleep(50 * time.Millisecond)
-	runtime.Gosched()
-
-	afterClose := countMonitorGoroutines(t)
-	t.Logf("monitor goroutines AFTER close: %d", afterClose)
-
-	if afterClose != before {
-		// Dump goroutines to show what's still around
-		var dump strings.Builder
-		_ = pprof.Lookup("goroutine").WriteTo(&logWriter{&dump}, 1)
-		t.Fatalf("goroutine did not exit on Close: before=%d, afterClose=%d\n%s",
-			before, afterClose, dump.String())
-	}
+	// Wait until pprof reflects the goroutine exit. Use non-increase rather than
+	// strict equality to tolerate other tests' goroutines on the global count.
+	require.Eventually(t, func() bool {
+		runtime.GC()
+		runtime.Gosched()
+		return countMonitorGoroutines(t) <= before
+	}, 2*time.Second, 10*time.Millisecond,
+		"goroutine did not exit on Close")
 }
 
 func TestMonitor_CloseDoesNotHangOnFreshMonitor(t *testing.T) {
@@ -88,21 +77,19 @@ func TestMonitor_CloseDoesNotHangOnFreshMonitor(t *testing.T) {
 	// returns promptly and does not block on wg.Wait().
 	t.Parallel()
 
-	storer, _ := storage.NewHeartbeatDbStorer(mock.NewStorerMock(), &mock.MarshalizerMock{})
+	storer, err := storage.NewHeartbeatDbStorer(mock.NewStorerMock(), &mock.MarshalizerMock{})
+	require.NoError(t, err)
 	timer := mock.NewTimerMock()
 	genesisTime := timer.Now()
 
 	mon := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
 
-	done := make(chan struct{})
-	go func() {
-		_ = mon.Close()
-		close(done)
-	}()
+	closeErr := make(chan error, 1)
+	go func() { closeErr <- mon.Close() }()
 
 	select {
-	case <-done:
-		// Good — Close completed
+	case err := <-closeErr:
+		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("Close hung even before any ticker fire")
 	}
@@ -113,7 +100,8 @@ func TestMonitor_CloseIsIdempotent(t *testing.T) {
 	// (close-of-closed-channel) and returns nil on every call.
 	t.Parallel()
 
-	storer, _ := storage.NewHeartbeatDbStorer(mock.NewStorerMock(), &mock.MarshalizerMock{})
+	storer, err := storage.NewHeartbeatDbStorer(mock.NewStorerMock(), &mock.MarshalizerMock{})
+	require.NoError(t, err)
 	timer := mock.NewTimerMock()
 	genesisTime := timer.Now()
 
@@ -131,7 +119,8 @@ func TestMonitor_ConcurrentClose(t *testing.T) {
 	// Validates the sync.Once guard works correctly under contention.
 	t.Parallel()
 
-	storer, _ := storage.NewHeartbeatDbStorer(mock.NewStorerMock(), &mock.MarshalizerMock{})
+	storer, err := storage.NewHeartbeatDbStorer(mock.NewStorerMock(), &mock.MarshalizerMock{})
+	require.NoError(t, err)
 	timer := mock.NewTimerMock()
 	genesisTime := timer.Now()
 
@@ -175,32 +164,35 @@ func TestMonitor_NoGoroutineLeakAcrossManyCreates(t *testing.T) {
 	// Create and Close 50 monitors; verify no accumulation of startValidatorProcessing goroutines.
 	// No t.Parallel: depends on global goroutine count.
 
-	storer, _ := storage.NewHeartbeatDbStorer(mock.NewStorerMock(), &mock.MarshalizerMock{})
+	storer, err := storage.NewHeartbeatDbStorer(mock.NewStorerMock(), &mock.MarshalizerMock{})
+	require.NoError(t, err)
 	timer := mock.NewTimerMock()
 	genesisTime := timer.Now()
 
 	before := countMonitorGoroutines(t)
 
+	const cycles = 50
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	closeErrs := make(chan error, cycles)
+	for i := 0; i < cycles; i++ {
 		mon := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = mon.Close()
+			closeErrs <- mon.Close()
 		}()
 	}
 	wg.Wait()
-
-	// Allow scheduler to clean up
-	time.Sleep(100 * time.Millisecond)
-	runtime.GC()
-	runtime.Gosched()
-
-	after := countMonitorGoroutines(t)
-	t.Logf("monitor goroutines: before=%d after=%d", before, after)
-
-	if after > before {
-		t.Fatalf("goroutine leak detected: %d extra goroutines after 50 create/close cycles", after-before)
+	close(closeErrs)
+	for err := range closeErrs {
+		require.NoError(t, err)
 	}
+
+	// Wait until the global count drops back to baseline (non-increase).
+	require.Eventually(t, func() bool {
+		runtime.GC()
+		runtime.Gosched()
+		return countMonitorGoroutines(t) <= before
+	}, 2*time.Second, 10*time.Millisecond,
+		"goroutine leak detected after %d create/close cycles", cycles)
 }
