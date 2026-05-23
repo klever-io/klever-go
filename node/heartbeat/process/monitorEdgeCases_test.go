@@ -82,7 +82,7 @@ func TestMonitor_ObserverGapValidatorOffline(t *testing.T) {
 	verifyHeartBeat(t, heartBeats[0], false, 0, 20)
 
 	timer.SetSeconds(hundredSeconds)
-	mon1.Close() // explicit shutdown before mon2 — models a node restart
+	assert.NoError(t, mon1.Close()) // explicit shutdown before mon2 — models a node restart
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
 	defer mon2.Close()
 
@@ -130,7 +130,7 @@ func TestMonitor_ObserverGapValidatorOnline(t *testing.T) {
 	verifyHeartBeat(t, heartBeats[0], true, 20, 0)
 
 	timer.SetSeconds(hundredSeconds)
-	mon1.Close() // explicit shutdown before mon2 — models a node restart
+	assert.NoError(t, mon1.Close()) // explicit shutdown before mon2 — models a node restart
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
 	defer mon2.Close()
 	mon2.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
@@ -224,7 +224,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline1(t *testing.T) {
 	verifyHeartBeat(t, heartBeats[0], true, 20, 0)
 
 	timer.SetSeconds(hundredSeconds)
-	mon1.Close() // explicit shutdown before mon2 — models a node restart
+	assert.NoError(t, mon1.Close()) // explicit shutdown before mon2 — models a node restart
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
 	defer mon2.Close()
 	time.Sleep(20 * time.Millisecond)
@@ -283,7 +283,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline2(t *testing.T) {
 	time.Sleep(sleepDuration)
 
 	timer.SetSeconds(hundredSeconds)
-	mon1.Close() // explicit shutdown before mon2 — models a node restart
+	assert.NoError(t, mon1.Close()) // explicit shutdown before mon2 — models a node restart
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
 	defer mon2.Close()
 
@@ -337,7 +337,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline3(t *testing.T) {
 	verifyHeartBeat(t, heartBeats[0], true, 20, 0)
 
 	timer.SetSeconds(hundredSeconds)
-	mon1.Close() // explicit shutdown before mon2 — models a node restart
+	assert.NoError(t, mon1.Close()) // explicit shutdown before mon2 — models a node restart
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
 	defer mon2.Close()
 	mon2.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
@@ -392,7 +392,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline4(t *testing.T) {
 	verifyHeartBeat(t, heartBeats[0], true, 10, 10)
 
 	timer.SetSeconds(hundredSeconds)
-	mon1.Close() // explicit shutdown before mon2 — models a node restart
+	assert.NoError(t, mon1.Close()) // explicit shutdown before mon2 — models a node restart
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
 	defer mon2.Close()
 	mon2.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
@@ -443,7 +443,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline5(t *testing.T) {
 	verifyHeartBeat(t, heartBeats[0], true, 10, 10)
 
 	timer.SetSeconds(hundredSeconds)
-	mon1.Close() // explicit shutdown before mon2 — models a node restart
+	assert.NoError(t, mon1.Close()) // explicit shutdown before mon2 — models a node restart
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
 	defer mon2.Close()
 	mon2.AddHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
@@ -498,7 +498,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline6(t *testing.T) {
 	verifyHeartBeat(t, heartBeats[0], false, 0, 20)
 
 	timer.SetSeconds(hundredSeconds)
-	mon1.Close() // explicit shutdown before mon2 — models a node restart
+	assert.NoError(t, mon1.Close()) // explicit shutdown before mon2 — models a node restart
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
 	defer mon2.Close()
 	mon2.RefreshHeartbeatMessageInfo()
@@ -549,7 +549,7 @@ func TestMonitor_ObserverGapValidatorPartlyOnline7(t *testing.T) {
 	verifyHeartBeat(t, heartBeats[0], true, 20, 0)
 
 	timer.SetSeconds(hundredSeconds)
-	mon1.Close() // explicit shutdown before mon2 — models a node restart
+	assert.NoError(t, mon1.Close()) // explicit shutdown before mon2 — models a node restart
 	mon2 := createMonitor(storer, genesisTime, unresponsiveDuration, timer)
 	defer mon2.Close()
 	mon2.RefreshHeartbeatMessageInfo()
