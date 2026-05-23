@@ -2,6 +2,7 @@ package blockchain_test
 
 import (
 	"fmt"
+	"runtime"
 	"testing"
 	"time"
 
@@ -205,17 +206,17 @@ func TestBlockChain_GetCurrentBlockHeaderAndHashAtomicPairs(t *testing.T) {
 			default:
 			}
 			h, hash := bc.GetCurrentBlockHeaderAndHash()
-			if h == nil {
-				continue
-			}
-			want, ok := pairs[h.GetNonce()]
-			if !ok || want != string(hash) {
-				select {
-				case mismatch <- fmt.Sprintf("nonce=%d hash=%q", h.GetNonce(), string(hash)):
-				default:
+			if h != nil {
+				want, ok := pairs[h.GetNonce()]
+				if !ok || want != string(hash) {
+					select {
+					case mismatch <- fmt.Sprintf("nonce=%d hash=%q", h.GetNonce(), string(hash)):
+					default:
+					}
+					return
 				}
-				return
 			}
+			runtime.Gosched()
 		}
 	}()
 
@@ -229,6 +230,7 @@ func TestBlockChain_GetCurrentBlockHeaderAndHashAtomicPairs(t *testing.T) {
 			}
 			_ = bc.SetCurrentBlockHeaderAndHash(hdrB, hashB)
 			_ = bc.SetCurrentBlockHeaderAndHash(hdrA, hashA)
+			runtime.Gosched()
 		}
 	}()
 
@@ -278,6 +280,7 @@ func TestBlockChain_SetCurrentBlockHeaderAndHashRaceClean(t *testing.T) {
 			}
 			_ = bc.GetCurrentBlockHeader()
 			_ = bc.GetCurrentBlockHeaderHash()
+			runtime.Gosched()
 		}
 	}()
 
@@ -291,6 +294,7 @@ func TestBlockChain_SetCurrentBlockHeaderAndHashRaceClean(t *testing.T) {
 			}
 			_ = bc.SetCurrentBlockHeaderAndHash(hdrB, hashB)
 			_ = bc.SetCurrentBlockHeaderAndHash(hdrA, hashA)
+			runtime.Gosched()
 		}
 	}()
 

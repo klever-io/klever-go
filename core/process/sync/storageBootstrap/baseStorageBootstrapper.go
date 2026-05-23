@@ -391,7 +391,7 @@ func (st *storageBootstrapper) restoreBlockChainToGenesis() {
 
 	err = st.blkc.SetCurrentBlockHeaderAndHash(nil, nil)
 	if err != nil {
-		log.Debug("cannot set current block header", "error", err.Error())
+		log.Debug("cannot set current block header and hash", "error", err.Error())
 	}
 }
 

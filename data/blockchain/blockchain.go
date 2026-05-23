@@ -69,7 +69,7 @@ func (bc *blockChain) prepareCurrentBlockHeader(header data.HeaderHandler) (data
 		return nil, common.ErrInvalidHeaderType
 	}
 
-	log.Trace("SetCurrentBlockHeader", "nonce", h.Header.Nonce)
+	log.Trace("setCurrentBlockHeader", "nonce", h.Header.Nonce)
 
 	bc.appStatusHandler.SetUInt64Value(core.MetricSynchronizedSlot, h.Header.Slot)
 	bc.appStatusHandler.SetUInt64Value(core.MetricNonce, h.Header.Nonce)
