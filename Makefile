@@ -24,7 +24,7 @@
 #   make all                    Run validator node (default log level)
 #   make debug                  Run node in debug mode
 #   make tests-unit             Run unit tests
-#   make profile                Run node with pprof on :8080 (see pprof-* targets)
+#   make profile                Run node with pprof on 127.0.0.1:8080 (see pprof-* targets)
 #   make docker-build           Build Debian Docker image (see docker/Makefile)
 #   make help                   List every available target
 #
@@ -105,7 +105,7 @@ GOBUILD=$(GOCMD) build $(GO_BUILD_FLAGS) -ldflags="$(ldflags) -extldflags '-Wl,-
 help: ## Show this help message
 	@echo "Klever Blockchain - Available Make Targets"
 	@echo ""
-	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[36m%-25s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:[^#]*##/ { printf "  \033[36m%-25s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 version: ## Print the build version string (git describe)
 	@echo $(VERSION)
