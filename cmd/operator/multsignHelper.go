@@ -62,11 +62,18 @@ func getMSApiTransaction(hash string) (*MSApiTransaction, error) {
 	return &result, nil
 }
 func doSignAndPost(tx *MSApiTransaction) error {
+	authorized := false
 	for _, signer := range tx.Signers {
-		if signer.Address == signerAddress && signer.Signed {
-			fmt.Printf("Transaction %s has already been signed by %s \n", tx.Hash, signerAddress)
-			return nil
+		if signer.Address == signerAddress {
+			if signer.Signed {
+				fmt.Printf("Transaction %s has already been signed by %s \n", tx.Hash, signerAddress)
+				return nil
+			}
+			authorized = true
 		}
+	}
+	if !authorized {
+		return fmt.Errorf("signer %s is not required to sign transaction %s", signerAddress, tx.Hash)
 	}
 	_, err := SignTX(tx.Raw)
 	if err != nil {

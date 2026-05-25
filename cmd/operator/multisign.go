@@ -183,7 +183,9 @@ operator ms sign            — interactively choose from pending transactions`,
 					signed := false
 					currSignatures := (int64)(0)
 					currSignatureWeight := (int64)(0)
+					txType := "<unknown>"
 					for _, signer := range tx.Signers {
+
 						if !signer.Signed {
 							continue
 						}
@@ -192,12 +194,23 @@ operator ms sign            — interactively choose from pending transactions`,
 						}
 						currSignatures++
 						currSignatureWeight += signer.Weight
+
 					}
+					if tx.Raw != nil && tx.Raw.RawData != nil {
+						contracts := tx.Raw.RawData.GetContract()
+						if len(contracts) > 0 {
+							parts := strings.SplitN(contracts[0].GetParameter().TypeUrl, "proto.", 2)
+							if len(parts) == 2 {
+								txType = parts[1]
+							}
+						}
+					}
+
 					pages[currPage] = append(pages[currPage], &display.LineData{Values: []string{
 						fmt.Sprintf("%d", len(pages[currPage])),
 						tx.Hash,
 						tx.Address,
-						strings.Split(tx.Raw.RawData.GetContract()[0].GetParameter().TypeUrl, "proto.")[1],
+						txType,
 						fmt.Sprintf("%d/%d", currSignatures, len(tx.Signers)),
 						fmt.Sprintf("%d/%d", currSignatureWeight, tx.Threshold),
 						fmt.Sprintf("%t", signed),
@@ -231,7 +244,9 @@ operator ms sign            — interactively choose from pending transactions`,
 				ln += ", [q]uit \n Input: "
 				fmt.Print(ln)
 				var input string
-				fmt.Scan(&input)
+				if _, err := fmt.Scan(&input); err != nil {
+					return fmt.Errorf("read transaction selection: %w", err)
+				}
 				idx, nanErr := strconv.Atoi(input)
 				switch {
 				case nanErr == nil && idx >= 0 && idx < len(pages[currPage]):
