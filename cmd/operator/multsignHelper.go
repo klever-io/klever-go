@@ -43,10 +43,9 @@ type MSApiTransaction struct {
 	Raw *transaction.Transaction `json:"raw"`
 }
 
-func pendingMsTransactionPicker(txs *[]MSApiTransaction) (*MSApiTransaction, error) {
+func buildTransactionPickerPages(txs *[]MSApiTransaction, perPage int) [][]*display.LineData {
 	pages := [][]*display.LineData{make([]*display.LineData, 0)}
 	currPage := 0
-	perPage := 3
 	for _, tx := range *txs {
 		if len(pages[currPage]) >= perPage {
 			currPage++
@@ -77,7 +76,6 @@ func pendingMsTransactionPicker(txs *[]MSApiTransaction) (*MSApiTransaction, err
 				}
 			}
 		}
-
 		pages[currPage] = append(pages[currPage], &display.LineData{Values: []string{
 			fmt.Sprintf("%d", len(pages[currPage])),
 			tx.Hash,
@@ -88,19 +86,33 @@ func pendingMsTransactionPicker(txs *[]MSApiTransaction) (*MSApiTransaction, err
 			fmt.Sprintf("%t", signed),
 		}})
 	}
+	return pages
+}
+func buildPageString(lines []*display.LineData, currPage int, pagesCount int) (string, error) {
+	ln, err := display.CreateTableString([]string{"#", "hash", "address", "type", "signers", "weight", "signed"}, lines)
+	if err != nil {
+		return "", err
+	}
+	ln += fmt.Sprintf("\n Page %d/%d [0-%d]: Select Transaction", currPage+1, pagesCount, len(lines)-1)
+	if currPage > 0 {
+		ln += ", [p]revious page"
+	}
+	if currPage < pagesCount-1 {
+		ln += ", [n]ext page"
+	}
+	ln += ", [q]uit \n Input: "
+	return ln, nil
+}
+func pendingMsTransactionPicker(txs *[]MSApiTransaction) (*MSApiTransaction, error) {
+	perPage := 3
+	pages := buildTransactionPickerPages(txs, perPage)
+	currPage := 0
 	for {
-		ln, err := display.CreateTableString([]string{"#", "hash", "address", "type", "signers", "weight", "signed"}, pages[currPage])
+		ln, err := buildPageString(pages[currPage], currPage, len(pages))
 		if err != nil {
 			return nil, err
 		}
-		ln += fmt.Sprintf("\n Page %d/%d [0-%d]: Select Transaction", currPage+1, len(pages), len(pages[currPage])-1)
-		if currPage > 0 {
-			ln += ", [p]revious page"
-		}
-		if currPage < len(pages)-1 {
-			ln += ", [n]ext page"
-		}
-		ln += ", [q]uit \n Input: "
+
 		fmt.Print(ln)
 		var input string
 		if _, err := fmt.Scan(&input); err != nil {
