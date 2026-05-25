@@ -225,7 +225,7 @@ operator ms sign            — interactively choose from pending transactions`,
 			}
 			pushToTable(result)
 			currPage = 0
-			if pages[currPage] == nil || len(pages[currPage]) == 0 {
+			if len(pages[currPage]) == 0 {
 				fmt.Printf("no pending transactions found for signing for address %s \n", signerAddress)
 				return nil
 			}

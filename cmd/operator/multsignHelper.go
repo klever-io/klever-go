@@ -87,7 +87,10 @@ func doSignAndPost(tx *MSApiTransaction) error {
 	if !multisignYes {
 		fmt.Printf("Transaction %s is ready to be signed. Do you want to post the signed transaction? (y/n): ", tx.Hash)
 		var input string
-		fmt.Scanln(&input)
+		_, err := fmt.Scanln(&input)
+		if err != nil {
+			return err
+		}
 		input = strings.ToLower(strings.TrimSpace(input))
 		if input != "y" {
 			fmt.Println("aborting")
