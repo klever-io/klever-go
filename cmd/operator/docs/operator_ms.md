@@ -1,15 +1,15 @@
 # operator ms
 
-Summary
--------
+## Summary
+
 Multisign actions: helpers to decode/encode multisign API data, append transactions to the multisign service, request broadcasts, fetch transactions, and sign pending multisign transactions.
 
-Usage
------
+## Usage
+
 `operator ms [command]`
 
-Subcommands
------------
+## Subcommands
+
 - `decode [Transaction]` — decode a transaction JSON and display its raw form.
 - `encode [Transaction]` — encode a transaction from multisign API format into the operator's encoded form.
 - `append [Transaction]` — append transaction data into the multisign API (accepts raw TX JSON or already-encoded multisign API data).
@@ -18,16 +18,17 @@ Subcommands
 - `by-address [Address]` — list transactions for a given address from the multisign API.
 - `sign [txHash]` — sign a multisign transaction and post the signature to the multisign API.
 
-Flags
------
+## Flags
+
 - `--multisign-api` — multisign API URL (default: `https://multisign.mainnet.klever.org`). This flag is persistent on the `ms` command.
 - `--yes`, `-y` — skip the confirmation prompt (useful for scripts / non-interactive use).
 
-Important note about `sign`
----------------------------
+## Important note about `sign`
+
 The `operator ms sign` command fetches a pending multisign transaction, signs it with the operator's private key, and posts the signed data (the signature) back to the multisign service. It does NOT broadcast or execute the transaction on-chain itself. "Posting the signature" means submitting the operator's signature to the multisign API so the multisign service can collect signatures and, separately, perform any broadcast when configured or requested.
 
-Examples
+## Examples
+
 --------
 - Sign a specific transaction by hash (posts signature to multisign API):
 ```
