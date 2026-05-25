@@ -105,6 +105,17 @@ func TestDoSignAndPost_AlreadySigned(t *testing.T) {
 }
 
 func TestDoSignAndPost_AutoSign_Success(t *testing.T) {
+	prevAutoSign := autoSign
+	prevSignerAddress := signerAddress
+	prevPrivateKey := privateKey
+	prevMSAPI := multisignAPI
+	t.Cleanup(func() {
+		autoSign = prevAutoSign
+		signerAddress = prevSignerAddress
+		privateKey = prevPrivateKey
+		multisignAPI = prevMSAPI
+	})
+
 	autoSign = true
 	signerAddress = "addr_A"
 	_, rawPriv, _ := ed25519.GenerateKey(nil)

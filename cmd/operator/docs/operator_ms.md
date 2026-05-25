@@ -20,7 +20,7 @@ operator ms [flags]
   -c, --create-only               only create transaction to be signed later
       --fromAddress string        overwrite fromAddress
       --kdaFee string             use KDA to pay for fees
-  -k, --key-file string           set walelt pem file --key-file=./walletKey.pem (default "./walletKey.pem")
+  -k, --key-file string           set wallet pem file --key-file=./walletKey.pem (default "./walletKey.pem")
       --message stringArray       set TX message --message="MyMessage"
   -m, --multi-files stringArray   add more files to sign tx. Ex: -m=./file.pem -m=./file2.pem
   -n, --node string               entrypoint to node API --node=https://node.testnet.klever.org (default "http://localhost:8080")
@@ -38,7 +38,7 @@ operator ms [flags]
 
 * [operator](operator.md)	 - Klever Operator 
 * [operator ms append](operator_ms_append.md)	 - append transaction data into multisign API
-* [operator ms broadcast](operator_ms_broadcast.md)	 - broadcast a transaction form multisign API
+* [operator ms broadcast](operator_ms_broadcast.md)	 - broadcast a transaction from multisign API
 * [operator ms by-address](operator_ms_by-address.md)	 - fetch a transaction form multisign API
 * [operator ms by-hash](operator_ms_by-hash.md)	 - fetch a transaction form multisign API
 * [operator ms decode](operator_ms_decode.md)	 - decode a transaction

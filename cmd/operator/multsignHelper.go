@@ -51,42 +51,52 @@ func buildTransactionPickerPages(txs *[]MSApiTransaction, perPage int) [][]*disp
 			currPage++
 			pages = append(pages, make([]*display.LineData, 0))
 		}
-		signed := false
-		currSignatures := (int64)(0)
-		currSignatureWeight := (int64)(0)
-		txType := "<unknown>"
-		for _, signer := range tx.Signers {
-
-			if !signer.Signed {
-				continue
-			}
-			if signer.Address == signerAddress {
-				signed = true
-			}
-			currSignatures++
-			currSignatureWeight += signer.Weight
-
-		}
-		if tx.Raw != nil && tx.Raw.RawData != nil {
-			contracts := tx.Raw.RawData.GetContract()
-			if len(contracts) > 0 {
-				parts := strings.SplitN(contracts[0].GetParameter().TypeUrl, "proto.", 2)
-				if len(parts) == 2 {
-					txType = parts[1]
-				}
-			}
-		}
-		pages[currPage] = append(pages[currPage], &display.LineData{Values: []string{
-			fmt.Sprintf("%d", len(pages[currPage])),
-			tx.Hash,
-			tx.Address,
-			txType,
-			fmt.Sprintf("%d/%d", currSignatures, len(tx.Signers)),
-			fmt.Sprintf("%d/%d", currSignatureWeight, tx.Threshold),
-			fmt.Sprintf("%t", signed),
-		}})
+		pages[currPage] = append(pages[currPage], buildTxLineData(len(pages[currPage]), &tx))
 	}
 	return pages
+}
+
+func buildTxLineData(index int, tx *MSApiTransaction) *display.LineData {
+	signed, currSignatures, currSignatureWeight := aggregateSigners(tx.Signers)
+	txType := extractTxType(tx)
+	return &display.LineData{Values: []string{
+		fmt.Sprintf("%d", index),
+		tx.Hash,
+		tx.Address,
+		txType,
+		fmt.Sprintf("%d/%d", currSignatures, len(tx.Signers)),
+		fmt.Sprintf("%d/%d", currSignatureWeight, tx.Threshold),
+		fmt.Sprintf("%t", signed),
+	}}
+}
+
+func aggregateSigners(signers []MSApiSigner) (signed bool, count, weight int64) {
+	for _, signer := range signers {
+		if !signer.Signed {
+			continue
+		}
+		if signer.Address == signerAddress {
+			signed = true
+		}
+		count++
+		weight += signer.Weight
+	}
+	return
+}
+
+func extractTxType(tx *MSApiTransaction) string {
+	if tx.Raw == nil || tx.Raw.RawData == nil {
+		return "<unknown>"
+	}
+	contracts := tx.Raw.RawData.GetContract()
+	if len(contracts) == 0 {
+		return "<unknown>"
+	}
+	parts := strings.SplitN(contracts[0].GetParameter().TypeUrl, "proto.", 2)
+	if len(parts) != 2 {
+		return "<unknown>"
+	}
+	return parts[1]
 }
 func buildPageString(lines []*display.LineData, currPage int, pagesCount int) (string, error) {
 	ln, err := display.CreateTableString([]string{"#", "hash", "address", "type", "signers", "weight", "signed"}, lines)

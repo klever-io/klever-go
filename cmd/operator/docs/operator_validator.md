@@ -19,7 +19,7 @@ operator validator [flags]
   -c, --create-only               only create transaction to be signed later
       --fromAddress string        overwrite fromAddress
       --kdaFee string             use KDA to pay for fees
-  -k, --key-file string           set walelt pem file --key-file=./walletKey.pem (default "./walletKey.pem")
+  -k, --key-file string           set wallet pem file --key-file=./walletKey.pem (default "./walletKey.pem")
       --message stringArray       set TX message --message="MyMessage"
   -m, --multi-files stringArray   add more files to sign tx. Ex: -m=./file.pem -m=./file2.pem
   -n, --node string               entrypoint to node API --node=https://node.testnet.klever.org (default "http://localhost:8080")

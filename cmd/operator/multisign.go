@@ -89,7 +89,7 @@ func subMS() []*cobra.Command {
 	cmdMultisignBroadcast := &cobra.Command{
 		Use:   "broadcast [Transaction]",
 		Args:  cobra.ExactArgs(1),
-		Short: "broadcast a transaction form multisign API",
+		Short: "broadcast a transaction from multisign API",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hash := args[0]
 			hash = strings.Replace(hash, "0x", "", 1)
@@ -165,14 +165,13 @@ operator ms sign            — interactively choose from pending transactions`,
 				log.Info("fetching pending transactions for signing")
 				result := make([]MSApiTransaction, 0)
 				err = utils.GetURL(fmt.Sprintf("%s/transaction/by-address/%s", multisignAPI, signerAddress), &result)
-				if err != nil {
-					if err.Error() == "EOF" {
-						log.Info("no pending transactions found for signing for address %s \n", signerAddress)
-						return nil
-					}
+				if err != nil && err.Error() != "EOF" {
 					return err
 				}
-
+				if len(result) == 0 {
+					log.Info("no transactions found for signing")
+					return nil
+				}
 				tx, err = pendingMsTransactionPicker(&result)
 			}
 			if err != nil {
