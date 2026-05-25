@@ -41,6 +41,76 @@ type MSApiTransaction struct {
 	Raw *transaction.Transaction `json:"raw"`
 }
 
+func getMSApiTransaction(hash string) (*MSApiTransaction, error) {
+	hash = strings.Replace(hash, "0x", "", 1)
+	if len(hash) != 64 {
+		return nil, fmt.Errorf("invalid TX hash length: %d", len(hash))
+	}
+	_, err := hex.DecodeString(hash)
+	if len(hash) != 64 || err != nil {
+		return nil, fmt.Errorf("invalid TX hash %s", hash)
+	}
+
+	result := MSApiTransaction{}
+	err = utils.GetURL(fmt.Sprintf("%s/transaction/%s", multisignAPI, hash), &result)
+	if err != nil {
+		if err.Error() == "EOF" {
+			return nil, fmt.Errorf("transaction with hash %s not found in multisign API", hash)
+		}
+		return nil, err
+	}
+	return &result, nil
+}
+func doSignAndPost(tx *MSApiTransaction) error {
+	for _, signer := range tx.Signers {
+		if signer.Address == signerAddress && signer.Signed {
+			fmt.Printf("Transaction %s has already been signed by %s \n", tx.Hash, signerAddress)
+			return nil
+		}
+	}
+	_, err := SignTX(tx.Raw)
+	if err != nil {
+		return err
+	}
+
+	encoded, err := encodeMSApiData(tx.Raw)
+	if err != nil {
+		return err
+	}
+	if !multisignYes {
+		fmt.Printf("Transaction %s is ready to be signed. Do you want to post the signed transaction? (y/n): ", tx.Hash)
+		var input string
+		fmt.Scanln(&input)
+		input = strings.ToLower(strings.TrimSpace(input))
+		if input != "y" {
+			fmt.Println("aborting")
+			return nil
+		}
+	}
+	return doPostMSTransaction(encoded)
+}
+func doPostMSTransaction(encoded *MSApiEncoded) error {
+	data, err := json.Marshal(encoded)
+	if err != nil {
+		return err
+	}
+
+	broadcastResult := struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	}{}
+	log.Info("broadcasting...")
+	err = utils.PostURL(fmt.Sprintf("%s/transaction", multisignAPI), string(data), nil, &broadcastResult)
+	if err != nil {
+		return err
+	}
+	if len(broadcastResult.Error) != 0 {
+		return fmt.Errorf("error broadcasting transaction: %s", broadcastResult.Error)
+	}
+	log.Info("successful added", "txHash", encoded.Hash, "address", encoded.Address)
+
+	return nil
+}
 func encodeMSApiData(tx *transaction.Transaction) (*MSApiEncoded, error) {
 	// compute hash
 	hash, err := computeTxHash(tx)

@@ -99,8 +99,8 @@ var rootCmd = &cobra.Command{
 		}
 
 		if createOnly ||
-			strings.HasPrefix(cmd.Use, "sign") ||
-			strings.HasPrefix(cmd.Use, "encode") {
+			cmd.CommandPath() == "operator sign" ||
+			cmd.CommandPath() == "operator ms encode" {
 			log.SetLevel(logger.LogNone)
 		}
 
