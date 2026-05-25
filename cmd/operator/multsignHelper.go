@@ -85,16 +85,17 @@ func aggregateSigners(signers []MSApiSigner) (signed bool, count, weight int64) 
 }
 
 func extractTxType(tx *MSApiTransaction) string {
+	unknown := "<unknown>"
 	if tx.Raw == nil || tx.Raw.RawData == nil {
-		return "<unknown>"
+		return unknown
 	}
 	contracts := tx.Raw.RawData.GetContract()
 	if len(contracts) == 0 {
-		return "<unknown>"
+		return unknown
 	}
 	parts := strings.SplitN(contracts[0].GetParameter().TypeUrl, "proto.", 2)
 	if len(parts) != 2 {
-		return "<unknown>"
+		return unknown
 	}
 	return parts[1]
 }

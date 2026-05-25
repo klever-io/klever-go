@@ -157,7 +157,7 @@ operator ms sign            — interactively choose from pending transactions`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			log.Info("signing transaction from multisign API", "address", signerAddress)
-			var tx *MSApiTransaction = nil
+			var tx *MSApiTransaction
 			var err error
 			if len(args) == 1 {
 				tx, err = getMSApiTransaction(args[0])
