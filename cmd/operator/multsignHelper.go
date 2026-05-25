@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/klever-io/klever-go/crypto/signing/ed25519/singlesig"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/tools"
+	"github.com/klever-io/klever-go/tools/display"
 	"github.com/klever-io/klever-go/tools/marshal/factory"
 	"github.com/nwidger/jsoncolor"
 	"github.com/pkg/errors"
@@ -27,20 +29,99 @@ type MSApiEncoded struct {
 	Address string
 	Raw     *transaction.Transaction
 }
-
-type MSApiTransaction struct {
-	Hash    string `json:"hash"`
+type MSApiSigner struct {
 	Address string `json:"address"`
-	Signers []struct {
-		Address string `json:"address"`
-		Weight  int64  `json:"weight"`
-		Signed  bool   `json:"signed"`
-	} `json:"signers"`
-	Threshold int64 `json:"threshold"`
+	Weight  int64  `json:"weight"`
+	Signed  bool   `json:"signed"`
+}
+type MSApiTransaction struct {
+	Hash      string        `json:"hash"`
+	Address   string        `json:"address"`
+	Signers   []MSApiSigner `json:"signers"`
+	Threshold int64         `json:"threshold"`
 
 	Raw *transaction.Transaction `json:"raw"`
 }
 
+func pendingMsTransactionPicker(txs *[]MSApiTransaction) (*MSApiTransaction, error) {
+	pages := [][]*display.LineData{make([]*display.LineData, 0)}
+	currPage := 0
+	perPage := 3
+	for _, tx := range *txs {
+		if len(pages[currPage]) >= perPage {
+			currPage++
+			pages = append(pages, make([]*display.LineData, 0))
+		}
+		signed := false
+		currSignatures := (int64)(0)
+		currSignatureWeight := (int64)(0)
+		txType := "<unknown>"
+		for _, signer := range tx.Signers {
+
+			if !signer.Signed {
+				continue
+			}
+			if signer.Address == signerAddress {
+				signed = true
+			}
+			currSignatures++
+			currSignatureWeight += signer.Weight
+
+		}
+		if tx.Raw != nil && tx.Raw.RawData != nil {
+			contracts := tx.Raw.RawData.GetContract()
+			if len(contracts) > 0 {
+				parts := strings.SplitN(contracts[0].GetParameter().TypeUrl, "proto.", 2)
+				if len(parts) == 2 {
+					txType = parts[1]
+				}
+			}
+		}
+
+		pages[currPage] = append(pages[currPage], &display.LineData{Values: []string{
+			fmt.Sprintf("%d", len(pages[currPage])),
+			tx.Hash,
+			tx.Address,
+			txType,
+			fmt.Sprintf("%d/%d", currSignatures, len(tx.Signers)),
+			fmt.Sprintf("%d/%d", currSignatureWeight, tx.Threshold),
+			fmt.Sprintf("%t", signed),
+		}})
+	}
+	for {
+		ln, err := display.CreateTableString([]string{"#", "hash", "address", "type", "signers", "weight", "signed"}, pages[currPage])
+		if err != nil {
+			return nil, err
+		}
+		ln += fmt.Sprintf("\n Page %d/%d [0-%d]: Select Transaction", currPage+1, len(pages), len(pages[currPage])-1)
+		if currPage > 0 {
+			ln += ", [p]revious page"
+		}
+		if currPage < len(pages)-1 {
+			ln += ", [n]ext page"
+		}
+		ln += ", [q]uit \n Input: "
+		fmt.Print(ln)
+		var input string
+		if _, err := fmt.Scan(&input); err != nil {
+			return nil, fmt.Errorf("read transaction selection: %w", err)
+		}
+		idx, nanErr := strconv.Atoi(input)
+		switch {
+		case nanErr == nil && idx >= 0 && idx < len(pages[currPage]):
+			return &(*txs)[idx+(currPage*perPage)], nil
+		case input == "n" && currPage < len(pages)-1:
+			currPage++
+		case input == "p" && currPage > 0:
+			currPage--
+		case input == "q":
+			log.Info("transaction picking cancelled by user")
+			return nil, nil
+		}
+		fmt.Printf("\033[%dA\r\033[J", strings.Count(ln, "\n")+1)
+		continue
+	}
+}
 func getMSApiTransaction(hash string) (*MSApiTransaction, error) {
 	hash = strings.Replace(hash, "0x", "", 1)
 	if len(hash) != 64 {
@@ -75,7 +156,11 @@ func doSignAndPost(tx *MSApiTransaction) error {
 	if !authorized {
 		return fmt.Errorf("signer %s is not required to sign transaction %s", signerAddress, tx.Hash)
 	}
-	_, err := SignTX(tx.Raw)
+	err := shouldSign(tx.Raw)
+	if err != nil {
+		return err
+	}
+	_, err = SignTX(tx.Raw)
 	if err != nil {
 		return err
 	}
@@ -84,22 +169,9 @@ func doSignAndPost(tx *MSApiTransaction) error {
 	if err != nil {
 		return err
 	}
-	if !multisignYes {
-		fmt.Printf("Transaction %s is ready to be signed. Do you want to post the signed transaction? (y/n): ", tx.Hash)
-		var input string
-		_, err := fmt.Scanln(&input)
-		if err != nil {
-			return err
-		}
-		input = strings.ToLower(strings.TrimSpace(input))
-		if input != "y" {
-			fmt.Println("aborting")
-			return nil
-		}
-	}
-	return doPostMSTransaction(encoded)
+	return doPostMSTransactionSignature(encoded)
 }
-func doPostMSTransaction(encoded *MSApiEncoded) error {
+func doPostMSTransactionSignature(encoded *MSApiEncoded) error {
 	data, err := json.Marshal(encoded)
 	if err != nil {
 		return err
@@ -109,15 +181,15 @@ func doPostMSTransaction(encoded *MSApiEncoded) error {
 		Status string `json:"status"`
 		Error  string `json:"error"`
 	}{}
-	log.Info("broadcasting...")
+	log.Info("posting signature...")
 	err = utils.PostURL(fmt.Sprintf("%s/transaction", multisignAPI), string(data), nil, &broadcastResult)
 	if err != nil {
 		return err
 	}
 	if len(broadcastResult.Error) != 0 {
-		return fmt.Errorf("error broadcasting transaction: %s", broadcastResult.Error)
+		return fmt.Errorf("error posting signature to transaction: %s", broadcastResult.Error)
 	}
-	log.Info("successful added", "txHash", encoded.Hash, "address", encoded.Address)
+	log.Info("successful posted signature", "txHash", encoded.Hash, "address", encoded.Address)
 
 	return nil
 }

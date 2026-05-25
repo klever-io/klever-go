@@ -4,18 +4,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/klever-io/klever-go/cmd/operator/utils"
 	"github.com/klever-io/klever-go/data/transaction"
-	"github.com/klever-io/klever-go/tools/display"
+
 	"github.com/spf13/cobra"
 )
 
 var (
 	multisignAPI string
-	multisignYes bool
 )
 
 func subMS() []*cobra.Command {
@@ -83,7 +81,7 @@ func subMS() []*cobra.Command {
 					return err
 				}
 			}
-			return doPostMSTransaction(encoded)
+			return doPostMSTransactionSignature(encoded)
 
 		},
 	}
@@ -153,115 +151,40 @@ func subMS() []*cobra.Command {
 	}
 	cmdMultiSignAndPost := &cobra.Command{
 		Use:   "sign [txHash]",
-		Short: "sign and broadcast a transaction from multisign API",
+		Short: "sign a transaction from multisign API and post the signature",
 		Example: `operator ms sign <txHash>   — sign specific TX by hash
 operator ms sign            — interactively choose from pending transactions`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			log.Info("signing transaction from multisign API", "address", signerAddress)
+			var tx *MSApiTransaction = nil
+			var err error
 			if len(args) == 1 {
-				tx, err := getMSApiTransaction(args[0])
+				tx, err = getMSApiTransaction(args[0])
+			} else {
+				log.Info("fetching pending transactions for signing")
+				result := make([]MSApiTransaction, 0)
+				err = utils.GetURL(fmt.Sprintf("%s/transaction/by-address/%s", multisignAPI, signerAddress), &result)
 				if err != nil {
+					if err.Error() == "EOF" {
+						log.Info("no pending transactions found for signing for address %s \n", signerAddress)
+						return nil
+					}
 					return err
 				}
+
+				tx, err = pendingMsTransactionPicker(&result)
+			}
+			if err != nil {
+				return err
+			}
+			if tx != nil {
 				err = doSignAndPost(tx)
 				if err != nil {
 					return err
 				}
-				return nil
 			}
-			log.Info("fetching pending transactions for signing")
-			pages := [][]*display.LineData{make([]*display.LineData, 0)}
-			currPage := 0
-			perPage := 3
-			pushToTable := func(txs []MSApiTransaction) {
-				for _, tx := range txs {
-					if len(pages[currPage]) >= perPage {
-						currPage++
-						pages = append(pages, make([]*display.LineData, 0))
-					}
-					signed := false
-					currSignatures := (int64)(0)
-					currSignatureWeight := (int64)(0)
-					txType := "<unknown>"
-					for _, signer := range tx.Signers {
-
-						if !signer.Signed {
-							continue
-						}
-						if signer.Address == signerAddress {
-							signed = true
-						}
-						currSignatures++
-						currSignatureWeight += signer.Weight
-
-					}
-					if tx.Raw != nil && tx.Raw.RawData != nil {
-						contracts := tx.Raw.RawData.GetContract()
-						if len(contracts) > 0 {
-							parts := strings.SplitN(contracts[0].GetParameter().TypeUrl, "proto.", 2)
-							if len(parts) == 2 {
-								txType = parts[1]
-							}
-						}
-					}
-
-					pages[currPage] = append(pages[currPage], &display.LineData{Values: []string{
-						fmt.Sprintf("%d", len(pages[currPage])),
-						tx.Hash,
-						tx.Address,
-						txType,
-						fmt.Sprintf("%d/%d", currSignatures, len(tx.Signers)),
-						fmt.Sprintf("%d/%d", currSignatureWeight, tx.Threshold),
-						fmt.Sprintf("%t", signed),
-					}})
-				}
-			}
-
-			result := make([]MSApiTransaction, 0)
-			err := utils.GetURL(fmt.Sprintf("%s/transaction/by-address/%s", multisignAPI, signerAddress), &result)
-			if err != nil && err.Error() != "EOF" {
-				return err
-			}
-			pushToTable(result)
-			currPage = 0
-			if len(pages[currPage]) == 0 {
-				fmt.Printf("no pending transactions found for signing for address %s \n", signerAddress)
-				return nil
-			}
-			for {
-				ln, err := display.CreateTableString([]string{"#", "hash", "address", "type", "signers", "weight", "signed"}, pages[currPage])
-				if err != nil {
-					return err
-				}
-				ln += fmt.Sprintf("\n Page %d/%d [0-%d]: Select Transaction", currPage+1, len(pages), len(pages[currPage])-1)
-				if currPage > 0 {
-					ln += ", [p]revious page"
-				}
-				if currPage < len(pages)-1 {
-					ln += ", [n]ext page"
-				}
-				ln += ", [q]uit \n Input: "
-				fmt.Print(ln)
-				var input string
-				if _, err := fmt.Scan(&input); err != nil {
-					return fmt.Errorf("read transaction selection: %w", err)
-				}
-				idx, nanErr := strconv.Atoi(input)
-				switch {
-				case nanErr == nil && idx >= 0 && idx < len(pages[currPage]):
-					tx := result[idx+(currPage*perPage)]
-					return doSignAndPost(&tx)
-				case input == "n" && currPage < len(pages)-1:
-					currPage++
-				case input == "p" && currPage > 0:
-					currPage--
-				case input == "q":
-					return nil
-				}
-				fmt.Printf("\033[%dA\r\033[J", strings.Count(ln, "\n")+1)
-				continue
-			}
+			return nil
 		},
 	}
 	return []*cobra.Command{
@@ -285,6 +208,5 @@ func init() {
 	}
 	cmdMS.AddCommand(subMS()...)
 	cmdMS.PersistentFlags().StringVar(&multisignAPI, "multisign-api", "https://multisign.mainnet.klever.org", "multisign API URL")
-	cmdMS.PersistentFlags().BoolVarP(&multisignYes, "yes", "y", false, "skip the confirmation prompt; useful for scripts and non-interactive use cases")
 	rootCmd.AddCommand(cmdMS)
 }
