@@ -45,6 +45,12 @@ func InitMetrics(
 
 	appStatusHandler.SetStringValue(core.MetricPublicKeyBlockSign, pubkeyStr)
 	appStatusHandler.SetStringValue(core.MetricNodeType, string(nodeType))
+	// KLC-2388: seed klv_peer_type alongside klv_node_type so consumers see a
+	// real value during the bootstrap window before the peerTypeProvider cache
+	// is populated. The heartbeat sender's IsCachePopulated gate keeps this
+	// startup value in place until the first epoch-start event refreshes the
+	// cache, at which point the real peer-list classification takes over.
+	appStatusHandler.SetStringValue(core.MetricPeerType, string(core.ObserverList))
 	appStatusHandler.SetUInt64Value(core.MetricSlotTime, slotInterval/millisecondsInSecond)
 	appStatusHandler.SetStringValue(core.MetricAppVersion, version)
 	appStatusHandler.SetUInt64Value(core.MetricSlotsPerEpoch, uint64(slotsPerEpoch))
