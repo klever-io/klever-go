@@ -673,12 +673,12 @@ func (mp *metaProcessor) CommitBlock(
 	lastMetaBlock := mp.blockChain.GetCurrentBlockHeader()
 	mp.updateState(lastMetaBlock)
 
-	// set blockchain header info
-	err = mp.blockChain.SetCurrentBlockHeader(header)
+	// set blockchain header info atomically so readers cannot observe a
+	// mismatched (header, hash) pair between the two updates
+	err = mp.blockChain.SetCurrentBlockHeaderAndHash(header, headerHash)
 	if err != nil {
 		return err
 	}
-	mp.blockChain.SetCurrentBlockHeaderHash(headerHash)
 
 	mp.tpsBenchmark.Update(lastMetaBlock)
 

@@ -56,28 +56,36 @@ func (bc *blockChain) SetGenesisHeader(genesisBlock data.HeaderHandler) error {
 	return nil
 }
 
-// SetCurrentBlockHeader sets current block header pointer
-func (bc *blockChain) SetCurrentBlockHeader(header data.HeaderHandler) error {
+// prepareCurrentBlockHeader validates the header, updates status metrics, and returns
+// a clone ready to be stored. Returns (nil, nil) when header is the nil interface.
+// Callers must assign the returned value under the appropriate mutex.
+func (bc *blockChain) prepareCurrentBlockHeader(header data.HeaderHandler) (data.HeaderHandler, error) {
 	if check.IfNil(header) {
-		bc.mut.Lock()
-		bc.currentBlockHeader = nil
-		bc.mut.Unlock()
-
-		return nil
+		return nil, nil
 	}
 
 	h, ok := header.(*block.Block)
 	if !ok {
-		return common.ErrInvalidHeaderType
+		return nil, common.ErrInvalidHeaderType
 	}
 
-	log.Trace("SetCurrentBlockHeader", "nonce", h.Header.Nonce)
+	log.Trace("setCurrentBlockHeader", "nonce", h.Header.Nonce)
 
 	bc.appStatusHandler.SetUInt64Value(core.MetricSynchronizedSlot, h.Header.Slot)
 	bc.appStatusHandler.SetUInt64Value(core.MetricNonce, h.Header.Nonce)
 
+	return h.Clone(), nil
+}
+
+// SetCurrentBlockHeader sets current block header pointer
+func (bc *blockChain) SetCurrentBlockHeader(header data.HeaderHandler) error {
+	clone, err := bc.prepareCurrentBlockHeader(header)
+	if err != nil {
+		return err
+	}
+
 	bc.mut.Lock()
-	bc.currentBlockHeader = h.Clone()
+	bc.currentBlockHeader = clone
 	bc.mut.Unlock()
 
 	return nil
@@ -147,11 +155,53 @@ func (bc *blockChain) GetCurrentBlockHeaderHash() []byte {
 	return bc.currentBlockHeaderHash
 }
 
+// GetCurrentBlockHeaderAndHash atomically returns the current block header and
+// its hash under a single read lock acquisition. Use this in preference to
+// calling GetCurrentBlockHeader and GetCurrentBlockHeaderHash separately when
+// the (header, hash) pair must be consistent — those two calls take separate
+// RLocks and can observe an update interleaved between them.
+//
+// The returned hash is a defensive copy so callers cannot mutate the
+// backing array and corrupt the atomic snapshot.
+func (bc *blockChain) GetCurrentBlockHeaderAndHash() (data.HeaderHandler, []byte) {
+	bc.mut.RLock()
+	defer bc.mut.RUnlock()
+
+	hashCopy := append([]byte(nil), bc.currentBlockHeaderHash...)
+	if check.IfNil(bc.currentBlockHeader) {
+		return nil, hashCopy
+	}
+
+	return bc.currentBlockHeader.Clone(), hashCopy
+}
+
 // SetCurrentBlockHeaderHash returns the current block header hash
 func (bc *blockChain) SetCurrentBlockHeaderHash(hash []byte) {
 	bc.mut.Lock()
 	bc.currentBlockHeaderHash = hash
 	bc.mut.Unlock()
+}
+
+// SetCurrentBlockHeaderAndHash atomically sets the current block header and its hash
+// under a single mutex acquisition, preventing concurrent readers from observing a
+// mismatched (header, hash) pair between the two updates.
+//
+// The hash bytes are defensively copied so subsequent caller-side mutation of the
+// input slice cannot corrupt the stored snapshot.
+func (bc *blockChain) SetCurrentBlockHeaderAndHash(header data.HeaderHandler, hash []byte) error {
+	clone, err := bc.prepareCurrentBlockHeader(header)
+	if err != nil {
+		return err
+	}
+
+	hashCopy := append([]byte(nil), hash...)
+
+	bc.mut.Lock()
+	bc.currentBlockHeader = clone
+	bc.currentBlockHeaderHash = hashCopy
+	bc.mut.Unlock()
+
+	return nil
 }
 
 // GetCurrentBlockRootHash returns the current committed block root hash. The returned byte slice is a new copy

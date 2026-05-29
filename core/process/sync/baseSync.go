@@ -886,16 +886,15 @@ func (boot *baseBootstrap) restoreState(
 		"nonce", currHeader.GetNonce(),
 		"hash", currHeaderHash)
 
-	err := boot.chainHandler.SetCurrentBlockHeader(currHeader)
+	err := boot.chainHandler.SetCurrentBlockHeaderAndHash(currHeader, currHeaderHash)
 	if err != nil {
-		log.Debug("SetCurrentBlockHeader", "error", err.Error())
+		// recovery path after a failed rollback — surface double-failures so ops can react
+		log.Warn("restoreState: SetCurrentBlockHeaderAndHash", "error", err.Error())
 	}
-
-	boot.chainHandler.SetCurrentBlockHeaderHash(currHeaderHash)
 
 	err = boot.blockProcessor.RevertStateToBlock(currHeader)
 	if err != nil {
-		log.Debug("RevertState", "error", err.Error())
+		log.Warn("restoreState: RevertStateToBlock", "error", err.Error())
 	}
 }
 
@@ -903,15 +902,7 @@ func (boot *baseBootstrap) setCurrentBlockInfo(
 	headerHash []byte,
 	header data.HeaderHandler,
 ) error {
-
-	err := boot.chainHandler.SetCurrentBlockHeader(header)
-	if err != nil {
-		return err
-	}
-
-	boot.chainHandler.SetCurrentBlockHeaderHash(headerHash)
-
-	return nil
+	return boot.chainHandler.SetCurrentBlockHeaderAndHash(header, headerHash)
 }
 
 func (boot *baseBootstrap) init() {
