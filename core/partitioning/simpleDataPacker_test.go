@@ -2,12 +2,14 @@ package partitioning_test
 
 import (
 	"crypto/rand"
+	"errors"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core/partitioning"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewSimpleDataPacker_NilMarshalizerShouldErr(t *testing.T) {
@@ -115,4 +117,35 @@ func TestSimpleSplitter_SendDataInChunksWithOnlyOneLargeElementShouldWork(t *tes
 	assert.Nil(t, err)
 	assert.Equal(t, 1, len(buffSent))
 	assert.Nil(t, checkExpectedElements(buffSent[0], marshalizer, [][]byte{elemLarge}))
+}
+
+// Regression: a Marshal error inside the chunk-flush branch must propagate to
+// the caller, not silently drop the chunk and the current element.
+func TestSimpleDataPacker_PackDataInChunks_PropagatesMarshalError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("forced marshal error")
+	// Fail only on Batch marshal (the Compress path internally marshals the
+	// Batch). The trailing-block already returns errors; this exercises the
+	// in-loop flush branch.
+	marshalizer := &mock.MarshalizerStub{
+		MarshalCalled: func(obj interface{}) ([]byte, error) {
+			return nil, expectedErr
+		},
+		UnmarshalCalled: func(obj interface{}, buff []byte) error {
+			return nil
+		},
+	}
+
+	sdp, err := partitioning.NewSimpleDataPacker(marshalizer)
+	require.NoError(t, err)
+
+	// Two elements summing to >= limit so the in-loop flush branch is entered.
+	elem1 := make([]byte, 600)
+	elem2 := make([]byte, 600)
+	buffSent, err := sdp.PackDataInChunks([][]byte{elem1, elem2}, 1000)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, expectedErr)
+	assert.Nil(t, buffSent)
 }

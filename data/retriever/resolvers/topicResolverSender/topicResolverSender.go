@@ -105,12 +105,13 @@ func (trs *topicResolverSender) SendOnRequestTopic(rd *retriever.RequestData, or
 	}
 
 	topicToSendRequest := trs.topicName + topicRequestSuffix
+	numConsensusPeers, numCommonPeers := trs.NumPeersToQuery()
 
 	commonPeers := trs.peerListCreator.PeerList()
-	numSentCommon := trs.sendOnTopic(commonPeers, topicToSendRequest, buff, trs.numCommonPeers, "common peer")
+	numSentCommon := trs.sendOnTopic(commonPeers, topicToSendRequest, buff, numCommonPeers, "common peer")
 
 	consensusPeers := trs.peerListCreator.ConsensusPeerList()
-	numSentConsensus := trs.sendOnTopic(consensusPeers, topicToSendRequest, buff, trs.numConsensusPeers, "consensus peer")
+	numSentConsensus := trs.sendOnTopic(consensusPeers, topicToSendRequest, buff, numConsensusPeers, "consensus peer")
 
 	trs.callDebugHandler(originalHashes, numSentConsensus, numSentCommon)
 
@@ -146,9 +147,9 @@ func (trs *topicResolverSender) SendOnRequestTopicTo(rd *retriever.RequestData, 
 		}
 	}
 
-	numConsensusPeers := trs.numConsensusPeers
-	if numSentDirect > 0 {
-		// if sent to origin, remove one from max to send
+	numConsensusPeers, _ := trs.NumPeersToQuery()
+	if numSentDirect > 0 && numConsensusPeers > 0 {
+		// origin already got direct send; the > 0 guard prevents fan-out on NumConsensusPeers=0
 		numConsensusPeers = numConsensusPeers - 1
 	}
 	numSentConsensus := trs.sendOnTopic(consensusPeers, topicToSendRequest, buff, numConsensusPeers, "consensus peer")

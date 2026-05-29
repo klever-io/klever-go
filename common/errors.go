@@ -784,6 +784,18 @@ var ErrDecompressionTooLarge = errors.New("decompressed payload exceeds maximum 
 // ErrDecompressedSizeMismatch signals that the inflated payload size does not match the advertised DataSize
 var ErrDecompressedSizeMismatch = errors.New("decompressed payload size does not match advertised data size")
 
+// ErrTooManyItemsInBatch signals that a received Batch carries more items than allowed
+var ErrTooManyItemsInBatch = errors.New("too many items in batch")
+
+// ErrBatchWireTooLarge signals that an incoming Batch wire payload exceeds the
+// pre-Unmarshal byte cap (MaxBatchWireSize / MaxHashArrayBuffSize).
+// Distinct from ErrTooManyItemsInBatch so logs / metrics can tell a byte-size
+// rejection apart from an entry-count rejection.
+var ErrBatchWireTooLarge = errors.New("batch wire payload too large")
+
+// ErrProcessReceivedMessagePanicked signals that ProcessReceivedMessage recovered from a panic
+var ErrProcessReceivedMessagePanicked = errors.New("process received message panicked")
+
 // ErrInvalidParameter signals that a wrong parameter has been provided
 var ErrInvalidParameter = errors.New("invalid parameter")
 

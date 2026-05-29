@@ -1,6 +1,9 @@
 package resolvers
 
 import (
+	"fmt"
+	"runtime/debug"
+
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data/batch"
@@ -63,8 +66,17 @@ func NewTrieNodeResolver(arg ArgTrieNodeResolver) (*TrieNodeResolver, error) {
 
 // ProcessReceivedMessage will be the callback func from the p2p.Messenger and will be called each time a new message was received
 // (for the topic this validator was registered to, usually a request topic)
-func (tnRes *TrieNodeResolver) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
-	err := tnRes.canProcessMessage(message, fromConnectedPeer)
+func (tnRes *TrieNodeResolver) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("TrieNodeResolver.ProcessReceivedMessage panicked",
+				"panic", r,
+				"stack", string(debug.Stack()))
+			err = fmt.Errorf("%w: %v", common.ErrProcessReceivedMessagePanicked, r)
+		}
+	}()
+
+	err = tnRes.canProcessMessage(message, fromConnectedPeer)
 	if err != nil {
 		return err
 	}
@@ -88,10 +100,19 @@ func (tnRes *TrieNodeResolver) ProcessReceivedMessage(message p2p.MessageP2P, fr
 }
 
 func (tnRes *TrieNodeResolver) resolveMultipleHashes(hashesBuff []byte, message p2p.MessageP2P) error {
+	// Reject oversized hash-array payloads before Unmarshal — see MaxHashArrayBuffSize.
+	// No blacklist (logical bound, antiflood gates abuse).
+	if len(hashesBuff) > batch.MaxHashArrayBuffSize {
+		return common.ErrBatchWireTooLarge
+	}
 	b := batch.Batch{}
 	err := tnRes.marshalizer.Unmarshal(&b, hashesBuff)
 	if err != nil {
 		return err
+	}
+	// Cap uncompressed batches; the compressed path is bounded inside b.Decompress.
+	if len(b.Data) > batch.MaxItemsPerBatch {
+		return common.ErrTooManyItemsInBatch
 	}
 	if b.IsCompressed {
 		err = b.Decompress(tnRes.marshalizer)

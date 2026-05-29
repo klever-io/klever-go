@@ -130,11 +130,11 @@ func (k *kappAccountsSyncer) syncAccountDataTries(rootHashes [][]byte, ssh data.
 
 func (k *kappAccountsSyncer) syncDataTrie(rootHash []byte, ssh data.SyncStatisticsHandler, ctx context.Context) error {
 	k.throttler.StartProcessing()
+	defer k.throttler.EndProcessing()
 
 	k.syncerMutex.Lock()
 	if _, ok := k.dataTries[string(rootHash)]; ok {
 		k.syncerMutex.Unlock()
-		k.throttler.EndProcessing()
 		return nil
 	}
 
@@ -160,16 +160,11 @@ func (k *kappAccountsSyncer) syncDataTrie(rootHash []byte, ssh data.SyncStatisti
 		return err
 	}
 	k.trieSyncers[string(rootHash)] = trieSyncer
+	// Released before the blocking StartSyncing — do NOT move to defer or
+	// numConcurrentTrieSyncers parallelism collapses.
 	k.syncerMutex.Unlock()
 
-	err = trieSyncer.StartSyncing(rootHash, ctx)
-	if err != nil {
-		return err
-	}
-
-	k.throttler.EndProcessing()
-
-	return nil
+	return trieSyncer.StartSyncing(rootHash, ctx)
 }
 
 func (k *kappAccountsSyncer) findAllAccountRootHashes(mainTrie data.Trie, ctx context.Context) ([][]byte, error) {

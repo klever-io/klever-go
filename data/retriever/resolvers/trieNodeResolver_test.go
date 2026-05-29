@@ -8,11 +8,14 @@ import (
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/data/batch"
 	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/data/retriever/resolvers"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/tools/check"
+	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var fromConnectedPeer = core.PeerID("from connected peer")
@@ -296,4 +299,157 @@ func TestTrieNodeResolver_SetAndGetNumPeersToQuery(t *testing.T) {
 	actualIntra, actualCross := tnRes.NumPeersToQuery()
 	assert.Equal(t, expectedIntra, actualIntra)
 	assert.Equal(t, expectedCross, actualCross)
+}
+
+//------- regression: GHSA-w342-mj6g-v9c4
+
+func TestTrieNodeResolver_ProcessReceivedMessage_RejectsHashArrayItemBomb_Uncompressed(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+
+	arg := createMockArgTrieNodeResolver()
+	arg.Marshalizer = marshalizer
+	tnRes, err := resolvers.NewTrieNodeResolver(arg)
+	require.NoError(t, err)
+
+	bomb := &batch.Batch{Data: make([][]byte, batch.MaxItemsPerBatch+1)}
+	buff, err := marshalizer.Marshal(bomb)
+	require.NoError(t, err)
+
+	data, err := marshalizer.Marshal(&retriever.RequestData{
+		Type:  retriever.RequestDataType_HashArrayType,
+		Value: buff,
+	})
+	require.NoError(t, err)
+
+	msg := &mock.P2PMessageMock{DataField: data}
+
+	processErr := tnRes.ProcessReceivedMessage(msg, fromConnectedPeer)
+	require.ErrorIs(t, processErr, common.ErrTooManyItemsInBatch)
+	assert.True(t, arg.Throttler.(*mock.ThrottlerStub).StartWasCalled)
+	assert.True(t, arg.Throttler.(*mock.ThrottlerStub).EndWasCalled)
+}
+
+// Regression GHSA-w342-mj6g-v9c4 defense-in-depth: oversized hashesBuff must
+// be rejected before Unmarshal (slice-header amplification window).
+func TestTrieNodeResolver_ProcessReceivedMessage_RejectsOversizedRawHashArrayBuff(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+
+	arg := createMockArgTrieNodeResolver()
+	arg.Marshalizer = marshalizer
+	tnRes, err := resolvers.NewTrieNodeResolver(arg)
+	require.NoError(t, err)
+
+	// Junk bytes (not a marshaled Batch): on vulnerable code Unmarshal would
+	// either error or decode to empty; only the fix returns ErrTooManyItemsInBatch.
+	hashesBuff := make([]byte, batch.MaxHashArrayBuffSize+1)
+
+	data, err := marshalizer.Marshal(&retriever.RequestData{
+		Type:  retriever.RequestDataType_HashArrayType,
+		Value: hashesBuff,
+	})
+	require.NoError(t, err)
+
+	msg := &mock.P2PMessageMock{DataField: data}
+
+	processErr := tnRes.ProcessReceivedMessage(msg, fromConnectedPeer)
+	require.ErrorIs(t, processErr, common.ErrBatchWireTooLarge)
+	thr := arg.Throttler.(*mock.ThrottlerStub)
+	assert.Equal(t, int32(1), thr.StartProcessingCount())
+	assert.Equal(t, int32(1), thr.EndProcessingCount(),
+		"the wire-size rejection path must release the throttler slot exactly once")
+}
+
+// Regression GHSA-w342-mj6g-v9c4: real amplification pattern. Payload is `0x0a 0x00` × N —
+// proto3 field-1 LEN tag + length-0 varint = one empty `repeated bytes` entry per pair.
+// Pre-check must reject on byte length before Unmarshal allocates N empty []byte headers.
+func TestTrieNodeResolver_ProcessReceivedMessage_RejectsRealAmplificationPattern(t *testing.T) {
+	t.Parallel()
+
+	// Proto marshalizer so the pattern decodes (not just a size rejection) if pre-check is bypassed.
+	protoMarsh := marshal.NewProtoMarshalizer()
+
+	arg := createMockArgTrieNodeResolver()
+	arg.Marshalizer = protoMarsh
+	tnRes, err := resolvers.NewTrieNodeResolver(arg)
+	require.NoError(t, err)
+
+	const numEmptyEntries = batch.MaxHashArrayBuffSize/2 + 1
+	hashesBuff := bytes.Repeat([]byte{0x0a, 0x00}, numEmptyEntries)
+
+	data, err := protoMarsh.Marshal(&retriever.RequestData{
+		Type:  retriever.RequestDataType_HashArrayType,
+		Value: hashesBuff,
+	})
+	require.NoError(t, err)
+
+	msg := &mock.P2PMessageMock{DataField: data}
+
+	processErr := tnRes.ProcessReceivedMessage(msg, fromConnectedPeer)
+	require.ErrorIs(t, processErr, common.ErrBatchWireTooLarge,
+		"wire-size pre-check must fire before proto Unmarshal allocates %d empty entries", numEmptyEntries)
+	thr := arg.Throttler.(*mock.ThrottlerStub)
+	assert.Equal(t, int32(1), thr.EndProcessingCount(),
+		"throttler slot must be released on the pre-check rejection path")
+}
+
+func TestTrieNodeResolver_ProcessReceivedMessage_RejectsHashArrayItemBomb_Compressed(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+
+	arg := createMockArgTrieNodeResolver()
+	arg.Marshalizer = marshalizer
+	tnRes, err := resolvers.NewTrieNodeResolver(arg)
+	require.NoError(t, err)
+
+	bomb := &batch.Batch{
+		Algo: batch.CType_GZip,
+		Data: make([][]byte, batch.MaxItemsPerBatch+1),
+	}
+	require.NoError(t, bomb.Compress(marshalizer))
+
+	buff, err := marshalizer.Marshal(bomb)
+	require.NoError(t, err)
+
+	data, err := marshalizer.Marshal(&retriever.RequestData{
+		Type:  retriever.RequestDataType_HashArrayType,
+		Value: buff,
+	})
+	require.NoError(t, err)
+
+	msg := &mock.P2PMessageMock{DataField: data}
+
+	processErr := tnRes.ProcessReceivedMessage(msg, fromConnectedPeer)
+	require.ErrorIs(t, processErr, common.ErrTooManyItemsInBatch)
+	assert.True(t, arg.Throttler.(*mock.ThrottlerStub).StartWasCalled)
+	assert.True(t, arg.Throttler.(*mock.ThrottlerStub).EndWasCalled)
+}
+
+// Regression: a panic in any dependency must be recovered by
+// ProcessReceivedMessage rather than killing the message-handling goroutine.
+func TestTrieNodeResolver_ProcessReceivedMessage_RecoversFromPanic(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgTrieNodeResolver()
+	arg.Marshalizer = &mock.MarshalizerStub{
+		UnmarshalCalled: func(obj interface{}, buff []byte) error {
+			panic("injected panic during Unmarshal")
+		},
+	}
+
+	tnRes, err := resolvers.NewTrieNodeResolver(arg)
+	require.NoError(t, err)
+
+	msg := &mock.P2PMessageMock{DataField: []byte("anything")}
+
+	processErr := tnRes.ProcessReceivedMessage(msg, fromConnectedPeer)
+	require.Error(t, processErr)
+	require.Truef(t, errors.Is(processErr, common.ErrProcessReceivedMessagePanicked),
+		"expected ErrProcessReceivedMessagePanicked, got %v", processErr)
+	assert.True(t, arg.Throttler.(*mock.ThrottlerStub).StartWasCalled)
+	assert.True(t, arg.Throttler.(*mock.ThrottlerStub).EndWasCalled)
 }

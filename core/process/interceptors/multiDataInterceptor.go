@@ -12,16 +12,9 @@ import (
 	"github.com/klever-io/klever-go/tools/marshal"
 )
 
-// MaxItemsPerBatch is the hard upper bound on the number of items a single P2P Batch
-// may carry. It guards ProcessReceivedMessage's pre-allocation
-// (make([]process.InterceptedData, len(b.Data))) against attacker-controlled lengths
-// that would otherwise force ~16 B per entry of allocation before any anti-flood check.
-// See GHSA-74m6-4hjp-7226 / KLC-2353 (CWE-789 / CWE-770).
-//
-// Sized at 8192 — comfortably above the ~1700 minimum-sized txs that fit inside
-// core.MaxBulkTransactionSize (256 KiB), and above any legitimate trie-node response
-// bounded by core.MaxBufferSizeToSendTrieNodes (also 256 KiB).
-const MaxItemsPerBatch = 8192
+// MaxItemsPerBatch aliases batch.MaxItemsPerBatch so every Batch consumer shares a
+// single cap. See GHSA-74m6-4hjp-7226 / KLC-2353 and GHSA-w342-mj6g-v9c4.
+const MaxItemsPerBatch = batch.MaxItemsPerBatch
 
 // ArgMultiDataInterceptor is the argument for the multi-data interceptor
 type ArgMultiDataInterceptor struct {
@@ -105,13 +98,12 @@ func (mdi *MultiDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P, 
 		}
 	}()
 
-	// We deliberately do NOT add a wire-size pre-check before Unmarshal:
-	// ProcessReceivedMessage is only invoked from networkMessenger.pubsubCallback
-	// (network/p2p/libp2p/netMessenger.go), so the libp2p pubsub
-	// DefaultMaxMessageSize (1 MiB) is always upstream of us. A duplicate cap at
-	// our layer would be dead code today. If pubsub.WithMaxMessageSize is ever
-	// raised, reintroduce a MaxRawBatchSize check here. See GHSA-74m6-4hjp-7226 /
-	// KLC-2353.
+	// Reject oversized wire payloads before Unmarshal; see MaxBatchWireSize doc.
+	// No blacklist (logical bound, antiflood gates abuse). Currently unreachable
+	// under default libp2p; forward-defense for raised pubsub.WithMaxMessageSize.
+	if len(message.Data()) > batch.MaxBatchWireSize {
+		return process.ErrBatchWireTooLarge
+	}
 	b := batch.Batch{}
 	err = mdi.marshalizer.Unmarshal(&b, message.Data())
 	if err != nil {

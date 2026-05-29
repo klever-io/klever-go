@@ -695,3 +695,61 @@ func TestHeaderResolver_SetAndGetNumPeersToQuery(t *testing.T) {
 	assert.Equal(t, expectedIntra, actualIntra)
 	assert.Equal(t, expectedCross, actualCross)
 }
+
+// Regression: searchInCache must not panic when the headers pool returns
+// (emptySlice, _, nil). HeadersCacherStub default returns exactly that.
+func TestHeaderResolver_ProcessReceivedMessage_NonceType_EmptyHeadersNoPanic(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeaderResolver()
+	// Force the storage lookup to fail so the code falls through to searchInCache.
+	arg.HeadersNoncesStorage = &mock.StorerStub{
+		SearchFirstCalled: func(key []byte) ([]byte, error) {
+			return nil, errKeyNotFound
+		},
+	}
+	// arg.Headers (HeadersCacherStub) returns (nil, nil, nil) by default — the
+	// exact empty-with-nil-err state that previously panicked at headers[len-1].
+
+	hdrRes, err := resolvers.NewHeaderResolver(arg)
+	require.NoError(t, err)
+
+	nonceBytes := arg.NonceConverter.ToByteSlice(uint64(42))
+	processErr := hdrRes.ProcessReceivedMessage(
+		createRequestMsg(retriever.RequestDataType_NonceType, nonceBytes),
+		fromConnectedPeerId,
+	)
+	require.Error(t, processErr)
+	require.Truef(t, errors.Is(processErr, common.ErrMissingData),
+		"expected ErrMissingData, got %v", processErr)
+	assert.True(t, arg.Throttler.(*mock.ThrottlerStub).StartWasCalled)
+	assert.True(t, arg.Throttler.(*mock.ThrottlerStub).EndWasCalled)
+}
+
+// Regression: a panic in any dependency must be recovered by
+// ProcessReceivedMessage rather than killing the message-handling goroutine.
+func TestHeaderResolver_ProcessReceivedMessage_RecoversFromPanic(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeaderResolver()
+	// Inject a marshalizer whose Unmarshal panics — this fires inside
+	// parseReceivedMessage, after canProcessMessage / throttler.Start.
+	arg.Marshalizer = &mock.MarshalizerStub{
+		UnmarshalCalled: func(obj interface{}, buff []byte) error {
+			panic("injected panic during Unmarshal")
+		},
+	}
+
+	hdrRes, err := resolvers.NewHeaderResolver(arg)
+	require.NoError(t, err)
+
+	processErr := hdrRes.ProcessReceivedMessage(
+		createRequestMsg(retriever.RequestDataType_HashType, []byte("x")),
+		fromConnectedPeerId,
+	)
+	require.Error(t, processErr)
+	require.Truef(t, errors.Is(processErr, common.ErrProcessReceivedMessagePanicked),
+		"expected ErrProcessReceivedMessagePanicked, got %v", processErr)
+	assert.True(t, arg.Throttler.(*mock.ThrottlerStub).StartWasCalled)
+	assert.True(t, arg.Throttler.(*mock.ThrottlerStub).EndWasCalled)
+}

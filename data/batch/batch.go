@@ -12,15 +12,33 @@ import (
 	"github.com/klever-io/klever-go/tools/marshal"
 )
 
-// MaxDecompressedBatchSize is the hard upper bound on the inflated size of a Batch payload.
-// It guards against gzip "decompression bomb" attacks where a tiny wire payload expands to
-// many gigabytes inside io.ReadAll. See GHSA-74m6-4hjp-7226 / KLC-2352 (CWE-409).
-//
-// Sized at 10 MiB — ~40x the legitimate single-batch ceiling enforced upstream
-// (core.MaxBulkTransactionSize and core.MaxBufferSizeToSendTrieNodes are both 256 KiB),
-// equal to one second of the outOfSpecs per-peer antiflood budget, and well below the
-// 30-second blacklist threshold (~36 MiB).
-const MaxDecompressedBatchSize = 10 * 1024 * 1024
+// MaxBatchWireSize caps the COMPRESSED wire payload at the multi-data interceptor
+// pre-Unmarshal site. Equal to libp2p's DefaultMaxMessageSize; coordinated with
+// the tighter outbound network/p2p/libp2p.maxSendBuffSize (1 MiB − 64 KiB framing).
+// Does NOT bound Decompress output — see MaxDecompressedBatchSize for that.
+// See GHSA-74m6-4hjp-7226 / KLC-2352 (CWE-409), GHSA-w342-mj6g-v9c4.
+const MaxBatchWireSize = 1 << 20 // 1 MiB
+
+// MaxDecompressedBatchSize caps the INFLATED output of Batch.Decompress.
+// Sized at 2 MiB — ~2× the worst-case legitimate marshaled batch, which is a
+// single oversized-element chunk carrying one tx near core.MaxDataSize (1 MiB)
+// plus tx + Batch proto framing. Distinct from MaxBatchWireSize because a
+// highly-compressible payload below the wire cap can legitimately inflate
+// past 1 MiB on Decompress. Bounds transient slice-header amplification to
+// ~24 MB before MaxItemsPerBatch fires.
+// See GHSA-74m6-4hjp-7226 / KLC-2352 (CWE-409), GHSA-w342-mj6g-v9c4.
+const MaxDecompressedBatchSize = 1 << 21 // 2 MiB
+
+// MaxItemsPerBatch caps Batch entries. A byte cap alone isn't enough: 2 MiB of
+// mostly-empty proto entries still encodes ~1 M items.
+// See GHSA-w342-mj6g-v9c4 and GHSA-74m6-4hjp-7226 / KLC-2353.
+const MaxItemsPerBatch = 8192
+
+// MaxHashArrayBuffSize is the tighter pre-Unmarshal cap for resolver hash-array
+// requests. Sized at 512 KiB — ~1.9× the security ceiling
+// (MaxItemsPerBatch × ~34 B proto framing for 32-byte hash entries ≈ 272 KiB).
+// Defense-in-depth for GHSA-w342-mj6g-v9c4.
+const MaxHashArrayBuffSize = 1 << 19 // 512 KiB
 
 // New returns a new batch from given buffers
 func New(buffs ...[]byte) *Batch {
@@ -152,6 +170,10 @@ func (ba *Batch) Decompress(m marshal.Marshalizer) error {
 	err = m.Unmarshal(ba, result)
 	if err != nil {
 		return err
+	}
+
+	if len(ba.Data) > MaxItemsPerBatch {
+		return common.ErrTooManyItemsInBatch
 	}
 
 	ba.Stream = nil

@@ -17,6 +17,7 @@ import (
 	"github.com/klever-io/klever-go/core/throttler"
 	"github.com/klever-io/klever-go/data/batch"
 	"github.com/klever-io/klever-go/tools/check"
+	"github.com/klever-io/klever-go/tools/marshal/factory"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -820,6 +821,79 @@ func TestMultiDataInterceptor_ProcessReceivedMessage_CompressedItemCountBomb_Rel
 	assert.Equal(t, int32(1), countingThrottler.StartProcessingCount())
 	assert.Equal(t, int32(1), countingThrottler.EndProcessingCount(),
 		"the post-Decompress items-per-batch rejection path must release the throttler slot")
+}
+
+// Regression GHSA-w342-mj6g-v9c4 defense-in-depth: oversized wire payload must
+// be rejected before Unmarshal (slice-header amplification window).
+func TestMultiDataInterceptor_ProcessReceivedMessage_RejectsOversizedWirePayload(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+
+	// Junk bytes (not a marshaled Batch): on vulnerable code Unmarshal would
+	// either error or decode to empty; only the fix returns ErrTooManyItemsInBatch.
+	payload := make([]byte, batch.MaxBatchWireSize+1)
+
+	countingThrottler := &mock.InterceptorThrottlerStub{
+		CanProcessCalled: func() bool { return true },
+	}
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.Marshalizer = marshalizer
+	arg.Throttler = countingThrottler
+
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+	require.NoError(t, err)
+
+	msg := &mock.P2PMessageMock{
+		DataField:  payload,
+		PeerField:  core.PeerID("origin-peer"),
+		SeqNoField: []byte("seq-1"),
+	}
+
+	processErr := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+	require.ErrorIs(t, processErr, process.ErrBatchWireTooLarge)
+	assert.Equal(t, int32(1), countingThrottler.StartProcessingCount())
+	assert.Equal(t, int32(1), countingThrottler.EndProcessingCount(),
+		"the wire-size rejection path must release the throttler slot")
+}
+
+// Regression GHSA-w342-mj6g-v9c4: real amplification pattern. Payload is `0x0a 0x00` × N —
+// proto3 field-1 LEN tag + length-0 varint = one empty `repeated bytes` entry per pair.
+// Pre-check must reject on byte length before Unmarshal allocates N empty []byte headers.
+func TestMultiDataInterceptor_ProcessReceivedMessage_RejectsRealAmplificationPattern(t *testing.T) {
+	t.Parallel()
+
+	// Proto marshalizer so the pattern decodes (not just a size rejection) if pre-check is bypassed.
+	protoMarsh, err := factory.NewMarshalizer(factory.ProtoMarshalizer)
+	require.NoError(t, err)
+
+	const numEmptyEntries = batch.MaxBatchWireSize/2 + 1
+	payload := bytes.Repeat([]byte{0x0a, 0x00}, numEmptyEntries)
+
+	countingThrottler := &mock.InterceptorThrottlerStub{
+		CanProcessCalled: func() bool { return true },
+	}
+
+	arg := createMockArgMultiDataInterceptor()
+	arg.Marshalizer = protoMarsh
+	arg.Throttler = countingThrottler
+
+	mdi, err := interceptors.NewMultiDataInterceptor(arg)
+	require.NoError(t, err)
+
+	msg := &mock.P2PMessageMock{
+		DataField:  payload,
+		PeerField:  core.PeerID("origin-peer"),
+		SeqNoField: []byte("seq-1"),
+	}
+
+	processErr := mdi.ProcessReceivedMessage(msg, fromConnectedPeerID)
+	require.ErrorIs(t, processErr, process.ErrBatchWireTooLarge,
+		"wire-size pre-check must fire before proto Unmarshal allocates %d empty entries", numEmptyEntries)
+	assert.Equal(t, int32(1), countingThrottler.StartProcessingCount())
+	assert.Equal(t, int32(1), countingThrottler.EndProcessingCount(),
+		"the wire-size rejection path must release the throttler slot")
 }
 
 //------- regression: data race on bdi.debugHandler from worker goroutine (Finding 4.2)

@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"fmt"
+	"runtime/debug"
 
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
@@ -84,8 +85,17 @@ func NewTxResolver(arg ArgTxResolver) (*TxResolver, error) {
 
 // ProcessReceivedMessage will be the callback func from the p2p.Messenger and will be called each time a new message was received
 // (for the topic this validator was registered to, usually a request topic)
-func (txRes *TxResolver) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
-	err := txRes.canProcessMessage(message, fromConnectedPeer)
+func (txRes *TxResolver) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("TxResolver.ProcessReceivedMessage panicked",
+				"panic", r,
+				"stack", string(debug.Stack()))
+			err = fmt.Errorf("%w: %v", common.ErrProcessReceivedMessagePanicked, r)
+		}
+	}()
+
+	err = txRes.canProcessMessage(message, fromConnectedPeer)
 	if err != nil {
 		return err
 	}
@@ -175,10 +185,19 @@ func (txRes *TxResolver) fetchTxAsByteSlice(hash []byte) ([]byte, error) {
 
 func (txRes *TxResolver) resolveTxRequestByHashArray(hashesBuff []byte, pid core.PeerID) error {
 	//TODO this can be optimized by searching in corresponding datapool (taken by topic name)
+	// Reject oversized hash-array payloads before Unmarshal — see MaxHashArrayBuffSize.
+	// No blacklist (logical bound, antiflood gates abuse).
+	if len(hashesBuff) > batch.MaxHashArrayBuffSize {
+		return common.ErrBatchWireTooLarge
+	}
 	b := batch.Batch{}
 	err := txRes.marshalizer.Unmarshal(&b, hashesBuff)
 	if err != nil {
 		return err
+	}
+	// Cap uncompressed batches; the compressed path is bounded inside b.Decompress.
+	if len(b.Data) > batch.MaxItemsPerBatch {
+		return common.ErrTooManyItemsInBatch
 	}
 	if b.IsCompressed {
 		err = b.Decompress(txRes.marshalizer)

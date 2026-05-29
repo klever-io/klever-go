@@ -1,6 +1,9 @@
 package resolvers
 
 import (
+	"fmt"
+	"runtime/debug"
+
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
@@ -106,8 +109,17 @@ func (hdrRes *HeaderResolver) SetEpochHandler(epochHandler retriever.EpochHandle
 
 // ProcessReceivedMessage will be the callback func from the p2p.Messenger and will be called each time a new message was received
 // (for the topic this validator was registered to, usually a request topic)
-func (hdrRes *HeaderResolver) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
-	err := hdrRes.canProcessMessage(message, fromConnectedPeer)
+func (hdrRes *HeaderResolver) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error("HeaderResolver.ProcessReceivedMessage panicked",
+				"panic", r,
+				"stack", string(debug.Stack()))
+			err = fmt.Errorf("%w: %v", common.ErrProcessReceivedMessagePanicked, r)
+		}
+	}()
+
+	err = hdrRes.canProcessMessage(message, fromConnectedPeer)
 	if err != nil {
 		return err
 	}
@@ -193,6 +205,9 @@ func (hdrRes *HeaderResolver) searchInCache(nonce uint64) ([]byte, error) {
 	headers, _, err := hdrRes.headers.GetHeadersByNonce(nonce)
 	if err != nil {
 		return nil, err
+	}
+	if len(headers) == 0 {
+		return nil, common.ErrMissingData
 	}
 
 	hdr := headers[len(headers)-1]

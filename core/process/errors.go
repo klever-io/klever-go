@@ -1,6 +1,10 @@
 package process
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/klever-io/klever-go/common"
+)
 
 // ErrNilQuotaStatusHandler signals that a nil quota status handler has been provided
 var ErrNilQuotaStatusHandler = errors.New("nil quota status handler")
@@ -56,9 +60,13 @@ var ErrEmptyPeerID = errors.New("empty peer ID")
 // ErrNoDataInMessage signals that no data was found after parsing received p2p message
 var ErrNoDataInMessage = errors.New("no data found in received message")
 
-// ErrTooManyItemsInBatch signals that a received Batch carries more items than allowed,
-// guarding against pre-allocation amplification (CWE-789 / CWE-770).
-var ErrTooManyItemsInBatch = errors.New("too many items in batch")
+// ErrTooManyItemsInBatch aliases common.ErrTooManyItemsInBatch so every Batch consumer
+// shares a single sentinel under errors.Is.
+var ErrTooManyItemsInBatch = common.ErrTooManyItemsInBatch
+
+// ErrBatchWireTooLarge aliases common.ErrBatchWireTooLarge for the byte-size
+// pre-Unmarshal rejection path; see common.ErrBatchWireTooLarge.
+var ErrBatchWireTooLarge = common.ErrBatchWireTooLarge
 
 // ErrInterceptedDataNotForCurrentShard signals that intercepted data is not for current shard
 var ErrInterceptedDataNotForCurrentShard = errors.New("intercepted data not for current shard")

@@ -14,6 +14,7 @@ import (
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var defaultHashes = [][]byte{[]byte("hash")}
@@ -511,4 +512,97 @@ func TestTopicResolverSender_NumPeersToQueryr(t *testing.T) {
 
 	assert.Equal(t, intra, recoveredIntra)
 	assert.Equal(t, cross, recoveredCross)
+}
+
+// Regression: SendOnRequestTopicTo must not fan out to every consensus peer when
+// the resolver is configured with NumConsensusPeers=0 (a valid config when
+// NumCommonPeers>=2). The pre-fix code computed numConsensusPeers-1 = -1 and the
+// sendOnTopic break (`msgSentCounter == maxToSend`) never fired, broadcasting to
+// the entire consensus list. With the clamp, the per-call budget stays at 0
+// (which sendOnTopic floors to 1), so at most one consensus peer is contacted.
+func TestTopicResolverSender_SendOnRequestTopicTo_ZeroConsensusPeersNoFanout(t *testing.T) {
+	t.Parallel()
+
+	directPeer := core.PeerID("direct")
+	consensusList := []core.PeerID{
+		core.PeerID("c1"), core.PeerID("c2"), core.PeerID("c3"),
+		core.PeerID("c4"), core.PeerID("c5"),
+	}
+
+	consensusSendCount := 0
+	directSendCount := 0
+	arg := createMockArgTopicResolverSender()
+	arg.NumConsensusPeers = 0
+	arg.NumCommonPeers = 2 // satisfy Common+Consensus >= 2 constructor validation
+	arg.PeerListCreator = &mock.PeerListCreatorStub{
+		PeerListCalled:          func() []core.PeerID { return nil },
+		ConsensusPeerListCalled: func() []core.PeerID { return consensusList },
+	}
+	arg.Messenger = &mock.MessageHandlerStub{
+		SendToConnectedPeerCalled: func(topic string, buff []byte, peerID core.PeerID) error {
+			if bytes.Equal(peerID.Bytes(), directPeer.Bytes()) {
+				directSendCount++
+			} else {
+				consensusSendCount++
+			}
+			return nil
+		},
+	}
+	trs, err := topicResolverSender.NewTopicResolverSender(arg)
+	require.NoError(t, err)
+
+	err = trs.SendOnRequestTopicTo(&retriever.RequestData{}, defaultHashes, directPeer)
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, directSendCount, "direct peer should receive exactly one send")
+	assert.LessOrEqualf(t, consensusSendCount, 1, "without fan-out the consensus budget caps at 1 (sendOnTopic floors maxToSend=0 to 1); got %d", consensusSendCount)
+}
+
+// Regression: SendOnRequestTopic and SendOnRequestTopicTo must read
+// numConsensusPeers / numCommonPeers under the same mutex as SetNumPeersToQuery.
+// Run with `go test -race` to confirm; without the fix the race detector flags
+// concurrent read/write of numConsensusPeers / numCommonPeers.
+func TestTopicResolverSender_ConcurrentSendAndSetNumPeers_NoDataRace(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgTopicResolverSender()
+	arg.PeerListCreator = &mock.PeerListCreatorStub{
+		PeerListCalled:          func() []core.PeerID { return []core.PeerID{"p1", "p2", "p3"} },
+		ConsensusPeerListCalled: func() []core.PeerID { return []core.PeerID{"p4", "p5"} },
+	}
+	arg.Messenger = &mock.MessageHandlerStub{
+		SendToConnectedPeerCalled: func(topic string, buff []byte, peerID core.PeerID) error {
+			return nil
+		},
+	}
+	trs, err := topicResolverSender.NewTopicResolverSender(arg)
+	require.NoError(t, err)
+
+	rd := &retriever.RequestData{Type: retriever.RequestDataType_HashType, Value: []byte("x")}
+
+	const iters = 500
+	done := make(chan struct{}, 3)
+
+	go func() {
+		for i := 0; i < iters; i++ {
+			trs.SetNumPeersToQuery(i%5, (i+1)%5)
+		}
+		done <- struct{}{}
+	}()
+	go func() {
+		for i := 0; i < iters; i++ {
+			_ = trs.SendOnRequestTopic(rd, defaultHashes)
+		}
+		done <- struct{}{}
+	}()
+	go func() {
+		for i := 0; i < iters; i++ {
+			_ = trs.SendOnRequestTopicTo(rd, defaultHashes, "peerX")
+		}
+		done <- struct{}{}
+	}()
+
+	for i := 0; i < 3; i++ {
+		<-done
+	}
 }

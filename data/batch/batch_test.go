@@ -180,6 +180,118 @@ func TestDecompress_RejectsDataSizeMismatch(t *testing.T) {
 	}
 }
 
+// Regression: GHSA-w342-mj6g-v9c4 — inflated entry count over MaxItemsPerBatch.
+func TestDecompress_RejectsItemCountBomb(t *testing.T) {
+	t.Parallel()
+
+	internalMarshalizer, err := factory.NewMarshalizer(factory.ProtoMarshalizer)
+	require.NoError(t, err)
+
+	bomb := &batch.Batch{
+		Algo: batch.CType_GZip,
+		Data: make([][]byte, batch.MaxItemsPerBatch+1),
+	}
+	require.NoError(t, bomb.Compress(internalMarshalizer))
+
+	tampered := &batch.Batch{
+		IsCompressed: true,
+		Algo:         bomb.Algo,
+		Stream:       bomb.Stream,
+		DataSize:     bomb.DataSize,
+	}
+
+	err = tampered.Decompress(internalMarshalizer)
+	require.Error(t, err)
+	require.Truef(t, errors.Is(err, common.ErrTooManyItemsInBatch),
+		"expected ErrTooManyItemsInBatch, got %v", err)
+}
+
+// Pins the cap boundary against off-by-one regressions.
+func TestDecompress_AcceptsItemCountAtCap(t *testing.T) {
+	t.Parallel()
+
+	internalMarshalizer, err := factory.NewMarshalizer(factory.ProtoMarshalizer)
+	require.NoError(t, err)
+
+	ok := &batch.Batch{
+		Algo: batch.CType_GZip,
+		Data: make([][]byte, batch.MaxItemsPerBatch),
+	}
+	require.NoError(t, ok.Compress(internalMarshalizer))
+	require.NoError(t, ok.Decompress(internalMarshalizer))
+	require.Equal(t, batch.MaxItemsPerBatch, len(ok.Data))
+}
+
+// Pins the Decompress cap boundary against off-by-one regressions.
+// Builds a Batch whose marshaled-pre-compression size equals exactly
+// MaxDecompressedBatchSize — one repeated-bytes entry of size N has framing
+// of tag(1B) + length-varint(varies) + N. For N up to 2^21 − 1 the length
+// varint is 3 B, so entrySize = MaxDecompressedBatchSize − 4.
+func TestDecompress_AcceptsAtDecompressedBoundary(t *testing.T) {
+	t.Parallel()
+
+	internalMarshalizer, err := factory.NewMarshalizer(factory.ProtoMarshalizer)
+	require.NoError(t, err)
+
+	const entrySize = batch.MaxDecompressedBatchSize - 4
+
+	b := &batch.Batch{
+		Algo: batch.CType_GZip,
+		Data: [][]byte{make([]byte, entrySize)},
+	}
+	require.NoError(t, b.Compress(internalMarshalizer))
+	require.Equal(t, int32(batch.MaxDecompressedBatchSize), b.DataSize, // #nosec G115 — fits int32 by construction
+		"sanity: marshaled-pre-compression size must equal MaxDecompressedBatchSize")
+
+	incoming := &batch.Batch{
+		IsCompressed: true,
+		Algo:         b.Algo,
+		Stream:       b.Stream,
+		DataSize:     b.DataSize,
+	}
+	require.NoError(t, incoming.Decompress(internalMarshalizer),
+		"Decompress must accept an inflated payload of exactly MaxDecompressedBatchSize")
+	require.Equal(t, 1, len(incoming.Data))
+	require.Equal(t, entrySize, len(incoming.Data[0]))
+}
+
+// Regression for the F1 finding: a max-cap single-tx batch's marshaled size
+// EXCEEDS MaxBatchWireSize by the size of proto framing. That payload must
+// still round-trip cleanly through Compress → Decompress — which is the whole
+// reason MaxDecompressedBatchSize is sized above MaxBatchWireSize. If
+// MaxDecompressedBatchSize ever drops to MaxBatchWireSize, this test fails.
+func TestDecompress_AcceptsMaxCapSingleTxBatch(t *testing.T) {
+	t.Parallel()
+
+	internalMarshalizer, err := factory.NewMarshalizer(factory.ProtoMarshalizer)
+	require.NoError(t, err)
+
+	// One entry sized at core.MaxDataSize (1 MiB) — proxy for a max-cap tx.
+	// Marshaled batch is 1 + 3 + (1 << 20) = 1 MiB + 4 bytes, i.e. just above
+	// MaxBatchWireSize. The all-zero content is realistic for SC-deploy
+	// bytecode with padding and is the case that triggers the F1 gap.
+	const txInner = 1 << 20
+
+	b := &batch.Batch{
+		Algo: batch.CType_GZip,
+		Data: [][]byte{make([]byte, txInner)},
+	}
+	require.NoError(t, b.Compress(internalMarshalizer))
+	require.Greater(t, b.DataSize, int32(batch.MaxBatchWireSize), // #nosec G115 — fits int32 by construction
+		"sanity: a max-cap single-tx batch's marshaled size DOES exceed MaxBatchWireSize — that's the framing gap MaxDecompressedBatchSize accommodates")
+
+	incoming := &batch.Batch{
+		IsCompressed: true,
+		Algo:         b.Algo,
+		Stream:       b.Stream,
+		DataSize:     b.DataSize,
+	}
+	require.NoError(t, incoming.Decompress(internalMarshalizer),
+		"Decompress must accept a max-cap single-tx batch (DataSize > MaxBatchWireSize but ≤ MaxDecompressedBatchSize)")
+	require.Equal(t, 1, len(incoming.Data))
+	require.Equal(t, txInner, len(incoming.Data[0]))
+}
+
 func BenchmarkCompress(b *testing.B) {
 	algos := []batch.CType{batch.CType_GZip, batch.CType_LZ4}
 	sizes := []int{100, 1000, 3000}

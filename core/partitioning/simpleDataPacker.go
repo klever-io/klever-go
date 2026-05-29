@@ -57,9 +57,12 @@ func (sdp *SimpleDataPacker) PackDataInChunks(data [][]byte, limit int) ([][]byt
 			ba := &batch.Batch{Data: currentChunk}
 			err := ba.Compress(sdp.marshalizer)
 			if err != nil {
-				continue
+				return nil, err
 			}
-			marshaledChunk, _ := sdp.marshalizer.Marshal(ba)
+			marshaledChunk, err := sdp.marshalizer.Marshal(ba)
+			if err != nil {
+				return nil, err
+			}
 			compressedSize += len(marshaledChunk)
 			returningBuff = append(returningBuff, marshaledChunk)
 			currentChunk = make([][]byte, 0)
