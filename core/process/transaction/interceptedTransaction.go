@@ -146,6 +146,12 @@ func createTx(marshalizer marshal.Marshalizer, txBuff []byte) (*transaction.Tran
 		return nil, err
 	}
 
+	// A Transaction with RawData omitted unmarshals to a nil RawData; reject it so
+	// downstream code can rely on RawData being set (GHSA-rm5c-5x2p-48wr).
+	if tx.RawData == nil {
+		return nil, process.ErrNilTransaction
+	}
+
 	return tx, nil
 }
 

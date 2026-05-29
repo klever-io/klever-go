@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -888,8 +889,36 @@ func (netMes *networkMessenger) RegisterMessageProcessor(topic string, handler p
 }
 
 func (netMes *networkMessenger) pubsubCallback(handler p2p.MessageProcessor, topic string) func(ctx context.Context, pid peer.ID, message *pubsub.Message) bool {
-	return func(ctx context.Context, pid peer.ID, message *pubsub.Message) bool {
+	return func(ctx context.Context, pid peer.ID, message *pubsub.Message) (isValid bool) {
 		fromConnectedPeer := core.PeerID(pid)
+
+		// Circuit-breaker: this callback runs in an unrecovered pubsub goroutine, so a
+		// panic on an untrusted message would crash the node (GHSA-rm5c-5x2p-48wr).
+		defer func() {
+			if r := recover(); r != nil {
+				// Read message via nil-safe getters: the recover must not panic itself.
+				var dataLen int
+				var originator core.PeerID
+				if message != nil {
+					dataLen = len(message.GetData())
+					originator = core.PeerID(message.GetFrom())
+				}
+
+				log.Error("recovered from panic in pubsubCallback",
+					"topic", topic,
+					"originator", p2p.PeerIDToShortString(originator),
+					"from connected peer", p2p.PeerIDToShortString(fromConnectedPeer),
+					"panic", fmt.Sprintf("%v", r),
+					"stack", string(debug.Stack()),
+				)
+				// Blacklist both peers, as transformAndCheckMessage does on severe errors.
+				netMes.blacklistPid(fromConnectedPeer, core.WrongP2PMessageBlacklistDuration)
+				netMes.blacklistPid(originator, core.WrongP2PMessageBlacklistDuration)
+				netMes.processDebugMessage(topic, fromConnectedPeer, uint64(dataLen), true)
+				isValid = false
+			}
+		}()
+
 		msg, err := netMes.transformAndCheckMessage(message, fromConnectedPeer, topic)
 		if err != nil {
 			log.Trace("p2p validator - new message", "error", err.Error(), "topic", topic)

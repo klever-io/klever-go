@@ -1508,6 +1508,97 @@ func TestNetworkMessenger_PubsubCallbackReturnsFalseIfHandlerErrors(t *testing.T
 	_ = mes.Close()
 }
 
+// Regression test for GHSA-rm5c-5x2p-48wr: a panic while processing a gossip message
+// must be recovered (no node crash), reject the message, and blacklist both peers.
+func TestNetworkMessenger_PubsubCallbackRecoversFromHandlerPanic(t *testing.T) {
+	args := libp2p.ArgsNetworkMessenger{
+		Marshalizer:   &commonMock.ProtoMarshalizerMock{},
+		ListenAddress: libp2p.ListenLocalhostAddrWithIp4AndTcp,
+		P2pConfig: config.P2PConfig{
+			Node: config.NodeConfig{
+				Port: "0",
+			},
+			KadDhtPeerDiscovery: config.KadDhtPeerDiscoveryConfig{
+				Enabled: false,
+			},
+			Sharding: config.ShardingConfig{
+				Type: p2p.NilListSharder,
+			},
+		},
+		SyncTimer: &libp2p.LocalSyncTimer{},
+	}
+
+	mes, _ := libp2p.NewNetworkMessenger(args)
+
+	// Distinct ids so we can assert BOTH get blacklisted. The originator must be a
+	// valid peer id so the message reaches the panicking handler.
+	connectedPeer := peer.ID("connected-peer-id")
+	originator := []byte(mes.ID())
+
+	var mutBlacklisted sync.Mutex
+	blacklisted := make(map[string]struct{})
+	_ = mes.SetPeerDenialEvaluator(&mock.PeerDenialEvaluatorStub{
+		UpsertPeerIDCalled: func(pid core.PeerID, duration time.Duration) error {
+			mutBlacklisted.Lock()
+			blacklisted[string(pid)] = struct{}{}
+			mutBlacklisted.Unlock()
+			return nil
+		},
+		IsDeniedCalled: func(pid core.PeerID) bool {
+			return false
+		},
+	})
+
+	numCalled := uint32(0)
+	handler := &mock.MessageProcessorStub{
+		ProcessMessageCalled: func(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
+			atomic.AddUint32(&numCalled, 1)
+			panic("simulated nil-pointer dereference while processing a malicious tx")
+		},
+	}
+
+	callBackFunc := mes.PubsubCallback(handler, "")
+	ctx := context.Background()
+	innerMessage := &data.TopicMessage{
+		Payload:   []byte("data"),
+		Timestamp: time.Now().Unix(),
+		Version:   libp2p.CurrentTopicMessageVersion,
+	}
+	buff, _ := args.Marshalizer.Marshal(innerMessage)
+	topic := "topic"
+	msg := &pubsub.Message{
+		Message: &pubsub_pb.Message{
+			From:                 originator,
+			Data:                 buff,
+			Seqno:                []byte{0, 0, 0, 1},
+			Topic:                &topic,
+			Signature:            nil,
+			Key:                  nil,
+			XXX_NoUnkeyedLiteral: struct{}{},
+			XXX_unrecognized:     nil,
+			XXX_sizecache:        0,
+		},
+		ReceivedFrom:  "",
+		ValidatorData: nil,
+	}
+
+	isValid := true
+	require.NotPanics(t, func() {
+		isValid = callBackFunc(ctx, connectedPeer, msg)
+	})
+	assert.False(t, isValid)
+	assert.Equal(t, uint32(1), atomic.LoadUint32(&numCalled))
+
+	mutBlacklisted.Lock()
+	_, connectedBlacklisted := blacklisted[string(connectedPeer)]
+	_, originatorBlacklisted := blacklisted[string(originator)]
+	mutBlacklisted.Unlock()
+	assert.True(t, connectedBlacklisted, "connected peer should be blacklisted on panic")
+	assert.True(t, originatorBlacklisted, "originator should be blacklisted on panic")
+
+	_ = mes.Close()
+}
+
 func TestNetworkMessenger_UnjoinAllTopicsShouldWork(t *testing.T) {
 	args := libp2p.ArgsNetworkMessenger{
 		Marshalizer:   &commonMock.ProtoMarshalizerMock{},

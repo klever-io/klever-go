@@ -513,6 +513,24 @@ func TestNewInterceptedTransaction_UnmarshalingTxFailsShouldErr(t *testing.T) {
 	assert.Equal(t, errExpected, err)
 }
 
+// Regression test for GHSA-rm5c-5x2p-48wr: the constructor must reject a tx with
+// nil RawData instead of letting it panic the node later in CheckValidity.
+func TestNewInterceptedTransaction_NilRawDataShouldErrAndNotPanic(t *testing.T) {
+	t.Parallel()
+
+	chainID := []byte("chain")
+	// RawData omitted — stays nil after unmarshal, mirroring the PoC payload.
+	tx := &dataTransaction.Transaction{
+		Signature: [][]byte{{0x78}},
+	}
+
+	require.NotPanics(t, func() {
+		txi, err := createInterceptedTxFromPlainTx(tx, createFreeTxFeeHandler(), chainID, 1)
+		assert.True(t, check.IfNil(txi))
+		assert.Equal(t, process.ErrNilTransaction, err)
+	})
+}
+
 func TestNewInterceptedTransaction_ShouldWork(t *testing.T) {
 	t.Parallel()
 

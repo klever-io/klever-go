@@ -19,6 +19,12 @@ func NewTxVersionChecker(minTxVersion uint32) *txVersionChecker {
 
 // CheckTxVersion will check transaction version
 func (tvc *txVersionChecker) CheckTxVersion(tx *transaction.Transaction) error {
+	// Must stay ErrInvalidTransactionVersion: IsWrongVersionError keys on it to
+	// blacklist the sender.
+	if tx == nil || tx.RawData == nil {
+		return process.ErrInvalidTransactionVersion
+	}
+
 	if tx.RawData.Version < tvc.minTxVersion {
 		return process.ErrInvalidTransactionVersion
 	}
