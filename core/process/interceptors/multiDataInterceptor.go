@@ -1,8 +1,6 @@
 package interceptors
 
 import (
-	"errors"
-
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data/batch"
@@ -108,9 +106,12 @@ func (mdi *MultiDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P, 
 	err = mdi.marshalizer.Unmarshal(&b, message.Data())
 	if err != nil {
 		//this situation is so severe that we need to black list de peers
-		reason := "unmarshalable data got on topic " + mdi.topic
-		mdi.antifloodHandler.BlacklistPeer(message.Peer(), reason, core.InvalidMessageBlacklistDuration)
-		mdi.antifloodHandler.BlacklistPeer(fromConnectedPeer, reason, core.InvalidMessageBlacklistDuration)
+		log.Debug("MultiDataInterceptor.ProcessReceivedMessage unmarshal failed",
+			"topic", mdi.topic,
+			"originator", p2p.PeerIDToShortString(message.Peer()),
+			"err", process.SanitizeBlacklistReason(err.Error()))
+		mdi.antifloodHandler.BlacklistPeer(message.Peer(), process.BlacklistReasonUnmarshalable, core.InvalidMessageBlacklistDuration)
+		mdi.antifloodHandler.BlacklistPeer(fromConnectedPeer, process.BlacklistReasonUnmarshalable, core.InvalidMessageBlacklistDuration)
 
 		return err
 	}
@@ -129,10 +130,12 @@ func (mdi *MultiDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P, 
 			// data we can never act on; treat it the same as the unmarshal-error
 			// path and blacklist both the originator and the connected peer
 			// (CWE-755 / CWE-703).
-			log.Error("MultiDataInterceptor.ProcessReceivedMessage", "err", err.Error())
-			reason := "decompression failure on topic " + mdi.topic + ", error " + err.Error()
-			mdi.antifloodHandler.BlacklistPeer(message.Peer(), reason, core.InvalidMessageBlacklistDuration)
-			mdi.antifloodHandler.BlacklistPeer(fromConnectedPeer, reason, core.InvalidMessageBlacklistDuration)
+			log.Debug("MultiDataInterceptor.ProcessReceivedMessage decompress failed",
+				"topic", mdi.topic,
+				"originator", p2p.PeerIDToShortString(message.Peer()),
+				"err", process.SanitizeBlacklistReason(err.Error()))
+			mdi.antifloodHandler.BlacklistPeer(message.Peer(), process.BlacklistReasonDecompressFailed, core.InvalidMessageBlacklistDuration)
+			mdi.antifloodHandler.BlacklistPeer(fromConnectedPeer, process.BlacklistReasonDecompressFailed, core.InvalidMessageBlacklistDuration)
 			return err
 		}
 		// Decompress replaces b.Data wholesale, so re-check the cap on the inflated
@@ -205,9 +208,12 @@ func (mdi *MultiDataInterceptor) interceptedData(dataBuff []byte, originator cor
 	interceptedData, err := mdi.factory.Create(dataBuff)
 	if err != nil {
 		//this situation is so severe that we need to black list de peers
-		reason := "can not create object from received bytes, topic " + mdi.topic + ", error " + err.Error()
-		mdi.antifloodHandler.BlacklistPeer(originator, reason, core.InvalidMessageBlacklistDuration)
-		mdi.antifloodHandler.BlacklistPeer(fromConnectedPeer, reason, core.InvalidMessageBlacklistDuration)
+		log.Debug("MultiDataInterceptor: factory.Create failed",
+			"topic", mdi.topic,
+			"originator", p2p.PeerIDToShortString(originator),
+			"err", process.SanitizeBlacklistReason(err.Error()))
+		mdi.antifloodHandler.BlacklistPeer(originator, process.BlacklistReasonFactoryCreateFailed, core.InvalidMessageBlacklistDuration)
+		mdi.antifloodHandler.BlacklistPeer(fromConnectedPeer, process.BlacklistReasonFactoryCreateFailed, core.InvalidMessageBlacklistDuration)
 
 		return nil, err
 	}
@@ -218,13 +224,14 @@ func (mdi *MultiDataInterceptor) interceptedData(dataBuff []byte, originator cor
 	if err != nil {
 		mdi.processDebugInterceptedData(interceptedData, err)
 
-		isWrongVersion := errors.Is(err, process.ErrInvalidTransactionVersion) ||
-			errors.Is(err, process.ErrInvalidChainID)
-		if isWrongVersion {
+		if process.IsWrongVersionError(err) {
 			//this situation is so severe that we need to black list de peers
-			reason := "wrong version of received intercepted data, topic " + mdi.topic + ", error " + err.Error()
-			mdi.antifloodHandler.BlacklistPeer(originator, reason, core.InvalidMessageBlacklistDuration)
-			mdi.antifloodHandler.BlacklistPeer(fromConnectedPeer, reason, core.InvalidMessageBlacklistDuration)
+			log.Debug("MultiDataInterceptor: wrong version of intercepted data",
+				"topic", mdi.topic,
+				"originator", p2p.PeerIDToShortString(originator),
+				"err", process.SanitizeBlacklistReason(err.Error()))
+			mdi.antifloodHandler.BlacklistPeer(originator, process.BlacklistReasonWrongVersion, core.InvalidMessageBlacklistDuration)
+			mdi.antifloodHandler.BlacklistPeer(fromConnectedPeer, process.BlacklistReasonWrongVersion, core.InvalidMessageBlacklistDuration)
 		}
 
 		return nil, err

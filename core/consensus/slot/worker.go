@@ -353,9 +353,11 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 		if errNotCritical == nil && wrk.shouldBlacklistPeer(err) {
 			//this situation is so severe that we have to black list both the message originator and the connected peer
 			//that disseminated this message.
-			reason := fmt.Sprintf("blacklisted due to invalid consensus message: %s", err.Error())
-			wrk.antifloodHandler.BlacklistPeer(message.Peer(), reason, core.InvalidMessageBlacklistDuration)
-			wrk.antifloodHandler.BlacklistPeer(fromConnectedPeer, reason, core.InvalidMessageBlacklistDuration)
+			log.Debug("Worker: invalid consensus message",
+				"originator", message.Peer().Pretty(),
+				"err", process.SanitizeBlacklistReason(err.Error()))
+			wrk.antifloodHandler.BlacklistPeer(message.Peer(), process.BlacklistReasonInvalidConsensus, core.InvalidMessageBlacklistDuration)
+			wrk.antifloodHandler.BlacklistPeer(fromConnectedPeer, process.BlacklistReasonInvalidConsensus, core.InvalidMessageBlacklistDuration)
 		}
 	}()
 

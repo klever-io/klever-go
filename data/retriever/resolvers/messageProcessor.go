@@ -5,6 +5,7 @@ import (
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/tools/check"
@@ -44,9 +45,12 @@ func (mp *messageProcessor) parseReceivedMessage(message p2p.MessageP2P, fromCon
 	err := rd.UnmarshalWith(mp.marshalizer, message)
 	if err != nil {
 		//this situation is so severe that we need to black list the peers
-		reason := "unmarshalable data got on request topic " + mp.topic
-		mp.antifloodHandler.BlacklistPeer(message.Peer(), reason, core.InvalidMessageBlacklistDuration)
-		mp.antifloodHandler.BlacklistPeer(fromConnectedPeer, reason, core.InvalidMessageBlacklistDuration)
+		log.Debug("messageProcessor: unmarshal failed on resolver topic",
+			"topic", mp.topic,
+			"originator", p2p.PeerIDToShortString(message.Peer()),
+			"err", process.SanitizeBlacklistReason(err.Error()))
+		mp.antifloodHandler.BlacklistPeer(message.Peer(), process.BlacklistReasonUnmarshalable, core.InvalidMessageBlacklistDuration)
+		mp.antifloodHandler.BlacklistPeer(fromConnectedPeer, process.BlacklistReasonUnmarshalable, core.InvalidMessageBlacklistDuration)
 
 		return nil, err
 	}
