@@ -15,6 +15,38 @@
 # K:::::::K    K:::::KL::::::::::::::::::::::LE::::::::::::::::::::E           V:::V           E::::::::::::::::::::ER::::::R     R:::::R
 # KKKKKKKKK    KKKKKKKLLLLLLLLLLLLLLLLLLLLLLLLEEEEEEEEEEEEEEEEEEEEEE            VVV            EEEEEEEEEEEEEEEEEEEEEERRRRRRRR     RRRRRRR
 
+###############################################################################
+# Usage                                                                       #
+###############################################################################
+#
+# Common workflows
+#   make build                  Build all binaries into ./bin/
+#   make all                    Run validator node (default log level)
+#   make debug                  Run node in debug mode
+#   make tests-unit             Run unit tests
+#   make profile                Run node with pprof on 127.0.0.1:8080 (see pprof-* targets)
+#   make docker-build           Build Debian Docker image (see docker/Makefile)
+#   make help                   List every available target
+#
+# Environment variables
+#   LOG=*:DEBUG                 Log level filter (default: *:INFO)
+#   VERBOSE=1                   Add -v to go test invocations
+#   RELEASE=1                   Strip DWARF + trim paths (CI / release builds)
+#   FOR_DEV=dev-                Prefix docker image tags with "dev-"
+#   FOR_TESTNET=-testnet        Suffix docker image tags with "-testnet"
+#   E2E_NODE_URL, E2E_PROXY_URL Used by tests-e2e
+#   NODE                        Used by connector (node URL)
+#   ARGS                        Forwarded to benchmark target
+#
+###############################################################################
+
+# Safer recipe execution: if a recipe fails, delete its target so the next
+# invocation doesn't treat a half-written file as up-to-date.
+.DELETE_ON_ERROR:
+
+###############################################################################
+# Configuration                                                               #
+###############################################################################
 
 # LOAD builder info
 ifndef VERSION
@@ -65,19 +97,26 @@ GOBUILD=$(GOCMD) build $(GO_BUILD_FLAGS) -ldflags="$(ldflags) -extldflags '-Wl,-
 
 .DEFAULT_GOAL := help
 
-############################
-###         HELP         ###
-############################
-.PHONY: help
+###############################################################################
+# Help                                                                        #
+###############################################################################
+
+.PHONY: help version
 help: ## Show this help message
 	@echo "Klever Blockchain - Available Make Targets"
 	@echo ""
-	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*##"; printf "Usage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:[^#]*##/ { printf "  \033[36m%-25s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-############################
-###        Run node      ###
-############################
-.PHONY: all debug trace redundancy seednode
+version: ## Print the build version string (git describe)
+	@echo $(VERSION)
+
+###############################################################################
+# Run & Debug                                                                 #
+###############################################################################
+
+.PHONY: all debug trace redundancy seednode import-from-localdb runsc-trace
+.PHONY: profile pprof-goroutines pprof-heartbeat pprof-top
+
 all: ## Run validator node with default log level
 	$(GORUN) ./cmd/node --log-level="${LOG}" --use-log-view
 
@@ -96,19 +135,59 @@ seednode: ## Run seednode for network bootstrap
 import-from-localdb: ## Import blockchain data from local database
 	$(GORUN) ./cmd/node --log-level="${LOG}" --use-log-view --import-db=./db/local --import-db-no-sig-check
 
-############################
-###       Key Tools      ###
-############################
-.PHONY: newkey
+runsc-trace: ## Run node with smart-contract trace logging (wipes ./db first)
+	rm -rf db
+	$(GORUN) ./cmd/node --use-log-view --log-level=*:INFO,process/block:DEBUG,process/transaction:DEBUG,process/transaction.smartcontract:TRACE,process/smartcontract:DEBUG,vm/host:TRACE,vm/metering:DEBUG
+
+# --- pprof -------------------------------------------------------------------
+# Live runtime profiling. Start the node with `make profile`, then query the
+# pprof endpoint from another terminal.
+#
+# Typical workflow
+#   make profile               # terminal 1: start node with pprof on :8080
+#   make pprof-top             # terminal 2 (after ~20s bootstrap)
+#   make pprof-heartbeat       # focused heartbeat-monitor check
+#   go tool pprof http://127.0.0.1:8080/debug/pprof/heap   # interactive heap
+#
+# Reference: https://pkg.go.dev/net/http/pprof
+
+profile: ## Run node with pprof enabled on 127.0.0.1:8080/debug/pprof
+	$(GORUN) ./cmd/node --log-level="${LOG}" --use-log-view \
+		--profile-mode --rest-api-interface=127.0.0.1:8080
+
+pprof-goroutines: ## Dump all live goroutines from a running --profile-mode node
+	@curl -s "http://127.0.0.1:8080/debug/pprof/goroutine?debug=2"
+
+pprof-heartbeat: ## Show only the heartbeat monitor goroutine stack (with state header)
+	@curl -s "http://127.0.0.1:8080/debug/pprof/goroutine?debug=2" | \
+		grep -B 1 -A 4 "startValidatorProcessing.func1"
+
+pprof-top: ## Top 30 functions by live goroutine count (spot fan-out / leaks)
+	@curl -s "http://127.0.0.1:8080/debug/pprof/goroutine?debug=2" | \
+		awk '/^goroutine /{getline; sub(/\(.*/,""); print}' | \
+		sort | uniq -c | sort -rn | head -30
+
+###############################################################################
+# Tools                                                                       #
+###############################################################################
+
+.PHONY: newkey connector benchmark
+
 newkey: ## Generate new validator keys
 	$(GORUN) ./cmd/keygenerator
 
+connector: ## Run terminal UI connector against a node (NODE=<url>)
+	go run ./cmd/connector/main.go node --address="${NODE}" --log-level="${LOG}"
 
-############################
-###         BUILD        ###
-############################
+benchmark: ## Run full validator benchmark (ARGS=<args>)
+	$(GORUN) ./cmd/benchmark $(ARGS)
 
-.PHONY: build build-validator build-seednode build-operator build-keygenerator build-benchmark docker-build clean
+###############################################################################
+# Build                                                                       #
+###############################################################################
+
+.PHONY: build build-validator build-seednode build-operator build-keygenerator build-benchmark clean
+
 build: build-validator build-seednode build-operator build-keygenerator build-benchmark ## Build all binaries
 
 build-validator: ## Build validator node binary
@@ -134,21 +213,32 @@ clean: ## Remove build artifacts and caches
 	@go clean -cache
 	@echo "Clean complete"
 
-############################
-###    Docker Builds     ###
-############################
-# Docker-related targets are defined in docker/Makefile
-# This keeps the main Makefile focused on build and test targets
+###############################################################################
+# Docker                                                                      #
+###############################################################################
+# Docker-related targets are isolated in docker/Makefile (they have their own
+# registry / multi-arch builder model). Targets become available via include.
 
 include docker/Makefile
+
+###############################################################################
+# Code Generation & Docs                                                      #
+###############################################################################
+
+.PHONY: vm-generate-rs gen-doc
 
 vm-generate-rs: ## Generate VM hooks from Rust SDK
 	cd kvm/vmhost/vmhooks && go run generate/cmd/eiGenMain.go
 
-############################
-###    Test and Docs     ###
-############################
-.PHONY: prepare ensure-dependencies gen-doc
+gen-doc: ## Generate Swagger API documentation
+	swag init -d ./cmd/node,./network/api -o ./docs --parseInternal --parseDependency --instanceName="node"
+
+###############################################################################
+# Development Setup                                                           #
+###############################################################################
+
+.PHONY: prepare ensure-dependencies goimports
+
 prepare: ## Install development dependencies
 	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 	go install github.com/swaggo/swag/cmd/swag@latest
@@ -170,18 +260,12 @@ goimports: ## Format Go code and organize imports
 		! -name 'gasCostWASM.go' \
 		! -path "./vendor/*")
 
-gen-doc: ## Generate Swagger API documentation
-	swag init -d ./cmd/node,./network/api -o ./docs --parseInternal --parseDependency --instanceName="node"
+###############################################################################
+# Tests                                                                       #
+###############################################################################
 
-runsc-trace:
-	rm -rf db
-	$(GORUN) ./cmd/node --use-log-view --log-level=*:INFO,process/block:DEBUG,process/transaction:DEBUG,process/transaction.smartcontract:TRACE,process/smartcontract:DEBUG,vm/host:TRACE,vm/metering:DEBUG
+.PHONY: tests tests-unit tests-integration tests-kvm tests-e2e
 
-############################
-###  Integration Tests   ###
-############################
-
-.PHONY: tests tests-unit tests-integration tests-kvm tests-e2e benchmark
 tests: tests-unit tests-integration tests-kvm tests-e2e ## Run all tests
 
 tests-unit: ## Run unit tests
@@ -200,9 +284,3 @@ tests-e2e: ## Run end-to-end tests
 	if [ ! -d klever-go-e2e ]; then git clone git@github.com:klever-io/klever-go-e2e.git; fi
 	cd klever-go-e2e && go mod tidy && make build && cd ..
 	klever-go-e2e/bin/klever-go-e2e --node="${E2E_NODE_URL}" --proxy="${E2E_PROXY_URL}"
-
-connector: ## Run terminal UI connector
-	go run ./cmd/connector/main.go node --address="${NODE}" --log-level="${LOG}"
-
-benchmark: ## Run full validator benchmark
-	$(GORUN) ./cmd/benchmark $(ARGS)
