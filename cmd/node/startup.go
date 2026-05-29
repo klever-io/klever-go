@@ -1001,6 +1001,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		nodeMetricsCloser,
 		clockMetricsCloser,
 		currentNode.GetPeerHonestyHandler(),
+		currentNode.GetHeartbeatHandler(),
 	}
 
 	log.Trace("creating klever node facade")
