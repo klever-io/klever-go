@@ -27,6 +27,10 @@ var _ p2p.DirectSender = (*directSender)(nil)
 const timeSeenMessages = time.Second * 120
 const maxMutexes = 10000
 
+// directSendWriteTimeout bounds a single direct-message write so a stalled peer cannot pin the
+// writer. 10s covers legitimate ~1 MiB responses. See GHSA-hf2g-6j7h-98wg.
+const directSendWriteTimeout = time.Second * 10
+
 type directSender struct {
 	counter         uint64
 	ctx             context.Context
@@ -170,6 +174,8 @@ func (ds *directSender) Send(topic string, buff []byte, peer core.PeerID) error 
 		return err
 	}
 
+	_ = stream.SetWriteDeadline(time.Now().Add(directSendWriteTimeout))
+
 	msg := ds.createMessage(topic, buff, conn)
 
 	bufw := bufio.NewWriter(stream)
@@ -188,6 +194,9 @@ func (ds *directSender) Send(topic string, buff []byte, peer core.PeerID) error 
 		_ = stream.Close()
 		return err
 	}
+
+	// Clear the deadline on the reused stream.
+	_ = stream.SetWriteDeadline(time.Time{})
 
 	return nil
 }

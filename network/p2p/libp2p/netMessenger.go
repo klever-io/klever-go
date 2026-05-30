@@ -1131,10 +1131,30 @@ func (netMes *networkMessenger) sendDirectToSelf(topic string, buff []byte) erro
 	return netMes.directMessageHandler(msg, netMes.ID())
 }
 
-func (netMes *networkMessenger) directMessageHandler(message *pubsub.Message, fromConnectedPeer core.PeerID) error {
+func (netMes *networkMessenger) directMessageHandler(message *pubsub.Message, fromConnectedPeer core.PeerID) (err error) {
 	var processor p2p.MessageProcessor
 
+	// Guard before dereferencing: callers validate this today, but the deref must not panic
+	// outside the recover below, or it would crash the node it is meant to protect.
+	if message == nil || message.Topic == nil {
+		return p2p.ErrNilMessage
+	}
 	topic := *message.Topic
+
+	// Recover so a panic on untrusted data cannot crash the node: this now runs synchronously
+	// in the stream reader goroutine, which has no recover of its own (GHSA-rm5c-5x2p-48wr).
+	defer func() {
+		if r := recover(); r != nil {
+			netMes.recoverFromMessagePanic(r, topic, fromConnectedPeer, message)
+			dataLen := 0
+			if message != nil {
+				dataLen = len(message.GetData())
+			}
+			netMes.processDebugMessage(topic, fromConnectedPeer, uint64(dataLen), true)
+			err = nil
+		}
+	}()
+
 	msg, err := netMes.transformAndCheckMessage(message, fromConnectedPeer, topic)
 	if err != nil {
 		return err
@@ -1148,38 +1168,28 @@ func (netMes *networkMessenger) directMessageHandler(message *pubsub.Message, fr
 		return fmt.Errorf("%w on directMessageHandler for topic %s", p2p.ErrNilValidator, topic)
 	}
 
-	go func(msg p2p.MessageP2P) {
-		// Circuit-breaker for the direct-send path: the gossip recover does not cover
-		// this goroutine (GHSA-rm5c-5x2p-48wr).
-		defer func() {
-			if r := recover(); r != nil {
-				netMes.recoverFromMessagePanic(r, topic, fromConnectedPeer, message)
-				dataLen := 0
-				if message != nil {
-					dataLen = len(message.GetData())
-				}
-				netMes.processDebugMessage(topic, fromConnectedPeer, uint64(dataLen), true)
-			}
-		}()
+	if check.IfNil(msg) {
+		return p2p.ErrNilMessage
+	}
 
-		if check.IfNil(msg) {
-			return
-		}
-
-		//we won't recheck the message id against the cacher here as there might be collisions since we are using
-		// a separate sequence counter for direct sender
-		errProcess := processor.ProcessReceivedMessage(msg, fromConnectedPeer)
-		if errProcess != nil {
-			log.Trace("p2p validator directMessageHandler",
-				"error", errProcess.Error(),
-				"topic", msg.Topic(),
-				"originator", p2p.MessageOriginatorPid(msg),
-				"from connected peer", p2p.PeerIDToShortString(fromConnectedPeer),
-				"seq no", p2p.MessageOriginatorSeq(msg),
-			)
-		}
-		netMes.debugger.AddIncomingMessage(msg.Topic(), uint64(len(msg.Data())), errProcess != nil)
-	}(msg)
+	// Process synchronously: the per-stream reader bounds concurrency to one in-flight per stream,
+	// instead of one goroutine per message which a single peer could grow unbounded (GHSA-hf2g-6j7h-98wg).
+	// Trade-off: a slow processor head-of-line-blocks its own stream, so direct-send processors
+	// must stay non-blocking.
+	//
+	//we won't recheck the message id against the cacher here as there might be collisions since we are using
+	// a separate sequence counter for direct sender
+	errProcess := processor.ProcessReceivedMessage(msg, fromConnectedPeer)
+	if errProcess != nil {
+		log.Trace("p2p validator directMessageHandler",
+			"error", errProcess.Error(),
+			"topic", msg.Topic(),
+			"originator", p2p.MessageOriginatorPid(msg),
+			"from connected peer", p2p.PeerIDToShortString(fromConnectedPeer),
+			"seq no", p2p.MessageOriginatorSeq(msg),
+		)
+	}
+	netMes.debugger.AddIncomingMessage(msg.Topic(), uint64(len(msg.Data())), errProcess != nil)
 
 	return nil
 }

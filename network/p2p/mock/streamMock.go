@@ -86,17 +86,17 @@ func (sm *streamMock) Reset() error {
 
 // SetDeadline -
 func (sm *streamMock) SetDeadline(time.Time) error {
-	panic("implement me")
+	return nil
 }
 
 // SetReadDeadline -
 func (sm *streamMock) SetReadDeadline(time.Time) error {
-	panic("implement me")
+	return nil
 }
 
 // SetWriteDeadline -
 func (sm *streamMock) SetWriteDeadline(time.Time) error {
-	panic("implement me")
+	return nil
 }
 
 // Protocol -
