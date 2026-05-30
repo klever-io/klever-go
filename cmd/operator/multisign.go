@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/klever-io/klever-go/cmd/operator/utils"
@@ -153,7 +155,9 @@ func subMS() []*cobra.Command {
 		Use:   "sign [txHash]",
 		Short: "sign a transaction from multisign API and post the signature",
 		Example: `operator ms sign <txHash>   — sign specific TX by hash
-operator ms sign            — interactively choose from pending transactions`,
+operator ms sign <txHash> -s — sign specific TX by hash; skip confirmation prompt 
+operator ms sign             — interactively choose from pending transactions
+operator ms sign -s          — interactively choose from pending transactions; skip confirmation prompt`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			log.Info("signing transaction from multisign API", "address", signerAddress)
@@ -165,7 +169,7 @@ operator ms sign            — interactively choose from pending transactions`,
 				log.Info("fetching pending transactions for signing")
 				result := make([]MSApiTransaction, 0)
 				err = utils.GetURL(fmt.Sprintf("%s/transaction/by-address/%s", multisignAPI, signerAddress), &result)
-				if err != nil && err.Error() != "EOF" {
+				if err != nil && !errors.Is(err, io.EOF) {
 					return err
 				}
 				if len(result) == 0 {

@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -158,7 +159,7 @@ func getMSApiTransaction(hash string) (*MSApiTransaction, error) {
 	result := MSApiTransaction{}
 	err = utils.GetURL(fmt.Sprintf("%s/transaction/%s", multisignAPI, hash), &result)
 	if err != nil {
-		if err.Error() == "EOF" {
+		if errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("transaction with hash %s not found in multisign API", hash)
 		}
 		return nil, err
