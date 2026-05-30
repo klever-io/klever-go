@@ -388,6 +388,7 @@ type TransactionProcessor interface {
 	ProcessTransaction(block *block.Block, txHash []byte, tx *transaction.Transaction) error
 	ProcessBandwidthFee(txHash []byte, tx *transaction.Transaction, ownerAcc state.UserAccountHandler) (int64, error)
 	ProcessKAppFee(txHash []byte, tx *transaction.Transaction, ownerAcc state.UserAccountHandler) (int64, error)
+	RevertBandwidthFee(txHash []byte, bwFee int64) error
 	GetAccounts(adrSrc, adrDst []byte) (acntSrc, acntDst state.UserAccountHandler, err error)
 	IsInterfaceNil() bool
 }

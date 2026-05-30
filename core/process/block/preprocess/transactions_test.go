@@ -17,6 +17,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/fork"
 	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/core/process/block/postprocess"
 	"github.com/klever-io/klever-go/core/process/block/preprocess"
 	"github.com/klever-io/klever-go/core/process/mock"
 	"github.com/klever-io/klever-go/crypto/hashing"
@@ -24,6 +25,7 @@ import (
 	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/txcache"
 	"github.com/klever-io/klever-go/tools/marshal"
@@ -1175,4 +1177,297 @@ func TestTransactions_CreateAndProcessBlock_SkipsSenderAfterHigherNonce(t *testi
 	require.False(t, processed[string(gappedSender)], "no tx from the gapped sender may reach ProcessTransaction")
 	require.True(t, processed[string(healthySender)], "the skip must be scoped to the gapped sender")
 	require.Equal(t, 1, processResult.Length(), "only the healthy sender's tx should be included in the proposed block")
+}
+
+// TestTransactions_CreateAndProcessBlock_LeaderSCTimeout pins down the leader-side
+// behavior when an SC TX times out during block-build.
+//
+// Required behavior (KLC-2397): on local timeout, the leader must NOT include the
+// TX in the block AND must NOT charge the user. State changes from
+// ProcessBandwidthFee (BW fee debit, nonce++, feeHandler accumulator entry) must
+// all be reverted; the TX stays in mempool for the next leader (or eventually
+// times out of the pool via TTL). The sender is marked for skip in this slot so
+// their dependent-nonce follow-up TXs are also deferred.
+//
+// Backward-compat: validator path (ProcessBlockTransactions) intentionally does
+// NOT take pre-fee snapshots and does NOT have this skip path — replaying a
+// block from an OLD leader that included a timed-out TX as FAILED with fee
+// debited still works, with cross-version mismatches handled by KLC-1894's
+// tolerance-band check in handleResultMismatch.
+func TestTransactions_CreateAndProcessBlock_LeaderSCTimeout(t *testing.T) {
+	t.Parallel()
+
+	// TX2 will time out during ProcessTransaction (simulating SC timeout on leader).
+	// TX3 is from the SAME sender as TX2 — must also be skipped (dependent nonce).
+	// TX4 is from a different sender — must NOT be affected.
+	tx1 := &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 0, Nonce: 1, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000, Result: transaction.Transaction_SUCCESS}
+	tx2 := &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 2, Sender: []byte("addr1"), Data: [][]byte{[]byte("data")}}, GasLimit: 100000, Result: transaction.Transaction_SUCCESS}
+	tx3 := &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 2, Nonce: 3, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000, Result: transaction.Transaction_SUCCESS}
+	tx4 := &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 3, Nonce: 1, Sender: []byte("addr2"), Data: [][]byte{}}, GasLimit: 50000, Result: transaction.Transaction_SUCCESS}
+
+	poolHolders := createCacheWithTransactions(t, []*txcache.WrappedTransaction{
+		{TxHash: []byte("TX1"), Tx: tx1},
+		{TxHash: []byte("TX2"), Tx: tx2},
+		{TxHash: []byte("TX3"), Tx: tx3},
+		{TxHash: []byte("TX4"), Tx: tx4},
+	})
+
+	txs := createGoodPreprocessor(poolHolders)
+
+	blk := &block.Block{Header: &block.BlockHeader{Nonce: 1, RandSeed: []byte("rand_seed")}}
+	haveTime := func() bool { return true }
+
+	// Track which TXs had BW fee processed (line 194 of txProcess.go reached).
+	bwFeeProcessed := map[string]bool{}
+	txs.GetTXProcessor().(*mock.TxProcessorMock).ProcessBandwidthFeeCalled = func(txHash []byte, tx *transaction.Transaction, ownAcc state.UserAccountHandler) (int64, error) {
+		bwFeeProcessed[string(txHash)] = true
+		return tx.GetBandwidthFee(), nil
+	}
+
+	// Track BW fee accumulator reverts (the partial-revert-bug guard).
+	bwFeeReverted := map[string]int64{}
+	txs.GetTXProcessor().(*mock.TxProcessorMock).RevertBandwidthFeeCalled = func(txHash []byte, bwFee int64) error {
+		bwFeeReverted[string(txHash)] = bwFee
+		return nil
+	}
+
+	// TX2 times out; everything else succeeds.
+	txs.GetTXProcessor().(*mock.TxProcessorMock).ProcessTransactionCalled = func(_ *block.Block, txHash []byte, _ *transaction.Transaction) error {
+		if string(txHash) == "TX2" {
+			return vmhost.ErrExecutionFailedWithTimeout
+		}
+		return nil
+	}
+	txs.GetEconomicsFee().(*commonMock.FeeHandlerStub).MaxGasLimitPerBlockValue = 300_000
+
+	processResult, err := txs.CreateAndProcessBlockTransactions(blk, haveTime)
+	require.Nil(t, err)
+	require.NotNil(t, processResult)
+
+	hashesInBlock := map[string]bool{}
+	for _, h := range processResult.Hashes() {
+		hashesInBlock[string(h)] = true
+	}
+
+	// (1) BW fee WAS processed for the timed-out TX (line 194 reached BEFORE the
+	//     VM call timed out).
+	assert.True(t, bwFeeProcessed["TX2"],
+		"ProcessBandwidthFee must have been called for TX2 (timeout happens AFTER fee in ProcessTransaction)")
+
+	// (2) BW fee accumulator WAS reverted (the consistency-restoring step).
+	assert.Equal(t, tx2.GetBandwidthFee(), bwFeeReverted["TX2"],
+		"BW fee must be reverted from feeHandler accumulator so block header TxFees stays consistent")
+
+	// (3) The timed-out TX MUST NOT be in the block (no charge to user).
+	assert.False(t, hashesInBlock["TX2"],
+		"timed-out TX must NOT be in block — user is not charged for failed leader execution")
+
+	// (4) TX3 (same sender, dependent nonce) is also skipped — its nonce depends on
+	//     TX2 having executed, which didn't happen.
+	assert.False(t, hashesInBlock["TX3"],
+		"follow-up TX from same sender must be skipped (dependent nonce)")
+
+	// (5) TX1 is addr1's nonce-1 TX — processed and committed BEFORE TX2's timeout, so
+	//     its inclusion isn't affected by senderAddressToSkip being set on TX2.
+	//     TX4 is from a different sender, so the sender-skip on addr1 doesn't apply.
+	assert.True(t, hashesInBlock["TX1"], "TX1 (success, executed before timeout) must be in block")
+	assert.True(t, hashesInBlock["TX4"], "TX4 (success, different sender) must be in block")
+
+	// (6) tx2.Result remains FAILED in the in-memory pooled object after the leader
+	//     skip path returns. The mempool's next selection (or the next leader's
+	//     createAndProcessBlock) calls tx.PrepareForProcessing() at the top of its
+	//     loop (transactions.go:708), which resets Result/ResultCode/Receipts/GasLimit
+	//     before any processing — so no explicit reset is needed here. This assertion
+	//     just pins that we do NOT redundantly reset Result in the skip path itself
+	//     (avoids zeroing GasLimit on the mempool-shared pointer).
+	assert.Equal(t, transaction.Transaction_FAILED, tx2.Result,
+		"leader skip path must not reset tx state — next iteration's PrepareForProcessing handles it")
+}
+
+// TestTransactions_ProcessBlockTransactions_ValidatorSCTimeout pins down the
+// validator-side behavior on local SC timeout — intentionally DIFFERENT from the
+// leader path. The validator must include the TX as FAILED with fee debited
+// (develop behavior) so it can validate blocks produced by OLD leaders that did
+// the same. Cross-version mismatches with NEW-leader blocks are handled by the
+// tolerance-band check in handleResultMismatch (KLC-1894), not by skipping here.
+//
+// Regression guard: if anyone ever moves the leader-side skip logic from
+// createAndProcessBlock into processAndRemoveBadTransaction (the original PR
+// design that was rejected for replay-unsafety), this test breaks.
+func TestTransactions_ProcessBlockTransactions_ValidatorSCTimeout(t *testing.T) {
+	t.Parallel()
+
+	tx1 := &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 0, Nonce: 1, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000, Result: transaction.Transaction_SUCCESS}
+	tx2 := &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 2, Sender: []byte("addr1"), Data: [][]byte{[]byte("data")}}, GasLimit: 100000, Result: transaction.Transaction_SUCCESS}
+	tx3 := &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 2, Nonce: 3, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000, Result: transaction.Transaction_SUCCESS}
+
+	poolHolders := createCacheWithTransactions(t, []*txcache.WrappedTransaction{
+		{TxHash: []byte("TX1"), Tx: tx1},
+		{TxHash: []byte("TX2"), Tx: tx2},
+		{TxHash: []byte("TX3"), Tx: tx3},
+	})
+
+	txs := createGoodPreprocessor(poolHolders)
+
+	// Block from an old-version leader that included TX2 as FAILED on its own
+	// timeout. Validator must accept this shape.
+	blk := &block.Block{
+		TxHashes: [][]byte{[]byte("TX1"), []byte("TX2"), []byte("TX3")},
+	}
+	haveTime := func() bool { return true }
+
+	bwFeeProcessed := map[string]bool{}
+	txs.GetTXProcessor().(*mock.TxProcessorMock).ProcessBandwidthFeeCalled = func(txHash []byte, tx *transaction.Transaction, ownAcc state.UserAccountHandler) (int64, error) {
+		bwFeeProcessed[string(txHash)] = true
+		return tx.GetBandwidthFee(), nil
+	}
+
+	// Validator-side: BW fee revert must NOT be called (regression guard against
+	// accidentally adding the leader-skip path into the validator flow).
+	bwFeeReverted := map[string]bool{}
+	txs.GetTXProcessor().(*mock.TxProcessorMock).RevertBandwidthFeeCalled = func(txHash []byte, bwFee int64) error {
+		bwFeeReverted[string(txHash)] = true
+		return nil
+	}
+
+	txs.GetTXProcessor().(*mock.TxProcessorMock).ProcessTransactionCalled = func(_ *block.Block, txHash []byte, _ *transaction.Transaction) error {
+		if string(txHash) == "TX2" {
+			return vmhost.ErrExecutionFailedWithTimeout
+		}
+		return nil
+	}
+
+	processResult, err := txs.ProcessBlockTransactions(blk, haveTime)
+	require.Nil(t, err)
+	require.NotNil(t, processResult)
+
+	hashesInBlock := map[string]bool{}
+	for _, h := range processResult.Hashes() {
+		hashesInBlock[string(h)] = true
+	}
+
+	// (1) BW fee processed (same as leader path).
+	assert.True(t, bwFeeProcessed["TX2"], "validator must process BW fee on timeout same as leader did originally")
+
+	// (2) BW fee NOT reverted (validator preserves develop behavior — TX stays in
+	//     block as FAILED, fee charged, matches old-leader chain entry).
+	assert.False(t, bwFeeReverted["TX2"],
+		"validator MUST NOT revert BW fee on timeout — would break replay of pre-PR blocks")
+
+	// (3) TX2 IS in result (TX matches the on-chain entry from old leader).
+	assert.True(t, hashesInBlock["TX2"],
+		"validator must include timed-out TX in result to match on-chain FAILED entry from old leader")
+
+	// (4) tx2.Result is FAILED (matches what old leader recorded).
+	assert.Equal(t, transaction.Transaction_FAILED, tx2.Result,
+		"validator's local result for timeout matches old-leader chain entry (FAILED)")
+}
+
+// TestTransactions_CreateAndProcessBlock_LeaderSCTimeout_Integration is the
+// higher-confidence variant of LeaderSCTimeout. Instead of mocking the BW-fee
+// revert via TxProcessorMock.RevertBandwidthFeeCalled, it wires a real
+// postprocess.feeHandler underneath so the test exercises the actual
+// in-memory accumulator behavior end-to-end.
+//
+// Assertions are on the REAL feeHandler state after CreateAndProcessBlockTransactions:
+//   - accumulator (GetAccumulatedTxFees) includes BW fees for the TXs successfully included
+//   - accumulator does NOT include BW fee for the timed-out TX
+//   - double-revert is a no-op (RevertTransactionFee clamps revert amount to the
+//     remaining stored fee; the mapHashFee entry is zeroed but kept in the map until
+//     CreateBlockStarted clears the map at next block — see feeHandler.go:115-128)
+//
+// This is the test that protects against silent regressions in the leader-skip
+// path's interaction with the real fee accumulator.
+func TestTransactions_CreateAndProcessBlock_LeaderSCTimeout_Integration(t *testing.T) {
+	t.Parallel()
+
+	const tx1BWFee = int64(100)
+	const tx2BWFee = int64(250) // the one that times out — must NOT remain in accumulator
+	const tx4BWFee = int64(175)
+
+	tx1 := &transaction.Transaction{
+		RawData:  &transaction.Transaction_Raw{Version: 0, Nonce: 1, Sender: []byte("addr1"), Data: [][]byte{}, BandwidthFee: tx1BWFee},
+		GasLimit: 50000, Result: transaction.Transaction_SUCCESS,
+	}
+	tx2 := &transaction.Transaction{
+		RawData:  &transaction.Transaction_Raw{Version: 1, Nonce: 2, Sender: []byte("addr1"), Data: [][]byte{[]byte("data")}, BandwidthFee: tx2BWFee},
+		GasLimit: 100000, Result: transaction.Transaction_SUCCESS,
+	}
+	tx3 := &transaction.Transaction{
+		RawData:  &transaction.Transaction_Raw{Version: 2, Nonce: 3, Sender: []byte("addr1"), Data: [][]byte{}, BandwidthFee: 50},
+		GasLimit: 50000, Result: transaction.Transaction_SUCCESS,
+	}
+	tx4 := &transaction.Transaction{
+		RawData:  &transaction.Transaction_Raw{Version: 3, Nonce: 1, Sender: []byte("addr2"), Data: [][]byte{}, BandwidthFee: tx4BWFee},
+		GasLimit: 50000, Result: transaction.Transaction_SUCCESS,
+	}
+
+	poolHolders := createCacheWithTransactions(t, []*txcache.WrappedTransaction{
+		{TxHash: []byte("TX1"), Tx: tx1},
+		{TxHash: []byte("TX2"), Tx: tx2},
+		{TxHash: []byte("TX3"), Tx: tx3},
+		{TxHash: []byte("TX4"), Tx: tx4},
+	})
+
+	txs := createGoodPreprocessor(poolHolders)
+
+	// Real fee accumulator — the actual production type, not a mock.
+	realFeeHandler, err := postprocess.NewFeeAccumulator()
+	require.NoError(t, err)
+
+	// Wire the TxProcessorMock so its ProcessBandwidthFee and RevertBandwidthFee
+	// forward to the REAL feeHandler — the rest of the txProcessor flow stays
+	// mocked but the in-memory fee state is real.
+	txs.GetTXProcessor().(*mock.TxProcessorMock).ProcessBandwidthFeeCalled = func(txHash []byte, tx *transaction.Transaction, _ state.UserAccountHandler) (int64, error) {
+		realFeeHandler.ProcessTransactionFee(tx.GetBandwidthFee(), 0, txHash)
+		return tx.GetBandwidthFee(), nil
+	}
+	txs.GetTXProcessor().(*mock.TxProcessorMock).RevertBandwidthFeeCalled = func(txHash []byte, bwFee int64) error {
+		realFeeHandler.RevertTransactionFee(txHash, bwFee, 0)
+		return nil
+	}
+	txs.GetTXProcessor().(*mock.TxProcessorMock).ProcessTransactionCalled = func(_ *block.Block, txHash []byte, _ *transaction.Transaction) error {
+		if string(txHash) == "TX2" {
+			return vmhost.ErrExecutionFailedWithTimeout
+		}
+		return nil
+	}
+	txs.GetEconomicsFee().(*commonMock.FeeHandlerStub).MaxGasLimitPerBlockValue = 300_000
+
+	processResult, err := txs.CreateAndProcessBlockTransactions(blk(), func() bool { return true })
+	require.Nil(t, err)
+	require.NotNil(t, processResult)
+
+	hashesInBlock := map[string]bool{}
+	for _, h := range processResult.Hashes() {
+		hashesInBlock[string(h)] = true
+	}
+
+	// Block contents: TX1 and TX4 are in. TX2 (timed out) and TX3 (dependent nonce)
+	// are NOT.
+	assert.True(t, hashesInBlock["TX1"], "TX1 (success) in block")
+	assert.False(t, hashesInBlock["TX2"], "TX2 (timed out) NOT in block")
+	assert.False(t, hashesInBlock["TX3"], "TX3 (same sender, dependent nonce) NOT in block")
+	assert.True(t, hashesInBlock["TX4"], "TX4 (different sender) in block")
+
+	// THE INTEGRATION ASSERTION: the real feeHandler's accumulator must agree with
+	// what's in the block. TX2's BW fee must NOT be in the accumulator.
+	expectedAccumulated := tx1BWFee + tx4BWFee // TX1 + TX4 only; TX2 reverted, TX3 never processed
+	assert.Equal(t, expectedAccumulated, realFeeHandler.GetAccumulatedTxFees(),
+		"feeHandler accumulator must equal sum of BW fees for ONLY the TXs that are in the block")
+
+	// Additional belt-and-suspenders: explicit re-revert of TX2's fee. RevertTransactionFee
+	// (feeHandler.go:115-128) clamps the revert amount to the remaining stored fee, so
+	// even though the mapHashFee entry persists (zeroed) after the leader's revert, a
+	// second revert finds fee.TxFee=0 and decrements by min(0, tx2BWFee)=0. Net change
+	// to the accumulator is zero — idempotent.
+	balanceBefore := realFeeHandler.GetAccumulatedTxFees()
+	realFeeHandler.RevertTransactionFee([]byte("TX2"), tx2BWFee, 0)
+	assert.Equal(t, balanceBefore, realFeeHandler.GetAccumulatedTxFees(),
+		"double-revert of TX2 must be a no-op (clamp to remaining fee=0, not because the map entry is gone)")
+}
+
+// blk returns a fresh test block. Helper to avoid sharing block state across tests.
+func blk() *block.Block {
+	return &block.Block{Header: &block.BlockHeader{Nonce: 1, RandSeed: []byte("rand_seed")}}
 }
