@@ -1599,6 +1599,85 @@ func TestNetworkMessenger_PubsubCallbackRecoversFromHandlerPanic(t *testing.T) {
 	_ = mes.Close()
 }
 
+// Regression test for GHSA-rm5c-5x2p-48wr (direct-send variant): a panic in the
+// direct-send goroutine must be recovered (no crash) and blacklist the sender.
+func TestNetworkMessenger_DirectMessageHandlerRecoversFromPanic(t *testing.T) {
+	args := libp2p.ArgsNetworkMessenger{
+		Marshalizer:   &commonMock.ProtoMarshalizerMock{},
+		ListenAddress: libp2p.ListenLocalhostAddrWithIp4AndTcp,
+		P2pConfig: config.P2PConfig{
+			Node: config.NodeConfig{
+				Port: "0",
+			},
+			KadDhtPeerDiscovery: config.KadDhtPeerDiscoveryConfig{
+				Enabled: false,
+			},
+			Sharding: config.ShardingConfig{
+				Type: p2p.NilListSharder,
+			},
+		},
+		SyncTimer: &libp2p.LocalSyncTimer{},
+	}
+
+	mes, _ := libp2p.NewNetworkMessenger(args)
+
+	// processReceivedDirectMessage enforces From == fromConnectedPeer, so the originator
+	// and connected peer are the same on the direct path.
+	peerID := mes.ID()
+
+	blacklistedCh := make(chan string, 4)
+	_ = mes.SetPeerDenialEvaluator(&mock.PeerDenialEvaluatorStub{
+		UpsertPeerIDCalled: func(pid core.PeerID, duration time.Duration) error {
+			blacklistedCh <- string(pid)
+			return nil
+		},
+		IsDeniedCalled: func(pid core.PeerID) bool {
+			return false
+		},
+	})
+
+	topic := "topic"
+	_ = mes.CreateTopic(topic, false)
+	numCalled := uint32(0)
+	_ = mes.RegisterMessageProcessor(topic, &mock.MessageProcessorStub{
+		ProcessMessageCalled: func(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
+			atomic.AddUint32(&numCalled, 1)
+			panic("simulated nil-pointer dereference while processing a malicious block")
+		},
+	})
+
+	innerMessage := &data.TopicMessage{
+		Payload:   []byte("data"),
+		Timestamp: time.Now().Unix(),
+		Version:   libp2p.CurrentTopicMessageVersion,
+	}
+	buff, _ := args.Marshalizer.Marshal(innerMessage)
+	msg := &pubsub.Message{
+		Message: &pubsub_pb.Message{
+			From:  []byte(peerID),
+			Data:  buff,
+			Seqno: []byte{0, 0, 0, 1},
+			Topic: &topic,
+		},
+	}
+
+	// The recover runs in a goroutine: if it failed, the test binary would crash.
+	require.NotPanics(t, func() {
+		_ = mes.DirectMessageHandler(msg, peerID)
+	})
+
+	// Wait for the recover to blacklist the sender.
+	select {
+	case pid := <-blacklistedCh:
+		assert.Equal(t, string(peerID), pid, "sender should be blacklisted on panic")
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the sender to be blacklisted")
+	}
+	assert.Equal(t, uint32(1), atomic.LoadUint32(&numCalled))
+
+	_ = mes.Close()
+}
+
 func TestNetworkMessenger_UnjoinAllTopicsShouldWork(t *testing.T) {
 	args := libp2p.ArgsNetworkMessenger{
 		Marshalizer:   &commonMock.ProtoMarshalizerMock{},

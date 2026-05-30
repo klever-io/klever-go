@@ -3,6 +3,7 @@ package libp2p
 import (
 	"context"
 
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/storage"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -39,6 +40,10 @@ func (netMes *networkMessenger) SetPeerDiscoverer(discoverer p2p.PeerDiscoverer)
 
 func (netMes *networkMessenger) PubsubCallback(handler p2p.MessageProcessor, topic string) func(ctx context.Context, pid peer.ID, message *pubsub.Message) bool {
 	return netMes.pubsubCallback(handler, topic)
+}
+
+func (netMes *networkMessenger) DirectMessageHandler(message *pubsub.Message, fromConnectedPeer core.PeerID) error {
+	return netMes.directMessageHandler(message, fromConnectedPeer)
 }
 
 func (netMes *networkMessenger) ValidMessageByTimestamp(msg p2p.MessageP2P) error {

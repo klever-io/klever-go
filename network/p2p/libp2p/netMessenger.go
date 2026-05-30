@@ -892,28 +892,15 @@ func (netMes *networkMessenger) pubsubCallback(handler p2p.MessageProcessor, top
 	return func(ctx context.Context, pid peer.ID, message *pubsub.Message) (isValid bool) {
 		fromConnectedPeer := core.PeerID(pid)
 
-		// Circuit-breaker: this callback runs in an unrecovered pubsub goroutine, so a
-		// panic on an untrusted message would crash the node (GHSA-rm5c-5x2p-48wr).
+		// Circuit-breaker: recover so a panic on an untrusted message cannot crash the
+		// node (GHSA-rm5c-5x2p-48wr).
 		defer func() {
 			if r := recover(); r != nil {
-				// Read message via nil-safe getters: the recover must not panic itself.
-				var dataLen int
-				var originator core.PeerID
+				netMes.recoverFromMessagePanic(r, topic, fromConnectedPeer, message)
+				dataLen := 0
 				if message != nil {
 					dataLen = len(message.GetData())
-					originator = core.PeerID(message.GetFrom())
 				}
-
-				log.Error("recovered from panic in pubsubCallback",
-					"topic", topic,
-					"originator", p2p.PeerIDToShortString(originator),
-					"from connected peer", p2p.PeerIDToShortString(fromConnectedPeer),
-					"panic", fmt.Sprintf("%v", r),
-					"stack", string(debug.Stack()),
-				)
-				// Blacklist both peers, as transformAndCheckMessage does on severe errors.
-				netMes.blacklistPid(fromConnectedPeer, core.WrongP2PMessageBlacklistDuration)
-				netMes.blacklistPid(originator, core.WrongP2PMessageBlacklistDuration)
 				netMes.processDebugMessage(topic, fromConnectedPeer, uint64(dataLen), true)
 				isValid = false
 			}
@@ -941,6 +928,26 @@ func (netMes *networkMessenger) pubsubCallback(handler p2p.MessageProcessor, top
 		netMes.processDebugMessage(topic, fromConnectedPeer, uint64(len(message.Data)), false)
 		return true
 	}
+}
+
+// recoverFromMessagePanic logs a recovered panic from processing an untrusted p2p
+// message and blacklists both the connected peer and the originator, using nil-safe
+// accessors. Shared by the gossip and direct-send receive paths (GHSA-rm5c-5x2p-48wr).
+func (netMes *networkMessenger) recoverFromMessagePanic(r interface{}, topic string, fromConnectedPeer core.PeerID, message *pubsub.Message) {
+	var originator core.PeerID
+	if message != nil {
+		originator = core.PeerID(message.GetFrom())
+	}
+
+	log.Error("recovered from panic while processing p2p message",
+		"topic", topic,
+		"originator", p2p.PeerIDToShortString(originator),
+		"from connected peer", p2p.PeerIDToShortString(fromConnectedPeer),
+		"panic", fmt.Sprintf("%v", r),
+		"stack", string(debug.Stack()),
+	)
+	netMes.blacklistPid(fromConnectedPeer, core.WrongP2PMessageBlacklistDuration)
+	netMes.blacklistPid(originator, core.WrongP2PMessageBlacklistDuration)
 }
 
 func (netMes *networkMessenger) transformAndCheckMessage(pbMsg *pubsub.Message, pid core.PeerID, topic string) (p2p.MessageP2P, error) {
@@ -1142,6 +1149,19 @@ func (netMes *networkMessenger) directMessageHandler(message *pubsub.Message, fr
 	}
 
 	go func(msg p2p.MessageP2P) {
+		// Circuit-breaker for the direct-send path: the gossip recover does not cover
+		// this goroutine (GHSA-rm5c-5x2p-48wr).
+		defer func() {
+			if r := recover(); r != nil {
+				netMes.recoverFromMessagePanic(r, topic, fromConnectedPeer, message)
+				dataLen := 0
+				if message != nil {
+					dataLen = len(message.GetData())
+				}
+				netMes.processDebugMessage(topic, fromConnectedPeer, uint64(dataLen), true)
+			}
+		}()
+
 		if check.IfNil(msg) {
 			return
 		}

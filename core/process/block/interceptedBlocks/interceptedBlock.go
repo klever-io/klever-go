@@ -149,18 +149,27 @@ func (inMb *InterceptedBlock) Type() string {
 
 // String returns the transactions body's most important fields as string
 func (inMb *InterceptedBlock) String() string {
+	// Runs pre-CheckValidity on untrusted data; guard block + nil-safe getters so an
+	// omitted Header cannot panic (GHSA-rm5c-5x2p-48wr).
+	if inMb.block == nil {
+		return ""
+	}
 	return fmt.Sprintf("epoch=%d, slot=%d, nonce=%d, block numTxs=%d",
-		inMb.block.Header.Epoch,
-		inMb.block.Header.Slot,
-		inMb.block.Header.Nonce,
+		inMb.block.GetEpoch(),
+		inMb.block.GetSlot(),
+		inMb.block.GetNonce(),
 		len(inMb.block.TxHashes),
 	)
 }
 
 // Identifiers returns the identifiers used in requests
 func (inMb *InterceptedBlock) Identifiers() [][]byte {
-	keyNonce := []byte(fmt.Sprintf("nonce-%d", inMb.block.Header.Nonce))
-	keyEpoch := []byte(core.EpochStartIdentifier(inMb.block.Header.Epoch))
+	// Same guard as String: runs pre-CheckValidity on untrusted data (GHSA-rm5c-5x2p-48wr).
+	if inMb.block == nil {
+		return [][]byte{inMb.hash}
+	}
+	keyNonce := []byte(fmt.Sprintf("nonce-%d", inMb.block.GetNonce()))
+	keyEpoch := []byte(core.EpochStartIdentifier(inMb.block.GetEpoch()))
 
 	return [][]byte{inMb.hash, keyNonce, keyEpoch}
 }

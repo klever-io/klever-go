@@ -437,3 +437,30 @@ func TestInterceptedBlock_CheckValidity(t *testing.T) {
 	}
 
 }
+
+// Regression test for GHSA-rm5c-5x2p-48wr (block variant): a nil Header must not panic
+// Identifiers()/String() (they run before CheckValidity, which still rejects the block).
+func TestInterceptedBlock_NilHeaderIdentifiersAndStringShouldNotPanic(t *testing.T) {
+	t.Parallel()
+
+	arg := createDefaultBlockArgument()
+	// Use the proto marshaler to mirror the real gossip/direct-send wire path. Header
+	// omitted — stays nil after unmarshal, mirroring the PoC payload.
+	protoMarshalizer := &mock.ProtoMarshalizerMock{}
+	arg.Marshalizer = protoMarshalizer
+	arg.BlockBuff, _ = protoMarshalizer.Marshal(&block.Block{PubKeysBitmap: []byte{1}})
+
+	inBlk, err := interceptedBlocks.NewInterceptedBlock(arg)
+	require.Nil(t, err)
+	require.False(t, check.IfNil(inBlk))
+
+	require.NotPanics(t, func() {
+		_ = inBlk.Identifiers()
+		_ = inBlk.String()
+	})
+
+	// CheckValidity must still reject the malformed (nil-header) block.
+	err = inBlk.CheckValidity()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, common.ErrNilPreviousBlockHash)
+}
