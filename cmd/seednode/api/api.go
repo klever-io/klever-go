@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/network/api/httpserver"
 	"github.com/klever-io/klever-go/network/api/logs"
 	"github.com/klever-io/klever-go/tools/marshal"
 )
@@ -56,7 +57,9 @@ func Start(restAPIInterface string, marshalizer marshal.Marshalizer, messenger p
 
 	srv.registerRoutes(ws)
 
-	return ws.Run(restAPIInterface)
+	// Hardened http.Server instead of ws.Run: adds the ReadHeaderTimeout that
+	// http.ListenAndServe lacks (slow-header DoS, GHSA-w4c6-7r69-w7j9).
+	return httpserver.NewHardenedServer(restAPIInterface, ws.Handler()).ListenAndServe()
 }
 
 func (s *server) registerRoutes(ws *gin.Engine) {

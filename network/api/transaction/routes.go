@@ -41,6 +41,11 @@ const (
 	queryParamWithResults     = "withResults"
 )
 
+// maxBulkBroadcastTxs caps the transactions a single /transaction/broadcast may
+// carry, bounding per-request work by intent rather than incidentally by body size.
+// Clients needing to submit more should send multiple requests.
+const maxBulkBroadcastTxs = 100
+
 // FacadeHandler interface defines methods that can be used by the gin webserver
 type FacadeHandler interface {
 	CreateTransaction(txType uint32, base *transaction.TXBaseInfo, contracts []json.RawMessage, skipValidate bool) (*transaction.Transaction, []byte, error)
@@ -280,6 +285,19 @@ func BroadcastTX(c *gin.Context) {
 				Data:  response,
 				Error: "",
 				Code:  shared.ReturnCodeSuccess,
+			},
+		)
+		return
+	}
+
+	if len(gtx.TXs) > maxBulkBroadcastTxs {
+		c.JSON(
+			http.StatusBadRequest,
+			shared.GenericAPIResponse{
+				Data: nil,
+				Error: fmt.Sprintf("%s: bulk broadcast exceeds the maximum of %d transactions per request, got %d",
+					errors.ErrValidation.Error(), maxBulkBroadcastTxs, len(gtx.TXs)),
+				Code: shared.ReturnCodeRequestError,
 			},
 		)
 		return

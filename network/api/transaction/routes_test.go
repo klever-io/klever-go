@@ -508,6 +508,74 @@ func TestBroadcastTX_BulkTransactions_ShouldWork(t *testing.T) {
 	}
 }
 
+func makeBroadcastTxs(n int) []*transaction.Transaction {
+	txs := make([]*transaction.Transaction, n)
+	for i := 0; i < n; i++ {
+		txs[i] = transaction.NewBaseTransaction([]byte("sender"), uint64(i), nil, 0, 0)
+	}
+	return txs
+}
+
+func TestBroadcastTX_BulkTransactions_ExceedsLimitShouldError(t *testing.T) {
+	t.Parallel()
+
+	facade := mock.Facade{
+		SendBulkTransactionsHandler: func(txs []*transaction.Transaction) ([]string, error) {
+			require.Fail(t, "SendBulkTransactions must not be called when the batch exceeds the limit")
+			return nil, nil
+		},
+	}
+
+	ws := startNodeServer(&facade)
+
+	requestData := tr.BroadcastTXRequest{
+		TXs: makeBroadcastTxs(101),
+	}
+	requestBytes, _ := json.Marshal(requestData)
+
+	req, _ := http.NewRequest("POST", "/transaction/broadcast", bytes.NewReader(requestBytes))
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
+	assert.Equal(t, shared.ReturnCodeRequestError, response.Code)
+	assert.True(t, strings.Contains(response.Error, apiErrors.ErrValidation.Error()))
+	assert.True(t, strings.Contains(response.Error, "maximum of 100"))
+	assert.Nil(t, response.Data)
+}
+
+func TestBroadcastTX_BulkTransactions_AtLimitShouldWork(t *testing.T) {
+	t.Parallel()
+
+	facade := mock.Facade{
+		SendBulkTransactionsHandler: func(txs []*transaction.Transaction) ([]string, error) {
+			require.Len(t, txs, 100)
+			return make([]string, len(txs)), nil
+		},
+	}
+
+	ws := startNodeServer(&facade)
+
+	requestData := tr.BroadcastTXRequest{
+		TXs: makeBroadcastTxs(100),
+	}
+	requestBytes, _ := json.Marshal(requestData)
+
+	req, _ := http.NewRequest("POST", "/transaction/broadcast", bytes.NewReader(requestBytes))
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
+	assert.Equal(t, shared.ReturnCodeSuccess, response.Code)
+	assert.Empty(t, response.Error)
+}
+
 func TestBroadcastTX_BulkTransactions_SendBulkTransactionsError(t *testing.T) {
 	t.Parallel()
 

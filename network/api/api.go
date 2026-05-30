@@ -14,6 +14,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 
 	indexer "github.com/klever-io/klever-go/indexer"
+	"github.com/klever-io/klever-go/network/api/httpserver"
 	clientSocket "github.com/klever-io/klever-go/websocket"
 
 	"github.com/gin-contrib/cors"
@@ -95,7 +96,9 @@ func Start(ctx context.Context, kleverFacade MainAPIHandler, routesConfig config
 	ws.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, ginSwagger.InstanceName(docs.SwaggerInfonode.InstanceName())))
 	RegisterRoutes(ctx, ws, routesConfig, kleverFacade)
 
-	return ws.Run(kleverFacade.RestAPIInterface())
+	// Hardened http.Server instead of ws.Run: adds the ReadHeaderTimeout that
+	// http.ListenAndServe lacks (slow-header DoS, GHSA-w4c6-7r69-w7j9).
+	return httpserver.NewHardenedServer(kleverFacade.RestAPIInterface(), ws.Handler()).ListenAndServe()
 }
 
 func registerRouteGroup(ws *gin.Engine, name string, routesConfig config.APIRoutesConfig, authHandler gin.HandlerFunc, register func(*wrapper.RouterWrapper)) {
