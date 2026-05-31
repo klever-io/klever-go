@@ -1,7 +1,9 @@
 package api
 
 import (
+	"bufio"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/network/api/httpserver"
 )
 
 type stubMessenger struct {
@@ -43,6 +46,41 @@ func setup(t *testing.T) (*gin.Engine, *stubMessenger) {
 	r := gin.New()
 	srv.registerRoutes(r)
 	return r, stub
+}
+
+// TestSeednodeAPI_HardenedServerDropsSlowHeader serves the real seednode routes through
+// NewHardenedServer and confirms the seednode listener (the reporter's PoC path) drops a
+// slow-header connection — GHSA-w4c6-7r69-w7j9, verified end-to-end, not just wired.
+func TestSeednodeAPI_HardenedServerDropsSlowHeader(t *testing.T) {
+	r, _ := setup(t)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	srv := httpserver.NewHardenedServer(ln.Addr().String(), r.Handler())
+	srv.ReadHeaderTimeout = 200 * time.Millisecond // tighten for a fast test
+	go func() { _ = srv.Serve(ln) }()
+	defer func() { _ = srv.Close() }()
+
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	// Partial header, never terminated: the seednode listener must drop it.
+	if _, err := conn.Write([]byte("GET /node/status HTTP/1.1\r\nHost: x\r\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	start := time.Now()
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	_, _ = bufio.NewReader(conn).ReadString('\n')
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("slow-header connection not dropped promptly: %v", elapsed)
+	}
 }
 
 func TestPeers_returnsCountsAndSortedAddresses(t *testing.T) {
