@@ -205,7 +205,7 @@ func TestNewPeerTypeProvider_ComputeForKeyNotFoundInCacheReturnsObserver(t *test
 	assert.Nil(t, err)
 }
 
-func TestPeerTypeProvider_IsCachePopulated_FalseAtConstruction(t *testing.T) {
+func TestPeerTypeProvider_IsCachePopulated_FalseWhenCoordinatorReturnsEmpty(t *testing.T) {
 	arg := createDefaultArgPeerTypeProvider()
 
 	ptp, err := NewPeerTypeProvider(arg)
@@ -215,7 +215,43 @@ func TestPeerTypeProvider_IsCachePopulated_FalseAtConstruction(t *testing.T) {
 	assert.False(t, ptp.IsCachePopulated())
 }
 
-func TestPeerTypeProvider_IsCachePopulated_TrueAfterEpochStart(t *testing.T) {
+func TestPeerTypeProvider_IsCachePopulated_TrueAtConstructionWhenCachePopulated(t *testing.T) {
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte("validator-pk")}, nil
+		},
+	}
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+	require.NotNil(t, ptp)
+
+	assert.True(t, ptp.IsCachePopulated())
+}
+
+func TestPeerTypeProvider_IsCachePopulated_TrueAfterEpochStartFillsCache(t *testing.T) {
+	arg := createDefaultArgPeerTypeProvider()
+	epochStartNotifier := &mock.EpochStartNotifierStub{}
+	arg.EpochStartEventNotifier = epochStartNotifier
+
+	coordinator := &mock.NodesCoordinatorMock{}
+	arg.NodesCoordinator = coordinator
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+	require.NotNil(t, ptp)
+	require.False(t, ptp.IsCachePopulated())
+
+	coordinator.GetAllElectedValidatorsKeysCalled = func() ([][]byte, error) {
+		return [][]byte{[]byte("validator-pk")}, nil
+	}
+	epochStartNotifier.NotifyAll(&block.Block{Header: &block.BlockHeader{Nonce: 1, Epoch: 1}})
+
+	assert.True(t, ptp.IsCachePopulated())
+}
+
+func TestPeerTypeProvider_IsCachePopulated_StaysFalseWhenEpochStartFiresButCacheEmpty(t *testing.T) {
 	arg := createDefaultArgPeerTypeProvider()
 	epochStartNotifier := &mock.EpochStartNotifierStub{}
 	arg.EpochStartEventNotifier = epochStartNotifier
@@ -227,7 +263,7 @@ func TestPeerTypeProvider_IsCachePopulated_TrueAfterEpochStart(t *testing.T) {
 
 	epochStartNotifier.NotifyAll(&block.Block{Header: &block.BlockHeader{Nonce: 1, Epoch: 1}})
 
-	assert.True(t, ptp.IsCachePopulated())
+	assert.False(t, ptp.IsCachePopulated())
 }
 
 func TestNewPeerTypeProvider_IsInterfaceNil(t *testing.T) {
