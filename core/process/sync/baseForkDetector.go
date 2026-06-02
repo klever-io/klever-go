@@ -304,6 +304,15 @@ func (bfd *baseForkDetector) ProbableHighestNonce() uint64 {
 	return bfd.probableHighestNonce()
 }
 
+// HighestNonceReceived gets the highest nonce observed in any received header
+// (including BHProposed gossip). Callers can compare this against
+// ProbableHighestNonce / currentBlockNonce to detect when the node has fallen
+// behind via the BHProposed-only path, which is the KLC-1920 / KLC-2389
+// failure mode.
+func (bfd *baseForkDetector) HighestNonceReceived() uint64 {
+	return bfd.highestNonceReceived()
+}
+
 // ResetFork resets the forced fork
 func (bfd *baseForkDetector) ResetFork() {
 	bfd.ResetProbableHighestNonce()

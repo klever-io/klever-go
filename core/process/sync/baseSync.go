@@ -301,10 +301,23 @@ func (boot *baseBootstrap) computeNodeState() {
 	} else {
 		lastNonce = currentHeader.GetNonce()
 		lastSlot = currentHeader.GetSlot()
-		boot.hasLastBlock = boot.forkDetector.ProbableHighestNonce() <= boot.chainHandler.GetCurrentBlockHeader().GetNonce()
+		currentBlockNonce := boot.chainHandler.GetCurrentBlockHeader().GetNonce()
+		probableHighestNonce := boot.forkDetector.ProbableHighestNonce()
+		highestNonceReceived := boot.forkDetector.HighestNonceReceived()
+		boot.hasLastBlock = probableHighestNonce <= currentBlockNonce
+		// KLC-1920: gossip-derived ceiling is the source of truth that
+		// probableHighestNonce can lag behind when the BHReceived path is
+		// disrupted (peer churn after an election, fallback observer not
+		// receiving fetched headers). If gossip reports the network ahead
+		// by more than the normal proposal/commit window, the node is not
+		// really synced even if probableHighestNonce equals currentBlockNonce.
+		if highestNonceReceived > currentBlockNonce+process.BlockFinality {
+			boot.hasLastBlock = false
+		}
 		log.Debug("computeNodeState",
-			"probableHighestNonce", boot.forkDetector.ProbableHighestNonce(),
-			"currentBlockNonce", boot.chainHandler.GetCurrentBlockHeader().GetNonce(),
+			"probableHighestNonce", probableHighestNonce,
+			"highestNonceReceived", highestNonceReceived,
+			"currentBlockNonce", currentBlockNonce,
 			"boot.hasLastBlock", boot.hasLastBlock)
 	}
 
