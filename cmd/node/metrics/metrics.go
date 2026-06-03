@@ -44,12 +44,16 @@ func InitMetrics(
 	initZeroString := "0"
 
 	appStatusHandler.SetStringValue(core.MetricPublicKeyBlockSign, pubkeyStr)
+	// KLC-2388: node_type stays "validator" during the bootstrap window even
+	// though peer_type below is seeded to "observer". The two intentionally
+	// diverge until the peerTypeProvider cache populates: node_type is the
+	// PR's protected value (the original bug was validators flipping to
+	// observer on cache miss), so we cannot seed it observer without
+	// re-introducing exactly that symptom; peer_type is left pessimistic
+	// because it's a peer-list classification that we genuinely don't know
+	// yet. Once the gate opens the sender writes the real values from the
+	// fork detector / nodes coordinator.
 	appStatusHandler.SetStringValue(core.MetricNodeType, string(nodeType))
-	// KLC-2388: seed klv_peer_type alongside klv_node_type so consumers see a
-	// real value during the bootstrap window before the peerTypeProvider cache
-	// is populated. The heartbeat sender's IsCachePopulated gate keeps this
-	// startup value in place until the first epoch-start event refreshes the
-	// cache, at which point the real peer-list classification takes over.
 	appStatusHandler.SetStringValue(core.MetricPeerType, string(core.ObserverList))
 	appStatusHandler.SetUInt64Value(core.MetricSlotTime, slotInterval/millisecondsInSecond)
 	appStatusHandler.SetStringValue(core.MetricAppVersion, version)
