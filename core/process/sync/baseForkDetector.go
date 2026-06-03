@@ -411,11 +411,11 @@ func (bfd *baseForkDetector) probableHighestNonce() uint64 {
 }
 
 func (bfd *baseForkDetector) setHighestNonceReceived(nonce uint64) {
-	if nonce <= bfd.highestNonceReceived() {
+	bfd.mutFork.Lock()
+	if nonce <= bfd.fork.highestNonceReceived {
+		bfd.mutFork.Unlock()
 		return
 	}
-
-	bfd.mutFork.Lock()
 	bfd.fork.highestNonceReceived = nonce
 	bfd.mutFork.Unlock()
 

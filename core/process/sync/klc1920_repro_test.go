@@ -83,7 +83,8 @@ func TestKLC1920_GapExceedsBlockFinality(t *testing.T) {
 	for nonce := uint64(51); nonce <= uint64(70); nonce++ {
 		hdr := &block.BlockHeader{Nonce: nonce, Slot: nonce}
 		hash := []byte(fmt.Sprintf("g-%d", nonce))
-		_ = bfd.AddHeader(&block.Block{Header: hdr}, hash, process.BHProposed, nil, nil)
+		err = bfd.AddHeader(&block.Block{Header: hdr}, hash, process.BHProposed, nil, nil)
+		assert.Nil(t, err)
 	}
 
 	currentBlockNonce := uint64(50)
