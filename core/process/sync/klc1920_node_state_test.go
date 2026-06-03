@@ -30,9 +30,9 @@ type observableStatusHandler struct {
 	isSyncing uint64
 }
 
-func (o *observableStatusHandler) Increment(_ string)             {}
-func (o *observableStatusHandler) AddUint64(_ string, _ uint64)   {}
-func (o *observableStatusHandler) Decrement(_ string)             {}
+func (o *observableStatusHandler) Increment(_ string)              {}
+func (o *observableStatusHandler) AddUint64(_ string, _ uint64)    {}
+func (o *observableStatusHandler) Decrement(_ string)              {}
 func (o *observableStatusHandler) SetInt64Value(_ string, _ int64) {}
 func (o *observableStatusHandler) SetUInt64Value(key string, value uint64) {
 	if key != core.MetricIsSyncing {
@@ -92,19 +92,21 @@ func buildKLC1920Bootstrap(probable, highest, currentBlockNonce uint64) (*syncpk
 
 // TestKLC1920_ComputeNodeState_GossipAheadForcesNotSynced is the regression
 // guard for the synced-state gate. Pre-fix: with probable == current the
-// node declared itself synced even when HighestNonceReceived was 20 blocks
-// ahead. Post-fix: any gossip-vs-current gap > BlockFinality forces
-// hasLastBlock=false and isNodeSynchronized=false.
+// node declared itself synced even when HighestNonceReceived was far ahead.
+// Post-fix: any gossip-vs-current gap > BlockFinality forces hasLastBlock=
+// false and isNodeSynchronized=false.
 func TestKLC1920_ComputeNodeState_GossipAheadForcesNotSynced(t *testing.T) {
 	t.Parallel()
 
 	// Production failure shape: probable matches current (fork detector
-	// thinks it's caught up) but gossip has reported headers 20 ahead.
-	boot, statusHandler := buildKLC1920Bootstrap(
-		uint64(50), // probable
-		uint64(70), // highest received from gossip
-		uint64(50), // current block nonce
-	)
+	// thinks it's caught up) but gossip has reported headers many blocks
+	// ahead. Use a generous multiple of BlockFinality so we're well past
+	// the threshold regardless of how it gets tuned later.
+	const probable = uint64(50)
+	current := probable
+	highest := current + uint64(process.BlockFinality)*20
+
+	boot, statusHandler := buildKLC1920Bootstrap(probable, highest, current)
 
 	boot.ComputeNodeState()
 
@@ -116,19 +118,20 @@ func TestKLC1920_ComputeNodeState_GossipAheadForcesNotSynced(t *testing.T) {
 		"KLC-1920 fix: klv_is_syncing must report 1 — the production-bug metric was 0 (false-synced)")
 }
 
-// TestKLC1920_ComputeNodeState_GossipWithinFinalityStaysSynced confirms the
-// gate does NOT spuriously fire during normal proposal rounds where gossip
-// is briefly one block ahead of the just-committed block.
-func TestKLC1920_ComputeNodeState_GossipWithinFinalityStaysSynced(t *testing.T) {
+// TestKLC1920_ComputeNodeState_GossipAtBoundaryStaysSynced confirms the gate
+// does NOT spuriously fire when gossip is exactly BlockFinality ahead of the
+// last committed block — the natural proposal-vs-commit window during normal
+// consensus operation.
+func TestKLC1920_ComputeNodeState_GossipAtBoundaryStaysSynced(t *testing.T) {
 	t.Parallel()
 
-	// Normal cycle: a BHProposed for nonce N+1 has arrived but the block
-	// hasn't committed yet. gap = 1 = BlockFinality — must NOT fire.
-	boot, statusHandler := buildKLC1920Bootstrap(
-		uint64(50), // probable
-		uint64(51), // highest received (one proposal ahead — normal)
-		uint64(50), // current block nonce
-	)
+	// gap == BlockFinality: a BHProposed for nonce N+BlockFinality has been
+	// seen but not yet committed. This is normal — must NOT trip the gate.
+	const probable = uint64(50)
+	current := probable
+	highest := current + uint64(process.BlockFinality)
+
+	boot, statusHandler := buildKLC1920Bootstrap(probable, highest, current)
 
 	boot.ComputeNodeState()
 
@@ -138,4 +141,26 @@ func TestKLC1920_ComputeNodeState_GossipWithinFinalityStaysSynced(t *testing.T) 
 		"normal proposal cycle: node remains synced; consensus must not be gated")
 	assert.Equal(t, uint64(0), statusHandler.IsSyncing(),
 		"normal proposal cycle: klv_is_syncing stays 0")
+}
+
+// TestKLC1920_ComputeNodeState_GossipOneOverBoundaryNotSynced pins down the
+// exact `>` boundary: one block past BlockFinality must trip the gate. This
+// guards against the check accidentally becoming `>=` in a future refactor.
+func TestKLC1920_ComputeNodeState_GossipOneOverBoundaryNotSynced(t *testing.T) {
+	t.Parallel()
+
+	const probable = uint64(50)
+	current := probable
+	highest := current + uint64(process.BlockFinality) + 1
+
+	boot, statusHandler := buildKLC1920Bootstrap(probable, highest, current)
+
+	boot.ComputeNodeState()
+
+	assert.False(t, boot.HasLastBlock(),
+		"boundary: gap == BlockFinality+1 must force not-synced")
+	assert.False(t, boot.IsNodeSynchronized(),
+		"boundary: gap == BlockFinality+1 must flip isNodeSynchronized to false")
+	assert.Equal(t, uint64(1), statusHandler.IsSyncing(),
+		"boundary: klv_is_syncing == 1 at the first nonce past BlockFinality")
 }
