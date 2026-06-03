@@ -2,10 +2,48 @@ package sync
 
 import (
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/consensus"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 )
+
+// BaseBootstrap is an alias so tests in the sync_test package can refer to
+// the unexported baseBootstrap type by name.
+type BaseBootstrap = baseBootstrap
+
+// NewBaseBootstrapForKLC1920Test builds a minimal baseBootstrap wired only
+// with the dependencies computeNodeState needs to exercise the KLC-1920
+// gossip-ahead-of-probable branch. Internal-only helper, not for production.
+func NewBaseBootstrapForKLC1920Test(
+	forkDetector process.ForkDetector,
+	chainHandler data.ChainHandler,
+	slotManager consensus.SlotManager,
+	networkWatcher process.NetworkConnectionWatcher,
+	statusHandler core.AppStatusHandler,
+) *BaseBootstrap {
+	return &baseBootstrap{
+		forkDetector:       forkDetector,
+		chainHandler:       chainHandler,
+		slotManager:        slotManager,
+		networkWatcher:     networkWatcher,
+		statusHandler:      statusHandler,
+		syncStateListeners: []func(bool){},
+		hasStarted:         true,
+	}
+}
+
+func (boot *baseBootstrap) IsNodeSynchronized() bool {
+	boot.mutNodeState.RLock()
+	defer boot.mutNodeState.RUnlock()
+	return boot.isNodeSynchronized
+}
+
+func (boot *baseBootstrap) HasLastBlock() bool {
+	boot.mutNodeState.RLock()
+	defer boot.mutNodeState.RUnlock()
+	return boot.hasLastBlock
+}
 
 func (boot *MetaBootstrap) ReceivedHeaders(header data.HeaderHandler, key []byte) {
 	boot.processReceivedHeader(header, key)
