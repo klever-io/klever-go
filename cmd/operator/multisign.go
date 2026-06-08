@@ -156,16 +156,18 @@ func subMS() []*cobra.Command {
 		Short: "sign a transaction from multisign API and post the signature",
 		Example: `operator ms sign <txHash>   — sign specific TX by hash
 operator ms sign <txHash> -s — sign specific TX by hash; skip confirmation prompt 
-operator ms sign             — interactively choose from pending transactions
-operator ms sign -s          — interactively choose from pending transactions; skip confirmation prompt`,
+operator ms sign             — interactively choose from pending transactions`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			log.Info("signing transaction from multisign API", "address", signerAddress)
 			var tx *MSApiTransaction
+			userTxHash := ""
 			var err error
 			if len(args) == 1 {
-				tx, err = getMSApiTransaction(args[0])
+				userTxHash = strings.TrimPrefix(args[0], "0x")
+				tx, err = getMSApiTransaction(userTxHash)
 			} else {
+				autoSign = false
 				log.Info("fetching pending transactions for signing")
 				result := make([]MSApiTransaction, 0)
 				err = utils.GetURL(fmt.Sprintf("%s/transaction/by-address/%s", multisignAPI, signerAddress), &result)
@@ -180,6 +182,16 @@ operator ms sign -s          — interactively choose from pending transactions;
 			}
 			if err != nil {
 				return err
+			}
+			if userTxHash != "" && tx != nil {
+				gotTxHash, err := computeTxHash(tx.Raw)
+				if err != nil {
+					return err
+				}
+				encodedGotTxHash := hex.EncodeToString(gotTxHash)
+				if encodedGotTxHash != userTxHash {
+					return fmt.Errorf("transaction hash mismatch: expected %s, got %s", userTxHash, encodedGotTxHash)
+				}
 			}
 			if tx != nil {
 				err = doSignAndPost(tx)

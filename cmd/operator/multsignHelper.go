@@ -43,25 +43,119 @@ type MSApiTransaction struct {
 
 	Raw *transaction.Transaction `json:"raw"`
 }
-
-func buildTransactionPickerPages(txs *[]MSApiTransaction, perPage int) [][]*display.LineData {
-	pages := [][]*display.LineData{make([]*display.LineData, 0)}
-	currPage := 0
-	for _, tx := range *txs {
-		if len(pages[currPage]) >= perPage {
-			currPage++
-			pages = append(pages, make([]*display.LineData, 0))
-		}
-		pages[currPage] = append(pages[currPage], buildTxLineData(len(pages[currPage]), &tx))
-	}
-	return pages
+type TransactionPicker struct {
+	Header     []string
+	Lines      []*display.LineData
+	PerPage    int
+	CurrPage   int
+	DrawnLines int
 }
 
-func buildTxLineData(index int, tx *MSApiTransaction) *display.LineData {
+func (p *TransactionPicker) PushLine(line *display.LineData) {
+	if p.Lines == nil {
+		p.Lines = make([]*display.LineData, 0)
+	}
+	line.Values = append([]string{"#"}, line.Values...)
+	p.Lines = append(p.Lines, line)
+}
+func (p *TransactionPicker) Draw(lines []*display.LineData, msg string, canPrev, canNext bool) error {
+	for i := range lines {
+		lines[i].Values[0] = fmt.Sprintf("%d", i)
+	}
+	ln, err := display.CreateTableString(p.Header, lines)
+	if err != nil {
+		return err
+	}
+	if msg != "" {
+		ln = fmt.Sprintf("%s\n%s", ln, msg)
+	}
+	ln += fmt.Sprintf("\n Page %d/%d [0-%d]: Select Transaction", p.CurrPage+1, len(p.Lines)/p.PerPage+1, len(lines)-1)
+	if canPrev {
+		ln += ", [p]revious page"
+	}
+	if canNext {
+		ln += ", [n]ext page"
+	}
+	ln += ", [q]uit \n Input: "
+	fmt.Print(ln)
+	p.DrawnLines = strings.Count(ln, "\n") + 1
+	return nil
+}
+func (p *TransactionPicker) ClearDrawn() {
+	fmt.Printf("\033[%dA\r\033[J", p.DrawnLines)
+	p.DrawnLines = 0
+}
+func (p *TransactionPicker) HandlePageInput(pageItems int, canPrev, canNext bool) (int, string, error) {
+	var input string
+	if _, err := fmt.Scan(&input); err != nil {
+		return 0, "", fmt.Errorf("read transaction selection: %w", err)
+	}
+	idx, nanErr := strconv.Atoi(input)
+	switch {
+	case nanErr == nil && idx >= 0 && idx < pageItems:
+		return idx, "", nil
+	case input == "n" && canNext:
+		p.CurrPage += 1
+		return 0, "page", nil
+	case input == "p" && canPrev:
+		p.CurrPage -= 1
+		return 0, "page", nil
+	case input == "q":
+		return 0, "quit", nil
+	default:
+		return 0, "invalid", nil
+	}
+}
+func (p *TransactionPicker) PickTransaction() (int, error) {
+	message := ""
+	for {
+		offset := p.CurrPage * p.PerPage
+		limit := min(offset+p.PerPage, len(p.Lines))
+		lines := p.Lines[offset:limit]
+		canPrev := p.CurrPage > 0
+		canNext := limit < len(p.Lines)
+		err := p.Draw(lines, message, canPrev, canNext)
+		if err != nil {
+			return 0, err
+		}
+		idx, action, err := p.HandlePageInput(len(lines), canPrev, canNext)
+		if err != nil {
+			return 0, err
+		}
+		switch action {
+		case "page":
+			message = ""
+		case "invalid":
+			message = "invalid input, please try again"
+		case "quit":
+			log.Info("transaction picking cancelled by user")
+			return -1, nil
+		default:
+			return offset + idx, nil
+		}
+		p.ClearDrawn()
+		continue
+	}
+}
+
+// func buildTransactionPickerPages(txs *[]MSApiTransaction, perPage int) [][]*display.LineData {
+// 	pages := [][]*display.LineData{make([]*display.LineData, 0)}
+// 	currPage := 0
+// 	for _, tx := range *txs {
+// 		if len(pages[currPage]) >= perPage {
+// 			currPage++
+// 			pages = append(pages, make([]*display.LineData, 0))
+// 		}
+// 		pages[currPage] = append(pages[currPage], buildTxLineData(len(pages[currPage]), &tx))
+// 	}
+// 	return pages
+// }
+
+func buildTxLineData(tx *MSApiTransaction) *display.LineData {
 	signed, currSignatures, currSignatureWeight := aggregateSigners(tx.Signers)
 	txType := extractTxType(tx)
 	return &display.LineData{Values: []string{
-		fmt.Sprintf("%d", index),
+
 		tx.Hash,
 		tx.Address,
 		txType,
@@ -100,51 +194,23 @@ func extractTxType(tx *MSApiTransaction) string {
 	}
 	return parts[1]
 }
-func buildPageString(lines []*display.LineData, currPage int, pagesCount int) (string, error) {
-	ln, err := display.CreateTableString([]string{"#", "hash", "address", "type", "signers", "weight", "signed"}, lines)
-	if err != nil {
-		return "", err
-	}
-	ln += fmt.Sprintf("\n Page %d/%d [0-%d]: Select Transaction", currPage+1, pagesCount, len(lines)-1)
-	if currPage > 0 {
-		ln += ", [p]revious page"
-	}
-	if currPage < pagesCount-1 {
-		ln += ", [n]ext page"
-	}
-	ln += ", [q]uit \n Input: "
-	return ln, nil
-}
-func pendingMsTransactionPicker(txs *[]MSApiTransaction) (*MSApiTransaction, error) {
-	perPage := 3
-	pages := buildTransactionPickerPages(txs, perPage)
-	currPage := 0
-	for {
-		ln, err := buildPageString(pages[currPage], currPage, len(pages))
-		if err != nil {
-			return nil, err
-		}
 
-		fmt.Print(ln)
-		var input string
-		if _, err := fmt.Scan(&input); err != nil {
-			return nil, fmt.Errorf("read transaction selection: %w", err)
-		}
-		idx, nanErr := strconv.Atoi(input)
-		switch {
-		case nanErr == nil && idx >= 0 && idx < len(pages[currPage]):
-			return &(*txs)[idx+(currPage*perPage)], nil
-		case input == "n" && currPage < len(pages)-1:
-			currPage++
-		case input == "p" && currPage > 0:
-			currPage--
-		case input == "q":
-			log.Info("transaction picking cancelled by user")
-			return nil, nil
-		}
-		fmt.Printf("\033[%dA\r\033[J", strings.Count(ln, "\n")+1)
-		continue
+func pendingMsTransactionPicker(txs *[]MSApiTransaction) (*MSApiTransaction, error) {
+	picker := &TransactionPicker{
+		Header:  []string{"#", "hash", "address", "type", "signers", "weight", "signed"},
+		PerPage: 3,
 	}
+	for _, tx := range *txs {
+		picker.PushLine(buildTxLineData(&tx))
+	}
+	idx, err := picker.PickTransaction()
+	if err != nil {
+		return nil, err
+	}
+	if idx == -1 {
+		return nil, nil
+	}
+	return &(*txs)[idx], nil
 }
 func getMSApiTransaction(hash string) (*MSApiTransaction, error) {
 	hash = strings.Replace(hash, "0x", "", 1)
