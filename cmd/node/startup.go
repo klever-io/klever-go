@@ -69,17 +69,27 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 	chanStopNodeProcess := make(chan endProcess.ArgEndProcess, 1)
 	workingDir := getWorkingDir(ctx, log)
 
-	bugsnag.Configure(bugsnag.Configuration{
+	withLogFile := ctx.GlobalBool(logSaveFile.Name)
+
+	bugsnagConfig := bugsnag.Configuration{
 		APIKey:          ctx.GlobalString(bugsnagKey.Name),
 		ReleaseStage:    ctx.GlobalString(bugsnagStage.Name),
 		ProjectPackages: []string{"main", "github.com/klever-io/klver-go/**"},
 		AppVersion:      version,
 		Logger:          logger.NewDummy(),
-	})
+	}
+	if withLogFile {
+		// --log-save redirects stderr to the log file, severing the pipe read by the
+		// panicwrap monitor child that the default PanicHandler forks; the child then
+		// exits and is never reaped (panicwrap starts it without a matching Wait),
+		// leaving a permanent zombie. The monitor cannot observe panics without
+		// stderr anyway, so skip forking it.
+		bugsnagConfig.PanicHandler = func() {}
+	}
+	bugsnag.Configure(bugsnagConfig)
 
 	var fileLogging tools.FileLoggingHandler
 	var err error
-	withLogFile := ctx.GlobalBool(logSaveFile.Name)
 	if withLogFile {
 		fileLogging, err = logging.NewFileLogging(workingDir, defaultLogsPath, logFilePrefix)
 		if err != nil {
