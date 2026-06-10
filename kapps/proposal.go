@@ -233,6 +233,15 @@ func InitialProposalParameters(forks core.ForkController) map[int32]*Parameter {
 		}
 	}
 
+	if forks.InflationBurn() {
+		// ExecuteInflationBurn is a one-time trigger: a proposal flips it 0 -> 1 to run
+		// the hardcoded inflation burn exactly once over the whole chain history.
+		activeParameters[int32(EnumParameter_ExecuteInflationBurn)] = &Parameter{
+			Type:  EnumType_Int64,
+			Value: []byte("0"), // 0 = not executed, 1 = executed (set by approved proposal)
+		}
+	}
+
 	return activeParameters
 }
 
@@ -297,6 +306,12 @@ func (p *ProposalController) validateConstraints(parameter EnumParameter, value 
 
 		if value.Int() < core.MinGasLimit || value.Int() > maxValue {
 			log.Error("invalid MaxGasPerTX", "value", value.Int(), "min", core.MinGasLimit, "max", maxValue)
+			return common.ErrInvalidParameter
+		}
+	case EnumParameter_ExecuteInflationBurn:
+		// Only the 0 -> 1 transition is valid; the trigger can never be set to any other value.
+		if value.Int() != 1 {
+			log.Error("invalid ExecuteInflationBurn", "value", value.Int(), "expected", 1)
 			return common.ErrInvalidParameter
 		}
 	}

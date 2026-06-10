@@ -344,3 +344,33 @@ func TestIsInterfaceNil(t *testing.T) {
 	newController := NewProposalControllerForTests()
 	assert.False(t, newController.IsInterfaceNil())
 }
+
+func TestExecuteInflationBurn_DefaultAndConstraint(t *testing.T) {
+	mockForks := mock.NewForkControllerStub()
+	controller, err := kapps.NewProposalController(mockForks)
+	assert.NoError(t, err)
+
+	// Default-initialized to "0" (not executed). The value itself is the execution record (0/1).
+	assert.Equal(t, int64(0), controller.GetParameterInt(kapps.EnumParameter_ExecuteInflationBurn))
+
+	// Only the 0 -> 1 transition is valid.
+	_, err = controller.ParseParamAndValidate(kapps.EnumParameter_ExecuteInflationBurn, []byte("1"), mockForks)
+	assert.NoError(t, err)
+
+	for _, invalid := range [][]byte{[]byte("0"), []byte("2"), []byte("-1")} {
+		_, err = controller.ParseParamAndValidate(kapps.EnumParameter_ExecuteInflationBurn, invalid, mockForks)
+		assert.Equal(t, common.ErrInvalidParameter, err)
+	}
+}
+
+func TestExecuteInflationBurn_ForkGated(t *testing.T) {
+	mockForks := mock.NewForkControllerStub()
+	mockForks.SetFork("InflationBurn", false)
+
+	controller, err := kapps.NewProposalController(mockForks)
+	assert.NoError(t, err)
+
+	// When the fork is off the parameter is not initialized at all.
+	_, ok := controller.GetActiveParameters()[int32(kapps.EnumParameter_ExecuteInflationBurn)]
+	assert.False(t, ok)
+}

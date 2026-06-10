@@ -80,6 +80,7 @@ type ForkController interface {
 	FixAuditChanges() bool
 	EpochRewardsV2() bool
 	FixAuditChangesV2() bool
+	InflationBurn() bool
 	IsInterfaceNil() bool
 }
 

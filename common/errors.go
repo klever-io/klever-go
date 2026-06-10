@@ -349,6 +349,9 @@ var ErrStakingNotFound = errors.New("staking was not found")
 // ErrProposalNotFound signals that proposal was not found in state trie
 var ErrProposalNotFound = errors.New("proposal was not found")
 
+// ErrInflationBurnAlreadyExecuted signals that the one-time inflation burn has already run and cannot be proposed again
+var ErrInflationBurnAlreadyExecuted = errors.New("inflation burn has already been executed")
+
 // ErrBalance signals a balance error
 var ErrBalance = errors.New("balance error")
 

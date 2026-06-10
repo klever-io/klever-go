@@ -87,6 +87,8 @@ const (
 	ErrFieldInsufficientFrozenKFI = "InsufficientFrozenKFI"
 	ErrFieldProposalMaxVoters     = "ProposalMaxVoters"
 
+	ErrFieldInflationBurnAlreadyExecuted = "InflationBurnAlreadyExecuted"
+
 	// KDA Asset errors
 	ErrFieldInvalidAssetParams       = "InvalidAssetParams"
 	ErrFieldInvalidPrecision         = "InvalidPrecision"

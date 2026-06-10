@@ -15,6 +15,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/block/bootstrapStorage"
+	"github.com/klever-io/klever-go/crypto/pubkeyConverter"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/indexer"
@@ -1329,10 +1330,111 @@ func (mp *metaProcessor) validateAndApplyParameter(parameter int32, value []byte
 		return err
 	}
 
+	// The inflation burn is a one-time hardcoded action rather than a plain value update.
+	if kapps.EnumParameter(parameter) == kapps.EnumParameter_ExecuteInflationBurn {
+		return mp.applyInflationBurn(controller)
+	}
+
 	controller.ActiveParameters[parameter].Value = make([]byte, len(value))
 	copy(controller.ActiveParameters[parameter].Value, value)
 
 	return nil
+}
+
+// applyInflationBurn runs the hardcoded inflation burn exactly once. The trigger parameter's value
+// records execution (0 = never run, 1 = already run), so the method is idempotent: even if more than
+// one proposal carrying the trigger is approved, the burn runs a single time over the chain's lifetime.
+func (mp *metaProcessor) applyInflationBurn(controller *kapps.ProposalController) error {
+	if controller.GetParameterInt(kapps.EnumParameter_ExecuteInflationBurn) >= 1 {
+		log.Debug("inflation burn already executed, skipping")
+		return nil
+	}
+
+	if err := mp.executeInflationBurn(); err != nil {
+		return err
+	}
+
+	// Flag the active parameter as executed (0 -> 1) so it is observable on-chain.
+	param := controller.ActiveParameters[int32(kapps.EnumParameter_ExecuteInflationBurn)]
+	if param != nil {
+		param.Value = []byte("1")
+	}
+
+	log.Info("inflation burn executed")
+
+	return nil
+}
+
+const inflationBurnAddressLen = 32
+
+var inflationBurnAddresses = []string{
+	"klv1fpwjz234gy8aaae3gx0e8q9f52vymzzn3z5q0s5h60pvktzx0n0qwvtux5",
+}
+
+func (mp *metaProcessor) executeInflationBurn() error {
+	if len(inflationBurnAddresses) == 0 {
+		log.Warn("inflation burn: no target addresses configured, nothing to burn")
+		return nil
+	}
+
+	converter, err := pubkeyConverter.NewBech32PubkeyConverter(inflationBurnAddressLen)
+	if err != nil {
+		return err
+	}
+
+	var totalBurned int64
+	for _, address := range inflationBurnAddresses {
+		burned, err := mp.burnAddressBalance(converter, address)
+		if err != nil {
+			return err
+		}
+		totalBurned += burned
+	}
+
+	if totalBurned == 0 {
+		log.Info("inflation burn: target addresses had no balance to remove")
+		return nil
+	}
+
+	log.Info("inflation burn: balances removed", "addresses", len(inflationBurnAddresses), "totalBurned", totalBurned)
+
+	return nil
+}
+
+// burnAddressBalance removes the full native KLV balance of a single address and returns the removed amount.
+func (mp *metaProcessor) burnAddressBalance(converter core.PubkeyConverter, address string) (int64, error) {
+	addressBytes, err := converter.Decode(address)
+	if err != nil {
+		return 0, err
+	}
+
+	acnt, err := mp.accountsDB[state.UserAccountsState].LoadAccount(addressBytes)
+	if err != nil {
+		return 0, err
+	}
+
+	userAcc, ok := acnt.(state.UserAccountHandler)
+	if !ok {
+		return 0, common.ErrWrongTypeAssertion
+	}
+
+	// nil assetID targets the native KLV balance.
+	balance := userAcc.GetBalance(nil, false)
+	if balance <= 0 {
+		return 0, nil
+	}
+
+	if err := userAcc.SubFromBalance(balance, nil, false); err != nil {
+		return 0, err
+	}
+
+	if err := mp.accountsDB[state.UserAccountsState].SaveAccount(userAcc); err != nil {
+		return 0, err
+	}
+
+	log.Info("inflation burn: address balance removed", "address", address, "amount", balance)
+
+	return balance, nil
 }
 
 func (mp *metaProcessor) finalizeProposalUpdates(proposalKApp state.KAppAccountHandler, controller *kapps.ProposalController) error {

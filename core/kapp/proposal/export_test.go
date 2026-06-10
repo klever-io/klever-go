@@ -49,6 +49,15 @@ func (p *proposalKapp) CheckStakingRequirements(staking *kapps.StakingData, send
 	return p.checkStakingRequirements(staking, sender)
 }
 
+// ValidateInflationBurnTrigger exports the private validateInflationBurnTrigger method for testing
+func (p *proposalKapp) ValidateInflationBurnTrigger(
+	ctx kapp.KappContext,
+	params map[int32][]byte,
+	controller *kapps.ProposalController,
+) (transaction.Transaction_TXResultCode, error) {
+	return p.validateInflationBurnTrigger(ctx, params, controller)
+}
+
 // IsVoterLimitExceeded exports the private isVoterLimitExceeded method for testing
 func (p *proposalKapp) IsVoterLimitExceeded(proposal *kapps.ProposalData, encodedAddr string) bool {
 	return p.isVoterLimitExceeded(proposal, encodedAddr)

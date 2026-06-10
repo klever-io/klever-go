@@ -891,3 +891,76 @@ func TestProposalKApp_Vote(t *testing.T) {
 		require.Equal(t, int64(300), updatedProposal.Voters[encodedVoter].Amount)
 	})
 }
+
+func TestProposalKApp_ValidateInflationBurnTrigger(t *testing.T) {
+	t.Parallel()
+
+	burnParam := int32(kapps.EnumParameter_ExecuteInflationBurn)
+
+	newCtx := func() kapp.KappContext {
+		return &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 1 },
+			ReceiptsCalled: func() kapp.ReceiptsContext {
+				return mock.NewReceiptsContextStub()
+			},
+		}
+	}
+
+	t.Run("no-op when trigger not present", func(t *testing.T) {
+		proposalKApp, _, _ := createTestProposalKApp(t)
+		controller := &kapps.ProposalController{}
+
+		code, err := proposalKApp.ValidateInflationBurnTrigger(newCtx(),
+			map[int32][]byte{int32(kapps.EnumParameter_FeePerDataByte): []byte("4000")}, controller)
+
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, code)
+	})
+
+	t.Run("allows trigger when fork on and never executed", func(t *testing.T) {
+		proposalKApp, _, forkController := createTestProposalKApp(t)
+		forkController.SetFork("InflationBurn", true)
+
+		controller := &kapps.ProposalController{
+			ActiveParameters: map[int32]*kapps.Parameter{
+				burnParam: {Type: kapps.EnumType_Int64, Value: []byte("0")},
+			},
+		}
+
+		code, err := proposalKApp.ValidateInflationBurnTrigger(newCtx(),
+			map[int32][]byte{burnParam: []byte("1")}, controller)
+
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, code)
+	})
+
+	t.Run("rejects trigger when fork off", func(t *testing.T) {
+		proposalKApp, _, forkController := createTestProposalKApp(t)
+		forkController.SetFork("InflationBurn", false)
+
+		controller := &kapps.ProposalController{}
+
+		code, err := proposalKApp.ValidateInflationBurnTrigger(newCtx(),
+			map[int32][]byte{burnParam: []byte("1")}, controller)
+
+		require.Equal(t, common.ErrInvalidParameter, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, code)
+	})
+
+	t.Run("rejects when already executed (value == 1)", func(t *testing.T) {
+		proposalKApp, _, forkController := createTestProposalKApp(t)
+		forkController.SetFork("InflationBurn", true)
+
+		controller := &kapps.ProposalController{
+			ActiveParameters: map[int32]*kapps.Parameter{
+				burnParam: {Type: kapps.EnumType_Int64, Value: []byte("1")},
+			},
+		}
+
+		code, err := proposalKApp.ValidateInflationBurnTrigger(newCtx(),
+			map[int32][]byte{burnParam: []byte("1")}, controller)
+
+		require.Equal(t, common.ErrInflationBurnAlreadyExecuted, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, code)
+	})
+}

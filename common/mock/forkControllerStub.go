@@ -15,6 +15,7 @@ type ForkControllerStub struct {
 	FixAuditChangesValue         bool
 	EpochRewardsV2Value          bool
 	FixAuditChangesV2Value       bool
+	InflationBurnValue           bool
 	EpochConfirmedCalled         bool
 	LastConfirmedEpoch           uint32
 }
@@ -51,6 +52,8 @@ func (s *ForkControllerStub) SetFork(forkName string, value bool) *ForkControlle
 		s.EpochRewardsV2Value = value
 	case "FixAuditChangesV2":
 		s.FixAuditChangesV2Value = value
+	case "InflationBurn":
+		s.InflationBurnValue = value
 	}
 
 	return s
@@ -69,6 +72,7 @@ func (s *ForkControllerStub) SetAll(value bool) {
 	s.FixAuditChangesValue = value
 	s.EpochRewardsV2Value = value
 	s.FixAuditChangesV2Value = value
+	s.InflationBurnValue = value
 	s.LastConfirmedEpoch = 0
 }
 
@@ -85,6 +89,7 @@ func (s *ForkControllerStub) SetByConfig(config config.EnableEpochs) {
 	s.FixAuditChangesValue = config.FixAuditChanges == 0
 	s.EpochRewardsV2Value = config.EpochRewardsV2 == 0
 	s.FixAuditChangesV2Value = config.FixAuditChangesV2 == 0
+	s.InflationBurnValue = config.InflationBurn == 0
 	s.LastConfirmedEpoch = 0
 }
 
@@ -141,6 +146,11 @@ func (s *ForkControllerStub) EpochRewardsV2() bool {
 // FixAuditChangesV2 returns the stubbed value
 func (s *ForkControllerStub) FixAuditChangesV2() bool {
 	return s.FixAuditChangesV2Value
+}
+
+// InflationBurn returns the stubbed value
+func (s *ForkControllerStub) InflationBurn() bool {
+	return s.InflationBurnValue
 }
 
 // EpochConfirmed records that the method was called and stores the epoch

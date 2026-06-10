@@ -214,6 +214,33 @@ func (p *proposalKapp) validateNewParameters(params map[int32][]byte, controller
 	return nil
 }
 
+// validateInflationBurnTrigger enforces that the one-time ExecuteInflationBurn trigger can be
+// proposed only while its fork is active and only before it has ever executed. Once the burn has
+// run (execution count >= 1) or is already flagged on (active value == 1), any new proposal
+// containing this parameter is rejected.
+func (p *proposalKapp) validateInflationBurnTrigger(
+	ctx kapp.KappContext,
+	params map[int32][]byte,
+	controller *kapps.ProposalController,
+) (transaction.Transaction_TXResultCode, error) {
+	if _, ok := params[int32(kapps.EnumParameter_ExecuteInflationBurn)]; !ok {
+		return transaction.Transaction_Ok, nil
+	}
+
+	if !p.forkController.InflationBurn() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidProposalParams, common.ErrInvalidParameter.Error())
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidParameter
+	}
+
+	// The trigger value itself records execution: 0 = never run, 1 = already run.
+	if controller.GetParameterInt(kapps.EnumParameter_ExecuteInflationBurn) >= 1 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInflationBurnAlreadyExecuted, common.ErrInflationBurnAlreadyExecuted.Error())
+		return transaction.Transaction_ParameterInvalid, common.ErrInflationBurnAlreadyExecuted
+	}
+
+	return transaction.Transaction_Ok, nil
+}
+
 func (p *proposalKapp) checkStakingRequirements(staking *kapps.StakingData, sender []byte) (transaction.Transaction_TXResultCode, error) {
 	ctx := p.KAppController.GetCurrentKAppContext()
 
@@ -259,6 +286,11 @@ func (p *proposalKapp) Create(sender []byte, tc *transaction.ProposalContract) (
 	if err := p.validateNewParameters(tc.GetParameters(), controller); err != nil {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidProposalParams, err.Error())
 		return transaction.Transaction_ParameterInvalid, err
+	}
+
+	// Guard the one-time inflation burn trigger
+	if errCode, err := p.validateInflationBurnTrigger(ctx, tc.GetParameters(), controller); err != nil {
+		return errCode, err
 	}
 
 	// Retrieve staking
