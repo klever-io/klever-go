@@ -74,7 +74,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 	bugsnagConfig := bugsnag.Configuration{
 		APIKey:          ctx.GlobalString(bugsnagKey.Name),
 		ReleaseStage:    ctx.GlobalString(bugsnagStage.Name),
-		ProjectPackages: []string{"main", "github.com/klever-io/klver-go/**"},
+		ProjectPackages: []string{"main", "github.com/klever-io/klever-go/**"},
 		AppVersion:      version,
 		Logger:          logger.NewDummy(),
 	}
