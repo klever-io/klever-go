@@ -214,31 +214,69 @@ func (p *proposalKapp) validateNewParameters(params map[int32][]byte, controller
 	return nil
 }
 
-// validateInflationBurnTrigger enforces that the one-time ExecuteInflationBurn trigger can be
-// proposed only while its fork is active and only before it has ever executed. Once the burn has
-// run (execution count >= 1) or is already flagged on (active value == 1), any new proposal
-// containing this parameter is rejected.
-func (p *proposalKapp) validateInflationBurnTrigger(
+// validateScriptTrigger enforces that an ExecuteScript trigger names a registered, enabled script.
+// One-time scripts that have already run on chain can never be proposed again; repeatable scripts
+// may be proposed any number of times. Whether a one-time script already ran is derived from the
+// persisted proposal history (see scriptAlreadyExecuted) rather than a dedicated index.
+func (p *proposalKapp) validateScriptTrigger(
 	ctx kapp.KappContext,
 	params map[int32][]byte,
 	controller *kapps.ProposalController,
 ) (transaction.Transaction_TXResultCode, error) {
-	if _, ok := params[int32(kapps.EnumParameter_ExecuteInflationBurn)]; !ok {
+	raw, ok := params[int32(kapps.EnumParameter_ExecuteScript)]
+	if !ok {
 		return transaction.Transaction_Ok, nil
 	}
 
-	if !p.forkController.InflationBurn() {
+	name := string(raw)
+	def, found := kapps.LookupScript(name)
+	if !found || !def.IsEnabled(p.forkController) {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidProposalParams, common.ErrInvalidParameter.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidParameter
 	}
 
-	// The trigger value itself records execution: 0 = never run, 1 = already run.
-	if controller.GetParameterInt(kapps.EnumParameter_ExecuteInflationBurn) >= 1 {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInflationBurnAlreadyExecuted, common.ErrInflationBurnAlreadyExecuted.Error())
-		return transaction.Transaction_ParameterInvalid, common.ErrInflationBurnAlreadyExecuted
+	if def.OneTime {
+		executed, err := p.scriptAlreadyExecuted(name, controller)
+		if err != nil {
+			return transaction.Transaction_LoadAccountError, err
+		}
+		if executed {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldScriptAlreadyExecuted, common.ErrScriptAlreadyExecuted.Error())
+			return transaction.Transaction_ParameterInvalid, common.ErrScriptAlreadyExecuted
+		}
 	}
 
 	return transaction.Transaction_Ok, nil
+}
+
+// scriptAlreadyExecuted reports whether a one-time script already ran in chain history. It scans the
+// persisted proposals for an approved one carrying the same ExecuteScript trigger.
+func (p *proposalKapp) scriptAlreadyExecuted(name string, controller *kapps.ProposalController) (bool, error) {
+	// No proposals yet means nothing could have executed; avoid loading the kapp needlessly.
+	if controller.ProposalCount == 0 {
+		return false, nil
+	}
+
+	proposalKApp, err := p.accountsCacher.GetExistingKapp(kapps.ProposalKAppAddress)
+	if err != nil {
+		return false, err
+	}
+
+	return kapps.ScriptExecutedInHistory(name, controller.ProposalCount, func(id uint64) (*kapps.ProposalData, error) {
+		proposalBytes, err := proposalKApp.DataTrieTracker().RetrieveValue(kdautils.ToProposalKey(id))
+		if err != nil {
+			return nil, err
+		}
+		if len(proposalBytes) == 0 {
+			return nil, nil
+		}
+
+		proposal := &kapps.ProposalData{}
+		if err := p.marshalizer.Unmarshal(proposal, proposalBytes); err != nil {
+			return nil, err
+		}
+		return proposal, nil
+	})
 }
 
 func (p *proposalKapp) checkStakingRequirements(staking *kapps.StakingData, sender []byte) (transaction.Transaction_TXResultCode, error) {
@@ -288,8 +326,8 @@ func (p *proposalKapp) Create(sender []byte, tc *transaction.ProposalContract) (
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
-	// Guard the one-time inflation burn trigger
-	if errCode, err := p.validateInflationBurnTrigger(ctx, tc.GetParameters(), controller); err != nil {
+	// Guard governance script triggers (registered/enabled + one-time replay protection)
+	if errCode, err := p.validateScriptTrigger(ctx, tc.GetParameters(), controller); err != nil {
 		return errCode, err
 	}
 

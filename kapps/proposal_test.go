@@ -345,32 +345,71 @@ func TestIsInterfaceNil(t *testing.T) {
 	assert.False(t, newController.IsInterfaceNil())
 }
 
-func TestExecuteInflationBurn_DefaultAndConstraint(t *testing.T) {
+func TestExecuteScript_DefaultAndConstraint(t *testing.T) {
 	mockForks := mock.NewForkControllerStub()
 	controller, err := kapps.NewProposalController(mockForks)
 	assert.NoError(t, err)
 
-	// Default-initialized to "0" (not executed). The value itself is the execution record (0/1).
-	assert.Equal(t, int64(0), controller.GetParameterInt(kapps.EnumParameter_ExecuteInflationBurn))
+	// Default-initialized to an empty string (no script pending).
+	param, ok := controller.GetActiveParameters()[int32(kapps.EnumParameter_ExecuteScript)]
+	assert.True(t, ok)
+	assert.Empty(t, param.GetValue())
 
-	// Only the 0 -> 1 transition is valid.
-	_, err = controller.ParseParamAndValidate(kapps.EnumParameter_ExecuteInflationBurn, []byte("1"), mockForks)
+	// A registered, enabled script name validates. The data layer only checks the script is
+	// known and enabled; the one-time guarantee is enforced higher up against proposal history.
+	_, err = controller.ParseParamAndValidate(kapps.EnumParameter_ExecuteScript, []byte(kapps.ScriptBurnKLV), mockForks)
 	assert.NoError(t, err)
 
-	for _, invalid := range [][]byte{[]byte("0"), []byte("2"), []byte("-1")} {
-		_, err = controller.ParseParamAndValidate(kapps.EnumParameter_ExecuteInflationBurn, invalid, mockForks)
-		assert.Equal(t, common.ErrInvalidParameter, err)
+	// Unknown script names are rejected.
+	_, err = controller.ParseParamAndValidate(kapps.EnumParameter_ExecuteScript, []byte("NotARealScript"), mockForks)
+	assert.Equal(t, common.ErrInvalidParameter, err)
+}
+
+func TestScriptExecutedInHistory(t *testing.T) {
+	scriptKey := int32(kapps.EnumParameter_ExecuteScript)
+
+	// history models the persisted proposals keyed by ID.
+	history := map[uint64]*kapps.ProposalData{
+		1: {ProposalStatus: kapps.ProposalData_ApprovedProposal, Parameters: map[int32][]byte{scriptKey: []byte(kapps.ScriptBurnKLV)}},
+		2: {ProposalStatus: kapps.ProposalData_DeniedProposal, Parameters: map[int32][]byte{scriptKey: []byte("DeniedScript")}},
+	}
+	load := func(id uint64) (*kapps.ProposalData, error) { return history[id], nil }
+
+	// An approved proposal carrying the trigger counts as executed.
+	executed, err := kapps.ScriptExecutedInHistory(kapps.ScriptBurnKLV, 2, load)
+	assert.NoError(t, err)
+	assert.True(t, executed)
+
+	// A trigger that only appears on a denied proposal does not count.
+	executed, err = kapps.ScriptExecutedInHistory("DeniedScript", 2, load)
+	assert.NoError(t, err)
+	assert.False(t, executed)
+
+	// A trigger never seen in history does not count.
+	executed, err = kapps.ScriptExecutedInHistory("NeverProposed", 2, load)
+	assert.NoError(t, err)
+	assert.False(t, executed)
+}
+
+func TestExecuteScript_ScriptRegistryOneTimeFlags(t *testing.T) {
+	cases := map[string]bool{
+		kapps.ScriptBurnKLV: true, // one-time
+	}
+	for name, wantOneTime := range cases {
+		def, ok := kapps.LookupScript(name)
+		assert.True(t, ok, "script %s must be registered", name)
+		assert.Equal(t, wantOneTime, def.OneTime, "script %s OneTime flag", name)
 	}
 }
 
-func TestExecuteInflationBurn_ForkGated(t *testing.T) {
+func TestExecuteScript_ForkGated(t *testing.T) {
 	mockForks := mock.NewForkControllerStub()
-	mockForks.SetFork("InflationBurn", false)
+	mockForks.SetFork("ProposalScriptExecution", false)
 
 	controller, err := kapps.NewProposalController(mockForks)
 	assert.NoError(t, err)
 
 	// When the fork is off the parameter is not initialized at all.
-	_, ok := controller.GetActiveParameters()[int32(kapps.EnumParameter_ExecuteInflationBurn)]
+	_, ok := controller.GetActiveParameters()[int32(kapps.EnumParameter_ExecuteScript)]
 	assert.False(t, ok)
 }

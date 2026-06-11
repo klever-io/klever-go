@@ -64,7 +64,7 @@ enum EnumParameter {
     GasMultiplier                    = 38;
     MaxGasPerBlock                   = 39;
     MaxGasPerTX                      = 40;
-    ExecuteInflationBurn             = 41;
+    ExecuteScript                    = 41;
 }
 
 message ProposalController {

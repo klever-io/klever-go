@@ -24,7 +24,7 @@ type forkController struct {
 	flagFixAuditChanges              atomic.Flag
 	flagEpochRewardsV2               atomic.Flag
 	flagFixAuditChangesV2            atomic.Flag
-	flagInflationBurn                atomic.Flag
+	flagProposalScriptExecution      atomic.Flag
 }
 
 func NewForkController(cfg config.EnableEpochs, epochNotifier process.EpochNotifier) (*forkController, error) {
@@ -84,8 +84,8 @@ func (f *forkController) FixAuditChangesV2() bool {
 	return f.flagFixAuditChangesV2.IsSet()
 }
 
-func (f *forkController) InflationBurn() bool {
-	return f.flagInflationBurn.IsSet()
+func (f *forkController) ProposalScriptExecution() bool {
+	return f.flagProposalScriptExecution.IsSet()
 }
 
 // EpochConfirmed is called whenever a new epoch is confirmed
@@ -123,8 +123,8 @@ func (f *forkController) EpochConfirmed(epoch uint32) {
 	f.flagFixAuditChangesV2.Toggle(epoch >= f.enableEpochs.FixAuditChangesV2)
 	log.Debug("forkController: FixAuditChangesV2", "enabled", f.flagFixAuditChangesV2.IsSet())
 
-	f.flagInflationBurn.Toggle(epoch >= f.enableEpochs.InflationBurn)
-	log.Debug("forkController: InflationBurn", "enabled", f.flagInflationBurn.IsSet())
+	f.flagProposalScriptExecution.Toggle(epoch >= f.enableEpochs.ProposalScriptExecution)
+	log.Debug("forkController: ProposalScriptExecution", "enabled", f.flagProposalScriptExecution.IsSet())
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

@@ -12,7 +12,7 @@ type ForkControllerStub struct {
 	FixAuditChangesCalled         func() bool
 	EpochRewardsV2Called          func() bool
 	FixAuditChangesV2Called       func() bool
-	InflationBurnCalled           func() bool
+	ProposalScriptExecutionCalled func() bool
 }
 
 // ProcessorFlowITOPrice -
@@ -107,9 +107,9 @@ func (fc *ForkControllerStub) FixAuditChangesV2() bool {
 	return false
 }
 
-func (fc *ForkControllerStub) InflationBurn() bool {
-	if fc.InflationBurnCalled != nil {
-		return fc.InflationBurnCalled()
+func (fc *ForkControllerStub) ProposalScriptExecution() bool {
+	if fc.ProposalScriptExecutionCalled != nil {
+		return fc.ProposalScriptExecutionCalled()
 	}
 
 	return false

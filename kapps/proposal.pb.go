@@ -150,7 +150,7 @@ const (
 	EnumParameter_GasMultiplier                    EnumParameter = 38
 	EnumParameter_MaxGasPerBlock                   EnumParameter = 39
 	EnumParameter_MaxGasPerTX                      EnumParameter = 40
-	EnumParameter_ExecuteInflationBurn             EnumParameter = 41
+	EnumParameter_ExecuteScript                    EnumParameter = 41
 )
 
 // Enum value maps for EnumParameter.
@@ -197,7 +197,7 @@ var (
 		38: "GasMultiplier",
 		39: "MaxGasPerBlock",
 		40: "MaxGasPerTX",
-		41: "ExecuteInflationBurn",
+		41: "ExecuteScript",
 	}
 	EnumParameter_value = map[string]int32{
 		"FeePerDataByte":                   0,
@@ -241,7 +241,7 @@ var (
 		"GasMultiplier":                    38,
 		"MaxGasPerBlock":                   39,
 		"MaxGasPerTX":                      40,
-		"ExecuteInflationBurn":             41,
+		"ExecuteScript":                    41,
 	}
 )
 
@@ -787,7 +787,7 @@ const file_proposal_proto_rawDesc = "" +
 	"Complex128\x10\f\x12\n" +
 	"\n" +
 	"\x06String\x10\r\x12\t\n" +
-	"\x05Bytes\x10\x0e*\xf4\a\n" +
+	"\x05Bytes\x10\x0e*\xed\a\n" +
 	"\rEnumParameter\x12\x12\n" +
 	"\x0eFeePerDataByte\x10\x00\x12\x1a\n" +
 	"\x16KAppFeeCreateValidator\x10\x01\x12\x16\n" +
@@ -831,8 +831,8 @@ const file_proposal_proto_rawDesc = "" +
 	"\x14KAppFeeSmartContract\x10%\x12\x11\n" +
 	"\rGasMultiplier\x10&\x12\x12\n" +
 	"\x0eMaxGasPerBlock\x10'\x12\x0f\n" +
-	"\vMaxGasPerTX\x10(\x12\x18\n" +
-	"\x14ExecuteInflationBurn\x10)B\n" +
+	"\vMaxGasPerTX\x10(\x12\x11\n" +
+	"\rExecuteScript\x10)B\n" +
 	"Z\b./;kappsb\x06proto3"
 
 var (

@@ -25,7 +25,8 @@ enableEpochs:
   epochRewardsV2: 0
   # Audit Changes V2
   fixAuditChangesV2: 0
-  inflationBurn: 0
+  # Proposal Script Execution
+  proposalScriptExecution: 0
 gasSchedule:
   gasScheduleByEpochs:
     - startEpoch: 0

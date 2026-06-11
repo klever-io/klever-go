@@ -892,10 +892,10 @@ func TestProposalKApp_Vote(t *testing.T) {
 	})
 }
 
-func TestProposalKApp_ValidateInflationBurnTrigger(t *testing.T) {
+func TestProposalKApp_ValidateScriptTrigger(t *testing.T) {
 	t.Parallel()
 
-	burnParam := int32(kapps.EnumParameter_ExecuteInflationBurn)
+	scriptParam := int32(kapps.EnumParameter_ExecuteScript)
 
 	newCtx := func() kapp.KappContext {
 		return &mock.KAppContextStub{
@@ -910,57 +910,73 @@ func TestProposalKApp_ValidateInflationBurnTrigger(t *testing.T) {
 		proposalKApp, _, _ := createTestProposalKApp(t)
 		controller := &kapps.ProposalController{}
 
-		code, err := proposalKApp.ValidateInflationBurnTrigger(newCtx(),
+		code, err := proposalKApp.ValidateScriptTrigger(newCtx(),
 			map[int32][]byte{int32(kapps.EnumParameter_FeePerDataByte): []byte("4000")}, controller)
 
 		require.NoError(t, err)
 		require.Equal(t, transaction.Transaction_Ok, code)
 	})
 
-	t.Run("allows trigger when fork on and never executed", func(t *testing.T) {
+	t.Run("allows known script when fork on and never executed", func(t *testing.T) {
 		proposalKApp, _, forkController := createTestProposalKApp(t)
-		forkController.SetFork("InflationBurn", true)
+		forkController.SetFork("ProposalScriptExecution", true)
 
-		controller := &kapps.ProposalController{
-			ActiveParameters: map[int32]*kapps.Parameter{
-				burnParam: {Type: kapps.EnumType_Int64, Value: []byte("0")},
-			},
-		}
+		controller := &kapps.ProposalController{}
 
-		code, err := proposalKApp.ValidateInflationBurnTrigger(newCtx(),
-			map[int32][]byte{burnParam: []byte("1")}, controller)
+		code, err := proposalKApp.ValidateScriptTrigger(newCtx(),
+			map[int32][]byte{scriptParam: []byte(kapps.ScriptBurnKLV)}, controller)
 
 		require.NoError(t, err)
 		require.Equal(t, transaction.Transaction_Ok, code)
 	})
 
-	t.Run("rejects trigger when fork off", func(t *testing.T) {
+	t.Run("rejects unknown script name", func(t *testing.T) {
 		proposalKApp, _, forkController := createTestProposalKApp(t)
-		forkController.SetFork("InflationBurn", false)
+		forkController.SetFork("ProposalScriptExecution", true)
 
 		controller := &kapps.ProposalController{}
 
-		code, err := proposalKApp.ValidateInflationBurnTrigger(newCtx(),
-			map[int32][]byte{burnParam: []byte("1")}, controller)
+		code, err := proposalKApp.ValidateScriptTrigger(newCtx(),
+			map[int32][]byte{scriptParam: []byte("NotARealScript")}, controller)
 
 		require.Equal(t, common.ErrInvalidParameter, err)
 		require.Equal(t, transaction.Transaction_ParameterInvalid, code)
 	})
 
-	t.Run("rejects when already executed (value == 1)", func(t *testing.T) {
+	t.Run("rejects script when fork off", func(t *testing.T) {
 		proposalKApp, _, forkController := createTestProposalKApp(t)
-		forkController.SetFork("InflationBurn", true)
+		forkController.SetFork("ProposalScriptExecution", false)
 
-		controller := &kapps.ProposalController{
-			ActiveParameters: map[int32]*kapps.Parameter{
-				burnParam: {Type: kapps.EnumType_Int64, Value: []byte("1")},
-			},
+		controller := &kapps.ProposalController{}
+
+		code, err := proposalKApp.ValidateScriptTrigger(newCtx(),
+			map[int32][]byte{scriptParam: []byte(kapps.ScriptBurnKLV)}, controller)
+
+		require.Equal(t, common.ErrInvalidParameter, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, code)
+	})
+
+	t.Run("rejects one-time script already executed in history", func(t *testing.T) {
+		proposalKApp, accCacher, forkController := createTestProposalKApp(t)
+		forkController.SetFork("ProposalScriptExecution", true)
+
+		// Persist an approved proposal that already carried the BurnKLV trigger.
+		proposalKappAcc, err := accCacher.LoadKApp(kapps.ProposalKAppAddress)
+		require.NoError(t, err)
+
+		executed := &kapps.ProposalData{
+			ProposalStatus: kapps.ProposalData_ApprovedProposal,
+			Parameters:     map[int32][]byte{scriptParam: []byte(kapps.ScriptBurnKLV)},
 		}
+		require.NoError(t, proposalKApp.SetProposal(proposalKappAcc, 1, executed, nil))
+		require.NoError(t, accCacher.UpdateKapp(proposalKappAcc))
 
-		code, err := proposalKApp.ValidateInflationBurnTrigger(newCtx(),
-			map[int32][]byte{burnParam: []byte("1")}, controller)
+		controller := &kapps.ProposalController{ProposalCount: 1}
 
-		require.Equal(t, common.ErrInflationBurnAlreadyExecuted, err)
+		code, err := proposalKApp.ValidateScriptTrigger(newCtx(),
+			map[int32][]byte{scriptParam: []byte(kapps.ScriptBurnKLV)}, controller)
+
+		require.Equal(t, common.ErrScriptAlreadyExecuted, err)
 		require.Equal(t, transaction.Transaction_ParameterInvalid, code)
 	})
 }

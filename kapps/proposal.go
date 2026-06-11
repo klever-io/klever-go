@@ -233,12 +233,13 @@ func InitialProposalParameters(forks core.ForkController) map[int32]*Parameter {
 		}
 	}
 
-	if forks.InflationBurn() {
-		// ExecuteInflationBurn is a one-time trigger: a proposal flips it 0 -> 1 to run
-		// the hardcoded inflation burn exactly once over the whole chain history.
-		activeParameters[int32(EnumParameter_ExecuteInflationBurn)] = &Parameter{
-			Type:  EnumType_Int64,
-			Value: []byte("0"), // 0 = not executed, 1 = executed (set by approved proposal)
+	if forks.ProposalScriptExecution() {
+		// ExecuteScript is a transient trigger: an approved proposal sets it to a
+		// registered script name (see kapps.scriptRegistry) to run that hardcoded
+		// action. The block processor resets it back to empty after running.
+		activeParameters[int32(EnumParameter_ExecuteScript)] = &Parameter{
+			Type:  EnumType_String,
+			Value: []byte(""), // empty = no script pending
 		}
 	}
 
@@ -308,10 +309,18 @@ func (p *ProposalController) validateConstraints(parameter EnumParameter, value 
 			log.Error("invalid MaxGasPerTX", "value", value.Int(), "min", core.MinGasLimit, "max", maxValue)
 			return common.ErrInvalidParameter
 		}
-	case EnumParameter_ExecuteInflationBurn:
-		// Only the 0 -> 1 transition is valid; the trigger can never be set to any other value.
-		if value.Int() != 1 {
-			log.Error("invalid ExecuteInflationBurn", "value", value.Int(), "expected", 1)
+	case EnumParameter_ExecuteScript:
+		// The value must name a registered, enabled script. The one-time guarantee is
+		// enforced higher up, where the persisted proposal history is available: this
+		// data-layer validation only checks the script is known and enabled.
+		name := value.String()
+		def, ok := LookupScript(name)
+		if !ok {
+			log.Error("invalid ExecuteScript: unknown script", "value", name)
+			return common.ErrInvalidParameter
+		}
+		if !def.IsEnabled(fc) {
+			log.Error("invalid ExecuteScript: script not enabled", "value", name)
 			return common.ErrInvalidParameter
 		}
 	}

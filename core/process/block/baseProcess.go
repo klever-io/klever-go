@@ -853,6 +853,27 @@ func (mp *metaProcessor) getProposalKApp(proposalKApp state.KAppAccountHandler, 
 	return proposal, nil
 }
 
+// scriptAlreadyExecuted reports whether a one-time governance script already ran in chain history.
+// It scans the persisted proposals (IDs 1..ProposalCount) for an approved one carrying the same
+// ExecuteScript trigger. Absent IDs are treated as "no proposal" rather than an error.
+func (mp *metaProcessor) scriptAlreadyExecuted(proposalKApp state.KAppAccountHandler, controller *kapps.ProposalController, name string) (bool, error) {
+	return kapps.ScriptExecutedInHistory(name, controller.ProposalCount, func(id uint64) (*kapps.ProposalData, error) {
+		proposalBytes, err := proposalKApp.DataTrieTracker().RetrieveValue(kdautils.ToProposalKey(id))
+		if err != nil {
+			return nil, err
+		}
+		if len(proposalBytes) == 0 {
+			return nil, nil
+		}
+
+		proposal := &kapps.ProposalData{}
+		if err := mp.marshalizer.Unmarshal(proposal, proposalBytes); err != nil {
+			return nil, err
+		}
+		return proposal, nil
+	})
+}
+
 func (mp *metaProcessor) setProposalController(kdaKapp state.KAppAccountHandler, controller *kapps.ProposalController) error {
 	data, err := mp.marshalizer.Marshal(controller)
 	if err != nil {

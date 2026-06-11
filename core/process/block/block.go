@@ -1300,7 +1300,7 @@ func (mp *metaProcessor) processSingleProposal(proposalKApp state.KAppAccountHan
 
 	// Update parameters if proposal is approved
 	if proposal.ProposalStatus == kapps.ProposalData_ApprovedProposal {
-		if err := mp.updateApprovedProposalParameters(proposal, controller); err != nil {
+		if err := mp.updateApprovedProposalParameters(proposalKApp, proposal, controller); err != nil {
 			return nil, err
 		}
 	}
@@ -1315,24 +1315,25 @@ func (mp *metaProcessor) determineProposalStatus(proposal *kapps.ProposalData, k
 	return kapps.ProposalData_DeniedProposal
 }
 
-func (mp *metaProcessor) updateApprovedProposalParameters(proposal *kapps.ProposalData, controller *kapps.ProposalController) error {
+func (mp *metaProcessor) updateApprovedProposalParameters(proposalKApp state.KAppAccountHandler, proposal *kapps.ProposalData, controller *kapps.ProposalController) error {
 	for parameter, value := range proposal.Parameters {
-		if err := mp.validateAndApplyParameter(parameter, value, controller); err != nil {
+		if err := mp.validateAndApplyParameter(proposalKApp, parameter, value, controller); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (mp *metaProcessor) validateAndApplyParameter(parameter int32, value []byte, controller *kapps.ProposalController) error {
+func (mp *metaProcessor) validateAndApplyParameter(proposalKApp state.KAppAccountHandler, parameter int32, value []byte, controller *kapps.ProposalController) error {
 	_, err := controller.ParseParamAndValidate(kapps.EnumParameter(parameter), value, mp.forkController)
 	if err != nil {
 		return err
 	}
 
-	// The inflation burn is a one-time hardcoded action rather than a plain value update.
-	if kapps.EnumParameter(parameter) == kapps.EnumParameter_ExecuteInflationBurn {
-		return mp.applyInflationBurn(controller)
+	// ExecuteScript is not a stored value but a transient trigger that runs a
+	// hardcoded governance script. It is handled separately from plain updates.
+	if kapps.EnumParameter(parameter) == kapps.EnumParameter_ExecuteScript {
+		return mp.applyScript(proposalKApp, controller, value)
 	}
 
 	controller.ActiveParameters[parameter].Value = make([]byte, len(value))
@@ -1341,28 +1342,55 @@ func (mp *metaProcessor) validateAndApplyParameter(parameter int32, value []byte
 	return nil
 }
 
-// applyInflationBurn runs the hardcoded inflation burn exactly once. The trigger parameter's value
-// records execution (0 = never run, 1 = already run), so the method is idempotent: even if more than
-// one proposal carrying the trigger is approved, the burn runs a single time over the chain's lifetime.
-func (mp *metaProcessor) applyInflationBurn(controller *kapps.ProposalController) error {
-	if controller.GetParameterInt(kapps.EnumParameter_ExecuteInflationBurn) >= 1 {
-		log.Debug("inflation burn already executed, skipping")
+// applyScript runs the governance script named by the ExecuteScript trigger value. One-time scripts
+// run at most once over the chain's lifetime: whether the script already ran is derived from the
+// persisted proposal history (an earlier approved proposal carrying the same trigger), so no
+// dedicated index is kept. The current proposal is not yet persisted when this runs, so it never
+// counts itself; within a single epoch the lower-ID proposal is processed and saved first, so a
+// later duplicate sees it. Repeatable scripts run on every approved trigger. The trigger value is
+// reset to empty after running so the parameter always returns to its neutral "no script pending" state.
+func (mp *metaProcessor) applyScript(proposalKApp state.KAppAccountHandler, controller *kapps.ProposalController, value []byte) error {
+	name := string(value)
+
+	def, ok := kapps.LookupScript(name)
+	if !ok {
+		log.Warn("governance script: unknown script, skipping", "script", name)
 		return nil
 	}
 
-	if err := mp.executeInflationBurn(); err != nil {
+	if def.OneTime {
+		executed, err := mp.scriptAlreadyExecuted(proposalKApp, controller, name)
+		if err != nil {
+			return err
+		}
+		if executed {
+			log.Debug("governance script already executed, skipping", "script", name)
+			return nil
+		}
+	}
+
+	if err := mp.runScript(name); err != nil {
 		return err
 	}
 
-	// Flag the active parameter as executed (0 -> 1) so it is observable on-chain.
-	param := controller.ActiveParameters[int32(kapps.EnumParameter_ExecuteInflationBurn)]
-	if param != nil {
-		param.Value = []byte("1")
+	// The trigger is transient: reset it so it never lingers as the active value.
+	if param := controller.ActiveParameters[int32(kapps.EnumParameter_ExecuteScript)]; param != nil {
+		param.Value = []byte("")
 	}
 
-	log.Info("inflation burn executed")
+	log.Info("governance script executed", "script", name)
 
 	return nil
+}
+
+// runScript dispatches to the executor for a registered governance script.
+func (mp *metaProcessor) runScript(name string) error {
+	switch name {
+	case kapps.ScriptBurnKLV:
+		return mp.executeInflationBurn()
+	default:
+		return common.ErrInvalidParameter
+	}
 }
 
 const inflationBurnAddressLen = 32
