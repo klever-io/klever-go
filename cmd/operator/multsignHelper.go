@@ -85,26 +85,53 @@ func (p *TransactionPicker) ClearDrawn() {
 	fmt.Printf("\033[%dA\r\033[J", p.DrawnLines)
 	p.DrawnLines = 0
 }
+type PickerAction string
+
+const (
+	PickerActionSelect PickerAction = "select"
+	PickerActionNext   PickerAction = "next"
+	PickerActionPrev   PickerAction = "prev"
+	PickerActionQuit   PickerAction = "quit"
+	PickerActionInvalid PickerAction = "invalid"
+)
+
+func parsePickerInput(input string, pageItems int, canPrev, canNext bool) (int, PickerAction) {
+	idx, err := strconv.Atoi(input)
+	switch {
+	case err == nil && idx >= 0 && idx < pageItems:
+		return idx, PickerActionSelect
+	case input == "n" && canNext:
+		return 0, PickerActionNext
+	case input == "p" && canPrev:
+		return 0, PickerActionPrev
+	case input == "q":
+		return 0, PickerActionQuit
+	default:
+		return 0, PickerActionInvalid
+	}
+}
+
 func (p *TransactionPicker) HandlePageInput(pageItems int, canPrev, canNext bool) (int, string, error) {
 	var input string
 	if _, err := fmt.Scan(&input); err != nil {
 		return 0, "", fmt.Errorf("read transaction selection: %w", err)
 	}
-	idx, nanErr := strconv.Atoi(input)
-	switch {
-	case nanErr == nil && idx >= 0 && idx < pageItems:
+	idx, action := parsePickerInput(input, pageItems, canPrev, canNext)
+	switch action {
+	case PickerActionSelect:
 		return idx, "", nil
-	case input == "n" && canNext:
+	case PickerActionNext:
 		p.CurrPage += 1
 		return 0, "page", nil
-	case input == "p" && canPrev:
+	case PickerActionPrev:
 		p.CurrPage -= 1
 		return 0, "page", nil
-	case input == "q":
+	case PickerActionQuit:
 		return 0, "quit", nil
-	default:
+	case PickerActionInvalid:
 		return 0, "invalid", nil
 	}
+	return 0, "invalid", nil
 }
 func (p *TransactionPicker) PickTransaction() (int, error) {
 	message := ""
