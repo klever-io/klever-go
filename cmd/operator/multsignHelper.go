@@ -85,13 +85,14 @@ func (p *TransactionPicker) ClearDrawn() {
 	fmt.Printf("\033[%dA\r\033[J", p.DrawnLines)
 	p.DrawnLines = 0
 }
+
 type PickerAction string
 
 const (
-	PickerActionSelect PickerAction = "select"
-	PickerActionNext   PickerAction = "next"
-	PickerActionPrev   PickerAction = "prev"
-	PickerActionQuit   PickerAction = "quit"
+	PickerActionSelect  PickerAction = "select"
+	PickerActionNext    PickerAction = "next"
+	PickerActionPrev    PickerAction = "prev"
+	PickerActionQuit    PickerAction = "quit"
 	PickerActionInvalid PickerAction = "invalid"
 )
 
