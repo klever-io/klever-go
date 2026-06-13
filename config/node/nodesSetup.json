@@ -9,7 +9,7 @@
   "klvDenomination": 6,
   "initialNodes": [
     {
-      "pubkey": "01e286a17220d66a2b04872d4939434b16fc87ce878be7f5e9022c60acc71f9d506c2fc1cb73fc296a93f3ace5da9a0028685490b7e3bd5c1f5a88a4c3b0d5bb48d1920bd0dc53f764e9bd485ca68373b8ba7dc0ee64cc0006135080ad0a2493",
+      "pubkey": "1d8cb37e902525bf8bda62b635ca240ac7c3a713250295381b3e661cb32a7cdeb64cd8f17144ca7ad2520c92dfe5330f610d18bf9b503dda86a1ba5d7071cdeb0e510bcc28e32ca8c033c493f61abf43448ea39e3215cec49e4f4ae796c13b08",
       "address": "klv17e8zzgn73h6ehe3c6q9vlt77kuxk5euddmhymy5uhv2rhv0dc0nqlfp0ap"
     }
   ]
