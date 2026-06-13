@@ -63,6 +63,15 @@ func LookupScript(name string) (ScriptDefinition, bool) {
 	return def, ok
 }
 
+// RegisteredScriptNames returns the names of every registered governance script.
+func RegisteredScriptNames() []string {
+	names := make([]string, 0, len(scriptRegistry))
+	for name := range scriptRegistry {
+		names = append(names, name)
+	}
+	return names
+}
+
 // scriptInHistory scans the persisted proposals (IDs 1..proposalCount) and returns true as soon
 // as it finds a proposal whose status is one of `statuses` and whose parameters carry the given
 // ExecuteScript trigger. loadProposal returns the stored ProposalData for an ID; a nil proposal

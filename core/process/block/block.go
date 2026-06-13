@@ -1369,8 +1369,16 @@ func (mp *metaProcessor) applyScript(proposalKApp state.KAppAccountHandler, cont
 		}
 	}
 
-	if err := mp.runScript(name); err != nil {
+	ran, err := mp.runScript(name)
+	if err != nil {
 		return err
+	}
+	if !ran {
+		// The script is registered (LookupScript succeeded) but has no executor wired
+		// here — a programming error, not a chain condition. Skip it rather than abort
+		// end-of-epoch block processing; TestScriptExecutorsCoverRegistry guards the drift.
+		log.Error("governance script: no executor for registered script, skipping", "script", name)
+		return nil
 	}
 
 	// The trigger is transient: reset it so it never lingers as the active value.
@@ -1383,14 +1391,24 @@ func (mp *metaProcessor) applyScript(proposalKApp state.KAppAccountHandler, cont
 	return nil
 }
 
-// runScript dispatches to the executor for a registered governance script.
-func (mp *metaProcessor) runScript(name string) error {
-	switch name {
-	case kapps.ScriptBurnKLV:
-		return mp.executeInflationBurn()
-	default:
-		return common.ErrInvalidParameter
+// scriptExecutors maps each governance script to the method that performs it. It is the
+// execution-side counterpart of kapps.scriptRegistry and must cover every registered script;
+// TestScriptExecutorsCoverRegistry enforces that the two never drift apart.
+func (mp *metaProcessor) scriptExecutors() map[string]func() error {
+	return map[string]func() error{
+		kapps.ScriptBurnKLV: mp.executeInflationBurn,
 	}
+}
+
+// runScript runs the executor for a registered governance script. It reports whether an
+// executor actually ran: a registered-but-undispatched script returns (false, nil) so the
+// caller can skip it instead of failing block processing.
+func (mp *metaProcessor) runScript(name string) (bool, error) {
+	exec, ok := mp.scriptExecutors()[name]
+	if !ok {
+		return false, nil
+	}
+	return true, exec()
 }
 
 const inflationBurnAddressLen = 32

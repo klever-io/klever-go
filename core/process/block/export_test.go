@@ -53,3 +53,47 @@ func (m *MetaProcessorForTests) UpdateState(lastMetaBlock data.HeaderHandler) {
 func (m *MetaProcessorForTests) GetAccountsDB() map[state.AccountsDbIdentifier]state.AccountsAdapter {
 	return m.accountsDB
 }
+
+// RunScript exposes the runScript dispatcher for testing.
+func (m *MetaProcessorForTests) RunScript(name string) (bool, error) {
+	return m.runScript(name)
+}
+
+// ScriptExecutorNames returns the names of every wired script executor, for drift checks.
+func (m *MetaProcessorForTests) ScriptExecutorNames() []string {
+	names := make([]string, 0, len(m.scriptExecutors()))
+	for name := range m.scriptExecutors() {
+		names = append(names, name)
+	}
+	return names
+}
+
+// ExecuteInflationBurn exposes executeInflationBurn for testing.
+func (m *MetaProcessorForTests) ExecuteInflationBurn() error {
+	return m.executeInflationBurn()
+}
+
+// ApplyScript exposes applyScript for testing.
+func (m *MetaProcessorForTests) ApplyScript(controller *kapps.ProposalController, value []byte) error {
+	proposalKApp, err := m.getProposalKAppForScript()
+	if err != nil {
+		return err
+	}
+	return m.applyScript(proposalKApp, controller, value)
+}
+
+func (m *MetaProcessorForTests) getProposalKAppForScript() (state.KAppAccountHandler, error) {
+	acnt, err := m.accountsDB[state.KAppAccountsState].LoadAccount(kapps.ProposalKAppAddress)
+	if err != nil {
+		return nil, err
+	}
+	return acnt.(state.KAppAccountHandler), nil
+}
+
+// SetInflationBurnAddresses overrides the burn target list for testing and returns a
+// function that restores the original list.
+func SetInflationBurnAddresses(addrs []string) func() {
+	original := inflationBurnAddresses
+	inflationBurnAddresses = addrs
+	return func() { inflationBurnAddresses = original }
+}
