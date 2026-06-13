@@ -349,8 +349,9 @@ var ErrStakingNotFound = errors.New("staking was not found")
 // ErrProposalNotFound signals that proposal was not found in state trie
 var ErrProposalNotFound = errors.New("proposal was not found")
 
-// ErrScriptAlreadyExecuted signals that a one-time governance script has already run and cannot be proposed again
-var ErrScriptAlreadyExecuted = errors.New("governance script has already been executed")
+// ErrScriptAlreadyProposed signals that a one-time governance script already has a non-denied
+// proposal (still pending or already executed) and cannot be proposed again
+var ErrScriptAlreadyProposed = errors.New("governance script already has a pending or executed proposal")
 
 // ErrBalance signals a balance error
 var ErrBalance = errors.New("balance error")

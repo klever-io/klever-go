@@ -391,6 +391,38 @@ func TestScriptExecutedInHistory(t *testing.T) {
 	assert.False(t, executed)
 }
 
+func TestScriptPendingOrExecuted(t *testing.T) {
+	scriptKey := int32(kapps.EnumParameter_ExecuteScript)
+
+	history := map[uint64]*kapps.ProposalData{
+		1: {ProposalStatus: kapps.ProposalData_ActiveProposal, Parameters: map[int32][]byte{scriptKey: []byte("PendingScript")}},
+		2: {ProposalStatus: kapps.ProposalData_ApprovedProposal, Parameters: map[int32][]byte{scriptKey: []byte(kapps.ScriptBurnKLV)}},
+		3: {ProposalStatus: kapps.ProposalData_DeniedProposal, Parameters: map[int32][]byte{scriptKey: []byte("DeniedScript")}},
+	}
+	load := func(id uint64) (*kapps.ProposalData, error) { return history[id], nil }
+
+	// A still-active (pending) proposal blocks a new one — this is the creation guard that
+	// ScriptExecutedInHistory (approved-only) would miss.
+	exists, err := kapps.ScriptPendingOrExecuted("PendingScript", 3, load)
+	assert.NoError(t, err)
+	assert.True(t, exists)
+
+	// An approved (executed) proposal also blocks.
+	exists, err = kapps.ScriptPendingOrExecuted(kapps.ScriptBurnKLV, 3, load)
+	assert.NoError(t, err)
+	assert.True(t, exists)
+
+	// A denied proposal does NOT block — the script may be proposed again.
+	exists, err = kapps.ScriptPendingOrExecuted("DeniedScript", 3, load)
+	assert.NoError(t, err)
+	assert.False(t, exists)
+
+	// A trigger never seen does not block.
+	exists, err = kapps.ScriptPendingOrExecuted("NeverProposed", 3, load)
+	assert.NoError(t, err)
+	assert.False(t, exists)
+}
+
 func TestExecuteScript_ScriptRegistryOneTimeFlags(t *testing.T) {
 	cases := map[string]bool{
 		kapps.ScriptBurnKLV: true, // one-time

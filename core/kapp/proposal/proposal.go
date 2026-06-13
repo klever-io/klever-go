@@ -215,9 +215,10 @@ func (p *proposalKapp) validateNewParameters(params map[int32][]byte, controller
 }
 
 // validateScriptTrigger enforces that an ExecuteScript trigger names a registered, enabled script.
-// One-time scripts that have already run on chain can never be proposed again; repeatable scripts
-// may be proposed any number of times. Whether a one-time script already ran is derived from the
-// persisted proposal history (see scriptAlreadyExecuted) rather than a dedicated index.
+// A one-time script may have at most one live proposal at a time: if another non-denied proposal
+// (still pending, or already executed) already carries it, a new proposal is rejected here at
+// submission — derived from the persisted proposal history rather than a dedicated index.
+// Repeatable scripts may be proposed any number of times.
 func (p *proposalKapp) validateScriptTrigger(
 	ctx kapp.KappContext,
 	params map[int32][]byte,
@@ -236,23 +237,24 @@ func (p *proposalKapp) validateScriptTrigger(
 	}
 
 	if def.OneTime {
-		executed, err := p.scriptAlreadyExecuted(name, controller)
+		exists, err := p.scriptPendingOrExecuted(name, controller)
 		if err != nil {
 			return transaction.Transaction_LoadAccountError, err
 		}
-		if executed {
-			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldScriptAlreadyExecuted, common.ErrScriptAlreadyExecuted.Error())
-			return transaction.Transaction_ParameterInvalid, common.ErrScriptAlreadyExecuted
+		if exists {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldScriptAlreadyProposed, common.ErrScriptAlreadyProposed.Error())
+			return transaction.Transaction_ParameterInvalid, common.ErrScriptAlreadyProposed
 		}
 	}
 
 	return transaction.Transaction_Ok, nil
 }
 
-// scriptAlreadyExecuted reports whether a one-time script already ran in chain history. It scans the
-// persisted proposals for an approved one carrying the same ExecuteScript trigger.
-func (p *proposalKapp) scriptAlreadyExecuted(name string, controller *kapps.ProposalController) (bool, error) {
-	// No proposals yet means nothing could have executed; avoid loading the kapp needlessly.
+// scriptPendingOrExecuted reports whether a one-time script already has a non-denied proposal —
+// pending (active) or already approved — in chain history. It scans the persisted proposals for one
+// carrying the same ExecuteScript trigger.
+func (p *proposalKapp) scriptPendingOrExecuted(name string, controller *kapps.ProposalController) (bool, error) {
+	// No proposals yet means nothing could conflict; avoid loading the kapp needlessly.
 	if controller.ProposalCount == 0 {
 		return false, nil
 	}
@@ -262,7 +264,7 @@ func (p *proposalKapp) scriptAlreadyExecuted(name string, controller *kapps.Prop
 		return false, err
 	}
 
-	return kapps.ScriptExecutedInHistory(name, controller.ProposalCount, func(id uint64) (*kapps.ProposalData, error) {
+	return kapps.ScriptPendingOrExecuted(name, controller.ProposalCount, func(id uint64) (*kapps.ProposalData, error) {
 		proposalBytes, err := proposalKApp.DataTrieTracker().RetrieveValue(kdautils.ToProposalKey(id))
 		if err != nil {
 			return nil, err

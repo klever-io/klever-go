@@ -976,7 +976,57 @@ func TestProposalKApp_ValidateScriptTrigger(t *testing.T) {
 		code, err := proposalKApp.ValidateScriptTrigger(newCtx(),
 			map[int32][]byte{scriptParam: []byte(kapps.ScriptBurnKLV)}, controller)
 
-		require.Equal(t, common.ErrScriptAlreadyExecuted, err)
+		require.Equal(t, common.ErrScriptAlreadyProposed, err)
 		require.Equal(t, transaction.Transaction_ParameterInvalid, code)
+	})
+
+	t.Run("rejects one-time script with a pending active proposal", func(t *testing.T) {
+		proposalKApp, accCacher, forkController := createTestProposalKApp(t)
+		forkController.SetFork("ProposalScriptExecution", true)
+
+		// Persist a still-ACTIVE proposal carrying BurnKLV — e.g. one created earlier in the
+		// same block/epoch that has not been resolved yet. A second one must be refused.
+		proposalKappAcc, err := accCacher.LoadKApp(kapps.ProposalKAppAddress)
+		require.NoError(t, err)
+
+		pending := &kapps.ProposalData{
+			ProposalStatus: kapps.ProposalData_ActiveProposal,
+			Parameters:     map[int32][]byte{scriptParam: []byte(kapps.ScriptBurnKLV)},
+		}
+		require.NoError(t, proposalKApp.SetProposal(proposalKappAcc, 1, pending, nil))
+		require.NoError(t, accCacher.UpdateKapp(proposalKappAcc))
+
+		controller := &kapps.ProposalController{ProposalCount: 1}
+
+		code, err := proposalKApp.ValidateScriptTrigger(newCtx(),
+			map[int32][]byte{scriptParam: []byte(kapps.ScriptBurnKLV)}, controller)
+
+		require.Equal(t, common.ErrScriptAlreadyProposed, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, code)
+	})
+
+	t.Run("allows one-time script after a denied proposal", func(t *testing.T) {
+		proposalKApp, accCacher, forkController := createTestProposalKApp(t)
+		forkController.SetFork("ProposalScriptExecution", true)
+
+		// A prior proposal carried BurnKLV but was DENIED — it never ran, so the script may
+		// be proposed again.
+		proposalKappAcc, err := accCacher.LoadKApp(kapps.ProposalKAppAddress)
+		require.NoError(t, err)
+
+		denied := &kapps.ProposalData{
+			ProposalStatus: kapps.ProposalData_DeniedProposal,
+			Parameters:     map[int32][]byte{scriptParam: []byte(kapps.ScriptBurnKLV)},
+		}
+		require.NoError(t, proposalKApp.SetProposal(proposalKappAcc, 1, denied, nil))
+		require.NoError(t, accCacher.UpdateKapp(proposalKappAcc))
+
+		controller := &kapps.ProposalController{ProposalCount: 1}
+
+		code, err := proposalKApp.ValidateScriptTrigger(newCtx(),
+			map[int32][]byte{scriptParam: []byte(kapps.ScriptBurnKLV)}, controller)
+
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, code)
 	})
 }
