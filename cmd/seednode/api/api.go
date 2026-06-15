@@ -21,6 +21,22 @@ import (
 
 var log = logger.GetOrCreate("seednode/api")
 
+// Route package keys, config route names, and served URL paths, kept as constants to avoid
+// duplicating the string literals across registration and the fail-safe default.
+const (
+	logPackage   = "log"
+	peersPackage = "peers"
+	nodePackage  = "node"
+
+	logRoute     = "/log"
+	peersRoute   = "/peers"
+	statusRoute  = "/status"
+	metricsRoute = "/metrics"
+
+	nodeStatusPath  = "/node/status"
+	nodeMetricsPath = "/node/metrics"
+)
+
 // peerInfoProvider is the narrow surface the seednode API needs from the p2p
 // messenger. Kept inside this package so handlers can be tested without
 // pulling in the full libp2p stack.
@@ -67,12 +83,12 @@ func Start(restAPIInterface string, marshalizer marshal.Marshalizer, messenger p
 }
 
 func (s *server) registerRoutes(ws *gin.Engine) {
-	if s.routesConfig.IsRouteEnabled("log", "/log") {
+	if s.routesConfig.IsRouteEnabled(logPackage, logRoute) {
 		s.registerLoggerWsRoute(ws)
 	}
-	s.registerGet(ws, "peers", "/peers", "/peers", s.peers)
-	s.registerGet(ws, "node", "/status", "/node/status", s.nodeStatus)
-	s.registerGet(ws, "node", "/metrics", "/node/metrics", s.nodeMetrics)
+	s.registerGet(ws, peersPackage, peersRoute, peersRoute, s.peers)
+	s.registerGet(ws, nodePackage, statusRoute, nodeStatusPath, s.nodeStatus)
+	s.registerGet(ws, nodePackage, metricsRoute, nodeMetricsPath, s.nodeMetrics)
 }
 
 // registerGet registers a GET endpoint when its config route (pkg/configName) is open, prepending
@@ -95,7 +111,7 @@ func (s *server) registerLoggerWsRoute(ws *gin.Engine) {
 
 	// Only an authenticated (secured) /log may apply a client-supplied logger profile to the
 	// process-global logger; on an unauthenticated /log profiles are ignored (GHSA-9v8p-frvj-2pcm).
-	secured := s.routesConfig.IsRouteSecured("log", "/log")
+	secured := s.routesConfig.IsRouteSecured(logPackage, logRoute)
 
 	logHandler := func(c *gin.Context) {
 		upgrader.CheckOrigin = func(r *http.Request) bool {
@@ -124,7 +140,7 @@ func (s *server) registerLoggerWsRoute(ws *gin.Engine) {
 		handlers = append([]gin.HandlerFunc{middleware.NewAuthenticationFunc(s.routesConfig)}, handlers...)
 	}
 
-	ws.GET("/log", handlers...)
+	ws.GET(logRoute, handlers...)
 }
 
 // DefaultRoutesConfig is the fail-safe used when no API config file can be loaded: the read-only
@@ -134,10 +150,10 @@ func (s *server) registerLoggerWsRoute(ws *gin.Engine) {
 func DefaultRoutesConfig() config.APIRoutesConfig {
 	return config.APIRoutesConfig{
 		APIPackages: map[string]config.APIPackageConfig{
-			"peers": {Routes: []config.RouteConfig{{Name: "/peers", Open: true}}},
-			"node": {Routes: []config.RouteConfig{
-				{Name: "/status", Open: true},
-				{Name: "/metrics", Open: true},
+			peersPackage: {Routes: []config.RouteConfig{{Name: peersRoute, Open: true}}},
+			nodePackage: {Routes: []config.RouteConfig{
+				{Name: statusRoute, Open: true},
+				{Name: metricsRoute, Open: true},
 			}},
 		},
 	}

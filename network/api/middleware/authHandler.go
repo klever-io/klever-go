@@ -14,7 +14,6 @@ import (
 
 func NewAuthenticationFunc(credentialsConfig config.APIRoutesConfig) gin.HandlerFunc {
 	if len(credentialsConfig.Credentials) == 0 {
-		log.Warn("authentication requested but no credentials are configured; secured endpoints will reject all requests")
 		return func(c *gin.Context) {
 			c.AbortWithStatusJSON(
 				http.StatusInternalServerError,

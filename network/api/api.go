@@ -43,6 +43,11 @@ import (
 
 var log = logger.GetOrCreate("api")
 
+const (
+	logPackage = "log"
+	logRoute   = "/log"
+)
+
 type validatorInput struct {
 	Name      string
 	Validator validator.Func
@@ -128,7 +133,7 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 		pprof.Register(ws)
 	}
 
-	if routesConfig.IsRouteEnabled("log", "/log") {
+	if routesConfig.IsRouteEnabled(logPackage, logRoute) {
 		marshalizerForLogs := &marshal.ProtoMarshalizer{}
 		registerLoggerWsRoute(ws, marshalizerForLogs, routesConfig)
 	}
@@ -172,7 +177,7 @@ func registerLoggerWsRoute(ws *gin.Engine, marshalizer marshal.Marshalizer, rout
 
 	// Only an authenticated (secured) /log may apply a client-supplied logger profile to the
 	// process-global logger; on an unauthenticated /log profiles are ignored (GHSA-9v8p-frvj-2pcm).
-	secured := routesConfig.IsRouteSecured("log", "/log")
+	secured := routesConfig.IsRouteSecured(logPackage, logRoute)
 
 	logHandler := func(c *gin.Context) {
 		upgrader.CheckOrigin = func(r *http.Request) bool {
@@ -203,7 +208,7 @@ func registerLoggerWsRoute(ws *gin.Engine, marshalizer marshal.Marshalizer, rout
 		handlers = append([]gin.HandlerFunc{middleware.NewAuthenticationFunc(routesConfig)}, handlers...)
 	}
 
-	ws.GET("/log", handlers...)
+	ws.GET(logRoute, handlers...)
 }
 
 // skValidator validates a secret key from user input for correctness
