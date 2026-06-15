@@ -1413,9 +1413,7 @@ func (mp *metaProcessor) runScript(name string) (bool, error) {
 
 const inflationBurnAddressLen = 32
 
-var inflationBurnAddresses = []string{
-	"klv1fpwjz234gy8aaae3gx0e8q9f52vymzzn3z5q0s5h60pvktzx0n0qwvtux5",
-}
+var inflationBurnAddresses = []string{}
 
 func (mp *metaProcessor) executeInflationBurn() error {
 	if len(inflationBurnAddresses) == 0 {
