@@ -39,4 +39,5 @@ func TestAPIRoutesConfig_IsRouteSecured(t *testing.T) {
 	assert.False(t, cfg.IsRouteSecured("node", "/status"), "secured:false")
 	assert.False(t, cfg.IsRouteSecured("node", "/missing"), "route absent")
 	assert.False(t, cfg.IsRouteSecured("missing", "/log"), "package absent")
+	assert.False(t, config.APIRoutesConfig{}.IsRouteSecured("log", "/log"), "empty config")
 }
