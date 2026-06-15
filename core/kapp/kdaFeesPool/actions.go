@@ -63,7 +63,11 @@ func (v *kdaFeesPoolKApp) UpdatePool(poolID []byte, assetOwner []byte, sender []
 		return transaction.Transaction_ParameterInvalid, common.ErrAssetPoolInvalidAddress
 	}
 
-	if info.FRatioKLV == 0 || info.FRatioKDA == 0 {
+	invalidRatio := info.FRatioKLV == 0 || info.FRatioKDA == 0
+	if v.forkController.FixAuditChangesV3() {
+		invalidRatio = info.FRatioKLV <= 0 || info.FRatioKDA <= 0
+	}
+	if invalidRatio {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, common.ErrAssetPoolInvalidAmount.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrAssetPoolInvalidAmount
 	}
@@ -525,6 +529,10 @@ func (v *kdaFeesPoolKApp) compute(app state.KAppAccountHandler, klvFee int64, in
 	fv := big.NewInt(klvFee)
 	fv = fv.Mul(fv, big.NewInt(pool.FRatioKDA))
 	fv = fv.Quo(fv, big.NewInt(pool.FRatioKLV))
+
+	if v.forkController.FixAuditChangesV3() && !fv.IsInt64() {
+		return nil, 0, common.ErrAssetPoolInvalidAmount
+	}
 
 	return pool, fv.Int64(), nil
 }
