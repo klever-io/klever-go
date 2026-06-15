@@ -15,5 +15,9 @@ type MainAPIHandler interface {
 	PprofEnabled() bool
 	WSConnectionURL() string
 	WSConnectionAPIKey() string
+	WSMaxConnections() uint32
+	WSMaxConnectionsPerIP() uint32
+	WSMaxAddressesPerSubscribe() uint32
+	WSMaxAddressesPerClient() uint32
 	IsInterfaceNil() bool
 }

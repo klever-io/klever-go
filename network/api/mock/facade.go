@@ -93,6 +93,26 @@ func (f *Facade) WSConnectionAPIKey() string {
 	return ""
 }
 
+// WSMaxConnections -
+func (f *Facade) WSMaxConnections() uint32 {
+	return 0
+}
+
+// WSMaxConnectionsPerIP -
+func (f *Facade) WSMaxConnectionsPerIP() uint32 {
+	return 0
+}
+
+// WSMaxAddressesPerSubscribe -
+func (f *Facade) WSMaxAddressesPerSubscribe() uint32 {
+	return 0
+}
+
+// WSMaxAddressesPerClient -
+func (f *Facade) WSMaxAddressesPerClient() uint32 {
+	return 0
+}
+
 // TpsBenchmark is the mock implementation for retreiving the TpsBenchmark
 func (f *Facade) TpsBenchmark() *statistics.TpsBenchmark {
 	if f.TpsBenchmarkHandler != nil {

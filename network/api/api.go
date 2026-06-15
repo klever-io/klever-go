@@ -138,10 +138,29 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 		registerLoggerWsRoute(ws, marshalizerForLogs, routesConfig)
 	}
 
+	// secured only attaches the auth handler; the route is registered on open. Warn on
+	// the secured-but-not-open footgun so it does not read as "auth-protected" when it
+	// is actually absent.
+	if routesConfig.IsRouteSecured("subscribe", "/subscribe") && !routesConfig.IsRouteEnabled("subscribe", "/subscribe") {
+		log.Warn("subscribe route has secured:true but open:false; /subscribe will not be registered. Set open:true to enable it (secured then requires Basic Auth).")
+	}
+
 	if routesConfig.IsRouteEnabled("subscribe", "/subscribe") {
 		var postConnUrl, postConnApiKey string
+		var subscribeOpts wsocket.SubscribeOptions
+		var hubLimits clientSocket.Limits
 		if ok {
 			postConnUrl, postConnApiKey = apiHandler.WSConnectionURL(), apiHandler.WSConnectionAPIKey()
+			subscribeOpts.MaxConnections = apiHandler.WSMaxConnections()
+			subscribeOpts.MaxConnectionsPerIP = apiHandler.WSMaxConnectionsPerIP()
+			hubLimits.MaxAddressesPerSubscribe = int(apiHandler.WSMaxAddressesPerSubscribe())
+			hubLimits.MaxAddressesPerClient = int(apiHandler.WSMaxAddressesPerClient())
+		}
+		// Honour `secured: true` for /subscribe. The route is registered directly on the
+		// engine (not via the RouterWrapper), so the auth handler must be applied here or
+		// the flag is silently ignored (GHSA-4fwh-wrm6-97xm).
+		if routesConfig.IsRouteSecured("subscribe", "/subscribe") {
+			subscribeOpts.AuthHandlers = []gin.HandlerFunc{authHandler}
 		}
 
 		var wsFacade clientSocket.WSFacade
@@ -150,8 +169,8 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 		}
 
 		indexer.UseEventQueue = true
-		hub := clientSocket.NewHub(postConnUrl, postConnApiKey, wsFacade)
-		wsocket.SubscribeTopics(ws, hub)
+		hub := clientSocket.NewHub(postConnUrl, postConnApiKey, wsFacade, hubLimits)
+		wsocket.SubscribeTopics(ws, hub, subscribeOpts)
 		go hub.StartServer(ctx)
 	}
 }

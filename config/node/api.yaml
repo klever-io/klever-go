@@ -15,6 +15,10 @@ apiPackages:
         open: true
   subscribe:
     routes:
+      # /subscribe is a public WebSocket event feed. `open: true` keeps it enabled for
+      # development; set `secured: true` (in addition) to require Basic Auth on the
+      # handshake for public/mainnet deployments. Connection and message limits are
+      # enforced in code and tuned via webServer.* in config.yaml.
       - name: /subscribe
         open: true
   asset:

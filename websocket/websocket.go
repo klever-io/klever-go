@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/klever-io/klever-go/cmd/operator/utils"
@@ -39,19 +40,38 @@ type SocketHub struct {
 	blockSubscription       map[*client]struct{}
 	transactionSubscription map[*client]struct{}
 	addressSubscription     map[string]map[*client]userOptions
+	clientAddresses         map[*client]int
+	limits                  resolvedLimits
 	unregister              chan *client
 }
 
-func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade) *SocketHub {
+func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade, limits ...Limits) *SocketHub {
+	var l Limits
+	if len(limits) > 0 {
+		l = limits[0]
+	}
+
 	return &SocketHub{
 		unregister:              make(chan *client),
 		addressSubscription:     make(map[string]map[*client]userOptions),
+		clientAddresses:         make(map[*client]int),
 		blockSubscription:       make(map[*client]struct{}),
 		transactionSubscription: make(map[*client]struct{}),
 		postConnectionURL:       postConnectionURL,
 		postConnectionAPIKey:    postConnectionAPIKey,
 		facade:                  facade,
+		limits:                  l.resolve(),
 	}
+}
+
+// MaxMessageSize returns the inbound WebSocket frame read limit (bytes).
+func (h *SocketHub) MaxMessageSize() int64 {
+	return h.limits.maxMessageSize
+}
+
+// MaxAddressesPerSubscribe returns the per-call address cap for a subscribe request.
+func (h *SocketHub) MaxAddressesPerSubscribe() int {
+	return h.limits.maxAddressesPerSubscribe
 }
 
 func (h *SocketHub) asyncPost(parsed *Send) {
@@ -253,9 +273,33 @@ func (h *SocketHub) RemoveClient(c *client) {
 	h.unregister <- c
 }
 
-func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, addresses []string, c *client) {
+func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, addresses []string, c *client) error {
+	if len(addresses) > h.limits.maxAddressesPerSubscribe {
+		return fmt.Errorf("too many addresses in a single subscribe: %d (max %d)", len(addresses), h.limits.maxAddressesPerSubscribe)
+	}
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	// Reject before mutating if the per-connection cap would be exceeded. Only addresses
+	// new to this client count, and duplicates count once — matching the insertion below.
+	newForClient := 0
+	seen := make(map[string]struct{}, len(addresses))
+	for _, address := range addresses {
+		if _, dup := seen[address]; dup {
+			continue
+		}
+		seen[address] = struct{}{}
+		if inner, ok := h.addressSubscription[address]; ok {
+			if _, has := inner[c]; has {
+				continue
+			}
+		}
+		newForClient++
+	}
+	if h.clientAddresses[c]+newForClient > h.limits.maxAddressesPerClient {
+		return fmt.Errorf("address subscription limit reached for this connection (max %d)", h.limits.maxAddressesPerClient)
+	}
 
 	var acceptTransactions bool
 	var acceptAccounts bool
@@ -273,11 +317,16 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 	}
 
 	for _, address := range addresses {
-		if _, ok := h.addressSubscription[address]; !ok {
-			h.addressSubscription[address] = make(map[*client]userOptions)
+		value, ok := h.addressSubscription[address]
+		if !ok {
+			value = make(map[*client]userOptions)
+			h.addressSubscription[address] = value
 		}
 
-		value := h.addressSubscription[address]
+		if _, has := value[c]; !has {
+			h.clientAddresses[c]++
+		}
+
 		existing := value[c]
 		if acceptAccounts {
 			existing.acceptAccount = true
@@ -286,9 +335,9 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 			existing.acceptTransaction = true
 		}
 		value[c] = existing
-
-		h.addressSubscription[address] = value
 	}
+
+	return nil
 }
 
 func closeAndClear(subscription map[*client]struct{}) {
@@ -302,12 +351,14 @@ func (h *SocketHub) deleteAll() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	for _, clients := range h.addressSubscription {
+	for addr, clients := range h.addressSubscription {
 		for cl := range clients {
 			cl.close()
 			delete(clients, cl)
 		}
+		delete(h.addressSubscription, addr)
 	}
+	h.clientAddresses = make(map[*client]int)
 
 	closeAndClear(h.blockSubscription)
 	closeAndClear(h.transactionSubscription)
@@ -320,13 +371,18 @@ func (h *SocketHub) handleClientDelete(c *client) {
 	delete(h.blockSubscription, c)
 	delete(h.transactionSubscription, c)
 	c.close()
-	for _, clients := range h.addressSubscription {
-		for cl := range clients {
-			if cl == c {
-				delete(clients, c)
-			}
+	// Remove the client from every watched address and reclaim the outer key when its
+	// inner map empties. Without this, a disconnect leaks one map entry per address
+	// permanently (GHSA-4fwh-wrm6-97xm, Impact C).
+	for addr, clients := range h.addressSubscription {
+		if _, ok := clients[c]; ok {
+			delete(clients, c)
+		}
+		if len(clients) == 0 {
+			delete(h.addressSubscription, addr)
 		}
 	}
+	delete(h.clientAddresses, c)
 }
 
 func (h *SocketHub) HandleClientRequest(c *client, req WSRequest) {
@@ -433,7 +489,10 @@ func (h *SocketHub) handleDynamicSubscribe(c *client, req WSRequest) {
 		return
 	}
 
-	h.HandleClientInsertion(eventTypes, params.Addresses, c)
+	if err := h.HandleClientInsertion(eventTypes, params.Addresses, c); err != nil {
+		c.send(WSResponse{ID: req.ID, Error: err.Error()})
+		return
+	}
 	c.send(WSResponse{ID: req.ID, Data: "subscribed"})
 }
 
@@ -494,10 +553,21 @@ func (h *SocketHub) removeClientFromAddress(addr string, c *client, removeAccoun
 	}
 	if !existing.acceptAccount && !existing.acceptTransaction {
 		delete(clients, c)
+		h.decrClientAddresses(c)
 	} else {
 		clients[c] = existing
 	}
 	if len(clients) == 0 {
 		delete(h.addressSubscription, addr)
 	}
+}
+
+// decrClientAddresses lowers a client's tracked address count, removing the entry
+// at zero so the map cannot accumulate stale clients.
+func (h *SocketHub) decrClientAddresses(c *client) {
+	if h.clientAddresses[c] <= 1 {
+		delete(h.clientAddresses, c)
+		return
+	}
+	h.clientAddresses[c]--
 }
