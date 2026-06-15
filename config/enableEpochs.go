@@ -27,6 +27,7 @@ type EnableEpochs struct {
 	EpochRewardsV2          uint32 `yaml:"epochRewardsV2"`
 	FixAuditChangesV2       uint32 `yaml:"fixAuditChangesV2"`
 	FixMarketBuyOverflow    uint32 `yaml:"fixMarketBuyOverflow"`
+	FixAuditChangesV3       uint32 `yaml:"fixAuditChangesV3"`
 }
 
 // GasScheduleByEpochs represents a gas schedule toml entry that will be applied from the provided epoch

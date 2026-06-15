@@ -29,6 +29,8 @@ enableEpochs:
   # royalties (GHSA-p7gw-2pcp-5pf8), and SFT add-quantity circulation
   # overflow (GHSA-mrpp-v6pg-p54x).
   fixMarketBuyOverflow: 0
+  # Audit Changes V3 (reject non-positive kdaFeesPool fee ratios + range-check swap price)
+  fixAuditChangesV3: 0
 
 gasSchedule:
   gasScheduleByEpochs:

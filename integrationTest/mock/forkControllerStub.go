@@ -13,6 +13,7 @@ type ForkControllerStub struct {
 	EpochRewardsV2Called          func() bool
 	FixAuditChangesV2Called       func() bool
 	FixMarketBuyOverflowCalled    func() bool
+	FixAuditChangesV3Called       func() bool
 }
 
 // ProcessorFlowITOPrice -
@@ -110,6 +111,14 @@ func (fc *ForkControllerStub) FixAuditChangesV2() bool {
 func (fc *ForkControllerStub) FixMarketBuyOverflow() bool {
 	if fc.FixMarketBuyOverflowCalled != nil {
 		return fc.FixMarketBuyOverflowCalled()
+	}
+
+	return false
+}
+
+func (fc *ForkControllerStub) FixAuditChangesV3() bool {
+	if fc.FixAuditChangesV3Called != nil {
+		return fc.FixAuditChangesV3Called()
 	}
 
 	return false
