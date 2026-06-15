@@ -1,0 +1,37 @@
+# Seednode REST API configuration.
+#
+# Each route can be enabled/disabled with `open` and protected with HTTP Basic Authentication with
+# `secured` (credentials below). If this file is missing, the seednode falls back to a built-in
+# default that keeps the read-only monitoring endpoints enabled and /log disabled.
+#
+# /log streams process logs and, on a secured connection, lets an authenticated operator adjust the
+# logger profile. It is secured by default (GHSA-9v8p-frvj-2pcm / KLC-2438). Set `open: false` to
+# disable it, or `secured: false` to expose it unauthenticated (trusted / localhost-bound seednode only).
+#
+# /peers exposes connected peer addresses (network topology); set `open: false` to reduce disclosure.
+# /node/metrics is scraped by Prometheus, which does not send Basic Auth — leave it unsecured unless
+# your scraper is configured for credentials.
+apiPackages:
+  log:
+    routes:
+      - name: /log
+        open: true
+        secured: true
+  peers:
+    routes:
+      - name: /peers
+        open: true
+  node:
+    routes:
+      - name: /status
+        open: true
+      - name: /metrics
+        open: true
+
+# Credentials used when a route is `secured`. Replace the placeholders with real values:
+# `password` is the hex-encoded hash (per hasher.type) of the plaintext password.
+credentials:
+  - username: example
+    password: hashed password
+hasher:
+  type: sha256
