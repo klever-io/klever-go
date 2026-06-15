@@ -153,8 +153,8 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 			postConnUrl, postConnApiKey = apiHandler.WSConnectionURL(), apiHandler.WSConnectionAPIKey()
 			subscribeOpts.MaxConnections = apiHandler.WSMaxConnections()
 			subscribeOpts.MaxConnectionsPerIP = apiHandler.WSMaxConnectionsPerIP()
-			hubLimits.MaxAddressesPerSubscribe = int(apiHandler.WSMaxAddressesPerSubscribe())
-			hubLimits.MaxAddressesPerClient = int(apiHandler.WSMaxAddressesPerClient())
+			hubLimits.MaxAddressesPerSubscribe = wsocket.ClampUint32ToInt(apiHandler.WSMaxAddressesPerSubscribe())
+			hubLimits.MaxAddressesPerClient = wsocket.ClampUint32ToInt(apiHandler.WSMaxAddressesPerClient())
 		}
 		// Honour `secured: true` for /subscribe. The route is registered directly on the
 		// engine (not via the RouterWrapper), so the auth handler must be applied here or

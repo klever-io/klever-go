@@ -23,16 +23,17 @@ type connLimiter struct {
 
 func newConnLimiter(maxGlobal, maxPerIP uint32) *connLimiter {
 	return &connLimiter{
-		maxGlobal: clampUint32ToInt(maxGlobal),
-		maxPerIP:  clampUint32ToInt(maxPerIP),
+		maxGlobal: ClampUint32ToInt(maxGlobal),
+		maxPerIP:  ClampUint32ToInt(maxPerIP),
 		perIP:     make(map[string]int),
 	}
 }
 
-// clampUint32ToInt converts a uint32 cap to int without the negative wrap a direct
-// conversion would cause on 32-bit platforms — a negative max would silently DISABLE
-// the cap (treated as unlimited) instead of enforcing it.
-func clampUint32ToInt(v uint32) int {
+// ClampUint32ToInt converts a uint32 config value to int without the negative wrap a
+// direct conversion would cause on 32-bit platforms. A wrapped-negative value would
+// silently drop the operator's configured value — disabling a connection cap, or falling
+// back to a default address cap — instead of honoring the (large) value they set.
+func ClampUint32ToInt(v uint32) int {
 	if uint64(v) > uint64(math.MaxInt) {
 		return math.MaxInt
 	}
