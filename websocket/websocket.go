@@ -281,10 +281,22 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// Reject before mutating if the per-connection cap would be exceeded. Only addresses
-	// new to this client count, and duplicates count once — matching the insertion below.
-	newForClient := 0
+	// Reject before mutating if the per-connection cap would be exceeded; only addresses
+	// new to this client count (GHSA-4fwh-wrm6-97xm, Impact C).
+	if h.clientAddresses[c]+h.countNewAddresses(addresses, c) > h.limits.maxAddressesPerClient {
+		return fmt.Errorf("address subscription limit reached for this connection (max %d)", h.limits.maxAddressesPerClient)
+	}
+
+	acceptAccounts, acceptTransactions := h.applyEventTypes(eventType, c)
+	h.addAddressSubscriptions(addresses, c, acceptAccounts, acceptTransactions)
+	return nil
+}
+
+// countNewAddresses returns how many of addresses are not yet watched by c, counting
+// duplicates within the call once. The caller must hold h.mu.
+func (h *SocketHub) countNewAddresses(addresses []string, c *client) int {
 	seen := make(map[string]struct{}, len(addresses))
+	count := 0
 	for _, address := range addresses {
 		if _, dup := seen[address]; dup {
 			continue
@@ -295,16 +307,16 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 				continue
 			}
 		}
-		newForClient++
+		count++
 	}
-	if h.clientAddresses[c]+newForClient > h.limits.maxAddressesPerClient {
-		return fmt.Errorf("address subscription limit reached for this connection (max %d)", h.limits.maxAddressesPerClient)
-	}
+	return count
+}
 
-	var acceptTransactions bool
-	var acceptAccounts bool
-	for _, types := range eventType {
-		switch types {
+// applyEventTypes registers the global block/transaction subscriptions for c and returns
+// the per-address accept flags. The caller must hold h.mu.
+func (h *SocketHub) applyEventTypes(eventType []indexer.EventType, c *client) (acceptAccounts, acceptTransactions bool) {
+	for _, t := range eventType {
+		switch t {
 		case indexer.BLOCKS:
 			h.blockSubscription[c] = struct{}{}
 		case indexer.TRANSACTIONS:
@@ -315,7 +327,12 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 			acceptAccounts = true
 		}
 	}
+	return acceptAccounts, acceptTransactions
+}
 
+// addAddressSubscriptions adds c to each address with the given accept flags, bumping the
+// per-client count for newly added (address, client) pairs. The caller must hold h.mu.
+func (h *SocketHub) addAddressSubscriptions(addresses []string, c *client, acceptAccounts, acceptTransactions bool) {
 	for _, address := range addresses {
 		value, ok := h.addressSubscription[address]
 		if !ok {
@@ -336,8 +353,6 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 		}
 		value[c] = existing
 	}
-
-	return nil
 }
 
 func closeAndClear(subscription map[*client]struct{}) {
@@ -375,9 +390,7 @@ func (h *SocketHub) handleClientDelete(c *client) {
 	// inner map empties. Without this, a disconnect leaks one map entry per address
 	// permanently (GHSA-4fwh-wrm6-97xm, Impact C).
 	for addr, clients := range h.addressSubscription {
-		if _, ok := clients[c]; ok {
-			delete(clients, c)
-		}
+		delete(clients, c)
 		if len(clients) == 0 {
 			delete(h.addressSubscription, addr)
 		}

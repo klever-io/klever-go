@@ -67,6 +67,26 @@ func TestSubscribe_ReadLimit_RejectsOversizedFrame(t *testing.T) {
 	}
 }
 
+func TestSubscribe_RejectsTooManyAddresses(t *testing.T) {
+	hub := socket.NewHub("", "", nil, socket.Limits{MaxAddressesPerSubscribe: 2})
+	addr, cleanup := startTestServerOpts(t, hub, wsocket.SubscribeOptions{})
+	defer cleanup()
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/subscribe", nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	require.NoError(t, conn.WriteJSON(map[string]interface{}{
+		"subscribed_types": []string{"accounts"},
+		"addresses":        []string{"a", "b", "c"}, // > per-subscribe cap of 2
+	}))
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var resp map[string]string
+	require.NoError(t, conn.ReadJSON(&resp))
+	assert.Contains(t, resp["error"], "too many addresses")
+}
+
 func TestSubscribe_GlobalConnectionCap(t *testing.T) {
 	hub := socket.NewHub("", "", nil)
 	addr, cleanup := startTestServerOpts(t, hub, wsocket.SubscribeOptions{MaxConnections: 2})
