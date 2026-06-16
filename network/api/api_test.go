@@ -28,9 +28,10 @@ func subscribeRoutesConfig(open, secured bool) config.APIRoutesConfig {
 
 // subscribeStatus registers the routes for cfg and returns the HTTP status of a plain
 // (non-WebSocket) GET /subscribe, which is enough to distinguish the three behaviors:
-//   404 — route not registered (open:false)
-//   401 — auth enforced before the upgrade (secured:true) — the bug this PR fixes
-//   400 — handler reached, no auth gate, fails the WS handshake (open, not secured)
+//
+//	404 — route not registered (open:false)
+//	401 — auth enforced before the upgrade (secured:true) — the bug this PR fixes
+//	400 — handler reached, no auth gate, fails the WS handshake (open, not secured)
 func subscribeStatus(t *testing.T, cfg config.APIRoutesConfig) int {
 	t.Helper()
 	ws := gin.New()
