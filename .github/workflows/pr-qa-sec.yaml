@@ -83,7 +83,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: test-artifacts
           path: |
@@ -110,12 +110,12 @@ jobs:
           fetch-depth: 0
 
       - name: Download lint results
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: lint-results
 
       - name: Download test results
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: test-artifacts
 
@@ -124,7 +124,7 @@ jobs:
           service-key: ${{ secrets.TWINGATE_SERVICE_ACCOUNT }}
 
       - name: SonarQube Scan
-        uses: sonarsource/sonarqube-scan-action@v6
+        uses: sonarsource/sonarqube-scan-action@v8
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
@@ -142,7 +142,7 @@ jobs:
         if: github.event_name != 'pull_request'
 
       - name: SonarQube Go detailed scan PR
-        uses: sonarsource/sonarqube-scan-action@v6
+        uses: sonarsource/sonarqube-scan-action@v8
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}

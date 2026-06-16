@@ -71,7 +71,7 @@ jobs:
           golangci-lint run --output.checkstyle.path=golangci-report.xml || true
 
       - name: Upload lint results
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: lint-results
           path: golangci-report.xml
