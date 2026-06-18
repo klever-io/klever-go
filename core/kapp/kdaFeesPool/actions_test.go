@@ -1331,3 +1331,69 @@ func TestComputeOutOfRangePrice(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
+func TestComputeNeutralizesStoredNonPositiveRatio(t *testing.T) {
+	t.Parallel()
+
+	run := func(t *testing.T, fixActive bool, fRatioKLV, fRatioKDA int64) (int64, error) {
+		t.Helper()
+
+		args := createMockArgsKDAFeesPool()
+		marshalizer := &marshal.JSONMarshalizer{}
+		args.Marshalizer = marshalizer
+		args.ForkController = mock.NewForkControllerStub().SetFork("FixAuditChangesV3", fixActive)
+		kapp, err := kdafeespool.NewKDAFeesPoolKApp(args)
+		require.NoError(t, err)
+
+		poolData := &kdafeespool.KDAFeesPoolData{
+			OwnerAddress: []byte("owner"),
+			KDA:          []byte("asset-id"),
+			Active:       true,
+			KLVBalance:   1000000000,
+			FRatioKLV:    fRatioKLV,
+			FRatioKDA:    fRatioKDA,
+		}
+		poolBytes, _ := marshalizer.Marshal(poolData)
+
+		kappAcc := &mock.KAppAccountHandlerStub{
+			GetStorageCalled: func(key []byte) []byte {
+				return poolBytes
+			},
+		}
+		cacher := &mock.AccountsCacherStub{
+			LoadKAppCalled: func(address []byte) (state.KAppAccountHandler, error) {
+				return kappAcc, nil
+			},
+		}
+		_ = kapp.SetAccountsCacher(cacher)
+
+		feeHandler := &KDAFeeHandlerStub{
+			kda:    []byte("asset-id"),
+			amount: 100,
+		}
+
+		return kapp.Compute(1000, feeHandler)
+	}
+
+	t.Run("BothNegativeRejectedWithFork", func(t *testing.T) {
+		_, err := run(t, true, -1, -1)
+		require.Equal(t, common.ErrAssetPoolInvalidAmount, err)
+	})
+
+	t.Run("OneNegativeRejectedWithFork", func(t *testing.T) {
+		_, err := run(t, true, 1, -1)
+		require.Equal(t, common.ErrAssetPoolInvalidAmount, err)
+	})
+
+	t.Run("NegativeNotNeutralizedWithoutFork", func(t *testing.T) {
+		value, err := run(t, false, -1, -1)
+		require.NoError(t, err)
+		require.Equal(t, int64(1000), value)
+	})
+
+	t.Run("PositiveRatioUnaffectedWithFork", func(t *testing.T) {
+		value, err := run(t, true, 1000, 100)
+		require.NoError(t, err)
+		require.Equal(t, int64(100), value)
+	})
+}
