@@ -4019,7 +4019,7 @@ func TestUpdatePermission(t *testing.T) {
 			})
 
 			// Execute test
-			code, err := accKapp.UpdatePermission(tt.sender, tt.tc)
+			code, err := accKapp.UpdatePermission(tt.sender, tt.sender, tt.tc)
 
 			// Assert results
 			assert.Equal(t, tt.expectedCode, code)
@@ -4030,6 +4030,146 @@ func TestUpdatePermission(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAuthorizerCanUpdatePermission(t *testing.T) {
+	t.Run("NoValidPermission", func(t *testing.T) {
+		permissions := []*state.Permission{
+			{
+				Signers:    []*state.Key{{Address: []byte("other"), Weight: 1}},
+				Threshold:  1,
+				Operations: transaction.EncodeContractPermissions(transaction.TXContract_UpdateAccountPermissionContractType),
+			},
+		}
+		assert.False(t, authorizerCanUpdatePermission(permissions, []byte("recipient")))
+	})
+
+	t.Run("InsufficientWeight", func(t *testing.T) {
+		permissions := []*state.Permission{
+			{
+				Signers:    []*state.Key{{Address: []byte("recipient"), Weight: 1}},
+				Threshold:  2,
+				Operations: transaction.EncodeContractPermissions(transaction.TXContract_UpdateAccountPermissionContractType),
+			},
+		}
+		assert.False(t, authorizerCanUpdatePermission(permissions, []byte("recipient")))
+	})
+
+	t.Run("WrongOperation", func(t *testing.T) {
+		permissions := []*state.Permission{
+			{
+				Signers:    []*state.Key{{Address: []byte("recipient"), Weight: 1}},
+				Threshold:  1,
+				Type:       state.Permission_User,
+				Operations: []byte{0},
+			},
+		}
+		assert.False(t, authorizerCanUpdatePermission(permissions, []byte("recipient")))
+	})
+
+	t.Run("ValidPermissionOwner", func(t *testing.T) {
+		permissions := []*state.Permission{
+			{
+				Signers:   []*state.Key{{Address: []byte("recipient"), Weight: 1}},
+				Threshold: 1,
+			},
+		}
+		assert.True(t, authorizerCanUpdatePermission(permissions, []byte("recipient")))
+	})
+
+	t.Run("ValidPermissionUser", func(t *testing.T) {
+		permissions := []*state.Permission{
+			{
+				Signers:    []*state.Key{{Address: []byte("recipient"), Weight: 1}},
+				Threshold:  1,
+				Type:       state.Permission_User,
+				Operations: transaction.EncodeContractPermissions(transaction.TXContract_UpdateAccountPermissionContractType),
+			},
+		}
+		assert.True(t, authorizerCanUpdatePermission(permissions, []byte("recipient")))
+	})
+}
+
+func TestUpdatePermission_AuthorizerAuthorization(t *testing.T) {
+	targetAddr := bytes.Repeat([]byte{2}, 32)
+	authorizerAddr := bytes.Repeat([]byte{3}, 32)
+	newSigner := bytes.Repeat([]byte{4}, 32)
+
+	tc := &transaction.UpdateAccountPermissionContract{
+		Permissions: []*transaction.AccPermission{
+			{
+				Type: transaction.AccPermission_Owner,
+				Signers: []*transaction.AccKey{
+					{Address: newSigner, Weight: 1},
+				},
+				Threshold: 1,
+			},
+		},
+	}
+
+	newAccount := func(permissions []*state.Permission) *commonMock.UserAccountHandlerStub {
+		return &commonMock.UserAccountHandlerStub{
+			AddressBytesCalled: func() []byte {
+				return targetAddr
+			},
+			GetPermissionsCalled: func() []*state.Permission {
+				return permissions
+			},
+			SetPermissionsCalled: func([]*state.Permission) {},
+		}
+	}
+
+	setupKapp := func(account state.UserAccountHandler) *accountsKapp {
+		accKapp := setupAccountsKapp(t, config.EnableEpochs{})
+		accCacher := &commonMock.AccountsCacherStub{
+			GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+				return account, nil
+			},
+			UpdateUserCalled: func(state.AccountHandler) error {
+				return nil
+			},
+		}
+		_ = accKapp.SetAccountsCacher(accCacher)
+		_ = accKapp.SetKAppController(&kvmStub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext {
+				return kapp.NewKappContext(kapp.ArgsNewKAppContext{})
+			},
+		})
+		return accKapp
+	}
+
+	t.Run("RejectsUnauthorizedAuthorizer", func(t *testing.T) {
+		account := newAccount([]*state.Permission{
+			{
+				Signers:    []*state.Key{{Address: targetAddr, Weight: 1}},
+				Threshold:  1,
+				Operations: transaction.EncodeContractPermissions(transaction.TXContract_UpdateAccountPermissionContractType),
+			},
+		})
+		accKapp := setupKapp(account)
+
+		code, err := accKapp.UpdatePermission(authorizerAddr, targetAddr, tc)
+
+		assert.Equal(t, transaction.Transaction_ParameterInvalid, code)
+		assert.Equal(t, common.ErrNoPermission, err)
+	})
+
+	t.Run("AcceptsAuthorizedSigner", func(t *testing.T) {
+		account := newAccount([]*state.Permission{
+			{
+				Signers:    []*state.Key{{Address: authorizerAddr, Weight: 1}},
+				Threshold:  1,
+				Type:       state.Permission_User,
+				Operations: transaction.EncodeContractPermissions(transaction.TXContract_UpdateAccountPermissionContractType),
+			},
+		})
+		accKapp := setupKapp(account)
+
+		code, err := accKapp.UpdatePermission(authorizerAddr, targetAddr, tc)
+
+		assert.Equal(t, transaction.Transaction_Ok, code)
+		assert.NoError(t, err)
+	})
 }
 
 func TestUpdatePermission_NoOwnerProvided(t *testing.T) {
@@ -4082,7 +4222,7 @@ func TestUpdatePermission_NoOwnerProvided(t *testing.T) {
 	}
 
 	// Execute the update
-	code, err := accKapp.UpdatePermission(senderAddr, tc)
+	code, err := accKapp.UpdatePermission(senderAddr, senderAddr, tc)
 
 	// Verifications
 	require.Equal(t, transaction.Transaction_Ok, code)
@@ -4110,7 +4250,7 @@ func TestUpdatePermission_NoOwnerProvided(t *testing.T) {
 		Permissions: []*transaction.AccPermission{},
 	}
 
-	code, err = accKapp.UpdatePermission(senderAddr, tc)
+	code, err = accKapp.UpdatePermission(senderAddr, senderAddr, tc)
 
 	require.Equal(t, transaction.Transaction_Ok, code)
 	require.NoError(t, err)
@@ -4182,7 +4322,7 @@ func TestUpdatePermission_WithNamePriorAndAfterFPRFork(t *testing.T) {
 	}
 
 	// Execute the update
-	code, err := accKapp.UpdatePermission(senderAddr, tc)
+	code, err := accKapp.UpdatePermission(senderAddr, senderAddr, tc)
 
 	// Verifications
 	require.Equal(t, transaction.Transaction_Ok, code)
@@ -4204,7 +4344,7 @@ func TestUpdatePermission_WithNamePriorAndAfterFPRFork(t *testing.T) {
 
 	// Execute the update.
 	// Execute the update
-	code, err = accKapp.UpdatePermission(senderAddr, tc)
+	code, err = accKapp.UpdatePermission(senderAddr, senderAddr, tc)
 
 	// Verifications
 	require.Equal(t, transaction.Transaction_Ok, code)
