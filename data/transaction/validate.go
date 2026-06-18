@@ -239,7 +239,7 @@ type allowedAssetTriggerFields struct {
 	KDAPool   bool
 }
 
-func validateAssetTriggerFields(tc *AssetTriggerContract, allow allowedAssetTriggerFields) bool {
+func validateAssetTriggerFields(tc *AssetTriggerContract, allow allowedAssetTriggerFields, fc core.ForkController) bool {
 	if !allow.ToAddress && len(tc.GetToAddress()) > 0 {
 		return false
 	}
@@ -275,7 +275,7 @@ func validateAssetTriggerFields(tc *AssetTriggerContract, allow allowedAssetTrig
 	}
 
 	if allow.KDAPool {
-		return validateKDAPool(tc.GetKDAPool())
+		return validateKDAPool(tc.GetKDAPool(), fc)
 	} else if tc.GetKDAPool() != nil && !proto.Equal(tc.GetKDAPool(), &KDAPoolInfo{}) {
 		return false
 	}
@@ -283,9 +283,13 @@ func validateAssetTriggerFields(tc *AssetTriggerContract, allow allowedAssetTrig
 	return true
 }
 
-func validateKDAPool(poolInfo *KDAPoolInfo) bool {
+func validateKDAPool(poolInfo *KDAPoolInfo, fc core.ForkController) bool {
 	if poolInfo == nil {
 		return false
+	}
+
+	if fc.FixAuditChangesV3() {
+		return poolInfo.FRatioKLV > 0 && poolInfo.FRatioKDA > 0
 	}
 
 	if poolInfo.FRatioKLV == 0 || poolInfo.FRatioKDA == 0 {
@@ -364,7 +368,7 @@ func (tc *AssetTriggerContract) Validate(fc core.ForkController) error {
 		return ErrInvalidTriggerType
 	}
 
-	if !validateAssetTriggerFields(tc, allowed) {
+	if !validateAssetTriggerFields(tc, allowed, fc) {
 		return fmt.Errorf("invalid contract fields, allowed fields: assetID:true + %+v", allowed)
 	}
 
