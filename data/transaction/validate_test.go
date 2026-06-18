@@ -1191,6 +1191,92 @@ func TestAssetTriggerContractValidate(t *testing.T) {
 	}
 }
 
+func TestAssetTriggerContractValidate_KDAFeePoolRatio(t *testing.T) {
+	tests := []struct {
+		name        string
+		contract    *transaction.AssetTriggerContract
+		fc          core.ForkController
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "fork on positive ratios valid",
+			contract: &transaction.AssetTriggerContract{
+				TriggerType: transaction.AssetTriggerContract_UpdateKDAFeePool,
+				KDAPool: &transaction.KDAPoolInfo{
+					FRatioKLV: 1,
+					FRatioKDA: 1,
+				},
+			},
+			fc:          mock.NewForkControllerStub().SetFork("FixAuditChangesV3", true),
+			expectError: false,
+		},
+		{
+			name: "fork on negative ratio invalid",
+			contract: &transaction.AssetTriggerContract{
+				TriggerType: transaction.AssetTriggerContract_UpdateKDAFeePool,
+				KDAPool: &transaction.KDAPoolInfo{
+					FRatioKLV: -1,
+					FRatioKDA: 1,
+				},
+			},
+			fc:          mock.NewForkControllerStub().SetFork("FixAuditChangesV3", true),
+			expectError: true,
+			errorMsg:    "invalid contract fields",
+		},
+		{
+			name: "fork on zero ratio invalid",
+			contract: &transaction.AssetTriggerContract{
+				TriggerType: transaction.AssetTriggerContract_UpdateKDAFeePool,
+				KDAPool: &transaction.KDAPoolInfo{
+					FRatioKLV: 0,
+					FRatioKDA: 1,
+				},
+			},
+			fc:          mock.NewForkControllerStub().SetFork("FixAuditChangesV3", true),
+			expectError: true,
+			errorMsg:    "invalid contract fields",
+		},
+		{
+			name: "fork off zero ratio invalid",
+			contract: &transaction.AssetTriggerContract{
+				TriggerType: transaction.AssetTriggerContract_UpdateKDAFeePool,
+				KDAPool: &transaction.KDAPoolInfo{
+					FRatioKLV: 0,
+					FRatioKDA: 1,
+				},
+			},
+			fc:          mock.NewForkControllerStub().SetFork("FixAuditChangesV3", false),
+			expectError: true,
+			errorMsg:    "invalid contract fields",
+		},
+		{
+			name: "fork off negative ratio valid",
+			contract: &transaction.AssetTriggerContract{
+				TriggerType: transaction.AssetTriggerContract_UpdateKDAFeePool,
+				KDAPool: &transaction.KDAPoolInfo{
+					FRatioKLV: -1,
+					FRatioKDA: 1,
+				},
+			},
+			fc:          mock.NewForkControllerStub().SetFork("FixAuditChangesV3", false),
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.contract.Validate(tt.fc)
+			if tt.expectError {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestUnfreezeContractValidate(t *testing.T) {
 	tests := []struct {
 		name        string
