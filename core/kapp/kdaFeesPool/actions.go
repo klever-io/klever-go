@@ -524,6 +524,10 @@ func (v *kdaFeesPoolKApp) compute(app state.KAppAccountHandler, klvFee int64, in
 		return nil, 0, common.ErrAssetPoolNotActive
 	}
 
+	if v.forkController.FixAuditChangesV3() && (pool.FRatioKLV <= 0 || pool.FRatioKDA <= 0) {
+		return nil, 0, common.ErrAssetPoolInvalidAmount
+	}
+
 	// TODO: implement automated exchange based on balance with spread
 	// compute amount fixed ratio
 	// FRatioKDA:FRatioKLV
