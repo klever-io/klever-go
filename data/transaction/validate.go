@@ -239,7 +239,7 @@ type allowedAssetTriggerFields struct {
 	KDAPool   bool
 }
 
-func validateAssetTriggerFields(tc *AssetTriggerContract, allow allowedAssetTriggerFields, fc core.ForkController) bool {
+func validateDisallowedScalarFields(tc *AssetTriggerContract, allow allowedAssetTriggerFields) bool {
 	if !allow.ToAddress && len(tc.GetToAddress()) > 0 {
 		return false
 	}
@@ -260,17 +260,33 @@ func validateAssetTriggerFields(tc *AssetTriggerContract, allow allowedAssetTrig
 		return false
 	}
 
+	return true
+}
+
+func validateDisallowedRoleAndStaking(tc *AssetTriggerContract, allow allowedAssetTriggerFields) bool {
+	if !allow.Role && tc.GetRole() != nil && !proto.Equal(tc.GetRole(), &RolesInfo{}) {
+		return false
+	}
+
+	if !allow.Staking && tc.GetStaking() != nil && !proto.Equal(tc.GetStaking(), &StakingInfo{}) {
+		return false
+	}
+
+	return true
+}
+
+func validateAssetTriggerFields(tc *AssetTriggerContract, allow allowedAssetTriggerFields, fc core.ForkController) bool {
+	if !validateDisallowedScalarFields(tc, allow) {
+		return false
+	}
+
 	if allow.Royalties {
 		return validateRoyalties(tc.GetRoyalties())
 	} else if tc.GetRoyalties() != nil && !proto.Equal(tc.GetRoyalties(), &RoyaltiesInfo{}) {
 		return false
 	}
 
-	if !allow.Role && tc.GetRole() != nil && !proto.Equal(tc.GetRole(), &RolesInfo{}) {
-		return false
-	}
-
-	if !allow.Staking && tc.GetStaking() != nil && !proto.Equal(tc.GetStaking(), &StakingInfo{}) {
+	if !validateDisallowedRoleAndStaking(tc, allow) {
 		return false
 	}
 
