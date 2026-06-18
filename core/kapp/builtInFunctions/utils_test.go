@@ -808,6 +808,20 @@ func TestDecodeAccountPermissionData(t *testing.T) {
 		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "EOF")
 	})
+
+	t.Run("Error - Signer count exceeds MaxPermissionSigners", func(t *testing.T) {
+		buf := new(bytes.Buffer)
+		require.NoError(t, writeUint32(buf, 1))
+		require.NoError(t, writeUint8(buf, uint8(transaction.AccPermission_Owner)))
+		require.NoError(t, writeString(buf, "owner"))
+		require.NoError(t, binary.Write(buf, binary.BigEndian, uint64(1)))
+		require.NoError(t, writeString(buf, ""))
+		require.NoError(t, writeUint32(buf, core.MaxPermissionSigners+1))
+
+		result, err := DecodeAccountPermissionData(buf.Bytes())
+		assert.Nil(t, result)
+		assert.Equal(t, common.ErrInvalidPermission, err)
+	})
 }
 
 func TestReadBigUint(t *testing.T) {
