@@ -520,6 +520,10 @@ func decodeSigners(buf *bytes.Reader) ([]*transaction.AccKey, error) {
 		return nil, err
 	}
 
+	if signersLen > core.MaxPermissionSigners {
+		return nil, common.ErrInvalidPermission
+	}
+
 	signers := make([]*transaction.AccKey, 0, signersLen)
 	for i := uint32(0); i < signersLen; i++ {
 		signer, err := decodeSigner(buf)
