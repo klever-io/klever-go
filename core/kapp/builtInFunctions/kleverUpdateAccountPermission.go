@@ -1,8 +1,6 @@
 package builtInFunctions
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
 	"sync"
 
@@ -16,7 +14,6 @@ import (
 
 type kleverUpdateAccountPermission struct {
 	baseAlwaysActiveHandler
-	accountsCacher state.AccountsCacher
 	kappController kapp.KAppController
 	funcGasCost    uint64
 	marshaller     vmcommon.Marshalizer
@@ -44,7 +41,6 @@ func NewKleverUpdateAccountPermissionFunc(
 		funcGasCost:    funcGasCost,
 		marshaller:     marshaller,
 		keyPrefix:      []byte(""),
-		accountsCacher: accountsCacher,
 		forkController: forkController,
 		kappController: kappController,
 	}
@@ -83,17 +79,8 @@ func (e *kleverUpdateAccountPermission) ProcessBuiltinFunction(vmInput *vmcommon
 	gasRemaining := computeGasRemaining(vmInput.GasProvided, e.funcGasCost)
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
 
-	acc, err := e.accountsCacher.LoadUser(address)
-	if err != nil {
-		return nil, err
-	}
-
-	if !e.contractHasValidPermission(acc.GetPermissions(), vmInput.RecipientAddr) {
-		return nil, errors.New("invalid permission operation")
-	}
-
 	//Using Kapps
-	resultCode, err := e.kappController.GetAccountsKApp().UpdatePermission(address, contract)
+	resultCode, err := e.kappController.GetAccountsKApp().UpdatePermission(vmInput.CallerAddr, address, contract)
 	if err != nil {
 		log.Trace("UpdatePermission error", "resultCode", resultCode, "err", err.Error())
 		return nil, err
@@ -106,26 +93,6 @@ func (e *kleverUpdateAccountPermission) ProcessBuiltinFunction(vmInput *vmcommon
 	}
 
 	return vmOutput, nil
-}
-
-// contractHasValidPermission checks if the contract has valid permission to update account permission
-// we don't have information of witch contract permID to check, so we are checking over all permissions
-// of the account where Contract is a signer with the required threshold
-func (e *kleverUpdateAccountPermission) contractHasValidPermission(permissions []*state.Permission, recipientAddr []byte) bool {
-	for _, permission := range permissions {
-		for _, signer := range permission.Signers {
-			if !bytes.Equal(signer.Address, recipientAddr) {
-				continue
-			}
-
-			if signer.Weight >= permission.Threshold &&
-				permission.CheckPermissionGrantedForContracts(transaction.TXContract_UpdateAccountPermissionContractType) {
-				return true
-			}
-		}
-	}
-
-	return false
 }
 
 // getUpdateAccountPermissionContract convert the arguments to an UpdateAccountPermissionContract

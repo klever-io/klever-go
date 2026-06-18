@@ -109,7 +109,7 @@ type AccountsKapp interface {
 	ClaimStaking(sender []byte, tc *transaction.ClaimContract) (transaction.Transaction_TXResultCode, error)
 	ClaimAllowance(sender []byte, tc *transaction.ClaimContract) (transaction.Transaction_TXResultCode, error)
 	SetAccountName(sender []byte, tc *transaction.SetAccountNameContract) (transaction.Transaction_TXResultCode, error)
-	UpdatePermission(sender []byte, tc *transaction.UpdateAccountPermissionContract) (transaction.Transaction_TXResultCode, error)
+	UpdatePermission(authorizer []byte, target []byte, tc *transaction.UpdateAccountPermissionContract) (transaction.Transaction_TXResultCode, error)
 	IsInterfaceNil() bool
 }
 

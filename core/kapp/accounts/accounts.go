@@ -1860,7 +1860,24 @@ func (a *accountsKapp) createDefaultOwnerPermission(ownerAcc state.UserAccountHa
 	}
 }
 
-func (a *accountsKapp) UpdatePermission(sender []byte, tc *transaction.UpdateAccountPermissionContract) (transaction.Transaction_TXResultCode, error) {
+func authorizerCanUpdatePermission(permissions []*state.Permission, authorizer []byte) bool {
+	for _, permission := range permissions {
+		for _, signer := range permission.Signers {
+			if !bytes.Equal(signer.Address, authorizer) {
+				continue
+			}
+
+			if signer.Weight >= permission.Threshold &&
+				permission.CheckPermissionGrantedForContracts(transaction.TXContract_UpdateAccountPermissionContractType) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (a *accountsKapp) UpdatePermission(authorizer []byte, target []byte, tc *transaction.UpdateAccountPermissionContract) (transaction.Transaction_TXResultCode, error) {
 	ctx := a.KAppController.GetCurrentKAppContext()
 
 	if err := a.validatePermissionParams(tc); err != nil {
@@ -1868,10 +1885,15 @@ func (a *accountsKapp) UpdatePermission(sender []byte, tc *transaction.UpdateAcc
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
-	ownerAcc, err := a.GetExistingUserAccount(sender)
+	ownerAcc, err := a.GetExistingUserAccount(target)
 	if err != nil {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldLoadSenderAccount, err.Error())
 		return transaction.Transaction_LoadAccountError, err
+	}
+
+	if !bytes.Equal(authorizer, target) && !authorizerCanUpdatePermission(ownerAcc.GetPermissions(), authorizer) {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPermission, common.ErrNoPermission.Error())
+		return transaction.Transaction_ParameterInvalid, common.ErrNoPermission
 	}
 
 	permissions := make([]*state.Permission, 0)
@@ -1911,7 +1933,7 @@ func (a *accountsKapp) UpdatePermission(sender []byte, tc *transaction.UpdateAcc
 	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.UpdateAccountPermission,
 		ctx.ContractID(),
-		sender,
+		target,
 	))
 
 	return transaction.Transaction_Ok, nil
