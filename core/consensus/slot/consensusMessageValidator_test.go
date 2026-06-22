@@ -82,7 +82,11 @@ func TestCheckMessageWithFinalInfoValidity_InvalidAggregateSignatureSize(t *test
 	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
 	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
 
-	cnsMsg := &consensus.Message{PubKeysBitmap: []byte("01"), AggregateSignature: []byte("0")}
+	// canonicalBitmap is a correctly sized bitmap (2 bytes for the 9-validator group) with every
+	// padding bit (positions 9..15) cleared, so it passes the size and padding gates and lets the
+	// test reach the signature-size checks.
+	canonicalBitmap := []byte{0x01, 0x01}
+	cnsMsg := &consensus.Message{PubKeysBitmap: canonicalBitmap, AggregateSignature: []byte("0")}
 	err := cmv.CheckMessageWithFinalInfoValidity(cnsMsg)
 	assert.True(t, errors.Is(err, slot.ErrInvalidSignatureSize))
 }
@@ -95,9 +99,26 @@ func TestCheckMessageWithFinalInfoValidity_InvalidLeaderSignatureSize(t *testing
 
 	sig := make([]byte, SignatureSize)
 	_, _ = rand.Read(sig)
-	cnsMsg := &consensus.Message{PubKeysBitmap: []byte("01"), AggregateSignature: sig, LeaderSignature: []byte("0")}
+	cnsMsg := &consensus.Message{PubKeysBitmap: []byte{0x01, 0x01}, AggregateSignature: sig, LeaderSignature: []byte("0")}
 	err := cmv.CheckMessageWithFinalInfoValidity(cnsMsg)
 	assert.True(t, errors.Is(err, slot.ErrInvalidSignatureSize))
+}
+
+// TestCheckMessageWithFinalInfoValidity_NonZeroPaddingBits is the KLR-04 regression at the consensus
+// message layer: a final-info message correctly sized but with padding bits (positions 9..15 for the
+// 9-validator group) set must be rejected before the bitmap is copied into a header and verified.
+func TestCheckMessageWithFinalInfoValidity_NonZeroPaddingBits(t *testing.T) {
+	t.Parallel()
+
+	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
+	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
+
+	sig := make([]byte, SignatureSize)
+	_, _ = rand.Read(sig)
+	// 0xfe in the final byte sets padding bits 9..15; bit 8 (index for validator 9's slot) is unset.
+	cnsMsg := &consensus.Message{PubKeysBitmap: []byte{0x01, 0xfe}, AggregateSignature: sig, LeaderSignature: sig}
+	err := cmv.CheckMessageWithFinalInfoValidity(cnsMsg)
+	assert.True(t, errors.Is(err, slot.ErrInvalidPublicKeyBitmapSize))
 }
 
 func TestCheckMessageWithFinalInfoValidity_ShouldWork(t *testing.T) {
@@ -108,7 +129,7 @@ func TestCheckMessageWithFinalInfoValidity_ShouldWork(t *testing.T) {
 
 	sig := make([]byte, SignatureSize)
 	_, _ = rand.Read(sig)
-	cnsMsg := &consensus.Message{PubKeysBitmap: []byte("01"), AggregateSignature: sig, LeaderSignature: sig}
+	cnsMsg := &consensus.Message{PubKeysBitmap: []byte{0x01, 0x01}, AggregateSignature: sig, LeaderSignature: sig}
 	err := cmv.CheckMessageWithFinalInfoValidity(cnsMsg)
 	assert.Nil(t, err)
 }

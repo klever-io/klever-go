@@ -512,8 +512,10 @@ func TestHeaderSigVerifier_VerifySignatureNotEnoughSigsShouldErr(t *testing.T) {
 	args.NodesCoordinator = nodesCoordinator
 
 	hdrSigVerifier, _ := headerCheck.NewHeaderSigVerifier(args)
+	// 5 validators (indices 0..4); bitmap 0x03 sets bits 0,1 - canonical (no padding) but
+	// below the PBFT threshold, so it must fail with ErrNotEnoughSignatures.
 	header := &block.Block{Header: &block.BlockHeader{},
-		PubKeysBitmap: []byte("A"),
+		PubKeysBitmap: []byte{0x03},
 	}
 
 	err := hdrSigVerifier.VerifySignature(header)
@@ -545,8 +547,9 @@ func TestHeaderSigVerifier_VerifySignatureOk(t *testing.T) {
 	}
 
 	hdrSigVerifier, _ := headerCheck.NewHeaderSigVerifier(args)
+	// single validator (index 0); bitmap 0x01 sets only bit 0 - canonical, no padding bits.
 	header := &block.Block{Header: &block.BlockHeader{},
-		PubKeysBitmap: []byte("1"),
+		PubKeysBitmap: []byte{0x01},
 	}
 
 	err := hdrSigVerifier.VerifySignature(header)
@@ -586,8 +589,10 @@ func TestHeaderSigVerifier_VerifySignatureNotEnoughSigsShouldErrWhenFallbackThre
 	args.MultiSigVerifier = multiSigVerifier
 
 	hdrSigVerifier, _ := headerCheck.NewHeaderSigVerifier(args)
+	// 5 validators (indices 0..4); bitmap 0x07 sets bits 0,1,2 - canonical (no padding) but
+	// below the PBFT threshold, so it must fail with ErrNotEnoughSignatures.
 	header := &block.Block{Header: &block.BlockHeader{},
-		PubKeysBitmap: []byte("C"),
+		PubKeysBitmap: []byte{0x07},
 	}
 
 	err := hdrSigVerifier.VerifySignature(header)
@@ -627,8 +632,10 @@ func TestHeaderSigVerifier_VerifySignatureOkWhenFallbackThresholdCouldBeApplied(
 	args.MultiSigVerifier = multiSigVerifier
 
 	hdrSigVerifier, _ := headerCheck.NewHeaderSigVerifier(args)
+	// 5 validators (indices 0..4); bitmap 0x07 sets bits 0,1,2 - canonical (no padding) and
+	// enough to satisfy the lower fallback threshold.
 	header := &block.Block{Header: &block.BlockHeader{},
-		PubKeysBitmap: []byte("C"),
+		PubKeysBitmap: []byte{0x07},
 	}
 
 	err := hdrSigVerifier.VerifySignature(header)

@@ -675,7 +675,7 @@ func TestBLSMultiSigner_VerifyAggSigNotSetShouldErr(t *testing.T) {
 
 	msg := []byte("message")
 	multiSigner, bitmap := createAndAddSignatureSharesBLS(msg)
-	err := multiSigner.Verify(bitmap, msg)
+	err := multiSigner.Verify(msg, bitmap)
 
 	assert.NotNil(t, err)
 	assert.Equal(t, crypto.ErrNilSignature, err)
