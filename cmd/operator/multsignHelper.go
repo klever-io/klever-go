@@ -4,6 +4,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/klever-io/klever-go/crypto/signing/ed25519/singlesig"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/tools"
+	"github.com/klever-io/klever-go/tools/display"
 	"github.com/klever-io/klever-go/tools/marshal/factory"
 	"github.com/nwidger/jsoncolor"
 	"github.com/pkg/errors"
@@ -27,20 +30,287 @@ type MSApiEncoded struct {
 	Address string
 	Raw     *transaction.Transaction
 }
-
-type MSApiTransaction struct {
-	Hash    string `json:"hash"`
+type MSApiSigner struct {
 	Address string `json:"address"`
-	Signers []struct {
-		Address string `json:"address"`
-		Weight  int64  `json:"weight"`
-		Signed  bool   `json:"signed"`
-	} `json:"signers"`
-	Threshold int64 `json:"threshold"`
+	Weight  int64  `json:"weight"`
+	Signed  bool   `json:"signed"`
+}
+type MSApiTransaction struct {
+	Hash      string        `json:"hash"`
+	Address   string        `json:"address"`
+	Signers   []MSApiSigner `json:"signers"`
+	Threshold int64         `json:"threshold"`
 
 	Raw *transaction.Transaction `json:"raw"`
 }
+type TransactionPicker struct {
+	Header     []string
+	Lines      []*display.LineData
+	PerPage    int
+	CurrPage   int
+	DrawnLines int
+}
 
+func (p *TransactionPicker) PushLine(line *display.LineData) {
+	if p.Lines == nil {
+		p.Lines = make([]*display.LineData, 0)
+	}
+	line.Values = append([]string{"#"}, line.Values...)
+	p.Lines = append(p.Lines, line)
+}
+func (p *TransactionPicker) Draw(lines []*display.LineData, msg string, canPrev, canNext bool) error {
+	for i := range lines {
+		lines[i].Values[0] = fmt.Sprintf("%d", i)
+	}
+	ln, err := display.CreateTableString(p.Header, lines)
+	if err != nil {
+		return err
+	}
+	if msg != "" {
+		ln = fmt.Sprintf("%s\n%s", ln, msg)
+	}
+	ln += fmt.Sprintf("\n Page %d/%d [0-%d]: Select Transaction", p.CurrPage+1, len(p.Lines)/p.PerPage+1, len(lines)-1)
+	if canPrev {
+		ln += ", [p]revious page"
+	}
+	if canNext {
+		ln += ", [n]ext page"
+	}
+	ln += ", [q]uit \n Input: "
+	fmt.Print(ln)
+	p.DrawnLines = strings.Count(ln, "\n") + 1
+	return nil
+}
+func (p *TransactionPicker) ClearDrawn() {
+	fmt.Printf("\033[%dA\r\033[J", p.DrawnLines)
+	p.DrawnLines = 0
+}
+
+type PickerAction string
+
+const (
+	PickerActionSelect  PickerAction = "select"
+	PickerActionNext    PickerAction = "next"
+	PickerActionPrev    PickerAction = "prev"
+	PickerActionQuit    PickerAction = "quit"
+	PickerActionInvalid PickerAction = "invalid"
+)
+
+func parsePickerInput(input string, pageItems int, canPrev, canNext bool) (int, PickerAction) {
+	idx, err := strconv.Atoi(input)
+	switch {
+	case err == nil && idx >= 0 && idx < pageItems:
+		return idx, PickerActionSelect
+	case input == "n" && canNext:
+		return 0, PickerActionNext
+	case input == "p" && canPrev:
+		return 0, PickerActionPrev
+	case input == "q":
+		return 0, PickerActionQuit
+	default:
+		return 0, PickerActionInvalid
+	}
+}
+
+func (p *TransactionPicker) HandlePageInput(pageItems int, canPrev, canNext bool) (int, string, error) {
+	var input string
+	if _, err := fmt.Scan(&input); err != nil {
+		return 0, "", fmt.Errorf("read transaction selection: %w", err)
+	}
+	idx, action := parsePickerInput(input, pageItems, canPrev, canNext)
+	switch action {
+	case PickerActionSelect:
+		return idx, "", nil
+	case PickerActionNext:
+		p.CurrPage += 1
+		return 0, "page", nil
+	case PickerActionPrev:
+		p.CurrPage -= 1
+		return 0, "page", nil
+	case PickerActionQuit:
+		return 0, "quit", nil
+	case PickerActionInvalid:
+		return 0, "invalid", nil
+	}
+	return 0, "invalid", nil
+}
+func (p *TransactionPicker) PickTransaction() (int, error) {
+	message := ""
+	for {
+		offset := p.CurrPage * p.PerPage
+		limit := min(offset+p.PerPage, len(p.Lines))
+		lines := p.Lines[offset:limit]
+		canPrev := p.CurrPage > 0
+		canNext := limit < len(p.Lines)
+		err := p.Draw(lines, message, canPrev, canNext)
+		if err != nil {
+			return 0, err
+		}
+		idx, action, err := p.HandlePageInput(len(lines), canPrev, canNext)
+		if err != nil {
+			return 0, err
+		}
+		switch action {
+		case "page":
+			message = ""
+		case "invalid":
+			message = "invalid input, please try again"
+		case "quit":
+			log.Info("transaction picking cancelled by user")
+			return -1, nil
+		default:
+			return offset + idx, nil
+		}
+		p.ClearDrawn()
+		continue
+	}
+}
+
+// func buildTransactionPickerPages(txs *[]MSApiTransaction, perPage int) [][]*display.LineData {
+// 	pages := [][]*display.LineData{make([]*display.LineData, 0)}
+// 	currPage := 0
+// 	for _, tx := range *txs {
+// 		if len(pages[currPage]) >= perPage {
+// 			currPage++
+// 			pages = append(pages, make([]*display.LineData, 0))
+// 		}
+// 		pages[currPage] = append(pages[currPage], buildTxLineData(len(pages[currPage]), &tx))
+// 	}
+// 	return pages
+// }
+
+func buildTxLineData(tx *MSApiTransaction) *display.LineData {
+	signed, currSignatures, currSignatureWeight := aggregateSigners(tx.Signers)
+	txType := extractTxType(tx)
+	return &display.LineData{Values: []string{
+
+		tx.Hash,
+		tx.Address,
+		txType,
+		fmt.Sprintf("%d/%d", currSignatures, len(tx.Signers)),
+		fmt.Sprintf("%d/%d", currSignatureWeight, tx.Threshold),
+		fmt.Sprintf("%t", signed),
+	}}
+}
+
+func aggregateSigners(signers []MSApiSigner) (signed bool, count, weight int64) {
+	for _, signer := range signers {
+		if !signer.Signed {
+			continue
+		}
+		if signer.Address == signerAddress {
+			signed = true
+		}
+		count++
+		weight += signer.Weight
+	}
+	return
+}
+
+func extractTxType(tx *MSApiTransaction) string {
+	unknown := "<unknown>"
+	if tx.Raw == nil || tx.Raw.RawData == nil {
+		return unknown
+	}
+	contracts := tx.Raw.RawData.GetContract()
+	if len(contracts) == 0 {
+		return unknown
+	}
+	parts := strings.SplitN(contracts[0].GetParameter().TypeUrl, "proto.", 2)
+	if len(parts) != 2 {
+		return unknown
+	}
+	return parts[1]
+}
+
+func pendingMsTransactionPicker(txs *[]MSApiTransaction) (*MSApiTransaction, error) {
+	picker := &TransactionPicker{
+		Header:  []string{"#", "hash", "address", "type", "signers", "weight", "signed"},
+		PerPage: 3,
+	}
+	for _, tx := range *txs {
+		picker.PushLine(buildTxLineData(&tx))
+	}
+	idx, err := picker.PickTransaction()
+	if err != nil {
+		return nil, err
+	}
+	if idx == -1 {
+		return nil, nil
+	}
+	return &(*txs)[idx], nil
+}
+func getMSApiTransaction(hash string) (*MSApiTransaction, error) {
+	hash = strings.Replace(hash, "0x", "", 1)
+	if len(hash) != 64 {
+		return nil, fmt.Errorf("invalid TX hash length: %d", len(hash))
+	}
+	_, err := hex.DecodeString(hash)
+	if len(hash) != 64 || err != nil {
+		return nil, fmt.Errorf("invalid TX hash %s", hash)
+	}
+
+	result := MSApiTransaction{}
+	err = utils.GetURL(fmt.Sprintf("%s/transaction/%s", multisignAPI, hash), &result)
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("transaction with hash %s not found in multisign API", hash)
+		}
+		return nil, err
+	}
+	return &result, nil
+}
+func doSignAndPost(tx *MSApiTransaction) error {
+	authorized := false
+	for _, signer := range tx.Signers {
+		if signer.Address == signerAddress {
+			if signer.Signed {
+				fmt.Printf("Transaction %s has already been signed by %s \n", tx.Hash, signerAddress)
+				return nil
+			}
+			authorized = true
+		}
+	}
+	if !authorized {
+		return fmt.Errorf("signer %s is not required to sign transaction %s", signerAddress, tx.Hash)
+	}
+	err := shouldSign(tx.Raw)
+	if err != nil {
+		return err
+	}
+	_, err = SignTX(tx.Raw)
+	if err != nil {
+		return err
+	}
+
+	encoded, err := encodeMSApiData(tx.Raw)
+	if err != nil {
+		return err
+	}
+	return doPostMSTransactionSignature(encoded)
+}
+func doPostMSTransactionSignature(encoded *MSApiEncoded) error {
+	data, err := json.Marshal(encoded)
+	if err != nil {
+		return err
+	}
+
+	broadcastResult := struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	}{}
+	log.Info("posting signature...")
+	err = utils.PostURL(fmt.Sprintf("%s/transaction", multisignAPI), string(data), nil, &broadcastResult)
+	if err != nil {
+		return err
+	}
+	if len(broadcastResult.Error) != 0 {
+		return fmt.Errorf("error posting signature to transaction: %s", broadcastResult.Error)
+	}
+	log.Info("successful posted signature", "txHash", encoded.Hash, "address", encoded.Address)
+
+	return nil
+}
 func encodeMSApiData(tx *transaction.Transaction) (*MSApiEncoded, error) {
 	// compute hash
 	hash, err := computeTxHash(tx)

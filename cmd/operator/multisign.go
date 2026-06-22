@@ -3,11 +3,14 @@ package main
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/klever-io/klever-go/cmd/operator/utils"
 	"github.com/klever-io/klever-go/data/transaction"
+
 	"github.com/spf13/cobra"
 )
 
@@ -80,38 +83,15 @@ func subMS() []*cobra.Command {
 					return err
 				}
 			}
+			return doPostMSTransactionSignature(encoded)
 
-			// marshal
-			data, err := json.Marshal(encoded)
-			if err != nil {
-				return err
-			}
-
-			broadcastResult := struct {
-				Status string `json:"status"`
-				Error  string `json:"error"`
-			}{}
-
-			// broadcast
-			log.Info("broadcasting...")
-			err = utils.PostURL(fmt.Sprintf("%s/transaction", multisignAPI), string(data), nil, &broadcastResult)
-			if err != nil {
-				return err
-			}
-			if len(broadcastResult.Error) != 0 {
-				return fmt.Errorf("error broadcasting transaction: %s", broadcastResult.Error)
-			}
-			log.Info("successful added", "txHash", encoded.Hash, "address", encoded.Address)
-
-			return nil
 		},
 	}
-	cmdMultisignAddTransaction.Flags().StringVar(&multisignAPI, "multisign-api", "https://multisign.mainnet.klever.org", "multisign API URL")
 
 	cmdMultisignBroadcast := &cobra.Command{
 		Use:   "broadcast [Transaction]",
 		Args:  cobra.ExactArgs(1),
-		Short: "broadcast a transaction form multisign API",
+		Short: "broadcast a transaction from multisign API",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hash := args[0]
 			hash = strings.Replace(hash, "0x", "", 1)
@@ -140,7 +120,6 @@ func subMS() []*cobra.Command {
 			return nil
 		},
 	}
-	cmdMultisignBroadcast.Flags().StringVar(&multisignAPI, "multisign-api", "https://multisign.mainnet.klever.org", "multisign API URL")
 
 	cmdMultisignFetch := &cobra.Command{
 		Use:   "by-hash [Transaction]",
@@ -148,25 +127,13 @@ func subMS() []*cobra.Command {
 		Short: "fetch a transaction form multisign API",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hash := args[0]
-			hash = strings.Replace(hash, "0x", "", 1)
-			if len(hash) != 64 {
-				return fmt.Errorf("invalid TX hash length: %d", len(hash))
-			}
-			_, err := hex.DecodeString(hash)
-			if len(hash) != 64 || err != nil {
-				return fmt.Errorf("invalid TX hash %s", hash)
-			}
-
-			result := MSApiTransaction{}
-			err = utils.GetURL(fmt.Sprintf("%s/transaction/%s", multisignAPI, hash), &result)
+			result, err := getMSApiTransaction(hash)
 			if err != nil {
 				return err
 			}
-
 			return DumpAsJson(result)
 		},
 	}
-	cmdMultisignFetch.Flags().StringVar(&multisignAPI, "multisign-api", "https://multisign.mainnet.klever.org", "multisign API URL")
 
 	cmdMultisignByAddress := &cobra.Command{
 		Use:   "by-address [Address]",
@@ -184,8 +151,57 @@ func subMS() []*cobra.Command {
 			return DumpAsJson(result)
 		},
 	}
-	cmdMultisignByAddress.Flags().StringVar(&multisignAPI, "multisign-api", "https://multisign.mainnet.klever.org", "multisign API URL")
-
+	cmdMultiSignAndPost := &cobra.Command{
+		Use:   "sign [txHash]",
+		Short: "sign a transaction from multisign API and post the signature",
+		Example: `operator ms sign <txHash>   — sign specific TX by hash
+operator ms sign <txHash> -s — sign specific TX by hash; skip confirmation prompt 
+operator ms sign             — interactively choose from pending transactions`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			log.Info("signing transaction from multisign API", "address", signerAddress)
+			var tx *MSApiTransaction
+			userTxHash := ""
+			var err error
+			if len(args) == 1 {
+				userTxHash = strings.TrimPrefix(args[0], "0x")
+				tx, err = getMSApiTransaction(userTxHash)
+			} else {
+				autoSign = false
+				log.Info("fetching pending transactions for signing")
+				result := make([]MSApiTransaction, 0)
+				err = utils.GetURL(fmt.Sprintf("%s/transaction/by-address/%s", multisignAPI, signerAddress), &result)
+				if err != nil && !errors.Is(err, io.EOF) {
+					return err
+				}
+				if len(result) == 0 {
+					log.Info("no transactions found for signing")
+					return nil
+				}
+				tx, err = pendingMsTransactionPicker(&result)
+			}
+			if err != nil {
+				return err
+			}
+			if userTxHash != "" && tx != nil {
+				gotTxHash, err := computeTxHash(tx.Raw)
+				if err != nil {
+					return err
+				}
+				encodedGotTxHash := hex.EncodeToString(gotTxHash)
+				if encodedGotTxHash != userTxHash {
+					return fmt.Errorf("transaction hash mismatch: expected %s, got %s", userTxHash, encodedGotTxHash)
+				}
+			}
+			if tx != nil {
+				err = doSignAndPost(tx)
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	}
 	return []*cobra.Command{
 		cmdDecodeTransaction,
 		cmdMultisignEncodeTransaction,
@@ -193,6 +209,7 @@ func subMS() []*cobra.Command {
 		cmdMultisignBroadcast,
 		cmdMultisignFetch,
 		cmdMultisignByAddress,
+		cmdMultiSignAndPost,
 	}
 }
 
@@ -205,6 +222,6 @@ func init() {
 		},
 	}
 	cmdMS.AddCommand(subMS()...)
-
+	cmdMS.PersistentFlags().StringVar(&multisignAPI, "multisign-api", "https://multisign.mainnet.klever.org", "multisign API URL")
 	rootCmd.AddCommand(cmdMS)
 }
