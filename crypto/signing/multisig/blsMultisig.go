@@ -150,6 +150,19 @@ func (bms *blsMultiSigner) CreateSignatureShare(message []byte, _ []byte) ([]byt
 	return sigShareBytes, nil
 }
 
+// hasPaddingBitsSet reports whether the bitmap has any set bit at a position that does not map to
+// a configured public key. For consensus sizes that are not a multiple of 8 these padding bits
+// must be zero; otherwise a caller could inflate the apparent signer set (KLR-04).
+func hasPaddingBitsSet(bitmap []byte, numPubKeys int) bool {
+	for bitIndex := numPubKeys; bitIndex < len(bitmap)*8; bitIndex++ {
+		if bitmap[bitIndex/8]&(1<<uint8(bitIndex%8)) != 0 { // #nosec G115 - bitIndex%8 is always < 8
+			return true
+		}
+	}
+
+	return false
+}
+
 // not concurrent safe, should be used under RLock mutex
 func (bms *blsMultiSigner) isIndexInBitmap(index uint16, bitmap []byte) error {
 	indexOutOfBounds := index >= uint16(len(bms.data.pubKeys)) // #nosec G115
@@ -236,6 +249,10 @@ func (bms *blsMultiSigner) AggregateSigs(bitmap []byte) ([]byte, error) {
 		return nil, crypto.ErrBitmapMismatch
 	}
 
+	if hasPaddingBitsSet(bitmap, len(bms.data.pubKeys)) {
+		return nil, crypto.ErrBitmapPaddingNotZero
+	}
+
 	// for the modified BLS scheme, aggregation is done not between sigs but between H1(pk_i, {pk1,..., pk_n})*sig_i
 	signatures := make([][]byte, 0, len(bms.data.sigShares))
 	pubKeysSigners := make([]crypto.PublicKey, 0, len(bms.data.sigShares))
@@ -281,6 +298,10 @@ func (bms *blsMultiSigner) Verify(message []byte, bitmap []byte) error {
 	flagsMismatch := maxFlags < len(bms.data.pubKeys)
 	if flagsMismatch {
 		return crypto.ErrBitmapMismatch
+	}
+
+	if hasPaddingBitsSet(bitmap, len(bms.data.pubKeys)) {
+		return crypto.ErrBitmapPaddingNotZero
 	}
 
 	pubKeys := make([]crypto.PublicKey, 0)
