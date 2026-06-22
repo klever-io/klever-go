@@ -268,6 +268,17 @@ func (cmv *consensusMessageValidator) checkMessageWithFinalInfoValidity(cnsMsg *
 			len(cnsMsg.PubKeysBitmap))
 	}
 
+	// Reject bitmaps whose padding bits (positions >= consensusGroupSize in the final byte) are set
+	// before the bitmap is copied into a header and passed to VerifySignature. Those positions map to
+	// no real validator, so a malicious leader could otherwise inflate the apparent signer set (KLR-04).
+	if remainder := cmv.consensusState.consensusGroupSize % 8; remainder != 0 {
+		allowedLastByteMask := byte((1 << uint(remainder)) - 1)
+		if cnsMsg.PubKeysBitmap[len(cnsMsg.PubKeysBitmap)-1]&^allowedLastByteMask != 0 {
+			return fmt.Errorf("%w : received public key bitmap from consensus topic has non-zero padding bits",
+				ErrInvalidPublicKeyBitmapSize)
+		}
+	}
+
 	if len(cnsMsg.AggregateSignature) != cmv.signatureSize {
 		return fmt.Errorf("%w : received aggregate signature from consensus topic has an invalid size: %d",
 			ErrInvalidSignatureSize,
