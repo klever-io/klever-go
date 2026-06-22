@@ -265,6 +265,7 @@ type AccountsCacher interface {
 	GetExistingPeer(address []byte) (PeerAccountHandler, error)
 	LoadUser(address []byte) (UserAccountHandler, error)
 	LoadKApp(address []byte) (KAppAccountHandler, error)
+	LoadKAppUncached(address []byte) (KAppAccountHandler, error)
 	LoadPeer(address []byte) (PeerAccountHandler, error)
 	ResetAll(enableCache bool)
 	SaveAll() error

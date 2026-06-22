@@ -192,6 +192,22 @@ func (acc *WorldAccountsCacher) LoadKApp(address []byte) (state.KAppAccountHandl
 	return kappAcc, nil
 }
 
+// LoadKAppUncached loads a fresh KApp account directly from the underlying
+// adapter, bypassing the shared cache.
+func (acc *WorldAccountsCacher) LoadKAppUncached(address []byte) (state.KAppAccountHandler, error) {
+	acnt, err := acc.kapps.LoadAccount(address)
+	if err != nil {
+		return nil, err
+	}
+
+	kappAcc, ok := acnt.(state.KAppAccountHandler)
+	if !ok {
+		return nil, common.ErrWrongTypeAssertion
+	}
+
+	return kappAcc, nil
+}
+
 func (acc *WorldAccountsCacher) LoadPeer(address []byte) (state.PeerAccountHandler, error) {
 	acc.mut.Lock()
 	defer acc.mut.Unlock()

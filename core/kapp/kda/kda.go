@@ -600,3 +600,22 @@ func validateRoyaltiesTransferLimit(royaltiesInfo *transaction.RoyaltiesInfo) er
 
 	return nil
 }
+
+func validateSplitRoyaltyPercentages(royaltiesInfo *transaction.RoyaltiesInfo, fixActive bool) error {
+	if !fixActive || royaltiesInfo == nil {
+		return nil
+	}
+
+	for _, split := range royaltiesInfo.GetSplitRoyalties() {
+		if split.GetPercentTransferPercentage() > core.HundredPercent ||
+			split.GetPercentTransferFixed() > core.HundredPercent ||
+			split.GetPercentMarketPercentage() > core.HundredPercent ||
+			split.GetPercentMarketFixed() > core.HundredPercent ||
+			split.GetPercentITOPercentage() > core.HundredPercent ||
+			split.GetPercentITOFixed() > core.HundredPercent {
+			return common.ErrInvalidValue
+		}
+	}
+
+	return nil
+}

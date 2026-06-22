@@ -7,6 +7,7 @@ import (
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
+	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
@@ -984,4 +985,326 @@ func TestMarketKApp_ConfigMarketplace(t *testing.T) {
 		require.Equal(t, []byte("Updated Marketplace"), updatedMarketplace.Name)
 		require.Equal(t, uint32(1000), updatedMarketplace.ReferralPercentage)
 	})
+}
+
+func TestMarketKApp_ExecuteBuyMarket_RoyaltyReferralInflation(t *testing.T) {
+	t.Parallel()
+
+	const bid = int64(25600000000000)
+
+	collectionID := []byte("NFLATION-ESGO")
+	assetID := []byte("1")
+	marketplaceID := []byte("41dc8c7826c6840e")
+
+	buildScenario := func(t *testing.T, fixEnabled bool) (*marketKapp, state.AccountsCacher, state.KAppAccountHandler, state.UserAccountHandler, *kapps.MarketOrderData) {
+		marketKApp, accCacher, forkController := createTestMarketKApp(t)
+		forkController.FixMarketBuyOverflowValue = fixEnabled
+
+		attacker := defaultAddr
+		bidder := defaultOther
+
+		attackerAcc, err := accCacher.LoadUser(attacker)
+		require.NoError(t, err)
+		require.NoError(t, accCacher.UpdateUser(attackerAcc))
+
+		bidderAcc, err := accCacher.LoadUser(bidder)
+		require.NoError(t, err)
+		require.NoError(t, accCacher.UpdateUser(bidderAcc))
+
+		marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
+		require.NoError(t, err)
+
+		marketplace := &kapps.Marketplace{
+			ID:                 marketplaceID,
+			OwnerAddress:       attacker,
+			Name:               []byte("Inflation Market"),
+			ReferralAddress:    attacker,
+			ReferralPercentage: core.HundredPercent,
+		}
+		require.NoError(t, marketKApp.SetMarketplace(marketKappAcc, marketplace))
+		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft-data")))
+		require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
+
+		asset := &kapps.KDAData{
+			OwnerAddress: attacker,
+			Royalties: &kapps.RoyaltiesData{
+				Address:          attacker,
+				MarketPercentage: core.HundredPercent,
+				SplitRoyalties:   make(map[string]*kapps.RoyaltySplitData),
+			},
+		}
+
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		controllerStub := &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+			GetKDAKAppCalled: func() kapp.KDAKapp {
+				return &stub.KDAKappStub{
+					GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+						return nil, asset, nil
+					},
+				}
+			},
+		}
+		require.NoError(t, marketKApp.SetKAppController(controllerStub))
+
+		order := &kapps.MarketOrderData{
+			ID:                 []byte("f0a545db033c07b2"),
+			MarketplaceID:      marketplaceID,
+			MarketType:         kapps.MarketOrderData_BuyItNow,
+			OwnerAddress:       attacker,
+			CollectionID:       collectionID,
+			AssetID:            assetID,
+			CurrencyID:         kdautils.KLVIdentifier,
+			Price:              bid,
+			ReferralPercentage: core.HundredPercent,
+			CurrentBid:         bid,
+			CurrentBidder:      bidder,
+		}
+
+		return marketKApp, accCacher, marketKappAcc, bidderAcc, order
+	}
+
+	t.Run("FixDisabled_MintsKLVFromThinAir", func(t *testing.T) {
+		marketKApp, accCacher, marketKappAcc, bidderAcc, order := buildScenario(t, false)
+
+		status, err := marketKApp.ExecuteBuyMarket(bidderAcc, marketKappAcc, order, kdautils.KLVIdentifier)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		attackerAcc, err := accCacher.LoadUser(defaultAddr)
+		require.NoError(t, err)
+		// Buyer paid `bid` once, but the attacker collected the bid twice
+		// (referral 100% + royalties 100%): 2*bid credited with nothing debited.
+		require.Equal(t, int64(2*bid), attackerAcc.GetBalance(kdautils.KLVIdentifier, false))
+	})
+
+	t.Run("FixEnabled_RejectsInflation", func(t *testing.T) {
+		marketKApp, accCacher, marketKappAcc, bidderAcc, order := buildScenario(t, true)
+
+		status, err := marketKApp.ExecuteBuyMarket(bidderAcc, marketKappAcc, order, kdautils.KLVIdentifier)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_AmountInvalid, status)
+
+		attackerAcc, err := accCacher.LoadUser(defaultAddr)
+		require.NoError(t, err)
+		require.Equal(t, int64(0), attackerAcc.GetBalance(kdautils.KLVIdentifier, false))
+	})
+}
+
+func TestMarketKApp_ComputeSplitRoyalties_OverflowGuard(t *testing.T) {
+	const pool = int64(1000000)
+	const overflowPct = int64(0x80000000)
+
+	run := func(t *testing.T, fixActive bool) (transaction.Transaction_TXResultCode, error, int64, int64) {
+		marketKApp, accCacher, fc := createTestMarketKApp(t)
+		fc.FixMarketBuyOverflowValue = fixActive
+
+		recipient := makeAddress("splitRcpt")
+		acc, err := accCacher.LoadUser(recipient)
+		require.NoError(t, err)
+		require.NoError(t, accCacher.UpdateUser(acc))
+
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 1 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		order := &kapps.MarketOrderData{ID: []byte("order-1"), MarketplaceID: []byte("mp-1")}
+
+		royaltiesToPay := pool
+		status, err := marketKApp.ComputeSplitRoyalties(ctx, hex.EncodeToString(recipient), order,
+			kdautils.KLVIdentifier, pool, overflowPct, &royaltiesToPay)
+
+		bal := int64(0)
+		if a, e := accCacher.LoadUser(recipient); e == nil {
+			bal = a.GetBalance(kdautils.KLVIdentifier, false)
+		}
+		return status, err, bal, royaltiesToPay
+	}
+
+	t.Run("PreFork_StillMints", func(t *testing.T) {
+		status, err, bal, rtp := run(t, false)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+		require.Greater(t, bal, pool, "pre-fork: split recipient over-paid (mint)")
+		require.Less(t, rtp, int64(0))
+	})
+
+	t.Run("PostFork_Rejected", func(t *testing.T) {
+		status, err, bal, rtp := run(t, true)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+		require.Equal(t, int64(0), bal, "post-fork: nothing credited")
+		require.Equal(t, pool, rtp)
+	})
+}
+
+func TestMarketKApp_ExecuteBuyMarket_SplitOverflowGuard(t *testing.T) {
+	const bid = int64(1000000)
+	collectionID := []byte("OVF-COLL")
+	assetID := []byte("1")
+	marketplaceID := []byte("mp-ovf")
+
+	run := func(t *testing.T, fixActive bool) (transaction.Transaction_TXResultCode, error, int64) {
+		marketKApp, accCacher, fc := createTestMarketKApp(t)
+		fc.FixMarketBuyOverflowValue = fixActive
+
+		seller := defaultAddr
+		bidder := defaultOther
+		splitRecipient := makeAddress("attackerSplit")
+		for _, addr := range [][]byte{seller, bidder, splitRecipient} {
+			acc, err := accCacher.LoadUser(addr)
+			require.NoError(t, err)
+			require.NoError(t, accCacher.UpdateUser(acc))
+		}
+
+		marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
+		require.NoError(t, err)
+		require.NoError(t, marketKApp.SetMarketplace(marketKappAcc, &kapps.Marketplace{
+			ID: marketplaceID, OwnerAddress: seller, Name: []byte("ovf"),
+			ReferralAddress: seller, ReferralPercentage: 0,
+		}))
+		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft")))
+		require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
+
+		asset := &kapps.KDAData{
+			OwnerAddress: seller,
+			Royalties: &kapps.RoyaltiesData{
+				Address:          seller,
+				MarketPercentage: 1000,
+				SplitRoyalties: map[string]*kapps.RoyaltySplitData{
+					hex.EncodeToString(splitRecipient): {PercentMarketPercentage: 0x80000000},
+				},
+			},
+		}
+
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		require.NoError(t, marketKApp.SetKAppController(&stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+			GetKDAKAppCalled: func() kapp.KDAKapp {
+				return &stub.KDAKappStub{
+					GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+						return nil, asset, nil
+					},
+				}
+			},
+		}))
+
+		order := &kapps.MarketOrderData{
+			ID: []byte("order-ovf"), MarketplaceID: marketplaceID,
+			MarketType: kapps.MarketOrderData_BuyItNow, OwnerAddress: seller,
+			CollectionID: collectionID, AssetID: assetID, CurrencyID: kdautils.KLVIdentifier,
+			Price: bid, ReferralPercentage: 0, CurrentBid: bid, CurrentBidder: bidder,
+		}
+		bidderAcc, err := accCacher.LoadUser(bidder)
+		require.NoError(t, err)
+
+		status, err := marketKApp.ExecuteBuyMarket(bidderAcc, marketKappAcc, order, kdautils.KLVIdentifier)
+		splitBal := int64(0)
+		if a, e := accCacher.LoadUser(splitRecipient); e == nil {
+			splitBal = a.GetBalance(kdautils.KLVIdentifier, false)
+		}
+		return status, err, splitBal
+	}
+
+	t.Run("PreFork_MintsDespiteOldGuard", func(t *testing.T) {
+		status, err, splitBal := run(t, false)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+		require.Greater(t, splitBal, bid, "pre-fork: split overflow mints > bid even though marketOwnerAmount >= 0")
+	})
+
+	t.Run("PostFork_Rejected", func(t *testing.T) {
+		status, err, splitBal := run(t, true)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+		require.Equal(t, int64(0), splitBal, "post-fork: no mint, buy rejected")
+	})
+}
+
+func TestMarketKApp_ExecuteBuyMarket_MultiRecipientGuardMidLoop(t *testing.T) {
+	const bid = int64(1000000)
+	collectionID := []byte("MR-COLL")
+	assetID := []byte("1")
+	marketplaceID := []byte("mp-mr")
+
+	marketKApp, accCacher, fc := createTestMarketKApp(t)
+	fc.FixMarketBuyOverflowValue = true
+
+	seller := defaultAddr
+	bidder := defaultOther
+	r1 := makeAddress("split-r1")
+	r2 := makeAddress("split-r2")
+	for _, addr := range [][]byte{seller, bidder, r1, r2} {
+		acc, err := accCacher.LoadUser(addr)
+		require.NoError(t, err)
+		require.NoError(t, accCacher.UpdateUser(acc))
+	}
+
+	marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
+	require.NoError(t, err)
+	require.NoError(t, marketKApp.SetMarketplace(marketKappAcc, &kapps.Marketplace{
+		ID: marketplaceID, OwnerAddress: seller, Name: []byte("mr"),
+		ReferralAddress: seller, ReferralPercentage: 0,
+	}))
+	require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft")))
+	require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
+
+	asset := &kapps.KDAData{
+		OwnerAddress: seller,
+		Royalties: &kapps.RoyaltiesData{
+			Address:          seller,
+			MarketPercentage: 1000,
+			SplitRoyalties: map[string]*kapps.RoyaltySplitData{
+				hex.EncodeToString(r1): {PercentMarketPercentage: 6000},
+				hex.EncodeToString(r2): {PercentMarketPercentage: 6000},
+			},
+		},
+	}
+
+	receiptsStub := mock.NewReceiptsContextStub()
+	ctx := &mock.KAppContextStub{
+		ContractIDCalled: func() int { return 0 },
+		ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+	}
+	require.NoError(t, marketKApp.SetKAppController(&stub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &stub.KDAKappStub{
+				GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, asset, nil
+				},
+			}
+		},
+	}))
+
+	order := &kapps.MarketOrderData{
+		ID: []byte("order-mr"), MarketplaceID: marketplaceID,
+		MarketType: kapps.MarketOrderData_BuyItNow, OwnerAddress: seller,
+		CollectionID: collectionID, AssetID: assetID, CurrencyID: kdautils.KLVIdentifier,
+		Price: bid, ReferralPercentage: 0, CurrentBid: bid, CurrentBidder: bidder,
+	}
+	bidderAcc, err := accCacher.LoadUser(bidder)
+	require.NoError(t, err)
+
+	status, err := marketKApp.ExecuteBuyMarket(bidderAcc, marketKappAcc, order, kdautils.KLVIdentifier)
+	require.Error(t, err)
+	require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+
+	royaltyPool := bid * 1000 / int64(core.HundredPercent)
+	expectedOne := royaltyPool * 6000 / int64(core.HundredPercent)
+	r1acc, err := accCacher.LoadUser(r1)
+	require.NoError(t, err)
+	r2acc, err := accCacher.LoadUser(r2)
+	require.NoError(t, err)
+	credited := r1acc.GetBalance(kdautils.KLVIdentifier, false) + r2acc.GetBalance(kdautils.KLVIdentifier, false)
+	require.Equal(t, expectedOne, credited)
 }

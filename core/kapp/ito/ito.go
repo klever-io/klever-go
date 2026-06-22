@@ -553,6 +553,10 @@ func (i *itoKapp) computeSplitRoyalties(ctx kapp.KappContext, address string, as
 	if err != nil {
 		return transaction.Transaction_ParameterInvalid, err
 	}
+	if i.forkController.FixMarketBuyOverflow() && splitToPay > *royaltiesToPay {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
 	*royaltiesToPay -= splitToPay
 
 	err = splitRoyalty.AddToBalance(splitToPay, assetID, i.forkController.EnableSmartContracts())

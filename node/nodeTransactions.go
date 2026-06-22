@@ -211,7 +211,7 @@ func (n *Node) computeTransactionFees(tx *transaction.Transaction, base *transac
 		totalFees := fees.BandwidthFee + fees.KAppFee
 
 		// Check if KDA has a fee pool set
-		kdaAmount, err := n.kappController.GetKDAFeesPoolKApp().Compute(totalFees, fees.KDAFees)
+		kdaAmount, err := n.kappController.GetKDAFeesPoolKApp().ComputeUncached(totalFees, fees.KDAFees)
 		if err != nil {
 			return nil, err
 		}

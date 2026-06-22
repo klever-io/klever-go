@@ -1,6 +1,7 @@
 package kdafeespool_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -1097,4 +1098,45 @@ func (k *KDAFeeHandlerStub) GetAmount() int64 {
 
 func (k *KDAFeeHandlerStub) IsInterfaceNil() bool {
 	return k == nil
+}
+
+func TestComputeUncached_ConcurrentWithProcessingWrites(t *testing.T) {
+	t.Parallel()
+
+	// block processing mutates the cached fees pool KApp as fees accumulate;
+	// external readers must not race on its dirty-data map
+	sharedApp, err := state.NewKAppAccount([]byte("fees-pool-kapp-addr-............"))
+	require.NoError(t, err)
+
+	args := createMockArgsKDAFeesPool()
+	kapp, err := kdafeespool.NewKDAFeesPoolKApp(args)
+	require.NoError(t, err)
+	require.NoError(t, kapp.SetAccountsCacher(&mock.AccountsCacherStub{
+		LoadKAppCalled: func(address []byte) (state.KAppAccountHandler, error) {
+			return sharedApp, nil
+		},
+		LoadKAppUncachedCalled: func(address []byte) (state.KAppAccountHandler, error) {
+			return state.NewKAppAccount(address)
+		},
+	}))
+
+	feeHandler := &KDAFeeHandlerStub{
+		kda:    []byte("asset-id"),
+		amount: 100,
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			_ = sharedApp.SetStorage([]byte(fmt.Sprintf("pool-%d", i)), []byte("data"))
+		}
+	}()
+
+	for i := 0; i < 500; i++ {
+		// pool does not exist on the fresh copy; the error is expected —
+		// the assertion here is the absence of a data race
+		_, _ = kapp.ComputeUncached(1000, feeHandler)
+	}
+	<-done
 }

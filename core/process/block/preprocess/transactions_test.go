@@ -3,6 +3,7 @@ package preprocess_test
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -431,6 +432,10 @@ func TestTxsPreprocessor_NewTransactionPreprocessorOkValsShouldWork(t *testing.T
 }
 
 func createGoodPreprocessor(dataPool retriever.PoolsHolder) *preprocess.Transactions {
+	return createGoodPreprocessorWithFork(dataPool, newForkController())
+}
+
+func createGoodPreprocessorWithFork(dataPool retriever.PoolsHolder, forkController core.ForkController) *preprocess.Transactions {
 	requestTransaction := func(txHashes [][]byte) {}
 
 	preprocessor, _ := preprocess.NewTransactionPreprocessor(
@@ -445,7 +450,7 @@ func createGoodPreprocessor(dataPool retriever.PoolsHolder) *preprocess.Transact
 		requestTransaction,
 		&commonMock.FeeHandlerStub{},
 		createMockPubkeyConverter(),
-		newForkController(),
+		forkController,
 	)
 
 	return preprocess.NewTransactionsTest(preprocessor)
@@ -1051,4 +1056,42 @@ func TestTransactions_CreateAndProcessBlockTransactions(t *testing.T) {
 	processResult, err = txs.CreateAndProcessBlockTransactions(blk, haveNoTime)
 	assert.Nil(t, err)
 	assert.Equal(t, 0, processResult.Length())
+}
+
+// TestTransactions_CreateAndProcessBlock_ExcludesFrozenSender pins the proposer
+// guarantee: a frozen sender's tx is never proposed (skipped before ProcessTransaction),
+// a normal sender's is. The exclusion comes from the shared emergency guard today and
+// from the FixMarketBuyOverflow check once the guard is retired — the test holds for both.
+func TestTransactions_CreateAndProcessBlock_ExcludesFrozenSender(t *testing.T) {
+	t.Parallel()
+
+	frozenSender, err := hex.DecodeString("54ea28e527d4136508be955374afa54a8c25c19a48c674f412f7ce02db0f4e1b")
+	require.NoError(t, err)
+	require.True(t, common.IsAccountFrozen(frozenSender))
+
+	normalSender, err := hex.DecodeString("11111111111111111111111111111111111111111111111111111111111111ff")
+	require.NoError(t, err)
+	require.False(t, common.IsAccountFrozen(normalSender))
+
+	poolHolders := createCacheWithTransactions(t, []*txcache.WrappedTransaction{
+		{TxHash: []byte("TX-FROZEN"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 1, Sender: frozenSender, Data: [][]byte{}}, GasLimit: 50000}},
+		{TxHash: []byte("TX-NORMAL"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 1, Sender: normalSender, Data: [][]byte{}}, GasLimit: 50000}},
+	})
+
+	txs := createGoodPreprocessorWithFork(poolHolders, &commonMock.ForkControllerStub{FixMarketBuyOverflowValue: true})
+
+	processed := map[string]bool{}
+	txs.GetTXProcessor().(*mock.TxProcessorMock).ProcessTransactionCalled = func(_ *block.Block, _ []byte, tx *transaction.Transaction) error {
+		processed[string(tx.GetSender())] = true
+		return nil
+	}
+	txs.GetEconomicsFee().(*commonMock.FeeHandlerStub).MaxGasLimitPerBlockValue = 300_000
+
+	blk := &block.Block{Header: &block.BlockHeader{Nonce: 1, RandSeed: []byte("rand_seed")}}
+	processResult, err := txs.CreateAndProcessBlockTransactions(blk, func() bool { return true })
+	require.NoError(t, err)
+
+	require.False(t, processed[string(frozenSender)], "a frozen sender must never reach ProcessTransaction on the proposer path")
+	require.True(t, processed[string(normalSender)], "a normal sender must be processed")
+	require.Equal(t, 1, processResult.Length(), "only the normal tx should be included in the proposed block")
 }

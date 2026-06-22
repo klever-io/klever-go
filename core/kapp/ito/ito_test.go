@@ -3647,3 +3647,59 @@ func Test_UpdateTimes_Success(t *testing.T) {
 	assert.Equal(t, int64(200), ito.StartTime)
 	assert.Equal(t, int64(300), ito.EndTime)
 }
+
+func Test_computeSplitRoyalties_OverflowGuard(t *testing.T) {
+	const pool = int64(1000000)
+	const overflowPct = int64(0x80000000)
+
+	run := func(t *testing.T, fixActive bool) (transaction.Transaction_TXResultCode, error, int64, int64) {
+		args := &ArgsNewITOKApp{
+			Marshalizer:    &mock.MarshalizerMock{},
+			PubkeyConv:     &mock.PubkeyConverterMock{},
+			ForkController: mock.NewForkControllerStub(),
+		}
+		args.ForkController.(*mock.ForkControllerStub).SetFork("FixMarketBuyOverflow", fixActive)
+		itoKapp, _ := NewITOKApp(args)
+
+		var credited int64
+		require.NoError(t, itoKapp.SetAccountsCacher(&mock.AccountsCacherStub{
+			LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+				return &mock.UserAccountHandlerStub{
+					AddToBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
+						credited += value
+						return nil
+					},
+				}, nil
+			},
+			UpdateUserCalled: func(account state.AccountHandler) error { return nil },
+		}))
+
+		royaltiesToPay := pool
+		status, err := itoKapp.computeSplitRoyalties(
+			&mock.KAppContextStub{
+				ReceiptsCalled: func() kapp.ReceiptsContext { return &kapp.ReceiptSlice{} },
+			},
+			fmt.Sprintf("%x", "TestAddress"),
+			[]byte("AST-HJK7"),
+			&mock.AccountWrapMock{},
+			pool, overflowPct, &royaltiesToPay,
+		)
+		return status, err, credited, royaltiesToPay
+	}
+
+	t.Run("PreFork_StillMints", func(t *testing.T) {
+		status, err, credited, rtp := run(t, false)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+		require.Greater(t, credited, pool, "pre-fork: split recipient over-paid (mint)")
+		require.Less(t, rtp, int64(0))
+	})
+
+	t.Run("PostFork_Rejected", func(t *testing.T) {
+		status, err, credited, rtp := run(t, true)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+		require.Equal(t, int64(0), credited, "post-fork: nothing credited")
+		require.Equal(t, pool, rtp)
+	})
+}

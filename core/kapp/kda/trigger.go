@@ -589,6 +589,10 @@ func (k *kdaKapp) updateRoyalties(sender []byte, tc *transaction.AssetTriggerCon
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
+	if err := validateSplitRoyaltyPercentages(tc.GetRoyalties(), k.forkController.FixMarketBuyOverflow()); err != nil {
+		return transaction.Transaction_ParameterInvalid, err
+	}
+
 	switch asset.AssetType {
 	case kapps.KDAData_NonFungible,
 		kapps.KDAData_SemiFungible:

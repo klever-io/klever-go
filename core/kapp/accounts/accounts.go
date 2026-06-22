@@ -288,6 +288,11 @@ func (a *accountsKapp) computeSplitRoyalties(address string, assetID []byte, ass
 	if err != nil {
 		return transaction.Transaction_ParameterInvalid, err
 	}
+	if a.forkController.FixMarketBuyOverflow() && splitToPay > *royaltiesToPay {
+		splitCtx := a.KAppController.GetCurrentKAppContext()
+		splitCtx.Receipts().AddError(splitCtx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
 	*royaltiesToPay -= splitToPay
 
 	err = splitRoyalty.AddToBalance(splitToPay, assetID, a.forkController.EnableSmartContracts())
@@ -426,6 +431,14 @@ func (a *accountsKapp) processPercentageRoyaltiesTransfer(tc *transaction.Transf
 	}
 
 	royaltiesToPay := royaltyAmount
+
+	if a.forkController.FixMarketBuyOverflow() {
+		err = acntSrc.SubFromBalance(royaltyAmount, assetID, a.forkController.EnableSmartContracts())
+		if err != nil {
+			return transaction.Transaction_BalanceError, err
+		}
+	}
+
 	for key, value := range kda.Royalties.SplitRoyalties {
 		status, err := a.computeSplitRoyalties(key, assetID, kda.AssetType, acntSrc, royaltyAmount, int64(value.PercentTransferPercentage), &royaltiesToPay)
 		if err != nil {
@@ -442,9 +455,11 @@ func (a *accountsKapp) processPercentageRoyaltiesTransfer(tc *transaction.Transf
 		return transaction.Transaction_LoadAccountError, err
 	}
 
-	err = acntSrc.SubFromBalance(royaltyAmount, assetID, a.forkController.EnableSmartContracts())
-	if err != nil {
-		return transaction.Transaction_BalanceError, err
+	if !a.forkController.FixMarketBuyOverflow() {
+		err = acntSrc.SubFromBalance(royaltyAmount, assetID, a.forkController.EnableSmartContracts())
+		if err != nil {
+			return transaction.Transaction_BalanceError, err
+		}
 	}
 
 	err = royaltyReceiver.AddToBalance(royaltiesToPay, assetID, a.forkController.EnableSmartContracts())

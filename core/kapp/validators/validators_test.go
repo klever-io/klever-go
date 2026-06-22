@@ -844,7 +844,7 @@ func TestPendingRewards(t *testing.T) {
 
 		// Setup mock KApp storage
 		storage := make(map[string][]byte)
-		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+		loadKApp := func(address []byte) (state.KAppAccountHandler, error) {
 			return &mock.KAppAccountHandlerStub{
 				GetStorageCalled: func(key []byte) []byte {
 					return storage[string(key)]
@@ -859,6 +859,8 @@ func TestPendingRewards(t *testing.T) {
 				},
 			}, nil
 		}
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = loadKApp
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppUncachedCalled = loadKApp
 
 		return v
 	}
@@ -1005,7 +1007,7 @@ func TestClaimPendingRewards(t *testing.T) {
 
 		// Setup mock KApp storage with save capability
 		storage := make(map[string][]byte)
-		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+		loadKApp := func(address []byte) (state.KAppAccountHandler, error) {
 			return &mock.KAppAccountHandlerStub{
 				GetStorageCalled: func(key []byte) []byte {
 					return storage[string(key)]
@@ -1020,6 +1022,8 @@ func TestClaimPendingRewards(t *testing.T) {
 				},
 			}, nil
 		}
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = loadKApp
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppUncachedCalled = loadKApp
 
 		// Mock SaveKApp - just return nil for now
 		v.accountsCacher.(*mock.AccountsCacherStub).UpdateKappCalled = func(account state.AccountHandler) error {
@@ -1173,4 +1177,44 @@ func TestClaimPendingRewards(t *testing.T) {
 		assert.Equal(t, saveKAppError, err)
 		assert.Equal(t, int64(0), claimed)
 	})
+}
+
+func TestGetPendingRewards_ConcurrentWithEpochRewardsWrites(t *testing.T) {
+	t.Parallel()
+
+	// block processing writes pending rewards into the cached validators KApp
+	// (savePendingRewardsV2) while an external reader calls GetPendingRewards;
+	// it must not read through the shared cached instance
+	sharedApp, err := state.NewKAppAccount(kapps.ValidatorsKAppAddress)
+	require.NoError(t, err)
+
+	cacher := &mock.AccountsCacherStub{
+		LoadKAppCalled: func(address []byte) (state.KAppAccountHandler, error) {
+			return sharedApp, nil
+		},
+		LoadKAppUncachedCalled: func(address []byte) (state.KAppAccountHandler, error) {
+			return state.NewKAppAccount(address)
+		},
+	}
+
+	v, err := NewValidatorKApp(createMockArgs())
+	require.NoError(t, err)
+	require.NoError(t, v.SetAccountsCacher(cacher))
+
+	readerAddr := makeAddress("delegator-reader")
+	writerAddr := makeAddress("delegator-writer")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := int64(1); i <= 500; i++ {
+			_ = v.setPendingRewards(sharedApp, writerAddr, i)
+		}
+	}()
+
+	for i := 0; i < 500; i++ {
+		_, errGet := v.GetPendingRewards(readerAddr)
+		require.NoError(t, errGet)
+	}
+	<-done
 }

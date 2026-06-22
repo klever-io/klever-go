@@ -5,6 +5,9 @@ import "errors"
 // ErrInvalidValue signals that a nil value has been provided
 var ErrInvalidValue = errors.New("invalid value provided")
 
+// ErrAccountFrozen signals that a transaction was sent from a consensus-frozen account
+var ErrAccountFrozen = errors.New("account is frozen")
+
 // ErrNilSignalChan returns whenever a nil signal channel is provided
 var ErrNilSignalChan = errors.New("nil signal channel")
 

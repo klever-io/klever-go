@@ -1301,7 +1301,7 @@ func (ei *elasticProcessor) getSFTMeta(assetParts []string, asset *data.Asset) e
 		return nil
 	}
 
-	meta, err := ei.kappsController.GetSystemAccountKApp().SFTGetMeta([]byte(assetParts[0]), []byte(assetParts[1]))
+	meta, err := ei.kappsController.GetSystemAccountKApp().SFTGetMetaUncached([]byte(assetParts[0]), []byte(assetParts[1]))
 	if err != nil {
 		return err
 	}

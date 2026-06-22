@@ -1099,8 +1099,9 @@ func (v *validatorsKApp) addToPendingRewards(app state.KAppAccountHandler, addre
 }
 
 // GetPendingRewards retrieves pending rewards for a user address (public method for external access)
+// External callers run outside the processing goroutine, so this reads an uncached copy
 func (v *validatorsKApp) GetPendingRewards(address []byte) (int64, error) {
-	app, err := v.getKApp()
+	app, err := v.accountsCacher.LoadKAppUncached(kapps.ValidatorsKAppAddress)
 	if err != nil {
 		return 0, err
 	}

@@ -11,6 +11,7 @@ type KDAFeesPoolKappStub struct {
 	SetKAppControllerCalled func(controller kapp.KAppController) error
 	SetAccountsCacherCalled func(cacher state.AccountsCacher) error
 	ComputeCalled           func(klvAmount int64, info data.KDAFeeHandler) (int64, error)
+	ComputeUncachedCalled   func(klvAmount int64, info data.KDAFeeHandler) (int64, error)
 	SwapCalled              func(sender state.UserAccountHandler, klvAmount int64, info data.KDAFeeHandler) error
 	ValidateCalled          func(klvFee int64, info data.KDAFeeHandler) error
 	ChangePoolOwnerCalled   func(poolID []byte, sender []byte, newOwner []byte) (transaction.Transaction_TXResultCode, error)
@@ -38,6 +39,13 @@ func (s *KDAFeesPoolKappStub) SetAccountsCacher(cacher state.AccountsCacher) err
 func (s *KDAFeesPoolKappStub) Compute(klvAmount int64, info data.KDAFeeHandler) (int64, error) {
 	if s.ComputeCalled != nil {
 		return s.ComputeCalled(klvAmount, info)
+	}
+	return 0, nil
+}
+
+func (s *KDAFeesPoolKappStub) ComputeUncached(klvAmount int64, info data.KDAFeeHandler) (int64, error) {
+	if s.ComputeUncachedCalled != nil {
+		return s.ComputeUncachedCalled(klvAmount, info)
 	}
 	return 0, nil
 }

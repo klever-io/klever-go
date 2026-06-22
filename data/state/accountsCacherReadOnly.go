@@ -57,6 +57,10 @@ func (roAcc *readOnlyAccountsCacher) LoadKApp(address []byte) (KAppAccountHandle
 	return roAcc.originalAccCacher.LoadKApp(address)
 }
 
+func (roAcc *readOnlyAccountsCacher) LoadKAppUncached(address []byte) (KAppAccountHandler, error) {
+	return roAcc.originalAccCacher.LoadKAppUncached(address)
+}
+
 func (roAcc *readOnlyAccountsCacher) LoadPeer(address []byte) (PeerAccountHandler, error) {
 	return roAcc.originalAccCacher.LoadPeer(address)
 }

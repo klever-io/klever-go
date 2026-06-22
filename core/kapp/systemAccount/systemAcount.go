@@ -129,9 +129,14 @@ func (s *systemAccountKApp) SFTAddCirculation(asset, nonce []byte, amount int64)
 		return err
 	}
 
+	previousCirculation := meta.Circulation
 	meta.Circulation += amount
 
 	log.Trace("SFTAddCirculation", "max supply", meta.MaxSupply, "value", meta.Circulation)
+
+	if s.forkController.FixMarketBuyOverflow() && amount > 0 && meta.Circulation < previousCirculation {
+		return common.ErrMaxSupplyExceeded
+	}
 
 	if meta.Circulation > meta.MaxSupply && meta.MaxSupply != 0 {
 		return common.ErrMaxSupplyExceeded
@@ -144,6 +149,22 @@ func (s *systemAccountKApp) SFTAddCirculation(asset, nonce []byte, amount int64)
 
 func (s *systemAccountKApp) SFTGetMeta(asset, nonce []byte) (*kapps.MetaV2, error) {
 	data, err := s.getKDAData(asset, nonce)
+	if errors.Is(err, common.ErrNilTrie) {
+		return &kapps.MetaV2{Metadata: &kapps.MetaV2Data{}}, nil
+	}
+
+	return data, err
+}
+
+// SFTGetMetaUncached is SFTGetMeta for callers outside the processing
+// goroutine (e.g. the ES indexer); see AccountsCacher.LoadKAppUncached
+func (s *systemAccountKApp) SFTGetMetaUncached(asset, nonce []byte) (*kapps.MetaV2, error) {
+	kapp, err := s.accountsCacher.LoadKAppUncached(kapps.SystemAccountKAppAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := s.getKDADataFromApp(kapp, asset, nonce)
 	if errors.Is(err, common.ErrNilTrie) {
 		return &kapps.MetaV2{Metadata: &kapps.MetaV2Data{}}, nil
 	}
@@ -190,6 +211,10 @@ func (s *systemAccountKApp) getKDAData(asset, nonce []byte) (*kapps.MetaV2, erro
 		return nil, err
 	}
 
+	return s.getKDADataFromApp(kapp, asset, nonce)
+}
+
+func (s *systemAccountKApp) getKDADataFromApp(kapp state.KAppAccountHandler, asset, nonce []byte) (*kapps.MetaV2, error) {
 	key := kdautils.ToKDAKey(asset, nonce)
 	log.Trace("getKDAData", "key", string(key))
 

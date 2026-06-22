@@ -413,6 +413,10 @@ func (m *marketKapp) computeSplitRoyalties(ctx kapp.KappContext, address string,
 	if err != nil {
 		return transaction.Transaction_ParameterInvalid, err
 	}
+	if m.forkController.FixMarketBuyOverflow() && splitToPay > *royaltiesToPay {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
 	*royaltiesToPay -= splitToPay
 
 	err = splitRoyalty.AddToBalance(splitToPay, currencyID, m.forkController.EnableSmartContracts())
@@ -589,6 +593,11 @@ func (m *marketKapp) executeBuyMarket(bidderAcc state.UserAccountHandler, market
 		return transaction.Transaction_ParameterInvalid, err
 	}
 	marketOwnerAmount := marketOrder.CurrentBid - referralAmount - royaltiesAmount
+
+	if m.forkController.FixMarketBuyOverflow() && marketOwnerAmount < 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, common.ErrInvalidValue.Error())
+		return transaction.Transaction_AmountInvalid, common.ErrInvalidValue
+	}
 
 	status, err := m.computeReferralAmount(ctx, marketOrder, referralAmount, currencyID)
 	if err != nil {

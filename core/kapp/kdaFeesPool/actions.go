@@ -486,6 +486,21 @@ func (v *kdaFeesPoolKApp) Compute(klvFee int64, info data.KDAFeeHandler) (int64,
 		return 0, err
 	}
 
+	return v.computeValue(app, klvFee, info)
+}
+
+// ComputeUncached is Compute for callers outside the processing goroutine
+// (e.g. the REST API); see AccountsCacher.LoadKAppUncached
+func (v *kdaFeesPoolKApp) ComputeUncached(klvFee int64, info data.KDAFeeHandler) (int64, error) {
+	app, err := v.accountsCacher.LoadKAppUncached(kapps.KDAFeesPoolKAppAddress)
+	if err != nil {
+		return 0, err
+	}
+
+	return v.computeValue(app, klvFee, info)
+}
+
+func (v *kdaFeesPoolKApp) computeValue(app state.KAppAccountHandler, klvFee int64, info data.KDAFeeHandler) (int64, error) {
 	_, value, err := v.compute(app, klvFee, info)
 
 	return value, err

@@ -329,6 +329,24 @@ func Test_CreateKDA(t *testing.T) {
 			Status:    transaction.Transaction_ParameterInvalid,
 		},
 		{
+			Description: "Split royalty percentage over limit",
+			TransactionContract: &transaction.CreateAssetContract{
+				OwnerAddress: makeAddress("valid"),
+				Name:         []byte("KDA"),
+				Ticker:       []byte("KDA"),
+				MaxSupply:    100,
+				Type:         transaction.CreateAssetContract_Fungible,
+				Royalties: &transaction.RoyaltiesInfo{
+					SplitRoyalties: map[string]*transaction.RoyaltySplitInfo{
+						"recipient": {PercentTransferFixed: core.HundredPercent + 1},
+					},
+				},
+			},
+			AccCacher: validAccCacher,
+			Error:     common.ErrInvalidValue,
+			Status:    transaction.Transaction_ParameterInvalid,
+		},
+		{
 			Description: "Invalid address length",
 			TransactionContract: &transaction.CreateAssetContract{
 				OwnerAddress: makeAddress("valid"),
@@ -379,4 +397,57 @@ func Test_CreateKDA(t *testing.T) {
 			assert.Equal(tt.Error, err)
 		})
 	}
+}
+
+func Test_validateSplitRoyaltyPercentages(t *testing.T) {
+	overflow := &transaction.RoyaltiesInfo{
+		SplitRoyalties: map[string]*transaction.RoyaltySplitInfo{
+			"a": {PercentTransferFixed: 0x80000000},
+			"b": {PercentTransferFixed: 0x80000000},
+		},
+	}
+	valid := &transaction.RoyaltiesInfo{
+		SplitRoyalties: map[string]*transaction.RoyaltySplitInfo{
+			"a": {PercentTransferFixed: 5000},
+			"b": {PercentTransferFixed: 5000},
+		},
+	}
+
+	require.NoError(t, validateSplitRoyaltyPercentages(overflow, false))
+	require.ErrorIs(t, validateSplitRoyaltyPercentages(overflow, true), common.ErrInvalidValue)
+	require.NoError(t, validateSplitRoyaltyPercentages(valid, true))
+	require.NoError(t, validateSplitRoyaltyPercentages(nil, true))
+
+	over := core.HundredPercent + 1
+	perField := map[string]*transaction.RoyaltySplitInfo{
+		"PercentTransferPercentage": {PercentTransferPercentage: over},
+		"PercentTransferFixed":      {PercentTransferFixed: over},
+		"PercentMarketPercentage":   {PercentMarketPercentage: over},
+		"PercentMarketFixed":        {PercentMarketFixed: over},
+		"PercentITOPercentage":      {PercentITOPercentage: over},
+		"PercentITOFixed":           {PercentITOFixed: over},
+	}
+	for name, split := range perField {
+		t.Run(name, func(t *testing.T) {
+			ri := &transaction.RoyaltiesInfo{
+				SplitRoyalties: map[string]*transaction.RoyaltySplitInfo{"a": split},
+			}
+			require.NoError(t, validateSplitRoyaltyPercentages(ri, false))
+			require.ErrorIs(t, validateSplitRoyaltyPercentages(ri, true), common.ErrInvalidValue)
+		})
+	}
+
+	atLimit := &transaction.RoyaltiesInfo{
+		SplitRoyalties: map[string]*transaction.RoyaltySplitInfo{
+			"a": {
+				PercentTransferPercentage: core.HundredPercent,
+				PercentTransferFixed:      core.HundredPercent,
+				PercentMarketPercentage:   core.HundredPercent,
+				PercentMarketFixed:        core.HundredPercent,
+				PercentITOPercentage:      core.HundredPercent,
+				PercentITOFixed:           core.HundredPercent,
+			},
+		},
+	}
+	require.NoError(t, validateSplitRoyaltyPercentages(atLimit, true))
 }

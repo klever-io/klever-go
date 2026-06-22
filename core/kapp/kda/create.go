@@ -83,6 +83,11 @@ func (k *kdaKapp) Create(sender []byte, tc *transaction.CreateAssetContract) (tr
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
+	if err := validateSplitRoyaltyPercentages(tc.GetRoyalties(), k.forkController.FixMarketBuyOverflow()); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoyalties, err.Error())
+		return transaction.Transaction_ParameterInvalid, err
+	}
+
 	switch asset.AssetType {
 	case kapps.KDAData_NonFungible,
 		kapps.KDAData_SemiFungible:

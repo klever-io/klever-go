@@ -300,6 +300,14 @@ func (txProc *txProcessor) ProcessTransaction(block *block.Block, txHash []byte,
 		return err
 	}
 
+	// Consensus account freeze (FixMarketBuyOverflow fork): reject a tx from a frozen
+	// sender before any state is touched. On the apply/verify path, so a block
+	// carrying such a tx is rejected fleet-wide.
+	if txProc.forkController.FixMarketBuyOverflow() && common.IsAccountFrozen(tx.GetSender()) {
+		tx.ResultCode = transaction.Transaction_ParameterInvalid
+		return common.ErrAccountFrozen
+	}
+
 	ownerAcc, err := txProc.accountsCacher.GetExistingUser(tx.GetSender())
 	if err != nil {
 		tx.ResultCode = transaction.Transaction_AccountError

@@ -25,6 +25,10 @@ enableEpochs:
   epochRewardsV2: 0
   # Audit Changes V2
   fixAuditChangesV2: 0
+  # Overflow / mint-past-bound guards: market buy settlement and split
+  # royalties (GHSA-p7gw-2pcp-5pf8), and SFT add-quantity circulation
+  # overflow (GHSA-mrpp-v6pg-p54x).
+  fixMarketBuyOverflow: 0
 
 gasSchedule:
   gasScheduleByEpochs:

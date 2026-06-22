@@ -706,6 +706,13 @@ func (txs *transactions) createAndProcessBlock(
 		// clear any TX previous processing status
 		tx.PrepareForProcessing()
 
+		// Consensus account freeze (FixMarketBuyOverflow fork): never propose a tx from a
+		// frozen sender — it would be rejected on verify and invalidate the block.
+		if txs.forkProcessor.FixMarketBuyOverflow() && common.IsAccountFrozen(tx.GetSender()) {
+			numTxsSkipped++
+			continue
+		}
+
 		txHash := sortedTxs[index].TxHash
 		if len(senderAddressToSkip) > 0 {
 			if bytes.Equal(senderAddressToSkip, tx.GetSender()) {

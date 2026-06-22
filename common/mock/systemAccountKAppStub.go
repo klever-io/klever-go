@@ -8,12 +8,13 @@ import (
 
 // SystemAccountKappStub is a stub implementation of the SystemAccountKapp interface
 type SystemAccountKappStub struct {
-	SetKAppControllerCalled func(controller kapp.KAppController) error
-	SetAccountsCacherCalled func(cacher state.AccountsCacher) error
-	SFTSetMetadataCalled    func(asset, nonce []byte, args [][]byte) error
-	SFTAddCirculationCalled func(asset, nonce []byte, amount int64) error
-	SFTCreateMetaCalled     func(asset, nonce []byte, supply int64, hash []byte) error
-	SFTGetMetaCalled        func(asset, nonce []byte) (*kapps.MetaV2, error)
+	SetKAppControllerCalled  func(controller kapp.KAppController) error
+	SetAccountsCacherCalled  func(cacher state.AccountsCacher) error
+	SFTSetMetadataCalled     func(asset, nonce []byte, args [][]byte) error
+	SFTAddCirculationCalled  func(asset, nonce []byte, amount int64) error
+	SFTCreateMetaCalled      func(asset, nonce []byte, supply int64, hash []byte) error
+	SFTGetMetaCalled         func(asset, nonce []byte) (*kapps.MetaV2, error)
+	SFTGetMetaUncachedCalled func(asset, nonce []byte) (*kapps.MetaV2, error)
 }
 
 // SetKAppController is the mock implementation for SetKAppController
@@ -60,6 +61,14 @@ func (saks *SystemAccountKappStub) SFTCreateMeta(asset, nonce []byte, supply int
 func (saks *SystemAccountKappStub) SFTGetMeta(asset, nonce []byte) (*kapps.MetaV2, error) {
 	if saks.SFTGetMetaCalled != nil {
 		return saks.SFTGetMetaCalled(asset, nonce)
+	}
+	return nil, nil
+}
+
+// SFTGetMetaUncached is the mock implementation for SFTGetMetaUncached
+func (saks *SystemAccountKappStub) SFTGetMetaUncached(asset, nonce []byte) (*kapps.MetaV2, error) {
+	if saks.SFTGetMetaUncachedCalled != nil {
+		return saks.SFTGetMetaUncachedCalled(asset, nonce)
 	}
 	return nil, nil
 }

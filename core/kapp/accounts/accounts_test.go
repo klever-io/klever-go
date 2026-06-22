@@ -2337,7 +2337,7 @@ func Test_LoadKDA(t *testing.T) {
 func Test_ComputeSplitRoyalties(t *testing.T) {
 	fixedValue := int64(100)
 	fixedPercentage := int64(20_00)
-	royaltiesToPay := int64(0)
+	royaltiesToPay := fixedValue
 
 	tests := []struct {
 		description    string
@@ -3442,6 +3442,158 @@ func Test_ProcessPercentageRoyaltiesTransfer(t *testing.T) {
 			assert.Equal(tt.expectedStatus, status)
 		})
 	}
+}
+
+func TestFix_PercentRoyalty100SplitDebitsSenderAndConserves(t *testing.T) {
+	const (
+		assetIDStr    = "FUNGI-1234"
+		transferValue = int64(800)
+		royaltyRate   = uint32(500)
+		royaltyAmount = int64(40)
+	)
+	assetID := []byte(assetIDStr)
+
+	senderAddr := bytes.Repeat([]byte{0x11}, 32)
+	recipientAddr := bytes.Repeat([]byte{0x22}, 32)
+	recipientKey := hex.EncodeToString(recipientAddr)
+	royaltyReceiverAddr := bytes.Repeat([]byte{0x33}, 32)
+
+	buildKDA := func(splitPercent uint32) *kapps.KDAData {
+		return &kapps.KDAData{
+			AssetType:    kapps.KDAData_Fungible,
+			OwnerAddress: senderAddr,
+			Royalties: &kapps.RoyaltiesData{
+				Address: royaltyReceiverAddr,
+				TransferPercentage: []*kapps.RoyaltyData{
+					{Amount: 1000, Percentage: royaltyRate},
+				},
+				SplitRoyalties: map[string]*kapps.RoyaltySplitData{
+					recipientKey: {PercentTransferPercentage: splitPercent},
+				},
+			},
+		}
+	}
+
+	type runResult struct {
+		subFromCalls   int
+		subFromAmount  int64
+		addToRecipient int64
+		addToOwnerRem  int64
+		resCode        transaction.Transaction_TXResultCode
+		err            error
+	}
+
+	run := func(t *testing.T, splitPercent uint32, fixActive bool) runResult {
+		t.Helper()
+		res := runResult{}
+
+		acntSrc := &commonMock.UserAccountHandlerStub{
+			AddressBytesCalled: func() []byte { return senderAddr },
+			GetBalanceCalled:   func(_ []byte, _ bool) int64 { return 1_000_000 },
+			SubFromBalanceCalled: func(value int64, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
+				res.subFromCalls++
+				res.subFromAmount += value
+				return nil
+			},
+		}
+		acntDst := &commonMock.UserAccountHandlerStub{
+			AddressBytesCalled: func() []byte { return royaltyReceiverAddr },
+		}
+		splitRecipient := &commonMock.UserAccountHandlerStub{
+			AddressBytesCalled: func() []byte { return recipientAddr },
+			AddToBalanceCalled: func(value int64, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
+				res.addToRecipient += value
+				return nil
+			},
+		}
+		royaltyReceiver := &commonMock.UserAccountHandlerStub{
+			AddressBytesCalled: func() []byte { return royaltyReceiverAddr },
+			AddToBalanceCalled: func(value int64, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
+				res.addToOwnerRem += value
+				return nil
+			},
+		}
+		cacher := &commonMock.AccountsCacherStub{
+			LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+				if bytes.Equal(address, recipientAddr) {
+					return splitRecipient, nil
+				}
+				if bytes.Equal(address, royaltyReceiverAddr) {
+					return royaltyReceiver, nil
+				}
+				return acntSrc, nil
+			},
+			GetExistingUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+				return royaltyReceiver, nil
+			},
+			UpdateUserCalled: func(_ state.AccountHandler) error { return nil },
+		}
+		fc := &integrationMock.ForkControllerStub{
+			KdaFprCalled:               func() bool { return true },
+			EnableSmartContractsCalled: func() bool { return true },
+			FixMarketBuyOverflowCalled: func() bool { return fixActive },
+		}
+		kappController := &kvmStub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext {
+				return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+					OriginalSender: senderAddr,
+					ContractID:     0,
+					ContractType:   transaction.TXContract_TransferContractType,
+					Block:          &block.Block{},
+				})
+			},
+		}
+		a := &accountsKapp{
+			accountsCacher: cacher,
+			forkController: fc,
+			KAppController: kappController,
+		}
+		tc := &transaction.TransferContract{
+			Amount:       transferValue,
+			KDARoyalties: royaltyAmount,
+		}
+		res.resCode, res.err = a.processPercentageRoyaltiesTransfer(tc, assetID, nil, acntSrc, acntDst, buildKDA(splitPercent))
+		return res
+	}
+
+	t.Run("fix_on_100pct_conserves", func(t *testing.T) {
+		r := run(t, core.HundredPercent, true)
+
+		require.NoError(t, r.err)
+		require.Equal(t, transaction.Transaction_Ok, r.resCode)
+		require.Equal(t, 1, r.subFromCalls,
+			"sender royalty pool must be debited exactly once, before the split distribution")
+		require.Equal(t, royaltyAmount, r.subFromAmount,
+			"sender must be debited the full royalty pool")
+		require.Equal(t, royaltyAmount, r.addToRecipient,
+			"split recipient receives the full royalty pool")
+		require.Equal(t, int64(0), r.addToOwnerRem,
+			"no owner remainder at a 100 percent split")
+		require.Equal(t, r.subFromAmount, r.addToRecipient+r.addToOwnerRem,
+			"value conserved: total credited equals the sender debit (no mint)")
+	})
+
+	t.Run("fix_off_100pct_legacy_preserved", func(t *testing.T) {
+		r := run(t, core.HundredPercent, false)
+
+		require.NoError(t, r.err)
+		require.Equal(t, transaction.Transaction_Ok, r.resCode)
+		require.Equal(t, 0, r.subFromCalls,
+			"pre-fork behavior is unchanged: the debit is still skipped at a 100 percent split")
+	})
+
+	t.Run("fix_on_50pct_conserves", func(t *testing.T) {
+		r := run(t, core.HundredPercent/2, true)
+
+		require.NoError(t, r.err)
+		require.Equal(t, transaction.Transaction_Ok, r.resCode)
+		require.Equal(t, 1, r.subFromCalls)
+		require.Equal(t, royaltyAmount, r.subFromAmount)
+		require.Equal(t, royaltyAmount/2, r.addToRecipient)
+		require.Equal(t, royaltyAmount/2, r.addToOwnerRem)
+		require.Equal(t, r.subFromAmount, r.addToRecipient+r.addToOwnerRem,
+			"50 percent split conserves")
+	})
 }
 
 func Test_Transfer_ShouldFail(t *testing.T) {
@@ -5642,4 +5794,56 @@ func Test_claimErrorResultCode(t *testing.T) {
 
 func errWrap(msg string, err error) error {
 	return fmt.Errorf("%s: %w", msg, err)
+}
+
+func Test_ComputeSplitRoyalties_OverflowGuard(t *testing.T) {
+	const pool = int64(1000000)
+	const overflowPct = int64(0x80000000)
+
+	run := func(t *testing.T, fixActive bool) (transaction.Transaction_TXResultCode, error, int64, int64) {
+		cfg := config.EnableEpochs{SmartContracts: 0}
+		if !fixActive {
+			cfg.FixMarketBuyOverflow = 1
+		}
+		accKapp := setupAccountsKapp(t, cfg)
+
+		var credited int64
+		_ = accKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+			LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+				return &commonMock.UserAccountHandlerStub{
+					AddToBalanceCalled: func(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error {
+						credited += value
+						return nil
+					},
+				}, nil
+			},
+			UpdateUserCalled: func(account state.AccountHandler) error { return nil },
+		})
+		_ = accKapp.SetKAppController(setupKappController(&kvmStub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext {
+				return kapp.NewKappContext(kapp.ArgsNewKAppContext{ContractID: 0})
+			},
+		}))
+
+		royaltiesToPay := pool
+		status, err := accKapp.computeSplitRoyalties(validAddress, kdautils.KLVIdentifier,
+			kapps.KDAData_Fungible, &commonMock.UserAccountHandlerStub{}, pool, overflowPct, &royaltiesToPay)
+		return status, err, credited, royaltiesToPay
+	}
+
+	t.Run("PreFork_StillMintsKLV", func(t *testing.T) {
+		status, err, credited, rtp := run(t, false)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+		require.Greater(t, credited, pool, "pre-fork: split recipient over-paid (mint)")
+		require.Less(t, rtp, int64(0), "pre-fork: remainder went negative")
+	})
+
+	t.Run("PostFork_Rejected", func(t *testing.T) {
+		status, err, credited, rtp := run(t, true)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+		require.Equal(t, int64(0), credited, "post-fork: nothing credited")
+		require.Equal(t, pool, rtp, "post-fork: pool untouched")
+	})
 }

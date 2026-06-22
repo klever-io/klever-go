@@ -3,15 +3,16 @@ package mock
 import "github.com/klever-io/klever-go/data/state"
 
 type AccountsCacherStub struct {
-	GetExistingUserCalled func(address []byte) (state.UserAccountHandler, error)
-	GetExistingKappCalled func(address []byte) (state.KAppAccountHandler, error)
-	GetExistingPeerCalled func(address []byte) (state.PeerAccountHandler, error)
-	LoadUserCalled        func(address []byte) (state.UserAccountHandler, error)
-	LoadKAppCalled        func(address []byte) (state.KAppAccountHandler, error)
-	LoadPeerCalled        func(address []byte) (state.PeerAccountHandler, error)
-	ResetAllCalled        func(enableCache bool)
-	SaveAllCalled         func() error
-	SaveUserCalled        func(account state.AccountHandler) error
+	GetExistingUserCalled  func(address []byte) (state.UserAccountHandler, error)
+	GetExistingKappCalled  func(address []byte) (state.KAppAccountHandler, error)
+	GetExistingPeerCalled  func(address []byte) (state.PeerAccountHandler, error)
+	LoadUserCalled         func(address []byte) (state.UserAccountHandler, error)
+	LoadKAppCalled         func(address []byte) (state.KAppAccountHandler, error)
+	LoadKAppUncachedCalled func(address []byte) (state.KAppAccountHandler, error)
+	LoadPeerCalled         func(address []byte) (state.PeerAccountHandler, error)
+	ResetAllCalled         func(enableCache bool)
+	SaveAllCalled          func() error
+	SaveUserCalled         func(account state.AccountHandler) error
 	/// Deprecated Update account has no effect now, only save account data prior AccountsCacher fork for backward compatibility
 	UpdateUserCalled func(account state.AccountHandler) error
 	/// Deprecated Update account has no effect now, only save account data prior AccountsCacher fork for backward compatibility
@@ -54,6 +55,13 @@ func (stub *AccountsCacherStub) LoadUser(address []byte) (state.UserAccountHandl
 func (stub *AccountsCacherStub) LoadKApp(address []byte) (state.KAppAccountHandler, error) {
 	if stub.LoadKAppCalled != nil {
 		return stub.LoadKAppCalled(address)
+	}
+	return nil, nil
+}
+
+func (stub *AccountsCacherStub) LoadKAppUncached(address []byte) (state.KAppAccountHandler, error) {
+	if stub.LoadKAppUncachedCalled != nil {
+		return stub.LoadKAppUncachedCalled(address)
 	}
 	return nil, nil
 }

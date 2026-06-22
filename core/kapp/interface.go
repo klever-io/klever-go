@@ -74,6 +74,7 @@ type KDAFeesPoolKapp interface {
 	SetKAppController(controller KAppController) error
 	SetAccountsCacher(cacher state.AccountsCacher) error
 	Compute(klvAmount int64, info data.KDAFeeHandler) (int64, error)
+	ComputeUncached(klvAmount int64, info data.KDAFeeHandler) (int64, error)
 	Swap(sender state.UserAccountHandler, klvAmount int64, info data.KDAFeeHandler) error
 	Validate(klvFee int64, info data.KDAFeeHandler) error
 	ChangePoolOwner(poolID []byte, sender []byte, newOwner []byte) (transaction.Transaction_TXResultCode, error)
@@ -91,6 +92,7 @@ type SystemAccountKapp interface {
 	SFTAddCirculation(asset, nonce []byte, amount int64) error
 	SFTCreateMeta(asset, nonce []byte, supply int64, hash []byte) error
 	SFTGetMeta(asset, nonce []byte) (*kapps.MetaV2, error)
+	SFTGetMetaUncached(asset, nonce []byte) (*kapps.MetaV2, error)
 	IsInterfaceNil() bool
 }
 

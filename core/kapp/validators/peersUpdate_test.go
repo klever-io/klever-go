@@ -1195,7 +1195,7 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 			rawData[key] = data
 		}
 
-		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = func(address []byte) (state.KAppAccountHandler, error) {
+		loadKApp := func(address []byte) (state.KAppAccountHandler, error) {
 			return &mock.KAppAccountHandlerStub{
 				GetStorageCalled: func(key []byte) []byte {
 					return rawData[string(key)]
@@ -1206,6 +1206,8 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 				},
 			}, nil
 		}
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = loadKApp
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppUncachedCalled = loadKApp
 	}
 
 	// getRewards is a helper that retrieves rewards for an address based on fork mode
