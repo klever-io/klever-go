@@ -77,8 +77,8 @@ func runWithin(t *testing.T, what string, fn func() error) error {
 // GHSA-hf2g-6j7h-98wg fix this must deliver to the response-topic processor synchronously (already
 // processed by the time RequestDataFromHash returns), with no error and no deadlock.
 func TestSliceResolver_RequestDataFromHash_SelfSendIsSynchronous(t *testing.T) {
-	// Not t.Parallel: messenger construction races on the libp2p global pubsub.TimeCacheDuration
-	// (KLC-2430), so two messengers cannot be built concurrently.
+	t.Parallel()
+
 	const responseTopic = "txBlockBodies_0_RESPONSE"
 	hash := []byte("mb-hash")
 	value := []byte("marshalled-miniblock-bytes")
@@ -134,7 +134,8 @@ func TestSliceResolver_RequestDataFromHash_SelfSendIsSynchronous(t *testing.T) {
 // TestSliceResolver_RequestDataFromHashArray_SelfSendDeliversEveryChunk guards the multi-message
 // self-send loop (one sendToSelf per packed chunk): every chunk must arrive synchronously, in order.
 func TestSliceResolver_RequestDataFromHashArray_SelfSendDeliversEveryChunk(t *testing.T) {
-	// Not t.Parallel: see TestSliceResolver_RequestDataFromHash_SelfSendIsSynchronous.
+	t.Parallel()
+
 	const responseTopic = "miniBlocks_0_RESPONSE"
 	hashes := [][]byte{[]byte("h1"), []byte("h2"), []byte("h3")}
 	values := [][]byte{[]byte("v1"), []byte("v2"), []byte("v3")}
