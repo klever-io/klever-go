@@ -609,7 +609,7 @@ func TestHeaderSigVerifier_VerifySignature21ValidatorsPaddingBitsShouldErr(t *te
 	nodesCoordinator := &cMock.NodesCoordinatorMock{
 		ComputeValidatorsGroupCalled: func(randomness []byte, round uint64, epoch uint32) (validators []sharding.Validator, err error) {
 			validatorsGroup := make([]sharding.Validator, 0, 21)
-			for i := 0; i < 21; i++ {
+			for range 21 {
 				v, _ := sharding.NewValidator(pkAddr, pkAddr, 1, defaultChancesSelection)
 				validatorsGroup = append(validatorsGroup, v)
 			}
@@ -652,7 +652,7 @@ func TestHeaderSigVerifier_VerifySignature21ValidatorsCanonicalBitmapOk(t *testi
 	nodesCoordinator := &cMock.NodesCoordinatorMock{
 		ComputeValidatorsGroupCalled: func(randomness []byte, round uint64, epoch uint32) (validators []sharding.Validator, err error) {
 			validatorsGroup := make([]sharding.Validator, 0, 21)
-			for i := 0; i < 21; i++ {
+			for range 21 {
 				v, _ := sharding.NewValidator(pkAddr, pkAddr, 1, defaultChancesSelection)
 				validatorsGroup = append(validatorsGroup, v)
 			}
