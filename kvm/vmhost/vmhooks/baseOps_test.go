@@ -1307,7 +1307,7 @@ func TestVMHooksImpl_WriteEventLog(t *testing.T) {
 			topics:         [][]byte{},
 			data:           []byte("event data"),
 			shouldFailExec: true,
-			expectedError:  fmt.Errorf("negative numArguments (-1)"),
+			expectedError:  fmt.Errorf("invalid numArguments (-1)"),
 		},
 		{
 			name:      "large data",
