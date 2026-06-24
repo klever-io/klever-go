@@ -94,6 +94,7 @@ const (
 	CreateContract = iota
 	DeployContract
 )
+const maxNumArgumentsFromMemory = 16000000
 
 var logEEI = logger.GetOrCreate("vm/eei")
 
@@ -2502,21 +2503,23 @@ func (context *VMHooksImpl) getArgumentsFromMemory(
 	argumentsLengthOffset executor.MemPtr,
 	dataOffset executor.MemPtr,
 ) ([][]byte, int32, error) {
-	if numArguments < 0 {
-		return nil, 0, fmt.Errorf("negative numArguments (%d)", numArguments)
-	}
+	argumentsLenghtsByteLength := numArguments * 4
 
-	argumentsLengthData, err := context.MemLoad(argumentsLengthOffset, numArguments*4)
+	if numArguments < 0 || numArguments > maxNumArgumentsFromMemory || int64(argumentsLenghtsByteLength) != int64(numArguments*4) {
+		return nil, 0, fmt.Errorf("invalid numArguments (%d)", numArguments)
+	}
+	argumentsLengthData, err := context.MemLoad(argumentsLengthOffset, argumentsLenghtsByteLength)
 	if err != nil {
 		return nil, 0, err
 	}
-
+	if len(argumentsLengthData) != int(argumentsLenghtsByteLength) {
+		return nil, 0, fmt.Errorf("MemLoad returned truncaded data")
+	}
 	argumentLengths := createInt32Array(argumentsLengthData, numArguments)
 	data, err := context.MemLoadMultiple(dataOffset, argumentLengths)
 	if err != nil {
 		return nil, 0, err
 	}
-
 	totalArgumentBytes := int32(0)
 	for _, length := range argumentLengths {
 		totalArgumentBytes += length
