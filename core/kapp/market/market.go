@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"math"
 	"strconv"
 	"time"
 	"unicode/utf8"
@@ -227,16 +228,24 @@ func (m *marketKapp) GetMarketEscrowTotal() (int64, error) {
 		}
 		order := &kapps.MarketOrderData{}
 		if err := m.marshalizer.Unmarshal(order, raw); err != nil {
-			log.Warn("GetMarketEscrowTotal: skipping undecodable market order", "error", err)
-			continue
+			return 0, err
 		}
 		if order.IsClaimed {
 			continue
 		}
-		total += order.RoyaltiesFixedDeposit
+		add := order.RoyaltiesFixedDeposit
 		if bytes.Equal(order.CurrencyID, kdautils.KLVIdentifier) {
-			total += order.CurrentBid
+			add += order.CurrentBid
 		}
+		if add < 0 {
+			log.Warn("GetMarketEscrowTotal: negative escrow amount, skipping", "key", hex.EncodeToString(key))
+			continue
+		}
+		if total > math.MaxInt64-add {
+			log.Warn("GetMarketEscrowTotal: sum would overflow int64, skipping entry")
+			continue
+		}
+		total += add
 	}
 
 	return total, nil

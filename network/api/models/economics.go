@@ -1,7 +1,7 @@
 package models
 
 // EconomicsResponse holds live KLV supply figures plus node-state held aggregates
-// (pending rewards, market escrow, fees-pool KLV, system-account KLV). See KLC-2506.
+// (pending rewards, market escrow, fees-pool KLV, FPR pool KLV, system-account KLV). See KLC-2506.
 type EconomicsResponse struct {
 	InitialSupply           int64 `json:"initialSupply"`
 	MaxSupply               int64 `json:"maxSupply"`

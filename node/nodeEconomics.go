@@ -124,7 +124,7 @@ func (n *Node) computeEconomics() (*models.EconomicsResponse, error) {
 // scanKAppDataTrie loads the KApp at address and invokes accumulate with each stored value (the
 // trie tail is trimmed by GetStorage). Keys are collected first so the scan goroutine finishes
 // before the values are read back.
-func (n *Node) scanKAppDataTrie(address []byte, accumulate func(value []byte)) error {
+func (n *Node) scanKAppDataTrie(address []byte, accumulate func(value []byte) error) error {
 	app, err := n.loadKAppAccount(address)
 	if err != nil {
 		return err
@@ -147,8 +147,12 @@ func (n *Node) scanKAppDataTrie(address []byte, accumulate func(value []byte)) e
 	}
 
 	for _, key := range keys {
-		if raw := app.GetStorage(key); len(raw) > 0 {
-			accumulate(raw)
+		raw := app.GetStorage(key)
+		if len(raw) == 0 {
+			continue
+		}
+		if err := accumulate(raw); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -158,13 +162,13 @@ func (n *Node) scanKAppDataTrie(address []byte, accumulate func(value []byte)) e
 // field, not the account balance — see kdaFeesPool deposit).
 func (n *Node) loadFeesPoolKLVTotal() (int64, error) {
 	total := int64(0)
-	err := n.scanKAppDataTrie(kapps.KDAFeesPoolKAppAddress, func(raw []byte) {
+	err := n.scanKAppDataTrie(kapps.KDAFeesPoolKAppAddress, func(raw []byte) error {
 		pool := &kdafeespool.KDAFeesPoolData{}
-		if errUnmarshal := n.internalMarshalizer.Unmarshal(pool, raw); errUnmarshal != nil {
-			log.Warn("loadFeesPoolKLVTotal: skipping undecodable fees-pool record", "error", errUnmarshal)
-			return
+		if err := n.internalMarshalizer.Unmarshal(pool, raw); err != nil {
+			return err
 		}
 		total += pool.KLVBalance
+		return nil
 	})
 	return total, err
 }
@@ -190,11 +194,10 @@ func (n *Node) loadSystemAccountKLV() (int64, error) {
 // excluded. This mints into circulatingSupply, so it must be read at the same block to cancel.
 func (n *Node) loadFPRPoolKLVTotal() (int64, error) {
 	total := int64(0)
-	err := n.scanKAppDataTrie(kapps.StakingKAppAddress, func(raw []byte) {
+	err := n.scanKAppDataTrie(kapps.StakingKAppAddress, func(raw []byte) error {
 		staking := &kapps.StakingData{}
-		if errUnmarshal := n.internalMarshalizer.Unmarshal(staking, raw); errUnmarshal != nil {
-			log.Warn("loadFPRPoolKLVTotal: skipping undecodable staking record", "error", errUnmarshal)
-			return
+		if err := n.internalMarshalizer.Unmarshal(staking, raw); err != nil {
+			return err
 		}
 		total += staking.GetCurrentFPRAmount()
 		for _, fpr := range staking.GetFPR() {
@@ -202,6 +205,7 @@ func (n *Node) loadFPRPoolKLVTotal() (int64, error) {
 				total += unclaimed
 			}
 		}
+		return nil
 	})
 	return total, err
 }

@@ -106,7 +106,7 @@ func TestNode_scanKAppDataTrie_nilTrie(t *testing.T) {
 	}
 
 	called := false
-	err := n.scanKAppDataTrie([]byte("addr"), func(_ []byte) { called = true })
+	err := n.scanKAppDataTrie([]byte("addr"), func(_ []byte) error { called = true; return nil })
 	require.NoError(t, err)
 	require.False(t, called)
 }
