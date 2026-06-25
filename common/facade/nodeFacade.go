@@ -489,6 +489,11 @@ func (nf *nodeFacade) GetEconomics() (*models.EconomicsResponse, error) {
 	return nf.node.GetEconomics()
 }
 
+// GetAccountTotals returns aggregates over all user accounts (count, KLV balance, allowance). See KLC-2506.
+func (nf *nodeFacade) GetAccountTotals() (*models.AccountTotalsResponse, error) {
+	return nf.node.GetAccountTotals()
+}
+
 // GetNFT returns an assetResponse containing information
 // about the asset and userKDA correlated with provided address
 func (nf *nodeFacade) GetNFT(owner string, address string) (*kapps.UserKDA, *kapps.KDAData, error) {

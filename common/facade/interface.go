@@ -70,6 +70,9 @@ type NodeHandler interface {
 	// GetEconomics returns live KLV supply figures and node-state held aggregates
 	GetEconomics() (*models.EconomicsResponse, error)
 
+	// GetAccountTotals returns aggregates over all user accounts (count, KLV balance, allowance)
+	GetAccountTotals() (*models.AccountTotalsResponse, error)
+
 	// GetNFT returns an assetResponse containing information
 	// about the asset and userKDA correlated with provided address
 	GetNFT(owner string, address string) (*kapps.UserKDA, *kapps.KDAData, error)

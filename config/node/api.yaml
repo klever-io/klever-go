@@ -67,6 +67,8 @@ apiPackages:
         open: true
       - name: /economics
         open: false
+      - name: /account-totals
+        open: false
   node:
     routes:
       - name: /status
@@ -84,7 +86,7 @@ apiPackages:
       - name: /statistics
         open: true
       - name: /set-redundancy
-        open: true
+        open: false
         secured: true
       - name: /enable-epochs
         open: true

@@ -1,7 +1,7 @@
 package models
 
-// EconomicsResponse holds live KLV supply figures plus node-state held aggregates
-// (pending rewards, market escrow, fees-pool KLV, FPR pool KLV, system-account KLV). See KLC-2506.
+// EconomicsResponse holds live KLV supply figures plus node-state held aggregates. All held aggregates
+// are KLV already inside CirculatingSupply. See KLC-2506.
 type EconomicsResponse struct {
 	InitialSupply           int64 `json:"initialSupply"`
 	MaxSupply               int64 `json:"maxSupply"`
@@ -13,5 +13,6 @@ type EconomicsResponse struct {
 	MarketEscrowTotal       int64 `json:"marketEscrowTotal"`
 	FeesPoolKLVTotal        int64 `json:"feesPoolKlvTotal"`
 	FPRPoolTotal            int64 `json:"fprPoolTotal"`
+	AccumulatedFeesTotal    int64 `json:"accumulatedFeesTotal"`
 	SystemAccountKLVBalance int64 `json:"systemAccountKlvBalance"`
 }

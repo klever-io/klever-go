@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"errors"
-	"sync"
 
 	"github.com/klever-io/klever-go/common"
 	kdafeespool "github.com/klever-io/klever-go/core/kapp/kdaFeesPool"
@@ -14,50 +13,13 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 )
 
-// economicsCache memoizes GetEconomics per block, capping the KApp trie scans (PREW, market
-// orders, fees pools, FPR pool) to at most once per block so a polling client can't trigger one
-// per request.
-type economicsCache struct {
-	mu     sync.Mutex
-	nonce  uint64
-	valid  bool
-	cached *models.EconomicsResponse
-}
-
-// GetEconomics returns live KLV supply figures plus node-state held aggregates, memoized per
-// block. It runs O(n) KApp trie scans, so the `/network/economics` route is opt-in (disabled by
-// default in api.yaml). The returned value is cached and shared across callers within a block,
-// so treat it as read-only. See KLC-2506.
+// GetEconomics returns live KLV supply figures plus node-state held aggregates, memoized per block.
+// The `/network/economics` route is opt-in (disabled by default in api.yaml). See KLC-2506.
 func (n *Node) GetEconomics() (*models.EconomicsResponse, error) {
-	// Lock spans the nonce read + compute so the cache check/update stays atomic and
-	// concurrent callers on a fresh block share one scan.
-	n.economics.mu.Lock()
-	defer n.economics.mu.Unlock()
-
-	currentNonce := uint64(0)
-	if header := n.blkc.GetCurrentBlockHeader(); !check.IfNil(header) {
-		currentNonce = header.GetNonce()
-	}
-
-	if n.economics.valid && n.economics.nonce == currentNonce && n.economics.cached != nil {
-		return n.economics.cached, nil
-	}
-
-	economics, err := n.computeEconomics()
-	if err != nil {
-		return nil, err
-	}
-
-	n.economics.cached = economics
-	n.economics.nonce = currentNonce
-	n.economics.valid = true
-
-	return economics, nil
+	return n.economics.get(n.blkc, n.computeEconomics)
 }
 
-// computeEconomics reads live supply plus held aggregates from node state: PREW and market escrow
-// (Validators/Market KApp scans), the KDA fees-pool KLV, the FPR staking pool, and the
-// system-account KLV. Use GetEconomics (cached) instead of calling this directly.
+// computeEconomics reads live supply plus held aggregates from node state. Use GetEconomics (cached).
 func (n *Node) computeEconomics() (*models.EconomicsResponse, error) {
 	kdaData, err := n.GetAsset(string(kdautils.KLVIdentifier))
 	if err != nil {
@@ -95,6 +57,11 @@ func (n *Node) computeEconomics() (*models.EconomicsResponse, error) {
 		}
 	}
 
+	accumulatedFeesTotal := int64(0)
+	if !check.IfNil(n.validatorsProvider) {
+		accumulatedFeesTotal = n.loadAccumulatedFeesTotal()
+	}
+
 	// A missing KLV StakingData record (fresh/test networks) means no stake, not an error.
 	staking, err := n.loadStakingData(string(kdautils.KLVIdentifier))
 	if err != nil && !errors.Is(err, common.ErrStakingNotFound) {
@@ -117,13 +84,26 @@ func (n *Node) computeEconomics() (*models.EconomicsResponse, error) {
 		MarketEscrowTotal:       marketEscrowTotal,
 		FeesPoolKLVTotal:        feesPoolKLVTotal,
 		FPRPoolTotal:            fprPoolKLVTotal,
+		AccumulatedFeesTotal:    accumulatedFeesTotal,
 		SystemAccountKLVBalance: systemAccountKLV,
 	}, nil
 }
 
-// scanKAppDataTrie loads the KApp at address and invokes accumulate with each stored value (the
-// trie tail is trimmed by GetStorage). Keys are collected first so the scan goroutine finishes
-// before the values are read back.
+// loadAccumulatedFeesTotal sums KLV fees accrued per validator (reset at epoch end into PREW/Allowance).
+// GetLatestPeers returns nil during early sync or on a peer-read error, so this reads 0 there, not an error.
+func (n *Node) loadAccumulatedFeesTotal() int64 {
+	total := int64(0)
+	for _, peer := range n.validatorsProvider.GetLatestPeers() {
+		if check.IfNil(peer) {
+			continue
+		}
+		total += peer.GetAccumulatedFees()
+	}
+	return total
+}
+
+// scanKAppDataTrie invokes accumulate with each stored value (GetStorage trims the trie tail). Keys are
+// collected before reading values so the scan goroutine finishes first.
 func (n *Node) scanKAppDataTrie(address []byte, accumulate func(value []byte) error) error {
 	app, err := n.loadKAppAccount(address)
 	if err != nil {
@@ -158,8 +138,7 @@ func (n *Node) scanKAppDataTrie(address []byte, accumulate func(value []byte) er
 	return nil
 }
 
-// loadFeesPoolKLVTotal sums KLVBalance across every KDA fees-pool record (KLV is held as that
-// field, not the account balance — see kdaFeesPool deposit).
+// loadFeesPoolKLVTotal sums KLVBalance across every KDA fees-pool record (KLV sits in that field).
 func (n *Node) loadFeesPoolKLVTotal() (int64, error) {
 	total := int64(0)
 	err := n.scanKAppDataTrie(kapps.KDAFeesPoolKAppAddress, func(raw []byte) error {
@@ -179,8 +158,7 @@ func (n *Node) loadSystemAccountKLV() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// GetUserKDA returns a zero-value (balance 0) when the asset isn't held; a non-nil error here
-	// is a real trie/unmarshal failure, so propagate it rather than report a silent zero.
+	// GetUserKDA returns zero (not error) when KLV isn't held, so a real error must propagate.
 	userKDA, err := app.GetUserKDA(kdautils.KLVIdentifier, nil, false)
 	if err != nil {
 		return 0, err
@@ -188,10 +166,8 @@ func (n *Node) loadSystemAccountKLV() (int64, error) {
 	return userKDA.GetBalance(), nil
 }
 
-// loadFPRPoolKLVTotal sums the unclaimed KLV staking rewards across every asset's StakingData in
-// the Staking KApp: CurrentFPRAmount (this epoch) + Σ FPR(TotalAmount − TotalClaimed) (past epochs).
-// TotalAmount/CurrentFPRAmount are KLV-denominated; non-KLV rewards live in the FPR KDAS map and are
-// excluded. This mints into circulatingSupply, so it must be read at the same block to cancel.
+// loadFPRPoolKLVTotal sums unclaimed KLV staking rewards across every StakingData: CurrentFPRAmount +
+// Σ FPR(TotalAmount − TotalClaimed). KLV-denominated only; non-KLV rewards (the KDAS map) are excluded.
 func (n *Node) loadFPRPoolKLVTotal() (int64, error) {
 	total := int64(0)
 	err := n.scanKAppDataTrie(kapps.StakingKAppAddress, func(raw []byte) error {

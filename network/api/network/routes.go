@@ -17,6 +17,7 @@ const (
 	getConfigPath          = "/config"
 	getStatusPath          = "/status"
 	economicsPath          = "/economics"
+	accountTotalsPath      = "/account-totals"
 	proposalParametersPath = "/network-parameters"
 )
 
@@ -25,6 +26,7 @@ type FacadeHandler interface {
 	StatusMetrics() core.StatusMetricsHandler
 	GetProposalParameters() (map[int32]*kapps.Parameter, error)
 	GetEconomics() (*models.EconomicsResponse, error)
+	GetAccountTotals() (*models.AccountTotalsResponse, error)
 	IsInterfaceNil() bool
 }
 
@@ -39,6 +41,7 @@ func Routes(router *wrapper.RouterWrapper) {
 	router.RegisterHandler(http.MethodGet, getStatusPath, GetNetworkStatus)
 	router.RegisterHandler(http.MethodGet, proposalParametersPath, GetProposalParameters)
 	router.RegisterHandler(http.MethodGet, economicsPath, GetEconomics)
+	router.RegisterHandler(http.MethodGet, accountTotalsPath, GetAccountTotals)
 }
 
 func getFacade(c *gin.Context) (FacadeHandler, bool) {
@@ -191,6 +194,42 @@ func GetEconomics(c *gin.Context) {
 		http.StatusOK,
 		shared.GenericAPIResponse{
 			Data:  gin.H{"economics": economics},
+			Error: "",
+			Code:  shared.ReturnCodeSuccess,
+		},
+	)
+}
+
+// @Summary returns aggregates over all user accounts (count, KLV balance, allowance)
+// @Tags Network
+// @Produce json
+// @Success 200 object shared.GenericAPIResponse{data=object{accountTotals=models.AccountTotalsResponse}} "ok"
+// @Failure 500 object shared.GenericAPIResponse "internal error"
+// @Router /network/account-totals [get]
+// GetAccountTotals returns aggregates over every user account via a full trie walk. See KLC-2506.
+func GetAccountTotals(c *gin.Context) {
+	facade, ok := getFacade(c)
+	if !ok {
+		return
+	}
+
+	accountTotals, err := facade.GetAccountTotals()
+	if err != nil {
+		c.JSON(
+			http.StatusInternalServerError,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: fmt.Sprintf("%s: %s", errors.ErrGetAccountTotals.Error(), err.Error()),
+				Code:  shared.ReturnCodeInternalError,
+			},
+		)
+		return
+	}
+
+	c.JSON(
+		http.StatusOK,
+		shared.GenericAPIResponse{
+			Data:  gin.H{"accountTotals": accountTotals},
 			Error: "",
 			Code:  shared.ReturnCodeSuccess,
 		},

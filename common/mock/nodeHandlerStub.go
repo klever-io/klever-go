@@ -55,6 +55,9 @@ func (n *NodeHandlerStub) GetAsset(string) (*kapps.KDAData, error) { return nil,
 func (n *NodeHandlerStub) GetEconomics() (*models.EconomicsResponse, error) {
 	return nil, nil
 }
+func (n *NodeHandlerStub) GetAccountTotals() (*models.AccountTotalsResponse, error) {
+	return nil, nil
+}
 func (n *NodeHandlerStub) GetNFT(string, string) (*kapps.UserKDA, *kapps.KDAData, error) {
 	return nil, nil, nil
 }

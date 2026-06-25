@@ -32,6 +32,7 @@ type Facade struct {
 	GetUserKDAHandler              func(string, string) (*kapps.UserKDA, error)
 	RewardsAvailableToClaimHandler func(address string, assetId string) (*models.AvailableClaimResponse, error)
 	GetEconomicsHandler            func() (*models.EconomicsResponse, error)
+	GetAccountTotalsHandler        func() (*models.AccountTotalsResponse, error)
 	StatusMetricsHandler           func() core.StatusMetricsHandler
 	GetNodeOverviewHandler         func() (models.NodeOverview, error)
 	ValidatorStatisticsHandler     func() (map[string]*state.ValidatorApiResponse, error)
@@ -253,6 +254,13 @@ func (f *Facade) GetEconomics() (*models.EconomicsResponse, error) {
 		return f.GetEconomicsHandler()
 	}
 	return &models.EconomicsResponse{}, nil
+}
+
+func (f *Facade) GetAccountTotals() (*models.AccountTotalsResponse, error) {
+	if f.GetAccountTotalsHandler != nil {
+		return f.GetAccountTotalsHandler()
+	}
+	return &models.AccountTotalsResponse{}, nil
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

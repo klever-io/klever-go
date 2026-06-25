@@ -183,6 +183,7 @@ func getRoutesConfig() config.APIRoutesConfig {
 					{Name: "/config", Open: true},
 					{Name: "/status", Open: true},
 					{Name: "/economics", Open: true},
+					{Name: "/account-totals", Open: true},
 					{Name: "/total-staked", Open: true},
 				},
 			},
@@ -250,5 +251,54 @@ func TestGetEconomics_FacadeErrorShouldReturnInternalError(t *testing.T) {
 	loadResponse(resp.Body, &response)
 	assert.Equal(t, shared.ReturnCodeInternalError, response.Code)
 	assert.Contains(t, response.Error, errors.ErrGetEconomics.Error())
+	assert.Contains(t, response.Error, expectedErr.Error())
+}
+
+func TestGetAccountTotals_ShouldWork(t *testing.T) {
+	t.Parallel()
+
+	facade := mock.Facade{}
+	facade.GetAccountTotalsHandler = func() (*models.AccountTotalsResponse, error) {
+		return &models.AccountTotalsResponse{
+			AccountCount:   175551,
+			BalanceTotal:   6101789314059000,
+			AllowanceTotal: 61185514904078,
+		}, nil
+	}
+
+	ws := startNodeServer(&facade)
+	req, _ := http.NewRequest("GET", "/network/account-totals", nil)
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
+
+	respBytes, _ := io.ReadAll(resp.Body)
+	respStr := string(respBytes)
+	assert.Contains(t, respStr, "accountCount")
+	assert.Contains(t, respStr, "allowanceTotal")
+	assert.Contains(t, respStr, "61185514904078")
+}
+
+func TestGetAccountTotals_FacadeErrorShouldReturnInternalError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := fmt.Errorf("some facade error")
+	facade := mock.Facade{}
+	facade.GetAccountTotalsHandler = func() (*models.AccountTotalsResponse, error) {
+		return nil, expectedErr
+	}
+
+	ws := startNodeServer(&facade)
+	req, _ := http.NewRequest("GET", "/network/account-totals", nil)
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	assert.Equal(t, http.StatusInternalServerError, resp.Code)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+	assert.Equal(t, shared.ReturnCodeInternalError, response.Code)
+	assert.Contains(t, response.Error, errors.ErrGetAccountTotals.Error())
 	assert.Contains(t, response.Error, expectedErr.Error())
 }

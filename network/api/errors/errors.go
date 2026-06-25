@@ -62,6 +62,9 @@ var ErrGetProposalParameters = errors.New("error getting proposal parameters")
 // ErrGetEconomics signals that an error occurred while getting economics data
 var ErrGetEconomics = errors.New("error getting economics data")
 
+// ErrGetAccountTotals signals that an error occurred while getting account totals data
+var ErrGetAccountTotals = errors.New("error getting account totals data")
+
 // ErrInvalidBlockNonce signals an invalid block nonce was provided
 var ErrInvalidBlockNonce = errors.New("invalid block nonce")
 
