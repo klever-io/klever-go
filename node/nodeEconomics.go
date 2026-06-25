@@ -58,8 +58,11 @@ func (n *Node) computeEconomics() (*models.EconomicsResponse, error) {
 	}
 
 	accumulatedFeesTotal := int64(0)
-	if !check.IfNil(n.validatorsProvider) {
-		accumulatedFeesTotal = n.loadAccumulatedFeesTotal()
+	if !check.IfNil(n.validatorStatistics) {
+		accumulatedFeesTotal, err = n.loadAccumulatedFeesTotal()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// A missing KLV StakingData record (fresh/test networks) means no stake, not an error.
@@ -90,16 +93,24 @@ func (n *Node) computeEconomics() (*models.EconomicsResponse, error) {
 }
 
 // loadAccumulatedFeesTotal sums KLV fees accrued per validator (reset at epoch end into PREW/Allowance).
-// GetLatestPeers returns nil during early sync or on a peer-read error, so this reads 0 there, not an error.
-func (n *Node) loadAccumulatedFeesTotal() int64 {
+// Returns 0 before the first finalized block (no peers yet); a peer-read error is propagated, not hidden.
+func (n *Node) loadAccumulatedFeesTotal() (int64, error) {
+	rootHash := n.validatorStatistics.LastFinalizedRootHash()
+	if len(rootHash) == 0 {
+		return 0, nil
+	}
+	peers, err := n.validatorStatistics.ListPeerAccounts(rootHash)
+	if err != nil {
+		return 0, err
+	}
 	total := int64(0)
-	for _, peer := range n.validatorsProvider.GetLatestPeers() {
+	for _, peer := range peers {
 		if check.IfNil(peer) {
 			continue
 		}
 		total += peer.GetAccumulatedFees()
 	}
-	return total
+	return total, nil
 }
 
 // scanKAppDataTrie invokes accumulate with each stored value (GetStorage trims the trie tail). Keys are

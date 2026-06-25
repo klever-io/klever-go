@@ -1,6 +1,7 @@
 package node
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/klever-io/klever-go/common/mock"
@@ -55,17 +56,6 @@ func TestNode_computeAccountTotals(t *testing.T) {
 	require.Equal(t, int64(750), totals.AllowanceTotal) // 50 + 0 + 700
 }
 
-// validatorsProviderStub is a minimal local stub (the shared heartbeat one has a wrong-field guard).
-type validatorsProviderStub struct {
-	peers []state.PeerAccountHandler
-}
-
-func (v *validatorsProviderStub) GetLatestValidators() map[string]*state.ValidatorApiResponse {
-	return nil
-}
-func (v *validatorsProviderStub) GetLatestPeers() []state.PeerAccountHandler { return v.peers }
-func (v *validatorsProviderStub) IsInterfaceNil() bool                       { return v == nil }
-
 func TestNode_loadAccumulatedFeesTotal(t *testing.T) {
 	t.Parallel()
 
@@ -74,11 +64,41 @@ func TestNode_loadAccumulatedFeesTotal(t *testing.T) {
 		p.AddToAccumulatedFees(fees)
 		return p
 	}
-	n := &Node{
-		validatorsProvider: &validatorsProviderStub{
-			peers: []state.PeerAccountHandler{mkPeer(100), mkPeer(250), mkPeer(0)},
-		},
-	}
 
-	require.Equal(t, int64(350), n.loadAccumulatedFeesTotal()) // 100 + 250 + 0
+	t.Run("sums peer accumulated fees", func(t *testing.T) {
+		t.Parallel()
+		n := &Node{validatorStatistics: &mock.ValidatorStatisticsProcessorStub{
+			LastFinalizedRootHashCalled: func() []byte { return []byte("root") },
+			ListPeerAccountsCalled: func(_ []byte) ([]state.PeerAccountHandler, error) {
+				return []state.PeerAccountHandler{mkPeer(100), mkPeer(250), mkPeer(0)}, nil
+			},
+		}}
+		total, err := n.loadAccumulatedFeesTotal()
+		require.NoError(t, err)
+		require.Equal(t, int64(350), total) // 100 + 250 + 0
+	})
+
+	t.Run("returns 0 with no error before the first finalized block", func(t *testing.T) {
+		t.Parallel()
+		n := &Node{validatorStatistics: &mock.ValidatorStatisticsProcessorStub{
+			LastFinalizedRootHashCalled: func() []byte { return nil },
+		}}
+		total, err := n.loadAccumulatedFeesTotal()
+		require.NoError(t, err)
+		require.Zero(t, total)
+	})
+
+	t.Run("propagates peer-read error", func(t *testing.T) {
+		t.Parallel()
+		expectedErr := errors.New("peer read failed")
+		n := &Node{validatorStatistics: &mock.ValidatorStatisticsProcessorStub{
+			LastFinalizedRootHashCalled: func() []byte { return []byte("root") },
+			ListPeerAccountsCalled: func(_ []byte) ([]state.PeerAccountHandler, error) {
+				return nil, expectedErr
+			},
+		}}
+		total, err := n.loadAccumulatedFeesTotal()
+		require.ErrorIs(t, err, expectedErr)
+		require.Zero(t, total)
+	})
 }

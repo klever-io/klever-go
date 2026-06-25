@@ -1,11 +1,14 @@
 package node
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/tools/check"
 )
+
+var errNilComputeResult = errors.New("blockCache: compute returned nil without error")
 
 // blockCache memoizes a value per block, keyed on the chain header nonce: callers within a block share
 // one result; the first call after a new block recomputes. The returned pointer is shared — read-only.
@@ -34,6 +37,9 @@ func (c *blockCache[T]) get(blkc data.ChainHandler, compute func() (*T, error)) 
 	computed, err := compute()
 	if err != nil {
 		return nil, err
+	}
+	if computed == nil {
+		return nil, errNilComputeResult
 	}
 
 	c.cached = computed
