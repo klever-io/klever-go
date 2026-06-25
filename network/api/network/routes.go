@@ -8,6 +8,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/network/api/errors"
+	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/network/api/shared"
 	"github.com/klever-io/klever-go/network/api/wrapper"
 )
@@ -23,6 +24,7 @@ const (
 type FacadeHandler interface {
 	StatusMetrics() core.StatusMetricsHandler
 	GetProposalParameters() (map[int32]*kapps.Parameter, error)
+	GetEconomics() (*models.EconomicsResponse, error)
 	IsInterfaceNil() bool
 }
 
@@ -36,6 +38,7 @@ func Routes(router *wrapper.RouterWrapper) {
 	router.RegisterHandler(http.MethodGet, getConfigPath, GetNetworkConfig)
 	router.RegisterHandler(http.MethodGet, getStatusPath, GetNetworkStatus)
 	router.RegisterHandler(http.MethodGet, proposalParametersPath, GetProposalParameters)
+	router.RegisterHandler(http.MethodGet, economicsPath, GetEconomics)
 }
 
 func getFacade(c *gin.Context) (FacadeHandler, bool) {
@@ -158,36 +161,38 @@ func GetProposalParameters(c *gin.Context) {
 	)
 }
 
-// TODO: Total Staked Value Query
-// EconomicsMetrics is the endpoint that will return the economics data such as total supply
-// func EconomicsMetrics(c *gin.Context) {
-// 	facade, ok := getFacade(c)
-// 	if !ok {
-// 		return
-// 	}
+// @Summary returns KLV economics: supply figures plus node-state held aggregates
+// @Tags Network
+// @Produce json
+// @Success 200 object shared.GenericAPIResponse{data=object{economics=models.EconomicsResponse}} "ok"
+// @Failure 500 object shared.GenericAPIResponse "internal error"
+// @Router /network/economics [get]
+// GetEconomics returns live KLV supply figures and node-state held aggregates. See KLC-2506.
+func GetEconomics(c *gin.Context) {
+	facade, ok := getFacade(c)
+	if !ok {
+		return
+	}
 
-// 	stakeValues, err := facade.GetTotalStakedValue()
-// 	if err != nil {
-// 		c.JSON(
-// 			http.StatusInternalServerError,
-// 			shared.GenericAPIResponse{
-// 				Data:  nil,
-// 				Error: err.Error(),
-// 				Code:  shared.ReturnCodeInternalError,
-// 			},
-// 		)
-// 		return
-// 	}
+	economics, err := facade.GetEconomics()
+	if err != nil {
+		c.JSON(
+			http.StatusInternalServerError,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: fmt.Sprintf("%s: %s", errors.ErrGetEconomics.Error(), err.Error()),
+				Code:  shared.ReturnCodeInternalError,
+			},
+		)
+		return
+	}
 
-// 	metrics := facade.StatusMetrics().EconomicsMetrics()
-// 	metrics[core.MetricTotalStakedValue] = stakeValues
-
-// 	c.JSON(
-// 		http.StatusOK,
-// 		shared.GenericAPIResponse{
-// 			Data:  gin.H{"metrics": metrics},
-// 			Error: "",
-// 			Code:  shared.ReturnCodeSuccess,
-// 		},
-// 	)
-// }
+	c.JSON(
+		http.StatusOK,
+		shared.GenericAPIResponse{
+			Data:  gin.H{"economics": economics},
+			Error: "",
+			Code:  shared.ReturnCodeSuccess,
+		},
+	)
+}

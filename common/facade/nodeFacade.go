@@ -484,6 +484,11 @@ func (nf *nodeFacade) GetAsset(assetID string) (*kapps.KDAData, error) {
 	return nf.node.GetAsset(assetID)
 }
 
+// GetEconomics returns live KLV supply figures and node-state held aggregates. See KLC-2506.
+func (nf *nodeFacade) GetEconomics() (*models.EconomicsResponse, error) {
+	return nf.node.GetEconomics()
+}
+
 // GetNFT returns an assetResponse containing information
 // about the asset and userKDA correlated with provided address
 func (nf *nodeFacade) GetNFT(owner string, address string) (*kapps.UserKDA, *kapps.KDAData, error) {

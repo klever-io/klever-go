@@ -11,6 +11,7 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 	indexerData "github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/network/api/models"
 	heartbeatData "github.com/klever-io/klever-go/node/heartbeat/data"
 	"github.com/klever-io/klever-go/tools/debug"
 )
@@ -51,6 +52,9 @@ func (n *NodeHandlerStub) GetAvailableClaim(string, string) (int64, map[string]i
 	return 0, nil, 0, nil
 }
 func (n *NodeHandlerStub) GetAsset(string) (*kapps.KDAData, error) { return nil, nil }
+func (n *NodeHandlerStub) GetEconomics() (*models.EconomicsResponse, error) {
+	return nil, nil
+}
 func (n *NodeHandlerStub) GetNFT(string, string) (*kapps.UserKDA, *kapps.KDAData, error) {
 	return nil, nil, nil
 }

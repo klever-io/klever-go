@@ -59,6 +59,9 @@ var ErrGetPidInfo = errors.New("error getting peer id info")
 // ErrGetProposalParameters signals that an error occurred while getting proposal parameters
 var ErrGetProposalParameters = errors.New("error getting proposal parameters")
 
+// ErrGetEconomics signals that an error occurred while getting economics data
+var ErrGetEconomics = errors.New("error getting economics data")
+
 // ErrInvalidBlockNonce signals an invalid block nonce was provided
 var ErrInvalidBlockNonce = errors.New("invalid block nonce")
 

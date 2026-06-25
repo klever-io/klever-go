@@ -2,12 +2,14 @@ package market
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"errors"
 	"strconv"
 	"time"
 	"unicode/utf8"
 
+	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
@@ -24,6 +26,8 @@ import (
 )
 
 var _ kapp.MarketKapp = (*marketKapp)(nil)
+
+var log = logger.GetOrCreate("kapp/market")
 
 type marketKapp struct {
 	hasher         hashing.Hasher
@@ -183,6 +187,59 @@ func (m *marketKapp) GetMarketOrder(orderID []byte) (state.KAppAccountHandler, *
 	}
 
 	return marketKapp, market, nil
+}
+
+// GetMarketEscrowTotal returns the total KLV held in open market orders: each unclaimed order's
+// RoyaltiesFixedDeposit (always KLV) plus its CurrentBid when the order is priced in KLV.
+func (m *marketKapp) GetMarketEscrowTotal() (int64, error) {
+	app, err := m.accountsCacher.LoadKAppUncached(kapps.MarketKAppAddress)
+	if err != nil {
+		return 0, err
+	}
+
+	dataTrie := app.DataTrie()
+	if check.IfNil(dataTrie) {
+		return 0, nil
+	}
+
+	leavesChannel, err := dataTrie.GetAllLeavesOnChannel(app.GetRootHash(), context.Background())
+	if err != nil {
+		return 0, err
+	}
+
+	// Collect order keys first so the scan goroutine finishes before we read values back.
+	prefix := []byte(kapps.MarketOrderPrefix + kapps.Sp)
+	orderKeys := make([][]byte, 0)
+	for leaf := range leavesChannel {
+		if !bytes.HasPrefix(leaf.Key(), prefix) {
+			continue
+		}
+		key := make([]byte, len(leaf.Key()))
+		copy(key, leaf.Key())
+		orderKeys = append(orderKeys, key)
+	}
+
+	total := int64(0)
+	for _, key := range orderKeys {
+		raw := app.GetStorage(key) // trims the trie tail, unlike the raw leaf value
+		if len(raw) == 0 {
+			continue
+		}
+		order := &kapps.MarketOrderData{}
+		if err := m.marshalizer.Unmarshal(order, raw); err != nil {
+			log.Warn("GetMarketEscrowTotal: skipping undecodable market order", "error", err)
+			continue
+		}
+		if order.IsClaimed {
+			continue
+		}
+		total += order.RoyaltiesFixedDeposit
+		if bytes.Equal(order.CurrencyID, kdautils.KLVIdentifier) {
+			total += order.CurrentBid
+		}
+	}
+
+	return total, nil
 }
 
 func (m *marketKapp) SetMarketOrder(marketKapp state.KAppAccountHandler, order *kapps.MarketOrderData) error {

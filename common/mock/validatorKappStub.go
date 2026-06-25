@@ -13,6 +13,7 @@ type ValidatorsKAppStub struct {
 	UndelegateCalled                         func(blockEpoch uint32, validator []byte, sender []byte, tc *transaction.UndelegateContract) (transaction.Transaction_TXResultCode, error)
 	ClaimPendingRewardsCalled                func(address []byte) (int64, error)
 	GetPendingRewardsCalled                  func(address []byte) (int64, error)
+	GetPendingRewardsTotalCalled             func() (int64, error)
 }
 
 // SetKAppController sets the KApp controller.
@@ -147,6 +148,14 @@ func (v *ValidatorsKAppStub) GetPendingRewards(address []byte) (int64, error) {
 func (v *ValidatorsKAppStub) ClaimPendingRewards(address []byte) (int64, error) {
 	if v.ClaimPendingRewardsCalled != nil {
 		return v.ClaimPendingRewardsCalled(address)
+	}
+	return 0, nil
+}
+
+// GetPendingRewardsTotal returns the aggregate of all pending rewards.
+func (v *ValidatorsKAppStub) GetPendingRewardsTotal() (int64, error) {
+	if v.GetPendingRewardsTotalCalled != nil {
+		return v.GetPendingRewardsTotalCalled()
 	}
 	return 0, nil
 }

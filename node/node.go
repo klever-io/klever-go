@@ -117,6 +117,7 @@ type Node struct {
 	blkc             data.ChainHandler
 	dataPool         retriever.PoolsHolder
 	store            retriever.StorageService
+	economics        economicsCache
 	nodesCoordinator sharding.NodesCoordinator
 
 	networkShardingCollector NetworkShardingCollector

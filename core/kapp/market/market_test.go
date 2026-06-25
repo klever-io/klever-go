@@ -7,8 +7,10 @@ import (
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
+	"github.com/klever-io/klever-go/core/keyValStorage"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
+	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/state/factory"
@@ -1307,4 +1309,59 @@ func TestMarketKApp_ExecuteBuyMarket_MultiRecipientGuardMidLoop(t *testing.T) {
 	require.NoError(t, err)
 	credited := r1acc.GetBalance(kdautils.KLVIdentifier, false) + r2acc.GetBalance(kdautils.KLVIdentifier, false)
 	require.Equal(t, expectedOne, credited)
+}
+
+func TestMarketKApp_GetMarketEscrowTotal(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := marshal.NewProtoMarshalizer()
+	mk, err := NewMarketKApp(&ArgsNewMarketKApp{
+		Hasher:         &sha256.Sha256{},
+		Marshalizer:    marshalizer,
+		PubkeyConv:     mock.NewPubkeyConverterMock(32),
+		ForkController: mock.NewForkControllerStub(),
+	})
+	require.NoError(t, err)
+
+	orders := []*kapps.MarketOrderData{
+		{ID: []byte("o1"), CurrencyID: []byte("KLV"), CurrentBid: 500, RoyaltiesFixedDeposit: 100},                  // 600
+		{ID: []byte("o2"), CurrencyID: []byte("KLV"), CurrentBid: 1500, RoyaltiesFixedDeposit: 0},                   // 1500
+		{ID: []byte("o3"), CurrencyID: []byte("ABC"), CurrentBid: 9999, RoyaltiesFixedDeposit: 50},                  // 50: deposit only, bid not KLV
+		{ID: []byte("o4"), CurrencyID: []byte("KLV"), CurrentBid: 777, RoyaltiesFixedDeposit: 200, IsClaimed: true}, // 0: claimed
+	}
+
+	orderStore := make(map[string][]byte)
+	leaves := make([]data.KeyValueHolder, 0, len(orders)+1)
+	for _, o := range orders {
+		key := kdautils.ToMarketOrderKey(o.ID)
+		val, errMarshal := marshalizer.Marshal(o)
+		require.NoError(t, errMarshal)
+		orderStore[string(key)] = val
+		leaves = append(leaves, keyValStorage.NewKeyValStorage(key, nil))
+	}
+	// a non-order leaf must be ignored by the MKT prefix filter
+	leaves = append(leaves, keyValStorage.NewKeyValStorage([]byte("OTHER/x"), []byte("ignored")))
+
+	trieStub := &mock.TrieStub{
+		GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
+			ch := make(chan data.KeyValueHolder, len(leaves))
+			for _, l := range leaves {
+				ch <- l
+			}
+			close(ch)
+			return ch, nil
+		},
+	}
+	app := &mock.KAppAccountHandlerStub{
+		DataTrieCalled:    func() data.Trie { return trieStub },
+		GetRootHashCalled: func() []byte { return []byte("root") },
+		GetStorageCalled:  func(key []byte) []byte { return orderStore[string(key)] },
+	}
+	require.NoError(t, mk.SetAccountsCacher(&mock.AccountsCacherStub{
+		LoadKAppUncachedCalled: func(_ []byte) (state.KAppAccountHandler, error) { return app, nil },
+	}))
+
+	total, err := mk.GetMarketEscrowTotal()
+	require.NoError(t, err)
+	require.Equal(t, int64(2150), total)
 }

@@ -1807,7 +1807,7 @@ func (ei *elasticProcessor) SaveEpochInfo(epoch uint32, validators []kapp.Valida
 	if err != nil {
 		return err
 	}
-	if len(klvStakingBytes) == 0 {
+	if len(kfiStakingBytes) == 0 {
 		return common.ErrEmptyString
 	}
 
@@ -1820,10 +1820,10 @@ func (ei *elasticProcessor) SaveEpochInfo(epoch uint32, validators []kapp.Valida
 	epochInfo := &data.EpochInfo{
 		Epoch:                epoch,
 		Validators:           validatorsInfo,
-		KFICirculatingSupply: klvKDA.CirculatingSupply,
-		KLVTotalStaked:       klvStaking.TotalStaked,
-		KLVCirculatingSupply: kfiKDA.CirculatingSupply,
+		KFICirculatingSupply: kfiKDA.CirculatingSupply,
+		KLVCirculatingSupply: klvKDA.CirculatingSupply,
 		KFITotalStaked:       kfiStaking.TotalStaked,
+		KLVTotalStaked:       klvStaking.TotalStaked,
 	}
 
 	var buff bytes.Buffer

@@ -42,6 +42,8 @@ type ValidatorsKapp interface {
 	// V2 Epoch Rewards methods - for scalable rewards distribution
 	GetPendingRewards(address []byte) (int64, error)
 	ClaimPendingRewards(address []byte) (int64, error)
+	// GetPendingRewardsTotal returns the sum of all unclaimed PREW in the Validators KApp trie.
+	GetPendingRewardsTotal() (int64, error)
 
 	IsInterfaceNil() bool
 }
@@ -130,6 +132,8 @@ type MarketKapp interface {
 	GetAccountsCacher() state.AccountsCacher
 	GetMarketplace(marketplaceID []byte) (state.KAppAccountHandler, *kapps.Marketplace, error)
 	GetMarketOrder(orderID []byte) (state.KAppAccountHandler, *kapps.MarketOrderData, error)
+	// GetMarketEscrowTotal returns the total KLV escrowed across open market orders.
+	GetMarketEscrowTotal() (int64, error)
 	Buy(sender []byte, tc *transaction.BuyContract) (transaction.Transaction_TXResultCode, error)
 	Claim(sender []byte, tc *transaction.ClaimContract) (transaction.Transaction_TXResultCode, error)
 	Sell(sender []byte, tc *transaction.SellContract) (transaction.Transaction_TXResultCode, error)

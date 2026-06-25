@@ -65,6 +65,8 @@ apiPackages:
         open: true
       - name: /network-parameters
         open: true
+      - name: /economics
+        open: false
   node:
     routes:
       - name: /status
