@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/klever-io/klever-go/crypto"
+	bitmaputil "github.com/klever-io/klever-go/tools/bitmap"
 	"github.com/klever-io/klever-go/tools/check"
 )
 
@@ -150,19 +151,6 @@ func (bms *blsMultiSigner) CreateSignatureShare(message []byte, _ []byte) ([]byt
 	return sigShareBytes, nil
 }
 
-// hasPaddingBitsSet reports whether the bitmap has any set bit at a position that does not map to
-// a configured public key. For consensus sizes that are not a multiple of 8 these padding bits
-// must be zero; otherwise a caller could inflate the apparent signer set (KLR-04).
-func hasPaddingBitsSet(bitmap []byte, numPubKeys int) bool {
-	for bitIndex := numPubKeys; bitIndex < len(bitmap)*8; bitIndex++ {
-		if bitmap[bitIndex/8]&(1<<uint8(bitIndex%8)) != 0 { // #nosec G115 - bitIndex%8 is always < 8
-			return true
-		}
-	}
-
-	return false
-}
-
 // not concurrent safe, should be used under RLock mutex
 func (bms *blsMultiSigner) isIndexInBitmap(index uint16, bitmap []byte) error {
 	indexOutOfBounds := index >= uint16(len(bms.data.pubKeys)) // #nosec G115
@@ -249,7 +237,7 @@ func (bms *blsMultiSigner) AggregateSigs(bitmap []byte) ([]byte, error) {
 		return nil, crypto.ErrBitmapMismatch
 	}
 
-	if hasPaddingBitsSet(bitmap, len(bms.data.pubKeys)) {
+	if bitmaputil.HasPaddingBitsSet(bitmap, len(bms.data.pubKeys)) {
 		return nil, crypto.ErrBitmapPaddingNotZero
 	}
 
@@ -300,7 +288,7 @@ func (bms *blsMultiSigner) Verify(message []byte, bitmap []byte) error {
 		return crypto.ErrBitmapMismatch
 	}
 
-	if hasPaddingBitsSet(bitmap, len(bms.data.pubKeys)) {
+	if bitmaputil.HasPaddingBitsSet(bitmap, len(bms.data.pubKeys)) {
 		return crypto.ErrBitmapPaddingNotZero
 	}
 
