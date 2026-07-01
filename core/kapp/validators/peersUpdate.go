@@ -543,7 +543,10 @@ func (v *validatorsKApp) calculateDelegationRewardsV2(
 	totalDelegated int64,
 ) map[string]int64 {
 	rewardsAddrStr := string(val.GetRewardsAddress())
-	commissionAmount := (accumulatedFees * int64(val.GetCommission())) / int64(core.HundredPercent)
+	commissionAmount := new(big.Int).Quo(
+		new(big.Int).Mul(big.NewInt(accumulatedFees), big.NewInt(int64(val.GetCommission()))),
+		big.NewInt(int64(core.HundredPercent)),
+	).Int64()
 
 	localDelegations := make(map[string]int64, len(accumulatedDelegations)+1)
 	localDelegations[rewardsAddrStr] = commissionAmount
