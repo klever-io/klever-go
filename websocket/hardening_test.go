@@ -90,6 +90,26 @@ func TestHandleClientInsertion_DuplicateAddressesCountOnce(t *testing.T) {
 	assert.Equal(t, 3, hub.clientAddresses[c], "a duplicated new address must count once")
 }
 
+// TestHandleClientInsertion_NonAddressScopedIgnoresAddresses verifies that a
+// blocks/transactions-only subscribe neither counts nor stores its addresses:
+// such entries would never match (both accept flags false) yet would otherwise
+// burn the per-connection address budget (GHSA-4fwh-wrm6-97xm, Impact C).
+func TestHandleClientInsertion_NonAddressScopedIgnoresAddresses(t *testing.T) {
+	hub := NewHub("", "", nil, Limits{MaxAddressesPerSubscribe: 3, MaxAddressesPerClient: 3})
+	c := newTestClient(hub)
+
+	// BLOCKS-only with an oversized address list attached: addresses are irrelevant
+	// here, so neither the per-subscribe cap nor the per-client budget applies.
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.BLOCKS}, []string{"a", "b", "c", "d", "e"}, c))
+
+	hub.mu.RLock()
+	defer hub.mu.RUnlock()
+	assert.Equal(t, 0, hub.clientAddresses[c], "non-address-scoped subscribe must not consume the address budget")
+	assert.Equal(t, 0, len(hub.addressSubscription), "non-address-scoped subscribe must not store addresses")
+	_, subscribed := hub.blockSubscription[c]
+	assert.True(t, subscribed, "the global BLOCKS subscription must still be registered")
+}
+
 func TestLimits_Resolve_ClampsPerClientToPerSubscribe(t *testing.T) {
 	// An incoherent config (per-connection cap below per-call cap) is clamped up so a
 	// single maximal subscribe always fits the per-connection budget.

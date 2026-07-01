@@ -274,7 +274,13 @@ func (h *SocketHub) RemoveClient(c *client) {
 }
 
 func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, addresses []string, c *client) error {
-	if len(addresses) > h.limits.maxAddressesPerSubscribe {
+	// Addresses are only meaningful for the address-scoped types (ACCOUNTS,
+	// USER_TRANSACTIONS). A blocks/transactions-only subscribe must not count or
+	// store them, or it would burn the per-connection address budget on entries
+	// that never match anything (GHSA-4fwh-wrm6-97xm, Impact C).
+	wantsAddresses := containsAddressScoped(eventType)
+
+	if wantsAddresses && len(addresses) > h.limits.maxAddressesPerSubscribe {
 		return fmt.Errorf("too many addresses in a single subscribe: %d (max %d)", len(addresses), h.limits.maxAddressesPerSubscribe)
 	}
 
@@ -282,14 +288,27 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 	defer h.mu.Unlock()
 
 	// Reject before mutating if the per-connection cap would be exceeded; only addresses
-	// new to this client count (GHSA-4fwh-wrm6-97xm, Impact C).
-	if h.clientAddresses[c]+h.countNewAddresses(addresses, c) > h.limits.maxAddressesPerClient {
+	// new to this client count.
+	if wantsAddresses && h.clientAddresses[c]+h.countNewAddresses(addresses, c) > h.limits.maxAddressesPerClient {
 		return fmt.Errorf("address subscription limit reached for this connection (max %d)", h.limits.maxAddressesPerClient)
 	}
 
 	acceptAccounts, acceptTransactions := h.applyEventTypes(eventType, c)
-	h.addAddressSubscriptions(addresses, c, acceptAccounts, acceptTransactions)
+	if wantsAddresses {
+		h.addAddressSubscriptions(addresses, c, acceptAccounts, acceptTransactions)
+	}
 	return nil
+}
+
+// containsAddressScoped reports whether eventType includes a type for which the
+// request's addresses are meaningful (ACCOUNTS or USER_TRANSACTIONS).
+func containsAddressScoped(eventType []indexer.EventType) bool {
+	for _, t := range eventType {
+		if t == indexer.ACCOUNTS || t == indexer.USER_TRANSACTIONS {
+			return true
+		}
+	}
+	return false
 }
 
 // countNewAddresses returns how many of addresses are not yet watched by c, counting

@@ -126,7 +126,7 @@ func processSubscription(conn *gorilla.Conn, hub *websocket.SocketHub, release f
 		return
 	}
 
-	log.Debug(subscribeOp, "types", fmt.Sprintf("%v", parsedTypes), "addresses", fmt.Sprintf("%v", req.Addresses))
+	log.Debug(subscribeOp, "types", fmt.Sprintf("%v", parsedTypes), "addressCount", len(req.Addresses))
 	client := websocket.NewClient(conn, hub)
 	if err := hub.HandleClientInsertion(parsedTypes, req.Addresses, client); err != nil {
 		// Unreachable for a fresh client (resolve keeps per-client >= per-subscribe, and
