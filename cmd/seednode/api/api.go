@@ -11,13 +11,31 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/network/api/httpserver"
 	"github.com/klever-io/klever-go/network/api/logs"
+	"github.com/klever-io/klever-go/network/api/middleware"
 	"github.com/klever-io/klever-go/tools/marshal"
 )
 
 var log = logger.GetOrCreate("seednode/api")
+
+// Route package keys, config route names, and served URL paths, kept as constants to avoid
+// duplicating the string literals across registration and the fail-safe default.
+const (
+	logPackage   = "log"
+	peersPackage = "peers"
+	nodePackage  = "node"
+
+	logRoute     = "/log"
+	peersRoute   = "/peers"
+	statusRoute  = "/status"
+	metricsRoute = "/metrics"
+
+	nodeStatusPath  = "/node/status"
+	nodeMetricsPath = "/node/metrics"
+)
 
 // peerInfoProvider is the narrow surface the seednode API needs from the p2p
 // messenger. Kept inside this package so handlers can be tested without
@@ -30,22 +48,24 @@ type peerInfoProvider interface {
 
 // server bundles the state needed to serve the seednode HTTP surface.
 type server struct {
-	marshalizer marshal.Marshalizer
-	messenger   peerInfoProvider
-	version     string
-	startTime   time.Time
+	marshalizer  marshal.Marshalizer
+	messenger    peerInfoProvider
+	version      string
+	startTime    time.Time
+	routesConfig config.APIRoutesConfig
 }
 
 // Start boots the gin server with the seednode routes. messenger and version
 // are exposed by the /peers, /node/status and /node/metrics endpoints.
 // startTime should reflect process start so uptime reflects the binary, not
 // the API listener.
-func Start(restAPIInterface string, marshalizer marshal.Marshalizer, messenger peerInfoProvider, version string, startTime time.Time) error {
+func Start(restAPIInterface string, marshalizer marshal.Marshalizer, messenger peerInfoProvider, version string, startTime time.Time, routesConfig config.APIRoutesConfig) error {
 	srv := &server{
-		marshalizer: marshalizer,
-		messenger:   messenger,
-		version:     version,
-		startTime:   startTime,
+		marshalizer:  marshalizer,
+		messenger:    messenger,
+		version:      version,
+		startTime:    startTime,
+		routesConfig: routesConfig,
 	}
 
 	gin.SetMode(gin.ReleaseMode)
@@ -63,16 +83,37 @@ func Start(restAPIInterface string, marshalizer marshal.Marshalizer, messenger p
 }
 
 func (s *server) registerRoutes(ws *gin.Engine) {
-	s.registerLoggerWsRoute(ws)
-	ws.GET("/peers", s.peers)
-	ws.GET("/node/status", s.nodeStatus)
-	ws.GET("/node/metrics", s.nodeMetrics)
+	if s.routesConfig.IsRouteEnabled(logPackage, logRoute) {
+		s.registerLoggerWsRoute(ws)
+	}
+	s.registerGet(ws, peersPackage, peersRoute, peersRoute, s.peers)
+	s.registerGet(ws, nodePackage, statusRoute, nodeStatusPath, s.nodeStatus)
+	s.registerGet(ws, nodePackage, metricsRoute, nodeMetricsPath, s.nodeMetrics)
+}
+
+// registerGet registers a GET endpoint when its config route (pkg/configName) is open, prepending
+// Basic Authentication when that route is marked secured. path is the URL gin actually serves.
+func (s *server) registerGet(ws *gin.Engine, pkg, configName, path string, handler gin.HandlerFunc) {
+	if !s.routesConfig.IsRouteEnabled(pkg, configName) {
+		return
+	}
+
+	handlers := []gin.HandlerFunc{handler}
+	if s.routesConfig.IsRouteSecured(pkg, configName) {
+		handlers = append([]gin.HandlerFunc{middleware.NewAuthenticationFunc(s.routesConfig)}, handlers...)
+	}
+
+	ws.GET(path, handlers...)
 }
 
 func (s *server) registerLoggerWsRoute(ws *gin.Engine) {
 	upgrader := websocket.Upgrader{}
 
-	ws.GET("/log", func(c *gin.Context) {
+	// Only an authenticated (secured) /log may apply a client-supplied logger profile to the
+	// process-global logger; on an unauthenticated /log profiles are ignored (GHSA-9v8p-frvj-2pcm).
+	secured := s.routesConfig.IsRouteSecured(logPackage, logRoute)
+
+	logHandler := func(c *gin.Context) {
 		upgrader.CheckOrigin = func(r *http.Request) bool {
 			return true
 		}
@@ -83,14 +124,39 @@ func (s *server) registerLoggerWsRoute(ws *gin.Engine) {
 			return
 		}
 
-		ls, err := logs.NewLogSender(s.marshalizer, conn, log)
+		ls, err := logs.NewLogSender(s.marshalizer, conn, log, secured)
 		if err != nil {
 			log.Error(err.Error())
 			return
 		}
 
 		ls.StartSendingBlocking()
-	})
+	}
+
+	handlers := []gin.HandlerFunc{logHandler}
+	if secured {
+		// GHSA-9v8p-frvj-2pcm / KLC-2438: enforce authentication before the WebSocket
+		// upgrade. Without this the seednode /log stream was always unauthenticated.
+		handlers = append([]gin.HandlerFunc{middleware.NewAuthenticationFunc(s.routesConfig)}, handlers...)
+	}
+
+	ws.GET(logRoute, handlers...)
+}
+
+// DefaultRoutesConfig is the fail-safe used when no API config file can be loaded: the read-only
+// monitoring endpoints stay enabled so observability never silently breaks, while /log (which can
+// stream logs and, when secured, mutate the logger profile) stays disabled rather than being
+// exposed unauthenticated.
+func DefaultRoutesConfig() config.APIRoutesConfig {
+	return config.APIRoutesConfig{
+		APIPackages: map[string]config.APIPackageConfig{
+			peersPackage: {Routes: []config.RouteConfig{{Name: peersRoute, Open: true}}},
+			nodePackage: {Routes: []config.RouteConfig{
+				{Name: statusRoute, Open: true},
+				{Name: metricsRoute, Open: true},
+			}},
+		},
+	}
 }
 
 // peerSnapshot: connected count matches its slice; knownPeers is a separate read and may drift under churn.

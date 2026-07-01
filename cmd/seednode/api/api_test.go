@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/network/api/httpserver"
+	"github.com/klever-io/klever-go/tools/marshal"
 )
 
 type stubMessenger struct {
@@ -27,9 +29,10 @@ func (s *stubMessenger) ConnectedAddresses() []string { return s.connected }
 
 func newTestServer(stub *stubMessenger, version string, started time.Time) *server {
 	return &server{
-		messenger: stub,
-		version:   version,
-		startTime: started,
+		messenger:    stub,
+		version:      version,
+		startTime:    started,
+		routesConfig: DefaultRoutesConfig(),
 	}
 }
 
@@ -80,6 +83,141 @@ func TestSeednodeAPI_HardenedServerDropsSlowHeader(t *testing.T) {
 	_, _ = bufio.NewReader(conn).ReadString('\n')
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("slow-header connection not dropped promptly: %v", elapsed)
+	}
+}
+
+func seedLogRoutesConfig(open, secured bool) config.APIRoutesConfig {
+	return config.APIRoutesConfig{
+		APIPackages: map[string]config.APIPackageConfig{
+			"log": {Routes: []config.RouteConfig{{Name: "/log", Open: open, Secured: secured}}},
+		},
+		Credentials: []config.Credential{{Username: "user", Password: "deadbeef"}},
+		Hasher:      config.TypeConfig{Type: "sha256"},
+	}
+}
+
+// TestLogRoute_SecuredRequiresAuth verifies GHSA-9v8p-frvj-2pcm / KLC-2438: when /log is secured,
+// the seednode rejects an unauthenticated request before the WebSocket upgrade.
+func TestLogRoute_SecuredRequiresAuth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	srv := &server{
+		marshalizer:  &marshal.ProtoMarshalizer{},
+		messenger:    &stubMessenger{},
+		routesConfig: seedLogRoutesConfig(true, true),
+	}
+	r := gin.New()
+	srv.registerRoutes(r)
+
+	req := httptest.NewRequest(http.MethodGet, "/log", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 (auth required before upgrade)", w.Code)
+	}
+}
+
+// TestLogRoute_UnsecuredReachesUpgrade confirms that an open-but-unsecured /log has no auth gate:
+// the request reaches the gorilla upgrader, which rejects the non-WebSocket GET with 400.
+func TestLogRoute_UnsecuredReachesUpgrade(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	srv := &server{
+		marshalizer:  &marshal.ProtoMarshalizer{},
+		messenger:    &stubMessenger{},
+		routesConfig: seedLogRoutesConfig(true, false),
+	}
+	r := gin.New()
+	srv.registerRoutes(r)
+
+	req := httptest.NewRequest(http.MethodGet, "/log", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (reaches upgrader, no auth gate)", w.Code)
+	}
+}
+
+// TestLogRoute_DisabledNotRegistered confirms /log is not registered when not open (fail-safe
+// default when the seednode has no API config).
+func TestLogRoute_DisabledNotRegistered(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	srv := &server{marshalizer: &marshal.ProtoMarshalizer{}, messenger: &stubMessenger{}}
+	r := gin.New()
+	srv.registerRoutes(r)
+
+	req := httptest.NewRequest(http.MethodGet, "/log", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (/log not registered)", w.Code)
+	}
+}
+
+// TestMonitoringRoute_SecuredRequiresAuth verifies the per-route auth gate also applies to the
+// monitoring endpoints: a secured /node/status rejects an unauthenticated request.
+func TestMonitoringRoute_SecuredRequiresAuth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	srv := &server{
+		messenger: &stubMessenger{},
+		routesConfig: config.APIRoutesConfig{
+			APIPackages: map[string]config.APIPackageConfig{
+				"node": {Routes: []config.RouteConfig{{Name: "/status", Open: true, Secured: true}}},
+			},
+			Credentials: []config.Credential{{Username: "user", Password: "deadbeef"}},
+			Hasher:      config.TypeConfig{Type: "sha256"},
+		},
+	}
+	r := gin.New()
+	srv.registerRoutes(r)
+
+	req := httptest.NewRequest(http.MethodGet, "/node/status", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 (secured monitoring route)", w.Code)
+	}
+}
+
+// TestMonitoringRoute_DisabledNotRegistered confirms a route with open:false is not served.
+func TestMonitoringRoute_DisabledNotRegistered(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	srv := &server{
+		messenger: &stubMessenger{},
+		routesConfig: config.APIRoutesConfig{
+			APIPackages: map[string]config.APIPackageConfig{
+				"peers": {Routes: []config.RouteConfig{{Name: "/peers", Open: false}}},
+			},
+		},
+	}
+	r := gin.New()
+	srv.registerRoutes(r)
+
+	req := httptest.NewRequest(http.MethodGet, "/peers", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (/peers disabled)", w.Code)
+	}
+}
+
+// TestDefaultRoutesConfig confirms the fail-safe surface: monitoring on, /log off.
+func TestDefaultRoutesConfig(t *testing.T) {
+	cfg := DefaultRoutesConfig()
+	if !cfg.IsRouteEnabled("peers", "/peers") {
+		t.Error("/peers should be enabled by default")
+	}
+	if !cfg.IsRouteEnabled("node", "/status") {
+		t.Error("/node/status should be enabled by default")
+	}
+	if !cfg.IsRouteEnabled("node", "/metrics") {
+		t.Error("/node/metrics should be enabled by default")
+	}
+	if cfg.IsRouteEnabled("log", "/log") {
+		t.Error("/log must be disabled by default (fail-safe)")
 	}
 }
 

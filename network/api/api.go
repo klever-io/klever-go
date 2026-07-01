@@ -43,6 +43,11 @@ import (
 
 var log = logger.GetOrCreate("api")
 
+const (
+	logPackage = "log"
+	logRoute   = "/log"
+)
+
 type validatorInput struct {
 	Name      string
 	Validator validator.Func
@@ -128,12 +133,12 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 		pprof.Register(ws)
 	}
 
-	if isLogRouteEnabled(routesConfig) {
+	if routesConfig.IsRouteEnabled(logPackage, logRoute) {
 		marshalizerForLogs := &marshal.ProtoMarshalizer{}
-		registerLoggerWsRoute(ws, marshalizerForLogs)
+		registerLoggerWsRoute(ws, marshalizerForLogs, routesConfig)
 	}
 
-	if isSubscriptionRouteEnabled(routesConfig) {
+	if routesConfig.IsRouteEnabled("subscribe", "/subscribe") {
 		var postConnUrl, postConnApiKey string
 		if ok {
 			postConnUrl, postConnApiKey = apiHandler.WSConnectionURL(), apiHandler.WSConnectionAPIKey()
@@ -149,36 +154,6 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 		wsocket.SubscribeTopics(ws, hub)
 		go hub.StartServer(ctx)
 	}
-}
-
-func isSubscriptionRouteEnabled(routesConfig config.APIRoutesConfig) bool {
-	logConfig, ok := routesConfig.APIPackages["subscribe"]
-	if !ok {
-		return false
-	}
-
-	for _, cfg := range logConfig.Routes {
-		if cfg.Name == "/subscribe" && cfg.Open {
-			return true
-		}
-	}
-
-	return false
-}
-
-func isLogRouteEnabled(routesConfig config.APIRoutesConfig) bool {
-	logConfig, ok := routesConfig.APIPackages["log"]
-	if !ok {
-		return false
-	}
-
-	for _, cfg := range logConfig.Routes {
-		if cfg.Name == "/log" && cfg.Open {
-			return true
-		}
-	}
-
-	return false
 }
 
 // RegisterDefaultValidators will call register validation on all validator functions
@@ -197,10 +172,14 @@ func RegisterDefaultValidators() error {
 	return nil
 }
 
-func registerLoggerWsRoute(ws *gin.Engine, marshalizer marshal.Marshalizer) {
+func registerLoggerWsRoute(ws *gin.Engine, marshalizer marshal.Marshalizer, routesConfig config.APIRoutesConfig) {
 	upgrader := websocket.Upgrader{}
 
-	ws.GET("/log", func(c *gin.Context) {
+	// Only an authenticated (secured) /log may apply a client-supplied logger profile to the
+	// process-global logger; on an unauthenticated /log profiles are ignored (GHSA-9v8p-frvj-2pcm).
+	secured := routesConfig.IsRouteSecured(logPackage, logRoute)
+
+	logHandler := func(c *gin.Context) {
 		upgrader.CheckOrigin = func(r *http.Request) bool {
 			return true
 		}
@@ -211,14 +190,25 @@ func registerLoggerWsRoute(ws *gin.Engine, marshalizer marshal.Marshalizer) {
 			return
 		}
 
-		ls, err := logs.NewLogSender(marshalizer, conn, log)
+		ls, err := logs.NewLogSender(marshalizer, conn, log, secured)
 		if err != nil {
 			log.Error(err.Error())
 			return
 		}
 
 		ls.StartSendingBlocking()
-	})
+	}
+
+	handlers := []gin.HandlerFunc{logHandler}
+	if secured {
+		// GHSA-9v8p-frvj-2pcm / KLC-2438: enforce authentication before the WebSocket
+		// upgrade when /log is marked secured. This route is registered directly on the
+		// engine (outside the RouterWrapper), so without this the `secured: true` flag
+		// was silently ignored and /log was always unauthenticated.
+		handlers = append([]gin.HandlerFunc{middleware.NewAuthenticationFunc(routesConfig)}, handlers...)
+	}
+
+	ws.GET(logRoute, handlers...)
 }
 
 // skValidator validates a secret key from user input for correctness

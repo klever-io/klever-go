@@ -88,6 +88,13 @@ VERSION:
 			"configurations such as the marshalizer type",
 		Value: "./config/seednode/config.yaml",
 	}
+	// configurationAPIFile defines a flag for the path to the api routes yaml configuration file
+	configurationAPIFile = cli.StringFlag{
+		Name: "config-api",
+		Usage: "The `" + filePathPlaceholder + "` for the api configuration file. This YAML file contains the " +
+			"options to enable, disable and secure the seednode REST API endpoints.",
+		Value: "./config/seednode/api.yaml",
+	}
 )
 
 var log = logger.GetOrCreate("main")
@@ -106,6 +113,7 @@ func main() {
 		logLevel,
 		logSaveFile,
 		configurationFile,
+		configurationAPIFile,
 	}
 	app.Version = appVersion
 	app.Authors = []cli.Author{
@@ -139,6 +147,15 @@ func startNode(ctx *cli.Context) error {
 	cfg, err := config.LoadFromPath(configurationFileName)
 	if err != nil {
 		return err
+	}
+
+	apiConfigFileName := ctx.GlobalString(configurationAPIFile.Name)
+	apiRoutesConfig, err := config.LoadAPIConfig(apiConfigFileName)
+	if err != nil {
+		// Fail-safe: keep the read-only monitoring endpoints up but leave /log disabled
+		// rather than exposing it unauthenticated.
+		log.Warn("could not load api config; using built-in defaults (/log disabled)", "file", apiConfigFileName, "error", err)
+		apiRoutesConfig = api.DefaultRoutesConfig()
 	}
 
 	internalMarshalizer, err := factoryMarshalizer.NewMarshalizer(cfg.Marshalizer.Type)
@@ -191,7 +208,7 @@ func startNode(ctx *cli.Context) error {
 		return err
 	}
 
-	startRestServices(ctx, internalMarshalizer, messenger, startTime)
+	startRestServices(ctx, internalMarshalizer, messenger, startTime, apiRoutesConfig)
 
 	log.Info("application is now running...")
 	mainLoop(messenger, sigs)
@@ -355,17 +372,17 @@ func checkExpectedPeerCount(p2pConfig config.P2PConfig) error {
 	return nil
 }
 
-func startRestServices(ctx *cli.Context, marshalizer marshal.Marshalizer, messenger p2p.Messenger, startTime time.Time) {
+func startRestServices(ctx *cli.Context, marshalizer marshal.Marshalizer, messenger p2p.Messenger, startTime time.Time, routesConfig config.APIRoutesConfig) {
 	restAPIInterface := ctx.GlobalString(restAPIInterfaceFlag.Name)
 	if restAPIInterface != facade.DefaultRestPortOff {
-		go startGinServer(restAPIInterface, marshalizer, messenger, startTime)
+		go startGinServer(restAPIInterface, marshalizer, messenger, startTime, routesConfig)
 	} else {
 		log.Info("rest api is disabled")
 	}
 }
 
-func startGinServer(restAPIInterface string, marshalizer marshal.Marshalizer, messenger p2p.Messenger, startTime time.Time) {
-	err := api.Start(restAPIInterface, marshalizer, messenger, appVersion, startTime)
+func startGinServer(restAPIInterface string, marshalizer marshal.Marshalizer, messenger p2p.Messenger, startTime time.Time, routesConfig config.APIRoutesConfig) {
+	err := api.Start(restAPIInterface, marshalizer, messenger, appVersion, startTime, routesConfig)
 	if err != nil {
 		log.LogIfError(err)
 	}

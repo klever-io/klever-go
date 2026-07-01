@@ -92,6 +92,7 @@ apiPackages:
     routes:
       - name: /log
         open: true
+        secured: true
   vm:
     routes:
       - name: /hex
