@@ -346,13 +346,18 @@ func createMessenger(
 }
 
 func (netMes *networkMessenger) createPubSub(withMessageSigning bool) error {
-	optsPS := make([]pubsub.Option, 0)
+	optsPS := []pubsub.Option{
+		// Configure the seen-messages TTL per pubsub instance instead of mutating
+		// the package-level pubsub.TimeCacheDuration global. Writing the global on
+		// every construction races when messengers are built concurrently (e.g.
+		// parallel tests). WithSeenMessagesTTL is the libp2p-recommended way to set
+		// this per instance.
+		pubsub.WithSeenMessagesTTL(pubsubTimeCacheDuration),
+	}
 	if !withMessageSigning {
 		log.Warn("signature verification is turned off in network messenger instance")
 		optsPS = append(optsPS, pubsub.WithMessageSignaturePolicy(noSignPolicy))
 	}
-
-	pubsub.TimeCacheDuration = pubsubTimeCacheDuration
 
 	var err error
 	netMes.pb, err = pubsub.NewGossipSub(netMes.ctx, netMes.p2pHost, optsPS...)
