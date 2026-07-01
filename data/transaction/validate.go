@@ -239,7 +239,7 @@ type allowedAssetTriggerFields struct {
 	KDAPool   bool
 }
 
-func validateAssetTriggerFields(tc *AssetTriggerContract, allow allowedAssetTriggerFields) bool {
+func validateDisallowedScalarFields(tc *AssetTriggerContract, allow allowedAssetTriggerFields) bool {
 	if !allow.ToAddress && len(tc.GetToAddress()) > 0 {
 		return false
 	}
@@ -260,12 +260,10 @@ func validateAssetTriggerFields(tc *AssetTriggerContract, allow allowedAssetTrig
 		return false
 	}
 
-	if allow.Royalties {
-		return validateRoyalties(tc.GetRoyalties())
-	} else if tc.GetRoyalties() != nil && !proto.Equal(tc.GetRoyalties(), &RoyaltiesInfo{}) {
-		return false
-	}
+	return true
+}
 
+func validateDisallowedRoleAndStaking(tc *AssetTriggerContract, allow allowedAssetTriggerFields) bool {
 	if !allow.Role && tc.GetRole() != nil && !proto.Equal(tc.GetRole(), &RolesInfo{}) {
 		return false
 	}
@@ -274,8 +272,26 @@ func validateAssetTriggerFields(tc *AssetTriggerContract, allow allowedAssetTrig
 		return false
 	}
 
+	return true
+}
+
+func validateAssetTriggerFields(tc *AssetTriggerContract, allow allowedAssetTriggerFields, fc core.ForkController) bool {
+	if !validateDisallowedScalarFields(tc, allow) {
+		return false
+	}
+
+	if allow.Royalties {
+		return validateRoyalties(tc.GetRoyalties())
+	} else if tc.GetRoyalties() != nil && !proto.Equal(tc.GetRoyalties(), &RoyaltiesInfo{}) {
+		return false
+	}
+
+	if !validateDisallowedRoleAndStaking(tc, allow) {
+		return false
+	}
+
 	if allow.KDAPool {
-		return validateKDAPool(tc.GetKDAPool())
+		return validateKDAPool(tc.GetKDAPool(), fc)
 	} else if tc.GetKDAPool() != nil && !proto.Equal(tc.GetKDAPool(), &KDAPoolInfo{}) {
 		return false
 	}
@@ -283,9 +299,13 @@ func validateAssetTriggerFields(tc *AssetTriggerContract, allow allowedAssetTrig
 	return true
 }
 
-func validateKDAPool(poolInfo *KDAPoolInfo) bool {
+func validateKDAPool(poolInfo *KDAPoolInfo, fc core.ForkController) bool {
 	if poolInfo == nil {
 		return false
+	}
+
+	if fc.FixAuditChangesV3() {
+		return poolInfo.FRatioKLV > 0 && poolInfo.FRatioKDA > 0
 	}
 
 	if poolInfo.FRatioKLV == 0 || poolInfo.FRatioKDA == 0 {
@@ -364,7 +384,7 @@ func (tc *AssetTriggerContract) Validate(fc core.ForkController) error {
 		return ErrInvalidTriggerType
 	}
 
-	if !validateAssetTriggerFields(tc, allowed) {
+	if !validateAssetTriggerFields(tc, allowed, fc) {
 		return fmt.Errorf("invalid contract fields, allowed fields: assetID:true + %+v", allowed)
 	}
 

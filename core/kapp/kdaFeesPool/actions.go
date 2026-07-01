@@ -63,7 +63,7 @@ func (v *kdaFeesPoolKApp) UpdatePool(poolID []byte, assetOwner []byte, sender []
 		return transaction.Transaction_ParameterInvalid, common.ErrAssetPoolInvalidAddress
 	}
 
-	if info.FRatioKLV == 0 || info.FRatioKDA == 0 {
+	if v.invalidFeeRatio(info) {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, common.ErrAssetPoolInvalidAmount.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrAssetPoolInvalidAmount
 	}
@@ -92,6 +92,14 @@ func (v *kdaFeesPoolKApp) UpdatePool(poolID []byte, assetOwner []byte, sender []
 	))
 
 	return transaction.Transaction_Ok, nil
+}
+
+func (v *kdaFeesPoolKApp) invalidFeeRatio(info *transaction.KDAPoolInfo) bool {
+	if v.forkController.FixAuditChangesV3() {
+		return info.FRatioKLV <= 0 || info.FRatioKDA <= 0
+	}
+
+	return info.FRatioKLV == 0 || info.FRatioKDA == 0
 }
 
 // ChangePoolOwner -
@@ -516,6 +524,10 @@ func (v *kdaFeesPoolKApp) compute(app state.KAppAccountHandler, klvFee int64, in
 		return nil, 0, common.ErrAssetPoolNotActive
 	}
 
+	if v.forkController.FixAuditChangesV3() && (pool.FRatioKLV <= 0 || pool.FRatioKDA <= 0) {
+		return nil, 0, common.ErrAssetPoolInvalidAmount
+	}
+
 	// TODO: implement automated exchange based on balance with spread
 	// compute amount fixed ratio
 	// FRatioKDA:FRatioKLV
@@ -525,6 +537,10 @@ func (v *kdaFeesPoolKApp) compute(app state.KAppAccountHandler, klvFee int64, in
 	fv := big.NewInt(klvFee)
 	fv = fv.Mul(fv, big.NewInt(pool.FRatioKDA))
 	fv = fv.Quo(fv, big.NewInt(pool.FRatioKLV))
+
+	if v.forkController.FixAuditChangesV3() && !fv.IsInt64() {
+		return nil, 0, common.ErrAssetPoolInvalidAmount
+	}
 
 	return pool, fv.Int64(), nil
 }

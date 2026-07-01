@@ -81,6 +81,7 @@ type ForkController interface {
 	EpochRewardsV2() bool
 	FixAuditChangesV2() bool
 	FixMarketBuyOverflow() bool
+	FixAuditChangesV3() bool
 	IsInterfaceNil() bool
 }
 
