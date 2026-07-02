@@ -69,7 +69,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&conf.logWithCorrelation, "log-correlation", "c", false, "Boolean option for enabling log correlation elements.")
 	rootCmd.PersistentFlags().BoolVarP(&conf.logWithLoggerName, "log-logger-name", "n", false, "Boolean option for logger name in the logs.")
 	rootCmd.PersistentFlags().IntVarP(&conf.interval, "interval", "i", 1000, "This flag specifies the duration in milliseconds until new data is fetched from the node")
-	rootCmd.PersistentFlags().BoolVarP(&conf.useWss, "use-wss", "w", false, "Will use wss instead of ws when creating the web socket")
+	rootCmd.PersistentFlags().BoolVarP(&conf.useWss, "use-wss", "w", false, "Will use TLS to reach the node (wss for logs, https for metrics) instead of plaintext ws/http")
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -113,7 +113,7 @@ func startConnectorViewer(argsConfig *config) error {
 	chanNodeIsStarting := make(chan struct{})
 
 	presenterStatusHandler := presenter.NewPresenterStatusHandler()
-	statusMetricsProvider, err := provider.NewStatusMetricsProvider(presenterStatusHandler, nodeAddress, fetchIntervalFlagValue)
+	statusMetricsProvider, err := provider.NewStatusMetricsProvider(presenterStatusHandler, nodeAddress, fetchIntervalFlagValue, argsConfig.useWss)
 	if err != nil {
 		return err
 	}

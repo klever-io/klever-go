@@ -47,13 +47,10 @@ func InitLogHandler(args LogHandlerArgs) error {
 	}
 
 	var err error
-	scheme := ws
-	if args.UseWss {
-		scheme = wss
-	}
+	addr := normalizeAddress(args.NodeURL, args.UseWss)
 	go func() {
 		for {
-			webSocket, err = openWebSocket(scheme, args.NodeURL)
+			webSocket, err = openWebSocket(addr.wsScheme(), addr.host)
 			if err != nil {
 				_, _ = fmt.Fprintf(args.Presenter, "connector websocket error, retrying in %v...", retryDuration)
 				time.Sleep(retryDuration)
@@ -75,18 +72,23 @@ func InitLogHandler(args LogHandlerArgs) error {
 	return nil
 }
 
-func openWebSocket(scheme string, address string) (*websocket.Conn, error) {
-	u := url.URL{
-		Scheme: scheme,
-		Host:   address,
-		Path:   "/log",
-	}
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+func openWebSocket(scheme string, host string) (*websocket.Conn, error) {
+	conn, _, err := websocket.DefaultDialer.Dial(logWebSocketURL(scheme, host), nil)
 	if err != nil {
 		return nil, err
 	}
 
 	return conn, nil
+}
+
+func logWebSocketURL(scheme string, host string) string {
+	u := url.URL{
+		Scheme: scheme,
+		Host:   host,
+		Path:   "/log",
+	}
+
+	return u.String()
 }
 
 func sendProfile(conn *websocket.Conn, profile *logger.Profile) error {
