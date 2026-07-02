@@ -2,11 +2,14 @@ package utils
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 )
+
+const maxErrorBodySnippet = 512
 
 var httpClient *http.Client
 
@@ -21,6 +24,10 @@ func GetURL(url string, target interface{}) error {
 		return err
 	}
 	defer func() { _ = r.Body.Close() }()
+
+	if err := checkStatus(http.MethodGet, url, r); err != nil {
+		return err
+	}
 
 	return json.NewDecoder(r.Body).Decode(target)
 }
@@ -43,6 +50,10 @@ func PostURL(url, body string, headers []string, target interface{}) error {
 	}
 	defer func() { _ = r.Body.Close() }()
 
+	if err := checkStatus(http.MethodPost, url, r); err != nil {
+		return err
+	}
+
 	if target != nil {
 		data, errRead := io.ReadAll(r.Body)
 		if errRead != nil {
@@ -54,4 +65,18 @@ func PostURL(url, body string, headers []string, target interface{}) error {
 		}
 	}
 	return nil
+}
+
+func checkStatus(method, url string, r *http.Response) error {
+	if r.StatusCode >= http.StatusOK && r.StatusCode < http.StatusMultipleChoices {
+		return nil
+	}
+
+	snippet, _ := io.ReadAll(io.LimitReader(r.Body, maxErrorBodySnippet))
+	body := strings.TrimSpace(string(snippet))
+	if body == "" {
+		return fmt.Errorf("%s %s: unexpected HTTP status %s", method, url, r.Status)
+	}
+
+	return fmt.Errorf("%s %s: unexpected HTTP status %s: %s", method, url, r.Status, body)
 }
