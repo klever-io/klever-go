@@ -2,8 +2,13 @@ package websocket
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
+	ws "github.com/gorilla/websocket"
 	indexer "github.com/klever-io/klever-go/indexer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -164,4 +169,52 @@ func TestHandleClientInsertion_ReSubscribeDoesNotDoubleCount(t *testing.T) {
 	hub.mu.RLock()
 	defer hub.mu.RUnlock()
 	assert.Equal(t, 1, hub.clientAddresses[c])
+}
+
+// setKeepaliveForTest shortens the /subscribe keepalive timings so the read-deadline
+// reclamation fires in milliseconds, and returns a restore func.
+func setKeepaliveForTest(ping, pong time.Duration) func() {
+	origPing, origPong := pingPeriod, pongWait
+	pingPeriod, pongWait = ping, pong
+	return func() { pingPeriod, pongWait = origPing, origPong }
+}
+
+// TestClient_IdleConnectionReclaimedAtPongWait covers the core new defense
+// (GHSA-4fwh-wrm6-97xm): a silent/dead client that never answers server pings must have
+// its connection torn down when the lifetime read deadline (pongWait) elapses, so the
+// per-connection slot the owner holds via Done() is released instead of leaking.
+func TestClient_IdleConnectionReclaimedAtPongWait(t *testing.T) {
+	defer setKeepaliveForTest(20*time.Millisecond, 60*time.Millisecond)()
+
+	hub := newTestHub(nil)
+	upgrader := ws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+
+	released := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		c := NewClient(conn, hub)
+		// Mirror processSubscription: the owner blocks on Done() and frees the slot at teardown.
+		go func() {
+			<-c.Done()
+			close(released)
+		}()
+	}))
+	defer srv.Close()
+
+	url := "ws" + strings.TrimPrefix(srv.URL, "http")
+	conn, _, err := ws.DefaultDialer.Dial(url, nil)
+	require.NoError(t, err)
+	defer conn.Close()
+
+	// Never read from the connection: gorilla only answers server pings while the app reads,
+	// so a client that never reads is indistinguishable from a dead one and never pongs.
+	select {
+	case <-released:
+		// Read deadline elapsed and reclaimed the idle client — the slot is freed.
+	case <-time.After(2 * time.Second):
+		t.Fatal("idle client was not reclaimed at pongWait; connection slot leaked")
+	}
 }

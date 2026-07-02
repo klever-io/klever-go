@@ -3,13 +3,8 @@ package websocket
 import "time"
 
 const (
-	pingPeriod     = time.Duration(15) * time.Second
 	outChannelSize = 500
 	maxWorkers     = 4
-
-	// pongWait is the lifetime read deadline; it must exceed pingPeriod so a live client
-	// can answer a server ping before it elapses.
-	pongWait = time.Duration(30) * time.Second
 
 	// defaultMaxAddressesPerSubscribe caps addresses per subscribe call when unset.
 	defaultMaxAddressesPerSubscribe = 10000
@@ -25,6 +20,15 @@ const (
 	// addressJSONOverhead is the per-address byte budget (address + JSON separators, with
 	// headroom) used to derive the read limit from the address cap.
 	addressJSONOverhead = 96
+)
+
+// pingPeriod and pongWait are the /subscribe keepalive timings. They are vars only so
+// tests can shorten them to exercise the idle-client read-deadline reclamation quickly;
+// nothing in production mutates them. pongWait (the lifetime read deadline) must exceed
+// pingPeriod so a live client can answer a server ping before it elapses.
+var (
+	pingPeriod = 15 * time.Second
+	pongWait   = 30 * time.Second
 )
 
 // Limits bounds /subscribe resource usage. Zero-valued fields fall back to safe

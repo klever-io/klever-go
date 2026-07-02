@@ -146,8 +146,14 @@ func (c *client) loopOut() {
 			if !ok {
 				return
 			}
-			err := c.conn.WriteJSON(m)
-			if err != nil {
+			// Bound the write: a client that re-arms its read deadline but never drains its
+			// socket would otherwise park this goroutine here indefinitely (GHSA-4fwh-wrm6-97xm).
+			if err := c.conn.SetWriteDeadline(time.Now().Add(pingPeriod)); err != nil {
+				log.Warn("ws.loopOut", "err", err.Error())
+				c.close()
+				return
+			}
+			if err := c.conn.WriteJSON(m); err != nil {
 				log.Warn("ws.loopOut", "err", err.Error())
 				c.close()
 				return

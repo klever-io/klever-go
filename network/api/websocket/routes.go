@@ -21,6 +21,8 @@ const (
 )
 
 var upgrader = gorilla.Upgrader{
+	// Origin isn't enforced here by design: the node runs headless behind an operator proxy
+	// that owns origin/CORS policy, and /subscribe carries no ambient credentials (KLC-2450).
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
