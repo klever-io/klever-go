@@ -19,6 +19,9 @@ const (
 	economicsPath          = "/economics"
 	accountTotalsPath      = "/account-totals"
 	proposalParametersPath = "/network-parameters"
+
+	// errWrapFormat wraps a sentinel API error with the underlying cause in an Error response.
+	errWrapFormat = "%s: %s"
 )
 
 // FacadeHandler interface defines methods that can be used by the gin webserver
@@ -139,7 +142,7 @@ func GetProposalParameters(c *gin.Context) {
 			http.StatusInternalServerError,
 			shared.GenericAPIResponse{
 				Data:  nil,
-				Error: fmt.Sprintf("%s: %s", errors.ErrGetProposalParameters.Error(), err.Error()),
+				Error: fmt.Sprintf(errWrapFormat, errors.ErrGetProposalParameters.Error(), err.Error()),
 				Code:  shared.ReturnCodeInternalError,
 			},
 		)
@@ -183,7 +186,7 @@ func GetEconomics(c *gin.Context) {
 			http.StatusInternalServerError,
 			shared.GenericAPIResponse{
 				Data:  nil,
-				Error: fmt.Sprintf("%s: %s", errors.ErrGetEconomics.Error(), err.Error()),
+				Error: fmt.Sprintf(errWrapFormat, errors.ErrGetEconomics.Error(), err.Error()),
 				Code:  shared.ReturnCodeInternalError,
 			},
 		)
@@ -219,7 +222,7 @@ func GetAccountTotals(c *gin.Context) {
 			http.StatusInternalServerError,
 			shared.GenericAPIResponse{
 				Data:  nil,
-				Error: fmt.Sprintf("%s: %s", errors.ErrGetAccountTotals.Error(), err.Error()),
+				Error: fmt.Sprintf(errWrapFormat, errors.ErrGetAccountTotals.Error(), err.Error()),
 				Code:  shared.ReturnCodeInternalError,
 			},
 		)

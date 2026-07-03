@@ -1713,6 +1713,51 @@ func (ei *elasticProcessor) SaveEpochInfo(epoch uint32, validators []kapp.Valida
 		return nil
 	}
 
+	validatorsInfo := ei.buildEpochValidatorsInfo(validators)
+
+	kdaKapp, err := ei.loadKAppHandler(kapps.KDAKAppAddress)
+	if err != nil {
+		return err
+	}
+	stakingKapp, err := ei.loadKAppHandler(kapps.StakingKAppAddress)
+	if err != nil {
+		return err
+	}
+
+	klvKey := kdautils.ToKDAKey([]byte(kdautils.KLVIdentifier), nil)
+	kfiKey := kdautils.ToKDAKey([]byte(kdautils.KFIIdentifier), nil)
+
+	klvKDA, err := ei.readEpochKDAData(kdaKapp, klvKey)
+	if err != nil {
+		return err
+	}
+	klvStaking, err := ei.readEpochStakingData(stakingKapp, klvKey)
+	if err != nil {
+		return err
+	}
+	kfiKDA, err := ei.readEpochKDAData(kdaKapp, kfiKey)
+	if err != nil {
+		return err
+	}
+	kfiStaking, err := ei.readEpochStakingData(stakingKapp, kfiKey)
+	if err != nil {
+		return err
+	}
+
+	epochInfo := &data.EpochInfo{
+		Epoch:                epoch,
+		Validators:           validatorsInfo,
+		KFICirculatingSupply: kfiKDA.CirculatingSupply,
+		KLVCirculatingSupply: klvKDA.CirculatingSupply,
+		KFITotalStaked:       kfiStaking.TotalStaked,
+		KLVTotalStaked:       klvStaking.TotalStaked,
+	}
+
+	return ei.indexEpochInfo(epoch, epochInfo)
+}
+
+// buildEpochValidatorsInfo maps validator account handlers into the indexer's ValidatorInfo docs.
+func (ei *elasticProcessor) buildEpochValidatorsInfo(validators []kapp.ValidatorAccountInfoHandler) []*data.ValidatorInfo {
 	var validatorsInfo []*data.ValidatorInfo
 	for _, val := range validators {
 		validatorsInfo = append(validatorsInfo, &data.ValidatorInfo{
@@ -1737,106 +1782,65 @@ func (ei *elasticProcessor) SaveEpochInfo(epoch uint32, validators []kapp.Valida
 			URIs:           ei.convertURIs(val.GetURIs()),
 		})
 	}
+	return validatorsInfo
+}
 
-	//GET KLV and KFI total staked and circulation supply
-	assetKDAaccount, err := ei.kappsDB.LoadAccount(kapps.KDAKAppAddress)
+// loadKAppHandler loads a KApp account and asserts it to the handler interface.
+func (ei *elasticProcessor) loadKAppHandler(address []byte) (state.KAppAccountHandler, error) {
+	account, err := ei.kappsDB.LoadAccount(address)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	kdaKapp, ok := assetKDAaccount.(state.KAppAccountHandler)
+	handler, ok := account.(state.KAppAccountHandler)
 	if !ok {
-		return common.ErrWrongTypeAssertion
+		return nil, common.ErrWrongTypeAssertion
 	}
+	return handler, nil
+}
 
-	stakingKDAaccount, err := ei.kappsDB.LoadAccount(kapps.StakingKAppAddress)
+// readEpochKDAData reads and unmarshals a KDAData record; a missing record is an error.
+func (ei *elasticProcessor) readEpochKDAData(app state.KAppAccountHandler, key []byte) (*kapps.KDAData, error) {
+	raw, err := app.DataTrieTracker().RetrieveValue(key)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	stakingKapp, ok := stakingKDAaccount.(state.KAppAccountHandler)
-	if !ok {
-		return common.ErrWrongTypeAssertion
+	if len(raw) == 0 {
+		return nil, common.ErrEmptyString
 	}
+	kda := &kapps.KDAData{}
+	if err := ei.marshalizer.Unmarshal(kda, raw); err != nil {
+		return nil, err
+	}
+	return kda, nil
+}
 
-	//KLV
-	klvKey := kdautils.ToKDAKey([]byte(kdautils.KLVIdentifier), nil)
-	klvKDABytes, err := kdaKapp.DataTrieTracker().RetrieveValue(klvKey)
+// readEpochStakingData reads and unmarshals a StakingData record; a missing record is an error.
+func (ei *elasticProcessor) readEpochStakingData(app state.KAppAccountHandler, key []byte) (*kapps.StakingData, error) {
+	raw, err := app.DataTrieTracker().RetrieveValue(key)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if len(klvKDABytes) == 0 {
-		return common.ErrEmptyString
+	if len(raw) == 0 {
+		return nil, common.ErrEmptyString
 	}
-	klvKDA := &kapps.KDAData{}
-	err = ei.marshalizer.Unmarshal(klvKDA, klvKDABytes)
-	if err != nil {
-		return err
+	staking := &kapps.StakingData{}
+	if err := ei.marshalizer.Unmarshal(staking, raw); err != nil {
+		return nil, err
 	}
+	return staking, nil
+}
 
-	klvStakingBytes, err := stakingKapp.DataTrieTracker().RetrieveValue(klvKey)
-	if err != nil {
-		return err
-	}
-	if len(klvStakingBytes) == 0 {
-		return common.ErrEmptyString
-	}
-
-	klvStaking := &kapps.StakingData{}
-	err = ei.marshalizer.Unmarshal(klvStaking, klvStakingBytes)
-	if err != nil {
-		return err
-	}
-
-	//KFI
-	kfiKey := kdautils.ToKDAKey([]byte(kdautils.KFIIdentifier), nil)
-	kfiKDABytes, err := kdaKapp.DataTrieTracker().RetrieveValue(kfiKey)
-	if err != nil {
-		return err
-	}
-	if len(kfiKDABytes) == 0 {
-		return common.ErrEmptyString
-	}
-	kfiKDA := &kapps.KDAData{}
-	err = ei.marshalizer.Unmarshal(kfiKDA, kfiKDABytes)
-	if err != nil {
-		return err
-	}
-
-	kfiStakingBytes, err := stakingKapp.DataTrieTracker().RetrieveValue(kfiKey)
-	if err != nil {
-		return err
-	}
-	if len(kfiStakingBytes) == 0 {
-		return common.ErrEmptyString
-	}
-
-	kfiStaking := &kapps.StakingData{}
-	err = ei.marshalizer.Unmarshal(kfiStaking, kfiStakingBytes)
-	if err != nil {
-		return err
-	}
-
-	epochInfo := &data.EpochInfo{
-		Epoch:                epoch,
-		Validators:           validatorsInfo,
-		KFICirculatingSupply: kfiKDA.CirculatingSupply,
-		KLVCirculatingSupply: klvKDA.CirculatingSupply,
-		KFITotalStaked:       kfiStaking.TotalStaked,
-		KLVTotalStaked:       klvStaking.TotalStaked,
-	}
-
-	var buff bytes.Buffer
-
+// indexEpochInfo marshals the epoch document and writes it to the epoch index.
+func (ei *elasticProcessor) indexEpochInfo(epoch uint32, epochInfo *data.EpochInfo) error {
 	marshalizedEpochInfo, err := json.Marshal(epochInfo)
 	if err != nil {
 		log.Debug("indexer: marshal", "error", "could not marshal epoch info")
 		return err
 	}
 
+	var buff bytes.Buffer
 	buff.Grow(len(marshalizedEpochInfo))
-	_, err = buff.Write(marshalizedEpochInfo)
-	if err != nil {
+	if _, err = buff.Write(marshalizedEpochInfo); err != nil {
 		log.Warn("elastic search: epoch, write", "error", err.Error())
 	}
 
