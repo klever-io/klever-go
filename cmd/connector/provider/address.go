@@ -2,10 +2,7 @@ package provider
 
 import "strings"
 
-const (
-	schemeHTTP  = "http"
-	schemeHTTPS = "https"
-)
+const schemeHTTPS = "https"
 
 type normalizedAddress struct {
 	host   string
@@ -16,18 +13,10 @@ func normalizeAddress(raw string, useWss bool) normalizedAddress {
 	host := strings.TrimSpace(raw)
 	secure := useWss
 
-	lower := strings.ToLower(host)
-	switch {
-	case strings.HasPrefix(lower, schemeHTTPS+"://"):
-		host = host[len(schemeHTTPS+"://"):]
-		secure = true
-	case strings.HasPrefix(lower, schemeHTTP+"://"):
-		host = host[len(schemeHTTP+"://"):]
-	case strings.HasPrefix(lower, wss+"://"):
-		host = host[len(wss+"://"):]
-		secure = true
-	case strings.HasPrefix(lower, ws+"://"):
-		host = host[len(ws+"://"):]
+	if i := strings.Index(host, "://"); i >= 0 {
+		s := strings.ToLower(host[:i])
+		secure = secure || s == schemeHTTPS || s == wss
+		host = host[i+3:]
 	}
 
 	host = strings.TrimRight(host, "/")
@@ -39,7 +28,7 @@ func (n normalizedAddress) httpScheme() string {
 	if n.secure {
 		return schemeHTTPS
 	}
-	return schemeHTTP
+	return "http"
 }
 
 func (n normalizedAddress) wsScheme() string {

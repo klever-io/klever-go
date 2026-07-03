@@ -48,7 +48,7 @@ func TestNormalizeAddress(t *testing.T) {
 				assert.Equal(t, schemeHTTPS, got.httpScheme())
 			} else {
 				assert.Equal(t, ws, got.wsScheme())
-				assert.Equal(t, schemeHTTP, got.httpScheme())
+				assert.Equal(t, "http", got.httpScheme())
 			}
 		})
 	}
