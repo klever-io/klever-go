@@ -93,17 +93,17 @@ func (smp *StatusMetricsProvider) loadMetricsFromApi() (map[string]interface{}, 
 		return nil, err
 	}
 
-	responseBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	defer func() {
 		err = resp.Body.Close()
 		if err != nil {
 			log.Error("close response body", "error", err.Error())
 		}
 	}()
+
+	responseBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
 
 	var metricsResponse responseFromApi
 	err = json.Unmarshal(responseBytes, &metricsResponse)
