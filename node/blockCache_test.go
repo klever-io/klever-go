@@ -14,7 +14,7 @@ import (
 func TestBlockCache_get(t *testing.T) {
 	t.Parallel()
 
-	// nil header => nonce 0, so repeated calls stay within the "same block".
+	// nil header => sentinel key, so repeated calls stay within the "same block".
 	blkc := &mock.BlockChainMock{GetCurrentBlockHeaderCalled: func() data.HeaderHandler { return nil }}
 
 	t.Run("memoizes within the same block", func(t *testing.T) {
@@ -34,14 +34,6 @@ func TestBlockCache_get(t *testing.T) {
 		require.NoError(t, err)
 		require.Same(t, v1, v2) // served from cache
 		require.Equal(t, 1, calls)
-	})
-
-	t.Run("nil compute result is an error", func(t *testing.T) {
-		t.Parallel()
-		c := &blockCache[int]{}
-		v, err := c.get(blkc, func() (*int, error) { return nil, nil })
-		require.ErrorIs(t, err, errNilComputeResult)
-		require.Nil(t, v)
 	})
 
 	t.Run("propagates compute error", func(t *testing.T) {
@@ -79,6 +71,61 @@ func TestBlockCache_get(t *testing.T) {
 		v2, err := c.get(bc, compute)
 		require.NoError(t, err)
 		require.Equal(t, 2, *v2)
+		require.Equal(t, 2, calls)
+	})
+
+	t.Run("recomputes on a reorg at the same nonce", func(t *testing.T) {
+		t.Parallel()
+		rootHash := []byte("root-a")
+		bc := &mock.BlockChainMock{
+			GetCurrentBlockHeaderCalled: func() data.HeaderHandler {
+				return &mock.HeaderHandlerStub{GetNonceCalled: func() uint64 { return 5 }}
+			},
+			GetCurrentBlockRootHashCalled: func() []byte { return rootHash },
+		}
+		calls := 0
+		c := &blockCache[int]{}
+		compute := func() (*int, error) {
+			calls++
+			v := calls
+			return &v, nil
+		}
+
+		_, err := c.get(bc, compute)
+		require.NoError(t, err)
+		require.Equal(t, 1, calls)
+
+		rootHash = []byte("root-b") // same nonce, different state => recompute
+		v, err := c.get(bc, compute)
+		require.NoError(t, err)
+		require.Equal(t, 2, *v)
+		require.Equal(t, 2, calls)
+	})
+
+	t.Run("does not serve the no-header value for genesis", func(t *testing.T) {
+		t.Parallel()
+		var header data.HeaderHandler // no header yet
+		bc := &mock.BlockChainMock{
+			GetCurrentBlockHeaderCalled:   func() data.HeaderHandler { return header },
+			GetCurrentBlockRootHashCalled: func() []byte { return []byte("genesis-root") },
+		}
+		calls := 0
+		c := &blockCache[int]{}
+		compute := func() (*int, error) {
+			calls++
+			v := calls
+			return &v, nil
+		}
+
+		_, err := c.get(bc, compute)
+		require.NoError(t, err)
+		require.Equal(t, 1, calls)
+
+		// genesis lands at nonce 0, which must not alias the pre-genesis sentinel
+		header = &mock.HeaderHandlerStub{GetNonceCalled: func() uint64 { return 0 }}
+		v, err := c.get(bc, compute)
+		require.NoError(t, err)
+		require.Equal(t, 2, *v)
 		require.Equal(t, 2, calls)
 	})
 

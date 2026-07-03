@@ -1,8 +1,10 @@
 package node
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"math"
 
 	"github.com/klever-io/klever-go/common"
 	kdafeespool "github.com/klever-io/klever-go/core/kapp/kdaFeesPool"
@@ -108,14 +110,30 @@ func (n *Node) loadAccumulatedFeesTotal() (int64, error) {
 		if check.IfNil(peer) {
 			continue
 		}
-		total += peer.GetAccumulatedFees()
+		addGuarded(&total, peer.GetAccumulatedFees(), "loadAccumulatedFeesTotal")
 	}
 	return total, nil
 }
 
-// scanKAppDataTrie invokes accumulate with each stored value (GetStorage trims the trie tail). Keys are
-// collected before reading values so the scan goroutine finishes first.
-func (n *Node) scanKAppDataTrie(address []byte, accumulate func(value []byte) error) error {
+// addGuarded adds amount into total, skipping negative or overflowing values so a corrupt stored
+// entry cannot poison an authoritative supply figure.
+func addGuarded(total *int64, amount int64, context string) {
+	if amount < 0 {
+		log.Warn(context + ": negative amount, skipping entry")
+		return
+	}
+	if *total > math.MaxInt64-amount {
+		log.Warn(context + ": sum would overflow int64, skipping entry")
+		return
+	}
+	*total += amount
+}
+
+// scanKAppDataTrie invokes accumulate with each stored value whose key matches prefix (nil scans all;
+// GetStorage trims the trie tail). Keys are collected before reading values so the scan goroutine
+// finishes first. Mid-walk trie errors are swallowed upstream, so a truncated walk yields a silently
+// undercounted total (KLC-2509).
+func (n *Node) scanKAppDataTrie(address []byte, prefix []byte, accumulate func(value []byte) error) error {
 	app, err := n.loadKAppAccount(address)
 	if err != nil {
 		return err
@@ -132,6 +150,9 @@ func (n *Node) scanKAppDataTrie(address []byte, accumulate func(value []byte) er
 
 	keys := make([][]byte, 0)
 	for leaf := range leavesChannel {
+		if len(prefix) > 0 && !bytes.HasPrefix(leaf.Key(), prefix) {
+			continue
+		}
 		key := make([]byte, len(leaf.Key()))
 		copy(key, leaf.Key())
 		keys = append(keys, key)
@@ -150,14 +171,15 @@ func (n *Node) scanKAppDataTrie(address []byte, accumulate func(value []byte) er
 }
 
 // loadFeesPoolKLVTotal sums KLVBalance across every KDA fees-pool record (KLV sits in that field).
+// Fees-pool records are keyed by raw asset ID with no shared prefix, so the scan takes every leaf.
 func (n *Node) loadFeesPoolKLVTotal() (int64, error) {
 	total := int64(0)
-	err := n.scanKAppDataTrie(kapps.KDAFeesPoolKAppAddress, func(raw []byte) error {
+	err := n.scanKAppDataTrie(kapps.KDAFeesPoolKAppAddress, nil, func(raw []byte) error {
 		pool := &kdafeespool.KDAFeesPoolData{}
 		if err := n.internalMarshalizer.Unmarshal(pool, raw); err != nil {
 			return err
 		}
-		total += pool.KLVBalance
+		addGuarded(&total, pool.KLVBalance, "loadFeesPoolKLVTotal")
 		return nil
 	})
 	return total, err
@@ -181,15 +203,17 @@ func (n *Node) loadSystemAccountKLV() (int64, error) {
 // Σ FPR(TotalAmount − TotalClaimed). KLV-denominated only; non-KLV rewards (the KDAS map) are excluded.
 func (n *Node) loadFPRPoolKLVTotal() (int64, error) {
 	total := int64(0)
-	err := n.scanKAppDataTrie(kapps.StakingKAppAddress, func(raw []byte) error {
+	// StakingData records are keyed via ToKDAKey, so only KDA-prefixed leaves are decoded.
+	prefix := []byte(kapps.KDAPrefix + kapps.Sp)
+	err := n.scanKAppDataTrie(kapps.StakingKAppAddress, prefix, func(raw []byte) error {
 		staking := &kapps.StakingData{}
 		if err := n.internalMarshalizer.Unmarshal(staking, raw); err != nil {
 			return err
 		}
-		total += staking.GetCurrentFPRAmount()
+		addGuarded(&total, staking.GetCurrentFPRAmount(), "loadFPRPoolKLVTotal")
 		for _, fpr := range staking.GetFPR() {
 			if unclaimed := fpr.GetTotalAmount() - fpr.GetTotalClaimed(); unclaimed > 0 {
-				total += unclaimed
+				addGuarded(&total, unclaimed, "loadFPRPoolKLVTotal")
 			}
 		}
 		return nil

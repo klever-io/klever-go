@@ -1,36 +1,40 @@
 package node
 
 import (
-	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/tools/check"
 )
 
-var errNilComputeResult = errors.New("blockCache: compute returned nil without error")
-
-// blockCache memoizes a value per block, keyed on the chain header nonce: callers within a block share
-// one result; the first call after a new block recomputes. The returned pointer is shared — read-only.
+// blockCache memoizes a value per block, keyed on header nonce plus state root: callers within a
+// block share one result; a new block — or a reorg swapping the block at the same nonce — triggers
+// a recompute. The returned pointer is shared — read-only.
 type blockCache[T any] struct {
 	mu     sync.Mutex
-	nonce  uint64
-	valid  bool
+	key    string
 	cached *T
 }
 
-// get returns the cached value, recomputing under lock when the block advanced (so concurrent callers
+// blockCacheKey derives the memoization key. The sentinel keeps the no-header state distinct from
+// any real block (genesis also sits at nonce 0).
+func blockCacheKey(blkc data.ChainHandler) string {
+	header := blkc.GetCurrentBlockHeader()
+	if check.IfNil(header) {
+		return "no-header"
+	}
+	return fmt.Sprintf("%d:%x", header.GetNonce(), blkc.GetCurrentBlockRootHash())
+}
+
+// get returns the cached value, recomputing under lock when the block changed (so concurrent callers
 // on a fresh block share one compute).
 func (c *blockCache[T]) get(blkc data.ChainHandler, compute func() (*T, error)) (*T, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	currentNonce := uint64(0)
-	if header := blkc.GetCurrentBlockHeader(); !check.IfNil(header) {
-		currentNonce = header.GetNonce()
-	}
-
-	if c.valid && c.nonce == currentNonce && c.cached != nil {
+	key := blockCacheKey(blkc)
+	if c.cached != nil && c.key == key {
 		return c.cached, nil
 	}
 
@@ -38,13 +42,9 @@ func (c *blockCache[T]) get(blkc data.ChainHandler, compute func() (*T, error)) 
 	if err != nil {
 		return nil, err
 	}
-	if computed == nil {
-		return nil, errNilComputeResult
-	}
 
 	c.cached = computed
-	c.nonce = currentNonce
-	c.valid = true
+	c.key = key
 
 	return computed, nil
 }

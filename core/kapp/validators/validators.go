@@ -1144,6 +1144,7 @@ func (v *validatorsKApp) ClaimPendingRewards(address []byte) (int64, error) {
 
 // GetPendingRewardsTotal sums every PREW entry in the Validators KApp trie (uncached, O(n)).
 // For low-frequency callers (economics endpoint / per-epoch indexer); KLC-2507 makes it O(1).
+// Mid-walk trie errors are swallowed upstream, so a truncated walk undercounts silently (KLC-2509).
 func (v *validatorsKApp) GetPendingRewardsTotal() (int64, error) {
 	app, err := v.accountsCacher.LoadKAppUncached(kapps.ValidatorsKAppAddress)
 	if err != nil {
@@ -1179,7 +1180,7 @@ func (v *validatorsKApp) GetPendingRewardsTotal() (int64, error) {
 			log.Warn("GetPendingRewardsTotal: pending reward out of int64 range, skipping")
 			continue
 		}
-		if total > math.MaxInt64-amount { // unreachable; bounded by supply
+		if total > math.MaxInt64-amount {
 			log.Warn("GetPendingRewardsTotal: sum would overflow int64, skipping entry")
 			continue
 		}

@@ -6,6 +6,7 @@ import (
 	"github.com/klever-io/klever-go/common/mock"
 	kdafeespool "github.com/klever-io/klever-go/core/kapp/kdaFeesPool"
 	"github.com/klever-io/klever-go/core/keyValStorage"
+	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kapps"
@@ -48,7 +49,8 @@ func TestNode_loadFeesPoolKLVTotal(t *testing.T) {
 
 	marshalizer := marshal.NewProtoMarshalizer()
 	records := make(map[string][]byte)
-	for id, klv := range map[string]int64{"KLV": 1000, "ABC-1q2w": 2500, "ZERO": 0} {
+	// NEG exercises the negative guard: a corrupt balance is skipped, not summed.
+	for id, klv := range map[string]int64{"KLV": 1000, "ABC-1q2w": 2500, "ZERO": 0, "NEG": -50} {
 		raw, err := marshalizer.Marshal(&kdafeespool.KDAFeesPoolData{KLVBalance: klv})
 		require.NoError(t, err)
 		records[id] = raw
@@ -57,7 +59,7 @@ func TestNode_loadFeesPoolKLVTotal(t *testing.T) {
 	n := newEconomicsTestNode(records)
 	total, err := n.loadFeesPoolKLVTotal()
 	require.NoError(t, err)
-	require.Equal(t, int64(3500), total) // 1000 + 2500 + 0
+	require.Equal(t, int64(3500), total) // 1000 + 2500 + 0, NEG skipped
 }
 
 func TestNode_loadFPRPoolKLVTotal(t *testing.T) {
@@ -83,8 +85,10 @@ func TestNode_loadFPRPoolKLVTotal(t *testing.T) {
 	for id, s := range stakings {
 		raw, err := marshalizer.Marshal(s)
 		require.NoError(t, err)
-		records[id] = raw
+		records[string(kdautils.ToKDAKey([]byte(id), nil))] = raw
 	}
+	// a non-KDA-prefixed leaf must be filtered out, not decoded into the total
+	records["garbage-key"] = []byte{0xff, 0xfe, 0xfd}
 
 	n := newEconomicsTestNode(records)
 	total, err := n.loadFPRPoolKLVTotal()
@@ -106,7 +110,7 @@ func TestNode_scanKAppDataTrie_nilTrie(t *testing.T) {
 	}
 
 	called := false
-	err := n.scanKAppDataTrie([]byte("addr"), func(_ []byte) error { called = true; return nil })
+	err := n.scanKAppDataTrie([]byte("addr"), nil, func(_ []byte) error { called = true; return nil })
 	require.NoError(t, err)
 	require.False(t, called)
 }

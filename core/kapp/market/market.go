@@ -192,6 +192,7 @@ func (m *marketKapp) GetMarketOrder(orderID []byte) (state.KAppAccountHandler, *
 
 // GetMarketEscrowTotal returns the total KLV held in open market orders: each unclaimed order's
 // RoyaltiesFixedDeposit (always KLV) plus its CurrentBid when the order is priced in KLV.
+// Mid-walk trie errors are swallowed upstream, so a truncated walk undercounts silently (KLC-2509).
 func (m *marketKapp) GetMarketEscrowTotal() (int64, error) {
 	app, err := m.accountsCacher.LoadKAppUncached(kapps.MarketKAppAddress)
 	if err != nil {

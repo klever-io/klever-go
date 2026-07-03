@@ -67,8 +67,10 @@ apiPackages:
         open: true
       - name: /economics
         open: false
+        secured: true
       - name: /account-totals
         open: false
+        secured: true
   node:
     routes:
       - name: /status
