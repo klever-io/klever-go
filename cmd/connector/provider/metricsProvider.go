@@ -82,7 +82,9 @@ func (smp *StatusMetricsProvider) StartUpdatingData() {
 }
 
 func (smp *StatusMetricsProvider) loadMetricsFromApi() (map[string]interface{}, error) {
-	client := http.Client{}
+	client := http.Client{
+		Timeout: time.Duration(smp.fetchInterval) * time.Millisecond,
+	}
 
 	statusMetricsUrl := smp.nodeAddress + statusMetricsUrlSuffix
 	resp, err := client.Get(statusMetricsUrl)
