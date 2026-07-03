@@ -284,6 +284,18 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 		return fmt.Errorf("too many addresses in a single subscribe: %d (max %d)", len(addresses), h.limits.maxAddressesPerSubscribe)
 	}
 
+	// Bound each address by byte size before it is retained as a subscription key. The count
+	// caps alone leave a memory-amplification path: a long-lived connection could otherwise
+	// keep sending unique oversized strings that can never match a real address yet are
+	// retained per connection (GHSA-4fwh-wrm6-97xm).
+	if wantsAddresses {
+		for _, address := range addresses {
+			if len(address) > maxEncodedAddressLength {
+				return fmt.Errorf("subscription address exceeds the maximum length of %d bytes", maxEncodedAddressLength)
+			}
+		}
+	}
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
 

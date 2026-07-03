@@ -20,6 +20,12 @@ const (
 	// addressJSONOverhead is the per-address byte budget (address + JSON separators, with
 	// headroom) used to derive the read limit from the address cap.
 	addressJSONOverhead = 96
+
+	// maxEncodedAddressLength caps each retained subscription address by byte size: a klv
+	// bech32 address is 62 chars (matches the node's own encoded-address cap), so a longer
+	// string can never match a real address and would only feed a per-connection
+	// memory-amplification path (GHSA-4fwh-wrm6-97xm).
+	maxEncodedAddressLength = 62
 )
 
 // pingPeriod and pongWait are the /subscribe keepalive timings. They are vars only so

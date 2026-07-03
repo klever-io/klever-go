@@ -59,6 +59,38 @@ func TestHandleClientInsertion_RejectsOversizedSubscribe(t *testing.T) {
 	hub.mu.RUnlock()
 }
 
+// TestHandleClientInsertion_RejectsOversizedAddress guards the memory-amplification path
+// (GHSA-4fwh-wrm6-97xm): an address longer than a real klv bech32 address can never match,
+// so it must be rejected before it is retained as a subscription key rather than counting
+// only toward the count caps.
+func TestHandleClientInsertion_RejectsOversizedAddress(t *testing.T) {
+	hub := newTestHub(nil)
+	c := newTestClient(hub)
+
+	oversized := strings.Repeat("a", maxEncodedAddressLength+1)
+	err := hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS}, []string{oversized}, c)
+	require.Error(t, err)
+
+	hub.mu.RLock()
+	defer hub.mu.RUnlock()
+	assert.Equal(t, 0, len(hub.addressSubscription), "an oversized address must not be retained as a key")
+	assert.Equal(t, 0, hub.clientAddresses[c], "a rejected subscribe must not consume the address budget")
+}
+
+// TestHandleClientInsertion_AcceptsMaxLengthAddress confirms the length cap is inclusive:
+// a real, full-length (62-char) address is accepted.
+func TestHandleClientInsertion_AcceptsMaxLengthAddress(t *testing.T) {
+	hub := newTestHub(nil)
+	c := newTestClient(hub)
+
+	addr := strings.Repeat("a", maxEncodedAddressLength)
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS}, []string{addr}, c))
+
+	hub.mu.RLock()
+	defer hub.mu.RUnlock()
+	assert.Equal(t, 1, hub.clientAddresses[c])
+}
+
 func TestHandleClientInsertion_RejectsPerClientCap(t *testing.T) {
 	hub := NewHub("", "", nil, Limits{MaxAddressesPerSubscribe: 5, MaxAddressesPerClient: 5})
 	c := newTestClient(hub)
