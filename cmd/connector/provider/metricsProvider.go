@@ -5,7 +5,6 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"strings"
 	"time"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -28,6 +27,7 @@ var signedMetricKeys = map[string]struct{}{
 var log = logger.GetOrCreate("connector/provider")
 
 const statusMetricsUrlSuffix = "/node/status"
+const statusMetricsRequestTimeout = 10 * time.Second
 
 type statusMetricsResponseData struct {
 	Response map[string]interface{} `json:"metrics"`
@@ -47,7 +47,7 @@ type StatusMetricsProvider struct {
 }
 
 // NewStatusMetricsProvider will return a new instance of a StatusMetricsProvider
-func NewStatusMetricsProvider(presenter PresenterHandler, nodeAddress string, fetchInterval int) (*StatusMetricsProvider, error) {
+func NewStatusMetricsProvider(presenter PresenterHandler, nodeAddress string, fetchInterval int, useWss bool) (*StatusMetricsProvider, error) {
 	if len(nodeAddress) == 0 {
 		return nil, ErrInvalidAddressLength
 	}
@@ -60,7 +60,7 @@ func NewStatusMetricsProvider(presenter PresenterHandler, nodeAddress string, fe
 
 	return &StatusMetricsProvider{
 		presenter:     presenter,
-		nodeAddress:   formatUrlAddress(nodeAddress),
+		nodeAddress:   normalizeAddress(nodeAddress, useWss).statusURL(),
 		fetchInterval: fetchInterval,
 	}, nil
 }
@@ -83,15 +83,12 @@ func (smp *StatusMetricsProvider) StartUpdatingData() {
 }
 
 func (smp *StatusMetricsProvider) loadMetricsFromApi() (map[string]interface{}, error) {
-	client := http.Client{}
+	client := http.Client{
+		Timeout: statusMetricsRequestTimeout,
+	}
 
 	statusMetricsUrl := smp.nodeAddress + statusMetricsUrlSuffix
 	resp, err := client.Get(statusMetricsUrl)
-	if err != nil {
-		return nil, err
-	}
-
-	responseBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -102,6 +99,11 @@ func (smp *StatusMetricsProvider) loadMetricsFromApi() (map[string]interface{}, 
 			log.Error("close response body", "error", err.Error())
 		}
 	}()
+
+	responseBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
 
 	var metricsResponse responseFromApi
 	err = json.Unmarshal(responseBytes, &metricsResponse)
@@ -153,18 +155,4 @@ func (smp *StatusMetricsProvider) setPresenterValue(key string, value interface{
 	}
 
 	return nil
-}
-
-func formatUrlAddress(address string) string {
-	httpPrefix := "http://"
-	if !strings.HasPrefix(address, httpPrefix) {
-		address = httpPrefix + address
-	}
-
-	suffix := "/"
-	if strings.HasSuffix(address, suffix) {
-		address = address[:len(address)-1]
-	}
-
-	return address
 }

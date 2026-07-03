@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -16,6 +17,7 @@ import (
 
 var formatter = logger.PlainFormatter{}
 var webSocket *websocket.Conn
+var webSocketMu sync.Mutex
 var retryDuration = time.Second * 10
 var marshalizer = &marshal.ProtoMarshalizer{}
 
@@ -46,24 +48,21 @@ func InitLogHandler(args LogHandlerArgs) error {
 		return ErrEmptyNodeURL
 	}
 
-	var err error
-	scheme := ws
-	if args.UseWss {
-		scheme = wss
-	}
+	addr := normalizeAddress(args.NodeURL, args.UseWss)
 	go func() {
 		for {
-			webSocket, err = openWebSocket(scheme, args.NodeURL)
+			conn, err := openWebSocket(addr.wsScheme(), addr.host)
 			if err != nil {
 				_, _ = fmt.Fprintf(args.Presenter, "connector websocket error, retrying in %v...", retryDuration)
 				time.Sleep(retryDuration)
 				continue
 			}
+			setWebSocket(conn)
 
 			if args.CustomLogProfile {
-				err = sendProfile(webSocket, args.Profile)
+				err = sendProfile(conn, args.Profile)
 			} else {
-				err = sendDefaultProfileIdentifier(webSocket)
+				err = sendDefaultProfileIdentifier(conn)
 			}
 			log.LogIfError(err)
 
@@ -75,12 +74,13 @@ func InitLogHandler(args LogHandlerArgs) error {
 	return nil
 }
 
-func openWebSocket(scheme string, address string) (*websocket.Conn, error) {
+func openWebSocket(scheme string, host string) (*websocket.Conn, error) {
 	u := url.URL{
 		Scheme: scheme,
-		Host:   address,
+		Host:   host,
 		Path:   "/log",
 	}
+
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		return nil, err
@@ -104,8 +104,12 @@ func sendDefaultProfileIdentifier(conn *websocket.Conn) error {
 
 // startListeningOnWebSocket will listen if a new log message is received and will display it
 func startListeningOnWebSocket(presenter PresenterHandler, chanNodeIsStarting chan struct{}) {
+	conn := getWebSocket()
+	if conn == nil {
+		return
+	}
 	for {
-		msgType, message, err := webSocket.ReadMessage()
+		msgType, message, err := conn.ReadMessage()
 		if msgType == websocket.CloseMessage {
 			return
 		}
@@ -151,9 +155,22 @@ func formatMessage(message []byte) []byte {
 
 // StopWebSocket will send notify the node that the app is closed
 func StopWebSocket() {
-	if webSocket != nil {
-		err := webSocket.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+	conn := getWebSocket()
+	if conn != nil {
+		err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 		log.LogIfError(err)
 		time.Sleep(time.Second)
 	}
+}
+
+func setWebSocket(conn *websocket.Conn) {
+	webSocketMu.Lock()
+	webSocket = conn
+	webSocketMu.Unlock()
+}
+
+func getWebSocket() *websocket.Conn {
+	webSocketMu.Lock()
+	defer webSocketMu.Unlock()
+	return webSocket
 }
