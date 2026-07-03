@@ -73,22 +73,18 @@ func InitLogHandler(args LogHandlerArgs) error {
 }
 
 func openWebSocket(scheme string, host string) (*websocket.Conn, error) {
-	conn, _, err := websocket.DefaultDialer.Dial(logWebSocketURL(scheme, host), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return conn, nil
-}
-
-func logWebSocketURL(scheme string, host string) string {
 	u := url.URL{
 		Scheme: scheme,
 		Host:   host,
 		Path:   "/log",
 	}
 
-	return u.String()
+	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return conn, nil
 }
 
 func sendProfile(conn *websocket.Conn, profile *logger.Profile) error {

@@ -81,37 +81,6 @@ func TestNewStatusMetricsProviderBuildsSchemeAwareBaseURL(t *testing.T) {
 	}
 }
 
-func TestLogWebSocketURL(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name   string
-		scheme string
-		host   string
-		want   string
-	}{
-		{"ws", ws, "localhost:8801", "ws://localhost:8801/log"},
-		{"wss", wss, "localhost:8801", "wss://localhost:8801/log"},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := logWebSocketURL(tc.scheme, tc.host)
-			assert.Equal(t, tc.want, got)
-			assert.NotContains(t, got, "http://")
-		})
-	}
-}
-
-func TestLogWebSocketURLFromSchemePrefixedAddressHasNoDoubleScheme(t *testing.T) {
-	t.Parallel()
-
-	addr := normalizeAddress("http://localhost:8801", false)
-	got := logWebSocketURL(addr.wsScheme(), addr.host)
-	assert.Equal(t, "ws://localhost:8801/log", got)
-}
-
 func TestStatusMetricsProviderFetchesWithSchemePrefixedAddress(t *testing.T) {
 	t.Parallel()
 
