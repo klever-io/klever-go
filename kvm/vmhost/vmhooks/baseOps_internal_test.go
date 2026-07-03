@@ -2,6 +2,7 @@ package vmhooks
 
 import (
 	"encoding/binary"
+	"math"
 	"testing"
 
 	"github.com/klever-io/klever-go/kvm/config"
@@ -35,6 +36,36 @@ func encodeArgLengths(lengths []int32) []byte {
 		binary.LittleEndian.PutUint32(data[i*4:], uint32(l)) // #nosec G115
 	}
 	return data
+}
+
+func TestArgumentsLengthByteCount(t *testing.T) {
+	t.Parallel()
+
+	// numArguments * 4 overflows int32 for any numArguments > math.MaxInt32/4.
+	overflowBoundary := int32(math.MaxInt32/4 + 1)
+
+	// values that must NOT overflow
+	n, err := argumentsLengthByteCount(0)
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), n)
+
+	n, err = argumentsLengthByteCount(1)
+	require.NoError(t, err)
+	assert.Equal(t, int32(4), n)
+
+	n, err = argumentsLengthByteCount(math.MaxInt32 / 4)
+	require.NoError(t, err)
+	assert.Equal(t, int32(math.MaxInt32/4)*4, n)
+
+	// values that MUST overflow: boundary, midpoint, and max
+	_, err = argumentsLengthByteCount(overflowBoundary)
+	require.Error(t, err)
+
+	_, err = argumentsLengthByteCount(math.MaxInt32 / 2)
+	require.Error(t, err)
+
+	_, err = argumentsLengthByteCount(math.MaxInt32)
+	require.Error(t, err)
 }
 
 func TestVMHooksImpl_getArgumentsFromMemory(t *testing.T) {
@@ -90,21 +121,6 @@ func TestVMHooksImpl_getArgumentsFromMemory(t *testing.T) {
 		context := NewVMHooksImpl(host)
 
 		result, totalLen, err := context.getArgumentsFromMemory(host, maxNumArgumentsFromMemory+1, executor.MemPtr(0), executor.MemPtr(100))
-
-		require.Error(t, err)
-		assert.Nil(t, result)
-		assert.Equal(t, int32(0), totalLen)
-	})
-
-	t.Run("numArguments causing int32 overflow on length calc is rejected", func(t *testing.T) {
-		host := newInternalMockVMHost()
-		context := NewVMHooksImpl(host)
-
-		// (1<<30)*4 overflows int32, so the int64 cross-check must catch it
-		// even though numArguments alone is within int32 range.
-		const overflowingNumArguments = int32(1) << 30
-
-		result, totalLen, err := context.getArgumentsFromMemory(host, overflowingNumArguments, executor.MemPtr(0), executor.MemPtr(100))
 
 		require.Error(t, err)
 		assert.Nil(t, result)

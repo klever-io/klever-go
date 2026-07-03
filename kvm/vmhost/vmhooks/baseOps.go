@@ -2503,29 +2503,41 @@ func (context *VMHooksImpl) getArgumentsFromMemory(
 	argumentsLengthOffset executor.MemPtr,
 	dataOffset executor.MemPtr,
 ) ([][]byte, int32, error) {
-	argumentsLenghtsByteLength := numArguments * 4
-
-	if numArguments < 0 || numArguments > maxNumArgumentsFromMemory || int64(argumentsLenghtsByteLength) != int64(numArguments*4) {
+	if numArguments < 0 || numArguments > maxNumArgumentsFromMemory {
 		return nil, 0, fmt.Errorf("invalid numArguments (%d)", numArguments)
 	}
-	argumentsLengthData, err := context.MemLoad(argumentsLengthOffset, argumentsLenghtsByteLength)
+	argumentsLengthsByteLength, err := argumentsLengthByteCount(numArguments)
 	if err != nil {
 		return nil, 0, err
 	}
-	if len(argumentsLengthData) != int(argumentsLenghtsByteLength) {
-		return nil, 0, fmt.Errorf("MemLoad returned truncaded data")
+
+	argumentsLengthData, err := context.MemLoad(argumentsLengthOffset, argumentsLengthsByteLength)
+	if err != nil {
+		return nil, 0, err
 	}
+	if len(argumentsLengthData) != int(argumentsLengthsByteLength) {
+		return nil, 0, fmt.Errorf("MemLoad returned truncated data")
+	}
+
 	argumentLengths := createInt32Array(argumentsLengthData, numArguments)
 	data, err := context.MemLoadMultiple(dataOffset, argumentLengths)
 	if err != nil {
 		return nil, 0, err
 	}
+
 	totalArgumentBytes := int32(0)
 	for _, length := range argumentLengths {
 		totalArgumentBytes += length
 	}
-
 	return data, totalArgumentBytes, nil
+}
+
+func argumentsLengthByteCount(numArguments int32) (int32, error) {
+	byteCount := numArguments * 4
+	if int64(byteCount) != int64(numArguments)*4 {
+		return 0, fmt.Errorf("invalid numArguments (%d)", numArguments)
+	}
+	return byteCount, nil
 }
 
 func createInt32Array(rawData []byte, numIntegers int32) []int32 {
