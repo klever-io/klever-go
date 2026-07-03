@@ -17,57 +17,93 @@ type sampleResult struct {
 	Name string `json:"name"`
 }
 
-func TestGetURLDecodesSuccessBody(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"name":"klever"}`))
-	}))
-	defer srv.Close()
+func TestURLHandlesHTTPStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		status     int
+		body       string
+		wantErr    bool
+		wantName   string
+		wantSubstr []string
+	}{
+		{
+			name:     "GET decodes success body",
+			method:   http.MethodGet,
+			status:   http.StatusOK,
+			body:     `{"name":"klever"}`,
+			wantName: "klever",
+		},
+		{
+			name:       "GET surfaces server error",
+			method:     http.MethodGet,
+			status:     http.StatusInternalServerError,
+			body:       `{"name":"boom"}`,
+			wantErr:    true,
+			wantSubstr: []string{"500", "boom"},
+		},
+		{
+			name:       "GET rejects not found",
+			method:     http.MethodGet,
+			status:     http.StatusNotFound,
+			body:       "not found",
+			wantErr:    true,
+			wantSubstr: []string{"404"},
+		},
+		{
+			name:       "GET rejects multiple choices",
+			method:     http.MethodGet,
+			status:     http.StatusMultipleChoices,
+			body:       "choices",
+			wantErr:    true,
+			wantSubstr: []string{"300"},
+		},
+		{
+			name:     "POST decodes success body",
+			method:   http.MethodPost,
+			status:   http.StatusOK,
+			body:     `{"name":"klever"}`,
+			wantName: "klever",
+		},
+		{
+			name:       "POST surfaces server error",
+			method:     http.MethodPost,
+			status:     http.StatusInternalServerError,
+			body:       `{"name":"boom"}`,
+			wantErr:    true,
+			wantSubstr: []string{"500", "boom"},
+		},
+	}
 
-	var got sampleResult
-	err := utils.GetURL(srv.URL, &got)
-	assert.NoError(t, err)
-	assert.Equal(t, "klever", got.Name)
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
 
-func TestGetURLReturnsErrorOnServerError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"name":"boom"}`))
-	}))
-	defer srv.Close()
+			var got sampleResult
+			var err error
+			if tt.method == http.MethodPost {
+				err = utils.PostURL(srv.URL, `{}`, nil, &got)
+			} else {
+				err = utils.GetURL(srv.URL, &got)
+			}
 
-	var got sampleResult
-	err := utils.GetURL(srv.URL, &got)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "500")
-	assert.Contains(t, err.Error(), "boom")
-	assert.Empty(t, got.Name)
-}
+			if tt.wantErr {
+				require.Error(t, err)
+				for _, substr := range tt.wantSubstr {
+					assert.Contains(t, err.Error(), substr)
+				}
+				assert.Empty(t, got.Name)
+				return
+			}
 
-func TestGetURLReturnsErrorOnNotFoundStatus(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "not found", http.StatusNotFound)
-	}))
-	defer srv.Close()
-
-	var got sampleResult
-	err := utils.GetURL(srv.URL, &got)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "404")
-}
-
-func TestGetURLReturnsErrorOnMultipleChoicesStatus(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusMultipleChoices)
-		_, _ = w.Write([]byte("choices"))
-	}))
-	defer srv.Close()
-
-	var got sampleResult
-	err := utils.GetURL(srv.URL, &got)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "300")
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantName, got.Name)
+		})
+	}
 }
 
 func TestGetURLSurfacesEOFOnEmptyBody(t *testing.T) {
@@ -96,32 +132,19 @@ func TestGetURLTruncatesBodyInError(t *testing.T) {
 	assert.Equal(t, 512, strings.Count(err.Error(), "Z"), "body snippet must be capped at 512 bytes")
 }
 
-func TestPostURLDecodesSuccessBody(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"name":"klever"}`))
-	}))
-	defer srv.Close()
-
-	var got sampleResult
-	err := utils.PostURL(srv.URL, `{}`, nil, &got)
-	assert.NoError(t, err)
-	assert.Equal(t, "klever", got.Name)
-}
-
-func TestPostURLReturnsErrorOnServerError(t *testing.T) {
+func TestErrorStripsControlCharsFromServerBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"name":"boom"}`))
+		_, _ = w.Write([]byte("line1\nline2\x1b[2Kfaked-success"))
 	}))
 	defer srv.Close()
 
 	var got sampleResult
-	err := utils.PostURL(srv.URL, `{}`, nil, &got)
+	err := utils.GetURL(srv.URL, &got)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "500")
-	assert.Contains(t, err.Error(), "boom")
-	assert.Empty(t, got.Name)
+	assert.NotContains(t, err.Error(), "\n", "newlines must be stripped to prevent log line forging")
+	assert.NotContains(t, err.Error(), "\x1b", "escape sequences must be stripped to prevent terminal spoofing")
+	assert.Contains(t, err.Error(), "line1line2[2Kfaked-success")
 }
 
 func TestPostURLReturnsErrorOnEmptyBody(t *testing.T) {
