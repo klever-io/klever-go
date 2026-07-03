@@ -28,54 +28,24 @@ func (n *Node) computeEconomics() (*models.EconomicsResponse, error) {
 		return nil, err
 	}
 
-	pendingRewardsTotal := int64(0)
-	marketEscrowTotal := int64(0)
-	if !check.IfNil(n.kappController) {
-		pendingRewardsTotal, err = n.kappController.GetValidatorsKApp().GetPendingRewardsTotal()
-		if err != nil {
-			return nil, err
-		}
-		marketEscrowTotal, err = n.kappController.GetMarketKApp().GetMarketEscrowTotal()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	feesPoolKLVTotal := int64(0)
-	systemAccountKLV := int64(0)
-	fprPoolKLVTotal := int64(0)
-	if !check.IfNil(n.kapps) {
-		feesPoolKLVTotal, err = n.loadFeesPoolKLVTotal()
-		if err != nil {
-			return nil, err
-		}
-		systemAccountKLV, err = n.loadSystemAccountKLV()
-		if err != nil {
-			return nil, err
-		}
-		fprPoolKLVTotal, err = n.loadFPRPoolKLVTotal()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	accumulatedFeesTotal := int64(0)
-	if !check.IfNil(n.validatorStatistics) {
-		accumulatedFeesTotal, err = n.loadAccumulatedFeesTotal()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	// A missing KLV StakingData record (fresh/test networks) means no stake, not an error.
-	staking, err := n.loadStakingData(string(kdautils.KLVIdentifier))
-	if err != nil && !errors.Is(err, common.ErrStakingNotFound) {
+	pendingRewardsTotal, marketEscrowTotal, err := n.loadKAppHeldTotals()
+	if err != nil {
 		return nil, err
 	}
 
-	totalStaked := int64(0)
-	if staking != nil {
-		totalStaked = staking.GetTotalStaked()
+	feesPoolKLVTotal, systemAccountKLV, fprPoolKLVTotal, err := n.loadKAppKLVPools()
+	if err != nil {
+		return nil, err
+	}
+
+	accumulatedFeesTotal, err := n.loadValidatorAccumulatedFees()
+	if err != nil {
+		return nil, err
+	}
+
+	totalStaked, err := n.loadTotalStakedKLV()
+	if err != nil {
+		return nil, err
 	}
 
 	return &models.EconomicsResponse{
@@ -92,6 +62,64 @@ func (n *Node) computeEconomics() (*models.EconomicsResponse, error) {
 		AccumulatedFeesTotal:    accumulatedFeesTotal,
 		SystemAccountKLVBalance: systemAccountKLV,
 	}, nil
+}
+
+// loadKAppHeldTotals returns the pending-rewards and market-escrow totals (zero without a controller).
+func (n *Node) loadKAppHeldTotals() (int64, int64, error) {
+	if check.IfNil(n.kappController) {
+		return 0, 0, nil
+	}
+	pendingRewards, err := n.kappController.GetValidatorsKApp().GetPendingRewardsTotal()
+	if err != nil {
+		return 0, 0, err
+	}
+	marketEscrow, err := n.kappController.GetMarketKApp().GetMarketEscrowTotal()
+	if err != nil {
+		return 0, 0, err
+	}
+	return pendingRewards, marketEscrow, nil
+}
+
+// loadKAppKLVPools returns the fees-pool, system-account, and FPR-pool KLV totals (zero without a
+// KApp accounts adapter).
+func (n *Node) loadKAppKLVPools() (int64, int64, int64, error) {
+	if check.IfNil(n.kapps) {
+		return 0, 0, 0, nil
+	}
+	feesPool, err := n.loadFeesPoolKLVTotal()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	systemAccount, err := n.loadSystemAccountKLV()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	fprPool, err := n.loadFPRPoolKLVTotal()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	return feesPool, systemAccount, fprPool, nil
+}
+
+// loadValidatorAccumulatedFees returns the accrued validator fees (zero without peer statistics).
+func (n *Node) loadValidatorAccumulatedFees() (int64, error) {
+	if check.IfNil(n.validatorStatistics) {
+		return 0, nil
+	}
+	return n.loadAccumulatedFeesTotal()
+}
+
+// loadTotalStakedKLV returns KLV TotalStaked; a missing StakingData record (fresh/test networks)
+// means no stake, not an error.
+func (n *Node) loadTotalStakedKLV() (int64, error) {
+	staking, err := n.loadStakingData(string(kdautils.KLVIdentifier))
+	if errors.Is(err, common.ErrStakingNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	return staking.GetTotalStaked(), nil
 }
 
 // loadAccumulatedFeesTotal sums KLV fees accrued per validator (reset at epoch end into PREW/Allowance).

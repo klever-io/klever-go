@@ -13,9 +13,11 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/esapi"
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
+	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	nodeData "github.com/klever-io/klever-go/data"
 	dataBlock "github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/indexer"
@@ -1594,5 +1596,88 @@ func TestBuildAccountInfo(t *testing.T) {
 		require.NotNil(t, result)
 		// Base allowance (500) + pending rewards (250) = 750
 		require.Equal(t, int64(750), result.Allowance)
+	})
+}
+
+func TestElasticProcessor_SaveEpochInfo(t *testing.T) {
+	t.Parallel()
+
+	klvKey := string(kdautils.ToKDAKey(kdautils.KLVIdentifier, nil))
+	kfiKey := string(kdautils.ToKDAKey([]byte(kdautils.KFIIdentifier), nil))
+
+	// mustMarshal encodes with MarshalizerMock, matching createMockElasticProcessorArgs's marshalizer
+	// (the one SaveEpochInfo decodes with).
+	mustMarshal := func(t *testing.T, obj interface{}) []byte {
+		raw, err := (&mock.MarshalizerMock{}).Marshal(obj)
+		require.NoError(t, err)
+		return raw
+	}
+
+	newEpochProcessor := func(t *testing.T, stakingRecords map[string][]byte, capture **esapi.IndexRequest) *elasticProcessor {
+		args := createMockElasticProcessorArgs()
+		args.EnabledIndexes = map[string]struct{}{epochIndex: {}}
+
+		kdaRecords := map[string][]byte{
+			klvKey: mustMarshal(t, &kapps.KDAData{CirculatingSupply: 9_000}),
+			kfiKey: mustMarshal(t, &kapps.KDAData{CirculatingSupply: 21_000}),
+		}
+		newApp := func(records map[string][]byte) state.AccountHandler {
+			return &mock.KAppAccountHandlerStub{
+				DataTrieTrackerCalled: func() state.DataTrieTracker {
+					return &mock.DataTrieTrackerStub{RetrieveValueCalled: func(key []byte) ([]byte, error) {
+						return records[string(key)], nil
+					}}
+				},
+			}
+		}
+		apps := map[string]state.AccountHandler{
+			string(kapps.KDAKAppAddress):     newApp(kdaRecords),
+			string(kapps.StakingKAppAddress): newApp(stakingRecords),
+		}
+		args.KappsDB = &mock.AccountsStub{LoadAccountCalled: func(address []byte) (state.AccountHandler, error) {
+			app, ok := apps[string(address)]
+			require.True(t, ok, "unexpected KApp address")
+			return app, nil
+		}}
+
+		dbWriter := &imock.DatabaseWriterStub{DoRequestCalled: func(req *esapi.IndexRequest) error {
+			*capture = req
+			return nil
+		}}
+		return newTestElasticSearchDatabase(dbWriter, args)
+	}
+
+	t.Run("indexes per-asset supply and staking figures", func(t *testing.T) {
+		t.Parallel()
+		var captured *esapi.IndexRequest
+		ep := newEpochProcessor(t, map[string][]byte{
+			klvKey: mustMarshal(t, &kapps.StakingData{TotalStaked: 5_000}),
+			kfiKey: mustMarshal(t, &kapps.StakingData{TotalStaked: 800}),
+		}, &captured)
+
+		require.NoError(t, ep.SaveEpochInfo(7, nil))
+		require.NotNil(t, captured)
+		require.Equal(t, epochIndex, captured.Index)
+		require.Equal(t, "7", captured.DocumentID)
+
+		body, err := io.ReadAll(captured.Body)
+		require.NoError(t, err)
+		doc := map[string]interface{}{}
+		require.NoError(t, json.Unmarshal(body, &doc))
+		require.EqualValues(t, 9_000, doc["klvCirculationSupply"])
+		require.EqualValues(t, 21_000, doc["kfiCirculationSupply"])
+		require.EqualValues(t, 5_000, doc["klvTotalStaked"])
+		require.EqualValues(t, 800, doc["kfiTotalStaked"])
+	})
+
+	t.Run("missing KFI staking record fails loudly", func(t *testing.T) {
+		t.Parallel()
+		var captured *esapi.IndexRequest
+		ep := newEpochProcessor(t, map[string][]byte{
+			klvKey: mustMarshal(t, &kapps.StakingData{TotalStaked: 5_000}),
+		}, &captured)
+
+		require.ErrorIs(t, ep.SaveEpochInfo(7, nil), common.ErrEmptyString)
+		require.Nil(t, captured)
 	})
 }

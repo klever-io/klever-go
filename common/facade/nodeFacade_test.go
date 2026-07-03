@@ -8,6 +8,7 @@ import (
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/statusHandler"
 	"github.com/stretchr/testify/require"
 )
@@ -298,4 +299,36 @@ func TestHelperFunctions(t *testing.T) {
 		require.NotNil(t, throttlers)
 		require.Empty(t, throttlers) // Invalid throttler should be skipped
 	})
+}
+
+func TestNodeFacade_GetEconomics(t *testing.T) {
+	t.Parallel()
+
+	expected := &models.EconomicsResponse{CirculatingSupply: 9_000, TotalStaked: 5_000}
+	args := createMockArgNodeFacade()
+	args.Node = &mock.NodeHandlerStub{
+		GetEconomicsCalled: func() (*models.EconomicsResponse, error) { return expected, nil },
+	}
+	nf, err := facade.NewNodeFacade(args)
+	require.NoError(t, err)
+
+	resp, err := nf.GetEconomics()
+	require.NoError(t, err)
+	require.Same(t, expected, resp)
+}
+
+func TestNodeFacade_GetAccountTotals(t *testing.T) {
+	t.Parallel()
+
+	expected := &models.AccountTotalsResponse{AccountCount: 3, BalanceTotal: 1_000}
+	args := createMockArgNodeFacade()
+	args.Node = &mock.NodeHandlerStub{
+		GetAccountTotalsCalled: func() (*models.AccountTotalsResponse, error) { return expected, nil },
+	}
+	nf, err := facade.NewNodeFacade(args)
+	require.NoError(t, err)
+
+	resp, err := nf.GetAccountTotals()
+	require.NoError(t, err)
+	require.Same(t, expected, resp)
 }

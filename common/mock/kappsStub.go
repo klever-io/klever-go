@@ -94,7 +94,9 @@ func (k KappsDBMock) IsInterfaceNil() bool {
 }
 
 type KappsControllerMock struct {
-	kappContext kapp.KappContext
+	kappContext    kapp.KappContext
+	ValidatorsKapp kapp.ValidatorsKapp
+	MarketKapp     kapp.MarketKapp
 }
 
 func (k *KappsControllerMock) SetCurrentKAppContext(kappContext kapp.KappContext) {
@@ -109,7 +111,7 @@ func (k *KappsControllerMock) InitKApps(_ state.AccountsCacher) error {
 }
 
 func (k *KappsControllerMock) GetValidatorsKApp() kapp.ValidatorsKapp {
-	return nil
+	return k.ValidatorsKapp
 }
 
 func (k *KappsControllerMock) GetKDAFeesPoolKApp() kapp.KDAFeesPoolKapp {
@@ -137,7 +139,7 @@ func (k *KappsControllerMock) GetITOKApp() kapp.ITOKapp {
 
 // IsInterfaceNil -
 func (k *KappsControllerMock) GetMarketKApp() kapp.MarketKapp {
-	return nil
+	return k.MarketKapp
 }
 
 // IsInterfaceNil -

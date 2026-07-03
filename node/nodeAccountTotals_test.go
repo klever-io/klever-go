@@ -56,6 +56,38 @@ func TestNode_computeAccountTotals(t *testing.T) {
 	require.Equal(t, int64(750), totals.AllowanceTotal) // 50 + 0 + 700
 }
 
+func TestNode_GetAccountTotals(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := marshal.NewProtoMarshalizer()
+	raw, err := marshalizer.Marshal(&state.UserAccountData{Address: []byte("addr-a"), Balance: 1000, Allowance: 50})
+	require.NoError(t, err)
+
+	n := &Node{
+		blkc: &mock.BlockChainMock{GetCurrentBlockHeaderCalled: func() data.HeaderHandler { return nil }},
+		accounts: &mock.AccountsStub{
+			RootHashCalled: func() ([]byte, error) { return []byte("root"), nil },
+			GetAllLeavesCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
+				ch := make(chan data.KeyValueHolder, 1)
+				ch <- keyValStorage.NewKeyValStorage([]byte("addr-a"), raw)
+				close(ch)
+				return ch, nil
+			},
+		},
+		internalMarshalizer: marshalizer,
+	}
+
+	totals, err := n.GetAccountTotals()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), totals.AccountCount)
+	require.Equal(t, int64(1000), totals.BalanceTotal)
+	require.Equal(t, int64(50), totals.AllowanceTotal)
+
+	cached, err := n.GetAccountTotals()
+	require.NoError(t, err)
+	require.Same(t, totals, cached) // memoized within the block
+}
+
 func TestNode_loadAccumulatedFeesTotal(t *testing.T) {
 	t.Parallel()
 

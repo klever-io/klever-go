@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -1305,5 +1306,60 @@ func TestValidatorsKApp_PendingRewards_ErrorPaths(t *testing.T) {
 		total, err := v.GetPendingRewardsTotal()
 		assert.Equal(t, expectedErr, err)
 		assert.Equal(t, int64(0), total)
+	})
+
+	t.Run("GetPendingRewardsTotal: LoadKAppUncached error propagates", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		expectedErr := errors.New("load failed")
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppUncachedCalled = func(_ []byte) (state.KAppAccountHandler, error) {
+			return nil, expectedErr
+		}
+
+		total, err := v.GetPendingRewardsTotal()
+		assert.Equal(t, expectedErr, err)
+		assert.Equal(t, int64(0), total)
+	})
+
+	t.Run("GetPendingRewardsTotal: short, out-of-range, and overflowing values are skipped", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		prefix := []byte(PENDING_REWARDS + kapps.Sp)
+		mkVal := func(n uint64) []byte {
+			b := make([]byte, 8)
+			binary.BigEndian.PutUint64(b, n)
+			return b
+		}
+		prew := func(name string, value []byte) data.KeyValueHolder {
+			key := append(append([]byte{}, prefix...), makeAddress(name)...)
+			return keyValStorage.NewKeyValStorage(key, value)
+		}
+		leaves := []data.KeyValueHolder{
+			prew("short", []byte{0x01}),                // < 8 bytes, skipped
+			prew("neg", mkVal(uint64(1)<<63)),          // negative as int64, skipped
+			prew("max", mkVal(uint64(math.MaxInt64))),  // fills the total
+			prew("over", mkVal(uint64(math.MaxInt64))), // would overflow, skipped
+		}
+		trie := &mock.TrieStub{
+			GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
+				ch := make(chan data.KeyValueHolder, len(leaves))
+				for _, l := range leaves {
+					ch <- l
+				}
+				close(ch)
+				return ch, nil
+			},
+		}
+		app := &mock.KAppAccountHandlerStub{
+			DataTrieCalled:    func() data.Trie { return trie },
+			GetRootHashCalled: func() []byte { return []byte("root") },
+		}
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppUncachedCalled = func(_ []byte) (state.KAppAccountHandler, error) {
+			return app, nil
+		}
+
+		total, err := v.GetPendingRewardsTotal()
+		require.NoError(t, err)
+		assert.Equal(t, int64(math.MaxInt64), total)
 	})
 }
