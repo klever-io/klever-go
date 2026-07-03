@@ -7,9 +7,13 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 )
 
-const maxErrorBodySnippet = 512
+const (
+	maxErrorBodySnippet = 512
+	maxResponseBody     = 32 << 20
+)
 
 var httpClient *http.Client
 
@@ -29,7 +33,7 @@ func GetURL(url string, target interface{}) error {
 		return err
 	}
 
-	return json.NewDecoder(r.Body).Decode(target)
+	return json.NewDecoder(io.LimitReader(r.Body, maxResponseBody)).Decode(target)
 }
 
 // PostURL provides a post using a json string
@@ -55,9 +59,12 @@ func PostURL(url, body string, headers []string, target interface{}) error {
 	}
 
 	if target != nil {
-		data, errRead := io.ReadAll(r.Body)
+		data, errRead := io.ReadAll(io.LimitReader(r.Body, maxResponseBody+1))
 		if errRead != nil {
 			return errRead
+		}
+		if int64(len(data)) > maxResponseBody {
+			return fmt.Errorf("%s %s: response body exceeds %d bytes", http.MethodPost, url, maxResponseBody)
 		}
 
 		if err := json.Unmarshal(data, &target); err != nil {
@@ -73,10 +80,23 @@ func checkStatus(method, url string, r *http.Response) error {
 	}
 
 	snippet, _ := io.ReadAll(io.LimitReader(r.Body, maxErrorBodySnippet))
-	body := strings.TrimSpace(string(snippet))
+	status := sanitizeServerText(r.Status)
+	body := strings.TrimSpace(sanitizeServerText(string(snippet)))
 	if body == "" {
-		return fmt.Errorf("%s %s: unexpected HTTP status %s", method, url, r.Status)
+		return fmt.Errorf("%s %s: unexpected HTTP status %s", method, url, status)
 	}
 
-	return fmt.Errorf("%s %s: unexpected HTTP status %s: %s", method, url, r.Status, body)
+	return fmt.Errorf("%s %s: unexpected HTTP status %s: %s", method, url, status, body)
+}
+
+func sanitizeServerText(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\t' {
+			return r
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
 }
