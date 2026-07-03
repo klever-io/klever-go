@@ -361,6 +361,30 @@ func (nf *nodeFacade) WSConnectionAPIKey() string {
 	return nf.config.WSConnectionAPIKey
 }
 
+// WSMaxConnections returns the node-wide cap on simultaneous live /subscribe
+// WebSocket connections (0 = unlimited).
+func (nf *nodeFacade) WSMaxConnections() uint32 {
+	return nf.wsAntifloodConfig.WebSocketConnections
+}
+
+// WSMaxConnectionsPerIP returns the per-source-IP cap on simultaneous live
+// /subscribe WebSocket connections (0 = unlimited).
+func (nf *nodeFacade) WSMaxConnectionsPerIP() uint32 {
+	return nf.wsAntifloodConfig.WebSocketConnectionsPerIP
+}
+
+// WSMaxAddressesPerSubscribe returns the per-call address cap for a /subscribe
+// request (0 = built-in default).
+func (nf *nodeFacade) WSMaxAddressesPerSubscribe() uint32 {
+	return nf.wsAntifloodConfig.WebSocketMaxAddressesPerSubscribe
+}
+
+// WSMaxAddressesPerClient returns the per-connection total address cap for
+// /subscribe (0 = built-in default).
+func (nf *nodeFacade) WSMaxAddressesPerClient() uint32 {
+	return nf.wsAntifloodConfig.WebSocketMaxAddressesPerClient
+}
+
 /***********
  *  Block
  ***********/

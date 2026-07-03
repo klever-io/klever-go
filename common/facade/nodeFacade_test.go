@@ -41,6 +41,24 @@ func createMockArgNodeFacade() facade.ArgNodeFacade {
 	}
 }
 
+func TestNodeFacade_WSLimitGetters(t *testing.T) {
+	t.Parallel()
+
+	args := createMockArgNodeFacade()
+	args.WsAntifloodConfig.WebSocketConnections = 1234
+	args.WsAntifloodConfig.WebSocketConnectionsPerIP = 56
+	args.WsAntifloodConfig.WebSocketMaxAddressesPerSubscribe = 78
+	args.WsAntifloodConfig.WebSocketMaxAddressesPerClient = 9012
+
+	nf, err := facade.NewNodeFacade(args)
+	require.NoError(t, err)
+
+	require.Equal(t, uint32(1234), nf.WSMaxConnections())
+	require.Equal(t, uint32(56), nf.WSMaxConnectionsPerIP())
+	require.Equal(t, uint32(78), nf.WSMaxAddressesPerSubscribe())
+	require.Equal(t, uint32(9012), nf.WSMaxAddressesPerClient())
+}
+
 func TestNewNodeFacade(t *testing.T) {
 	t.Parallel()
 

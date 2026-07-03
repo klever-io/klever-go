@@ -42,6 +42,20 @@ type WebServerAntifloodConfig struct {
 	SameSourceRequests           uint32                      `yaml:"sameSourceRequests"`
 	SameSourceResetIntervalInSec uint32                      `yaml:"sameSourceResetIntervalInSec"`
 	EndpointsThrottlers          []EndpointsThrottlersConfig `yaml:"endpointsThrottlers"`
+	// WebSocketConnections caps simultaneous live /subscribe WebSocket connections
+	// node-wide; the gin throttlers above do not bound live WS connections. 0 = unlimited.
+	WebSocketConnections uint32 `yaml:"webSocketConnections"`
+	// WebSocketConnectionsPerIP caps simultaneous live /subscribe connections from a
+	// single source IP. Behind a reverse proxy all clients share the proxy IP, so size
+	// this accordingly or set 0 to disable the per-IP cap. 0 = unlimited.
+	WebSocketConnectionsPerIP uint32 `yaml:"webSocketConnectionsPerIP"`
+	// WebSocketMaxAddressesPerSubscribe caps addresses accepted in one /subscribe call.
+	// The inbound frame read limit is derived from this so a maximal subscribe always
+	// fits. 0 = built-in default.
+	WebSocketMaxAddressesPerSubscribe uint32 `yaml:"webSocketMaxAddressesPerSubscribe"`
+	// WebSocketMaxAddressesPerClient caps the total addresses one connection may watch
+	// across all of its subscribe calls. 0 = built-in default.
+	WebSocketMaxAddressesPerClient uint32 `yaml:"webSocketMaxAddressesPerClient"`
 }
 
 // TopicMaxMessagesConfig will hold the maximum number of messages/sec per topic value

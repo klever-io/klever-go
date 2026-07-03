@@ -185,6 +185,20 @@ antiflood:
     sameSourceRequests: 10000
     # SameSourceResetIntervalInSec time frame between counter reset, in seconds
     sameSourceResetIntervalInSec: 1
+    # WebSocketConnections caps simultaneous live /subscribe WebSocket connections node-wide.
+    # The throttlers above release their slot at the HTTP->WS upgrade and so do not bound live
+    # WS connections. 0 = unlimited.
+    webSocketConnections: 4096
+    # WebSocketConnectionsPerIP caps simultaneous live /subscribe connections from a single
+    # source IP. Behind a reverse proxy every client shares the proxy IP, so raise this (or set
+    # 0 to disable) for proxied/public deployments. 0 = unlimited.
+    webSocketConnectionsPerIP: 1024
+    # WebSocketMaxAddressesPerSubscribe caps addresses accepted in one /subscribe call. The
+    # inbound frame read limit is derived from this so a maximal subscribe always fits. 0 = default.
+    webSocketMaxAddressesPerSubscribe: 10000
+    # WebSocketMaxAddressesPerClient caps the total addresses one connection may watch across all
+    # of its subscribe calls. 0 = default.
+    webSocketMaxAddressesPerClient: 50000
     # EndpointsThrottlers represents a map for maximum simultaneous go routines for an endpoint
     endpointsThrottlers:
       - endpoint: /transaction/:hash
