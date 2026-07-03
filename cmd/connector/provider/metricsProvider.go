@@ -27,6 +27,7 @@ var signedMetricKeys = map[string]struct{}{
 var log = logger.GetOrCreate("connector/provider")
 
 const statusMetricsUrlSuffix = "/node/status"
+const statusMetricsRequestTimeout = 10 * time.Second
 
 type statusMetricsResponseData struct {
 	Response map[string]interface{} `json:"metrics"`
@@ -83,7 +84,7 @@ func (smp *StatusMetricsProvider) StartUpdatingData() {
 
 func (smp *StatusMetricsProvider) loadMetricsFromApi() (map[string]interface{}, error) {
 	client := http.Client{
-		Timeout: time.Duration(smp.fetchInterval) * time.Millisecond,
+		Timeout: statusMetricsRequestTimeout,
 	}
 
 	statusMetricsUrl := smp.nodeAddress + statusMetricsUrlSuffix
