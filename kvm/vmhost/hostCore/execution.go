@@ -940,6 +940,11 @@ func (host *vmHost) execute(input *vmcommon.ContractCallInput) error {
 }
 
 func (host *vmHost) callSCMethodIndirect() error {
+	if host.ForkController().FixAuditChangesV3() &&
+		host.Runtime().FunctionName() == vmhost.ContractsUpgradeFunctionName {
+		return vmhost.ErrInitFuncCalledInRun
+	}
+
 	functionName, err := host.Runtime().FunctionNameChecked()
 	if err != nil {
 		if errors.Is(err, vmhost.ErrNilCallbackFunction) {
