@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/smartContract/hooks/counters"
 	"github.com/klever-io/klever-go/tools/check"
@@ -137,7 +138,7 @@ func TestUsageCounter_ProcessMaxBuiltInCounters(t *testing.T) {
 		values[maxBuiltinCalls] = 1000
 		counter.SetMaximumValues(values)
 
-		vmInput := &vmcommon.ContractCallInput{}
+		vmInput := &vmcommon.ContractCallInput{Function: core.BuiltInFunctionTransfer}
 
 		assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))                                 // counter is now 2
 		assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))                                 // counter is now 4
@@ -168,6 +169,62 @@ func TestUsageCounter_ProcessMaxBuiltInCounters(t *testing.T) {
 		}
 		assert.Equal(t, expectedMap, countersMap)
 	})
+}
+
+func TestNonTransferBuiltinNotCountedAsTransfer(t *testing.T) {
+	t.Parallel()
+
+	counter, _ := counters.NewUsageCounter(&KDATransferParserStub{
+		ParseKDATransfersCalled: func(rcvAddr []byte, args [][]byte) (*vmcommon.ParsedKDATransfers, error) {
+			return &vmcommon.ParsedKDATransfers{
+				KDATransfers: make([]*vmcommon.KDATransfer, 2),
+			}, nil
+		},
+	})
+	counter.SetMaximumValues(generateMapsOfValues(100))
+
+	vmInput := &vmcommon.ContractCallInput{Function: core.BuiltInFunctionFreeze}
+
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))
+
+	countersMap := counter.GetCounterValues()
+	expectedMap := map[string]uint64{
+		crtBuiltinCalls: 2,
+		crtTransfers:    0,
+		crtTrieReads:    0,
+	}
+	assert.Equal(t, expectedMap, countersMap)
+}
+
+func TestMultiTransferStillCounted(t *testing.T) {
+	t.Parallel()
+
+	counter, _ := counters.NewUsageCounter(&KDATransferParserStub{
+		ParseKDATransfersCalled: func(rcvAddr []byte, args [][]byte) (*vmcommon.ParsedKDATransfers, error) {
+			return &vmcommon.ParsedKDATransfers{
+				KDATransfers: make([]*vmcommon.KDATransfer, 2),
+			}, nil
+		},
+	})
+	values := generateMapsOfValues(6)
+	values[maxBuiltinCalls] = 1000
+	counter.SetMaximumValues(values)
+
+	vmInput := &vmcommon.ContractCallInput{Function: core.BuiltInFunctionTransfer}
+
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))                                 // transfers now 2
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))                                 // transfers now 4
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))                                 // transfers now 6
+	assert.ErrorIs(t, counter.ProcessMaxBuiltInCounters(vmInput), process.ErrMaxCallsReached) // transfers now 8, over cap
+
+	countersMap := counter.GetCounterValues()
+	expectedMap := map[string]uint64{
+		crtBuiltinCalls: 4,
+		crtTransfers:    8,
+		crtTrieReads:    0,
+	}
+	assert.Equal(t, expectedMap, countersMap)
 }
 
 // KDATransferParserStub -

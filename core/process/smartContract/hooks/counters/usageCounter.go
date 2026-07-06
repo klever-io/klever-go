@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/vmcommon"
@@ -69,6 +70,10 @@ func (counter *usageCounter) ProcessMaxBuiltInCounters(input *vmcommon.ContractC
 		return fmt.Errorf("%w: too many built-in functions calls", process.ErrMaxCallsReached)
 	}
 
+	if !isTransferBuiltinFunction(input.Function) {
+		return nil
+	}
+
 	parsedTransfer, errKDATransfer := counter.kdaTransferParser.ParseKDATransfers(input.RecipientAddr, input.Arguments)
 	if errKDATransfer != nil {
 		// not a transfer - no need to count max transfers
@@ -81,6 +86,10 @@ func (counter *usageCounter) ProcessMaxBuiltInCounters(input *vmcommon.ContractC
 	}
 
 	return nil
+}
+
+func isTransferBuiltinFunction(function string) bool {
+	return function == core.BuiltInFunctionTransfer
 }
 
 // ResetCounters resets the state counters for the blockchain hook
