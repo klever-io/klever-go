@@ -69,6 +69,12 @@ apiPackages:
         open: true
       - name: /network-parameters
         open: true
+      - name: /economics
+        open: false
+        secured: true
+      - name: /account-totals
+        open: false
+        secured: true
   node:
     routes:
       - name: /status
@@ -86,7 +92,7 @@ apiPackages:
       - name: /statistics
         open: true
       - name: /set-redundancy
-        open: true
+        open: false
         secured: true
       - name: /enable-epochs
         open: true

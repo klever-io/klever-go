@@ -18,7 +18,7 @@ func (vp *ValidatorsProviderStub) GetLatestValidators() map[string]*state.Valida
 
 // GetLatestPeers -
 func (vp *ValidatorsProviderStub) GetLatestPeers() []state.PeerAccountHandler {
-	if vp.GetLatestValidatorsCalled != nil {
+	if vp.GetLatestPeersCalled != nil {
 		return vp.GetLatestPeersCalled()
 	}
 	return nil

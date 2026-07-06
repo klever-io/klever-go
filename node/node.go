@@ -41,6 +41,7 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/eventNotifier"
+	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/node/heartbeat/componentHandler"
 	heartbeatData "github.com/klever-io/klever-go/node/heartbeat/data"
@@ -117,6 +118,8 @@ type Node struct {
 	blkc             data.ChainHandler
 	dataPool         retriever.PoolsHolder
 	store            retriever.StorageService
+	economics        blockCache[models.EconomicsResponse]
+	accountTotals    blockCache[models.AccountTotalsResponse]
 	nodesCoordinator sharding.NodesCoordinator
 
 	networkShardingCollector NetworkShardingCollector

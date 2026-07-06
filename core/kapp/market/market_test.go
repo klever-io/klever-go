@@ -2,13 +2,17 @@ package market
 
 import (
 	"encoding/hex"
+	"errors"
+	"math"
 	"testing"
 
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
+	"github.com/klever-io/klever-go/core/keyValStorage"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
+	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/state/factory"
@@ -1307,4 +1311,185 @@ func TestMarketKApp_ExecuteBuyMarket_MultiRecipientGuardMidLoop(t *testing.T) {
 	require.NoError(t, err)
 	credited := r1acc.GetBalance(kdautils.KLVIdentifier, false) + r2acc.GetBalance(kdautils.KLVIdentifier, false)
 	require.Equal(t, expectedOne, credited)
+}
+
+func TestMarketKApp_GetMarketEscrowTotal(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := marshal.NewProtoMarshalizer()
+	mk, err := NewMarketKApp(&ArgsNewMarketKApp{
+		Hasher:         &sha256.Sha256{},
+		Marshalizer:    marshalizer,
+		PubkeyConv:     mock.NewPubkeyConverterMock(32),
+		ForkController: mock.NewForkControllerStub(),
+	})
+	require.NoError(t, err)
+
+	orders := []*kapps.MarketOrderData{
+		{ID: []byte("o1"), CurrencyID: []byte("KLV"), CurrentBid: 500, RoyaltiesFixedDeposit: 100},                  // 600
+		{ID: []byte("o2"), CurrencyID: []byte("KLV"), CurrentBid: 1500, RoyaltiesFixedDeposit: 0},                   // 1500
+		{ID: []byte("o3"), CurrencyID: []byte("ABC"), CurrentBid: 9999, RoyaltiesFixedDeposit: 50},                  // 50: deposit only, bid not KLV
+		{ID: []byte("o4"), CurrencyID: []byte("KLV"), CurrentBid: 777, RoyaltiesFixedDeposit: 200, IsClaimed: true}, // 0: claimed
+	}
+
+	orderStore := make(map[string][]byte)
+	leaves := make([]data.KeyValueHolder, 0, len(orders)+1)
+	for _, o := range orders {
+		key := kdautils.ToMarketOrderKey(o.ID)
+		val, errMarshal := marshalizer.Marshal(o)
+		require.NoError(t, errMarshal)
+		orderStore[string(key)] = val
+		leaves = append(leaves, keyValStorage.NewKeyValStorage(key, nil))
+	}
+	// a non-order leaf must be ignored by the MKT prefix filter
+	leaves = append(leaves, keyValStorage.NewKeyValStorage([]byte("OTHER/x"), []byte("ignored")))
+
+	trieStub := &mock.TrieStub{
+		GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
+			ch := make(chan data.KeyValueHolder, len(leaves))
+			for _, l := range leaves {
+				ch <- l
+			}
+			close(ch)
+			return ch, nil
+		},
+	}
+	app := &mock.KAppAccountHandlerStub{
+		DataTrieCalled:    func() data.Trie { return trieStub },
+		GetRootHashCalled: func() []byte { return []byte("root") },
+		GetStorageCalled:  func(key []byte) []byte { return orderStore[string(key)] },
+	}
+	require.NoError(t, mk.SetAccountsCacher(&mock.AccountsCacherStub{
+		LoadKAppUncachedCalled: func(_ []byte) (state.KAppAccountHandler, error) { return app, nil },
+	}))
+
+	total, err := mk.GetMarketEscrowTotal()
+	require.NoError(t, err)
+	require.Equal(t, int64(2150), total)
+}
+
+func TestMarketKApp_GetMarketEscrowTotal_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	newEscrowKApp := func(t *testing.T) kapp.MarketKapp {
+		mk, err := NewMarketKApp(&ArgsNewMarketKApp{
+			Hasher:         &sha256.Sha256{},
+			Marshalizer:    marshal.NewProtoMarshalizer(),
+			PubkeyConv:     mock.NewPubkeyConverterMock(32),
+			ForkController: mock.NewForkControllerStub(),
+		})
+		require.NoError(t, err)
+		return mk
+	}
+
+	appWithOrders := func(orders map[string][]byte) *mock.KAppAccountHandlerStub {
+		leaves := make([]data.KeyValueHolder, 0, len(orders))
+		for key := range orders {
+			leaves = append(leaves, keyValStorage.NewKeyValStorage([]byte(key), nil))
+		}
+		return &mock.KAppAccountHandlerStub{
+			DataTrieCalled: func() data.Trie {
+				return &mock.TrieStub{GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
+					ch := make(chan data.KeyValueHolder, len(leaves))
+					for _, l := range leaves {
+						ch <- l
+					}
+					close(ch)
+					return ch, nil
+				}}
+			},
+			GetRootHashCalled: func() []byte { return []byte("root") },
+			GetStorageCalled:  func(key []byte) []byte { return orders[string(key)] },
+		}
+	}
+
+	setApp := func(t *testing.T, mk kapp.MarketKapp, app state.KAppAccountHandler) {
+		require.NoError(t, mk.SetAccountsCacher(&mock.AccountsCacherStub{
+			LoadKAppUncachedCalled: func(_ []byte) (state.KAppAccountHandler, error) { return app, nil },
+		}))
+	}
+
+	orderKey := func(id string) string { return string(kdautils.ToMarketOrderKey([]byte(id))) }
+
+	t.Run("LoadKAppUncached error propagates", func(t *testing.T) {
+		t.Parallel()
+		mk := newEscrowKApp(t)
+		expectedErr := errors.New("load failed")
+		require.NoError(t, mk.SetAccountsCacher(&mock.AccountsCacherStub{
+			LoadKAppUncachedCalled: func(_ []byte) (state.KAppAccountHandler, error) { return nil, expectedErr },
+		}))
+		total, err := mk.GetMarketEscrowTotal()
+		require.ErrorIs(t, err, expectedErr)
+		require.Zero(t, total)
+	})
+
+	t.Run("nil data trie returns zero", func(t *testing.T) {
+		t.Parallel()
+		mk := newEscrowKApp(t)
+		setApp(t, mk, &mock.KAppAccountHandlerStub{DataTrieCalled: func() data.Trie { return nil }})
+		total, err := mk.GetMarketEscrowTotal()
+		require.NoError(t, err)
+		require.Zero(t, total)
+	})
+
+	t.Run("GetAllLeavesOnChannel error propagates", func(t *testing.T) {
+		t.Parallel()
+		mk := newEscrowKApp(t)
+		expectedErr := errors.New("trie error")
+		setApp(t, mk, &mock.KAppAccountHandlerStub{
+			DataTrieCalled: func() data.Trie {
+				return &mock.TrieStub{GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
+					return nil, expectedErr
+				}}
+			},
+			GetRootHashCalled: func() []byte { return []byte("root") },
+		})
+		total, err := mk.GetMarketEscrowTotal()
+		require.ErrorIs(t, err, expectedErr)
+		require.Zero(t, total)
+	})
+
+	t.Run("undecodable order errors out", func(t *testing.T) {
+		t.Parallel()
+		mk := newEscrowKApp(t)
+		setApp(t, mk, appWithOrders(map[string][]byte{orderKey("bad"): {0xff, 0xfe, 0xfd}}))
+		total, err := mk.GetMarketEscrowTotal()
+		require.Error(t, err)
+		require.Zero(t, total)
+	})
+
+	t.Run("empty and negative orders are skipped", func(t *testing.T) {
+		t.Parallel()
+		mk := newEscrowKApp(t)
+		marshalizer := marshal.NewProtoMarshalizer()
+		negRaw, err := marshalizer.Marshal(&kapps.MarketOrderData{ID: []byte("neg"), RoyaltiesFixedDeposit: -100})
+		require.NoError(t, err)
+		goodRaw, err := marshalizer.Marshal(&kapps.MarketOrderData{ID: []byte("ok"), CurrencyID: []byte("KLV"), CurrentBid: 500, RoyaltiesFixedDeposit: 100})
+		require.NoError(t, err)
+		setApp(t, mk, appWithOrders(map[string][]byte{
+			orderKey("empty"): nil, // deleted entry, skipped
+			orderKey("neg"):   negRaw,
+			orderKey("ok"):    goodRaw,
+		}))
+		total, err := mk.GetMarketEscrowTotal()
+		require.NoError(t, err)
+		require.Equal(t, int64(600), total)
+	})
+
+	t.Run("overflowing sum is skipped", func(t *testing.T) {
+		t.Parallel()
+		mk := newEscrowKApp(t)
+		marshalizer := marshal.NewProtoMarshalizer()
+		maxRaw, err := marshalizer.Marshal(&kapps.MarketOrderData{ID: []byte("max"), RoyaltiesFixedDeposit: math.MaxInt64})
+		require.NoError(t, err)
+		max2Raw, err := marshalizer.Marshal(&kapps.MarketOrderData{ID: []byte("max2"), RoyaltiesFixedDeposit: math.MaxInt64})
+		require.NoError(t, err)
+		setApp(t, mk, appWithOrders(map[string][]byte{
+			orderKey("max"):  maxRaw,
+			orderKey("max2"): max2Raw,
+		}))
+		total, err := mk.GetMarketEscrowTotal()
+		require.NoError(t, err)
+		require.Equal(t, int64(math.MaxInt64), total) // second entry skipped, no wrap-around
+	})
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/klever-io/klever-go/network/api/errors"
 	"github.com/klever-io/klever-go/network/api/middleware"
 	"github.com/klever-io/klever-go/network/api/mock"
+	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/network/api/network"
 	"github.com/klever-io/klever-go/network/api/shared"
 	"github.com/klever-io/klever-go/network/api/wrapper"
@@ -182,9 +183,122 @@ func getRoutesConfig() config.APIRoutesConfig {
 					{Name: "/config", Open: true},
 					{Name: "/status", Open: true},
 					{Name: "/economics", Open: true},
+					{Name: "/account-totals", Open: true},
 					{Name: "/total-staked", Open: true},
 				},
 			},
 		},
 	}
+}
+
+func TestGetEconomics_NilContextShouldError(t *testing.T) {
+	t.Parallel()
+	ws := startNodeServer(nil)
+
+	req, _ := http.NewRequest("GET", "/network/economics", nil)
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, shared.ReturnCodeInternalError, response.Code)
+	assert.True(t, strings.Contains(response.Error, errors.ErrNilAppContext.Error()))
+}
+
+func TestGetEconomics_ShouldWork(t *testing.T) {
+	t.Parallel()
+
+	facade := mock.Facade{}
+	facade.GetEconomicsHandler = func() (*models.EconomicsResponse, error) {
+		return &models.EconomicsResponse{
+			CirculatingSupply:   9633939185032557,
+			TotalStaked:         3871472571301027,
+			PendingRewardsTotal: 15334122011363,
+		}, nil
+	}
+
+	ws := startNodeServer(&facade)
+	req, _ := http.NewRequest("GET", "/network/economics", nil)
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
+
+	respBytes, _ := io.ReadAll(resp.Body)
+	respStr := string(respBytes)
+	assert.Contains(t, respStr, "pendingRewardsTotal")
+	assert.Contains(t, respStr, "15334122011363")
+	assert.Contains(t, respStr, "circulatingSupply")
+}
+
+func TestGetEconomics_FacadeErrorShouldReturnInternalError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := fmt.Errorf("some facade error")
+	facade := mock.Facade{}
+	facade.GetEconomicsHandler = func() (*models.EconomicsResponse, error) {
+		return nil, expectedErr
+	}
+
+	ws := startNodeServer(&facade)
+	req, _ := http.NewRequest("GET", "/network/economics", nil)
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	assert.Equal(t, http.StatusInternalServerError, resp.Code)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+	assert.Equal(t, shared.ReturnCodeInternalError, response.Code)
+	assert.Contains(t, response.Error, errors.ErrGetEconomics.Error())
+	assert.Contains(t, response.Error, expectedErr.Error())
+}
+
+func TestGetAccountTotals_ShouldWork(t *testing.T) {
+	t.Parallel()
+
+	facade := mock.Facade{}
+	facade.GetAccountTotalsHandler = func() (*models.AccountTotalsResponse, error) {
+		return &models.AccountTotalsResponse{
+			AccountCount:   175551,
+			BalanceTotal:   6101789314059000,
+			AllowanceTotal: 61185514904078,
+		}, nil
+	}
+
+	ws := startNodeServer(&facade)
+	req, _ := http.NewRequest("GET", "/network/account-totals", nil)
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
+
+	respBytes, _ := io.ReadAll(resp.Body)
+	respStr := string(respBytes)
+	assert.Contains(t, respStr, "accountCount")
+	assert.Contains(t, respStr, "allowanceTotal")
+	assert.Contains(t, respStr, "61185514904078")
+}
+
+func TestGetAccountTotals_FacadeErrorShouldReturnInternalError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := fmt.Errorf("some facade error")
+	facade := mock.Facade{}
+	facade.GetAccountTotalsHandler = func() (*models.AccountTotalsResponse, error) {
+		return nil, expectedErr
+	}
+
+	ws := startNodeServer(&facade)
+	req, _ := http.NewRequest("GET", "/network/account-totals", nil)
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	assert.Equal(t, http.StatusInternalServerError, resp.Code)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+	assert.Equal(t, shared.ReturnCodeInternalError, response.Code)
+	assert.Contains(t, response.Error, errors.ErrGetAccountTotals.Error())
+	assert.Contains(t, response.Error, expectedErr.Error())
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 	indexerData "github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/node/heartbeat/data"
 	"github.com/klever-io/klever-go/tools/debug"
 	"github.com/klever-io/klever-go/vmcommon"
@@ -65,6 +66,12 @@ type NodeHandler interface {
 	// GetAsset returns an assetResponse containing information
 	//  about the asset correlated with provided assetID
 	GetAsset(assetID string) (*kapps.KDAData, error)
+
+	// GetEconomics returns live KLV supply figures and node-state held aggregates
+	GetEconomics() (*models.EconomicsResponse, error)
+
+	// GetAccountTotals returns aggregates over all user accounts (count, KLV balance, allowance)
+	GetAccountTotals() (*models.AccountTotalsResponse, error)
 
 	// GetNFT returns an assetResponse containing information
 	// about the asset and userKDA correlated with provided address

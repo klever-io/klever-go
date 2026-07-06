@@ -1,16 +1,20 @@
 package validators
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
+	"github.com/klever-io/klever-go/core/keyValStorage"
 	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
@@ -1217,4 +1221,145 @@ func TestGetPendingRewards_ConcurrentWithEpochRewardsWrites(t *testing.T) {
 		require.NoError(t, errGet)
 	}
 	<-done
+}
+
+func TestValidatorsKApp_GetPendingRewardsTotal(t *testing.T) {
+	v := setupValidatorsKApp(t)
+	addFunctionalCacher(t, v)
+
+	prefix := []byte(PENDING_REWARDS + kapps.Sp)
+	mkVal := func(n uint64) []byte {
+		b := make([]byte, 8)
+		binary.BigEndian.PutUint64(b, n)
+		return b
+	}
+	prew := func(name string, amount uint64) data.KeyValueHolder {
+		key := append(append([]byte{}, prefix...), makeAddress(name)...)
+		return keyValStorage.NewKeyValStorage(key, mkVal(amount))
+	}
+
+	leaves := []data.KeyValueHolder{
+		prew("u1", 500000),
+		prew("u2", 1500000),
+		prew("u3", 7),
+		// non-PREW entries must be ignored
+		keyValStorage.NewKeyValStorage(append([]byte(VALIDATOR_PREFIX+kapps.Sp), makeAddress("v1")...), mkVal(999999)),
+		keyValStorage.NewKeyValStorage(append([]byte(VALIDATOR_BLS_PREFIX+kapps.Sp), []byte("bls")...), []byte("x")),
+	}
+
+	trie := &mock.TrieStub{
+		GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
+			ch := make(chan data.KeyValueHolder, len(leaves))
+			for _, l := range leaves {
+				ch <- l
+			}
+			close(ch)
+			return ch, nil
+		},
+	}
+	app := &mock.KAppAccountHandlerStub{
+		DataTrieCalled:    func() data.Trie { return trie },
+		GetRootHashCalled: func() []byte { return []byte("root") },
+	}
+	v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppUncachedCalled = func(_ []byte) (state.KAppAccountHandler, error) {
+		return app, nil
+	}
+
+	total, err := v.GetPendingRewardsTotal()
+	require.NoError(t, err)
+	assert.Equal(t, int64(2000007), total)
+}
+
+func TestValidatorsKApp_PendingRewards_ErrorPaths(t *testing.T) {
+	t.Run("GetPendingRewardsTotal: nil data trie returns zero", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		app := &mock.KAppAccountHandlerStub{
+			DataTrieCalled: func() data.Trie { return nil },
+		}
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppUncachedCalled = func(_ []byte) (state.KAppAccountHandler, error) {
+			return app, nil
+		}
+
+		total, err := v.GetPendingRewardsTotal()
+		require.NoError(t, err)
+		assert.Equal(t, int64(0), total)
+	})
+
+	t.Run("GetPendingRewardsTotal: GetAllLeavesOnChannel error propagates", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		expectedErr := errors.New("trie error")
+		trie := &mock.TrieStub{
+			GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
+				return nil, expectedErr
+			},
+		}
+		app := &mock.KAppAccountHandlerStub{
+			DataTrieCalled:    func() data.Trie { return trie },
+			GetRootHashCalled: func() []byte { return []byte("root") },
+		}
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppUncachedCalled = func(_ []byte) (state.KAppAccountHandler, error) {
+			return app, nil
+		}
+
+		total, err := v.GetPendingRewardsTotal()
+		assert.Equal(t, expectedErr, err)
+		assert.Equal(t, int64(0), total)
+	})
+
+	t.Run("GetPendingRewardsTotal: LoadKAppUncached error propagates", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		expectedErr := errors.New("load failed")
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppUncachedCalled = func(_ []byte) (state.KAppAccountHandler, error) {
+			return nil, expectedErr
+		}
+
+		total, err := v.GetPendingRewardsTotal()
+		assert.Equal(t, expectedErr, err)
+		assert.Equal(t, int64(0), total)
+	})
+
+	t.Run("GetPendingRewardsTotal: short, out-of-range, and overflowing values are skipped", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		prefix := []byte(PENDING_REWARDS + kapps.Sp)
+		mkVal := func(n uint64) []byte {
+			b := make([]byte, 8)
+			binary.BigEndian.PutUint64(b, n)
+			return b
+		}
+		prew := func(name string, value []byte) data.KeyValueHolder {
+			key := append(append([]byte{}, prefix...), makeAddress(name)...)
+			return keyValStorage.NewKeyValStorage(key, value)
+		}
+		leaves := []data.KeyValueHolder{
+			prew("short", []byte{0x01}),                // < 8 bytes, skipped
+			prew("neg", mkVal(uint64(1)<<63)),          // negative as int64, skipped
+			prew("max", mkVal(uint64(math.MaxInt64))),  // fills the total
+			prew("over", mkVal(uint64(math.MaxInt64))), // would overflow, skipped
+		}
+		trie := &mock.TrieStub{
+			GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
+				ch := make(chan data.KeyValueHolder, len(leaves))
+				for _, l := range leaves {
+					ch <- l
+				}
+				close(ch)
+				return ch, nil
+			},
+		}
+		app := &mock.KAppAccountHandlerStub{
+			DataTrieCalled:    func() data.Trie { return trie },
+			GetRootHashCalled: func() []byte { return []byte("root") },
+		}
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppUncachedCalled = func(_ []byte) (state.KAppAccountHandler, error) {
+			return app, nil
+		}
+
+		total, err := v.GetPendingRewardsTotal()
+		require.NoError(t, err)
+		assert.Equal(t, int64(math.MaxInt64), total)
+	})
 }

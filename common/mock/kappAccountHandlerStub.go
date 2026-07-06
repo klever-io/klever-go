@@ -23,10 +23,14 @@ type KAppAccountHandlerStub struct {
 	SetDataTrieCalled        func(trie data.Trie)
 	DataTrieCalled           func() data.Trie
 	DataTrieTrackerCalled    func() state.DataTrieTracker
+	GetUserKDACalled         func(assetID []byte, nonce []byte) (*kapps.UserKDA, error)
 	state.AccountHandler
 }
 
 func (k *KAppAccountHandlerStub) GetUserKDA(assetID []byte, nonce []byte, _ bool) (*kapps.UserKDA, error) {
+	if k.GetUserKDACalled != nil {
+		return k.GetUserKDACalled(assetID, nonce)
+	}
 	return nil, nil
 }
 

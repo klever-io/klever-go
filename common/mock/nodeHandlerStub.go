@@ -11,12 +11,16 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 	indexerData "github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/network/api/models"
 	heartbeatData "github.com/klever-io/klever-go/node/heartbeat/data"
 	"github.com/klever-io/klever-go/tools/debug"
 )
 
 // NodeHandlerStub - minimal stub for NodeHandler interface
-type NodeHandlerStub struct{}
+type NodeHandlerStub struct {
+	GetEconomicsCalled     func() (*models.EconomicsResponse, error)
+	GetAccountTotalsCalled func() (*models.AccountTotalsResponse, error)
+}
 
 func (n *NodeHandlerStub) StartConsensus() error { return nil }
 func (n *NodeHandlerStub) ValidateTransaction(*transaction.Transaction, bool) error {
@@ -51,6 +55,18 @@ func (n *NodeHandlerStub) GetAvailableClaim(string, string) (int64, map[string]i
 	return 0, nil, 0, nil
 }
 func (n *NodeHandlerStub) GetAsset(string) (*kapps.KDAData, error) { return nil, nil }
+func (n *NodeHandlerStub) GetEconomics() (*models.EconomicsResponse, error) {
+	if n.GetEconomicsCalled != nil {
+		return n.GetEconomicsCalled()
+	}
+	return nil, nil
+}
+func (n *NodeHandlerStub) GetAccountTotals() (*models.AccountTotalsResponse, error) {
+	if n.GetAccountTotalsCalled != nil {
+		return n.GetAccountTotalsCalled()
+	}
+	return nil, nil
+}
 func (n *NodeHandlerStub) GetNFT(string, string) (*kapps.UserKDA, *kapps.KDAData, error) {
 	return nil, nil, nil
 }

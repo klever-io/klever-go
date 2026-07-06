@@ -2,12 +2,15 @@ package market
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"errors"
+	"math"
 	"strconv"
 	"time"
 	"unicode/utf8"
 
+	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
@@ -24,6 +27,8 @@ import (
 )
 
 var _ kapp.MarketKapp = (*marketKapp)(nil)
+
+var log = logger.GetOrCreate("kapp/market")
 
 type marketKapp struct {
 	hasher         hashing.Hasher
@@ -183,6 +188,78 @@ func (m *marketKapp) GetMarketOrder(orderID []byte) (state.KAppAccountHandler, *
 	}
 
 	return marketKapp, market, nil
+}
+
+// GetMarketEscrowTotal returns the total KLV held in open market orders: each unclaimed order's
+// RoyaltiesFixedDeposit (always KLV) plus its CurrentBid when the order is priced in KLV.
+// Mid-walk trie errors are swallowed upstream, so a truncated walk undercounts silently (KLC-2509).
+func (m *marketKapp) GetMarketEscrowTotal() (int64, error) {
+	app, err := m.accountsCacher.LoadKAppUncached(kapps.MarketKAppAddress)
+	if err != nil {
+		return 0, err
+	}
+
+	dataTrie := app.DataTrie()
+	if check.IfNil(dataTrie) {
+		return 0, nil
+	}
+
+	leavesChannel, err := dataTrie.GetAllLeavesOnChannel(app.GetRootHash(), context.Background())
+	if err != nil {
+		return 0, err
+	}
+
+	// Collect order keys first so the scan goroutine finishes before we read values back.
+	prefix := []byte(kapps.MarketOrderPrefix + kapps.Sp)
+	orderKeys := make([][]byte, 0)
+	for leaf := range leavesChannel {
+		if !bytes.HasPrefix(leaf.Key(), prefix) {
+			continue
+		}
+		key := make([]byte, len(leaf.Key()))
+		copy(key, leaf.Key())
+		orderKeys = append(orderKeys, key)
+	}
+
+	total := int64(0)
+	for _, key := range orderKeys {
+		add, err := m.orderEscrowAmount(app, key)
+		if err != nil {
+			return 0, err
+		}
+		if total > math.MaxInt64-add {
+			log.Warn("GetMarketEscrowTotal: sum would overflow int64, skipping entry")
+			continue
+		}
+		total += add
+	}
+
+	return total, nil
+}
+
+// orderEscrowAmount returns the KLV escrowed by one stored order: RoyaltiesFixedDeposit plus
+// CurrentBid when priced in KLV; zero for empty, claimed, or negative-value entries.
+func (m *marketKapp) orderEscrowAmount(app state.KAppAccountHandler, key []byte) (int64, error) {
+	raw := app.GetStorage(key) // trims the trie tail, unlike the raw leaf value
+	if len(raw) == 0 {
+		return 0, nil
+	}
+	order := &kapps.MarketOrderData{}
+	if err := m.marshalizer.Unmarshal(order, raw); err != nil {
+		return 0, err
+	}
+	if order.IsClaimed {
+		return 0, nil
+	}
+	add := order.RoyaltiesFixedDeposit
+	if bytes.Equal(order.CurrencyID, kdautils.KLVIdentifier) {
+		add += order.CurrentBid
+	}
+	if add < 0 {
+		log.Warn("GetMarketEscrowTotal: negative escrow amount, skipping", "key", hex.EncodeToString(key))
+		return 0, nil
+	}
+	return add, nil
 }
 
 func (m *marketKapp) SetMarketOrder(marketKapp state.KAppAccountHandler, order *kapps.MarketOrderData) error {
