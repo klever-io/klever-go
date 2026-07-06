@@ -381,7 +381,6 @@ func (b *builtInFuncCreator) CreateBuiltInFunctionContainer() error {
 	newFunc, err = NewKleverUpdateAccountPermissionFunc(
 		b.gasConfig.BuiltInCost.UpdateAccountPermission,
 		b.marshaller,
-		b.accountsCacher,
 		b.forkController,
 		b.kappController)
 	if err != nil {

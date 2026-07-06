@@ -6,7 +6,6 @@ import (
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
-	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/vmcommon"
@@ -26,7 +25,6 @@ type kleverUpdateAccountPermission struct {
 func NewKleverUpdateAccountPermissionFunc(
 	funcGasCost uint64,
 	marshaller vmcommon.Marshalizer,
-	accountsCacher state.AccountsCacher,
 	forkController core.ForkController,
 	kappController kapp.KAppController,
 ) (*kleverUpdateAccountPermission, error) {

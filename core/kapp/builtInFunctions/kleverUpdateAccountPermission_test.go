@@ -13,43 +13,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func newAcntCacher() *mock.AccountsCacherStub {
-	return &mock.AccountsCacherStub{}
-}
-
 func newKAppControllerMock() *stub.KAppControllerStub {
 	return &stub.KAppControllerStub{}
 }
 
 func TestNewKleverUpdateAccountPermissionFunc(t *testing.T) {
-	acntCacher := newAcntCacher()
 	forkController := mock.NewForkControllerStub()
 	kappController := newKAppControllerMock()
 	t.Run("NilMarshalizer", func(t *testing.T) {
-		kuap, err := NewKleverUpdateAccountPermissionFunc(0, nil, acntCacher, forkController, kappController)
+		kuap, err := NewKleverUpdateAccountPermissionFunc(0, nil, forkController, kappController)
 		assert.Nil(t, kuap)
 		assert.Equal(t, ErrNilMarshalizer, err)
 	})
 
 	t.Run("NilForkController", func(t *testing.T) {
-		kuap, err := NewKleverUpdateAccountPermissionFunc(0, &mock.MarshalizerMock{}, acntCacher, nil, kappController)
+		kuap, err := NewKleverUpdateAccountPermissionFunc(0, &mock.MarshalizerMock{}, nil, kappController)
 		assert.Nil(t, kuap)
 		assert.Equal(t, ErrNilEnableEpochsHandler, err)
 	})
 
 	t.Run("ValidInput", func(t *testing.T) {
-		kuap, err := NewKleverUpdateAccountPermissionFunc(0, &mock.MarshalizerMock{}, acntCacher, forkController, kappController)
+		kuap, err := NewKleverUpdateAccountPermissionFunc(0, &mock.MarshalizerMock{}, forkController, kappController)
 		assert.NotNil(t, kuap)
 		assert.Nil(t, err)
 	})
 }
 
 func createMock() *kleverUpdateAccountPermission {
-	acntCacher := newAcntCacher()
 	forkController := mock.NewForkControllerStub()
 	kappController := newKAppControllerMock()
 
-	kuap, _ := NewKleverUpdateAccountPermissionFunc(100, &mock.MarshalizerMock{}, acntCacher, forkController, kappController)
+	kuap, _ := NewKleverUpdateAccountPermissionFunc(100, &mock.MarshalizerMock{}, forkController, kappController)
 	return kuap
 
 }
@@ -194,6 +188,36 @@ func TestProcessBuiltinFunction(t *testing.T) {
 		assert.Equal(t, uint64(0x64), vmOutput.GasRemaining)
 		assert.Equal(t, vmcommon.Ok, vmOutput.ReturnCode)
 	})
+
+	t.Run("AuthorizesAgainstCallerAddrNotRecipientAddr", func(t *testing.T) {
+		kuap := createMock()
+
+		callerAddress := makeAddress("caller")
+		var capturedAuthorizer []byte
+		kuap.kappController.(*stub.KAppControllerStub).GetAccountsKAppCalled = func() kapp.AccountsKapp {
+			return &stub.KAppAccountsStub{
+				UpdatePermissionCalled: func(authorizer []byte, target []byte, contract *transaction.UpdateAccountPermissionContract) (transaction.Transaction_TXResultCode, error) {
+					capturedAuthorizer = authorizer
+					return transaction.Transaction_Ok, nil
+				},
+			}
+		}
+
+		vmInput := &vmcommon.ContractCallInput{
+			VMInput: vmcommon.VMInput{
+				CallerAddr:  callerAddress,
+				Arguments:   [][]byte{defaultAddress, testPermission},
+				GasProvided: 200,
+			},
+			RecipientAddr: recipientAddress,
+		}
+
+		vmOutput, err := kuap.ProcessBuiltinFunction(vmInput)
+		require.NoError(t, err)
+		require.NotNil(t, vmOutput)
+		assert.Equal(t, callerAddress, capturedAuthorizer)
+		assert.NotEqual(t, recipientAddress, capturedAuthorizer)
+	})
 }
 
 func TestGetUpdateAccountPermissionContract(t *testing.T) {
@@ -270,10 +294,9 @@ func TestIsInterfaceNil(t *testing.T) {
 	})
 
 	t.Run("NonNilInterface", func(t *testing.T) {
-		acntCacher := newAcntCacher()
 		forkController := mock.NewForkControllerStub()
 		kappController := newKAppControllerMock()
-		kuap, _ := NewKleverUpdateAccountPermissionFunc(100, &mock.MarshalizerMock{}, acntCacher, forkController, kappController)
+		kuap, _ := NewKleverUpdateAccountPermissionFunc(100, &mock.MarshalizerMock{}, forkController, kappController)
 		assert.False(t, kuap.IsInterfaceNil())
 	})
 }
