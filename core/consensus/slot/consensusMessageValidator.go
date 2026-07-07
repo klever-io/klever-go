@@ -11,6 +11,7 @@ import (
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/tools"
+	bitmaputil "github.com/klever-io/klever-go/tools/bitmap"
 )
 
 type consensusMessageValidator struct {
@@ -266,6 +267,14 @@ func (cmv *consensusMessageValidator) checkMessageWithFinalInfoValidity(cnsMsg *
 		return fmt.Errorf("%w : received public key bitmap from consensus topic has an invalid size: %d",
 			ErrInvalidPublicKeyBitmapSize,
 			len(cnsMsg.PubKeysBitmap))
+	}
+
+	// Reject bitmaps whose padding bits (positions >= consensusGroupSize) are set before the bitmap
+	// is copied into a header and passed to VerifySignature. Those positions map to no real validator,
+	// so a malicious leader could otherwise inflate the apparent signer set (KLR-04).
+	if bitmaputil.HasPaddingBitsSet(cnsMsg.PubKeysBitmap, cmv.consensusState.consensusGroupSize) {
+		return fmt.Errorf("%w : received public key bitmap from consensus topic has non-zero padding bits",
+			ErrInvalidPublicKeyBitmapSize)
 	}
 
 	if len(cnsMsg.AggregateSignature) != cmv.signatureSize {

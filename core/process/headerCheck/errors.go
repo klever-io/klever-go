@@ -9,6 +9,9 @@ var ErrNotEnoughSignatures = errors.New("not enough signatures in block")
 // ErrWrongSizeBitmap signals that the provided bitmap's length is bigger than the one that was required
 var ErrWrongSizeBitmap = errors.New("wrong size bitmap has been provided")
 
+// ErrBitmapWithPaddingNotZero signals that the bitmap has set padding bits beyond the consensus group size
+var ErrBitmapWithPaddingNotZero = errors.New("bitmap has non-zero padding bits beyond the consensus group size")
+
 // ErrInvalidReferenceChainID signals that the provided reference chain ID is not valid
 var ErrInvalidReferenceChainID = errors.New("invalid reference Chain ID provided")
 

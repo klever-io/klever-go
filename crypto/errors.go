@@ -82,6 +82,9 @@ var ErrBitmapMismatch = errors.New("multi signer reported a mismatch in used bit
 // ErrNilBitmap is raised when a nil bitmap is used
 var ErrNilBitmap = errors.New("bitmap is nil")
 
+// ErrBitmapPaddingNotZero is raised when a bitmap has set bits beyond the configured public keys
+var ErrBitmapPaddingNotZero = errors.New("bitmap has set padding bits beyond the public key count")
+
 // ErrSigNotValid is raised when a signature verification fails due to invalid signature
 var ErrSigNotValid = errors.New("signature is invalid")
 

@@ -12,6 +12,7 @@ import (
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/sharding"
 	"github.com/klever-io/klever-go/tools"
+	bitmaputil "github.com/klever-io/klever-go/tools/bitmap"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/marshal"
 )
@@ -155,6 +156,15 @@ func (hsv *HeaderSigVerifier) verifyConsensusSize(consensusPubKeys []string, hea
 			"expected number of bytes", expectedBitmapSize,
 			"actual", len(bitmap))
 		return ErrWrongSizeBitmap
+	}
+
+	// Reject bitmaps whose padding bits (positions >= consensusSize) are set. Those positions map
+	// to no real validator, but the quorum count below would otherwise count them as signatures,
+	// letting a malicious leader inflate the apparent signer set (KLR-04).
+	if bitmaputil.HasPaddingBitsSet(bitmap, consensusSize) {
+		log.Debug("bitmap has non-zero padding bits beyond consensus size",
+			"consensus size", consensusSize)
+		return ErrBitmapWithPaddingNotZero
 	}
 
 	numOfOnesInBitmap := 0

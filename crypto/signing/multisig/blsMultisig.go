@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/klever-io/klever-go/crypto"
+	bitmaputil "github.com/klever-io/klever-go/tools/bitmap"
 	"github.com/klever-io/klever-go/tools/check"
 )
 
@@ -236,6 +237,10 @@ func (bms *blsMultiSigner) AggregateSigs(bitmap []byte) ([]byte, error) {
 		return nil, crypto.ErrBitmapMismatch
 	}
 
+	if bitmaputil.HasPaddingBitsSet(bitmap, len(bms.data.pubKeys)) {
+		return nil, crypto.ErrBitmapPaddingNotZero
+	}
+
 	// for the modified BLS scheme, aggregation is done not between sigs but between H1(pk_i, {pk1,..., pk_n})*sig_i
 	signatures := make([][]byte, 0, len(bms.data.sigShares))
 	pubKeysSigners := make([]crypto.PublicKey, 0, len(bms.data.sigShares))
@@ -281,6 +286,10 @@ func (bms *blsMultiSigner) Verify(message []byte, bitmap []byte) error {
 	flagsMismatch := maxFlags < len(bms.data.pubKeys)
 	if flagsMismatch {
 		return crypto.ErrBitmapMismatch
+	}
+
+	if bitmaputil.HasPaddingBitsSet(bitmap, len(bms.data.pubKeys)) {
+		return crypto.ErrBitmapPaddingNotZero
 	}
 
 	pubKeys := make([]crypto.PublicKey, 0)

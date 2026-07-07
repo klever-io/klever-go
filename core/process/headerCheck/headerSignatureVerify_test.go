@@ -512,8 +512,10 @@ func TestHeaderSigVerifier_VerifySignatureNotEnoughSigsShouldErr(t *testing.T) {
 	args.NodesCoordinator = nodesCoordinator
 
 	hdrSigVerifier, _ := headerCheck.NewHeaderSigVerifier(args)
+	// 5 validators (indices 0..4); bitmap 0x03 sets bits 0,1 - canonical (no padding) but
+	// below the PBFT threshold, so it must fail with ErrNotEnoughSignatures.
 	header := &block.Block{Header: &block.BlockHeader{},
-		PubKeysBitmap: []byte("A"),
+		PubKeysBitmap: []byte{0x03},
 	}
 
 	err := hdrSigVerifier.VerifySignature(header)
@@ -545,8 +547,9 @@ func TestHeaderSigVerifier_VerifySignatureOk(t *testing.T) {
 	}
 
 	hdrSigVerifier, _ := headerCheck.NewHeaderSigVerifier(args)
+	// single validator (index 0); bitmap 0x01 sets only bit 0 - canonical, no padding bits.
 	header := &block.Block{Header: &block.BlockHeader{},
-		PubKeysBitmap: []byte("1"),
+		PubKeysBitmap: []byte{0x01},
 	}
 
 	err := hdrSigVerifier.VerifySignature(header)
@@ -586,13 +589,99 @@ func TestHeaderSigVerifier_VerifySignatureNotEnoughSigsShouldErrWhenFallbackThre
 	args.MultiSigVerifier = multiSigVerifier
 
 	hdrSigVerifier, _ := headerCheck.NewHeaderSigVerifier(args)
+	// 5 validators (indices 0..4); bitmap 0x07 sets bits 0,1,2 - canonical (no padding) but
+	// below the PBFT threshold, so it must fail with ErrNotEnoughSignatures.
 	header := &block.Block{Header: &block.BlockHeader{},
-		PubKeysBitmap: []byte("C"),
+		PubKeysBitmap: []byte{0x07},
 	}
 
 	err := hdrSigVerifier.VerifySignature(header)
 	require.Equal(t, headerCheck.ErrNotEnoughSignatures, err)
 	require.False(t, wasCalled)
+}
+
+func TestHeaderSigVerifier_VerifySignature21ValidatorsPaddingBitsShouldErr(t *testing.T) {
+	t.Parallel()
+
+	wasCalled := false
+	args := createHeaderSigVerifierArgs()
+	pkAddr := []byte("aaa00000000000000000000000000000")
+	nodesCoordinator := &cMock.NodesCoordinatorMock{
+		ComputeValidatorsGroupCalled: func(randomness []byte, round uint64, epoch uint32) (validators []sharding.Validator, err error) {
+			validatorsGroup := make([]sharding.Validator, 0, 21)
+			for range 21 {
+				v, _ := sharding.NewValidator(pkAddr, pkAddr, 1, defaultChancesSelection)
+				validatorsGroup = append(validatorsGroup, v)
+			}
+			return validatorsGroup, nil
+		},
+	}
+	args.NodesCoordinator = nodesCoordinator
+
+	args.MultiSigVerifier = &cMock.BelNevMock{
+		CreateMock: func(pubKeys []string, index uint16) (signer crypto.MultiSigner, err error) {
+			return &cMock.BelNevMock{
+				VerifyMock: func(msg []byte, bitmap []byte) error {
+					wasCalled = true
+					return nil
+				}}, nil
+		},
+	}
+
+	hdrSigVerifier, _ := headerCheck.NewHeaderSigVerifier(args)
+	// 21 validators (indices 0..20) span 3 bytes; the last byte holds 5 real bits (positions
+	// 16..20) and 3 padding bits (21..23). PBFT quorum is 21*2/3+1 = 15.
+	// A malicious leader gathers only 14 real signers (bytes 0xFF, 0x3F -> bits 0..13) and sets
+	// padding bit 21 (0x20) to forge the 15th "signature": the raw count reaches quorum even
+	// though no real validator backs that bit. The padding guard must reject it (KLR-04).
+	header := &block.Block{Header: &block.BlockHeader{},
+		PubKeysBitmap: []byte{0xFF, 0x3F, 0x20},
+	}
+
+	err := hdrSigVerifier.VerifySignature(header)
+	require.Equal(t, headerCheck.ErrBitmapWithPaddingNotZero, err)
+	require.False(t, wasCalled)
+}
+
+func TestHeaderSigVerifier_VerifySignature21ValidatorsCanonicalBitmapOk(t *testing.T) {
+	t.Parallel()
+
+	wasCalled := false
+	args := createHeaderSigVerifierArgs()
+	pkAddr := []byte("aaa00000000000000000000000000000")
+	nodesCoordinator := &cMock.NodesCoordinatorMock{
+		ComputeValidatorsGroupCalled: func(randomness []byte, round uint64, epoch uint32) (validators []sharding.Validator, err error) {
+			validatorsGroup := make([]sharding.Validator, 0, 21)
+			for range 21 {
+				v, _ := sharding.NewValidator(pkAddr, pkAddr, 1, defaultChancesSelection)
+				validatorsGroup = append(validatorsGroup, v)
+			}
+			return validatorsGroup, nil
+		},
+	}
+	args.NodesCoordinator = nodesCoordinator
+
+	args.MultiSigVerifier = &cMock.BelNevMock{
+		CreateMock: func(pubKeys []string, index uint16) (signer crypto.MultiSigner, err error) {
+			return &cMock.BelNevMock{
+				VerifyMock: func(msg []byte, bitmap []byte) error {
+					wasCalled = true
+					return nil
+				}}, nil
+		},
+	}
+
+	hdrSigVerifier, _ := headerCheck.NewHeaderSigVerifier(args)
+	// 21 validators all sign: bytes 0xFF, 0xFF set bits 0..15 and 0x1F sets the 5 real bits
+	// (positions 16..20) of the final byte with every padding bit (21..23) left at zero.
+	// 21 signatures clears the quorum of 15 and the canonical bitmap passes the padding guard.
+	header := &block.Block{Header: &block.BlockHeader{},
+		PubKeysBitmap: []byte{0xFF, 0xFF, 0x1F},
+	}
+
+	err := hdrSigVerifier.VerifySignature(header)
+	require.Nil(t, err)
+	require.True(t, wasCalled)
 }
 
 func TestHeaderSigVerifier_VerifySignatureOkWhenFallbackThresholdCouldBeApplied(t *testing.T) {
@@ -627,8 +716,10 @@ func TestHeaderSigVerifier_VerifySignatureOkWhenFallbackThresholdCouldBeApplied(
 	args.MultiSigVerifier = multiSigVerifier
 
 	hdrSigVerifier, _ := headerCheck.NewHeaderSigVerifier(args)
+	// 5 validators (indices 0..4); bitmap 0x07 sets bits 0,1,2 - canonical (no padding) and
+	// enough to satisfy the lower fallback threshold.
 	header := &block.Block{Header: &block.BlockHeader{},
-		PubKeysBitmap: []byte("C"),
+		PubKeysBitmap: []byte{0x07},
 	}
 
 	err := hdrSigVerifier.VerifySignature(header)
