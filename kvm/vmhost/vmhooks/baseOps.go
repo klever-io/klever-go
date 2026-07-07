@@ -94,6 +94,8 @@ const (
 	CreateContract = iota
 	DeployContract
 )
+const maxNumArgumentsFromMemory = 16000000
+const maxTotalArgumentsBytes = 16000000
 
 var logEEI = logger.GetOrCreate("vm/eei")
 
@@ -2502,27 +2504,51 @@ func (context *VMHooksImpl) getArgumentsFromMemory(
 	argumentsLengthOffset executor.MemPtr,
 	dataOffset executor.MemPtr,
 ) ([][]byte, int32, error) {
-	if numArguments < 0 {
-		return nil, 0, fmt.Errorf("negative numArguments (%d)", numArguments)
+	if numArguments < 0 || numArguments > maxNumArgumentsFromMemory {
+		return nil, 0, fmt.Errorf("invalid numArguments (%d)", numArguments)
 	}
-
-	argumentsLengthData, err := context.MemLoad(argumentsLengthOffset, numArguments*4)
+	argumentsLengthsByteLength, err := argumentsLengthByteCount(numArguments)
 	if err != nil {
 		return nil, 0, err
 	}
 
+	argumentsLengthData, err := context.MemLoad(argumentsLengthOffset, argumentsLengthsByteLength)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(argumentsLengthData) != int(argumentsLengthsByteLength) {
+		return nil, 0, fmt.Errorf("MemLoad returned truncated data")
+	}
+
 	argumentLengths := createInt32Array(argumentsLengthData, numArguments)
+
+	totalArgumentBytes := int32(0)
+	for _, length := range argumentLengths {
+		if length < 0 {
+			return nil, 0, fmt.Errorf("invalid argument length (%d)", length)
+		}
+		totalArgumentBytes, err = math.AddInt32WithErr(totalArgumentBytes, length)
+		if err != nil {
+			return nil, 0, fmt.Errorf("total argument length overflow: %w", err)
+		}
+	}
+	if totalArgumentBytes > maxTotalArgumentsBytes {
+		return nil, 0, fmt.Errorf("total argument length exceeds maximum")
+	}
 	data, err := context.MemLoadMultiple(dataOffset, argumentLengths)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	totalArgumentBytes := int32(0)
-	for _, length := range argumentLengths {
-		totalArgumentBytes += length
-	}
-
 	return data, totalArgumentBytes, nil
+}
+
+func argumentsLengthByteCount(numArguments int32) (int32, error) {
+	byteCount := numArguments * 4
+	if int64(byteCount) != int64(numArguments)*4 {
+		return 0, fmt.Errorf("invalid numArguments (%d)", numArguments)
+	}
+	return byteCount, nil
 }
 
 func createInt32Array(rawData []byte, numIntegers int32) []int32 {
