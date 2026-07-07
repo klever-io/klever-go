@@ -33,4 +33,6 @@ message MarketOrderData {
     int64            StartTime             = 14 [json_name = "startTime"];
     int64            EndTime               = 15 [json_name = "endTime"];
     bool             IsClaimed             = 16 [json_name = "isClaimed"];
+    uint32           RoyaltyPercentage     = 17 [json_name = "royaltyPercentage,omitempty"];
+    bool             RoyaltySnapshotted    = 18 [json_name = "royaltySnapshotted,omitempty"];
 }

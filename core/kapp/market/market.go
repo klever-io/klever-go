@@ -665,7 +665,15 @@ func (m *marketKapp) executeBuyMarket(bidderAcc state.UserAccountHandler, market
 	if err != nil {
 		return transaction.Transaction_ParameterInvalid, err
 	}
-	royaltiesAmount, err := tools.ComputePercentageI64(marketOrder.CurrentBid, int64(asset.Royalties.MarketPercentage), m.forkController.EnableSmartContracts())
+	// Use the royalty snapshotted into the order at Sell time when present, so the order
+	// economics are fixed at list time and a later UpdateRoyalties cannot change the payout
+	// (KLC-2457 / GHSA-p7gw-2pcp-5pf8). Orders listed before the fork carry no snapshot and
+	// keep using the live asset royalty.
+	royaltyPercentage := asset.Royalties.MarketPercentage
+	if marketOrder.RoyaltySnapshotted {
+		royaltyPercentage = marketOrder.RoyaltyPercentage
+	}
+	royaltiesAmount, err := tools.ComputePercentageI64(marketOrder.CurrentBid, int64(royaltyPercentage), m.forkController.EnableSmartContracts())
 	if err != nil {
 		return transaction.Transaction_ParameterInvalid, err
 	}
@@ -1080,6 +1088,20 @@ func (m *marketKapp) Sell(sender []byte, tc *transaction.SellContract) (transact
 		StartTime:             ctx.Block().GetTimestamp(),
 		EndTime:               tc.GetEndTime(),
 		IsClaimed:             false,
+	}
+
+	// Snapshot the royalty into the order so its economics are fixed at list time and a
+	// later UpdateRoyalties cannot change the payout at buy/claim (KLC-2457 /
+	// GHSA-p7gw-2pcp-5pf8). Settlement uses this snapshot only when the RoyaltySnapshotted
+	// marker is set (see executeBuyMarket); orders without it keep using the live royalty.
+	//
+	// Gated on FixAuditChangesV3 (the not-yet-live v3 fork): this write changes stored order
+	// bytes, so it must activate at a future epoch to stay replay-safe — a re-sync / import-db
+	// reindex only writes the snapshot on Sell txs at or after the fork, matching canonical
+	// history. FixMarketBuyOverflow is already live and cannot gate a new state write.
+	if m.forkController.FixAuditChangesV3() {
+		marketOrder.RoyaltyPercentage = asset.Royalties.MarketPercentage
+		marketOrder.RoyaltySnapshotted = true
 	}
 
 	err = m.SetMarketOrder(marketKapp, marketOrder)

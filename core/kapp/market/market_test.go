@@ -1099,6 +1099,309 @@ func TestMarketKApp_ExecuteBuyMarket_RoyaltyReferralInflation(t *testing.T) {
 	})
 }
 
+// TestMarketKApp_ExecuteBuyMarket_UsesSnapshotRoyalty verifies KLC-2457 item 1:
+// the buy settlement honours the royalty snapshotted into the order at Sell time,
+// immune to a later UpdateRoyalties on the asset (TOCTOU). Orders listed before the
+// fork carry no snapshot and must keep using the live royalty.
+func TestMarketKApp_ExecuteBuyMarket_UsesSnapshotRoyalty(t *testing.T) {
+	t.Parallel()
+
+	const bid = int64(1000000)
+	collectionID := []byte("SNAP-COLL")
+	assetID := []byte("1")
+	marketplaceID := []byte("mp-snap")
+
+	// run settles a buy with the given order royalty snapshot against an asset whose
+	// *current* (live) royalty is livePct, and returns the KLV credited to the royalty
+	// recipient (asset owner == royalties address here, so it is paid regardless of KdaFpr).
+	run := func(t *testing.T, snapshotted bool, snapshotPct, livePct uint32) int64 {
+		marketKApp, accCacher, fc := createTestMarketKApp(t)
+		fc.FixMarketBuyOverflowValue = true
+
+		seller := defaultAddr
+		bidder := defaultOther
+		creator := makeAddress("creator")
+		for _, addr := range [][]byte{seller, bidder, creator} {
+			acc, err := accCacher.LoadUser(addr)
+			require.NoError(t, err)
+			require.NoError(t, accCacher.UpdateUser(acc))
+		}
+
+		marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
+		require.NoError(t, err)
+		require.NoError(t, marketKApp.SetMarketplace(marketKappAcc, &kapps.Marketplace{
+			ID: marketplaceID, OwnerAddress: seller, Name: []byte("snap"),
+			ReferralAddress: seller, ReferralPercentage: 0,
+		}))
+		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft")))
+		require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
+
+		asset := &kapps.KDAData{
+			OwnerAddress: creator,
+			Royalties: &kapps.RoyaltiesData{
+				Address:          creator,
+				MarketPercentage: livePct,
+				SplitRoyalties:   make(map[string]*kapps.RoyaltySplitData),
+			},
+		}
+
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		require.NoError(t, marketKApp.SetKAppController(&stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+			GetKDAKAppCalled: func() kapp.KDAKapp {
+				return &stub.KDAKappStub{
+					GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+						return nil, asset, nil
+					},
+				}
+			},
+		}))
+
+		order := &kapps.MarketOrderData{
+			ID: []byte("order-snap"), MarketplaceID: marketplaceID,
+			MarketType: kapps.MarketOrderData_BuyItNow, OwnerAddress: seller,
+			CollectionID: collectionID, AssetID: assetID, CurrencyID: kdautils.KLVIdentifier,
+			Price: bid, ReferralPercentage: 0, CurrentBid: bid, CurrentBidder: bidder,
+			RoyaltyPercentage: snapshotPct, RoyaltySnapshotted: snapshotted,
+		}
+		bidderAcc, err := accCacher.LoadUser(bidder)
+		require.NoError(t, err)
+
+		status, err := marketKApp.ExecuteBuyMarket(bidderAcc, marketKappAcc, order, kdautils.KLVIdentifier)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		creatorAcc, err := accCacher.LoadUser(creator)
+		require.NoError(t, err)
+		return creatorAcc.GetBalance(kdautils.KLVIdentifier, false)
+	}
+
+	t.Run("SnapshotRoyaltyUsedOverRaisedLiveRoyalty", func(t *testing.T) {
+		// Listed at 10%; the asset royalty is later raised to 50% via UpdateRoyalties.
+		// The buy must honour the 10% snapshot, paying 100000, not the live 50% (500000).
+		got := run(t, true, 1000, 5000)
+		require.Equal(t, int64(100000), got, "snapshot royalty (10%% of bid) must be paid, not live 50%%")
+	})
+
+	t.Run("LegacyOrderWithoutSnapshotFallsBackToLive", func(t *testing.T) {
+		// Pre-fork order carries no snapshot: royalty must come from the live asset value.
+		got := run(t, false, 0, 1000)
+		require.Equal(t, int64(100000), got, "legacy order must use live royalty (10%% of bid)")
+	})
+}
+
+// TestMarketKApp_Sell_SnapshotsRoyalty verifies KLC-2457 item 1 at list time: once the
+// fork is active, Sell captures the asset's live royalty into the order and marks it
+// snapshotted; before the fork no snapshot is written, so the stored bytes stay
+// deterministic across the rollout and legacy settlement keeps using the live royalty.
+func TestMarketKApp_Sell_SnapshotsRoyalty(t *testing.T) {
+	t.Parallel()
+
+	const (
+		nonce      = uint64(7)
+		royaltyPct = uint32(1000) // 10%
+	)
+	seed := []byte("rand-seed-snap")
+	collection := []byte("SNAPSELL")
+	nftNonce := []byte("1")
+	marketplaceID := []byte("mp-sellsnap")
+
+	run := func(t *testing.T, fixActive bool) *kapps.MarketOrderData {
+		marketKApp, accCacher, fc := createTestMarketKApp(t)
+		fc.FixAuditChangesV3Value = fixActive
+
+		seller := defaultAddr
+
+		sellerAcc, err := accCacher.LoadUser(seller)
+		require.NoError(t, err)
+		require.NoError(t, sellerAcc.AddInternalKDA(collection, nftNonce, []byte("nft-data")))
+		require.NoError(t, accCacher.UpdateUser(sellerAcc))
+
+		marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
+		require.NoError(t, err)
+		require.NoError(t, marketKApp.SetMarketplace(marketKappAcc, &kapps.Marketplace{
+			ID: marketplaceID, OwnerAddress: seller, Name: []byte("sellsnap"),
+			ReferralAddress: seller, ReferralPercentage: 0,
+		}))
+		require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
+
+		asset := &kapps.KDAData{
+			AssetType:    kapps.KDAData_NonFungible,
+			OwnerAddress: seller,
+			Royalties: &kapps.RoyaltiesData{
+				Address:          seller,
+				MarketPercentage: royaltyPct,
+				SplitRoyalties:   make(map[string]*kapps.RoyaltySplitData),
+			},
+		}
+
+		now := int64(1000000)
+		blk := &block.Block{Header: &block.BlockHeader{Timestamp: now, RandSeed: seed}}
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+			BlockCalled:      func() *block.Block { return blk },
+			TxNonceCalled:    func() uint64 { return nonce },
+		}
+		require.NoError(t, marketKApp.SetKAppController(&stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+			GetKDAKAppCalled: func() kapp.KDAKapp {
+				return &stub.KDAKappStub{
+					GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+						return nil, asset, nil
+					},
+				}
+			},
+		}))
+
+		assetID := []byte(string(collection) + kapps.Sp + string(nftNonce))
+		status, err := marketKApp.Sell(seller, &transaction.SellContract{
+			MarketType:    transaction.SellContract_BuyItNowMarket,
+			MarketplaceID: marketplaceID,
+			AssetID:       assetID,
+			Price:         int64(1000000),
+			EndTime:       now + 3600,
+		})
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		orderID := kdautils.ToMarketID(&sha256.Sha256{}, seed, seller, nonce, 0, kdautils.MarketKeyLength)
+		_, order, err := marketKApp.GetMarketOrder(orderID)
+		require.NoError(t, err)
+		return order
+	}
+
+	t.Run("ForkActive_SnapshotsLiveRoyaltyAtList", func(t *testing.T) {
+		order := run(t, true)
+		require.True(t, order.RoyaltySnapshotted, "order must be marked royalty-snapshotted post-fork")
+		require.Equal(t, royaltyPct, order.RoyaltyPercentage, "snapshot must capture the live royalty at Sell")
+	})
+
+	t.Run("ForkInactive_NoSnapshot", func(t *testing.T) {
+		order := run(t, false)
+		require.False(t, order.RoyaltySnapshotted, "pre-fork orders must not be snapshotted")
+		require.Equal(t, uint32(0), order.RoyaltyPercentage)
+	})
+}
+
+// TestMarketKApp_Claim_MarketClaimRoyaltyReferralInflation verifies KLC-2457 item 2:
+// executeBuyMarket is reached not only from Buy() but also from Claim() auction
+// settlement, and the FixMarketBuyOverflow guard must reject an inflated payout on that
+// path too. The order carries no royalty snapshot (legacy auction), so settlement uses
+// the live 100% royalty + 100% referral — referral + royalties exceed the bid.
+func TestMarketKApp_Claim_MarketClaimRoyaltyReferralInflation(t *testing.T) {
+	t.Parallel()
+
+	const bid = int64(25600000000000)
+	const blockTime = int64(1000000)
+
+	collectionID := []byte("NFLATION-ESGO")
+	assetID := []byte("1")
+	marketplaceID := []byte("41dc8c7826c6840e")
+	orderID := []byte("claim-order-1")
+
+	// settleViaClaim stores an expired auction whose winning bid clears the reserve, then
+	// settles it through Claim() (the MarketClaim path) and returns the result plus the
+	// attacker's KLV balance (attacker is marketplace owner, referral and royalty target).
+	settleViaClaim := func(t *testing.T, fixEnabled bool) (transaction.Transaction_TXResultCode, error, int64) {
+		marketKApp, accCacher, forkController := createTestMarketKApp(t)
+		forkController.FixMarketBuyOverflowValue = fixEnabled
+
+		attacker := defaultAddr
+		bidder := defaultOther
+		for _, addr := range [][]byte{attacker, bidder} {
+			acc, err := accCacher.LoadUser(addr)
+			require.NoError(t, err)
+			require.NoError(t, accCacher.UpdateUser(acc))
+		}
+
+		marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
+		require.NoError(t, err)
+		require.NoError(t, marketKApp.SetMarketplace(marketKappAcc, &kapps.Marketplace{
+			ID:                 marketplaceID,
+			OwnerAddress:       attacker,
+			Name:               []byte("Inflation Market"),
+			ReferralAddress:    attacker,
+			ReferralPercentage: core.HundredPercent,
+		}))
+		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft-data")))
+
+		order := &kapps.MarketOrderData{
+			ID:                 orderID,
+			MarketplaceID:      marketplaceID,
+			MarketType:         kapps.MarketOrderData_Auction,
+			OwnerAddress:       attacker,
+			CollectionID:       collectionID,
+			AssetID:            assetID,
+			CurrencyID:         kdautils.KLVIdentifier,
+			Price:              bid,
+			ReservePrice:       bid,
+			ReferralPercentage: core.HundredPercent,
+			CurrentBid:         bid,
+			CurrentBidder:      bidder,
+			EndTime:            blockTime - 1, // expired auction → settles on claim
+		}
+		require.NoError(t, marketKApp.SetMarketOrder(marketKappAcc, order))
+		require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
+
+		asset := &kapps.KDAData{
+			OwnerAddress: attacker,
+			Royalties: &kapps.RoyaltiesData{
+				Address:          attacker,
+				MarketPercentage: core.HundredPercent,
+				SplitRoyalties:   make(map[string]*kapps.RoyaltySplitData),
+			},
+		}
+
+		blk := &block.Block{Header: &block.BlockHeader{Timestamp: blockTime}}
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+			BlockCalled:      func() *block.Block { return blk },
+		}
+		require.NoError(t, marketKApp.SetKAppController(&stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+			GetKDAKAppCalled: func() kapp.KDAKapp {
+				return &stub.KDAKappStub{
+					GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+						return nil, asset, nil
+					},
+				}
+			},
+		}))
+
+		status, err := marketKApp.Claim(bidder, &transaction.ClaimContract{
+			ClaimType: transaction.ClaimContract_MarketClaim,
+			ID:        orderID,
+		})
+
+		attackerAcc, e := accCacher.LoadUser(attacker)
+		require.NoError(t, e)
+		return status, err, attackerAcc.GetBalance(kdautils.KLVIdentifier, false)
+	}
+
+	t.Run("FixDisabled_MintsKLVFromThinAir", func(t *testing.T) {
+		status, err, attackerBal := settleViaClaim(t, false)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+		// referral 100% + royalties 100%: attacker collects the bid twice, nothing debited.
+		require.Equal(t, int64(2*bid), attackerBal, "MarketClaim path mints without the guard")
+	})
+
+	t.Run("FixEnabled_RejectsInflation", func(t *testing.T) {
+		status, err, attackerBal := settleViaClaim(t, true)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_AmountInvalid, status)
+		require.Equal(t, int64(0), attackerBal, "guard must reject the inflated MarketClaim payout")
+	})
+}
+
 func TestMarketKApp_ComputeSplitRoyalties_OverflowGuard(t *testing.T) {
 	const pool = int64(1000000)
 	const overflowPct = int64(0x80000000)
