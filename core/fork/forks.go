@@ -130,6 +130,7 @@ func (f *forkController) EpochConfirmed(epoch uint32) {
 
 	f.flagFixMarketBuyOverflow.Toggle(epoch >= f.enableEpochs.FixMarketBuyOverflow)
 	log.Debug("forkController: FixMarketBuyOverflow", "enabled", f.flagFixMarketBuyOverflow.IsSet())
+
 	f.flagFixAuditChangesV3.Toggle(epoch >= f.enableEpochs.FixAuditChangesV3)
 	log.Debug("forkController: FixAuditChangesV3", "enabled", f.flagFixAuditChangesV3.IsSet())
 }
