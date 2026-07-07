@@ -95,6 +95,7 @@ const (
 	DeployContract
 )
 const maxNumArgumentsFromMemory = 16000000
+const maxTotalArgumentsBytes = 16000000
 
 var logEEI = logger.GetOrCreate("vm/eei")
 
@@ -2520,15 +2521,25 @@ func (context *VMHooksImpl) getArgumentsFromMemory(
 	}
 
 	argumentLengths := createInt32Array(argumentsLengthData, numArguments)
+
+	totalArgumentBytes := int32(0)
+	for _, length := range argumentLengths {
+		if length < 0 {
+			return nil, 0, fmt.Errorf("invalid argument length (%d)", length)
+		}
+		totalArgumentBytes, err = math.AddInt32WithErr(totalArgumentBytes, length)
+		if err != nil {
+			return nil, 0, fmt.Errorf("total argument length overflow: %w", err)
+		}
+	}
+	if totalArgumentBytes > maxTotalArgumentsBytes {
+		return nil, 0, fmt.Errorf("total argument length exceeds maximum")
+	}
 	data, err := context.MemLoadMultiple(dataOffset, argumentLengths)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	totalArgumentBytes := int32(0)
-	for _, length := range argumentLengths {
-		totalArgumentBytes += length
-	}
 	return data, totalArgumentBytes, nil
 }
 

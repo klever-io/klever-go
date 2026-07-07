@@ -7,6 +7,7 @@ import (
 
 	"github.com/klever-io/klever-go/kvm/config"
 	"github.com/klever-io/klever-go/kvm/executor"
+	kvmmath "github.com/klever-io/klever-go/kvm/math"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -135,6 +136,58 @@ func TestVMHooksImpl_getArgumentsFromMemory(t *testing.T) {
 		result, totalLen, err := context.getArgumentsFromMemory(host, 1, executor.MemPtr(1<<20), executor.MemPtr(0))
 
 		require.Error(t, err)
+		assert.Nil(t, result)
+		assert.Equal(t, int32(0), totalLen)
+	})
+
+	t.Run("negative argument length is rejected", func(t *testing.T) {
+		host := newInternalMockVMHost()
+		context := NewVMHooksImpl(host)
+
+		lengths := []int32{4, -1}
+		require.NoError(t, host.Runtime().GetInstance().MemStore(executor.MemPtr(0), encodeArgLengths(lengths)))
+
+		result, totalLen, err := context.getArgumentsFromMemory(host, int32(len(lengths)), executor.MemPtr(0), executor.MemPtr(100))
+
+		require.Error(t, err)
+		assert.EqualError(t, err, "invalid argument length (-1)")
+		assert.Nil(t, result)
+		assert.Equal(t, int32(0), totalLen)
+	})
+
+	t.Run("total argument length above max is rejected", func(t *testing.T) {
+		host := newInternalMockVMHost()
+		context := NewVMHooksImpl(host)
+
+		// Two lengths that sum to just past the limit without overflowing int32.
+		// The limit is checked before any argument data is loaded, so no data
+		// needs to be stored.
+		lengths := []int32{maxTotalArgumentsBytes/2 + 1, maxTotalArgumentsBytes/2 + 1}
+		require.NoError(t, host.Runtime().GetInstance().MemStore(executor.MemPtr(0), encodeArgLengths(lengths)))
+
+		result, totalLen, err := context.getArgumentsFromMemory(host, int32(len(lengths)), executor.MemPtr(0), executor.MemPtr(100))
+
+		require.Error(t, err)
+		assert.EqualError(t, err, "total argument length exceeds maximum")
+		assert.Nil(t, result)
+		assert.Equal(t, int32(0), totalLen)
+	})
+
+	t.Run("total argument length int32 overflow is rejected", func(t *testing.T) {
+		host := newInternalMockVMHost()
+		context := NewVMHooksImpl(host)
+
+		// Two lengths whose sum wraps past math.MaxInt32. The per-addition
+		// overflow guard fires inside the accumulation loop, before the
+		// max-total check and before any data is loaded.
+		lengths := []int32{math.MaxInt32, math.MaxInt32}
+		require.NoError(t, host.Runtime().GetInstance().MemStore(executor.MemPtr(0), encodeArgLengths(lengths)))
+
+		result, totalLen, err := context.getArgumentsFromMemory(host, int32(len(lengths)), executor.MemPtr(0), executor.MemPtr(100))
+
+		require.Error(t, err)
+		assert.ErrorIs(t, err, kvmmath.ErrAdditionOverflow)
+		assert.Contains(t, err.Error(), "total argument length overflow")
 		assert.Nil(t, result)
 		assert.Equal(t, int32(0), totalLen)
 	})
