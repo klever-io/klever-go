@@ -830,7 +830,7 @@ func (txProc *txProcessor) updateAccountPermission(ctx kapp.KappContext, tx *tra
 		return err
 	}
 
-	tx.ResultCode, err = txProc.kApps.GetAccountsKApp().UpdatePermission(tx.GetSender(), tc)
+	tx.ResultCode, err = txProc.kApps.GetAccountsKApp().UpdatePermission(tx.GetSender(), tx.GetSender(), tc)
 
 	return err
 }

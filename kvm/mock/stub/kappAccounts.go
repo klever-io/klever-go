@@ -19,7 +19,7 @@ type KAppAccountsStub struct {
 	ClaimStakingCalled      func(sender []byte, tc *transaction.ClaimContract) (transaction.Transaction_TXResultCode, error)
 	ClaimAllowanceCalled    func(sender []byte, tc *transaction.ClaimContract) (transaction.Transaction_TXResultCode, error)
 	SetAccountNameCalled    func(sender []byte, tc *transaction.SetAccountNameContract) (transaction.Transaction_TXResultCode, error)
-	UpdatePermissionCalled  func(sender []byte, tc *transaction.UpdateAccountPermissionContract) (transaction.Transaction_TXResultCode, error)
+	UpdatePermissionCalled  func(authorizer []byte, target []byte, tc *transaction.UpdateAccountPermissionContract) (transaction.Transaction_TXResultCode, error)
 	IsInterfaceNilCalled    func() bool
 }
 
@@ -119,9 +119,9 @@ func (stub *KAppAccountsStub) SetAccountName(sender []byte, tc *transaction.SetA
 	return transaction.Transaction_TXResultCode(0), nil
 }
 
-func (stub *KAppAccountsStub) UpdatePermission(sender []byte, tc *transaction.UpdateAccountPermissionContract) (transaction.Transaction_TXResultCode, error) {
+func (stub *KAppAccountsStub) UpdatePermission(authorizer []byte, target []byte, tc *transaction.UpdateAccountPermissionContract) (transaction.Transaction_TXResultCode, error) {
 	if stub.UpdatePermissionCalled != nil {
-		return stub.UpdatePermissionCalled(sender, tc)
+		return stub.UpdatePermissionCalled(authorizer, target, tc)
 	}
 
 	return transaction.Transaction_TXResultCode(0), nil
