@@ -1,6 +1,7 @@
 package vmhooks_test
 
 import (
+	"context"
 	"math/big"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/kvm/executor"
 	mock "github.com/klever-io/klever-go/kvm/mock/context"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/vmhost/hostCore"
 	"github.com/klever-io/klever-go/kvm/vmhost/vmhooks"
 	"github.com/klever-io/klever-go/vmcommon"
@@ -704,5 +706,85 @@ func TestBigIntGetCallValue(t *testing.T) {
 		))) + callValueGas
 
 		assert.Equal(t, hooks.GetRuntimeContext().GetPointsUsed(), totalGas)
+	})
+}
+
+func TestBigIntPow(t *testing.T) {
+	t.Run("positive base and exponent", func(t *testing.T) {
+		mockWorld := worldmock.NewMockWorld()
+		vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+		require.NoError(t, err)
+		hooks := vmhooks.NewVMHooksImpl(vmHost)
+		provideGas(hooks, 1_000_000)
+
+		baseHandle := hooks.BigIntNew(2)
+		expHandle := hooks.BigIntNew(10)
+		destHandle := hooks.BigIntNew(0)
+
+		hooks.BigIntPow(destHandle, baseHandle, expHandle)
+
+		result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
+		require.NoError(t, err)
+		require.Equal(t, 0, big.NewInt(1024).Cmp(result), "2^10 should be 1024")
+	})
+
+	t.Run("zero base rejected", func(t *testing.T) {
+		mockWorld := worldmock.NewMockWorld()
+		vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+		require.NoError(t, err)
+		hooks := vmhooks.NewVMHooksImpl(vmHost)
+
+		baseHandle := hooks.BigIntNew(0)
+		expHandle := hooks.BigIntNew(5)
+		destHandle := hooks.BigIntNew(7) // sentinel; must stay unchanged
+
+		hooks.BigIntPow(destHandle, baseHandle, expHandle)
+
+		result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
+		require.NoError(t, err)
+		require.Equal(t, 0, big.NewInt(7).Cmp(result), "destination must be untouched on rejection")
+	})
+
+	t.Run("cancelled context panics before writing result", func(t *testing.T) {
+		mockWorld := worldmock.NewMockWorld()
+		vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		hooks := vmhooks.NewVMHooksImpl(&hostWithExecutionContext{VMHost: vmHost, ctx: ctx})
+		provideGas(hooks, 1_000_000)
+
+		baseHandle := hooks.BigIntNew(2)
+		expHandle := hooks.BigIntNew(10)
+		destHandle := hooks.BigIntNew(7) // sentinel; must stay unchanged
+
+		require.PanicsWithValue(t, vmhost.ErrExecutionFailedWithTimeout, func() {
+			hooks.BigIntPow(destHandle, baseHandle, expHandle)
+		}, "cancelled context must panic ErrExecutionFailedWithTimeout")
+
+		result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
+		require.NoError(t, err)
+		require.Equal(t, 0, big.NewInt(7).Cmp(result), "destination must stay unset on timeout")
+	})
+
+	t.Run("nil context runs to completion", func(t *testing.T) {
+		mockWorld := worldmock.NewMockWorld()
+		vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+		require.NoError(t, err)
+		hooks := vmhooks.NewVMHooksImpl(vmHost) // real host => GetExecutionContext() == nil
+		provideGas(hooks, 1_000_000)
+
+		baseHandle := hooks.BigIntNew(2)
+		expHandle := hooks.BigIntNew(10)
+		destHandle := hooks.BigIntNew(0)
+
+		require.NotPanics(t, func() {
+			hooks.BigIntPow(destHandle, baseHandle, expHandle)
+		}, "nil context must not panic")
+
+		result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
+		require.NoError(t, err)
+		require.Equal(t, 0, big.NewInt(1024).Cmp(result), "2^10 should be 1024")
 	})
 }

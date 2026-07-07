@@ -2,6 +2,7 @@ package vmhooks
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"math/big"
 
@@ -547,6 +548,7 @@ func (context *VMHooksImpl) ManagedUpgradeFromSourceContract(
 	resultHandle int32,
 ) {
 	host := context.GetVMHost()
+	ctx := host.GetExecutionContext()
 	runtime := host.Runtime()
 	metering := host.Metering()
 	managedType := host.ManagedTypes()
@@ -581,6 +583,9 @@ func (context *VMHooksImpl) ManagedUpgradeFromSourceContract(
 		gas,
 		codeMetadata,
 	)
+	if executionTimedOut(ctx) {
+		return
+	}
 	setReturnDataIfExists(host, lenReturnData, resultHandle)
 }
 
@@ -596,6 +601,7 @@ func (context *VMHooksImpl) ManagedUpgradeContract(
 	resultHandle int32,
 ) {
 	host := context.GetVMHost()
+	ctx := host.GetExecutionContext()
 	runtime := host.Runtime()
 	metering := host.Metering()
 	managedType := host.ManagedTypes()
@@ -626,6 +632,9 @@ func (context *VMHooksImpl) ManagedUpgradeContract(
 	lenReturnData := len(host.Output().ReturnData())
 
 	upgradeContract(host, vmInput.destination, code, codeMetadata, vmInput.value.Bytes(), vmInput.arguments, gas)
+	if executionTimedOut(ctx) {
+		return
+	}
 	setReturnDataIfExists(host, lenReturnData, resultHandle)
 }
 
@@ -689,6 +698,7 @@ func (context *VMHooksImpl) ManagedDeployFromSourceContract(
 	resultHandle int32,
 ) int32 {
 	host := context.GetVMHost()
+	ctx := host.GetExecutionContext()
 	runtime := host.Runtime()
 	metering := host.Metering()
 	managedType := host.ManagedTypes()
@@ -721,6 +731,9 @@ func (context *VMHooksImpl) ManagedDeployFromSourceContract(
 		return 1
 	}
 
+	if executionTimedOut(ctx) {
+		return 1
+	}
 	managedType.SetBytes(resultAddressHandle, newAddress)
 	setReturnDataIfExists(host, lenReturnData, resultHandle)
 
@@ -739,6 +752,7 @@ func (context *VMHooksImpl) ManagedCreateContract(
 	resultHandle int32,
 ) int32 {
 	host := context.GetVMHost()
+	ctx := host.GetExecutionContext()
 	runtime := host.Runtime()
 	metering := host.Metering()
 	managedType := host.ManagedTypes()
@@ -777,10 +791,28 @@ func (context *VMHooksImpl) ManagedCreateContract(
 		return 1
 	}
 
+	if executionTimedOut(ctx) {
+		return 1
+	}
 	managedType.SetBytes(resultAddressHandle, newAddress)
 	setReturnDataIfExists(host, lenReturnData, resultHandle)
 
 	return 0
+}
+
+// executionTimedOut reports whether the given execution context — captured at the
+// TOP of the hook, before the nested execution — has already been cancelled (timed
+// out). The context MUST be passed in from the hook body
+func executionTimedOut(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
 }
 
 func setReturnDataIfExists(
@@ -806,6 +838,7 @@ func (context *VMHooksImpl) ManagedExecuteReadOnly(
 	resultHandle int32,
 ) int32 {
 	host := context.GetVMHost()
+	ctx := host.GetExecutionContext()
 	metering := host.Metering()
 	metering.StartGasTracing(managedExecuteReadOnlyName)
 
@@ -822,6 +855,9 @@ func (context *VMHooksImpl) ManagedExecuteReadOnly(
 		vmInput.destination,
 		vmInput.arguments,
 	)
+	if executionTimedOut(ctx) {
+		return -1
+	}
 	setReturnDataIfExists(host, lenReturnData, resultHandle)
 	return returnVal
 }
@@ -837,6 +873,7 @@ func (context *VMHooksImpl) ManagedExecuteOnSameContext(
 	resultHandle int32,
 ) int32 {
 	host := context.GetVMHost()
+	ctx := host.GetExecutionContext()
 	metering := host.Metering()
 	metering.StartGasTracing(managedExecuteOnSameContextName)
 
@@ -854,6 +891,9 @@ func (context *VMHooksImpl) ManagedExecuteOnSameContext(
 		vmInput.destination,
 		vmInput.arguments,
 	)
+	if executionTimedOut(ctx) {
+		return -1
+	}
 	setReturnDataIfExists(host, lenReturnData, resultHandle)
 	return returnVal
 }
@@ -869,6 +909,7 @@ func (context *VMHooksImpl) ManagedExecuteOnDestContext(
 	resultHandle int32,
 ) int32 {
 	host := context.GetVMHost()
+	ctx := host.GetExecutionContext()
 	metering := host.Metering()
 	metering.StartGasTracing(managedExecuteOnDestContextName)
 
@@ -886,6 +927,9 @@ func (context *VMHooksImpl) ManagedExecuteOnDestContext(
 		vmInput.destination,
 		vmInput.arguments,
 	)
+	if executionTimedOut(ctx) {
+		return -1
+	}
 	setReturnDataIfExists(host, lenReturnData, resultHandle)
 	return returnVal
 }
