@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math/big"
 
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/data/transaction"
@@ -67,11 +69,23 @@ func (host *vmHost) doRunSmartContractCreate(input *vmcommon.ContractCreateInput
 			continue
 		}
 
+		// Reject oversized/invalid transfer values instead of letting
+		// Int64() silently narrow them: otherwise a value such as 2^64+500 would wrap to a small
+		// amount on the ledger while the original oversized value still reaches the new contract as
+		// call value, fabricating unpaid call value on the deploy path.
+		amount, err := host.validatedCreateTransferValue(kda.KDAValue)
+		if err != nil {
+			log.Trace("doRunSmartContractCreate invalid transfer value", "error", err,
+				"assetID", string(kda.KDATokenName), "value", kda.KDAValue)
+			vmOutput = output.CreateVMOutputInCaseOfError(err)
+			return vmOutput
+		}
+
 		accKapp := blockchain.GetKAppController().GetAccountsKApp()
 		resultCode, err := accKapp.Transfer(transaction.TXContract_SmartContractType, input.CallerAddr, &transaction.TransferContract{
 			ToAddress:    address,
 			AssetID:      kda.KDATokenName,
-			Amount:       kda.KDAValue.Int64(),
+			Amount:       amount,
 			KDARoyalties: kda.KDARoyalties,
 			KLVRoyalties: kda.KLVRoyalties,
 		})
@@ -103,6 +117,20 @@ func (host *vmHost) doRunSmartContractCreate(input *vmcommon.ContractCreateInput
 		"data", vmOutput.ReturnData)
 
 	return vmOutput
+}
+
+func (host *vmHost) validatedCreateTransferValue(value *big.Int) (int64, error) {
+	if host.ForkController().FixAuditChangesV3() {
+		if value == nil || value.Sign() < 0 || !value.IsInt64() {
+			return 0, common.ErrInvalidValue
+		}
+		return value.Int64(), nil
+	}
+
+	if value == nil {
+		return 0, nil
+	}
+	return value.Int64(), nil
 }
 
 func (host *vmHost) performCodeDeployment(input vmhost.CodeDeployInput, initFunction func() error) (*vmcommon.VMOutput, error) {

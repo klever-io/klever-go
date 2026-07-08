@@ -17,6 +17,7 @@ import (
 type kdaTransfer struct {
 	baseAlwaysActiveHandler
 	kappController kapp.KAppController
+	forkController core.ForkController
 	funcGasCost    uint64
 	payableHandler vmcommon.PayableChecker
 	mutExecution   sync.RWMutex
@@ -26,11 +27,13 @@ type kdaTransfer struct {
 func NewKDATransferFunc(
 	funcGasCost uint64,
 	kappController kapp.KAppController,
+	forkController core.ForkController,
 ) *kdaTransfer {
 	e := &kdaTransfer{
 		funcGasCost:    funcGasCost,
 		payableHandler: &disabledPayableHandler{},
 		kappController: kappController,
+		forkController: forkController,
 	}
 
 	return e
@@ -58,12 +61,44 @@ func GetTokenIdentifier(kdaTransfer *vmcommon.KDATransfer) []byte {
 	return tokenIdentifier
 }
 
-// Extract transfer value
+// GetTransferValue extracts the transfer value using the legacy (pre-FixAuditChangesV3) semantics:
+// the arbitrary-size value is narrowed with Int64() and a nil value maps to zero. It is kept to
+// reproduce the historical behaviour when replaying blocks before the fork activation epoch.
 func GetTransferValue(kdaTransfer *vmcommon.KDATransfer) int64 {
 	if kdaTransfer.KDAValue != nil {
 		return kdaTransfer.KDAValue.Int64()
 	}
 	return 0
+}
+
+// GetValidatedTransferValue extracts the transfer value under the FixAuditChangesV3 fork.
+//
+// The value must be non-nil, non-negative and representable as int64. Oversized values are rejected
+// instead of being silently truncated by Int64(): otherwise a value such as 2^64 would narrow to 0,
+// the real account transfer would be skipped, yet the original oversized amount would still reach the
+// recipient contract as call value, letting it credit assets that were never paid (KLR-02).
+func GetValidatedTransferValue(kdaTransfer *vmcommon.KDATransfer) (int64, error) {
+	if kdaTransfer == nil || kdaTransfer.KDAValue == nil {
+		return 0, common.ErrInvalidValue
+	}
+	if kdaTransfer.KDAValue.Sign() < 0 || !kdaTransfer.KDAValue.IsInt64() {
+		return 0, common.ErrInvalidValue
+	}
+	return kdaTransfer.KDAValue.Int64(), nil
+}
+
+// extractTransferValue returns the transfer value to apply, rejecting oversized/invalid amounts once
+// the FixAuditChangesV3 fork is active and falling back to the legacy truncating behaviour before it.
+func (e *kdaTransfer) extractTransferValue(kdaTransfer *vmcommon.KDATransfer) (int64, error) {
+	if e.forkController.FixAuditChangesV3() {
+		return GetValidatedTransferValue(kdaTransfer)
+	}
+
+	value := GetTransferValue(kdaTransfer)
+	if value < 0 {
+		return 0, common.ErrInvalidValue
+	}
+	return value, nil
 }
 
 // Perform the KDA transfer
@@ -143,11 +178,9 @@ func (e *kdaTransfer) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput
 		}
 
 		tokenIdentifier := GetTokenIdentifier(kdaTransfer)
-		value := GetTransferValue(kdaTransfer)
-
-		// Checks if value to transfer is negative
-		if value < 0 {
-			return nil, common.ErrInvalidValue
+		value, err := e.extractTransferValue(kdaTransfer)
+		if err != nil {
+			return nil, err
 		}
 
 		contract := &transaction.TransferContract{

@@ -3,6 +3,7 @@ package builtInFunctions_test
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"testing"
@@ -23,6 +24,7 @@ func TestInstantiationKdaTransferStruct(t *testing.T) {
 	kdaTransferInstance := builtInFunctions.NewKDATransferFunc(
 		funcGasCost,
 		&mock.KappsControllerMock{},
+		mock.NewForkControllerStub(),
 	)
 
 	val := reflect.ValueOf(kdaTransferInstance).Elem()
@@ -50,6 +52,7 @@ func TestKdaTransferStructIsNilMethod(t *testing.T) {
 	kdaTransferInstance := builtInFunctions.NewKDATransferFunc(
 		0,
 		&mock.KappsControllerMock{},
+		mock.NewForkControllerStub(),
 	)
 
 	require.False(t, kdaTransferInstance.IsInterfaceNil())
@@ -138,6 +141,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
 				funcGasCost,
 				&mock.KappsControllerMock{},
+				mock.NewForkControllerStub(),
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
 				return nil
@@ -149,6 +153,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
 				funcGasCost,
 				&mock.KappsControllerMock{},
+				mock.NewForkControllerStub(),
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
 				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{
@@ -185,6 +190,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 						}
 					},
 				},
+				mock.NewForkControllerStub(),
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
 				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
@@ -218,6 +224,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 						}
 					},
 				},
+				mock.NewForkControllerStub(),
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
 				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
@@ -245,6 +252,52 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
 				funcGasCost,
 				&mock.KappsControllerMock{},
+				mock.NewForkControllerStub(),
+			),
+			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
+				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
+
+				return vmInputTransferCreation(transfers, funcGasCost)
+			},
+		},
+		{
+			// KLR-02: an oversized value (2^64) must be rejected, not truncated to 0 and silently
+			// skipped while still reaching the recipient contract as call value.
+			name: "transfer with oversized value",
+			transfers: []*vmcommon.KDATransfer{
+				{
+					KDATokenName:  []byte("FTOversized"),
+					KDAValue:      new(big.Int).Lsh(big.NewInt(1), 64),
+					KDATokenNonce: 0,
+				},
+			},
+			expectedError: common.ErrInvalidValue,
+			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
+				funcGasCost,
+				&mock.KappsControllerMock{},
+				mock.NewForkControllerStub(),
+			),
+			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
+				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
+
+				return vmInputTransferCreation(transfers, funcGasCost)
+			},
+		},
+		{
+			// KLR-02: a nil value is not a valid zero transfer; it must be rejected.
+			name: "transfer with nil value",
+			transfers: []*vmcommon.KDATransfer{
+				{
+					KDATokenName:  []byte("FTNilValue"),
+					KDAValue:      nil,
+					KDATokenNonce: 0,
+				},
+			},
+			expectedError: common.ErrInvalidValue,
+			kdaTransferInstance: builtInFunctions.NewKDATransferFunc(
+				funcGasCost,
+				&mock.KappsControllerMock{},
+				mock.NewForkControllerStub(),
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
 				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
@@ -281,6 +334,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 						}
 					},
 				},
+				mock.NewForkControllerStub(),
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
 				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
@@ -306,6 +360,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 						}
 					},
 				},
+				mock.NewForkControllerStub(),
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
 				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
@@ -328,11 +383,6 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 					KDAValue:      big.NewInt(0),
 					KDATokenNonce: 0,
 				},
-				{
-					KDATokenName:  []byte("FTNilAmount"),
-					KDAValue:      nil,
-					KDATokenNonce: 0,
-				},
 			},
 		},
 		{
@@ -352,6 +402,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 						}
 					},
 				},
+				mock.NewForkControllerStub(),
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
 				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
@@ -375,11 +426,6 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 					KDAValue:      big.NewInt(0),
 					KDATokenNonce: 0,
 				},
-				{
-					KDATokenName:  []byte("FTNilAmount"),
-					KDAValue:      nil,
-					KDATokenNonce: 0,
-				},
 			},
 		},
 		{
@@ -399,6 +445,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 						}
 					},
 				},
+				mock.NewForkControllerStub(),
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
 				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
@@ -428,6 +475,7 @@ func TestKleverTransferProcessBuiltinFunction(t *testing.T) {
 						}
 					},
 				},
+				mock.NewForkControllerStub(),
 			),
 			mock: func(kdaTransferInstance vmcommon.AcceptPayableChecker, transfers []*vmcommon.KDATransfer) *vmcommon.ContractCallInput {
 				require.NoError(t, kdaTransferInstance.SetPayableChecker(&PayableHandlerStub{}))
@@ -484,6 +532,7 @@ func TestKleverTransferSetNewGasConfig(t *testing.T) {
 	kdaTransferInstance := builtInFunctions.NewKDATransferFunc(
 		initialFuncGasCost,
 		&mock.KappsControllerMock{},
+		mock.NewForkControllerStub(),
 	)
 	newFuncGasCost := uint64(20)
 	t.Run("Setting new gas correctly", func(t *testing.T) {
@@ -522,6 +571,7 @@ func TestKleverTransferSetPayableChecker(t *testing.T) {
 	kdaTransferInstance := builtInFunctions.NewKDATransferFunc(
 		funcGasCost,
 		&mock.KappsControllerMock{},
+		mock.NewForkControllerStub(),
 	)
 
 	err := kdaTransferInstance.SetPayableChecker(nil)
@@ -539,4 +589,136 @@ func TestKleverTransferSetPayableChecker(t *testing.T) {
 	payableHandlerField := val.FieldByName("payableHandler")
 	require.True(t, payableHandlerField.IsValid(), "payableHandler field should be valid")
 	require.False(t, payableHandlerField.IsNil(), "payableHandler should not be nil")
+}
+
+// TestGetValidatedTransferValue is the KLR-02 regression for the post-fork value extraction boundary:
+// out-of-range, negative and nil values must be rejected instead of silently truncated by Int64().
+func TestGetValidatedTransferValue(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		transfer    *vmcommon.KDATransfer
+		expected    int64
+		expectedErr error
+	}{
+		{
+			name:        "nil transfer",
+			transfer:    nil,
+			expectedErr: common.ErrInvalidValue,
+		},
+		{
+			name:        "nil value",
+			transfer:    &vmcommon.KDATransfer{KDAValue: nil},
+			expectedErr: common.ErrInvalidValue,
+		},
+		{
+			name:        "negative value",
+			transfer:    &vmcommon.KDATransfer{KDAValue: big.NewInt(-1)},
+			expectedErr: common.ErrInvalidValue,
+		},
+		{
+			name:        "2^64 is rejected, not truncated to 0",
+			transfer:    &vmcommon.KDATransfer{KDAValue: new(big.Int).Lsh(big.NewInt(1), 64)},
+			expectedErr: common.ErrInvalidValue,
+		},
+		{
+			name:        "2^64+1 is rejected, not truncated to 1",
+			transfer:    &vmcommon.KDATransfer{KDAValue: new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1), 64), big.NewInt(1))},
+			expectedErr: common.ErrInvalidValue,
+		},
+		{
+			name:     "zero value is accepted",
+			transfer: &vmcommon.KDATransfer{KDAValue: big.NewInt(0)},
+			expected: 0,
+		},
+		{
+			name:     "math.MaxInt64 is accepted and exact",
+			transfer: &vmcommon.KDATransfer{KDAValue: big.NewInt(math.MaxInt64)},
+			expected: math.MaxInt64,
+		},
+		{
+			name:     "regular value is accepted",
+			transfer: &vmcommon.KDATransfer{KDAValue: big.NewInt(1000)},
+			expected: 1000,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			value, err := builtInFunctions.GetValidatedTransferValue(tt.transfer)
+
+			if tt.expectedErr != nil {
+				require.ErrorIs(t, err, tt.expectedErr)
+				require.Zero(t, value)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, value)
+		})
+	}
+}
+
+// TestKleverTransferOversizedValueForkGating pins the consensus-safety boundary of the KLR-02 fix:
+// before FixAuditChangesV3 the oversized value keeps its legacy behaviour (truncated to 0, real
+// transfer skipped, forwarded value left untouched), and only after the fork is it rejected. This is
+// what keeps historical block replay deterministic across the activation epoch.
+func TestKleverTransferOversizedValueForkGating(t *testing.T) {
+	t.Parallel()
+
+	funcGasCost := uint64(100)
+	oversized := new(big.Int).Lsh(big.NewInt(1), 64) // 2^64
+
+	newInstance := func(forkEnabled bool, accountTransferCalled *bool) vmcommon.BuiltinFunction {
+		fork := mock.NewForkControllerStub().SetFork("FixAuditChangesV3", forkEnabled)
+		instance := builtInFunctions.NewKDATransferFunc(
+			funcGasCost,
+			&stub.KAppControllerStub{
+				GetAccountsKAppCalled: func() kapp.AccountsKapp {
+					return &stub.KAppAccountsStub{
+						TransferCalled: func(
+							_ transaction.TXContract_ContractType,
+							_ []byte,
+							_ *transaction.TransferContract,
+						) (transaction.Transaction_TXResultCode, error) {
+							*accountTransferCalled = true
+							return transaction.Transaction_Ok, nil
+						},
+					}
+				},
+			},
+			fork,
+		)
+		require.NoError(t, instance.SetPayableChecker(&PayableHandlerStub{}))
+		return instance
+	}
+
+	t.Run("fork disabled keeps legacy truncation", func(t *testing.T) {
+		var accountTransferCalled bool
+		instance := newInstance(false, &accountTransferCalled)
+
+		transfer := &vmcommon.KDATransfer{KDATokenName: []byte("FTOld"), KDAValue: oversized, KDATokenNonce: 0}
+		vmInput := vmInputTransferCreation([]*vmcommon.KDATransfer{transfer}, funcGasCost)
+
+		vmOutput, err := instance.ProcessBuiltinFunction(vmInput)
+		require.NoError(t, err)
+		require.Equal(t, vmcommon.Ok, vmOutput.ReturnCode)
+		require.False(t, accountTransferCalled, "2^64 truncates to 0, so the account transfer is skipped")
+		require.True(t, transfer.IsExecuted())
+		require.Zero(t, oversized.Cmp(transfer.KDAValue), "legacy path must not normalize the forwarded value")
+	})
+
+	t.Run("fork enabled rejects oversized value", func(t *testing.T) {
+		var accountTransferCalled bool
+		instance := newInstance(true, &accountTransferCalled)
+
+		transfer := &vmcommon.KDATransfer{KDATokenName: []byte("FTNew"), KDAValue: oversized, KDATokenNonce: 0}
+		vmInput := vmInputTransferCreation([]*vmcommon.KDATransfer{transfer}, funcGasCost)
+
+		vmOutput, err := instance.ProcessBuiltinFunction(vmInput)
+		require.ErrorIs(t, err, common.ErrInvalidValue)
+		require.Nil(t, vmOutput)
+		require.False(t, accountTransferCalled)
+	})
 }

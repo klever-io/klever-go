@@ -871,3 +871,48 @@ func TestExecuteKDATransfer_SCValidations(t *testing.T) {
 		require.Nil(t, vmOutput)
 	})
 }
+
+func TestExecution_CreateContract_KLR02_RejectsOversizedTransferValue(t *testing.T) {
+	vmHost, mockWorld := createVmHostAndMockWorld(t)
+	accCacher := mockWorld.AccountsCacher
+
+	callerAcc, err := accCacher.LoadUser(testOwnerAddress)
+	require.NoError(t, err)
+	balanceBefore := callerAcc.GetBalance(kdautils.KLVIdentifier, false)
+
+	// 2^64 + 500: not representable as int64. big.Int.Int64() wraps it modulo 2^64 down to 500.
+	oversized := new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1), 64), big.NewInt(500))
+	require.False(t, oversized.IsInt64(), "sanity: declared value must be unrepresentable as int64")
+	require.Equal(t, int64(500), oversized.Int64(), "sanity: confirms the amount Int64() would have applied")
+
+	input := &vmcommon.ContractCreateInput{
+		VMInput: vmcommon.VMInput{
+			CallerAddr:  testOwnerAddress,
+			GasProvided: 100000,
+			CallType:    vm.DirectCall,
+			KDATransfers: []*vmcommon.KDATransfer{
+				{
+					KDATokenName: kdautils.KLVIdentifier,
+					KDATokenType: uint32(core.Fungible),
+					KDAValue:     oversized,
+				},
+			},
+		},
+		ContractCode:         testcommon.GetTestSCCode("init-payable", "../../"),
+		ContractCodeMetadata: []byte{0, 0},
+	}
+
+	vmOutput, err := vmHost.RunSmartContractCreate(input)
+	require.NoError(t, err)
+	require.NotNil(t, vmOutput)
+
+	// The deploy must fail instead of silently creating the contract with a wrapped-down transfer.
+	require.NotEqual(t, vmcommon.Ok, vmOutput.ReturnCode,
+		"oversized declared transfer value must be rejected, not truncated")
+	require.Empty(t, vmOutput.OutputAccounts, "no contract account must be created on rejection")
+
+	callerAfter, err := accCacher.LoadUser(testOwnerAddress)
+	require.NoError(t, err)
+	require.Equal(t, balanceBefore, callerAfter.GetBalance(kdautils.KLVIdentifier, false),
+		"no KLV must move when an oversized transfer value is rejected")
+}
