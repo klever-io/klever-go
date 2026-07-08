@@ -32,16 +32,21 @@ type usageCounter struct {
 	crtNumberOfTrieReads            uint64
 
 	kdaTransferParser vmcommon.KDATransferParser
+	forkController    core.ForkController
 }
 
 // NewUsageCounter will create a new instance of type usageCounter
-func NewUsageCounter(kdaTransferParser vmcommon.KDATransferParser) (*usageCounter, error) {
+func NewUsageCounter(kdaTransferParser vmcommon.KDATransferParser, forkController core.ForkController) (*usageCounter, error) {
 	if check.IfNil(kdaTransferParser) {
 		return nil, process.ErrNilKDATransferParser
+	}
+	if check.IfNil(forkController) {
+		return nil, process.ErrNilForkController
 	}
 
 	return &usageCounter{
 		kdaTransferParser: kdaTransferParser,
+		forkController:    forkController,
 	}, nil
 }
 
@@ -70,7 +75,7 @@ func (counter *usageCounter) ProcessMaxBuiltInCounters(input *vmcommon.ContractC
 		return fmt.Errorf("%w: too many built-in functions calls", process.ErrMaxCallsReached)
 	}
 
-	if !isTransferBuiltinFunction(input.Function) {
+	if counter.forkController.FixAuditChangesV3() && !isTransferBuiltinFunction(input.Function) {
 		return nil
 	}
 

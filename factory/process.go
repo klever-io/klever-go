@@ -856,7 +856,7 @@ func newBlockProcessor(
 		return nil, nil, err
 	}
 
-	counter, err := counters.NewUsageCounter(kdaTransferParser)
+	counter, err := counters.NewUsageCounter(kdaTransferParser, processArgs.forkController)
 	if err != nil {
 		return nil, nil, err
 	}
