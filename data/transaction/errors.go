@@ -9,6 +9,8 @@ var (
 	ErrInvalidCurrencyID          = errors.New("invalid currency id")
 	ErrInvalidBucketID            = errors.New("invalid bucket id")
 	ErrInvalidPermissionSize      = errors.New("invalid permission size")
+	ErrInvalidPermissionThreshold = errors.New("invalid permission threshold")
+	ErrInvalidSignerWeight        = errors.New("invalid signer weights")
 	ErrInvalidWhitelistAddr       = errors.New("invalid whitelist address")
 	ErrInvalidWhitelistSize       = errors.New("invalid whitelist size")
 	ErrInvalidSignerAddress       = errors.New("invalid signer address")

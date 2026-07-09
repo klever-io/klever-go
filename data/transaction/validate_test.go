@@ -1479,6 +1479,86 @@ func TestUpdateAccountPermissionContractValidate(t *testing.T) {
 			fc:          mock.NewForkControllerStub().SetFork("EnableSmartContracts", false),
 			expectError: false,
 		},
+		{
+			name: "zero threshold",
+			contract: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type:      transaction.AccPermission_Owner,
+						Threshold: 0,
+						Signers: []*transaction.AccKey{
+							{
+								Address: core.ZeroAddress,
+								Weight:  1,
+							},
+						},
+					},
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidPermissionThreshold.Error(),
+		},
+		{
+			name: "negative threshold",
+			contract: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type:      transaction.AccPermission_Owner,
+						Threshold: -1,
+						Signers: []*transaction.AccKey{
+							{
+								Address: core.ZeroAddress,
+								Weight:  1,
+							},
+						},
+					},
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidPermissionThreshold.Error(),
+		},
+		{
+			name: "zero signer weight",
+			contract: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type:      transaction.AccPermission_Owner,
+						Threshold: 1,
+						Signers: []*transaction.AccKey{
+							{
+								Address: core.ZeroAddress,
+								Weight:  0,
+							},
+						},
+					},
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidSignerWeight.Error(),
+		},
+		{
+			name: "negative signer weight",
+			contract: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type:      transaction.AccPermission_Owner,
+						Threshold: 1,
+						Signers: []*transaction.AccKey{
+							{
+								Address: core.ZeroAddress,
+								Weight:  -1,
+							},
+						},
+					},
+				},
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    transaction.ErrInvalidSignerWeight.Error(),
+		},
 	}
 
 	for _, tt := range tests {

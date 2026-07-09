@@ -839,6 +839,16 @@ func (tc *UpdateAccountPermissionContract) validateUpdateAccountPermissions(fc c
 			return ErrInvalidPermissionOperation
 		}
 
+		if perm.Threshold <= 0 {
+			return ErrInvalidPermissionThreshold
+		}
+
+		for _, signer := range perm.Signers {
+			if signer.Weight <= 0 {
+				return ErrInvalidSignerWeight
+			}
+		}
+
 		if err := tc.validateUpdateAccountPermissionAfterFork(perm, fc); err != nil {
 			return err
 		}

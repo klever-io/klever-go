@@ -1786,18 +1786,24 @@ func (a *accountsKapp) validateSigners(pType transaction.AccPermission_AccPermis
 	weightSum := int64(0)
 	dupCheck := make(map[string]bool)
 
+	var err error
 	for _, signer := range signers {
 		if len(signer.Address) != a.pubkeyConv.Len() {
 			return 0, nil, common.ErrInvalidParameter
 		}
-
+		if signer.Weight <= 0 {
+			return 0, nil, transaction.ErrInvalidSignerWeight
+		}
 		// Check for duplicate signers
 		if dupCheck[string(signer.Address)] {
 			return 0, nil, common.ErrInvalidParameter
 		}
 		dupCheck[string(signer.Address)] = true
 
-		weightSum += signer.Weight
+		weightSum, err = tools.SafeAddI64(weightSum, signer.Weight)
+		if err != nil {
+			return 0, nil, err
+		}
 		stateSigners = append(stateSigners, &state.Key{
 			Address: append([]byte{}, signer.Address...),
 			Weight:  signer.Weight,
@@ -1828,6 +1834,9 @@ func (a *accountsKapp) buildPermission(
 	// Verify threshold
 	if p.Threshold > weightSum {
 		return nil, common.ErrInvalidParameter
+	}
+	if p.Threshold <= 0 {
+		return nil, transaction.ErrInvalidPermissionThreshold
 	}
 
 	permName, err := a.validatePermissionName(p.PermissionName)
