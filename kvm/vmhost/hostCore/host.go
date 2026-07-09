@@ -472,6 +472,27 @@ func (host *vmHost) handleTimeout(cancelHook context.CancelFunc, done <-chan str
 	return vmhost.ErrExecutionFailedWithTimeout
 }
 
+// waitExecutionWithDeterministicTimeout waits for execution completion or timeout.
+// If both completion and timeout are observable at the same boundary, timeout wins.
+func (host *vmHost) waitExecutionWithDeterministicTimeout(
+	ctx context.Context,
+	cancelHook context.CancelFunc,
+	done <-chan struct{},
+) error {
+	select {
+	case <-ctx.Done():
+		return host.handleTimeout(cancelHook, done)
+	case <-done:
+		// Deterministic tie-breaker: if timeout is also ready, timeout wins.
+		select {
+		case <-ctx.Done():
+			return host.handleTimeout(cancelHook, done)
+		default:
+			return nil
+		}
+	}
+}
+
 // RunSmartContractCreate executes the deployment of a new contract
 func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) (vmOutput *vmcommon.VMOutput, err error) {
 	err = validateVMInput(&input.VMInput)
@@ -534,12 +555,9 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 		host.logFromGasTracer("init")
 	}()
 
-	select {
-	case <-done:
-		// Normal termination
-		return
-	case <-ctx.Done():
-		err = host.handleTimeout(cancel, done)
+	timeoutErr := host.waitExecutionWithDeterministicTimeout(ctx, cancel, done)
+	if timeoutErr != nil {
+		err = timeoutErr
 	}
 
 	return
@@ -618,11 +636,9 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 		host.logFromGasTracer(input.Function)
 	}()
 
-	select {
-	case <-done:
-		// Normal termination.
-	case <-ctx.Done():
-		err = host.handleTimeout(cancel, done)
+	timeoutErr := host.waitExecutionWithDeterministicTimeout(ctx, cancel, done)
+	if timeoutErr != nil {
+		err = timeoutErr
 	}
 
 	return vmOutput, err
