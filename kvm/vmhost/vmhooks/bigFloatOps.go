@@ -429,25 +429,29 @@ func (context *VMHooksImpl) BigFloatPow(destinationHandle, opHandle, exponent in
 		return
 	}
 
+	opBigInt := big.NewInt(0)
+	op.Int(opBigInt)
+	op2BigInt := big.NewInt(int64(exponent))
+
+	if context.host.ForkController().FixAuditChangesV3() && opBigInt.Sign() >= 0 {
+		opBigInt.Add(opBigInt, big.NewInt(1))
+	} else if opBigInt.Sign() > 0 {
+		opBigInt.Add(opBigInt, big.NewInt(1))
+	}
+
+	//this calculates the length of the result in bytes
+	lengthOfResult := big.NewInt(0).Div(big.NewInt(0).Mul(op2BigInt, big.NewInt(int64(opBigInt.BitLen()))), big.NewInt(8))
+	err = managedType.ConsumeGasForThisBigIntNumberOfBytes(lengthOfResult)
+	if context.WithFault(err, runtime.BigIntAPIErrorShouldFailExecution()) {
+		return
+	}
+
 	if op.Sign() == 0 {
 		result := big.NewFloat(0).SetPrec(op.Prec())
 		if exponent == 0 {
 			result.SetInt64(1)
 		}
 		setResultIfNotInfinity(context.GetVMHost(), result, destinationHandle)
-		return
-	}
-
-	opBigInt := big.NewInt(0)
-	op.Int(opBigInt)
-	op2BigInt := big.NewInt(int64(exponent))
-	if opBigInt.Sign() >= 0 {
-		opBigInt.Add(opBigInt, big.NewInt(1))
-	}
-	//this calculates the length of the result in bytes
-	lengthOfResult := big.NewInt(0).Div(big.NewInt(0).Mul(op2BigInt, big.NewInt(int64(opBigInt.BitLen()))), big.NewInt(8))
-	err = managedType.ConsumeGasForThisBigIntNumberOfBytes(lengthOfResult)
-	if context.WithFault(err, runtime.BigIntAPIErrorShouldFailExecution()) {
 		return
 	}
 	powResult, err := context.pow(op, exponent)

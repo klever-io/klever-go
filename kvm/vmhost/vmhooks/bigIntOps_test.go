@@ -1,6 +1,7 @@
 package vmhooks_test
 
 import (
+	"fmt"
 	"math/big"
 	"strconv"
 	"testing"
@@ -727,10 +728,7 @@ func TestBigIntPow(t *testing.T) {
 		require.Equal(t, 0, big.NewInt(1024).Cmp(result), "2^10 should be 1024")
 	})
 
-	// A zero base has a trivial, bounded result and must short-circuit: it neither
-	// runs Exp nor charges result-size gas, so it succeeds even with no gas
-	// provided. 0^0 == 1 and 0^n == 0 for n > 0.
-	t.Run("zero base short-circuits without charging gas", func(t *testing.T) {
+	t.Run("zero base short-circuits identically across fork", func(t *testing.T) {
 		cases := []struct {
 			exponent int64
 			expected int64
@@ -739,35 +737,55 @@ func TestBigIntPow(t *testing.T) {
 			{exponent: 1, expected: 0},
 			{exponent: 64, expected: 0},
 		}
-		for _, tc := range cases {
-			tc := tc
-			t.Run(strconv.FormatInt(tc.exponent, 10), func(t *testing.T) {
+		for _, fixAuditV3 := range []bool{false, true} {
+			fixAuditV3 := fixAuditV3
+			t.Run(fmt.Sprintf("FixAuditChangesV3=%t", fixAuditV3), func(t *testing.T) {
+				for _, tc := range cases {
+					tc := tc
+					t.Run(strconv.FormatInt(tc.exponent, 10), func(t *testing.T) {
+						mockWorld := worldmock.NewMockWorld()
+						vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParametersWithFork(newForkStub(fixAuditV3)))
+						require.NoError(t, err)
+						hooks := vmhooks.NewVMHooksImpl(vmHost)
+						provideGas(hooks, 0) // no gas: proves no result-size charge is made
+
+						baseHandle := hooks.BigIntNew(0)
+						expHandle := hooks.BigIntNew(tc.exponent)
+						destHandle := hooks.BigIntNew(7) // sentinel; overwritten with the result
+
+						hooks.BigIntPow(destHandle, baseHandle, expHandle)
+
+						result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
+						require.NoError(t, err, "zero base must not fault")
+						require.Equal(t, 0, big.NewInt(tc.expected).Cmp(result), "0^%d should be %d", tc.exponent, tc.expected)
+					})
+				}
+			})
+		}
+	})
+	t.Run("non-zero base result unchanged across fork", func(t *testing.T) {
+		for _, fixAuditV3 := range []bool{false, true} {
+			fixAuditV3 := fixAuditV3
+			t.Run(fmt.Sprintf("FixAuditChangesV3=%t", fixAuditV3), func(t *testing.T) {
 				mockWorld := worldmock.NewMockWorld()
-				vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+				vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParametersWithFork(newForkStub(fixAuditV3)))
 				require.NoError(t, err)
 				hooks := vmhooks.NewVMHooksImpl(vmHost)
-				provideGas(hooks, 0) // no gas: proves no result-size charge is made
+				provideGas(hooks, 1_000_000)
 
-				baseHandle := hooks.BigIntNew(0)
-				expHandle := hooks.BigIntNew(tc.exponent)
-				destHandle := hooks.BigIntNew(7) // sentinel; overwritten with the result
+				baseHandle := hooks.BigIntNew(2)
+				expHandle := hooks.BigIntNew(10)
+				destHandle := hooks.BigIntNew(0)
 
 				hooks.BigIntPow(destHandle, baseHandle, expHandle)
 
 				result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
-				require.NoError(t, err, "zero base must not fault")
-				require.Equal(t, 0, big.NewInt(tc.expected).Cmp(result), "0^%d should be %d", tc.exponent, tc.expected)
+				require.NoError(t, err)
+				require.Equal(t, 0, big.NewInt(1024).Cmp(result), "2^10 should be 1024 regardless of fork")
 			})
 		}
 	})
 
-	// A non-zero base runs through the normal path and charges result-size gas.
-	// The gas points counter is instance-backed and reads back as zero in a direct
-	// unit test, so the positive charge is observed through the gas budget instead:
-	// with the CopyPerByteForTooBig cost at 1 (the test gas value), the result-size
-	// charge equals exponent*byteLen/8 gas. Providing one unit less than that makes
-	// ConsumeGasForThisBigIntNumberOfBytes fault with not-enough-gas (only possible
-	// for a positive charge), while providing exactly that amount lets it through.
 	t.Run("non-zero base charges positive gas", func(t *testing.T) {
 		// base 2 (byteLen == 2 bits) and exponent 64 give a result-size charge of
 		// 64*2/8 == 16 gas, a whole, strictly-positive number of gas units.
