@@ -733,8 +733,7 @@ func (sc *scProcessor) printScDeployed(sender []byte, vmOutput *vmcommon.VMOutpu
 // deposit call values into contract account
 func (sc *scProcessor) processSCPayment(tc data.SmartContractHandler, acntSnd state.UserAccountHandler) error {
 	accKapp := sc.blockChainHook.GetKAppController().GetAccountsKApp()
-	callValue := tc.GetCallValue()
-	dMap := types.NewDeterministicMap(callValue)
+	dMap := types.NewDeterministicMap(tc.GetCallValue())
 	// sub from sender the call value
 	return dMap.Each(func(assetID string, cvwr *transaction.CallValue) error {
 		transferContract := transaction.TransferContract{
