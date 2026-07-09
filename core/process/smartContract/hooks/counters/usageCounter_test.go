@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/smartContract/hooks/counters"
 	"github.com/klever-io/klever-go/tools/check"
@@ -34,14 +36,21 @@ func TestNewUsageCounter(t *testing.T) {
 	t.Run("nil kda transfer parser should error", func(t *testing.T) {
 		t.Parallel()
 
-		counter, err := counters.NewUsageCounter(nil)
+		counter, err := counters.NewUsageCounter(nil, mock.NewForkControllerStub())
 		assert.True(t, check.IfNil(counter))
 		assert.Equal(t, process.ErrNilKDATransferParser, err)
 	})
-	t.Run("nil kda transfer parser should error", func(t *testing.T) {
+	t.Run("nil fork controller should error", func(t *testing.T) {
 		t.Parallel()
 
-		counter, err := counters.NewUsageCounter(&KDATransferParserStub{})
+		counter, err := counters.NewUsageCounter(&KDATransferParserStub{}, nil)
+		assert.True(t, check.IfNil(counter))
+		assert.Equal(t, process.ErrNilForkController, err)
+	})
+	t.Run("should work", func(t *testing.T) {
+		t.Parallel()
+
+		counter, err := counters.NewUsageCounter(&KDATransferParserStub{}, mock.NewForkControllerStub())
 		assert.False(t, check.IfNil(counter))
 		assert.Nil(t, err)
 	})
@@ -50,7 +59,7 @@ func TestNewUsageCounter(t *testing.T) {
 func TestUsageCounter_ProcessCrtNumberOfTrieReadsCounter(t *testing.T) {
 	t.Parallel()
 
-	counter, _ := counters.NewUsageCounter(&KDATransferParserStub{})
+	counter, _ := counters.NewUsageCounter(&KDATransferParserStub{}, mock.NewForkControllerStub())
 	counter.SetMaximumValues(generateMapsOfValues(3))
 
 	assert.Nil(t, counter.ProcessCrtNumberOfTrieReadsCounter())                                 // counter is now 1
@@ -89,7 +98,7 @@ func TestUsageCounter_ProcessMaxBuiltInCounters(t *testing.T) {
 	t.Run("builtin functions exceeded", func(t *testing.T) {
 		t.Parallel()
 
-		counter, _ := counters.NewUsageCounter(&KDATransferParserStub{})
+		counter, _ := counters.NewUsageCounter(&KDATransferParserStub{}, mock.NewForkControllerStub())
 		counter.SetMaximumValues(generateMapsOfValues(3))
 
 		vmInput := &vmcommon.ContractCallInput{}
@@ -132,12 +141,12 @@ func TestUsageCounter_ProcessMaxBuiltInCounters(t *testing.T) {
 					KDATransfers: make([]*vmcommon.KDATransfer, 2),
 				}, nil
 			},
-		})
+		}, mock.NewForkControllerStub())
 		values := generateMapsOfValues(6)
 		values[maxBuiltinCalls] = 1000
 		counter.SetMaximumValues(values)
 
-		vmInput := &vmcommon.ContractCallInput{}
+		vmInput := &vmcommon.ContractCallInput{Function: core.BuiltInFunctionTransfer}
 
 		assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))                                 // counter is now 2
 		assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))                                 // counter is now 4
@@ -168,6 +177,118 @@ func TestUsageCounter_ProcessMaxBuiltInCounters(t *testing.T) {
 		}
 		assert.Equal(t, expectedMap, countersMap)
 	})
+}
+
+func TestNonTransferBuiltinNotCountedAsTransfer(t *testing.T) {
+	t.Parallel()
+
+	counter, _ := counters.NewUsageCounter(&KDATransferParserStub{
+		ParseKDATransfersCalled: func(rcvAddr []byte, args [][]byte) (*vmcommon.ParsedKDATransfers, error) {
+			return &vmcommon.ParsedKDATransfers{
+				KDATransfers: make([]*vmcommon.KDATransfer, 2),
+			}, nil
+		},
+	}, mock.NewForkControllerStub().SetFork("FixAuditChangesV3", true))
+	counter.SetMaximumValues(generateMapsOfValues(100))
+
+	vmInput := &vmcommon.ContractCallInput{Function: core.BuiltInFunctionFreeze}
+
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))
+
+	countersMap := counter.GetCounterValues()
+	expectedMap := map[string]uint64{
+		crtBuiltinCalls: 2,
+		crtTransfers:    0,
+		crtTrieReads:    0,
+	}
+	assert.Equal(t, expectedMap, countersMap)
+}
+
+func TestBeforeForkTransferShapedBuiltinIsCountedAsTransfer(t *testing.T) {
+	t.Parallel()
+
+	counter, _ := counters.NewUsageCounter(&KDATransferParserStub{
+		ParseKDATransfersCalled: func(rcvAddr []byte, args [][]byte) (*vmcommon.ParsedKDATransfers, error) {
+			return &vmcommon.ParsedKDATransfers{
+				KDATransfers: make([]*vmcommon.KDATransfer, 2),
+			}, nil
+		},
+	}, mock.NewForkControllerStub().SetFork("FixAuditChangesV3", false))
+	counter.SetMaximumValues(generateMapsOfValues(100))
+
+	vmInput := &vmcommon.ContractCallInput{Function: core.BuiltInFunctionFreeze}
+
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))
+
+	countersMap := counter.GetCounterValues()
+	expectedMap := map[string]uint64{
+		crtBuiltinCalls: 2,
+		crtTransfers:    4,
+		crtTrieReads:    0,
+	}
+	assert.Equal(t, expectedMap, countersMap)
+}
+
+func TestMultiTransferStillCounted(t *testing.T) {
+	t.Parallel()
+
+	counter, _ := counters.NewUsageCounter(&KDATransferParserStub{
+		ParseKDATransfersCalled: func(rcvAddr []byte, args [][]byte) (*vmcommon.ParsedKDATransfers, error) {
+			return &vmcommon.ParsedKDATransfers{
+				KDATransfers: make([]*vmcommon.KDATransfer, 2),
+			}, nil
+		},
+	}, mock.NewForkControllerStub())
+	values := generateMapsOfValues(6)
+	values[maxBuiltinCalls] = 1000
+	counter.SetMaximumValues(values)
+
+	vmInput := &vmcommon.ContractCallInput{Function: core.BuiltInFunctionTransfer}
+
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))                                 // transfers now 2
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))                                 // transfers now 4
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))                                 // transfers now 6
+	assert.ErrorIs(t, counter.ProcessMaxBuiltInCounters(vmInput), process.ErrMaxCallsReached) // transfers now 8, over cap
+
+	countersMap := counter.GetCounterValues()
+	expectedMap := map[string]uint64{
+		crtBuiltinCalls: 4,
+		crtTransfers:    8,
+		crtTrieReads:    0,
+	}
+	assert.Equal(t, expectedMap, countersMap)
+}
+
+func TestBeforeForkMultiTransferStillCounted(t *testing.T) {
+	t.Parallel()
+
+	counter, _ := counters.NewUsageCounter(&KDATransferParserStub{
+		ParseKDATransfersCalled: func(rcvAddr []byte, args [][]byte) (*vmcommon.ParsedKDATransfers, error) {
+			return &vmcommon.ParsedKDATransfers{
+				KDATransfers: make([]*vmcommon.KDATransfer, 2),
+			}, nil
+		},
+	}, mock.NewForkControllerStub().SetFork("FixAuditChangesV3", false))
+	values := generateMapsOfValues(6)
+	values[maxBuiltinCalls] = 1000
+	counter.SetMaximumValues(values)
+
+	vmInput := &vmcommon.ContractCallInput{Function: core.BuiltInFunctionTransfer}
+
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))                                 // transfers now 2
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))                                 // transfers now 4
+	assert.Nil(t, counter.ProcessMaxBuiltInCounters(vmInput))                                 // transfers now 6
+	assert.ErrorIs(t, counter.ProcessMaxBuiltInCounters(vmInput), process.ErrMaxCallsReached) // transfers now 8, over cap
+
+	countersMap := counter.GetCounterValues()
+	expectedMap := map[string]uint64{
+		crtBuiltinCalls: 4,
+		crtTransfers:    8,
+		crtTrieReads:    0,
+	}
+	assert.Equal(t, expectedMap, countersMap)
 }
 
 // KDATransferParserStub -

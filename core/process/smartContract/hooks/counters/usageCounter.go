@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/vmcommon"
@@ -31,16 +32,21 @@ type usageCounter struct {
 	crtNumberOfTrieReads            uint64
 
 	kdaTransferParser vmcommon.KDATransferParser
+	forkController    core.ForkController
 }
 
 // NewUsageCounter will create a new instance of type usageCounter
-func NewUsageCounter(kdaTransferParser vmcommon.KDATransferParser) (*usageCounter, error) {
+func NewUsageCounter(kdaTransferParser vmcommon.KDATransferParser, forkController core.ForkController) (*usageCounter, error) {
 	if check.IfNil(kdaTransferParser) {
 		return nil, process.ErrNilKDATransferParser
+	}
+	if check.IfNil(forkController) {
+		return nil, process.ErrNilForkController
 	}
 
 	return &usageCounter{
 		kdaTransferParser: kdaTransferParser,
+		forkController:    forkController,
 	}, nil
 }
 
@@ -69,6 +75,10 @@ func (counter *usageCounter) ProcessMaxBuiltInCounters(input *vmcommon.ContractC
 		return fmt.Errorf("%w: too many built-in functions calls", process.ErrMaxCallsReached)
 	}
 
+	if counter.forkController.FixAuditChangesV3() && !isTransferBuiltinFunction(input.Function) {
+		return nil
+	}
+
 	parsedTransfer, errKDATransfer := counter.kdaTransferParser.ParseKDATransfers(input.RecipientAddr, input.Arguments)
 	if errKDATransfer != nil {
 		// not a transfer - no need to count max transfers
@@ -81,6 +91,10 @@ func (counter *usageCounter) ProcessMaxBuiltInCounters(input *vmcommon.ContractC
 	}
 
 	return nil
+}
+
+func isTransferBuiltinFunction(function string) bool {
+	return function == core.BuiltInFunctionTransfer
 }
 
 // ResetCounters resets the state counters for the blockchain hook
