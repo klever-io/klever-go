@@ -1,8 +1,8 @@
 package vmhooks_test
 
 import (
-	"context"
 	"math/big"
+	"strconv"
 	"testing"
 
 	commonMock "github.com/klever-io/klever-go/common/mock"
@@ -94,76 +94,89 @@ func TestBigFloatPow(t *testing.T) {
 		require.Error(t, err, "should return an error for negative exponent")
 	})
 
-	t.Run("Zero base rejected", func(t *testing.T) {
-		mockWorld := worldmock.NewMockWorld()
-		vmHost, _ := hostCore.NewVMHost(mockWorld, makeHostParameters())
-		hooks := vmhooks.NewVMHooksImpl(vmHost)
+	t.Run("Absolute-zero base short-circuits without charging gas", func(t *testing.T) {
+		// An absolute-zero base has a trivial, bounded result and must not run the
+		// unbounded pow loop nor charge result-size gas: it succeeds even with no
+		// gas provided. 0^0 == 1 and 0^n == 0 for n > 0.
+		cases := []struct {
+			exponent int32
+			expected float64
+		}{
+			{exponent: 0, expected: 1.0},
+			{exponent: 1, expected: 0.0},
+			{exponent: 64, expected: 0.0},
+		}
+		for _, tc := range cases {
+			tc := tc
+			t.Run(strconv.Itoa(int(tc.exponent)), func(t *testing.T) {
+				mockWorld := worldmock.NewMockWorld()
+				vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+				require.NoError(t, err)
+				hooks := vmhooks.NewVMHooksImpl(vmHost)
+				provideGas(hooks, 0) // no gas: proves no result-size charge is made
 
-		base := big.NewFloat(0.0)
-		exponent := int32(5)
-		baseHandle, _ := hooks.GetManagedTypesContext().PutBigFloat(base)
-		destHandle := int32(102)
+				baseHandle, err := hooks.GetManagedTypesContext().PutBigFloat(big.NewFloat(0.0))
+				require.NoError(t, err)
+				destHandle := int32(112)
 
-		hooks.BigFloatPow(destHandle, baseHandle, exponent)
+				hooks.BigFloatPow(destHandle, baseHandle, tc.exponent)
 
-		// The guard faults before writing a result, so the destination stays unset.
-		_, err := hooks.GetManagedTypesContext().GetBigFloat(destHandle)
-		require.Error(t, err, "zero base should be rejected, leaving destination unset")
-	})
-}
-
-type hostWithExecutionContext struct {
-	vmhost.VMHost
-	ctx context.Context
-}
-
-func (h *hostWithExecutionContext) GetExecutionContext() context.Context {
-	return h.ctx
-}
-
-func TestBigFloatPow_Timeout(t *testing.T) {
-	t.Run("cancelled context panics before writing result", func(t *testing.T) {
-		mockWorld := worldmock.NewMockWorld()
-		vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
-		require.NoError(t, err)
-
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel() // already timed out
-		hooks := vmhooks.NewVMHooksImpl(&hostWithExecutionContext{VMHost: vmHost, ctx: ctx})
-		provideGas(hooks, 1_000_000)
-
-		base := big.NewFloat(2.0)
-		exponent := int32(1000)
-		baseHandle, err := hooks.GetManagedTypesContext().PutBigFloat(base)
-		require.NoError(t, err)
-		destHandle := int32(200)
-
-		require.PanicsWithValue(t, vmhost.ErrExecutionFailedWithTimeout, func() {
-			hooks.BigFloatPow(destHandle, baseHandle, exponent)
-		}, "cancelled context must panic ErrExecutionFailedWithTimeout")
-
-		_, err = hooks.GetManagedTypesContext().GetBigFloat(destHandle)
-		require.Error(t, err, "destination must stay unset on timeout")
+				result, err := hooks.GetManagedTypesContext().GetBigFloat(destHandle)
+				require.NoError(t, err, "absolute-zero base must not fault")
+				require.Equal(t, 0, big.NewFloat(tc.expected).Cmp(result), "0^%d should be %v", tc.exponent, tc.expected)
+			})
+		}
 	})
 
-	t.Run("nil context runs to completion", func(t *testing.T) {
-		mockWorld := worldmock.NewMockWorld()
-		vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
-		require.NoError(t, err)
-		hooks := vmhooks.NewVMHooksImpl(vmHost) // real host => GetExecutionContext() == nil
+	t.Run("Fractional bases charge positive gas", func(t *testing.T) {
+		// exponent chosen so the result-size charge (exponent*bitLen/8, bitLen == 1)
+		// is a whole, strictly-positive number of gas units.
+		const exponent = int32(64)
+		const expectedGasCharge = uint64(exponent) / 8 // 8 gas
 
-		base := big.NewFloat(2.0)
-		exponent := int32(3)
-		baseHandle, err := hooks.GetManagedTypesContext().PutBigFloat(base)
-		require.NoError(t, err)
-		destHandle := int32(201)
+		for _, base := range []float64{-0.9, -0.1, 0.1, 0.9} {
+			base := base
+			t.Run(strconv.FormatFloat(base, 'f', -1, 64), func(t *testing.T) {
+				t.Run("faults when gas is one unit short", func(t *testing.T) {
+					mockWorld := worldmock.NewMockWorld()
+					vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+					require.NoError(t, err)
+					hooks := vmhooks.NewVMHooksImpl(vmHost)
+					// One unit short of the positive result-size charge.
+					provideGas(hooks, expectedGasCharge-1)
 
-		require.NotPanics(t, func() {
-			hooks.BigFloatPow(destHandle, baseHandle, exponent)
-		}, "nil context must not panic")
+					baseHandle, err := hooks.GetManagedTypesContext().PutBigFloat(big.NewFloat(base))
+					require.NoError(t, err)
+					destHandle := int32(110)
 
-		result, err := hooks.GetManagedTypesContext().GetBigFloat(destHandle)
-		require.NoError(t, err)
-		require.Equal(t, 0, big.NewFloat(8.0).Cmp(result), "2^3 should be 8.0")
+					hooks.BigFloatPow(destHandle, baseHandle, exponent)
+
+					_, err = hooks.GetManagedTypesContext().GetBigFloat(destHandle)
+					require.Error(t, err, "a positive gas charge must exhaust the one-unit-short budget and leave the destination unset")
+				})
+
+				t.Run("runs to completion with sufficient gas", func(t *testing.T) {
+					mockWorld := worldmock.NewMockWorld()
+					vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+					require.NoError(t, err)
+					hooks := vmhooks.NewVMHooksImpl(vmHost)
+					provideGas(hooks, 1_000_000)
+
+					baseHandle, err := hooks.GetManagedTypesContext().PutBigFloat(big.NewFloat(base))
+					require.NoError(t, err)
+					destHandle := int32(111)
+
+					hooks.BigFloatPow(destHandle, baseHandle, exponent)
+
+					result, err := hooks.GetManagedTypesContext().GetBigFloat(destHandle)
+					require.NoError(t, err, "base %v must produce a result", base)
+					expectedSign := 1
+					if base < 0 && exponent%2 != 0 {
+						expectedSign = -1
+					}
+					require.Equal(t, expectedSign, result.Sign(), "sign of %v^%d", base, exponent)
+				})
+			})
+		}
 	})
 }

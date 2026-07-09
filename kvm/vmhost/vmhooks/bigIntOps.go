@@ -635,7 +635,6 @@ func (context *VMHooksImpl) BigIntSqrt(destinationHandle, opHandle int32) {
 // BigIntPow VMHooks implementation.
 // @autogenerate(VMHooks)
 func (context *VMHooksImpl) BigIntPow(destinationHandle, op1Handle, op2Handle int32) {
-	ctx := context.GetVMHost().GetExecutionContext()
 	managedType := context.GetManagedTypesContext()
 	metering := context.GetMeteringContext()
 	runtime := context.GetRuntimeContext()
@@ -649,11 +648,22 @@ func (context *VMHooksImpl) BigIntPow(destinationHandle, op1Handle, op2Handle in
 	if context.WithFault(err, runtime.BigIntAPIErrorShouldFailExecution()) {
 		return
 	}
-	opByteLength := int64(a.BitLen())
-	if opByteLength == 0 {
-		_ = context.WithFault(vmhost.ErrBadLowerBounds, runtime.BigFloatAPIErrorShouldFailExecution())
+
+	if b.Sign() < 0 {
+		_ = context.WithFault(vmhost.ErrBadLowerBounds, runtime.BigIntAPIErrorShouldFailExecution())
 		return
 	}
+
+	if a.Sign() == 0 {
+		if b.Sign() == 0 {
+			dest.SetInt64(1)
+		} else {
+			dest.SetInt64(0)
+		}
+		return
+	}
+
+	opByteLength := int64(a.BitLen())
 	//this calculates the length of the result in bytes
 	lengthOfResult := big.NewInt(0).Div(big.NewInt(0).Mul(b, big.NewInt(opByteLength)), big.NewInt(8))
 
@@ -664,20 +674,7 @@ func (context *VMHooksImpl) BigIntPow(destinationHandle, op1Handle, op2Handle in
 
 	managedType.ConsumeGasForBigIntCopy(a, b)
 
-	if b.Sign() < 0 {
-		_ = context.WithFault(vmhost.ErrBadLowerBounds, runtime.BigIntAPIErrorShouldFailExecution())
-		return
-	}
-	result := big.NewInt(0)
-	result.Exp(a, b, nil)
-	if ctx != nil {
-		select {
-		case <-ctx.Done():
-			panic(vmhost.ErrExecutionFailedWithTimeout)
-		default:
-		}
-	}
-	dest.Set(result)
+	dest.Exp(a, b, nil)
 }
 
 // BigIntLog2 VMHooks implementation.

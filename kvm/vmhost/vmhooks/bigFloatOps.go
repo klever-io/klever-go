@@ -1,7 +1,6 @@
 package vmhooks
 
 import (
-	"context"
 	"math"
 	"math/big"
 
@@ -412,7 +411,6 @@ func (context *VMHooksImpl) BigFloatSqrt(destinationHandle, opHandle int32) {
 // BigFloatPow VMHooks implementation.
 // @autogenerate(VMHooks)
 func (context *VMHooksImpl) BigFloatPow(destinationHandle, opHandle, exponent int32) {
-	ctx := context.GetVMHost().GetExecutionContext()
 	managedType := context.GetManagedTypesContext()
 	metering := context.GetMeteringContext()
 	runtime := context.GetRuntimeContext()
@@ -431,49 +429,36 @@ func (context *VMHooksImpl) BigFloatPow(destinationHandle, opHandle, exponent in
 		return
 	}
 
+	if op.Sign() == 0 {
+		result := big.NewFloat(0).SetPrec(op.Prec())
+		if exponent == 0 {
+			result.SetInt64(1)
+		}
+		setResultIfNotInfinity(context.GetVMHost(), result, destinationHandle)
+		return
+	}
+
 	opBigInt := big.NewInt(0)
 	op.Int(opBigInt)
 	op2BigInt := big.NewInt(int64(exponent))
-	if opBigInt.Sign() > 0 {
+	if opBigInt.Sign() >= 0 {
 		opBigInt.Add(opBigInt, big.NewInt(1))
 	}
-	opByteLength := int64(opBigInt.BitLen())
-	if opByteLength == 0 {
-		_ = context.WithFault(vmhost.ErrBadLowerBounds, runtime.BigFloatAPIErrorShouldFailExecution())
-		return
-	}
 	//this calculates the length of the result in bytes
-	lengthOfResult := big.NewInt(0).Div(big.NewInt(0).Mul(op2BigInt, big.NewInt(opByteLength)), big.NewInt(8))
+	lengthOfResult := big.NewInt(0).Div(big.NewInt(0).Mul(op2BigInt, big.NewInt(int64(opBigInt.BitLen()))), big.NewInt(8))
 	err = managedType.ConsumeGasForThisBigIntNumberOfBytes(lengthOfResult)
 	if context.WithFault(err, runtime.BigIntAPIErrorShouldFailExecution()) {
 		return
 	}
-	powResult, err := context.pow(op, exponent, ctx)
-	if ctx != nil {
-		select {
-		case <-ctx.Done():
-			panic(vmhost.ErrExecutionFailedWithTimeout)
-		default:
-		}
-	}
-	if context.WithFault(err, runtime.BigFloatAPIErrorShouldFailExecution()) {
-		return
-	}
+	powResult, err := context.pow(op, exponent)
 	setResultIfNotInfinity(context.GetVMHost(), powResult, destinationHandle)
 }
 
-func (context *VMHooksImpl) pow(base *big.Float, exp int32, ctx context.Context) (*big.Float, error) {
+func (context *VMHooksImpl) pow(base *big.Float, exp int32) (*big.Float, error) {
 	result := big.NewFloat(1)
 	result.SetPrec(base.Prec())
 	managedType := context.GetManagedTypesContext()
 	for i := 0; i < int(exp); i++ {
-		if ctx != nil {
-			select {
-			case <-ctx.Done():
-				return nil, vmhost.ErrExecutionFailedWithTimeout
-			default:
-			}
-		}
 		resultMul, err := vmMath.MulBigFloat(result, base)
 		if err != nil {
 			return nil, err

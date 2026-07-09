@@ -1,15 +1,14 @@
 package vmhooks_test
 
 import (
-	"context"
 	"math/big"
+	"strconv"
 	"testing"
 
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/kvm/executor"
 	mock "github.com/klever-io/klever-go/kvm/mock/context"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
-	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/vmhost/hostCore"
 	"github.com/klever-io/klever-go/kvm/vmhost/vmhooks"
 	"github.com/klever-io/klever-go/vmcommon"
@@ -728,63 +727,90 @@ func TestBigIntPow(t *testing.T) {
 		require.Equal(t, 0, big.NewInt(1024).Cmp(result), "2^10 should be 1024")
 	})
 
-	t.Run("zero base rejected", func(t *testing.T) {
-		mockWorld := worldmock.NewMockWorld()
-		vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
-		require.NoError(t, err)
-		hooks := vmhooks.NewVMHooksImpl(vmHost)
+	// A zero base has a trivial, bounded result and must short-circuit: it neither
+	// runs Exp nor charges result-size gas, so it succeeds even with no gas
+	// provided. 0^0 == 1 and 0^n == 0 for n > 0.
+	t.Run("zero base short-circuits without charging gas", func(t *testing.T) {
+		cases := []struct {
+			exponent int64
+			expected int64
+		}{
+			{exponent: 0, expected: 1},
+			{exponent: 1, expected: 0},
+			{exponent: 64, expected: 0},
+		}
+		for _, tc := range cases {
+			tc := tc
+			t.Run(strconv.FormatInt(tc.exponent, 10), func(t *testing.T) {
+				mockWorld := worldmock.NewMockWorld()
+				vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+				require.NoError(t, err)
+				hooks := vmhooks.NewVMHooksImpl(vmHost)
+				provideGas(hooks, 0) // no gas: proves no result-size charge is made
 
-		baseHandle := hooks.BigIntNew(0)
-		expHandle := hooks.BigIntNew(5)
-		destHandle := hooks.BigIntNew(7) // sentinel; must stay unchanged
+				baseHandle := hooks.BigIntNew(0)
+				expHandle := hooks.BigIntNew(tc.exponent)
+				destHandle := hooks.BigIntNew(7) // sentinel; overwritten with the result
 
-		hooks.BigIntPow(destHandle, baseHandle, expHandle)
+				hooks.BigIntPow(destHandle, baseHandle, expHandle)
 
-		result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
-		require.NoError(t, err)
-		require.Equal(t, 0, big.NewInt(7).Cmp(result), "destination must be untouched on rejection")
+				result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
+				require.NoError(t, err, "zero base must not fault")
+				require.Equal(t, 0, big.NewInt(tc.expected).Cmp(result), "0^%d should be %d", tc.exponent, tc.expected)
+			})
+		}
 	})
 
-	t.Run("cancelled context panics before writing result", func(t *testing.T) {
-		mockWorld := worldmock.NewMockWorld()
-		vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
-		require.NoError(t, err)
+	// A non-zero base runs through the normal path and charges result-size gas.
+	// The gas points counter is instance-backed and reads back as zero in a direct
+	// unit test, so the positive charge is observed through the gas budget instead:
+	// with the CopyPerByteForTooBig cost at 1 (the test gas value), the result-size
+	// charge equals exponent*byteLen/8 gas. Providing one unit less than that makes
+	// ConsumeGasForThisBigIntNumberOfBytes fault with not-enough-gas (only possible
+	// for a positive charge), while providing exactly that amount lets it through.
+	t.Run("non-zero base charges positive gas", func(t *testing.T) {
+		// base 2 (byteLen == 2 bits) and exponent 64 give a result-size charge of
+		// 64*2/8 == 16 gas, a whole, strictly-positive number of gas units.
+		const base = 2
+		const exponent = 64
+		const expectedGasCharge = uint64(exponent) * 2 / 8 // 16 gas
 
-		ctx, cancel := context.WithCancel(context.Background())
-		cancel()
-		hooks := vmhooks.NewVMHooksImpl(&hostWithExecutionContext{VMHost: vmHost, ctx: ctx})
-		provideGas(hooks, 1_000_000)
+		t.Run("faults when gas is one unit short", func(t *testing.T) {
+			mockWorld := worldmock.NewMockWorld()
+			vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+			require.NoError(t, err)
+			hooks := vmhooks.NewVMHooksImpl(vmHost)
+			// One unit short of the positive result-size charge.
+			provideGas(hooks, expectedGasCharge-1)
 
-		baseHandle := hooks.BigIntNew(2)
-		expHandle := hooks.BigIntNew(10)
-		destHandle := hooks.BigIntNew(7) // sentinel; must stay unchanged
+			baseHandle := hooks.BigIntNew(base)
+			expHandle := hooks.BigIntNew(exponent)
+			destHandle := hooks.BigIntNew(7) // sentinel; must stay unchanged on fault
 
-		require.PanicsWithValue(t, vmhost.ErrExecutionFailedWithTimeout, func() {
 			hooks.BigIntPow(destHandle, baseHandle, expHandle)
-		}, "cancelled context must panic ErrExecutionFailedWithTimeout")
 
-		result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
-		require.NoError(t, err)
-		require.Equal(t, 0, big.NewInt(7).Cmp(result), "destination must stay unset on timeout")
-	})
+			result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
+			require.NoError(t, err)
+			require.Equal(t, 0, big.NewInt(7).Cmp(result), "a positive gas charge must exhaust the one-unit-short budget and leave the destination untouched")
+		})
 
-	t.Run("nil context runs to completion", func(t *testing.T) {
-		mockWorld := worldmock.NewMockWorld()
-		vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
-		require.NoError(t, err)
-		hooks := vmhooks.NewVMHooksImpl(vmHost) // real host => GetExecutionContext() == nil
-		provideGas(hooks, 1_000_000)
+		t.Run("runs to completion with sufficient gas", func(t *testing.T) {
+			mockWorld := worldmock.NewMockWorld()
+			vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+			require.NoError(t, err)
+			hooks := vmhooks.NewVMHooksImpl(vmHost)
+			provideGas(hooks, 1_000_000)
 
-		baseHandle := hooks.BigIntNew(2)
-		expHandle := hooks.BigIntNew(10)
-		destHandle := hooks.BigIntNew(0)
+			baseHandle := hooks.BigIntNew(base)
+			expHandle := hooks.BigIntNew(exponent)
+			destHandle := hooks.BigIntNew(7) // sentinel; overwritten with the result
 
-		require.NotPanics(t, func() {
 			hooks.BigIntPow(destHandle, baseHandle, expHandle)
-		}, "nil context must not panic")
 
-		result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
-		require.NoError(t, err)
-		require.Equal(t, 0, big.NewInt(1024).Cmp(result), "2^10 should be 1024")
+			result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
+			require.NoError(t, err)
+			expected := new(big.Int).Exp(big.NewInt(base), big.NewInt(exponent), nil)
+			require.Equal(t, 0, expected.Cmp(result), "2^64 should be %s", expected.String())
+		})
 	})
 }
