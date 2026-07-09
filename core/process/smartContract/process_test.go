@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/fork"
 	"github.com/klever-io/klever-go/core/kapp"
+	accountsKapp "github.com/klever-io/klever-go/core/kapp/accounts"
 	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
 	kappcontroller "github.com/klever-io/klever-go/core/kapp/kappController"
 	"github.com/klever-io/klever-go/core/process"
@@ -33,6 +35,7 @@ import (
 	integrationTestsMock "github.com/klever-io/klever-go/integrationTest/mock"
 	"github.com/klever-io/klever-go/kapps"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
+	kvmStub "github.com/klever-io/klever-go/kvm/mock/stub"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/memorydb"
 	"github.com/klever-io/klever-go/storage/storageUnit"
@@ -1793,6 +1796,238 @@ func TestScProcessor_ProcessSCPaymentNotEnoughBalance(t *testing.T) {
 	err = sc.processSCPayment(tc, acntSrc)
 	require.Equal(t, "result code: 1, insufficient funds", err.Error())
 	require.Equal(t, currBalance, acntSrc.GetBalance(nil, true))
+}
+
+func newNFTAccountsKappForCallValue(
+	t *testing.T,
+	forkController core.ForkController,
+	sender, recipient, assetID, internalID []byte,
+	subInternalCalled, addInternalCalled *bool,
+) kapp.AccountsKapp {
+	t.Helper()
+
+	src := &commommock.UserAccountHandlerStub{
+		AddressBytesCalled: func() []byte { return sender },
+		SubInternalKDACalled: func(gotAssetID, gotInternalID []byte) ([]byte, error) {
+			assert.Equal(t, assetID, gotAssetID)
+			assert.Equal(t, internalID, gotInternalID)
+			*subInternalCalled = true
+			return []byte("nft-data"), nil
+		},
+		SubFromBalanceWithNonceCalled: func(value int64, _, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
+			t.Fatalf("balance path called for true NFT with value %d", value)
+			return nil
+		},
+	}
+	dst := &commommock.UserAccountHandlerStub{
+		AddressBytesCalled: func() []byte { return recipient },
+		AddInternalKDACalled: func(gotAssetID, gotInternalID, data []byte) error {
+			assert.Equal(t, assetID, gotAssetID)
+			assert.Equal(t, internalID, gotInternalID)
+			assert.Equal(t, []byte("nft-data"), data)
+			*addInternalCalled = true
+			return nil
+		},
+		AddToBalanceWithNonceCalled: func(value int64, _, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
+			t.Fatalf("balance path called for true NFT with value %d", value)
+			return nil
+		},
+	}
+
+	accKapp, err := accountsKapp.NewAccountKApp(&accountsKapp.ArgsNewAccountKApp{
+		Marshalizer:    &commommock.ProtoMarshalizerMock{},
+		PubkeyConv:     commommock.NewPubkeyConverterMock(32),
+		ForkController: forkController,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, accKapp.SetAccountsCacher(&commommock.AccountsCacherStub{
+		LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			switch {
+			case bytes.Equal(address, sender):
+				return src, nil
+			case bytes.Equal(address, recipient):
+				return dst, nil
+			default:
+				return nil, fmt.Errorf("unexpected account load %x", address)
+			}
+		},
+		UpdateUserCalled: func(state.AccountHandler) error { return nil },
+	}))
+	require.NoError(t, accKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+				OriginalSender: sender,
+				ContractID:     0,
+				ContractType:   transaction.TXContract_SmartContractType,
+				Block:          &block.Block{},
+				TX:             &transaction.Transaction{GasLimit: 1_000_000},
+			})
+		},
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetKDACalled: func(gotAssetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					assert.Equal(t, assetID, gotAssetID)
+					return nil, &kapps.KDAData{
+						AssetType:  kapps.KDAData_NonFungible,
+						Attributes: &kapps.AttributesData{},
+						Properties: &kapps.PropertiesData{},
+						Royalties:  &kapps.RoyaltiesData{},
+					}, nil
+				},
+			}
+		},
+	}))
+
+	return accKapp
+}
+
+// newNFTForkController returns a fork controller with FixAuditChangesV3 toggled on or off.
+func newNFTForkController(t *testing.T, fixV3On bool) core.ForkController {
+	t.Helper()
+	cfg := config.EnableEpochs{}
+	if !fixV3On {
+		cfg.FixAuditChangesV3 = 1000 // not yet active at epoch 0
+	}
+	forkController, err := fork.NewForkController(cfg, &commommock.EpochNotifierStub{})
+	require.NoError(t, err)
+	return forkController
+}
+
+func TestScProcessor_ProcessSCPayment_NonCanonicalNFTAmountNormalized(t *testing.T) {
+	sender := bytes.Repeat([]byte{0x11}, 32)
+	recipient := bytes.Repeat([]byte{0x22}, 32)
+	assetID := []byte("NFT-1234")
+	internalID := []byte("7")
+	const inflated = int64(1_000_000)
+
+	tests := []struct {
+		description    string
+		fixV3On        bool
+		expectedAmount int64
+	}{
+		{description: "fork on: call value normalized to one moved NFT", fixV3On: true, expectedAmount: 1},
+		{description: "fork off: legacy inflated call value preserved", fixV3On: false, expectedAmount: inflated},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			var subInternalCalled, addInternalCalled bool
+			forkController := newNFTForkController(t, tt.fixV3On)
+			accKapp := newNFTAccountsKappForCallValue(t, forkController, sender, recipient, assetID, internalID,
+				&subInternalCalled, &addInternalCalled)
+
+			sc := &scProcessor{
+				blockChainHook: &contextmock.BlockchainHookStub{
+					GetKAppControllerCalled: func() kapp.KAppController {
+						return &kvmStub.KAppControllerStub{
+							GetAccountsKAppCalled: func() kapp.AccountsKapp { return accKapp },
+						}
+					},
+				},
+				forkController: forkController,
+			}
+
+			tc := &transaction.SmartContract{
+				Type:    transaction.SmartContract_SCInvoke,
+				Address: recipient,
+				CallValue: map[string]*transaction.CallValue{
+					"NFT-1234/7": {Amount: inflated},
+				},
+			}
+			acntSnd := &commommock.UserAccountHandlerStub{
+				AddressBytesCalled: func() []byte { return sender },
+			}
+
+			err := sc.processSCPayment(tc, acntSnd)
+			require.NoError(t, err)
+			require.True(t, subInternalCalled && addInternalCalled, "true NFT was not moved through the internal path")
+			assert.Equal(t, tt.expectedAmount, tc.GetCallValue()["NFT-1234/7"].Amount)
+		})
+	}
+}
+
+func TestScProcessor_PrepareExecution_NFTCallValueActualizedIntoVMInput(t *testing.T) {
+	sender := bytes.Repeat([]byte{0x11}, 32)
+	recipient := bytes.Repeat([]byte{0x22}, 32)
+	assetID := []byte("NFT-1234")
+	internalID := []byte("7")
+	const inflated = int64(1_000_000)
+
+	tests := []struct {
+		description      string
+		fixV3On          bool
+		expectedKDAValue int64
+	}{
+		{description: "fork on: VM input carries actualized value", fixV3On: true, expectedKDAValue: 1},
+		{description: "fork off: VM input exposes inflated value", fixV3On: false, expectedKDAValue: inflated},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			var subInternalCalled, addInternalCalled bool
+			forkController := newNFTForkController(t, tt.fixV3On)
+			accKapp := newNFTAccountsKappForCallValue(t, forkController, sender, recipient, assetID, internalID,
+				&subInternalCalled, &addInternalCalled)
+
+			sc := &scProcessor{
+				blockChainHook: &contextmock.BlockchainHookStub{
+					GetKAppControllerCalled: func() kapp.KAppController {
+						return &kvmStub.KAppControllerStub{
+							GetAccountsKAppCalled: func() kapp.AccountsKapp { return accKapp },
+						}
+					},
+				},
+				argsParser: &contextmock.ArgumentParserMock{
+					ParseCallDataCalled: func(data string) (string, [][]byte, error) {
+						return "credit", [][]byte{[]byte("attacker")}, nil
+					},
+				},
+				builtInGasCosts: map[string]uint64{transferValueGasSchedule: 0},
+				forkController:  forkController,
+			}
+
+			tx := &transaction.Transaction{
+				RawData: &transaction.Transaction_Raw{
+					Sender: sender,
+					Data:   [][]byte{[]byte("credit@attacker")},
+				},
+				GasLimit: 1_000_000,
+			}
+			ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
+				OriginalSender: sender,
+				ContractID:     0,
+				ContractType:   transaction.TXContract_SmartContractType,
+				Block:          &block.Block{},
+				TX:             tx,
+			})
+			tc := &transaction.SmartContract{
+				Type:    transaction.SmartContract_SCInvoke,
+				Address: recipient,
+				CallValue: map[string]*transaction.CallValue{
+					"NFT-1234/7": {Amount: inflated},
+				},
+			}
+
+			returnCode, vmInput, err := sc.prepareExecution(
+				ctx,
+				tc,
+				&commommock.UserAccountHandlerStub{AddressBytesCalled: func() []byte { return sender }},
+				&commommock.UserAccountHandlerStub{},
+			)
+			require.NoError(t, err)
+			require.Equal(t, vmcommon.Ok, returnCode)
+			require.True(t, subInternalCalled && addInternalCalled, "true NFT was not moved through the internal path")
+			require.NotNil(t, vmInput)
+			require.Len(t, vmInput.KDATransfers, 1)
+
+			transfer := vmInput.KDATransfers[0]
+			assert.Equal(t, 0, transfer.KDAValue.Cmp(big.NewInt(tt.expectedKDAValue)), "got KDAValue %s want %d", transfer.KDAValue, tt.expectedKDAValue)
+			assert.Equal(t, uint64(7), transfer.KDATokenNonce)
+			assert.Equal(t, uint32(core.NonFungible), transfer.KDATokenType)
+			assert.True(t, transfer.IsExecuted(), "VM input transfer should be marked executed after SC payment")
+		})
+	}
 }
 
 func TestScProcessor_ProcessSCPayment(t *testing.T) {

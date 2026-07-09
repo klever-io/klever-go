@@ -733,20 +733,24 @@ func (sc *scProcessor) printScDeployed(sender []byte, vmOutput *vmcommon.VMOutpu
 // deposit call values into contract account
 func (sc *scProcessor) processSCPayment(tc data.SmartContractHandler, acntSnd state.UserAccountHandler) error {
 	accKapp := sc.blockChainHook.GetKAppController().GetAccountsKApp()
-
-	dMap := types.NewDeterministicMap(tc.GetCallValue())
+	callValue := tc.GetCallValue()
+	dMap := types.NewDeterministicMap(callValue)
 	// sub from sender the call value
 	return dMap.Each(func(assetID string, cvwr *transaction.CallValue) error {
-		// execute transfer without royalties as it will be deducted from sender account
-		resultCode, err := accKapp.Transfer(transaction.TXContract_SmartContractType, acntSnd.AddressBytes(), &transaction.TransferContract{
+		transferContract := transaction.TransferContract{
 			ToAddress:    tc.GetAddress(),
 			Amount:       cvwr.Amount,
 			AssetID:      []byte(assetID),
 			KDARoyalties: cvwr.KDARoyalties,
 			KLVRoyalties: cvwr.KLVRoyalties,
-		})
+		}
+		// execute transfer without royalties as it will be deducted from sender account
+		resultCode, err := accKapp.Transfer(transaction.TXContract_SmartContractType, acntSnd.AddressBytes(), &transferContract)
 		if err != nil {
 			return fmt.Errorf("result code: %d, %v", resultCode, err)
+		}
+		if sc.forkController.FixAuditChangesV3() {
+			cvwr.Amount = transferContract.Amount
 		}
 		return nil
 	})

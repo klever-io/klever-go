@@ -169,7 +169,8 @@ func (a *accountsKapp) Transfer(cType transaction.TXContract_ContractType, sende
 
 	switch kda.AssetType {
 	case kapps.KDAData_NonFungible:
-		return a.processNonFungibleTransfer(assetID, internalID, acntSrc, acntDst)
+
+		return a.processNonFungibleTransfer(tc, assetID, internalID, acntSrc, acntDst)
 	case kapps.KDAData_SemiFungible:
 		resultCode, err := a.processPercentageRoyaltiesTransfer(tc, assetID, internalID, acntSrc, acntDst, kda)
 		if err != nil {
@@ -485,7 +486,10 @@ func (a *accountsKapp) processPercentageRoyaltiesTransfer(tc *transaction.Transf
 	return transaction.Transaction_Ok, nil
 }
 
-func (a *accountsKapp) processNonFungibleTransfer(assetID, internalID []byte, acntSrc, acntDst state.UserAccountHandler) (transaction.Transaction_TXResultCode, error) {
+func (a *accountsKapp) processNonFungibleTransfer(tc *transaction.TransferContract, assetID, internalID []byte, acntSrc, acntDst state.UserAccountHandler) (transaction.Transaction_TXResultCode, error) {
+	if a.forkController.FixAuditChangesV3() {
+		tc.Amount = 1
+	}
 	data, err := acntSrc.SubInternalKDA(assetID, internalID)
 	if err != nil {
 		return transaction.Transaction_BalanceError, err
