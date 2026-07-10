@@ -20,6 +20,7 @@ import (
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
@@ -770,6 +771,30 @@ func (sc *scProcessor) processVMOutput(
 	return nil
 }
 
+const vmInternalStoragePrefix = "VM@"
+
+var (
+	scProtectedKeyPrefixes = [][]byte{
+		[]byte(kapps.ProtectedKleverKeyPrefix),
+		[]byte(kapps.ProtectedKLVKeyPrefix),
+		[]byte(kapps.ProtectedKFIKeyPrefix),
+		[]byte(kapps.KDAPrefix),
+	}
+	vmInternalStorageKeyPrefix = []byte(kapps.ProtectedKleverKeyPrefix + vmInternalStoragePrefix)
+)
+
+func isProtectedStorageKey(key []byte) bool {
+	if bytes.HasPrefix(key, vmInternalStorageKeyPrefix) {
+		return false
+	}
+	for _, prefix := range scProtectedKeyPrefixes {
+		if bytes.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // save account changes in state from vmOutput - protected by VM - every output can be treated as is.
 func (sc *scProcessor) processSCOutputAccounts(
 	ctx kapp.KappContext,
@@ -786,7 +811,10 @@ func (sc *scProcessor) processSCOutputAccounts(
 			// check if keyValue storage is updating in cacher or writing to AccOutputs...
 			// If saved in cacher, then no need to update states here
 			for _, storeUpdate := range outAcc.StorageUpdates {
-				// BUG: Validate that all user keys are updated with PREFIX
+				if sc.forkController.FixAuditChangesV3() && storeUpdate.Written && isProtectedStorageKey(storeUpdate.Offset) {
+					log.Warn("saveKeyValue", "error", process.ErrStoreProtectedKey, "key", storeUpdate.Offset)
+					return process.ErrStoreProtectedKey
+				}
 				err = acc.SaveKeyValue(storeUpdate.Offset, storeUpdate.Data)
 				if err != nil {
 					log.Warn("saveKeyValue", "error", err)
