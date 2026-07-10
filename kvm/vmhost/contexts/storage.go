@@ -216,7 +216,7 @@ func (context *storageContext) getStorageFromAddressUnmetered(address []byte, ke
 			return nil, trieDepth, false, err
 		}
 		storageUpdates[string(key)] = &vmcommon.StorageUpdate{
-			Offset: key,
+			Offset: context.keyForStorageUpdate(key),
 			Data:   value,
 		}
 		usedCache = false
@@ -360,10 +360,19 @@ func (context *storageContext) addDeltaBytes(deltaBytes int) {
 	}
 }
 
+func (context *storageContext) keyForStorageUpdate(key []byte) []byte {
+	if !context.host.ForkController().FixAuditChangesV3() {
+		return key
+	}
+	keyCopy := make([]byte, len(key))
+	copy(keyCopy, key)
+	return keyCopy
+}
+
 func (context *storageContext) changeStorageUpdate(key []byte, value []byte, storageUpdates map[string]*vmcommon.StorageUpdate) {
 	length := len(value)
 	newUpdate := &vmcommon.StorageUpdate{
-		Offset:  key,
+		Offset:  context.keyForStorageUpdate(key),
 		Data:    make([]byte, length),
 		Written: true,
 	}
@@ -447,7 +456,7 @@ func (context *storageContext) getOldValue(storageUpdates map[string]*vmcommon.S
 			return nil, err
 		}
 		storageUpdates[strKey] = &vmcommon.StorageUpdate{
-			Offset: key,
+			Offset: context.keyForStorageUpdate(key),
 			Data:   oldValue,
 		}
 	} else {
