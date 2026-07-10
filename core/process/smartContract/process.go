@@ -808,19 +808,9 @@ func (sc *scProcessor) processSCOutputAccounts(
 		}
 
 		if !ctx.IsScSimulation() {
-			// check if keyValue storage is updating in cacher or writing to AccOutputs...
-			// If saved in cacher, then no need to update states here
-			for _, storeUpdate := range outAcc.StorageUpdates {
-				if sc.forkController.FixAuditChangesV3() && storeUpdate.Written && isProtectedStorageKey(storeUpdate.Offset) {
-					log.Warn("saveKeyValue", "error", process.ErrStoreProtectedKey, "key", storeUpdate.Offset)
-					return process.ErrStoreProtectedKey
-				}
-				err = acc.SaveKeyValue(storeUpdate.Offset, storeUpdate.Data)
-				if err != nil {
-					log.Warn("saveKeyValue", "error", err)
-					return err
-				}
-				log.Trace("storeUpdate", "acc", outAcc.Address, "key", storeUpdate.Offset, "data", storeUpdate.Data)
+			err = sc.saveStorageUpdates(acc, outAcc)
+			if err != nil {
+				return err
 			}
 		}
 
@@ -829,6 +819,25 @@ func (sc *scProcessor) processSCOutputAccounts(
 			return err
 		}
 
+	}
+
+	return nil
+}
+
+func (sc *scProcessor) saveStorageUpdates(acc state.UserAccountHandler, outAcc *vmcommon.OutputAccount) error {
+	// check if keyValue storage is updating in cacher or writing to AccOutputs...
+	// If saved in cacher, then no need to update states here
+	for _, storeUpdate := range outAcc.StorageUpdates {
+		if sc.forkController.FixAuditChangesV3() && storeUpdate.Written && isProtectedStorageKey(storeUpdate.Offset) {
+			log.Warn("saveKeyValue", "error", process.ErrStoreProtectedKey, "key", storeUpdate.Offset)
+			return process.ErrStoreProtectedKey
+		}
+		err := acc.SaveKeyValue(storeUpdate.Offset, storeUpdate.Data)
+		if err != nil {
+			log.Warn("saveKeyValue", "error", err)
+			return err
+		}
+		log.Trace("storeUpdate", "acc", outAcc.Address, "key", storeUpdate.Offset, "data", storeUpdate.Data)
 	}
 
 	return nil
