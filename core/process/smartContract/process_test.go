@@ -2021,3 +2021,75 @@ func TestGetVMExecutionMode(t *testing.T) {
 		assert.True(t, mode >= vmcommon.ExecutionModeLeader && mode <= vmcommon.ExecutionModeQuery)
 	})
 }
+
+func TestIsProtectedStorageKey(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		key  []byte
+		want bool
+	}{
+		{"kda balance key", []byte("KDA/FAKE"), true},
+		{"klv key", []byte("KLV/anything"), true},
+		{"kfi key", []byte("KFI/anything"), true},
+		{"bare klever key", []byte("KLEVERanything"), true},
+		{"vm internal key", []byte("KLEVERVM@box"), false},
+		{"regular contract key", []byte("AAA/FAKE"), false},
+		{"empty key", []byte(""), false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, isProtectedStorageKey(tc.key))
+		})
+	}
+}
+
+func TestScProcessor_ProcessSCOutputAccountsRejectsProtectedKeyWrite(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockSmartContractProcessorArguments()
+	sc, err := NewSmartContractProcessor(arguments)
+	require.Nil(t, err)
+
+	contract := transaction.SmartContract{
+		Type:      transaction.SmartContract_SCDeploy,
+		CallValue: map[string]*transaction.CallValue{"KLV": {Amount: 0}},
+	}
+	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("data")})
+	ctx := createDefaultContext(tx)
+
+	address := []byte("output-account-address")
+	buildAccounts := func(offset []byte, written bool) []*vmcommon.OutputAccount {
+		return []*vmcommon.OutputAccount{
+			{
+				Address: address,
+				StorageUpdates: map[string]*vmcommon.StorageUpdate{
+					string(offset): {Offset: offset, Data: []byte("forged"), Written: written},
+				},
+			},
+		}
+	}
+
+	t.Run("written protected kda key is rejected", func(t *testing.T) {
+		err := sc.processSCOutputAccounts(ctx, &vmcommon.VMOutput{}, buildAccounts([]byte("KDA/FAKE"), true))
+		require.Equal(t, process.ErrStoreProtectedKey, err)
+	})
+
+	t.Run("read-only protected kda key is not rejected", func(t *testing.T) {
+		err := sc.processSCOutputAccounts(ctx, &vmcommon.VMOutput{}, buildAccounts([]byte("KDA/FAKE"), false))
+		require.NoError(t, err)
+	})
+
+	t.Run("regular contract key is persisted", func(t *testing.T) {
+		err := sc.processSCOutputAccounts(ctx, &vmcommon.VMOutput{}, buildAccounts([]byte("AAA/FAKE"), true))
+		require.NoError(t, err)
+	})
+
+	t.Run("vm internal key is persisted", func(t *testing.T) {
+		err := sc.processSCOutputAccounts(ctx, &vmcommon.VMOutput{}, buildAccounts([]byte(kapps.ProtectedKleverKeyPrefix+"VM@box"), true))
+		require.NoError(t, err)
+	})
+}
