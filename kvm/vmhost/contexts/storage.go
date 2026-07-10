@@ -364,9 +364,7 @@ func (context *storageContext) keyForStorageUpdate(key []byte) []byte {
 	if !context.host.ForkController().FixAuditChangesV3() {
 		return key
 	}
-	keyCopy := make([]byte, len(key))
-	copy(keyCopy, key)
-	return keyCopy
+	return bytes.Clone(key)
 }
 
 func (context *storageContext) changeStorageUpdate(key []byte, value []byte, storageUpdates map[string]*vmcommon.StorageUpdate) {
