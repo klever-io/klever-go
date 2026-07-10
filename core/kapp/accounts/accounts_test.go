@@ -3841,8 +3841,8 @@ func TestUpdatePermission(t *testing.T) {
 					{
 						Type: transaction.AccPermission_Owner,
 						Signers: []*transaction.AccKey{
-							{Address: bytes.Repeat([]byte{1}, 32)},
-							{Address: bytes.Repeat([]byte{1}, 32)},
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: 1},
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: 1},
 						},
 						Threshold: 1,
 					},
@@ -3877,6 +3877,117 @@ func TestUpdatePermission(t *testing.T) {
 			},
 			expectedCode:  transaction.Transaction_ParameterInvalid,
 			expectedError: common.ErrInvalidParameter,
+		},
+		{
+			name:   "Zero threshold rejected",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_Owner,
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: 1},
+						},
+						Threshold: 0,
+					},
+				},
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			expectedCode:  transaction.Transaction_ParameterInvalid,
+			expectedError: transaction.ErrInvalidPermissionThreshold,
+		},
+		{
+			name:   "Negative threshold rejected",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_Owner,
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: 1},
+						},
+						Threshold: -1,
+					},
+				},
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			expectedCode:  transaction.Transaction_ParameterInvalid,
+			expectedError: transaction.ErrInvalidPermissionThreshold,
+		},
+		{
+			name:   "Zero signer weight rejected",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_Owner,
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: 0},
+						},
+						Threshold: 1,
+					},
+				},
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			expectedCode:  transaction.Transaction_ParameterInvalid,
+			expectedError: transaction.ErrInvalidSignerWeight,
+		},
+		{
+			name:   "Negative signer weight rejected",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_Owner,
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: -1},
+						},
+						Threshold: 1,
+					},
+				},
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			expectedCode:  transaction.Transaction_ParameterInvalid,
+			expectedError: transaction.ErrInvalidSignerWeight,
+		},
+		{
+			name:   "Signer weight sum overflow rejected",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_Owner,
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: math.MaxInt64},
+							{Address: bytes.Repeat([]byte{2}, 32), Weight: 1},
+						},
+						Threshold: 1,
+					},
+				},
+			},
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			expectedCode:  transaction.Transaction_ParameterInvalid,
+			expectedError: common.ErrInt64Overflow,
 		},
 		{
 			name:   "Invalid permission name with KdaFpr enabled",
