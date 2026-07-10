@@ -246,6 +246,8 @@ var ErrNilTransactionVersionChecker = errors.New("nil transaction version checke
 // ErrNilForkController signals that provided fork controller is nil
 var ErrNilForkController = errors.New("nil fork controller")
 
+var ErrStoreProtectedKey = errors.New("cannot persist storage update to protected key")
+
 // ErrNilAddressContainer signals that an operation has been attempted to or with a nil AddressContainer implementation
 var ErrNilAddressContainer = errors.New("nil AddressContainer")
 

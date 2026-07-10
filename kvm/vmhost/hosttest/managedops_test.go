@@ -9,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/vmhost/vmhooks"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // wasm memory ~~~> managed buffer
@@ -145,4 +146,54 @@ func TestManaged_CopyByteSlice_SameBuffer(t *testing.T) {
 						[]byte(slice)[:sliceLen-deltaForSlice]...))
 		})
 	assert.Nil(t, err)
+}
+
+func TestManaged_StorageStoreKeyIsolatedFromBufferMutation(t *testing.T) {
+	protectedKey := []byte("KDA/FAKE")
+	unprotectedSameLengthKey := []byte("AAA/FAKE")
+	forgedValue := []byte("serialized-user-kda")
+
+	_, err := test.BuildMockInstanceCallTest(t).
+		WithContracts(
+			test.CreateMockContract(test.ParentAddress).
+				WithBalance(1000).
+				WithMethods(func(parentInstance *mock.InstanceMock, _ interface{}) {
+					parentInstance.AddMockMethod("forgeKDAStorage", func() *mock.InstanceMock {
+						host := parentInstance.Host
+						managedType := host.ManagedTypes()
+						hooks := vmhooks.NewVMHooksImpl(host)
+
+						valueHandle := managedType.NewManagedBufferFromBytes(forgedValue)
+						keyHandle := managedType.NewManagedBufferFromBytes(unprotectedSameLengthKey)
+
+						require.Equal(t, int32(0), hooks.MBufferStorageStore(keyHandle, valueHandle))
+
+						result := vmhooks.ManagedBufferSetByteSliceWithTypedArgs(
+							host, keyHandle, 0, int32(len(protectedKey)), protectedKey)
+						require.Equal(t, int32(0), result)
+
+						return parentInstance
+					})
+				}),
+		).
+		WithInput(test.CreateTestContractCallInputBuilder().
+			WithRecipientAddr(test.ParentAddress).
+			WithGasProvided(1_000_000).
+			WithFunction("forgeKDAStorage").
+			Build()).
+		AndAssertResults(func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
+			verify.Ok()
+
+			outAcc := verify.VmOutput.OutputAccounts[string(test.ParentAddress)]
+			require.NotNil(t, outAcc)
+
+			update := outAcc.StorageUpdates[string(unprotectedSameLengthKey)]
+			require.NotNil(t, update)
+			require.True(t, update.Written)
+			require.Equal(t, unprotectedSameLengthKey, update.Offset)
+			require.Equal(t, forgedValue, update.Data)
+			require.NotContains(t, outAcc.StorageUpdates, string(protectedKey))
+		})
+
+	require.NoError(t, err)
 }

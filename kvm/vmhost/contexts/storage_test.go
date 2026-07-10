@@ -95,9 +95,10 @@ func TestStorageContext_SetAddress(t *testing.T) {
 	mockMetering.GasLeftMock = 20000
 
 	host := &contextmock.VMHostMock{
-		OutputContext:   stubOutput,
-		MeteringContext: mockMetering,
-		RuntimeContext:  mockRuntime,
+		OutputContext:         stubOutput,
+		MeteringContext:       mockMetering,
+		RuntimeContext:        mockRuntime,
+		ForkControllerContext: &mock.ForkControllerStub{},
 	}
 	bcHook := &contextmock.BlockchainHookStub{}
 
@@ -439,9 +440,10 @@ func TestStorageContext_StorageProtection(t *testing.T) {
 	mockMetering.GasLeftMock = 20000
 
 	host := &contextmock.VMHostMock{
-		OutputContext:   mockOutput,
-		MeteringContext: mockMetering,
-		RuntimeContext:  mockRuntime,
+		OutputContext:         mockOutput,
+		MeteringContext:       mockMetering,
+		RuntimeContext:        mockRuntime,
+		ForkControllerContext: &mock.ForkControllerStub{},
 	}
 	bcHook := &contextmock.BlockchainHookStub{}
 

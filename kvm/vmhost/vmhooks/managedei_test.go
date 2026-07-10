@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	commonMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
@@ -598,10 +599,11 @@ func newMockVMHost() *contextmock.VMHostMock {
 	blockchain := &hostmock.BlockchainContextStub{}
 
 	return &contextmock.VMHostMock{
-		MeteringContext:     mockMetering,
-		RuntimeContext:      mockRuntime,
-		ManagedTypesContext: mType,
-		BlockchainContext:   blockchain,
+		MeteringContext:       mockMetering,
+		RuntimeContext:        mockRuntime,
+		ManagedTypesContext:   mType,
+		BlockchainContext:     blockchain,
+		ForkControllerContext: &commonMock.ForkControllerStub{},
 	}
 }
 
