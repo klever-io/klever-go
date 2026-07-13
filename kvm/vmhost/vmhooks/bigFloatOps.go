@@ -442,7 +442,7 @@ func (context *VMHooksImpl) BigFloatPow(destinationHandle, opHandle, exponent in
 	//this calculates the length of the result in bytes
 	lengthOfResult := big.NewInt(0).Div(big.NewInt(0).Mul(op2BigInt, big.NewInt(int64(opBigInt.BitLen()))), big.NewInt(8))
 	err = managedType.ConsumeGasForThisBigIntNumberOfBytes(lengthOfResult)
-	if context.WithFault(err, runtime.BigIntAPIErrorShouldFailExecution()) {
+	if context.WithFault(err, runtime.BigFloatAPIErrorShouldFailExecution()) {
 		return
 	}
 
@@ -455,6 +455,9 @@ func (context *VMHooksImpl) BigFloatPow(destinationHandle, opHandle, exponent in
 		return
 	}
 	powResult, err := context.pow(op, exponent)
+	if context.WithFault(err, runtime.BigFloatAPIErrorShouldFailExecution()) {
+		return
+	}
 	setResultIfNotInfinity(context.GetVMHost(), powResult, destinationHandle)
 }
 
