@@ -304,6 +304,17 @@ func (m *marketKapp) Buy(sender []byte, tc *transaction.BuyContract) (transactio
 		return transaction.Transaction_ParameterInvalid, err
 	}
 
+	// Reject bids on an already-settled (claimed) order, mirroring the IsClaimed
+	// guards in Claim and CancelOrder. Early seller-accept in Claim marks the order
+	// claimed but leaves EndTime in the future, so a "zombie" order still reads as
+	// live and would strand a later bidder (GHSA-26r5-4mm2-px5c). Gated on
+	// FixAuditChangesV3: turning a successful Buy into a rejection is
+	// consensus-visible and must activate at a future epoch to stay replay-safe.
+	if m.forkController.FixAuditChangesV3() && marketOrder.IsClaimed {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidOrder, common.ErrInvalidValue.Error())
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
 	if !bytes.Equal(marketOrder.CurrencyID, currencyID) {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldOrderCurrencyInvalid, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
