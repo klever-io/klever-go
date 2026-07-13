@@ -24,12 +24,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// permissiveBLSKeyValidator accepts any BLS public key. Used by the shared test
+// harness so tests unrelated to key validation can keep using placeholder keys.
+type permissiveBLSKeyValidator struct{}
+
+func (permissiveBLSKeyValidator) CheckPublicKeyValid(_ []byte) error { return nil }
+
 func createMockArgs() *ArgsNewValidatorKApp {
 	return &ArgsNewValidatorKApp{
-		Marshalizer:    &mock.MarshalizerMock{},
-		PubkeyConv:     mock.NewPubkeyConverterMock(32),
-		ForkController: mock.NewForkControllerStub(),
-		RatingsData:    &mock.RatingsInfoMock{},
+		Marshalizer:     &mock.MarshalizerMock{},
+		PubkeyConv:      mock.NewPubkeyConverterMock(32),
+		ForkController:  mock.NewForkControllerStub(),
+		RatingsData:     &mock.RatingsInfoMock{},
+		BLSKeyValidator: permissiveBLSKeyValidator{},
 	}
 }
 

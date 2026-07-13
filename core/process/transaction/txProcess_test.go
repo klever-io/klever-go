@@ -2035,8 +2035,8 @@ func TestTxProcessor_ProcessDelegateAndUndelegateWrongValsShouldErr(t *testing.T
 func TestTxProcessor_ProcessDelegateAndUndelegateOkValsShouldWork(t *testing.T) {
 	t.Parallel()
 
-	peerAddress := []byte("1d8cb37e902525bf8bda62b635ca240ac7c3a713250295381b3e661cb32a7cdeb64cd8f17144ca7ad2520c92dfe5330f610d18bf9b503dda86a1ba5d7071cdeb0e510bcc28e32ca8c033c493f61abf43448ea39e3215cec49e4f4ae796c13b08")
-	peerAddress2 := []byte("52f3e4d40ec83d109c3d346b5adfb87bbaee1b3369166d0e3bca472b0f38caab0327a01eca784c474a5e2126aec2e604a3082320301afda05765b4f7eb9f69cd67c94d2d4acc713f814611f15b91888ffda86d135eaaf18f1efac5bbeb1dd08f")
+	peerAddress := validBLSKey("peerAddress")
+	peerAddress2 := validBLSKey("peerAddress2")
 
 	contract := transaction.FreezeContract{
 		AssetID: kdautils.KLVIdentifier,
@@ -2247,7 +2247,7 @@ func TestTxProcessor_ProcessDelegateAndUndelegateOkValsShouldWork(t *testing.T) 
 func TestTxProcessor_ProcessWithdrawWrongValsShouldErr(t *testing.T) {
 	t.Parallel()
 
-	peerAddress := []byte("1d8cb37e902525bf8bda62b635ca240ac7c3a713250295381b3e661cb32a7cdeb64cd8f17144ca7ad2520c92dfe5330f610d18bf9b503dda86a1ba5d7071cdeb0e510bcc28e32ca8c033c493f61abf43448ea39e3215cec49e4f4ae796c13b08")
+	peerAddress := validBLSKey("peerAddress")
 
 	userDB, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
 
@@ -2402,7 +2402,7 @@ func TestTxProcessor_ProcessClaimWrongValsShouldErr(t *testing.T) {
 	_ = loadKAppAccount(args.AccountsCacher, kapps.MarketKAppAddress)
 	_ = args.AccountsCacher.SaveAll()
 
-	peerAddress := []byte("1d8cb37e902525bf8bda62b635ca240ac7c3a713250295381b3e661cb32a7cdeb64cd8f17144ca7ad2520c92dfe5330f610d18bf9b503dda86a1ba5d7071cdeb0e510bcc28e32ca8c033c493f61abf43448ea39e3215cec49e4f4ae796c13b08")
+	peerAddress := validBLSKey("peerAddress")
 
 	AddBalanceAccount(args.AccountsCacher, 100_000_000, nil, testOwnerAddress)
 	AddBalanceAccount(args.AccountsCacher, 100_000_000, nil, testToAddress)
@@ -4429,7 +4429,7 @@ func TestTxProcessor_ProcessSetAccountNameOkValsShouldWork(t *testing.T) {
 func TestTxProcessor_ProcessProposalWrongValsShouldErr(t *testing.T) {
 	t.Parallel()
 
-	peerAddress := []byte("1d8cb37e902525bf8bda62b635ca240ac7c3a713250295381b3e661cb32a7cdeb64cd8f17144ca7ad2520c92dfe5330f610d18bf9b503dda86a1ba5d7071cdeb0e510bcc28e32ca8c033c493f61abf43448ea39e3215cec49e4f4ae796c13b08")
+	peerAddress := validBLSKey("peerAddress")
 
 	userDB, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
 
@@ -4604,7 +4604,7 @@ func TestTxProcessor_ProcessProposalOkValsShouldWork(t *testing.T) {
 func TestTxProcessor_ProcessVoteWrongValsShouldErr(t *testing.T) {
 	t.Parallel()
 
-	peerAddress := []byte("1d8cb37e902525bf8bda62b635ca240ac7c3a713250295381b3e661cb32a7cdeb64cd8f17144ca7ad2520c92dfe5330f610d18bf9b503dda86a1ba5d7071cdeb0e510bcc28e32ca8c033c493f61abf43448ea39e3215cec49e4f4ae796c13b08")
+	peerAddress := validBLSKey("peerAddress")
 
 	userDB, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
 
@@ -4783,7 +4783,7 @@ func TestTxProcessor_ProcessVoteOkValsShouldWork(t *testing.T) {
 func TestTxProcessor_ProcessConfigSetAndBuyITOWrongValsShouldErr(t *testing.T) {
 	t.Parallel()
 
-	peerAddress := []byte("1d8cb37e902525bf8bda62b635ca240ac7c3a713250295381b3e661cb32a7cdeb64cd8f17144ca7ad2520c92dfe5330f610d18bf9b503dda86a1ba5d7071cdeb0e510bcc28e32ca8c033c493f61abf43448ea39e3215cec49e4f4ae796c13b08")
+	peerAddress := validBLSKey("peerAddress")
 
 	userDB, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
 
@@ -6006,7 +6006,7 @@ func TestTxProcessor_ProcessConfigSetAndBuyITOWithAdminOkValsShouldWork(t *testi
 func TestTxProcessor_ProcessSellBuyClaimCancelMarketWrongValsShouldErr(t *testing.T) {
 	t.Parallel()
 
-	peerAddress := []byte("1d8cb37e902525bf8bda62b635ca240ac7c3a713250295381b3e661cb32a7cdeb64cd8f17144ca7ad2520c92dfe5330f610d18bf9b503dda86a1ba5d7071cdeb0e510bcc28e32ca8c033c493f61abf43448ea39e3215cec49e4f4ae796c13b08")
+	peerAddress := validBLSKey("peerAddress")
 
 	userDB, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
 
