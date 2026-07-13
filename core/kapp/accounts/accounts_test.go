@@ -5611,6 +5611,211 @@ func Test_Freeze_AssetNotFound(t *testing.T) {
 	assert.Equal(t, transaction.Transaction_KAPPError, code)
 }
 
+func Test_ProcessNonFungibleTransfer_NonCanonicalAmount(t *testing.T) {
+	sender := bytes.Repeat([]byte{0x11}, 32)
+	recipient := bytes.Repeat([]byte{0x22}, 32)
+	assetID := []byte("NFT-1234")
+	internalID := []byte("7")
+	const inflated = int64(1_000_000)
+
+	tests := []struct {
+		description  string
+		enableEpochs config.EnableEpochs
+		// forkActive reports whether FixAuditChangesV3 is active at the current
+		// epoch (0). An unset epoch field defaults to 0, so it is active; a field
+		// set to 1000 is not yet reached at epoch 0.
+		forkActive bool
+	}{
+		{
+			description:  "fork off: legacy behaviour accepts non-canonical amount",
+			enableEpochs: config.EnableEpochs{FixAuditChangesV3: 1000},
+			forkActive:   false,
+		},
+		{
+			description:  "fork on: non-canonical amount is rejected",
+			enableEpochs: config.EnableEpochs{},
+			forkActive:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.description, func(t *testing.T) {
+			var subInternalCalled, addInternalCalled bool
+
+			src := &commonMock.UserAccountHandlerStub{
+				AddressBytesCalled: func() []byte { return sender },
+				SubInternalKDACalled: func(gotAssetID, gotInternalID []byte) ([]byte, error) {
+					assert.Equal(t, assetID, gotAssetID)
+					assert.Equal(t, internalID, gotInternalID)
+					subInternalCalled = true
+					return []byte("nft-data"), nil
+				},
+				SubFromBalanceWithNonceCalled: func(value int64, _, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
+					t.Fatalf("balance path called for true NFT with value %d", value)
+					return nil
+				},
+			}
+			dst := &commonMock.UserAccountHandlerStub{
+				AddressBytesCalled: func() []byte { return recipient },
+				AddInternalKDACalled: func(gotAssetID, gotInternalID, data []byte) error {
+					assert.Equal(t, assetID, gotAssetID)
+					assert.Equal(t, internalID, gotInternalID)
+					assert.Equal(t, []byte("nft-data"), data)
+					addInternalCalled = true
+					return nil
+				},
+				AddToBalanceWithNonceCalled: func(value int64, _, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
+					t.Fatalf("balance path called for true NFT with value %d", value)
+					return nil
+				},
+			}
+
+			accountsKapp := setupAccountsKapp(t, tt.enableEpochs)
+			require.NoError(t, accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext {
+					return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+						OriginalSender: sender,
+						ContractID:     0,
+						Block:          &block.Block{},
+					})
+				},
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &kvmStub.KDAKappStub{
+						GetKDACalled: func(gotAssetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							assert.Equal(t, assetID, gotAssetID)
+							return nil, &kapps.KDAData{
+								AssetType:  kapps.KDAData_NonFungible,
+								Attributes: &kapps.AttributesData{},
+								Properties: &kapps.PropertiesData{},
+								Royalties:  &kapps.RoyaltiesData{},
+							}, nil
+						},
+					}
+				},
+			}))
+			require.NoError(t, accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					switch {
+					case bytes.Equal(address, sender):
+						return src, nil
+					case bytes.Equal(address, recipient):
+						return dst, nil
+					default:
+						return nil, fmt.Errorf("unexpected account load %x", address)
+					}
+				},
+				UpdateUserCalled: func(state.AccountHandler) error { return nil },
+			}))
+
+			tc := &transaction.TransferContract{
+				ToAddress: recipient,
+				Amount:    inflated,
+				AssetID:   []byte("NFT-1234/7"),
+			}
+
+			code, err := accountsKapp.Transfer(transaction.TXContract_SmartContractType, sender, tc)
+
+			if tt.forkActive {
+				// Post-fork: a non-canonical NFT amount is rejected before the
+				// internal KDA move happens, and the amount is left untouched.
+				require.ErrorIs(t, err, common.ErrInvalidValue)
+				require.Equal(t, transaction.Transaction_ContractInvalid, code)
+				require.False(t, subInternalCalled, "internal KDA path (sub) must not run on rejection")
+				require.False(t, addInternalCalled, "internal KDA path (add) must not run on rejection")
+				assert.Equal(t, inflated, tc.Amount)
+				return
+			}
+
+			// Pre-fork: legacy behaviour moves the NFT and leaves the amount untouched.
+			require.NoError(t, err)
+			require.Equal(t, transaction.Transaction_Ok, code)
+			require.True(t, subInternalCalled, "true NFT was not moved through the internal KDA path (sub)")
+			require.True(t, addInternalCalled, "true NFT was not moved through the internal KDA path (add)")
+			assert.Equal(t, inflated, tc.Amount)
+		})
+	}
+}
+
+func Test_ProcessNonFungibleTransfer_CanonicalAmountPostFork(t *testing.T) {
+	sender := bytes.Repeat([]byte{0x11}, 32)
+	recipient := bytes.Repeat([]byte{0x22}, 32)
+	assetID := []byte("NFT-1234")
+	internalID := []byte("7")
+
+	var subInternalCalled, addInternalCalled bool
+
+	src := &commonMock.UserAccountHandlerStub{
+		AddressBytesCalled: func() []byte { return sender },
+		SubInternalKDACalled: func(gotAssetID, gotInternalID []byte) ([]byte, error) {
+			assert.Equal(t, assetID, gotAssetID)
+			assert.Equal(t, internalID, gotInternalID)
+			subInternalCalled = true
+			return []byte("nft-data"), nil
+		},
+	}
+	dst := &commonMock.UserAccountHandlerStub{
+		AddressBytesCalled: func() []byte { return recipient },
+		AddInternalKDACalled: func(gotAssetID, gotInternalID, data []byte) error {
+			assert.Equal(t, assetID, gotAssetID)
+			assert.Equal(t, internalID, gotInternalID)
+			assert.Equal(t, []byte("nft-data"), data)
+			addInternalCalled = true
+			return nil
+		},
+	}
+
+	// Fork active (FixAuditChangesV3 unset -> epoch 0).
+	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
+	require.NoError(t, accountsKapp.SetKAppController(&kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+				OriginalSender: sender,
+				ContractID:     0,
+				Block:          &block.Block{},
+			})
+		},
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetKDACalled: func(gotAssetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					assert.Equal(t, assetID, gotAssetID)
+					return nil, &kapps.KDAData{
+						AssetType:  kapps.KDAData_NonFungible,
+						Attributes: &kapps.AttributesData{},
+						Properties: &kapps.PropertiesData{},
+						Royalties:  &kapps.RoyaltiesData{},
+					}, nil
+				},
+			}
+		},
+	}))
+	require.NoError(t, accountsKapp.SetAccountsCacher(&commonMock.AccountsCacherStub{
+		LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			switch {
+			case bytes.Equal(address, sender):
+				return src, nil
+			case bytes.Equal(address, recipient):
+				return dst, nil
+			default:
+				return nil, fmt.Errorf("unexpected account load %x", address)
+			}
+		},
+		UpdateUserCalled: func(state.AccountHandler) error { return nil },
+	}))
+
+	tc := &transaction.TransferContract{
+		ToAddress: recipient,
+		Amount:    1,
+		AssetID:   []byte("NFT-1234/7"),
+	}
+
+	code, err := accountsKapp.Transfer(transaction.TXContract_SmartContractType, sender, tc)
+	require.NoError(t, err)
+	require.Equal(t, transaction.Transaction_Ok, code)
+	require.True(t, subInternalCalled, "true NFT was not moved through the internal KDA path (sub)")
+	require.True(t, addInternalCalled, "true NFT was not moved through the internal KDA path (add)")
+	assert.Equal(t, int64(1), tc.Amount)
+}
+
 func Test_Freeze_NonFungibleAsset(t *testing.T) {
 	accountsKapp := setupAccountsKapp(t, config.EnableEpochs{})
 

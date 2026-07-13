@@ -169,6 +169,10 @@ func (a *accountsKapp) Transfer(cType transaction.TXContract_ContractType, sende
 
 	switch kda.AssetType {
 	case kapps.KDAData_NonFungible:
+		if a.forkController.FixAuditChangesV3() && tc.Amount != 1 {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAmount, common.ErrInvalidValue.Error())
+			return transaction.Transaction_ContractInvalid, common.ErrInvalidValue
+		}
 		return a.processNonFungibleTransfer(assetID, internalID, acntSrc, acntDst)
 	case kapps.KDAData_SemiFungible:
 		resultCode, err := a.processPercentageRoyaltiesTransfer(tc, assetID, internalID, acntSrc, acntDst, kda)
