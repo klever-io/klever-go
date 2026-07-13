@@ -1,7 +1,9 @@
 package indexer
 
 import (
+	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"testing"
 
 	"github.com/klever-io/klever-go/common/mock"
@@ -1016,5 +1018,102 @@ func Test_receiptToMap(t *testing.T) {
 		require.Equal(t, ptx.Error, result["type"])
 		require.NotContains(t, result, "title")
 		require.NotContains(t, result, "description")
+	})
+}
+
+// splitNDJSON splits an Elasticsearch _bulk body into its non-empty
+// newline-delimited lines.
+func splitNDJSON(b []byte) [][]byte {
+	raw := bytes.Split(b, []byte("\n"))
+	lines := make([][]byte, 0, len(raw))
+	for _, ln := range raw {
+		if len(bytes.TrimSpace(ln)) > 0 {
+			lines = append(lines, ln)
+		}
+	}
+
+	return lines
+}
+
+// GHSA-7c7c-373r-gfjj: an on-chain account name is fully attacker-controlled
+// (only UTF-8 + length validated) and was spliced raw into the Elasticsearch
+// _bulk painless params, letting a name containing quotes/newlines break out of
+// the JSON string and inject forged NDJSON bulk operations. The name must be
+// escaped so no name content can alter the bulk structure.
+func Test_serializedDataForUpdateAccounts(t *testing.T) {
+	t.Parallel()
+
+	index := "accounts"
+
+	t.Run("AccountNameIsEscaped", func(t *testing.T) {
+		// mirrors the advisory PoC: close the params/script/doc, then inject a
+		// forged bulk action + source that would write a fake document into
+		// the `transactions` index.
+		maliciousName := "\"}}}\n" +
+			"{\"index\":{\"_index\":\"transactions\",\"_id\":\"t\"}}\n" +
+			"{\"status\":\"success\"}\n" +
+			"{\"index\":{}}"
+
+		accounts := map[string]*data.AccountInfo{
+			"attacker": {Address: "attacker", Name: maliciousName, Nonce: 1, RootHash: "aa", Balance: 100},
+		}
+
+		buffSlice := data.NewBufferSlice(data.DefaultMaxBulkSize)
+		require.NoError(t, serializedDataForUpdateAccounts(accounts, buffSlice, index))
+
+		buffers := buffSlice.Buffers()
+		require.Len(t, buffers, 1)
+
+		lines := splitNDJSON(buffers[0].Bytes())
+
+		// the account update must occupy exactly two NDJSON lines (meta + source);
+		// before the fix the malicious name expanded this into 5+ lines.
+		require.Len(t, lines, 2, "malicious name injected extra NDJSON lines: %q", lines)
+
+		var meta map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(lines[0], &meta))
+		require.Contains(t, meta, "update")
+
+		// the source line must be valid JSON and round-trip the exact name,
+		// proving the payload was neutralized as data rather than structure.
+		var doc struct {
+			Script struct {
+				Params struct {
+					Name string `json:"name"`
+				} `json:"params"`
+			} `json:"script"`
+		}
+		require.NoError(t, json.Unmarshal(lines[1], &doc), "source line is not valid JSON: %s", lines[1])
+		require.Equal(t, maliciousName, doc.Script.Params.Name)
+
+		// none of the forged bulk actions must appear as standalone NDJSON lines.
+		for _, ln := range lines {
+			require.NotEqual(t, `{"index":{"_index":"transactions","_id":"t"}}`, string(ln))
+			require.NotEqual(t, `{"status":"success"}`, string(ln))
+		}
+	})
+
+	t.Run("ValidNameRoundTrips", func(t *testing.T) {
+		for _, name := range []string{"alice", "Klever ❤", "name with spaces", ""} {
+			accounts := map[string]*data.AccountInfo{
+				"addr": {Address: "addr", Name: name, Nonce: 2, RootHash: "bb", Balance: 5},
+			}
+
+			buffSlice := data.NewBufferSlice(data.DefaultMaxBulkSize)
+			require.NoError(t, serializedDataForUpdateAccounts(accounts, buffSlice, index))
+
+			lines := splitNDJSON(buffSlice.Buffers()[0].Bytes())
+			require.Len(t, lines, 2)
+
+			var doc struct {
+				Script struct {
+					Params struct {
+						Name string `json:"name"`
+					} `json:"params"`
+				} `json:"script"`
+			}
+			require.NoError(t, json.Unmarshal(lines[1], &doc), "source line is not valid JSON for name %q: %s", name, lines[1])
+			require.Equal(t, name, doc.Script.Params.Name)
+		}
 	})
 }
