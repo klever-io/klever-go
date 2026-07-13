@@ -433,9 +433,9 @@ func (context *VMHooksImpl) BigFloatPow(destinationHandle, opHandle, exponent in
 	op.Int(opBigInt)
 	op2BigInt := big.NewInt(int64(exponent))
 
-	if context.host.ForkController().FixAuditChangesV3() && opBigInt.Sign() >= 0 {
-		opBigInt.Add(opBigInt, big.NewInt(1))
-	} else if opBigInt.Sign() > 0 {
+	// Post-fork the bump extends to a zero integer part so bases in (-1, 1)
+	// charge a positive result-size fee instead of looping for free.
+	if opBigInt.Sign() > 0 || (opBigInt.Sign() == 0 && context.host.ForkController().FixAuditChangesV3()) {
 		opBigInt.Add(opBigInt, big.NewInt(1))
 	}
 
@@ -446,10 +446,16 @@ func (context *VMHooksImpl) BigFloatPow(destinationHandle, opHandle, exponent in
 		return
 	}
 
+	// This short-circuit is not fork-gated, so it must be byte-identical to the
+	// legacy multiply loop, including the sign of zero: the loop alternates the
+	// zero's sign each iteration, giving (-0)^odd == -0, and the sign bit
+	// survives big.Float serialization.
 	if op.Sign() == 0 {
 		result := big.NewFloat(0).SetPrec(op.Prec())
 		if exponent == 0 {
 			result.SetInt64(1)
+		} else if op.Signbit() && exponent%2 == 1 {
+			result.Neg(result)
 		}
 		setResultIfNotInfinity(context.GetVMHost(), result, destinationHandle)
 		return

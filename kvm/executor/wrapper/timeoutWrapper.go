@@ -54,8 +54,12 @@ func FailAfterTimeout[K any](f func() K, category HookCategory, vmHooks *Wrapper
 	// - Must be interruptible to avoid DoS attacks
 	// - We run the hook in a goroutine and wait for either completion or timeout
 	// - If the hook panics, we propagate the panic to the caller
-	// - If the hook times out, we panic with ErrExecutionFailedWithTimeout
-	// - we bail on slow goroutines on timeout so they MUST cooperatively panic on ctx.Done()
+	// - If the hook times out, we panic with ErrExecutionFailedWithTimeout and
+	//   abandon the goroutine: it is NOT cancelled, it keeps running until f()
+	//   returns and its result is discarded. Slow hooks must therefore bound
+	//   their own work up front (e.g. the pow hooks charge gas before looping)
+	//   so an abandoned goroutine finishes shortly after the timeout instead of
+	//   mutating shared VM state indefinitely.
 	type resultOrPanic struct {
 		result K
 		panic  any

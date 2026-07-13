@@ -256,4 +256,45 @@ func TestBigFloatPow(t *testing.T) {
 			})
 		}
 	})
+
+	// The legacy multiply loop alternates the sign of a zero result each
+	// iteration, so (-0)^odd is -0 and (-0)^even is +0. The zero-base
+	// short-circuit is not fork-gated, so it must reproduce those signs exactly:
+	// the sign bit survives big.Float serialization, and flipping it would
+	// diverge historical replay.
+	t.Run("Negative-zero base keeps the legacy sign of zero", func(t *testing.T) {
+		cases := []struct {
+			exponent    int32
+			wantSignbit bool
+		}{
+			{exponent: 1, wantSignbit: true},
+			{exponent: 2, wantSignbit: false},
+			{exponent: 3, wantSignbit: true},
+		}
+		for _, fixAuditV3 := range []bool{false, true} {
+			t.Run(fmt.Sprintf("FixAuditChangesV3=%t", fixAuditV3), func(t *testing.T) {
+				for _, tc := range cases {
+					t.Run(strconv.Itoa(int(tc.exponent)), func(t *testing.T) {
+						mockWorld := worldmock.NewMockWorld()
+						vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParametersWithFork(newForkStub(fixAuditV3)))
+						require.NoError(t, err)
+						hooks := vmhooks.NewVMHooksImpl(vmHost)
+						provideGas(hooks, 1_000_000)
+
+						negZero := new(big.Float).Neg(big.NewFloat(0))
+						baseHandle, err := hooks.GetManagedTypesContext().PutBigFloat(negZero)
+						require.NoError(t, err)
+						destHandle := int32(116)
+
+						hooks.BigFloatPow(destHandle, baseHandle, tc.exponent)
+
+						result, err := hooks.GetManagedTypesContext().GetBigFloat(destHandle)
+						require.NoError(t, err, "negative-zero base must not fault")
+						require.Equal(t, 0, result.Cmp(big.NewFloat(0)), "(-0)^%d must be zero", tc.exponent)
+						require.Equal(t, tc.wantSignbit, result.Signbit(), "sign bit of (-0)^%d", tc.exponent)
+					})
+				}
+			})
+		}
+	})
 }
