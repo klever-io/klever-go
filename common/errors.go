@@ -391,6 +391,9 @@ var ErrNegativeValue = errors.New("negative value")
 // ErrNilBLSPublicKey signals that the provided BLS public key is nil
 var ErrNilBLSPublicKey = errors.New("bls public key is nil")
 
+// ErrInvalidBLSPublicKey signals that the provided BLS public key is not a valid curve point
+var ErrInvalidBLSPublicKey = errors.New("invalid bls public key")
+
 // ErrNilEpochNotifier signals that the provided EpochNotifier is nil
 var ErrNilEpochNotifier = errors.New("nil EpochNotifier")
 

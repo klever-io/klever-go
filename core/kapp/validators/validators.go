@@ -15,6 +15,8 @@ import (
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
 	txProcess "github.com/klever-io/klever-go/core/process/transaction"
+	"github.com/klever-io/klever-go/crypto/signing"
+	"github.com/klever-io/klever-go/crypto/signing/mcl"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
@@ -51,15 +53,22 @@ const (
 
 var log = logger.GetOrCreate("kapp/validator")
 
+// blsPublicKeyValidator validates that a submitted BLS public key is a
+// well-formed, prime-order-subgroup G2 point (curve + subgroup + non-zero + length).
+type blsPublicKeyValidator interface {
+	CheckPublicKeyValid(b []byte) error
+}
+
 type validatorsKApp struct {
-	marshalizer    marshal.Marshalizer
-	pubkeyConv     core.PubkeyConverter
-	accountsCacher state.AccountsCacher
-	forkController core.ForkController
-	ratingsData    process.RatingsInfoHandler
-	rater          sharding.PeerAccountListAndRatingHandler
-	addressLen     int
-	KAppController kapp.KAppController
+	marshalizer     marshal.Marshalizer
+	pubkeyConv      core.PubkeyConverter
+	accountsCacher  state.AccountsCacher
+	forkController  core.ForkController
+	ratingsData     process.RatingsInfoHandler
+	rater           sharding.PeerAccountListAndRatingHandler
+	blsKeyValidator blsPublicKeyValidator
+	addressLen      int
+	KAppController  kapp.KAppController
 }
 
 // ArgsNewValidatorKApp holds the arguments needed to create a ValidatorsKApp
@@ -68,6 +77,8 @@ type ArgsNewValidatorKApp struct {
 	PubkeyConv     core.PubkeyConverter
 	ForkController core.ForkController
 	RatingsData    process.RatingsInfoHandler
+	// BLSKeyValidator is optional; when nil a BLS12-381 G2 validator is used.
+	BLSKeyValidator blsPublicKeyValidator
 }
 
 // NewValidatorKApp creates a validator KApp
@@ -88,15 +99,37 @@ func NewValidatorKApp(
 		return nil, common.ErrNilForkController
 	}
 
+	blsKeyValidator := args.BLSKeyValidator
+	if blsKeyValidator == nil {
+		blsKeyValidator = signing.NewKeyGenerator(mcl.NewSuiteBLS12())
+	}
+
 	v := &validatorsKApp{
-		marshalizer:    args.Marshalizer,
-		addressLen:     args.PubkeyConv.Len(),
-		ratingsData:    args.RatingsData,
-		pubkeyConv:     args.PubkeyConv,
-		forkController: args.ForkController,
+		marshalizer:     args.Marshalizer,
+		addressLen:      args.PubkeyConv.Len(),
+		ratingsData:     args.RatingsData,
+		pubkeyConv:      args.PubkeyConv,
+		forkController:  args.ForkController,
+		blsKeyValidator: blsKeyValidator,
 	}
 
 	return v, nil
+}
+
+// validateBLSPublicKey enforces that the submitted BLS public key is a valid
+// BLS12-381 G2 point (on-curve, prime-order subgroup, non-zero, correct length).
+// It is gated behind the FixAuditChangesV3 fork so that historical reprocessing
+// of blocks produced before the fork epoch stays deterministic.
+func (v *validatorsKApp) validateBLSPublicKey(blsPubKey []byte) error {
+	if !v.forkController.FixAuditChangesV3() {
+		return nil
+	}
+
+	if err := v.blsKeyValidator.CheckPublicKeyValid(blsPubKey); err != nil {
+		return common.ErrInvalidBLSPublicKey
+	}
+
+	return nil
 }
 
 func (v *validatorsKApp) SetKAppController(controller kapp.KAppController) error {
@@ -251,6 +284,11 @@ func (v *validatorsKApp) Register(tc *transaction.CreateValidatorContract) (tran
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
+	if err := v.validateBLSPublicKey(tc.GetConfig().GetBLSPublicKey()); err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidBLSKey, err.Error())
+		return transaction.Transaction_ParameterInvalid, err
+	}
+
 	// load Kapp Accoount
 	app, err := v.getKApp()
 	if err != nil {
@@ -382,6 +420,11 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 	// check if BLS Key matchs current
 	if len(tc.GetConfig().GetBLSPublicKey()) > 0 &&
 		!bytes.Equal(val.BlsPubKey, tc.GetConfig().GetBLSPublicKey()) {
+
+		if err := v.validateBLSPublicKey(tc.GetConfig().GetBLSPublicKey()); err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidBLSKey, err.Error())
+			return transaction.Transaction_InvalidPeerKey, err
+		}
 
 		// Reset old peer
 		peerAccOld, err := v.revokePeerAccount(val.BlsPubKey)

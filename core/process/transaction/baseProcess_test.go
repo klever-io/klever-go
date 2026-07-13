@@ -13,10 +13,30 @@ import (
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/crypto/signing"
 	"github.com/klever-io/klever-go/crypto/signing/ed25519"
+	"github.com/klever-io/klever-go/crypto/signing/mcl"
 	"github.com/klever-io/klever-go/data/state"
 	dt "github.com/klever-io/klever-go/data/transaction"
 	"github.com/stretchr/testify/assert"
 )
+
+// validBLSKey deterministically derives a well-formed BLS12-381 G2 public key
+// from a seed. Runtime validator registration validates the BLS key once the
+// FixAuditChangesV3 fork is active, so tests that register validators must use
+// real keys instead of placeholder bytes.
+func validBLSKey(seed string) []byte {
+	kg := signing.NewKeyGenerator(mcl.NewSuiteBLS12())
+	s := make([]byte, 32)
+	copy(s, seed)
+	sk, err := kg.PrivateKeyFromByteArray(s)
+	if err != nil {
+		panic(err)
+	}
+	pk, err := sk.GeneratePublic().ToByteArray()
+	if err != nil {
+		panic(err)
+	}
+	return pk
+}
 
 func mockProcessor(economicHandlerStub *mock.EconomicsHandlerStub) *transaction.TxProcessorExportTest {
 	// environment setup
