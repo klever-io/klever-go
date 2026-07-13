@@ -704,8 +704,12 @@ func (a *userAccount) computeClaimFPR(assetID []byte, blockEpoch uint32, blockTi
 					}
 				}
 
-				if forkController.FixStakingBuckets() {
-					if bucket.UnstakedEpoch != core.DefaultUnstakedEpoch {
+				if bucket.UnstakedEpoch != core.DefaultUnstakedEpoch {
+					if forkController.FixAuditChangesV3() {
+						if fpr.Epoch > bucket.UnstakedEpoch {
+							continue
+						}
+					} else if forkController.FixStakingBuckets() {
 						continue
 					}
 				}

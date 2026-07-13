@@ -1,6 +1,7 @@
 package transaction_test
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 var OwnerAddress = []byte("klv1d05ju9jaj6u99zph0ant9jh7gksf")
@@ -1113,6 +1115,233 @@ func TestStakingTxProcessor_KDA_FPRClaim_Unfreeze_Before_Deposit(t *testing.T) {
 	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance)
 }
 
+func TestStakingTxProcessor_KDA_FPRClaim_Unfreeze_Before_Maturity_PreFix(t *testing.T) {
+	// Documents the pre-fix (FixStakingBuckets only, no FixAuditChangesV3) affected behavior:
+	// a staker who unfreezes before claim maturity silently forfeits all pre-unstake FPR rewards,
+	// which are then recoverable by the depositor via the FPR expiry refund path (value misdirection).
+	initialKLVBalance := int64(2_000_000_000)
+	initialFPRBalance := int64(2_000_000_000)
+	freezeFPRAmount := int64(1_000_000)
+	depositKLVAmount := int64(301_000_000)
+
+	c := NewController(t)
+	// Activate FixStakingBuckets only; keep FixAuditChangesV3 inactive to reproduce the bug.
+	c.UpdateForkController(config.EnableEpochs{FixAuditChangesV3: math.MaxUint32})
+	c.AddUser(RefAddress, initialKLVBalance, nil)
+	c.AddUser(OwnerAddress, initialFPRBalance, FPRIdentifier)
+	c.AddUser(OwnerAddress, initialKLVBalance, nil)
+
+	blk := c.CreateBlockHeader(0, 1, 1)
+	// Scenario precondition: MinEpochsToUnstake (1) < MinEpochsToClaim (5)
+	updateStakingContract := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_UpdateStaking,
+		AssetID:     FPRIdentifier,
+		Staking: &transaction.StakingInfo{
+			Type:                transaction.StakingInfo_FPRI,
+			MinEpochsToClaim:    5,
+			MinEpochsToUnstake:  1,
+			MinEpochsToWithdraw: 0,
+		},
+	}
+	tx, err := createTransactionMock(&updateStakingContract, transaction.TXContract_AssetTriggerContractType, OwnerAddress, 0)
+	require.NoError(t, err)
+	_, hash, err := c.execTx.PreProcessTransaction(tx)
+	require.NoError(t, err)
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	require.NoError(t, err)
+
+	// Staker freezes
+	bucketID := c.RunFreezeTX(blk, OwnerAddress, FPRIdentifier, freezeFPRAmount)
+	c.CheckBalance(OwnerAddress, FPRIdentifier, initialFPRBalance-freezeFPRAmount)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance)
+
+	// Depositor seeds FPR rewards while bucket is active
+	blk.Header.Epoch += 2
+	c.RunDepositTX(blk, RefAddress, FPRIdentifier, kdautils.KLVIdentifier, depositKLVAmount)
+	staking := c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 1)
+	assert.Equal(t, depositKLVAmount, staking.FPR[0].TotalAmount)
+	assert.Zero(t, staking.FPR[0].TotalClaimed)
+
+	// Staker unfreezes before claim window matures — claim is swallowed, no reward paid
+	blk.Header.Epoch += 2
+	c.RunUnfreezeTX(blk, OwnerAddress, FPRIdentifier, bucketID, nil)
+	c.CheckFrozenBalance(OwnerAddress, FPRIdentifier, 0)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance) // no reward at unfreeze
+
+	// After claim window matures: bucket is entirely skipped — ErrClaimNotAvailable (silent loss)
+	blk.Header.Epoch += 1
+	c.RunClaimTX(blk, transaction.ClaimContract_StakingClaim, OwnerAddress, FPRIdentifier,
+		state.ErrClaimNotAvailable)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance) // staker receives nothing
+
+	staking = c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 1)
+	assert.Zero(t, staking.FPR[0].TotalClaimed) // rewards permanently orphaned in pool
+
+	// Withdraw deletes the bucket — no recovery path remains
+	c.RunWithdrawTX(blk, OwnerAddress, FPRIdentifier, nil)
+	c.CheckBalance(OwnerAddress, FPRIdentifier, initialFPRBalance)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance)
+
+	ownerAcc := loadUserAccount(c.accCacher, OwnerAddress)
+	userKDA, err := ownerAcc.GetUserKDA(FPRIdentifier, nil, true)
+	require.NoError(t, err)
+	require.Empty(t, userKDA.Buckets)
+
+	staking = c.GetStakingKDA(FPRIdentifier)
+	assert.Zero(t, staking.FPR[0].TotalClaimed) // pool still holds unclaimed rewards
+
+	// After FPR epoch expires, depositor reclaims orphaned rewards via a new deposit.
+	// Value flows from staker → depositor: the depositor recovers depositKLVAmount
+	// by spending only a 1-token trigger deposit.
+	blk.Header.Epoch = 105
+	expiryDeposit := int64(1)
+	c.RunDepositTX(blk, RefAddress, FPRIdentifier, kdautils.KLVIdentifier, expiryDeposit)
+	// Depositor net: paid depositKLVAmount + expiryDeposit, received depositKLVAmount refund
+	// → effectively only out expiryDeposit while staker lost depositKLVAmount worth of rewards
+	c.CheckBalance(RefAddress, kdautils.KLVIdentifier, initialKLVBalance-expiryDeposit)
+	staking = c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 1)
+	assert.Equal(t, expiryDeposit, staking.FPR[0].TotalAmount)
+	assert.Zero(t, staking.FPR[0].TotalClaimed)
+}
+
+func TestStakingTxProcessor_KDA_FPRClaim_Unfreeze_Before_Claim_Maturity_PostFix(t *testing.T) {
+	initialKLVBalance := int64(2_000_000_000)
+	initialFPRBalance := int64(2_000_000_000)
+	freezeFPRAmount := int64(1_000_000)
+	depositKLVAmount := int64(301_000_000)
+
+	c := NewController(t)
+	c.UpdateForkController(config.EnableEpochs{FixAuditChangesV3: 0})
+	c.AddUser(RefAddress, initialKLVBalance, nil)
+	c.AddUser(OwnerAddress, initialFPRBalance, FPRIdentifier)
+	c.AddUser(OwnerAddress, initialKLVBalance, nil)
+
+	blk := c.CreateBlockHeader(0, 1, 1)
+	updateStakingContract := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_UpdateStaking,
+		AssetID:     FPRIdentifier,
+		Staking: &transaction.StakingInfo{
+			Type:                transaction.StakingInfo_FPRI,
+			MinEpochsToClaim:    5,
+			MinEpochsToUnstake:  1,
+			MinEpochsToWithdraw: 0,
+		},
+	}
+	tx, err := createTransactionMock(&updateStakingContract, transaction.TXContract_AssetTriggerContractType, OwnerAddress, 0)
+	require.NoError(t, err)
+	_, hash, err := c.execTx.PreProcessTransaction(tx)
+	require.NoError(t, err)
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	require.NoError(t, err)
+
+	bucketID := c.RunFreezeTX(blk, OwnerAddress, FPRIdentifier, freezeFPRAmount)
+	c.CheckBalance(OwnerAddress, FPRIdentifier, initialFPRBalance-freezeFPRAmount)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance)
+
+	blk.Header.Epoch += 2
+	c.RunDepositTX(blk, RefAddress, FPRIdentifier, kdautils.KLVIdentifier, depositKLVAmount)
+	staking := c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 1)
+	require.Equal(t, uint32(4), staking.FPR[0].Epoch)
+	require.Equal(t, depositKLVAmount, staking.FPR[0].TotalAmount)
+	require.Equal(t, freezeFPRAmount, staking.FPR[0].TotalStaked)
+	require.Zero(t, staking.FPR[0].TotalClaimed)
+
+	blk.Header.Epoch += 2
+	c.RunUnfreezeTX(blk, OwnerAddress, FPRIdentifier, bucketID, nil)
+	c.CheckFrozenBalance(OwnerAddress, FPRIdentifier, 0)
+	ownerAcc := loadUserAccount(c.accCacher, OwnerAddress)
+	userKDA, err := ownerAcc.GetUserKDA(FPRIdentifier, nil, true)
+	require.NoError(t, err)
+	require.Equal(t, uint32(5), userKDA.Buckets[string(FPRIdentifier)].UnstakedEpoch)
+
+	blk.Header.Epoch += 1
+	c.RunClaimTX(blk, transaction.ClaimContract_StakingClaim, OwnerAddress, FPRIdentifier, nil)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance+depositKLVAmount)
+	staking = c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 1)
+	assert.Equal(t, depositKLVAmount, staking.FPR[0].TotalClaimed)
+
+	blk.Header.Epoch += 1
+	c.RunDepositTX(blk, RefAddress, FPRIdentifier, kdautils.KLVIdentifier, depositKLVAmount)
+	staking = c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 2)
+
+	blk.Header.Epoch += 5
+	c.RunClaimTX(blk, transaction.ClaimContract_StakingClaim, OwnerAddress, FPRIdentifier, state.ErrClaimNotAvailable)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance+depositKLVAmount)
+	staking = c.GetStakingKDA(FPRIdentifier)
+	assert.Equal(t, depositKLVAmount, staking.FPR[0].TotalClaimed)
+	assert.Zero(t, staking.FPR[1].TotalClaimed)
+
+	c.RunWithdrawTX(blk, OwnerAddress, FPRIdentifier, nil)
+	c.CheckBalance(OwnerAddress, FPRIdentifier, initialFPRBalance)
+	ownerAcc = loadUserAccount(c.accCacher, OwnerAddress)
+	userKDA, err = ownerAcc.GetUserKDA(FPRIdentifier, nil, true)
+	require.NoError(t, err)
+	require.Empty(t, userKDA.Buckets)
+}
+
+func TestStakingTxProcessor_KDA_FPRClaim_Unfreeze_At_Reward_Epoch_PostFix(t *testing.T) {
+	const (
+		initialKLVBalance = int64(2_000_000_000)
+		initialFPRBalance = int64(2_000_000_000)
+		freezeFPRAmount   = int64(1_000_000)
+		depositKLVAmount  = int64(301_000_000)
+	)
+
+	c := NewController(t)
+	c.UpdateForkController(config.EnableEpochs{FixAuditChangesV3: 0})
+	c.AddUser(RefAddress, initialKLVBalance, nil)
+	c.AddUser(OwnerAddress, initialFPRBalance, FPRIdentifier)
+	c.AddUser(OwnerAddress, initialKLVBalance, nil)
+
+	blk := c.CreateBlockHeader(0, 1, 1)
+	updateStakingContract := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_UpdateStaking,
+		AssetID:     FPRIdentifier,
+		Staking: &transaction.StakingInfo{
+			Type:                transaction.StakingInfo_FPRI,
+			MinEpochsToClaim:    5,
+			MinEpochsToUnstake:  1,
+			MinEpochsToWithdraw: 0,
+		},
+	}
+	tx, err := createTransactionMock(&updateStakingContract, transaction.TXContract_AssetTriggerContractType, OwnerAddress, 0)
+	require.NoError(t, err)
+	_, hash, err := c.execTx.PreProcessTransaction(tx)
+	require.NoError(t, err)
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	require.NoError(t, err)
+
+	bucketID := c.RunFreezeTX(blk, OwnerAddress, FPRIdentifier, freezeFPRAmount)
+	blk.Header.Epoch += 1
+	c.RunDepositTX(blk, RefAddress, FPRIdentifier, kdautils.KLVIdentifier, depositKLVAmount)
+
+	staking := c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 1)
+	require.Equal(t, uint32(3), staking.FPR[0].Epoch)
+
+	// Lock in the deliberate > boundary: a reward created at the exact unstake epoch stays claimable.
+	blk.Header.Epoch += 1
+	c.RunUnfreezeTX(blk, OwnerAddress, FPRIdentifier, bucketID, nil)
+	ownerAcc := loadUserAccount(c.accCacher, OwnerAddress)
+	userKDA, err := ownerAcc.GetUserKDA(FPRIdentifier, nil, true)
+	require.NoError(t, err)
+	require.Equal(t, staking.FPR[0].Epoch, userKDA.Buckets[string(FPRIdentifier)].UnstakedEpoch)
+
+	blk.Header.Epoch = userKDA.LastClaim.Epoch + 5
+	c.RunClaimTX(blk, transaction.ClaimContract_StakingClaim, OwnerAddress, FPRIdentifier, nil)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance+depositKLVAmount)
+
+	staking = c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 1)
+	assert.Equal(t, depositKLVAmount, staking.FPR[0].TotalClaimed)
+}
+
 func TestStakingTxProcessor_KDA_FPRClaim_MultipleFreezes(t *testing.T) {
 	toAddress1 := []byte("klv1d05ju9jaj6u99zph0ant9jh7gksh")
 	toAddress2 := []byte("klv1d05ju9jaj6u99zph0ant9jh7gksi")
@@ -1381,4 +1610,276 @@ func TestStakingTxProcessor_KDA_FPRClaim_MultipleDeposits(t *testing.T) {
 
 	c.RunWithdrawTX(blk, toAddress2, FPRIdentifier, nil)
 	c.CheckBalance(toAddress2, FPRIdentifier, initialFPRBalance2)
+}
+
+// TestStakingTxProcessor_KDA_FPRClaim_UnfreezeBeforeMaturity_RawTx_PreFix reproduces the KLR-08
+// PRE-FIX behavior gap: if MinEpochsToClaim > MinEpochsToUnstake,
+// letting a staker unfreeze before the claim window matures. Unfreeze swallows
+// ErrClaimNotAvailable and marks the bucket unstaked anyway. Because FixAuditChangesV3 is
+// disabled here (simulating the code before the fix), computeClaimFPR skips the ENTIRE bucket
+// once it is unstaked, regardless of whether the FPR reward epoch preceded the unstake. The
+// staker permanently forfeits the reward, which is later reclaimed by the depositor through the
+// expired-FPR refund path. Unlike the sibling test with the "_Unfreeze_Before_Maturity_PreFix"
+// suffix (which drives the flow via the Controller's Run*TX helpers), this test drives the exact
+// tx.Validate/PreProcessTransaction/ProcessBandwidthFee/ProcessTransaction pipeline (via
+// runStakingContractTx) for closer parity with real transaction processing.
+func TestStakingTxProcessor_KDA_FPRClaim_UnfreezeBeforeMaturity_RawTx_PreFix(t *testing.T) {
+	const (
+		initialKLVBalance = int64(2_000_000_000)
+		initialFPRBalance = int64(2_000_000_000)
+		freezeFPRAmount   = int64(1_000_000)
+		depositKLVAmount  = int64(500_000)
+		expiryDeposit     = int64(1)
+	)
+	c := NewController(t)
+	// Disable FixAuditChangesV3 to reproduce the pre-fix behavior.
+	c.UpdateForkController(config.EnableEpochs{FixAuditChangesV3: math.MaxUint32})
+	c.AddUser(OwnerAddress, initialKLVBalance, kdautils.KLVIdentifier)
+	c.AddUser(OwnerAddress, initialFPRBalance, FPRIdentifier)
+	c.AddUser(RefAddress, initialKLVBalance, kdautils.KLVIdentifier)
+	blk := c.CreateBlockHeader(0, 1, 1)
+	updateFPRStakingConfig(t, c, blk, 5, 1, 0)
+	freezeTx := runStakingContractTx(t, c, blk, &transaction.FreezeContract{
+		AssetID: FPRIdentifier,
+		Amount:  freezeFPRAmount,
+	}, transaction.TXContract_FreezeContractType, OwnerAddress, nil)
+	bucketID := freezeTx.Receipts[1].Data[1]
+	c.CheckBalance(OwnerAddress, FPRIdentifier, initialFPRBalance-freezeFPRAmount)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance)
+	blk.Header.Epoch = 2
+	runStakingContractTx(t, c, blk, &transaction.DepositContract{
+		DepositType: transaction.DepositContract_FPRDeposit,
+		ID:          FPRIdentifier,
+		CurrencyID:  kdautils.KLVIdentifier,
+		Amount:      depositKLVAmount,
+	}, transaction.TXContract_DepositContractType, RefAddress, nil)
+	c.CheckBalance(RefAddress, kdautils.KLVIdentifier, initialKLVBalance-depositKLVAmount)
+
+	staking := c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 1)
+	require.Equal(t, uint32(3), staking.FPR[0].Epoch)
+	require.Equal(t, depositKLVAmount, staking.FPR[0].TotalAmount)
+	require.Equal(t, freezeFPRAmount, staking.FPR[0].TotalStaked)
+	require.Zero(t, staking.FPR[0].TotalClaimed)
+	blk.Header.Epoch = 4
+	runStakingContractTx(t, c, blk, &transaction.UnfreezeContract{
+		AssetID:  FPRIdentifier,
+		BucketID: bucketID,
+	}, transaction.TXContract_UnfreezeContractType, OwnerAddress, nil)
+	c.CheckFrozenBalance(OwnerAddress, FPRIdentifier, 0)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance)
+	ownerAcc := loadUserAccount(c.accCacher, OwnerAddress)
+	userKDA, err := ownerAcc.GetUserKDA(FPRIdentifier, nil, true)
+	require.NoError(t, err)
+	lastClaimEpoch := userKDA.LastClaim.Epoch
+	require.Less(t, int(blk.Header.Epoch-lastClaimEpoch), 5)
+	require.Equal(t, uint32(4),
+		userKDA.Buckets[string(FPRIdentifier)].UnstakedEpoch)
+	blk.Header.Epoch = lastClaimEpoch + 5
+	runStakingContractTx(t, c, blk, &transaction.ClaimContract{
+		ClaimType: transaction.ClaimContract_StakingClaim,
+		ID:        FPRIdentifier,
+	}, transaction.TXContract_ClaimContractType, OwnerAddress,
+		state.ErrClaimNotAvailable)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance)
+	staking = c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 1)
+	assert.Equal(t, depositKLVAmount, staking.FPR[0].TotalAmount)
+	assert.Zero(t, staking.FPR[0].TotalClaimed)
+	runStakingContractTx(t, c, blk, &transaction.WithdrawContract{
+		WithdrawType: transaction.WithdrawContract_Staking,
+		AssetID:      FPRIdentifier,
+	}, transaction.TXContract_WithdrawContractType, OwnerAddress, nil)
+	c.CheckBalance(OwnerAddress, FPRIdentifier, initialFPRBalance)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance)
+	ownerAcc = loadUserAccount(c.accCacher, OwnerAddress)
+	userKDA, err = ownerAcc.GetUserKDA(FPRIdentifier, nil, true)
+	require.NoError(t, err)
+	require.Empty(t, userKDA.Buckets)
+	staking = c.GetStakingKDA(FPRIdentifier)
+
+	require.Len(t, staking.FPR, 1)
+	assert.Equal(t, depositKLVAmount, staking.FPR[0].TotalAmount)
+	assert.Zero(t, staking.FPR[0].TotalClaimed)
+	blk.Header.Epoch = 104
+	runStakingContractTx(t, c, blk, &transaction.DepositContract{
+		DepositType: transaction.DepositContract_FPRDeposit,
+		ID:          FPRIdentifier,
+		CurrencyID:  kdautils.KLVIdentifier,
+		Amount:      expiryDeposit,
+	}, transaction.TXContract_DepositContractType, RefAddress, nil)
+	c.CheckBalance(RefAddress, kdautils.KLVIdentifier, initialKLVBalance-expiryDeposit)
+	staking = c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 1)
+	assert.Equal(t, uint32(105), staking.FPR[0].Epoch)
+	assert.Equal(t, expiryDeposit, staking.FPR[0].TotalAmount)
+	assert.Zero(t, staking.FPR[0].TotalClaimed)
+}
+
+// TestStakingTxProcessor_KDA_FPRClaim_UnfreezeBeforeMaturity_RawTx_PostFix is the POST-FIX counterpart of
+// TestStakingTxProcessor_KDA_FPRClaim_UnfreezeBeforeMaturity_RawTx_PreFix. With FixAuditChangesV3 enabled,
+// computeClaimFPR only skips FPR epochs that occurred AFTER the bucket was unstaked
+// (fpr.Epoch > bucket.UnstakedEpoch), instead of skipping the entire bucket. Since the FPR
+// reward epoch (3) precedes the unstake epoch (4), the staker can still claim it even though
+// they unfroze before the claim window matured. No value is misdirected to the depositor.
+func TestStakingTxProcessor_KDA_FPRClaim_UnfreezeBeforeMaturity_RawTx_PostFix(t *testing.T) {
+	const (
+		initialKLVBalance = int64(2_000_000_000)
+		initialFPRBalance = int64(2_000_000_000)
+		freezeFPRAmount   = int64(1_000_000)
+		depositKLVAmount  = int64(500_000)
+	)
+	c := NewController(t)
+	// Explicitly enable FixAuditChangesV3 (active from epoch 0) to validate the fix.
+	c.UpdateForkController(config.EnableEpochs{FixAuditChangesV3: 0})
+	c.AddUser(OwnerAddress, initialKLVBalance, kdautils.KLVIdentifier)
+	c.AddUser(OwnerAddress, initialFPRBalance, FPRIdentifier)
+	c.AddUser(RefAddress, initialKLVBalance, kdautils.KLVIdentifier)
+	blk := c.CreateBlockHeader(0, 1, 1)
+	updateFPRStakingConfig(t, c, blk, 5, 1, 0)
+	freezeTx := runStakingContractTx(t, c, blk, &transaction.FreezeContract{
+		AssetID: FPRIdentifier,
+		Amount:  freezeFPRAmount,
+	}, transaction.TXContract_FreezeContractType, OwnerAddress, nil)
+	bucketID := freezeTx.Receipts[1].Data[1]
+	c.CheckBalance(OwnerAddress, FPRIdentifier, initialFPRBalance-freezeFPRAmount)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance)
+	blk.Header.Epoch = 2
+	runStakingContractTx(t, c, blk, &transaction.DepositContract{
+		DepositType: transaction.DepositContract_FPRDeposit,
+		ID:          FPRIdentifier,
+		CurrencyID:  kdautils.KLVIdentifier,
+		Amount:      depositKLVAmount,
+	}, transaction.TXContract_DepositContractType, RefAddress, nil)
+	c.CheckBalance(RefAddress, kdautils.KLVIdentifier, initialKLVBalance-depositKLVAmount)
+
+	staking := c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 1)
+	require.Equal(t, uint32(3), staking.FPR[0].Epoch)
+	require.Equal(t, depositKLVAmount, staking.FPR[0].TotalAmount)
+	require.Equal(t, freezeFPRAmount, staking.FPR[0].TotalStaked)
+	require.Zero(t, staking.FPR[0].TotalClaimed)
+
+	// Unfreeze before claim maturity (same pre-fix validation window).
+	blk.Header.Epoch = 4
+	runStakingContractTx(t, c, blk, &transaction.UnfreezeContract{
+		AssetID:  FPRIdentifier,
+		BucketID: bucketID,
+	}, transaction.TXContract_UnfreezeContractType, OwnerAddress, nil)
+	c.CheckFrozenBalance(OwnerAddress, FPRIdentifier, 0)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance)
+	ownerAcc := loadUserAccount(c.accCacher, OwnerAddress)
+	userKDA, err := ownerAcc.GetUserKDA(FPRIdentifier, nil, true)
+	require.NoError(t, err)
+	lastClaimEpoch := userKDA.LastClaim.Epoch
+	require.Less(t, int(blk.Header.Epoch-lastClaimEpoch), 5)
+	require.Equal(t, uint32(4),
+		userKDA.Buckets[string(FPRIdentifier)].UnstakedEpoch)
+
+	// After the claim window matures, the pre-unstake FPR reward (epoch 3 <= UnstakedEpoch 4)
+	// is now claimable: the staker receives the deposit instead of forfeiting it.
+	blk.Header.Epoch = lastClaimEpoch + 5
+	runStakingContractTx(t, c, blk, &transaction.ClaimContract{
+		ClaimType: transaction.ClaimContract_StakingClaim,
+		ID:        FPRIdentifier,
+	}, transaction.TXContract_ClaimContractType, OwnerAddress, nil)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance+depositKLVAmount)
+	staking = c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 1)
+	assert.Equal(t, depositKLVAmount, staking.FPR[0].TotalAmount)
+	assert.Equal(t, depositKLVAmount, staking.FPR[0].TotalClaimed)
+
+	// Withdraw returns the full principal; no leftover reward remains to be misdirected.
+	runStakingContractTx(t, c, blk, &transaction.WithdrawContract{
+		WithdrawType: transaction.WithdrawContract_Staking,
+		AssetID:      FPRIdentifier,
+	}, transaction.TXContract_WithdrawContractType, OwnerAddress, nil)
+	c.CheckBalance(OwnerAddress, FPRIdentifier, initialFPRBalance)
+	c.CheckBalance(OwnerAddress, kdautils.KLVIdentifier, initialKLVBalance+depositKLVAmount)
+	ownerAcc = loadUserAccount(c.accCacher, OwnerAddress)
+	userKDA, err = ownerAcc.GetUserKDA(FPRIdentifier, nil, true)
+	require.NoError(t, err)
+	require.Empty(t, userKDA.Buckets)
+
+	// The FPR entry is now fully claimed, so a later expiry deposit finds nothing left to
+	// refund to the depositor: the depositor only recovers what they deposit going forward.
+	staking = c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 1)
+	assert.Equal(t, depositKLVAmount, staking.FPR[0].TotalClaimed)
+	blk.Header.Epoch = 104
+	const expiryDeposit = int64(1)
+	runStakingContractTx(t, c, blk, &transaction.DepositContract{
+		DepositType: transaction.DepositContract_FPRDeposit,
+		ID:          FPRIdentifier,
+		CurrencyID:  kdautils.KLVIdentifier,
+		Amount:      expiryDeposit,
+	}, transaction.TXContract_DepositContractType, RefAddress, nil)
+	// Depositor is only out the new expiry deposit; no orphaned reward is refunded to them.
+	c.CheckBalance(RefAddress, kdautils.KLVIdentifier, initialKLVBalance-depositKLVAmount-expiryDeposit)
+	staking = c.GetStakingKDA(FPRIdentifier)
+	require.Len(t, staking.FPR, 1)
+	assert.Equal(t, uint32(105), staking.FPR[0].Epoch)
+	assert.Equal(t, expiryDeposit, staking.FPR[0].TotalAmount)
+	assert.Zero(t, staking.FPR[0].TotalClaimed)
+}
+
+// runStakingContractTx drives a single contract through the exact production transaction
+// pipeline (Validate -> PreProcessTransaction -> ProcessBandwidthFee -> ProcessTransaction),
+// asserting that ProcessTransaction returns expectedErr (nil for success).
+func runStakingContractTx(
+	t *testing.T,
+	c *Controller,
+	blk *block.Block,
+	contract proto.Message,
+	contractType transaction.TXContract_ContractType,
+	sender []byte,
+	expectedErr error,
+) *transaction.Transaction {
+	t.Helper()
+	ownerAcc := loadUserAccount(c.accCacher, sender)
+	tx, err := createTransactionMock(contract, contractType, sender,
+		ownerAcc.GetNonce())
+	require.NoError(t, err)
+	require.NoError(t, tx.Validate(c.kappController.GetForkController()))
+	ownerAcc, hash, err := c.execTx.PreProcessTransaction(tx)
+	require.NoError(t, err)
+	_, err = c.execTx.ProcessBandwidthFee(hash, tx, ownerAcc)
+	require.NoError(t, err)
+	err = c.execTx.ProcessTransaction(blk, hash, tx)
+	if expectedErr != nil {
+		require.ErrorIs(t, err, expectedErr)
+	} else {
+		require.NoError(t, err)
+	}
+	return tx
+}
+
+// updateFPRStakingConfig sends an AssetTriggerContract that sets the FPR staking maturity
+// thresholds (MinEpochsToClaim/Unstake/Withdraw) for FPRIdentifier, then asserts they were saved.
+func updateFPRStakingConfig(t *testing.T, c *Controller, blk *block.Block, claim,
+	unstake, withdraw uint32) {
+	t.Helper()
+	updateStakingContract := transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_UpdateStaking,
+		AssetID:     FPRIdentifier,
+		Staking: &transaction.StakingInfo{
+			Type:                transaction.StakingInfo_FPRI,
+			MinEpochsToClaim:    claim,
+			MinEpochsToUnstake:  unstake,
+			MinEpochsToWithdraw: withdraw,
+		},
+	}
+	runStakingContractTx(
+		t,
+		c,
+		blk,
+		&updateStakingContract,
+		transaction.TXContract_AssetTriggerContractType,
+		OwnerAddress,
+		nil,
+	)
+	staking := c.GetStakingKDA(FPRIdentifier)
+	require.Equal(t, claim, staking.MinEpochsToClaim)
+	require.Equal(t, unstake, staking.MinEpochsToUnstake)
+	require.Equal(t, withdraw, staking.MinEpochsToWithdraw)
 }

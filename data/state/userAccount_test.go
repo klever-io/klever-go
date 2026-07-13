@@ -898,10 +898,11 @@ func TestUserAccount_ComputeClaimFPR(t *testing.T) {
 		assert.Equal(t, state.ErrClaimNotAvailable, err)
 	})
 
-	t.Run("FPR skips unstaked buckets with FixStakingBuckets", func(t *testing.T) {
+	t.Run("FPR legacy skip remains before FixAuditChangesV3", func(t *testing.T) {
 		account, _ := state.NewUserAccount([]byte("address"))
 		forkController := mock.NewForkControllerStub()
 		forkController.FixStakingBucketsValue = true
+		forkController.FixAuditChangesV3Value = false
 
 		userKDA := &kapps.UserKDA{
 			LastClaim: &kapps.LastClaim{Epoch: 1},
@@ -914,7 +915,7 @@ func TestUserAccount_ComputeClaimFPR(t *testing.T) {
 				"unstaked": {
 					Value:         2000,
 					StakedEpoch:   1,
-					UnstakedEpoch: 3, // already unstaked
+					UnstakedEpoch: 3,
 				},
 			},
 		}
@@ -927,6 +928,11 @@ func TestUserAccount_ComputeClaimFPR(t *testing.T) {
 					TotalAmount: 1000,
 					TotalStaked: 10000,
 				},
+				{
+					Epoch:       4,
+					TotalAmount: 1000,
+					TotalStaked: 10000,
+				},
 			},
 		}
 
@@ -934,8 +940,52 @@ func TestUserAccount_ComputeClaimFPR(t *testing.T) {
 			kdautils.KLVIdentifier, 5, 2000, userKDA, staking, forkController,
 		)
 		assert.NoError(t, err)
-		// Only the active bucket (1000/10000 * 1000 = 100)
-		assert.Equal(t, int64(100), gains[string(kdautils.KLVIdentifier)])
+		assert.Equal(t, int64(200), gains[string(kdautils.KLVIdentifier)])
+	})
+
+	t.Run("FPR claims only pre-unstake epochs with FixAuditChangesV3", func(t *testing.T) {
+		account, _ := state.NewUserAccount([]byte("address"))
+		forkController := mock.NewForkControllerStub()
+		forkController.FixStakingBucketsValue = true
+		forkController.FixAuditChangesV3Value = true
+
+		userKDA := &kapps.UserKDA{
+			LastClaim: &kapps.LastClaim{Epoch: 1},
+			Buckets: map[string]*kapps.UserBucket{
+				"active": {
+					Value:         1000,
+					StakedEpoch:   1,
+					UnstakedEpoch: core.DefaultUnstakedEpoch,
+				},
+				"unstaked": {
+					Value:         2000,
+					StakedEpoch:   1,
+					UnstakedEpoch: 3,
+				},
+			},
+		}
+		staking := &kapps.StakingData{
+			InterestType:     kapps.StakingData_FPRI,
+			MinEpochsToClaim: 0,
+			FPR: []*kapps.FPRData{
+				{
+					Epoch:       2,
+					TotalAmount: 1000,
+					TotalStaked: 10000,
+				},
+				{
+					Epoch:       4,
+					TotalAmount: 1000,
+					TotalStaked: 10000,
+				},
+			},
+		}
+
+		gains, err := account.ComputeAvailableClaim(
+			kdautils.KLVIdentifier, 5, 2000, userKDA, staking, forkController,
+		)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(400), gains[string(kdautils.KLVIdentifier)])
 	})
 
 	t.Run("FPR with ClaimKFI false uses KFI identifier", func(t *testing.T) {

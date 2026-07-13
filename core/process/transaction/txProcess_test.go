@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -2290,108 +2291,175 @@ func TestTxProcessor_ProcessWithdrawWrongValsShouldErr(t *testing.T) {
 func TestTxProcessor_ProcessWithdrawOkValsShouldWork(t *testing.T) {
 	t.Parallel()
 
-	userDB, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
+	// Table-driven regression test for FPR reward loss bug (KLR-08 / FixAuditChangesV3).
+	//
+	// SCENARIO: Buckets staked at epoch 0, unstaked at epoch 5. FPR epochs 1-4
+	// occur while buckets are staked. When withdraw is processed at epoch 16,
+	// the claim logic checks if bucket is unstaked.
+	//
+	// PRE-FIX (FixAuditChangesV3 disabled):
+	// - Entire unstaked buckets skipped during FPR claim (blanket skip logic)
+	// - Pre-unstake FPR rewards (+1779 KLV) silently lost to asset depositor
+	// - Balance: 13345 (1000 initial + 12345 principal only)
+	//
+	// POST-FIX (FixAuditChangesV3 enabled):
+	// - Only post-unstake FPR epochs skipped (epoch-aware filtering)
+	// - Pre-unstake FPR rewards now claimable and paid to staker
+	// - Balance: 15124 (1000 initial + 12345 principal + 1779 recovered rewards)
 
-	ownerAcc := loadUserAccount(accCacher, testOwnerAddress)
-	peerAcc := loadPeerAccount(accCacher, []byte("PEER"))
-	kdaKapp := loadKAppAccount(accCacher, kapps.KDAKAppAddress)
-	stakingKapp := loadKAppAccount(accCacher, kapps.StakingKAppAddress)
-
-	initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
+	testCases := []struct {
+		name                   string
+		fixAuditChangesV3Epoch uint32
+		expectedKLVBalance     int64
+		expectedKFIBalance     int64
+	}{
+		{
+			name:                   "PRE-FIX: FixAuditChangesV3 disabled - rewards lost",
+			fixAuditChangesV3Epoch: math.MaxUint32, // Disabled
+			expectedKLVBalance:     13345,          // 1000 + 12345
+			expectedKFIBalance:     6789,
+		},
+		{
+			name:                   "POST-FIX: FixAuditChangesV3 enabled - rewards recovered",
+			fixAuditChangesV3Epoch: 0,     // Enabled at epoch 0
+			expectedKLVBalance:     15124, // 1000 + 12345 + 1779
+			expectedKFIBalance:     6789,
+		},
+	}
 
 	klvKey := kdautils.ToKDAKey(kdautils.KLVIdentifier, nil)
 	kfiKey := kdautils.ToKDAKey(kdautils.KFIIdentifier, nil)
 
-	userKDA := kapps.UserKDA{
-		Balance:       0,
-		LastClaim:     &kapps.LastClaim{},
-		FrozenBalance: 0,
-		Buckets:       make(map[string]*kapps.UserBucket),
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			userDB, kappDB, peerDB, accCacher := createFullArgumentsForKAppsProcessing(createMemUnit())
+
+			ownerAcc := loadUserAccount(accCacher, testOwnerAddress)
+			peerAcc := loadPeerAccount(accCacher, []byte("PEER"))
+			kdaKapp := loadKAppAccount(accCacher, kapps.KDAKAppAddress)
+			stakingKapp := loadKAppAccount(accCacher, kapps.StakingKAppAddress)
+
+			initKLVAndKFIintoKapps(kdaKapp, stakingKapp)
+
+			// Setup user KDA for KLV (12345)
+			userKDA := kapps.UserKDA{
+				Balance:       0,
+				LastClaim:     &kapps.LastClaim{},
+				FrozenBalance: 0,
+				Buckets:       make(map[string]*kapps.UserBucket),
+			}
+
+			userKDA.Buckets["MY_BUCKET"] = &kapps.UserBucket{
+				StakedAt:      time.Now().AddDate(0, 0, -15).Unix(),
+				StakedEpoch:   0,
+				UnstakedEpoch: 5,
+				Value:         12345,
+				Delegation:    nil,
+			}
+
+			klvBucket, err := marshalizer.Marshal(&userKDA)
+			assert.Nil(t, err)
+
+			err = ownerAcc.DataTrieTracker().SaveKeyValue(klvKey, klvBucket)
+			assert.Nil(t, err)
+
+			// Setup user KDA for KFI (6789)
+			userKDA.Buckets["MY_BUCKET"].Value = 6789
+
+			kfiBucket, err := marshalizer.Marshal(&userKDA)
+			assert.Nil(t, err)
+
+			err = ownerAcc.DataTrieTracker().SaveKeyValue(kfiKey, kfiBucket)
+			assert.Nil(t, err)
+
+			_ = ownerAcc.AddToBalance(1000, nil, true)
+
+			_ = userDB.SaveAccount(ownerAcc)
+			_ = kappDB.SaveAccount(kdaKapp)
+			_ = kappDB.SaveAccount(stakingKapp)
+			_ = peerDB.SaveAccount(peerAcc)
+
+			// Setup fork controller with test case's configuration
+			args := createArgsForTxProcessor()
+			args.AccountsCacher = accCacher
+
+			epochNotifier := &commonMock.EpochNotifierStub{}
+			forkController, _ := fork.NewForkController(config.EnableEpochs{
+				ClaimKFI:              0,
+				ProcessorFlowITOPrice: 0,
+				FixStakingBuckets:     0,
+				KdaFpr:                0,
+				SmartContracts:        0,
+				FixAuditChangesV3:     tc.fixAuditChangesV3Epoch,
+			}, epochNotifier)
+			args.ForkController = forkController
+
+			kAppController, _ := kappcontroller.NewKappController(kappcontroller.ArgsNewKApp{
+				Hasher:         &commonMock.HasherMock{},
+				Marshalizer:    marshalizer,
+				PubkeyConv:     createMockPubkeyConverter(),
+				ForkController: forkController,
+				AccountsCacher: accCacher,
+				RatingsData:    &commonMock.RatingsInfoMock{},
+			})
+			args.KAppController = kAppController
+
+			execTx := NewTXProcessor(t, args)
+
+			block := createBlockHeader()
+			block.Header.Epoch = 16
+
+			// Withdraw KLV
+			withdrawContract := transaction.WithdrawContract{
+				AssetID: kdautils.KLVIdentifier,
+			}
+
+			wtdTX, _ := createTransactionMock(&withdrawContract, transaction.TXContract_WithdrawContractType, testOwnerAddress, 0)
+
+			_, hash, err := execTx.PreProcessTransaction(wtdTX)
+			assert.Nil(t, err)
+
+			err = execTx.ProcessTransaction(block, hash, wtdTX)
+			assert.Nil(t, err)
+
+			ownerAcc = loadUserAccount(accCacher, testOwnerAddress)
+
+			userKLVBytes, err := ownerAcc.DataTrieTracker().RetrieveValue(klvKey)
+			assert.Nil(t, err)
+
+			userKLVWithdraw := &kapps.UserKDA{}
+			err = marshalizer.Unmarshal(userKLVWithdraw, userKLVBytes)
+			assert.Nil(t, err)
+
+			// Withdraw KFI
+			withdrawKFIContract := transaction.WithdrawContract{
+				AssetID: kdautils.KFIIdentifier,
+			}
+
+			kfiTX, _ := createTransactionMock(&withdrawKFIContract, transaction.TXContract_WithdrawContractType, testOwnerAddress, 0)
+
+			_, hash, err = execTx.PreProcessTransaction(kfiTX)
+			assert.Nil(t, err)
+
+			err = execTx.ProcessTransaction(block, hash, kfiTX)
+			assert.Nil(t, err)
+
+			ownerAcc = loadUserAccount(accCacher, testOwnerAddress)
+
+			userKFIBytes, err := ownerAcc.DataTrieTracker().RetrieveValue(kfiKey)
+			assert.Nil(t, err)
+
+			userKFIWithdraw := &kapps.UserKDA{}
+			err = marshalizer.Unmarshal(userKFIWithdraw, userKFIBytes)
+			assert.Nil(t, err)
+
+			// Verify fork behavior: balance should match expected value
+			assert.Equal(t, tc.expectedKLVBalance, ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
+			assert.Equal(t, tc.expectedKFIBalance, ownerAcc.GetBalance(kdautils.KFIIdentifier, true))
+			assert.Equal(t, 0, len(userKLVWithdraw.Buckets))
+			assert.Equal(t, 0, len(userKFIWithdraw.Buckets))
+		})
 	}
-
-	userKDA.Buckets["MY_BUCKET"] = &kapps.UserBucket{
-		StakedAt:      time.Now().AddDate(0, 0, -15).Unix(),
-		StakedEpoch:   0,
-		UnstakedEpoch: 5,
-		Value:         12345,
-		Delegation:    nil,
-	}
-
-	klvBucket, err := marshalizer.Marshal(&userKDA)
-	assert.Nil(t, err)
-
-	err = ownerAcc.DataTrieTracker().SaveKeyValue(klvKey, klvBucket)
-	assert.Nil(t, err)
-
-	userKDA.Buckets["MY_BUCKET"].Value = 6789
-
-	kfiBucket, err := marshalizer.Marshal(&userKDA)
-	assert.Nil(t, err)
-
-	err = ownerAcc.DataTrieTracker().SaveKeyValue(kfiKey, kfiBucket)
-	assert.Nil(t, err)
-
-	_ = ownerAcc.AddToBalance(1000, nil, true)
-
-	_ = userDB.SaveAccount(ownerAcc)
-	_ = kappDB.SaveAccount(kdaKapp)
-	_ = kappDB.SaveAccount(stakingKapp)
-	_ = peerDB.SaveAccount(peerAcc)
-
-	args := createArgsForTxProcessor()
-	args.AccountsCacher = accCacher
-	execTx := NewTXProcessor(t, args)
-
-	block := createBlockHeader()
-
-	block.Header.Epoch = 16
-
-	withdrawContract := transaction.WithdrawContract{
-		AssetID: kdautils.KLVIdentifier,
-	}
-
-	wtdTX, _ := createTransactionMock(&withdrawContract, transaction.TXContract_WithdrawContractType, testOwnerAddress, 0)
-
-	_, hash, err := execTx.PreProcessTransaction(wtdTX)
-	assert.Nil(t, err)
-
-	err = execTx.ProcessTransaction(block, hash, wtdTX)
-	assert.Nil(t, err)
-
-	ownerAcc = loadUserAccount(accCacher, testOwnerAddress)
-
-	userKLVBytes, err := ownerAcc.DataTrieTracker().RetrieveValue(klvKey)
-	assert.Nil(t, err)
-
-	userKLVWithdraw := &kapps.UserKDA{}
-	err = marshalizer.Unmarshal(userKLVWithdraw, userKLVBytes)
-	assert.Nil(t, err)
-
-	withdrawKFIContract := transaction.WithdrawContract{
-		AssetID: kdautils.KFIIdentifier,
-	}
-
-	kfiTX, _ := createTransactionMock(&withdrawKFIContract, transaction.TXContract_WithdrawContractType, testOwnerAddress, 0)
-
-	_, hash, err = execTx.PreProcessTransaction(kfiTX)
-	assert.Nil(t, err)
-
-	err = execTx.ProcessTransaction(block, hash, kfiTX)
-	assert.Nil(t, err)
-
-	ownerAcc = loadUserAccount(accCacher, testOwnerAddress)
-
-	userKFIBytes, err := ownerAcc.DataTrieTracker().RetrieveValue(kfiKey)
-	assert.Nil(t, err)
-
-	userKFIWithdraw := &kapps.UserKDA{}
-	err = marshalizer.Unmarshal(userKFIWithdraw, userKFIBytes)
-	assert.Nil(t, err)
-
-	assert.Equal(t, int64(13345), ownerAcc.GetBalance(kdautils.KLVIdentifier, true))
-	assert.Equal(t, int64(6789), ownerAcc.GetBalance(kdautils.KFIIdentifier, true))
-	assert.Equal(t, 0, len(userKLVWithdraw.Buckets))
-	assert.Equal(t, 0, len(userKFIWithdraw.Buckets))
 }
 
 func TestTxProcessor_ProcessClaimWrongValsShouldErr(t *testing.T) {
