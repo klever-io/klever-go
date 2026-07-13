@@ -6,9 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -49,28 +46,10 @@ import (
 	"github.com/klever-io/klever-go/common/mock"
 )
 
-const scDeployTimeoutBoundaryBusyInitWAT = `(module
- (type $arg_t (func (param i32) (result i64)))
- (import "env" "smallIntGetUnsignedArgument" (func $smallIntGetUnsignedArgument
-(type $arg_t)))
- (memory 1)
- (export "memory" (memory 0))
- (func $init (export "init")
- (local $i i64)
- (local $limit i64)
- i32.const 0
- call $smallIntGetUnsignedArgument
- local.set $limit  p $busy
- local.get $i
- i64.const 1
- i64.add
- local.tee $i
- local.get $limit
- i64.lt_u
- br_if $busy
- end)
- (func $upgrade (export "upgrade")))
-`
+// Precompiled module that imports smallIntGetUnsignedArgument, exports memory/init/upgrade,
+// and makes init loop for the number of iterations in argument 0. Embedding it keeps the
+// timeout regression independent of an external WAT compiler.
+const scDeployTimeoutBoundaryBusyInitWASMHex = "0061736d0100000001090260000060017f017e02230103656e761b736d616c6c496e74476574556e7369676e6564417267756d656e74000103030200000503010001071b0304696e6974000107757067726164650002066d656d6f727902000a1e021901027e4100100021010340200042017c22002001540d000b0b02000b"
 
 const scDeployTimeoutMainnetExecutionTimeoutMs = uint32(500)
 
@@ -306,7 +285,7 @@ func TestTXProcessor_smartContract(t *testing.T) {
 }
 
 func TestTXProcessor_SCDeployTimeoutBoundaryDeterministic(t *testing.T) {
-	wasmCode := compileSCDeployTimeoutBusyInitWASM(t)
+	wasmCode := decodeSCDeployTimeoutBusyInitWASM(t)
 	disabledOutcome := runSCDeployTimeoutDeployment(t, wasmCode, 1,
 		scDeployTimeoutMainnetExecutionTimeoutMs, false)
 	require.Error(t, disabledOutcome.err)
@@ -343,21 +322,10 @@ func TestTXProcessor_SCDeployTimeoutBoundaryDeterministic(t *testing.T) {
 	}
 }
 
-func compileSCDeployTimeoutBusyInitWASM(t *testing.T) []byte {
+func decodeSCDeployTimeoutBusyInitWASM(t *testing.T) []byte {
 	t.Helper()
-	wat2wasm, err := exec.LookPath("wat2wasm")
-	if err != nil {
-		t.Skip("wat2wasm is required for the SC deploy timeout regression test")
-	}
-	dir := t.TempDir()
-	watPath := filepath.Join(dir, "busy-init.wat")
-	wasmPath := filepath.Join(dir, "busy-init.wasm")
-	require.NoError(t, os.WriteFile(watPath, []byte(scDeployTimeoutBoundaryBusyInitWAT),
-		0o600))
-	cmd := exec.Command(wat2wasm, watPath, "-o", wasmPath)
-	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, string(output))
-	wasmCode, err := os.ReadFile(wasmPath)
+
+	wasmCode, err := hex.DecodeString(scDeployTimeoutBoundaryBusyInitWASMHex)
 	require.NoError(t, err)
 	require.NotEmpty(t, wasmCode)
 	return wasmCode
@@ -491,7 +459,7 @@ func runSCDeployTimeoutDeployment(
 			BlockChainHook:   scDeployTimeoutBlockchainHook(world),
 			BuiltInFunctions: world.BuiltinFuncs.Container, PubkeyConv: args.PubkeyConv,
 			TxFeeHandler:        args.TxFeeHandler,
-			EconomicsFee:        freeFeeHandlerMock(),
+			EconomicsFee:        feeHandler,
 			GasSchedule:         notifierMock.NewGasScheduleNotifierMock(gasSchedule),
 			TxLogsProcessor:     &contextmock.TxLogsProcessorStub{},
 			ForkController:      forkController,
