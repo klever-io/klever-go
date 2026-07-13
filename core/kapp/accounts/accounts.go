@@ -1791,7 +1791,7 @@ func (a *accountsKapp) validateSigners(pType transaction.AccPermission_AccPermis
 		if len(signer.Address) != a.pubkeyConv.Len() {
 			return 0, nil, common.ErrInvalidParameter
 		}
-		if signer.Weight <= 0 {
+		if a.forkController.FixAuditChangesV3() && signer.Weight <= 0 {
 			return 0, nil, transaction.ErrInvalidSignerWeight
 		}
 		// Check for duplicate signers
@@ -1800,7 +1800,7 @@ func (a *accountsKapp) validateSigners(pType transaction.AccPermission_AccPermis
 		}
 		dupCheck[string(signer.Address)] = true
 
-		weightSum, err = tools.SafeAddI64(weightSum, signer.Weight)
+		weightSum, err = a.accumulateSignerWeight(weightSum, signer.Weight)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -1811,6 +1811,13 @@ func (a *accountsKapp) validateSigners(pType transaction.AccPermission_AccPermis
 	}
 
 	return weightSum, stateSigners, nil
+}
+
+func (a *accountsKapp) accumulateSignerWeight(weightSum, weight int64) (int64, error) {
+	if a.forkController.FixAuditChangesV3() {
+		return tools.SafeAddI64(weightSum, weight)
+	}
+	return weightSum + weight, nil
 }
 
 func (a *accountsKapp) validatePermissionName(name string) (string, error) {
@@ -1835,7 +1842,7 @@ func (a *accountsKapp) buildPermission(
 	if p.Threshold > weightSum {
 		return nil, common.ErrInvalidParameter
 	}
-	if p.Threshold <= 0 {
+	if a.forkController.FixAuditChangesV3() && p.Threshold <= 0 {
 		return nil, transaction.ErrInvalidPermissionThreshold
 	}
 

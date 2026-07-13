@@ -3990,6 +3990,80 @@ func TestUpdatePermission(t *testing.T) {
 			expectedError: common.ErrInt64Overflow,
 		},
 		{
+			name:   "Zero threshold accepted before fork",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_Owner,
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: 1},
+						},
+						Threshold: 0,
+					},
+				},
+			},
+			forkController: commonMock.NewForkControllerStub().SetFork("FixAuditChangesV3", false),
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+				UpdateUserCalled: func(state.AccountHandler) error {
+					return nil
+				},
+			},
+			expectedCode: transaction.Transaction_Ok,
+		},
+		{
+			name:   "Zero signer weight accepted before fork",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_Owner,
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: 0},
+						},
+						Threshold: 0,
+					},
+				},
+			},
+			forkController: commonMock.NewForkControllerStub().SetFork("FixAuditChangesV3", false),
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+				UpdateUserCalled: func(state.AccountHandler) error {
+					return nil
+				},
+			},
+			expectedCode: transaction.Transaction_Ok,
+		},
+		{
+			name:   "Signer weight sum uses legacy wrap before fork",
+			sender: []byte("sender"),
+			tc: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type: transaction.AccPermission_Owner,
+						Signers: []*transaction.AccKey{
+							{Address: bytes.Repeat([]byte{1}, 32), Weight: math.MaxInt64},
+							{Address: bytes.Repeat([]byte{2}, 32), Weight: 1},
+						},
+						Threshold: 1,
+					},
+				},
+			},
+			forkController: commonMock.NewForkControllerStub().SetFork("FixAuditChangesV3", false),
+			accountsCacher: &commonMock.AccountsCacherStub{
+				GetExistingUserCalled: func([]byte) (state.UserAccountHandler, error) {
+					return &commonMock.UserAccountHandlerStub{}, nil
+				},
+			},
+			expectedCode:  transaction.Transaction_ParameterInvalid,
+			expectedError: common.ErrInvalidParameter,
+		},
+		{
 			name:   "Invalid permission name with KdaFpr enabled",
 			sender: []byte("sender"),
 			tc: &transaction.UpdateAccountPermissionContract{

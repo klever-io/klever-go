@@ -824,7 +824,7 @@ func (tc *UpdateAccountPermissionContract) validateUpdateAccountPermissionAfterF
 	return nil
 }
 
-func validatePermission(perm *AccPermission) error {
+func validatePermission(perm *AccPermission, fc core.ForkController) error {
 	if len(perm.GetSigners()) > core.MaxPermissionSigners {
 		return ErrInvalidPermissionSize
 	}
@@ -838,13 +838,15 @@ func validatePermission(perm *AccPermission) error {
 		return ErrInvalidPermissionOperation
 	}
 
-	if perm.Threshold <= 0 {
-		return ErrInvalidPermissionThreshold
-	}
+	if fc.FixAuditChangesV3() {
+		if perm.Threshold <= 0 {
+			return ErrInvalidPermissionThreshold
+		}
 
-	for _, signer := range perm.Signers {
-		if signer.Weight <= 0 {
-			return ErrInvalidSignerWeight
+		for _, signer := range perm.Signers {
+			if signer.Weight <= 0 {
+				return ErrInvalidSignerWeight
+			}
 		}
 	}
 
@@ -853,7 +855,7 @@ func validatePermission(perm *AccPermission) error {
 
 func (tc *UpdateAccountPermissionContract) validateUpdateAccountPermissions(fc core.ForkController) error {
 	for _, perm := range tc.GetPermissions() {
-		if err := validatePermission(perm); err != nil {
+		if err := validatePermission(perm, fc); err != nil {
 			return err
 		}
 

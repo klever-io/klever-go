@@ -1559,6 +1559,82 @@ func TestUpdateAccountPermissionContractValidate(t *testing.T) {
 			expectError: true,
 			errorMsg:    transaction.ErrInvalidSignerWeight.Error(),
 		},
+		{
+			name: "zero threshold pre fork",
+			contract: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type:      transaction.AccPermission_Owner,
+						Threshold: 0,
+						Signers: []*transaction.AccKey{
+							{
+								Address: core.ZeroAddress,
+								Weight:  1,
+							},
+						},
+					},
+				},
+			},
+			fc:          mock.NewForkControllerStub().SetFork("FixAuditChangesV3", false),
+			expectError: false,
+		},
+		{
+			name: "negative threshold pre fork",
+			contract: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type:      transaction.AccPermission_Owner,
+						Threshold: -1,
+						Signers: []*transaction.AccKey{
+							{
+								Address: core.ZeroAddress,
+								Weight:  1,
+							},
+						},
+					},
+				},
+			},
+			fc:          mock.NewForkControllerStub().SetFork("FixAuditChangesV3", false),
+			expectError: false,
+		},
+		{
+			name: "zero signer weight pre fork",
+			contract: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type:      transaction.AccPermission_Owner,
+						Threshold: 1,
+						Signers: []*transaction.AccKey{
+							{
+								Address: core.ZeroAddress,
+								Weight:  0,
+							},
+						},
+					},
+				},
+			},
+			fc:          mock.NewForkControllerStub().SetFork("FixAuditChangesV3", false),
+			expectError: false,
+		},
+		{
+			name: "negative signer weight pre fork",
+			contract: &transaction.UpdateAccountPermissionContract{
+				Permissions: []*transaction.AccPermission{
+					{
+						Type:      transaction.AccPermission_Owner,
+						Threshold: 1,
+						Signers: []*transaction.AccKey{
+							{
+								Address: core.ZeroAddress,
+								Weight:  -1,
+							},
+						},
+					},
+				},
+			},
+			fc:          mock.NewForkControllerStub().SetFork("FixAuditChangesV3", false),
+			expectError: false,
+		},
 	}
 
 	for _, tt := range tests {
