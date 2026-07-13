@@ -748,9 +748,6 @@ func (sc *scProcessor) processSCPayment(tc data.SmartContractHandler, acntSnd st
 		if err != nil {
 			return fmt.Errorf("result code: %d, %v", resultCode, err)
 		}
-		if sc.forkController.FixAuditChangesV3() {
-			cvwr.Amount = transferContract.Amount
-		}
 		return nil
 	})
 }

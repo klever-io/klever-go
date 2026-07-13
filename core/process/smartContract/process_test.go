@@ -1894,7 +1894,7 @@ func newNFTForkController(t *testing.T, fixV3On bool) core.ForkController {
 	return forkController
 }
 
-func TestScProcessor_ProcessSCPayment_NonCanonicalNFTAmountNormalized(t *testing.T) {
+func TestScProcessor_ProcessSCPayment_NonCanonicalNFTAmount(t *testing.T) {
 	sender := bytes.Repeat([]byte{0x11}, 32)
 	recipient := bytes.Repeat([]byte{0x22}, 32)
 	assetID := []byte("NFT-1234")
@@ -1902,12 +1902,11 @@ func TestScProcessor_ProcessSCPayment_NonCanonicalNFTAmountNormalized(t *testing
 	const inflated = int64(1_000_000)
 
 	tests := []struct {
-		description    string
-		fixV3On        bool
-		expectedAmount int64
+		description string
+		fixV3On     bool
 	}{
-		{description: "fork on: call value normalized to one moved NFT", fixV3On: true, expectedAmount: 1},
-		{description: "fork off: legacy inflated call value preserved", fixV3On: false, expectedAmount: inflated},
+		{description: "fork on: non-canonical call value is rejected", fixV3On: true},
+		{description: "fork off: legacy inflated call value accepted", fixV3On: false},
 	}
 
 	for _, tt := range tests {
@@ -1940,14 +1939,26 @@ func TestScProcessor_ProcessSCPayment_NonCanonicalNFTAmountNormalized(t *testing
 			}
 
 			err := sc.processSCPayment(tc, acntSnd)
+
+			if tt.fixV3On {
+				// Post-fork: the non-canonical NFT amount is rejected and the
+				// internal KDA move never happens.
+				require.Error(t, err)
+				require.Contains(t, err.Error(), common.ErrInvalidValue.Error())
+				require.False(t, subInternalCalled, "internal KDA path (sub) must not run on rejection")
+				require.False(t, addInternalCalled, "internal KDA path (add) must not run on rejection")
+				return
+			}
+
+			// Pre-fork: legacy behaviour moves the NFT and preserves the inflated call value.
 			require.NoError(t, err)
 			require.True(t, subInternalCalled && addInternalCalled, "true NFT was not moved through the internal path")
-			assert.Equal(t, tt.expectedAmount, tc.GetCallValue()["NFT-1234/7"].Amount)
+			assert.Equal(t, inflated, tc.GetCallValue()["NFT-1234/7"].Amount)
 		})
 	}
 }
 
-func TestScProcessor_PrepareExecution_NFTCallValueActualizedIntoVMInput(t *testing.T) {
+func TestScProcessor_PrepareExecution_NonCanonicalNFTCallValue(t *testing.T) {
 	sender := bytes.Repeat([]byte{0x11}, 32)
 	recipient := bytes.Repeat([]byte{0x22}, 32)
 	assetID := []byte("NFT-1234")
@@ -1955,12 +1966,11 @@ func TestScProcessor_PrepareExecution_NFTCallValueActualizedIntoVMInput(t *testi
 	const inflated = int64(1_000_000)
 
 	tests := []struct {
-		description      string
-		fixV3On          bool
-		expectedKDAValue int64
+		description string
+		fixV3On     bool
 	}{
-		{description: "fork on: VM input carries actualized value", fixV3On: true, expectedKDAValue: 1},
-		{description: "fork off: VM input exposes inflated value", fixV3On: false, expectedKDAValue: inflated},
+		{description: "fork on: non-canonical call value rejected before VM input", fixV3On: true},
+		{description: "fork off: VM input exposes inflated value", fixV3On: false},
 	}
 
 	for _, tt := range tests {
@@ -2015,6 +2025,20 @@ func TestScProcessor_PrepareExecution_NFTCallValueActualizedIntoVMInput(t *testi
 				&commommock.UserAccountHandlerStub{AddressBytesCalled: func() []byte { return sender }},
 				&commommock.UserAccountHandlerStub{},
 			)
+
+			if tt.fixV3On {
+				// Post-fork: preparation fails on the non-canonical NFT call value,
+				// so no VM input is produced and the internal move never happens.
+				require.Error(t, err)
+				require.Contains(t, err.Error(), common.ErrInvalidValue.Error())
+				require.Equal(t, vmcommon.VMContractInvalid, returnCode)
+				require.Nil(t, vmInput)
+				require.False(t, subInternalCalled, "internal KDA path (sub) must not run on rejection")
+				require.False(t, addInternalCalled, "internal KDA path (add) must not run on rejection")
+				return
+			}
+
+			// Pre-fork: preparation succeeds and the VM input exposes the inflated value.
 			require.NoError(t, err)
 			require.Equal(t, vmcommon.Ok, returnCode)
 			require.True(t, subInternalCalled && addInternalCalled, "true NFT was not moved through the internal path")
@@ -2022,7 +2046,7 @@ func TestScProcessor_PrepareExecution_NFTCallValueActualizedIntoVMInput(t *testi
 			require.Len(t, vmInput.KDATransfers, 1)
 
 			transfer := vmInput.KDATransfers[0]
-			assert.Equal(t, 0, transfer.KDAValue.Cmp(big.NewInt(tt.expectedKDAValue)), "got KDAValue %s want %d", transfer.KDAValue, tt.expectedKDAValue)
+			assert.Equal(t, 0, transfer.KDAValue.Cmp(big.NewInt(inflated)), "got KDAValue %s want %d", transfer.KDAValue, inflated)
 			assert.Equal(t, uint64(7), transfer.KDATokenNonce)
 			assert.Equal(t, uint32(core.NonFungible), transfer.KDATokenType)
 			assert.True(t, transfer.IsExecuted(), "VM input transfer should be marked executed after SC payment")
