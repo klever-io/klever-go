@@ -1,13 +1,16 @@
 package vmhooks_test
 
 import (
+	"fmt"
 	"math/big"
+	"strconv"
 	"testing"
 
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/kvm/executor"
 	mock "github.com/klever-io/klever-go/kvm/mock/context"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/vmhost/hostCore"
 	"github.com/klever-io/klever-go/kvm/vmhost/vmhooks"
 	"github.com/klever-io/klever-go/vmcommon"
@@ -704,5 +707,211 @@ func TestBigIntGetCallValue(t *testing.T) {
 		))) + callValueGas
 
 		assert.Equal(t, hooks.GetRuntimeContext().GetPointsUsed(), totalGas)
+	})
+}
+
+func TestBigIntPow(t *testing.T) {
+	t.Run("positive base and exponent", func(t *testing.T) {
+		mockWorld := worldmock.NewMockWorld()
+		vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+		require.NoError(t, err)
+		hooks := vmhooks.NewVMHooksImpl(vmHost)
+		provideGas(hooks, 1_000_000)
+
+		baseHandle := hooks.BigIntNew(2)
+		expHandle := hooks.BigIntNew(10)
+		destHandle := hooks.BigIntNew(0)
+
+		hooks.BigIntPow(destHandle, baseHandle, expHandle)
+
+		result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
+		require.NoError(t, err)
+		require.Equal(t, 0, big.NewInt(1024).Cmp(result), "2^10 should be 1024")
+	})
+
+	t.Run("zero base short-circuits identically across fork", func(t *testing.T) {
+		cases := []struct {
+			exponent int64
+			expected int64
+		}{
+			{exponent: 0, expected: 1},
+			{exponent: 1, expected: 0},
+			{exponent: 64, expected: 0},
+		}
+		for _, fixAuditV3 := range []bool{false, true} {
+			fixAuditV3 := fixAuditV3
+			t.Run(fmt.Sprintf("FixAuditChangesV3=%t", fixAuditV3), func(t *testing.T) {
+				for _, tc := range cases {
+					tc := tc
+					t.Run(strconv.FormatInt(tc.exponent, 10), func(t *testing.T) {
+						mockWorld := worldmock.NewMockWorld()
+						vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParametersWithFork(newForkStub(fixAuditV3)))
+						require.NoError(t, err)
+						hooks := vmhooks.NewVMHooksImpl(vmHost)
+						provideGas(hooks, 0) // no gas: proves no result-size charge is made
+
+						baseHandle := hooks.BigIntNew(0)
+						expHandle := hooks.BigIntNew(tc.exponent)
+						destHandle := hooks.BigIntNew(7) // sentinel; overwritten with the result
+
+						hooks.BigIntPow(destHandle, baseHandle, expHandle)
+
+						result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
+						require.NoError(t, err, "zero base must not fault")
+						require.Equal(t, 0, big.NewInt(tc.expected).Cmp(result), "0^%d should be %d", tc.exponent, tc.expected)
+					})
+				}
+			})
+		}
+	})
+	t.Run("non-zero base result unchanged across fork", func(t *testing.T) {
+		for _, fixAuditV3 := range []bool{false, true} {
+			fixAuditV3 := fixAuditV3
+			t.Run(fmt.Sprintf("FixAuditChangesV3=%t", fixAuditV3), func(t *testing.T) {
+				mockWorld := worldmock.NewMockWorld()
+				vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParametersWithFork(newForkStub(fixAuditV3)))
+				require.NoError(t, err)
+				hooks := vmhooks.NewVMHooksImpl(vmHost)
+				provideGas(hooks, 1_000_000)
+
+				baseHandle := hooks.BigIntNew(2)
+				expHandle := hooks.BigIntNew(10)
+				destHandle := hooks.BigIntNew(0)
+
+				hooks.BigIntPow(destHandle, baseHandle, expHandle)
+
+				result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
+				require.NoError(t, err)
+				require.Equal(t, 0, big.NewInt(1024).Cmp(result), "2^10 should be 1024 regardless of fork")
+			})
+		}
+	})
+
+	t.Run("non-zero base charges positive gas", func(t *testing.T) {
+		// base 2 (byteLen == 2 bits) and exponent 64 give a result-size charge of
+		// 64*2/8 == 16 gas, a whole, strictly-positive number of gas units.
+		const base = 2
+		const exponent = 64
+		const expectedGasCharge = uint64(exponent) * 2 / 8 // 16 gas
+
+		t.Run("faults when gas is one unit short", func(t *testing.T) {
+			mockWorld := worldmock.NewMockWorld()
+			vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+			require.NoError(t, err)
+			hooks := vmhooks.NewVMHooksImpl(vmHost)
+			// One unit short of the positive result-size charge.
+			provideGas(hooks, expectedGasCharge-1)
+
+			baseHandle := hooks.BigIntNew(base)
+			expHandle := hooks.BigIntNew(exponent)
+			destHandle := hooks.BigIntNew(7) // sentinel; must stay unchanged on fault
+
+			hooks.BigIntPow(destHandle, baseHandle, expHandle)
+
+			result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
+			require.NoError(t, err)
+			require.Equal(t, 0, big.NewInt(7).Cmp(result), "a positive gas charge must exhaust the one-unit-short budget and leave the destination untouched")
+		})
+
+		t.Run("runs to completion with sufficient gas", func(t *testing.T) {
+			mockWorld := worldmock.NewMockWorld()
+			vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+			require.NoError(t, err)
+			hooks := vmhooks.NewVMHooksImpl(vmHost)
+			provideGas(hooks, 1_000_000)
+
+			baseHandle := hooks.BigIntNew(base)
+			expHandle := hooks.BigIntNew(exponent)
+			destHandle := hooks.BigIntNew(7) // sentinel; overwritten with the result
+
+			hooks.BigIntPow(destHandle, baseHandle, expHandle)
+
+			result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
+			require.NoError(t, err)
+			expected := new(big.Int).Exp(big.NewInt(base), big.NewInt(exponent), nil)
+			require.Equal(t, 0, expected.Cmp(result), "2^64 should be %s", expected.String())
+		})
+	})
+
+	// Regression: the zero-base short-circuit must charge the exponent copy gas
+	// just like the general path. For an exponent whose byte length exceeds the
+	// "too big" threshold (32 bytes / 256 bits) that charge is strictly positive,
+	// so skipping it (as an un-gated short-circuit did) would silently lower
+	// gas-used for 0^n and diverge from historical replay.
+	t.Run("zero base charges exponent copy gas for a large exponent", func(t *testing.T) {
+		powGasUsed := func(exp *big.Int) uint64 {
+			mockWorld := worldmock.NewMockWorld()
+			vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParameters())
+			require.NoError(t, err)
+			hooks := vmhooks.NewVMHooksImpl(vmHost)
+
+			// a mock instance is required for GetPointsUsed to track consumed gas
+			it, ok := vmHost.Runtime().GetInstanceTracker().(InstanceTracker)
+			require.True(t, ok)
+			it.ReplaceInstance(mock.NewInstanceMock(nil))
+
+			provideGas(hooks, 100_000_000)
+
+			baseHandle := hooks.BigIntNew(0)
+			expHandle := hooks.GetManagedTypesContext().NewBigInt(exp)
+			destHandle := hooks.BigIntNew(7)
+
+			hooks.BigIntPow(destHandle, baseHandle, expHandle)
+
+			result, err := vmHost.ManagedTypes().GetBigInt(destHandle)
+			require.NoError(t, err)
+			require.Equal(t, 0, big.NewInt(0).Cmp(result), "0^n should be 0")
+
+			return hooks.GetRuntimeContext().GetPointsUsed()
+		}
+
+		schedHost, err := hostCore.NewVMHost(worldmock.NewMockWorld(), makeHostParameters())
+		require.NoError(t, err)
+		copyPerByte := schedHost.Metering().GasSchedule().BigIntAPICost.CopyPerByteForTooBig
+		require.NotZero(t, copyPerByte, "test gas schedule must charge for oversized copies")
+
+		hugeExp := new(big.Int).Lsh(big.NewInt(1), 300) // 2^300 -> 38 bytes, over the 32-byte threshold
+		smallExp := big.NewInt(64)                      // 1 byte, under the threshold (no copy charge)
+
+		byteLen := uint64((hugeExp.BitLen() + 7) / 8) // 38
+		expectedDelta := byteLen * copyPerByte
+
+		require.Equal(t, expectedDelta, powGasUsed(hugeExp)-powGasUsed(smallExp),
+			"zero base must charge exponent copy gas for a large exponent")
+	})
+
+	// The fault error becomes the on-chain returnMessage (receipts). Pre-fork a
+	// negative exponent first flows through the result-size charge, so a large
+	// |exponent| faults with "not enough gas"; post-fork the bounds check runs
+	// before any gas math and always faults with ErrBadLowerBounds.
+	t.Run("negative exponent fault message is fork-gated", func(t *testing.T) {
+		returnMessageFor := func(fixAuditV3 bool, exponent int64) string {
+			mockWorld := worldmock.NewMockWorld()
+			vmHost, err := hostCore.NewVMHost(mockWorld, makeHostParametersWithFork(newForkStub(fixAuditV3)))
+			require.NoError(t, err)
+			hooks := vmhooks.NewVMHooksImpl(vmHost)
+			provideGas(hooks, 1_000_000)
+
+			baseHandle := hooks.BigIntNew(2)
+			expHandle := hooks.BigIntNew(exponent)
+			destHandle := hooks.BigIntNew(7)
+
+			hooks.BigIntPow(destHandle, baseHandle, expHandle)
+
+			return vmHost.Output().ReturnMessage()
+		}
+
+		const smallNegative = int64(-1)
+		const hugeNegative = int64(-1) << 40 // result-size charge far above the gas budget
+
+		t.Run("pre-fork keeps the legacy gas-first order", func(t *testing.T) {
+			require.Equal(t, vmhost.ErrBadLowerBounds.Error(), returnMessageFor(false, smallNegative))
+			require.Equal(t, vmhost.ErrNotEnoughGas.Error(), returnMessageFor(false, hugeNegative))
+		})
+
+		t.Run("post-fork always reports bad lower bounds", func(t *testing.T) {
+			require.Equal(t, vmhost.ErrBadLowerBounds.Error(), returnMessageFor(true, smallNegative))
+			require.Equal(t, vmhost.ErrBadLowerBounds.Error(), returnMessageFor(true, hugeNegative))
+		})
 	})
 }

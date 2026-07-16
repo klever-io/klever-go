@@ -649,8 +649,20 @@ func (context *VMHooksImpl) BigIntPow(destinationHandle, op1Handle, op2Handle in
 		return
 	}
 
+	// The fault error becomes the on-chain returnMessage (receipts), so the
+	// order of the negative-exponent check relative to the result-size charge
+	// is replay-visible: pre-fork a large negative exponent faults inside
+	// ConsumeGasForThisBigIntNumberOfBytes with ErrNotEnoughGas, post-fork it
+	// always faults with ErrBadLowerBounds before any gas math.
+	fixAuditV3 := context.host.ForkController().FixAuditChangesV3()
+	if fixAuditV3 && b.Sign() < 0 {
+		_ = context.WithFault(vmhost.ErrBadLowerBounds, runtime.BigIntAPIErrorShouldFailExecution())
+		return
+	}
+
+	opBitLength := int64(a.BitLen())
 	//this calculates the length of the result in bytes
-	lengthOfResult := big.NewInt(0).Div(big.NewInt(0).Mul(b, big.NewInt(int64(a.BitLen()))), big.NewInt(8))
+	lengthOfResult := big.NewInt(0).Div(big.NewInt(0).Mul(b, big.NewInt(opBitLength)), big.NewInt(8))
 
 	err = managedType.ConsumeGasForThisBigIntNumberOfBytes(lengthOfResult)
 	if context.WithFault(err, runtime.BigIntAPIErrorShouldFailExecution()) {
@@ -659,8 +671,22 @@ func (context *VMHooksImpl) BigIntPow(destinationHandle, op1Handle, op2Handle in
 
 	managedType.ConsumeGasForBigIntCopy(a, b)
 
-	if b.Sign() < 0 {
+	if !fixAuditV3 && b.Sign() < 0 {
 		_ = context.WithFault(vmhost.ErrBadLowerBounds, runtime.BigIntAPIErrorShouldFailExecution())
+		return
+	}
+
+	// A zero base resolves to a trivial result (0^0 == 1, 0^n == 0 for n > 0)
+	// without invoking big.Int.Exp. The gas above is charged identically to the
+	// general path (for a zero base the result-size charge is 0 and the copy
+	// charge still covers the exponent), so this stays byte-identical to the
+	// pre-existing behavior across historical replay and needs no fork gate.
+	if a.Sign() == 0 {
+		if b.Sign() == 0 {
+			dest.SetInt64(1)
+		} else {
+			dest.SetInt64(0)
+		}
 		return
 	}
 

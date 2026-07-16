@@ -42,17 +42,24 @@ func FailAfterTimeout[K any](f func() K, category HookCategory, vmHooks *Wrapper
 	}
 
 	// Fast path: For hooks that are known to be fast (<1µs)
-	// These hooks are either:
 	// - Simple operations (GetGasLeft, GetBlockTimestamp)
 	// - Gas-bounded operations (crypto, storage, most BigInt)
-	// - Have internal timeout checking (BigIntPow, BigFloatPow)
+	// - Cannot panic: errors handled by context.WithFault
 	if category == HookCategoryFast {
 		return f()
 	}
 
 	// Slow path: For hooks that can take significant time
-	// - Contract execution (ExecuteOnDestContext, CreateContract, etc.)
-	// These MUST be interruptible via goroutines
+	// - Contract execution (ExecuteOnDestContext, CreateContract, etc.) + BigIntPow/BigFloatPow
+	// - Must be interruptible to avoid DoS attacks
+	// - We run the hook in a goroutine and wait for either completion or timeout
+	// - If the hook panics, we propagate the panic to the caller
+	// - If the hook times out, we panic with ErrExecutionFailedWithTimeout and
+	//   abandon the goroutine: it is NOT cancelled, it keeps running until f()
+	//   returns and its result is discarded. Slow hooks must therefore bound
+	//   their own work up front (e.g. the pow hooks charge gas before looping)
+	//   so an abandoned goroutine finishes shortly after the timeout instead of
+	//   mutating shared VM state indefinitely.
 	type resultOrPanic struct {
 		result K
 		panic  any
