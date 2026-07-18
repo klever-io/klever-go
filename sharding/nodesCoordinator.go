@@ -281,14 +281,18 @@ func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 	}
 
 	displayNodesConfigInfo(nodesConfig)
-	ihgs.mutNodesConfig.Lock()
-	ihgs.nodesConfig = nodesConfig
-	ihgs.mutNodesConfig.Unlock()
 
 	// the constructor seeds publicKeyToValidatorMap only from its startup
-	// arguments (the genesis nodes file on a plain restart); rebuild it from
-	// the restored per-epoch configs so current-epoch validators resolve again
-	ihgs.fillPublicKeyToValidatorMap()
+	// arguments (the genesis nodes file on a plain restart); publish the
+	// restored configs together with a lookup map rebuilt from them, under
+	// one write lock, so current-epoch validators resolve as soon as the
+	// restored configs are visible
+	publicKeyToValidatorMap := ihgs.computePublicKeyToValidatorMap(nodesConfig)
+
+	ihgs.mutNodesConfig.Lock()
+	ihgs.nodesConfig = nodesConfig
+	ihgs.publicKeyToValidatorMap = publicKeyToValidatorMap
+	ihgs.mutNodesConfig.Unlock()
 
 	ihgs.stateReady.Store(true)
 
@@ -377,10 +381,18 @@ func (ihgs *indexHashedNodesCoordinator) fillPublicKeyToValidatorMap() {
 	ihgs.mutNodesConfig.Lock()
 	defer ihgs.mutNodesConfig.Unlock()
 
+	ihgs.publicKeyToValidatorMap = ihgs.computePublicKeyToValidatorMap(ihgs.nodesConfig)
+}
+
+// computePublicKeyToValidatorMap merges the elected and eligible validators of
+// all given epoch configs into one lookup map, later epochs taking precedence
+func (ihgs *indexHashedNodesCoordinator) computePublicKeyToValidatorMap(
+	nodesConfig map[uint32]*epochNodesConfig,
+) map[string]Validator {
 	index := 0
-	epochList := make([]uint32, len(ihgs.nodesConfig))
+	epochList := make([]uint32, len(nodesConfig))
 	mapAllValidators := make(map[uint32]map[string]Validator)
-	for epoch, epochConfig := range ihgs.nodesConfig {
+	for epoch, epochConfig := range nodesConfig {
 		epochConfig.mutNodesMaps.RLock()
 		mapAllValidators[epoch] = ihgs.createPublicKeyToValidatorMap(epochConfig.electedList, epochConfig.eligibleList)
 		epochConfig.mutNodesMaps.RUnlock()
@@ -393,13 +405,15 @@ func (ihgs *indexHashedNodesCoordinator) fillPublicKeyToValidatorMap() {
 		return epochList[i] < epochList[j]
 	})
 
-	ihgs.publicKeyToValidatorMap = make(map[string]Validator)
+	publicKeyToValidatorMap := make(map[string]Validator)
 	for _, epoch := range epochList {
 		validatorsForEpoch := mapAllValidators[epoch]
 		for pubKey, vInfo := range validatorsForEpoch {
-			ihgs.publicKeyToValidatorMap[pubKey] = vInfo
+			publicKeyToValidatorMap[pubKey] = vInfo
 		}
 	}
+
+	return publicKeyToValidatorMap
 }
 
 func (ihgs *indexHashedNodesCoordinator) createPublicKeyToValidatorMap(
