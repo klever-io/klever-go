@@ -285,6 +285,11 @@ func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 	ihgs.nodesConfig = nodesConfig
 	ihgs.mutNodesConfig.Unlock()
 
+	// the constructor seeds publicKeyToValidatorMap only from its startup
+	// arguments (the genesis nodes file on a plain restart); rebuild it from
+	// the restored per-epoch configs so current-epoch validators resolve again
+	ihgs.fillPublicKeyToValidatorMap()
+
 	ihgs.stateReady.Store(true)
 
 	return nil

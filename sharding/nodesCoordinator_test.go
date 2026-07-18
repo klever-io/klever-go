@@ -759,3 +759,54 @@ func TestNodesCoordinator_IsInterfaceNil(t *testing.T) {
 	require.Nil(t, err)
 	require.False(t, check.IfNil(ihgs3))
 }
+
+func TestNodesCoordinator_LoadStateRefillsPublicKeyToValidatorMap(t *testing.T) {
+	t.Parallel()
+
+	// simulate a mid-epoch restart from storage: the persisted registry holds
+	// the current epoch's validators, while the constructor is seeded from the
+	// genesis nodes file only
+	currentElected := createDummyNodesList(4, "currentElected")
+	currentEligible := createDummyNodesList(1, "currentEligible")
+	bootStorer := mock.NewStorerMock()
+
+	argumentsBeforeRestart := createArguments()
+	argumentsBeforeRestart.BootStorer = bootStorer
+	argumentsBeforeRestart.ElectedNodes = currentElected
+	argumentsBeforeRestart.EligibleNodes = currentEligible
+	nodesCoordinatorBeforeRestart, err := NewNodesCoordinator(argumentsBeforeRestart)
+	require.Nil(t, err)
+
+	// persist the registry under a rotated key, as EpochStartPrepare does; the
+	// constructor-time save under hash(selfPubKey) must not be reused here
+	// because a subsequent constructor overwrites that key
+	savedStateKey := []byte("rotated-saved-state-key")
+	err = nodesCoordinatorBeforeRestart.saveState(savedStateKey)
+	require.Nil(t, err)
+
+	genesisElected := createDummyNodesList(4, "genesisElected")
+	genesisEligible := createDummyNodesList(1, "genesisEligible")
+
+	argumentsAfterRestart := createArguments()
+	argumentsAfterRestart.BootStorer = bootStorer
+	argumentsAfterRestart.ElectedNodes = genesisElected
+	argumentsAfterRestart.EligibleNodes = genesisEligible
+	nodesCoordinatorAfterRestart, err := NewNodesCoordinator(argumentsAfterRestart)
+	require.Nil(t, err)
+
+	currentPubKey := currentElected[0].PubKey()
+	_, err = nodesCoordinatorAfterRestart.GetValidatorWithPublicKey(currentPubKey)
+	require.Equal(t, ErrValidatorNotFound, err)
+
+	err = nodesCoordinatorAfterRestart.LoadState(savedStateKey)
+	require.Nil(t, err)
+
+	validator, err := nodesCoordinatorAfterRestart.GetValidatorWithPublicKey(currentPubKey)
+	require.Nil(t, err)
+	require.Equal(t, currentPubKey, validator.PubKey())
+
+	// the map is rebuilt wholesale from the restored per-epoch configs, so the
+	// genesis-seeded entries are gone
+	_, err = nodesCoordinatorAfterRestart.GetValidatorWithPublicKey(genesisElected[0].PubKey())
+	require.Equal(t, ErrValidatorNotFound, err)
+}
