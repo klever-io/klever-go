@@ -18,30 +18,32 @@ func TestParseSemver(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		version  string
-		expected [3]uint64
-		ok       bool
+		version    string
+		expected   [3]uint64
+		prerelease bool
+		ok         bool
 	}{
-		{"v1.2.3", [3]uint64{1, 2, 3}, true},
-		{"1.2.3", [3]uint64{1, 2, 3}, true},
-		{"V2.0.0", [3]uint64{2, 0, 0}, true},
-		{"1.2", [3]uint64{1, 2, 0}, true},
-		{"1", [3]uint64{1, 0, 0}, true},
-		{"v1.2.3-rc1", [3]uint64{1, 2, 3}, true},
-		{"v1.2.3+meta", [3]uint64{1, 2, 3}, true},
-		{" v1.2.3 ", [3]uint64{1, 2, 3}, true},
-		{"", [3]uint64{}, false},
-		{"abc", [3]uint64{}, false},
-		{"1.2.3.4", [3]uint64{}, false},
-		{"1.x.3", [3]uint64{}, false},
-		{"*", [3]uint64{}, false},
+		{"v1.2.3", [3]uint64{1, 2, 3}, false, true},
+		{"1.2.3", [3]uint64{1, 2, 3}, false, true},
+		{"V2.0.0", [3]uint64{2, 0, 0}, false, true},
+		{"1.2", [3]uint64{1, 2, 0}, false, true},
+		{"1", [3]uint64{1, 0, 0}, false, true},
+		{"v1.2.3-rc1", [3]uint64{1, 2, 3}, true, true},
+		{"v1.2.3+meta", [3]uint64{1, 2, 3}, false, true},
+		{" v1.2.3 ", [3]uint64{1, 2, 3}, false, true},
+		{"", [3]uint64{}, false, false},
+		{"abc", [3]uint64{}, false, false},
+		{"1.2.3.4", [3]uint64{}, false, false},
+		{"1.x.3", [3]uint64{}, false, false},
+		{"*", [3]uint64{}, false, false},
 	}
 
 	for _, tc := range tests {
-		parsed, ok := parseSemver(tc.version)
+		parsed, prerelease, ok := parseSemver(tc.version)
 		assert.Equal(t, tc.ok, ok, "version %q", tc.version)
 		if tc.ok {
 			assert.Equal(t, tc.expected, parsed, "version %q", tc.version)
+			assert.Equal(t, tc.prerelease, prerelease, "version %q", tc.version)
 		}
 	}
 }
@@ -65,6 +67,9 @@ func TestVersionSatisfies(t *testing.T) {
 		{"custom", "custom", true},  // exact match works for non-semver tags
 		{"custom", "v1.9.0", false}, // non-parsable mismatch fails closed
 		{"v1.9.0", "custom", false},
+		{"v1.9.0-rc1", "v1.9.0", false}, // pre-release does not satisfy the release
+		{"v1.9.1-rc1", "v1.9.0", true},  // higher numerics satisfy regardless of suffix
+		{"v1.9.0", "v1.9.0-rc1", true},  // release satisfies a pre-release requirement
 	}
 
 	for _, tc := range tests {
@@ -80,7 +85,7 @@ func TestRequiredVersionForEpoch(t *testing.T) {
 		v := setupValidatorsKApp(t)
 		v.versionsByEpochs = nil
 
-		_, ok := v.requiredVersionForEpoch(10)
+		_, _, ok := v.requiredVersionForEpoch(10)
 		assert.False(t, ok)
 	})
 
@@ -90,7 +95,7 @@ func TestRequiredVersionForEpoch(t *testing.T) {
 			{StartEpoch: 0, Version: "*"},
 		}
 
-		_, ok := v.requiredVersionForEpoch(10)
+		_, _, ok := v.requiredVersionForEpoch(10)
 		assert.False(t, ok)
 	})
 
@@ -103,20 +108,23 @@ func TestRequiredVersionForEpoch(t *testing.T) {
 			{StartEpoch: 10, Version: "v1.9.0"},
 		}
 
-		_, ok := v.requiredVersionForEpoch(5)
+		_, _, ok := v.requiredVersionForEpoch(5)
 		assert.False(t, ok, "wildcard entry active before epoch 10")
 
-		required, ok := v.requiredVersionForEpoch(10)
+		required, minAttested, ok := v.requiredVersionForEpoch(10)
 		assert.True(t, ok)
 		assert.Equal(t, "v1.9.0", required)
+		assert.Equal(t, uint32(0), minAttested, "previous entry starts at 0")
 
-		required, ok = v.requiredVersionForEpoch(19)
+		required, minAttested, ok = v.requiredVersionForEpoch(19)
 		assert.True(t, ok)
 		assert.Equal(t, "v1.9.0", required)
+		assert.Equal(t, uint32(0), minAttested)
 
-		required, ok = v.requiredVersionForEpoch(25)
+		required, minAttested, ok = v.requiredVersionForEpoch(25)
 		assert.True(t, ok)
 		assert.Equal(t, "v2.0.0", required)
+		assert.Equal(t, uint32(10), minAttested, "attestations older than the v1.9.0 era do not count")
 	})
 }
 
@@ -127,7 +135,7 @@ func TestUpdatePeerListStatus_VersionEnforcement(t *testing.T) {
 	const minTotal = int64(500)
 	const totalDelegated = int64(1000)
 
-	enforced := versionEnforcement{enforce: true, required: "v1.9.0"}
+	enforced := versionEnforcement{active: true, demote: true, required: "v1.9.0"}
 
 	newPeer := func(t *testing.T, list state.List) state.PeerAccountHandler {
 		peerAcc, err := state.NewPeerAccount([]byte("peer"))
@@ -197,6 +205,55 @@ func TestUpdatePeerListStatus_VersionEnforcement(t *testing.T) {
 
 		v.updatePeerListStatus(val, peerAcc, minSelf, minTotal, totalDelegated, versionEnforcement{})
 		assert.Equal(t, state.List_eligible, peerAcc.GetList())
+	})
+
+	t.Run("guard lapse does not demote new validators", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		val := &ValidatorData{SelfStake: minSelf, AttestedVersion: "v1.8.0"}
+		peerAcc := newPeer(t, state.List_eligible)
+
+		guardFailed := versionEnforcement{active: true, required: "v1.9.0"}
+		v.updatePeerListStatus(val, peerAcc, minSelf, minTotal, totalDelegated, guardFailed)
+		assert.Equal(t, state.List_eligible, peerAcc.GetList())
+	})
+
+	t.Run("guard lapse keeps unattested observers demoted", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		val := &ValidatorData{SelfStake: minSelf, AttestedVersion: "v1.8.0"}
+		peerAcc := newPeer(t, state.List_observer)
+
+		guardFailed := versionEnforcement{active: true, required: "v1.9.0"}
+		v.updatePeerListStatus(val, peerAcc, minSelf, minTotal, totalDelegated, guardFailed)
+		assert.Equal(t, state.List_observer, peerAcc.GetList(), "no unattested restore on guard lapse")
+	})
+
+	t.Run("guard lapse restores attested observers", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		val := &ValidatorData{SelfStake: minSelf, AttestedVersion: "v1.9.0"}
+		peerAcc := newPeer(t, state.List_observer)
+
+		guardFailed := versionEnforcement{active: true, required: "v1.9.0"}
+		v.updatePeerListStatus(val, peerAcc, minSelf, minTotal, totalDelegated, guardFailed)
+		assert.Equal(t, state.List_eligible, peerAcc.GetList())
+	})
+
+	t.Run("disabled requirement restores observers", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		val := &ValidatorData{SelfStake: minSelf}
+		peerAcc := newPeer(t, state.List_observer)
+
+		v.updatePeerListStatus(val, peerAcc, minSelf, minTotal, totalDelegated, versionEnforcement{})
+		assert.Equal(t, state.List_eligible, peerAcc.GetList(), "mechanism off means nobody is held back")
+	})
+
+	t.Run("stale attestation is demoted", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		val := &ValidatorData{SelfStake: minSelf, AttestedVersion: "v99.9.9", AttestedEpoch: 5}
+		peerAcc := newPeer(t, state.List_eligible)
+
+		fresh := versionEnforcement{active: true, demote: true, required: "v1.9.0", minAttestedEpoch: 10}
+		v.updatePeerListStatus(val, peerAcc, minSelf, minTotal, totalDelegated, fresh)
+		assert.Equal(t, state.List_observer, peerAcc.GetList(), "old inflated attestation must not count")
 	})
 
 	t.Run("stake checks take precedence over version", func(t *testing.T) {
@@ -288,7 +345,7 @@ func TestComputeVersionEnforcement(t *testing.T) {
 		v.forkController.(*mock.ForkControllerStub).VersionAttestationValue = false
 
 		enforcement := v.computeVersionEnforcement(app, infos, 10)
-		assert.False(t, enforcement.enforce)
+		assert.False(t, enforcement.demote)
 	})
 
 	t.Run("wildcard epoch means no enforcement", func(t *testing.T) {
@@ -300,7 +357,7 @@ func TestComputeVersionEnforcement(t *testing.T) {
 		v.versionsByEpochs = requiredVersions
 
 		enforcement := v.computeVersionEnforcement(app, infos, 5)
-		assert.False(t, enforcement.enforce)
+		assert.False(t, enforcement.demote)
 	})
 
 	t.Run("exact two thirds attested enables enforcement", func(t *testing.T) {
@@ -312,7 +369,7 @@ func TestComputeVersionEnforcement(t *testing.T) {
 		v.versionsByEpochs = requiredVersions
 
 		enforcement := v.computeVersionEnforcement(app, infos, 10)
-		assert.True(t, enforcement.enforce)
+		assert.True(t, enforcement.demote)
 		assert.Equal(t, "v1.9.0", enforcement.required)
 	})
 
@@ -325,23 +382,85 @@ func TestComputeVersionEnforcement(t *testing.T) {
 		v.versionsByEpochs = requiredVersions
 
 		enforcement := v.computeVersionEnforcement(app, infos, 10)
-		assert.False(t, enforcement.enforce)
+		assert.False(t, enforcement.demote)
 	})
 
-	t.Run("only active lists count towards the threshold", func(t *testing.T) {
+	t.Run("only electable lists count towards the threshold", func(t *testing.T) {
 		v, infos, app := attestationTestSetup(t, map[string]string{
 			"owner1": "v1.9.0",
 			"owner2": "v1.9.0",
-			"owner3": "", // jailed: excluded from the active set
-			"owner4": "", // inactive: excluded from the active set
+			"owner3": "", // jailed: excluded from the electable set
+			"owner4": "", // inactive: excluded from the electable set
+			"owner5": "", // waiting: not electable, must not dilute or inflate the ratio
 		}, map[string]string{
 			"owner3": state.List_jailed.String(),
 			"owner4": state.List_inactive.String(),
+			"owner5": state.List_waiting.String(),
 		})
 		v.versionsByEpochs = requiredVersions
 
 		enforcement := v.computeVersionEnforcement(app, infos, 10)
-		assert.True(t, enforcement.enforce)
+		assert.True(t, enforcement.demote)
+	})
+
+	t.Run("waiting attesters cannot flip enforcement on", func(t *testing.T) {
+		// 2 electable (1 attested = 50%) + 4 attested waiting validators;
+		// counting waiting would fake a 5/6 supermajority
+		v, infos, app := attestationTestSetup(t, map[string]string{
+			"owner1": "v1.9.0",
+			"owner2": "",
+			"owner3": "v1.9.0",
+			"owner4": "v1.9.0",
+			"owner5": "v1.9.0",
+			"owner6": "v1.9.0",
+		}, map[string]string{
+			"owner3": state.List_waiting.String(),
+			"owner4": state.List_waiting.String(),
+			"owner5": state.List_waiting.String(),
+			"owner6": state.List_waiting.String(),
+		})
+		v.versionsByEpochs = requiredVersions
+
+		enforcement := v.computeVersionEnforcement(app, infos, 10)
+		assert.False(t, enforcement.demote, "waiting validators must not count towards the supermajority")
+		assert.True(t, enforcement.active)
+	})
+
+	t.Run("floor guard blocks demotion below shuffler minimum", func(t *testing.T) {
+		v, infos, app := attestationTestSetup(t, map[string]string{
+			"owner1": "v1.9.0",
+			"owner2": "v1.9.0",
+			"owner3": "",
+		}, nil)
+		v.versionsByEpochs = requiredVersions
+		v.minElectableNodes = 3 // demoting owner3 would leave only 2 electable
+
+		enforcement := v.computeVersionEnforcement(app, infos, 10)
+		assert.False(t, enforcement.demote, "attested set below shuffler minimum must not demote")
+		assert.True(t, enforcement.active)
+
+		v.minElectableNodes = 2
+		enforcement = v.computeVersionEnforcement(app, infos, 10)
+		assert.True(t, enforcement.demote)
+	})
+
+	t.Run("stale attestations do not count towards the supermajority", func(t *testing.T) {
+		v, infos, app := attestationTestSetup(t, map[string]string{
+			"owner1": "v2.0.0",
+			"owner2": "v2.0.0",
+			"owner3": "",
+		}, nil)
+		// entries: 10 -> v1.9.0, 20 -> v2.0.0; attesting for epoch 20 requires AttestedEpoch >= 10
+		v.versionsByEpochs = []config.VersionByEpochs{
+			{StartEpoch: 0, Version: "*"},
+			{StartEpoch: 10, Version: "v1.9.0"},
+			{StartEpoch: 20, Version: "v2.0.0"},
+		}
+		// all attestations were stored with AttestedEpoch 0 in attestationTestSetup
+		enforcement := v.computeVersionEnforcement(app, infos, 20)
+		assert.False(t, enforcement.demote, "attestations from before the previous era are stale")
+		assert.True(t, enforcement.active)
+		assert.Equal(t, uint32(10), enforcement.minAttestedEpoch)
 	})
 
 	t.Run("no active validators disables enforcement", func(t *testing.T) {
@@ -353,7 +472,7 @@ func TestComputeVersionEnforcement(t *testing.T) {
 		v.versionsByEpochs = requiredVersions
 
 		enforcement := v.computeVersionEnforcement(app, infos, 10)
-		assert.False(t, enforcement.enforce)
+		assert.False(t, enforcement.demote)
 	})
 }
 

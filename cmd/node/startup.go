@@ -577,12 +577,13 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 
 	log.Trace("creating state components")
 	stateArgs := factory.StateComponentsFactoryArgs{
-		Config:         cfg,
-		Core:           coreComponents,
-		PathManager:    pathManager,
-		Tries:          triesComponents,
-		RatingsData:    ratingsData,
-		ProcessingMode: processingMode,
+		Config:            cfg,
+		Core:              coreComponents,
+		PathManager:       pathManager,
+		Tries:             triesComponents,
+		RatingsData:       ratingsData,
+		ProcessingMode:    processingMode,
+		MinElectableNodes: genesisNodesConfig.MinNumberOfNodes(),
 	}
 	stateComponentsFactory, err := factory.NewStateComponentsFactory(stateArgs)
 	if err != nil {

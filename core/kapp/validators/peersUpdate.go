@@ -323,10 +323,16 @@ func (v *validatorsKApp) updatePeerListStatus(val *ValidatorData, peerAcc state.
 		peerAcc.SetList(state.List_inactive)
 	} else if totalDelegated < minTotalDelegated {
 		peerAcc.SetList(state.List_waiting)
-	} else if enforcement.enforce && !versionSatisfies(val.AttestedVersion, enforcement.required) {
-		// demoted instead of staying electable with an outdated version; the validator
-		// returns to eligible at the first end-of-epoch after a satisfying attestation
-		peerAcc.SetList(state.List_observer)
+	} else if enforcement.active && !enforcement.isSatisfiedBy(val) {
+		if enforcement.demote {
+			// demoted instead of staying electable with an outdated version; the validator
+			// returns to eligible at the first end-of-epoch after a satisfying attestation
+			peerAcc.SetList(state.List_observer)
+		} else if peerAcc.GetList() != state.List_observer && peerAcc.GetList() != state.List_elected {
+			// requirement active but demotion guards not met: no new demotions, and
+			// already-demoted observers stay demoted until they attest (no oscillation)
+			peerAcc.SetList(state.List_eligible)
+		}
 	} else if peerAcc.GetList() != state.List_elected {
 		peerAcc.SetList(state.List_eligible)
 	}

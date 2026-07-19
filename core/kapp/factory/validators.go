@@ -16,14 +16,16 @@ func NewValidatorKApp(
 	ForkController core.ForkController,
 	RatingsData process.RatingsInfoHandler,
 	VersionsByEpochs []config.VersionByEpochs,
+	MinElectableNodes uint32,
 ) (kapp.ValidatorsKapp, error) {
 
 	args := &validators.ArgsNewValidatorKApp{
-		Marshalizer:      Marshalizer,
-		PubkeyConv:       PubkeyConv,
-		RatingsData:      RatingsData,
-		ForkController:   ForkController,
-		VersionsByEpochs: VersionsByEpochs,
+		Marshalizer:       Marshalizer,
+		PubkeyConv:        PubkeyConv,
+		RatingsData:       RatingsData,
+		ForkController:    ForkController,
+		VersionsByEpochs:  VersionsByEpochs,
+		MinElectableNodes: MinElectableNodes,
 	}
 
 	return validators.NewValidatorKApp(args)

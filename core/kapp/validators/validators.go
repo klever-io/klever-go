@@ -61,16 +61,17 @@ type blsPublicKeyValidator interface {
 }
 
 type validatorsKApp struct {
-	marshalizer      marshal.Marshalizer
-	pubkeyConv       core.PubkeyConverter
-	accountsCacher   state.AccountsCacher
-	forkController   core.ForkController
-	ratingsData      process.RatingsInfoHandler
-	rater            sharding.PeerAccountListAndRatingHandler
-	blsKeyValidator  blsPublicKeyValidator
-	addressLen       int
-	versionsByEpochs []config.VersionByEpochs
-	KAppController   kapp.KAppController
+	marshalizer       marshal.Marshalizer
+	pubkeyConv        core.PubkeyConverter
+	accountsCacher    state.AccountsCacher
+	forkController    core.ForkController
+	ratingsData       process.RatingsInfoHandler
+	rater             sharding.PeerAccountListAndRatingHandler
+	blsKeyValidator   blsPublicKeyValidator
+	addressLen        int
+	versionsByEpochs  []config.VersionByEpochs
+	minElectableNodes uint32
+	KAppController    kapp.KAppController
 }
 
 // ArgsNewValidatorKApp holds the arguments needed to create a ValidatorsKApp
@@ -84,6 +85,10 @@ type ArgsNewValidatorKApp struct {
 	// VersionsByEpochs is the versions.versionsByEpochs config used to determine the
 	// node version required per epoch; nil or wildcard entries disable version enforcement
 	VersionsByEpochs []config.VersionByEpochs
+	// MinElectableNodes is the nodes shuffler's minimum electable count (genesis
+	// MinNumberOfNodes); version demotion never reduces the attested electable set
+	// below this floor. Zero disables the floor guard.
+	MinElectableNodes uint32
 }
 
 // NewValidatorKApp creates a validator KApp
@@ -110,13 +115,14 @@ func NewValidatorKApp(
 	}
 
 	v := &validatorsKApp{
-		marshalizer:      args.Marshalizer,
-		addressLen:       args.PubkeyConv.Len(),
-		ratingsData:      args.RatingsData,
-		pubkeyConv:       args.PubkeyConv,
-		forkController:   args.ForkController,
-		blsKeyValidator:  blsKeyValidator,
-		versionsByEpochs: args.VersionsByEpochs,
+		marshalizer:       args.Marshalizer,
+		addressLen:        args.PubkeyConv.Len(),
+		ratingsData:       args.RatingsData,
+		pubkeyConv:        args.PubkeyConv,
+		forkController:    args.ForkController,
+		blsKeyValidator:   blsKeyValidator,
+		versionsByEpochs:  args.VersionsByEpochs,
+		minElectableNodes: args.MinElectableNodes,
 	}
 
 	return v, nil
@@ -534,6 +540,10 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 		val.Name = tc.GetConfig().GetName()
 	}
 
+	// NodeVersion is intentionally ignored (not rejected) before the versionAttestation
+	// fork: old binaries accept the unknown field as Transaction_Ok, so any observable
+	// difference (error code or receipt) would fork state pre-activation. Operators must
+	// attest at or after the fork epoch for the attestation to be recorded.
 	if len(tc.GetConfig().GetNodeVersion()) > 0 && v.forkController.VersionAttestation() {
 		nodeVersion := tc.GetConfig().GetNodeVersion()
 		if !utf8.ValidString(nodeVersion) ||
