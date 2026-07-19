@@ -190,6 +190,12 @@ func (v *validatorsKApp) computeVersionEnforcement(
 
 		val, err := v.getValidator(app, info.OwnerAddress)
 		if err != nil {
+			// counted as not satisfied (fail-closed: undercounting can only keep
+			// demotion off), but logged so guard undercounts are diagnosable
+			log.Warn("version enforcement: cannot load validator data",
+				"ownerAddress", info.OwnerAddress,
+				"error", err,
+			)
 			continue
 		}
 		if enforcement.isSatisfiedBy(val) {

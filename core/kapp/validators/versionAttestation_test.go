@@ -680,7 +680,12 @@ func TestProcessEconomicsEndOfEpoch_VersionDemotionAndRestore(t *testing.T) {
 		require.NoError(t, v.saveKApp(app))
 
 		// observer stays in validator infos, so the next end-of-epoch restores it
-		infos[2].List = state.List_observer.String()
+		// (buildStorage fills infos from a map, so locate owner3 by address)
+		for _, info := range infos {
+			if string(info.OwnerAddress) == "owner3" {
+				info.List = state.List_observer.String()
+			}
+		}
 		require.NoError(t, v.ProcessEconomicsEndOfEpoch(currentEpoch+1, infos))
 
 		restoredPeer, err := v.accountsCacher.GetExistingPeer([]byte("bls_owner3"))

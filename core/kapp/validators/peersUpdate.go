@@ -312,6 +312,22 @@ func (v *validatorsKApp) updateValidatorJailStatus(val *ValidatorData, peerAcc s
 	}
 }
 
+// resolveVersionEnforcedList returns the list a stake-satisfying validator belongs on when
+// a version requirement is active and the validator does not satisfy it: demoted to observer
+// while the demotion guards hold; otherwise no new demotions, and already-demoted observers
+// stay demoted until they attest (no oscillation), while elected validators keep their slot.
+func resolveVersionEnforcedList(current state.List, enforcement versionEnforcement) state.List {
+	if enforcement.demote {
+		// demoted instead of staying electable with an outdated version; the validator
+		// returns to eligible at the first end-of-epoch after a satisfying attestation
+		return state.List_observer
+	}
+	if current == state.List_observer || current == state.List_elected {
+		return current
+	}
+	return state.List_eligible
+}
+
 // updatePeerListStatus updates the peer account's list status based on delegation amounts
 // and, when version enforcement is active, on the validator's attested node version.
 func (v *validatorsKApp) updatePeerListStatus(val *ValidatorData, peerAcc state.PeerAccountHandler, minSelfDelegated, minTotalDelegated int64, totalDelegated int64, enforcement versionEnforcement) {
@@ -324,15 +340,7 @@ func (v *validatorsKApp) updatePeerListStatus(val *ValidatorData, peerAcc state.
 	} else if totalDelegated < minTotalDelegated {
 		peerAcc.SetList(state.List_waiting)
 	} else if enforcement.active && !enforcement.isSatisfiedBy(val) {
-		if enforcement.demote {
-			// demoted instead of staying electable with an outdated version; the validator
-			// returns to eligible at the first end-of-epoch after a satisfying attestation
-			peerAcc.SetList(state.List_observer)
-		} else if peerAcc.GetList() != state.List_observer && peerAcc.GetList() != state.List_elected {
-			// requirement active but demotion guards not met: no new demotions, and
-			// already-demoted observers stay demoted until they attest (no oscillation)
-			peerAcc.SetList(state.List_eligible)
-		}
+		peerAcc.SetList(resolveVersionEnforcedList(peerAcc.GetList(), enforcement))
 	} else if peerAcc.GetList() != state.List_elected {
 		peerAcc.SetList(state.List_eligible)
 	}
