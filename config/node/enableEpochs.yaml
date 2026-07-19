@@ -32,6 +32,10 @@ enableEpochs:
   # Audit Changes V3 (reject non-positive kdaFeesPool fee ratios + range-check
   # swap price) + block indirect dispatch of the upgrade lifecycle hook
   fixAuditChangesV3: 0
+  # Validator version attestation: validators must attest their node version on-chain;
+  # non-attested validators are demoted to observer (not jailed) while versions.versionsByEpochs
+  # requires a specific version. Dormant while versionsByEpochs is the "*" wildcard.
+  versionAttestation: 0
 
 gasSchedule:
   gasScheduleByEpochs:

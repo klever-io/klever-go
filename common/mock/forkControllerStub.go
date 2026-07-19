@@ -17,6 +17,7 @@ type ForkControllerStub struct {
 	FixAuditChangesV2Value       bool
 	FixMarketBuyOverflowValue    bool
 	FixAuditChangesV3Value       bool
+	VersionAttestationValue      bool
 	EpochConfirmedCalled         bool
 	LastConfirmedEpoch           uint32
 }
@@ -57,6 +58,8 @@ func (s *ForkControllerStub) SetFork(forkName string, value bool) *ForkControlle
 		s.FixMarketBuyOverflowValue = value
 	case "FixAuditChangesV3":
 		s.FixAuditChangesV3Value = value
+	case "VersionAttestation":
+		s.VersionAttestationValue = value
 	}
 
 	return s
@@ -77,6 +80,7 @@ func (s *ForkControllerStub) SetAll(value bool) {
 	s.FixAuditChangesV2Value = value
 	s.FixMarketBuyOverflowValue = value
 	s.FixAuditChangesV3Value = value
+	s.VersionAttestationValue = value
 	s.LastConfirmedEpoch = 0
 }
 
@@ -95,6 +99,7 @@ func (s *ForkControllerStub) SetByConfig(config config.EnableEpochs) {
 	s.FixAuditChangesV2Value = config.FixAuditChangesV2 == 0
 	s.FixMarketBuyOverflowValue = config.FixMarketBuyOverflow == 0
 	s.FixAuditChangesV3Value = config.FixAuditChangesV3 == 0
+	s.VersionAttestationValue = config.VersionAttestation == 0
 	s.LastConfirmedEpoch = 0
 }
 
@@ -161,6 +166,11 @@ func (s *ForkControllerStub) FixMarketBuyOverflow() bool {
 // FixAuditChangesV3 returns the stubbed value
 func (s *ForkControllerStub) FixAuditChangesV3() bool {
 	return s.FixAuditChangesV3Value
+}
+
+// VersionAttestation returns the stubbed value
+func (s *ForkControllerStub) VersionAttestation() bool {
+	return s.VersionAttestationValue
 }
 
 // EpochConfirmed records that the method was called and stores the epoch

@@ -25,6 +25,9 @@ message ValidatorData {
     string              Name             = 24 [json_name = "name"];
     string              Logo             = 25 [json_name = "logo"];
     map<string, string> URIs             = 26 [json_name = "uris"];
+
+    string              AttestedVersion  = 27 [json_name = "attestedVersion"];
+    uint32              AttestedEpoch    = 28 [json_name = "attestedEpoch"];
 }
 
 message PeerData {

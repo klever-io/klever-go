@@ -90,11 +90,12 @@ func (scf *stateComponentsFactory) Create(forkController core.ForkController) (*
 	}
 
 	argsKapp := kappcontroller.ArgsNewKApp{
-		Hasher:         scf.core.Hasher,
-		Marshalizer:    scf.core.InternalMarshalizer,
-		PubkeyConv:     processPubkeyConverter,
-		ForkController: forkController,
-		RatingsData:    scf.ratingsData,
+		Hasher:           scf.core.Hasher,
+		Marshalizer:      scf.core.InternalMarshalizer,
+		PubkeyConv:       processPubkeyConverter,
+		ForkController:   forkController,
+		RatingsData:      scf.ratingsData,
+		VersionsByEpochs: scf.config.Versions.VersionsByEpochs,
 	}
 
 	kAppController, err := kappcontroller.NewKappController(argsKapp)

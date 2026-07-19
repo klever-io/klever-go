@@ -162,6 +162,7 @@ message ValidatorConfig {
     string               Logo                = 6 [json_name = "logo"];
     map<string, string>  URIs                = 7 [json_name = "uris"];
     string               Name                = 8 [json_name = "name"];
+    string               NodeVersion         = 9 [json_name = "nodeVersion"];
 }
 
 // CreateValidatorContract holds the data for create a validator
