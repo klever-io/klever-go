@@ -760,6 +760,73 @@ func TestNodesCoordinator_IsInterfaceNil(t *testing.T) {
 	require.False(t, check.IfNil(ihgs3))
 }
 
+func TestNodesCoordinator_ConstructorDoesNotOverwriteSavedStateOnRestart(t *testing.T) {
+	t.Parallel()
+
+	// simulate a restart within the install epoch: the first coordinator
+	// persists the real validators under hash(selfPubKey); a second
+	// coordinator (the restart) is seeded with genesis nodes and must NOT
+	// overwrite that saved state, otherwise LoadState reads genesis data back
+	realElected := createDummyNodesList(4, "realElected")
+	realEligible := createDummyNodesList(1, "realEligible")
+	bootStorer := mock.NewStorerMock()
+
+	firstArgs := createArguments()
+	firstArgs.BootStorer = bootStorer
+	firstArgs.ElectedNodes = realElected
+	firstArgs.EligibleNodes = realEligible
+	firstArgs.Epoch = 5
+	firstArgs.StartEpoch = 5
+	firstCoordinator, err := NewNodesCoordinator(firstArgs)
+	require.Nil(t, err)
+
+	// EpochStartPrepare would rotate the key, but within the install epoch
+	// the key is still hash(selfPubKey); persist under that key
+	err = firstCoordinator.saveState(firstCoordinator.savedStateKey)
+	require.Nil(t, err)
+
+	// second coordinator (the restart) uses the same bootStorer and same
+	// selfPubKey, so savedStateKey = hash(selfPubKey) is the same; it is
+	// seeded with genesis nodes and StartEpoch > 0
+	genesisElected := createDummyNodesList(4, "genesisElected")
+	genesisEligible := createDummyNodesList(1, "genesisEligible")
+
+	secondArgs := createArguments()
+	secondArgs.BootStorer = bootStorer
+	secondArgs.SelfPublicKey = firstArgs.SelfPublicKey
+	secondArgs.Hasher = firstArgs.Hasher
+	secondArgs.ElectedNodes = genesisElected
+	secondArgs.EligibleNodes = genesisEligible
+	secondArgs.Epoch = 0
+	secondArgs.StartEpoch = 5
+	_, err = NewNodesCoordinator(secondArgs)
+	require.Nil(t, err)
+
+	// now LoadState with the same key must return the REAL validators, not
+	// genesis; if the constructor overwrote, this will return genesis data
+	thirdArgs := createArguments()
+	thirdArgs.BootStorer = bootStorer
+	thirdArgs.SelfPublicKey = firstArgs.SelfPublicKey
+	thirdArgs.Hasher = firstArgs.Hasher
+	thirdArgs.ElectedNodes = genesisElected
+	thirdArgs.EligibleNodes = genesisEligible
+	thirdArgs.StartEpoch = 5
+	thirdCoordinator, err := NewNodesCoordinator(thirdArgs)
+	require.Nil(t, err)
+
+	err = thirdCoordinator.LoadState(firstCoordinator.savedStateKey)
+	require.Nil(t, err)
+
+	realPubKey := realElected[0].PubKey()
+	validator, err := thirdCoordinator.GetValidatorWithPublicKey(realPubKey)
+	require.Nil(t, err)
+	require.Equal(t, realPubKey, validator.PubKey())
+
+	genesisPubKey := genesisElected[0].PubKey()
+	_, err = thirdCoordinator.GetValidatorWithPublicKey(genesisPubKey)
+	require.Equal(t, ErrValidatorNotFound, err)
+}
+
 func TestNodesCoordinator_LoadStateRefillsPublicKeyToValidatorMap(t *testing.T) {
 	t.Parallel()
 

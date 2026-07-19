@@ -127,10 +127,12 @@ func NewNodesCoordinator(arguments ArgNodesCoordinator) (*indexHashedNodesCoordi
 		indexHashedNodesCoordinator: ihgs,
 	}
 
-	err = ihgs.saveState(ihgs.savedStateKey)
-	if err != nil {
-		log.Error("saving initial nodes coordinator config failed",
-			"error", err.Error())
+	if arguments.StartEpoch == 0 {
+		err = ihgs.saveState(ihgs.savedStateKey)
+		if err != nil {
+			log.Error("saving initial nodes coordinator config failed",
+				"error", err.Error())
+		}
 	}
 
 	log.Info("new nodes config is set for epoch", "epoch", arguments.Epoch)
