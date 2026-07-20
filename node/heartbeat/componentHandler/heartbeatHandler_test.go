@@ -142,3 +142,14 @@ func TestNewHeartbeatHandler_ShouldWork(t *testing.T) {
 	// let the sending go routine finish
 	time.Sleep(time.Second)
 }
+
+func TestHeartbeatHandler_RefreshPeerTypeCacheNilSafe(t *testing.T) {
+	t.Parallel()
+
+	var hbh *HeartbeatHandler
+	// must not panic on a nil receiver or a handler without a provider
+	hbh.RefreshPeerTypeCache(1)
+
+	hbh = &HeartbeatHandler{}
+	hbh.RefreshPeerTypeCache(1)
+}

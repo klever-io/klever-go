@@ -12,6 +12,7 @@ import (
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/eventNotifier"
+	"github.com/klever-io/klever-go/sharding"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -120,7 +121,9 @@ func TestNewPeerTypeProvider_createCache(t *testing.T) {
 		mutCache:         sync.RWMutex{},
 	}
 
-	cache := ptp.createNewCache(0)
+	cache, ok := ptp.createNewCache(0)
+
+	require.True(t, ok)
 
 	assert.NotNil(t, cache)
 
@@ -129,6 +132,156 @@ func TestNewPeerTypeProvider_createCache(t *testing.T) {
 
 	assert.NotNil(t, cache[pkEligible])
 	assert.Equal(t, core.EligibleList, cache[pkEligible].pType)
+}
+
+func TestNewPeerTypeProvider_createCacheIncludesWaitingList(t *testing.T) {
+	pkElected := "pk1"
+	pkEligible := "pk2"
+	pkWaiting := "pk3"
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte(pkElected)}, nil
+		},
+		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte(pkEligible)}, nil
+		},
+		GetAllWaitingValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte(pkWaiting)}, nil
+		},
+	}
+
+	ptp := PeerTypeProvider{
+		nodesCoordinator: arg.NodesCoordinator,
+		cache:            nil,
+		mutCache:         sync.RWMutex{},
+	}
+
+	cache, ok := ptp.createNewCache(0)
+
+	require.True(t, ok)
+
+	assert.NotNil(t, cache[pkWaiting])
+	assert.Equal(t, core.WaitingList, cache[pkWaiting].pType)
+}
+
+func TestPeerTypeProvider_RefreshCacheRebuildsFromCoordinator(t *testing.T) {
+	// mimic a restart: at construction time the coordinator only holds stale
+	// data (no validators); after LoadState restores the real configs a
+	// RefreshCache call must rebuild the cache from the coordinator, querying
+	// it with the exact epoch the caller passed
+	pk := []byte("pk1")
+	restored := false
+	restoredEpoch := uint32(5)
+	var lastQueriedEpoch uint32
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysWithEpochCalled: func(epoch uint32) ([][]byte, error) {
+			lastQueriedEpoch = epoch
+			if restored {
+				return [][]byte{pk}, nil
+			}
+			return [][]byte{}, nil
+		},
+	}
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+
+	peerType, _, err := ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ObserverList, peerType)
+
+	restored = true
+	ptp.RefreshCache(restoredEpoch)
+
+	require.Equal(t, restoredEpoch, lastQueriedEpoch)
+
+	peerType, _, err = ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
+}
+
+func TestPeerTypeProvider_RefreshCacheReplacesCacheWhenListsAreEmptyWithoutError(t *testing.T) {
+	pk := []byte("pk1")
+	demoted := false
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+			if demoted {
+				return [][]byte{}, nil
+			}
+			return [][]byte{pk}, nil
+		},
+		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{}, nil
+		},
+		GetAllWaitingValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{}, nil
+		},
+	}
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+
+	peerType, _, err := ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
+
+	// successful fetches returning empty lists are a genuine state (validator
+	// demoted) and must replace the cache, unlike the all-fetches-failed case
+	demoted = true
+	ptp.RefreshCache(6)
+
+	peerType, _, err = ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ObserverList, peerType)
+}
+
+func TestPeerTypeProvider_RefreshCacheKeepsPreviousCacheWhenAllListsFail(t *testing.T) {
+	pk := []byte("pk1")
+	failing := false
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+			if failing {
+				return nil, sharding.ErrEpochNodesConfigDoesNotExist
+			}
+			return [][]byte{pk}, nil
+		},
+		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
+			if failing {
+				return nil, sharding.ErrEpochNodesConfigDoesNotExist
+			}
+			return [][]byte{}, nil
+		},
+		GetAllWaitingValidatorsKeysCalled: func() ([][]byte, error) {
+			if failing {
+				return nil, sharding.ErrEpochNodesConfigDoesNotExist
+			}
+			return [][]byte{}, nil
+		},
+	}
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+
+	peerType, _, err := ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
+
+	// a refresh for an epoch the coordinator does not know must not wipe the
+	// previously valid cache
+	failing = true
+	ptp.RefreshCache(42)
+
+	peerType, _, err = ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
 }
 
 func TestNewPeerTypeProvider_CallsUpdateCacheOnEpochChange(t *testing.T) {
@@ -274,7 +427,9 @@ func TestPeerTypeProvider_CreateNewCacheScenarios(t *testing.T) {
 	}
 	ptp, _ := NewPeerTypeProvider(arg)
 
-	cache := ptp.createNewCache(0)
+	cache, ok := ptp.createNewCache(0)
+
+	require.True(t, ok)
 	assert.Len(t, cache, 3)
 	assert.Equal(t, core.EligibleList, cache["elected1"].pType) // elected1 is also eligible as it have been updated in the eligible list
 	assert.Equal(t, core.ElectedList, cache["elected2"].pType)

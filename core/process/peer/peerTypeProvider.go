@@ -93,39 +93,64 @@ func (ptp *PeerTypeProvider) epochStartEventHandler() sharding.EpochStartActionH
 				"epoch", hdr.GetEpoch())
 			ptp.updateCache(hdr.GetEpoch())
 		},
-		func(_ data.HeaderHandler) {},
+		func(_ data.HeaderHandler) {
+			// nothing to do on epoch start prepare; the cache refresh happens on the action event above
+		},
 		core.IndexerOrder,
 	)
 
 	return subscribeHandler
 }
 
+// RefreshCache rebuilds the peer type cache from the nodes coordinator for the
+// given epoch; used after the storage bootstrap restores the coordinator state,
+// before block processing starts (concurrent refreshes carry no epoch ordering)
+func (ptp *PeerTypeProvider) RefreshCache(epoch uint32) {
+	ptp.updateCache(epoch)
+}
+
 func (ptp *PeerTypeProvider) updateCache(epoch uint32) {
-	newCache := ptp.createNewCache(epoch)
+	newCache, ok := ptp.createNewCache(epoch)
+	if !ok {
+		log.Warn("peerTypeProvider - no validator list available, keeping previous cache", "epoch", epoch)
+		return
+	}
 
 	ptp.mutCache.Lock()
 	ptp.cache = newCache
 	ptp.mutCache.Unlock()
 }
 
+// createNewCache returns false when no validator list could be fetched at all,
+// so a stale-but-valid cache is not replaced by an empty one
 func (ptp *PeerTypeProvider) createNewCache(
 	epoch uint32,
-) map[string]*peerListAndShard {
+) (map[string]*peerListAndShard, bool) {
 	newCache := make(map[string]*peerListAndShard)
 
-	nodesMapElected, err := ptp.nodesCoordinator.GetAllElectedValidatorsKeys(epoch, false)
-	if err != nil {
-		log.Debug("peerTypeProvider - GetAllElectedValidatorsKeys failed", "epoch", epoch)
+	// the coordinator produces disjoint lists; if they ever overlap, the last
+	// list merged below wins
+	nodesMapElected, electedErr := ptp.nodesCoordinator.GetAllElectedValidatorsKeys(epoch, false)
+	if electedErr != nil {
+		log.Debug("peerTypeProvider - GetAllElectedValidatorsKeys failed", "epoch", epoch, "error", electedErr)
 	}
 	computePeerType(newCache, nodesMapElected, core.ElectedList)
 
-	nodesMapEligible, err := ptp.nodesCoordinator.GetAllEligibleValidatorsKeys(epoch, false)
-	if err != nil {
-		log.Debug("peerTypeProvider - GetAllEligibleValidatorsKeys failed", "epoch", epoch)
+	nodesMapEligible, eligibleErr := ptp.nodesCoordinator.GetAllEligibleValidatorsKeys(epoch, false)
+	if eligibleErr != nil {
+		log.Debug("peerTypeProvider - GetAllEligibleValidatorsKeys failed", "epoch", epoch, "error", eligibleErr)
 	}
 	computePeerType(newCache, nodesMapEligible, core.EligibleList)
 
-	return newCache
+	nodesMapWaiting, waitingErr := ptp.nodesCoordinator.GetAllWaitingValidatorsKeys(epoch, false)
+	if waitingErr != nil {
+		log.Debug("peerTypeProvider - GetAllWaitingValidatorsKeys failed", "epoch", epoch, "error", waitingErr)
+	}
+	computePeerType(newCache, nodesMapWaiting, core.WaitingList)
+
+	allListsFailed := electedErr != nil && eligibleErr != nil && waitingErr != nil
+
+	return newCache, !allListsFailed
 }
 
 func computePeerType(

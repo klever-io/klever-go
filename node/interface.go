@@ -76,6 +76,7 @@ type Accumulator interface {
 type HeartbeatHandler interface {
 	Monitor() *process.Monitor
 	Sender() *process.Sender
+	RefreshPeerTypeCache(epoch uint32)
 	Close() error
 	IsInterfaceNil() bool
 }

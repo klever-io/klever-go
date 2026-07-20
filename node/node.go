@@ -332,6 +332,13 @@ func (n *Node) StartConsensus() error {
 		epoch = crtBlockHeader.GetEpoch()
 	}
 
+	// the heartbeat's peer type cache was built before LoadStorage restored the
+	// nodes coordinator state; refresh it so the node reports its real peer type
+	// without waiting for the next epoch start
+	if !check.IfNil(n.heartbeatHandler) {
+		n.heartbeatHandler.RefreshPeerTypeCache(epoch)
+	}
+
 	forkControllerSubscriber, ok := n.forkController.(core.EpochSubscriberHandler)
 	if !ok {
 		return common.ErrWrongTypeAssertion
