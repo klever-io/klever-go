@@ -284,11 +284,7 @@ func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 
 	displayNodesConfigInfo(nodesConfig)
 
-	// the constructor seeds publicKeyToValidatorMap only from its startup
-	// arguments (the genesis nodes file on a plain restart); publish the
-	// restored configs together with a lookup map rebuilt from them, under
-	// one write lock, so current-epoch validators resolve as soon as the
-	// restored configs are visible
+	// rebuild the validator lookup from restored configs and publish both atomically
 	publicKeyToValidatorMap := ihgs.computePublicKeyToValidatorMap(nodesConfig)
 
 	ihgs.mutNodesConfig.Lock()
