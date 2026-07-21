@@ -130,12 +130,13 @@ func (context *VMHooksImpl) MBufferGetByteSlice(
 	}
 	managedType.ConsumeGasForBytes(sourceBytes)
 
-	if startingPosition < 0 || sliceLength < 0 || int(startingPosition+sliceLength) > len(sourceBytes) {
+	endPosition, addErr := math.AddInt32WithErr(startingPosition, sliceLength)
+	if startingPosition < 0 || sliceLength < 0 || addErr != nil || int(endPosition) > len(sourceBytes) {
 		// does not fail execution if slice exceeds bounds
 		return 1
 	}
 
-	slice := sourceBytes[startingPosition : startingPosition+sliceLength]
+	slice := sourceBytes[startingPosition:endPosition]
 	err = context.MemStore(resultOffset, slice)
 	if context.WithFault(err, runtime.ManagedBufferAPIErrorShouldFailExecution()) {
 		return 1
@@ -167,12 +168,13 @@ func ManagedBufferCopyByteSliceWithHost(host vmhost.VMHost, sourceHandle int32, 
 	}
 	managedType.ConsumeGasForBytes(sourceBytes)
 
-	if startingPosition < 0 || sliceLength < 0 || int(startingPosition+sliceLength) > len(sourceBytes) {
+	endPosition, addErr := math.AddInt32WithErr(startingPosition, sliceLength)
+	if startingPosition < 0 || sliceLength < 0 || addErr != nil || int(endPosition) > len(sourceBytes) {
 		// does not fail execution if slice exceeds bounds
 		return 1
 	}
 
-	slice := sourceBytes[startingPosition : startingPosition+sliceLength]
+	slice := sourceBytes[startingPosition:endPosition]
 	managedType.SetBytes(destinationHandle, slice)
 
 	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(len(slice)))
