@@ -130,13 +130,27 @@ func (context *VMHooksImpl) MBufferGetByteSlice(
 	}
 	managedType.ConsumeGasForBytes(sourceBytes)
 
-	endPosition, addErr := math.AddInt32WithErr(startingPosition, sliceLength)
-	if startingPosition < 0 || sliceLength < 0 || addErr != nil || int(endPosition) > len(sourceBytes) {
-		// does not fail execution if slice exceeds bounds
-		return 1
+	// Pre-fork, startingPosition+sliceLength was added as int32 before the bounds
+	// check, so a crafted overflow slipped past it and panicked on the slice
+	// expression below; that panic was recovered upstream as an irrecoverable
+	// execution failure. Changing that outcome for historical blocks would break
+	// replay, so the fixed, non-panicking bounds check is fork-gated.
+	var slice []byte
+	if context.host.ForkController().FixAuditChangesV3() {
+		endPosition, addErr := math.AddInt32WithErr(startingPosition, sliceLength)
+		if startingPosition < 0 || sliceLength < 0 || addErr != nil || int(endPosition) > len(sourceBytes) {
+			// does not fail execution if slice exceeds bounds
+			return 1
+		}
+		slice = sourceBytes[startingPosition:endPosition]
+	} else {
+		if startingPosition < 0 || sliceLength < 0 || int(startingPosition+sliceLength) > len(sourceBytes) {
+			// does not fail execution if slice exceeds bounds
+			return 1
+		}
+		slice = sourceBytes[startingPosition : startingPosition+sliceLength]
 	}
 
-	slice := sourceBytes[startingPosition:endPosition]
 	err = context.MemStore(resultOffset, slice)
 	if context.WithFault(err, runtime.ManagedBufferAPIErrorShouldFailExecution()) {
 		return 1
@@ -168,13 +182,23 @@ func ManagedBufferCopyByteSliceWithHost(host vmhost.VMHost, sourceHandle int32, 
 	}
 	managedType.ConsumeGasForBytes(sourceBytes)
 
-	endPosition, addErr := math.AddInt32WithErr(startingPosition, sliceLength)
-	if startingPosition < 0 || sliceLength < 0 || addErr != nil || int(endPosition) > len(sourceBytes) {
-		// does not fail execution if slice exceeds bounds
-		return 1
+	// See the identical fork-gating rationale in MBufferGetByteSlice above.
+	var slice []byte
+	if host.ForkController().FixAuditChangesV3() {
+		endPosition, addErr := math.AddInt32WithErr(startingPosition, sliceLength)
+		if startingPosition < 0 || sliceLength < 0 || addErr != nil || int(endPosition) > len(sourceBytes) {
+			// does not fail execution if slice exceeds bounds
+			return 1
+		}
+		slice = sourceBytes[startingPosition:endPosition]
+	} else {
+		if startingPosition < 0 || sliceLength < 0 || int(startingPosition+sliceLength) > len(sourceBytes) {
+			// does not fail execution if slice exceeds bounds
+			return 1
+		}
+		slice = sourceBytes[startingPosition : startingPosition+sliceLength]
 	}
 
-	slice := sourceBytes[startingPosition:endPosition]
 	managedType.SetBytes(destinationHandle, slice)
 
 	gasToUse = math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(len(slice)))
