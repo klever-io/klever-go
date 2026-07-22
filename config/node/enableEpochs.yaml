@@ -30,7 +30,9 @@ enableEpochs:
   # overflow (GHSA-mrpp-v6pg-p54x).
   fixMarketBuyOverflow: 0
   # Audit Changes V3 (reject non-positive kdaFeesPool fee ratios + range-check
-  # swap price) + block indirect dispatch of the upgrade lifecycle hook
+  # swap price) + block indirect dispatch of the upgrade lifecycle hook +
+  # explicit (non-panicking) int32-overflow rejection in managed-buffer
+  # get/copy/set byte-slice bounds checks
   fixAuditChangesV3: 0
 
 gasSchedule:
