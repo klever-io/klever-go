@@ -394,6 +394,17 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 	wrk.consensusState.RUnlockSlotState()
 
 	if cnsMsg.SlotIndex > currentSlotIndex {
+		// Future-slot messages carrying a block header are cached and dispatched once the slot
+		// starts. That optimized path skips doJobOnMessageWithHeader, so enforce the same pure
+		// header-validation invariant here before caching. Otherwise a next-slot leader could send
+		// a header one slot early with malformed integrity fields or an invalid rand seed and have
+		// honest validators process/sign it from the cache without ever validating it.
+		if wrk.consensusService.IsMessageWithBlockHeader(msgType) {
+			if _, err = wrk.validateMessageWithHeader(cnsMsg); err != nil {
+				return err
+			}
+		}
+
 		log.Trace("storing consensus message due to slot mismatch",
 			"wrk.consensusState.SlotIndex", currentSlotIndex,
 			"cnsDta.SlotIndex", cnsMsg.SlotIndex,
@@ -454,25 +465,53 @@ func (wrk *Worker) shouldBlacklistPeer(err error) bool {
 	return true
 }
 
-func (wrk *Worker) doJobOnMessageWithHeader(cnsMsg *consensus.Message) error {
+// validateMessageWithHeader enforces the pure header-validation invariant that must hold for every
+// MtBlockHeader message regardless of whether it is processed on the current-slot path or replayed
+// from the future-slot cache: it decodes the header, recomputes and compares the header hash, runs
+// header-integrity validation and verifies the rand-seed signature. It deliberately performs no side
+// effects (metrics, fork-detector insertion, missing-tx requests) so it can be safely reused both
+// before caching a future-slot header and inside the current-slot processing path.
+func (wrk *Worker) validateMessageWithHeader(cnsMsg *consensus.Message) (data.HeaderHandler, error) {
 	headerHash := cnsMsg.BlockHeaderHash
 
 	header := wrk.blockProcessor.DecodeBlockHeader(cnsMsg.Header)
 	isHeaderInvalid := headerHash == nil || check.IfNil(header)
 	if isHeaderInvalid {
-		return fmt.Errorf("%w : received header from consensus topic is invalid",
+		return nil, fmt.Errorf("%w : received header from consensus topic is invalid",
 			ErrInvalidHeader)
 	}
 
 	hash, err := tools.CalculateHash(wrk.marshalizer, wrk.hasher, header.GetBlockHeader())
 	if err != nil {
-		return fmt.Errorf("%w : compute header hash",
+		return nil, fmt.Errorf("%w : compute header hash",
 			err)
 	}
 
 	if !bytes.Equal(headerHash, hash) {
-		return ErrHeaderkHashNotMatch
+		return nil, ErrHeaderkHashNotMatch
 	}
+
+	err = wrk.headerIntegrityVerifier.Verify(header)
+	if err != nil {
+		return nil, fmt.Errorf("%w : verify header integrity from consensus topic failed", err)
+	}
+
+	err = wrk.headerSigVerifier.VerifyRandSeed(header)
+	if err != nil {
+		return nil, fmt.Errorf("%w : verify rand seed for received header from consensus topic failed",
+			err)
+	}
+
+	return header, nil
+}
+
+func (wrk *Worker) doJobOnMessageWithHeader(cnsMsg *consensus.Message) error {
+	header, err := wrk.validateMessageWithHeader(cnsMsg)
+	if err != nil {
+		return err
+	}
+
+	headerHash := cnsMsg.BlockHeaderHash
 
 	log.Debug("received proposed block",
 		"from", tools.GetTrimmedPk(hex.EncodeToString(cnsMsg.PubKey)),
@@ -483,17 +522,6 @@ func (wrk *Worker) doJobOnMessageWithHeader(cnsMsg *consensus.Message) error {
 		"prev hash", header.GetParentHash(),
 		"nbTxs", header.GetTxCount(),
 		"val trie root", header.GetValidatorsTrieRoot())
-
-	err = wrk.headerIntegrityVerifier.Verify(header)
-	if err != nil {
-		return fmt.Errorf("%w : verify header integrity from consensus topic failed", err)
-	}
-
-	err = wrk.headerSigVerifier.VerifyRandSeed(header)
-	if err != nil {
-		return fmt.Errorf("%w : verify rand seed for received header from consensus topic failed",
-			err)
-	}
 
 	wrk.processReceivedHeaderMetric(cnsMsg)
 

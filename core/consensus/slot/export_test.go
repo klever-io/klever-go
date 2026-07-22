@@ -173,6 +173,10 @@ func (wrk *Worker) LastNetworkDegradedAlertSlot() int64 {
 	return atomic.LoadInt64(&wrk.lastNetworkDegradedAlertSlot)
 }
 
+func (wrk *Worker) ValidateMessageWithHeader(cnsMsg *consensus.Message) (data.HeaderHandler, error) {
+	return wrk.validateMessageWithHeader(cnsMsg)
+}
+
 // consensusMessageValidator
 
 func (cmv *consensusMessageValidator) CheckConsensusMessageValidity(cnsMsg *consensus.Message, originator core.PeerID) error {

@@ -21,6 +21,7 @@ import (
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var fromConnectedPeerId = core.PeerID("connected peer id")
@@ -1677,4 +1678,244 @@ func TestWorker_ReportNetworkDegraded_AtThresholdDoesAlert(t *testing.T) {
 	// Should alert because failed count (3) >= threshold (3)
 	wrk.ReportNetworkDegraded(leader, msgs)
 	assert.Equal(t, int64(100), wrk.LastNetworkDegradedAlertSlot())
+}
+
+// One-slot-ahead MtBlockHeader messages are cached and later dispatched to the block-header
+// callback without re-running the header checks. The header-validation invariant must therefore be
+// enforced before caching, so a next-slot leader cannot smuggle a header with an invalid rand seed
+// (or malformed integrity fields) past honest validators through the optimized cache path.
+func TestWorker_ProcessReceivedMessageOneSlotAheadInvalidRandSeedShouldErrAndNotCache(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("invalid rand seed")
+	hdr := &block.Block{Header: &block.BlockHeader{ChainID: chainID}}
+	hdrHash, _ := tools.CalculateHash(mock.MarshalizerMock{}, cMock.HasherMock{}, hdr.GetBlockHeader())
+	hdrStr, _ := mock.MarshalizerMock{}.Marshal(hdr)
+
+	var verifyRandSeedCalled int32
+	workerArgs := createDefaultWorkerArgs()
+	workerArgs.BlockProcessor = &mock.BlockProcessorMock{
+		DecodeBlockHeaderCalled: func(_ []byte) data.HeaderHandler {
+			return &cMock.HeaderHandlerStub{
+				GetBlockHeaderCalled: func() interface{} {
+					return hdr.GetBlockHeader()
+				},
+			}
+		},
+	}
+	workerArgs.HeaderSigVerifier = &mock.HeaderSigVerifierStub{
+		VerifyRandSeedCalled: func(_ data.HeaderHandler) error {
+			atomic.AddInt32(&verifyRandSeedCalled, 1)
+			return expectedErr
+		},
+	}
+	wrk, _ := slot.NewWorker(workerArgs)
+
+	cnsMsg := consensus.NewConsensusMessage(
+		hdrHash,
+		nil,
+		hdrStr,
+		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
+		signature,
+		int(bls.MtBlockHeader),
+		1, // one slot ahead of the current slot (0) -> hits the future-slot cache branch
+		0,
+		chainID,
+		nil,
+		nil,
+		nil,
+		currentPid,
+	)
+	buff, _ := wrk.Marshalizer().Marshal(cnsMsg)
+
+	err := wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff, PeerField: currentPid}, fromConnectedPeerId)
+	time.Sleep(time.Second)
+
+	assert.True(t, errors.Is(err, expectedErr))
+	assert.Equal(t, int32(1), atomic.LoadInt32(&verifyRandSeedCalled))
+	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
+}
+
+// One-slot-ahead MtBlockHeader messages are cached and later dispatched to the block-header
+// callback without re-running the header checks. The header-validation invariant must therefore be
+// enforced before caching, so a next-slot leader cannot smuggle a header with an invalid rand seed
+// (or malformed integrity fields) past honest validators through the optimized cache path.
+func TestWorker_ProcessReceivedMessageOneSlotAheadValidHeaderShouldCache(t *testing.T) {
+	t.Parallel()
+
+	wrk := *initWorker()
+	hdr := &block.Block{Header: &block.BlockHeader{ChainID: chainID}}
+	hdrHash, _ := tools.CalculateHash(mock.MarshalizerMock{}, cMock.HasherMock{}, hdr.GetBlockHeader())
+	hdrStr, _ := mock.MarshalizerMock{}.Marshal(hdr)
+	wrk.NewBlockProcessor(hdr.GetBlockHeader())
+
+	cnsMsg := consensus.NewConsensusMessage(
+		hdrHash,
+		nil,
+		hdrStr,
+		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
+		signature,
+		int(bls.MtBlockHeader),
+		1, // one slot ahead of the current slot (0) -> hits the future-slot cache branch
+		0,
+		chainID,
+		nil,
+		nil,
+		nil,
+		currentPid,
+	)
+	buff, _ := wrk.Marshalizer().Marshal(cnsMsg)
+
+	err := wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff, PeerField: currentPid}, fromConnectedPeerId)
+	time.Sleep(time.Second)
+
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(wrk.ReceivedMessages()[bls.MtBlockHeader]))
+}
+
+// buildHeaderMessage returns a consensus message carrying header and a block header hash
+// that matches the header when computed with the default worker marshalizer/hasher.
+func buildHeaderMessage(header *block.BlockHeader) (*consensus.Message, []byte) {
+	hdrHash, _ := tools.CalculateHash(mock.MarshalizerMock{}, cMock.HasherMock{}, header)
+	hdrStr, _ := mock.MarshalizerMock{}.Marshal(header)
+	return &consensus.Message{
+		BlockHeaderHash: hdrHash,
+		Header:          hdrStr,
+	}, hdrHash
+}
+
+func TestWorker_ValidateMessageWithHeaderValidHeaderShouldReturnHeader(t *testing.T) {
+	t.Parallel()
+
+	wrk := *initWorker()
+	header := &block.BlockHeader{ChainID: chainID}
+	wrk.NewBlockProcessor(header)
+	cnsMsg, _ := buildHeaderMessage(header)
+
+	hdr, err := wrk.ValidateMessageWithHeader(cnsMsg)
+
+	require.NoError(t, err)
+	require.NotNil(t, hdr)
+}
+
+func TestWorker_ValidateMessageWithHeaderNilHashShouldErr(t *testing.T) {
+	t.Parallel()
+
+	wrk := *initWorker()
+	header := &block.BlockHeader{ChainID: chainID}
+	wrk.NewBlockProcessor(header)
+	cnsMsg, _ := buildHeaderMessage(header)
+	cnsMsg.BlockHeaderHash = nil
+
+	hdr, err := wrk.ValidateMessageWithHeader(cnsMsg)
+
+	assert.Nil(t, hdr)
+	assert.True(t, errors.Is(err, slot.ErrInvalidHeader))
+}
+
+func TestWorker_ValidateMessageWithHeaderNilDecodedHeaderShouldErr(t *testing.T) {
+	t.Parallel()
+
+	wrk := *initWorker()
+	wrk.SetBlockProcessor(&mock.BlockProcessorMock{
+		DecodeBlockHeaderCalled: func(dta []byte) data.HeaderHandler {
+			return nil
+		},
+	})
+	cnsMsg := &consensus.Message{
+		BlockHeaderHash: blockHeaderHash,
+		Header:          []byte("header"),
+	}
+
+	hdr, err := wrk.ValidateMessageWithHeader(cnsMsg)
+
+	assert.Nil(t, hdr)
+	assert.True(t, errors.Is(err, slot.ErrInvalidHeader))
+}
+
+func TestWorker_ValidateMessageWithHeaderHashMismatchShouldErr(t *testing.T) {
+	t.Parallel()
+
+	wrk := *initWorker()
+	header := &block.BlockHeader{ChainID: chainID}
+	wrk.NewBlockProcessor(header)
+	cnsMsg, _ := buildHeaderMessage(header)
+	// tamper the announced hash so it no longer matches the recomputed one
+	cnsMsg.BlockHeaderHash = []byte("this-hash-does-not-match-the-header")
+
+	hdr, err := wrk.ValidateMessageWithHeader(cnsMsg)
+
+	assert.Nil(t, hdr)
+	assert.Equal(t, slot.ErrHeaderkHashNotMatch, err)
+}
+
+func TestWorker_ValidateMessageWithHeaderComputeHashErrorShouldErr(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("marshal failed")
+	workerArgs := createDefaultWorkerArgs()
+	workerArgs.Marshalizer = &cMock.MarshalizerStub{
+		MarshalCalled: func(any) ([]byte, error) {
+			return nil, expectedErr
+		},
+	}
+	wrk, err := slot.NewWorker(workerArgs)
+	require.NoError(t, err)
+	wrk.NewBlockProcessor(&block.BlockHeader{ChainID: chainID})
+
+	cnsMsg := &consensus.Message{
+		BlockHeaderHash: blockHeaderHash,
+		Header:          []byte("header"),
+	}
+
+	hdr, err := wrk.ValidateMessageWithHeader(cnsMsg)
+
+	assert.Nil(t, hdr)
+	assert.True(t, errors.Is(err, expectedErr))
+}
+
+func TestWorker_ValidateMessageWithHeaderIntegrityVerifyFailsShouldErr(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("integrity check failed")
+	workerArgs := createDefaultWorkerArgs()
+	workerArgs.HeaderIntegrityVerifier = &mock.HeaderIntegrityVerifierStub{
+		VerifyCalled: func(header data.HeaderHandler) error {
+			return expectedErr
+		},
+	}
+	wrk, err := slot.NewWorker(workerArgs)
+	require.NoError(t, err)
+
+	header := &block.BlockHeader{ChainID: chainID}
+	wrk.NewBlockProcessor(header)
+	cnsMsg, _ := buildHeaderMessage(header)
+
+	hdr, err := wrk.ValidateMessageWithHeader(cnsMsg)
+
+	assert.Nil(t, hdr)
+	assert.True(t, errors.Is(err, expectedErr))
+}
+
+func TestWorker_ValidateMessageWithHeaderVerifyRandSeedFailsShouldErr(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("rand seed signature invalid")
+	workerArgs := createDefaultWorkerArgs()
+	workerArgs.HeaderSigVerifier = &mock.HeaderSigVerifierStub{
+		VerifyRandSeedCalled: func(header data.HeaderHandler) error {
+			return expectedErr
+		},
+	}
+	wrk, err := slot.NewWorker(workerArgs)
+	require.NoError(t, err)
+
+	header := &block.BlockHeader{ChainID: chainID}
+	wrk.NewBlockProcessor(header)
+	cnsMsg, _ := buildHeaderMessage(header)
+
+	hdr, err := wrk.ValidateMessageWithHeader(cnsMsg)
+
+	assert.Nil(t, hdr)
+	assert.True(t, errors.Is(err, expectedErr))
 }
