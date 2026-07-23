@@ -10,20 +10,34 @@ import (
 	indexerData "github.com/klever-io/klever-go/data/indexer"
 	dataState "github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/indexer/data"
+	"github.com/klever-io/klever-go/indexer/logsevents"
 	"github.com/klever-io/klever-go/indexer/workItems"
 	"github.com/klever-io/klever-go/tools/check"
 )
 
 type eventsProcessor struct {
 	*txDatabaseProcessor
-	indexer         Indexer
-	parser          *dataParser
-	kappsController kapp.KAppController
-	accountsDB      dataState.AccountsAdapter
+	indexer           Indexer
+	parser            *dataParser
+	kappsController   kapp.KAppController
+	accountsDB        dataState.AccountsAdapter
+	logsAndEventsProc LogsAndEventsHandler
 }
 
 func NewEventsProcessor(arguments ArgEventsProcessor) (*eventsProcessor, error) {
 	err := checkArgEventsProcessor(arguments)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reuses the same converter (bech32 addresses, hex topics/data) already used to
+	// prepare logs for the Elasticsearch index, so a LOGS websocket event and its
+	// Elasticsearch counterpart for the same block never drift in shape.
+	logsAndEventsProc, err := logsevents.NewLogsAndEventsProcessor(logsevents.ArgsLogsAndEventsProcessor{
+		PubKeyConverter: arguments.AddressPubkeyConverter,
+		Marshalizer:     arguments.Marshalizer,
+		Hasher:          arguments.Hasher,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -41,8 +55,9 @@ func NewEventsProcessor(arguments ArgEventsProcessor) (*eventsProcessor, error) 
 			hasher:      arguments.Hasher,
 			marshalizer: arguments.Marshalizer,
 		},
-		kappsController: arguments.KAppController,
-		accountsDB:      arguments.AccountsDB,
+		kappsController:   arguments.KAppController,
+		accountsDB:        arguments.AccountsDB,
+		logsAndEventsProc: logsAndEventsProc,
 	}
 
 	return ep, nil
@@ -88,6 +103,7 @@ func (ep *eventsProcessor) SaveBlock(args *indexerData.ArgsSaveBlockData) {
 		if prepared != nil {
 			ep.dispatchTransactionEvents(prepared.Txs)
 			ep.dispatchAccountEventsFromAlteredAccounts(args.Header.GetTimestamp(), prepared.Altered.Accounts)
+			ep.dispatchLogEvents(args.TransactionsPool, prepared.TxsMap, args.Header.GetTimestamp())
 		}
 		if indexerEnabled {
 			args.Prepared = prepared
@@ -146,6 +162,26 @@ func (ep *eventsProcessor) dispatchTransactionEvents(txs []*data.Transaction) {
 	trySendEvent(Event{
 		EvType:  TRANSACTIONS,
 		Message: txs,
+	})
+}
+
+// dispatchLogEvents converts the block's raw smart-contract logs into the same shape
+// already used for the Elasticsearch index (bech32 addresses, hex topics/data) and
+// dispatches them as one LOGS event; the websocket hub fans each entry out by its
+// contract address, same as it does per-account for ACCOUNTS.
+func (ep *eventsProcessor) dispatchLogEvents(pool *indexerData.Pool, txsMap map[string]*data.Transaction, blockTimestamp int64) {
+	if pool == nil || len(pool.Logs) == 0 {
+		return
+	}
+
+	logsDB := ep.logsAndEventsProc.PrepareLogsForDB(pool.Logs, txsMap, blockTimestamp)
+	if len(logsDB) == 0 {
+		return
+	}
+
+	trySendEvent(Event{
+		EvType:  LOGS,
+		Message: logsDB,
 	})
 }
 

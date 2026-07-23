@@ -269,6 +269,7 @@ func TestNewEventsProcessor(t *testing.T) {
 		})
 		require.Nil(t, err)
 		require.NotNil(t, ep)
+		require.NotNil(t, ep.logsAndEventsProc)
 	})
 }
 
@@ -434,6 +435,126 @@ func TestEventsProcessor_SaveBlock_NilPool(t *testing.T) {
 	select {
 	case <-testQueue:
 		t.Fatal("expected no tx events with nil pool")
+	default:
+	}
+}
+
+func TestEventsProcessor_SaveBlock_DispatchesLogEvents(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor(t)
+
+	contract := transaction.TransferContract{
+		ToAddress: []byte("receiver"),
+		Amount:    100,
+	}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	require.NoError(t, err)
+
+	logHandler := &transaction.Log{
+		Address:    []byte("contractaddr"),
+		ContractID: 1,
+		Events: []*transaction.Event{
+			{
+				Address:    []byte("contractaddr"),
+				Identifier: []byte("transfer"),
+				Topics:     [][]byte{[]byte("topic1")},
+				Data:       [][]byte{[]byte("data1")},
+			},
+		},
+	}
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Txs:  map[string]nodeData.TransactionHandler{"txHash1": tx},
+		Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txHash1"}},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	var logsEvent *Event
+	for i := 0; i < 10; i++ {
+		select {
+		case ev := <-testQueue:
+			if ev.EvType == LOGS {
+				evCopy := ev
+				logsEvent = &evCopy
+			}
+		default:
+			i = 10
+		}
+	}
+	require.NotNil(t, logsEvent, "expected a LOGS event to be dispatched")
+	logsDB, ok := logsEvent.Message.([]*data.Logs)
+	require.True(t, ok)
+	require.Len(t, logsDB, 1)
+	require.NotEmpty(t, logsDB[0].Address)
+	require.Len(t, logsDB[0].Events, 1)
+	require.Equal(t, "transfer", logsDB[0].Events[0].Identifier)
+}
+
+func TestEventsProcessor_SaveBlock_NoLogsNoOp(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor(t)
+
+	contract := transaction.TransferContract{
+		ToAddress: []byte("receiver"),
+		Amount:    100,
+	}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	require.NoError(t, err)
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Txs: map[string]nodeData.TransactionHandler{"txHash1": tx},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	for i := 0; i < 10; i++ {
+		select {
+		case ev := <-testQueue:
+			require.NotEqual(t, LOGS, ev.EvType, "expected no LOGS event when pool.Logs is empty")
+		default:
+			i = 10
+		}
+	}
+}
+
+func TestEventsProcessor_SaveBlock_NilPool_SkipsLogEvents(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor(t)
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+
+	require.NotPanics(t, func() {
+		ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: nil})
+	})
+
+	event := <-testQueue
+	require.Equal(t, BLOCKS, event.EvType)
+
+	select {
+	case ev := <-testQueue:
+		require.NotEqual(t, LOGS, ev.EvType, "expected no LOGS event with nil pool")
+	default:
+	}
+}
+
+func TestEventsProcessor_SaveBlock_SkipsLogEventsWhenDisabled(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, false)
+	ep := createTestEventsProcessor(t)
+
+	logHandler := &transaction.Log{Address: []byte("contractaddr")}
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txHash1"}},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	select {
+	case ev := <-testQueue:
+		t.Fatalf("expected no events when UseEventQueue is false, got %s", ev.EvType)
 	default:
 	}
 }

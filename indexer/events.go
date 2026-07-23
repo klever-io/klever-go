@@ -24,6 +24,7 @@ const (
 	ACCOUNTS          EventType = "accounts"
 	BLOCKS            EventType = "blocks"
 	TRANSACTIONS      EventType = "transactions"
+	LOGS              EventType = "logs"
 )
 
 const dropLogIntervalSeconds = 10
@@ -60,6 +61,8 @@ func NewEventTypeStrict(evType string) (EventType, error) {
 		return BLOCKS, nil
 	case "user_transactions":
 		return USER_TRANSACTIONS, nil
+	case "logs":
+		return LOGS, nil
 	default:
 		return UNKNOWN, ErrUnknownEventType
 	}
@@ -75,6 +78,8 @@ func NewEventType(evType string) EventType {
 		return BLOCKS
 	case "user_transactions":
 		return USER_TRANSACTIONS
+	case "logs":
+		return LOGS
 	default:
 		return UNKNOWN
 	}

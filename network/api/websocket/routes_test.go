@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/klever-io/klever-go/indexer"
+	wsdata "github.com/klever-io/klever-go/indexer/data"
 	wsocket "github.com/klever-io/klever-go/network/api/websocket"
 	socket "github.com/klever-io/klever-go/websocket"
 	"github.com/stretchr/testify/assert"
@@ -99,7 +100,7 @@ func TestSubscribeTopics_ValidTypes(t *testing.T) {
 
 	msg := map[string]interface{}{
 		"addresses":        []string{"klv1abc"},
-		"subscribed_types": []string{"blocks", "transactions", "accounts", "user_transactions"},
+		"subscribed_types": []string{"blocks", "transactions", "accounts", "user_transactions", "logs"},
 	}
 	err = conn.WriteJSON(msg)
 	assert.NoError(t, err)
@@ -199,6 +200,44 @@ func TestSubscribeTopics_BlockEventDelivery(t *testing.T) {
 	err = conn.ReadJSON(&received)
 	require.NoError(t, err, "expected to receive block event but got nothing")
 	assert.Equal(t, indexer.BLOCKS, received.Type)
+}
+
+func TestSubscribeTopics_LogsEventDelivery(t *testing.T) {
+	hub := socket.NewHub("", "", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go hub.StartServer(ctx)
+
+	addr, cleanup := startTestServer(t, hub)
+	defer cleanup()
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+addr+"/subscribe", nil)
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	defer conn.Close()
+
+	msg := map[string]interface{}{
+		"addresses":        []string{"klv1contract"},
+		"subscribed_types": []string{"logs"},
+	}
+	err = conn.WriteJSON(msg)
+	require.NoError(t, err)
+
+	time.Sleep(100 * time.Millisecond)
+
+	indexer.EventQueue <- indexer.Event{
+		EvType: indexer.LOGS,
+		Message: []*wsdata.Logs{
+			{Address: "klv1contract", Events: []*wsdata.Event{{Identifier: "transfer"}}},
+		},
+	}
+
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	var received socket.Send
+	err = conn.ReadJSON(&received)
+	require.NoError(t, err, "expected to receive logs event but got nothing")
+	assert.Equal(t, indexer.LOGS, received.Type)
+	assert.Equal(t, "klv1contract", received.Address)
 }
 
 func TestSubscribeTopics_ThenSendRequest(t *testing.T) {
