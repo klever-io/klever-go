@@ -26,6 +26,18 @@ const (
 	// string can never match a real address and would only feed a per-connection
 	// memory-amplification path (GHSA-4fwh-wrm6-97xm).
 	maxEncodedAddressLength = 62
+
+	// postWorkerCount bounds how many postWSConnection mirror requests run concurrently.
+	// Without a cap, a slow or unresponsive mirror endpoint turns every account/tx event
+	// into an unbounded pile of in-flight goroutines and sockets, scaling with chain
+	// throughput rather than with the mirror's actual capacity.
+	postWorkerCount = 8
+
+	// postQueueSize bounds how many pending mirror sends can queue behind postWorkerCount
+	// before new ones are dropped (mirroring the EventQueue drop-on-full pattern in
+	// indexer/events.go), so a stalled mirror endpoint sheds load instead of growing without
+	// bound.
+	postQueueSize = 1000
 )
 
 // pingPeriod and pongWait are the /subscribe keepalive timings. They are vars only so

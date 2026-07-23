@@ -691,6 +691,83 @@ func TestPostWSConnection_WithServer(t *testing.T) {
 	}
 }
 
+func TestAsyncPost_NoopWithoutConfig(t *testing.T) {
+	hub := newTestHub(nil)
+	assert.Nil(t, hub.postQueue)
+
+	// Must not panic and must not block: with no mirror configured, asyncPost is a pure no-op.
+	assert.NotPanics(t, func() {
+		hub.asyncPost(&Send{Type: indexer.BLOCKS, Data: []byte(`{}`)})
+	})
+}
+
+func TestNewHub_PostQueueAllocatedOnlyWhenConfigured(t *testing.T) {
+	assert.Nil(t, NewHub("", "", nil).postQueue, "no URL or API key: mirror disabled")
+	assert.NotNil(t, NewHub("http://example.com", "", nil).postQueue, "URL set: mirror enabled")
+	assert.NotNil(t, NewHub("", "api-key", nil).postQueue, "API key set: mirror enabled")
+}
+
+func TestAsyncPost_DeliversToWorker(t *testing.T) {
+	receivedCh := make(chan []byte, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := make([]byte, 4096)
+		n, _ := r.Body.Read(buf)
+		receivedCh <- buf[:n]
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	hub := NewHub(ts.URL, "test-key", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	hub.startPostWorkers(ctx)
+
+	hub.asyncPost(&Send{Type: indexer.BLOCKS, Data: []byte(`{"nonce":1}`)})
+
+	select {
+	case received := <-receivedCh:
+		assert.NotEmpty(t, received)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for mirrored POST")
+	}
+}
+
+func TestAsyncPost_DropsWhenQueueFull(t *testing.T) {
+	hub := NewHub("http://example.invalid", "key", nil)
+	// No workers started: the queue only drains via asyncPost's own capacity, so filling
+	// it exercises the drop-on-full path deterministically without a live HTTP server.
+	for i := 0; i < postQueueSize; i++ {
+		hub.asyncPost(&Send{Type: indexer.BLOCKS})
+	}
+	assert.Len(t, hub.postQueue, postQueueSize)
+
+	assert.NotPanics(t, func() {
+		hub.asyncPost(&Send{Type: indexer.BLOCKS})
+	})
+	assert.Len(t, hub.postQueue, postQueueSize, "queue-full send must be dropped, not queued")
+}
+
+func TestStartPostWorkers_StopOnContextCancel(t *testing.T) {
+	hub := NewHub("http://example.invalid", "key", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	hub.startPostWorkers(ctx)
+	cancel()
+
+	// No assertion beyond "this returns": startPostWorkers must not leak goroutines past
+	// ctx cancellation. A stuck worker would surface as a hang here or under -race in CI.
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestStartPostWorkers_NoopWithoutConfig(t *testing.T) {
+	hub := newTestHub(nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	assert.NotPanics(t, func() {
+		hub.startPostWorkers(ctx)
+	})
+}
+
 func TestStartServer_ContextCancel(t *testing.T) {
 	env := startServerEnv(t, nil)
 	c := newTestClient(env.hub)

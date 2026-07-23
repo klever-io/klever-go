@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/klever-io/klever-go/cmd/operator/utils"
 
@@ -25,7 +27,31 @@ const (
 	errMissingNonceHash = "must provide nonce or hash"
 	errTxNotFound       = "transaction not found"
 	errBlockNotFound    = "block not found"
+
+	postQueueDropLogIntervalSeconds = 10
 )
+
+var (
+	droppedPostCount   int64
+	lastPostDropLogged int64
+)
+
+// logPostQueueDrop rate-limits the "mirror queue full" warning so a sustained stall
+// against a slow postConnectionURL logs a periodic summary instead of one line per
+// dropped event.
+func logPostQueueDrop() {
+	atomic.AddInt64(&droppedPostCount, 1)
+	now := time.Now().Unix()
+	last := atomic.LoadInt64(&lastPostDropLogged)
+	if now-last < postQueueDropLogIntervalSeconds {
+		return
+	}
+	if !atomic.CompareAndSwapInt64(&lastPostDropLogged, last, now) {
+		return
+	}
+	count := atomic.SwapInt64(&droppedPostCount, 0)
+	log.Warn("ws.EventReceive.postWSConnection", "msg", "mirror queue full, dropping events", "droppedCount", count)
+}
 
 type userOptions struct {
 	acceptAccount     bool
@@ -43,12 +69,21 @@ type SocketHub struct {
 	clientAddresses         map[*client]int
 	limits                  resolvedLimits
 	unregister              chan *client
+	// postQueue feeds the bounded postWSConnection worker pool; nil when the mirror is
+	// disabled (no URL/API key configured), so asyncPost is a no-op and never allocates a
+	// goroutine or channel slot for a feature nobody turned on.
+	postQueue chan *Send
 }
 
 func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade, limits ...Limits) *SocketHub {
 	var l Limits
 	if len(limits) > 0 {
 		l = limits[0]
+	}
+
+	var postQueue chan *Send
+	if postConnectionURL != "" || postConnectionAPIKey != "" {
+		postQueue = make(chan *Send, postQueueSize)
 	}
 
 	return &SocketHub{
@@ -61,6 +96,7 @@ func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade, lim
 		postConnectionAPIKey:    postConnectionAPIKey,
 		facade:                  facade,
 		limits:                  l.resolve(),
+		postQueue:               postQueue,
 	}
 }
 
@@ -74,12 +110,40 @@ func (h *SocketHub) MaxAddressesPerSubscribe() int {
 	return h.limits.maxAddressesPerSubscribe
 }
 
+// asyncPost hands parsed to the bounded post-mirror worker pool. It is a pure no-op when
+// the mirror isn't configured, and drops (with a rate-limited warning) rather than block
+// or grow without bound when postWorkerCount workers are all busy with a slow endpoint.
 func (h *SocketHub) asyncPost(parsed *Send) {
-	go func() {
-		if err := h.postWSConnection(parsed); err != nil {
-			log.Warn("ws.EventReceive.postWSConnection", "failed to post", err.Error())
-		}
-	}()
+	if h.postQueue == nil {
+		return
+	}
+	select {
+	case h.postQueue <- parsed:
+	default:
+		logPostQueueDrop()
+	}
+}
+
+// startPostWorkers runs postWorkerCount goroutines draining postQueue until ctx is done.
+// No-op when the mirror is disabled (postQueue == nil).
+func (h *SocketHub) startPostWorkers(ctx context.Context) {
+	if h.postQueue == nil {
+		return
+	}
+	for i := 0; i < postWorkerCount; i++ {
+		go func() {
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case parsed := <-h.postQueue:
+					if err := h.postWSConnection(parsed); err != nil {
+						log.Warn("ws.EventReceive.postWSConnection", "failed to post", err.Error())
+					}
+				}
+			}
+		}()
+	}
 }
 
 func (h *SocketHub) notifyAddressSubscribers(address string, parsed *Send, filterFn func(userOptions) bool) {
@@ -128,6 +192,7 @@ func (h *SocketHub) marshalAndPost(evType indexer.EventType, address, hash strin
 }
 
 func (h *SocketHub) StartServer(ctx context.Context) {
+	h.startPostWorkers(ctx)
 	for {
 		select {
 		case <-ctx.Done():
