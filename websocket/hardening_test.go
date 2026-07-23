@@ -212,11 +212,17 @@ func TestHandleClientInsertion_ReSubscribeDoesNotDoubleCount(t *testing.T) {
 }
 
 // setKeepaliveForTest shortens the /subscribe keepalive timings so the read-deadline
-// reclamation fires in milliseconds, and returns a restore func.
+// reclamation fires in milliseconds, and returns a restore func. Uses atomic
+// swap/store rather than a plain assignment because a client whose teardown this test
+// just triggered may still have its loopIn/loopOut goroutines mid-exit and reading the
+// current value (e.g. loopOut's ticker branch) when the restore fires.
 func setKeepaliveForTest(ping, pong time.Duration) func() {
-	origPing, origPong := pingPeriod, pongWait
-	pingPeriod, pongWait = ping, pong
-	return func() { pingPeriod, pongWait = origPing, origPong }
+	origPing := pingPeriodNs.Swap(int64(ping))
+	origPong := pongWaitNs.Swap(int64(pong))
+	return func() {
+		pingPeriodNs.Store(origPing)
+		pongWaitNs.Store(origPong)
+	}
 }
 
 // TestClient_IdleConnectionReclaimedAtPongWait covers the core new defense
