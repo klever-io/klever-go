@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,8 +39,15 @@ func GetURL(url string, target interface{}) error {
 
 // PostURL provides a post using a json string
 func PostURL(url, body string, headers []string, target interface{}) error {
+	return PostURLWithContext(context.Background(), url, body, headers, target)
+}
+
+// PostURLWithContext behaves like PostURL but ties the request to ctx, so a caller can
+// abort an in-flight POST (e.g. on shutdown) instead of waiting out httpClient's fixed
+// timeout.
+func PostURLWithContext(ctx context.Context, url, body string, headers []string, target interface{}) error {
 	reqBody := strings.NewReader(body)
-	req, errNewReq := http.NewRequest(http.MethodPost, url, reqBody)
+	req, errNewReq := http.NewRequestWithContext(ctx, http.MethodPost, url, reqBody)
 	if errNewReq != nil {
 		return errNewReq
 	}

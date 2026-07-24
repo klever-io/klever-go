@@ -73,6 +73,9 @@ type SocketHub struct {
 	// disabled (no URL/API key configured), so asyncPost is a no-op and never allocates a
 	// goroutine or channel slot for a feature nobody turned on.
 	postQueue chan *Send
+	// postWorkersWG tracks live post workers so StartServer's shutdown can wait for them
+	// to actually exit rather than returning while one is still mid-request.
+	postWorkersWG sync.WaitGroup
 }
 
 func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade, limits ...Limits) *SocketHub {
@@ -125,19 +128,24 @@ func (h *SocketHub) asyncPost(parsed *Send) {
 }
 
 // startPostWorkers runs postWorkerCount goroutines draining postQueue until ctx is done.
-// No-op when the mirror is disabled (postQueue == nil).
+// No-op when the mirror is disabled (postQueue == nil). Each worker is tracked in
+// postWorkersWG so StartServer's shutdown can wait for them to actually exit — ctx is
+// threaded into the HTTP call itself (via postWSConnection) so an in-flight request is
+// aborted promptly on cancellation instead of running out its full timeout.
 func (h *SocketHub) startPostWorkers(ctx context.Context) {
 	if h.postQueue == nil {
 		return
 	}
 	for i := 0; i < postWorkerCount; i++ {
+		h.postWorkersWG.Add(1)
 		go func() {
+			defer h.postWorkersWG.Done()
 			for {
 				select {
 				case <-ctx.Done():
 					return
 				case parsed := <-h.postQueue:
-					if err := h.postWSConnection(parsed); err != nil {
+					if err := h.postWSConnection(ctx, parsed); err != nil {
 						log.Warn("ws.EventReceive.postWSConnection", "failed to post", err.Error())
 					}
 				}
@@ -198,6 +206,7 @@ func (h *SocketHub) StartServer(ctx context.Context) {
 		case <-ctx.Done():
 			log.Info("delete all client and close gracefully")
 			h.deleteAll()
+			h.postWorkersWG.Wait()
 			return
 		case client := <-h.unregister:
 			h.handleClientDelete(client)
@@ -286,7 +295,7 @@ func (h *SocketHub) handleBroadcastEvent(event indexer.Event, subscription map[*
 	h.broadcastToSubscription(parsed, subscription)
 }
 
-func (h *SocketHub) postWSConnection(message *Send) error {
+func (h *SocketHub) postWSConnection(ctx context.Context, message *Send) error {
 	if h.postConnectionURL == "" && h.postConnectionAPIKey == "" {
 		return nil
 	}
@@ -296,7 +305,7 @@ func (h *SocketHub) postWSConnection(message *Send) error {
 		return err
 	}
 
-	return utils.PostURL(h.postConnectionURL, string(b), []string{"x-api-key", h.postConnectionAPIKey}, nil)
+	return utils.PostURLWithContext(ctx, h.postConnectionURL, string(b), []string{"x-api-key", h.postConnectionAPIKey}, nil)
 }
 
 type Send struct {

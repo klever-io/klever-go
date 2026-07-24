@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -665,7 +666,7 @@ func TestDeleteAll(t *testing.T) {
 func TestPostWSConnection_EmptyConfig(t *testing.T) {
 	hub := newTestHub(nil)
 	msg := &Send{Type: indexer.BLOCKS, Data: []byte(`{}`)}
-	err := hub.postWSConnection(msg)
+	err := hub.postWSConnection(t.Context(), msg)
 	assert.NoError(t, err)
 }
 
@@ -680,7 +681,7 @@ func TestPostWSConnection_WithServer(t *testing.T) {
 	defer ts.Close()
 
 	hub := NewHub(ts.URL, "test-key", nil)
-	err := hub.postWSConnection(&Send{Type: indexer.BLOCKS, Data: []byte(`{}`)})
+	err := hub.postWSConnection(t.Context(), &Send{Type: indexer.BLOCKS, Data: []byte(`{}`)})
 	assert.NoError(t, err)
 
 	select {
@@ -708,11 +709,14 @@ func TestNewHub_PostQueueAllocatedOnlyWhenConfigured(t *testing.T) {
 }
 
 func TestAsyncPost_DeliversToWorker(t *testing.T) {
-	receivedCh := make(chan []byte, 1)
+	type receivedPost struct {
+		body []byte
+		err  error
+	}
+	receivedCh := make(chan receivedPost, 1)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		buf := make([]byte, 4096)
-		n, _ := r.Body.Read(buf)
-		receivedCh <- buf[:n]
+		body, err := io.ReadAll(r.Body)
+		receivedCh <- receivedPost{body: body, err: err}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
@@ -726,7 +730,8 @@ func TestAsyncPost_DeliversToWorker(t *testing.T) {
 
 	select {
 	case received := <-receivedCh:
-		assert.NotEmpty(t, received)
+		require.NoError(t, received.err)
+		assert.NotEmpty(t, received.body)
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for mirrored POST")
 	}
@@ -753,9 +758,19 @@ func TestStartPostWorkers_StopOnContextCancel(t *testing.T) {
 	hub.startPostWorkers(ctx)
 	cancel()
 
-	// No assertion beyond "this returns": startPostWorkers must not leak goroutines past
-	// ctx cancellation. A stuck worker would surface as a hang here or under -race in CI.
-	time.Sleep(50 * time.Millisecond)
+	// Deterministically prove every worker actually exited, rather than assuming it did
+	// after a fixed sleep: postWorkersWG.Wait() only returns once each worker's Done()
+	// fires. A stuck worker hangs this test instead of passing silently.
+	done := make(chan struct{})
+	go func() {
+		hub.postWorkersWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("post workers did not exit after context cancellation")
+	}
 }
 
 func TestStartPostWorkers_NoopWithoutConfig(t *testing.T) {
