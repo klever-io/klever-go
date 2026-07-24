@@ -110,7 +110,7 @@ func NewMetaProcessor(arguments ArgMetaProcessor) (*metaProcessor, error) {
 func (mp *metaProcessor) ProcessBlock(
 	headerHandler data.HeaderHandler,
 	haveTime func() time.Duration,
-) error {
+) (err error) {
 	startProcess := time.Now()
 
 	defer func() {
@@ -124,10 +124,34 @@ func (mp *metaProcessor) ProcessBlock(
 		return process.ErrNilHaveTimeHandler
 	}
 
-	err := mp.validateBlockAndRequestMissing(headerHandler)
+	err = mp.validateBlockAndRequestMissing(headerHandler)
 	if err != nil {
 		return err
 	}
+
+	header, ok := headerHandler.(*block.Block)
+	if !ok {
+		return common.ErrWrongTypeAssertion
+	}
+
+	// Snapshot the epoch-sensitive in-memory state before mutating it. The epoch
+	// notifier / fork flags, the request-handler epoch, the blockchain hook header
+	// and the epoch-start trigger are all advanced below before the full
+	// epoch-transition validation (checkEpochCorrectness) runs. If processing
+	// fails after this point, the deferred handler restores them so a rejected
+	// (e.g. future-epoch) block cannot leave the node in a mutated, future-epoch
+	// state.
+	prevEpoch := mp.epochNotifier.CurrentEpoch()
+	prevCurrentHeader := mp.blockChain.GetCurrentBlockHeader()
+	restoreEpochTrigger := snapshotEpochTrigger(mp.epochStartTrigger)
+
+	defer func() {
+		if err != nil {
+			log.Error("ProcessBlock revert: ", "error", err.Error())
+			mp.RevertStateToSnapshot(header)
+			mp.restoreEpochState(prevEpoch, prevCurrentHeader, restoreEpochTrigger)
+		}
+	}()
 
 	mp.epochNotifier.CheckEpoch(headerHandler.GetEpoch())
 	mp.requestHandler.SetEpoch(headerHandler.GetEpoch())
@@ -141,19 +165,7 @@ func (mp *metaProcessor) ProcessBlock(
 		"slot", headerHandler.GetSlot(),
 		"nonce", headerHandler.GetNonce())
 
-	header, ok := headerHandler.(*block.Block)
-	if !ok {
-		return common.ErrWrongTypeAssertion
-	}
-
 	mp.dispatchAsyncHeaderMetrics(header)
-
-	defer func() {
-		if err != nil {
-			log.Error("ProcessBlock revert: ", "error", err.Error())
-			mp.RevertStateToSnapshot(header)
-		}
-	}()
 
 	mp.createBlockStarted()
 	mp.blockChainHook.SetCurrentHeader(header)
@@ -478,6 +490,51 @@ func (mp *metaProcessor) checkEpochCorrectness(
 	}
 
 	return nil
+}
+
+// epochStateReverter is implemented by the concrete epoch-start trigger to allow
+// snapshotting and restoring its in-memory epoch state without a full storage
+// reload. It is declared here (structural typing) so restoring the trigger does
+// not require widening the public EpochStartTriggerHandler interface.
+type epochStateReverter interface {
+	EpochStateSnapshot() (epoch uint32, isEpochStart bool, currentSlot, currEpochStartSlot, prevEpochStartSlot, nextEpochStartSlot uint64)
+	RestoreEpochState(epoch uint32, isEpochStart bool, currentSlot, currEpochStartSlot, prevEpochStartSlot, nextEpochStartSlot uint64)
+}
+
+// snapshotEpochTrigger captures the current in-memory epoch state of the trigger
+// and returns a closure that restores it. It returns nil when the trigger does
+// not support snapshotting (e.g. disabled/stub implementations).
+func snapshotEpochTrigger(trigger process.EpochStartTriggerHandler) func() {
+	reverter, ok := trigger.(epochStateReverter)
+	if !ok {
+		return nil
+	}
+
+	epoch, isEpochStart, currentSlot, currEpochStartSlot, prevEpochStartSlot, nextEpochStartSlot := reverter.EpochStateSnapshot()
+	return func() {
+		reverter.RestoreEpochState(epoch, isEpochStart, currentSlot, currEpochStartSlot, prevEpochStartSlot, nextEpochStartSlot)
+	}
+}
+
+// restoreEpochState reverts the epoch-sensitive in-memory components that
+// ProcessBlock advances before checkEpochCorrectness runs, so a rejected block
+// does not leave the node in a mutated, future-epoch state. Restoring the epoch
+// notifier also reverts the fork flags derived from it.
+func (mp *metaProcessor) restoreEpochState(
+	prevEpoch uint32,
+	prevCurrentHeader data.HeaderHandler,
+	restoreEpochTrigger func(),
+) {
+	mp.epochNotifier.CheckEpoch(prevEpoch)
+	mp.requestHandler.SetEpoch(prevEpoch)
+
+	if !check.IfNil(prevCurrentHeader) {
+		mp.blockChainHook.SetCurrentHeader(prevCurrentHeader)
+	}
+
+	if restoreEpochTrigger != nil {
+		restoreEpochTrigger()
+	}
 }
 
 // CreateBlock creates the final block and header for the current slot

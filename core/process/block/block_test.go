@@ -33,6 +33,8 @@ import (
 	"github.com/klever-io/klever-go/data/state/factory"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/data/trie"
+	"github.com/klever-io/klever-go/eventNotifier/epochStart"
+	"github.com/klever-io/klever-go/eventNotifier/notifier"
 	"github.com/klever-io/klever-go/kapps"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	"github.com/klever-io/klever-go/storage"
@@ -1826,4 +1828,306 @@ func TestMetaProcessor_CommitBlockCallsEventsProcessor(t *testing.T) {
 	err = mp.CommitBlock(hdr)
 	assert.Nil(t, err)
 	assert.True(t, saveBlockCalled)
+}
+
+type epochAwareRequestHandler struct {
+	mock.RequestHandlerStub
+	epoch uint32
+}
+
+func (rh *epochAwareRequestHandler) SetEpoch(epoch uint32) {
+	rh.epoch = epoch
+}
+
+// processBlockTestDeps groups the collaborators wired into the processor under test.
+type processBlockTestDeps struct {
+	currentHeader  data.HeaderHandler
+	currentHash    []byte
+	trigger        process.EpochStartTriggerHandler
+	requestHandler *epochAwareRequestHandler
+	hook           *contextmock.BlockchainHookStub
+	epochNotifier  process.EpochNotifier
+	txCoordinator  process.TransactionCoordinator
+	reverts        *int
+}
+
+func newEpochStartTriggerForProcessBlock(
+	t *testing.T,
+	forkController core.ForkController,
+	epoch uint32,
+	epochStartSlot uint64,
+	slotsPerEpoch uint64,
+) process.EpochStartTriggerHandler {
+	t.Helper()
+	store := retriever.NewChainStorer()
+	store.AddStorer(retriever.BootstrapUnit, createMemUnit())
+	store.AddStorer(retriever.BlockUnit, createMemUnit())
+	trigger, err :=
+		epochStart.NewEpochStartTrigger(&epochStart.ArgsNewEpochStartTrigger{
+			GenesisTime:        time.Unix(0, 0),
+			Epoch:              epoch,
+			EpochStartSlot:     epochStartSlot,
+			SlotsPerEpoch:      slotsPerEpoch,
+			EpochStartNotifier: notifier.NewEpochStartSubscriptionHandler(),
+			Marshalizer:        marshalizer,
+			Hasher:             &sha256.Sha256{},
+			Storage:            store,
+			ForkController:     forkController,
+		})
+	require.NoError(t, err)
+	return trigger
+}
+
+func newMetaProcessorForProcessBlock(t *testing.T, deps processBlockTestDeps) process.BlockProcessor {
+	t.Helper()
+	args := createMockMetaArguments()
+	args.BlockChain = &mock.BlockChainMock{
+		GetGenesisHeaderCalled: func() data.HeaderHandler {
+			return &block.Block{Header: &block.BlockHeader{Nonce: 0}}
+		},
+		GetCurrentBlockHeaderCalled: func() data.HeaderHandler {
+			return deps.currentHeader
+		},
+		GetCurrentBlockHeaderHashCalled: func() []byte {
+			return deps.currentHash
+		},
+	}
+	args.EpochStartTrigger = deps.trigger
+	args.RequestHandler = deps.requestHandler
+	args.BlockChainHook = deps.hook
+	args.EpochNotifier = deps.epochNotifier
+	if deps.txCoordinator != nil {
+		args.TxCoordinator = deps.txCoordinator
+	}
+	for key := range args.AccountsDB {
+		args.AccountsDB[key] = &mock.AccountsStub{
+			JournalLenCalled: func() int {
+				return 0
+			},
+			RevertToSnapshotCalled: func(snapshot int) error {
+				(*deps.reverts)++
+				return nil
+			},
+			RootHashCalled: func() ([]byte, error) {
+				return nil, nil
+			},
+		}
+	}
+	mp, err := blproc.NewMetaProcessor(args)
+	require.NoError(t, err)
+	return mp
+}
+
+// A block whose epoch is two ahead of the committed header must be rejected
+// before ProcessBlock touches any epoch-sensitive state, so no rollback of those
+// components is even needed.
+func TestMetaProcessor_ProcessBlockRejectsEpochTwoAheadWithoutMutatingState(t *testing.T) {
+	const (
+		currentEpoch   = uint32(7)
+		epochStartSlot = uint64(100)
+		currentSlot    = uint64(110)
+		futureSlot     = uint64(250)
+		currentNonce   = uint64(11)
+		slotsPerEpoch  = uint64(100)
+	)
+	currentHash := []byte("current-hash")
+	currentRandSeed := []byte("current-rand-seed")
+	currentHeader := &block.Block{Header: &block.BlockHeader{
+		Epoch:    currentEpoch,
+		Slot:     currentSlot,
+		Nonce:    currentNonce,
+		RandSeed: currentRandSeed,
+	}}
+	epochNotifier := notifier.NewGenericEpochNotifier()
+	epochNotifier.CheckEpoch(currentEpoch)
+	requestHandler := &epochAwareRequestHandler{}
+	var hookHeader data.HeaderHandler
+	hook := &contextmock.BlockchainHookStub{
+		SetCurrentHeaderCalled: func(hdr data.HeaderHandler) {
+			hookHeader = hdr
+		},
+	}
+	args := createMockMetaArguments()
+	trigger := newEpochStartTriggerForProcessBlock(t, args.ForkController, currentEpoch,
+		epochStartSlot, slotsPerEpoch)
+	reverts := 0
+	mp := newMetaProcessorForProcessBlock(t, processBlockTestDeps{
+		currentHeader:  currentHeader,
+		currentHash:    currentHash,
+		trigger:        trigger,
+		requestHandler: requestHandler,
+		hook:           hook,
+		epochNotifier:  epochNotifier,
+		reverts:        &reverts,
+	})
+	futureEpochHeader := &block.Block{Header: &block.BlockHeader{
+		Epoch:              currentEpoch + 2,
+		Slot:               futureSlot,
+		Nonce:              currentNonce + 1,
+		ParentHash:         currentHash,
+		PrevRandSeed:       currentRandSeed,
+		IsEpochStart:       true,
+		PrevEpochStartSlot: epochStartSlot,
+	}}
+	err := mp.ProcessBlock(futureEpochHeader, haveTime)
+	require.ErrorIs(t, err, process.ErrEpochDoesNotMatch)
+
+	assert.Equal(t, currentEpoch, epochNotifier.CurrentEpoch(), "epoch notifier must not be advanced by a rejected future-epoch block")
+	assert.NotEqual(t, currentEpoch+2, requestHandler.epoch, "request handler epoch must not be advanced by a rejected future-epoch block")
+	assert.Nil(t, hookHeader, "blockchain hook must not keep the rejected future header")
+	assert.Equal(t, currentEpoch, trigger.Epoch(), "epoch start trigger must not be advanced by the rejected future slot")
+	assert.False(t, trigger.IsEpochStart(), "epoch start trigger must not enter epoch start state for a rejected block")
+	assert.Equal(t, 0, reverts, "block is rejected before any state mutation, so no account revert is needed")
+}
+
+// A currentEpoch+1 epoch-start block advances the trigger and reaches processing
+// after checkEpochCorrectness. If a later processing step fails, the epoch-side
+// state must be restored to the committed epoch instead of staying advanced.
+func TestMetaProcessor_ProcessBlockRestoresEpochStateOnLateFailure(t *testing.T) {
+	const (
+		currentEpoch   = uint32(7)
+		epochStartSlot = uint64(100)
+		currentSlot    = uint64(110)
+		futureSlot     = uint64(250)
+		currentNonce   = uint64(11)
+		slotsPerEpoch  = uint64(100)
+	)
+	currentHash := []byte("current-hash")
+	currentRandSeed := []byte("current-rand-seed")
+	currentHeader := &block.Block{Header: &block.BlockHeader{
+		Epoch:    currentEpoch,
+		Slot:     currentSlot,
+		Nonce:    currentNonce,
+		RandSeed: currentRandSeed,
+	}}
+	epochNotifier := notifier.NewGenericEpochNotifier()
+	epochNotifier.CheckEpoch(currentEpoch)
+	// Register a fork-flag-like subscriber whose config differs between currentEpoch
+	// and currentEpoch+1. The whole point of the rollback is that a rejected
+	// future-epoch block does not leave such flags stuck in the future config, so we
+	// drive a flag through the notifier and assert it toggles back on the failure path
+	// (CurrentEpoch() resetting alone would not prove the derived flags reverted).
+	futureFlagEnabled := false
+	sawFutureConfig := false
+	epochNotifier.RegisterNotifyHandler(&mock.EpochSubscriberHandlerStub{
+		EpochConfirmedCalled: func(epoch uint32) {
+			futureFlagEnabled = epoch >= currentEpoch+1
+			if futureFlagEnabled {
+				sawFutureConfig = true
+			}
+		},
+	})
+	require.False(t, futureFlagEnabled, "fork flag must start in the committed-epoch config")
+	requestHandler := &epochAwareRequestHandler{}
+	requestHandler.SetEpoch(currentEpoch)
+	hook := &contextmock.BlockchainHookStub{}
+	args := createMockMetaArguments()
+	trigger := newEpochStartTriggerForProcessBlock(t, args.ForkController, currentEpoch,
+		epochStartSlot, slotsPerEpoch)
+	reverts := 0
+	reachedPostEpochCheck := false
+	txCoordinator := &mock.TransactionCoordinatorMock{
+		RequestBlockTransactionsCalled: func(blk *block.Block) {
+			reachedPostEpochCheck = true
+		},
+		IsDataPreparedForProcessingCalled: func(haveTime func() time.Duration) error {
+			return assert.AnError
+		},
+	}
+	mp := newMetaProcessorForProcessBlock(t, processBlockTestDeps{
+		currentHeader:  currentHeader,
+		currentHash:    currentHash,
+		trigger:        trigger,
+		requestHandler: requestHandler,
+		hook:           hook,
+		epochNotifier:  epochNotifier,
+		txCoordinator:  txCoordinator,
+		reverts:        &reverts,
+	})
+	futureEpochHeader := &block.Block{Header: &block.BlockHeader{
+		Epoch:              currentEpoch + 1,
+		Slot:               futureSlot,
+		Nonce:              currentNonce + 1,
+		ParentHash:         currentHash,
+		PrevRandSeed:       currentRandSeed,
+		IsEpochStart:       true,
+		PrevEpochStartSlot: epochStartSlot,
+	}}
+	err := mp.ProcessBlock(futureEpochHeader, haveTime)
+	require.ErrorIs(t, err, assert.AnError)
+	require.True(t, reachedPostEpochCheck, "future epoch-start header should reach processing after checkEpochCorrectness")
+
+	assert.Equal(t, currentEpoch, trigger.Epoch(), "epoch start trigger must be restored to the committed epoch after a late failure")
+	assert.False(t, trigger.IsEpochStart(), "epoch start trigger must be restored out of epoch start state after a late failure")
+	assert.Equal(t, currentEpoch, epochNotifier.CurrentEpoch(), "epoch notifier must be restored to the committed epoch after a late failure")
+	assert.Equal(t, currentEpoch, requestHandler.epoch, "request handler epoch must be restored to the committed epoch after a late failure")
+	assert.True(t, sawFutureConfig, "the future-epoch block must have advanced the fork flag before failing, otherwise the revert assertion is vacuous")
+	assert.False(t, futureFlagEnabled, "fork flags derived from the epoch notifier must revert to the committed-epoch config after a late failure")
+}
+
+// The time-out check returns its error directly (not through the err variable),
+// so the deferred cleanup must still restore the epoch state advanced earlier in
+// ProcessBlock. This guards the named-return wiring that funnels every exit
+// through the rollback handler.
+func TestMetaProcessor_ProcessBlockRestoresEpochStateWhenTimeIsOut(t *testing.T) {
+	const (
+		currentEpoch   = uint32(7)
+		epochStartSlot = uint64(100)
+		currentSlot    = uint64(110)
+		futureSlot     = uint64(250)
+		currentNonce   = uint64(11)
+		slotsPerEpoch  = uint64(100)
+	)
+	currentHash := []byte("current-hash")
+	currentRandSeed := []byte("current-rand-seed")
+	currentHeader := &block.Block{Header: &block.BlockHeader{
+		Epoch:    currentEpoch,
+		Slot:     currentSlot,
+		Nonce:    currentNonce,
+		RandSeed: currentRandSeed,
+	}}
+	epochNotifier := notifier.NewGenericEpochNotifier()
+	epochNotifier.CheckEpoch(currentEpoch)
+	requestHandler := &epochAwareRequestHandler{}
+	requestHandler.SetEpoch(currentEpoch)
+	hook := &contextmock.BlockchainHookStub{}
+	args := createMockMetaArguments()
+	trigger := newEpochStartTriggerForProcessBlock(t, args.ForkController, currentEpoch,
+		epochStartSlot, slotsPerEpoch)
+	reverts := 0
+	reachedPostEpochCheck := false
+	txCoordinator := &mock.TransactionCoordinatorMock{
+		RequestBlockTransactionsCalled: func(blk *block.Block) {
+			reachedPostEpochCheck = true
+		},
+	}
+	mp := newMetaProcessorForProcessBlock(t, processBlockTestDeps{
+		currentHeader:  currentHeader,
+		currentHash:    currentHash,
+		trigger:        trigger,
+		requestHandler: requestHandler,
+		hook:           hook,
+		epochNotifier:  epochNotifier,
+		txCoordinator:  txCoordinator,
+		reverts:        &reverts,
+	})
+	futureEpochHeader := &block.Block{Header: &block.BlockHeader{
+		Epoch:              currentEpoch + 1,
+		Slot:               futureSlot,
+		Nonce:              currentNonce + 1,
+		ParentHash:         currentHash,
+		PrevRandSeed:       currentRandSeed,
+		IsEpochStart:       true,
+		PrevEpochStartSlot: epochStartSlot,
+	}}
+	timeIsOut := func() time.Duration { return -1 }
+
+	err := mp.ProcessBlock(futureEpochHeader, timeIsOut)
+	require.ErrorIs(t, err, process.ErrTimeIsOut)
+	require.True(t, reachedPostEpochCheck, "future epoch-start header should advance the trigger before the time-out check")
+
+	assert.Equal(t, currentEpoch, trigger.Epoch(), "epoch start trigger must be restored when processing times out")
+	assert.False(t, trigger.IsEpochStart(), "epoch start trigger must leave epoch start state when processing times out")
+	assert.Equal(t, currentEpoch, epochNotifier.CurrentEpoch(), "epoch notifier must be restored when processing times out")
+	assert.Equal(t, currentEpoch, requestHandler.epoch, "request handler epoch must be restored when processing times out")
 }

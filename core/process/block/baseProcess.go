@@ -181,6 +181,17 @@ func (bp *baseProcessor) validateBlockAgainstCurrentHeader(headerHandler data.He
 		return process.ErrEpochDoesNotMatch
 	}
 
+	// A valid next block can only stay in the current epoch or advance by exactly
+	// one epoch at an epoch-start boundary. Reject any higher epoch here, before
+	// ProcessBlock mutates epoch-sensitive in-memory state (epoch notifier, fork
+	// flags, request-handler epoch, blockchain hook header, epoch-start trigger).
+	if headerHandler.GetEpoch() > currentBlockHeader.GetEpoch()+1 {
+		log.Debug("epoch is higher than the next valid epoch",
+			"local block epoch", currentBlockHeader.GetEpoch(),
+			"received epoch", headerHandler.GetEpoch())
+		return process.ErrEpochDoesNotMatch
+	}
+
 	return nil
 }
 

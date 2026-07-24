@@ -204,6 +204,31 @@ func (t *trigger) Update(slot uint64, nonce uint64) {
 	}
 }
 
+// EpochStateSnapshot returns the in-memory epoch state of the trigger so it can
+// be restored if a block that advanced the trigger (via Update) is later
+// rejected during processing.
+func (t *trigger) EpochStateSnapshot() (epoch uint32, isEpochStart bool, currentSlot, currEpochStartSlot, prevEpochStartSlot, nextEpochStartSlot uint64) {
+	t.mutTrigger.RLock()
+	defer t.mutTrigger.RUnlock()
+
+	return t.epoch, t.isEpochStart, t.currentSlot, t.currEpochStartSlot, t.prevEpochStartSlot, t.nextEpochStartSlot
+}
+
+// RestoreEpochState restores a previously captured in-memory epoch state. It is
+// the counterpart of EpochStateSnapshot and is used to undo an Update that was
+// driven by a block that ends up rejected.
+func (t *trigger) RestoreEpochState(epoch uint32, isEpochStart bool, currentSlot, currEpochStartSlot, prevEpochStartSlot, nextEpochStartSlot uint64) {
+	t.mutTrigger.Lock()
+	defer t.mutTrigger.Unlock()
+
+	t.epoch = epoch
+	t.isEpochStart = isEpochStart
+	t.currentSlot = currentSlot
+	t.currEpochStartSlot = currEpochStartSlot
+	t.prevEpochStartSlot = prevEpochStartSlot
+	t.nextEpochStartSlot = nextEpochStartSlot
+}
+
 // SetProcessed sets start of epoch to false and cleans underlying structure
 func (t *trigger) SetProcessed(header data.HeaderHandler) {
 	t.mutTrigger.Lock()
