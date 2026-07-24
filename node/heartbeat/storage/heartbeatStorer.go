@@ -159,6 +159,11 @@ func (hs *HeartbeatDbStorer) SavePubkeyData(
 	return nil
 }
 
+// RemovePubkeyData removes the persisted HeartbeatDTO for the given public key.
+func (hs *HeartbeatDbStorer) RemovePubkeyData(pubkey []byte) error {
+	return hs.storer.Remove(pubkey)
+}
+
 // IsInterfaceNil returns true if there is no value under the interface
 func (hs *HeartbeatDbStorer) IsInterfaceNil() bool {
 	return hs == nil

@@ -54,6 +54,7 @@ type HeartbeatStorageHandler interface {
 	UpdateGenesisTime(genesisTime time.Time) error
 	LoadHeartBeatDTO(pubKey string) (*heartbeatData.HeartbeatDTO, error)
 	SavePubkeyData(pubkey []byte, heartbeat *heartbeatData.HeartbeatDTO) error
+	RemovePubkeyData(pubkey []byte) error
 	LoadKeys() ([][]byte, error)
 	SaveKeys(peersSlice [][]byte) error
 	IsInterfaceNil() bool

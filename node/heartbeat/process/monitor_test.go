@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -46,6 +47,9 @@ func createMockStorer() heartbeat.HeartbeatStorageHandler {
 			return nil, nil
 		},
 		SavePubkeyDataCalled: func(pubkey []byte, heartbeat *data.HeartbeatDTO) error {
+			return nil
+		},
+		RemovePubkeyDataCalled: func(pubkey []byte) error {
 			return nil
 		},
 		SaveKeysCalled: func(peersSlice [][]byte) error {
@@ -261,6 +265,8 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKey(t *testing.T) {
 	t.Parallel()
 
 	pubKey := "pk1"
+	savedPubkeyData := 0
+	savedKeys := 0
 
 	arg := createMockArgHeartbeatMonitor()
 	arg.Marshalizer = &mock.MarshalizerStub{
@@ -278,6 +284,28 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKey(t *testing.T) {
 			return &rcvHb, nil
 		},
 	}
+	arg.Storer = &mock.HeartbeatStorerStub{
+		UpdateGenesisTimeCalled: func(genesisTime time.Time) error {
+			return nil
+		},
+		LoadHeartBeatDTOCalled: func(pubKey string) (*data.HeartbeatDTO, error) {
+			return nil, errors.New("not found")
+		},
+		LoadKeysCalled: func() ([][]byte, error) {
+			return nil, nil
+		},
+		SavePubkeyDataCalled: func(pubkey []byte, heartbeat *data.HeartbeatDTO) error {
+			savedPubkeyData++
+			return nil
+		},
+		RemovePubkeyDataCalled: func(pubkey []byte) error {
+			return nil
+		},
+		SaveKeysCalled: func(peersSlice [][]byte) error {
+			savedKeys++
+			return nil
+		},
+	}
 	mon, err := process.NewMonitor(arg)
 	require.NoError(t, err)
 	require.NotNil(t, mon)
@@ -292,15 +320,120 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKey(t *testing.T) {
 	err = mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: hbBytes}, fromConnectedPeerId)
 	assert.Nil(t, err)
 
-	// wait for the processing goroutine to add the new public key
+	// unknown public keys remain in memory only and must not create durable monitor state
 	require.Eventually(t, func() bool {
 		return len(mon.GetHeartbeats()) == 2
 	}, 5*time.Second, 10*time.Millisecond)
-
-	//there should be 2 heartbeats, because a new one should have been added with pk2
 	hbStatus := mon.GetHeartbeats()
 	assert.Equal(t, 2, len(hbStatus))
-	assert.Equal(t, hex.EncodeToString([]byte(pubKey)), hbStatus[0].PublicKey)
+	assert.Equal(t, 1, savedPubkeyData)
+	assert.Equal(t, 0, savedKeys)
+}
+
+func TestMonitor_ProcessReceivedMessageWithNewPublicKeyIsTransient(t *testing.T) {
+	t.Parallel()
+
+	pubKey := "pk1"
+	timer := mock.NewTimerMock()
+	savedKeys := 0
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.MaxDurationPeerUnresponsive = 5 * time.Second
+	arg.Timer = timer
+	arg.PubKeysList = []string{"pk2"}
+	arg.MessageHandler = &mock.MessageHandlerStub{
+		CreateHeartbeatFromP2PMessageCalled: func(message p2p.MessageP2P) (*data.Heartbeat, error) {
+			var rcvHb data.Heartbeat
+			_ = json.Unmarshal(message.Data(), &rcvHb)
+			return &rcvHb, nil
+		},
+	}
+	arg.Storer = &mock.HeartbeatStorerStub{
+		UpdateGenesisTimeCalled: func(genesisTime time.Time) error {
+			return nil
+		},
+		LoadHeartBeatDTOCalled: func(pubKey string) (*data.HeartbeatDTO, error) {
+			return nil, errors.New("not found")
+		},
+		LoadKeysCalled: func() ([][]byte, error) {
+			return nil, nil
+		},
+		SavePubkeyDataCalled: func(pubkey []byte, heartbeat *data.HeartbeatDTO) error {
+			return nil
+		},
+		RemovePubkeyDataCalled: func(pubkey []byte) error {
+			return nil
+		},
+		SaveKeysCalled: func(peersSlice [][]byte) error {
+			savedKeys++
+			return nil
+		},
+	}
+	mon, _ := process.NewMonitor(arg)
+
+	hb := data.Heartbeat{Pubkey: []byte(pubKey)}
+	hbBytes, _ := json.Marshal(&hb)
+	err := mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: hbBytes}, fromConnectedPeerId)
+	assert.Nil(t, err)
+
+	time.Sleep(time.Second)
+	hbStatus := mon.GetHeartbeats()
+	assert.Equal(t, 2, len(hbStatus))
+	assert.Equal(t, 0, savedKeys)
+
+	timer.IncrementSeconds(6)
+	mon.Cleanup()
+	hbStatus = mon.GetHeartbeats()
+	assert.Equal(t, 1, len(hbStatus))
+	assert.Equal(t, hex.EncodeToString([]byte("pk2")), hbStatus[0].PublicKey)
+}
+
+func TestMonitor_LoadRestOfPubKeysFromStoragePrunesUnknownPersistedKeys(t *testing.T) {
+	t.Parallel()
+
+	knownPubKey := "known-validator"
+	unknownPubKey := "legacy-unknown"
+	removedUnknown := 0
+	savedFiltered := make([][]byte, 0)
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{knownPubKey}
+	arg.MaxDurationPeerUnresponsive = 5 * time.Second
+	arg.Storer = &mock.HeartbeatStorerStub{
+		UpdateGenesisTimeCalled: func(genesisTime time.Time) error {
+			return nil
+		},
+		LoadHeartBeatDTOCalled: func(pubKey string) (*data.HeartbeatDTO, error) {
+			return nil, errors.New("not found")
+		},
+		SavePubkeyDataCalled: func(pubkey []byte, heartbeat *data.HeartbeatDTO) error {
+			return nil
+		},
+		RemovePubkeyDataCalled: func(pubkey []byte) error {
+			if string(pubkey) == unknownPubKey {
+				removedUnknown++
+			}
+			return nil
+		},
+		LoadKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte(knownPubKey), []byte(unknownPubKey)}, nil
+		},
+		SaveKeysCalled: func(peersSlice [][]byte) error {
+			savedFiltered = append(savedFiltered[:0], peersSlice...)
+			return nil
+		},
+	}
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	defer mon.Close()
+
+	status := mon.GetHeartbeats()
+	require.Len(t, status, 1)
+	assert.Equal(t, hex.EncodeToString([]byte(knownPubKey)), status[0].PublicKey)
+	assert.Equal(t, 1, removedUnknown)
+	require.Len(t, savedFiltered, 1)
+	assert.Equal(t, knownPubKey, string(savedFiltered[0]))
 }
 
 func TestMonitor_ProcessReceivedMessageWithNewShardID(t *testing.T) {
@@ -488,12 +621,12 @@ func TestMonitor_RemoveInactiveValidatorsIfIntervalExceeded(t *testing.T) {
 	t.Cleanup(func() {
 		require.NoError(t, mon.Close())
 	})
-	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pkValidator)})
-	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey1)})
-	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey2)})
-	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey3)})
-	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey4)})
-	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey5)})
+	mon.AddTrustedHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pkValidator)})
+	mon.AddTrustedHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pubKey1)})
+	mon.AddTrustedHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pubKey2)})
+	mon.AddTrustedHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pubKey3)})
+	mon.AddTrustedHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pubKey4)})
+	mon.AddTrustedHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pubKey5)})
 
 	// Check that all are added
 	mon.RefreshHeartbeatMessageInfo()
@@ -839,4 +972,163 @@ func TestMonitor_SetAppStatusHandlerRepublishesStartupMetrics(t *testing.T) {
 	assert.True(t, hasLiveValidators)
 	assert.True(t, hasLiveConsensusValidators)
 	assert.True(t, hasConnectedNodes)
+}
+
+func makeHeartbeatMessage(pubKey string) []byte {
+	hb := data.Heartbeat{
+		Pubkey: []byte(pubKey),
+	}
+	hbBytes, _ := json.Marshal(&hb)
+	return hbBytes
+}
+
+func monitorStatusContainsPubKey(status []data.PubKeyHeartbeat, pubKey string) bool {
+	encoded := hex.EncodeToString([]byte(pubKey))
+	for _, hb := range status {
+		if hb.PublicKey == encoded {
+			return true
+		}
+	}
+	return false
+}
+
+func TestMonitor_ProcessReceivedMessagePerOriginLimitIsEnforced(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.MaxDurationPeerUnresponsive = 5 * time.Second
+	arg.MaxUnknownHeartbeatPubKeys = 10
+	arg.MaxUnknownHeartbeatPubKeysPerOrigin = 2
+	arg.MessageHandler = &mock.MessageHandlerStub{
+		CreateHeartbeatFromP2PMessageCalled: func(message p2p.MessageP2P) (*data.Heartbeat, error) {
+			var rcvHb data.Heartbeat
+			_ = json.Unmarshal(message.Data(), &rcvHb)
+			return &rcvHb, nil
+		},
+	}
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	defer mon.Close()
+
+	for i := 0; i < 3; i++ {
+		err = mon.ProcessReceivedMessage(
+			&mock.P2PMessageStub{DataField: makeHeartbeatMessage(fmt.Sprintf("pk%d", i))},
+			core.PeerID("same-origin"),
+		)
+		assert.NoError(t, err)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	status := mon.GetHeartbeats()
+	assert.Len(t, status, 2)
+}
+
+func TestMonitor_ProcessReceivedMessageGlobalCapEvictsOldestTransientUnknown(t *testing.T) {
+	t.Parallel()
+
+	timer := mock.NewTimerMock()
+	arg := createMockArgHeartbeatMonitor()
+	arg.Timer = timer
+	arg.PubKeysList = []string{}
+	arg.MaxDurationPeerUnresponsive = 10 * time.Second
+	arg.MaxUnknownHeartbeatPubKeys = 2
+	arg.MaxUnknownHeartbeatPubKeysPerOrigin = 1
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	defer mon.Close()
+
+	mon.AddHeartbeatMessageFromOrigin(&data.Heartbeat{Pubkey: []byte("pk-oldest")}, core.PeerID("origin-1"))
+	timer.IncrementSeconds(1)
+
+	mon.AddHeartbeatMessageFromOrigin(&data.Heartbeat{Pubkey: []byte("pk-middle")}, core.PeerID("origin-2"))
+	timer.IncrementSeconds(1)
+
+	mon.AddHeartbeatMessageFromOrigin(&data.Heartbeat{Pubkey: []byte("pk-newest")}, core.PeerID("origin-3"))
+
+	mon.Cleanup()
+	status := mon.GetHeartbeats()
+
+	assert.Len(t, status, 2)
+	assert.False(t, monitorStatusContainsPubKey(status, "pk-oldest"))
+	assert.True(t, monitorStatusContainsPubKey(status, "pk-middle"))
+	assert.True(t, monitorStatusContainsPubKey(status, "pk-newest"))
+}
+
+func TestMonitor_TransientUnknownEntriesExpireOnCleanup(t *testing.T) {
+	t.Parallel()
+
+	timer := mock.NewTimerMock()
+	arg := createMockArgHeartbeatMonitor()
+	arg.Timer = timer
+	arg.PubKeysList = []string{}
+	arg.MaxDurationPeerUnresponsive = 2 * time.Second
+	arg.MaxUnknownHeartbeatPubKeys = 10
+	arg.MaxUnknownHeartbeatPubKeysPerOrigin = 10
+	arg.MessageHandler = &mock.MessageHandlerStub{
+		CreateHeartbeatFromP2PMessageCalled: func(message p2p.MessageP2P) (*data.Heartbeat, error) {
+			var rcvHb data.Heartbeat
+			_ = json.Unmarshal(message.Data(), &rcvHb)
+			return &rcvHb, nil
+		},
+	}
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	defer mon.Close()
+
+	err = mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: makeHeartbeatMessage("pk-expire")}, core.PeerID("origin-1"))
+	assert.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
+	assert.Len(t, mon.GetHeartbeats(), 1)
+
+	timer.IncrementSeconds(3)
+	mon.Cleanup()
+	assert.Len(t, mon.GetHeartbeats(), 0)
+}
+
+func TestMonitor_ProcessReceivedMessageConcurrentNearCap(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.MaxDurationPeerUnresponsive = 10 * time.Second
+	arg.MaxUnknownHeartbeatPubKeys = 64
+	arg.MaxUnknownHeartbeatPubKeysPerOrigin = 16
+	arg.MessageHandler = &mock.MessageHandlerStub{
+		CreateHeartbeatFromP2PMessageCalled: func(message p2p.MessageP2P) (*data.Heartbeat, error) {
+			var rcvHb data.Heartbeat
+			_ = json.Unmarshal(message.Data(), &rcvHb)
+			return &rcvHb, nil
+		},
+	}
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	defer mon.Close()
+
+	var wg sync.WaitGroup
+	for i := 0; i < 120; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			pubKey := fmt.Sprintf("pk-%d", i)
+			origin := core.PeerID(fmt.Sprintf("origin-%d", i%8))
+			_ = mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: makeHeartbeatMessage(pubKey)}, origin)
+		}(i)
+	}
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			mon.Cleanup()
+		}()
+	}
+	wg.Wait()
+
+	time.Sleep(200 * time.Millisecond)
+	mon.Cleanup()
+	assert.LessOrEqual(t, len(mon.GetHeartbeats()), int(arg.MaxUnknownHeartbeatPubKeys))
 }

@@ -252,7 +252,6 @@ func (hbh *HeartbeatHandler) checkConfigParams(config config.HeartbeatConfig) er
 	if config.DurationToConsiderUnresponsiveInSec <= config.MaxTimeToWaitBetweenBroadcastsInSec {
 		return fmt.Errorf("%w for DurationToConsiderUnresponsiveInSec", heartbeat.ErrWrongValues)
 	}
-
 	return nil
 }
 

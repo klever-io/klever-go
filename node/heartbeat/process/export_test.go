@@ -3,6 +3,7 @@ package process
 import (
 	"time"
 
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/node/heartbeat"
 	"github.com/klever-io/klever-go/node/heartbeat/data"
 )
@@ -44,12 +45,25 @@ func (m *Monitor) GetHeartbeatMessageInfo(_ time.Time) *heartbeatMessageInfo {
 
 // SendHeartbeatMessage -
 func (m *Monitor) SendHeartbeatMessage(hb *data.Heartbeat) {
-	m.addHeartbeatMessageToMap(hb)
+	m.addHeartbeatMessageToMap(hb, core.PeerID("test-origin-peer"))
 }
 
 // AddHeartbeatMessageToMap -
 func (m *Monitor) AddHeartbeatMessageToMap(hb *data.Heartbeat) {
-	m.addHeartbeatMessageToMap(hb)
+	m.addHeartbeatMessageToMap(hb, core.PeerID("test-origin-peer"))
+}
+
+// AddHeartbeatMessageFromOrigin applies normal admission logic for an explicit
+// origin, keeping synchronous execution for deterministic tests.
+func (m *Monitor) AddHeartbeatMessageFromOrigin(hb *data.Heartbeat, origin core.PeerID) {
+	m.addHeartbeatMessageToMap(hb, origin)
+}
+
+// AddTrustedHeartbeatMessageToMap bypasses admission limits explicitly for tests
+// that need to seed trusted validator state.
+func (m *Monitor) AddTrustedHeartbeatMessageToMap(hb *data.Heartbeat) {
+	m.markHeartbeatPubKeyAsAdmitted(string(hb.Pubkey))
+	m.addHeartbeatMessageToMap(hb, core.PeerID("trusted-test-origin-peer"))
 }
 
 // NewHeartbeatMessageInfo -
