@@ -551,7 +551,8 @@ func TestHandleClientInsertion_AddressTypes(t *testing.T) {
 	hub := newTestHub(nil)
 	c := newTestClient(hub)
 
-	hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS, indexer.USER_TRANSACTIONS, indexer.LOGS}, []string{"klv1test"}, c)
+	err := hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS, indexer.USER_TRANSACTIONS, indexer.LOGS}, []string{"klv1test"}, c)
+	require.NoError(t, err)
 
 	hub.mu.Lock()
 	opts := hub.addressSubscription["klv1test"][c]
@@ -1101,14 +1102,25 @@ func TestStartServer_LogsEvent(t *testing.T) {
 
 func TestStartServer_LogsEvent_NoSubscribers(t *testing.T) {
 	env := startServerEnv(t, nil)
+	c := newTestClient(env.hub)
+
+	env.hub.mu.Lock()
+	env.hub.blockSubscription[c] = struct{}{}
+	env.hub.mu.Unlock()
 
 	env.queue <- indexer.Event{
 		EvType:  indexer.LOGS,
 		Message: []*data.Logs{{Address: "klv1nobody"}},
 	}
+	// StartServer drains env.queue in order; observing this second, subscribed event
+	// confirms the no-subscriber LOGS event above was already processed without
+	// panicking, without needing a sleep to "give it time".
+	env.queue <- indexer.Event{EvType: indexer.BLOCKS, Message: []byte(`{"nonce":1}`)}
 
-	time.Sleep(100 * time.Millisecond)
-	env.teardown()
+	s := awaitSend(t, c)
+	assert.Equal(t, indexer.BLOCKS, s.Type)
+
+	env.teardown(c)
 }
 
 func TestStartServer_LogsEvent_MultipleEntriesDifferentAddresses(t *testing.T) {

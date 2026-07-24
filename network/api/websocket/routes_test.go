@@ -216,14 +216,31 @@ func TestSubscribeTopics_LogsEventDelivery(t *testing.T) {
 	require.NotNil(t, conn)
 	defer conn.Close()
 
+	// Minimal initial handshake — the actual `logs` subscription is added dynamically
+	// below via the `subscribe` method, which (unlike the initial handshake) sends back
+	// a "subscribed" ack. Waiting on that ack lets the LOGS event be pushed only once the
+	// subscription is deterministically registered, instead of guessing with a sleep.
 	msg := map[string]interface{}{
-		"addresses":        []string{"klv1contract"},
-		"subscribed_types": []string{"logs"},
+		"addresses":        []string{},
+		"subscribed_types": []string{"blocks"},
 	}
 	err = conn.WriteJSON(msg)
 	require.NoError(t, err)
 
-	time.Sleep(100 * time.Millisecond)
+	subReq := socket.WSRequest{
+		ID:     "sub-logs",
+		Method: socket.MethodSubscribe,
+		Params: json.RawMessage(`{"types":["logs"],"addresses":["klv1contract"]}`),
+	}
+	err = conn.WriteJSON(subReq)
+	require.NoError(t, err)
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var subResp socket.WSResponse
+	err = conn.ReadJSON(&subResp)
+	require.NoError(t, err, "expected a response to the dynamic subscribe request")
+	require.Equal(t, "sub-logs", subResp.ID)
+	require.Empty(t, subResp.Error)
 
 	indexer.EventQueue <- indexer.Event{
 		EvType: indexer.LOGS,
