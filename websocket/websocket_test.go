@@ -731,7 +731,10 @@ func TestAsyncPost_DeliversToWorker(t *testing.T) {
 	select {
 	case received := <-receivedCh:
 		require.NoError(t, received.err)
-		assert.NotEmpty(t, received.body)
+		assert.JSONEq(t,
+			`{"type":"blocks","address":"","hash":"","data":{"nonce":1}}`,
+			string(received.body),
+		)
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for mirrored POST")
 	}

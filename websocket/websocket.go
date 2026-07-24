@@ -145,6 +145,13 @@ func (h *SocketHub) startPostWorkers(ctx context.Context) {
 				case <-ctx.Done():
 					return
 				case parsed := <-h.postQueue:
+					// select has no case priority: ctx.Done() and postQueue can both be
+					// ready at once, so a cancelled shutdown can still dequeue one more
+					// item. Check ctx.Err() before posting instead of starting (and
+					// immediately failing) a doomed request.
+					if ctx.Err() != nil {
+						return
+					}
 					if err := h.postWSConnection(ctx, parsed); err != nil {
 						log.Warn("ws.EventReceive.postWSConnection", "failed to post", err.Error())
 					}
