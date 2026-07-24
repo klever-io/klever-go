@@ -92,8 +92,26 @@ LOG=*:INFO
 endif
 
 GOCMD=go
-GORUN=$(ENV_FLAG) $(GOCMD) run -ldflags="$(ldflags)"
-GOBUILD=$(GOCMD) build $(GO_BUILD_FLAGS) -ldflags="$(ldflags) -extldflags '-Wl,-rpath,\$$ORIGIN,-rpath,@executable_path'"
+override GOOS_TARGET := $(shell $(GOCMD) env GOOS)
+
+# Some vendored cgo static archives lack .note.GNU-stack markers, which makes
+# GNU ld mark the binaries' stack executable. Force noexecstack on Linux;
+# Darwin's ld64 has no GNU_STACK concept and doesn't accept the flag. rpath
+# tokens are platform-specific too ($ORIGIN is GNU ld/ELF, @executable_path is
+# ld64/Mach-O), so pick exactly one instead of passing both on every build.
+# Gated on GOOS_TARGET (the Go target, not UNAME_S the build host) so a
+# cross-compiled GOOS=linux build from a non-Linux host still gets it.
+ifeq ($(GOOS_TARGET),darwin)
+override EXTLDFLAGS := -Wl,-rpath,@executable_path
+else
+override EXTLDFLAGS := -Wl,-rpath,\$$ORIGIN
+endif
+ifeq ($(GOOS_TARGET),linux)
+override EXTLDFLAGS += -Wl,-z,noexecstack
+endif
+
+GORUN=$(ENV_FLAG) $(GOCMD) run -ldflags="$(ldflags) -extldflags '$(EXTLDFLAGS)'"
+GOBUILD=$(GOCMD) build $(GO_BUILD_FLAGS) -ldflags="$(ldflags) -extldflags '$(EXTLDFLAGS)'"
 
 .DEFAULT_GOAL := help
 
