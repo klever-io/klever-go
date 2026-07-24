@@ -639,7 +639,8 @@ func TestProcessEconomicsEndOfEpoch_VersionDemotionAndRestore(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			peerAcc, _ := v.accountsCacher.LoadPeer(blsKey)
+			peerAcc, err := v.accountsCacher.LoadPeer(blsKey)
+			require.NoError(t, err)
 			peerAcc.SetList(state.List_eligible)
 
 			infos = append(infos, &state.ValidatorInfo{
