@@ -84,7 +84,10 @@ func (c *client) loopIn() {
 	// handler and each read. loopOut's pings keep a live client warm while a dead/idle one
 	// is reclaimed at pongWait (GHSA-4fwh-wrm6-97xm).
 	c.conn.SetReadLimit(c.hub.limits.maxMessageSize)
-	_ = c.conn.SetReadDeadline(time.Now().Add(getPongWait()))
+	if err := c.conn.SetReadDeadline(time.Now().Add(getPongWait())); err != nil {
+		log.Warn("ws.loopIn", "err", err.Error())
+		return
+	}
 	c.conn.SetPongHandler(func(string) error {
 		return c.conn.SetReadDeadline(time.Now().Add(getPongWait()))
 	})
@@ -97,7 +100,10 @@ func (c *client) loopIn() {
 			}
 			break
 		}
-		_ = c.conn.SetReadDeadline(time.Now().Add(getPongWait()))
+		if err := c.conn.SetReadDeadline(time.Now().Add(getPongWait())); err != nil {
+			log.Warn("ws.loopIn", "err", err.Error())
+			break
+		}
 
 		// ReadMessage only yields data frames; gorilla answers client ping and close
 		// control frames through its default handlers (close surfaces as a read error
