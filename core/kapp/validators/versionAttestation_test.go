@@ -474,6 +474,27 @@ func TestComputeVersionEnforcement(t *testing.T) {
 		enforcement := v.computeVersionEnforcement(app, infos, 10)
 		assert.False(t, enforcement.demote)
 	})
+
+	t.Run("unreadable validator record does not count as satisfied", func(t *testing.T) {
+		v, infos, app := attestationTestSetup(t, map[string]string{
+			"owner1": "v1.9.0",
+			"owner2": "v1.9.0",
+			"owner3": "",
+		}, nil)
+		v.versionsByEpochs = requiredVersions
+
+		// Corrupt owner1's stored record so getValidator fails to unmarshal it
+		// (the test marshalizer is JSON-backed; this is simply not valid JSON).
+		// Without this, owner1+owner2 both satisfy and reach the supermajority
+		// (see "outdated validator is demoted..." above); this pins the
+		// fail-closed behavior (versionAttestation.go's getValidator-error
+		// branch: counted as not-satisfied, not skipped/counted-as-satisfied).
+		require.NoError(t, app.SetStorage(v.validatorKey([]byte("owner1")), []byte("not valid record data")))
+
+		enforcement := v.computeVersionEnforcement(app, infos, 10)
+		assert.False(t, enforcement.demote, "unreadable records must not count towards the supermajority")
+		assert.True(t, enforcement.active)
+	})
 }
 
 func TestUpdateValidator_VersionAttestation(t *testing.T) {
@@ -594,7 +615,9 @@ func TestProcessEconomicsEndOfEpoch_VersionDemotionAndRestore(t *testing.T) {
 		return v
 	}
 
-	buildStorage := func(v *validatorsKApp, attested map[string]string) []*state.ValidatorInfo {
+	buildStorage := func(t *testing.T, v *validatorsKApp, attested map[string]string) []*state.ValidatorInfo {
+		t.Helper()
+
 		rawData := make(map[string][]byte)
 		loadKApp := func(address []byte) (state.KAppAccountHandler, error) {
 			return &mock.KAppAccountHandlerStub{
@@ -610,7 +633,8 @@ func TestProcessEconomicsEndOfEpoch_VersionDemotionAndRestore(t *testing.T) {
 		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = loadKApp
 		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppUncachedCalled = loadKApp
 
-		app, _ := v.getKApp()
+		app, err := v.getKApp()
+		require.NoError(t, err)
 
 		infos := make([]*state.ValidatorInfo, 0, len(attested))
 		for owner, version := range attested {
@@ -621,9 +645,7 @@ func TestProcessEconomicsEndOfEpoch_VersionDemotionAndRestore(t *testing.T) {
 				SelfStake:       200000,
 				AttestedVersion: version,
 			}
-			if err := v.setValidator(app, []byte(owner), val); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, v.setValidator(app, []byte(owner), val))
 
 			pd := &PeerData{
 				Buckets: map[string]*PeerBucket{
@@ -635,9 +657,7 @@ func TestProcessEconomicsEndOfEpoch_VersionDemotionAndRestore(t *testing.T) {
 					},
 				},
 			}
-			if err := v.setValidatorBuckets(app, []byte(owner), pd); err != nil {
-				t.Fatal(err)
-			}
+			require.NoError(t, v.setValidatorBuckets(app, []byte(owner), pd))
 
 			peerAcc, err := v.accountsCacher.LoadPeer(blsKey)
 			require.NoError(t, err)
@@ -655,7 +675,7 @@ func TestProcessEconomicsEndOfEpoch_VersionDemotionAndRestore(t *testing.T) {
 
 	t.Run("outdated validator is demoted and restored after attesting", func(t *testing.T) {
 		v := setupEconomics(t)
-		infos := buildStorage(v, map[string]string{
+		infos := buildStorage(t, v, map[string]string{
 			"owner1": "v1.9.0",
 			"owner2": "v1.9.0",
 			"owner3": "v1.8.0",
@@ -672,7 +692,8 @@ func TestProcessEconomicsEndOfEpoch_VersionDemotionAndRestore(t *testing.T) {
 		assert.Equal(t, state.List_eligible, updatedPeer.GetList(), "attested validator should stay eligible")
 
 		// validator attests the required version (as the ValidatorConfig tx would do)
-		app, _ := v.getKApp()
+		app, err := v.getKApp()
+		require.NoError(t, err)
 		val, err := v.getValidator(app, []byte("owner3"))
 		require.NoError(t, err)
 		val.AttestedVersion = "v1.9.0"
@@ -696,7 +717,7 @@ func TestProcessEconomicsEndOfEpoch_VersionDemotionAndRestore(t *testing.T) {
 
 	t.Run("no demotion without attested supermajority", func(t *testing.T) {
 		v := setupEconomics(t)
-		infos := buildStorage(v, map[string]string{
+		infos := buildStorage(t, v, map[string]string{
 			"owner1": "v1.9.0",
 			"owner2": "v1.8.0",
 			"owner3": "",
@@ -714,7 +735,7 @@ func TestProcessEconomicsEndOfEpoch_VersionDemotionAndRestore(t *testing.T) {
 
 	t.Run("no demotion before the required epoch", func(t *testing.T) {
 		v := setupEconomics(t)
-		infos := buildStorage(v, map[string]string{
+		infos := buildStorage(t, v, map[string]string{
 			"owner1": "v1.9.0",
 			"owner2": "v1.9.0",
 			"owner3": "",
