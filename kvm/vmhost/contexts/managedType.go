@@ -331,6 +331,11 @@ func (context *managedTypesContext) BigFloatExpIsNotValid(exponent int) bool {
 	return exponent < bigFloatMinExponent || exponent > bigFloatMaxExponent
 }
 
+// BigFloatIsNotCanonical checks if a big float's mantissa carries more significant bits than its declared precision
+func (context *managedTypesContext) BigFloatIsNotCanonical(bigFloat *big.Float) bool {
+	return bigFloat.MinPrec() > bigFloatPrecision
+}
+
 // EncodedBigFloatIsNotValid checks if an encoded big float is not valid
 func (context *managedTypesContext) EncodedBigFloatIsNotValid(encodedBigFloat []byte) bool {
 	length := len(encodedBigFloat)

@@ -459,7 +459,15 @@ func (context *VMHooksImpl) MBufferToBigFloat(mBufferHandle, bigFloatHandle int3
 		_ = context.WithFault(vmhost.ErrInfinityFloatOperation, runtime.BigFloatAPIErrorShouldFailExecution())
 		return 1
 	}
-
+	fixAuditV4 := context.host.ForkController().FixAuditChangesV4()
+	if fixAuditV4 && managedType.BigFloatExpIsNotValid(bigFloat.MantExp(nil)) {
+		_ = context.WithFault(vmhost.ErrExponentTooBigOrTooSmall, runtime.BigFloatAPIErrorShouldFailExecution())
+		return 1
+	}
+	if fixAuditV4 && managedType.BigFloatIsNotCanonical(bigFloat) {
+		_ = context.WithFault(vmhost.ErrBigFloatNonCanonicalEncoding, runtime.BigFloatAPIErrorShouldFailExecution())
+		return 1
+	}
 	value.Set(bigFloat)
 	return 0
 }

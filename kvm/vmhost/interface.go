@@ -198,6 +198,7 @@ type ManagedTypesContext interface {
 	PutBigFloat(value *big.Float) (int32, error)
 	BigFloatPrecIsNotValid(precision uint) bool
 	BigFloatExpIsNotValid(exponent int) bool
+	BigFloatIsNotCanonical(bigFloat *big.Float) bool
 	EncodedBigFloatIsNotValid(encodedBigFloat []byte) bool
 	GetBigFloatOrCreate(handle int32) (*big.Float, error)
 	GetBigFloat(handle int32) (*big.Float, error)

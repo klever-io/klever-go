@@ -32,7 +32,8 @@ enableEpochs:
   # Audit Changes V3 (reject non-positive kdaFeesPool fee ratios + range-check
   # swap price) + block indirect dispatch of the upgrade lifecycle hook
   fixAuditChangesV3: 0
-
+  # Audit Changes V4 
+  fixAuditChangesV4: 0
 gasSchedule:
   gasScheduleByEpochs:
     - startEpoch: 0

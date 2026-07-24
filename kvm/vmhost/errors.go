@@ -218,6 +218,9 @@ var ErrInfinityFloatOperation = errors.New("infinity operations are not allowed"
 // ErrBigFloatWrongPrecision signals that the precision has a wrong value
 var ErrBigFloatWrongPrecision = errors.New("precision of the big float must be 53")
 
+// ErrBigFloatNonCanonicalEncoding signals the encoding is not canonical (re-encoding yields a different value)
+var ErrBigFloatNonCanonicalEncoding = errors.New("encoding of the big float is non-canonical")
+
 // ErrAllOperandsAreEqualToZero signals that all operands are equal to 0
 var ErrAllOperandsAreEqualToZero = errors.New("all operands are equal to 0")
 

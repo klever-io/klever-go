@@ -32,6 +32,7 @@ type ManagedTypesContextMock struct {
 	PutBigFloatCalled                              func(value *big.Float) (int32, error)
 	BigFloatPrecIsNotValidCalled                   func(precision uint) bool
 	BigFloatExpIsNotValidCalled                    func(exponent int) bool
+	BigFloatIsNotCanonicalCalled                   func(bigFloat *big.Float) bool
 	EncodedBigFloatIsNotValidCalled                func(encodedBigFloat []byte) bool
 	GetBigFloatOrCreateCalled                      func(handle int32) (*big.Float, error)
 	GetBigFloatCalled                              func(handle int32) (*big.Float, error)
@@ -188,6 +189,13 @@ func (m *ManagedTypesContextMock) BigFloatPrecIsNotValid(precision uint) bool {
 func (m *ManagedTypesContextMock) BigFloatExpIsNotValid(exponent int) bool {
 	if m.BigFloatExpIsNotValidCalled != nil {
 		return m.BigFloatExpIsNotValidCalled(exponent)
+	}
+	return false
+}
+
+func (m *ManagedTypesContextMock) BigFloatIsNotCanonical(bigFloat *big.Float) bool {
+	if m.BigFloatIsNotCanonicalCalled != nil {
+		return m.BigFloatIsNotCanonicalCalled(bigFloat)
 	}
 	return false
 }
