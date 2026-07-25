@@ -236,9 +236,14 @@ func TestClient_IdleConnectionReclaimedAtPongWait(t *testing.T) {
 	upgrader := ws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 
 	released := make(chan struct{})
+	// Buffered so the handler goroutine (not the test goroutine — calling t.Fatal there
+	// would violate testing's FailNow-must-run-on-the-test's-own-goroutine contract)
+	// never blocks reporting an upgrade failure back to the test.
+	upgradeErrCh := make(chan error, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
+			upgradeErrCh <- err
 			return
 		}
 		c := NewClient(conn, hub)
@@ -260,6 +265,8 @@ func TestClient_IdleConnectionReclaimedAtPongWait(t *testing.T) {
 	select {
 	case <-released:
 		// Read deadline elapsed and reclaimed the idle client — the slot is freed.
+	case err := <-upgradeErrCh:
+		t.Fatalf("server failed to upgrade the websocket connection: %v", err)
 	case <-time.After(2 * time.Second):
 		t.Fatal("idle client was not reclaimed at pongWait; connection slot leaked")
 	}
