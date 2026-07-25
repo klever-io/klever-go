@@ -87,8 +87,11 @@ func checkStatus(method, url string, r *http.Response) error {
 		return nil
 	}
 
-	snippet, _ := io.ReadAll(io.LimitReader(r.Body, maxErrorBodySnippet))
 	status := sanitizeServerText(r.Status)
+	snippet, readErr := io.ReadAll(io.LimitReader(r.Body, maxErrorBodySnippet))
+	if readErr != nil {
+		return fmt.Errorf("%s %s: unexpected HTTP status %s (failed to read response body: %w)", method, url, status, readErr)
+	}
 	body := strings.TrimSpace(sanitizeServerText(string(snippet)))
 	if body == "" {
 		return fmt.Errorf("%s %s: unexpected HTTP status %s", method, url, status)
