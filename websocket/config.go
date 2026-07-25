@@ -44,26 +44,30 @@ const (
 	defaultPostQueueSize = 1000
 )
 
-// pingPeriodNs and pongWaitNs hold the /subscribe keepalive timings (as nanosecond
-// counts, read/written via atomics). Only tests mutate them, to shorten the timings and
-// exercise idle-client read-deadline reclamation quickly — but they mutate concurrently
-// with a live client's loopIn/loopOut goroutines still reading the previous value on
-// their way out, so a plain var here is a genuine data race, not just a theoretical one
-// (caught by `go test -race`: a test's deferred restore racing loopOut's read at
-// client.go's ticker branch). pongWait (the lifetime read deadline) must exceed
-// pingPeriod so a live client can answer a server ping before it elapses.
-var (
-	pingPeriodNs atomic.Int64
-	pongWaitNs   atomic.Int64
-)
-
-func init() {
-	pingPeriodNs.Store(int64(15 * time.Second))
-	pongWaitNs.Store(int64(30 * time.Second))
+// keepaliveTimings holds the /subscribe keepalive timing pair. pongWait (the lifetime
+// read deadline) must exceed pingPeriod so a live client can answer a server ping before
+// it elapses — the two are stored and swapped together as one immutable value (never
+// mutated in place) so a reader can never observe a torn combination of an old ping with
+// a new pong (or vice versa) that could violate that invariant.
+type keepaliveTimings struct {
+	ping time.Duration
+	pong time.Duration
 }
 
-func getPingPeriod() time.Duration { return time.Duration(pingPeriodNs.Load()) }
-func getPongWait() time.Duration   { return time.Duration(pongWaitNs.Load()) }
+// keepalive holds the current *keepaliveTimings. Only tests mutate it, to shorten the
+// timings and exercise idle-client read-deadline reclamation quickly — but they mutate
+// concurrently with a live client's loopIn/loopOut goroutines still reading the previous
+// value on their way out, so plain vars here are a genuine data race, not just a
+// theoretical one (caught by `go test -race`: a test's deferred restore racing loopOut's
+// read at client.go's ticker branch).
+var keepalive atomic.Pointer[keepaliveTimings]
+
+func init() {
+	keepalive.Store(&keepaliveTimings{ping: 15 * time.Second, pong: 30 * time.Second})
+}
+
+func getPingPeriod() time.Duration { return keepalive.Load().ping }
+func getPongWait() time.Duration   { return keepalive.Load().pong }
 
 // Limits bounds /subscribe resource usage. Zero-valued fields fall back to safe
 // defaults, so a partial config can't disable the protection. The read limit is not a
