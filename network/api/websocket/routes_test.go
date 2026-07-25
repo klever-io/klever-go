@@ -205,8 +205,15 @@ func TestSubscribeTopics_BlockEventDelivery(t *testing.T) {
 func TestSubscribeTopics_LogsEventDelivery(t *testing.T) {
 	hub := socket.NewHub("", "", nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go hub.StartServer(ctx)
+	done := make(chan struct{})
+	go func() {
+		hub.StartServer(ctx)
+		close(done)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
 
 	addr, cleanup := startTestServer(t, hub)
 	defer cleanup()
