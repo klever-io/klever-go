@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -696,10 +697,19 @@ func TestAsyncPost_NoopWithoutConfig(t *testing.T) {
 	hub := newTestHub(nil)
 	assert.Nil(t, hub.postQueue)
 
-	// Must not panic and must not block: with no mirror configured, asyncPost is a pure no-op.
-	assert.NotPanics(t, func() {
+	// Must not block: with no mirror configured, asyncPost is a pure no-op. Run it off
+	// the test goroutine so a regression that blocks fails via the timeout below instead
+	// of hanging the test (a panic would still crash the test binary either way).
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
 		hub.asyncPost(&Send{Type: indexer.BLOCKS, Data: []byte(`{}`)})
-	})
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("asyncPost blocked with no mirror configured")
+	}
 }
 
 func TestNewHub_PostQueueAllocatedOnlyWhenConfigured(t *testing.T) {
@@ -723,7 +733,10 @@ func TestAsyncPost_DeliversToWorker(t *testing.T) {
 
 	hub := NewHub(ts.URL, "test-key", nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	defer func() {
+		cancel()
+		hub.postWorkersWG.Wait()
+	}()
 	hub.startPostWorkers(ctx)
 
 	hub.asyncPost(&Send{Type: indexer.BLOCKS, Data: []byte(`{"nonce":1}`)})
@@ -744,15 +757,31 @@ func TestAsyncPost_DropsWhenQueueFull(t *testing.T) {
 	hub := NewHub("http://example.invalid", "key", nil)
 	// No workers started: the queue only drains via asyncPost's own capacity, so filling
 	// it exercises the drop-on-full path deterministically without a live HTTP server.
+	// Each seed message is distinct (by Hash) so the assertions below can tell "the new
+	// send was dropped" apart from "an existing send was evicted to make room for it" —
+	// both would otherwise leave the queue at the same length.
 	for i := 0; i < postQueueSize; i++ {
-		hub.asyncPost(&Send{Type: indexer.BLOCKS})
+		hub.asyncPost(&Send{Type: indexer.BLOCKS, Hash: fmt.Sprintf("seed-%d", i)})
 	}
-	assert.Len(t, hub.postQueue, postQueueSize)
+	require.Len(t, hub.postQueue, postQueueSize)
 
-	assert.NotPanics(t, func() {
-		hub.asyncPost(&Send{Type: indexer.BLOCKS})
-	})
-	assert.Len(t, hub.postQueue, postQueueSize, "queue-full send must be dropped, not queued")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		hub.asyncPost(&Send{Type: indexer.BLOCKS, Hash: "overflow"})
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("asyncPost blocked on a full queue instead of dropping")
+	}
+
+	require.Len(t, hub.postQueue, postQueueSize, "queue-full send must be dropped, not queued")
+	for i := 0; i < postQueueSize; i++ {
+		msg := <-hub.postQueue
+		assert.NotEqual(t, "overflow", msg.Hash,
+			"overflow message must be dropped, not enqueued in place of an existing one")
+	}
 }
 
 func TestStartPostWorkers_StopOnContextCancel(t *testing.T) {
@@ -781,9 +810,22 @@ func TestStartPostWorkers_NoopWithoutConfig(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	assert.NotPanics(t, func() {
-		hub.startPostWorkers(ctx)
-	})
+	hub.startPostWorkers(ctx)
+
+	// Prove no workers were actually started (not just "didn't panic"): if
+	// startPostWorkers incorrectly launched goroutines despite the nil queue, they'd be
+	// registered in postWorkersWG and this Wait() would hang until the timeout below
+	// instead of returning immediately.
+	done := make(chan struct{})
+	go func() {
+		hub.postWorkersWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("startPostWorkers appears to have started workers despite no mirror config")
+	}
 }
 
 func TestStartServer_ContextCancel(t *testing.T) {

@@ -49,7 +49,7 @@ func PostURLWithContext(ctx context.Context, url, body string, headers []string,
 	reqBody := strings.NewReader(body)
 	req, errNewReq := http.NewRequestWithContext(ctx, http.MethodPost, url, reqBody)
 	if errNewReq != nil {
-		return errNewReq
+		return fmt.Errorf("create POST request: %w", errNewReq)
 	}
 	req.Header.Add("Content-type", "application/json; charset=UTF-8")
 	for i := 0; i < len(headers); i += 2 {
@@ -58,7 +58,7 @@ func PostURLWithContext(ctx context.Context, url, body string, headers []string,
 
 	r, err := httpClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("send POST request: %w", err)
 	}
 	defer func() { _ = r.Body.Close() }()
 
@@ -69,7 +69,7 @@ func PostURLWithContext(ctx context.Context, url, body string, headers []string,
 	if target != nil {
 		data, errRead := io.ReadAll(io.LimitReader(r.Body, maxResponseBody+1))
 		if errRead != nil {
-			return errRead
+			return fmt.Errorf("read POST response body: %w", errRead)
 		}
 		if int64(len(data)) > maxResponseBody {
 			return fmt.Errorf("%s %s: response body exceeds %d bytes", http.MethodPost, url, maxResponseBody)
