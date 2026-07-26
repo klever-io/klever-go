@@ -60,7 +60,15 @@ func PostURLWithContext(ctx context.Context, url, body string, headers []string,
 	if err != nil {
 		return fmt.Errorf("send POST request: %w", err)
 	}
-	defer func() { _ = r.Body.Close() }()
+	// Draining before Close lets the transport reuse the underlying HTTP/1.x connection;
+	// otherwise it's forced to redial (and re-handshake, for TLS) on the next request. This
+	// matters most when target == nil (the caller doesn't want the body at all, e.g. the
+	// websocket mirror at websocket.go — every 2xx response with a non-empty body would
+	// otherwise pay for a fresh connection).
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, maxResponseBody))
+		_ = r.Body.Close()
+	}()
 
 	if err := checkStatus(http.MethodPost, url, r); err != nil {
 		return err
@@ -88,11 +96,20 @@ func checkStatus(method, url string, r *http.Response) error {
 	}
 
 	status := sanitizeServerText(r.Status)
+	// io.ReadAll returns the bytes it did manage to read alongside a non-nil error on a
+	// truncated/hijacked body (e.g. a declared Content-Length the server never delivered) —
+	// keep that partial snippet instead of discarding it. readErr's own message can embed
+	// server-supplied text (net/http's trailer parsing may fold a server header into it), so
+	// sanitize it the same as status/body rather than let it skip the same treatment.
 	snippet, readErr := io.ReadAll(io.LimitReader(r.Body, maxErrorBodySnippet))
-	if readErr != nil {
-		return fmt.Errorf("%s %s: unexpected HTTP status %s (failed to read response body: %w)", method, url, status, readErr)
-	}
 	body := strings.TrimSpace(sanitizeServerText(string(snippet)))
+	if readErr != nil {
+		sanitizedReadErr := sanitizeServerText(readErr.Error())
+		if body == "" {
+			return fmt.Errorf("%s %s: unexpected HTTP status %s (failed to read response body: %s)", method, url, status, sanitizedReadErr)
+		}
+		return fmt.Errorf("%s %s: unexpected HTTP status %s: %s (failed to read response body: %s)", method, url, status, body, sanitizedReadErr)
+	}
 	if body == "" {
 		return fmt.Errorf("%s %s: unexpected HTTP status %s", method, url, status)
 	}

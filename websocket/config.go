@@ -27,17 +27,18 @@ const (
 	// memory-amplification path (GHSA-4fwh-wrm6-97xm).
 	maxEncodedAddressLength = 62
 
-	// postWorkerCount bounds how many postWSConnection mirror requests run concurrently.
-	// Without a cap, a slow or unresponsive mirror endpoint turns every account/tx event
-	// into an unbounded pile of in-flight goroutines and sockets, scaling with chain
-	// throughput rather than with the mirror's actual capacity.
-	postWorkerCount = 8
+	// defaultPostWorkerCount bounds how many postWSConnection mirror requests run
+	// concurrently, when PostWorkers is unset. Without a cap, a slow or unresponsive
+	// mirror endpoint turns every account/tx event into an unbounded pile of in-flight
+	// goroutines and sockets, scaling with chain throughput rather than with the mirror's
+	// actual capacity.
+	defaultPostWorkerCount = 8
 
-	// postQueueSize bounds how many pending mirror sends can queue behind postWorkerCount
-	// before new ones are dropped (mirroring the EventQueue drop-on-full pattern in
-	// indexer/events.go), so a stalled mirror endpoint sheds load instead of growing without
-	// bound.
-	postQueueSize = 1000
+	// defaultPostQueueSize bounds how many pending mirror sends can queue behind
+	// postWorkerCount before new ones are dropped (mirroring the EventQueue drop-on-full
+	// pattern in indexer/events.go), when PostQueueSize is unset — so a stalled mirror
+	// endpoint sheds load instead of growing without bound.
+	defaultPostQueueSize = 1000
 )
 
 // pingPeriod and pongWait are the /subscribe keepalive timings. They are vars only so
@@ -55,6 +56,12 @@ var (
 type Limits struct {
 	MaxAddressesPerSubscribe int
 	MaxAddressesPerClient    int
+	// PostWorkers bounds concurrent postWSConnection mirror requests; 0 uses
+	// defaultPostWorkerCount.
+	PostWorkers int
+	// PostQueueSize bounds pending mirror sends queued behind PostWorkers; 0 uses
+	// defaultPostQueueSize.
+	PostQueueSize int
 }
 
 // resolvedLimits holds the effective limits after defaults are applied.
@@ -62,6 +69,8 @@ type resolvedLimits struct {
 	maxAddressesPerSubscribe int
 	maxAddressesPerClient    int
 	maxMessageSize           int64
+	postWorkers              int
+	postQueueSize            int
 }
 
 func (l Limits) resolve() resolvedLimits {
@@ -84,9 +93,20 @@ func (l Limits) resolve() resolvedLimits {
 		readLimit = derived
 	}
 
+	postWorkers := l.PostWorkers
+	if postWorkers <= 0 {
+		postWorkers = defaultPostWorkerCount
+	}
+	postQueueSize := l.PostQueueSize
+	if postQueueSize <= 0 {
+		postQueueSize = defaultPostQueueSize
+	}
+
 	return resolvedLimits{
 		maxAddressesPerSubscribe: perSubscribe,
 		maxAddressesPerClient:    perClient,
 		maxMessageSize:           readLimit,
+		postWorkers:              postWorkers,
+		postQueueSize:            postQueueSize,
 	}
 }

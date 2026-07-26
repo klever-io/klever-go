@@ -56,6 +56,12 @@ type WebServerAntifloodConfig struct {
 	// WebSocketMaxAddressesPerClient caps the total addresses one connection may watch
 	// across all of its subscribe calls. 0 = built-in default.
 	WebSocketMaxAddressesPerClient uint32 `yaml:"webSocketMaxAddressesPerClient"`
+	// WebSocketPostWorkers bounds concurrent postWSConnection mirror requests. 0 = built-in
+	// default.
+	WebSocketPostWorkers uint32 `yaml:"webSocketPostWorkers"`
+	// WebSocketPostQueueSize bounds pending mirror sends queued behind
+	// WebSocketPostWorkers before new ones are dropped. 0 = built-in default.
+	WebSocketPostQueueSize uint32 `yaml:"webSocketPostQueueSize"`
 }
 
 // TopicMaxMessagesConfig will hold the maximum number of messages/sec per topic value

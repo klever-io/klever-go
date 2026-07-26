@@ -199,6 +199,11 @@ antiflood:
     # WebSocketMaxAddressesPerClient caps the total addresses one connection may watch across all
     # of its subscribe calls. 0 = default.
     webSocketMaxAddressesPerClient: 50000
+    # WebSocketPostWorkers bounds concurrent postWSConnection mirror requests. 0 = default.
+    webSocketPostWorkers: 8
+    # WebSocketPostQueueSize bounds pending mirror sends queued behind webSocketPostWorkers
+    # before new ones are dropped. 0 = default.
+    webSocketPostQueueSize: 1000
     # EndpointsThrottlers represents a map for maximum simultaneous go routines for an endpoint
     endpointsThrottlers:
       - endpoint: /transaction/:hash

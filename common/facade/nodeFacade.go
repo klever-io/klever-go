@@ -33,6 +33,7 @@ import (
 	"github.com/klever-io/klever-go/network/api/validator"
 	"github.com/klever-io/klever-go/node/heartbeat/data"
 	"github.com/klever-io/klever-go/ntp"
+	"github.com/klever-io/klever-go/statusHandler"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/tools/debug"
 )
@@ -67,6 +68,9 @@ type ArgNodeFacade struct {
 	AccountsState          state.AccountsAdapter
 	KAppsState             state.AccountsAdapter
 	PeerState              state.AccountsAdapter
+	// AppStatusHandler is optional; a nil value here yields a no-op handler (see
+	// NewNodeFacade) rather than requiring every caller to supply one.
+	AppStatusHandler core.AppStatusHandler
 }
 
 // nodeFacade represents a facade for grouping the functionality for the node
@@ -83,6 +87,7 @@ type nodeFacade struct {
 	accountsState          state.AccountsAdapter
 	kappsState             state.AccountsAdapter
 	peerState              state.AccountsAdapter
+	appStatusHandler       core.AppStatusHandler
 	ctx                    context.Context
 	cancelFunc             func()
 }
@@ -119,6 +124,11 @@ func NewNodeFacade(arg ArgNodeFacade) (*nodeFacade, error) {
 
 	throttlersMap := computeEndpointsNumGoRoutinesThrottlers(arg.WsAntifloodConfig)
 
+	appStatusHandler := arg.AppStatusHandler
+	if check.IfNil(appStatusHandler) {
+		appStatusHandler = statusHandler.NewNilStatusHandler()
+	}
+
 	nf := &nodeFacade{
 		node:                   arg.Node,
 		apiResolver:            arg.APIResolver,
@@ -130,6 +140,7 @@ func NewNodeFacade(arg ArgNodeFacade) (*nodeFacade, error) {
 		accountsState:          arg.AccountsState,
 		kappsState:             arg.KAppsState,
 		peerState:              arg.PeerState,
+		appStatusHandler:       appStatusHandler,
 	}
 	nf.ctx, nf.cancelFunc = context.WithCancel(context.Background())
 
@@ -383,6 +394,23 @@ func (nf *nodeFacade) WSMaxAddressesPerSubscribe() uint32 {
 // /subscribe (0 = built-in default).
 func (nf *nodeFacade) WSMaxAddressesPerClient() uint32 {
 	return nf.wsAntifloodConfig.WebSocketMaxAddressesPerClient
+}
+
+// WSPostWorkers returns the cap on concurrent postWSConnection mirror requests
+// (0 = built-in default).
+func (nf *nodeFacade) WSPostWorkers() uint32 {
+	return nf.wsAntifloodConfig.WebSocketPostWorkers
+}
+
+// WSPostQueueSize returns the cap on pending mirror sends queued behind WSPostWorkers
+// (0 = built-in default).
+func (nf *nodeFacade) WSPostQueueSize() uint32 {
+	return nf.wsAntifloodConfig.WebSocketPostQueueSize
+}
+
+// AppStatusHandler returns the node's status/metrics sink (never nil — see NewNodeFacade).
+func (nf *nodeFacade) AppStatusHandler() core.AppStatusHandler {
+	return nf.appStatusHandler
 }
 
 /***********

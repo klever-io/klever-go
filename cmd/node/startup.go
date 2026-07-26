@@ -1028,10 +1028,11 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 			WSConnectionAPIKey: ctx.GlobalString(WSConnectionApiKey.Name),
 			WSConnectionURL:    ctx.GlobalString(WSConnectionUrl.Name),
 		},
-		APIRoutesConfig: apiRoutesConfig,
-		AccountsState:   stateComponents.AccountsAdapter,
-		KAppsState:      stateComponents.KAppsAdapter,
-		PeerState:       stateComponents.PeersAdapter,
+		APIRoutesConfig:  apiRoutesConfig,
+		AccountsState:    stateComponents.AccountsAdapter,
+		KAppsState:       stateComponents.KAppsAdapter,
+		PeerState:        stateComponents.PeersAdapter,
+		AppStatusHandler: coreComponents.StatusHandler,
 	}
 
 	ef, err := facade.NewNodeFacade(argNodeFacade)

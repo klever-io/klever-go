@@ -160,6 +160,14 @@ func TestLimits_Resolve_AppliesDefaults(t *testing.T) {
 	assert.Equal(t, defaultMaxAddressesPerSubscribe, r.maxAddressesPerSubscribe)
 	assert.Equal(t, defaultMaxAddressesPerClient, r.maxAddressesPerClient)
 	assert.Equal(t, int64(minMaxMessageSize), r.maxMessageSize, "default read limit is the floor")
+	assert.Equal(t, defaultPostWorkerCount, r.postWorkers)
+	assert.Equal(t, defaultPostQueueSize, r.postQueueSize)
+}
+
+func TestLimits_Resolve_OverridesPostWorkerLimits(t *testing.T) {
+	r := Limits{PostWorkers: 3, PostQueueSize: 42}.resolve()
+	assert.Equal(t, 3, r.postWorkers)
+	assert.Equal(t, 42, r.postQueueSize)
 }
 
 func TestLimits_Resolve_DerivesReadLimitFromAddressCap(t *testing.T) {
