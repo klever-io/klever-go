@@ -18,6 +18,7 @@ import (
 	"github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -159,6 +160,33 @@ func drainTestQueue(ch chan Event) {
 			return
 		}
 	}
+}
+
+// drainAllEvents drains up to 10 pending events from queue (comfortably more than any
+// single SaveBlock call dispatches) into a slice, for tests that need to inspect which
+// event types arrived without asserting on exact ordering.
+func drainAllEvents(queue chan Event) []Event {
+	events := make([]Event, 0, 10)
+	for i := 0; i < 10; i++ {
+		select {
+		case ev := <-queue:
+			events = append(events, ev)
+		default:
+			return events
+		}
+	}
+	return events
+}
+
+// findEventType returns the first event of evType in events, or nil if none matches.
+func findEventType(events []Event, evType EventType) *Event {
+	for _, ev := range events {
+		if ev.EvType == evType {
+			evCopy := ev
+			return &evCopy
+		}
+	}
+	return nil
 }
 
 // pad32 returns a 32-byte slice with s copied into it, zero-padded.
@@ -452,13 +480,14 @@ func TestEventsProcessor_SaveBlock_DispatchesLogEvents(t *testing.T) {
 
 	logHandler := &transaction.Log{
 		Address:    []byte("contractaddr"),
-		ContractID: 1,
+		ContractID: 7,
 		Events: []*transaction.Event{
 			{
-				Address:    []byte("contractaddr"),
-				Identifier: []byte("transfer"),
-				Topics:     [][]byte{[]byte("topic1")},
-				Data:       [][]byte{[]byte("data1")},
+				Address:     []byte("eventaddr"),
+				Identifier:  []byte("transfer"),
+				Topics:      [][]byte{[]byte("topic1")},
+				Data:        [][]byte{[]byte("data1")},
+				IsSystemLog: true,
 			},
 		},
 	}
@@ -471,25 +500,73 @@ func TestEventsProcessor_SaveBlock_DispatchesLogEvents(t *testing.T) {
 
 	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
 
-	var logsEvent *Event
-	for i := 0; i < 10; i++ {
-		select {
-		case ev := <-testQueue:
-			if ev.EvType == LOGS {
-				evCopy := ev
-				logsEvent = &evCopy
-			}
-		default:
-			i = 10
-		}
-	}
+	logsEvent := findEventType(drainAllEvents(testQueue), LOGS)
 	require.NotNil(t, logsEvent, "expected a LOGS event to be dispatched")
 	logsDB, ok := logsEvent.Message.([]*data.Logs)
 	require.True(t, ok)
 	require.Len(t, logsDB, 1)
-	require.NotEmpty(t, logsDB[0].Address)
-	require.Len(t, logsDB[0].Events, 1)
-	require.Equal(t, "transfer", logsDB[0].Events[0].Identifier)
+
+	// Full payload contract, not just "some log arrived": ID is what the hub uses as the
+	// envelope hash, Caller/Status/ResultCode resolve from txsMap (keyed by the same raw
+	// tx-hash bytes as pool.Txs — if that keying is ever "unified" to hex elsewhere, this
+	// must catch it going blank), and addresses/topics/data are hex-encoded.
+	entry := logsDB[0]
+	assert.Equal(t, hex.EncodeToString([]byte("txHash1")), entry.ID)
+	assert.Equal(t, hex.EncodeToString([]byte("contractaddr")), entry.Address)
+	assert.Equal(t, hex.EncodeToString([]byte("sender")), entry.Caller, "Caller must resolve from txsMap")
+	assert.Equal(t, int32(7), entry.ContractID)
+	assert.Equal(t, "success", entry.Status)
+	assert.Equal(t, transaction.Transaction_Ok.String(), entry.ResultCode)
+	require.Len(t, entry.Events, 1)
+	assert.Equal(t, hex.EncodeToString([]byte("eventaddr")), entry.Events[0].Address)
+	assert.Equal(t, "transfer", entry.Events[0].Identifier)
+	assert.Equal(t, []string{hex.EncodeToString([]byte("topic1"))}, entry.Events[0].Topics)
+	assert.Equal(t, []string{hex.EncodeToString([]byte("data1"))}, entry.Events[0].Data)
+	assert.True(t, entry.Events[0].IsSystemLog)
+}
+
+// TestEventsProcessor_SaveBlock_DispatchesLogEvents_WhenPrepareIsSkipped guards the fix
+// for a real bug: dispatchLogEvents used to live inside the `if prepared != nil` branch,
+// so a block with no txs (or a prepare() failure) meant prepared == nil and the block's
+// LOGS silently never dispatched, even though pool.Logs doesn't depend on prepared at
+// all. Txs is left empty here so prepare() takes its early-return-nil path (same
+// prepared == nil outcome prepareTransactionsForDatabase erroring would produce), and
+// txsMap is nil as a result — Caller/Status/ResultCode must degrade to zero values
+// instead of panicking on a nil map read.
+func TestEventsProcessor_SaveBlock_DispatchesLogEvents_WhenPrepareIsSkipped(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor(t)
+
+	logHandler := &transaction.Log{
+		Address:    []byte("contractaddr"),
+		ContractID: 7,
+		Events: []*transaction.Event{
+			{
+				Address:    []byte("eventaddr"),
+				Identifier: []byte("transfer"),
+			},
+		},
+	}
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txHash1"}},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	logsEvent := findEventType(drainAllEvents(testQueue), LOGS)
+	require.NotNil(t, logsEvent, "LOGS must still dispatch even when prepared == nil")
+	logsDB, ok := logsEvent.Message.([]*data.Logs)
+	require.True(t, ok)
+	require.Len(t, logsDB, 1)
+
+	entry := logsDB[0]
+	assert.Equal(t, hex.EncodeToString([]byte("contractaddr")), entry.Address)
+	assert.Equal(t, int32(7), entry.ContractID)
+	assert.Empty(t, entry.Caller, "txsMap is nil: Caller must degrade to zero value, not panic")
+	assert.Empty(t, entry.Status)
+	assert.Empty(t, entry.ResultCode)
 }
 
 func TestEventsProcessor_SaveBlock_NoLogsNoOp(t *testing.T) {
@@ -510,14 +587,8 @@ func TestEventsProcessor_SaveBlock_NoLogsNoOp(t *testing.T) {
 
 	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
 
-	for i := 0; i < 10; i++ {
-		select {
-		case ev := <-testQueue:
-			require.NotEqual(t, LOGS, ev.EvType, "expected no LOGS event when pool.Logs is empty")
-		default:
-			i = 10
-		}
-	}
+	logsEvent := findEventType(drainAllEvents(testQueue), LOGS)
+	require.Nil(t, logsEvent, "expected no LOGS event when pool.Logs is empty")
 }
 
 func TestEventsProcessor_SaveBlock_NilPool_SkipsLogEvents(t *testing.T) {

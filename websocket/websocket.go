@@ -240,6 +240,26 @@ func (h *SocketHub) notifyAddressSubscribers(address string, parsed *Send, filte
 	}
 }
 
+// hasAddressSubscriber reports whether any client currently watches address with a
+// userOptions flag that filterFn accepts. Cheap existence check (no snapshot copy) meant
+// to be called before marshalAndPost, so entries nobody wants (no matching subscriber,
+// no post-mirror configured) skip the marshal/encode cost entirely instead of paying it
+// only to have notifyAddressSubscribers find no recipient.
+func (h *SocketHub) hasAddressSubscriber(address string, filterFn func(userOptions) bool) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	clients, ok := h.addressSubscription[address]
+	if !ok {
+		return false
+	}
+	for _, opts := range clients {
+		if filterFn(opts) {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *SocketHub) broadcastToSubscription(parsed *Send, subscription map[*client]struct{}) {
 	h.mu.RLock()
 	snapshot := make([]*client, 0, len(subscription))
@@ -327,8 +347,20 @@ func (h *SocketHub) handleLogsEvent(event indexer.Event) {
 		return
 	}
 	acceptLogs := func(opts userOptions) bool { return opts.acceptLogs }
+	// LOGS volume per block can be far higher than ACCOUNTS/TRANSACTIONS (many contract
+	// events vs. a handful of altered accounts), and every marshalAndPost triggers a
+	// mirror POST attempt when postConnectionURL/APIKey is configured — so an entry
+	// nobody wants (no subscriber for its address, no mirror configured at all) skips the
+	// marshal/encode and mirror-post cost entirely, instead of paying it only to be
+	// delivered to nobody. This does not change delivery to any existing subscriber, nor
+	// mirror behavior for any entry the mirror would have received anyway
+	// (mirrorConfigured is the same check postWSConnection itself makes).
+	mirrorConfigured := h.postConnectionURL != "" || h.postConnectionAPIKey != ""
 	for _, entry := range logs {
 		if entry == nil || entry.Address == "" {
+			continue
+		}
+		if !mirrorConfigured && !h.hasAddressSubscriber(entry.Address, acceptLogs) {
 			continue
 		}
 		// entry.ID is the hex-encoded hash of the transaction that produced this log

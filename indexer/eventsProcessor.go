@@ -100,11 +100,19 @@ func (ep *eventsProcessor) SaveBlock(args *indexerData.ArgsSaveBlockData) {
 	if wsEnabled {
 		prepared := ep.prepare(args)
 		ep.dispatchBlockEvent(args)
+		var txsMap map[string]*data.Transaction
 		if prepared != nil {
 			ep.dispatchTransactionEvents(prepared.Txs)
 			ep.dispatchAccountEventsFromAlteredAccounts(args.Header.GetTimestamp(), prepared.Altered.Accounts)
-			ep.dispatchLogEvents(args.TransactionsPool, prepared.TxsMap, args.Header.GetTimestamp())
+			txsMap = prepared.TxsMap
 		}
+		// Unlike USER_TRANSACTIONS/ACCOUNTS, logs don't depend on prepared: dispatchLogEvents
+		// only needs TransactionsPool.Logs plus an optional txsMap for Caller/Status/
+		// ResultCode (already nil-safe on a miss). Dispatching it here, outside the
+		// prepared-only branch, matches how BLOCKS already ships regardless of prepare()
+		// succeeding — otherwise a tx-prep failure would silently drop a whole block's
+		// logs from the feed while BLOCKS still shipped normally.
+		ep.dispatchLogEvents(args.TransactionsPool, txsMap, args.Header.GetTimestamp())
 		if indexerEnabled {
 			args.Prepared = prepared
 		}

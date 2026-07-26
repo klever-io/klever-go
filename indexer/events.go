@@ -68,19 +68,11 @@ func NewEventTypeStrict(evType string) (EventType, error) {
 	}
 }
 
+// NewEventType is the non-strict counterpart of NewEventTypeStrict, returning UNKNOWN
+// instead of an error for an unrecognized type. Delegates to it rather than duplicating
+// the switch, so the two can't silently drift out of sync (e.g. a new type added to one
+// and forgotten in the other).
 func NewEventType(evType string) EventType {
-	switch evType {
-	case "transactions":
-		return TRANSACTIONS
-	case "accounts":
-		return ACCOUNTS
-	case "blocks":
-		return BLOCKS
-	case "user_transactions":
-		return USER_TRANSACTIONS
-	case "logs":
-		return LOGS
-	default:
-		return UNKNOWN
-	}
+	t, _ := NewEventTypeStrict(evType)
+	return t
 }
