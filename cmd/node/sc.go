@@ -6,6 +6,8 @@ import (
 
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/kapp/disabled"
+	kappcontroller "github.com/klever-io/klever-go/core/kapp/kappController"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/factory/chain"
 	"github.com/klever-io/klever-go/core/process/smartContract"
@@ -129,12 +131,33 @@ func createScQueryElement(
 		return nil, err
 	}
 
+	// Dedicated query-only KAppController bound to the read-only cacher: the
+	// production one persists KLV/KDA transfers through its own cacher, not the
+	// hook's. Mirrors the tx simulator (factory/process.go KAppControllerSimulator).
+	// ReadOnly refuses all built-ins at BlockChainHookImpl.ProcessBuiltInFunction,
+	// so a query cannot mutate state nor get an Ok back for a swallowed write.
+	kappArgs := args.stateComponents.KAppArgs
+	kappArgs.ReadOnly = true
+
+	queryKAppController, err := kappcontroller.NewKappController(kappArgs)
+	if err != nil {
+		return nil, err
+	}
+	if err = queryKAppController.InitKApps(accCacher); err != nil {
+		return nil, err
+	}
+	// Initial context so nothing is nil before the first query; SCQueryService
+	// replaces it per query (see scQueryService.go executeScCall). Its zero-value
+	// Block()/return data are never observed, because every built-in that would
+	// read them is refused by the read-only guard below.
+	queryKAppController.SetCurrentKAppContext(disabled.NewDisabledKappContext())
+
 	argsBuiltIn := builtInFunctions.ArgsCreateBuiltInFunctionContainer{
 		GasSchedule:     gasScheduleNotifier,
 		MapDNSAddresses: make(map[string]struct{}),
 		Marshalizer:     args.coreComponents.InternalMarshalizer,
 		AccountsCacher:  accCacher,
-		KAppController:  args.stateComponents.KAppController,
+		KAppController:  queryKAppController,
 		EpochNotifier:   args.epochNotifier,
 		ForkController:  args.forkController,
 	}
@@ -154,7 +177,7 @@ func createScQueryElement(
 	scStorage.DB.FilePath += fmt.Sprintf("%d", args.index)
 	argsHook := hooks.ArgBlockChainHook{
 		AccountsCacher:     accCacher,
-		KAppController:     args.stateComponents.KAppController,
+		KAppController:     queryKAppController,
 		PubkeyConv:         args.stateComponents.AddressPubkeyConverter,
 		StorageService:     args.dataComponents.Store,
 		BlockChain:         args.dataComponents.Blkc,

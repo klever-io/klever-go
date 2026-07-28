@@ -11,6 +11,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/core/kapp/disabled"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/data"
@@ -150,6 +151,18 @@ func (service *SCQueryService) executeScCall(query *process.SCQuery) (*vmcommon.
 	}
 
 	service.blockChainHook.SetCurrentHeader(service.blockChain.GetCurrentBlockHeader())
+
+	// A KApp context is a per-request object everywhere else in the tree (see
+	// txProcess.go, which builds a fresh one after every tx), but the query
+	// controller is built once per query element at boot and lives for the whole
+	// process. Its receipt slice is append-only, so without this reset every
+	// query permanently leaks its receipts and each built-in dispatch pays to
+	// copy the whole accumulated slice. Only reset for read-only controllers so
+	// a service wired to the production controller is never clobbered.
+	kappController := service.blockChainHook.GetKAppController()
+	if !check.IfNil(kappController) && kappController.IsReadOnly() {
+		kappController.SetCurrentKAppContext(disabled.NewDisabledKappContext())
+	}
 
 	service.wasmVMChangeLocker.RLock()
 	vm, err := FindVMByScAddress(service.vmContainer, query.ScAddress)

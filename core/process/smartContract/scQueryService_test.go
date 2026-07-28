@@ -12,10 +12,12 @@ import (
 
 	commonMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
 	mock "github.com/klever-io/klever-go/kvm/mock/context"
+	kvmStub "github.com/klever-io/klever-go/kvm/mock/stub"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -813,4 +815,192 @@ func TestSCQueryService_ShouldWorkIfNodeIsSynced(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, res)
+}
+
+/////////////////////////////////////////
+// Per-query KApp context isolation    //
+/////////////////////////////////////////
+
+// queryServiceOverController builds an SCQueryService whose hook exposes the given
+// controller, recording every context the service installs on it.
+func queryServiceOverController(t *testing.T, readOnly bool) (*SCQueryService, *[]kapp.KappContext) {
+	t.Helper()
+
+	installed := make([]kapp.KappContext, 0)
+	controller := &kvmStub.KAppControllerStub{
+		IsReadOnlyCalled: func() bool { return readOnly },
+		SetCurrentKAppContextCalled: func(ctx kapp.KappContext) {
+			installed = append(installed, ctx)
+		},
+	}
+
+	args := createMockArgumentsForSCQuery()
+	args.BlockChainHook = &mock.BlockchainHookStub{
+		GetKAppControllerCalled: func() kapp.KAppController { return controller },
+	}
+	args.VmContainer = &mock.VMContainerMock{
+		GetCalled: func(_ []byte) (vmcommon.VMExecutionHandler, error) {
+			return &mock.VMExecutionHandlerStub{
+				RunSmartContractCallCalled: func(_ *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+					return &vmcommon.VMOutput{ReturnCode: vmcommon.Ok}, nil
+				},
+			}, nil
+		},
+	}
+
+	service, err := NewSCQueryService(args)
+	require.NoError(t, err)
+
+	return service, &installed
+}
+
+func dummyQuery() *process.SCQuery {
+	return &process.SCQuery{
+		ScAddress: []byte(DummyScAddress),
+		FuncName:  "function",
+		Arguments: [][]byte{},
+	}
+}
+
+// A read-only (query) controller must get a FRESH KApp context per query. It is
+// built once per query element at boot and lives for the whole process, and its
+// receipt slice is append-only, so reusing one leaks receipts for the node's
+// entire uptime and makes every built-in dispatch copy more data.
+func TestSCQueryService_ExecuteQuery_ReadOnly_ResetsKAppContextPerQuery(t *testing.T) {
+	t.Parallel()
+
+	service, installed := queryServiceOverController(t, true)
+
+	for range 3 {
+		_, err := service.ExecuteQuery(dummyQuery())
+		require.NoError(t, err)
+	}
+
+	require.Len(t, *installed, 3, "each query must install its own KApp context")
+
+	for i, ctx := range *installed {
+		require.NotNil(t, ctx)
+		require.Empty(t, ctx.Receipts().Get(), "a freshly installed context must carry no receipts")
+		if i > 0 {
+			require.NotSame(t, (*installed)[i-1], ctx, "contexts must not be reused across queries")
+		}
+	}
+}
+
+// A writable controller must be left alone: clobbering the live context of a
+// service wired to the production controller would discard in-flight receipts.
+func TestSCQueryService_ExecuteQuery_Writable_LeavesKAppContextAlone(t *testing.T) {
+	t.Parallel()
+
+	service, installed := queryServiceOverController(t, false)
+
+	_, err := service.ExecuteQuery(dummyQuery())
+	require.NoError(t, err)
+
+	require.Empty(t, *installed, "a writable controller must keep the context it already has")
+}
+
+// A nil controller must not panic the query path.
+func TestSCQueryService_ExecuteQuery_NilController_NoPanic(t *testing.T) {
+	t.Parallel()
+
+	args := createMockArgumentsForSCQuery()
+	args.BlockChainHook = &mock.BlockchainHookStub{
+		GetKAppControllerCalled: func() kapp.KAppController { return nil },
+	}
+	args.VmContainer = &mock.VMContainerMock{
+		GetCalled: func(_ []byte) (vmcommon.VMExecutionHandler, error) {
+			return &mock.VMExecutionHandlerStub{
+				RunSmartContractCallCalled: func(_ *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+					return &vmcommon.VMOutput{ReturnCode: vmcommon.Ok}, nil
+				},
+			}, nil
+		},
+	}
+
+	service, err := NewSCQueryService(args)
+	require.NoError(t, err)
+
+	require.NotPanics(t, func() {
+		_, err = service.ExecuteQuery(dummyQuery())
+		require.NoError(t, err)
+	})
+}
+
+// Order matters: the context must be replaced BEFORE the VM runs, otherwise the
+// query executes against the previous query's accumulated receipts and only gets a
+// clean context after the fact.
+func TestSCQueryService_ExecuteQuery_ReadOnly_ResetsContextBeforeRunningTheVM(t *testing.T) {
+	t.Parallel()
+
+	calls := make([]string, 0, 2)
+	controller := &kvmStub.KAppControllerStub{
+		IsReadOnlyCalled: func() bool { return true },
+		SetCurrentKAppContextCalled: func(_ kapp.KappContext) {
+			calls = append(calls, "setContext")
+		},
+	}
+
+	args := createMockArgumentsForSCQuery()
+	args.BlockChainHook = &mock.BlockchainHookStub{
+		GetKAppControllerCalled: func() kapp.KAppController { return controller },
+	}
+	args.VmContainer = &mock.VMContainerMock{
+		GetCalled: func(_ []byte) (vmcommon.VMExecutionHandler, error) {
+			return &mock.VMExecutionHandlerStub{
+				RunSmartContractCallCalled: func(_ *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+					calls = append(calls, "runContract")
+					return &vmcommon.VMOutput{ReturnCode: vmcommon.Ok}, nil
+				},
+			}, nil
+		},
+	}
+
+	service, err := NewSCQueryService(args)
+	require.NoError(t, err)
+
+	_, err = service.ExecuteQuery(dummyQuery())
+	require.NoError(t, err)
+
+	require.Equal(t, []string{"setContext", "runContract"}, calls)
+}
+
+// A failing query must still have installed a fresh context: the reset is what keeps
+// the long-lived query controller from accumulating receipts, so it cannot be
+// conditional on the VM succeeding.
+func TestSCQueryService_ExecuteQuery_ReadOnly_ResetsContextEvenWhenTheVMFails(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("vm exploded")
+
+	installed := make([]kapp.KappContext, 0)
+	controller := &kvmStub.KAppControllerStub{
+		IsReadOnlyCalled: func() bool { return true },
+		SetCurrentKAppContextCalled: func(ctx kapp.KappContext) {
+			installed = append(installed, ctx)
+		},
+	}
+
+	args := createMockArgumentsForSCQuery()
+	args.BlockChainHook = &mock.BlockchainHookStub{
+		GetKAppControllerCalled: func() kapp.KAppController { return controller },
+	}
+	args.VmContainer = &mock.VMContainerMock{
+		GetCalled: func(_ []byte) (vmcommon.VMExecutionHandler, error) {
+			return &mock.VMExecutionHandlerStub{
+				RunSmartContractCallCalled: func(_ *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+					return nil, expectedErr
+				},
+			}, nil
+		},
+	}
+
+	service, err := NewSCQueryService(args)
+	require.NoError(t, err)
+
+	_, err = service.ExecuteQuery(dummyQuery())
+	require.ErrorIs(t, err, expectedErr)
+
+	require.Len(t, installed, 1, "the context must be reset regardless of the query outcome")
+	require.NotNil(t, installed[0])
 }

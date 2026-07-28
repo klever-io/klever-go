@@ -161,6 +161,11 @@ func (k *KappsControllerMock) GetForkController() core.ForkController {
 	return nil
 }
 
+// IsReadOnly -
+func (k *KappsControllerMock) IsReadOnly() bool {
+	return false
+}
+
 func (k *KappsControllerMock) IsInterfaceNil() bool {
 	return false
 }

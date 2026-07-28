@@ -6377,3 +6377,406 @@ func Test_ComputeSplitRoyalties_OverflowGuard(t *testing.T) {
 		require.Equal(t, pool, rtp, "post-fork: pool untouched")
 	})
 }
+
+/////////////////////////////
+// Read-only query guard   //
+/////////////////////////////
+
+const (
+	readOnlySenderStart   = int64(1000)
+	readOnlyTransferValue = int64(100)
+)
+
+// fungibleKDAController returns a stub KAppController that resolves any asset to
+// an active, transferable fungible KDA and supplies a KApp context with a
+// receipts collector, so accountsKapp.Transfer can run end to end.
+func fungibleKDAController() *kvmStub.KAppControllerStub {
+	return setupKappController(&kvmStub.KAppControllerStub{
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, &kapps.KDAData{
+						AssetType:  kapps.KDAData_Fungible,
+						Attributes: &kapps.AttributesData{},
+						Properties: &kapps.PropertiesData{},
+					}, nil
+				},
+			}
+		},
+	})
+}
+
+// fundedUserAccountsAdapter models the trie-backed accounts adapter: every
+// LoadAccount/GetExistingAccount returns a FRESH user account instance
+// (deserialized copy, as the real trie does), and SaveAccount persists the KLV
+// balance back into the shared backing store. `store` is the "committed" state.
+func fundedUserAccountsAdapter(store map[string]int64) *commonMock.AccountsStub {
+	build := func(address []byte) (state.AccountHandler, error) {
+		acc, err := state.NewUserAccount(address)
+		if err != nil {
+			return nil, err
+		}
+		if bal := store[string(address)]; bal > 0 {
+			if err := acc.AddToBalance(bal, kdautils.KLVIdentifier, false); err != nil {
+				return nil, err
+			}
+		}
+		return acc, nil
+	}
+
+	return &commonMock.AccountsStub{
+		LoadAccountCalled: build,
+		GetExistingAccountCalled: func(address []byte) (state.AccountHandler, error) {
+			if _, ok := store[string(address)]; !ok {
+				return nil, errors.New("account does not exist")
+			}
+			return build(address)
+		},
+		SaveAccountCalled: func(account state.AccountHandler) error {
+			userAcc, ok := account.(state.UserAccountHandler)
+			if !ok {
+				return errors.New("unexpected account type")
+			}
+			store[string(account.AddressBytes())] = userAcc.GetBalance(kdautils.KLVIdentifier, false)
+			return nil
+		},
+	}
+}
+
+func readOnlyCacherArgs(adapter *commonMock.AccountsStub) state.ArgsAcccountCacher {
+	return state.ArgsAcccountCacher{
+		Accounts: adapter,
+		Kapps:    &commonMock.AccountsStub{},
+		Peers:    &commonMock.AccountsStub{},
+	}
+}
+
+func readOnlyTransferContract(receiver []byte) *transaction.TransferContract {
+	return &transaction.TransferContract{
+		ToAddress: receiver,
+		AssetID:   kdautils.KLVIdentifier,
+		Amount:    readOnlyTransferValue,
+	}
+}
+
+// A read-only controller refuses the transfer up front even against a fully
+// writable cacher, so the guard does not depend on the cacher wiring being right.
+func TestTransfer_ReadOnlyController_FailsClosedBeforeAnyMutation(t *testing.T) {
+	sender := makeAddress("readOnly-sender")
+	receiver := makeAddress("readOnly-receiver")
+
+	store := map[string]int64{string(sender): readOnlySenderStart}
+	adapter := fundedUserAccountsAdapter(store)
+
+	// Deliberately a writable production cacher: only the read-only MODE must stop it.
+	prodCacher, err := state.NewAccountsCacher(readOnlyCacherArgs(adapter))
+	require.NoError(t, err)
+	prodCacher.ResetAll(false)
+
+	controller := fungibleKDAController()
+	controller.IsReadOnlyCalled = func() bool { return true }
+
+	accKapp := setupAccountsKapp(t, config.EnableEpochs{})
+	require.NoError(t, accKapp.SetAccountsCacher(prodCacher))
+	require.NoError(t, accKapp.SetKAppController(controller))
+
+	status, err := accKapp.Transfer(transaction.TXContract_TransferContractType, sender, readOnlyTransferContract(receiver))
+	require.ErrorIs(t, err, process.ErrReadOnlyKAppMutation)
+	require.Equal(t, transaction.Transaction_KAPPError, status)
+
+	require.Equal(t, readOnlySenderStart, store[string(sender)],
+		"read-only mode must refuse the transfer before debiting the sender")
+	_, receiverExists := store[string(receiver)]
+	require.False(t, receiverExists,
+		"read-only mode must refuse the transfer before crediting the receiver")
+}
+
+// A nil controller is an unknown execution context and must be refused too,
+// rather than defaulting to writable.
+func TestTransfer_NilController_FailsClosed(t *testing.T) {
+	sender := makeAddress("readOnly-sender")
+	receiver := makeAddress("readOnly-receiver")
+
+	store := map[string]int64{string(sender): readOnlySenderStart}
+	adapter := fundedUserAccountsAdapter(store)
+
+	prodCacher, err := state.NewAccountsCacher(readOnlyCacherArgs(adapter))
+	require.NoError(t, err)
+	prodCacher.ResetAll(false)
+
+	accKapp := setupAccountsKapp(t, config.EnableEpochs{})
+	require.NoError(t, accKapp.SetAccountsCacher(prodCacher))
+
+	status, err := accKapp.Transfer(transaction.TXContract_TransferContractType, sender, readOnlyTransferContract(receiver))
+	require.ErrorIs(t, err, process.ErrReadOnlyKAppMutation)
+	require.Equal(t, transaction.Transaction_KAPPError, status)
+
+	require.Equal(t, readOnlySenderStart, store[string(sender)],
+		"a nil controller must refuse the transfer before debiting the sender")
+}
+
+// Bound to a read-only cacher the transfer still reports Ok, but nothing reaches
+// committed state and a following SaveAll is a no-op - with cache on or off.
+func TestTransfer_QueryBoundToReadOnlyCacher_NeverMutatesCommittedState(t *testing.T) {
+	for _, cacheEnabled := range []bool{false, true} {
+		name := "cacheDisabled"
+		if cacheEnabled {
+			name = "cacheEnabled"
+		}
+
+		t.Run(name, func(t *testing.T) {
+			sender := makeAddress("readOnly-sender")
+			receiver := makeAddress("readOnly-receiver")
+
+			store := map[string]int64{string(sender): readOnlySenderStart}
+			adapter := fundedUserAccountsAdapter(store)
+
+			queryCacher, err := state.NewReadOnlyAccountsCacher(readOnlyCacherArgs(adapter))
+			require.NoError(t, err)
+			queryCacher.ResetAll(cacheEnabled)
+
+			accKapp := setupAccountsKapp(t, config.EnableEpochs{})
+			require.NoError(t, accKapp.SetAccountsCacher(queryCacher))
+			require.NoError(t, accKapp.SetKAppController(fungibleKDAController()))
+
+			status, err := accKapp.Transfer(transaction.TXContract_TransferContractType, sender, readOnlyTransferContract(receiver))
+			require.NoError(t, err)
+			require.Equal(t, transaction.Transaction_Ok, status)
+
+			// A read-only SaveAll must never reach the backing store.
+			require.NoError(t, queryCacher.SaveAll())
+
+			require.Equal(t, readOnlySenderStart, store[string(sender)],
+				"read-only query-path transfer must not debit the sender in committed state")
+			_, receiverExists := store[string(receiver)]
+			require.False(t, receiverExists,
+				"read-only query-path transfer must not credit/create the receiver in committed state")
+		})
+	}
+}
+
+// tripwireCacher fails every accessor and records that it was reached at all, so a
+// guard that fires late (or not at all) is visible instead of silently passing.
+func tripwireCacher(touched *bool) *commonMock.AccountsCacherStub {
+	trip := func() { *touched = true }
+
+	return &commonMock.AccountsCacherStub{
+		GetExistingUserCalled: func(_ []byte) (state.UserAccountHandler, error) {
+			trip()
+			return nil, mockError
+		},
+		GetExistingKappCalled: func(_ []byte) (state.KAppAccountHandler, error) {
+			trip()
+			return nil, mockError
+		},
+		GetExistingPeerCalled: func(_ []byte) (state.PeerAccountHandler, error) {
+			trip()
+			return nil, mockError
+		},
+		LoadUserCalled: func(_ []byte) (state.UserAccountHandler, error) {
+			trip()
+			return nil, mockError
+		},
+		LoadKAppCalled: func(_ []byte) (state.KAppAccountHandler, error) {
+			trip()
+			return nil, mockError
+		},
+		LoadKAppUncachedCalled: func(_ []byte) (state.KAppAccountHandler, error) {
+			trip()
+			return nil, mockError
+		},
+		LoadPeerCalled: func(_ []byte) (state.PeerAccountHandler, error) {
+			trip()
+			return nil, mockError
+		},
+		SaveUserCalled: func(_ state.AccountHandler) error {
+			trip()
+			return mockError
+		},
+		SaveAllCalled: func() error {
+			trip()
+			return mockError
+		},
+	}
+}
+
+// readOnlyGuardedOps is every accountsKapp entry point that calls checkReadOnly.
+// Keep in sync with accounts.go: a new mutating entry point that forgets the guard
+// should show up here as a missing case.
+func readOnlyGuardedOps() []struct {
+	name string
+	call func(*accountsKapp) (transaction.Transaction_TXResultCode, error)
+} {
+	sender := makeAddress("readOnly-sender")
+	receiver := makeAddress("readOnly-receiver")
+
+	return []struct {
+		name string
+		call func(*accountsKapp) (transaction.Transaction_TXResultCode, error)
+	}{
+		{
+			name: "Transfer",
+			call: func(a *accountsKapp) (transaction.Transaction_TXResultCode, error) {
+				return a.Transfer(transaction.TXContract_TransferContractType, sender, readOnlyTransferContract(receiver))
+			},
+		},
+		{
+			name: "Freeze",
+			call: func(a *accountsKapp) (transaction.Transaction_TXResultCode, error) {
+				return a.Freeze(sender, &transaction.FreezeContract{
+					AssetID: kdautils.KLVIdentifier,
+					Amount:  readOnlyTransferValue,
+				})
+			},
+		},
+		{
+			name: "Unfreeze",
+			call: func(a *accountsKapp) (transaction.Transaction_TXResultCode, error) {
+				return a.Unfreeze(sender, &transaction.UnfreezeContract{
+					AssetID:  kdautils.KLVIdentifier,
+					BucketID: []byte("bucket"),
+				})
+			},
+		},
+		{
+			name: "Delegate",
+			call: func(a *accountsKapp) (transaction.Transaction_TXResultCode, error) {
+				return a.Delegate(sender, &transaction.DelegateContract{
+					ToAddress: receiver,
+					BucketID:  []byte("bucket"),
+				})
+			},
+		},
+		{
+			name: "Undelegate",
+			call: func(a *accountsKapp) (transaction.Transaction_TXResultCode, error) {
+				return a.Undelegate(sender, &transaction.UndelegateContract{
+					BucketID: []byte("bucket"),
+				})
+			},
+		},
+		{
+			name: "Withdraw",
+			call: func(a *accountsKapp) (transaction.Transaction_TXResultCode, error) {
+				return a.Withdraw(sender, &transaction.WithdrawContract{
+					AssetID: kdautils.KLVIdentifier,
+				})
+			},
+		},
+		{
+			name: "ClaimStaking",
+			call: func(a *accountsKapp) (transaction.Transaction_TXResultCode, error) {
+				return a.ClaimStaking(sender, &transaction.ClaimContract{
+					ID: kdautils.KLVIdentifier,
+				})
+			},
+		},
+		{
+			name: "ClaimAllowance",
+			call: func(a *accountsKapp) (transaction.Transaction_TXResultCode, error) {
+				return a.ClaimAllowance(sender, &transaction.ClaimContract{
+					ID: kdautils.KLVIdentifier,
+				})
+			},
+		},
+		{
+			name: "SetAccountName",
+			call: func(a *accountsKapp) (transaction.Transaction_TXResultCode, error) {
+				return a.SetAccountName(sender, &transaction.SetAccountNameContract{
+					Name: []byte("new-name"),
+				})
+			},
+		},
+		{
+			name: "UpdatePermission",
+			call: func(a *accountsKapp) (transaction.Transaction_TXResultCode, error) {
+				return a.UpdatePermission(sender, receiver, &transaction.UpdateAccountPermissionContract{})
+			},
+		},
+	}
+}
+
+// Every guarded entry point - not just Transfer - must fail closed under a
+// read-only controller, before it reads or writes a single account. Asserting on
+// the sentinel error is what distinguishes a working guard from an operation that
+// merely happens to fail its own validation.
+func TestAccountsKapp_AllMutatingOps_ReadOnlyController_FailClosed(t *testing.T) {
+	t.Parallel()
+
+	for _, op := range readOnlyGuardedOps() {
+		t.Run(op.name, func(t *testing.T) {
+			t.Parallel()
+
+			touched := false
+			controller := fungibleKDAController()
+			controller.IsReadOnlyCalled = func() bool { return true }
+
+			accKapp := setupAccountsKapp(t, config.EnableEpochs{})
+			require.NoError(t, accKapp.SetAccountsCacher(tripwireCacher(&touched)))
+			require.NoError(t, accKapp.SetKAppController(controller))
+
+			status, err := op.call(accKapp)
+			require.ErrorIs(t, err, process.ErrReadOnlyKAppMutation,
+				"%s must refuse a read-only execution context", op.name)
+			require.Equal(t, transaction.Transaction_KAPPError, status)
+			require.False(t, touched,
+				"%s must be refused before touching the accounts cacher", op.name)
+		})
+	}
+}
+
+// A nil controller is an unknown execution context: it must be refused rather than
+// assumed writable, and must not nil-deref on the GetCurrentKAppContext call that
+// follows the guard in most of these operations.
+func TestAccountsKapp_AllMutatingOps_NilController_FailClosedNoPanic(t *testing.T) {
+	t.Parallel()
+
+	for _, op := range readOnlyGuardedOps() {
+		t.Run(op.name, func(t *testing.T) {
+			t.Parallel()
+
+			touched := false
+			accKapp := setupAccountsKapp(t, config.EnableEpochs{})
+			require.NoError(t, accKapp.SetAccountsCacher(tripwireCacher(&touched)))
+
+			require.NotPanics(t, func() {
+				status, err := op.call(accKapp)
+				require.ErrorIs(t, err, process.ErrReadOnlyKAppMutation,
+					"%s must refuse a nil controller", op.name)
+				require.Equal(t, transaction.Transaction_KAPPError, status)
+			})
+			require.False(t, touched,
+				"%s must be refused before touching the accounts cacher", op.name)
+		})
+	}
+}
+
+// The guard keys off IsReadOnly only: a writable controller must be let through to
+// the operation's own logic, so production behaviour is unchanged. Reaching the
+// cacher (and failing there) is the proof that the guard did not short-circuit.
+func TestAccountsKapp_AllMutatingOps_WritableController_NotRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, op := range readOnlyGuardedOps() {
+		t.Run(op.name, func(t *testing.T) {
+			t.Parallel()
+
+			touched := false
+			controller := fungibleKDAController()
+			controller.IsReadOnlyCalled = func() bool { return false }
+			controller.GetProposalControllerCalled = func() kapps.ActiveProposalController {
+				return &commonMock.ProposalControllerStub{
+					GetParameterIntCalled: func(_ kapps.EnumParameter) int64 { return 1 },
+				}
+			}
+
+			accKapp := setupAccountsKapp(t, config.EnableEpochs{})
+			require.NoError(t, accKapp.SetAccountsCacher(tripwireCacher(&touched)))
+			require.NoError(t, accKapp.SetKAppController(controller))
+
+			_, err := op.call(accKapp)
+			require.NotErrorIs(t, err, process.ErrReadOnlyKAppMutation,
+				"%s must not be refused when the controller is writable", op.name)
+		})
+	}
+}

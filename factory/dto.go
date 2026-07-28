@@ -6,6 +6,7 @@ import (
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
+	kappcontroller "github.com/klever-io/klever-go/core/kapp/kappController"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/crypto/hashing"
@@ -70,5 +71,9 @@ type StateComponents struct {
 	KAppsAdapter             state.AccountsAdapter
 	KAppController           kapp.KAppController
 	KAppControllerSimulator  kapp.KAppController
-	InBalanceForShard        map[string]*big.Int
+	// KAppArgs are the assembled arguments the controllers above were built from,
+	// so callers needing their own controller (e.g. the VM query elements in
+	// cmd/node/sc.go) can reuse them instead of re-threading each dependency.
+	KAppArgs          kappcontroller.ArgsNewKApp
+	InBalanceForShard map[string]*big.Int
 }

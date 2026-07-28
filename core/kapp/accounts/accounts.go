@@ -129,7 +129,24 @@ func (a *accountsKapp) isUninitializedContractAddress(address []byte) bool {
 	return len(codeHash) == 0 && len(codeMeta) == 0
 }
 
+// checkReadOnly fails closed when a state-mutating accounts operation is attempted
+// from a read-only execution context (e.g. a VM query). Defense in depth behind the
+// guard in BlockChainHookImpl.ProcessBuiltInFunction: it also covers accounts calls
+// that do not come through the built-in dispatch. A nil controller is refused too,
+// since an unknown execution context must not be assumed writable.
+func (a *accountsKapp) checkReadOnly() error {
+	if check.IfNil(a.KAppController) || a.KAppController.IsReadOnly() {
+		return process.ErrReadOnlyKAppMutation
+	}
+
+	return nil
+}
+
 func (a *accountsKapp) Transfer(cType transaction.TXContract_ContractType, sender []byte, tc *transaction.TransferContract) (transaction.Transaction_TXResultCode, error) {
+	if err := a.checkReadOnly(); err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
 	acntSrc, acntDst, resultCode, err := a.validateAndLoadAccounts(sender, tc)
 	if err != nil {
 		return resultCode, err
@@ -694,6 +711,10 @@ func (a *accountsKapp) updateFPRTotalStake(
 }
 
 func (a *accountsKapp) Freeze(sender []byte, tc *transaction.FreezeContract) (transaction.Transaction_TXResultCode, error) {
+	if err := a.checkReadOnly(); err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
 	ctx := a.KAppController.GetCurrentKAppContext()
 
 	assetID := tc.GetAssetID()
@@ -857,6 +878,10 @@ func (a *accountsKapp) Unfreeze(
 	sender []byte,
 	tc *transaction.UnfreezeContract,
 ) (transaction.Transaction_TXResultCode, error) {
+	if err := a.checkReadOnly(); err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
 	ctx := a.KAppController.GetCurrentKAppContext()
 
 	// Retrieve owner account
@@ -1200,6 +1225,10 @@ func (a *accountsKapp) updateProposalTotalStaked(proposal *kapps.ProposalData) e
 }
 
 func (a *accountsKapp) Delegate(sender []byte, tc *transaction.DelegateContract) (transaction.Transaction_TXResultCode, error) {
+	if err := a.checkReadOnly(); err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
 	ctx := a.KAppController.GetCurrentKAppContext()
 
 	if len(tc.GetToAddress()) != a.pubkeyConv.Len() {
@@ -1326,6 +1355,10 @@ func (a *accountsKapp) Delegate(sender []byte, tc *transaction.DelegateContract)
 }
 
 func (a *accountsKapp) Undelegate(sender []byte, tc *transaction.UndelegateContract) (transaction.Transaction_TXResultCode, error) {
+	if err := a.checkReadOnly(); err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
 	ctx := a.KAppController.GetCurrentKAppContext()
 
 	if len(tc.GetBucketID()) == 0 {
@@ -1442,6 +1475,10 @@ func (a *accountsKapp) Undelegate(sender []byte, tc *transaction.UndelegateContr
 }
 
 func (a *accountsKapp) Withdraw(sender []byte, tc *transaction.WithdrawContract) (transaction.Transaction_TXResultCode, error) {
+	if err := a.checkReadOnly(); err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
 	ctx := a.KAppController.GetCurrentKAppContext()
 
 	assetID := tc.GetAssetID()
@@ -1546,6 +1583,10 @@ func (a *accountsKapp) Withdraw(sender []byte, tc *transaction.WithdrawContract)
 }
 
 func (a *accountsKapp) ClaimStaking(sender []byte, tc *transaction.ClaimContract) (transaction.Transaction_TXResultCode, error) {
+	if err := a.checkReadOnly(); err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
 	ctx := a.KAppController.GetCurrentKAppContext()
 
 	ownerAcc, err := a.GetExistingUserAccount(sender)
@@ -1667,6 +1708,10 @@ func (a *accountsKapp) transferPendingRewardsToAllowance(sender []byte, ownerAcc
 }
 
 func (a *accountsKapp) ClaimAllowance(sender []byte, tc *transaction.ClaimContract) (transaction.Transaction_TXResultCode, error) {
+	if err := a.checkReadOnly(); err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
 	ctx := a.KAppController.GetCurrentKAppContext()
 
 	ownerAcc, err := a.GetExistingUserAccount(sender)
@@ -1739,6 +1784,10 @@ func (a *accountsKapp) ClaimAllowance(sender []byte, tc *transaction.ClaimContra
 }
 
 func (a *accountsKapp) SetAccountName(sender []byte, tc *transaction.SetAccountNameContract) (transaction.Transaction_TXResultCode, error) {
+	if err := a.checkReadOnly(); err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
 	ctx := a.KAppController.GetCurrentKAppContext()
 
 	if !utf8.Valid(tc.GetName()) ||
@@ -1898,6 +1947,10 @@ func authorizerCanUpdatePermission(permissions []*state.Permission, authorizer [
 }
 
 func (a *accountsKapp) UpdatePermission(authorizer []byte, target []byte, tc *transaction.UpdateAccountPermissionContract) (transaction.Transaction_TXResultCode, error) {
+	if err := a.checkReadOnly(); err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
 	ctx := a.KAppController.GetCurrentKAppContext()
 
 	if err := a.validatePermissionParams(tc); err != nil {
