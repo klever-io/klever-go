@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"unsafe"
 
 	"github.com/klever-io/klever-go/kvm/executor"
@@ -15,17 +16,24 @@ var _ executor.Instance = (*Wasmer2Instance)(nil)
 
 // Wasmer2Instance represents a WebAssembly instance.
 type Wasmer2Instance struct {
-	// The underlying WebAssembly instance.
+	// mutex serializes native destruction (Clean) against every other native
+	// accessor (points/breakpoint/reset/memory/function-introspection), so none
+	// of them can read cgoInstance while Clean is freeing it. The one exception
+	// is CallFunction, which runs the whole WASM module and re-enters the instance
+	// through the import hooks on the same goroutine (sync.Mutex is not reentrant);
+	// that path is kept safe from Clean by joining the worker before unwinding into
+	// CleanInstance (see executorwrapper.FailAfterTimeout), not by this lock.
+	mutex sync.Mutex
+
 	cgoInstance *cWasmerInstanceT
 
-	// The exported memory of a WebAssembly instance.
 	memory Wasmer2Memory
 
-	AlreadyClean bool
-}
+	// id is captured at construction so it survives Clean clearing cgoInstance;
+	// the instance tracker uses it as a map key.
+	id string
 
-func emptyInstance() *Wasmer2Instance {
-	return &Wasmer2Instance{cgoInstance: nil}
+	alreadyClean bool
 }
 
 func newInstance(c_instance *cWasmerInstanceT) (*Wasmer2Instance, error) {
@@ -34,61 +42,112 @@ func newInstance(c_instance *cWasmerInstanceT) (*Wasmer2Instance, error) {
 		memory: Wasmer2Memory{
 			cgoInstance: c_instance,
 		},
+		id: fmt.Sprintf("%p", c_instance),
 	}, nil
 }
 
-// Clean cleans instance
+// Clean destroys the native instance. It is safe to call concurrently and
+// idempotent: the cleaned check, the native destruction and the zeroing of the
+// native pointers happen as a single atomic transition under the instance mutex,
+// so no other goroutine can observe a destroyed-but-still-referenced instance.
 func (instance *Wasmer2Instance) Clean() bool {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+
 	logWasmer2.Trace("cleaning instance", "id", instance.ID())
-	if instance.AlreadyClean {
+	if instance.alreadyClean || instance.cgoInstance == nil {
 		logWasmer2.Trace("clean: already cleaned instance", "id", instance.ID())
 		return false
 	}
 
-	if instance.cgoInstance != nil {
-		cWasmerInstanceDestroy(instance.cgoInstance)
+	cWasmerInstanceDestroy(instance.cgoInstance)
 
-		instance.AlreadyClean = true
-		logWasmer2.Trace("cleaned instance", "id", instance.ID())
+	instance.alreadyClean = true
+	instance.cgoInstance = nil
+	instance.memory.cgoInstance = nil
+	logWasmer2.Trace("cleaned instance", "id", instance.ID())
 
-		return true
-	}
-
-	return false
+	return true
 }
 
-// IsAlreadyCleaned returns the internal field AlreadyClean
+// logCleanedAccess records that a native accessor ran on an already-cleaned
+// instance. Reaching any of these guards means a caller retained the instance
+// past Clean, which is a lifecycle bug rather than a normal branch: the accessor
+// then returns a fabricated zero value with no other signal to the caller.
+func (instance *Wasmer2Instance) logCleanedAccess(op string) {
+	logWasmer2.Error("native access on cleaned wasmer2 instance", "op", op, "id", instance.ID())
+}
+
+// IsAlreadyCleaned returns whether the native instance has already been destroyed.
 func (instance *Wasmer2Instance) IsAlreadyCleaned() bool {
-	return instance.AlreadyClean
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	return instance.alreadyClean
 }
 
 // SetGasLimit sets the gas limit for the instance
 func (instance *Wasmer2Instance) SetGasLimit(gasLimit uint64) {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		instance.logCleanedAccess("SetGasLimit")
+		return
+	}
 	cWasmerInstanceSetGasLimit(instance.cgoInstance, gasLimit)
 }
 
 // SetPointsUsed sets the internal instance gas counter
 func (instance *Wasmer2Instance) SetPointsUsed(points uint64) {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		instance.logCleanedAccess("SetPointsUsed")
+		return
+	}
 	cWasmerInstanceSetPointsUsed(instance.cgoInstance, points)
 }
 
 // GetPointsUsed returns the internal instance gas counter
 func (instance *Wasmer2Instance) GetPointsUsed() uint64 {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		instance.logCleanedAccess("GetPointsUsed")
+		return 0
+	}
 	return cWasmerInstanceGetPointsUsed(instance.cgoInstance)
 }
 
 // SetBreakpointValue sets the breakpoint value for the instance
 func (instance *Wasmer2Instance) SetBreakpointValue(value uint64) {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		instance.logCleanedAccess("SetBreakpointValue")
+		return
+	}
 	cWasmerInstanceSetBreakpointValue(instance.cgoInstance, value)
 }
 
 // GetBreakpointValue returns the breakpoint value
 func (instance *Wasmer2Instance) GetBreakpointValue() uint64 {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		instance.logCleanedAccess("GetBreakpointValue")
+		return 0
+	}
 	return cWasmerInstanceGetBreakpointValue(instance.cgoInstance)
 }
 
 // Cache caches the instance
 func (instance *Wasmer2Instance) Cache() ([]byte, error) {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		return nil, ErrInstanceCleaned
+	}
+
 	var cacheBytes *cUchar
 	var cacheLen cUint32T
 
@@ -134,6 +193,13 @@ func (instance *Wasmer2Instance) CallFunction(functionName string) error {
 
 // HasFunction checks if loaded contract has a function (endpoint) with given name.
 func (instance *Wasmer2Instance) HasFunction(functionName string) bool {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		instance.logCleanedAccess("HasFunction")
+		return false
+	}
+
 	var wasmFunctionName = cCString(functionName)
 	defer cFree(unsafe.Pointer(wasmFunctionName)) // #nosec G103: free is used to free the memory allocated by cCString
 
@@ -145,8 +211,14 @@ func (instance *Wasmer2Instance) HasFunction(functionName string) bool {
 	return result == 1
 }
 
-// GetLastError returns the last error message if any, otherwise returns an error.
+// getFunctionNamesConcat returns the exported function names joined with "|".
 func (instance *Wasmer2Instance) getFunctionNamesConcat() (string, error) {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		return "", ErrInstanceCleaned
+	}
+
 	var bufferLength = cWasmerInstanceExportedFunctionNamesLength(instance.cgoInstance)
 
 	if bufferLength == 0 {
@@ -177,6 +249,12 @@ func (instance *Wasmer2Instance) GetFunctionNames() []string {
 // ValidateFunctionArities checks that no function (endpoint) of the given contract has any parameters or returns any result.
 // All arguments and results should be transferred via the import functions.
 func (instance *Wasmer2Instance) ValidateFunctionArities() error {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		return ErrInstanceCleaned
+	}
+
 	var result = cWasmerCheckSignatures(instance.cgoInstance)
 	if result != cWasmerOk {
 		return executor.ErrFunctionNonvoidSignature
@@ -191,37 +269,69 @@ func (instance *Wasmer2Instance) HasMemory() bool {
 
 // MemLoad returns the contents from the given offset of the WASM memory.
 func (instance *Wasmer2Instance) MemLoad(memPtr executor.MemPtr, length executor.MemLength) ([]byte, error) {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		return nil, ErrInstanceCleaned
+	}
 	return executor.MemLoadFromMemory(&instance.memory, memPtr, length)
 }
 
 // MemStore stores the given data in the WASM memory at the given offset.
 func (instance *Wasmer2Instance) MemStore(memPtr executor.MemPtr, data []byte) error {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		return ErrInstanceCleaned
+	}
 	return executor.MemStoreToMemory(&instance.memory, memPtr, data)
 }
 
 // MemLength returns the length of the allocated memory. Only called directly in tests.
 func (instance *Wasmer2Instance) MemLength() uint32 {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		instance.logCleanedAccess("MemLength")
+		return 0
+	}
 	return instance.memory.Length()
 }
 
 // MemGrow allocates more pages to the current memory. Only called directly in tests.
 func (instance *Wasmer2Instance) MemGrow(pages uint32) error {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		return ErrInstanceCleaned
+	}
 	return instance.memory.Grow(pages)
 }
 
 // MemDump yields the entire contents of the memory. Only used in tests.
 func (instance *Wasmer2Instance) MemDump() []byte {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		instance.logCleanedAccess("MemDump")
+		return nil
+	}
 	return instance.memory.Data()
 }
 
-// Id returns an identifier for the instance, unique at runtime
+// ID returns an identifier for the instance, unique at runtime. It is captured at
+// construction and immutable thereafter, so it stays stable even after Clean has
+// cleared the native pointer (the instance tracker uses it as a map key) and can be
+// read without the mutex, including from within other locked methods.
 func (instance *Wasmer2Instance) ID() string {
-	return fmt.Sprintf("%p", instance.cgoInstance)
+	return instance.id
 }
 
 // Reset resets the instance memories and globals
 func (instance *Wasmer2Instance) Reset() bool {
-	if instance.AlreadyClean {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
 		logWasmer2.Trace("reset: already cleaned instance", "id", instance.ID())
 		return false
 	}
