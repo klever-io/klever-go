@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/data/epochStart"
 	"github.com/klever-io/klever-go/data/retriever"
 	factoryDataPool "github.com/klever-io/klever-go/data/retriever/factory"
 	"github.com/klever-io/klever-go/data/retriever/factory/containers"
@@ -30,6 +32,7 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	factoryState "github.com/klever-io/klever-go/data/state/factory"
 	"github.com/klever-io/klever-go/data/syncer"
+	"github.com/klever-io/klever-go/data/trie"
 	"github.com/klever-io/klever-go/data/trie/factory"
 	"github.com/klever-io/klever-go/sharding"
 	"github.com/klever-io/klever-go/storage"
@@ -51,6 +54,45 @@ const timeBetweenRequests = 100 * time.Millisecond
 const maxToRequest = 100
 const gracePeriodInPercentage = float64(0.25)
 const slotGracePeriod = 25
+
+// validateStateTrieRootHash rejects account state trie roots that would bootstrap an empty state.
+// Both the zero-length form and the canonical 32-byte trie.EmptyTrieHash short-circuit the syncer
+// without requesting a single trie node, producing a completely empty user/validator/kapp state.
+// Genesis always commits accounts, validators and KDA assets, so none of the three state roots can
+// legitimately be empty on a live chain. Pinning the length also stops a malformed short root from
+// burning the full timeoutGettingTrieNode per trie before failing.
+func validateStateTrieRootHash(rootHash []byte) error {
+	if len(rootHash) != len(trie.EmptyTrieHash) {
+		return common.ErrInvalidRootHash
+	}
+
+	if bytes.Equal(rootHash, trie.EmptyTrieHash) {
+		return common.ErrEmptyStateTrieRootHash
+	}
+
+	return nil
+}
+
+// verifySyncedTrieRootHash confirms that the main trie produced by the sync actually matches the
+// header root hash, aborting bootstrap on any mismatch or missing trie.
+func verifySyncedTrieRootHash(syncedTries map[string]data.Trie, rootHash []byte) error {
+	syncedTrie, ok := syncedTries[string(rootHash)]
+	if !ok || check.IfNil(syncedTrie) {
+		return fmt.Errorf("%w for root hash %x", common.ErrMissingSyncedTrieAfterSync, rootHash)
+	}
+
+	syncedRootHash, err := syncedTrie.RootHash()
+	if err != nil {
+		return err
+	}
+
+	if !bytes.Equal(syncedRootHash, rootHash) {
+		return fmt.Errorf("%w: header root hash %x, synced trie root hash %x",
+			common.ErrTrieRootHashMismatch, rootHash, syncedRootHash)
+	}
+
+	return nil
+}
 
 // Parameters defines the DTO for the result produced by the bootstrap component
 type Parameters struct {
@@ -614,108 +656,126 @@ func (e *epochStartBootstrap) requestAndProcess() ([]*state.ValidatorInfo, []*st
 	return epochStartValidators, prevEpochStartValidators, nil
 }
 
+// syncAndVerifyAccountsState centralizes the guarded account-state sync shared by every state trie
+// (user, validator, kapp): it rejects zero-length roots before anything is synced, builds the syncer
+// via the supplied factory, drives the sync and verifies the produced main trie matches the requested
+// root hash. Routing every account-state sync through this single helper ensures a new trie type
+// cannot accidentally skip either guard if this behavior ever changes.
+func (e *epochStartBootstrap) syncAndVerifyAccountsState(
+	rootHash []byte,
+	createSyncer func() (epochStart.AccountsDBSyncer, error),
+) (map[string]data.Trie, error) {
+	if err := validateStateTrieRootHash(rootHash); err != nil {
+		return nil, err
+	}
+
+	accountsDBSyncer, err := createSyncer()
+	if err != nil {
+		return nil, err
+	}
+
+	if err = accountsDBSyncer.SyncAccounts(rootHash); err != nil {
+		return nil, err
+	}
+
+	syncedTries := accountsDBSyncer.GetSyncedTries()
+	if err = verifySyncedTrieRootHash(syncedTries, rootHash); err != nil {
+		return nil, err
+	}
+
+	return syncedTries, nil
+}
+
 func (e *epochStartBootstrap) syncUserAccountsState(rootHash []byte) error {
-	thr, err := throttler.NewNumGoRoutinesThrottler(int32(e.numConcurrentTrieSyncers)) // #nosec G115
+	syncedTries, err := e.syncAndVerifyAccountsState(rootHash, func() (epochStart.AccountsDBSyncer, error) {
+		thr, errThrottler := throttler.NewNumGoRoutinesThrottler(int32(e.numConcurrentTrieSyncers)) // #nosec G115
+		if errThrottler != nil {
+			return nil, errThrottler
+		}
+
+		e.mutTrieStorageManagers.RLock()
+		trieStorageManager := e.trieStorageManagers[factory.UserAccountTrie]
+		e.mutTrieStorageManagers.RUnlock()
+
+		return syncer.NewUserAccountsSyncer(syncer.ArgsNewUserAccountsSyncer{
+			ArgsNewBaseAccountsSyncer: syncer.ArgsNewBaseAccountsSyncer{
+				Hasher:                    e.hasher,
+				Marshalizer:               e.marshalizer,
+				TrieStorageManager:        trieStorageManager,
+				RequestHandler:            e.requestHandler,
+				Timeout:                   timeoutGettingTrieNode,
+				Cacher:                    e.dataPool.TrieNodes(),
+				MaxTrieLevelInMemory:      e.generalConfig.StateTriesConfig.MaxStateTrieLevelInMemory,
+				MaxHardCapForMissingNodes: e.maxHardCapForMissingNodes,
+			},
+			Throttler: thr,
+		})
+	})
 	if err != nil {
 		return err
 	}
 
-	e.mutTrieStorageManagers.RLock()
-	trieStorageManager := e.trieStorageManagers[factory.UserAccountTrie]
-	e.mutTrieStorageManagers.RUnlock()
-
-	argsUserAccountsSyncer := syncer.ArgsNewUserAccountsSyncer{
-		ArgsNewBaseAccountsSyncer: syncer.ArgsNewBaseAccountsSyncer{
-			Hasher:                    e.hasher,
-			Marshalizer:               e.marshalizer,
-			TrieStorageManager:        trieStorageManager,
-			RequestHandler:            e.requestHandler,
-			Timeout:                   timeoutGettingTrieNode,
-			Cacher:                    e.dataPool.TrieNodes(),
-			MaxTrieLevelInMemory:      e.generalConfig.StateTriesConfig.MaxStateTrieLevelInMemory,
-			MaxHardCapForMissingNodes: e.maxHardCapForMissingNodes,
-		},
-		Throttler: thr,
-	}
-	accountsDBSyncer, err := syncer.NewUserAccountsSyncer(argsUserAccountsSyncer)
-	if err != nil {
-		return err
-	}
-
-	err = accountsDBSyncer.SyncAccounts(rootHash)
-	if err != nil {
-		return err
-	}
-
-	e.userAccountTries = accountsDBSyncer.GetSyncedTries()
+	e.userAccountTries = syncedTries
 	return nil
 }
 
 func (e *epochStartBootstrap) syncValidatorAccountsState(rootHash []byte) error {
-	e.mutTrieStorageManagers.RLock()
-	peerTrieStorageManager := e.trieStorageManagers[factory.PeerAccountTrie]
-	e.mutTrieStorageManagers.RUnlock()
+	syncedTries, err := e.syncAndVerifyAccountsState(rootHash, func() (epochStart.AccountsDBSyncer, error) {
+		e.mutTrieStorageManagers.RLock()
+		peerTrieStorageManager := e.trieStorageManagers[factory.PeerAccountTrie]
+		e.mutTrieStorageManagers.RUnlock()
 
-	args := syncer.ArgsNewValidatorAccountsSyncer{
-		ArgsNewBaseAccountsSyncer: syncer.ArgsNewBaseAccountsSyncer{
-			Hasher:                    e.hasher,
-			Marshalizer:               e.marshalizer,
-			TrieStorageManager:        peerTrieStorageManager,
-			RequestHandler:            e.requestHandler,
-			Timeout:                   timeoutGettingTrieNode,
-			Cacher:                    e.dataPool.TrieNodes(),
-			MaxTrieLevelInMemory:      e.generalConfig.StateTriesConfig.MaxStateTrieLevelInMemory,
-			MaxHardCapForMissingNodes: e.maxHardCapForMissingNodes,
-		},
-	}
-	accountsDBSyncer, err := syncer.NewValidatorAccountsSyncer(args)
+		return syncer.NewValidatorAccountsSyncer(syncer.ArgsNewValidatorAccountsSyncer{
+			ArgsNewBaseAccountsSyncer: syncer.ArgsNewBaseAccountsSyncer{
+				Hasher:                    e.hasher,
+				Marshalizer:               e.marshalizer,
+				TrieStorageManager:        peerTrieStorageManager,
+				RequestHandler:            e.requestHandler,
+				Timeout:                   timeoutGettingTrieNode,
+				Cacher:                    e.dataPool.TrieNodes(),
+				MaxTrieLevelInMemory:      e.generalConfig.StateTriesConfig.MaxStateTrieLevelInMemory,
+				MaxHardCapForMissingNodes: e.maxHardCapForMissingNodes,
+			},
+		})
+	})
 	if err != nil {
 		return err
 	}
 
-	err = accountsDBSyncer.SyncAccounts(rootHash)
-	if err != nil {
-		return err
-	}
-
-	e.peerAccountTries = accountsDBSyncer.GetSyncedTries()
+	e.peerAccountTries = syncedTries
 	return nil
 }
 
 func (e *epochStartBootstrap) syncKappAccountsState(rootHash []byte) error {
-	thr, err := throttler.NewNumGoRoutinesThrottler(int32(e.numConcurrentTrieSyncers)) // #nosec G115
+	syncedTries, err := e.syncAndVerifyAccountsState(rootHash, func() (epochStart.AccountsDBSyncer, error) {
+		thr, errThrottler := throttler.NewNumGoRoutinesThrottler(int32(e.numConcurrentTrieSyncers)) // #nosec G115
+		if errThrottler != nil {
+			return nil, errThrottler
+		}
+
+		e.mutTrieStorageManagers.RLock()
+		kappTrieStorageManager := e.trieStorageManagers[factory.KAppAccountTrie]
+		e.mutTrieStorageManagers.RUnlock()
+
+		return syncer.NewKappAccountsSyncer(syncer.ArgsNewKappAccountsSyncer{
+			ArgsNewBaseAccountsSyncer: syncer.ArgsNewBaseAccountsSyncer{
+				Hasher:                    e.hasher,
+				Marshalizer:               e.marshalizer,
+				TrieStorageManager:        kappTrieStorageManager,
+				RequestHandler:            e.requestHandler,
+				Timeout:                   timeoutGettingTrieNode,
+				Cacher:                    e.dataPool.TrieNodes(),
+				MaxTrieLevelInMemory:      e.generalConfig.StateTriesConfig.MaxStateTrieLevelInMemory,
+				MaxHardCapForMissingNodes: e.maxHardCapForMissingNodes,
+			},
+			Throttler: thr,
+		})
+	})
 	if err != nil {
 		return err
 	}
 
-	e.mutTrieStorageManagers.RLock()
-	kappTrieStorageManager := e.trieStorageManagers[factory.KAppAccountTrie]
-	e.mutTrieStorageManagers.RUnlock()
-
-	args := syncer.ArgsNewKappAccountsSyncer{
-		ArgsNewBaseAccountsSyncer: syncer.ArgsNewBaseAccountsSyncer{
-			Hasher:                    e.hasher,
-			Marshalizer:               e.marshalizer,
-			TrieStorageManager:        kappTrieStorageManager,
-			RequestHandler:            e.requestHandler,
-			Timeout:                   timeoutGettingTrieNode,
-			Cacher:                    e.dataPool.TrieNodes(),
-			MaxTrieLevelInMemory:      e.generalConfig.StateTriesConfig.MaxStateTrieLevelInMemory,
-			MaxHardCapForMissingNodes: e.maxHardCapForMissingNodes,
-		},
-		Throttler: thr,
-	}
-	accountsDBSyncer, err := syncer.NewKappAccountsSyncer(args)
-	if err != nil {
-		return err
-	}
-
-	err = accountsDBSyncer.SyncAccounts(rootHash)
-	if err != nil {
-		return err
-	}
-
-	e.kappAccountTries = accountsDBSyncer.GetSyncedTries()
+	e.kappAccountTries = syncedTries
 	return nil
 }
 

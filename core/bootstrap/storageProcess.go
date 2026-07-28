@@ -351,7 +351,7 @@ func (sesb *storageEpochStartBootstrap) requestAndProcessFromStorage() (Paramete
 
 	errSavingToStorage := storageHandlerComponent.SaveDataToStorage(components)
 	if errSavingToStorage != nil {
-		return Parameters{}, err
+		return Parameters{}, errSavingToStorage
 	}
 
 	log.Debug("removing cached received trie nodes")

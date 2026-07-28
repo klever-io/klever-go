@@ -370,6 +370,20 @@ var ErrNilAssetHandler = errors.New("asset wrapper is nil")
 // ErrInvalidRootHash signals that the provided root hash is invalid
 var ErrInvalidRootHash = errors.New("invalid root hash")
 
+// ErrEmptyStateTrieRootHash signals that an empty account state trie root was provided during fast
+// bootstrap, either as a zero-length root or as the canonical 32-byte trie.EmptyTrieHash. Both forms
+// short-circuit the syncer and would bootstrap a completely empty state; genesis always commits
+// state, so no state root can legitimately be empty on a live chain.
+var ErrEmptyStateTrieRootHash = errors.New("empty state trie root hash provided during fast bootstrap")
+
+// ErrTrieRootHashMismatch signals that the locally synced trie root hash does not match the root hash
+// advertised by the epoch start header.
+var ErrTrieRootHashMismatch = errors.New("synced trie root hash does not match the epoch start header root hash")
+
+// ErrMissingSyncedTrieAfterSync signals that the expected main trie is absent from the synced tries
+// after an account state sync.
+var ErrMissingSyncedTrieAfterSync = errors.New("missing synced trie after account state sync")
+
 // ErrNilMapOfHashes signals that the provided map of hashes is nil
 var ErrNilMapOfHashes = errors.New("nil map of hashes")
 

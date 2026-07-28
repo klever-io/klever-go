@@ -10,7 +10,10 @@ import (
 	"github.com/klever-io/klever-go/config"
 	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
 	cryptoMock "github.com/klever-io/klever-go/crypto/mock"
+	"github.com/klever-io/klever-go/data"
+	"github.com/klever-io/klever-go/data/epochStart"
 	"github.com/klever-io/klever-go/data/retriever"
+	"github.com/klever-io/klever-go/data/trie"
 	"github.com/klever-io/klever-go/sharding"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/tools/check"
@@ -530,7 +533,8 @@ func TestSyncValidatorAccountsState_NilRequestHandlerErr(t *testing.T) {
 	err := epochStartProvider.createTriesComponents()
 	require.Nil(t, err)
 
-	rootHash := []byte("rootHash")
+	rootHash := make([]byte, len(trie.EmptyTrieHash))
+	rootHash[0] = 1
 	err = epochStartProvider.syncValidatorAccountsState(rootHash)
 	assert.Equal(t, common.ErrNilRequestHandler, err)
 }
@@ -559,7 +563,328 @@ func TestSyncUserAccountsState(t *testing.T) {
 	err := epochStartProvider.createTriesComponents()
 	require.Nil(t, err)
 
-	rootHash := []byte("rootHash")
+	rootHash := make([]byte, len(trie.EmptyTrieHash))
+	rootHash[0] = 1
 	err = epochStartProvider.syncUserAccountsState(rootHash)
 	assert.Equal(t, common.ErrNilRequestHandler, err)
+}
+
+func TestValidateStateTrieRootHash(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil root hash should be rejected as invalid length", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateStateTrieRootHash(nil)
+		assert.Equal(t, common.ErrInvalidRootHash, err)
+	})
+	t.Run("zero-length root hash should be rejected as invalid length", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateStateTrieRootHash([]byte{})
+		assert.Equal(t, common.ErrInvalidRootHash, err)
+	})
+	t.Run("short (non 32-byte) root hash should be rejected as invalid length", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateStateTrieRootHash([]byte("short"))
+		assert.Equal(t, common.ErrInvalidRootHash, err)
+	})
+	t.Run("canonical empty trie hash should be rejected", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateStateTrieRootHash(trie.EmptyTrieHash)
+		assert.Equal(t, common.ErrEmptyStateTrieRootHash, err)
+	})
+	t.Run("non-empty 32-byte root hash should be accepted", func(t *testing.T) {
+		t.Parallel()
+
+		realRootHash := make([]byte, len(trie.EmptyTrieHash))
+		realRootHash[0] = 1
+
+		err := validateStateTrieRootHash(realRootHash)
+		assert.Nil(t, err)
+	})
+}
+
+func TestVerifySyncedTrieRootHash(t *testing.T) {
+	t.Parallel()
+
+	rootHash := []byte("rootHash")
+
+	t.Run("missing synced trie should error", func(t *testing.T) {
+		t.Parallel()
+
+		err := verifySyncedTrieRootHash(map[string]data.Trie{}, rootHash)
+		assert.ErrorIs(t, err, common.ErrMissingSyncedTrieAfterSync)
+	})
+	t.Run("nil synced trie should error", func(t *testing.T) {
+		t.Parallel()
+
+		syncedTries := map[string]data.Trie{string(rootHash): nil}
+		err := verifySyncedTrieRootHash(syncedTries, rootHash)
+		assert.ErrorIs(t, err, common.ErrMissingSyncedTrieAfterSync)
+	})
+	t.Run("RootHash error should be propagated", func(t *testing.T) {
+		t.Parallel()
+
+		expectedErr := errors.New("root hash error")
+		syncedTries := map[string]data.Trie{
+			string(rootHash): &mock.TrieStub{
+				RootCalled: func() ([]byte, error) {
+					return nil, expectedErr
+				},
+			},
+		}
+		err := verifySyncedTrieRootHash(syncedTries, rootHash)
+		assert.Equal(t, expectedErr, err)
+	})
+	t.Run("mismatching synced root hash should error", func(t *testing.T) {
+		t.Parallel()
+
+		syncedTries := map[string]data.Trie{
+			string(rootHash): &mock.TrieStub{
+				RootCalled: func() ([]byte, error) {
+					return []byte("a different root hash"), nil
+				},
+			},
+		}
+		err := verifySyncedTrieRootHash(syncedTries, rootHash)
+		assert.ErrorIs(t, err, common.ErrTrieRootHashMismatch)
+	})
+	t.Run("matching synced root hash should pass", func(t *testing.T) {
+		t.Parallel()
+
+		syncedTries := map[string]data.Trie{
+			string(rootHash): &mock.TrieStub{
+				RootCalled: func() ([]byte, error) {
+					return rootHash, nil
+				},
+			},
+		}
+		err := verifySyncedTrieRootHash(syncedTries, rootHash)
+		assert.Nil(t, err)
+	})
+}
+
+func TestSyncAccountsState_EmptyRootHashIsRejected(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	epochStartProvider, _ := NewEpochStartBootstrap(args)
+
+	// Malformed-length roots (nil, zero-length) must be rejected as invalid before any sync is
+	// attempted, guarding fast bootstrap against peers advertising empty state roots.
+	assert.Equal(t, common.ErrInvalidRootHash, epochStartProvider.syncUserAccountsState(nil))
+	assert.Equal(t, common.ErrInvalidRootHash, epochStartProvider.syncValidatorAccountsState([]byte{}))
+	assert.Equal(t, common.ErrInvalidRootHash, epochStartProvider.syncKappAccountsState(nil))
+
+	// The canonical empty trie hash has a valid length but still bootstraps an empty state, so it
+	// must be rejected too instead of short-circuiting the syncer.
+	assert.Equal(t, common.ErrEmptyStateTrieRootHash, epochStartProvider.syncUserAccountsState(trie.EmptyTrieHash))
+	assert.Equal(t, common.ErrEmptyStateTrieRootHash, epochStartProvider.syncValidatorAccountsState(trie.EmptyTrieHash))
+	assert.Equal(t, common.ErrEmptyStateTrieRootHash, epochStartProvider.syncKappAccountsState(trie.EmptyTrieHash))
+}
+
+// accountsDBSyncerStub is a configurable epochStart.AccountsDBSyncer used to drive
+// syncAndVerifyAccountsState through each of its branches without a real trie syncer.
+type accountsDBSyncerStub struct {
+	SyncAccountsCalled   func(rootHash []byte) error
+	GetSyncedTriesCalled func() map[string]data.Trie
+}
+
+func (a *accountsDBSyncerStub) SyncAccounts(rootHash []byte) error {
+	if a.SyncAccountsCalled != nil {
+		return a.SyncAccountsCalled(rootHash)
+	}
+	return nil
+}
+
+func (a *accountsDBSyncerStub) GetSyncedTries() map[string]data.Trie {
+	if a.GetSyncedTriesCalled != nil {
+		return a.GetSyncedTriesCalled()
+	}
+	return nil
+}
+
+func (a *accountsDBSyncerStub) IsInterfaceNil() bool {
+	return a == nil
+}
+
+func TestSyncAndVerifyAccountsState(t *testing.T) {
+	t.Parallel()
+
+	args := createMockEpochStartBootstrapArgs()
+	epochStartProvider, _ := NewEpochStartBootstrap(args)
+
+	validRootHash := make([]byte, len(trie.EmptyTrieHash))
+	validRootHash[0] = 1
+
+	t.Run("invalid root hash is rejected before the syncer is built", func(t *testing.T) {
+		t.Parallel()
+
+		syncerBuilt := false
+		syncedTries, err := epochStartProvider.syncAndVerifyAccountsState(
+			trie.EmptyTrieHash,
+			func() (epochStart.AccountsDBSyncer, error) {
+				syncerBuilt = true
+				return &accountsDBSyncerStub{}, nil
+			},
+		)
+		assert.Equal(t, common.ErrEmptyStateTrieRootHash, err)
+		assert.Nil(t, syncedTries)
+		assert.False(t, syncerBuilt, "syncer must not be built for an invalid root hash")
+	})
+	t.Run("syncer factory error is propagated", func(t *testing.T) {
+		t.Parallel()
+
+		expectedErr := errors.New("cannot build syncer")
+		syncedTries, err := epochStartProvider.syncAndVerifyAccountsState(
+			validRootHash,
+			func() (epochStart.AccountsDBSyncer, error) {
+				return nil, expectedErr
+			},
+		)
+		assert.Equal(t, expectedErr, err)
+		assert.Nil(t, syncedTries)
+	})
+	t.Run("SyncAccounts error is propagated", func(t *testing.T) {
+		t.Parallel()
+
+		expectedErr := errors.New("sync failed")
+		syncedTries, err := epochStartProvider.syncAndVerifyAccountsState(
+			validRootHash,
+			func() (epochStart.AccountsDBSyncer, error) {
+				return &accountsDBSyncerStub{
+					SyncAccountsCalled: func(_ []byte) error {
+						return expectedErr
+					},
+				}, nil
+			},
+		)
+		assert.Equal(t, expectedErr, err)
+		assert.Nil(t, syncedTries)
+	})
+	t.Run("mismatching synced trie root hash is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		syncedTries, err := epochStartProvider.syncAndVerifyAccountsState(
+			validRootHash,
+			func() (epochStart.AccountsDBSyncer, error) {
+				return &accountsDBSyncerStub{
+					GetSyncedTriesCalled: func() map[string]data.Trie {
+						return map[string]data.Trie{
+							string(validRootHash): &mock.TrieStub{
+								RootCalled: func() ([]byte, error) {
+									return []byte("a different root hash"), nil
+								},
+							},
+						}
+					},
+				}, nil
+			},
+		)
+		assert.ErrorIs(t, err, common.ErrTrieRootHashMismatch)
+		assert.Nil(t, syncedTries)
+	})
+	t.Run("successful sync returns the verified tries", func(t *testing.T) {
+		t.Parallel()
+
+		expectedTries := map[string]data.Trie{
+			string(validRootHash): &mock.TrieStub{
+				RootCalled: func() ([]byte, error) {
+					return validRootHash, nil
+				},
+			},
+		}
+		syncedTries, err := epochStartProvider.syncAndVerifyAccountsState(
+			validRootHash,
+			func() (epochStart.AccountsDBSyncer, error) {
+				return &accountsDBSyncerStub{
+					GetSyncedTriesCalled: func() map[string]data.Trie {
+						return expectedTries
+					},
+				}, nil
+			},
+		)
+		assert.Nil(t, err)
+		assert.Equal(t, expectedTries, syncedTries)
+	})
+}
+
+func TestSyncKappAccountsState_NilRequestHandlerErr(t *testing.T) {
+	args := createMockEpochStartBootstrapArgs()
+	args.GeneralConfig = mock.GetGeneralConfig()
+	epochStartProvider, _ := NewEpochStartBootstrap(args)
+	epochStartProvider.dataPool = &mock.PoolsHolderStub{
+		TrieNodesCalled: func() storage.Cacher {
+			return &mock.CacherStub{
+				GetCalled: func(key []byte) (value interface{}, ok bool) {
+					return nil, true
+				},
+			}
+		},
+	}
+
+	err := epochStartProvider.createTriesComponents()
+	require.Nil(t, err)
+
+	rootHash := make([]byte, len(trie.EmptyTrieHash))
+	rootHash[0] = 1
+	err = epochStartProvider.syncKappAccountsState(rootHash)
+	assert.Equal(t, common.ErrNilRequestHandler, err)
+}
+
+func createSyncableEpochStartBootstrap(t *testing.T) *epochStartBootstrap {
+	args := createMockEpochStartBootstrapArgs()
+	args.GeneralConfig = mock.GetGeneralConfig()
+	epochStartProvider, _ := NewEpochStartBootstrap(args)
+	epochStartProvider.dataPool = &mock.PoolsHolderStub{
+		TrieNodesCalled: func() storage.Cacher {
+			return mock.NewCacherStub()
+		},
+	}
+	epochStartProvider.requestHandler = &mock.RequestHandlerStub{}
+
+	err := epochStartProvider.createTriesComponents()
+	require.Nil(t, err)
+
+	return epochStartProvider
+}
+
+func TestSyncAccountsState_CanonicalEmptyTrieIsRejected(t *testing.T) {
+	t.Parallel()
+
+	// The canonical empty trie (trie.EmptyTrieHash, 32 zero bytes) would short-circuit the syncer and
+	// bootstrap a completely empty state without requesting a single trie node. Even on a fully wired
+	// provider it must be rejected up front, before the syncer is ever invoked, so no trie is stored.
+	emptyRootHash := trie.EmptyTrieHash
+
+	t.Run("user accounts", func(t *testing.T) {
+		t.Parallel()
+
+		epochStartProvider := createSyncableEpochStartBootstrap(t)
+
+		err := epochStartProvider.syncUserAccountsState(emptyRootHash)
+		assert.Equal(t, common.ErrEmptyStateTrieRootHash, err)
+		assert.Nil(t, epochStartProvider.userAccountTries[string(emptyRootHash)])
+	})
+	t.Run("validator accounts", func(t *testing.T) {
+		t.Parallel()
+
+		epochStartProvider := createSyncableEpochStartBootstrap(t)
+
+		err := epochStartProvider.syncValidatorAccountsState(emptyRootHash)
+		assert.Equal(t, common.ErrEmptyStateTrieRootHash, err)
+		assert.Nil(t, epochStartProvider.peerAccountTries[string(emptyRootHash)])
+	})
+	t.Run("kapp accounts", func(t *testing.T) {
+		t.Parallel()
+
+		epochStartProvider := createSyncableEpochStartBootstrap(t)
+
+		err := epochStartProvider.syncKappAccountsState(emptyRootHash)
+		assert.Equal(t, common.ErrEmptyStateTrieRootHash, err)
+		assert.Nil(t, epochStartProvider.kappAccountTries[string(emptyRootHash)])
+	})
 }
