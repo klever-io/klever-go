@@ -237,11 +237,9 @@ func (sr *subslotEndSlot) doEndSlotJobByLeader() bool {
 
 	// broadcast section
 
-	defer func() {
-		sr.SetProcessingBlock(false)
-	}()
-
-	sr.SetProcessingBlock(true)
+	spawnSlot := tools.SafeU64ToI64(header.GetSlot())
+	releaseProcessingBlock := sr.AcquireProcessingBlock(spawnSlot)
+	defer releaseProcessingBlock()
 
 	sr.RLockSlotState()
 	extendedCalled := sr.ExtendedCalled
@@ -362,11 +360,9 @@ func (sr *subslotEndSlot) doEndSlotJobByParticipant(cnsDta *consensus.Message) b
 		return false
 	}
 
-	defer func() {
-		sr.SetProcessingBlock(false)
-	}()
-
-	sr.SetProcessingBlock(true)
+	spawnSlot := tools.SafeU64ToI64(header.GetSlot())
+	releaseProcessingBlock := sr.AcquireProcessingBlock(spawnSlot)
+	defer releaseProcessingBlock()
 
 	sr.RLockSlotState()
 	extendedCalled := sr.ExtendedCalled

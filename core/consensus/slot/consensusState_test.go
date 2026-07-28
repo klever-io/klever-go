@@ -533,6 +533,119 @@ func TestConsensusState_SetWaitingAllSignaturesTimeOutIfSlot_SkipsOnSlotMismatch
 	assert.False(t, cns.WaitingAllSignaturesTimeOut)
 }
 
+func TestConsensusState_SetProcessingBlockIfSlot_AppliesOnSameSlot(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+	cns.BeginNewSlot(42, time.Unix(1700000000, 0))
+
+	applied := cns.SetProcessingBlockIfSlot(42, true)
+	assert.True(t, applied)
+	assert.True(t, cns.ProcessingBlock())
+}
+
+func TestConsensusState_SetProcessingBlockIfSlot_SkipsOnSlotMismatch(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+	cns.BeginNewSlot(42, time.Unix(1700000000, 0))
+
+	applied := cns.SetProcessingBlockIfSlot(41, true)
+	assert.False(t, applied)
+	assert.False(t, cns.ProcessingBlock())
+}
+
+func TestConsensusState_SetProcessingBlockIfSlot_StaleReleaseDoesNotClearNewerGuard(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+	cns.BeginNewSlot(42, time.Unix(1700000000, 0))
+
+	applied := cns.SetProcessingBlockIfSlot(42, true)
+	assert.True(t, applied)
+	assert.True(t, cns.ProcessingBlock())
+
+	cleared := cns.SetProcessingBlockIfSlot(41, false)
+	assert.False(t, cleared)
+	assert.True(t, cns.ProcessingBlock())
+
+	cleared = cns.SetProcessingBlockIfSlot(42, false)
+	assert.True(t, cleared)
+	assert.False(t, cns.ProcessingBlock())
+}
+
+func TestConsensusState_SetProcessingBlockIfSlot_OwnerReleasesAfterSlotAdvances(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+	cns.BeginNewSlot(42, time.Unix(1700000000, 0))
+
+	applied := cns.SetProcessingBlockIfSlot(42, true)
+	assert.True(t, applied)
+	assert.True(t, cns.ProcessingBlock())
+
+	cns.BeginNewSlot(43, time.Unix(1700000004, 0))
+
+	cleared := cns.SetProcessingBlockIfSlot(42, false)
+	assert.True(t, cleared)
+	assert.False(t, cns.ProcessingBlock())
+}
+
+func TestConsensusState_SetProcessingBlockIfSlot_StaleReleaseDoesNotClearGuardTakenAfterSlotAdvances(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+	cns.BeginNewSlot(42, time.Unix(1700000000, 0))
+
+	applied := cns.SetProcessingBlockIfSlot(42, true)
+	assert.True(t, applied)
+
+	cns.BeginNewSlot(43, time.Unix(1700000004, 0))
+
+	applied = cns.SetProcessingBlockIfSlot(43, true)
+	assert.True(t, applied)
+	assert.True(t, cns.ProcessingBlock())
+
+	cleared := cns.SetProcessingBlockIfSlot(42, false)
+	assert.False(t, cleared)
+	assert.True(t, cns.ProcessingBlock())
+
+	cleared = cns.SetProcessingBlockIfSlot(43, false)
+	assert.True(t, cleared)
+	assert.False(t, cns.ProcessingBlock())
+}
+
+func TestConsensusState_AcquireProcessingBlock_ReleasesGuardAfterSlotAdvances(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+	cns.BeginNewSlot(42, time.Unix(1700000000, 0))
+
+	release := cns.AcquireProcessingBlock(42)
+	assert.True(t, cns.ProcessingBlock())
+
+	cns.BeginNewSlot(43, time.Unix(1700000004, 0))
+
+	release()
+	assert.False(t, cns.ProcessingBlock())
+}
+
+func TestConsensusState_AcquireProcessingBlock_ReleaseIsNoOpWhenNotAcquired(t *testing.T) {
+	t.Parallel()
+
+	cns := internalInitConsensusState()
+	cns.BeginNewSlot(42, time.Unix(1700000000, 0))
+
+	applied := cns.SetProcessingBlockIfSlot(42, true)
+	assert.True(t, applied)
+
+	release := cns.AcquireProcessingBlock(41)
+	assert.True(t, cns.ProcessingBlock())
+
+	release()
+	assert.True(t, cns.ProcessingBlock())
+}
+
 func TestConsensusState_GetDataReadsUnderLock(t *testing.T) {
 	t.Parallel()
 

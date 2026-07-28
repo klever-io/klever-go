@@ -305,21 +305,19 @@ func (sr *subslotBlock) processReceivedBlock(cnsDta *consensus.Message) bool {
 		return false
 	}
 
-	defer func() {
-		sr.SetProcessingBlock(false)
-	}()
+	spawnSlot := cnsDta.SlotIndex
+	releaseProcessingBlock := sr.AcquireProcessingBlock(spawnSlot)
+	defer releaseProcessingBlock()
 
-	sr.SetProcessingBlock(true)
-
-	// Read ExtendedCalled AFTER SetProcessingBlock(true). Worker.Extend sets
+	// Read ExtendedCalled AFTER AcquireProcessingBlock. Worker.Extend sets
 	// ExtendedCalled=true and only then waits for ProcessingBlock to clear,
-	// so our SetProcessingBlock(true) creates the happens-before that guarantees
+	// so our acquire creates the happens-before that guarantees
 	// either (a) Extend sees our ProcessingBlock and waits — in which case our
 	// later snapshot of extendedCalled may still be false but it doesn't matter
 	// because Extend's revert is blocked until we finish, or (b) Extend already
-	// flipped ExtendedCalled before our SetProcessingBlock — in which case the
+	// flipped ExtendedCalled before our acquire — in which case the
 	// post-snapshot read sees true and we bail. Snapshotting extendedCalled
-	// BEFORE SetProcessingBlock would let Extend slip in between, set the flag,
+	// BEFORE the acquire would let Extend slip in between, set the flag,
 	// see ProcessingBlock=false, and start reverting state under us.
 	sr.RLockSlotState()
 	extendedCalled := sr.ExtendedCalled

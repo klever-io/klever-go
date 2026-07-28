@@ -294,6 +294,34 @@ func TestSubslotBlock_ProcessReceivedBlockShouldReturnFalseWhenHeaderAreNotSet(t
 	assert.False(t, sr.ProcessReceivedBlock(cnsMsg))
 }
 
+func TestSubslotBlock_ProcessReceivedBlockShouldNotLeaveProcessingBlockSetWhenSlotChanged(t *testing.T) {
+	t.Parallel()
+	container := mock.InitConsensusCore()
+	container.SetSlotManager(&mock.SlotManagerMock{
+		SlotIndex: 1,
+	})
+	sr := *initSubslotBlock(nil, container)
+	sr.Header = &block.Block{Header: &block.BlockHeader{}}
+	cnsMsg := consensus.NewConsensusMessage(
+		nil,
+		nil,
+		nil,
+		[]byte(sr.ConsensusGroup()[0]),
+		[]byte("sig"),
+		int(bls.MtBlockHeader),
+		0,
+		0,
+		chainID,
+		nil,
+		nil,
+		nil,
+		currentPid,
+	)
+
+	assert.False(t, sr.ProcessReceivedBlock(cnsMsg))
+	assert.False(t, sr.ProcessingBlock())
+}
+
 func TestSubslotBlock_RemainingTimeShouldReturnNegativeValue(t *testing.T) {
 	t.Parallel()
 	container := mock.InitConsensusCore()

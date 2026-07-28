@@ -34,8 +34,9 @@ type ConsensusState struct {
 	receivedHeaders    []data.HeaderHandler
 	mutReceivedHeaders sync.RWMutex
 
-	processingBlock    bool
-	mutProcessingBlock sync.RWMutex
+	processingBlock     bool
+	processingBlockSlot int64
+	mutProcessingBlock  sync.RWMutex
 
 	*slotConsensus
 	*slotThreshold
@@ -371,6 +372,54 @@ func (cns *ConsensusState) SetProcessingBlock(processingBlock bool) {
 	cns.mutProcessingBlock.Lock()
 	cns.processingBlock = processingBlock
 	cns.mutProcessingBlock.Unlock()
+}
+
+// SetProcessingBlockIfSlot acquires or releases the block processing guard on
+// behalf of spawnSlot. Returns true when the write was applied. An acquire is
+// applied only while SlotIndex still equals spawnSlot, and records spawnSlot as
+// the guard owner; a release is applied only by the current owner. This stops a
+// goroutine whose processing overran its slot from clearing a guard taken by a
+// later slot, while still guaranteeing it releases the guard it took itself. A
+// guard that is never released would leave Worker.Extend spinning on
+// ProcessingBlock on the chronology goroutine, which is also the only goroutine
+// able to advance the slot.
+func (cns *ConsensusState) SetProcessingBlockIfSlot(spawnSlot int64, processingBlock bool) bool {
+	if !processingBlock {
+		cns.mutProcessingBlock.Lock()
+		defer cns.mutProcessingBlock.Unlock()
+		if cns.processingBlockSlot != spawnSlot {
+			return false
+		}
+		cns.processingBlock = false
+		return true
+	}
+
+	cns.mutSlotState.RLock()
+	defer cns.mutSlotState.RUnlock()
+	if cns.SlotIndex != spawnSlot {
+		return false
+	}
+	cns.mutProcessingBlock.Lock()
+	cns.processingBlock = true
+	cns.processingBlockSlot = spawnSlot
+	cns.mutProcessingBlock.Unlock()
+	return true
+}
+
+// AcquireProcessingBlock takes the block processing guard on behalf of spawnSlot
+// and returns the function that releases it. The returned function releases the
+// guard only when this call actually acquired it, so a caller that lost the slot
+// race cannot clear a guard another goroutine still owns.
+func (cns *ConsensusState) AcquireProcessingBlock(spawnSlot int64) func() {
+	acquired := cns.SetProcessingBlockIfSlot(spawnSlot, true)
+
+	return func() {
+		if !acquired {
+			return
+		}
+
+		cns.SetProcessingBlockIfSlot(spawnSlot, false)
+	}
 }
 
 // GetData returns the consensus data slice header. The slice contents must not be mutated by callers.
