@@ -1,25 +1,27 @@
-package leveldb_test
+package leveldb
 
 import (
-	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/klever-io/klever-go/storage"
-	"github.com/klever-io/klever-go/storage/leveldb"
 	"github.com/stretchr/testify/assert"
 )
 
-func createSerialLevelDb(t *testing.T, batchDelaySeconds int, maxBatchSize int, maxOpenFiles int) (p *leveldb.SerialDB) {
-	dir, _ := os.MkdirTemp("", "leveldb_temp")
-	lvdb, err := leveldb.NewSerialDB(dir, batchDelaySeconds, maxBatchSize, maxOpenFiles)
+func createSerialLevelDb(t *testing.T, path string, batchDelaySeconds int, maxBatchSize int, maxOpenFiles int) (p *SerialDB) {
+	if path == "" {
+		path = t.TempDir()
+	}
+	lvdb, err := NewSerialDB(path, batchDelaySeconds, maxBatchSize, maxOpenFiles)
 
 	assert.Nil(t, err, "Failed creating leveldb database file")
+	t.Cleanup(func() { _ = lvdb.Close() })
 	return lvdb
 }
 
 func TestSerialDB_InitNoError(t *testing.T) {
-	ldb := createSerialLevelDb(t, 10, 1, 10)
+	ldb := createSerialLevelDb(t, "", 10, 1, 10)
 
 	err := ldb.Init()
 
@@ -28,7 +30,7 @@ func TestSerialDB_InitNoError(t *testing.T) {
 
 func TestSerialDB_PutNoError(t *testing.T) {
 	key, val := []byte("key"), []byte("value")
-	ldb := createSerialLevelDb(t, 10, 1, 10)
+	ldb := createSerialLevelDb(t, "", 10, 1, 10)
 
 	err := ldb.Put(key, val)
 
@@ -37,7 +39,7 @@ func TestSerialDB_PutNoError(t *testing.T) {
 
 func TestSerialDB_GetErrorAfterPutBeforeTimeout(t *testing.T) {
 	key, val := []byte("key"), []byte("value")
-	ldb := createSerialLevelDb(t, 1, 100, 10)
+	ldb := createSerialLevelDb(t, "", 1, 100, 10)
 
 	_ = ldb.Put(key, val)
 	v, err := ldb.Get(key)
@@ -47,7 +49,7 @@ func TestSerialDB_GetErrorAfterPutBeforeTimeout(t *testing.T) {
 }
 
 func TestSerialDB_GetErrorOnFail(t *testing.T) {
-	ldb := createSerialLevelDb(t, 10, 1, 10)
+	ldb := createSerialLevelDb(t, "", 10, 1, 10)
 	_ = ldb.Destroy()
 
 	v, err := ldb.Get([]byte("key"))
@@ -56,7 +58,7 @@ func TestSerialDB_GetErrorOnFail(t *testing.T) {
 }
 
 func TestSerialDB_CallsNotBlockingAfterCloseOrDestroy(t *testing.T) {
-	ldb := createSerialLevelDb(t, 10, 1, 10)
+	ldb := createSerialLevelDb(t, "", 10, 1, 10)
 	_ = ldb.Destroy()
 
 	_, err := ldb.Get([]byte("key"))
@@ -74,7 +76,7 @@ func TestSerialDB_CallsNotBlockingAfterCloseOrDestroy(t *testing.T) {
 
 func TestSerialDB_GetOKAfterPutWithTimeout(t *testing.T) {
 	key, val := []byte("key"), []byte("value")
-	ldb := createSerialLevelDb(t, 1, 100, 10)
+	ldb := createSerialLevelDb(t, "", 1, 100, 10)
 
 	_ = ldb.Put(key, val)
 	time.Sleep(time.Second * 3)
@@ -86,7 +88,7 @@ func TestSerialDB_GetOKAfterPutWithTimeout(t *testing.T) {
 
 func TestSerialDB_RemoveBeforeTimeoutOK(t *testing.T) {
 	key, val := []byte("key"), []byte("value")
-	ldb := createSerialLevelDb(t, 1, 100, 10)
+	ldb := createSerialLevelDb(t, "", 1, 100, 10)
 
 	_ = ldb.Put(key, val)
 	_ = ldb.Remove(key)
@@ -99,7 +101,7 @@ func TestSerialDB_RemoveBeforeTimeoutOK(t *testing.T) {
 
 func TestSerialDB_RemoveAfterTimeoutOK(t *testing.T) {
 	key, val := []byte("key"), []byte("value")
-	ldb := createSerialLevelDb(t, 1, 100, 10)
+	ldb := createSerialLevelDb(t, "", 1, 100, 10)
 
 	_ = ldb.Put(key, val)
 	time.Sleep(time.Second * 2)
@@ -112,7 +114,7 @@ func TestSerialDB_RemoveAfterTimeoutOK(t *testing.T) {
 
 func TestSerialDB_GetPresent(t *testing.T) {
 	key, val := []byte("key1"), []byte("value1")
-	ldb := createSerialLevelDb(t, 10, 1, 10)
+	ldb := createSerialLevelDb(t, "", 10, 1, 10)
 
 	_ = ldb.Put(key, val)
 	v, err := ldb.Get(key)
@@ -123,7 +125,7 @@ func TestSerialDB_GetPresent(t *testing.T) {
 
 func TestSerialDB_GetNotPresent(t *testing.T) {
 	key := []byte("key2")
-	ldb := createSerialLevelDb(t, 10, 1, 10)
+	ldb := createSerialLevelDb(t, "", 10, 1, 10)
 
 	v, err := ldb.Get(key)
 
@@ -132,7 +134,7 @@ func TestSerialDB_GetNotPresent(t *testing.T) {
 
 func TestSerialDB_HasPresent(t *testing.T) {
 	key, val := []byte("key3"), []byte("value3")
-	ldb := createSerialLevelDb(t, 10, 1, 10)
+	ldb := createSerialLevelDb(t, "", 10, 1, 10)
 
 	_ = ldb.Put(key, val)
 	err := ldb.Has(key)
@@ -142,7 +144,7 @@ func TestSerialDB_HasPresent(t *testing.T) {
 
 func TestSerialDB_HasNotPresent(t *testing.T) {
 	key := []byte("key4")
-	ldb := createSerialLevelDb(t, 10, 1, 10)
+	ldb := createSerialLevelDb(t, "", 10, 1, 10)
 
 	err := ldb.Has(key)
 
@@ -152,7 +154,7 @@ func TestSerialDB_HasNotPresent(t *testing.T) {
 
 func TestSerialDB_RemovePresent(t *testing.T) {
 	key, val := []byte("key5"), []byte("value5")
-	ldb := createSerialLevelDb(t, 10, 1, 10)
+	ldb := createSerialLevelDb(t, "", 10, 1, 10)
 
 	_ = ldb.Put(key, val)
 	_ = ldb.Remove(key)
@@ -164,7 +166,7 @@ func TestSerialDB_RemovePresent(t *testing.T) {
 
 func TestSerialDB_RemoveNotPresent(t *testing.T) {
 	key := []byte("key6")
-	ldb := createSerialLevelDb(t, 10, 1, 10)
+	ldb := createSerialLevelDb(t, "", 10, 1, 10)
 
 	err := ldb.Remove(key)
 
@@ -172,7 +174,7 @@ func TestSerialDB_RemoveNotPresent(t *testing.T) {
 }
 
 func TestSerialDB_Close(t *testing.T) {
-	ldb := createSerialLevelDb(t, 10, 1, 10)
+	ldb := createSerialLevelDb(t, "", 10, 1, 10)
 
 	err := ldb.Close()
 
@@ -180,7 +182,7 @@ func TestSerialDB_Close(t *testing.T) {
 }
 
 func TestSerialDB_CloseTwice(t *testing.T) {
-	ldb := createSerialLevelDb(t, 10, 1, 10)
+	ldb := createSerialLevelDb(t, "", 10, 1, 10)
 
 	_ = ldb.Close()
 	err := ldb.Close()
@@ -189,9 +191,60 @@ func TestSerialDB_CloseTwice(t *testing.T) {
 }
 
 func TestSerialDB_Destroy(t *testing.T) {
-	ldb := createSerialLevelDb(t, 10, 1, 10)
+	ldb := createSerialLevelDb(t, "", 10, 1, 10)
 
 	err := ldb.Destroy()
 
 	assert.Nil(t, err, "no error expected but got %s", err)
+}
+
+func TestSerialDB_LatestWriteSurvivesOlderDetachedFlushAfterRestart(t *testing.T) {
+	dbPath := t.TempDir()
+
+	hookEntered := make(chan struct{})
+	hookRelease := make(chan struct{})
+	var hookTriggered atomic.Bool
+	hook := func() {
+		if hookTriggered.CompareAndSwap(false, true) {
+			close(hookEntered)
+			<-hookRelease
+		}
+	}
+
+	db, err := newSerialDB(dbPath, 3600, 1, 10, hook)
+	assert.Nil(t, err, "Failed creating leveldb database file")
+	t.Cleanup(func() { _ = db.Close() })
+
+	firstWriteDone := make(chan error, 1)
+	go func() {
+		firstWriteDone <- db.Put([]byte("slotKey"), []byte("oldValue"))
+	}()
+
+	select {
+	case <-hookEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for first detached batch handoff")
+	}
+
+	secondWriteDone := make(chan error, 1)
+	go func() {
+		secondWriteDone <- db.Put([]byte("slotKey"), []byte("newValue"))
+	}()
+
+	select {
+	case err := <-secondWriteDone:
+		t.Fatalf("second write completed before first detached flush release: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(hookRelease)
+	assert.Nil(t, <-firstWriteDone)
+	assert.Nil(t, <-secondWriteDone)
+	assert.Nil(t, db.Close())
+
+	reopened := createSerialLevelDb(t, dbPath, 3600, 1, 10)
+
+	val, err := reopened.Get([]byte("slotKey"))
+	assert.Nil(t, err)
+	assert.Equal(t, []byte("newValue"), val)
 }

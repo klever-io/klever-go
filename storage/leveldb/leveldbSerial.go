@@ -20,21 +20,30 @@ var _ storage.Persister = (*SerialDB)(nil)
 // SerialDB holds a pointer to the leveldb database and the path to where it is stored.
 type SerialDB struct {
 	*baseLevelDb
-	path              string
-	maxBatchSize      int
-	batchDelaySeconds int
-	sizeBatch         int
-	batch             storage.Batcher
-	mutBatch          sync.RWMutex
-	dbAccess          chan serialQueryer
-	cancel            context.CancelFunc
-	mutClosed         sync.Mutex
-	closed            bool
+	path                    string
+	maxBatchSize            int
+	batchDelaySeconds       int
+	sizeBatch               int
+	batch                   storage.Batcher
+	mutBatch                sync.RWMutex
+	mutAccess               sync.RWMutex
+	mutFlush                sync.Mutex
+	dbAccess                chan serialQueryer
+	cancel                  context.CancelFunc
+	mutClosed               sync.Mutex
+	closed                  bool
+	testHookBeforeBatchSend func()
 }
 
 // NewSerialDB is a constructor for the leveldb persister
 // It creates the files in the location given as parameter
 func NewSerialDB(path string, batchDelaySeconds int, maxBatchSize int, maxOpenFiles int) (s *SerialDB, err error) {
+	return newSerialDB(path, batchDelaySeconds, maxBatchSize, maxOpenFiles, nil)
+}
+
+// newSerialDB is the internal constructor allowing tests to inject testHookBeforeBatchSend
+// before the background goroutines start, avoiding a data race on the field.
+func newSerialDB(path string, batchDelaySeconds int, maxBatchSize int, maxOpenFiles int, testHookBeforeBatchSend func()) (s *SerialDB, err error) {
 	err = os.MkdirAll(path, rwxOwner)
 	if err != nil {
 		return nil, err
@@ -61,14 +70,15 @@ func NewSerialDB(path string, batchDelaySeconds int, maxBatchSize int, maxOpenFi
 
 	ctx, cancel := context.WithCancel(context.Background())
 	dbStore := &SerialDB{
-		baseLevelDb:       bldb,
-		path:              path,
-		maxBatchSize:      maxBatchSize,
-		batchDelaySeconds: batchDelaySeconds,
-		sizeBatch:         0,
-		dbAccess:          make(chan serialQueryer),
-		cancel:            cancel,
-		closed:            false,
+		baseLevelDb:             bldb,
+		path:                    path,
+		maxBatchSize:            maxBatchSize,
+		batchDelaySeconds:       batchDelaySeconds,
+		sizeBatch:               0,
+		dbAccess:                make(chan serialQueryer),
+		cancel:                  cancel,
+		closed:                  false,
+		testHookBeforeBatchSend: testHookBeforeBatchSend,
 	}
 
 	dbStore.batch = NewBatch()
@@ -99,7 +109,7 @@ func (s *SerialDB) batchTimeoutHandle(ctx context.Context) {
 	}
 }
 
-func (s *SerialDB) updateBatchWithIncrement() error {
+func (s *SerialDB) updateBatchWithIncrementLocked() error {
 	s.mutBatch.Lock()
 	s.sizeBatch++
 	if s.sizeBatch < s.maxBatchSize {
@@ -108,13 +118,14 @@ func (s *SerialDB) updateBatchWithIncrement() error {
 	}
 	s.mutBatch.Unlock()
 
-	err := s.putBatch()
-
-	return err
+	return s.putBatchLocked()
 }
 
 // Put adds the value to the (key, val) storage medium
 func (s *SerialDB) Put(key, val []byte) error {
+	s.mutAccess.RLock()
+	defer s.mutAccess.RUnlock()
+
 	if s.isClosed() {
 		return storage.ErrSerialDBIsClosed
 	}
@@ -126,11 +137,14 @@ func (s *SerialDB) Put(key, val []byte) error {
 		return err
 	}
 
-	return s.updateBatchWithIncrement()
+	return s.updateBatchWithIncrementLocked()
 }
 
 // Get returns the value associated to the key
 func (s *SerialDB) Get(key []byte) ([]byte, error) {
+	s.mutAccess.RLock()
+	defer s.mutAccess.RUnlock()
+
 	if s.isClosed() {
 		return nil, storage.ErrSerialDBIsClosed
 	}
@@ -168,6 +182,9 @@ func (s *SerialDB) Get(key []byte) ([]byte, error) {
 
 // Has returns nil if the given key is present in the persistence medium
 func (s *SerialDB) Has(key []byte) error {
+	s.mutAccess.RLock()
+	defer s.mutAccess.RUnlock()
+
 	if s.isClosed() {
 		return storage.ErrSerialDBIsClosed
 	}
@@ -204,6 +221,24 @@ func (s *SerialDB) Init() error {
 
 // putBatch writes the Batch data into the database
 func (s *SerialDB) putBatch() error {
+	s.mutAccess.RLock()
+	defer s.mutAccess.RUnlock()
+
+	if s.isClosed() {
+		return storage.ErrSerialDBIsClosed
+	}
+
+	return s.putBatchLocked()
+}
+
+// putBatchLocked swaps out the current batch and sends it for writing. mutFlush
+// serializes the swap-and-send end-to-end so concurrent flushes (from Put/Remove
+// triggering a size-based flush and the timer-based flush) can't interleave and
+// reorder or drop batches, even though callers now only hold mutAccess.RLock().
+func (s *SerialDB) putBatchLocked() error {
+	s.mutFlush.Lock()
+	defer s.mutFlush.Unlock()
+
 	s.mutBatch.Lock()
 	dbBatch, ok := s.batch.(*batch)
 	if !ok {
@@ -213,6 +248,10 @@ func (s *SerialDB) putBatch() error {
 	s.sizeBatch = 0
 	s.batch = NewBatch()
 	s.mutBatch.Unlock()
+
+	if s.testHookBeforeBatchSend != nil {
+		s.testHookBeforeBatchSend()
+	}
 
 	ch := make(chan error)
 	req := &putBatchAct{
@@ -237,15 +276,20 @@ func (s *SerialDB) isClosed() bool {
 
 // Close closes the files/resources associated to the storage medium
 func (s *SerialDB) Close() error {
+	s.mutAccess.Lock()
+	defer s.mutAccess.Unlock()
+
 	s.mutClosed.Lock()
-	defer s.mutClosed.Unlock()
 
 	if s.closed {
+		s.mutClosed.Unlock()
 		return nil
 	}
 
 	s.closed = true
-	_ = s.putBatch()
+	s.mutClosed.Unlock()
+
+	_ = s.putBatchLocked()
 
 	s.cancel()
 
@@ -254,6 +298,9 @@ func (s *SerialDB) Close() error {
 
 // Remove removes the data associated to the given key
 func (s *SerialDB) Remove(key []byte) error {
+	s.mutAccess.RLock()
+	defer s.mutAccess.RUnlock()
+
 	if s.isClosed() {
 		return storage.ErrSerialDBIsClosed
 	}
@@ -262,11 +309,14 @@ func (s *SerialDB) Remove(key []byte) error {
 	_ = s.batch.Delete(key)
 	s.mutBatch.Unlock()
 
-	return s.updateBatchWithIncrement()
+	return s.updateBatchWithIncrementLocked()
 }
 
 // Destroy removes the storage medium stored data
 func (s *SerialDB) Destroy() error {
+	s.mutAccess.Lock()
+	defer s.mutAccess.Unlock()
+
 	s.mutBatch.Lock()
 	s.batch.Reset()
 	s.sizeBatch = 0
@@ -276,8 +326,9 @@ func (s *SerialDB) Destroy() error {
 
 	s.mutClosed.Lock()
 	s.closed = true
-	err := s.db.Close()
 	s.mutClosed.Unlock()
+
+	err := s.db.Close()
 
 	if err != nil {
 		return err
