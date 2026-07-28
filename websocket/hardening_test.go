@@ -162,12 +162,28 @@ func TestLimits_Resolve_AppliesDefaults(t *testing.T) {
 	assert.Equal(t, int64(minMaxMessageSize), r.maxMessageSize, "default read limit is the floor")
 	assert.Equal(t, defaultPostWorkerCount, r.postWorkers)
 	assert.Equal(t, defaultPostQueueSize, r.postQueueSize)
+	assert.Equal(t, defaultPingPeriod, r.pingPeriod)
+	assert.Equal(t, defaultPongWait, r.pongWait)
 }
 
 func TestLimits_Resolve_OverridesPostWorkerLimits(t *testing.T) {
 	r := Limits{PostWorkers: 3, PostQueueSize: 42}.resolve()
 	assert.Equal(t, 3, r.postWorkers)
 	assert.Equal(t, 42, r.postQueueSize)
+}
+
+func TestLimits_Resolve_OverridesKeepaliveTimings(t *testing.T) {
+	r := Limits{PingPeriod: 20 * time.Millisecond, PongWait: 60 * time.Millisecond}.resolve()
+	assert.Equal(t, 20*time.Millisecond, r.pingPeriod)
+	assert.Equal(t, 60*time.Millisecond, r.pongWait)
+}
+
+func TestLimits_Resolve_ClampsIncoherentPongWait(t *testing.T) {
+	// A pongWait at or below pingPeriod would reclaim a client that's still answering
+	// pings on time; clamp it up instead of honoring the incoherent override.
+	r := Limits{PingPeriod: 10 * time.Millisecond, PongWait: 5 * time.Millisecond}.resolve()
+	assert.Equal(t, 10*time.Millisecond, r.pingPeriod)
+	assert.Greater(t, r.pongWait, r.pingPeriod)
 }
 
 func TestLimits_Resolve_DerivesReadLimitFromAddressCap(t *testing.T) {
@@ -211,39 +227,23 @@ func TestHandleClientInsertion_ReSubscribeDoesNotDoubleCount(t *testing.T) {
 	assert.Equal(t, 1, hub.clientAddresses[c])
 }
 
-// setKeepaliveForTest shortens the /subscribe keepalive timings so the read-deadline
-// reclamation fires in milliseconds, and returns a restore func. Swaps the (ping, pong)
-// pair as a single atomic pointer rather than two independent stores, because a client
-// whose teardown this test just triggered may still have its loopIn/loopOut goroutines
-// mid-exit and reading the current value (e.g. loopOut's ticker branch) when the restore
-// fires — two separate stores would let such a reader observe a torn combination of an
-// old ping with a new pong (or vice versa).
-func setKeepaliveForTest(ping, pong time.Duration) func() {
-	orig := keepalive.Swap(&keepaliveTimings{ping: ping, pong: pong})
-	return func() {
-		keepalive.Store(orig)
-	}
-}
-
 // TestClient_IdleConnectionReclaimedAtPongWait covers the core new defense
 // (GHSA-4fwh-wrm6-97xm): a silent/dead client that never answers server pings must have
 // its connection torn down when the lifetime read deadline (pongWait) elapses, so the
-// per-connection slot the owner holds via Done() is released instead of leaking.
+// per-connection slot the owner holds via Done() is released instead of leaking. Uses a
+// dedicated hub with shortened keepalive timings (via Limits) instead of mutating shared
+// state, so the read-deadline reclamation fires in milliseconds with nothing else to
+// synchronize.
 func TestClient_IdleConnectionReclaimedAtPongWait(t *testing.T) {
-	defer setKeepaliveForTest(20*time.Millisecond, 60*time.Millisecond)()
-
-	hub := newTestHub(nil)
+	hub := NewHub("", "", nil, Limits{PingPeriod: 20 * time.Millisecond, PongWait: 60 * time.Millisecond})
 	upgrader := ws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 
 	released := make(chan struct{})
-	// Buffered so the handler goroutine (not the test goroutine — calling t.Fatal there
-	// would violate testing's FailNow-must-run-on-the-test's-own-goroutine contract)
-	// never blocks reporting an upgrade failure back to the test.
-	upgradeErrCh := make(chan error, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			upgradeErrCh <- err
+			// t.Errorf (unlike Fatal/FailNow) is safe to call from any goroutine.
+			t.Errorf("server failed to upgrade the websocket connection: %v", err)
 			return
 		}
 		c := NewClient(conn, hub)
@@ -265,8 +265,6 @@ func TestClient_IdleConnectionReclaimedAtPongWait(t *testing.T) {
 	select {
 	case <-released:
 		// Read deadline elapsed and reclaimed the idle client — the slot is freed.
-	case err := <-upgradeErrCh:
-		t.Fatalf("server failed to upgrade the websocket connection: %v", err)
 	case <-time.After(2 * time.Second):
 		t.Fatal("idle client was not reclaimed at pongWait; connection slot leaked")
 	}

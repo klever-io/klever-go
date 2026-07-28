@@ -1,7 +1,6 @@
 package websocket
 
 import (
-	"sync/atomic"
 	"time"
 )
 
@@ -42,32 +41,13 @@ const (
 	// pattern in indexer/events.go), when PostQueueSize is unset — so a stalled mirror
 	// endpoint sheds load instead of growing without bound.
 	defaultPostQueueSize = 1000
+
+	// defaultPingPeriod/defaultPongWait are the /subscribe keepalive timings when unset.
+	// pongWait (the lifetime read deadline) must exceed pingPeriod so a live client can
+	// answer a server ping before it elapses.
+	defaultPingPeriod = 15 * time.Second
+	defaultPongWait   = 30 * time.Second
 )
-
-// keepaliveTimings holds the /subscribe keepalive timing pair. pongWait (the lifetime
-// read deadline) must exceed pingPeriod so a live client can answer a server ping before
-// it elapses — the two are stored and swapped together as one immutable value (never
-// mutated in place) so a reader can never observe a torn combination of an old ping with
-// a new pong (or vice versa) that could violate that invariant.
-type keepaliveTimings struct {
-	ping time.Duration
-	pong time.Duration
-}
-
-// keepalive holds the current *keepaliveTimings. Only tests mutate it, to shorten the
-// timings and exercise idle-client read-deadline reclamation quickly — but they mutate
-// concurrently with a live client's loopIn/loopOut goroutines still reading the previous
-// value on their way out, so plain vars here are a genuine data race, not just a
-// theoretical one (caught by `go test -race`: a test's deferred restore racing loopOut's
-// read at client.go's ticker branch).
-var keepalive atomic.Pointer[keepaliveTimings]
-
-func init() {
-	keepalive.Store(&keepaliveTimings{ping: 15 * time.Second, pong: 30 * time.Second})
-}
-
-func getPingPeriod() time.Duration { return keepalive.Load().ping }
-func getPongWait() time.Duration   { return keepalive.Load().pong }
 
 // Limits bounds /subscribe resource usage. Zero-valued fields fall back to safe
 // defaults, so a partial config can't disable the protection. The read limit is not a
@@ -81,6 +61,12 @@ type Limits struct {
 	// PostQueueSize bounds pending mirror sends queued behind PostWorkers; 0 uses
 	// defaultPostQueueSize.
 	PostQueueSize int
+	// PingPeriod/PongWait override the /subscribe keepalive timings (0 = defaults). A hub's
+	// resolved values never change after construction, so client goroutines can read them
+	// off c.hub.limits with no synchronization — tests that need short timings build a
+	// dedicated hub instead of mutating shared state.
+	PingPeriod time.Duration
+	PongWait   time.Duration
 }
 
 // resolvedLimits holds the effective limits after defaults are applied.
@@ -90,6 +76,8 @@ type resolvedLimits struct {
 	maxMessageSize           int64
 	postWorkers              int
 	postQueueSize            int
+	pingPeriod               time.Duration
+	pongWait                 time.Duration
 }
 
 func (l Limits) resolve() resolvedLimits {
@@ -121,11 +109,27 @@ func (l Limits) resolve() resolvedLimits {
 		postQueueSize = defaultPostQueueSize
 	}
 
+	pingPeriod := l.PingPeriod
+	if pingPeriod <= 0 {
+		pingPeriod = defaultPingPeriod
+	}
+	pongWait := l.PongWait
+	if pongWait <= 0 {
+		pongWait = defaultPongWait
+	}
+	// An incoherent override (pongWait <= pingPeriod) is clamped up rather than left to
+	// reclaim connections that are still answering pings on time.
+	if pongWait <= pingPeriod {
+		pongWait = pingPeriod * 2
+	}
+
 	return resolvedLimits{
 		maxAddressesPerSubscribe: perSubscribe,
 		maxAddressesPerClient:    perClient,
 		maxMessageSize:           readLimit,
 		postWorkers:              postWorkers,
 		postQueueSize:            postQueueSize,
+		pingPeriod:               pingPeriod,
+		pongWait:                 pongWait,
 	}
 }
