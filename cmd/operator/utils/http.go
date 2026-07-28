@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,10 +39,17 @@ func GetURL(url string, target interface{}) error {
 
 // PostURL provides a post using a json string
 func PostURL(url, body string, headers []string, target interface{}) error {
+	return PostURLWithContext(context.Background(), url, body, headers, target)
+}
+
+// PostURLWithContext behaves like PostURL but ties the request to ctx, so a caller can
+// abort an in-flight POST (e.g. on shutdown) instead of waiting out httpClient's fixed
+// timeout.
+func PostURLWithContext(ctx context.Context, url, body string, headers []string, target interface{}) error {
 	reqBody := strings.NewReader(body)
-	req, errNewReq := http.NewRequest(http.MethodPost, url, reqBody)
+	req, errNewReq := http.NewRequestWithContext(ctx, http.MethodPost, url, reqBody)
 	if errNewReq != nil {
-		return errNewReq
+		return fmt.Errorf("create POST request: %w", errNewReq)
 	}
 	req.Header.Add("Content-type", "application/json; charset=UTF-8")
 	for i := 0; i < len(headers); i += 2 {
@@ -50,9 +58,17 @@ func PostURL(url, body string, headers []string, target interface{}) error {
 
 	r, err := httpClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("send POST request: %w", err)
 	}
-	defer func() { _ = r.Body.Close() }()
+	// Draining before Close lets the transport reuse the underlying HTTP/1.x connection;
+	// otherwise it's forced to redial (and re-handshake, for TLS) on the next request. This
+	// matters most when target == nil (the caller doesn't want the body at all, e.g. the
+	// websocket mirror at websocket.go — every 2xx response with a non-empty body would
+	// otherwise pay for a fresh connection).
+	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, maxResponseBody))
+		_ = r.Body.Close()
+	}()
 
 	if err := checkStatus(http.MethodPost, url, r); err != nil {
 		return err
@@ -61,7 +77,7 @@ func PostURL(url, body string, headers []string, target interface{}) error {
 	if target != nil {
 		data, errRead := io.ReadAll(io.LimitReader(r.Body, maxResponseBody+1))
 		if errRead != nil {
-			return errRead
+			return fmt.Errorf("read POST response body: %w", errRead)
 		}
 		if int64(len(data)) > maxResponseBody {
 			return fmt.Errorf("%s %s: response body exceeds %d bytes", http.MethodPost, url, maxResponseBody)
@@ -79,9 +95,21 @@ func checkStatus(method, url string, r *http.Response) error {
 		return nil
 	}
 
-	snippet, _ := io.ReadAll(io.LimitReader(r.Body, maxErrorBodySnippet))
 	status := sanitizeServerText(r.Status)
+	// io.ReadAll returns the bytes it did manage to read alongside a non-nil error on a
+	// truncated/hijacked body (e.g. a declared Content-Length the server never delivered) —
+	// keep that partial snippet instead of discarding it. readErr's own message can embed
+	// server-supplied text (net/http's trailer parsing may fold a server header into it), so
+	// sanitize it the same as status/body rather than let it skip the same treatment.
+	snippet, readErr := io.ReadAll(io.LimitReader(r.Body, maxErrorBodySnippet))
 	body := strings.TrimSpace(sanitizeServerText(string(snippet)))
+	if readErr != nil {
+		sanitizedReadErr := sanitizeServerText(readErr.Error())
+		if body == "" {
+			return fmt.Errorf("%s %s: unexpected HTTP status %s (failed to read response body: %s)", method, url, status, sanitizedReadErr)
+		}
+		return fmt.Errorf("%s %s: unexpected HTTP status %s: %s (failed to read response body: %s)", method, url, status, body, sanitizedReadErr)
+	}
 	if body == "" {
 		return fmt.Errorf("%s %s: unexpected HTTP status %s", method, url, status)
 	}

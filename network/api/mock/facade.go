@@ -115,6 +115,21 @@ func (f *Facade) WSMaxAddressesPerClient() uint32 {
 	return 0
 }
 
+// WSPostWorkers -
+func (f *Facade) WSPostWorkers() uint32 {
+	return 0
+}
+
+// WSPostQueueSize -
+func (f *Facade) WSPostQueueSize() uint32 {
+	return 0
+}
+
+// AppStatusHandler -
+func (f *Facade) AppStatusHandler() core.AppStatusHandler {
+	return nil
+}
+
 // TpsBenchmark is the mock implementation for retreiving the TpsBenchmark
 func (f *Facade) TpsBenchmark() *statistics.TpsBenchmark {
 	if f.TpsBenchmarkHandler != nil {

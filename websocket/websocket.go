@@ -6,12 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/klever-io/klever-go/cmd/operator/utils"
 
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/core"
 	indexer "github.com/klever-io/klever-go/indexer"
 	"github.com/klever-io/klever-go/indexer/data"
+	"github.com/klever-io/klever-go/statusHandler"
+	atomicPkg "github.com/klever-io/klever-go/tools/atomic"
+	"github.com/klever-io/klever-go/tools/check"
 )
 
 var log = logger.GetOrCreate("websocket")
@@ -25,7 +31,46 @@ const (
 	errMissingNonceHash = "must provide nonce or hash"
 	errTxNotFound       = "transaction not found"
 	errBlockNotFound    = "block not found"
+
+	postQueueDropLogIntervalSeconds = 10
 )
+
+// dropWarner rate-limits a recurring warning behind a fixed window: every occurrence
+// calls fire(), which folds the count since the last log into one summary line at most
+// once per window instead of logging every single occurrence. Deliberately a per-instance
+// value (unlike indexer.trySendEvent's package-global rate-limit vars, which use the same
+// pattern but are intentionally left alone — see PR discussion) so two independent
+// warning sources on the same hub (queue-full drops vs. post failures) can't share, or
+// reset, each other's windows.
+type dropWarner struct {
+	count      atomicPkg.Counter
+	lastLogged int64 // unix seconds; accessed only via sync/atomic
+	windowSecs int64
+}
+
+// fire records one occurrence and reports (count, true) with the number of occurrences
+// folded into the window (including this one) at most once per windowSecs; otherwise
+// reports (0, false).
+func (w *dropWarner) fire() (int64, bool) {
+	w.count.Increment()
+	now := time.Now().Unix()
+	last := atomic.LoadInt64(&w.lastLogged)
+	if now-last < w.windowSecs {
+		return 0, false
+	}
+	if !atomic.CompareAndSwapInt64(&w.lastLogged, last, now) {
+		return 0, false
+	}
+	return w.count.Reset(), true
+}
+
+// flush reports any occurrences still pending in the current window (count > 0) — used
+// on worker shutdown so a burst that never reaches another occurrence to trigger the next
+// window doesn't sit unreported, or get misattributed to some unrelated later window.
+func (w *dropWarner) flush() (int64, bool) {
+	count := w.count.Reset()
+	return count, count > 0
+}
 
 type userOptions struct {
 	acceptAccount     bool
@@ -43,12 +88,53 @@ type SocketHub struct {
 	clientAddresses         map[*client]int
 	limits                  resolvedLimits
 	unregister              chan *client
+	// postQueue feeds the bounded postWSConnection worker pool; nil when the mirror is
+	// disabled (no URL configured — see NewHub), so asyncPost is a no-op and never
+	// allocates a goroutine or channel slot for a feature nobody turned on.
+	postQueue chan *Send
+	// postWorkersWG tracks live post workers so StartServer's shutdown can wait for them
+	// to actually exit rather than returning while one is still mid-request.
+	postWorkersWG sync.WaitGroup
+	// queueDropWarn/postFailWarn are per-hub (not package-global) rate-limited warning
+	// state for, respectively, the mirror queue being full and a post to the mirror
+	// failing — kept separate so a burst of one kind can't reset or share the other's
+	// window.
+	queueDropWarn dropWarner
+	postFailWarn  dropWarner
+	// appStatusHandler exports the mirror's cumulative drop/failure counts (see
+	// MetricWSMirrorQueueDroppedTotal/MetricWSMirrorPostFailuresTotal) alongside the
+	// rate-limited WARN logs above — the log is a periodic sample, this is the exact
+	// total. Defaults to a no-op handler (see NewHub) so it's always safe to call without
+	// a nil check; SetAppStatusHandler swaps in a real one.
+	appStatusHandler core.AppStatusHandler
+}
+
+// SetAppStatusHandler wires ash in to receive the mirror's drop/failure counters. Safe to
+// call with a nil ash (no-op, keeps the current handler) so a caller can pass through
+// whatever it has without its own nil check.
+func (h *SocketHub) SetAppStatusHandler(ash core.AppStatusHandler) {
+	if check.IfNil(ash) {
+		return
+	}
+	h.appStatusHandler = ash
 }
 
 func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade, limits ...Limits) *SocketHub {
 	var l Limits
 	if len(limits) > 0 {
 		l = limits[0]
+	}
+	resolved := l.resolve()
+
+	// The mirror requires a URL: an API key with no URL can never succeed (every request
+	// fails inside the HTTP client with "no Host in request URL"), so treating URL as the
+	// single source of truth for whether the mirror is enabled means postWSConnection's
+	// own now-removed URL/key check could never disagree with it.
+	var postQueue chan *Send
+	if postConnectionURL != "" {
+		postQueue = make(chan *Send, resolved.postQueueSize)
+	} else if postConnectionAPIKey != "" {
+		log.Warn("ws.NewHub", "msg", "postConnectionAPIKey set without postConnectionURL; mirror stays disabled")
 	}
 
 	return &SocketHub{
@@ -60,7 +146,11 @@ func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade, lim
 		postConnectionURL:       postConnectionURL,
 		postConnectionAPIKey:    postConnectionAPIKey,
 		facade:                  facade,
-		limits:                  l.resolve(),
+		limits:                  resolved,
+		postQueue:               postQueue,
+		queueDropWarn:           dropWarner{windowSecs: postQueueDropLogIntervalSeconds},
+		postFailWarn:            dropWarner{windowSecs: postQueueDropLogIntervalSeconds},
+		appStatusHandler:        statusHandler.NewNilStatusHandler(),
 	}
 }
 
@@ -74,12 +164,59 @@ func (h *SocketHub) MaxAddressesPerSubscribe() int {
 	return h.limits.maxAddressesPerSubscribe
 }
 
+// asyncPost hands parsed to the bounded post-mirror worker pool. It is a pure no-op when
+// the mirror isn't configured, and drops (with a rate-limited warning) rather than block
+// or grow without bound when postWorkerCount workers are all busy with a slow endpoint.
 func (h *SocketHub) asyncPost(parsed *Send) {
-	go func() {
-		if err := h.postWSConnection(parsed); err != nil {
-			log.Warn("ws.EventReceive.postWSConnection", "failed to post", err.Error())
+	if h.postQueue == nil {
+		return
+	}
+	select {
+	case h.postQueue <- parsed:
+	default:
+		h.appStatusHandler.Increment(core.MetricWSMirrorQueueDroppedTotal)
+		if count, ok := h.queueDropWarn.fire(); ok {
+			log.Warn("ws.EventReceive.postWSConnection", "msg", "mirror queue full, dropping events", "droppedCount", count)
 		}
-	}()
+	}
+}
+
+// startPostWorkers runs postWorkerCount goroutines draining postQueue until ctx is done.
+// No-op when the mirror is disabled (postQueue == nil). Each worker is tracked in
+// postWorkersWG so StartServer's shutdown can wait for them to actually exit — ctx is
+// threaded into the HTTP call itself (via postWSConnection) so an in-flight request is
+// aborted promptly on cancellation instead of running out its full timeout.
+func (h *SocketHub) startPostWorkers(ctx context.Context) {
+	if h.postQueue == nil {
+		return
+	}
+	for i := 0; i < h.limits.postWorkers; i++ {
+		h.postWorkersWG.Add(1)
+		go func() {
+			defer h.postWorkersWG.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case parsed := <-h.postQueue:
+					// select has no case priority: ctx.Done() and postQueue can both be
+					// ready at once, so a cancelled shutdown can still dequeue one more
+					// item. Check ctx.Err() before posting instead of starting (and
+					// immediately failing) a doomed request.
+					if ctx.Err() != nil {
+						log.Warn("ws.EventReceive.postWSConnection", "msg", "shutdown: abandoning mirror queue", "pending", len(h.postQueue)+1)
+						return
+					}
+					if err := h.postWSConnection(ctx, parsed); err != nil {
+						h.appStatusHandler.Increment(core.MetricWSMirrorPostFailuresTotal)
+						if count, ok := h.postFailWarn.fire(); ok {
+							log.Warn("ws.EventReceive.postWSConnection", "msg", "failed to post to mirror", "failedCount", count, "lastError", err.Error())
+						}
+					}
+				}
+			}
+		}()
+	}
 }
 
 func (h *SocketHub) notifyAddressSubscribers(address string, parsed *Send, filterFn func(userOptions) bool) {
@@ -128,11 +265,24 @@ func (h *SocketHub) marshalAndPost(evType indexer.EventType, address, hash strin
 }
 
 func (h *SocketHub) StartServer(ctx context.Context) {
+	h.startPostWorkers(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			log.Info("delete all client and close gracefully")
 			h.deleteAll()
+			h.postWorkersWG.Wait()
+			// A burst that never reaches another occurrence to trigger fire()'s next
+			// window would otherwise sit unreported in the counter — possibly forever, if
+			// the hub shuts down before the next log fires — or get misattributed to some
+			// unrelated later window on hub reuse. Flush both here, once, after every
+			// worker has actually exited.
+			if count, ok := h.queueDropWarn.flush(); ok {
+				log.Warn("ws.EventReceive.postWSConnection", "msg", "mirror queue full, dropping events (final)", "droppedCount", count)
+			}
+			if count, ok := h.postFailWarn.flush(); ok {
+				log.Warn("ws.EventReceive.postWSConnection", "msg", "failed to post to mirror (final)", "failedCount", count)
+			}
 			return
 		case client := <-h.unregister:
 			h.handleClientDelete(client)
@@ -221,17 +371,18 @@ func (h *SocketHub) handleBroadcastEvent(event indexer.Event, subscription map[*
 	h.broadcastToSubscription(parsed, subscription)
 }
 
-func (h *SocketHub) postWSConnection(message *Send) error {
-	if h.postConnectionURL == "" && h.postConnectionAPIKey == "" {
-		return nil
-	}
-
+// postWSConnection is only ever invoked from startPostWorkers's dequeue loop, which only
+// runs at all when postQueue != nil — and NewHub only allocates postQueue when
+// postConnectionURL is set — so postConnectionURL is guaranteed non-empty here; no local
+// empty-config guard needed (the direct-call tests exercise that invariant instead, see
+// TestNewHub_PostQueueAllocatedOnlyWhenConfigured).
+func (h *SocketHub) postWSConnection(ctx context.Context, message *Send) error {
 	b, err := json.Marshal(message)
 	if err != nil {
 		return err
 	}
 
-	return utils.PostURL(h.postConnectionURL, string(b), []string{"x-api-key", h.postConnectionAPIKey}, nil)
+	return utils.PostURLWithContext(ctx, h.postConnectionURL, string(b), []string{"x-api-key", h.postConnectionAPIKey}, nil)
 }
 
 type Send struct {

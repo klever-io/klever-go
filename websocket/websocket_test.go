@@ -4,13 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	ws "github.com/gorilla/websocket"
+	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data/api"
 	indexer "github.com/klever-io/klever-go/indexer"
 	"github.com/klever-io/klever-go/indexer/data"
@@ -47,6 +53,23 @@ func (m *mockFacade) GetBlockByNonce(nonce uint64, withTxs bool) (*api.Block, er
 
 func newTestHub(facade WSFacade) *SocketHub {
 	return NewHub("", "", facade)
+}
+
+// assertReturnsQuickly runs fn on its own goroutine and fails the test if fn hasn't
+// returned within timeout, instead of letting a regression that blocks fn hang the whole
+// test (or the suite) rather than failing it.
+func assertReturnsQuickly(t *testing.T, timeout time.Duration, failMsg string, fn func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		t.Fatal(failMsg)
+	}
 }
 
 func newTestClient(hub *SocketHub) *client {
@@ -662,13 +685,6 @@ func TestDeleteAll(t *testing.T) {
 	assert.False(t, hasC3)
 }
 
-func TestPostWSConnection_EmptyConfig(t *testing.T) {
-	hub := newTestHub(nil)
-	msg := &Send{Type: indexer.BLOCKS, Data: []byte(`{}`)}
-	err := hub.postWSConnection(msg)
-	assert.NoError(t, err)
-}
-
 func TestPostWSConnection_WithServer(t *testing.T) {
 	receivedCh := make(chan []byte, 1)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -680,7 +696,7 @@ func TestPostWSConnection_WithServer(t *testing.T) {
 	defer ts.Close()
 
 	hub := NewHub(ts.URL, "test-key", nil)
-	err := hub.postWSConnection(&Send{Type: indexer.BLOCKS, Data: []byte(`{}`)})
+	err := hub.postWSConnection(t.Context(), &Send{Type: indexer.BLOCKS, Data: []byte(`{}`)})
 	assert.NoError(t, err)
 
 	select {
@@ -689,6 +705,255 @@ func TestPostWSConnection_WithServer(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for POST request")
 	}
+}
+
+func TestAsyncPost_NoopWithoutConfig(t *testing.T) {
+	hub := newTestHub(nil)
+	assert.Nil(t, hub.postQueue)
+
+	// A select on a nil channel always falls straight to its default case (it never
+	// blocks), so the timeout alone wouldn't catch a regression that deleted asyncPost's
+	// `postQueue == nil` early return — the select would just keep taking default. Assert
+	// the drop-warn counter too: taking that path (instead of the early return) fires it.
+	assertReturnsQuickly(t, 2*time.Second, "asyncPost blocked with no mirror configured", func() {
+		hub.asyncPost(&Send{Type: indexer.BLOCKS, Data: []byte(`{}`)})
+	})
+	assert.Zero(t, hub.queueDropWarn.count.Get(),
+		"asyncPost must take the postQueue == nil early return, not fall through to the drop-warn path")
+}
+
+func TestNewHub_PostQueueAllocatedOnlyWhenConfigured(t *testing.T) {
+	assert.Nil(t, NewHub("", "", nil).postQueue, "no URL or API key: mirror disabled")
+	assert.NotNil(t, NewHub("http://example.com", "", nil).postQueue, "URL set: mirror enabled")
+	// An API key with no URL can never succeed (every request would fail inside the HTTP
+	// client with "no Host in request URL"), so the mirror requires a URL — API key alone
+	// leaves postQueue nil rather than starting postWorkerCount workers doomed to fail.
+	assert.Nil(t, NewHub("", "api-key", nil).postQueue, "API key without URL: mirror stays disabled")
+}
+
+func TestSocketHub_SetAppStatusHandler_NilIsNoop(t *testing.T) {
+	hub := newTestHub(nil)
+	original := hub.appStatusHandler
+	require.NotNil(t, original, "NewHub must default to a non-nil handler")
+
+	hub.SetAppStatusHandler(nil)
+	assert.Same(t, original, hub.appStatusHandler, "a nil handler must not replace the default")
+}
+
+func TestAsyncPost_QueueFull_IncrementsAppStatusMetric(t *testing.T) {
+	hub := NewHub("http://example.invalid", "key", nil)
+
+	var incremented []string
+	hub.SetAppStatusHandler(&mock.AppStatusHandlerStub{
+		IncrementHandler: func(key string) {
+			incremented = append(incremented, key)
+		},
+	})
+
+	for i := 0; i < hub.limits.postQueueSize; i++ {
+		hub.asyncPost(&Send{Type: indexer.BLOCKS, Hash: fmt.Sprintf("seed-%d", i)})
+	}
+	require.Empty(t, incremented, "must not increment before the queue is actually full")
+
+	hub.asyncPost(&Send{Type: indexer.BLOCKS, Hash: "overflow"})
+	assert.Equal(t, []string{core.MetricWSMirrorQueueDroppedTotal}, incremented)
+}
+
+func TestStartPostWorkers_PostFailure_IncrementsAppStatusMetric(t *testing.T) {
+	hub := NewHub("http://example.invalid", "key", nil)
+
+	var mu sync.Mutex
+	var incremented []string
+	hub.SetAppStatusHandler(&mock.AppStatusHandlerStub{
+		IncrementHandler: func(key string) {
+			mu.Lock()
+			defer mu.Unlock()
+			incremented = append(incremented, key)
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+		hub.postWorkersWG.Wait()
+	}()
+	hub.startPostWorkers(ctx)
+
+	// example.invalid never resolves (RFC 6761), so every post to it fails.
+	hub.asyncPost(&Send{Type: indexer.BLOCKS, Hash: "will-fail"})
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(incremented) > 0
+	}, 2*time.Second, 10*time.Millisecond, "expected a post-failure metric increment")
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, core.MetricWSMirrorPostFailuresTotal, incremented[0])
+}
+
+func TestAsyncPost_DeliversToWorker(t *testing.T) {
+	type receivedPost struct {
+		body []byte
+		err  error
+	}
+	receivedCh := make(chan receivedPost, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		receivedCh <- receivedPost{body: body, err: err}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	hub := NewHub(ts.URL, "test-key", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+		hub.postWorkersWG.Wait()
+	}()
+	hub.startPostWorkers(ctx)
+
+	hub.asyncPost(&Send{Type: indexer.BLOCKS, Data: []byte(`{"nonce":1}`)})
+
+	select {
+	case received := <-receivedCh:
+		require.NoError(t, received.err)
+		assert.JSONEq(t,
+			`{"type":"blocks","address":"","hash":"","data":{"nonce":1}}`,
+			string(received.body),
+		)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for mirrored POST")
+	}
+}
+
+func TestAsyncPost_DropsWhenQueueFull(t *testing.T) {
+	hub := NewHub("http://example.invalid", "key", nil)
+	// No workers started: the queue only drains via asyncPost's own capacity, so filling
+	// it exercises the drop-on-full path deterministically without a live HTTP server.
+	// Each seed message is distinct (by Hash) so the assertions below can tell "the new
+	// send was dropped" apart from "an existing send was evicted to make room for it" —
+	// both would otherwise leave the queue at the same length.
+	for i := 0; i < hub.limits.postQueueSize; i++ {
+		hub.asyncPost(&Send{Type: indexer.BLOCKS, Hash: fmt.Sprintf("seed-%d", i)})
+	}
+	require.Len(t, hub.postQueue, hub.limits.postQueueSize)
+
+	assertReturnsQuickly(t, 2*time.Second, "asyncPost blocked on a full queue instead of dropping", func() {
+		hub.asyncPost(&Send{Type: indexer.BLOCKS, Hash: "overflow"})
+	})
+
+	require.Len(t, hub.postQueue, hub.limits.postQueueSize, "queue-full send must be dropped, not queued")
+	for i := 0; i < hub.limits.postQueueSize; i++ {
+		msg := <-hub.postQueue
+		assert.NotEqual(t, "overflow", msg.Hash,
+			"overflow message must be dropped, not enqueued in place of an existing one")
+	}
+}
+
+func TestStartPostWorkers_StopOnContextCancel(t *testing.T) {
+	hub := NewHub("http://example.invalid", "key", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	hub.startPostWorkers(ctx)
+	cancel()
+
+	// Deterministically prove every worker actually exited, rather than assuming it did
+	// after a fixed sleep: postWorkersWG.Wait() only returns once each worker's Done()
+	// fires. A stuck worker hangs this test instead of passing silently.
+	assertReturnsQuickly(t, 2*time.Second, "post workers did not exit after context cancellation", func() {
+		hub.postWorkersWG.Wait()
+	})
+}
+
+func TestStartPostWorkers_NoopWithoutConfig(t *testing.T) {
+	hub := newTestHub(nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	hub.startPostWorkers(ctx)
+
+	// Prove no workers were actually started (not just "didn't panic"): if
+	// startPostWorkers incorrectly launched goroutines despite the nil queue, they'd be
+	// registered in postWorkersWG and this Wait() would hang until the timeout below
+	// instead of returning immediately.
+	assertReturnsQuickly(t, 2*time.Second, "startPostWorkers appears to have started workers despite no mirror config", func() {
+		hub.postWorkersWG.Wait()
+	})
+}
+
+// TestStartPostWorkers_BoundedInFlightAndCtxCancelAbortsRequest covers the actual
+// invariant this worker pool exists for — at most postWorkerCount mirror requests running
+// concurrently — plus ctx cancellation aborting an in-flight request rather than waiting
+// out httpClient's full timeout. Every other test in this file would stay green even if
+// startPostWorkers reverted to `go func(){ h.postWSConnection(...) }()` per request: none
+// of them ever gets postWorkerCount+1 requests in flight at once, and
+// StopOnContextCancel/DeliversToWorker never have a request actually parked in the
+// handler when ctx is cancelled. A blocking httptest handler is needed to prove both.
+func TestStartPostWorkers_BoundedInFlightAndCtxCancelAbortsRequest(t *testing.T) {
+	const totalSends = defaultPostWorkerCount * 4
+
+	var inFlight int64
+	var peakInFlight int64
+	var peakMu sync.Mutex
+	release := make(chan struct{})
+	handlerEntered := make(chan struct{}, totalSends)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt64(&inFlight, 1)
+		defer atomic.AddInt64(&inFlight, -1)
+		peakMu.Lock()
+		if n > peakInFlight {
+			peakInFlight = n
+		}
+		peakMu.Unlock()
+		handlerEntered <- struct{}{}
+		select {
+		case <-release:
+			w.WriteHeader(http.StatusOK)
+		case <-r.Context().Done():
+			// Client aborted (ctx cancellation below): nothing left to write to.
+		}
+	}))
+	defer ts.Close()
+
+	hub := NewHub(ts.URL, "key", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	hub.startPostWorkers(ctx)
+
+	for i := 0; i < totalSends; i++ {
+		hub.asyncPost(&Send{Type: indexer.BLOCKS, Hash: fmt.Sprintf("req-%d", i)})
+	}
+
+	// Wait until postWorkerCount handlers are simultaneously parked: proves the bound is
+	// actually being exercised, since anything beyond postWorkerCount must wait for a free
+	// worker instead of firing its request immediately.
+	for i := 0; i < defaultPostWorkerCount; i++ {
+		select {
+		case <-handlerEntered:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("expected %d concurrent in-flight requests, only saw %d", defaultPostWorkerCount, i)
+		}
+	}
+
+	// Give an (incorrect) unbounded pool a chance to also enter the handler before reading
+	// the peak, so a regression back to one-goroutine-per-send would actually show up here.
+	time.Sleep(50 * time.Millisecond)
+	peakMu.Lock()
+	got := peakInFlight
+	peakMu.Unlock()
+	assert.LessOrEqual(t, got, int64(defaultPostWorkerCount), "more than postWorkerCount mirror requests were in flight at once")
+
+	// Cancel while postWorkerCount requests are parked in the handler (blocked on release,
+	// which nothing closes) — proves ctx cancellation aborts the in-flight request instead
+	// of running out httpClient's 10s timeout.
+	start := time.Now()
+	cancel()
+	assertReturnsQuickly(t, 5*time.Second, "post workers did not exit promptly on context cancellation with requests in flight", func() {
+		hub.postWorkersWG.Wait()
+	})
+	assert.Less(t, time.Since(start), 9*time.Second, "workers should exit well before httpClient's 10s timeout")
+	close(release)
 }
 
 func TestStartServer_ContextCancel(t *testing.T) {

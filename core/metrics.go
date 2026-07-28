@@ -306,3 +306,9 @@ const MetricClockOffsetNs = "klv_clock_offset_ns"
 
 // MetricClockLastSyncTimestamp is the metric for the unix-seconds timestamp of the last successful NTP sync (0 before first success)
 const MetricClockLastSyncTimestamp = "klv_clock_last_sync_timestamp"
+
+// MetricWSMirrorQueueDroppedTotal is the cumulative count of /subscribe mirror events dropped because the mirror worker queue was full
+const MetricWSMirrorQueueDroppedTotal = "klv_ws_mirror_queue_dropped_total"
+
+// MetricWSMirrorPostFailuresTotal is the cumulative count of /subscribe mirror POST requests that failed
+const MetricWSMirrorPostFailuresTotal = "klv_ws_mirror_post_failures_total"

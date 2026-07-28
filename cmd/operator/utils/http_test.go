@@ -158,6 +158,52 @@ func TestPostURLReturnsErrorOnEmptyBody(t *testing.T) {
 	require.Error(t, err)
 }
 
+// newHijackingServer declares far more body than it actually sends, then closes the raw
+// connection — the client's Read on the error body sees an unexpected EOF instead of a
+// clean stream, exercising checkStatus's io.ReadAll failure path.
+func newHijackingServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusInternalServerError)
+		hj, ok := w.(http.Hijacker)
+		require.True(t, ok, "test server response writer must support hijacking")
+		conn, _, err := hj.Hijack()
+		require.NoError(t, err)
+		_, _ = conn.Write([]byte("short"))
+		_ = conn.Close()
+	}))
+}
+
+// TestErrorBodyReadFailureIsWrapped covers checkStatus's io.ReadAll failure path from
+// both callers that share it: the partial "short" body it did manage to read before the
+// failure must survive into the error message (previously discarded via
+// `snippet, _ := io.ReadAll(...)`), for GetURL and PostURL alike.
+func TestErrorBodyReadFailureIsWrapped(t *testing.T) {
+	t.Run("GetURL", func(t *testing.T) {
+		srv := newHijackingServer(t)
+		defer srv.Close()
+
+		var got sampleResult
+		err := utils.GetURL(srv.URL, &got)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "500")
+		assert.Contains(t, err.Error(), "failed to read response body")
+		assert.Contains(t, err.Error(), "short", "partial body read before the failure must not be discarded")
+	})
+
+	t.Run("PostURL", func(t *testing.T) {
+		srv := newHijackingServer(t)
+		defer srv.Close()
+
+		err := utils.PostURL(srv.URL, `{}`, nil, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "500")
+		assert.Contains(t, err.Error(), "failed to read response body")
+		assert.Contains(t, err.Error(), "short", "partial body read before the failure must not be discarded")
+	})
+}
+
 func TestPostURLNilTargetReturnsNilOnSuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
