@@ -2,9 +2,11 @@ package vmhooks
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 	"testing"
 
+	commonMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/kvm/config"
 	"github.com/klever-io/klever-go/kvm/executor"
 	kvmmath "github.com/klever-io/klever-go/kvm/math"
@@ -67,6 +69,23 @@ func TestArgumentsLengthByteCount(t *testing.T) {
 
 	_, err = argumentsLengthByteCount(math.MaxInt32)
 	require.Error(t, err)
+}
+
+func TestVMHooksImpl_WriteLogRejectsTopicCountAboveMaximum(t *testing.T) {
+	t.Parallel()
+
+	host := newInternalMockVMHost()
+	host.ForkControllerContext = &commonMock.ForkControllerStub{FixAuditChangesV4Value: true}
+	host.RuntimeContext.(*contextmock.RuntimeContextMock).FailBaseOpsAPI = true
+
+	context := NewVMHooksImpl(host)
+	context.WriteLog(executor.MemPtr(0), 0, executor.MemPtr(100), maxNumTopics+1)
+
+	require.EqualError(
+		t,
+		host.RuntimeContext.(*contextmock.RuntimeContextMock).FailExecutionErr,
+		fmt.Sprintf("invalid numTopics (%d)", maxNumTopics+1),
+	)
 }
 
 func TestVMHooksImpl_getArgumentsFromMemory(t *testing.T) {

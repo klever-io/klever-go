@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	commonMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/executor"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
@@ -312,6 +313,8 @@ func TestVMHooksImpl_WriteLog(t *testing.T) {
 		data           []byte
 		topics         [][]byte
 		numTopics      int32
+		fixAuditV4     bool
+		meteringErr    error
 		shouldFailExec bool
 		expectedError  error
 	}{
@@ -334,11 +337,39 @@ func TestVMHooksImpl_WriteLog(t *testing.T) {
 			shouldFailExec: true,
 			expectedError:  vmhost.ErrNegativeLength,
 		},
+		{
+			name:       "valid log with audit fix",
+			data:       []byte("log message"),
+			topics:     [][]byte{makeAddress("topic1"), makeAddress("topic2")},
+			numTopics:  2,
+			fixAuditV4: true,
+		},
+		{
+			name:           "negative topics with audit fix",
+			data:           []byte("log message"),
+			numTopics:      -1,
+			fixAuditV4:     true,
+			shouldFailExec: true,
+			expectedError:  vmhost.ErrNegativeLength,
+		},
+		{
+			name:           "insufficient gas for topics with audit fix",
+			data:           []byte("log message"),
+			numTopics:      1,
+			fixAuditV4:     true,
+			meteringErr:    vmhost.ErrNotEnoughGas,
+			shouldFailExec: true,
+			expectedError:  vmhost.ErrNotEnoughGas,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			host := newMockVMHost()
+			host.ForkControllerContext = &commonMock.ForkControllerStub{FixAuditChangesV4Value: tt.fixAuditV4}
+			if tt.meteringErr != nil {
+				host.MeteringContext.(*contextmock.MeteringContextMock).Err = tt.meteringErr
+			}
 			hooks := vmhooks.NewVMHooksImpl(host)
 			host.OutputContext = &contextmock.OutputContextStub{
 				WriteLogCalled: func(address []byte, topics [][]byte, data [][]byte) {

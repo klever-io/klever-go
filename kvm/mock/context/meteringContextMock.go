@@ -77,6 +77,9 @@ func (m *MeteringContextMock) UseGasAndAddTracedGas(_ string, gasToUse uint64) {
 
 // UseGasBoundedAndAddTracedGas -
 func (m *MeteringContextMock) UseGasBoundedAndAddTracedGas(_ string, gasToUse uint64) error {
+	if m.Err != nil {
+		return m.Err
+	}
 	m.UseGas(gasToUse)
 	return nil
 }

@@ -96,6 +96,7 @@ const (
 )
 const maxNumArgumentsFromMemory = 16000000
 const maxTotalArgumentsBytes = 16000000
+const maxNumTopics = 16000000
 
 var logEEI = logger.GetOrCreate("vm/eei")
 
@@ -1567,16 +1568,36 @@ func (context *VMHooksImpl) WriteLog(
 	output := context.GetOutputContext()
 	metering := context.GetMeteringContext()
 
-	gasToUse := metering.GasSchedule().BaseOpsAPICost.Log
-	// #nosec G115
-	gas := math.MulUint64(metering.GasSchedule().BaseOperationCost.PersistPerByte, uint64(numTopics*vmhost.HashLen+dataLength))
-	gasToUse = math.AddUint64(gasToUse, gas)
-	metering.UseGasAndAddTracedGas(writeLogName, gasToUse)
+	if context.host.ForkController().FixAuditChangesV4() {
+		if numTopics < 0 || dataLength < 0 {
+			context.WithFault(vmhost.ErrNegativeLength, runtime.BaseOpsErrorShouldFailExecution())
+			return
+		}
+		if numTopics > maxNumTopics {
+			context.WithFault(fmt.Errorf("invalid numTopics (%d)", numTopics), runtime.BaseOpsErrorShouldFailExecution())
+			return
+		}
 
-	if numTopics < 0 || dataLength < 0 {
-		err := vmhost.ErrNegativeLength
-		context.WithFault(err, runtime.BaseOpsErrorShouldFailExecution())
-		return
+		gasToUse := metering.GasSchedule().BaseOpsAPICost.Log
+		topicsBytes := math.AddUint64(math.MulUint64(uint64(numTopics), uint64(vmhost.HashLen)), uint64(dataLength))
+		gas := math.MulUint64(metering.GasSchedule().BaseOperationCost.PersistPerByte, topicsBytes)
+		gasToUse = math.AddUint64(gasToUse, gas)
+		err := metering.UseGasBoundedAndAddTracedGas(writeLogName, gasToUse)
+		if context.WithFault(err, runtime.BaseOpsErrorShouldFailExecution()) {
+			return
+		}
+	} else {
+		gasToUse := metering.GasSchedule().BaseOpsAPICost.Log
+		// #nosec G115
+		gas := math.MulUint64(metering.GasSchedule().BaseOperationCost.PersistPerByte, uint64(numTopics*vmhost.HashLen+dataLength))
+		gasToUse = math.AddUint64(gasToUse, gas)
+		metering.UseGasAndAddTracedGas(writeLogName, gasToUse)
+
+		if hasNegativeLength(numTopics, dataLength) {
+			err := vmhost.ErrNegativeLength
+			context.WithFault(err, runtime.BaseOpsErrorShouldFailExecution())
+			return
+		}
 	}
 
 	log, err := context.MemLoad(dataPointer, dataLength)
@@ -1593,6 +1614,10 @@ func (context *VMHooksImpl) WriteLog(
 	}
 
 	output.WriteLog(runtime.GetContextAddress(), topics, [][]byte{log})
+}
+
+func hasNegativeLength(numTopics int32, dataLength executor.MemLength) bool {
+	return numTopics < 0 || dataLength < 0
 }
 
 // WriteEventLog VMHooks implementation.
