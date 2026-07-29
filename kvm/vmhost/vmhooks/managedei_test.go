@@ -607,6 +607,120 @@ func newMockVMHost() *contextmock.VMHostMock {
 	}
 }
 
+const (
+	upgradeDestHandle          = int32(1)
+	upgradeGasLimit            = int64(0)
+	upgradeValueHandle         = int32(2)
+	upgradeCodeHandle          = int32(3)
+	upgradeSourceAddressHandle = int32(3)
+	upgradeCodeMetadataHandle  = int32(4)
+	upgradeArgumentsHandle     = int32(5)
+	upgradeResultHandle        = int32(6)
+)
+
+func newMockVMHostWithUpgradeValue(value *big.Int, fixAuditChangesV4 bool) *contextmock.VMHostMock {
+	host := newMockVMHost()
+	host.ForkControllerContext = &commonMock.ForkControllerStub{FixAuditChangesV4Value: fixAuditChangesV4}
+	host.OutputContext = &contextmock.OutputContextMock{}
+	managedTypes := host.ManagedTypesContext.(*hostmock.ManagedTypesContextMock)
+	managedTypes.GetBytesCalled = func(handle int32) ([]byte, error) {
+		return []byte("contract"), nil
+	}
+	managedTypes.GetBigIntCalled = func(handle int32) (*big.Int, error) {
+		return value, nil
+	}
+	managedTypes.ReadManagedVecOfManagedBuffersCalled = func(handle int32) ([][]byte, uint64, error) {
+		return [][]byte{[]byte("argument")}, 1, nil
+	}
+	host.RuntimeContext.(*contextmock.RuntimeContextMock).FailBaseOpsAPI = true
+	return host
+}
+
+func upgradeValueCases() []struct {
+	purpose           string
+	value             *big.Int
+	fixAuditChangesV4 bool
+	expectedError     error
+} {
+	return []struct {
+		purpose           string
+		value             *big.Int
+		fixAuditChangesV4 bool
+		expectedError     error
+	}{
+		{
+			purpose:           "Should reject a negative value",
+			value:             big.NewInt(-10),
+			fixAuditChangesV4: true,
+			expectedError:     vmhost.ErrTransferNegativeValue,
+		},
+		{
+			purpose:           "Should accept a zero value",
+			value:             big.NewInt(0),
+			fixAuditChangesV4: true,
+			expectedError:     nil,
+		},
+		{
+			purpose:           "Should accept a positive value",
+			value:             big.NewInt(10),
+			fixAuditChangesV4: true,
+			expectedError:     nil,
+		},
+		{
+			purpose:           "Should accept a negative value before the fork",
+			value:             big.NewInt(-10),
+			fixAuditChangesV4: false,
+			expectedError:     nil,
+		},
+	}
+}
+
+func TestVMHooksImpl_ManagedUpgradeContract_ValueValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range upgradeValueCases() {
+		t.Run(tt.purpose, func(t *testing.T) {
+			host := newMockVMHostWithUpgradeValue(tt.value, tt.fixAuditChangesV4)
+			hooks := vmhooks.NewVMHooksImpl(host)
+
+			hooks.ManagedUpgradeContract(
+				upgradeDestHandle,
+				upgradeGasLimit,
+				upgradeValueHandle,
+				upgradeCodeHandle,
+				upgradeCodeMetadataHandle,
+				upgradeArgumentsHandle,
+				upgradeResultHandle,
+			)
+
+			assert.Equal(t, tt.expectedError, host.RuntimeContext.(*contextmock.RuntimeContextMock).FailExecutionErr)
+		})
+	}
+}
+
+func TestVMHooksImpl_ManagedUpgradeFromSourceContract_ValueValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range upgradeValueCases() {
+		t.Run(tt.purpose, func(t *testing.T) {
+			host := newMockVMHostWithUpgradeValue(tt.value, tt.fixAuditChangesV4)
+			hooks := vmhooks.NewVMHooksImpl(host)
+
+			hooks.ManagedUpgradeFromSourceContract(
+				upgradeDestHandle,
+				upgradeGasLimit,
+				upgradeValueHandle,
+				upgradeSourceAddressHandle,
+				upgradeCodeMetadataHandle,
+				upgradeArgumentsHandle,
+				upgradeResultHandle,
+			)
+
+			assert.Equal(t, tt.expectedError, host.RuntimeContext.(*contextmock.RuntimeContextMock).FailExecutionErr)
+		})
+	}
+}
+
 func TestManagedGetKDARolesWithHost_GasCost(t *testing.T) {
 	t.Parallel()
 

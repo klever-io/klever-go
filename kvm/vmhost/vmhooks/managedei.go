@@ -560,6 +560,11 @@ func (context *VMHooksImpl) ManagedUpgradeFromSourceContract(
 		return
 	}
 
+	if host.ForkController().FixAuditChangesV4() && vmInput.value.Sign() < 0 {
+		WithFaultAndHost(host, vmhost.ErrTransferNegativeValue, runtime.BaseOpsErrorShouldFailExecution())
+		return
+	}
+
 	sourceContractAddress, err := managedType.GetBytes(addressHandle)
 	if WithFaultAndHost(host, err, runtime.BaseOpsErrorShouldFailExecution()) {
 		return
@@ -606,6 +611,11 @@ func (context *VMHooksImpl) ManagedUpgradeContract(
 
 	vmInput, err := readDestinationValueArguments(host, destHandle, valueHandle, argumentsHandle)
 	if WithFaultAndHost(host, err, runtime.BaseOpsErrorShouldFailExecution()) {
+		return
+	}
+
+	if host.ForkController().FixAuditChangesV4() && vmInput.value.Sign() < 0 {
+		WithFaultAndHost(host, vmhost.ErrTransferNegativeValue, runtime.BaseOpsErrorShouldFailExecution())
 		return
 	}
 
