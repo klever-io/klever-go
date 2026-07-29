@@ -11,6 +11,7 @@ import (
 	"github.com/klever-io/klever-go/kvm/executor"
 	kvmmath "github.com/klever-io/klever-go/kvm/math"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -209,5 +210,90 @@ func TestVMHooksImpl_getArgumentsFromMemory(t *testing.T) {
 		assert.Contains(t, err.Error(), "total argument length overflow")
 		assert.Nil(t, result)
 		assert.Equal(t, int32(0), totalLen)
+	})
+}
+
+func TestVMHooksImpl_extractIndirectContractCallArguments_MetersArgumentBytes(t *testing.T) {
+	t.Parallel()
+
+	const functionName = "function"
+
+	args := [][]byte{[]byte("arg1"), []byte("argument2")}
+	argumentBytes := uint64(len(args[0]) + len(args[1]))
+
+	storeInputs := func(host *contextmock.VMHostMock) {
+		lengths := make([]int32, len(args))
+		for i, arg := range args {
+			lengths[i] = int32(len(arg))
+		}
+
+		require.NoError(t, host.Runtime().GetInstance().MemStore(executor.MemPtr(0), make([]byte, vmhost.AddressLen)))
+		require.NoError(t, host.Runtime().GetInstance().MemStore(executor.MemPtr(40), []byte(functionName)))
+		require.NoError(t, host.Runtime().GetInstance().MemStore(executor.MemPtr(64), encodeArgLengths(lengths)))
+
+		offset := executor.MemPtr(200)
+		for _, arg := range args {
+			require.NoError(t, host.Runtime().GetInstance().MemStore(offset, arg))
+			offset = offset.Offset(int32(len(arg)))
+		}
+	}
+
+	expectedGas := func(host *contextmock.VMHostMock) uint64 {
+		return host.Metering().GasSchedule().BaseOperationCost.DataCopyPerByte * argumentBytes
+	}
+
+	extract := func(host *contextmock.VMHostMock) error {
+		context := NewVMHooksImpl(host)
+		_, err := context.extractIndirectContractCallArguments(
+			host,
+			executor.MemPtr(0),
+			executor.MemPtr(0),
+			false,
+			executor.MemPtr(40),
+			executor.MemLength(len(functionName)),
+			int32(len(args)),
+			executor.MemPtr(64),
+			executor.MemPtr(200),
+		)
+		return err
+	}
+
+	t.Run("aborts on insufficient gas for the argument bytes under audit fork", func(t *testing.T) {
+		host := newInternalMockVMHost()
+		host.ForkControllerContext = &commonMock.ForkControllerStub{FixAuditChangesV4Value: true}
+		storeInputs(host)
+
+		metering := host.MeteringContext.(*contextmock.MeteringContextMock)
+		metering.GasLeftMock = expectedGas(host) - 1
+
+		require.ErrorIs(t, extract(host), vmhost.ErrNotEnoughGas)
+	})
+
+	t.Run("charges only the argument bytes under audit fork", func(t *testing.T) {
+		host := newInternalMockVMHost()
+		host.ForkControllerContext = &commonMock.ForkControllerStub{FixAuditChangesV4Value: true}
+		storeInputs(host)
+
+		metering := host.MeteringContext.(*contextmock.MeteringContextMock)
+		gasBefore := metering.GasLeft()
+
+		require.NoError(t, extract(host))
+
+		assert.Equal(t, expectedGas(host), gasBefore-metering.GasLeft())
+	})
+
+	t.Run("charges only the argument bytes and never aborts before the fork", func(t *testing.T) {
+		host := newInternalMockVMHost()
+		host.ForkControllerContext = &commonMock.ForkControllerStub{FixAuditChangesV4Value: false}
+		storeInputs(host)
+
+		metering := host.MeteringContext.(*contextmock.MeteringContextMock)
+		charged := uint64(0)
+		metering.UseAndTraceGasCalled = func(gas uint64) { charged += gas }
+		metering.GasLeftMock = expectedGas(host) - 1
+
+		require.NoError(t, extract(host))
+
+		assert.Equal(t, expectedGas(host), charged)
 	})
 }

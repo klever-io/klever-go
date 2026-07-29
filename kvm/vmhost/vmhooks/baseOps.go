@@ -539,9 +539,18 @@ func (context *VMHooksImpl) extractIndirectContractCallArguments(
 		return nil, err
 	}
 
-	// #nosec G115
-	gasToUse := math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
-	metering.UseAndTraceGas(gasToUse)
+	if host.ForkController().FixAuditChangesV4() {
+		// #nosec G115
+		gasToUse := math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
+		err = metering.UseGasBounded(gasToUse)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// #nosec G115
+		gasToUse := math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(actualLen))
+		metering.UseAndTraceGas(gasToUse)
+	}
 
 	return &indirectContractCallArguments{
 		dest:      dest,
