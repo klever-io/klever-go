@@ -711,6 +711,78 @@ func TestManagedTypesContext_ManagedBuffersFunctionalities(t *testing.T) {
 	require.Equal(t, bytesWithNewSlice, mBufferBytes)
 }
 
+// TestManagedTypesContext_GetBytesCopyOnReadInvariant asserts the actual invariant this PR
+// establishes: GetBytes must hand out an unaliased copy, so that a caller mutating the returned
+// slice can never retroactively change the stored buffer (or a second, independent GetBytes call).
+func TestManagedTypesContext_GetBytesCopyOnReadInvariant(t *testing.T) {
+	t.Parallel()
+
+	original := []byte{1, 2, 3, 4}
+
+	host := &contextmock.VMHostStub{}
+	managedTypesCtx, _ := NewManagedTypesContext(host)
+	mBufferHandle := managedTypesCtx.NewManagedBufferFromBytes(original)
+
+	firstRead, err := managedTypesCtx.GetBytes(mBufferHandle)
+	require.Nil(t, err)
+	require.Equal(t, original, firstRead)
+
+	firstRead[0] = 0xFF
+
+	secondRead, err := managedTypesCtx.GetBytes(mBufferHandle)
+	require.Nil(t, err)
+	require.Equal(t, original, secondRead,
+		"mutating a previous GetBytes result must not affect a later GetBytes call")
+}
+
+// TestManagedTypesContext_SetByteSlice covers the branches SetByteSlice added to collapse
+// GetBytes+SetBytes into a single buffer copy: handle-not-found, out-of-bounds, and the
+// write path.
+func TestManagedTypesContext_SetByteSlice(t *testing.T) {
+	t.Parallel()
+
+	t.Run("handle not found", func(t *testing.T) {
+		host := &contextmock.VMHostStub{}
+		managedTypesCtx, _ := NewManagedTypesContext(host)
+
+		ok, err := managedTypesCtx.SetByteSlice(999, 0, 1, []byte{0xAA})
+		require.False(t, ok)
+		require.Equal(t, vmhost.ErrNoManagedBufferUnderThisHandle, err)
+	})
+
+	t.Run("out of bounds", func(t *testing.T) {
+		host := &contextmock.VMHostStub{}
+		managedTypesCtx, _ := NewManagedTypesContext(host)
+		mBufferHandle := managedTypesCtx.NewManagedBufferFromBytes([]byte{1, 2, 3, 4})
+
+		ok, err := managedTypesCtx.SetByteSlice(mBufferHandle, 2, 10, []byte{0xAA})
+		require.False(t, ok)
+		require.Nil(t, err)
+
+		ok, err = managedTypesCtx.SetByteSlice(mBufferHandle, -1, 1, []byte{0xAA})
+		require.False(t, ok)
+		require.Nil(t, err)
+
+		ok, err = managedTypesCtx.SetByteSlice(mBufferHandle, 0, -1, []byte{0xAA})
+		require.False(t, ok)
+		require.Nil(t, err)
+	})
+
+	t.Run("single-copy write", func(t *testing.T) {
+		host := &contextmock.VMHostStub{}
+		managedTypesCtx, _ := NewManagedTypesContext(host)
+		mBufferHandle := managedTypesCtx.NewManagedBufferFromBytes([]byte{1, 2, 3, 4})
+
+		ok, err := managedTypesCtx.SetByteSlice(mBufferHandle, 1, 2, []byte{0xAA, 0xBB})
+		require.True(t, ok)
+		require.Nil(t, err)
+
+		result, err := managedTypesCtx.GetBytes(mBufferHandle)
+		require.Nil(t, err)
+		require.Equal(t, []byte{1, 0xAA, 0xBB, 4}, result)
+	})
+}
+
 func TestManagedTypesContext_PopSetActiveStateIfStackIsEmptyShouldNotPanic(t *testing.T) {
 	t.Parallel()
 	host := &contextmock.VMHostStub{}

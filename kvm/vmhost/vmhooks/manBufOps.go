@@ -276,23 +276,14 @@ func ManagedBufferSetByteSliceWithTypedArgs(host vmhost.VMHost, mBufferHandle in
 
 	managedType.ConsumeGasForBytes(data)
 
-	bufferBytes, err := managedType.GetBytes(mBufferHandle)
+	ok, err := managedType.SetByteSlice(mBufferHandle, startingPosition, dataLength, data)
 	if WithFaultAndHost(host, err, runtime.ManagedBufferAPIErrorShouldFailExecution()) {
 		return 1
 	}
-
-	if startingPosition < 0 || dataLength < 0 || int(startingPosition+dataLength) > len(bufferBytes) {
+	if !ok {
 		// does not fail execution if slice exceeds bounds
 		return 1
 	}
-
-	start := int(startingPosition)
-	length := int(dataLength)
-	destination := bufferBytes[start : start+length]
-
-	copy(destination, data)
-
-	managedType.SetBytes(mBufferHandle, bufferBytes)
 
 	return 0
 }

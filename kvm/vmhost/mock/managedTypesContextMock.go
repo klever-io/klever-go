@@ -47,6 +47,7 @@ type ManagedTypesContextMock struct {
 	NewManagedBufferFromBytesCalled                func(bytes []byte) int32
 	SetBytesCalled                                 func(mBufferHandle int32, bytes []byte)
 	GetBytesCalled                                 func(mBufferHandle int32) ([]byte, error)
+	SetByteSliceCalled                             func(mBufferHandle int32, startingPosition int32, dataLength int32, data []byte) (bool, error)
 	AppendBytesCalled                              func(mBufferHandle int32, bytes []byte) bool
 	GetLengthCalled                                func(mBufferHandle int32) int32
 	GetSliceCalled                                 func(mBufferHandle int32, startPosition int32, lengthOfSlice int32) ([]byte, error)
@@ -293,6 +294,13 @@ func (m *ManagedTypesContextMock) GetBytes(mBufferHandle int32) ([]byte, error) 
 		return m.GetBytesCalled(mBufferHandle)
 	}
 	return nil, nil
+}
+
+func (m *ManagedTypesContextMock) SetByteSlice(mBufferHandle int32, startingPosition int32, dataLength int32, data []byte) (bool, error) {
+	if m.SetByteSliceCalled != nil {
+		return m.SetByteSliceCalled(mBufferHandle, startingPosition, dataLength, data)
+	}
+	return false, nil
 }
 
 func (m *ManagedTypesContextMock) AppendBytes(mBufferHandle int32, bytes []byte) bool {

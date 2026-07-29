@@ -182,7 +182,7 @@ func (vhs *VMHostStub) Storage() vmhost.StorageContext {
 // ForkController mocked method
 func (vhs *VMHostStub) ForkController() core.ForkController {
 	if vhs.ForkControllerCalled != nil {
-		return vhs.ForkController()
+		return vhs.ForkControllerCalled()
 	}
 	return nil
 }

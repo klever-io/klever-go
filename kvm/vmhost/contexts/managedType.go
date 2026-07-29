@@ -583,7 +583,34 @@ func (context *managedTypesContext) GetBytes(mBufferHandle int32) ([]byte, error
 	if !ok {
 		return nil, vmhost.ErrNoManagedBufferUnderThisHandle
 	}
-	return mBuffer, nil
+
+	// always performing a copy, symmetric with SetBytes,
+	// so that a later in-place mutation of this buffer (e.g. MBufferSetByteSlice)
+	// can never retroactively change bytes already handed out to a caller
+	// (e.g. a destination address captured into a ContractCallInput/OutputAccount)
+	return bytes.Clone(mBuffer), nil
+}
+
+// SetByteSlice overwrites dataLength bytes of the managed buffer at mBufferHandle, starting at
+// startingPosition, with data. It performs a single copy of the buffer, unlike a GetBytes+SetBytes
+// pair (which costs two full-buffer copies since GetBytes always clones), while still storing a
+// fresh, unaliased slice back into the map - matching SetBytes' aliasing guarantee. Returns
+// (false, nil) if the write is out of bounds, and (false, err) if the handle doesn't exist.
+func (context *managedTypesContext) SetByteSlice(mBufferHandle int32, startingPosition int32, dataLength int32, data []byte) (bool, error) {
+	mBuffer, ok := context.managedTypesValues.mBufferValues[mBufferHandle]
+	if !ok {
+		return false, vmhost.ErrNoManagedBufferUnderThisHandle
+	}
+
+	if startingPosition < 0 || dataLength < 0 || int(startingPosition+dataLength) > len(mBuffer) {
+		return false, nil
+	}
+
+	mBufferCopy := bytes.Clone(mBuffer)
+	copy(mBufferCopy[startingPosition:startingPosition+dataLength], data)
+	context.managedTypesValues.mBufferValues[mBufferHandle] = mBufferCopy
+
+	return true, nil
 }
 
 // AppendBytes appends the given bytes to the buffer at the end
