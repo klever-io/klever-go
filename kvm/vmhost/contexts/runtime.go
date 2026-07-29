@@ -135,13 +135,7 @@ func (context *runtimeContext) StartWasmerInstance(contract []byte, gasLimit uin
 		return vmhost.ErrMaxInstancesReached
 	}
 
-	var codeHash []byte
-	if newCode {
-		codeHash = context.hasher.Compute(string(contract))
-	} else {
-		blockchain := context.host.Blockchain()
-		codeHash = blockchain.GetCodeHash(context.codeAddress)
-	}
+	codeHash := context.hasher.Compute(string(contract))
 
 	context.iTracker.SetCodeSize(uint64(len(contract)))
 	context.iTracker.SetCodeHash(codeHash)
@@ -234,11 +228,6 @@ func (context *runtimeContext) makeInstanceFromContractByteCode(contract []byte,
 	err = context.iTracker.SetNewInstance(newInstance, Bytecode)
 	if err != nil {
 		return err
-	}
-
-	if newCode || len(context.iTracker.CodeHash()) == 0 {
-		codeHash := context.hasher.Compute(string(contract))
-		context.iTracker.SetCodeHash(codeHash)
 	}
 
 	if newCode {

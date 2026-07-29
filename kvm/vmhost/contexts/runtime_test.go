@@ -18,6 +18,7 @@ import (
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 	"github.com/klever-io/klever-go/kvm/testcommon/testexecutor"
 	"github.com/klever-io/klever-go/kvm/vmhost"
+	hostmock "github.com/klever-io/klever-go/kvm/vmhost/mock"
 	"github.com/klever-io/klever-go/kvm/vmhost/vmhooks"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/require"
@@ -169,6 +170,57 @@ func TestRuntimeContext_NewWasmerInstance(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, vmhost.BreakpointNone, runtimeCtx.GetRuntimeBreakpointValue())
 	require.Equal(t, uint64(len(contractCode)), runtimeCtx.GetSCCodeSize())
+}
+
+func TestRuntimeContext_StartWasmerInstanceKeysCacheOnExecutedCode(t *testing.T) {
+	contractCode := vmhost.GetSCCode(counterWasmCode)
+	executedHash := defaultHasher.Compute(string(contractCode))
+	gasLimit := uint64(100000000)
+	committedHash := bytes.Repeat([]byte{0xAB}, 32)
+
+	var savedKey []byte
+
+	host := InitializeVMAndWasmer()
+	host.BlockchainContext = &hostmock.BlockchainContextStub{
+		GetCodeHashCalled:      func([]byte) []byte { return committedHash },
+		GetCompiledCodeCalled:  func([]byte) (bool, []byte) { return false, nil },
+		SaveCompiledCodeCalled: func(codeHash []byte, _ []byte) { savedKey = codeHash },
+	}
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+	runtimeCtx.SetMaxInstanceStackSize(1)
+
+	err := runtimeCtx.StartWasmerInstance(contractCode, gasLimit, false)
+	require.Nil(t, err)
+	require.Equal(t, executedHash, runtimeCtx.iTracker.CodeHash())
+	require.Equal(t, executedHash, savedKey)
+}
+
+func TestRuntimeContext_StartWasmerInstanceDoesNotReuseWarmInstanceForDifferentCode(t *testing.T) {
+	firstCode := vmhost.GetSCCode(counterWasmCode)
+	secondCode := vmhost.GetSCCode("./../../test/contracts/init-simple/output/init-simple.wasm")
+	gasLimit := uint64(100000000)
+	committedHash := bytes.Repeat([]byte{0xAB}, 32)
+
+	host := InitializeVMAndWasmer()
+	host.BlockchainContext = &hostmock.BlockchainContextStub{
+		GetCodeHashCalled:     func([]byte) []byte { return committedHash },
+		GetCompiledCodeCalled: func([]byte) (bool, []byte) { return false, nil },
+	}
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+	runtimeCtx.SetMaxInstanceStackSize(1)
+	runtimeCtx.SetCodeAddress([]byte("smartcontract"))
+
+	err := runtimeCtx.StartWasmerInstance(firstCode, gasLimit, false)
+	require.Nil(t, err)
+	require.True(t, runtimeCtx.HasFunction("increment"))
+	firstInstanceID := runtimeCtx.iTracker.instance.ID()
+
+	err = runtimeCtx.StartWasmerInstance(secondCode, gasLimit, false)
+	require.Nil(t, err)
+	require.NotEqual(t, firstInstanceID, runtimeCtx.iTracker.instance.ID())
+	require.False(t, runtimeCtx.HasFunction("increment"))
 }
 
 func TestRuntimeContext_StateSettersAndGetters(t *testing.T) {
