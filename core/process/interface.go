@@ -453,7 +453,7 @@ type TransactionCoordinator interface {
 
 	RequestBlockTransactions(blk *block.Block)
 	IsDataPreparedForProcessing(haveTime func() time.Duration) error
-	ProcessBlockTransactions(blk *block.Block, haveTime func() time.Duration) (data.ProcessResults, error)
+	ProcessBlockTransactions(blk *block.Block, haveTime func() time.Duration, isImportDB bool) (data.ProcessResults, error)
 	GetAllCurrentUsedTxs() map[string]data.TransactionHandler
 	GetAllCurrentLogs() []*data.LogData
 

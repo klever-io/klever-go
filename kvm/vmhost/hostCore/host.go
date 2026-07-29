@@ -37,6 +37,12 @@ var _ vmhost.VMHost = (*vmHost)(nil)
 const (
 	minExecutionTimeout = time.Millisecond * 400
 	internalVMErrors    = "internalVMErrors"
+
+	// importDBExecutionTimeout is used in ExecutionModeReplay (import-db replay). It is
+	// excessively permissive for any real call so that machine-speed differences never turn a
+	// network-accepted tx into a spurious timeout failure. Replay execution is bounded by gas,
+	// so a genuine infinite loop fails on out-of-gas rather than hanging for this long.
+	importDBExecutionTimeout = time.Second * 5
 )
 
 // vmHost implements HostContext interface.
@@ -409,6 +415,8 @@ func (host *vmHost) getEffectiveTimeout() time.Duration {
 		return host.toleranceTimeout // Base + tolerance (e.g., 575ms with 15% tolerance)
 	case vmcommon.ExecutionModeQuery:
 		return host.executionTimeout // Use base timeout for queries
+	case vmcommon.ExecutionModeReplay:
+		return importDBExecutionTimeout // import-db replay: excessively permissive timeout (gas-bounded)
 	default:
 		// Default to base timeout for unknown modes
 		return host.executionTimeout

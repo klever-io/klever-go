@@ -211,7 +211,7 @@ func (mp *metaProcessor) ProcessBlock(
 
 	// Process Transactions
 	startTx := time.Now()
-	processResults, err := mp.txCoordinator.ProcessBlockTransactions(header, haveTime)
+	processResults, err := mp.txCoordinator.ProcessBlockTransactions(header, haveTime, mp.processingMode == core.ImportDb)
 	mp.appStatusHandler.SetUInt64Value(
 		core.MetricTxProcessingDuration,
 		uint64(time.Since(startTx).Milliseconds()), // #nosec G115

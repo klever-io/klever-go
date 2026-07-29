@@ -14,7 +14,7 @@ type TransactionCoordinatorMock struct {
 	SaveTxsToStorageCalled                  func(blk *block.Block) error
 	RestoreBlockDataFromStorageCalled       func(blk *block.Block) (int, error)
 	RemoveTxsFromPoolCalled                 func(blk *block.Block) error
-	ProcessBlockTransactionsCalled          func(blk *block.Block, timeRemaining func() time.Duration) (data.ProcessResults, error)
+	ProcessBlockTransactionsCalled          func(blk *block.Block, timeRemaining func() time.Duration, isImportDB bool) (data.ProcessResults, error)
 	CreateBlockStartedCalled                func()
 	CreateMarshalizedDataCalled             func(blk *block.Block) ([][]byte, error)
 	GetAllCurrentUsedTxsCalled              func() map[string]data.TransactionHandler
@@ -75,12 +75,12 @@ func (tcm *TransactionCoordinatorMock) RemoveTxsFromPool(blk *block.Block) error
 }
 
 // ProcessBlockTransaction -
-func (tcm *TransactionCoordinatorMock) ProcessBlockTransactions(blk *block.Block, timeRemaining func() time.Duration) (data.ProcessResults, error) {
+func (tcm *TransactionCoordinatorMock) ProcessBlockTransactions(blk *block.Block, timeRemaining func() time.Duration, isImportDB bool) (data.ProcessResults, error) {
 	if tcm.ProcessBlockTransactionsCalled == nil {
 		return &ProcessResults{}, nil
 	}
 
-	return tcm.ProcessBlockTransactionsCalled(blk, timeRemaining)
+	return tcm.ProcessBlockTransactionsCalled(blk, timeRemaining, isImportDB)
 }
 
 // CreateBlockStarted -

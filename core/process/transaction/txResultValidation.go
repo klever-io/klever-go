@@ -14,9 +14,10 @@ import (
 // This function implements tolerance band validation for smart contract execution timeouts to prevent
 // unfair block rejections when validators have slightly better hardware than leaders.
 //
-// The validation behaves differently based on execution mode:
-//   - Validator: Strictly validates results, rejects blocks on unjustified mismatches
-//   - Observer: Follows consensus decision, accepts blocks even with local execution differences
+// The validation behaves differently based on the VM execution mode:
+//   - Validator (live): re-judges a timeout mismatch via the tolerance band (KLC-1894)
+//   - Observer (import-db replay): treats the recorded consensus result as ground truth and reproduces
+//     it, never re-deriving pass/fail from local wall-clock timing (see CASE 1 in handleResultMismatch)
 //
 // Parameters:
 //   - block: The block containing consensus results in TxResults field
@@ -28,7 +29,7 @@ import (
 // Returns:
 //   - nil: Results match consensus, no further action needed
 //   - localErr: Transaction not found in block or no validation needed
-//   - process.ErrTransactionResultMismatch: Block should be rejected (validator mode)
+//   - process.ErrTransactionResultMismatch: Block should be rejected
 //   - consensus error: Local succeeded but consensus failed (accept block with consensus result)
 func (txProc *txProcessor) validateTransactionResult(
 	block *block.Block,
@@ -72,6 +73,7 @@ func (txProc *txProcessor) validateTransactionResult(
 		expectedResultCode,
 		actualResultCode,
 		validatorExecutionTimeNs,
+		executionMode,
 	)
 }
 
@@ -100,7 +102,7 @@ func (txProc *txProcessor) getActualResultCode(tx *transaction.Transaction, loca
 //   - txIndex: Index of the transaction in the block
 //   - expectedResultCode: Result code from consensus (block.TxResults)
 //   - actualResultCode: Result code from local execution
-//   - executionMode: Current VM execution mode (Validator/Observer)
+//   - executionMode: Current VM execution mode (Leader/Validator/Query/Observer)
 func (txProc *txProcessor) logResultMismatch(
 	txHash []byte,
 	txIndex int,
@@ -116,12 +118,14 @@ func (txProc *txProcessor) logResultMismatch(
 }
 
 // handleResultMismatch processes different transaction result mismatch scenarios and determines
-// whether to accept or reject the block based on the mismatch type and execution mode.
+// whether to accept or reject the block based on the mismatch type and the execution mode.
 //
 // Three main scenarios are handled:
-//  1. Validator succeeded, Leader failed: Check tolerance band to determine if leader's failure was justified
-//  2. Leader succeeded, Validator failed: Always reject (both Validators and Observers)
-//  3. Both failed with different errors: Validators reject block
+//  1. Local succeeded, consensus recorded a timeout failure:
+//     - Observer (import-db replay): reproduce the recorded failure and revert the local success
+//     - Validator (live): check the tolerance band to decide if the leader's timeout was justified
+//  2. Consensus succeeded, but local failed: reject the block
+//  3. Both failed with different errors: bubble up the local error
 //
 // Parameters:
 //   - txHash: Hash of the transaction with mismatched results
@@ -130,8 +134,8 @@ func (txProc *txProcessor) logResultMismatch(
 //   - localErr: Error from local execution
 //   - expectedResultCode: Result code from consensus
 //   - actualResultCode: Result code from local execution
-//   - executionMode: Validator or Observer mode
 //   - validatorExecutionTimeNs: Execution time for tolerance band validation
+//   - executionMode: Current VM execution mode (Leader/Validator/Query/Observer)
 //
 // Returns:
 //   - error: Appropriate error based on scenario and execution mode
@@ -142,17 +146,31 @@ func (txProc *txProcessor) handleResultMismatch(
 	localErr error,
 	expectedResultCode, actualResultCode uint32,
 	validatorExecutionTimeNs int64,
+	executionMode vmcommon.ExecutionMode,
 ) error {
 	okCode := uint32(transaction.Transaction_Ok)
-	timeoutCode := uint32(transaction.Transaction_VMExecutionFailed)
+	vmFailedCode := uint32(transaction.Transaction_VMExecutionFailed)
 
-	// CASE 1: Validator succeeded, Leader failed - check tolerance band
-	if actualResultCode == okCode && expectedResultCode == timeoutCode {
+	// CASE 1: local succeeded, consensus recorded VMExecutionFailed
+	if actualResultCode == okCode && expectedResultCode == vmFailedCode {
+		// Observer (import-db replay): the recorded VMExecutionFailed is agreed history, not a live
+		// leader to judge. Reproduce it and let the preprocessor revert the completed local execution
+		// so the account state root matches the recorded root - never re-derive pass/fail from local
+		// wall-clock timing (the tolerance band below, KLC-1894, is Validator/live-only).
+		if executionMode == vmcommon.ExecutionModeReplay {
+			log.Warn("Observer: transaction result mismatch - Accepting leader failure (import-db mode)",
+				"txHash", txHash,
+				"expectedResult", expectedResultCode,
+				"actualResult", actualResultCode,
+				"txIndex", txIndex)
+			return acceptConsensusFailure(tx, expectedResultCode)
+		}
 		return txProc.validateToleranceBand(txHash, tx, expectedResultCode, validatorExecutionTimeNs, localErr)
 	}
 
 	// CASE 2: Leader succeeded, but validator failed - block reject
-	if expectedResultCode == okCode && actualResultCode == timeoutCode {
+	// (even on replay mode, we cant mend the state here as we dont have the actual result)
+	if expectedResultCode == okCode && actualResultCode == vmFailedCode {
 		log.Warn("Validator: transaction result mismatch - rejecting block",
 			"txHash", txHash,
 			"expectedResult", expectedResultCode,
@@ -174,11 +192,13 @@ func (txProc *txProcessor) handleResultMismatch(
 //   - lowerBound: baseTimeout - (baseTimeout * tolerance%) = 425ms with 15% tolerance
 //
 // Decision Rules:
-//   - If validator finishes BEFORE lower bound: Leader hardware too weak → REJECT block
-//   - If validator finishes AT OR AFTER lower bound: Leader had right to fail → ACCEPT block
-//
-// When accepting, the transaction's ResultCode is updated to the consensus value and
-// ErrTransactionResultMismatch is returned to signal acceptance with consensus result.
+//   - If validator finishes BEFORE lower bound: leader hardware too weak, the leader should have
+//     succeeded. localErr (nil, since local execution succeeded) is returned WITHOUT updating the
+//     ResultCode; the block is then rejected downstream by verifyBlockTrieRoots, because the local
+//     success leaves an account state root that differs from the recorded (failed) root.
+//   - If validator finishes AT OR AFTER lower bound: leader had the right to fail. The ResultCode
+//     is updated to the consensus value and ErrTransactionResultMismatchAcceptLeader is returned so
+//     the preprocessor reverts the local success and accepts the block with the consensus result.
 //
 // Parameters:
 //   - txHash: Transaction hash for logging
@@ -187,8 +207,8 @@ func (txProc *txProcessor) handleResultMismatch(
 //   - validatorExecutionTimeNs: Validator's execution time in nanoseconds
 //
 // Returns:
-//   - process.ErrTransactionResultMismatch: Either rejection (no ResultCode update) or
-//     acceptance (with ResultCode updated to consensus)
+//   - localErr: leader too weak; no ResultCode update (rejection happens at the state-root check)
+//   - process.ErrTransactionResultMismatchAcceptLeader: accept, with ResultCode set to consensus
 func (txProc *txProcessor) validateToleranceBand(
 	txHash []byte,
 	tx *transaction.Transaction,
@@ -218,8 +238,8 @@ func (txProc *txProcessor) validateToleranceBand(
 		"baseTimeout", baseTimeout,
 		"lowerBound", lowerBound)
 
-	// If validator finished BEFORE lower bound, leader hardware is too weak
-	// can't update result and should return local error to reject block
+	// If validator finished BEFORE lower bound, leader hardware is too weak:
+	//return localErr (nil), block will be rejected at verifyBlockTrieRoots
 	if validatorExecTime < lowerBound {
 		log.Warn("Rejecting block: leader hardware too weak",
 			"txHash", txHash,
@@ -234,8 +254,12 @@ func (txProc *txProcessor) validateToleranceBand(
 		"txHash", txHash,
 		"validatorTime", validatorExecTime,
 		"lowerBound", lowerBound)
+	return acceptConsensusFailure(tx, expectedResultCode)
+}
+
+func acceptConsensusFailure(tx *transaction.Transaction, expectedResultCode uint32) error {
 	tx.Result = transaction.Transaction_FAILED
-	//nolint:gosec // G115: expectedResultCode comes from block.TxResults which are valid enum values
+	//nolint:gosec // G115: expectedResultCode is provably vmFailedCode at this point, which is a valid enum value
 	tx.ResultCode = transaction.Transaction_TXResultCode(expectedResultCode)
 	return process.ErrTransactionResultMismatchAcceptLeader
 }

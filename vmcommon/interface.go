@@ -276,4 +276,9 @@ const (
 	// ExecutionModeQuery means the VM is executing a query (non-consensus)
 	// Query uses base timeout or query-specific timeout
 	ExecutionModeQuery
+
+	// ExecutionModeReplay means the VM is replaying already-agreed history during import-db.
+	// It reproduces the recorded consensus results and does not enforce the wall-clock SC
+	// execution timeout (replay execution is bounded by gas, not machine speed).
+	ExecutionModeReplay
 )

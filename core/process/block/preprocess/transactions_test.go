@@ -990,6 +990,44 @@ func TestTransactions_ProcessBlockTransactions_TransactionResultMismatch(t *test
 	assert.Equal(t, []byte("TX1"), processResult.Hashes()[0])
 }
 
+func TestTransactions_ProcessBlockTransactions_AcceptLeaderNotRejected(t *testing.T) {
+	t.Parallel()
+
+	poolHolders := createCacheWithTransactions(t, []*txcache.WrappedTransaction{
+		{TxHash: []byte("TX1"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 0, Nonce: 1, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000}},
+		{TxHash: []byte("TX2"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 2, Sender: []byte("addr1"), Data: [][]byte{[]byte("data")}}, GasLimit: 100000}},
+		{TxHash: []byte("TX3"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 2, Nonce: 3, Sender: []byte("addr1"), Data: [][]byte{}}, GasLimit: 50000}},
+	})
+
+	txs := createGoodPreprocessor(poolHolders)
+
+	blk := &block.Block{
+		TxHashes: [][]byte{
+			[]byte("TX1"),
+			[]byte("TX2"),
+			[]byte("TX3"),
+		},
+	}
+
+	haveTime := func() bool { return true }
+
+	callCount := 0
+	txs.GetTXProcessor().(*mock.TxProcessorMock).ProcessTransactionCalled = func(blk *block.Block, txHash []byte, tx *transaction.Transaction) error {
+		callCount++
+		if callCount == 2 {
+			return process.ErrTransactionResultMismatchAcceptLeader
+		}
+		return nil
+	}
+
+	processResult, err := txs.ProcessBlockTransactions(blk, haveTime)
+
+	// Block accepted (not rejected), and the reproduced tx stays in the result.
+	assert.Nil(t, err)
+	assert.Equal(t, 3, processResult.Length())
+	assert.Equal(t, blk.TxHashes, processResult.Hashes())
+}
+
 func TestTransactions_CreateAndProcessBlockTransactions(t *testing.T) {
 	t.Parallel()
 

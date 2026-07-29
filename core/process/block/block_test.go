@@ -1540,7 +1540,7 @@ func TestMetaProcessor_CreateAndProcessWithInvalidProcess(t *testing.T) {
 	arguments := createMockMetaArguments()
 
 	arguments.ArgBaseProcessor.TxCoordinator = &mock.TransactionCoordinatorMock{
-		ProcessBlockTransactionsCalled: func(blk *block.Block, timeRemaining func() time.Duration) (data.ProcessResults, error) {
+		ProcessBlockTransactionsCalled: func(blk *block.Block, timeRemaining func() time.Duration, isImportDB bool) (data.ProcessResults, error) {
 			// Invalid ProcessResult
 			return nil, nil
 		},

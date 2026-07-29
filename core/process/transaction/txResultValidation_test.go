@@ -275,6 +275,7 @@ func TestHandleResultMismatch_ValidatorSucceededLeaderFailed(t *testing.T) {
 		expectedResultCode,
 		actualResultCode,
 		validatorTimeNs,
+		vmcommon.ExecutionModeValidator,
 	)
 
 	// Should reject because leader hardware too weak
@@ -308,6 +309,7 @@ func TestHandleResultMismatch_LeaderSucceededValidatorFailed_Validator(t *testin
 		expectedResultCode,
 		actualResultCode,
 		0,
+		vmcommon.ExecutionModeValidator,
 	)
 
 	// Validator must reject when it failed but leader succeeded
@@ -341,10 +343,107 @@ func TestHandleResultMismatch_BothFailedDifferentErrors_Validator(t *testing.T) 
 		expectedResultCode,
 		actualResultCode,
 		0,
+		vmcommon.ExecutionModeValidator,
 	)
 
 	// Validator must reject on different error codes
 	assert.Equal(t, process.ErrAccountNotFound, err)
+}
+
+func TestHandleResultMismatch_ImportDB_ReproducesConsensusFailure(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		VirtualMachine: config.VirtualMachineServicesConfig{
+			Execution: config.VirtualMachineConfig{
+				TimeOutForSCExecutionInMilliseconds: 500,
+				TimeOutTolerancePercentage:          15,
+			},
+		},
+	}
+
+	txProc := &txProcessor{
+		baseTxProcessor: &baseTxProcessor{
+			cfg:         cfg,
+			scProcessor: &mockSmartContractProcessor{executionMode: vmcommon.ExecutionModeReplay},
+		},
+	}
+
+	tx := &transaction.Transaction{}
+	txHash := []byte("574536fff31288af9400c68bc6a28fc2366bce243ae1953b7b12600445a70034")
+	expectedResultCode := uint32(transaction.Transaction_VMExecutionFailed) // network-agreed result
+	actualResultCode := uint32(transaction.Transaction_Ok)                  // local re-execution succeeded
+
+	// Local execution finished fast (~50ms, well below the 425ms lower bound). Under Observer
+	// (import-db replay) the recorded failure is reproduced instead of re-judged by local timing.
+	validatorTimeNs := int64(50 * time.Millisecond)
+
+	err := txProc.handleResultMismatch(txHash, 0, tx, nil, expectedResultCode, actualResultCode, validatorTimeNs, vmcommon.ExecutionModeReplay)
+
+	// Reproduces consensus: accept-leader + ResultCode stamped to the recorded failure, with no
+	// dependence on local timing.
+	assert.Equal(t, process.ErrTransactionResultMismatchAcceptLeader, err)
+	assert.Equal(t, transaction.Transaction_TXResultCode(expectedResultCode), tx.ResultCode)
+	assert.Equal(t, transaction.Transaction_FAILED, tx.Result)
+}
+
+func TestHandleResultMismatch_LivePathUnchanged_FastValidator(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		VirtualMachine: config.VirtualMachineServicesConfig{
+			Execution: config.VirtualMachineConfig{
+				TimeOutForSCExecutionInMilliseconds: 500,
+				TimeOutTolerancePercentage:          15,
+			},
+		},
+	}
+	// Validator mode (live validation path)
+
+	txProc := &txProcessor{
+		baseTxProcessor: &baseTxProcessor{
+			cfg:         cfg,
+			scProcessor: &mockSmartContractProcessor{executionMode: vmcommon.ExecutionModeValidator},
+		},
+	}
+
+	tx := &transaction.Transaction{}
+	txHash := []byte("test-hash")
+	expectedResultCode := uint32(transaction.Transaction_VMExecutionFailed)
+	actualResultCode := uint32(transaction.Transaction_Ok)
+	validatorTimeNs := int64(50 * time.Millisecond)
+
+	err := txProc.handleResultMismatch(txHash, 0, tx, nil, expectedResultCode, actualResultCode, validatorTimeNs, vmcommon.ExecutionModeValidator)
+
+	// Live path unchanged: returns localErr (nil), ResultCode not updated.
+	assert.Equal(t, nil, err)
+	assert.Equal(t, transaction.Transaction_TXResultCode(0), tx.ResultCode)
+}
+
+// TestHandleResultMismatch_ImportDB_Case2And3Untouched asserts the Observer guard is scoped to
+// CASE 1: even in Observer (import-db) mode, a recorded success with a local failure (CASE 2) still
+// rejects, and two differing failures (CASE 3) still bubble up the local error.
+func TestHandleResultMismatch_ImportDB_Case2And3Untouched(t *testing.T) {
+	t.Parallel()
+
+	txProc := &txProcessor{
+		baseTxProcessor: &baseTxProcessor{
+			scProcessor: &mockSmartContractProcessor{executionMode: vmcommon.ExecutionModeReplay},
+		},
+	}
+
+	okCode := uint32(transaction.Transaction_Ok)
+	failCode := uint32(transaction.Transaction_VMExecutionFailed)
+
+	// CASE 2: consensus Ok, local failed -> still rejects
+	tx2 := &transaction.Transaction{ResultCode: transaction.Transaction_VMExecutionFailed}
+	err2 := txProc.handleResultMismatch([]byte("h2"), 0, tx2, errors.New("contract invalid"), okCode, failCode, 0, vmcommon.ExecutionModeReplay)
+	assert.Equal(t, process.ErrTransactionResultMismatch, err2)
+
+	// CASE 3: both failed, different codes -> still bubbles up local error
+	tx3 := &transaction.Transaction{ResultCode: transaction.Transaction_VMExecutionFailed}
+	err3 := txProc.handleResultMismatch([]byte("h3"), 0, tx3, process.ErrAccountNotFound, failCode, failCode, 0, vmcommon.ExecutionModeReplay)
+	assert.Equal(t, process.ErrAccountNotFound, err3)
 }
 
 // TestValidateTransactionResult_NoTxResults tests skip validation when TxResults empty
@@ -508,6 +607,58 @@ func TestValidateTransactionResult_CallsHandleResultMismatch(t *testing.T) {
 }
 
 // Mock smart contract processor for testing
+// TestValidateTransactionResult_ObserverModePlumbing pins the full path
+// validateTransactionResult -> scProcessor.GetVMExecutionMode() -> handleResultMismatch CASE 1.
+func TestValidateTransactionResult_ObserverModePlumbing(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Config{
+		VirtualMachine: config.VirtualMachineServicesConfig{
+			Execution: config.VirtualMachineConfig{
+				TimeOutForSCExecutionInMilliseconds: 500,
+				TimeOutTolerancePercentage:          15,
+			},
+		},
+	}
+
+	newTxProc := func(mode vmcommon.ExecutionMode) *txProcessor {
+		return &txProcessor{
+			baseTxProcessor: &baseTxProcessor{
+				cfg:         cfg,
+				scProcessor: &mockSmartContractProcessor{executionMode: mode},
+			},
+		}
+	}
+
+	txHash := []byte("574536fff31288af9400c68bc6a28fc2366bce243ae1953b7b12600445a70034")
+	newBlock := func() *block.Block {
+		return &block.Block{
+			TxHashes:  [][]byte{txHash},
+			TxResults: []uint32{uint32(transaction.Transaction_VMExecutionFailed)}, // network recorded a timeout fail
+		}
+	}
+	fastLocal := int64(50 * time.Millisecond) // deep inside the 425ms lower bound
+
+	t.Run("Observer reproduces the recorded failure", func(t *testing.T) {
+		tx := &transaction.Transaction{} // local execution succeeded (localErr nil -> Ok)
+		err := newTxProc(vmcommon.ExecutionModeReplay).
+			validateTransactionResult(newBlock(), txHash, tx, nil, fastLocal)
+
+		// Only holds if GetVMExecutionMode()==Observer reaches CASE 1.
+		assert.Equal(t, process.ErrTransactionResultMismatchAcceptLeader, err)
+		assert.Equal(t, transaction.Transaction_VMExecutionFailed, tx.ResultCode)
+	})
+
+	t.Run("Validator at the same 50ms returns nil via the tolerance band", func(t *testing.T) {
+		tx := &transaction.Transaction{}
+		err := newTxProc(vmcommon.ExecutionModeValidator).
+			validateTransactionResult(newBlock(), txHash, tx, nil, fastLocal)
+
+		assert.Nil(t, err)
+		assert.Equal(t, transaction.Transaction_TXResultCode(0), tx.ResultCode)
+	})
+}
+
 type mockSmartContractProcessor struct {
 	executionMode vmcommon.ExecutionMode
 }

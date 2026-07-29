@@ -203,13 +203,20 @@ func (tc *transactionCoordinator) RemoveTxsFromPool(block *block.Block) error {
 func (tc *transactionCoordinator) ProcessBlockTransactions(
 	block *block.Block,
 	timeRemaining func() time.Duration,
+	isImportDB bool,
 ) (data.ProcessResults, error) {
 	if check.IfNil(block) {
 		return nil, process.ErrNilBlockHeader
 	}
 
-	// Set validator mode before validating block
-	tc.setVMExecutionMode(vmcommon.ExecutionModeValidator)
+	// Set the execution mode before validating the block. Import-db replay uses Observer mode
+	// (reproduce recorded results, no wall-clock SC timeout); live validation uses Validator mode
+	// (tolerance band, KLC-1894).
+	mode := vmcommon.ExecutionModeValidator
+	if isImportDB {
+		mode = vmcommon.ExecutionModeReplay
+	}
+	tc.setVMExecutionMode(mode)
 
 	haveTime := func() bool {
 		return timeRemaining() >= 0

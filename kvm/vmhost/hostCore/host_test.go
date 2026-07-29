@@ -219,12 +219,12 @@ func TestVmHost_GetEffectiveTimeout(t *testing.T) {
 			description:         "Query should use base executionTimeout (500ms)",
 		},
 		{
-			name:                "Zero tolerance percentage defaults to 100%",
+			name:                "Zero tolerance percentage uses the default",
 			executionMode:       vmcommon.ExecutionModeValidator,
 			baseTimeoutMs:       500,
 			tolerancePercentage: 0,
-			expectedTimeoutMs:   1000, // 500ms + 100% = 1000ms
-			description:         "With 0% tolerance defaulting to 100%, validator timeout should be 1000ms",
+			expectedTimeoutMs:   575, // 0% falls back to core.DefaultTolerancePercentage (15%): 500ms + 15% = 575ms
+			description:         "With 0% tolerance defaulting to 15%, validator timeout should be 575ms",
 		},
 		{
 			name:                "Validator with 50% tolerance",
@@ -233,6 +233,14 @@ func TestVmHost_GetEffectiveTimeout(t *testing.T) {
 			tolerancePercentage: 50,
 			expectedTimeoutMs:   600, // 400ms + 50% = 600ms
 			description:         "Validator should use 400ms + 50% = 600ms",
+		},
+		{
+			name:                "Observer mode (import-db) uses the large replay timeout",
+			executionMode:       vmcommon.ExecutionModeReplay,
+			baseTimeoutMs:       500,
+			tolerancePercentage: 15,
+			expectedTimeoutMs:   5000, // importDBExecutionTimeout = time.Second * 5
+			description:         "Observer ignores the wall-clock cap (replay is gas-bounded)",
 		},
 	}
 
@@ -255,9 +263,9 @@ func TestVmHost_GetEffectiveTimeout(t *testing.T) {
 			actualMode := host.GetExecutionMode()
 			require.Equal(t, tc.executionMode, actualMode)
 
-			// The actual timeout value is used internally during contract execution
-			// We validate that the host was initialized correctly with the expected mode
-			_ = time.Duration(tc.expectedTimeoutMs) * time.Millisecond // Expected timeout for documentation
+			// Assert the effective timeout selected for this mode
+			expected := time.Duration(tc.expectedTimeoutMs) * time.Millisecond
+			require.Equal(t, expected, hostCore.GetEffectiveTimeoutForTest(host))
 		})
 	}
 

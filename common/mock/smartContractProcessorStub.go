@@ -15,6 +15,8 @@ type SmartContractProcessorStub struct {
 	IsPayableCalled                       func(sndAddress []byte, recvAddress []byte) (bool, error)
 	LastBlockCalled                       func() data.HeaderHandler
 	IsInterfaceNilCalled                  func() bool
+	SetVMExecutionModeCalled              func(mode vmcommon.ExecutionMode)
+	ExecutionMode                         vmcommon.ExecutionMode
 }
 
 // ExecuteSmartContractTransaction is the stub implementation for ExecuteSmartContractTransaction
@@ -66,13 +68,16 @@ func (stub *SmartContractProcessorStub) IsInterfaceNil() bool {
 }
 
 // SetVMExecutionMode is the stub implementation for SetVMExecutionMode
-func (stub *SmartContractProcessorStub) SetVMExecutionMode(mode vmcommon.ExecutionMode) {
-	// No-op for stub
+func (s *SmartContractProcessorStub) SetVMExecutionMode(mode vmcommon.ExecutionMode) {
+	if s.SetVMExecutionModeCalled != nil {
+		s.SetVMExecutionModeCalled(mode)
+	}
+	s.ExecutionMode = mode
 }
 
-// GetVMExecutionMode is the stub implementation for GetVMExecutionMode
-func (stub *SmartContractProcessorStub) GetVMExecutionMode() vmcommon.ExecutionMode {
-	return vmcommon.ExecutionModeQuery
+// GetVMExecutionMode gets the execution mode
+func (s *SmartContractProcessorStub) GetVMExecutionMode() vmcommon.ExecutionMode {
+	return s.ExecutionMode
 }
 
 // NewSmartContractProcessorStub creates a new instance of SmartContractProcessorStub

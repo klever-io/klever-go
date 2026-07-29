@@ -13,6 +13,8 @@ type SCProcessorMock struct {
 	DeploySmartContractCalled             func(ctx kapp.KappContext, tc data.SmartContractHandler) (vmcommon.ReturnCode, error)
 	ProcessIfErrorCalled                  func(ctx kapp.KappContext, tc data.SmartContractHandler, returnCode string, returnMessage []byte) error
 	IsPayableCalled                       func(sndAddress []byte, recvAddress []byte) (bool, error)
+	SetVMExecutionModeCalled              func(mode vmcommon.ExecutionMode)
+	ExecutionMode                         vmcommon.ExecutionMode
 }
 
 func (s *SCProcessorMock) ExecuteSmartContractTransaction(ctx kapp.KappContext, tc data.SmartContractHandler, acntSrc, acntDst state.UserAccountHandler) (vmcommon.ReturnCode, error) {
@@ -58,10 +60,13 @@ func (s *SCProcessorMock) IsInterfaceNil() bool {
 
 // SetVMExecutionMode sets the execution mode
 func (s *SCProcessorMock) SetVMExecutionMode(mode vmcommon.ExecutionMode) {
-	// No-op for mock
+	if s.SetVMExecutionModeCalled != nil {
+		s.SetVMExecutionModeCalled(mode)
+	}
+	s.ExecutionMode = mode
 }
 
 // GetVMExecutionMode gets the execution mode
 func (s *SCProcessorMock) GetVMExecutionMode() vmcommon.ExecutionMode {
-	return vmcommon.ExecutionModeQuery
+	return s.ExecutionMode
 }
