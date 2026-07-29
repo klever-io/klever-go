@@ -518,6 +518,43 @@ func TestExecution_CallOutOfGas(t *testing.T) {
 		})
 }
 
+// A contract that hands a hook a huge argument count must be stopped on gas
+// before the host loads and parses the lengths array: numTopics*4 bytes are
+// charged at DataCopyPerByte up-front, so 100000 topics cost 400000 gas and
+// the 50000 provided here are nowhere near enough.
+func TestExecution_WriteEventLog_LargeTopicCount_OutOfGas(t *testing.T) {
+	const numTopics = int32(100000)
+	const gasProvided = uint64(50000)
+
+	_, err := test.BuildMockInstanceCallTest(t).
+		WithContracts(
+			test.CreateMockContract(test.ParentAddress).
+				WithMethods(func(parentInstance *contextmock.InstanceMock, _ interface{}) {
+					parentInstance.AddMockMethod("logManyTopics", func() *contextmock.InstanceMock {
+						vmhooks.NewVMHooksImpl(parentInstance.Host).WriteEventLog(
+							numTopics,
+							executor.MemPtr(0),
+							executor.MemPtr(0),
+							executor.MemPtr(0),
+							0,
+						)
+						return parentInstance
+					})
+				}),
+		).
+		WithInput(test.CreateTestContractCallInputBuilder().
+			WithRecipientAddr(test.ParentAddress).
+			WithGasProvided(gasProvided).
+			WithFunction("logManyTopics").
+			Build()).
+		AndAssertResults(func(_ *worldmock.MockWorld, verify *test.VMOutputVerifier) {
+			verify.OutOfGas().
+				HasRuntimeErrors(vmhost.ErrNotEnoughGas.Error())
+		})
+
+	require.NoError(t, err)
+}
+
 func TestExecution_CallWasmerError(t *testing.T) {
 	test.BuildInstanceCallTest(t).
 		WithContracts(
@@ -1406,7 +1443,7 @@ func TestExecution_ExecuteOnSameContext_OutOfGas(t *testing.T) {
 }
 
 func TestExecution_ExecuteOnSameContext_Successful(t *testing.T) {
-	executeAPICost := uint64(894305)
+	executeAPICost := uint64(894313)
 	childExecutionCost := uint64(437 - 22)
 	parentGasBeforeExecuteAPI := uint64(172 - 9)
 	finalCost := uint64(134)
@@ -1449,7 +1486,7 @@ func TestExecution_ExecuteOnSameContext_Successful(t *testing.T) {
 			verify.WithTrace().Ok().
 				// test.ParentAddress
 				Balance(host, test.ParentAddress, parentAccountBalanceAfter).
-				GasUsed(test.ParentAddress, 906601).
+				GasUsed(test.ParentAddress, 906609).
 				GasUsed(test.ChildAddress, 0).
 				// others
 				GasRemaining(test.GasProvided-
@@ -1483,7 +1520,7 @@ func TestExecution_ExecuteOnSameContext_Successful_BigInts(t *testing.T) {
 
 	childExecutionCost := uint64(102)
 	parentGasBeforeExecuteAPI := uint64(114)
-	executeAPICost := uint64(13)
+	executeAPICost := uint64(25)
 	finalCost := uint64(63)
 
 	test.BuildInstanceCallTest(t).
@@ -1507,7 +1544,7 @@ func TestExecution_ExecuteOnSameContext_Successful_BigInts(t *testing.T) {
 			verify.Ok().
 				// test.ParentAddress
 				Balance(host, test.ParentAddress, 1000).
-				GasUsed(test.ParentAddress, 6038+test.ChildCompilationCostSameCtx+childExecutionCost).
+				GasUsed(test.ParentAddress, 6050+test.ChildCompilationCostSameCtx+childExecutionCost).
 				// test.ChildAddress
 				GasUsed(test.ChildAddress, 0).
 				// others
@@ -1572,7 +1609,7 @@ func TestExecution_ExecuteOnSameContext_Recursive_Direct(t *testing.T) {
 		AndAssertResults(func(host vmhost.VMHost, stubBlockchainHook *contextmock.BlockchainHookStub, verify *test.VMOutputVerifier) {
 			verify.Ok().
 				Balance(host, test.ParentAddress, 1000).
-				GasUsed(test.ParentAddress, 52493).
+				GasUsed(test.ParentAddress, 52513).
 				ReturnData(returnData...).
 				Storage(storeEntries...)
 
@@ -1670,7 +1707,7 @@ func TestExecution_ExecuteOnSameContext_Recursive_Mutual_Methods(t *testing.T) {
 		AndAssertResults(func(host vmhost.VMHost, stubBlockchainHook *contextmock.BlockchainHookStub, verify *test.VMOutputVerifier) {
 			verify.Ok().
 				Balance(host, test.ParentAddress, 1000).
-				GasUsed(test.ParentAddress, 58618).
+				GasUsed(test.ParentAddress, 58642).
 				ReturnData(returnData...).
 				Storage(storeEntries...)
 
@@ -1742,7 +1779,7 @@ func TestExecution_ExecuteOnSameContext_Recursive_Mutual_SCs(t *testing.T) {
 			verify.Ok().
 				// test.ParentAddress
 				Balance(host, test.ParentAddress, 1000).
-				GasUsed(test.ParentAddress, 34081).
+				GasUsed(test.ParentAddress, 34097).
 				// test.ChildAddress
 				GasUsed(test.ChildAddress, 0).
 				// other
@@ -1893,7 +1930,7 @@ func TestExecution_ExecuteOnDestContext_Successful(t *testing.T) {
 	// SC and pass some arguments using executeOnDestContext().
 
 	parentGasBeforeExecuteAPI := uint64(168)
-	executeAPICost := uint64(42)
+	executeAPICost := uint64(54)
 	childExecutionCost := uint64(272)
 	finalCost := uint64(808596)
 	// childTransferValue := int64(12)
@@ -1920,7 +1957,7 @@ func TestExecution_ExecuteOnDestContext_Successful(t *testing.T) {
 			verify.Ok().
 				// test.ParentAddress
 				Balance(host, test.ParentAddress, 9703).
-				GasUsed(test.ParentAddress, 815446).
+				GasUsed(test.ParentAddress, 815458).
 				Balance(host, test.ChildAddress, 8790).
 				GasUsed(test.ChildAddress, test.ChildCompilationCostDestCtx+childExecutionCost).
 				GasRemaining(test.GasProvided-
@@ -1952,7 +1989,7 @@ func TestExecution_ExecuteOnDestContext_Successful_ChildReturns(t *testing.T) {
 	// SC and pass some arguments using executeOnDestContext().
 
 	parentGasBeforeExecuteAPI := uint64(168)
-	executeAPICost := uint64(42)
+	executeAPICost := uint64(54)
 	childExecutionCost := uint64(272)
 	parentGasAfterExecuteAPI := uint64(793519)
 	// childTransferValue := int64(12)
@@ -1979,7 +2016,7 @@ func TestExecution_ExecuteOnDestContext_Successful_ChildReturns(t *testing.T) {
 			verify.Ok().
 				// test.ParentAddress
 				Balance(host, test.ParentAddress, 9703).
-				GasUsed(test.ParentAddress, 800369).
+				GasUsed(test.ParentAddress, 800381).
 				Balance(host, test.ChildAddress, 8790).
 				GasUsed(test.ChildAddress, test.ChildCompilationCostDestCtx+childExecutionCost).
 				GasRemaining(test.GasProvided-
@@ -2081,7 +2118,7 @@ func TestExecution_ExecuteOnDestContext_Successful_BigInts(t *testing.T) {
 	// produce a new big Int out of the arguments.
 
 	parentGasBeforeExecuteAPI := uint64(115)
-	executeAPICost := uint64(13)
+	executeAPICost := uint64(25)
 	childExecutionCost := uint64(101)
 	finalCost := uint64(64)
 
@@ -2102,7 +2139,7 @@ func TestExecution_ExecuteOnDestContext_Successful_BigInts(t *testing.T) {
 		AndAssertResults(func(host vmhost.VMHost, stubBlockchainHook *contextmock.BlockchainHookStub, verify *test.VMOutputVerifier) {
 			verify.Ok().
 				Balance(host, test.ParentAddress, 9802).
-				GasUsed(test.ParentAddress, 6830).
+				GasUsed(test.ParentAddress, 6842).
 				GasUsed(test.ChildAddress, 4693).
 				GasRemaining(test.GasProvided-
 					test.ParentCompilationCostDestCtx-
@@ -2155,7 +2192,7 @@ func TestExecution_ExecuteOnDestContext_Recursive_Direct(t *testing.T) {
 		AndAssertResults(func(host vmhost.VMHost, stubBlockchainHook *contextmock.BlockchainHookStub, verify *test.VMOutputVerifier) {
 			verify.Ok().
 				Balance(host, test.ParentAddress, 1000).
-				GasUsed(test.ParentAddress, 58702).
+				GasUsed(test.ParentAddress, 58726).
 				ReturnData(returnData...).
 				Storage(storeEntries...)
 
@@ -2213,7 +2250,7 @@ func TestExecution_ExecuteOnDestContext_Recursive_Mutual_Methods(t *testing.T) {
 		AndAssertResults(func(host vmhost.VMHost, stubBlockchainHook *contextmock.BlockchainHookStub, verify *test.VMOutputVerifier) {
 			verify.Ok().
 				Balance(host, test.ParentAddress, 1000).
-				GasUsed(test.ParentAddress, 71034).
+				GasUsed(test.ParentAddress, 71066).
 				ReturnData(returnData...).
 				Storage(storeEntries...)
 
@@ -2289,10 +2326,10 @@ func TestExecution_ExecuteOnDestContext_Recursive_Mutual_SCs(t *testing.T) {
 			verify.Ok().
 				// test.ParentAddress
 				Balance(host, test.ParentAddress, 988).
-				GasUsed(test.ParentAddress, 30311).
+				GasUsed(test.ParentAddress, 30323).
 				// test.ChildAddress
 				Balance(host, test.ChildAddress, 1012).
-				GasUsed(test.ChildAddress, 26579).
+				GasUsed(test.ChildAddress, 26591).
 				// others
 				ReturnData(returnData...).
 				Storage(storeEntries...)

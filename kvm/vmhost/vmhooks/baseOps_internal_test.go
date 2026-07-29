@@ -17,20 +17,28 @@ import (
 )
 
 func newInternalMockVMHost() *contextmock.VMHostMock {
+	return newInternalMockVMHostWithGas(true, 1000)
+}
+
+func newInternalMockVMHostWithGas(fixAuditChangesV4 bool, gas uint64) *contextmock.VMHostMock {
 	gasSchedule := config.MakeGasMapForTests()
 
 	mockMetering := &contextmock.MeteringContextMock{
-		GasProvidedMock: 1000,
-		GasLeftMock:     1000,
+		GasProvidedMock: gas,
+		GasLeftMock:     gas,
 	}
 	mockMetering.SetGasSchedule(gasSchedule)
 
 	mockRuntime := &contextmock.RuntimeContextMock{}
 	mockRuntime.InitState()
 
+	forkController := commonMock.NewForkControllerStub()
+	forkController.FixAuditChangesV4Value = fixAuditChangesV4
+
 	return &contextmock.VMHostMock{
-		RuntimeContext:  mockRuntime,
-		MeteringContext: mockMetering,
+		RuntimeContext:        mockRuntime,
+		MeteringContext:       mockMetering,
+		ForkControllerContext: forkController,
 	}
 }
 
@@ -213,87 +221,120 @@ func TestVMHooksImpl_getArgumentsFromMemory(t *testing.T) {
 	})
 }
 
-func TestVMHooksImpl_extractIndirectContractCallArguments_MetersArgumentBytes(t *testing.T) {
+// The lengths array itself (4 bytes per argument) used to be loaded and parsed
+// for free: only the argument data was ever charged for. A contract could pass
+// a huge numArguments with almost no gas and still force the host to load and
+// parse numArguments*4 bytes. After the fork that read is metered up-front, at
+// DataCopyPerByte, before any memory is touched.
+func TestVMHooksImpl_getArgumentsFromMemory_argumentLengthsGasCharge(t *testing.T) {
 	t.Parallel()
 
-	const functionName = "function"
+	// DataCopyPerByte is 1 in the test gas schedule, so the expected charge is
+	// simply the byte length of the lengths array.
+	const numArgs = 2
+	const expectedCharge = uint64(numArgs * 4)
 
-	args := [][]byte{[]byte("arg1"), []byte("argument2")}
-	argumentBytes := uint64(len(args[0]) + len(args[1]))
+	storeArgs := func(t *testing.T, host *contextmock.VMHostMock, dataOffset executor.MemPtr) [][]byte {
+		t.Helper()
+		args := [][]byte{[]byte("arg1"), []byte("argument2")}
+		lengths := []int32{int32(len(args[0])), int32(len(args[1]))}
 
-	storeInputs := func(host *contextmock.VMHostMock) {
-		lengths := make([]int32, len(args))
-		for i, arg := range args {
-			lengths[i] = int32(len(arg))
-		}
-
-		require.NoError(t, host.Runtime().GetInstance().MemStore(executor.MemPtr(0), make([]byte, vmhost.AddressLen)))
-		require.NoError(t, host.Runtime().GetInstance().MemStore(executor.MemPtr(40), []byte(functionName)))
-		require.NoError(t, host.Runtime().GetInstance().MemStore(executor.MemPtr(64), encodeArgLengths(lengths)))
-
-		offset := executor.MemPtr(200)
+		require.NoError(t, host.Runtime().GetInstance().MemStore(executor.MemPtr(0), encodeArgLengths(lengths)))
+		offset := dataOffset
 		for _, arg := range args {
 			require.NoError(t, host.Runtime().GetInstance().MemStore(offset, arg))
 			offset = offset.Offset(int32(len(arg)))
 		}
+		return args
 	}
 
-	expectedGas := func(host *contextmock.VMHostMock) uint64 {
-		return host.Metering().GasSchedule().BaseOperationCost.DataCopyPerByte * argumentBytes
-	}
-
-	extract := func(host *contextmock.VMHostMock) error {
+	t.Run("after fork: the lengths array is charged for", func(t *testing.T) {
+		host := newInternalMockVMHostWithGas(true, 1000)
 		context := NewVMHooksImpl(host)
-		_, err := context.extractIndirectContractCallArguments(
-			host,
-			executor.MemPtr(0),
-			executor.MemPtr(0),
-			false,
-			executor.MemPtr(40),
-			executor.MemLength(len(functionName)),
-			int32(len(args)),
-			executor.MemPtr(64),
-			executor.MemPtr(200),
-		)
-		return err
-	}
+		args := storeArgs(t, host, executor.MemPtr(100))
 
-	t.Run("aborts on insufficient gas for the argument bytes under audit fork", func(t *testing.T) {
-		host := newInternalMockVMHost()
-		host.ForkControllerContext = &commonMock.ForkControllerStub{FixAuditChangesV4Value: true}
-		storeInputs(host)
+		result, totalLen, err := context.getArgumentsFromMemory(host, numArgs, executor.MemPtr(0), executor.MemPtr(100))
 
-		metering := host.MeteringContext.(*contextmock.MeteringContextMock)
-		metering.GasLeftMock = expectedGas(host) - 1
-
-		require.ErrorIs(t, extract(host), vmhost.ErrNotEnoughGas)
+		require.NoError(t, err)
+		assert.Equal(t, args, result)
+		assert.Equal(t, int32(len(args[0])+len(args[1])), totalLen)
+		assert.Equal(t, 1000-expectedCharge, host.Metering().GasLeft())
 	})
 
-	t.Run("charges only the argument bytes under audit fork", func(t *testing.T) {
-		host := newInternalMockVMHost()
-		host.ForkControllerContext = &commonMock.ForkControllerStub{FixAuditChangesV4Value: true}
-		storeInputs(host)
+	t.Run("before fork: the lengths array is free", func(t *testing.T) {
+		host := newInternalMockVMHostWithGas(false, 1000)
+		context := NewVMHooksImpl(host)
+		args := storeArgs(t, host, executor.MemPtr(100))
 
-		metering := host.MeteringContext.(*contextmock.MeteringContextMock)
-		gasBefore := metering.GasLeft()
+		result, totalLen, err := context.getArgumentsFromMemory(host, numArgs, executor.MemPtr(0), executor.MemPtr(100))
 
-		require.NoError(t, extract(host))
-
-		assert.Equal(t, expectedGas(host), gasBefore-metering.GasLeft())
+		require.NoError(t, err)
+		assert.Equal(t, args, result)
+		assert.Equal(t, int32(len(args[0])+len(args[1])), totalLen)
+		assert.Equal(t, uint64(1000), host.Metering().GasLeft())
 	})
 
-	t.Run("charges only the argument bytes and never aborts before the fork", func(t *testing.T) {
-		host := newInternalMockVMHost()
-		host.ForkControllerContext = &commonMock.ForkControllerStub{FixAuditChangesV4Value: false}
-		storeInputs(host)
+	t.Run("after fork: one gas short of the lengths array fails", func(t *testing.T) {
+		host := newInternalMockVMHostWithGas(true, expectedCharge-1)
+		context := NewVMHooksImpl(host)
+		storeArgs(t, host, executor.MemPtr(100))
 
-		metering := host.MeteringContext.(*contextmock.MeteringContextMock)
-		charged := uint64(0)
-		metering.UseAndTraceGasCalled = func(gas uint64) { charged += gas }
-		metering.GasLeftMock = expectedGas(host) - 1
+		result, totalLen, err := context.getArgumentsFromMemory(host, numArgs, executor.MemPtr(0), executor.MemPtr(100))
 
-		require.NoError(t, extract(host))
+		require.ErrorIs(t, err, vmhost.ErrNotEnoughGas)
+		assert.Nil(t, result)
+		assert.Equal(t, int32(0), totalLen)
+	})
 
-		assert.Equal(t, expectedGas(host), charged)
+	t.Run("after fork: exactly the charge succeeds and leaves no gas", func(t *testing.T) {
+		host := newInternalMockVMHostWithGas(true, expectedCharge)
+		context := NewVMHooksImpl(host)
+		args := storeArgs(t, host, executor.MemPtr(100))
+
+		result, totalLen, err := context.getArgumentsFromMemory(host, numArgs, executor.MemPtr(0), executor.MemPtr(100))
+
+		require.NoError(t, err)
+		assert.Equal(t, args, result)
+		assert.Equal(t, int32(len(args[0])+len(args[1])), totalLen)
+		assert.Equal(t, uint64(0), host.Metering().GasLeft())
+	})
+
+	// The whole point of the charge: a large numArguments must be rejected on
+	// gas before the host loads and parses the lengths array, not after.
+	t.Run("after fork: a large numArguments runs out of gas, before fork it does not", func(t *testing.T) {
+		const manyArgs = int32(1000) // 4000 bytes of lengths, more than the 1000 gas provided
+
+		hostAfterFork := newInternalMockVMHostWithGas(true, 1000)
+		result, totalLen, err := NewVMHooksImpl(hostAfterFork).getArgumentsFromMemory(
+			hostAfterFork, manyArgs, executor.MemPtr(0), executor.MemPtr(100))
+
+		require.ErrorIs(t, err, vmhost.ErrNotEnoughGas)
+		assert.Nil(t, result)
+		assert.Equal(t, int32(0), totalLen)
+
+		// Same call, same gas, before the fork: all 4000 bytes get loaded and
+		// parsed into 1000 (zero-length) arguments for free.
+		hostBeforeFork := newInternalMockVMHostWithGas(false, 1000)
+		result, totalLen, err = NewVMHooksImpl(hostBeforeFork).getArgumentsFromMemory(
+			hostBeforeFork, manyArgs, executor.MemPtr(0), executor.MemPtr(100))
+
+		require.NoError(t, err)
+		assert.Len(t, result, int(manyArgs))
+		assert.Equal(t, int32(0), totalLen)
+		assert.Equal(t, uint64(1000), hostBeforeFork.Metering().GasLeft())
+	})
+
+	t.Run("zero arguments are charged nothing on either side of the fork", func(t *testing.T) {
+		for _, fixAuditChangesV4 := range []bool{true, false} {
+			host := newInternalMockVMHostWithGas(fixAuditChangesV4, 1000)
+			context := NewVMHooksImpl(host)
+
+			result, totalLen, err := context.getArgumentsFromMemory(host, 0, executor.MemPtr(0), executor.MemPtr(100))
+
+			require.NoError(t, err)
+			assert.Equal(t, [][]byte{}, result)
+			assert.Equal(t, int32(0), totalLen)
+			assert.Equal(t, uint64(1000), host.Metering().GasLeft())
+		}
 	})
 }

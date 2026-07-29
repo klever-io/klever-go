@@ -155,7 +155,7 @@ func (m *MeteringContextMock) UseGasBounded(gas uint64) error {
 	if m.Err != nil {
 		return m.Err
 	}
-	if m.GasLeft() <= gas {
+	if m.GasLeft() < gas {
 		return vmhost.ErrNotEnoughGas
 	}
 	m.UseGas(gas)

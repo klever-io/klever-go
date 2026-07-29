@@ -1643,6 +1643,7 @@ func (context *VMHooksImpl) WriteEventLog(
 	runtime := context.GetRuntimeContext()
 	output := context.GetOutputContext()
 	metering := context.GetMeteringContext()
+	metering.StartGasTracing(writeEventLogName)
 
 	topics, topicDataTotalLen, err := context.getArgumentsFromMemory(
 		host,
@@ -1664,8 +1665,7 @@ func (context *VMHooksImpl) WriteEventLog(
 		metering.GasSchedule().BaseOperationCost.DataCopyPerByte,
 		uint64(topicDataTotalLen+dataLength)) // #nosec G115
 	gasToUse = math.AddUint64(gasToUse, gasForData)
-	metering.UseGasAndAddTracedGas(writeEventLogName, gasToUse)
-
+	metering.UseAndTraceGas(gasToUse)
 	output.WriteLog(runtime.GetContextAddress(), topics, [][]byte{data})
 }
 
@@ -2533,17 +2533,29 @@ func prepareIndirectContractCallInput(
 }
 
 func (context *VMHooksImpl) getArgumentsFromMemory(
-	_ vmhost.VMHost,
+	host vmhost.VMHost,
 	numArguments int32,
 	argumentsLengthOffset executor.MemPtr,
 	dataOffset executor.MemPtr,
 ) ([][]byte, int32, error) {
+	metering := host.Metering()
+
 	if numArguments < 0 || numArguments > maxNumArgumentsFromMemory {
 		return nil, 0, fmt.Errorf("invalid numArguments (%d)", numArguments)
 	}
 	argumentsLengthsByteLength, err := argumentsLengthByteCount(numArguments)
 	if err != nil {
 		return nil, 0, err
+	}
+
+	//assuming the caller charges for the actual data returned by this helper
+	if host.ForkController().FixAuditChangesV4() {
+		// #nosec G115
+		gasToUse := math.MulUint64(metering.GasSchedule().BaseOperationCost.DataCopyPerByte, uint64(argumentsLengthsByteLength))
+		err = metering.UseGasBounded(gasToUse)
+		if err != nil {
+			return nil, 0, err
+		}
 	}
 
 	argumentsLengthData, err := context.MemLoad(argumentsLengthOffset, argumentsLengthsByteLength)
