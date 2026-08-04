@@ -1599,6 +1599,71 @@ func TestBuildAccountInfo(t *testing.T) {
 	})
 }
 
+func TestElasticProcessor_indexRefresh(t *testing.T) {
+	t.Parallel()
+
+	t.Run("live mode forces refresh", func(t *testing.T) {
+		t.Parallel()
+		args := createMockElasticProcessorArgs()
+		args.IsInImportDBMode = false
+		ep := newTestElasticSearchDatabase(&imock.DatabaseWriterStub{}, args)
+		require.Equal(t, "true", ep.indexRefresh())
+	})
+
+	t.Run("import-db mode disables force refresh", func(t *testing.T) {
+		t.Parallel()
+		args := createMockElasticProcessorArgs()
+		args.IsInImportDBMode = true
+		ep := newTestElasticSearchDatabase(&imock.DatabaseWriterStub{}, args)
+		require.Equal(t, "false", ep.indexRefresh())
+	})
+}
+
+func TestElasticProcessor_SaveHeader_RefreshPolicy(t *testing.T) {
+	t.Parallel()
+
+	header := &dataBlock.Block{
+		Header: &dataBlock.BlockHeader{Nonce: 1},
+	}
+	signer := []byte("signer")
+
+	t.Run("live mode sets refresh true", func(t *testing.T) {
+		t.Parallel()
+		var captured *esapi.IndexRequest
+		args := createMockElasticProcessorArgs()
+		args.IsInImportDBMode = false
+		args.EnabledIndexes = map[string]struct{}{blockIndex: {}}
+		dbWriter := &imock.DatabaseWriterStub{
+			DoRequestCalled: func(req *esapi.IndexRequest) error {
+				captured = req
+				return nil
+			},
+		}
+		ep := newTestElasticSearchDatabase(dbWriter, args)
+		require.NoError(t, ep.SaveHeader(header, signer, 1, []string{}))
+		require.NotNil(t, captured)
+		require.Equal(t, "true", captured.Refresh)
+	})
+
+	t.Run("import-db mode sets refresh false", func(t *testing.T) {
+		t.Parallel()
+		var captured *esapi.IndexRequest
+		args := createMockElasticProcessorArgs()
+		args.IsInImportDBMode = true
+		args.EnabledIndexes = map[string]struct{}{blockIndex: {}}
+		dbWriter := &imock.DatabaseWriterStub{
+			DoRequestCalled: func(req *esapi.IndexRequest) error {
+				captured = req
+				return nil
+			},
+		}
+		ep := newTestElasticSearchDatabase(dbWriter, args)
+		require.NoError(t, ep.SaveHeader(header, signer, 1, []string{}))
+		require.NotNil(t, captured)
+		require.Equal(t, "false", captured.Refresh)
+	})
+}
+
 func TestElasticProcessor_SaveEpochInfo(t *testing.T) {
 	t.Parallel()
 
@@ -1613,8 +1678,9 @@ func TestElasticProcessor_SaveEpochInfo(t *testing.T) {
 		return raw
 	}
 
-	newEpochProcessor := func(t *testing.T, stakingRecords map[string][]byte, capture **esapi.IndexRequest) *elasticProcessor {
+	newEpochProcessor := func(t *testing.T, stakingRecords map[string][]byte, capture **esapi.IndexRequest, importDB bool) *elasticProcessor {
 		args := createMockElasticProcessorArgs()
+		args.IsInImportDBMode = importDB
 		args.EnabledIndexes = map[string]struct{}{epochIndex: {}}
 
 		kdaRecords := map[string][]byte{
@@ -1653,12 +1719,13 @@ func TestElasticProcessor_SaveEpochInfo(t *testing.T) {
 		ep := newEpochProcessor(t, map[string][]byte{
 			klvKey: mustMarshal(t, &kapps.StakingData{TotalStaked: 5_000}),
 			kfiKey: mustMarshal(t, &kapps.StakingData{TotalStaked: 800}),
-		}, &captured)
+		}, &captured, false)
 
 		require.NoError(t, ep.SaveEpochInfo(7, nil))
 		require.NotNil(t, captured)
 		require.Equal(t, epochIndex, captured.Index)
 		require.Equal(t, "7", captured.DocumentID)
+		require.Equal(t, "true", captured.Refresh)
 
 		body, err := io.ReadAll(captured.Body)
 		require.NoError(t, err)
@@ -1675,9 +1742,23 @@ func TestElasticProcessor_SaveEpochInfo(t *testing.T) {
 		var captured *esapi.IndexRequest
 		ep := newEpochProcessor(t, map[string][]byte{
 			klvKey: mustMarshal(t, &kapps.StakingData{TotalStaked: 5_000}),
-		}, &captured)
+		}, &captured, false)
 
 		require.ErrorIs(t, ep.SaveEpochInfo(7, nil), common.ErrEmptyString)
 		require.Nil(t, captured)
+	})
+
+	t.Run("import-db mode sets refresh false on epoch index", func(t *testing.T) {
+		t.Parallel()
+		var captured *esapi.IndexRequest
+		ep := newEpochProcessor(t, map[string][]byte{
+			klvKey: mustMarshal(t, &kapps.StakingData{TotalStaked: 5_000}),
+			kfiKey: mustMarshal(t, &kapps.StakingData{TotalStaked: 800}),
+		}, &captured, true)
+
+		require.NoError(t, ep.SaveEpochInfo(7, nil))
+		require.NotNil(t, captured)
+		require.Equal(t, epochIndex, captured.Index)
+		require.Equal(t, "false", captured.Refresh)
 	})
 }

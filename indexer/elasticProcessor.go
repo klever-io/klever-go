@@ -320,7 +320,7 @@ func (ei *elasticProcessor) SaveHeader(
 		Index:      blockIndex,
 		DocumentID: hex.EncodeToString(headerHash),
 		Body:       bytes.NewReader(buff.Bytes()),
-		Refresh:    "true",
+		Refresh:    ei.indexRefresh(),
 	}
 
 	if err := ei.elasticClient.DoRequest(req); err != nil {
@@ -1848,7 +1848,7 @@ func (ei *elasticProcessor) indexEpochInfo(epoch uint32, epochInfo *data.EpochIn
 		Index:      epochIndex,
 		DocumentID: fmt.Sprint(epoch),
 		Body:       bytes.NewReader(buff.Bytes()),
-		Refresh:    "true",
+		Refresh:    ei.indexRefresh(),
 	}
 
 	return ei.elasticClient.DoRequest(req)
@@ -1857,6 +1857,16 @@ func (ei *elasticProcessor) indexEpochInfo(epoch uint32, epochInfo *data.EpochIn
 func (ei *elasticProcessor) isIndexEnabled(index string) bool {
 	_, isEnabled := ei.enabledIndexes[index]
 	return isEnabled
+}
+
+// indexRefresh returns the Elasticsearch IndexRequest refresh policy.
+// Live mode forces refresh so docs are immediately searchable; import-db
+// skips force-refresh to speed full-chain ES backfill.
+func (ei *elasticProcessor) indexRefresh() string {
+	if ei != nil && ei.txDatabaseProcessor != nil && ei.isInImportMode {
+		return "false"
+	}
+	return "true"
 }
 
 func getTemplateByName(templateName string, templateList map[string]*bytes.Buffer) *bytes.Buffer {
