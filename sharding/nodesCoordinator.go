@@ -290,6 +290,14 @@ func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 	return nil
 }
 
+// IsReady returns true once the initial saved state has been restored. It is set
+// at construction for genesis (startEpoch==0) or after a successful LoadState for
+// non-genesis restarts. EpochStartPrepare does NOT flip this flag, so IsReady
+// answers "was the persisted state loaded", not "is the coordinator usable".
+func (ihgs *indexHashedNodesCoordinator) IsReady() bool {
+	return ihgs.stateReady.Load()
+}
+
 func displayNodesConfigInfo(config map[uint32]*epochNodesConfig) {
 	for epoch, cfg := range config {
 		log.Debug("restored config for",

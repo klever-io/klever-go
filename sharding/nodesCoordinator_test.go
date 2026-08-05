@@ -759,3 +759,71 @@ func TestNodesCoordinator_IsInterfaceNil(t *testing.T) {
 	require.Nil(t, err)
 	require.False(t, check.IfNil(ihgs3))
 }
+
+func TestNodesCoordinator_IsReadyOnGenesisStart(t *testing.T) {
+	t.Parallel()
+
+	args := createArguments()
+	args.Epoch = 0
+	args.StartEpoch = 0
+	coordinator, err := NewNodesCoordinator(args)
+	require.Nil(t, err)
+
+	require.True(t, coordinator.IsReady())
+}
+
+func TestNodesCoordinator_IsReadyFalseOnRestartBeforeLoadState(t *testing.T) {
+	t.Parallel()
+
+	args := createArguments()
+	args.StartEpoch = 1
+	coordinator, err := NewNodesCoordinator(args)
+	require.Nil(t, err)
+
+	require.False(t, coordinator.IsReady())
+}
+
+func TestNodesCoordinator_IsReadyTrueAfterSuccessfulLoadState(t *testing.T) {
+	t.Parallel()
+
+	elected := createDummyNodesList(4, "currentElected")
+	eligible := createDummyNodesList(1, "currentEligible")
+	bootStorer := mock.NewStorerMock()
+
+	argsBeforeRestart := createArguments()
+	argsBeforeRestart.BootStorer = bootStorer
+	argsBeforeRestart.ElectedNodes = elected
+	argsBeforeRestart.EligibleNodes = eligible
+	coordinatorBeforeRestart, err := NewNodesCoordinator(argsBeforeRestart)
+	require.Nil(t, err)
+
+	savedStateKey := []byte("rotated-saved-state-key")
+	err = coordinatorBeforeRestart.saveState(savedStateKey)
+	require.Nil(t, err)
+
+	argsAfterRestart := createArguments()
+	argsAfterRestart.BootStorer = bootStorer
+	argsAfterRestart.StartEpoch = 1
+	coordinatorAfterRestart, err := NewNodesCoordinator(argsAfterRestart)
+	require.Nil(t, err)
+	require.False(t, coordinatorAfterRestart.IsReady())
+
+	err = coordinatorAfterRestart.LoadState(savedStateKey)
+	require.Nil(t, err)
+	require.True(t, coordinatorAfterRestart.IsReady())
+}
+
+func TestNodesCoordinator_IsReadyStaysFalseAfterFailedLoadState(t *testing.T) {
+	t.Parallel()
+
+	args := createArguments()
+	args.StartEpoch = 1
+	coordinator, err := NewNodesCoordinator(args)
+	require.Nil(t, err)
+	require.False(t, coordinator.IsReady())
+
+	// no registry saved under this key: LoadState fails and must not flip readiness
+	err = coordinator.LoadState([]byte("missing-key"))
+	require.NotNil(t, err)
+	require.False(t, coordinator.IsReady())
+}

@@ -26,6 +26,7 @@ type NodesCoordinatorMock struct {
 	ConsensusGroupSizeCalled                func() int
 	LoadValidatorsCalled                    func(validators []*state.ValidatorInfo) error
 	SetEpochValidatorsInfoCalled            func(epoch uint32, validatorsInfo []*state.ValidatorInfo) error
+	IsReadyCalled                           func() bool
 }
 
 // NewNodesCoordinatorMock -
@@ -226,6 +227,14 @@ func (ncm *NodesCoordinatorMock) GetOwnPublicKey() []byte {
 // LoadState -
 func (ncm *NodesCoordinatorMock) LoadState(_ []byte) error {
 	return nil
+}
+
+// IsReady -
+func (ncm *NodesCoordinatorMock) IsReady() bool {
+	if ncm.IsReadyCalled != nil {
+		return ncm.IsReadyCalled()
+	}
+	return true
 }
 
 // GetSavedStateKey -

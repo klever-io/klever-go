@@ -314,6 +314,14 @@ func (n *Node) StartConsensus() error {
 
 	n.bootstrapper.LoadStorage()
 
+	// the coordinator is marked ready at construction for genesis (startEpoch==0),
+	// or after a successful LoadState for non-genesis restarts; if it is still not
+	// ready after LoadStorage, the saved state could not be restored and the node
+	// can never compute consensus groups, so fail startup loudly
+	if !n.nodesCoordinator.IsReady() {
+		return common.ErrNodesCoordinatorNotReadyAfterBootstrap
+	}
+
 	log.Trace("creating proposal kapp")
 
 	acnt, err := n.kapps.LoadAccount(kapps.ProposalKAppAddress)

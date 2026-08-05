@@ -140,6 +140,11 @@ func (ncm *NodesCoordinatorStub) LoadState(key []byte) error {
 	return nil
 }
 
+// IsReady -
+func (ncm *NodesCoordinatorStub) IsReady() bool {
+	return true
+}
+
 // SetEpochValidatorsInfo
 func (ncm *NodesCoordinatorStub) SetEpochValidatorsInfo(epoch uint32, validatorsInfo []*state.ValidatorInfo) error {
 	if ncm.SetEpochValidatorsInfoCalled != nil {

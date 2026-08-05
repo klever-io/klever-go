@@ -30,6 +30,7 @@ type NodesCoordinator interface {
 	GetValidatorWithPublicKey(publicKey []byte) (validator Validator, err error)
 	ConsensusGroupSize() int
 	LoadState(key []byte) error
+	IsReady() bool
 	GetSavedStateKey() []byte
 	GetOwnPublicKey() []byte
 	GetConsensusWhitelistedNodes(epoch uint32) (map[string]struct{}, error)

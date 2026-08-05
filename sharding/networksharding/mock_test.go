@@ -90,6 +90,11 @@ func (ncs *nodesCoordinatorStub) LoadState(_ []byte) error {
 	panic("implement me")
 }
 
+// IsReady -
+func (ncs *nodesCoordinatorStub) IsReady() bool {
+	return true
+}
+
 // GetSavedStateKey -
 func (ncs *nodesCoordinatorStub) GetSavedStateKey() []byte {
 	panic("implement me")
