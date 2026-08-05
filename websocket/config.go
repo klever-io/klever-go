@@ -1,6 +1,8 @@
 package websocket
 
-import "time"
+import (
+	"time"
+)
 
 const (
 	outChannelSize = 500
@@ -39,15 +41,12 @@ const (
 	// pattern in indexer/events.go), when PostQueueSize is unset — so a stalled mirror
 	// endpoint sheds load instead of growing without bound.
 	defaultPostQueueSize = 1000
-)
 
-// pingPeriod and pongWait are the /subscribe keepalive timings. They are vars only so
-// tests can shorten them to exercise the idle-client read-deadline reclamation quickly;
-// nothing in production mutates them. pongWait (the lifetime read deadline) must exceed
-// pingPeriod so a live client can answer a server ping before it elapses.
-var (
-	pingPeriod = 15 * time.Second
-	pongWait   = 30 * time.Second
+	// defaultPingPeriod/defaultPongWait are the /subscribe keepalive timings when unset.
+	// pongWait (the lifetime read deadline) must exceed pingPeriod so a live client can
+	// answer a server ping before it elapses.
+	defaultPingPeriod = 15 * time.Second
+	defaultPongWait   = 30 * time.Second
 )
 
 // Limits bounds /subscribe resource usage. Zero-valued fields fall back to safe
@@ -62,6 +61,12 @@ type Limits struct {
 	// PostQueueSize bounds pending mirror sends queued behind PostWorkers; 0 uses
 	// defaultPostQueueSize.
 	PostQueueSize int
+	// PingPeriod/PongWait override the /subscribe keepalive timings (0 = defaults). A hub's
+	// resolved values never change after construction, so client goroutines can read them
+	// off c.hub.limits with no synchronization — tests that need short timings build a
+	// dedicated hub instead of mutating shared state.
+	PingPeriod time.Duration
+	PongWait   time.Duration
 }
 
 // resolvedLimits holds the effective limits after defaults are applied.
@@ -71,6 +76,8 @@ type resolvedLimits struct {
 	maxMessageSize           int64
 	postWorkers              int
 	postQueueSize            int
+	pingPeriod               time.Duration
+	pongWait                 time.Duration
 }
 
 func (l Limits) resolve() resolvedLimits {
@@ -102,11 +109,27 @@ func (l Limits) resolve() resolvedLimits {
 		postQueueSize = defaultPostQueueSize
 	}
 
+	pingPeriod := l.PingPeriod
+	if pingPeriod <= 0 {
+		pingPeriod = defaultPingPeriod
+	}
+	pongWait := l.PongWait
+	if pongWait <= 0 {
+		pongWait = defaultPongWait
+	}
+	// An incoherent override (pongWait <= pingPeriod) is clamped up rather than left to
+	// reclaim connections that are still answering pings on time.
+	if pongWait <= pingPeriod {
+		pongWait = pingPeriod * 2
+	}
+
 	return resolvedLimits{
 		maxAddressesPerSubscribe: perSubscribe,
 		maxAddressesPerClient:    perClient,
 		maxMessageSize:           readLimit,
 		postWorkers:              postWorkers,
 		postQueueSize:            postQueueSize,
+		pingPeriod:               pingPeriod,
+		pongWait:                 pongWait,
 	}
 }

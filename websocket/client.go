@@ -84,9 +84,12 @@ func (c *client) loopIn() {
 	// handler and each read. loopOut's pings keep a live client warm while a dead/idle one
 	// is reclaimed at pongWait (GHSA-4fwh-wrm6-97xm).
 	c.conn.SetReadLimit(c.hub.limits.maxMessageSize)
-	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	if err := c.conn.SetReadDeadline(time.Now().Add(c.hub.limits.pongWait)); err != nil {
+		log.Warn("ws.loopIn", "err", err.Error())
+		return
+	}
 	c.conn.SetPongHandler(func(string) error {
-		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return c.conn.SetReadDeadline(time.Now().Add(c.hub.limits.pongWait))
 	})
 
 	for {
@@ -97,7 +100,12 @@ func (c *client) loopIn() {
 			}
 			break
 		}
-		_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		if err := c.conn.SetReadDeadline(time.Now().Add(c.hub.limits.pongWait)); err != nil {
+			// Debug, not Warn: this only fires when a concurrent c.close() lands between a
+			// successful read and this call — normal teardown, not an anomaly.
+			log.Debug("ws.loopIn", "err", err.Error())
+			break
+		}
 
 		// ReadMessage only yields data frames; gorilla answers client ping and close
 		// control frames through its default handlers (close surfaces as a read error
@@ -135,7 +143,7 @@ func (c *client) loopOut() {
 	// Ping the client periodically; its pong refreshes loopIn's read deadline, keeping
 	// passive-but-live subscribers up while dead ones time out. WriteControl is safe to
 	// call concurrently with the other writer.
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(c.hub.limits.pingPeriod)
 	defer ticker.Stop()
 
 	for {
@@ -148,7 +156,7 @@ func (c *client) loopOut() {
 			}
 			// Bound the write: a client that re-arms its read deadline but never drains its
 			// socket would otherwise park this goroutine here indefinitely (GHSA-4fwh-wrm6-97xm).
-			if err := c.conn.SetWriteDeadline(time.Now().Add(pingPeriod)); err != nil {
+			if err := c.conn.SetWriteDeadline(time.Now().Add(c.hub.limits.pingPeriod)); err != nil {
 				log.Warn("ws.loopOut", "err", err.Error())
 				c.close()
 				return
@@ -159,7 +167,7 @@ func (c *client) loopOut() {
 				return
 			}
 		case <-ticker.C:
-			if err := c.conn.WriteControl(ws.PingMessage, nil, time.Now().Add(pingPeriod)); err != nil {
+			if err := c.conn.WriteControl(ws.PingMessage, nil, time.Now().Add(c.hub.limits.pingPeriod)); err != nil {
 				log.Warn("ws.loopOut.ping", "err", err.Error())
 				c.close()
 				return
