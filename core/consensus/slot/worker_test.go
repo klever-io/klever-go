@@ -21,6 +21,7 @@ import (
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var fromConnectedPeerId = core.PeerID("connected peer id")
@@ -518,10 +519,115 @@ func TestWorker_ProcessReceivedMessageRedundancyNodeShouldResetInactivityIfNeede
 		},
 	}
 	wrk.SetNodeRedundancyHandler(nodeRedundancyMock)
-	buff, _ := wrk.Marshalizer().Marshal(&consensus.Message{})
-	_ = wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff}, fromConnectedPeerId)
+
+	// the inactivity reset runs only after checkConsensusMessageValidity, so the
+	// message must be valid to reach it
+	hdr := &block.Block{Header: &block.BlockHeader{ChainID: chainID}}
+	hdrHash, errHash := tools.CalculateHash(mock.MarshalizerMock{}, cMock.HasherMock{}, hdr.GetBlockHeader())
+	require.NoError(t, errHash)
+	hdrStr, errMarshalHdr := mock.MarshalizerMock{}.Marshal(hdr)
+	require.NoError(t, errMarshalHdr)
+	wrk.NewBlockProcessor(hdr.GetBlockHeader())
+	cnsMsg := consensus.NewConsensusMessage(
+		hdrHash,
+		nil,
+		hdrStr,
+		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
+		signature,
+		int(bls.MtBlockHeader),
+		0,
+		0,
+		chainID,
+		nil,
+		nil,
+		nil,
+		currentPid,
+	)
+	buff, errMarshalMsg := wrk.Marshalizer().Marshal(cnsMsg)
+	require.NoError(t, errMarshalMsg)
+	err := wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff, PeerField: currentPid}, fromConnectedPeerId)
+	require.NoError(t, err)
 
 	assert.True(t, wasCalled)
+}
+
+func TestWorker_ProcessReceivedMessageRedundancyResetSkippedOnInvalidMessage(t *testing.T) {
+	t.Parallel()
+	wrk := *initWorker()
+	var wasCalled bool
+	nodeRedundancyMock := &mock.NodeRedundancyHandlerStub{
+		IsRedundancyNodeCalled: func() bool {
+			return true
+		},
+		ResetInactivityIfNeededCalled: func(selfPubKey string, consensusMsgPubKey string, consensusMsgPeerID core.PeerID) {
+			wasCalled = true
+		},
+	}
+	wrk.SetNodeRedundancyHandler(nodeRedundancyMock)
+
+	// an unsigned/invalid message must not reach the inactivity reset: a spoofed
+	// message carrying the backup's own pubkey could otherwise keep it from taking
+	// over for a dead main machine
+	buff, err := wrk.Marshalizer().Marshal(&consensus.Message{})
+	require.NoError(t, err)
+	err = wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff}, fromConnectedPeerId)
+	require.Error(t, err)
+
+	assert.False(t, wasCalled)
+}
+
+func TestWorker_ProcessReceivedMessageRedundancyNoResetOnMessageTypeLimitReached(t *testing.T) {
+	t.Parallel()
+	wrk := *initWorker()
+	resetCount := 0
+	nodeRedundancyMock := &mock.NodeRedundancyHandlerStub{
+		IsRedundancyNodeCalled: func() bool {
+			return true
+		},
+		ResetInactivityIfNeededCalled: func(selfPubKey string, consensusMsgPubKey string, consensusMsgPeerID core.PeerID) {
+			resetCount++
+		},
+	}
+	wrk.SetNodeRedundancyHandler(nodeRedundancyMock)
+
+	hdr := &block.Block{Header: &block.BlockHeader{ChainID: chainID}}
+	hdrHash, err := tools.CalculateHash(mock.MarshalizerMock{}, cMock.HasherMock{}, hdr.GetBlockHeader())
+	require.NoError(t, err)
+	hdrStr, err := mock.MarshalizerMock{}.Marshal(hdr)
+	require.NoError(t, err)
+	wrk.NewBlockProcessor(hdr.GetBlockHeader())
+	proposerPk := []byte(wrk.ConsensusState().ConsensusGroup()[0])
+	cnsMsg := consensus.NewConsensusMessage(
+		hdrHash,
+		nil,
+		hdrStr,
+		proposerPk,
+		signature,
+		int(bls.MtBlockHeader),
+		0,
+		0,
+		chainID,
+		nil,
+		nil,
+		nil,
+		currentPid,
+	)
+	buff, err := wrk.Marshalizer().Marshal(cnsMsg)
+	require.NoError(t, err)
+	msg := &cMock.P2PMessageMock{DataField: buff, PeerField: currentPid}
+
+	// first call passes the full pipeline including VerifyPeerSignature and resets
+	err = wrk.ProcessReceivedMessage(msg, fromConnectedPeerId)
+	require.NoError(t, err)
+	assert.Equal(t, 1, resetCount)
+
+	// the budget for this (pubkey, slot, msgType) is now exhausted, so the second
+	// call returns before VerifyPeerSignature runs. the pubkey binding is unproven
+	// for this message, so it must NOT reset: otherwise anyone could replay the
+	// public validator key to keep a backup from taking over for a dead main machine
+	err = wrk.ProcessReceivedMessage(msg, fromConnectedPeerId)
+	assert.True(t, errors.Is(err, slot.ErrMessageTypeLimitReached))
+	assert.Equal(t, 1, resetCount)
 }
 
 func TestWorker_ProcessReceivedMessageNodeNotInConsensusGroupShouldErr(t *testing.T) {
@@ -620,6 +726,231 @@ func TestWorker_ProcessReceivedMessageComputeReceivedProposedBlockMetric(t *test
 		receivedValue >= minimumExpectedValue,
 		fmt.Sprintf("minimum expected was %d, got %d", minimumExpectedValue, receivedValue),
 	)
+}
+
+func TestWorker_ProcessReceivedMessageLearnsPeerIDPublicKeyWhenNotSynchronized(t *testing.T) {
+	t.Parallel()
+
+	var learnedPid core.PeerID
+	var learnedPk []byte
+	learnedCalled := false
+	collector := &mock.NetworkShardingCollectorStub{
+		UpdatePeerIDPublicKeyCalled: func(pid core.PeerID, pk []byte) {
+			learnedCalled = true
+			learnedPid = pid
+			learnedPk = pk
+		},
+	}
+
+	workerArgs := createDefaultWorkerArgs()
+	workerArgs.NetworkShardingCollector = collector
+	workerArgs.Bootstrapper = &mock.BootstrapperMock{
+		GetNodeStateCalled: func() core.NodeState {
+			return core.NsNotSynchronized
+		},
+	}
+	wrk, errWorker := slot.NewWorker(workerArgs)
+	require.NoError(t, errWorker)
+
+	// use a key that is NOT in ConsensusGroup() to prove that an out-of-group
+	// validator (e.g. one shuffled in after an epoch transition) gets its mapping
+	// learned; add it to the elected set via RefreshElectedNodes, simulating an
+	// epoch-start whitelist refresh
+	outOfGroupPk := make([]byte, PublicKeySize)
+	for i := range outOfGroupPk {
+		outOfGroupPk[i] = 0xAB
+	}
+	elected := make(map[string]struct{})
+	for _, pk := range wrk.ConsensusState().ConsensusGroup() {
+		elected[pk] = struct{}{}
+	}
+	elected[string(outOfGroupPk)] = struct{}{}
+	wrk.ConsensusState().RefreshElectedNodes(elected)
+
+	hdr := &block.Block{Header: &block.BlockHeader{ChainID: chainID}}
+	hdrHash, errHash := tools.CalculateHash(mock.MarshalizerMock{}, cMock.HasherMock{}, hdr.GetBlockHeader())
+	require.NoError(t, errHash)
+	hdrStr, errMarshal := mock.MarshalizerMock{}.Marshal(hdr)
+	require.NoError(t, errMarshal)
+	wrk.NewBlockProcessor(hdr.GetBlockHeader())
+	cnsMsg := consensus.NewConsensusMessage(
+		hdrHash,
+		nil,
+		hdrStr,
+		outOfGroupPk,
+		signature,
+		int(bls.MtBlockHeader),
+		// a future slot index, so the "not stored" assertion below is only
+		// satisfied by the unsynchronized early return
+		1,
+		0,
+		chainID,
+		nil,
+		nil,
+		nil,
+		currentPid,
+	)
+	buff, errMarshalMsg := wrk.Marshalizer().Marshal(cnsMsg)
+	require.NoError(t, errMarshalMsg)
+	msg := &cMock.P2PMessageMock{
+		DataField: buff,
+		PeerField: currentPid,
+	}
+
+	err := wrk.ProcessReceivedMessage(msg, fromConnectedPeerId)
+
+	require.NoError(t, err)
+	assert.True(t, learnedCalled, "peer id -> public key mapping must be learned for out-of-group validators while not synchronized")
+	assert.Equal(t, currentPid, learnedPid)
+	assert.Equal(t, outOfGroupPk, learnedPk)
+	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockHeader]),
+		"the mapping is learned but the message itself must still not be processed")
+}
+
+func TestWorker_ProcessReceivedMessageDoesNotLearnPeerIDPublicKeyOnInvalidMessage(t *testing.T) {
+	t.Parallel()
+
+	// the inverse of the test above: updateNetworkShardingVals runs only after
+	// checkConsensusMessageValidity returns nil, so an unverified public key must
+	// never reach the PeerShardMapper. this pins the ordering in worker.go; a
+	// reordering of those two blocks would otherwise pass every other test
+	learnedCalled := false
+	collector := &mock.NetworkShardingCollectorStub{
+		UpdatePeerIDPublicKeyCalled: func(_ core.PeerID, _ []byte) {
+			learnedCalled = true
+		},
+	}
+
+	workerArgs := createDefaultWorkerArgs()
+	workerArgs.NetworkShardingCollector = collector
+	workerArgs.Bootstrapper = &mock.BootstrapperMock{
+		GetNodeStateCalled: func() core.NodeState {
+			return core.NsNotSynchronized
+		},
+	}
+	wrk, errWorker := slot.NewWorker(workerArgs)
+	require.NoError(t, errWorker)
+
+	// a wrong chain ID fails checkConsensusMessageValidity before the mapping is learned
+	hdr := &block.Block{Header: &block.BlockHeader{ChainID: chainID}}
+	hdrHash, errHash := tools.CalculateHash(mock.MarshalizerMock{}, cMock.HasherMock{}, hdr.GetBlockHeader())
+	require.NoError(t, errHash)
+	hdrStr, errMarshal := mock.MarshalizerMock{}.Marshal(hdr)
+	require.NoError(t, errMarshal)
+	wrk.NewBlockProcessor(hdr.GetBlockHeader())
+	cnsMsg := consensus.NewConsensusMessage(
+		hdrHash,
+		nil,
+		hdrStr,
+		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
+		signature,
+		int(bls.MtBlockHeader),
+		0,
+		0,
+		[]byte("wrong chain ID"),
+		nil,
+		nil,
+		nil,
+		currentPid,
+	)
+	buff, errMarshalMsg := wrk.Marshalizer().Marshal(cnsMsg)
+	require.NoError(t, errMarshalMsg)
+
+	err := wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff, PeerField: currentPid}, fromConnectedPeerId)
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, slot.ErrInvalidChainID))
+	assert.False(t, learnedCalled, "an unverified public key must never reach the PeerShardMapper")
+}
+
+func TestWorker_ProcessReceivedMessageWhenNotSynchronizedStillRejectsInvalidMessage(t *testing.T) {
+	t.Parallel()
+
+	workerArgs := createDefaultWorkerArgs()
+	workerArgs.Bootstrapper = &mock.BootstrapperMock{
+		GetNodeStateCalled: func() core.NodeState {
+			return core.NsNotSynchronized
+		},
+	}
+	wrk, errWorker := slot.NewWorker(workerArgs)
+	require.NoError(t, errWorker)
+
+	// an unsynchronized node still runs full validity checks (the early return sits
+	// below them), so a malformed message is rejected rather than silently ignored
+	blk := &block.Block{Header: &block.BlockHeader{}}
+	blkStr, errMarshalBlk := mock.MarshalizerMock{}.Marshal(blk)
+	require.NoError(t, errMarshalBlk)
+	cnsMsg := consensus.NewConsensusMessage(
+		blockHeaderHash,
+		nil,
+		blkStr,
+		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
+		signature,
+		int(bls.MtBlockHeader),
+		1,
+		1,
+		[]byte("inconsistent chain ID"),
+		nil,
+		nil,
+		nil,
+		currentPid,
+	)
+	buff, errMarshalMsg := wrk.Marshalizer().Marshal(cnsMsg)
+	require.NoError(t, errMarshalMsg)
+	err := wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff}, fromConnectedPeerId)
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, slot.ErrInvalidChainID))
+}
+
+func TestWorker_ProcessReceivedMessageWhenNotSynchronizedSkipsProcessing(t *testing.T) {
+	t.Parallel()
+
+	workerArgs := createDefaultWorkerArgs()
+	workerArgs.Bootstrapper = &mock.BootstrapperMock{
+		GetNodeStateCalled: func() core.NodeState {
+			return core.NsNotSynchronized
+		},
+	}
+	wrk, errWorker := slot.NewWorker(workerArgs)
+	require.NoError(t, errWorker)
+
+	hdr := &block.Block{Header: &block.BlockHeader{ChainID: chainID}}
+	hdrHash, errHash := tools.CalculateHash(mock.MarshalizerMock{}, cMock.HasherMock{}, hdr.GetBlockHeader())
+	require.NoError(t, errHash)
+	hdrStr, errMarshal := mock.MarshalizerMock{}.Marshal(hdr)
+	require.NoError(t, errMarshal)
+	wrk.NewBlockProcessor(hdr.GetBlockHeader())
+	cnsMsg := consensus.NewConsensusMessage(
+		hdrHash,
+		nil,
+		hdrStr,
+		[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
+		signature,
+		int(bls.MtBlockHeader),
+		// a slot index above the worker's current index: a synchronized worker
+		// would store this message, so the assertion below only holds because of
+		// the unsynchronized early return
+		1,
+		0,
+		chainID,
+		nil,
+		nil,
+		nil,
+		currentPid,
+	)
+	buff, errMarshalMsg := wrk.Marshalizer().Marshal(cnsMsg)
+	require.NoError(t, errMarshalMsg)
+	msg := &cMock.P2PMessageMock{
+		DataField: buff,
+		PeerField: currentPid,
+	}
+
+	err := wrk.ProcessReceivedMessage(msg, fromConnectedPeerId)
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, len(wrk.ReceivedMessages()[bls.MtBlockHeader]),
+		"an unsynchronized worker must not store the message for a future slot")
 }
 
 func TestWorker_ProcessReceivedMessageInconsistentChainIDInConsensusMessageShouldErr(t *testing.T) {

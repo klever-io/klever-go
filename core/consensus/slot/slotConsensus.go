@@ -176,6 +176,20 @@ func (rcns *slotConsensus) SetSelfJobDone(subslotId int, value bool) error {
 	return rcns.SetJobDone(rcns.selfPubKey, subslotId, value)
 }
 
+// RefreshElectedNodes replaces the elected nodes map without touching the
+// consensus group or validator slot states. Called on epoch start to keep the
+// IsNodeInConsensusGroup gate current while the node is still syncing and
+// initCurrentSlot (which calls SetConsensusGroup) is not running yet.
+// Ownership of elected transfers to the receiver: the caller must not retain or
+// write to the map afterwards, since readers access it under mutElected only.
+// The sole caller, EpochStartAction, passes the fresh map built by
+// GetConsensusWhitelistedNodes.
+func (rcns *slotConsensus) RefreshElectedNodes(elected map[string]struct{}) {
+	rcns.mutElected.Lock()
+	rcns.electedNodes = elected
+	rcns.mutElected.Unlock()
+}
+
 // IsNodeInConsensusGroup method checks if the node is part of consensus group of the current slot
 func (rcns *slotConsensus) IsNodeInConsensusGroup(node string) bool {
 	rcns.mutElected.RLock()

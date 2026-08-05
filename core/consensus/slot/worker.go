@@ -335,12 +335,6 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 		return err
 	}
 
-	nodeState := wrk.bootstrapper.GetNodeState()
-	if nodeState != core.NsSynchronized { // if node is not synchronized yet, it has to continue the bootstrapping mechanism
-		log.Trace("Skipping consensus message due to unsynchronized state")
-		return nil
-	}
-
 	err := wrk.antifloodHandler.CanProcessMessagesOnTopic(message.Peer(), common.ConsensusTopic, 1, uint64(len(message.Data())), message.SeqNo())
 	if err != nil {
 		return err
@@ -366,14 +360,6 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 		return err
 	}
 
-	if wrk.nodeRedundancyHandler.IsRedundancyNode() {
-		wrk.nodeRedundancyHandler.ResetInactivityIfNeeded(
-			wrk.consensusState.SelfPubKey(),
-			string(cnsMsg.PubKey),
-			message.Peer(),
-		)
-	}
-
 	msgType := consensus.MessageType(cnsMsg.MsgType)
 
 	log.Trace("received message from consensus topic",
@@ -385,8 +371,43 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 	)
 
 	err = wrk.consensusMessageValidator.checkConsensusMessageValidity(cnsMsg, message.Peer())
+
+	// reset the redundancy inactivity counter when the main machine is alive.
+	// only a fully valid message counts as evidence: checkConsensusMessageValidity
+	// runs its cheap rejections (including the per-key message budget) before
+	// VerifyPeerSignature, so any error return leaves the pubkey binding unproven.
+	// accepting one of those errors would let anyone replay the public validator
+	// key to keep this backup from taking over for a dead main machine
+	if wrk.nodeRedundancyHandler.IsRedundancyNode() && err == nil {
+		wrk.nodeRedundancyHandler.ResetInactivityIfNeeded(
+			wrk.consensusState.SelfPubKey(),
+			string(cnsMsg.PubKey),
+			message.Peer(),
+		)
+	}
+
 	if err != nil {
 		return err
+	}
+
+	// learn the peer id -> public key mapping before any early return, so a node
+	// that is still syncing keeps classifying new-epoch validators correctly; the
+	// antiflood originator gate on validator-only topics depends on this mapping,
+	// and gating it on the synchronized state stalls a fallback node's resync after
+	// an epoch shuffle-out
+	wrk.updateNetworkShardingVals(message, cnsMsg)
+
+	nodeState := wrk.bootstrapper.GetNodeState()
+	if nodeState != core.NsSynchronized {
+		// the node is still bootstrapping; drop the message without processing.
+		// note: checkConsensusMessageValidity above already called addMessageTypeToPublicKey,
+		// burning the (pk, slot, msgType) budget for this message type; if the node becomes
+		// synchronized mid-slot, a duplicate arriving on another gossip path will hit
+		// ErrMessageTypeLimitReached and be dropped, costing one slot on resync; this is
+		// bounded (resetConsensusMessages clears the budget at the next slot) and acceptable
+		// because the alternative (skipping validity entirely) would let unverified pubkeys
+		// into the PeerShardMapper
+		return nil
 	}
 
 	wrk.consensusState.RLockSlotState()
@@ -403,7 +424,6 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 		return nil
 	}
 
-	wrk.updateNetworkShardingVals(message, cnsMsg)
 	IsMessageWithBlockHeader := wrk.consensusService.IsMessageWithBlockHeader(msgType)
 	if IsMessageWithBlockHeader {
 		err = wrk.doJobOnMessageWithHeader(cnsMsg)
