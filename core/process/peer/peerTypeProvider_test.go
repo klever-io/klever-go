@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/eventNotifier"
+	"github.com/klever-io/klever-go/sharding"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -120,7 +122,9 @@ func TestNewPeerTypeProvider_createCache(t *testing.T) {
 		mutCache:         sync.RWMutex{},
 	}
 
-	cache := ptp.createNewCache(0)
+	cache, ok := ptp.createNewCache(0)
+
+	require.True(t, ok)
 
 	assert.NotNil(t, cache)
 
@@ -129,6 +133,224 @@ func TestNewPeerTypeProvider_createCache(t *testing.T) {
 
 	assert.NotNil(t, cache[pkEligible])
 	assert.Equal(t, core.EligibleList, cache[pkEligible].pType)
+}
+
+func TestNewPeerTypeProvider_createCacheIncludesWaitingList(t *testing.T) {
+	pkElected := "pk1"
+	pkEligible := "pk2"
+	pkWaiting := "pk3"
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte(pkElected)}, nil
+		},
+		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte(pkEligible)}, nil
+		},
+		GetAllWaitingValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte(pkWaiting)}, nil
+		},
+	}
+
+	ptp := PeerTypeProvider{
+		nodesCoordinator: arg.NodesCoordinator,
+		cache:            nil,
+		mutCache:         sync.RWMutex{},
+	}
+
+	cache, ok := ptp.createNewCache(0)
+
+	require.True(t, ok)
+
+	require.NotNil(t, cache[pkWaiting])
+	require.Equal(t, core.WaitingList, cache[pkWaiting].pType)
+}
+
+func TestPeerTypeProvider_RefreshCacheRebuildsFromCoordinator(t *testing.T) {
+	// mimic a restart: at construction time the coordinator only holds stale
+	// data (no validators); after LoadState restores the real configs a
+	// RefreshCache call must rebuild the cache from the coordinator, querying
+	// it with the exact epoch the caller passed
+	pk := []byte("pk1")
+	restored := false
+	restoredEpoch := uint32(5)
+	var lastQueriedEpoch uint32
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysWithEpochCalled: func(epoch uint32) ([][]byte, error) {
+			lastQueriedEpoch = epoch
+			if restored {
+				return [][]byte{pk}, nil
+			}
+			return [][]byte{}, nil
+		},
+	}
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+
+	peerType, _, err := ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ObserverList, peerType)
+
+	restored = true
+	ptp.RefreshCache(restoredEpoch)
+
+	require.Equal(t, restoredEpoch, lastQueriedEpoch)
+
+	peerType, _, err = ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
+}
+
+func TestPeerTypeProvider_RefreshCacheReplacesCacheWhenListsAreEmptyWithoutError(t *testing.T) {
+	pk := []byte("pk1")
+	demoted := false
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+			if demoted {
+				return [][]byte{}, nil
+			}
+			return [][]byte{pk}, nil
+		},
+		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{}, nil
+		},
+		GetAllWaitingValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{}, nil
+		},
+	}
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+
+	peerType, _, err := ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
+
+	// successful fetches returning empty lists are a genuine state (validator
+	// demoted) and must replace the cache, unlike the all-fetches-failed case
+	demoted = true
+	ptp.RefreshCache(6)
+
+	peerType, _, err = ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ObserverList, peerType)
+}
+
+func TestPeerTypeProvider_RefreshCacheAppliesForEpochOlderThanConstruction(t *testing.T) {
+	// mimic a restart where the storage bootstrap walks back to an older epoch:
+	// construction happens at StartEpoch 5 (pre-restore data), then the restored
+	// chain head is in epoch 4; RefreshCache(4) must rebuild the cache, the
+	// construction-time seed must not claim epoch precedence
+	pkRestored := []byte("pkRestored")
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.StartEpoch = 5
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysWithEpochCalled: func(epoch uint32) ([][]byte, error) {
+			if epoch == 4 {
+				return [][]byte{pkRestored}, nil
+			}
+			return [][]byte{}, nil
+		},
+	}
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+
+	peerType, _, err := ptp.ComputeForPubKey(pkRestored)
+	require.Nil(t, err)
+	require.Equal(t, core.ObserverList, peerType)
+
+	ptp.RefreshCache(4)
+
+	peerType, _, err = ptp.ComputeForPubKey(pkRestored)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
+}
+
+func TestPeerTypeProvider_UpdateCacheIgnoresStaleEpochAfterNewerUpdate(t *testing.T) {
+	// epoch ordering between real updates: once the cache was rebuilt for epoch
+	// 5, a late refresh for epoch 4 must not overwrite it
+	pkNew := []byte("pkNewEpoch")
+	pkOld := []byte("pkOldEpoch")
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysWithEpochCalled: func(epoch uint32) ([][]byte, error) {
+			if epoch == 5 {
+				return [][]byte{pkNew}, nil
+			}
+			return [][]byte{pkOld}, nil
+		},
+	}
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+
+	ptp.RefreshCache(5)
+
+	peerType, _, err := ptp.ComputeForPubKey(pkNew)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
+
+	ptp.RefreshCache(4)
+
+	peerType, _, err = ptp.ComputeForPubKey(pkNew)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
+
+	peerType, _, err = ptp.ComputeForPubKey(pkOld)
+	require.Nil(t, err)
+	require.Equal(t, core.ObserverList, peerType)
+}
+
+func TestPeerTypeProvider_RefreshCacheKeepsPreviousCacheWhenAllListsFail(t *testing.T) {
+	pk := []byte("pk1")
+	failing := false
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+			if failing {
+				return nil, sharding.ErrEpochNodesConfigDoesNotExist
+			}
+			return [][]byte{pk}, nil
+		},
+		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
+			if failing {
+				return nil, sharding.ErrEpochNodesConfigDoesNotExist
+			}
+			return [][]byte{}, nil
+		},
+		GetAllWaitingValidatorsKeysCalled: func() ([][]byte, error) {
+			if failing {
+				return nil, sharding.ErrEpochNodesConfigDoesNotExist
+			}
+			return [][]byte{}, nil
+		},
+	}
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+
+	peerType, _, err := ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
+
+	// a refresh for an epoch the coordinator does not know must not wipe the
+	// previously valid cache
+	failing = true
+	ptp.RefreshCache(42)
+
+	peerType, _, err = ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
 }
 
 func TestNewPeerTypeProvider_CallsUpdateCacheOnEpochChange(t *testing.T) {
@@ -274,7 +496,9 @@ func TestPeerTypeProvider_CreateNewCacheScenarios(t *testing.T) {
 	}
 	ptp, _ := NewPeerTypeProvider(arg)
 
-	cache := ptp.createNewCache(0)
+	cache, ok := ptp.createNewCache(0)
+
+	require.True(t, ok)
 	assert.Len(t, cache, 3)
 	assert.Equal(t, core.EligibleList, cache["elected1"].pType) // elected1 is also eligible as it have been updated in the eligible list
 	assert.Equal(t, core.ElectedList, cache["elected2"].pType)
@@ -316,4 +540,113 @@ func TestPeerTypeProvider_GetAllPeerTypeInfos(t *testing.T) {
 	ptp.cache = make(map[string]*peerListAndShard)
 	emptyPeerTypeInfos := ptp.GetAllPeerTypeInfos()
 	assert.Empty(t, emptyPeerTypeInfos, "Should return empty slice for empty cache")
+}
+
+func TestNewPeerTypeProvider_KeepsEmptyCacheWhenConstructionSeedFails(t *testing.T) {
+	// all three list fetches fail at construction (no config for the epoch
+	// yet); the provider must still construct with an empty cache, and a later
+	// refresh must fill it
+	pk := []byte("pk1")
+	restored := false
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysWithEpochCalled: func(_ uint32) ([][]byte, error) {
+			if restored {
+				return [][]byte{pk}, nil
+			}
+			return nil, errors.New("no config for epoch")
+		},
+		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
+			return nil, errors.New("no config for epoch")
+		},
+		GetAllWaitingValidatorsKeysCalled: func() ([][]byte, error) {
+			return nil, errors.New("no config for epoch")
+		},
+	}
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+
+	peerType, _, err := ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ObserverList, peerType)
+
+	restored = true
+	ptp.RefreshCache(1)
+
+	peerType, _, err = ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
+}
+
+func TestPeerTypeProvider_EpochStartPrepareIsANoOp(t *testing.T) {
+	pk := []byte("pk1")
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{pk}, nil
+		},
+	}
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+
+	handler := ptp.epochStartEventHandler()
+	handler.EpochStartPrepare(&block.Block{Header: &block.BlockHeader{Epoch: 1}})
+
+	// prepare must not touch the cache; the refresh happens on the action event
+	peerType, _, err := ptp.ComputeForPubKey(pk)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
+}
+
+func TestPeerTypeProvider_ConcurrentRefreshAndEpochStartAreRaceFree(t *testing.T) {
+	// two writers exist in production: the epoch-start notifier callback and
+	// RefreshCache from StartConsensus, both racing readers of ComputeForPubKey.
+	// whichever order they land in, the highest epoch must win the cache
+	pkNewEpoch := []byte("pkNewEpoch")
+
+	arg := createDefaultArgPeerTypeProvider()
+	epochStartNotifier := &mock.EpochStartNotifierStub{}
+	arg.EpochStartEventNotifier = epochStartNotifier
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysWithEpochCalled: func(epoch uint32) ([][]byte, error) {
+			if epoch == 2 {
+				return [][]byte{pkNewEpoch}, nil
+			}
+			return [][]byte{[]byte("pkOldEpoch")}, nil
+		},
+	}
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+		ptp.RefreshCache(1)
+	}()
+	go func() {
+		defer wg.Done()
+		epochStartNotifier.NotifyAll(&block.Block{Header: &block.BlockHeader{Epoch: 2}})
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 50; i++ {
+			_, _, errCompute := ptp.ComputeForPubKey(pkNewEpoch)
+			require.Nil(t, errCompute)
+		}
+	}()
+
+	wg.Wait()
+
+	// epoch 2 is the highest applied epoch, so its cache must be the surviving one
+	ptp.RefreshCache(2)
+	peerType, _, err := ptp.ComputeForPubKey(pkNewEpoch)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
 }

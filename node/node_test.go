@@ -7,21 +7,31 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	disabledSig "github.com/klever-io/klever-go/crypto/signing/disabled/singlesig"
+	"github.com/klever-io/klever-go/data"
+	"github.com/klever-io/klever-go/indexer"
 	"github.com/klever-io/klever-go/network/api/models"
+	heartbeatProcess "github.com/klever-io/klever-go/node/heartbeat/process"
+	"github.com/klever-io/klever-go/sharding"
+	"github.com/klever-io/klever-go/storage/timecache"
 
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
+	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/fork"
 	"github.com/klever-io/klever-go/core/kapp"
 	kappcontroller "github.com/klever-io/klever-go/core/kapp/kappController"
 	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/core/process/block/bootstrapStorage"
+	"github.com/klever-io/klever-go/core/watchdog"
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	cryptoMock "github.com/klever-io/klever-go/crypto/mock"
+	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
@@ -807,4 +817,160 @@ func TestEstimateTransactionsFees(t *testing.T) {
 		assert.Equal(t, kAppFee, cost.KAppFee)
 		assert.Equal(t, expectedTotalBandwidthFee, cost.BandwidthFee)
 	})
+}
+
+// nonSubscriberForkController wraps a ForkController so the wrapper type does
+// NOT satisfy core.EpochSubscriberHandler; StartConsensus then fails on its
+// fork-controller type assertion right after the coordinator readiness check,
+// which lets the tests below stop deterministically at that point
+type nonSubscriberForkController struct {
+	core.ForkController
+}
+
+// createStartConsensusNode builds a node with just enough dependencies for
+// StartConsensus to reach the nodes-coordinator readiness check
+// crtHeader is variadic so the existing two-argument call sites keep compiling;
+// pass a header to exercise the restart path where the epoch comes from the
+// current block instead of the genesis fallback
+func createStartConsensusNode(t *testing.T, coordinator sharding.NodesCoordinator, crtHeader ...data.HeaderHandler) *node.Node {
+	storerMock := mock.NewStorerMock("", 0)
+	genesisHeader := &block.Block{Header: &block.BlockHeader{Epoch: 0}}
+
+	dataPool := &mock.PoolsHolderStub{
+		TransactionsCalled: func() retriever.ShardedDataCacherNotifier {
+			return &mock.ShardedDataStub{}
+		},
+		HeadersCalled: func() retriever.HeadersPool {
+			return &mock.HeadersCacherStub{}
+		},
+	}
+
+	kappsAdapter := &mock.AccountsStub{
+		LoadAccountCalled: func(_ []byte) (state.AccountHandler, error) {
+			return &mock.KAppAccountHandlerStub{}, nil
+		},
+	}
+
+	n, err := node.NewNode(
+		node.WithDataPool(dataPool),
+		node.WithInternalMarshalizer(getMarshalizer()),
+		node.WithTxSignMarshalizer(getMarshalizer()),
+		node.WithDataStore(&mock.ChainStorerMock{
+			GetCalled: func(_ retriever.UnitType, key []byte) ([]byte, error) {
+				return storerMock.Get(key)
+			},
+			GetStorerCalled: func(_ retriever.UnitType) storage.Storer {
+				return storerMock
+			},
+		}),
+		node.WithUint64ByteSliceConverter(mock.NewNonceHashConverterMock()),
+		node.WithAddressPubkeyConverter(createMockPubkeyConverter()),
+		node.WithValidatorPubkeyConverter(createMockPubkeyConverter()),
+		node.WithAccountsAdapter(getAccAdapter(100)),
+		node.WithKAppsAdapter(kappsAdapter),
+		node.WithHasher(getHasher()),
+		node.WithTxSignHasher(getHasher()),
+		node.WithKeyGen(createKeyGenMock()),
+		node.WithTxFeeHandler(&mock.FeeHandlerStub{}),
+		node.WithSingleSigner(&cryptoMock.SignerMock{}),
+		node.WithTxSingleSigner(&disabledSig.DisabledSingleSig{}),
+		node.WithChainID(chainID),
+		node.WithBlockChain(&mock.BlockChainMock{
+			GetGenesisHeaderCalled: func() data.HeaderHandler {
+				return genesisHeader
+			},
+			GetGenesisHeaderHashCalled: func() []byte {
+				return []byte("genesis hash")
+			},
+			GetCurrentBlockHeaderCalled: func() data.HeaderHandler {
+				if len(crtHeader) == 0 {
+					return nil
+				}
+				return crtHeader[0]
+			},
+		}),
+		node.WithMessenger(&mock.MessengerStub{}),
+		node.WithPrivKey(&cryptoMock.PrivateKeyStub{}),
+		node.WithPeerSignatureHandler(&mock.PeerSignatureHandler{}),
+		node.WithInterceptorsContainer(&mock.InterceptorsContainerStub{}),
+		node.WithForkDetector(&mock.ForkDetectorMock{}),
+		node.WithBlockProcessor(&consensusMock.BlockProcessorMock{}),
+		node.WithBootStorer(&mock.BoostrapStorerMock{
+			GetHighestSlotCalled: func() int64 { return 0 },
+			GetCalled: func(_ int64) (*bootstrapStorage.BootstrapData, error) {
+				return nil, errors.New("no boot data")
+			},
+		}),
+		node.WithEpochStartTrigger(&mock.EpochStartTriggerStub{}),
+		node.WithRequestHandler(&mock.RequestHandlerStub{}),
+		node.WithSlotManager(&consensusMock.SlotManagerMock{}),
+		node.WithSyncer(&consensusMock.SyncTimerMock{}),
+		node.WithGenesisTime(time.Now()),
+		node.WithIndexer(indexer.NewNilIndexer()),
+		node.WithWatchdogTimer(&watchdog.DisabledWatchdog{}),
+		node.WithBlockBlackListHandler(timecache.NewTimeCache(time.Second)),
+		node.WithNodesCoordinator(coordinator),
+		node.WithForkController(&nonSubscriberForkController{ForkController: &mock.ForkControllerStub{}}),
+	)
+	require.Nil(t, err)
+
+	return n
+}
+
+// heartbeatHandlerStub implements node.HeartbeatHandler for StartConsensus tests
+type heartbeatHandlerStub struct {
+	refreshedEpoch *uint32
+}
+
+func (h *heartbeatHandlerStub) Monitor() *heartbeatProcess.Monitor { return nil }
+
+func (h *heartbeatHandlerStub) Sender() *heartbeatProcess.Sender { return nil }
+func (h *heartbeatHandlerStub) RefreshPeerTypeCache(epoch uint32) {
+	*h.refreshedEpoch = epoch
+}
+func (h *heartbeatHandlerStub) Close() error         { return nil }
+func (h *heartbeatHandlerStub) IsInterfaceNil() bool { return h == nil }
+
+func TestStartConsensus_RefreshesPeerTypeCacheWithCurrentEpoch(t *testing.T) {
+	t.Parallel()
+
+	n := createStartConsensusNode(t, &mock.NodesCoordinatorMock{})
+
+	// sentinel start value: the refresh must overwrite it with the genesis
+	// epoch (0), proving RefreshPeerTypeCache was actually called
+	refreshedEpoch := uint32(999)
+	n.SetHeartbeatHandler(&heartbeatHandlerStub{refreshedEpoch: &refreshedEpoch})
+
+	// the wrapped fork controller does not implement EpochSubscriberHandler, so
+	// StartConsensus stops right after the peer type cache refresh
+	err := n.StartConsensus()
+	require.Equal(t, common.ErrWrongTypeAssertion, err)
+	require.Equal(t, uint32(0), refreshedEpoch)
+}
+
+func TestStartConsensus_RefreshesPeerTypeCacheWithCurrentBlockEpoch(t *testing.T) {
+	t.Parallel()
+
+	// the mid-epoch restart case of issue #88: the restored chain head carries
+	// the real epoch, which is what the peer type cache must be rebuilt for
+	crtHeader := &block.Block{Header: &block.BlockHeader{Epoch: 7}}
+	n := createStartConsensusNode(t, &mock.NodesCoordinatorMock{}, crtHeader)
+
+	refreshedEpoch := uint32(999)
+	n.SetHeartbeatHandler(&heartbeatHandlerStub{refreshedEpoch: &refreshedEpoch})
+
+	err := n.StartConsensus()
+	require.Equal(t, common.ErrWrongTypeAssertion, err)
+	require.Equal(t, uint32(7), refreshedEpoch)
+}
+
+func TestStartConsensus_SkipsPeerTypeCacheRefreshWithoutHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	n := createStartConsensusNode(t, &mock.NodesCoordinatorMock{})
+
+	// no heartbeat handler set: the refresh is skipped and StartConsensus
+	// proceeds to the fork-controller assertion
+	err := n.StartConsensus()
+	require.Equal(t, common.ErrWrongTypeAssertion, err)
 }

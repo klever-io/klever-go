@@ -2,6 +2,7 @@ package componentHandler
 
 import (
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -141,4 +142,39 @@ func TestNewHeartbeatHandler_ShouldWork(t *testing.T) {
 
 	// let the sending go routine finish
 	time.Sleep(time.Second)
+}
+
+func TestHeartbeatHandler_RefreshPeerTypeCacheDelegatesToProvider(t *testing.T) {
+	t.Parallel()
+
+	// the monitor and sender goroutines started by NewHeartbeatHandler also reach
+	// the coordinator, so this callback can fire from more than one goroutine
+	var refreshedEpoch atomic.Uint32
+	coordinator := &cMock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysWithEpochCalled: func(epoch uint32) ([][]byte, error) {
+			refreshedEpoch.Store(epoch)
+			return nil, nil
+		},
+	}
+
+	args := createMockArgument()
+	args.NodesCoordinator = coordinator
+	hbh, err := NewHeartbeatHandler(args)
+	require.Nil(t, err)
+	t.Cleanup(func() { require.NoError(t, hbh.Close()) })
+
+	hbh.RefreshPeerTypeCache(1)
+
+	assert.Equal(t, uint32(1), refreshedEpoch.Load(), "RefreshPeerTypeCache must delegate the epoch to the provider")
+}
+
+func TestHeartbeatHandler_RefreshPeerTypeCacheNilReceiverAndNilProvider(t *testing.T) {
+	t.Parallel()
+
+	// both guard paths must be no-ops instead of panicking
+	var nilHandler *HeartbeatHandler
+	nilHandler.RefreshPeerTypeCache(1)
+
+	emptyHandler := &HeartbeatHandler{}
+	emptyHandler.RefreshPeerTypeCache(1)
 }
