@@ -554,10 +554,6 @@ func (m *Monitor) startValidatorProcessing() {
 		ticker := time.NewTicker(refreshInterval)
 		defer ticker.Stop()
 
-		// Initial refresh on startup so metrics/state are persisted immediately,
-		// matching the pre-ticker behavior.
-		m.refreshHeartbeatMessageInfo()
-
 		for {
 			select {
 			case <-m.stopCh:

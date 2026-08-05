@@ -32,7 +32,7 @@ func createMonitor(
 		Timer:                              timer,
 		AntifloodHandler:                   createMockP2PAntifloodHandler(),
 		ValidatorPubkeyConverter:           mock.NewPubkeyConverterMock(32),
-		HeartbeatRefreshIntervalInSec:      1,
+		HeartbeatRefreshIntervalInSec:      3600,
 		HideInactiveValidatorIntervalInSec: 600,
 	}
 	mon, _ := process.NewMonitor(arg)
