@@ -25,7 +25,17 @@ type KAppControllerStub struct {
 	SetProposalControllerCalled func(proposalController kapps.ActiveProposalController) error
 	GetForkControllerCalled     func() core.ForkController
 	GetSystemAccountsCalled     func() kapp.SystemAccountKapp
+	IsReadOnlyCalled            func() bool
 	IsInterfaceNilCalled        func() bool
+}
+
+// IsReadOnly -
+func (stub *KAppControllerStub) IsReadOnly() bool {
+	if stub.IsReadOnlyCalled != nil {
+		return stub.IsReadOnlyCalled()
+	}
+
+	return false
 }
 
 func (stub *KAppControllerStub) GetSystemAccountKApp() kapp.SystemAccountKapp {

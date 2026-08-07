@@ -42,6 +42,7 @@ type kApp struct {
 	forkController     core.ForkController
 	currentKAppContext kapp.KappContext
 	proposalController kapps.ActiveProposalController
+	readOnly           bool
 
 	container map[string]KleverKApp
 }
@@ -54,6 +55,10 @@ type ArgsNewKApp struct {
 	ForkController core.ForkController
 	AccountsCacher state.AccountsCacher
 	RatingsData    process.RatingsInfoHandler
+	// ReadOnly marks the controller as read-only for its whole lifetime. Set by
+	// the VM query path (see cmd/node/sc.go). Construction-time only on purpose,
+	// so the safety cannot be switched off on a live controller.
+	ReadOnly bool
 }
 
 func NewKappController(args ArgsNewKApp) (kapp.KAppController, error) {
@@ -161,6 +166,7 @@ func NewKappController(args ArgsNewKApp) (kapp.KAppController, error) {
 		marketKapp:        MarketKapp,
 		kdaKapp:           kdaKapp,
 		proposalKapp:      proposalKapp,
+		readOnly:          args.ReadOnly,
 
 		container: container,
 	}, nil
@@ -174,10 +180,16 @@ func (k *kApp) InitKApps(accCacher state.AccountsCacher) error {
 	}
 
 	// this will load all active proposals in current epoch
-	_, err = proposalKApp.StartProposalsKApp(k.forkController)
+	proposalController, err := proposalKApp.StartProposalsKApp(k.forkController)
 	if err != nil {
 		return err
 	}
+
+	// keep it instead of discarding: controllers not wired through node.go
+	// (e.g. the VM query controller in cmd/node/sc.go) would otherwise be left
+	// with a nil ActiveProposalController. Shared-instance callers overwrite
+	// this later via SetProposalController.
+	k.proposalController = proposalController
 
 	// persist the proposal kapp to update the active proposals
 	// must use UpdateKapp as accCacher fork may not be available at the time
@@ -260,6 +272,11 @@ func (k *kApp) SetProposalController(proposalController kapps.ActiveProposalCont
 
 func (k *kApp) GetForkController() core.ForkController {
 	return k.forkController
+}
+
+// IsReadOnly reports whether the controller is in read-only mode.
+func (k *kApp) IsReadOnly() bool {
+	return k.readOnly
 }
 
 // IsNilIndexer will return a bool value that signals if the indexer's implementation is a NilIndexer

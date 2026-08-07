@@ -338,6 +338,11 @@ var ErrAssetIsPaused = errors.New("asset is paused")
 // ErrKDATransferNotAllowed signals that kda transfer is not allowed and account from/to has no role to override
 var ErrKDATransferNotAllowed = errors.New("kda transfer is not allowed")
 
+// ErrReadOnlyKAppMutation signals that a state-mutating KApp operation (e.g. a
+// KLV/KDA transfer) was attempted from a read-only execution context such as a
+// VM query. Such operations must fail closed instead of mutating production state.
+var ErrReadOnlyKAppMutation = errors.New("state-mutating kapp operation not allowed in read-only execution")
+
 // ErrInvalidArgument signals that invalid argument has been provided
 var ErrInvalidArgument = errors.New("invalid argument")
 

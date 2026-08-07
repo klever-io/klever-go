@@ -14,9 +14,12 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/fork"
 	"github.com/klever-io/klever-go/core/kapp"
+	builtinfunctions "github.com/klever-io/klever-go/core/kapp/builtInFunctions"
+	"github.com/klever-io/klever-go/core/kapp/disabled"
 	kappcontroller "github.com/klever-io/klever-go/core/kapp/kappController"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
+	"github.com/klever-io/klever-go/core/process/smartContract/hooks/counters"
 	pTX "github.com/klever-io/klever-go/core/process/transaction"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
@@ -30,6 +33,7 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/data/trie"
 	"github.com/klever-io/klever-go/kapps"
+	kvmContextMock "github.com/klever-io/klever-go/kvm/mock/context"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/memorydb"
@@ -37,6 +41,7 @@ import (
 	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var addressConverter, _ = pubkeyConverter.NewBech32PubkeyConverter(32)
@@ -760,4 +765,498 @@ func TestGetStorageData_AccNotFoundReturnsEmpty(t *testing.T) {
 			assert.Equal(t, []byte{}, value)
 		})
 	}
+}
+
+///////////////////////////////////
+// Read-only VM query wiring     //
+///////////////////////////////////
+
+const readOnlyOwnerStartBalance = int64(10_000_000_000)
+
+// readOnlySeedCommittedTries builds fresh trie-backed adapters and commits a funded
+// owner account plus the KLV KDA into them, returning the committed state that both
+// the writable and read-only query cachers will read from.
+func readOnlySeedCommittedTries(t *testing.T) (state.AccountsAdapter, state.AccountsAdapter, state.AccountsAdapter) {
+	t.Helper()
+
+	hasher := &sha256.Sha256{}
+	tsm, err := trie.NewTrieStorageManagerWithoutPruning(createMemUnit())
+	require.NoError(t, err)
+
+	userDB := createAccountsDB(hasher, marshalizer, factory.NewAccountCreator(), tsm)
+	kappDB := createAccountsDB(hasher, marshalizer, factory.NewKAppAccountCreator(), tsm)
+	peerDB := createAccountsDB(hasher, marshalizer, factory.NewPeerAccountCreator(), tsm)
+
+	seed, err := state.NewAccountsCacher(readOnlyArgsOver(userDB, kappDB, peerDB))
+	require.NoError(t, err)
+	seed.ResetAll(true)
+
+	owner := loadUserAccount(seed, testOwnerAddress)
+	kdaKapp := loadKAppAccount(seed, kapps.KDAKAppAddress)
+	initKLVintoKapps(kdaKapp)
+	require.NoError(t, owner.AddToBalance(readOnlyOwnerStartBalance, nil, true))
+
+	// commit funded owner + KLV KDA to the underlying tries
+	require.NoError(t, seed.SaveAll())
+
+	return userDB, kappDB, peerDB
+}
+
+func readOnlyArgsOver(userDB, kappDB, peerDB state.AccountsAdapter) state.ArgsAcccountCacher {
+	return state.ArgsAcccountCacher{
+		Accounts: userDB,
+		Kapps:    kappDB,
+		Peers:    peerDB,
+	}
+}
+
+// readOnlyBuildController builds a KAppController bound to the given cacher, mirroring
+// how the query VM element wires it (see cmd/node/sc.go).
+func readOnlyBuildController(t *testing.T, cacher state.AccountsCacher, readOnly bool) kapp.KAppController {
+	t.Helper()
+
+	args := createArgsForTxProcessor()
+	controller, err := kappcontroller.NewKappController(kappcontroller.ArgsNewKApp{
+		Hasher:         args.Hasher,
+		Marshalizer:    args.Marshalizer,
+		PubkeyConv:     args.PubkeyConv,
+		ForkController: args.ForkController,
+		RatingsData:    args.RatingsData,
+		ReadOnly:       readOnly,
+	})
+	require.NoError(t, err)
+	require.NoError(t, controller.InitKApps(cacher))
+
+	controller.SetCurrentKAppContext(kapp.NewKappContext(kapp.ArgsNewKAppContext{
+		ContractID:   0,
+		ContractType: transaction.TXContract_SmartContractType,
+		Block:        createBlockHeader(),
+	}))
+
+	return controller
+}
+
+// readOnlyCommittedKLV reads the owner's KLV balance from committed state via a fresh
+// cacher, so it reflects only what actually persisted to the tries.
+func readOnlyCommittedKLV(t *testing.T, userDB, kappDB, peerDB state.AccountsAdapter, address []byte) int64 {
+	t.Helper()
+
+	verifier, err := state.NewAccountsCacher(readOnlyArgsOver(userDB, kappDB, peerDB))
+	require.NoError(t, err)
+	verifier.ResetAll(true)
+
+	acc, err := verifier.GetExistingUser(address)
+	require.NoError(t, err)
+
+	return acc.GetBalance(kdautils.KLVIdentifier, true)
+}
+
+// The query element must not reach the production KAppController. Mirrors the wiring
+// in cmd/node/sc.go createScQueryElement (which is package main and not directly
+// testable): the hook is handed a dedicated read-only controller over a read-only
+// cacher, distinct from the node's production controller.
+func TestBlockChainHook_QueryWiring_UsesDedicatedReadOnlyController(t *testing.T) {
+	t.Parallel()
+
+	userDB, kappDB, peerDB := readOnlySeedCommittedTries(t)
+
+	prodCacher, err := state.NewAccountsCacher(readOnlyArgsOver(userDB, kappDB, peerDB))
+	require.NoError(t, err)
+	prodCacher.ResetAll(true)
+	productionController := readOnlyBuildController(t, prodCacher, false)
+
+	queryCacher, err := state.NewReadOnlyAccountsCacher(readOnlyArgsOver(userDB, kappDB, peerDB))
+	require.NoError(t, err)
+	queryCacher.ResetAll(true)
+	queryController := readOnlyBuildController(t, queryCacher, true)
+
+	hookImpl := &BlockChainHookImpl{kappController: queryController}
+
+	require.NotSame(t, productionController, hookImpl.GetKAppController(),
+		"the query hook must not be handed the production KAppController")
+	require.True(t, hookImpl.GetKAppController().IsReadOnly(),
+		"the controller reachable from the query hook must be read-only")
+	require.False(t, productionController.IsReadOnly(),
+		"the production controller must stay writable")
+}
+
+// The read-only guard sits at the dispatch point, so the built-in is refused before
+// it ever runs - this is what covers the ~25 built-ins that do not check the flag.
+func TestBlockChainHook_ProcessBuiltInFunction_ReadOnly_RefusesBeforeDispatch(t *testing.T) {
+	t.Parallel()
+
+	dispatched := false
+	container := builtinfunctions.NewBuiltInFunctionContainer()
+	require.NoError(t, container.Add("Transfer", &kvmContextMock.BuiltInFunctionStub{
+		ProcessBuiltinFunctionCalled: func(_ *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+			dispatched = true
+			return &vmcommon.VMOutput{}, nil
+		},
+	}))
+
+	hook := &BlockChainHookImpl{
+		builtInFunctions: container,
+		counter:          counters.NewDisabledCounter(),
+		kappController: &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return disabled.NewDisabledKappContext() },
+			IsReadOnlyCalled:            func() bool { return true },
+		},
+	}
+
+	vmOutput, err := hook.ProcessBuiltInFunction(&vmcommon.ContractCallInput{
+		VMInput:       vmcommon.VMInput{CallerAddr: []byte("caller")},
+		RecipientAddr: []byte("recipient"),
+		Function:      "Transfer",
+	})
+
+	require.ErrorIs(t, err, process.ErrReadOnlyKAppMutation)
+	require.Nil(t, vmOutput)
+	require.False(t, dispatched, "a read-only query must not dispatch the built-in at all")
+}
+
+// A nil controller is an unknown execution context and must be refused, not assumed
+// writable - and it must not nil-deref the way the pre-fix code did.
+func TestBlockChainHook_ProcessBuiltInFunction_NilController_FailsClosedNoPanic(t *testing.T) {
+	t.Parallel()
+
+	container := builtinfunctions.NewBuiltInFunctionContainer()
+	require.NoError(t, container.Add("Transfer", &kvmContextMock.BuiltInFunctionStub{
+		ProcessBuiltinFunctionCalled: func(_ *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+			return &vmcommon.VMOutput{}, nil
+		},
+	}))
+
+	hook := &BlockChainHookImpl{
+		builtInFunctions: container,
+		counter:          counters.NewDisabledCounter(),
+	}
+
+	require.NotPanics(t, func() {
+		vmOutput, err := hook.ProcessBuiltInFunction(&vmcommon.ContractCallInput{
+			VMInput:       vmcommon.VMInput{CallerAddr: []byte("caller")},
+			RecipientAddr: []byte("recipient"),
+			Function:      "Transfer",
+		})
+		require.ErrorIs(t, err, process.ErrReadOnlyKAppMutation)
+		require.Nil(t, vmOutput)
+	})
+}
+
+// Bound to a dedicated read-only cacher, a hook transfer neither corrupts the
+// production cached object nor reaches committed state.
+func TestBlockChainHook_TransferViaReadOnlyCacher_LeavesCommittedStateUntouched(t *testing.T) {
+	t.Parallel()
+
+	userDB, kappDB, peerDB := readOnlySeedCommittedTries(t)
+
+	// Represents live production state: owner is loaded and cached here.
+	prodCacher, err := state.NewAccountsCacher(readOnlyArgsOver(userDB, kappDB, peerDB))
+	require.NoError(t, err)
+	prodCacher.ResetAll(true)
+	prodOwner, err := prodCacher.GetExistingUser(testOwnerAddress)
+	require.NoError(t, err)
+	require.Equal(t, readOnlyOwnerStartBalance, prodOwner.GetBalance(kdautils.KLVIdentifier, true))
+
+	// The query VM element uses its own read-only cacher over the same tries.
+	queryCacher, err := state.NewReadOnlyAccountsCacher(readOnlyArgsOver(userDB, kappDB, peerDB))
+	require.NoError(t, err)
+	queryCacher.ResetAll(true)
+
+	hookImpl := &BlockChainHookImpl{kappController: readOnlyBuildController(t, queryCacher, false)}
+
+	err = hookImpl.TransferValueOnly(testToAddress, testOwnerAddress, big.NewInt(1))
+	require.NoError(t, err)
+
+	// A read-only SaveAll must never reach the tries.
+	require.NoError(t, queryCacher.SaveAll())
+
+	// Production's cached object is untouched (the query mutated only its own copy).
+	require.Equal(t, readOnlyOwnerStartBalance, prodOwner.GetBalance(kdautils.KLVIdentifier, true),
+		"read-only query transfer must not corrupt the production cached account")
+
+	// Committed state is untouched.
+	require.Equal(t, readOnlyOwnerStartBalance, readOnlyCommittedKLV(t, userDB, kappDB, peerDB, testOwnerAddress),
+		"read-only query transfer must not persist to committed state")
+}
+
+// Read-only MODE alone refuses the transfer, even against a fully writable cacher,
+// so the guard does not depend on the cacher wiring being right.
+func TestBlockChainHook_TransferInReadOnlyMode_FailsClosed(t *testing.T) {
+	t.Parallel()
+
+	userDB, kappDB, peerDB := readOnlySeedCommittedTries(t)
+
+	prodCacher, err := state.NewAccountsCacher(readOnlyArgsOver(userDB, kappDB, peerDB))
+	require.NoError(t, err)
+	prodCacher.ResetAll(true)
+
+	hookImpl := &BlockChainHookImpl{kappController: readOnlyBuildController(t, prodCacher, true)}
+
+	err = hookImpl.TransferValueOnly(testToAddress, testOwnerAddress, big.NewInt(1))
+	require.Error(t, err)
+	require.ErrorContains(t, err, process.ErrReadOnlyKAppMutation.Error())
+
+	require.Equal(t, readOnlyOwnerStartBalance, readOnlyCommittedKLV(t, userDB, kappDB, peerDB, testOwnerAddress),
+		"read-only mode must refuse the transfer, leaving committed state untouched")
+}
+
+////////////////////////////////////////
+// ProcessBuiltInFunction dispatch     //
+////////////////////////////////////////
+
+// builtInSCAddress builds an address IsSmartContractAddress accepts, so the
+// receipt -> OutputTransfer loop in ProcessBuiltInFunction is reachable.
+func builtInSCAddress(suffix string) []byte {
+	addr := make([]byte, 0, 32)
+	addr = append(addr, make([]byte, core.NumInitCharactersForScAddress-core.VMTypeLen)...)
+	addr = append(addr, common.WasmVirtualMachine...)
+	addr = append(addr, []byte(suffix)...)
+
+	return append(addr, make([]byte, 32-len(addr))...)
+}
+
+// transferReceipt builds a receipt in the layout ProcessBuiltInFunction decodes:
+// [type][sender][recipient][value][token][nonce][tokenType].
+func transferReceipt(sender, recipient []byte, value, token, nonce string, tokenType kapps.KDAData_EnumAssetType) *transaction.Transaction_Receipt {
+	return &transaction.Transaction_Receipt{
+		Data: [][]byte{
+			{byte(pTX.Transfer)},
+			sender,
+			recipient,
+			[]byte(value),
+			[]byte(token),
+			[]byte(nonce),
+			{byte(tokenType)},
+		},
+	}
+}
+
+// dispatchHook wires a hook whose controller is writable, so the guard lets the
+// built-in through and the rest of the function runs.
+func dispatchHook(t *testing.T, ctx kapp.KappContext, fn func(*vmcommon.ContractCallInput) (*vmcommon.VMOutput, error)) *BlockChainHookImpl {
+	t.Helper()
+
+	container := builtinfunctions.NewBuiltInFunctionContainer()
+	require.NoError(t, container.Add("Transfer", &kvmContextMock.BuiltInFunctionStub{
+		ProcessBuiltinFunctionCalled: fn,
+	}))
+
+	return &BlockChainHookImpl{
+		builtInFunctions: container,
+		counter:          counters.NewDisabledCounter(),
+		kappController: &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+			IsReadOnlyCalled:            func() bool { return false },
+		},
+	}
+}
+
+func dispatchInput(caller []byte) *vmcommon.ContractCallInput {
+	return &vmcommon.ContractCallInput{
+		VMInput:       vmcommon.VMInput{CallerAddr: caller},
+		RecipientAddr: []byte("recipient"),
+		Function:      "Transfer",
+	}
+}
+
+func newDispatchContext() kapp.KappContext {
+	return kapp.NewKappContext(kapp.ArgsNewKAppContext{
+		ContractID:   0,
+		ContractType: transaction.TXContract_SmartContractType,
+		Block:        createBlockHeader(),
+	})
+}
+
+// A writable controller must let the built-in run, and its return data must be
+// taken from the KApp context rather than from the built-in's own VMOutput.
+func TestBlockChainHook_ProcessBuiltInFunction_Writable_DispatchesAndTakesReturnData(t *testing.T) {
+	t.Parallel()
+
+	ctx := newDispatchContext()
+	ctx.AddReturnData([]byte("asset-id"))
+
+	dispatched := false
+	hook := dispatchHook(t, ctx, func(_ *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+		dispatched = true
+		return &vmcommon.VMOutput{ReturnCode: vmcommon.Ok}, nil
+	})
+
+	vmOutput, err := hook.ProcessBuiltInFunction(dispatchInput([]byte("not-a-contract")))
+	require.NoError(t, err)
+	require.True(t, dispatched, "a writable controller must dispatch the built-in")
+	require.Equal(t, [][]byte{[]byte("asset-id")}, vmOutput.ReturnData)
+
+	// GetAndClearReturnData must have drained the context.
+	require.Empty(t, ctx.GetAndClearReturnData())
+}
+
+// A non-contract caller returns right after the return data is copied: receipts
+// are not turned into output transfers.
+func TestBlockChainHook_ProcessBuiltInFunction_NonContractCaller_SkipsTransfers(t *testing.T) {
+	t.Parallel()
+
+	ctx := newDispatchContext()
+	hook := dispatchHook(t, ctx, func(_ *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+		ctx.Receipts().Add(transferReceipt(
+			[]byte("sender"), []byte("recipient"), "5", "KLV", "0", kapps.KDAData_Fungible))
+		return &vmcommon.VMOutput{}, nil
+	})
+
+	vmOutput, err := hook.ProcessBuiltInFunction(dispatchInput([]byte("not-a-contract")))
+	require.NoError(t, err)
+	require.Empty(t, vmOutput.OutputAccounts,
+		"only smart contract callers get receipts translated into output transfers")
+}
+
+// Receipts emitted by the built-in become OutputTransfers on the VM output, and
+// only receipts added by THIS call are considered.
+func TestBlockChainHook_ProcessBuiltInFunction_ContractCaller_BuildsOutputTransfers(t *testing.T) {
+	t.Parallel()
+
+	caller := builtInSCAddress("caller")
+	recipient := []byte("recipient-addr")
+
+	ctx := newDispatchContext()
+	// A receipt from an earlier call must be ignored (initialLen bookkeeping).
+	ctx.Receipts().Add(transferReceipt(
+		[]byte("old-sender"), []byte("old-recipient"), "999", "OLD", "0", kapps.KDAData_Fungible))
+
+	hook := dispatchHook(t, ctx, func(_ *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+		ctx.Receipts().Add(transferReceipt(
+			[]byte("sender-addr"), recipient, "7", "KLV", "0", kapps.KDAData_Fungible))
+		ctx.Receipts().Add(transferReceipt(
+			[]byte("sender-addr"), recipient, "3", "NFT-1", "42", kapps.KDAData_NonFungible))
+		return &vmcommon.VMOutput{}, nil
+	})
+
+	vmOutput, err := hook.ProcessBuiltInFunction(dispatchInput(caller))
+	require.NoError(t, err)
+
+	outAcc, ok := vmOutput.OutputAccounts[string(recipient)]
+	require.True(t, ok, "an output account must be created for the transfer recipient")
+	require.Len(t, outAcc.OutputTransfers, 2, "the pre-existing receipt must not be included")
+
+	fungible := outAcc.OutputTransfers[0]
+	require.Equal(t, uint32(1), fungible.Index)
+	require.Equal(t, []byte("sender-addr"), fungible.SenderAddress)
+	require.Equal(t, big.NewInt(7), fungible.KDATransfers.KDAValue)
+	require.Equal(t, []byte("KLV"), fungible.KDATransfers.KDATokenName)
+	require.Equal(t, uint64(0), fungible.KDATransfers.KDATokenNonce,
+		"a fungible transfer must not parse the nonce field")
+
+	nonFungible := outAcc.OutputTransfers[1]
+	require.Equal(t, uint32(2), nonFungible.Index)
+	require.Equal(t, uint64(42), nonFungible.KDATransfers.KDATokenNonce,
+		"a non-fungible transfer must carry its nonce")
+}
+
+// Receipts that are not transfers, or that carry no data, are skipped instead of
+// being mistaken for transfers.
+func TestBlockChainHook_ProcessBuiltInFunction_SkipsNonTransferReceipts(t *testing.T) {
+	t.Parallel()
+
+	ctx := newDispatchContext()
+	hook := dispatchHook(t, ctx, func(_ *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+		ctx.Receipts().Add(&transaction.Transaction_Receipt{Data: [][]byte{}})
+		ctx.Receipts().Add(&transaction.Transaction_Receipt{Data: [][]byte{{}}})
+		ctx.Receipts().AddError(0, "boom")
+		return &vmcommon.VMOutput{}, nil
+	})
+
+	vmOutput, err := hook.ProcessBuiltInFunction(dispatchInput(builtInSCAddress("caller")))
+	require.NoError(t, err)
+	require.Empty(t, vmOutput.OutputAccounts)
+}
+
+// A malformed transfer receipt must surface as an error rather than producing a
+// half-built output transfer.
+func TestBlockChainHook_ProcessBuiltInFunction_MalformedTransferReceipts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		receipt *transaction.Transaction_Receipt
+	}{
+		{
+			name:    "truncated data",
+			receipt: &transaction.Transaction_Receipt{Data: [][]byte{{byte(pTX.Transfer)}, []byte("s"), []byte("r")}},
+		},
+		{
+			name: "unparsable value",
+			receipt: transferReceipt(
+				[]byte("sender"), []byte("recipient"), "not-a-number", "KLV", "0", kapps.KDAData_Fungible),
+		},
+		{
+			name: "missing asset type",
+			receipt: &transaction.Transaction_Receipt{Data: [][]byte{
+				{byte(pTX.Transfer)}, []byte("s"), []byte("r"), []byte("1"), []byte("KLV"), []byte("0"), {},
+			}},
+		},
+		{
+			name: "unparsable nonce on non-fungible",
+			receipt: transferReceipt(
+				[]byte("sender"), []byte("recipient"), "1", "NFT", "not-a-nonce", kapps.KDAData_NonFungible),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := newDispatchContext()
+			hook := dispatchHook(t, ctx, func(_ *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+				ctx.Receipts().Add(tt.receipt)
+				return &vmcommon.VMOutput{}, nil
+			})
+
+			vmOutput, err := hook.ProcessBuiltInFunction(dispatchInput(builtInSCAddress("caller")))
+			require.Error(t, err)
+			require.Nil(t, vmOutput)
+		})
+	}
+}
+
+// An unknown function must report that, not the read-only error: the guard sits
+// after the container lookup precisely so this diagnostic is preserved.
+func TestBlockChainHook_ProcessBuiltInFunction_UnknownFunction(t *testing.T) {
+	t.Parallel()
+
+	hook := &BlockChainHookImpl{
+		builtInFunctions: builtinfunctions.NewBuiltInFunctionContainer(),
+		counter:          counters.NewDisabledCounter(),
+		kappController: &stub.KAppControllerStub{
+			IsReadOnlyCalled: func() bool { return true },
+		},
+	}
+
+	vmOutput, err := hook.ProcessBuiltInFunction(dispatchInput([]byte("caller")))
+	require.Error(t, err)
+	require.NotErrorIs(t, err, process.ErrReadOnlyKAppMutation,
+		"an unknown function must not be masked by the read-only guard")
+	require.Nil(t, vmOutput)
+}
+
+// A nil input is rejected before anything else is touched.
+func TestBlockChainHook_ProcessBuiltInFunction_NilInput(t *testing.T) {
+	t.Parallel()
+
+	hook := &BlockChainHookImpl{}
+
+	vmOutput, err := hook.ProcessBuiltInFunction(nil)
+	require.ErrorIs(t, err, process.ErrNilVmInput)
+	require.Nil(t, vmOutput)
+}
+
+// An error from the built-in itself propagates unchanged.
+func TestBlockChainHook_ProcessBuiltInFunction_BuiltInError(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("built-in blew up")
+	hook := dispatchHook(t, newDispatchContext(), func(_ *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+		return nil, expectedErr
+	})
+
+	vmOutput, err := hook.ProcessBuiltInFunction(dispatchInput([]byte("caller")))
+	require.ErrorIs(t, err, expectedErr)
+	require.Nil(t, vmOutput)
 }

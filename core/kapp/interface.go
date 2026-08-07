@@ -187,6 +187,17 @@ type KAppController interface {
 	SetProposalController(proposalController kapps.ActiveProposalController) error
 
 	GetForkController() core.ForkController
+
+	// IsReadOnly reports whether this controller is in read-only mode. Set once at
+	// construction via ArgsNewKApp.ReadOnly by the VM query path (see
+	// cmd/node/sc.go); there is deliberately no setter, so the safety cannot be
+	// switched off on a live controller. Enforcement
+	// lives in BlockChainHookImpl.ProcessBuiltInFunction, which refuses every
+	// built-in when this is true, and in accountsKapp.checkReadOnly for accounts
+	// operations reached outside the built-in dispatch. The individual kda, market,
+	// ito, proposal and validators KApps do not check this flag themselves.
+	IsReadOnly() bool
+
 	IsInterfaceNil() bool
 }
 

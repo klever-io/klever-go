@@ -115,5 +115,6 @@ func (scf *stateComponentsFactory) Create(forkController core.ForkController) (*
 		KAppsAdapter:             kappAdapter,
 		KAppController:           kAppController,
 		KAppControllerSimulator:  kAppControllerSimulator,
+		KAppArgs:                 argsKapp,
 	}, nil
 }

@@ -90,7 +90,18 @@ func FailAfterTimeout[K any](f func() K, category HookCategory, vmHooks *Wrapper
 			}
 			return rp.result
 		case <-ctx.Done():
-			// Contract timeout triggered - interrupt the hook
+			// Contract timeout triggered. The timeout path in host.go has already set the
+			// execution breakpoint (FailExecution) before cancelling this hook context, so the
+			// in-flight worker will stop at the next breakpoint check and send on done.
+			//
+			// We must join the worker here before unwinding: this panic propagates up to the
+			// recover in RunSmartContractCall, which calls CleanInstance and destroys the native
+			// wasmer instance. Panicking while the worker is still inside cWasmerInstanceCall on
+			// that same instance is the use-after-free this guards against.
+			rp := <-done
+			if rp.panic != nil {
+				panic(rp.panic)
+			}
 			panic(vmhost.ErrExecutionFailedWithTimeout)
 		}
 	} else {

@@ -456,6 +456,15 @@ func (bh *BlockChainHookImpl) ProcessBuiltInFunction(input *vmcommon.ContractCal
 		return nil, err
 	}
 
+	// Every built-in registered in the container is a state-mutating contract type,
+	// so a read-only execution context (VM query) must refuse all of them here.
+	// Guarding at the dispatch point rather than inside each KApp also covers
+	// ChangeOwnerAddress, which writes straight through the cacher without going
+	// through the controller.
+	if check.IfNil(bh.kappController) || bh.kappController.IsReadOnly() {
+		return nil, process.ErrReadOnlyKAppMutation
+	}
+
 	err = bh.processMaxBuiltInCounters(input)
 	if err != nil {
 		return nil, err

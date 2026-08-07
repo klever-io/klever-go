@@ -213,6 +213,7 @@ type ManagedTypesContext interface {
 	NewManagedBufferFromBytes(bytes []byte) int32
 	SetBytes(mBufferHandle int32, bytes []byte)
 	GetBytes(mBufferHandle int32) ([]byte, error)
+	SetByteSlice(mBufferHandle int32, startingPosition int32, dataLength int32, data []byte) (bool, error)
 	AppendBytes(mBufferHandle int32, bytes []byte) bool
 	GetLength(mBufferHandle int32) int32
 	GetSlice(mBufferHandle int32, startPosition int32, lengthOfSlice int32) ([]byte, error)

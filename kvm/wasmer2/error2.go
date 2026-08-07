@@ -14,6 +14,8 @@ var ErrInvalidBytecode = errors.New("invalid bytecode")
 
 var ErrCachingFailed = errors.New("instance caching failed")
 
+var ErrInstanceCleaned = errors.New("wasmer2 instance already cleaned")
+
 // GetLastError returns the last error message if any, otherwise returns an error.
 func GetLastError() (string, error) {
 	var errorLength = cWasmerLastErrorLength()

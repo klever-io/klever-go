@@ -81,6 +81,11 @@ func (k *kappsController) GetForkController() core.ForkController {
 	return nil
 }
 
+// IsReadOnly -
+func (k *kappsController) IsReadOnly() bool {
+	return false
+}
+
 // IsInterfaceNil -
 func (a *kappsController) IsInterfaceNil() bool {
 	return a == nil
