@@ -551,7 +551,7 @@ func (ihgs *indexHashedNodesCoordinator) ComputeConsensusGroup(
 	epoch uint32,
 ) (validatorsGroup []Validator, err error) {
 	// check if component is ready (previous epoch nodes config is loaded)
-	if !ihgs.lookupReady.Load() {
+	if !ihgs.stateReady.Load() {
 		return nil, ErrNodesCoordinatorNotReady
 	}
 
