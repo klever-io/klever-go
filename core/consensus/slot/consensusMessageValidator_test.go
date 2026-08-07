@@ -3,6 +3,8 @@ package slot_test
 import (
 	"crypto/rand"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	commonMock "github.com/klever-io/klever-go/common/mock"
@@ -438,6 +440,100 @@ func TestCheckConsensusMessageValidity_ErrMessageTypeLimitReached(t *testing.T) 
 	}
 	err := cmv.CheckConsensusMessageValidity(cnsMsg, "")
 	assert.True(t, errors.Is(err, slot.ErrMessageTypeLimitReached))
+}
+
+// TestCheckConsensusMessageValidity_BudgetExhaustedDuringVerification pins the
+// atomic check-and-add: the cheap budget pre-check passes, the budget fills
+// while the (mocked) signature verification runs (as a concurrent duplicate via
+// another peer would), and the final atomic add must reject the message instead
+// of exceeding the budget
+func TestCheckConsensusMessageValidity_BudgetExhaustedDuringVerification(t *testing.T) {
+	t.Parallel()
+
+	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
+	consensusMessageValidatorArgs.ConsensusState.SlotIndex = 10
+
+	var fillBudget func()
+	singleSignerMock := &commonMock.SingleSignerMock{
+		SignStub: func(private crypto.PrivateKey, msg []byte) ([]byte, error) {
+			return []byte("signed"), nil
+		},
+		VerifyStub: func(public crypto.PublicKey, msg []byte, sig []byte) error {
+			if fillBudget != nil {
+				fillBudget()
+			}
+			return nil
+		},
+	}
+	keyGeneratorMock, _, _ := mock.InitKeys()
+	consensusMessageValidatorArgs.PeerSignatureHandler = &commonMock.PeerSignatureHandler{Signer: singleSignerMock, KeyGen: keyGeneratorMock}
+	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
+
+	headerBytes := make([]byte, 100)
+	_, _ = rand.Read(headerBytes)
+	headerHash := make([]byte, consensusMessageValidatorArgs.HasherSize)
+	_, _ = rand.Read(headerHash)
+	pubKey := []byte(consensusMessageValidatorArgs.ConsensusState.ConsensusGroup()[0])
+	sig := make([]byte, SignatureSize)
+	_, _ = rand.Read(sig)
+
+	fillBudget = func() {
+		cmv.TryAddMessageTypeToPublicKey(pubKey, 10, bls.MtBlockHeader)
+	}
+
+	cnsMsg := &consensus.Message{
+		ChainID: chainID, MsgType: int64(bls.MtBlockHeader),
+		Header: headerBytes, BlockHeaderHash: headerHash, PubKey: pubKey, Signature: sig, SlotIndex: 10,
+	}
+	err := cmv.CheckConsensusMessageValidity(cnsMsg, "")
+	assert.True(t, errors.Is(err, slot.ErrMessageTypeLimitReached))
+}
+
+func TestTryAddMessageTypeToPublicKey_StopsAtLimit(t *testing.T) {
+	t.Parallel()
+
+	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
+	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
+	pubKey := []byte(consensusMessageValidatorArgs.ConsensusState.ConsensusGroup()[0])
+
+	for i := 0; i < slot.MaxNumOfMessageTypeAccepted; i++ {
+		assert.True(t, cmv.TryAddMessageTypeToPublicKey(pubKey, 10, bls.MtBlockHeader))
+	}
+	assert.False(t, cmv.TryAddMessageTypeToPublicKey(pubKey, 10, bls.MtBlockHeader))
+
+	// other slot or message type is unaffected
+	assert.True(t, cmv.TryAddMessageTypeToPublicKey(pubKey, 11, bls.MtBlockHeader))
+	assert.True(t, cmv.TryAddMessageTypeToPublicKey(pubKey, 10, bls.MtSignature))
+}
+
+func TestTryAddMessageTypeToPublicKey_ConcurrentDuplicatesRespectBudget(t *testing.T) {
+	t.Parallel()
+
+	// the check and the increment share one critical section, so concurrent
+	// duplicates of the same message (distinct gossip peers) cannot all pass;
+	// exactly MaxNumOfMessageTypeAccepted of them may be accepted
+	consensusMessageValidatorArgs := createDefaultConsensusMessageValidatorArgs()
+	cmv, _ := slot.NewConsensusMessageValidator(consensusMessageValidatorArgs)
+	pubKey := []byte(consensusMessageValidatorArgs.ConsensusState.ConsensusGroup()[0])
+
+	const goroutines = 32
+	var accepted atomic.Uint32
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if cmv.TryAddMessageTypeToPublicKey(pubKey, 10, bls.MtBlockHeader) {
+				accepted.Add(1)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	assert.Equal(t, uint32(slot.MaxNumOfMessageTypeAccepted), accepted.Load())
 }
 
 func TestCheckConsensusMessageValidity_InvalidSignature(t *testing.T) {

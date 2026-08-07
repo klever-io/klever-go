@@ -47,6 +47,9 @@ var ErrNilInputNodesMap = errors.New("nil input nodes map")
 // ErrEpochNodesConfigDoesNotExist signals that the epoch nodes configuration is missing
 var ErrEpochNodesConfigDoesNotExist = errors.New("epoch nodes configuration does not exist")
 
+// ErrEmptyRestoredRegistry signals that a restored registry holds no epoch configurations
+var ErrEmptyRestoredRegistry = errors.New("restored nodes coordinator registry holds no epoch configurations")
+
 // ErrListSizeZero signals that there are no elements in the list
 var ErrListSizeZero = errors.New("list size zero")
 

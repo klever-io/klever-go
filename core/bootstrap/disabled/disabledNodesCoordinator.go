@@ -74,6 +74,11 @@ func (n *nodesCoordinator) LoadState(_ []byte) error {
 	return nil
 }
 
+// IsReady -
+func (n *nodesCoordinator) IsReady() bool {
+	return true
+}
+
 // SetEpochValidatorsInfo -
 func (n *nodesCoordinator) SetEpochValidatorsInfo(_ uint32, _ []*state.ValidatorInfo) error {
 	return nil

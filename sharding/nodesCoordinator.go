@@ -76,6 +76,12 @@ type indexHashedNodesCoordinator struct {
 	startEpoch                    uint32
 
 	stateReady atomic.Bool
+	// lookupReady tracks whether publicKeyToValidatorMap holds authoritative
+	// data. It is deliberately separate from stateReady: SetNodes on the
+	// fast-bootstrap path installs authoritative validators long before
+	// LoadState runs, which must unblock lookups without letting the startup
+	// readiness gate (IsReady) pass while the persisted state is unrestored
+	lookupReady atomic.Bool
 }
 
 type indexHashedNodesCoordinatorWithRater struct {
@@ -118,6 +124,10 @@ func NewNodesCoordinator(arguments ArgNodesCoordinator) (*indexHashedNodesCoordi
 	ihgs.currentEpoch.Store(arguments.StartEpoch)
 	// no need to wait for load state, as we have the initial configuration
 	ihgs.stateReady.Store(arguments.StartEpoch == 0)
+	// at genesis the constructor seeding IS the authoritative epoch-0 set;
+	// on any other start the lookup stays gated until SetNodes or LoadState
+	// installs real data
+	ihgs.lookupReady.Store(arguments.StartEpoch == 0)
 
 	ihgs.loadingFromDisk.Store(false)
 
@@ -127,10 +137,12 @@ func NewNodesCoordinator(arguments ArgNodesCoordinator) (*indexHashedNodesCoordi
 		indexHashedNodesCoordinator: ihgs,
 	}
 
-	err = ihgs.saveState(ihgs.savedStateKey)
-	if err != nil {
-		log.Error("saving initial nodes coordinator config failed",
-			"error", err.Error())
+	if ihgs.shouldSaveInitialState(arguments.Epoch) {
+		err = ihgs.saveState(ihgs.savedStateKey)
+		if err != nil {
+			log.Error("saving initial nodes coordinator config failed",
+				"error", err.Error())
+		}
 	}
 
 	log.Info("new nodes config is set for epoch", "epoch", arguments.Epoch)
@@ -249,6 +261,33 @@ func (ihgs *indexHashedNodesCoordinator) saveState(key []byte) error {
 	return ihgs.bootStorer.Put(ncInternalkey, data)
 }
 
+// shouldSaveInitialState decides whether the constructor persists its seeded
+// config under hash(selfPubKey). The invariant is "never overwrite a registry
+// that is at least as new as the constructor's own data": a restart within the
+// install epoch must not clobber the registry the previous run saved (LoadState
+// would read genesis data back, causing permanent BLS signature failures), while
+// a stored registry older than the current start epoch (e.g. an epoch-0 registry
+// left behind by a genesis-era run) must be refreshed, or a bootstrap record
+// stamped with this key would silently restore stale data on a later restart
+func (ihgs *indexHashedNodesCoordinator) shouldSaveInitialState(epoch uint32) bool {
+	ncInternalkey := append([]byte(core.NodesCoordinatorRegistryKeyPrefix), ihgs.savedStateKey...)
+
+	data, err := ihgs.bootStorer.Get(ncInternalkey)
+	if err != nil {
+		// nothing stored under this key yet: first start on this machine
+		return true
+	}
+
+	config := &NodesCoordinatorRegistry{}
+	err = json.Unmarshal(data, config)
+	if err != nil {
+		// unreadable blob: replace it with a fresh, readable registry
+		return true
+	}
+
+	return epoch > config.CurrentEpoch
+}
+
 func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 	ncInternalkey := append([]byte(core.NodesCoordinatorRegistryKeyPrefix), key...)
 
@@ -268,6 +307,24 @@ func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 		return err
 	}
 
+	nodesConfig, err := ihgs.registryToNodesCoordinator(config)
+	if err != nil {
+		return err
+	}
+
+	// a registry that unmarshals cleanly but restores no epoch configs (truncated
+	// write, or a registry saved from a pruned coordinator) must not be installed:
+	// publishing it would replace the seeded lookup with an empty one and mark the
+	// coordinator ready while every validator lookup fails; failing here keeps
+	// stateReady false so the startup readiness gate fires instead
+	if len(nodesConfig) == 0 {
+		return fmt.Errorf("%w key=%x", ErrEmptyRestoredRegistry, key)
+	}
+
+	// savedStateKey and currentEpoch are only mutated after the conversion
+	// succeeded, so a failed restore cannot leave a foreign key or epoch next
+	// to the constructor-seeded configs (a later saveState on that key would
+	// overwrite a still-valid registry with genesis data)
 	ihgs.mutSavedStateKey.Lock()
 	ihgs.savedStateKey = key
 	ihgs.mutSavedStateKey.Unlock()
@@ -275,19 +332,31 @@ func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 	ihgs.currentEpoch.Store(config.CurrentEpoch)
 	log.Debug("loaded nodes config", "current epoch", config.CurrentEpoch)
 
-	nodesConfig, err := ihgs.registryToNodesCoordinator(config)
-	if err != nil {
-		return err
-	}
-
 	displayNodesConfigInfo(nodesConfig)
+
+	// rebuild the validator lookup from restored configs and publish both atomically
+	publicKeyToValidatorMap := ihgs.computePublicKeyToValidatorMap(nodesConfig)
+
 	ihgs.mutNodesConfig.Lock()
 	ihgs.nodesConfig = nodesConfig
+	ihgs.publicKeyToValidatorMap = publicKeyToValidatorMap
 	ihgs.mutNodesConfig.Unlock()
 
 	ihgs.stateReady.Store(true)
+	ihgs.lookupReady.Store(true)
 
 	return nil
+}
+
+// IsReady returns true once the initial saved state has been restored. It is set
+// at construction for genesis (startEpoch==0) or after a successful LoadState for
+// non-genesis restarts. LoadState rejects registries that restore no epoch
+// configs, so ready implies a non-empty restored state; it does not imply the
+// restored epochs match the chain's current epoch (a stale-but-valid registry
+// still reports ready and surfaces later as ErrEpochNodesConfigDoesNotExist).
+// EpochStartPrepare does NOT flip this flag.
+func (ihgs *indexHashedNodesCoordinator) IsReady() bool {
+	return ihgs.stateReady.Load()
 }
 
 func displayNodesConfigInfo(config map[uint32]*epochNodesConfig) {
@@ -372,52 +441,55 @@ func (ihgs *indexHashedNodesCoordinator) fillPublicKeyToValidatorMap() {
 	ihgs.mutNodesConfig.Lock()
 	defer ihgs.mutNodesConfig.Unlock()
 
-	index := 0
-	epochList := make([]uint32, len(ihgs.nodesConfig))
-	mapAllValidators := make(map[uint32]map[string]Validator)
-	for epoch, epochConfig := range ihgs.nodesConfig {
-		epochConfig.mutNodesMaps.RLock()
-		mapAllValidators[epoch] = ihgs.createPublicKeyToValidatorMap(epochConfig.electedList, epochConfig.eligibleList)
-		epochConfig.mutNodesMaps.RUnlock()
+	ihgs.publicKeyToValidatorMap = ihgs.computePublicKeyToValidatorMap(ihgs.nodesConfig)
+}
 
-		epochList[index] = epoch
-		index++
+// computePublicKeyToValidatorMap merges the elected and eligible validators of
+// all given epoch configs into one lookup map, later epochs taking precedence;
+// single pass: epochs are visited in ascending order and written straight into
+// the result map, so no intermediate per-epoch maps are allocated
+func (ihgs *indexHashedNodesCoordinator) computePublicKeyToValidatorMap(
+	nodesConfig map[uint32]*epochNodesConfig,
+) map[string]Validator {
+	epochList := make([]uint32, 0, len(nodesConfig))
+	for epoch := range nodesConfig {
+		epochList = append(epochList, epoch)
 	}
 
 	sort.Slice(epochList, func(i, j int) bool {
 		return epochList[i] < epochList[j]
 	})
 
-	ihgs.publicKeyToValidatorMap = make(map[string]Validator)
-	for _, epoch := range epochList {
-		validatorsForEpoch := mapAllValidators[epoch]
-		for pubKey, vInfo := range validatorsForEpoch {
-			ihgs.publicKeyToValidatorMap[pubKey] = vInfo
-		}
-	}
-}
-
-func (ihgs *indexHashedNodesCoordinator) createPublicKeyToValidatorMap(
-	elected []Validator,
-	eligible []Validator,
-) map[string]Validator {
 	publicKeyToValidatorMap := make(map[string]Validator)
-
-	for i := 0; i < len(elected); i++ {
-		publicKeyToValidatorMap[string(elected[i].PubKey())] = elected[i]
-	}
-
-	for i := 0; i < len(eligible); i++ {
-		publicKeyToValidatorMap[string(eligible[i].PubKey())] = eligible[i]
+	for _, epoch := range epochList {
+		epochConfig := nodesConfig[epoch]
+		epochConfig.mutNodesMaps.RLock()
+		for _, validator := range epochConfig.electedList {
+			publicKeyToValidatorMap[string(validator.PubKey())] = validator
+		}
+		for _, validator := range epochConfig.eligibleList {
+			publicKeyToValidatorMap[string(validator.PubKey())] = validator
+		}
+		epochConfig.mutNodesMaps.RUnlock()
 	}
 
 	return publicKeyToValidatorMap
 }
 
-// GetValidatorWithPublicKey gets the validator with the given public key
+// GetValidatorWithPublicKey gets the validator with the given public key.
+// The lookup refuses to answer from the constructor's genesis seeding: that
+// would present genesis-era data as authoritative to the p2p peer
+// classification (post-genesis validators reported as not found, rotated-out
+// validators reported as valid). It unblocks as soon as authoritative data is
+// installed, by SetNodes on the fast-bootstrap path or by LoadState, which is
+// earlier than the startup readiness gate (IsReady) that keeps guarding the
+// full restored state
 func (ihgs *indexHashedNodesCoordinator) GetValidatorWithPublicKey(publicKey []byte) (Validator, error) {
 	if len(publicKey) == 0 {
 		return nil, ErrNilPubKey
+	}
+	if !ihgs.lookupReady.Load() {
+		return nil, ErrNodesCoordinatorNotReady
 	}
 	ihgs.mutNodesConfig.RLock()
 	v, ok := ihgs.publicKeyToValidatorMap[string(publicKey)]
@@ -479,7 +551,7 @@ func (ihgs *indexHashedNodesCoordinator) ComputeConsensusGroup(
 	epoch uint32,
 ) (validatorsGroup []Validator, err error) {
 	// check if component is ready (previous epoch nodes config is loaded)
-	if !ihgs.stateReady.Load() {
+	if !ihgs.lookupReady.Load() {
 		return nil, ErrNodesCoordinatorNotReady
 	}
 
@@ -773,12 +845,13 @@ func (ihgs *indexHashedNodesCoordinator) EpochStartPrepare(metaHdr data.HeaderHa
 		return
 	}
 
+	// SetNodes rebuilds publicKeyToValidatorMap before returning, so no
+	// separate fillPublicKeyToValidatorMap call is needed here
 	err = ihgs.SetNodes(resUpdateNodes.Elected, resUpdateNodes.Eligible, newNodesConfig.waitingList, newEpoch)
 	if err != nil {
 		log.Error("set nodes per shard failed", "error", err.Error())
 	}
 
-	ihgs.fillPublicKeyToValidatorMap()
 	err = ihgs.saveState(randomness)
 	if err != nil {
 		log.Error("saving nodes coordinator config failed", "error", err.Error())
@@ -816,30 +889,48 @@ func (ihgs *indexHashedNodesCoordinator) SetNodes(
 	ihgs.mutNodesConfig.Lock()
 	defer ihgs.mutNodesConfig.Unlock()
 
+	if elected == nil || eligible == nil {
+		return ErrNilInputNodesMap
+	}
+
 	nodesConfig, ok := ihgs.nodesConfig[epoch]
 	if !ok {
 		log.Debug("did not find nodesConfig", "epoch", epoch)
 		nodesConfig = &epochNodesConfig{}
 	}
 
-	nodesConfig.mutNodesMaps.Lock()
-	defer nodesConfig.mutNodesMaps.Unlock()
+	// the epoch config's write lock must be released before the map rebuild
+	// below, because computePublicKeyToValidatorMap re-acquires it as a read
+	// lock per epoch and the RWMutex is not reentrant
+	err := func() error {
+		nodesConfig.mutNodesMaps.Lock()
+		defer nodesConfig.mutNodesMaps.Unlock()
 
-	if elected == nil || eligible == nil {
-		return ErrNilInputNodesMap
-	}
-
-	var err error
-	// nbShards holds number of shards without meta
-	nodesConfig.electedList = elected
-	nodesConfig.eligibleList = eligible
-	nodesConfig.waitingList = waiting
-	nodesConfig.selector, err = ihgs.createSelector(nodesConfig)
+		var errSelector error
+		// nbShards holds number of shards without meta
+		nodesConfig.electedList = elected
+		nodesConfig.eligibleList = eligible
+		nodesConfig.waitingList = waiting
+		nodesConfig.selector, errSelector = ihgs.createSelector(nodesConfig)
+		return errSelector
+	}()
 	if err != nil {
 		return err
 	}
 
 	ihgs.nodesConfig[epoch] = nodesConfig
+
+	// rebuild the lookup so the validators set here resolve through
+	// GetValidatorWithPublicKey; without this the fast-bootstrap path
+	// (cmd/node calls SetNodes right after construction) leaves the map on
+	// its genesis seeding and the p2p validator-originator gate rejects
+	// every gossiped header
+	ihgs.publicKeyToValidatorMap = ihgs.computePublicKeyToValidatorMap(ihgs.nodesConfig)
+
+	// the lookup now holds authoritative data, so unblock it; stateReady is
+	// deliberately NOT set here: the startup gate (IsReady) must keep failing
+	// until LoadState restores the full persisted state
+	ihgs.lookupReady.Store(true)
 
 	return nil
 }

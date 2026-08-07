@@ -1,6 +1,7 @@
 package notifier_test
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/klever-io/klever-go/data"
@@ -109,4 +110,64 @@ func TestEpochStartSubscriptionHandler_NotifyAll(t *testing.T) {
 	assert.True(t, firstHandlerWasCalled)
 	assert.True(t, secondHandlerWasCalled)
 	assert.Equal(t, lastCalled, 2)
+}
+
+func TestEpochStartSubscriptionHandler_NotifyAllPrepare(t *testing.T) {
+	t.Parallel()
+
+	firstHandlerWasCalled := false
+	secondHandlerWasCalled := false
+	lastCalled := 0
+	essh := notifier.NewEpochStartSubscriptionHandler()
+
+	// prepare handlers are the second argument; NotifyOrder must drive the
+	// call order exactly as it does for NotifyAll
+	handler1 := notifier.NewHandlerForEpochStart(nil, func(blk data.HeaderHandler) {
+		firstHandlerWasCalled = true
+		lastCalled = 1
+	}, 1)
+	handler2 := notifier.NewHandlerForEpochStart(nil, func(blk data.HeaderHandler) {
+		secondHandlerWasCalled = true
+		lastCalled = 2
+	}, 2)
+
+	essh.RegisterHandler(handler2)
+	essh.RegisterHandler(handler1)
+
+	essh.NotifyAllPrepare(&block.Block{Header: &block.BlockHeader{}})
+	assert.True(t, firstHandlerWasCalled)
+	assert.True(t, secondHandlerWasCalled)
+	assert.Equal(t, 2, lastCalled)
+}
+
+func TestEpochStartSubscriptionHandler_ConcurrentNotifyIsRaceFree(t *testing.T) {
+	t.Parallel()
+
+	// NotifyAll and NotifyAllPrepare sort the shared handler slice; under a
+	// read lock two concurrent notifications race on the sort's swaps, which
+	// the race detector catches. This test pins the write-lock fix.
+	essh := notifier.NewEpochStartSubscriptionHandler()
+	for i := 3; i >= 1; i-- {
+		order := uint32(i)
+		essh.RegisterHandler(notifier.NewHandlerForEpochStart(
+			func(blk data.HeaderHandler) {}, func(blk data.HeaderHandler) {}, order))
+	}
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			<-start
+			blk := &block.Block{Header: &block.BlockHeader{}}
+			if n%2 == 0 {
+				essh.NotifyAll(blk)
+			} else {
+				essh.NotifyAllPrepare(blk)
+			}
+		}(i)
+	}
+	close(start)
+	wg.Wait()
 }

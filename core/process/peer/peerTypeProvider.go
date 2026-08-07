@@ -22,6 +22,7 @@ type peerListAndShard struct {
 type PeerTypeProvider struct {
 	nodesCoordinator sharding.NodesCoordinator
 	cache            map[string]*peerListAndShard
+	cacheEpoch       uint32
 	mutCache         sync.RWMutex
 }
 
@@ -47,7 +48,18 @@ func NewPeerTypeProvider(arg ArgPeerTypeProvider) (*PeerTypeProvider, error) {
 		mutCache:         sync.RWMutex{},
 	}
 
-	ptp.updateCache(arg.StartEpoch)
+	// seed the cache with construction-time data but leave cacheEpoch at zero:
+	// construction runs before the storage bootstrap restores the coordinator
+	// state, so this seed must never outrank the post-bootstrap RefreshCache,
+	// not even when a restore walk-back targets an older epoch than StartEpoch
+	seedCache, ok := ptp.createNewCache(arg.StartEpoch)
+	if ok {
+		ptp.mutCache.Lock()
+		ptp.cache = seedCache
+		ptp.mutCache.Unlock()
+	} else {
+		log.Warn("peerTypeProvider - no validator list available at construction", "epoch", arg.StartEpoch)
+	}
 
 	arg.EpochStartEventNotifier.RegisterHandler(ptp.epochStartEventHandler())
 
@@ -93,39 +105,74 @@ func (ptp *PeerTypeProvider) epochStartEventHandler() sharding.EpochStartActionH
 				"epoch", hdr.GetEpoch())
 			ptp.updateCache(hdr.GetEpoch())
 		},
-		func(_ data.HeaderHandler) {},
+		func(_ data.HeaderHandler) {
+			// nothing to do on epoch start prepare; the cache refresh happens on the action event above
+		},
 		core.IndexerOrder,
 	)
 
 	return subscribeHandler
 }
 
+// RefreshCache rebuilds the peer type cache from the nodes coordinator for the
+// given epoch; used after the storage bootstrap restores the coordinator state.
+// Epoch ordering is enforced between real updates (a stale refresh cannot
+// overwrite a newer epoch-start update), but the construction-time seed never
+// takes precedence: the first refresh always applies, also after a storage
+// restore that walks back to an epoch older than the construction epoch.
+func (ptp *PeerTypeProvider) RefreshCache(epoch uint32) {
+	ptp.updateCache(epoch)
+}
+
 func (ptp *PeerTypeProvider) updateCache(epoch uint32) {
-	newCache := ptp.createNewCache(epoch)
+	newCache, ok := ptp.createNewCache(epoch)
+	if !ok {
+		log.Warn("peerTypeProvider - no validator list available, keeping previous cache", "epoch", epoch)
+		return
+	}
 
 	ptp.mutCache.Lock()
-	ptp.cache = newCache
+	if epoch >= ptp.cacheEpoch {
+		ptp.cache = newCache
+		ptp.cacheEpoch = epoch
+	}
 	ptp.mutCache.Unlock()
 }
 
+// createNewCache returns (cache, false) when the epoch config is entirely
+// missing (all three getters fail), preserving the previous cache; when the
+// config exists but lists are empty the new (empty) cache replaces the old one
 func (ptp *PeerTypeProvider) createNewCache(
 	epoch uint32,
-) map[string]*peerListAndShard {
+) (map[string]*peerListAndShard, bool) {
 	newCache := make(map[string]*peerListAndShard)
 
-	nodesMapElected, err := ptp.nodesCoordinator.GetAllElectedValidatorsKeys(epoch, false)
-	if err != nil {
-		log.Debug("peerTypeProvider - GetAllElectedValidatorsKeys failed", "epoch", epoch)
+	// the coordinator produces disjoint lists; if they ever overlap, the last
+	// list merged below wins
+	nodesMapElected, electedErr := ptp.nodesCoordinator.GetAllElectedValidatorsKeys(epoch, false)
+	if electedErr != nil {
+		log.Debug("peerTypeProvider - GetAllElectedValidatorsKeys failed", "epoch", epoch, "error", electedErr)
 	}
 	computePeerType(newCache, nodesMapElected, core.ElectedList)
 
-	nodesMapEligible, err := ptp.nodesCoordinator.GetAllEligibleValidatorsKeys(epoch, false)
-	if err != nil {
-		log.Debug("peerTypeProvider - GetAllEligibleValidatorsKeys failed", "epoch", epoch)
+	nodesMapEligible, eligibleErr := ptp.nodesCoordinator.GetAllEligibleValidatorsKeys(epoch, false)
+	if eligibleErr != nil {
+		log.Debug("peerTypeProvider - GetAllEligibleValidatorsKeys failed", "epoch", epoch, "error", eligibleErr)
 	}
 	computePeerType(newCache, nodesMapEligible, core.EligibleList)
 
-	return newCache
+	nodesMapWaiting, waitingErr := ptp.nodesCoordinator.GetAllWaitingValidatorsKeys(epoch, false)
+	if waitingErr != nil {
+		log.Debug("peerTypeProvider - GetAllWaitingValidatorsKeys failed", "epoch", epoch, "error", waitingErr)
+	}
+	computePeerType(newCache, nodesMapWaiting, core.WaitingList)
+
+	// all three getters fail on the same missing nodesConfig[epoch] lookup, so
+	// they fail or succeed together; keep the previous cache only when the
+	// epoch config is entirely missing
+	allListsFailed := electedErr != nil && eligibleErr != nil && waitingErr != nil
+
+	return newCache, !allListsFailed
 }
 
 func computePeerType(

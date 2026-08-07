@@ -113,11 +113,14 @@ func TestValidatorsProvider_GetLatestValidators(t *testing.T) {
 		arg := createDefaultValidatorsProviderArg()
 		vp, _ := NewValidatorsProvider(arg)
 
-		// Manually set cache and last update time
+		// Manually set cache and last update time; the constructor starts a
+		// background refresh goroutine, so the fields must be set under the lock
+		vp.lock.Lock()
 		vp.cache = map[string]*state.ValidatorApiResponse{
 			"validator1": {ValidatorStatus: "eligible"},
 		}
 		vp.lastCacheUpdate = time.Now()
+		vp.lock.Unlock()
 
 		validators := vp.GetLatestValidators()
 		assert.Len(t, validators, 1)
@@ -139,11 +142,14 @@ func TestValidatorsProvider_GetLatestValidators(t *testing.T) {
 		}
 		vp, _ := NewValidatorsProvider(arg)
 
-		// Set an old cache
+		// Set an old cache under the lock (the background refresh goroutine
+		// started by the constructor also writes these fields)
+		vp.lock.Lock()
 		vp.cache = map[string]*state.ValidatorApiResponse{
 			"validator1": {ValidatorStatus: "eligible"},
 		}
 		vp.lastCacheUpdate = time.Now().Add(-time.Hour)
+		vp.lock.Unlock()
 
 		time.Sleep(time.Millisecond * 10) // Ensure cache refresh interval has passed
 
@@ -202,7 +208,10 @@ func TestValidatorsProvider_UpdateCache(t *testing.T) {
 		vp, _ := NewValidatorsProvider(arg)
 
 		vp.updateCache()
-		assert.Empty(t, vp.cache)
+		vp.lock.RLock()
+		cache := vp.cache
+		vp.lock.RUnlock()
+		assert.Empty(t, cache)
 	})
 
 	t.Run("should update cache with new validator info", func(t *testing.T) {
@@ -220,8 +229,11 @@ func TestValidatorsProvider_UpdateCache(t *testing.T) {
 		vp, _ := NewValidatorsProvider(arg)
 
 		vp.updateCache()
-		assert.Len(t, vp.cache, 1)
-		assert.Contains(t, vp.cache, hex.EncodeToString([]byte("validator1")))
+		vp.lock.RLock()
+		cache := vp.cache
+		vp.lock.RUnlock()
+		assert.Len(t, cache, 1)
+		assert.Contains(t, cache, hex.EncodeToString([]byte("validator1")))
 	})
 }
 

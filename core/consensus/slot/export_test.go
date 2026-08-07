@@ -200,7 +200,11 @@ func (cmv *consensusMessageValidator) IsBlockHeaderHashSizeValid(cnsMsg *consens
 }
 
 func (cmv *consensusMessageValidator) AddMessageTypeToPublicKey(pk []byte, slot int64, msgType consensus.MessageType) {
-	cmv.addMessageTypeToPublicKey(pk, slot, msgType)
+	cmv.tryAddMessageTypeToPublicKey(pk, slot, msgType)
+}
+
+func (cmv *consensusMessageValidator) TryAddMessageTypeToPublicKey(pk []byte, slot int64, msgType consensus.MessageType) bool {
+	return cmv.tryAddMessageTypeToPublicKey(pk, slot, msgType)
 }
 
 func (cmv *consensusMessageValidator) IsMessageTypeLimitReached(pk []byte, slot int64, msgType consensus.MessageType) bool {

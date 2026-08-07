@@ -314,6 +314,14 @@ func (n *Node) StartConsensus() error {
 
 	n.bootstrapper.LoadStorage()
 
+	// the coordinator is marked ready at construction for genesis (startEpoch==0),
+	// or after a successful LoadState for non-genesis restarts; if it is still not
+	// ready after LoadStorage, the saved state could not be restored and the node
+	// can never compute consensus groups, so fail startup loudly
+	if !n.nodesCoordinator.IsReady() {
+		return common.ErrNodesCoordinatorNotReadyAfterBootstrap
+	}
+
 	log.Trace("creating proposal kapp")
 
 	acnt, err := n.kapps.LoadAccount(kapps.ProposalKAppAddress)
@@ -330,6 +338,13 @@ func (n *Node) StartConsensus() error {
 	crtBlockHeader := n.blkc.GetCurrentBlockHeader()
 	if !check.IfNil(crtBlockHeader) {
 		epoch = crtBlockHeader.GetEpoch()
+	}
+
+	// the heartbeat's peer type cache was built before LoadStorage restored the
+	// nodes coordinator state; refresh it so the node reports its real peer type
+	// without waiting for the next epoch start
+	if !check.IfNil(n.heartbeatHandler) {
+		n.heartbeatHandler.RefreshPeerTypeCache(epoch)
 	}
 
 	forkControllerSubscriber, ok := n.forkController.(core.EpochSubscriberHandler)

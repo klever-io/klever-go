@@ -34,6 +34,7 @@ func NewSubslotStartSlot(
 ) (*subslotStartSlot, error) {
 	err := checkNewSubslotStartSlotParams(
 		baseSubslot,
+		resetConsensusMessages,
 	)
 	if err != nil {
 		return nil, err
@@ -56,12 +57,17 @@ func NewSubslotStartSlot(
 
 func checkNewSubslotStartSlotParams(
 	baseSubslot *slot.Subslot,
+	resetConsensusMessages func(),
 ) error {
 	if baseSubslot == nil {
 		return slot.ErrNilSubslot
 	}
 	if baseSubslot.ConsensusState == nil {
 		return slot.ErrNilConsensusState
+	}
+	// called unconditionally by doStartSlotJob and by EpochStartAction below
+	if resetConsensusMessages == nil {
+		return slot.ErrNilResetConsensusMessages
 	}
 
 	err := slot.ValidateConsensusCore(baseSubslot.ConsensusCoreHandler)
@@ -240,9 +246,38 @@ func (sr *subslotStartSlot) EpochStartPrepare(metaHdr data.HeaderHandler) {
 }
 
 // EpochStartAction is called upon a start of epoch event.
+// It refreshes the elected nodes set from the coordinator so that
+// IsNodeInConsensusGroup accepts validators from the new epoch even while the
+// node is still syncing (initCurrentSlot is gated on NsSynchronized and would
+// leave the set stale otherwise).
+// The elected-set swap and resetConsensusMessages are not serialized with
+// ProcessReceivedMessage, which checks the set and increments the per-key
+// message budget in its own critical sections. A message landing between the
+// two therefore costs at most one extra accepted message for one key in the
+// transition slot; serializing would mean holding a lock across the full
+// validity pipeline including BLS verification, on the consensus hot path.
+// The action also re-fires when fork recovery reverts through an epoch-start
+// block (trigger.RevertStateToBlock calls SetProcessed again). On a live,
+// synchronized validator that widens the set and clears the budgets mid-slot;
+// this is bounded the same way: initCurrentSlot re-narrows the set at the next
+// slot and every state-changing path re-validates against the tight consensus
+// group (ConsensusGroupIndex, SetJobDone).
 func (sr *subslotStartSlot) EpochStartAction(hdr data.HeaderHandler) {
 	log.Debug(fmt.Sprintf("epoch %d start action in consensus", hdr.GetEpoch()))
 
+	whitelisted, err := sr.NodesCoordinator().GetConsensusWhitelistedNodes(hdr.GetEpoch())
+	if err != nil {
+		// without the refresh a syncing node keeps rejecting new-epoch
+		// validators (the exact stall this action exists to prevent), so
+		// failing here must be loud
+		log.Error("EpochStartAction: could not refresh elected nodes",
+			"epoch", hdr.GetEpoch(),
+			"error", err.Error())
+		return
+	}
+
+	sr.RefreshElectedNodes(whitelisted)
+	sr.resetConsensusMessages()
 }
 
 // NotifyOrder returns the notification order for a start of epoch event

@@ -266,6 +266,16 @@ func (hbh *HeartbeatHandler) Sender() *process.Sender {
 	return hbh.sender
 }
 
+// RefreshPeerTypeCache rebuilds the peer type provider's cache for the given
+// epoch; called after the storage bootstrap restores the nodes coordinator state
+func (hbh *HeartbeatHandler) RefreshPeerTypeCache(epoch uint32) {
+	if hbh == nil || hbh.peerTypeProvider == nil {
+		return
+	}
+
+	hbh.peerTypeProvider.RefreshCache(epoch)
+}
+
 // Close stops the heartbeat sender and monitor background goroutines and waits
 // for both to exit. Idempotent: each step (cancelFunc, channel receive on closed
 // channel, monitor.Close) is safe to repeat.

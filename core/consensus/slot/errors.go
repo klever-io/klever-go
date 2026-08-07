@@ -26,6 +26,9 @@ var ErrNilConsensusState = errors.New("consensus state is nil")
 // ErrNilExecuteStoredMessages is raised when a valid executeStoredMessages function is expected but nil used
 var ErrNilExecuteStoredMessages = errors.New("executeStoredMessages is nil")
 
+// ErrNilResetConsensusMessages is raised when a valid resetConsensusMessages function is expected but nil used
+var ErrNilResetConsensusMessages = errors.New("resetConsensusMessages is nil")
+
 // ErrInvalidChainID signals that an invalid chain ID has been provided
 var ErrInvalidChainID = errors.New("invalid chain ID in consensus")
 

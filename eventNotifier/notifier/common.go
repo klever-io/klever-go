@@ -32,7 +32,7 @@ func NewHandlerForEpochStart(
 // EpochStartPrepare will notify the subscriber to prepare for a start of epoch.
 // The event can be triggered multiple times
 func (hs *handlerStruct) EpochStartPrepare(blk data.HeaderHandler) {
-	if hs.act != nil {
+	if hs.prepare != nil {
 		hs.prepare(blk)
 	}
 }

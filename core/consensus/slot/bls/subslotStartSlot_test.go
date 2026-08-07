@@ -10,8 +10,10 @@ import (
 	"github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/consensus/slot"
 	"github.com/klever-io/klever-go/core/consensus/slot/bls"
+	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/sharding"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func defaultSubslotStartSlotFromSubslot(sr *slot.Subslot) (bls.SubslotStartSlot, error) {
@@ -458,4 +460,126 @@ func TestSubslotStartSlot_GenerateNextConsensusGroupShouldReturnErr(t *testing.T
 	err2 := srStartSlot.GenerateNextConsensusGroup(0)
 
 	assert.Equal(t, err, err2)
+}
+
+// whitelistNodesCoordinatorMock overrides GetConsensusWhitelistedNodes, which
+// the embedded common mock leaves unimplemented (it panics)
+type whitelistNodesCoordinatorMock struct {
+	*cMock.NodesCoordinatorMock
+	whitelisted    map[string]struct{}
+	err            error
+	requestedEpoch uint32
+}
+
+func (w *whitelistNodesCoordinatorMock) GetConsensusWhitelistedNodes(epoch uint32) (map[string]struct{}, error) {
+	w.requestedEpoch = epoch
+	if w.err != nil {
+		return nil, w.err
+	}
+	return w.whitelisted, nil
+}
+
+func TestSubslotStartSlot_EpochStartActionRefreshesElectedNodes(t *testing.T) {
+	t.Parallel()
+
+	newEpochKey := "newEpochValidator"
+	coordinator := &whitelistNodesCoordinatorMock{
+		NodesCoordinatorMock: cMock.NewNodesCoordinatorMock(),
+		whitelisted:          map[string]struct{}{newEpochKey: {}},
+	}
+	container := mock.InitConsensusCore()
+	container.SetValidatorGroupSelector(coordinator)
+
+	consensusState := initConsensusState()
+	ch := make(chan bool, 1)
+	sr, err := defaultSubslot(consensusState, ch, container)
+	require.Nil(t, err)
+	resetCount := 0
+	srStartSlotPtr, err := bls.NewSubslotStartSlot(
+		sr,
+		extend,
+		bls.ProcessingThresholdPercent,
+		executeStoredMessages,
+		func() { resetCount++ },
+	)
+	require.Nil(t, err)
+	srStartSlot := *srStartSlotPtr
+
+	oldKey := consensusState.ConsensusGroup()[0]
+	require.True(t, consensusState.IsNodeInConsensusGroup(oldKey))
+	require.False(t, consensusState.IsNodeInConsensusGroup(newEpochKey))
+
+	srStartSlot.EpochStartAction(&block.Block{Header: &block.BlockHeader{Epoch: 1}})
+
+	// the whitelist must be requested for the epoch of the triggering header
+	require.Equal(t, uint32(1), coordinator.requestedEpoch)
+
+	// the elected set is replaced wholesale with the new epoch's whitelisted
+	// nodes, so the new-epoch validator is accepted and the old one is not
+	require.True(t, consensusState.IsNodeInConsensusGroup(newEpochKey))
+	require.False(t, consensusState.IsNodeInConsensusGroup(oldKey))
+
+	// the per-slot message budgets of the previous epoch are cleared exactly once
+	require.Equal(t, 1, resetCount)
+}
+
+func TestSubslotStartSlot_EpochStartActionKeepsElectedNodesOnCoordinatorError(t *testing.T) {
+	t.Parallel()
+
+	coordinator := &whitelistNodesCoordinatorMock{
+		NodesCoordinatorMock: cMock.NewNodesCoordinatorMock(),
+		err:                  errors.New("coordinator has no config for the epoch"),
+	}
+	container := mock.InitConsensusCore()
+	container.SetValidatorGroupSelector(coordinator)
+
+	consensusState := initConsensusState()
+	ch := make(chan bool, 1)
+	sr, err := defaultSubslot(consensusState, ch, container)
+	require.Nil(t, err)
+	resetCount := 0
+	srStartSlotPtr, err := bls.NewSubslotStartSlot(
+		sr,
+		extend,
+		bls.ProcessingThresholdPercent,
+		executeStoredMessages,
+		func() { resetCount++ },
+	)
+	require.Nil(t, err)
+	srStartSlot := *srStartSlotPtr
+
+	oldKey := consensusState.ConsensusGroup()[0]
+	require.True(t, consensusState.IsNodeInConsensusGroup(oldKey))
+
+	srStartSlot.EpochStartAction(&block.Block{Header: &block.BlockHeader{Epoch: 1}})
+
+	require.Equal(t, uint32(1), coordinator.requestedEpoch)
+
+	// on a coordinator error the previous elected set is kept unchanged and the
+	// message budgets are not cleared, since no epoch transition was applied
+	require.True(t, consensusState.IsNodeInConsensusGroup(oldKey))
+	require.Equal(t, 0, resetCount)
+}
+
+func TestSubslotStartSlot_NewSubslotStartSlotNilResetConsensusMessagesShouldFail(t *testing.T) {
+	t.Parallel()
+
+	container := mock.InitConsensusCore()
+	consensusState := initConsensusState()
+	ch := make(chan bool, 1)
+	sr, err := defaultSubslot(consensusState, ch, container)
+	require.Nil(t, err)
+
+	// doStartSlotJob and EpochStartAction call it unconditionally, so a nil
+	// callback must be rejected at construction instead of panicking later
+	srStartSlot, err := bls.NewSubslotStartSlot(
+		sr,
+		extend,
+		bls.ProcessingThresholdPercent,
+		executeStoredMessages,
+		nil,
+	)
+
+	require.Nil(t, srStartSlot)
+	require.Equal(t, slot.ErrNilResetConsensusMessages, err)
 }

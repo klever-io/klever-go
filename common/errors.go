@@ -307,6 +307,10 @@ var ErrCacheConfigInvalidEconomics = errors.New("cache-economics parameter is no
 // ErrNilNodesCoordinator signals a nil nodes coordinator has been provided
 var ErrNilNodesCoordinator = errors.New("nil nodes coordinator")
 
+// ErrNodesCoordinatorNotReadyAfterBootstrap signals that the nodes coordinator did not
+// restore a usable state after a non-genesis restart from storage
+var ErrNodesCoordinatorNotReadyAfterBootstrap = errors.New("nodes coordinator not ready after storage bootstrap")
+
 // ErrValidatorNotFound signals that the validator has not been found
 var ErrValidatorNotFound = errors.New("validator not found")
 

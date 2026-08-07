@@ -164,7 +164,12 @@ func (cmv *consensusMessageValidator) checkConsensusMessageValidity(cnsMsg *cons
 			ErrOriginatorMismatch, p2p.PeerIDToShortString(originator), p2p.PeerIDToShortString(cnsMsgOriginator))
 	}
 
-	cmv.addMessageTypeToPublicKey(cnsMsg.PubKey, cnsMsg.SlotIndex, msgType)
+	if !cmv.tryAddMessageTypeToPublicKey(cnsMsg.PubKey, cnsMsg.SlotIndex, msgType) {
+		return fmt.Errorf("%w : received message type %s from consensus topic reached the limit for public key: %s",
+			ErrMessageTypeLimitReached,
+			cmv.consensusService.GetStringValue(msgType),
+			logger.DisplayByteSlice(cnsMsg.PubKey))
+	}
 
 	return nil
 }
@@ -311,7 +316,13 @@ func (cmv *consensusMessageValidator) isMessageTypeLimitReached(pk []byte, slot 
 	return numMsgType >= MaxNumOfMessageTypeAccepted
 }
 
-func (cmv *consensusMessageValidator) addMessageTypeToPublicKey(pk []byte, slot int64, msgType consensus.MessageType) {
+// tryAddMessageTypeToPublicKey atomically checks the per-(pk, slot, msgType)
+// budget and records the message, returning false when the budget was already
+// exhausted. The check and the increment share one critical section, so
+// concurrent duplicates of the same message arriving via distinct peers cannot
+// all pass; the isMessageTypeLimitReached pre-check before signature
+// verification is only an optimization and runs in a separate critical section
+func (cmv *consensusMessageValidator) tryAddMessageTypeToPublicKey(pk []byte, slot int64, msgType consensus.MessageType) bool {
 	cmv.mutPkConsensusMessages.Lock()
 	defer cmv.mutPkConsensusMessages.Unlock()
 
@@ -323,7 +334,13 @@ func (cmv *consensusMessageValidator) addMessageTypeToPublicKey(pk []byte, slot 
 		cmv.mapPkConsensusMessages[key] = mapMsgType
 	}
 
+	if mapMsgType[msgType] >= MaxNumOfMessageTypeAccepted {
+		return false
+	}
+
 	mapMsgType[msgType]++
+
+	return true
 }
 
 func (cmv *consensusMessageValidator) resetConsensusMessages() {

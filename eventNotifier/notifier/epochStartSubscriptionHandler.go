@@ -61,7 +61,9 @@ func (essh *epochStartSubscriptionHandler) UnregisterHandler(handlerToUnregister
 
 // NotifyAll will call all the subscribed functions from the internal slice
 func (essh *epochStartSubscriptionHandler) NotifyAll(blk data.HeaderHandler) {
-	essh.mutEpochStartHandler.RLock()
+	// the sort mutates the shared slice, so a write lock is required; a read
+	// lock would let two concurrent notifications race on the sort's swaps
+	essh.mutEpochStartHandler.Lock()
 
 	sort.Slice(essh.epochStartHandlers, func(i, j int) bool {
 		return essh.epochStartHandlers[i].NotifyOrder() < essh.epochStartHandlers[j].NotifyOrder()
@@ -70,13 +72,14 @@ func (essh *epochStartSubscriptionHandler) NotifyAll(blk data.HeaderHandler) {
 	for i := 0; i < len(essh.epochStartHandlers); i++ {
 		essh.epochStartHandlers[i].EpochStartAction(blk)
 	}
-	essh.mutEpochStartHandler.RUnlock()
+	essh.mutEpochStartHandler.Unlock()
 }
 
 // NotifyAllPrepare will call all the subscribed clients to notify them that an epoch change block has been
 // observed, but not yet confirmed/committed. Some components may need to do some initialisation/preparation
 func (essh *epochStartSubscriptionHandler) NotifyAllPrepare(blk data.HeaderHandler) {
-	essh.mutEpochStartHandler.RLock()
+	// write lock for the same reason as NotifyAll: the sort mutates the slice
+	essh.mutEpochStartHandler.Lock()
 	sort.Slice(essh.epochStartHandlers, func(i, j int) bool {
 		return essh.epochStartHandlers[i].NotifyOrder() < essh.epochStartHandlers[j].NotifyOrder()
 	})
@@ -84,7 +87,7 @@ func (essh *epochStartSubscriptionHandler) NotifyAllPrepare(blk data.HeaderHandl
 	for i := 0; i < len(essh.epochStartHandlers); i++ {
 		essh.epochStartHandlers[i].EpochStartPrepare(blk)
 	}
-	essh.mutEpochStartHandler.RUnlock()
+	essh.mutEpochStartHandler.Unlock()
 }
 
 // RegisterForEpochChangeConfirmed will register the handler function to be called when epoch change is confirmed
