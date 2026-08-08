@@ -116,12 +116,20 @@ func (ptp *PeerTypeProvider) epochStartEventHandler() sharding.EpochStartActionH
 
 // RefreshCache rebuilds the peer type cache from the nodes coordinator for the
 // given epoch; used after the storage bootstrap restores the coordinator state.
-// Backward epoch updates are allowed (with a warning log) so that chain reverts
-// correctly refresh the cache with the reverted-to epoch's validator set.
 func (ptp *PeerTypeProvider) RefreshCache(epoch uint32) {
 	ptp.updateCache(epoch)
 }
 
+// updateCache installs a freshly built cache for the given epoch. Backward moves
+// are applied, not dropped, and only logged. Both callers carry an authoritative
+// epoch: the epoch start notification is driven by block processing and is how a
+// revert arrives (RevertStateToBlock -> SetProcessed -> NotifyAll), and
+// RefreshCache runs once from StartConsensus with the epoch the storage
+// bootstrap actually restored, which is legitimately older than an epoch start
+// that fired earlier during LoadStorage. Ordering the two would drop whichever
+// arrives second on a bootstrap walk-back. There is no third, asynchronous
+// caller to protect against: block syncing only starts after the RefreshCache
+// call site.
 func (ptp *PeerTypeProvider) updateCache(epoch uint32) {
 	newCache, ok := ptp.createNewCache(epoch)
 	if !ok {
@@ -130,18 +138,22 @@ func (ptp *PeerTypeProvider) updateCache(epoch uint32) {
 	}
 
 	ptp.mutCache.Lock()
+	defer ptp.mutCache.Unlock()
+
 	if epoch < ptp.cacheEpoch {
 		log.Warn("peerTypeProvider - cache epoch going backward",
 			"previous", ptp.cacheEpoch, "new", epoch)
 	}
+
 	ptp.cache = newCache
 	ptp.cacheEpoch = epoch
-	ptp.mutCache.Unlock()
 }
 
-// createNewCache returns (cache, false) when the epoch config is entirely
-// missing (all three getters fail), preserving the previous cache; when the
-// config exists but lists are empty the new (empty) cache replaces the old one
+// createNewCache always runs all three getters and returns (cache, false) when
+// any of them failed, preserving the previous cache: the getters lock
+// independently, so a partial result would install an incomplete validator set.
+// When all three succeed but the lists are empty, the new (empty) cache
+// replaces the old one
 func (ptp *PeerTypeProvider) createNewCache(
 	epoch uint32,
 ) (map[string]*peerListAndShard, bool) {

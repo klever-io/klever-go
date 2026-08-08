@@ -1138,7 +1138,7 @@ func TestNodesCoordinator_LoadStateConversionFailureLeavesStateUntouched(t *test
 	require.Equal(t, uint32(5), coordinator.currentEpoch.Load())
 }
 
-func TestNodesCoordinator_SetNodesUnblocksValidatorLookupBeforeLoadState(t *testing.T) {
+func TestNodesCoordinator_SetNodesInstallsAuthoritativeLookupBeforeLoadState(t *testing.T) {
 	t.Parallel()
 
 	// the fast-bootstrap path (cmd/node) calls SetNodes right after a
@@ -1166,7 +1166,7 @@ func TestNodesCoordinator_SetNodesUnblocksValidatorLookupBeforeLoadState(t *test
 	require.Nil(t, err)
 	require.Equal(t, restored[0].PubKey(), validator.PubKey())
 
-	// the lookup unblocking must not weaken the startup gate
+	// installing authoritative lookup data must not weaken the startup gate
 	require.False(t, coordinator.IsReady())
 }
 

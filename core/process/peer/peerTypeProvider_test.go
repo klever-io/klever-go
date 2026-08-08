@@ -275,13 +275,17 @@ func TestPeerTypeProvider_RefreshCacheAppliesForEpochOlderThanConstruction(t *te
 }
 
 func TestPeerTypeProvider_UpdateCacheAcceptsBackwardEpochForRevert(t *testing.T) {
-	// a revert from epoch 5 to epoch 4 must update the cache with the older
-	// epoch's data; the previous monotonic guard blocked this and left the
-	// reverted-to epoch's validators stuck as observers
+	// a revert from epoch 5 to epoch 4 arrives through the epoch start
+	// notification (RevertStateToBlock -> SetProcessed -> NotifyAll) and must
+	// update the cache with the older epoch's data; the previous monotonic
+	// guard blocked this and left the reverted-to epoch's validators stuck as
+	// observers
 	pkNew := []byte("pkNewEpoch")
 	pkOld := []byte("pkOldEpoch")
 
 	arg := createDefaultArgPeerTypeProvider()
+	epochStartNotifier := &mock.EpochStartNotifierStub{}
+	arg.EpochStartEventNotifier = epochStartNotifier
 	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
 		GetAllElectedValidatorsKeysWithEpochCalled: func(epoch uint32) ([][]byte, error) {
 			if epoch == 5 {
@@ -294,13 +298,53 @@ func TestPeerTypeProvider_UpdateCacheAcceptsBackwardEpochForRevert(t *testing.T)
 	ptp, err := NewPeerTypeProvider(arg)
 	require.Nil(t, err)
 
-	ptp.RefreshCache(5)
+	epochStartNotifier.NotifyAll(&block.Block{Header: &block.BlockHeader{Epoch: 5}})
 
 	peerType, _, err := ptp.ComputeForPubKey(pkNew)
 	require.Nil(t, err)
 	require.Equal(t, core.ElectedList, peerType)
 
-	// simulate a revert to epoch 4; the cache must now reflect epoch 4's data
+	epochStartNotifier.NotifyAll(&block.Block{Header: &block.BlockHeader{Epoch: 4}})
+
+	peerType, _, err = ptp.ComputeForPubKey(pkOld)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
+
+	peerType, _, err = ptp.ComputeForPubKey(pkNew)
+	require.Nil(t, err)
+	require.Equal(t, core.ObserverList, peerType)
+}
+
+func TestPeerTypeProvider_RefreshCacheAppliesAfterEpochStartMovedCacheForward(t *testing.T) {
+	// LoadStorage can restore an epoch start block, which notifies epoch 5 and
+	// moves cacheEpoch forward, and then walk back to an earlier checkpoint. The
+	// post-bootstrap RefreshCache at the end of StartConsensus then carries the
+	// epoch actually restored (4) and must be applied; ordering the two would
+	// leave the node reporting epoch 5's validator set
+	pkOld := []byte("pkOldEpoch")
+	pkNew := []byte("pkNewEpoch")
+
+	arg := createDefaultArgPeerTypeProvider()
+	epochStartNotifier := &mock.EpochStartNotifierStub{}
+	arg.EpochStartEventNotifier = epochStartNotifier
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysWithEpochCalled: func(epoch uint32) ([][]byte, error) {
+			if epoch == 5 {
+				return [][]byte{pkNew}, nil
+			}
+			return [][]byte{pkOld}, nil
+		},
+	}
+
+	ptp, err := NewPeerTypeProvider(arg)
+	require.Nil(t, err)
+
+	epochStartNotifier.NotifyAll(&block.Block{Header: &block.BlockHeader{Epoch: 5}})
+
+	peerType, _, err := ptp.ComputeForPubKey(pkNew)
+	require.Nil(t, err)
+	require.Equal(t, core.ElectedList, peerType)
+
 	ptp.RefreshCache(4)
 
 	peerType, _, err = ptp.ComputeForPubKey(pkOld)
@@ -613,7 +657,10 @@ func TestPeerTypeProvider_EpochStartPrepareIsANoOp(t *testing.T) {
 func TestPeerTypeProvider_ConcurrentRefreshAndEpochStartAreRaceFree(t *testing.T) {
 	// two writers exist in production: the epoch-start notifier callback and
 	// RefreshCache from StartConsensus, both racing readers of ComputeForPubKey.
-	// whichever order they land in, the highest epoch must win the cache
+	// backward writes are applied rather than ordered, so the surviving cache is
+	// whichever writer landed last; what must hold is that a reader never sees a
+	// half-installed cache mixing the two epochs
+	pkOldEpoch := []byte("pkOldEpoch")
 	pkNewEpoch := []byte("pkNewEpoch")
 
 	arg := createDefaultArgPeerTypeProvider()
@@ -624,7 +671,7 @@ func TestPeerTypeProvider_ConcurrentRefreshAndEpochStartAreRaceFree(t *testing.T
 			if epoch == 2 {
 				return [][]byte{pkNewEpoch}, nil
 			}
-			return [][]byte{[]byte("pkOldEpoch")}, nil
+			return [][]byte{pkOldEpoch}, nil
 		},
 	}
 
@@ -646,15 +693,19 @@ func TestPeerTypeProvider_ConcurrentRefreshAndEpochStartAreRaceFree(t *testing.T
 		defer wg.Done()
 		for i := 0; i < 50; i++ {
 			_, _, errCompute := ptp.ComputeForPubKey(pkNewEpoch)
-			require.Nil(t, errCompute)
+			// assert, not require: FailNow from a non-test goroutine is undefined
+			assert.Nil(t, errCompute)
 		}
 	}()
 
 	wg.Wait()
 
-	// epoch 2 is the highest applied epoch, so its cache must be the surviving one
-	ptp.RefreshCache(2)
-	peerType, _, err := ptp.ComputeForPubKey(pkNewEpoch)
+	// exactly one of the two caches must be installed, never a mix of both
+	newType, _, err := ptp.ComputeForPubKey(pkNewEpoch)
 	require.Nil(t, err)
-	require.Equal(t, core.ElectedList, peerType)
+	oldType, _, err := ptp.ComputeForPubKey(pkOldEpoch)
+	require.Nil(t, err)
+	require.NotEqual(t, newType, oldType)
+	require.Contains(t, []core.PeerType{newType, oldType}, core.ElectedList)
+	require.Contains(t, []core.PeerType{newType, oldType}, core.ObserverList)
 }

@@ -76,13 +76,7 @@ type indexHashedNodesCoordinator struct {
 	currentEpoch                  atomic.Uint32
 	startEpoch                    uint32
 
-	stateReady atomic.Bool
-	// lookupReady tracks whether publicKeyToValidatorMap holds authoritative
-	// data. It is deliberately separate from stateReady: SetNodes on the
-	// fast-bootstrap path installs authoritative validators long before
-	// LoadState runs, which must unblock lookups without letting the startup
-	// readiness gate (IsReady) pass while the persisted state is unrestored
-	lookupReady     atomic.Bool
+	stateReady      atomic.Bool
 	loadStateFailed atomic.Bool
 }
 
@@ -126,14 +120,13 @@ func NewNodesCoordinator(arguments ArgNodesCoordinator) (*indexHashedNodesCoordi
 	}
 	ihgs.currentEpoch.Store(arguments.StartEpoch)
 	ihgs.stateReady.Store(arguments.StartEpoch == 0)
+
+	ihgs.loadingFromDisk.Store(false)
+
 	// the genesis seed is approximate but sufficient for peer classification
 	// during bootstrap; SetNodes or LoadState replaces it with authoritative
 	// data, and the authoritative flag on epochNodesConfig prevents stale
 	// genesis entries from shadowing real data in the merged lookup map
-	ihgs.lookupReady.Store(true)
-
-	ihgs.loadingFromDisk.Store(false)
-
 	ihgs.fillPublicKeyToValidatorMap()
 
 	ihncr := &indexHashedNodesCoordinatorWithRater{
@@ -341,7 +334,6 @@ func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 	ihgs.nodesConfig = nodesConfig
 	ihgs.publicKeyToValidatorMap = publicKeyToValidatorMap
 	ihgs.stateReady.Store(true)
-	ihgs.lookupReady.Store(true)
 	ihgs.mutNodesConfig.Unlock()
 
 	loadFailed = false
@@ -492,19 +484,21 @@ func (ihgs *indexHashedNodesCoordinator) computePublicKeyToValidatorMap(
 }
 
 // GetValidatorWithPublicKey gets the validator with the given public key.
-// The lookup refuses to answer from the constructor's genesis seeding: that
-// would present genesis-era data as authoritative to the p2p peer
-// classification (post-genesis validators reported as not found, rotated-out
-// validators reported as valid). It unblocks as soon as authoritative data is
-// installed, by SetNodes on the fast-bootstrap path or by LoadState, which is
-// earlier than the startup readiness gate (IsReady) that keeps guarding the
-// full restored state
+// The lookup always answers, including from the constructor's genesis seeding
+// before SetNodes or LoadState installs authoritative data. That is a deliberate
+// trade: refusing during the bootstrap window makes the error indistinguishable
+// from ErrValidatorNotFound in PeerShardMapper.getPeerInfoWithNodesCoordinator,
+// so every peer still in the genesis set would be reported as core.UnknownPeer
+// to the antiflood layer and throttled on the validator-only topics the node
+// needs to sync. The accepted cost is that during that window a post-genesis
+// validator still reads as not found and a rotated-out one reads as valid. Both
+// are bounded: every writer of the peerID to pubkey binding verifies a signature
+// first, so a stale answer grants topic access, never consensus membership,
+// which stays gated on IsNodeInConsensusGroup. The authoritative flag on
+// epochNodesConfig keeps the genesis seed from shadowing real data afterwards
 func (ihgs *indexHashedNodesCoordinator) GetValidatorWithPublicKey(publicKey []byte) (Validator, error) {
 	if len(publicKey) == 0 {
 		return nil, ErrNilPubKey
-	}
-	if !ihgs.lookupReady.Load() {
-		return nil, ErrNodesCoordinatorNotReady
 	}
 	ihgs.mutNodesConfig.RLock()
 	v, ok := ihgs.publicKeyToValidatorMap[string(publicKey)]
@@ -946,7 +940,6 @@ func (ihgs *indexHashedNodesCoordinator) SetNodes(
 
 	ihgs.nodesConfig[epoch] = nodesConfig
 	ihgs.publicKeyToValidatorMap = ihgs.computePublicKeyToValidatorMap(ihgs.nodesConfig)
-	ihgs.lookupReady.Store(true)
 
 	return nil
 }
