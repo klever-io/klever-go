@@ -660,6 +660,11 @@ func TestPeerTypeProvider_ConcurrentRefreshAndEpochStartAreRaceFree(t *testing.T
 	// backward writes are applied rather than ordered, so the surviving cache is
 	// whichever writer landed last; what must hold is that a reader never sees a
 	// half-installed cache mixing the two epochs
+	// the constructor seeds the cache from StartEpoch, which is 0 here, so give
+	// that epoch a key of its own: sharing it with one of the writers would let
+	// the seed alone satisfy every assertion below and the test would still pass
+	// with updateCache disabled entirely
+	pkSeedEpoch := []byte("pkSeedEpoch")
 	pkOldEpoch := []byte("pkOldEpoch")
 	pkNewEpoch := []byte("pkNewEpoch")
 
@@ -668,10 +673,14 @@ func TestPeerTypeProvider_ConcurrentRefreshAndEpochStartAreRaceFree(t *testing.T
 	arg.EpochStartEventNotifier = epochStartNotifier
 	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
 		GetAllElectedValidatorsKeysWithEpochCalled: func(epoch uint32) ([][]byte, error) {
-			if epoch == 2 {
+			switch epoch {
+			case 2:
 				return [][]byte{pkNewEpoch}, nil
+			case 1:
+				return [][]byte{pkOldEpoch}, nil
+			default:
+				return [][]byte{pkSeedEpoch}, nil
 			}
-			return [][]byte{pkOldEpoch}, nil
 		},
 	}
 
@@ -707,9 +716,15 @@ func TestPeerTypeProvider_ConcurrentRefreshAndEpochStartAreRaceFree(t *testing.T
 
 	require.Zero(t, atomic.LoadInt32(&mixedRead), "a reader saw a cache mixing both epochs")
 
-	// exactly one of the two caches survived, never a merge of both
+	// exactly one of the two writers' caches survived, never a merge of both and
+	// never the constructor's seed, which would mean neither writer landed
 	infos := ptp.GetAllPeerTypeInfos()
 	require.Len(t, infos, 1)
 	require.Contains(t, []string{string(pkNewEpoch), string(pkOldEpoch)}, infos[0].PublicKey)
 	require.Equal(t, string(core.ElectedList), infos[0].PeerType)
+
+	ptp.mutCache.RLock()
+	cacheEpoch := ptp.cacheEpoch
+	ptp.mutCache.RUnlock()
+	require.Contains(t, []uint32{1, 2}, cacheEpoch)
 }

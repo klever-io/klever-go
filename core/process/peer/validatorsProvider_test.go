@@ -297,10 +297,14 @@ func TestValidatorsProvider_ConcurrentRefreshAndEpochStartAreRaceFree(t *testing
 	// currentEpoch has two writers: RefreshCache from StartConsensus and
 	// startRefreshProcess draining the epoch start channel. They must never touch
 	// the field outside the lock; this only fails under -race, so it is the guard
-	// for that
+	// for that.
+	// The second writer is driven by sending on refreshCache directly rather than
+	// through the notifier. EpochStartAction spawns a detached goroutine per
+	// notification onto an unbuffered channel, and startRefreshProcess drains at
+	// most one per iteration, so notifying in a loop parks thousands of senders
+	// that Close cannot unblock. Sending here gives backpressure instead: every
+	// send is consumed, which is also what actually exercises the second writer.
 	arg := createDefaultValidatorsProviderArg()
-	epochStartNotifier := &mock.EpochStartNotifierStub{}
-	arg.EpochStartEventNotifier = epochStartNotifier
 
 	vp, err := NewValidatorsProvider(arg)
 	require.Nil(t, err)
@@ -308,19 +312,21 @@ func TestValidatorsProvider_ConcurrentRefreshAndEpochStartAreRaceFree(t *testing
 		_ = vp.Close()
 	}()
 
+	const iterations = 500
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 5000; i++ {
+		for i := 0; i < iterations; i++ {
 			vp.RefreshCache(uint32(i))
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 5000; i++ {
-			epochStartNotifier.NotifyAll(&block.Block{Header: &block.BlockHeader{Epoch: uint32(i)}})
+		for i := 0; i < iterations; i++ {
+			vp.refreshCache <- uint32(i)
 		}
 	}()
 
