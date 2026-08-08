@@ -294,6 +294,7 @@ func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 	ihgs.loadingFromDisk.Store(true)
 	defer ihgs.loadingFromDisk.Store(false)
 
+	ihgs.loadStateFailed.Store(false)
 	loadFailed := true
 	defer func() {
 		if loadFailed {
@@ -329,7 +330,6 @@ func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 	ihgs.savedStateKey = key
 	ihgs.mutSavedStateKey.Unlock()
 
-	ihgs.currentEpoch.Store(config.CurrentEpoch)
 	log.Debug("loaded nodes config", "current epoch", config.CurrentEpoch)
 
 	displayNodesConfigInfo(nodesConfig)
@@ -337,12 +337,13 @@ func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 	publicKeyToValidatorMap := ihgs.computePublicKeyToValidatorMap(nodesConfig)
 
 	ihgs.mutNodesConfig.Lock()
+	ihgs.currentEpoch.Store(config.CurrentEpoch)
 	ihgs.nodesConfig = nodesConfig
 	ihgs.publicKeyToValidatorMap = publicKeyToValidatorMap
-	ihgs.mutNodesConfig.Unlock()
-
 	ihgs.stateReady.Store(true)
 	ihgs.lookupReady.Store(true)
+	ihgs.mutNodesConfig.Unlock()
+
 	loadFailed = false
 
 	return nil

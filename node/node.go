@@ -318,7 +318,7 @@ func (n *Node) StartConsensus() error {
 		if n.nodesCoordinator.LoadStateFailed() {
 			return common.ErrNodesCoordinatorNotReadyAfterBootstrap
 		}
-		log.Warn("nodes coordinator not ready after bootstrap, state was not loaded; node will sync from network")
+		log.Warn("nodes coordinator not ready after bootstrap, state was not loaded; node will sync from network and must be restarted to participate in consensus")
 	}
 
 	log.Trace("creating proposal kapp")

@@ -116,10 +116,8 @@ func (ptp *PeerTypeProvider) epochStartEventHandler() sharding.EpochStartActionH
 
 // RefreshCache rebuilds the peer type cache from the nodes coordinator for the
 // given epoch; used after the storage bootstrap restores the coordinator state.
-// Epoch ordering is enforced between real updates (a stale refresh cannot
-// overwrite a newer epoch-start update), but the construction-time seed never
-// takes precedence: the first refresh always applies, also after a storage
-// restore that walks back to an epoch older than the construction epoch.
+// Backward epoch updates are allowed (with a warning log) so that chain reverts
+// correctly refresh the cache with the reverted-to epoch's validator set.
 func (ptp *PeerTypeProvider) RefreshCache(epoch uint32) {
 	ptp.updateCache(epoch)
 }
