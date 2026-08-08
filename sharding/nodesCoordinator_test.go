@@ -806,6 +806,62 @@ func TestNodesCoordinator_LoadStateRefillsPublicKeyToValidatorMap(t *testing.T) 
 	require.Equal(t, ErrValidatorNotFound, err)
 }
 
+func TestNodesCoordinator_LoadStateMultiEpochPrecedence(t *testing.T) {
+	t.Parallel()
+
+	sharedPK := []byte("shared-pk-appears-in-both-epochs")
+	bootStorer := mock.NewStorerMock()
+
+	epoch4Elected := []Validator{
+		mock.NewValidatorMock(sharedPK, sharedPK, DefaultSelectionChances, 10),
+		mock.NewValidatorMock([]byte("pk4_1"), []byte("pk4_1"), DefaultSelectionChances, 1),
+		mock.NewValidatorMock([]byte("pk4_2"), []byte("pk4_2"), DefaultSelectionChances, 2),
+		mock.NewValidatorMock([]byte("pk4_3"), []byte("pk4_3"), DefaultSelectionChances, 3),
+	}
+	epoch5Elected := []Validator{
+		mock.NewValidatorMock(sharedPK, sharedPK, DefaultSelectionChances, 20),
+		mock.NewValidatorMock([]byte("pk5_1"), []byte("pk5_1"), DefaultSelectionChances, 1),
+		mock.NewValidatorMock([]byte("pk5_2"), []byte("pk5_2"), DefaultSelectionChances, 2),
+		mock.NewValidatorMock([]byte("pk5_3"), []byte("pk5_3"), DefaultSelectionChances, 3),
+	}
+
+	args := createArguments()
+	args.BootStorer = bootStorer
+	args.ElectedNodes = epoch4Elected
+	args.EligibleNodes = createDummyNodesList(0, "eligible")
+	args.Epoch = 4
+	coordinator, err := NewNodesCoordinator(args)
+	require.Nil(t, err)
+
+	selector5, err := coordinator.createSelector(&epochNodesConfig{electedList: epoch5Elected})
+	require.Nil(t, err)
+	coordinator.nodesConfig[5] = &epochNodesConfig{
+		electedList:  epoch5Elected,
+		eligibleList: []Validator{},
+		waitingList:  []Validator{},
+		selector:     selector5,
+	}
+
+	savedKey := []byte("multi-epoch-key")
+	err = coordinator.saveState(savedKey)
+	require.Nil(t, err)
+
+	argsLoad := createArguments()
+	argsLoad.BootStorer = bootStorer
+	argsLoad.ElectedNodes = createDummyNodesList(4, "genesis")
+	argsLoad.EligibleNodes = createDummyNodesList(0, "eligible")
+	coordinatorLoad, err := NewNodesCoordinator(argsLoad)
+	require.Nil(t, err)
+
+	err = coordinatorLoad.LoadState(savedKey)
+	require.Nil(t, err)
+
+	v, err := coordinatorLoad.GetValidatorWithPublicKey(sharedPK)
+	require.Nil(t, err)
+	require.Equal(t, uint32(20), v.Index(),
+		"later epoch (5) should take precedence over earlier epoch (4)")
+}
+
 func TestNodesCoordinator_ConstructorDoesNotOverwriteSavedStateOnRestart(t *testing.T) {
 	t.Parallel()
 
