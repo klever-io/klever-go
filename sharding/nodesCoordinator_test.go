@@ -759,3 +759,137 @@ func TestNodesCoordinator_IsInterfaceNil(t *testing.T) {
 	require.Nil(t, err)
 	require.False(t, check.IfNil(ihgs3))
 }
+
+func TestNodesCoordinator_LoadStateRefillsPublicKeyToValidatorMap(t *testing.T) {
+	t.Parallel()
+
+	currentElected := createDummyNodesList(4, "currentElected")
+	currentEligible := createDummyNodesList(1, "currentEligible")
+	bootStorer := mock.NewStorerMock()
+
+	argsBefore := createArguments()
+	argsBefore.BootStorer = bootStorer
+	argsBefore.ElectedNodes = currentElected
+	argsBefore.EligibleNodes = currentEligible
+	coordinatorBefore, err := NewNodesCoordinator(argsBefore)
+	require.Nil(t, err)
+
+	savedStateKey := []byte("rotated-saved-state-key")
+	err = coordinatorBefore.saveState(savedStateKey)
+	require.Nil(t, err)
+
+	genesisElected := createDummyNodesList(4, "genesisElected")
+	genesisEligible := createDummyNodesList(1, "genesisEligible")
+
+	argsAfter := createArguments()
+	argsAfter.BootStorer = bootStorer
+	argsAfter.ElectedNodes = genesisElected
+	argsAfter.EligibleNodes = genesisEligible
+	coordinatorAfter, err := NewNodesCoordinator(argsAfter)
+	require.Nil(t, err)
+
+	_, err = coordinatorAfter.GetValidatorWithPublicKey(currentElected[0].PubKey())
+	require.Equal(t, ErrValidatorNotFound, err)
+
+	err = coordinatorAfter.LoadState(savedStateKey)
+	require.Nil(t, err)
+
+	validator, err := coordinatorAfter.GetValidatorWithPublicKey(currentElected[0].PubKey())
+	require.Nil(t, err)
+	require.Equal(t, currentElected[0].PubKey(), validator.PubKey())
+
+	eligibleValidator, err := coordinatorAfter.GetValidatorWithPublicKey(currentEligible[0].PubKey())
+	require.Nil(t, err)
+	require.Equal(t, currentEligible[0].PubKey(), eligibleValidator.PubKey())
+
+	_, err = coordinatorAfter.GetValidatorWithPublicKey(genesisElected[0].PubKey())
+	require.Equal(t, ErrValidatorNotFound, err)
+}
+
+func TestNodesCoordinator_ConstructorDoesNotOverwriteSavedStateOnRestart(t *testing.T) {
+	t.Parallel()
+
+	realElected := createDummyNodesList(4, "realElected")
+	realEligible := createDummyNodesList(1, "realEligible")
+	bootStorer := mock.NewStorerMock()
+
+	firstArgs := createArguments()
+	firstArgs.BootStorer = bootStorer
+	firstArgs.ElectedNodes = realElected
+	firstArgs.EligibleNodes = realEligible
+	firstArgs.Epoch = 5
+	firstArgs.StartEpoch = 5
+	firstCoordinator, err := NewNodesCoordinator(firstArgs)
+	require.Nil(t, err)
+
+	err = firstCoordinator.saveState(firstCoordinator.savedStateKey)
+	require.Nil(t, err)
+
+	genesisElected := createDummyNodesList(4, "genesisElected")
+	genesisEligible := createDummyNodesList(1, "genesisEligible")
+
+	secondArgs := createArguments()
+	secondArgs.BootStorer = bootStorer
+	secondArgs.SelfPublicKey = firstArgs.SelfPublicKey
+	secondArgs.Hasher = firstArgs.Hasher
+	secondArgs.ElectedNodes = genesisElected
+	secondArgs.EligibleNodes = genesisEligible
+	secondArgs.Epoch = 5
+	secondArgs.StartEpoch = 5
+	_, err = NewNodesCoordinator(secondArgs)
+	require.Nil(t, err)
+
+	thirdArgs := createArguments()
+	thirdArgs.BootStorer = bootStorer
+	thirdArgs.SelfPublicKey = firstArgs.SelfPublicKey
+	thirdArgs.Hasher = firstArgs.Hasher
+	thirdArgs.ElectedNodes = genesisElected
+	thirdArgs.EligibleNodes = genesisEligible
+	thirdArgs.StartEpoch = 5
+	thirdCoordinator, err := NewNodesCoordinator(thirdArgs)
+	require.Nil(t, err)
+
+	err = thirdCoordinator.LoadState(firstCoordinator.savedStateKey)
+	require.Nil(t, err)
+
+	validator, err := thirdCoordinator.GetValidatorWithPublicKey(realElected[0].PubKey())
+	require.Nil(t, err)
+	require.Equal(t, realElected[0].PubKey(), validator.PubKey())
+
+	_, err = thirdCoordinator.GetValidatorWithPublicKey(genesisElected[0].PubKey())
+	require.Equal(t, ErrValidatorNotFound, err)
+}
+
+func TestNodesCoordinator_ConstructorSavesStateOnGenesisStart(t *testing.T) {
+	t.Parallel()
+
+	elected := createDummyNodesList(4, "genesisElected")
+	eligible := createDummyNodesList(1, "genesisEligible")
+	bootStorer := mock.NewStorerMock()
+
+	args := createArguments()
+	args.BootStorer = bootStorer
+	args.ElectedNodes = elected
+	args.EligibleNodes = eligible
+	args.Epoch = 0
+	args.StartEpoch = 0
+	coordinator, err := NewNodesCoordinator(args)
+	require.Nil(t, err)
+
+	args2 := createArguments()
+	args2.BootStorer = bootStorer
+	args2.SelfPublicKey = args.SelfPublicKey
+	args2.Hasher = args.Hasher
+	args2.ElectedNodes = createDummyNodesList(4, "otherElected")
+	args2.EligibleNodes = createDummyNodesList(1, "otherEligible")
+	args2.StartEpoch = 1
+	coordinator2, err := NewNodesCoordinator(args2)
+	require.Nil(t, err)
+
+	err = coordinator2.LoadState(coordinator.savedStateKey)
+	require.Nil(t, err)
+
+	validator, err := coordinator2.GetValidatorWithPublicKey(elected[0].PubKey())
+	require.Nil(t, err)
+	require.Equal(t, elected[0].PubKey(), validator.PubKey())
+}
