@@ -298,6 +298,7 @@ type Bootstrapper interface {
 type ValidatorsProvider interface {
 	GetLatestValidators() map[string]*state.ValidatorApiResponse
 	GetLatestPeers() []state.PeerAccountHandler
+	RefreshCache(epoch uint32)
 	IsInterfaceNil() bool
 }
 

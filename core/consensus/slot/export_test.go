@@ -176,7 +176,7 @@ func (wrk *Worker) LastNetworkDegradedAlertSlot() int64 {
 // consensusMessageValidator
 
 func (cmv *consensusMessageValidator) CheckConsensusMessageValidity(cnsMsg *consensus.Message, originator core.PeerID) error {
-	return cmv.checkConsensusMessageValidity(cnsMsg, originator)
+	return cmv.checkConsensusMessageValidity(cnsMsg, originator, false)
 }
 
 func (cmv *consensusMessageValidator) CheckMessageWithFinalInfoValidity(cnsMsg *consensus.Message) error {

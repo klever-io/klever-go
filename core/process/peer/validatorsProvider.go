@@ -290,6 +290,14 @@ func (vp *validatorsProvider) aggregateLists(
 
 }
 
+// RefreshCache forces an immediate cache update for the given epoch
+func (vp *validatorsProvider) RefreshCache(epoch uint32) {
+	vp.lock.Lock()
+	vp.currentEpoch = epoch
+	vp.lock.Unlock()
+	vp.updateCache()
+}
+
 // IsInterfaceNil returns true if there is no value under the interface
 func (vp *validatorsProvider) IsInterfaceNil() bool {
 	return vp == nil

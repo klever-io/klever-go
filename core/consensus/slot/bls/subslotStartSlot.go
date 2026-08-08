@@ -246,33 +246,32 @@ func (sr *subslotStartSlot) EpochStartPrepare(metaHdr data.HeaderHandler) {
 }
 
 // EpochStartAction is called upon a start of epoch event.
-// It refreshes the elected nodes set from the coordinator so that
-// IsNodeInConsensusGroup accepts validators from the new epoch even while the
-// node is still syncing (initCurrentSlot is gated on NsSynchronized and would
-// leave the set stale otherwise).
-// The elected-set swap and resetConsensusMessages are not serialized with
-// ProcessReceivedMessage, which checks the set and increments the per-key
-// message budget in its own critical sections. A message landing between the
-// two therefore costs at most one extra accepted message for one key in the
-// transition slot; serializing would mean holding a lock across the full
-// validity pipeline including BLS verification, on the consensus hot path.
-// The action also re-fires when fork recovery reverts through an epoch-start
-// block (trigger.RevertStateToBlock calls SetProcessed again). On a live,
-// synchronized validator that widens the set and clears the budgets mid-slot;
-// this is bounded the same way: initCurrentSlot re-narrows the set at the next
-// slot and every state-changing path re-validates against the tight consensus
-// group (ConsensusGroupIndex, SetJobDone).
+// On syncing nodes it refreshes the elected nodes set from the coordinator so
+// that IsNodeInConsensusGroup accepts validators from the new epoch (since
+// initCurrentSlot is gated on NsSynchronized and would leave the set stale).
+// On synchronized validators this is skipped: widening the elected set mid-slot
+// would let previous-epoch validators (including shuffled-out ones) pass the
+// pre-BLS membership gate and reach the fork detector, and would also cause
+// shuffled-out nodes to sign rounds they are not in. Synchronized validators
+// get the narrow consensus group from initCurrentSlot at the next slot.
 func (sr *subslotStartSlot) EpochStartAction(hdr data.HeaderHandler) {
 	log.Debug(fmt.Sprintf("epoch %d start action in consensus", hdr.GetEpoch()))
 
+	if sr.BootStrapper().GetNodeState() == core.NsSynchronized {
+		return
+	}
+
 	whitelisted, err := sr.NodesCoordinator().GetConsensusWhitelistedNodes(hdr.GetEpoch())
 	if err != nil {
-		// without the refresh a syncing node keeps rejecting new-epoch
-		// validators (the exact stall this action exists to prevent), so
-		// failing here must be loud
 		log.Error("EpochStartAction: could not refresh elected nodes",
 			"epoch", hdr.GetEpoch(),
 			"error", err.Error())
+		return
+	}
+
+	if len(whitelisted) == 0 {
+		log.Warn("EpochStartAction: refusing empty elected set refresh",
+			"epoch", hdr.GetEpoch())
 		return
 	}
 

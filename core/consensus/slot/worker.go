@@ -343,10 +343,11 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 	cnsMsg := &consensus.Message{}
 
 	defer func() {
+		if wrk.bootstrapper.GetNodeState() != core.NsSynchronized {
+			return
+		}
 		errNotCritical := wrk.checkSelfState(cnsMsg)
 		if errNotCritical == nil && wrk.shouldBlacklistPeer(err) {
-			//this situation is so severe that we have to black list both the message originator and the connected peer
-			//that disseminated this message.
 			log.Debug("Worker: invalid consensus message",
 				"originator", message.Peer().Pretty(),
 				"err", process.SanitizeBlacklistReason(err.Error()))
@@ -370,29 +371,18 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 		"size", len(message.Data()),
 	)
 
-	err = wrk.consensusMessageValidator.checkConsensusMessageValidity(cnsMsg, message.Peer())
+	nodeState := wrk.bootstrapper.GetNodeState()
+	syncing := nodeState != core.NsSynchronized
+
+	err = wrk.consensusMessageValidator.checkConsensusMessageValidity(cnsMsg, message.Peer(), syncing)
 	wrk.resetRedundancyInactivityOnValidMessage(cnsMsg, message.Peer(), err)
 	if err != nil {
 		return err
 	}
 
-	// learn the peer id -> public key mapping before any early return, so a node
-	// that is still syncing keeps classifying new-epoch validators correctly; the
-	// antiflood originator gate on validator-only topics depends on this mapping,
-	// and gating it on the synchronized state stalls a fallback node's resync after
-	// an epoch shuffle-out
 	wrk.updateNetworkShardingVals(message, cnsMsg)
 
-	nodeState := wrk.bootstrapper.GetNodeState()
-	if nodeState != core.NsSynchronized {
-		// the node is still bootstrapping; drop the message without processing.
-		// note: checkConsensusMessageValidity above already called addMessageTypeToPublicKey,
-		// burning the (pk, slot, msgType) budget for this message type; if the node becomes
-		// synchronized mid-slot, a duplicate arriving on another gossip path will hit
-		// ErrMessageTypeLimitReached and be dropped, costing one slot on resync; this is
-		// bounded (resetConsensusMessages clears the budget at the next slot) and acceptable
-		// because the alternative (skipping validity entirely) would let unverified pubkeys
-		// into the PeerShardMapper
+	if syncing {
 		return nil
 	}
 
@@ -435,15 +425,19 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 	return nil
 }
 
-// resetRedundancyInactivityOnValidMessage resets the redundancy inactivity
-// counter when the main machine is alive. Only a fully valid message counts as
-// evidence: checkConsensusMessageValidity runs its cheap rejections (including
-// the per-key message budget) before VerifyPeerSignature, so any error return
-// leaves the pubkey binding unproven. Accepting one of those errors would let
-// anyone replay the public validator key to keep this backup from taking over
-// for a dead main machine.
 func (wrk *Worker) resetRedundancyInactivityOnValidMessage(cnsMsg *consensus.Message, peer core.PeerID, validityErr error) {
-	if !wrk.nodeRedundancyHandler.IsRedundancyNode() || validityErr != nil {
+	if !wrk.nodeRedundancyHandler.IsRedundancyNode() {
+		return
+	}
+
+	authenticated := validityErr == nil
+	if !authenticated && isSlotTimingError(validityErr) {
+		sigErr := wrk.consensusMessageValidator.verifyPeerSignature(
+			cnsMsg.PubKey, core.PeerID(cnsMsg.OriginatorPid), cnsMsg.Signature)
+		authenticated = sigErr == nil
+	}
+
+	if !authenticated {
 		return
 	}
 
@@ -452,6 +446,10 @@ func (wrk *Worker) resetRedundancyInactivityOnValidMessage(cnsMsg *consensus.Mes
 		string(cnsMsg.PubKey),
 		peer,
 	)
+}
+
+func isSlotTimingError(err error) bool {
+	return errors.Is(err, ErrMessageForPastSlot) || errors.Is(err, ErrMessageForFutureSlot)
 }
 
 func (wrk *Worker) storeMessage(cnsDta *consensus.Message) {

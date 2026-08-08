@@ -68,7 +68,7 @@ func (cmv *consensusMessageValidator) getPublicKeyBitmapSize() int {
 	return bitmapSize
 }
 
-func (cmv *consensusMessageValidator) checkConsensusMessageValidity(cnsMsg *consensus.Message, originator core.PeerID) error {
+func (cmv *consensusMessageValidator) checkConsensusMessageValidity(cnsMsg *consensus.Message, originator core.PeerID, skipBudget bool) error {
 	if !bytes.Equal(cnsMsg.ChainID, cmv.chainID) {
 		return fmt.Errorf("%w : received chain ID from consensus topic is invalid: %s",
 			ErrInvalidChainID,
@@ -139,16 +139,13 @@ func (cmv *consensusMessageValidator) checkConsensusMessageValidity(cnsMsg *cons
 			cnsMsg.SlotIndex)
 	}
 
-	if cmv.isMessageTypeLimitReached(cnsMsg.PubKey, cnsMsg.SlotIndex, msgType) {
+	if !skipBudget && cmv.isMessageTypeLimitReached(cnsMsg.PubKey, cnsMsg.SlotIndex, msgType) {
 		log.Trace("received message type from consensus topic reached the limit",
 			"msg type", cmv.consensusService.GetStringValue(msgType),
 			"public key", cnsMsg.PubKey,
 		)
 
-		return fmt.Errorf("%w : received message type %s from consensus topic reached the limit for public key: %s",
-			ErrMessageTypeLimitReached,
-			cmv.consensusService.GetStringValue(msgType),
-			logger.DisplayByteSlice(cnsMsg.PubKey))
+		return cmv.errMessageTypeLimitReached(msgType, cnsMsg.PubKey)
 	}
 
 	err = cmv.peerSignatureHandler.VerifyPeerSignature(cnsMsg.PubKey, core.PeerID(cnsMsg.OriginatorPid), cnsMsg.Signature)
@@ -164,14 +161,22 @@ func (cmv *consensusMessageValidator) checkConsensusMessageValidity(cnsMsg *cons
 			ErrOriginatorMismatch, p2p.PeerIDToShortString(originator), p2p.PeerIDToShortString(cnsMsgOriginator))
 	}
 
-	if !cmv.tryAddMessageTypeToPublicKey(cnsMsg.PubKey, cnsMsg.SlotIndex, msgType) {
-		return fmt.Errorf("%w : received message type %s from consensus topic reached the limit for public key: %s",
-			ErrMessageTypeLimitReached,
-			cmv.consensusService.GetStringValue(msgType),
-			logger.DisplayByteSlice(cnsMsg.PubKey))
+	if !skipBudget && !cmv.tryAddMessageTypeToPublicKey(cnsMsg.PubKey, cnsMsg.SlotIndex, msgType) {
+		return cmv.errMessageTypeLimitReached(msgType, cnsMsg.PubKey)
 	}
 
 	return nil
+}
+
+func (cmv *consensusMessageValidator) verifyPeerSignature(pubKey []byte, pid core.PeerID, sig []byte) error {
+	return cmv.peerSignatureHandler.VerifyPeerSignature(pubKey, pid, sig)
+}
+
+func (cmv *consensusMessageValidator) errMessageTypeLimitReached(msgType consensus.MessageType, pk []byte) error {
+	return fmt.Errorf("%w : received message type %s from consensus topic reached the limit for public key: %s",
+		ErrMessageTypeLimitReached,
+		cmv.consensusService.GetStringValue(msgType),
+		logger.DisplayByteSlice(pk))
 }
 
 func (cmv *consensusMessageValidator) isBlockHeaderHashSizeValid(cnsMsg *consensus.Message) bool {

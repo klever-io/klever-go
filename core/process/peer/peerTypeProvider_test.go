@@ -274,9 +274,10 @@ func TestPeerTypeProvider_RefreshCacheAppliesForEpochOlderThanConstruction(t *te
 	require.Equal(t, core.ElectedList, peerType)
 }
 
-func TestPeerTypeProvider_UpdateCacheIgnoresStaleEpochAfterNewerUpdate(t *testing.T) {
-	// epoch ordering between real updates: once the cache was rebuilt for epoch
-	// 5, a late refresh for epoch 4 must not overwrite it
+func TestPeerTypeProvider_UpdateCacheAcceptsBackwardEpochForRevert(t *testing.T) {
+	// a revert from epoch 5 to epoch 4 must update the cache with the older
+	// epoch's data; the previous monotonic guard blocked this and left the
+	// reverted-to epoch's validators stuck as observers
 	pkNew := []byte("pkNewEpoch")
 	pkOld := []byte("pkOldEpoch")
 
@@ -299,13 +300,14 @@ func TestPeerTypeProvider_UpdateCacheIgnoresStaleEpochAfterNewerUpdate(t *testin
 	require.Nil(t, err)
 	require.Equal(t, core.ElectedList, peerType)
 
+	// simulate a revert to epoch 4; the cache must now reflect epoch 4's data
 	ptp.RefreshCache(4)
 
-	peerType, _, err = ptp.ComputeForPubKey(pkNew)
+	peerType, _, err = ptp.ComputeForPubKey(pkOld)
 	require.Nil(t, err)
 	require.Equal(t, core.ElectedList, peerType)
 
-	peerType, _, err = ptp.ComputeForPubKey(pkOld)
+	peerType, _, err = ptp.ComputeForPubKey(pkNew)
 	require.Nil(t, err)
 	require.Equal(t, core.ObserverList, peerType)
 }
@@ -545,7 +547,7 @@ func TestPeerTypeProvider_GetAllPeerTypeInfos(t *testing.T) {
 func TestNewPeerTypeProvider_KeepsEmptyCacheWhenConstructionSeedFails(t *testing.T) {
 	// all three list fetches fail at construction (no config for the epoch
 	// yet); the provider must still construct with an empty cache, and a later
-	// refresh must fill it
+	// refresh (where all getters succeed) must fill it
 	pk := []byte("pk1")
 	restored := false
 
@@ -558,9 +560,15 @@ func TestNewPeerTypeProvider_KeepsEmptyCacheWhenConstructionSeedFails(t *testing
 			return nil, errors.New("no config for epoch")
 		},
 		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
+			if restored {
+				return [][]byte{}, nil
+			}
 			return nil, errors.New("no config for epoch")
 		},
 		GetAllWaitingValidatorsKeysCalled: func() ([][]byte, error) {
+			if restored {
+				return [][]byte{}, nil
+			}
 			return nil, errors.New("no config for epoch")
 		},
 	}

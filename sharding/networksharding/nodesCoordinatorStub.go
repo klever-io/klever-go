@@ -145,6 +145,11 @@ func (ncm *NodesCoordinatorStub) IsReady() bool {
 	return true
 }
 
+// LoadStateFailed -
+func (ncm *NodesCoordinatorStub) LoadStateFailed() bool {
+	return false
+}
+
 // SetEpochValidatorsInfo
 func (ncm *NodesCoordinatorStub) SetEpochValidatorsInfo(epoch uint32, validatorsInfo []*state.ValidatorInfo) error {
 	if ncm.SetEpochValidatorsInfoCalled != nil {

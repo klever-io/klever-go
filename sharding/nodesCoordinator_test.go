@@ -1154,9 +1154,10 @@ func TestNodesCoordinator_SetNodesUnblocksValidatorLookupBeforeLoadState(t *test
 	coordinator, err := NewNodesCoordinator(args)
 	require.Nil(t, err)
 
-	// before SetNodes the lookup only holds the genesis seeding and must refuse
+	// before SetNodes the lookup only holds the genesis seeding, so a validator
+	// that is not in the seed is not found
 	_, err = coordinator.GetValidatorWithPublicKey(restored[0].PubKey())
-	require.Equal(t, ErrNodesCoordinatorNotReady, err)
+	require.Equal(t, ErrValidatorNotFound, err)
 
 	err = coordinator.SetNodes(restored, createDummyNodesList(1, "restoredEligible"), make([]Validator, 0), args.Epoch-1)
 	require.Nil(t, err)
@@ -1169,19 +1170,21 @@ func TestNodesCoordinator_SetNodesUnblocksValidatorLookupBeforeLoadState(t *test
 	require.False(t, coordinator.IsReady())
 }
 
-func TestNodesCoordinator_GetValidatorWithPublicKeyNotReady(t *testing.T) {
+func TestNodesCoordinator_GetValidatorWithPublicKeyBeforeAndAfterLoadState(t *testing.T) {
 	t.Parallel()
 
-	// before LoadState a non-genesis coordinator only holds its genesis seeding;
-	// answering from it would present genesis-era data as authoritative to the
-	// p2p peer classification, so the lookup must refuse until ready
-	elected := createDummyNodesList(4, "elected")
+	// before LoadState a non-genesis coordinator holds its genesis seeding;
+	// the lookup is available immediately (for peer classification), but once
+	// LoadState installs authoritative data, old seed-only validators that
+	// were not in the authoritative set stop being resolvable
+	seedElected := createDummyNodesList(4, "seedElected")
+	realElected := createDummyNodesList(4, "realElected")
 	bootStorer := mock.NewStorerMock()
 
 	firstArgs := createArguments()
 	firstArgs.Epoch = 5
 	firstArgs.StartEpoch = 5
-	firstArgs.ElectedNodes = elected
+	firstArgs.ElectedNodes = realElected
 	firstArgs.BootStorer = bootStorer
 	firstCoordinator, err := NewNodesCoordinator(firstArgs)
 	require.Nil(t, err)
@@ -1193,20 +1196,25 @@ func TestNodesCoordinator_GetValidatorWithPublicKeyNotReady(t *testing.T) {
 	secondArgs := createArguments()
 	secondArgs.Epoch = 5
 	secondArgs.StartEpoch = 5
-	secondArgs.ElectedNodes = elected
+	secondArgs.ElectedNodes = seedElected
 	secondArgs.BootStorer = bootStorer
 	coordinator, err := NewNodesCoordinator(secondArgs)
 	require.Nil(t, err)
 
-	_, err = coordinator.GetValidatorWithPublicKey(elected[0].PubKey())
-	require.Equal(t, ErrNodesCoordinatorNotReady, err)
+	// before LoadState: seed data is available for peer classification
+	_, err = coordinator.GetValidatorWithPublicKey(seedElected[0].PubKey())
+	require.Nil(t, err)
 
 	err = coordinator.LoadState(savedStateKey)
 	require.Nil(t, err)
 
-	validator, err := coordinator.GetValidatorWithPublicKey(elected[0].PubKey())
+	// after LoadState: authoritative data replaces seed; only real validators resolve
+	validator, err := coordinator.GetValidatorWithPublicKey(realElected[0].PubKey())
 	require.Nil(t, err)
-	require.Equal(t, elected[0].PubKey(), validator.PubKey())
+	require.Equal(t, realElected[0].PubKey(), validator.PubKey())
+
+	_, err = coordinator.GetValidatorWithPublicKey(seedElected[0].PubKey())
+	require.Equal(t, ErrValidatorNotFound, err)
 }
 
 func TestNodesCoordinator_LoadStateLaterEpochWinsForSharedPublicKey(t *testing.T) {

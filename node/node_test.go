@@ -935,7 +935,8 @@ func TestStartConsensus_FailsWhenNodesCoordinatorNotReady(t *testing.T) {
 	t.Parallel()
 
 	coordinator := &mock.NodesCoordinatorMock{
-		IsReadyCalled: func() bool { return false },
+		IsReadyCalled:        func() bool { return false },
+		LoadStateFailedValue: true,
 	}
 	n := createStartConsensusNode(t, coordinator)
 
@@ -950,7 +951,8 @@ func TestStartConsensus_ReadinessFailureIsNotMaskedByLaterErrors(t *testing.T) {
 	// failure cannot mask the diagnostic that tells an operator the saved state
 	// was not restored
 	coordinator := &mock.NodesCoordinatorMock{
-		IsReadyCalled: func() bool { return false },
+		IsReadyCalled:        func() bool { return false },
+		LoadStateFailedValue: true,
 	}
 	n := createStartConsensusNodeWithFailingAccount(t, coordinator)
 

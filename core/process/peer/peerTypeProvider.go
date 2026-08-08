@@ -132,10 +132,12 @@ func (ptp *PeerTypeProvider) updateCache(epoch uint32) {
 	}
 
 	ptp.mutCache.Lock()
-	if epoch >= ptp.cacheEpoch {
-		ptp.cache = newCache
-		ptp.cacheEpoch = epoch
+	if epoch < ptp.cacheEpoch {
+		log.Warn("peerTypeProvider - cache epoch going backward",
+			"previous", ptp.cacheEpoch, "new", epoch)
 	}
+	ptp.cache = newCache
+	ptp.cacheEpoch = epoch
 	ptp.mutCache.Unlock()
 }
 
@@ -167,12 +169,12 @@ func (ptp *PeerTypeProvider) createNewCache(
 	}
 	computePeerType(newCache, nodesMapWaiting, core.WaitingList)
 
-	// all three getters fail on the same missing nodesConfig[epoch] lookup, so
-	// they fail or succeed together; keep the previous cache only when the
-	// epoch config is entirely missing
-	allListsFailed := electedErr != nil && eligibleErr != nil && waitingErr != nil
+	// the three getters each acquire mutNodesConfig independently, so the epoch
+	// config can disappear between calls; treat any single failure as stale and
+	// keep the previous cache to avoid installing a partial validator set
+	anyListFailed := electedErr != nil || eligibleErr != nil || waitingErr != nil
 
-	return newCache, !allListsFailed
+	return newCache, !anyListFailed
 }
 
 func computePeerType(

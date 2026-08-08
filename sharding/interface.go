@@ -31,6 +31,7 @@ type NodesCoordinator interface {
 	ConsensusGroupSize() int
 	LoadState(key []byte) error
 	IsReady() bool
+	LoadStateFailed() bool
 	GetSavedStateKey() []byte
 	GetOwnPublicKey() []byte
 	GetConsensusWhitelistedNodes(epoch uint32) (map[string]struct{}, error)

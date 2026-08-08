@@ -489,6 +489,9 @@ func TestSubslotStartSlot_EpochStartActionRefreshesElectedNodes(t *testing.T) {
 	}
 	container := mock.InitConsensusCore()
 	container.SetValidatorGroupSelector(coordinator)
+	container.SetBootStrapper(&mock.BootstrapperMock{GetNodeStateCalled: func() core.NodeState {
+		return core.NsNotSynchronized
+	}})
 
 	consensusState := initConsensusState()
 	ch := make(chan bool, 1)
@@ -532,6 +535,9 @@ func TestSubslotStartSlot_EpochStartActionKeepsElectedNodesOnCoordinatorError(t 
 	}
 	container := mock.InitConsensusCore()
 	container.SetValidatorGroupSelector(coordinator)
+	container.SetBootStrapper(&mock.BootstrapperMock{GetNodeStateCalled: func() core.NodeState {
+		return core.NsNotSynchronized
+	}})
 
 	consensusState := initConsensusState()
 	ch := make(chan bool, 1)

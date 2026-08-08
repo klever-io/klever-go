@@ -30,6 +30,7 @@ type NodesCoordinatorMock struct {
 	LoadValidatorsCalled                       func(validators []*state.ValidatorInfo) error
 	SetEpochValidatorsInfoCalled               func(epoch uint32, validatorsInfo []*state.ValidatorInfo) error
 	IsReadyCalled                              func() bool
+	LoadStateFailedValue                       bool
 }
 
 // NewNodesCoordinatorMock -
@@ -241,6 +242,11 @@ func (ncm *NodesCoordinatorMock) IsReady() bool {
 		return ncm.IsReadyCalled()
 	}
 	return true
+}
+
+// LoadStateFailed -
+func (ncm *NodesCoordinatorMock) LoadStateFailed() bool {
+	return ncm.LoadStateFailedValue
 }
 
 // GetSavedStateKey -

@@ -314,12 +314,11 @@ func (n *Node) StartConsensus() error {
 
 	n.bootstrapper.LoadStorage()
 
-	// the coordinator is marked ready at construction for genesis (startEpoch==0),
-	// or after a successful LoadState for non-genesis restarts; if it is still not
-	// ready after LoadStorage, the saved state could not be restored and the node
-	// can never compute consensus groups, so fail startup loudly
 	if !n.nodesCoordinator.IsReady() {
-		return common.ErrNodesCoordinatorNotReadyAfterBootstrap
+		if n.nodesCoordinator.LoadStateFailed() {
+			return common.ErrNodesCoordinatorNotReadyAfterBootstrap
+		}
+		log.Warn("nodes coordinator not ready after bootstrap, state was not loaded; node will sync from network")
 	}
 
 	log.Trace("creating proposal kapp")
@@ -345,6 +344,10 @@ func (n *Node) StartConsensus() error {
 	// without waiting for the next epoch start
 	if !check.IfNil(n.heartbeatHandler) {
 		n.heartbeatHandler.RefreshPeerTypeCache(epoch)
+	}
+
+	if !check.IfNil(n.validatorsProvider) {
+		n.validatorsProvider.RefreshCache(epoch)
 	}
 
 	forkControllerSubscriber, ok := n.forkController.(core.EpochSubscriberHandler)

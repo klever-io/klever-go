@@ -24,6 +24,10 @@ func (vp *ValidatorsProviderStub) GetLatestPeers() []state.PeerAccountHandler {
 	return nil
 }
 
+// RefreshCache -
+func (vp *ValidatorsProviderStub) RefreshCache(_ uint32) {
+}
+
 // IsInterfaceNil -
 func (vp *ValidatorsProviderStub) IsInterfaceNil() bool {
 	return vp == nil
