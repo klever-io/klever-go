@@ -254,13 +254,19 @@ func (sr *subslotStartSlot) EpochStartPrepare(metaHdr data.HeaderHandler) {
 // pre-BLS membership gate and reach the fork detector, and would also cause
 // shuffled-out nodes to sign rounds they are not in. Synchronized validators
 // get the narrow consensus group from initCurrentSlot at the next slot.
-// Only an explicit NsNotSynchronized widens: GetNodeState reports
-// NsNotCalculated for a few milliseconds after every slot boundary, and a
-// synchronized validator caught in that window must not widen either.
+// GetNodeState is a tri-state and its third value, NsNotCalculated, is treated
+// as syncing here. That is deliberate: for a syncing node NsNotCalculated is the
+// common state at this point (baseBootstrap.syncBlock clears isNodeStateCalculated
+// at the end of every iteration and block processing may span several slots), and
+// EpochStartAction fires once per epoch with no retry, so treating it as
+// synchronized would skip the refresh outright in the case this exists for. The
+// accepted cost is the inverse: a synchronized validator caught in the brief
+// post-slot-boundary window where its state is not yet recomputed widens for one
+// slot, until initCurrentSlot narrows it again.
 func (sr *subslotStartSlot) EpochStartAction(hdr data.HeaderHandler) {
 	log.Debug(fmt.Sprintf("epoch %d start action in consensus", hdr.GetEpoch()))
 
-	if sr.BootStrapper().GetNodeState() != core.NsNotSynchronized {
+	if sr.BootStrapper().GetNodeState() == core.NsSynchronized {
 		return
 	}
 

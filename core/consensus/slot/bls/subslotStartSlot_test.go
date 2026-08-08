@@ -567,47 +567,62 @@ func TestSubslotStartSlot_EpochStartActionKeepsElectedNodesOnCoordinatorError(t 
 	require.Equal(t, 0, resetCount)
 }
 
-func TestSubslotStartSlot_EpochStartActionDoesNotWidenOnUncalculatedNodeState(t *testing.T) {
+func TestSubslotStartSlot_EpochStartActionNodeStateHandling(t *testing.T) {
 	t.Parallel()
 
-	// GetNodeState reports NsNotCalculated for a few milliseconds after every
-	// slot boundary, including on a fully synchronized validator. Treating that
-	// as "syncing" would widen the elected set mid-slot on a healthy validator,
-	// which is exactly what the synchronized skip exists to prevent
-	for _, nodeState := range []core.NodeState{core.NsSynchronized, core.NsNotCalculated} {
-		newEpochKey := "newEpochValidator"
-		coordinator := &whitelistNodesCoordinatorMock{
-			NodesCoordinatorMock: cMock.NewNodesCoordinatorMock(),
-			whitelisted:          map[string]struct{}{newEpochKey: {}},
-		}
-		container := mock.InitConsensusCore()
-		container.SetValidatorGroupSelector(coordinator)
-		container.SetBootStrapper(&mock.BootstrapperMock{GetNodeStateCalled: func() core.NodeState {
-			return nodeState
-		}})
+	// GetNodeState is a tri-state. Only NsSynchronized skips the refresh:
+	// NsNotCalculated is the common state for a syncing node at this point, and
+	// EpochStartAction fires once per epoch with no retry, so it must widen
+	tests := []struct {
+		name        string
+		nodeState   core.NodeState
+		shouldWiden bool
+	}{
+		{name: "synchronized skips the refresh", nodeState: core.NsSynchronized, shouldWiden: false},
+		{name: "not synchronized refreshes", nodeState: core.NsNotSynchronized, shouldWiden: true},
+		{name: "not calculated refreshes", nodeState: core.NsNotCalculated, shouldWiden: true},
+	}
 
-		consensusState := initConsensusState()
-		ch := make(chan bool, 1)
-		sr, err := defaultSubslot(consensusState, ch, container)
-		require.Nil(t, err)
-		resetCount := 0
-		srStartSlotPtr, err := bls.NewSubslotStartSlot(
-			sr,
-			extend,
-			bls.ProcessingThresholdPercent,
-			executeStoredMessages,
-			func() { resetCount++ },
-		)
-		require.Nil(t, err)
-		srStartSlot := *srStartSlotPtr
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			newEpochKey := "newEpochValidator"
+			coordinator := &whitelistNodesCoordinatorMock{
+				NodesCoordinatorMock: cMock.NewNodesCoordinatorMock(),
+				whitelisted:          map[string]struct{}{newEpochKey: {}},
+			}
+			container := mock.InitConsensusCore()
+			container.SetValidatorGroupSelector(coordinator)
+			container.SetBootStrapper(&mock.BootstrapperMock{GetNodeStateCalled: func() core.NodeState {
+				return tt.nodeState
+			}})
 
-		oldKey := consensusState.ConsensusGroup()[0]
+			consensusState := initConsensusState()
+			ch := make(chan bool, 1)
+			sr, err := defaultSubslot(consensusState, ch, container)
+			require.Nil(t, err)
+			resetCount := 0
+			srStartSlotPtr, err := bls.NewSubslotStartSlot(
+				sr,
+				extend,
+				bls.ProcessingThresholdPercent,
+				executeStoredMessages,
+				func() { resetCount++ },
+			)
+			require.Nil(t, err)
+			srStartSlot := *srStartSlotPtr
 
-		srStartSlot.EpochStartAction(&block.Block{Header: &block.BlockHeader{Epoch: 1}})
+			oldKey := consensusState.ConsensusGroup()[0]
 
-		require.True(t, consensusState.IsNodeInConsensusGroup(oldKey))
-		require.False(t, consensusState.IsNodeInConsensusGroup(newEpochKey))
-		require.Equal(t, 0, resetCount)
+			srStartSlot.EpochStartAction(&block.Block{Header: &block.BlockHeader{Epoch: 1}})
+
+			require.Equal(t, tt.shouldWiden, consensusState.IsNodeInConsensusGroup(newEpochKey))
+			require.Equal(t, !tt.shouldWiden, consensusState.IsNodeInConsensusGroup(oldKey))
+			if tt.shouldWiden {
+				require.Equal(t, 1, resetCount)
+			} else {
+				require.Equal(t, 0, resetCount)
+			}
+		})
 	}
 }
 

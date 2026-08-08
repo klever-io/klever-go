@@ -271,6 +271,9 @@ func TestValidatorsProvider_RefreshCache(t *testing.T) {
 
 	vp, err := NewValidatorsProvider(arg)
 	require.Nil(t, err)
+	defer func() {
+		_ = vp.Close()
+	}()
 
 	vp.RefreshCache(7)
 
@@ -286,6 +289,42 @@ func TestValidatorsProvider_RefreshCache(t *testing.T) {
 	require.Equal(t, uint32(7), currentEpoch)
 	require.Contains(t, cache, hex.EncodeToString([]byte("validator1")))
 	require.Contains(t, queried, uint32(7))
+}
+
+func TestValidatorsProvider_ConcurrentRefreshAndEpochStartAreRaceFree(t *testing.T) {
+	t.Parallel()
+
+	// currentEpoch has two writers: RefreshCache from StartConsensus and
+	// startRefreshProcess draining the epoch start channel. They must never touch
+	// the field outside the lock; this only fails under -race, so it is the guard
+	// for that
+	arg := createDefaultValidatorsProviderArg()
+	epochStartNotifier := &mock.EpochStartNotifierStub{}
+	arg.EpochStartEventNotifier = epochStartNotifier
+
+	vp, err := NewValidatorsProvider(arg)
+	require.Nil(t, err)
+	defer func() {
+		_ = vp.Close()
+	}()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 5000; i++ {
+			vp.RefreshCache(uint32(i))
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 5000; i++ {
+			epochStartNotifier.NotifyAll(&block.Block{Header: &block.BlockHeader{Epoch: uint32(i)}})
+		}
+	}()
+
+	wg.Wait()
 }
 
 func TestValidatorsProvider_EpochStartRefreshesThroughChannel(t *testing.T) {

@@ -689,23 +689,27 @@ func TestPeerTypeProvider_ConcurrentRefreshAndEpochStartAreRaceFree(t *testing.T
 		defer wg.Done()
 		epochStartNotifier.NotifyAll(&block.Block{Header: &block.BlockHeader{Epoch: 2}})
 	}()
+	// GetAllPeerTypeInfos reads the whole cache under one lock, so a mix of the
+	// two epochs here would be a genuine torn read rather than a scheduling
+	// artefact of two separate lookups
+	mixedRead := int32(0)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 50; i++ {
-			_, _, errCompute := ptp.ComputeForPubKey(pkNewEpoch)
-			// assert, not require: FailNow from a non-test goroutine is undefined
-			assert.Nil(t, errCompute)
+		for i := 0; i < 200; i++ {
+			infos := ptp.GetAllPeerTypeInfos()
+			if len(infos) > 1 {
+				atomic.StoreInt32(&mixedRead, 1)
+			}
 		}
 	}()
 
 	wg.Wait()
 
-	// exactly one of the two caches must be installed, never a mix of both
-	newType, _, err := ptp.ComputeForPubKey(pkNewEpoch)
-	require.Nil(t, err)
-	oldType, _, err := ptp.ComputeForPubKey(pkOldEpoch)
-	require.Nil(t, err)
-	require.NotEqual(t, newType, oldType)
-	require.Contains(t, []core.PeerType{newType, oldType}, core.ElectedList)
-	require.Contains(t, []core.PeerType{newType, oldType}, core.ObserverList)
+	require.Zero(t, atomic.LoadInt32(&mixedRead), "a reader saw a cache mixing both epochs")
+
+	// exactly one of the two caches survived, never a merge of both
+	infos := ptp.GetAllPeerTypeInfos()
+	require.Len(t, infos, 1)
+	require.Contains(t, []string{string(pkNewEpoch), string(pkOldEpoch)}, infos[0].PublicKey)
+	require.Equal(t, string(core.ElectedList), infos[0].PeerType)
 }
