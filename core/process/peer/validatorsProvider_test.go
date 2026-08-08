@@ -11,9 +11,11 @@ import (
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	cryptoMock "github.com/klever-io/klever-go/crypto/mock"
+	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewValidatorsProvider_WithNilValidatorStatisticsShouldErr(t *testing.T) {
@@ -235,6 +237,81 @@ func TestValidatorsProvider_UpdateCache(t *testing.T) {
 		assert.Len(t, cache, 1)
 		assert.Contains(t, cache, hex.EncodeToString([]byte("validator1")))
 	})
+}
+
+func TestValidatorsProvider_RefreshCache(t *testing.T) {
+	t.Parallel()
+
+	// StartConsensus calls this once the storage bootstrap restored the epoch,
+	// so the cache must be rebuilt against that epoch rather than the one the
+	// provider was constructed with
+	arg := createDefaultValidatorsProviderArg()
+	// the constructor's background refresh goroutine also queries the coordinator
+	var queriedMut sync.Mutex
+	queriedEpochs := make([]uint32, 0)
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysWithEpochCalled: func(epoch uint32) ([][]byte, error) {
+			queriedMut.Lock()
+			queriedEpochs = append(queriedEpochs, epoch)
+			queriedMut.Unlock()
+
+			return [][]byte{[]byte("validator1")}, nil
+		},
+	}
+	arg.ValidatorStatistics = &mock.ValidatorStatisticsProcessorStub{
+		LastFinalizedRootHashCalled: func() []byte {
+			return []byte("rootHash")
+		},
+		GetValidatorInfoForRootHashCalled: func(_ []byte) ([]*state.ValidatorInfo, error) {
+			return []*state.ValidatorInfo{
+				{PublicKey: []byte("validator1"), List: string(core.EligibleList)},
+			}, nil
+		},
+	}
+
+	vp, err := NewValidatorsProvider(arg)
+	require.Nil(t, err)
+
+	vp.RefreshCache(7)
+
+	vp.lock.RLock()
+	currentEpoch := vp.currentEpoch
+	cache := vp.cache
+	vp.lock.RUnlock()
+
+	queriedMut.Lock()
+	queried := append([]uint32{}, queriedEpochs...)
+	queriedMut.Unlock()
+
+	require.Equal(t, uint32(7), currentEpoch)
+	require.Contains(t, cache, hex.EncodeToString([]byte("validator1")))
+	require.Contains(t, queried, uint32(7))
+}
+
+func TestValidatorsProvider_EpochStartRefreshesThroughChannel(t *testing.T) {
+	t.Parallel()
+
+	// the epoch start notification hands the new epoch to startRefreshProcess
+	// over refreshCache, which is the only path that updates currentEpoch from
+	// the background goroutine
+	arg := createDefaultValidatorsProviderArg()
+	epochStartNotifier := &mock.EpochStartNotifierStub{}
+	arg.EpochStartEventNotifier = epochStartNotifier
+
+	vp, err := NewValidatorsProvider(arg)
+	require.Nil(t, err)
+	defer func() {
+		_ = vp.Close()
+	}()
+
+	epochStartNotifier.NotifyAll(&block.Block{Header: &block.BlockHeader{Epoch: 9}})
+
+	require.Eventually(t, func() bool {
+		vp.lock.RLock()
+		defer vp.lock.RUnlock()
+
+		return vp.currentEpoch == uint32(9)
+	}, 2*time.Second, 5*time.Millisecond)
 }
 
 func TestValidatorsProvider_CreateNewCache(t *testing.T) {

@@ -903,6 +903,70 @@ func TestWorker_ProcessReceivedMessageWhenNotSynchronizedStillRejectsInvalidMess
 	assert.True(t, errors.Is(err, slot.ErrInvalidChainID))
 }
 
+func TestWorker_ProcessReceivedMessageWhenNotSynchronizedKeepsRelayingOnStaleLocalView(t *testing.T) {
+	t.Parallel()
+
+	// a syncing node's elected set is the one it bootstrapped with, so live
+	// consensus messages fail IsNodeInConsensusGroup. Returning that error to
+	// pubsub marks the message invalid and stops this node relaying it to its
+	// mesh peers for the whole catch-up, which develop did not do. The verdict
+	// is about this node's stale view, not about the message, so the message is
+	// still relayed while nothing is learned or processed from it
+	learnedCalled := false
+	collector := &mock.NetworkShardingCollectorStub{
+		UpdatePeerIDPublicKeyCalled: func(_ core.PeerID, _ []byte) {
+			learnedCalled = true
+		},
+	}
+
+	workerArgs := createDefaultWorkerArgs()
+	workerArgs.NetworkShardingCollector = collector
+	workerArgs.Bootstrapper = &mock.BootstrapperMock{
+		GetNodeStateCalled: func() core.NodeState {
+			return core.NsNotSynchronized
+		},
+	}
+	wrk, errWorker := slot.NewWorker(workerArgs)
+	require.NoError(t, errWorker)
+
+	hdr := &block.Block{Header: &block.BlockHeader{ChainID: chainID}}
+	hdrHash, errHash := tools.CalculateHash(mock.MarshalizerMock{}, cMock.HasherMock{}, hdr.GetBlockHeader())
+	require.NoError(t, errHash)
+	hdrStr, errMarshal := mock.MarshalizerMock{}.Marshal(hdr)
+	require.NoError(t, errMarshal)
+	wrk.NewBlockProcessor(hdr.GetBlockHeader())
+
+	// a well-formed public key the node does not have in its elected set, which
+	// is what a live validator looks like to a node still on its bootstrap epoch
+	outOfGroupPk := make([]byte, PublicKeySize)
+	for i := range outOfGroupPk {
+		outOfGroupPk[i] = 0xCD
+	}
+
+	cnsMsg := consensus.NewConsensusMessage(
+		hdrHash,
+		nil,
+		hdrStr,
+		outOfGroupPk,
+		signature,
+		int(bls.MtBlockHeader),
+		0,
+		0,
+		chainID,
+		nil,
+		nil,
+		nil,
+		currentPid,
+	)
+	buff, errMarshalMsg := wrk.Marshalizer().Marshal(cnsMsg)
+	require.NoError(t, errMarshalMsg)
+
+	err := wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff, PeerField: currentPid}, fromConnectedPeerId)
+
+	require.NoError(t, err, "a stale-view rejection must not stop this node relaying the message")
+	assert.False(t, learnedCalled, "an unverified public key must never reach the PeerShardMapper")
+}
+
 func TestWorker_ProcessReceivedMessageWhenNotSynchronizedSkipsProcessing(t *testing.T) {
 	t.Parallel()
 

@@ -294,6 +294,7 @@ func createNodesCoordinator(
 	}
 
 	currentEpoch := startEpoch
+	restoredFromRegistry := false
 	if bootstrapParameters.NodesConfig != nil {
 		nodeRegistry := bootstrapParameters.NodesConfig
 		currentEpoch = bootstrapParameters.Epoch
@@ -310,6 +311,8 @@ func createNodesCoordinator(
 			if err != nil {
 				return nil, err
 			}
+
+			restoredFromRegistry = true
 		}
 	}
 
@@ -336,6 +339,8 @@ func createNodesCoordinator(
 		ConsensusGroupCache: consensusGroupCache,
 		Epoch:               currentEpoch,
 		StartEpoch:          startEpoch,
+
+		NodesRestoredFromRegistry: restoredFromRegistry,
 	}
 
 	if len(bootstrapParameters.CurrEpochValidatorsInfo) > 0 {

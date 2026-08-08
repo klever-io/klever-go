@@ -1170,6 +1170,61 @@ func TestNodesCoordinator_SetNodesInstallsAuthoritativeLookupBeforeLoadState(t *
 	require.False(t, coordinator.IsReady())
 }
 
+func TestNodesCoordinator_SetNodesKeepsRegistryRestoredCurrentEpochResolvable(t *testing.T) {
+	t.Parallel()
+
+	// cmd/node's fast-bootstrap path fills the constructor with the registry's
+	// real validators for the current epoch and only then calls SetNodes for the
+	// previous epoch. Marking that constructor config non-authoritative would let
+	// the SetNodes call evict the current epoch from the lookup, so every
+	// validator elected in this epoch would resolve as not found until LoadState
+	currentElected := createDummyNodesList(4, "currentElected")
+	prevElected := createDummyNodesList(4, "prevElected")
+
+	args := createArguments()
+	args.Epoch = 5
+	args.StartEpoch = 5
+	args.ElectedNodes = currentElected
+	args.NodesRestoredFromRegistry = true
+
+	coordinator, err := NewNodesCoordinator(args)
+	require.Nil(t, err)
+
+	err = coordinator.SetNodes(prevElected, createDummyNodesList(1, "prevEligible"), make([]Validator, 0), args.Epoch-1)
+	require.Nil(t, err)
+
+	validator, err := coordinator.GetValidatorWithPublicKey(currentElected[0].PubKey())
+	require.Nil(t, err)
+	require.Equal(t, currentElected[0].PubKey(), validator.PubKey())
+
+	validator, err = coordinator.GetValidatorWithPublicKey(prevElected[0].PubKey())
+	require.Nil(t, err)
+	require.Equal(t, prevElected[0].PubKey(), validator.PubKey())
+}
+
+func TestNodesCoordinator_SetNodesEvictsGenesisSeedingOnly(t *testing.T) {
+	t.Parallel()
+
+	// the mirror case: without registry-restored nodes the constructor holds
+	// approximate genesis seeding, which SetNodes must still be able to evict
+	seeded := createArguments().ElectedNodes
+	restored := createDummyNodesList(4, "restoredElected")
+
+	args := createArguments()
+	args.Epoch = 5
+	args.StartEpoch = 5
+	args.NodesRestoredFromRegistry = false
+
+	coordinator, err := NewNodesCoordinator(args)
+	require.Nil(t, err)
+
+	err = coordinator.SetNodes(restored, createDummyNodesList(1, "restoredEligible"), make([]Validator, 0), args.Epoch-1)
+	require.Nil(t, err)
+
+	_, err = coordinator.GetValidatorWithPublicKey(seeded[0].PubKey())
+	require.Equal(t, ErrValidatorNotFound, err)
+}
+
 func TestNodesCoordinator_GetValidatorWithPublicKeyBeforeAndAfterLoadState(t *testing.T) {
 	t.Parallel()
 

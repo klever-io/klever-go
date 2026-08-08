@@ -94,11 +94,14 @@ func NewNodesCoordinator(arguments ArgNodesCoordinator) (*indexHashedNodesCoordi
 	nodesConfig := make(map[uint32]*epochNodesConfig, nodeCoordinatorStoredEpochs)
 
 	nodesConfig[arguments.Epoch] = &epochNodesConfig{
-		electedList:   arguments.ElectedNodes,
-		eligibleList:  arguments.EligibleNodes,
-		selector:      nil, // TODO:
-		leavingList:   make([]Validator, 0),
-		authoritative: arguments.StartEpoch == 0,
+		electedList:  arguments.ElectedNodes,
+		eligibleList: arguments.EligibleNodes,
+		selector:     nil, // TODO:
+		leavingList:  make([]Validator, 0),
+		// genesis config is authoritative for epoch 0, and the fast-bootstrap path
+		// hands over real registry data for Epoch; anything else is the approximate
+		// genesis seeding a later SetNodes or LoadState supersedes
+		authoritative: arguments.StartEpoch == 0 || arguments.NodesRestoredFromRegistry,
 	}
 
 	savedKey := arguments.Hasher.Compute(string(arguments.SelfPublicKey))
@@ -123,10 +126,11 @@ func NewNodesCoordinator(arguments ArgNodesCoordinator) (*indexHashedNodesCoordi
 
 	ihgs.loadingFromDisk.Store(false)
 
-	// the genesis seed is approximate but sufficient for peer classification
-	// during bootstrap; SetNodes or LoadState replaces it with authoritative
-	// data, and the authoritative flag on epochNodesConfig prevents stale
-	// genesis entries from shadowing real data in the merged lookup map
+	// when the config above is only the genesis seeding it is approximate but
+	// still sufficient for peer classification during bootstrap; SetNodes or
+	// LoadState replaces it with authoritative data, and the authoritative flag
+	// on epochNodesConfig keeps that seeding from shadowing real data once any
+	// arrives
 	ihgs.fillPublicKeyToValidatorMap()
 
 	ihncr := &indexHashedNodesCoordinatorWithRater{

@@ -181,7 +181,9 @@ func (vp *validatorsProvider) startRefreshProcess(ctx context.Context) {
 			vp.lock.Lock()
 			vp.currentEpoch = epoch
 			vp.lock.Unlock()
-			log.Trace("startRefreshProcess - forced refresh", "epoch", vp.currentEpoch)
+			// log the local value: RefreshCache is a second writer of
+			// vp.currentEpoch, so reading the field here would race with it
+			log.Trace("startRefreshProcess - forced refresh", "epoch", epoch)
 		case <-ctx.Done():
 			log.Debug("validatorsProvider's go routine is stopping...")
 			return

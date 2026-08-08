@@ -567,6 +567,50 @@ func TestSubslotStartSlot_EpochStartActionKeepsElectedNodesOnCoordinatorError(t 
 	require.Equal(t, 0, resetCount)
 }
 
+func TestSubslotStartSlot_EpochStartActionDoesNotWidenOnUncalculatedNodeState(t *testing.T) {
+	t.Parallel()
+
+	// GetNodeState reports NsNotCalculated for a few milliseconds after every
+	// slot boundary, including on a fully synchronized validator. Treating that
+	// as "syncing" would widen the elected set mid-slot on a healthy validator,
+	// which is exactly what the synchronized skip exists to prevent
+	for _, nodeState := range []core.NodeState{core.NsSynchronized, core.NsNotCalculated} {
+		newEpochKey := "newEpochValidator"
+		coordinator := &whitelistNodesCoordinatorMock{
+			NodesCoordinatorMock: cMock.NewNodesCoordinatorMock(),
+			whitelisted:          map[string]struct{}{newEpochKey: {}},
+		}
+		container := mock.InitConsensusCore()
+		container.SetValidatorGroupSelector(coordinator)
+		container.SetBootStrapper(&mock.BootstrapperMock{GetNodeStateCalled: func() core.NodeState {
+			return nodeState
+		}})
+
+		consensusState := initConsensusState()
+		ch := make(chan bool, 1)
+		sr, err := defaultSubslot(consensusState, ch, container)
+		require.Nil(t, err)
+		resetCount := 0
+		srStartSlotPtr, err := bls.NewSubslotStartSlot(
+			sr,
+			extend,
+			bls.ProcessingThresholdPercent,
+			executeStoredMessages,
+			func() { resetCount++ },
+		)
+		require.Nil(t, err)
+		srStartSlot := *srStartSlotPtr
+
+		oldKey := consensusState.ConsensusGroup()[0]
+
+		srStartSlot.EpochStartAction(&block.Block{Header: &block.BlockHeader{Epoch: 1}})
+
+		require.True(t, consensusState.IsNodeInConsensusGroup(oldKey))
+		require.False(t, consensusState.IsNodeInConsensusGroup(newEpochKey))
+		require.Equal(t, 0, resetCount)
+	}
+}
+
 func TestSubslotStartSlot_NewSubslotStartSlotNilResetConsensusMessagesShouldFail(t *testing.T) {
 	t.Parallel()
 

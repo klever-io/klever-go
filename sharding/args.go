@@ -24,4 +24,8 @@ type ArgNodesCoordinator struct {
 	ShuffledOutHandler  ShuffledOutHandler
 	CurrValidatorsInfo  []*state.ValidatorInfo
 	PrevValidatorsInfo  []*state.ValidatorInfo
+	// NodesRestoredFromRegistry marks ElectedNodes/EligibleNodes as coming from a
+	// persisted nodes coordinator registry for Epoch rather than from the genesis
+	// config, which makes the constructor's epoch config authoritative
+	NodesRestoredFromRegistry bool
 }

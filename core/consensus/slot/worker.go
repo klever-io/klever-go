@@ -377,7 +377,7 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 	err = wrk.consensusMessageValidator.checkConsensusMessageValidity(cnsMsg, message.Peer(), syncing)
 	wrk.resetRedundancyInactivityOnValidMessage(cnsMsg, message.Peer(), err)
 	if err != nil {
-		return err
+		return relayTolerantValidityError(err, syncing)
 	}
 
 	wrk.updateNetworkShardingVals(message, cnsMsg)
@@ -450,6 +450,30 @@ func (wrk *Worker) resetRedundancyInactivityOnValidMessage(cnsMsg *consensus.Mes
 
 func isSlotTimingError(err error) bool {
 	return errors.Is(err, ErrMessageForPastSlot) || errors.Is(err, ErrMessageForFutureSlot)
+}
+
+// isStaleLocalViewError reports whether a validity error is a verdict about this
+// node's own view (a stale elected set, a lagging slot index) rather than about
+// the message itself
+func isStaleLocalViewError(err error) bool {
+	return isSlotTimingError(err) || errors.Is(err, ErrNodeIsNotInConsensusGroup)
+}
+
+// relayTolerantValidityError maps a validity error to what ProcessReceivedMessage
+// returns to pubsub. A non-nil return marks the message invalid, so this node
+// stops relaying it to its mesh peers. While syncing, this node's elected set and
+// slot index are behind the network, so rejecting on those grounds says nothing
+// about the message and must not cost the network this node's relay for the whole
+// catch-up
+func relayTolerantValidityError(err error, syncing bool) error {
+	if !syncing || !isStaleLocalViewError(err) {
+		return err
+	}
+
+	log.Trace("consensus message rejected against a stale local view while syncing, still relayed",
+		"error", err.Error())
+
+	return nil
 }
 
 func (wrk *Worker) storeMessage(cnsDta *consensus.Message) {
