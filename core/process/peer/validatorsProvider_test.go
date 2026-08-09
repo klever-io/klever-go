@@ -278,7 +278,11 @@ func TestValidatorsProvider_ConcurrentAccess(t *testing.T) {
 	}
 	vp, err := NewValidatorsProvider(arg)
 	require.Nil(t, err)
-	t.Cleanup(func() { _ = vp.Close() })
+	t.Cleanup(func() {
+		if err := vp.Close(); err != nil {
+			t.Errorf("close validators provider: %v", err)
+		}
+	})
 
 	// hammer the public read path while the background refresher is alive;
 	// the 1ms refresh interval keeps forcing the stale->updateCache path
