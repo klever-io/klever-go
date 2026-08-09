@@ -452,9 +452,9 @@ func TestMonitor_RemoveInactiveValidatorsIfIntervalExceeded(t *testing.T) {
 		HideInactiveValidatorIntervalInSec: 600,
 	}
 	mon, _ := process.NewMonitor(arg)
-	defer func() {
-		_ = mon.Close()
-	}()
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pkValidator)})
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey1)})
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey2)})
@@ -594,9 +594,9 @@ func TestMonitor_WaitingNodeSurvivesRefreshAndCleanupRounds(t *testing.T) {
 	}
 	mon, err := process.NewMonitor(arg)
 	require.Nil(t, err)
-	defer func() {
-		_ = mon.Close()
-	}()
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	// move far past the hide interval so an unshielded inactive entry would be
 	// deleted by Cleanup and recreated by the next refresh (the churn cycle)
@@ -635,11 +635,11 @@ func TestMonitor_ActiveWaitingNodeCountsAsLiveValidator(t *testing.T) {
 	// stop the background refresher before installing the status handler so a
 	// stale initial refresh can never overwrite the asserted metric values;
 	// the test drives the refresh manually
-	_ = mon.Close()
+	require.NoError(t, mon.Close())
 
 	liveValidators := uint64(0)
 	connectedNodes := uint64(0)
-	_ = mon.SetAppStatusHandler(&mock.AppStatusHandlerStub{
+	require.NoError(t, mon.SetAppStatusHandler(&mock.AppStatusHandlerStub{
 		SetUInt64ValueHandler: func(key string, value uint64) {
 			switch key {
 			case core.MetricLiveValidatorNodes:
@@ -648,7 +648,7 @@ func TestMonitor_ActiveWaitingNodeCountsAsLiveValidator(t *testing.T) {
 				connectedNodes = value
 			}
 		},
-	})
+	}))
 
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pkWaiting)})
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pkObserver)})
@@ -693,7 +693,7 @@ func TestMonitor_UnstakedWaitingNodeIsDemotedAndCleaned(t *testing.T) {
 	require.Nil(t, err)
 	// stop the background refresher: the test drives refresh and cleanup
 	// manually, and flips the stub without synchronization
-	_ = mon.Close()
+	require.NoError(t, mon.Close())
 
 	timer.SetSeconds(int(arg.HideInactiveValidatorIntervalInSec) + 100)
 

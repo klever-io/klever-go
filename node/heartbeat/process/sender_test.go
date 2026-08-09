@@ -16,6 +16,7 @@ import (
 	"github.com/klever-io/klever-go/node/heartbeat/mock"
 	"github.com/klever-io/klever-go/node/heartbeat/process"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 //------- NewSender
@@ -343,9 +344,10 @@ func TestSender_SendHeartbeatUpdatesNodeTypeMetrics(t *testing.T) {
 				},
 			}
 
-			sender, _ := process.NewSender(arg)
+			sender, err := process.NewSender(arg)
+			require.NoError(t, err)
 
-			err := sender.SendHeartbeat()
+			err = sender.SendHeartbeat()
 
 			assert.Nil(t, err)
 			assert.Equal(t, tc.expectedNodeType, metrics[core.MetricNodeType])
