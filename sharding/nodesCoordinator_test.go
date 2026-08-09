@@ -843,20 +843,21 @@ func TestNodesCoordinator_LoadStateMultiEpochPrecedence(t *testing.T) {
 	err = coordinator.saveState(savedKey)
 	require.Nil(t, err)
 
-	argsLoad := createArguments()
-	argsLoad.BootStorer = bootStorer
-	argsLoad.ElectedNodes = createDummyNodesList(4, "genesis")
-	argsLoad.EligibleNodes = createDummyNodesList(0, "eligible")
-	coordinatorLoad, err := NewNodesCoordinator(argsLoad)
-	require.Nil(t, err)
+	for attempt := 0; attempt < 20; attempt++ {
+		argsLoad := createArguments()
+		argsLoad.BootStorer = bootStorer
+		argsLoad.ElectedNodes = createDummyNodesList(4, "genesis")
+		argsLoad.EligibleNodes = createDummyNodesList(0, "eligible")
+		coordinatorLoad, err := NewNodesCoordinator(argsLoad)
+		require.Nil(t, err)
 
-	err = coordinatorLoad.LoadState(savedKey)
-	require.Nil(t, err)
+		err = coordinatorLoad.LoadState(savedKey)
+		require.Nil(t, err)
 
-	v, err := coordinatorLoad.GetValidatorWithPublicKey(sharedPK)
-	require.Nil(t, err)
-	require.Equal(t, highestEpoch*10, v.Index(),
-		"later epoch should take precedence over earlier epochs")
+		v, err := coordinatorLoad.GetValidatorWithPublicKey(sharedPK)
+		require.Nil(t, err)
+		require.Equal(t, highestEpoch*10, v.Index(), "attempt %d", attempt)
+	}
 }
 
 func TestNodesCoordinator_ConstructorDoesNotOverwriteSavedStateOnRestart(t *testing.T) {
