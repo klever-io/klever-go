@@ -332,6 +332,10 @@ func (n *Node) StartConsensus() error {
 		epoch = crtBlockHeader.GetEpoch()
 	}
 
+	if !check.IfNil(n.heartbeatHandler) {
+		n.heartbeatHandler.RefreshPeerTypeCache(epoch)
+	}
+
 	forkControllerSubscriber, ok := n.forkController.(core.EpochSubscriberHandler)
 	if !ok {
 		return common.ErrWrongTypeAssertion

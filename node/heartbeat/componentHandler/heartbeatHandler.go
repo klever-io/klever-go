@@ -281,6 +281,14 @@ func (hbh *HeartbeatHandler) Close() error {
 	return nil
 }
 
+// RefreshPeerTypeCache forces the peer-type cache to rebuild for the given epoch.
+func (hbh *HeartbeatHandler) RefreshPeerTypeCache(epoch uint32) {
+	if hbh.peerTypeProvider == nil {
+		return
+	}
+	hbh.peerTypeProvider.UpdateCache(epoch)
+}
+
 // IsInterfaceNil returns true if there is no value under the interface
 func (hbh *HeartbeatHandler) IsInterfaceNil() bool {
 	return hbh == nil

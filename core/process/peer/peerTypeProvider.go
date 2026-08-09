@@ -47,7 +47,7 @@ func NewPeerTypeProvider(arg ArgPeerTypeProvider) (*PeerTypeProvider, error) {
 		mutCache:         sync.RWMutex{},
 	}
 
-	ptp.updateCache(arg.StartEpoch)
+	ptp.UpdateCache(arg.StartEpoch)
 
 	arg.EpochStartEventNotifier.RegisterHandler(ptp.epochStartEventHandler())
 
@@ -91,7 +91,7 @@ func (ptp *PeerTypeProvider) epochStartEventHandler() sharding.EpochStartActionH
 				"nonce", hdr.GetNonce(),
 				"slot", hdr.GetSlot(),
 				"epoch", hdr.GetEpoch())
-			ptp.updateCache(hdr.GetEpoch())
+			ptp.UpdateCache(hdr.GetEpoch())
 		},
 		func(_ data.HeaderHandler) {},
 		core.IndexerOrder,
@@ -100,7 +100,8 @@ func (ptp *PeerTypeProvider) epochStartEventHandler() sharding.EpochStartActionH
 	return subscribeHandler
 }
 
-func (ptp *PeerTypeProvider) updateCache(epoch uint32) {
+// UpdateCache rebuilds the validator-type cache for the given epoch.
+func (ptp *PeerTypeProvider) UpdateCache(epoch uint32) {
 	newCache := ptp.createNewCache(epoch)
 
 	ptp.mutCache.Lock()
@@ -112,6 +113,12 @@ func (ptp *PeerTypeProvider) createNewCache(
 	epoch uint32,
 ) map[string]*peerListAndShard {
 	newCache := make(map[string]*peerListAndShard)
+
+	nodesMapWaiting, err := ptp.nodesCoordinator.GetAllWaitingValidatorsKeys(epoch, false)
+	if err != nil {
+		log.Debug("peerTypeProvider - GetAllWaitingValidatorsKeys failed", "epoch", epoch)
+	}
+	computePeerType(newCache, nodesMapWaiting, core.WaitingList)
 
 	nodesMapElected, err := ptp.nodesCoordinator.GetAllElectedValidatorsKeys(epoch, false)
 	if err != nil {
