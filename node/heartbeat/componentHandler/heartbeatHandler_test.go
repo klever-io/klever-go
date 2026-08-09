@@ -148,6 +148,7 @@ func TestHeartbeatHandler_RefreshPeerTypeCache(t *testing.T) {
 	t.Parallel()
 
 	newPK := []byte("new_validator")
+	targetEpoch := uint32(7)
 
 	arg := createMockArgument()
 	hbh, err := NewHeartbeatHandler(arg)
@@ -159,13 +160,16 @@ func TestHeartbeatHandler_RefreshPeerTypeCache(t *testing.T) {
 	peerType, _, _ := hbh.peerTypeProvider.ComputeForPubKey(newPK)
 	assert.Equal(t, core.ObserverList, peerType)
 
+	var capturedEpoch uint32
 	ncMock := arg.NodesCoordinator.(*cMock.NodesCoordinatorMock)
-	ncMock.GetAllElectedValidatorsKeysCalled = func() ([][]byte, error) {
+	ncMock.GetAllElectedValidatorsKeysWithEpochCalled = func(epoch uint32, _ bool) ([][]byte, error) {
+		capturedEpoch = epoch
 		return [][]byte{newPK}, nil
 	}
 
-	hbh.RefreshPeerTypeCache(1)
+	hbh.RefreshPeerTypeCache(targetEpoch)
 
+	assert.Equal(t, targetEpoch, capturedEpoch)
 	peerType, _, _ = hbh.peerTypeProvider.ComputeForPubKey(newPK)
 	assert.Equal(t, core.ElectedList, peerType)
 }

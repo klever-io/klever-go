@@ -101,8 +101,14 @@ func (ptp *PeerTypeProvider) epochStartEventHandler() sharding.EpochStartActionH
 }
 
 // UpdateCache rebuilds the validator-type cache for the given epoch.
+// When the coordinator cannot provide validator lists (e.g. unknown epoch),
+// the previous cache is kept to avoid replacing valid data with an empty map.
 func (ptp *PeerTypeProvider) UpdateCache(epoch uint32) {
-	newCache := ptp.createNewCache(epoch)
+	newCache, ok := ptp.createNewCache(epoch)
+	if !ok {
+		log.Warn("peerTypeProvider - keeping previous cache, validator list unavailable", "epoch", epoch)
+		return
+	}
 
 	ptp.mutCache.Lock()
 	ptp.cache = newCache
@@ -111,28 +117,24 @@ func (ptp *PeerTypeProvider) UpdateCache(epoch uint32) {
 
 func (ptp *PeerTypeProvider) createNewCache(
 	epoch uint32,
-) map[string]*peerListAndShard {
+) (map[string]*peerListAndShard, bool) {
 	newCache := make(map[string]*peerListAndShard)
-
-	nodesMapWaiting, err := ptp.nodesCoordinator.GetAllWaitingValidatorsKeys(epoch, false)
-	if err != nil {
-		log.Debug("peerTypeProvider - GetAllWaitingValidatorsKeys failed", "epoch", epoch)
-	}
-	computePeerType(newCache, nodesMapWaiting, core.WaitingList)
 
 	nodesMapElected, err := ptp.nodesCoordinator.GetAllElectedValidatorsKeys(epoch, false)
 	if err != nil {
-		log.Debug("peerTypeProvider - GetAllElectedValidatorsKeys failed", "epoch", epoch)
+		log.Warn("peerTypeProvider - GetAllElectedValidatorsKeys failed", "epoch", epoch, "error", err)
+		return nil, false
 	}
 	computePeerType(newCache, nodesMapElected, core.ElectedList)
 
 	nodesMapEligible, err := ptp.nodesCoordinator.GetAllEligibleValidatorsKeys(epoch, false)
 	if err != nil {
-		log.Debug("peerTypeProvider - GetAllEligibleValidatorsKeys failed", "epoch", epoch)
+		log.Warn("peerTypeProvider - GetAllEligibleValidatorsKeys failed", "epoch", epoch, "error", err)
+		return nil, false
 	}
 	computePeerType(newCache, nodesMapEligible, core.EligibleList)
 
-	return newCache
+	return newCache, true
 }
 
 func computePeerType(

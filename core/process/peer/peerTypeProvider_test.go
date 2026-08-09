@@ -121,8 +121,9 @@ func TestNewPeerTypeProvider_createCache(t *testing.T) {
 		mutCache:         sync.RWMutex{},
 	}
 
-	cache := ptp.createNewCache(0)
+	cache, ok := ptp.createNewCache(0)
 
+	require.True(t, ok)
 	assert.NotNil(t, cache)
 
 	assert.NotNil(t, cache[pkElected])
@@ -275,8 +276,9 @@ func TestPeerTypeProvider_CreateNewCacheScenarios(t *testing.T) {
 	}
 	ptp, _ := NewPeerTypeProvider(arg)
 
-	cache := ptp.createNewCache(0)
-	assert.Len(t, cache, 3)
+	cache, ok := ptp.createNewCache(0)
+	require.True(t, ok)
+	require.Len(t, cache, 3)
 	assert.Equal(t, core.EligibleList, cache["elected1"].pType) // elected1 is also eligible as it have been updated in the eligible list
 	assert.Equal(t, core.ElectedList, cache["elected2"].pType)
 	assert.Equal(t, core.EligibleList, cache["eligible1"].pType)
@@ -319,14 +321,11 @@ func TestPeerTypeProvider_GetAllPeerTypeInfos(t *testing.T) {
 	assert.Empty(t, emptyPeerTypeInfos, "Should return empty slice for empty cache")
 }
 
-func TestPeerTypeProvider_CreateNewCache_IncludesWaitingList(t *testing.T) {
+func TestPeerTypeProvider_UpdateCache_KeepsPreviousOnFailure(t *testing.T) {
 	t.Parallel()
 
 	arg := createDefaultArgPeerTypeProvider()
 	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
-		GetAllWaitingValidatorsKeysCalled: func() ([][]byte, error) {
-			return [][]byte{[]byte("waiting1")}, nil
-		},
 		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
 			return [][]byte{[]byte("elected1")}, nil
 		},
@@ -341,84 +340,32 @@ func TestPeerTypeProvider_CreateNewCache_IncludesWaitingList(t *testing.T) {
 		mutCache:         sync.RWMutex{},
 	}
 
-	cache := ptp.createNewCache(0)
+	ptp.UpdateCache(0)
+	require.Len(t, ptp.cache, 2)
 
-	assert.Len(t, cache, 3)
-	assert.Equal(t, core.WaitingList, cache["waiting1"].pType)
-	assert.Equal(t, core.ElectedList, cache["elected1"].pType)
-	assert.Equal(t, core.EligibleList, cache["eligible1"].pType)
-}
-
-func TestPeerTypeProvider_CreateNewCache_WaitingOverwrittenByElected(t *testing.T) {
-	t.Parallel()
-
-	pk := "overlapping_pk"
-
-	arg := createDefaultArgPeerTypeProvider()
-	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
-		GetAllWaitingValidatorsKeysCalled: func() ([][]byte, error) {
-			return [][]byte{[]byte(pk)}, nil
-		},
+	ptp.nodesCoordinator = &mock.NodesCoordinatorMock{
 		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
-			return [][]byte{[]byte(pk)}, nil
+			return nil, fmt.Errorf("epoch config does not exist")
 		},
 	}
 
-	ptp := PeerTypeProvider{
-		nodesCoordinator: arg.NodesCoordinator,
-		cache:            nil,
-		mutCache:         sync.RWMutex{},
-	}
+	ptp.UpdateCache(99)
 
-	cache := ptp.createNewCache(0)
-
-	assert.Len(t, cache, 1)
-	assert.Equal(t, core.ElectedList, cache[pk].pType)
+	require.Len(t, ptp.cache, 2)
+	assert.Equal(t, core.ElectedList, ptp.cache["elected1"].pType)
+	assert.Equal(t, core.EligibleList, ptp.cache["eligible1"].pType)
 }
 
-func TestPeerTypeProvider_CreateNewCache_AllThreeOverlap(t *testing.T) {
-	t.Parallel()
-
-	pk := "overlapping_pk"
-
-	arg := createDefaultArgPeerTypeProvider()
-	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
-		GetAllWaitingValidatorsKeysCalled: func() ([][]byte, error) {
-			return [][]byte{[]byte(pk)}, nil
-		},
-		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
-			return [][]byte{[]byte(pk)}, nil
-		},
-		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
-			return [][]byte{[]byte(pk)}, nil
-		},
-	}
-
-	ptp := PeerTypeProvider{
-		nodesCoordinator: arg.NodesCoordinator,
-		cache:            nil,
-		mutCache:         sync.RWMutex{},
-	}
-
-	cache := ptp.createNewCache(0)
-
-	assert.Len(t, cache, 1)
-	assert.Equal(t, core.EligibleList, cache[pk].pType)
-}
-
-func TestPeerTypeProvider_CreateNewCache_WaitingErrorDoesNotAffectOtherLists(t *testing.T) {
+func TestPeerTypeProvider_CreateNewCache_FailsOnAnyGetterError(t *testing.T) {
 	t.Parallel()
 
 	arg := createDefaultArgPeerTypeProvider()
 	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
-		GetAllWaitingValidatorsKeysCalled: func() ([][]byte, error) {
-			return nil, fmt.Errorf("waiting list unavailable")
-		},
 		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
 			return [][]byte{[]byte("elected1")}, nil
 		},
 		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
-			return [][]byte{[]byte("eligible1")}, nil
+			return nil, fmt.Errorf("eligible list unavailable")
 		},
 	}
 
@@ -428,36 +375,8 @@ func TestPeerTypeProvider_CreateNewCache_WaitingErrorDoesNotAffectOtherLists(t *
 		mutCache:         sync.RWMutex{},
 	}
 
-	cache := ptp.createNewCache(0)
+	cache, ok := ptp.createNewCache(0)
 
-	assert.Len(t, cache, 2)
-	assert.Equal(t, core.ElectedList, cache["elected1"].pType)
-	assert.Equal(t, core.EligibleList, cache["eligible1"].pType)
-}
-
-func TestPeerTypeProvider_CreateNewCache_WaitingOverwrittenByEligible(t *testing.T) {
-	t.Parallel()
-
-	pk := "overlapping_pk"
-
-	arg := createDefaultArgPeerTypeProvider()
-	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
-		GetAllWaitingValidatorsKeysCalled: func() ([][]byte, error) {
-			return [][]byte{[]byte(pk)}, nil
-		},
-		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
-			return [][]byte{[]byte(pk)}, nil
-		},
-	}
-
-	ptp := PeerTypeProvider{
-		nodesCoordinator: arg.NodesCoordinator,
-		cache:            nil,
-		mutCache:         sync.RWMutex{},
-	}
-
-	cache := ptp.createNewCache(0)
-
-	assert.Len(t, cache, 1)
-	assert.Equal(t, core.EligibleList, cache[pk].pType)
+	assert.False(t, ok)
+	assert.Nil(t, cache)
 }

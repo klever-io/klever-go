@@ -10,22 +10,25 @@ import (
 
 // NodesCoordinatorMock defines the behaviour of a struct able to do validator group selection
 type NodesCoordinatorMock struct {
-	Validators                              []sharding.Validator
-	ConsensusSize                           uint32
-	GetSelectedPublicKeysCalled             func(selection []byte, epoch uint32) (publicKeys []string, err error)
-	GetValidatorsPublicKeysCalled           func(randomness []byte, slot uint64, epoch uint32) ([]string, error)
-	GetValidatorsRewardsAddressesCalled     func(randomness []byte, slot uint64, epoch uint32) ([]string, error)
-	SetNodesCalled                          func(nodes []sharding.Validator, epoch uint32) error
-	ComputeValidatorsGroupCalled            func(randomness []byte, slot uint64, epoch uint32) (validatorsGroup []sharding.Validator, err error)
-	GetValidatorWithPublicKeyCalled         func(publicKey []byte) (validator sharding.Validator, err error)
-	GetAllElectedValidatorsKeysCalled       func() ([][]byte, error)
-	GetAllEligibleValidatorsKeysCalled      func() ([][]byte, error)
-	GetAllWaitingValidatorsKeysCalled       func() ([][]byte, error)
-	GetAllLeavingValidatorsPublicKeysCalled func() ([][]byte, error)
-	CheckValidatorSlotCalled                func(epoch uint32, slotIndex int64, pubkey []byte) bool
-	ConsensusGroupSizeCalled                func() int
-	LoadValidatorsCalled                    func(validators []*state.ValidatorInfo) error
-	SetEpochValidatorsInfoCalled            func(epoch uint32, validatorsInfo []*state.ValidatorInfo) error
+	Validators                                  []sharding.Validator
+	ConsensusSize                               uint32
+	GetSelectedPublicKeysCalled                 func(selection []byte, epoch uint32) (publicKeys []string, err error)
+	GetValidatorsPublicKeysCalled               func(randomness []byte, slot uint64, epoch uint32) ([]string, error)
+	GetValidatorsRewardsAddressesCalled         func(randomness []byte, slot uint64, epoch uint32) ([]string, error)
+	SetNodesCalled                              func(nodes []sharding.Validator, epoch uint32) error
+	ComputeValidatorsGroupCalled                func(randomness []byte, slot uint64, epoch uint32) (validatorsGroup []sharding.Validator, err error)
+	GetValidatorWithPublicKeyCalled             func(publicKey []byte) (validator sharding.Validator, err error)
+	GetAllElectedValidatorsKeysCalled           func() ([][]byte, error)
+	GetAllElectedValidatorsKeysWithEpochCalled  func(uint32, bool) ([][]byte, error)
+	GetAllEligibleValidatorsKeysCalled          func() ([][]byte, error)
+	GetAllEligibleValidatorsKeysWithEpochCalled func(uint32, bool) ([][]byte, error)
+	GetAllWaitingValidatorsKeysCalled           func() ([][]byte, error)
+	GetAllWaitingValidatorsKeysWithEpochCalled  func(uint32, bool) ([][]byte, error)
+	GetAllLeavingValidatorsPublicKeysCalled     func() ([][]byte, error)
+	CheckValidatorSlotCalled                    func(epoch uint32, slotIndex int64, pubkey []byte) bool
+	ConsensusGroupSizeCalled                    func() int
+	LoadValidatorsCalled                        func(validators []*state.ValidatorInfo) error
+	SetEpochValidatorsInfoCalled                func(epoch uint32, validatorsInfo []*state.ValidatorInfo) error
 }
 
 // NewNodesCoordinatorMock -
@@ -59,7 +62,10 @@ func (ncm *NodesCoordinatorMock) GetNumTotalEligible() uint64 {
 }
 
 // GetAllElectedValidatorsKeys -
-func (ncm *NodesCoordinatorMock) GetAllElectedValidatorsKeys(_ uint32, _ bool) ([][]byte, error) {
+func (ncm *NodesCoordinatorMock) GetAllElectedValidatorsKeys(epoch uint32, includeLeaving bool) ([][]byte, error) {
+	if ncm.GetAllElectedValidatorsKeysWithEpochCalled != nil {
+		return ncm.GetAllElectedValidatorsKeysWithEpochCalled(epoch, includeLeaving)
+	}
 	if ncm.GetAllElectedValidatorsKeysCalled != nil {
 		return ncm.GetAllElectedValidatorsKeysCalled()
 	}
@@ -67,7 +73,10 @@ func (ncm *NodesCoordinatorMock) GetAllElectedValidatorsKeys(_ uint32, _ bool) (
 }
 
 // GetAllEligibleValidatorsKeys -
-func (ncm *NodesCoordinatorMock) GetAllEligibleValidatorsKeys(_ uint32, _ bool) ([][]byte, error) {
+func (ncm *NodesCoordinatorMock) GetAllEligibleValidatorsKeys(epoch uint32, includeLeaving bool) ([][]byte, error) {
+	if ncm.GetAllEligibleValidatorsKeysWithEpochCalled != nil {
+		return ncm.GetAllEligibleValidatorsKeysWithEpochCalled(epoch, includeLeaving)
+	}
 	if ncm.GetAllEligibleValidatorsKeysCalled != nil {
 		return ncm.GetAllEligibleValidatorsKeysCalled()
 	}
@@ -75,7 +84,10 @@ func (ncm *NodesCoordinatorMock) GetAllEligibleValidatorsKeys(_ uint32, _ bool) 
 }
 
 // GetAllWaitingValidatorsKeys -
-func (ncm *NodesCoordinatorMock) GetAllWaitingValidatorsKeys(_ uint32, _ bool) ([][]byte, error) {
+func (ncm *NodesCoordinatorMock) GetAllWaitingValidatorsKeys(epoch uint32, includeLeaving bool) ([][]byte, error) {
+	if ncm.GetAllWaitingValidatorsKeysWithEpochCalled != nil {
+		return ncm.GetAllWaitingValidatorsKeysWithEpochCalled(epoch, includeLeaving)
+	}
 	if ncm.GetAllWaitingValidatorsKeysCalled != nil {
 		return ncm.GetAllWaitingValidatorsKeysCalled()
 	}

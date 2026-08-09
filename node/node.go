@@ -332,7 +332,7 @@ func (n *Node) StartConsensus() error {
 		epoch = crtBlockHeader.GetEpoch()
 	}
 
-	if !check.IfNil(n.heartbeatHandler) {
+	if !check.IfNil(crtBlockHeader) && !check.IfNil(n.heartbeatHandler) {
 		n.heartbeatHandler.RefreshPeerTypeCache(epoch)
 	}
 
