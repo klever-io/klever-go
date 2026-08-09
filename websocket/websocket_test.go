@@ -1171,18 +1171,35 @@ func TestHasLogsSubscriberOrMirror(t *testing.T) {
 	assert.False(t, hub.HasLogsSubscriberOrMirror(), "no client, no mirror: nothing would receive a LOGS event")
 
 	c := newTestClient(hub)
-	hub.mu.Lock()
-	hub.addressSubscription["klv1contract"] = map[*client]userOptions{c: {acceptAccount: true}}
-	hub.mu.Unlock()
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS}, []string{"klv1contract"}, c))
 	assert.False(t, hub.HasLogsSubscriberOrMirror(), "a subscriber for a different type must not count as a LOGS subscriber")
 
-	hub.mu.Lock()
-	hub.addressSubscription["klv1contract"] = map[*client]userOptions{c: {acceptLogs: true}}
-	hub.mu.Unlock()
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c))
 	assert.True(t, hub.HasLogsSubscriberOrMirror(), "an address-scoped LOGS subscriber must count")
+	assert.Equal(t, 1, hub.logsSubscriberCount)
+
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c))
+	assert.Equal(t, 1, hub.logsSubscriberCount, "re-subscribing the same (address, client) to LOGS must not double-count")
+
+	// TestHasLogsSubscriberOrMirror_CounterMaintenance guards logsSubscriberCount staying
+	// in sync (not just the map) across unsubscribe and disconnect — it must be
+	// incrementally correct, not a one-shot snapshot, since HasLogsSubscriberOrMirror no
+	// longer scans addressSubscription itself (see the field's doc comment).
+	hub.HandleClientRemoval([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c)
+	assert.False(t, hub.HasLogsSubscriberOrMirror(), "unsubscribing from LOGS must decrement the counter")
+	assert.Equal(t, 0, hub.logsSubscriberCount)
+
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c))
+	require.Equal(t, 1, hub.logsSubscriberCount)
+	killClient(c) // newTestClient's conn is nil; killClient makes close() a no-op so handleClientDelete is safe to call directly.
+	hub.handleClientDelete(c)
+	assert.Equal(t, 0, hub.logsSubscriberCount, "disconnecting a client must decrement the counter for every address it accepted LOGS on")
 
 	mirrorHub := NewHub("http://mirror.example", "", nil)
 	assert.True(t, mirrorHub.HasLogsSubscriberOrMirror(), "a configured mirror must count even with no client subscribers")
+
+	apiKeyOnlyHub := NewHub("", "api-key-without-url", nil)
+	assert.False(t, apiKeyOnlyHub.HasLogsSubscriberOrMirror(), "an API key without a URL never actually enables the mirror (see NewHub)")
 }
 
 func TestStartServer_LogsEvent_MultipleEntriesDifferentAddresses(t *testing.T) {

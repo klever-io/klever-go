@@ -79,20 +79,28 @@ type userOptions struct {
 }
 
 type SocketHub struct {
-	mu                      sync.RWMutex
-	postConnectionURL       string
-	postConnectionAPIKey    string
-	// mirrorConfigured caches whether either mirror setting is non-empty, computed once at
-	// construction (neither field is ever mutated afterward) so per-event dispatch doesn't
-	// re-check two strings on every address-scoped event.
-	mirrorConfigured bool
-	facade           WSFacade
+	mu                   sync.RWMutex
+	postConnectionURL    string
+	postConnectionAPIKey string
+	// mirrorConfigured mirrors postQueue != nil (the mirror's actual enable condition — see
+	// NewHub, URL is the single source of truth) as a plain bool so per-event dispatch
+	// doesn't need to reach through the channel. Computed once at construction; neither
+	// underlying field is ever mutated afterward.
+	mirrorConfigured        bool
+	facade                  WSFacade
 	blockSubscription       map[*client]struct{}
 	transactionSubscription map[*client]struct{}
 	addressSubscription     map[string]map[*client]userOptions
 	clientAddresses         map[*client]int
-	limits                  resolvedLimits
-	unregister              chan *client
+	// logsSubscriberCount is the number of (address, client) entries currently accepting
+	// LOGS, maintained incrementally alongside addressSubscription (guarded by the same
+	// mu). HasLogsSubscriberOrMirror reads this instead of scanning addressSubscription,
+	// because it runs synchronously on the block-commit goroutine for every block with
+	// logs — an O(n) scan there would let a client cheaply inflate commit-goroutine cost
+	// simply by holding many address subscriptions, without ever accepting LOGS.
+	logsSubscriberCount int
+	limits              resolvedLimits
+	unregister          chan *client
 	// postQueue feeds the bounded postWSConnection worker pool; nil when the mirror is
 	// disabled (no URL configured — see NewHub), so asyncPost is a no-op and never
 	// allocates a goroutine or channel slot for a feature nobody turned on.
@@ -150,7 +158,7 @@ func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade, lim
 		transactionSubscription: make(map[*client]struct{}),
 		postConnectionURL:       postConnectionURL,
 		postConnectionAPIKey:    postConnectionAPIKey,
-		mirrorConfigured:        postConnectionURL != "" || postConnectionAPIKey != "",
+		mirrorConfigured:        postQueue != nil,
 		facade:                  facade,
 		limits:                  resolved,
 		postQueue:               postQueue,
@@ -268,14 +276,7 @@ func (h *SocketHub) HasLogsSubscriberOrMirror() bool {
 	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	for _, clients := range h.addressSubscription {
-		for _, opts := range clients {
-			if opts.acceptLogs {
-				return true
-			}
-		}
-	}
-	return false
+	return h.logsSubscriberCount > 0
 }
 
 func (h *SocketHub) broadcastToSubscription(parsed *Send, subscription map[*client]struct{}) {
@@ -584,7 +585,8 @@ func (h *SocketHub) addAddressSubscriptions(addresses []string, c *client, opts 
 		if opts.acceptTransaction {
 			existing.acceptTransaction = true
 		}
-		if opts.acceptLogs {
+		if opts.acceptLogs && !existing.acceptLogs {
+			h.logsSubscriberCount++
 			existing.acceptLogs = true
 		}
 		value[c] = existing
@@ -610,6 +612,7 @@ func (h *SocketHub) deleteAll() {
 		delete(h.addressSubscription, addr)
 	}
 	h.clientAddresses = make(map[*client]int)
+	h.logsSubscriberCount = 0
 
 	closeAndClear(h.blockSubscription)
 	closeAndClear(h.transactionSubscription)
@@ -626,6 +629,9 @@ func (h *SocketHub) handleClientDelete(c *client) {
 	// inner map empties. Without this, a disconnect leaks one map entry per address
 	// permanently (GHSA-4fwh-wrm6-97xm, Impact C).
 	for addr, clients := range h.addressSubscription {
+		if opts, has := clients[c]; has && opts.acceptLogs {
+			h.logsSubscriberCount--
+		}
 		delete(clients, c)
 		if len(clients) == 0 {
 			delete(h.addressSubscription, addr)
@@ -803,7 +809,8 @@ func (h *SocketHub) removeClientFromAddress(addr string, c *client, remove userO
 	if remove.acceptTransaction {
 		existing.acceptTransaction = false
 	}
-	if remove.acceptLogs {
+	if remove.acceptLogs && existing.acceptLogs {
+		h.logsSubscriberCount--
 		existing.acceptLogs = false
 	}
 	if !existing.acceptAccount && !existing.acceptTransaction && !existing.acceptLogs {
