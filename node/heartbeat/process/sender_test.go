@@ -316,6 +316,14 @@ func TestSender_SendHeartbeatUpdatesNodeTypeMetrics(t *testing.T) {
 			expectedNodeType: string(core.NodeTypeObserver),
 			expectedPeerType: string(core.ObserverList),
 		},
+		{
+			// pins the allowlist default: a peer type outside the validator
+			// set (unreachable via the provider today) maps to observer
+			name:             "inactive node reports observer node type",
+			peerType:         core.InactiveList,
+			expectedNodeType: string(core.NodeTypeObserver),
+			expectedPeerType: string(core.InactiveList),
+		},
 	}
 
 	for _, tc := range testCases {
