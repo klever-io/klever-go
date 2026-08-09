@@ -7,6 +7,7 @@ import (
 
 	cMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/node/heartbeat"
 	"github.com/klever-io/klever-go/node/heartbeat/mock"
 	"github.com/klever-io/klever-go/tools/check"
@@ -141,4 +142,46 @@ func TestNewHeartbeatHandler_ShouldWork(t *testing.T) {
 
 	// let the sending go routine finish
 	time.Sleep(time.Second)
+}
+
+func TestHeartbeatHandler_RefreshPeerTypeCache(t *testing.T) {
+	t.Parallel()
+
+	newPK := []byte("new_validator")
+	targetEpoch := uint32(7)
+
+	arg := createMockArgument()
+	hbh, err := NewHeartbeatHandler(arg)
+	require.Nil(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, hbh.Close())
+	})
+
+	peerType, _, _ := hbh.peerTypeProvider.ComputeForPubKey(newPK)
+	assert.Equal(t, core.ObserverList, peerType)
+
+	var capturedEpoch uint32
+	ncMock := arg.NodesCoordinator.(*cMock.NodesCoordinatorMock)
+	ncMock.GetAllElectedValidatorsKeysWithEpochCalled = func(epoch uint32, _ bool) ([][]byte, error) {
+		capturedEpoch = epoch
+		return [][]byte{newPK}, nil
+	}
+
+	hbh.RefreshPeerTypeCache(targetEpoch)
+
+	assert.Equal(t, targetEpoch, capturedEpoch)
+	peerType, _, _ = hbh.peerTypeProvider.ComputeForPubKey(newPK)
+	assert.Equal(t, core.ElectedList, peerType)
+}
+
+func TestHeartbeatHandler_RefreshPeerTypeCache_NilProvider(t *testing.T) {
+	t.Parallel()
+
+	hbh := &HeartbeatHandler{
+		peerTypeProvider: nil,
+	}
+
+	assert.NotPanics(t, func() {
+		hbh.RefreshPeerTypeCache(0)
+	})
 }

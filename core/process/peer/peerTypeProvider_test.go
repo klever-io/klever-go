@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -84,7 +85,7 @@ func TestPeerTypeProvider_UpdateCache(t *testing.T) {
 		mutCache:         sync.RWMutex{},
 	}
 
-	ptp.updateCache(0)
+	ptp.UpdateCache(0)
 
 	assert.NotNil(t, ptp.cache)
 	assert.Equal(t, len(elected), len(ptp.cache))
@@ -120,8 +121,9 @@ func TestNewPeerTypeProvider_createCache(t *testing.T) {
 		mutCache:         sync.RWMutex{},
 	}
 
-	cache := ptp.createNewCache(0)
+	cache, ok := ptp.createNewCache(0)
 
+	require.True(t, ok)
 	assert.NotNil(t, cache)
 
 	assert.NotNil(t, cache[pkElected])
@@ -274,8 +276,9 @@ func TestPeerTypeProvider_CreateNewCacheScenarios(t *testing.T) {
 	}
 	ptp, _ := NewPeerTypeProvider(arg)
 
-	cache := ptp.createNewCache(0)
-	assert.Len(t, cache, 3)
+	cache, ok := ptp.createNewCache(0)
+	require.True(t, ok)
+	require.Len(t, cache, 3)
 	assert.Equal(t, core.EligibleList, cache["elected1"].pType) // elected1 is also eligible as it have been updated in the eligible list
 	assert.Equal(t, core.ElectedList, cache["elected2"].pType)
 	assert.Equal(t, core.EligibleList, cache["eligible1"].pType)
@@ -316,4 +319,64 @@ func TestPeerTypeProvider_GetAllPeerTypeInfos(t *testing.T) {
 	ptp.cache = make(map[string]*peerListAndShard)
 	emptyPeerTypeInfos := ptp.GetAllPeerTypeInfos()
 	assert.Empty(t, emptyPeerTypeInfos, "Should return empty slice for empty cache")
+}
+
+func TestPeerTypeProvider_UpdateCache_KeepsPreviousOnFailure(t *testing.T) {
+	t.Parallel()
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte("elected1")}, nil
+		},
+		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte("eligible1")}, nil
+		},
+	}
+
+	ptp := PeerTypeProvider{
+		nodesCoordinator: arg.NodesCoordinator,
+		cache:            nil,
+		mutCache:         sync.RWMutex{},
+	}
+
+	ptp.UpdateCache(0)
+	require.Len(t, ptp.cache, 2)
+
+	ptp.nodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+			return nil, fmt.Errorf("epoch config does not exist")
+		},
+	}
+
+	ptp.UpdateCache(99)
+
+	require.Len(t, ptp.cache, 2)
+	assert.Equal(t, core.ElectedList, ptp.cache["elected1"].pType)
+	assert.Equal(t, core.EligibleList, ptp.cache["eligible1"].pType)
+}
+
+func TestPeerTypeProvider_CreateNewCache_FailsOnAnyGetterError(t *testing.T) {
+	t.Parallel()
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte("elected1")}, nil
+		},
+		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
+			return nil, fmt.Errorf("eligible list unavailable")
+		},
+	}
+
+	ptp := PeerTypeProvider{
+		nodesCoordinator: arg.NodesCoordinator,
+		cache:            nil,
+		mutCache:         sync.RWMutex{},
+	}
+
+	cache, ok := ptp.createNewCache(0)
+
+	assert.False(t, ok)
+	assert.Nil(t, cache)
 }
