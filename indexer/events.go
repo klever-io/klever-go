@@ -11,6 +11,16 @@ const eventQueueBufferSize = 1000
 var EventQueue = make(chan Event, eventQueueBufferSize)
 var UseEventQueue bool
 
+// LogsSubscriberChecker, when set (by the websocket hub during its construction),
+// reports whether dispatching a LOGS event would actually be delivered anywhere — an
+// address-scoped LOGS subscriber, or a configured mirror endpoint. dispatchLogEvents
+// consults it before paying the full bech32/hex-encoding conversion cost on the
+// block-commit goroutine, so a block with many SC events costs nothing extra when nobody
+// would receive them. nil (no hub wired yet, or this indexer package used outside the
+// websocket feature) is treated as "yes, convert" so nothing is silently dropped absent a
+// hub that could report otherwise.
+var LogsSubscriberChecker func() bool
+
 type Event struct {
 	EvType  EventType
 	Message interface{}

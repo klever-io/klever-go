@@ -14,6 +14,18 @@ var Logs = Object{
 			"address": Object{
 				"type": "keyword",
 			},
+			"caller": Object{
+				"type": "keyword",
+			},
+			"contractId": Object{
+				"type": "integer",
+			},
+			"status": Object{
+				"type": "keyword",
+			},
+			"resultCode": Object{
+				"type": "keyword",
+			},
 			"events": Object{
 				"type": "nested",
 				"properties": Object{
@@ -29,6 +41,12 @@ var Logs = Object{
 					},
 					"topics": Object{
 						"type": "text",
+					},
+					"order": Object{
+						"type": "integer",
+					},
+					"isSystemLog": Object{
+						"type": "boolean",
 					},
 				},
 			},

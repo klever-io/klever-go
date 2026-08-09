@@ -525,14 +525,10 @@ func TestEventsProcessor_SaveBlock_DispatchesLogEvents(t *testing.T) {
 	assert.True(t, entry.Events[0].IsSystemLog)
 }
 
-// TestEventsProcessor_SaveBlock_DispatchesLogEvents_WhenPrepareIsSkipped guards the fix
-// for a real bug: dispatchLogEvents used to live inside the `if prepared != nil` branch,
-// so a block with no txs (or a prepare() failure) meant prepared == nil and the block's
-// LOGS silently never dispatched, even though pool.Logs doesn't depend on prepared at
-// all. Txs is left empty here so prepare() takes its early-return-nil path (same
-// prepared == nil outcome prepareTransactionsForDatabase erroring would produce), and
-// txsMap is nil as a result — Caller/Status/ResultCode must degrade to zero values
-// instead of panicking on a nil map read.
+// TestEventsProcessor_SaveBlock_DispatchesLogEvents_WhenPrepareIsSkipped: LOGS must still
+// dispatch when prepared == nil (empty Txs forces prepare()'s early-return path), with
+// Caller/Status/ResultCode degrading to zero values on the resulting nil txsMap instead of
+// panicking.
 func TestEventsProcessor_SaveBlock_DispatchesLogEvents_WhenPrepareIsSkipped(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
 	ep := createTestEventsProcessor(t)
@@ -567,6 +563,33 @@ func TestEventsProcessor_SaveBlock_DispatchesLogEvents_WhenPrepareIsSkipped(t *t
 	assert.Empty(t, entry.Caller, "txsMap is nil: Caller must degrade to zero value, not panic")
 	assert.Empty(t, entry.Status)
 	assert.Empty(t, entry.ResultCode)
+}
+
+// TestEventsProcessor_SaveBlock_SkipsLogConversionWithNoSubscriber guards the fix for a
+// real perf/consensus-timing concern: dispatchLogEvents used to always pay the full
+// bech32/hex-encoding PrepareLogsForDB conversion on the block-commit goroutine whenever
+// UseEventQueue was on, even when no client subscribed to LOGS and no mirror was
+// configured — the hub's own subscriber gate only skipped cost later, per entry, after
+// conversion had already run for all of them. LogsSubscriberChecker lets the commit
+// goroutine skip the conversion (and the LOGS event) entirely in that case.
+func TestEventsProcessor_SaveBlock_SkipsLogConversionWithNoSubscriber(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	original := LogsSubscriberChecker
+	LogsSubscriberChecker = func() bool { return false }
+	t.Cleanup(func() { LogsSubscriberChecker = original })
+
+	ep := createTestEventsProcessor(t)
+
+	logHandler := &transaction.Log{Address: []byte("contractaddr"), ContractID: 7}
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txHash1"}},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	logsEvent := findEventType(drainAllEvents(testQueue), LOGS)
+	assert.Nil(t, logsEvent, "LOGS must not dispatch when LogsSubscriberChecker reports nobody is listening")
 }
 
 func TestEventsProcessor_SaveBlock_NoLogsNoOp(t *testing.T) {
@@ -783,6 +806,63 @@ func TestEventsProcessor_SaveBlock_DispatchesAllEventsAndPreparesIndexer(t *test
 	require.NotNil(t, prepared)
 	require.NotEmpty(t, prepared.Txs)
 	require.NotNil(t, prepared.Altered)
+}
+
+// TestEventsProcessor_SaveBlock_PreparesLogsResultsWhenIndexerActive guards the fix for a
+// real data race: SaveTransactions (elasticProcessor, invoked asynchronously via
+// indexer.SaveBlock -> dispatcher.Add) used to call ExtractDataFromLogs itself, mutating
+// tx.HasLogs/tx.HasOperations on the same *data.Transaction pointers the websocket hub
+// concurrently json.Marshals via dispatchTransactionEvents on a different goroutine
+// (caught under -race). SaveBlock must now run ExtractDataFromLogs synchronously, before
+// either consumer can touch prepared.Txs, and stash the result on prepared.LogsResults
+// (plus PrepareLogsForDB's own result on prepared.LogsDB) for the elastic worker to reuse
+// instead of recomputing.
+func TestEventsProcessor_SaveBlock_PreparesLogsResultsWhenIndexerActive(t *testing.T) {
+	saveAndRestoreEventQueue(t, true)
+
+	acc := createTestAccountStub()
+	accountsDB := &mock.AccountsStub{
+		GetExistingAccountCalled: func(_ []byte) (state.AccountHandler, error) { return acc, nil },
+	}
+
+	var receivedPrepared any
+	idx := &indexerStub{
+		isNilIndexer:    false,
+		saveBlockCalled: func(args *indexer.ArgsSaveBlockData) { receivedPrepared = args.Prepared },
+	}
+
+	ep, err := NewEventsProcessor(ArgEventsProcessor{
+		Marshalizer:              &mock.MarshalizerMock{},
+		Hasher:                   &mock.HasherMock{},
+		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
+		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
+		Indexer:                  idx,
+		AccountsDB:               accountsDB,
+	})
+	require.NoError(t, err)
+
+	contract := transaction.TransferContract{ToAddress: []byte("receiver"), Amount: 100}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	require.NoError(t, err)
+
+	logHandler := &transaction.Log{Address: []byte("contractaddr"), ContractID: 7}
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Txs:  map[string]nodeData.TransactionHandler{"txHash1": tx},
+		Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txHash1"}},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	prepared, ok := receivedPrepared.(*data.PreparedBlockData)
+	require.True(t, ok)
+	require.NotNil(t, prepared.LogsResults, "LogsResults must be computed synchronously when both ws and indexer are active")
+	require.NotNil(t, prepared.LogsDB, "LogsDB must be stashed for the elastic worker to reuse")
+	require.Len(t, prepared.LogsDB, 1)
+	require.NotEmpty(t, prepared.TxsMap)
+	for _, dbTx := range prepared.TxsMap {
+		assert.True(t, dbTx.HasLogs, "ExtractDataFromLogs must have already set HasLogs before args.Prepared was handed off")
+	}
 }
 
 // Regression: SaveBlock must not drain TransactionsPool.Txs — the work item

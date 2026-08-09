@@ -102,17 +102,19 @@ func (ep *eventsProcessor) SaveBlock(args *indexerData.ArgsSaveBlockData) {
 		ep.dispatchBlockEvent(args)
 		var txsMap map[string]*data.Transaction
 		if prepared != nil {
+			txsMap = prepared.TxsMap
+			if indexerEnabled {
+				// Run here, synchronously, so the elastic worker's async SaveTransactions
+				// doesn't race the websocket hub's json.Marshal of the same prepared.Txs
+				// pointers by mutating tx.HasLogs/HasOperations on its own goroutine.
+				prepared.LogsResults = ep.logsAndEventsProc.ExtractDataFromLogs(args.TransactionsPool, prepared.Txs, args.Header.GetTimestamp())
+			}
 			ep.dispatchTransactionEvents(prepared.Txs)
 			ep.dispatchAccountEventsFromAlteredAccounts(args.Header.GetTimestamp(), prepared.Altered.Accounts)
-			txsMap = prepared.TxsMap
 		}
-		// Unlike USER_TRANSACTIONS/ACCOUNTS, logs don't depend on prepared: dispatchLogEvents
-		// only needs TransactionsPool.Logs plus an optional txsMap for Caller/Status/
-		// ResultCode (already nil-safe on a miss). Dispatching it here, outside the
-		// prepared-only branch, matches how BLOCKS already ships regardless of prepare()
-		// succeeding — otherwise a tx-prep failure would silently drop a whole block's
-		// logs from the feed while BLOCKS still shipped normally.
-		ep.dispatchLogEvents(args.TransactionsPool, txsMap, args.Header.GetTimestamp())
+		// Dispatched outside the prepared-only branch: a tx-prep failure must not silently
+		// drop a block's logs, same as BLOCKS already ships regardless of prepare().
+		ep.dispatchLogEvents(prepared, args.TransactionsPool, txsMap, args.Header.GetTimestamp())
 		if indexerEnabled {
 			args.Prepared = prepared
 		}
@@ -176,13 +178,21 @@ func (ep *eventsProcessor) dispatchTransactionEvents(txs []*data.Transaction) {
 // dispatchLogEvents converts the block's raw smart-contract logs into the same shape
 // already used for the Elasticsearch index (bech32 addresses, hex topics/data) and
 // dispatches them as one LOGS event; the websocket hub fans each entry out by its
-// contract address, same as it does per-account for ACCOUNTS.
-func (ep *eventsProcessor) dispatchLogEvents(pool *indexerData.Pool, txsMap map[string]*data.Transaction, blockTimestamp int64) {
+// contract address, same as it does per-account for ACCOUNTS. When prepared is non-nil,
+// the conversion is also stashed on it (PreparedBlockData.LogsDB) so the elastic worker's
+// own logs indexing reuses it instead of paying the same bech32/hex-encoding pass twice.
+func (ep *eventsProcessor) dispatchLogEvents(prepared *data.PreparedBlockData, pool *indexerData.Pool, txsMap map[string]*data.Transaction, blockTimestamp int64) {
 	if pool == nil || len(pool.Logs) == 0 {
+		return
+	}
+	if LogsSubscriberChecker != nil && !LogsSubscriberChecker() {
 		return
 	}
 
 	logsDB := ep.logsAndEventsProc.PrepareLogsForDB(pool.Logs, txsMap, blockTimestamp)
+	if prepared != nil {
+		prepared.LogsDB = logsDB
+	}
 	if len(logsDB) == 0 {
 		return
 	}

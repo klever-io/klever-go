@@ -41,11 +41,8 @@ type Logs struct {
 	Caller     string        `json:"caller,omitempty"`
 	ContractID int32         `json:"contractId"`
 	Timestamp  time.Duration `json:"timestamp"`
-	// Status/ResultCode mirror the producing transaction's own fields (Transaction.Status/
-	// ResultCode above) so a consumer can tell a log from a reverted/failed transaction
-	// apart from one that actually committed, instead of treating every log as if its
-	// effects landed. Empty when the log's transaction hash isn't found in the block's
-	// tx map (same miss case that already leaves Caller empty).
+	// Status/ResultCode mirror the producing transaction's own fields, so a reverted/failed
+	// transaction's logs are distinguishable from a committed one's.
 	Status     string   `json:"status,omitempty"`
 	ResultCode string   `json:"resultCode,omitempty"`
 	Events     []*Event `json:"events"`

@@ -1100,6 +1100,49 @@ func TestStartServer_LogsEvent(t *testing.T) {
 	env.teardown(c)
 }
 
+// TestStartServer_AccountsEvent_NoSubscribersButMirrorConfigured guards the fix
+// generalizing the "skip when nobody's listening" gate (previously LOGS-only) to every
+// address-scoped handler via dispatchToAddress: an ACCOUNTS event with zero subscribers
+// must still reach a configured mirror, exactly as it did before the gate was
+// generalized, since the gate only skips when there is neither a subscriber nor a mirror.
+func TestStartServer_AccountsEvent_NoSubscribersButMirrorConfigured(t *testing.T) {
+	receivedCh := make(chan []byte, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedCh <- body
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	hub := NewHub(ts.URL, "", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	origQueue := indexer.EventQueue
+	testQueue := make(chan indexer.Event, 10)
+	indexer.EventQueue = testQueue
+	t.Cleanup(func() { indexer.EventQueue = origQueue })
+	done := make(chan struct{})
+	go func() {
+		hub.StartServer(ctx)
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	testQueue <- indexer.Event{
+		EvType:  indexer.ACCOUNTS,
+		Message: map[string]*data.AccountInfo{"klv1nobody": {Address: "klv1nobody"}},
+	}
+
+	select {
+	case body := <-receivedCh:
+		assert.Contains(t, string(body), "klv1nobody")
+	case <-time.After(2 * time.Second):
+		t.Fatal("mirror did not receive the ACCOUNTS event despite having no subscribers")
+	}
+}
+
 func TestStartServer_LogsEvent_NoSubscribers(t *testing.T) {
 	env := startServerEnv(t, nil)
 	c := newTestClient(env.hub)
@@ -1121,6 +1164,25 @@ func TestStartServer_LogsEvent_NoSubscribers(t *testing.T) {
 	assert.Equal(t, indexer.BLOCKS, s.Type)
 
 	env.teardown(c)
+}
+
+func TestHasLogsSubscriberOrMirror(t *testing.T) {
+	hub := newTestHub(nil)
+	assert.False(t, hub.HasLogsSubscriberOrMirror(), "no client, no mirror: nothing would receive a LOGS event")
+
+	c := newTestClient(hub)
+	hub.mu.Lock()
+	hub.addressSubscription["klv1contract"] = map[*client]userOptions{c: {acceptAccount: true}}
+	hub.mu.Unlock()
+	assert.False(t, hub.HasLogsSubscriberOrMirror(), "a subscriber for a different type must not count as a LOGS subscriber")
+
+	hub.mu.Lock()
+	hub.addressSubscription["klv1contract"] = map[*client]userOptions{c: {acceptLogs: true}}
+	hub.mu.Unlock()
+	assert.True(t, hub.HasLogsSubscriberOrMirror(), "an address-scoped LOGS subscriber must count")
+
+	mirrorHub := NewHub("http://mirror.example", "", nil)
+	assert.True(t, mirrorHub.HasLogsSubscriberOrMirror(), "a configured mirror must count even with no client subscribers")
 }
 
 func TestStartServer_LogsEvent_MultipleEntriesDifferentAddresses(t *testing.T) {
