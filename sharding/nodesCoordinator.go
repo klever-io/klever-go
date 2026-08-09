@@ -284,11 +284,14 @@ func (ihgs *indexHashedNodesCoordinator) LoadState(key []byte) error {
 
 	displayNodesConfigInfo(nodesConfig)
 
-	publicKeyToValidatorMap := ihgs.computePublicKeyToValidatorMap(nodesConfig)
-
 	ihgs.mutNodesConfig.Lock()
 	ihgs.nodesConfig = nodesConfig
-	ihgs.publicKeyToValidatorMap = publicKeyToValidatorMap
+	publicKeyToValidatorMap := ihgs.computePublicKeyToValidatorMap(ihgs.nodesConfig)
+	if len(publicKeyToValidatorMap) > 0 {
+		ihgs.publicKeyToValidatorMap = publicKeyToValidatorMap
+	} else {
+		log.Warn("LoadState: restored registry produced empty validator map, keeping existing lookup")
+	}
 	ihgs.mutNodesConfig.Unlock()
 
 	ihgs.stateReady.Store(true)

@@ -809,37 +809,34 @@ func TestNodesCoordinator_LoadStateRefillsPublicKeyToValidatorMap(t *testing.T) 
 func TestNodesCoordinator_LoadStateMultiEpochPrecedence(t *testing.T) {
 	t.Parallel()
 
-	sharedPK := []byte("shared-pk-appears-in-both-epochs")
+	sharedPK := []byte("shared-pk-appears-in-all-epochs")
 	bootStorer := mock.NewStorerMock()
 
-	epoch4Elected := []Validator{
-		mock.NewValidatorMock(sharedPK, sharedPK, DefaultSelectionChances, 10),
-		mock.NewValidatorMock([]byte("pk4_1"), []byte("pk4_1"), DefaultSelectionChances, 1),
-		mock.NewValidatorMock([]byte("pk4_2"), []byte("pk4_2"), DefaultSelectionChances, 2),
-		mock.NewValidatorMock([]byte("pk4_3"), []byte("pk4_3"), DefaultSelectionChances, 3),
-	}
-	epoch5Elected := []Validator{
-		mock.NewValidatorMock(sharedPK, sharedPK, DefaultSelectionChances, 20),
-		mock.NewValidatorMock([]byte("pk5_1"), []byte("pk5_1"), DefaultSelectionChances, 1),
-		mock.NewValidatorMock([]byte("pk5_2"), []byte("pk5_2"), DefaultSelectionChances, 2),
-		mock.NewValidatorMock([]byte("pk5_3"), []byte("pk5_3"), DefaultSelectionChances, 3),
+	baseEpoch := uint32(4)
+	numEpochs := uint32(5)
+	highestEpoch := baseEpoch + numEpochs - 1
+
+	makeElected := func(epoch, index uint32) []Validator {
+		return []Validator{
+			mock.NewValidatorMock(sharedPK, sharedPK, DefaultSelectionChances, index),
+			mock.NewValidatorMock([]byte(fmt.Sprintf("pk%d_1", epoch)), []byte(fmt.Sprintf("pk%d_1", epoch)), DefaultSelectionChances, 1),
+			mock.NewValidatorMock([]byte(fmt.Sprintf("pk%d_2", epoch)), []byte(fmt.Sprintf("pk%d_2", epoch)), DefaultSelectionChances, 2),
+			mock.NewValidatorMock([]byte(fmt.Sprintf("pk%d_3", epoch)), []byte(fmt.Sprintf("pk%d_3", epoch)), DefaultSelectionChances, 3),
+		}
 	}
 
 	args := createArguments()
 	args.BootStorer = bootStorer
-	args.ElectedNodes = epoch4Elected
+	args.ElectedNodes = makeElected(baseEpoch, baseEpoch*10)
 	args.EligibleNodes = createDummyNodesList(0, "eligible")
-	args.Epoch = 4
+	args.Epoch = baseEpoch
+	args.StartEpoch = baseEpoch
 	coordinator, err := NewNodesCoordinator(args)
 	require.Nil(t, err)
 
-	selector5, err := coordinator.createSelector(&epochNodesConfig{electedList: epoch5Elected})
-	require.Nil(t, err)
-	coordinator.nodesConfig[5] = &epochNodesConfig{
-		electedList:  epoch5Elected,
-		eligibleList: []Validator{},
-		waitingList:  []Validator{},
-		selector:     selector5,
+	for ep := baseEpoch + 1; ep <= highestEpoch; ep++ {
+		err = coordinator.SetNodes(makeElected(ep, ep*10), []Validator{}, []Validator{}, ep)
+		require.Nil(t, err)
 	}
 
 	savedKey := []byte("multi-epoch-key")
@@ -858,8 +855,8 @@ func TestNodesCoordinator_LoadStateMultiEpochPrecedence(t *testing.T) {
 
 	v, err := coordinatorLoad.GetValidatorWithPublicKey(sharedPK)
 	require.Nil(t, err)
-	require.Equal(t, uint32(20), v.Index(),
-		"later epoch (5) should take precedence over earlier epoch (4)")
+	require.Equal(t, highestEpoch*10, v.Index(),
+		"later epoch should take precedence over earlier epochs")
 }
 
 func TestNodesCoordinator_ConstructorDoesNotOverwriteSavedStateOnRestart(t *testing.T) {
@@ -901,6 +898,7 @@ func TestNodesCoordinator_ConstructorDoesNotOverwriteSavedStateOnRestart(t *test
 	thirdArgs.Hasher = firstArgs.Hasher
 	thirdArgs.ElectedNodes = genesisElected
 	thirdArgs.EligibleNodes = genesisEligible
+	thirdArgs.Epoch = 5
 	thirdArgs.StartEpoch = 5
 	thirdCoordinator, err := NewNodesCoordinator(thirdArgs)
 	require.Nil(t, err)
