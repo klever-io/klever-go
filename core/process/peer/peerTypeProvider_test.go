@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -403,6 +404,35 @@ func TestPeerTypeProvider_CreateNewCache_AllThreeOverlap(t *testing.T) {
 
 	assert.Len(t, cache, 1)
 	assert.Equal(t, core.EligibleList, cache[pk].pType)
+}
+
+func TestPeerTypeProvider_CreateNewCache_WaitingErrorDoesNotAffectOtherLists(t *testing.T) {
+	t.Parallel()
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+		GetAllWaitingValidatorsKeysCalled: func() ([][]byte, error) {
+			return nil, fmt.Errorf("waiting list unavailable")
+		},
+		GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte("elected1")}, nil
+		},
+		GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
+			return [][]byte{[]byte("eligible1")}, nil
+		},
+	}
+
+	ptp := PeerTypeProvider{
+		nodesCoordinator: arg.NodesCoordinator,
+		cache:            nil,
+		mutCache:         sync.RWMutex{},
+	}
+
+	cache := ptp.createNewCache(0)
+
+	assert.Len(t, cache, 2)
+	assert.Equal(t, core.ElectedList, cache["elected1"].pType)
+	assert.Equal(t, core.EligibleList, cache["eligible1"].pType)
 }
 
 func TestPeerTypeProvider_CreateNewCache_WaitingOverwrittenByEligible(t *testing.T) {

@@ -152,6 +152,9 @@ func TestHeartbeatHandler_RefreshPeerTypeCache(t *testing.T) {
 	arg := createMockArgument()
 	hbh, err := NewHeartbeatHandler(arg)
 	require.Nil(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, hbh.Close())
+	})
 
 	peerType, _, _ := hbh.peerTypeProvider.ComputeForPubKey(newPK)
 	assert.Equal(t, core.ObserverList, peerType)
@@ -165,10 +168,6 @@ func TestHeartbeatHandler_RefreshPeerTypeCache(t *testing.T) {
 
 	peerType, _, _ = hbh.peerTypeProvider.ComputeForPubKey(newPK)
 	assert.Equal(t, core.ElectedList, peerType)
-
-	time.Sleep(time.Second)
-	_ = hbh.Close()
-	time.Sleep(time.Second)
 }
 
 func TestHeartbeatHandler_RefreshPeerTypeCache_NilProvider(t *testing.T) {
