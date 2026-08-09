@@ -111,7 +111,7 @@ func TestValidatorsProvider_GetLatestValidators(t *testing.T) {
 
 	t.Run("should return cached validators if cache is fresh", func(t *testing.T) {
 		arg := createDefaultValidatorsProviderArg()
-		vp, _ := NewValidatorsProvider(arg)
+		vp := newTestValidatorsProvider(arg)
 
 		// Manually set cache and last update time
 		vp.cache = map[string]*state.ValidatorApiResponse{
@@ -137,7 +137,7 @@ func TestValidatorsProvider_GetLatestValidators(t *testing.T) {
 				}, nil
 			},
 		}
-		vp, _ := NewValidatorsProvider(arg)
+		vp := newTestValidatorsProvider(arg)
 
 		// Set an old cache
 		vp.cache = map[string]*state.ValidatorApiResponse{
@@ -163,7 +163,7 @@ func TestValidatorsProvider_GetLatestPeers(t *testing.T) {
 				return nil
 			},
 		}
-		vp, _ := NewValidatorsProvider(arg)
+		vp := newTestValidatorsProvider(arg)
 
 		peers := vp.GetLatestPeers()
 		assert.Nil(t, peers)
@@ -182,7 +182,7 @@ func TestValidatorsProvider_GetLatestPeers(t *testing.T) {
 				}, nil
 			},
 		}
-		vp, _ := NewValidatorsProvider(arg)
+		vp := newTestValidatorsProvider(arg)
 
 		peers := vp.GetLatestPeers()
 		assert.Len(t, peers, 2)
@@ -199,7 +199,7 @@ func TestValidatorsProvider_UpdateCache(t *testing.T) {
 				return nil
 			},
 		}
-		vp, _ := NewValidatorsProvider(arg)
+		vp := newTestValidatorsProvider(arg)
 
 		vp.updateCache()
 		assert.Empty(t, vp.cache)
@@ -217,7 +217,7 @@ func TestValidatorsProvider_UpdateCache(t *testing.T) {
 				}, nil
 			},
 		}
-		vp, _ := NewValidatorsProvider(arg)
+		vp := newTestValidatorsProvider(arg)
 
 		vp.updateCache()
 		assert.Len(t, vp.cache, 1)
@@ -238,7 +238,7 @@ func TestValidatorsProvider_CreateNewCache(t *testing.T) {
 				return [][]byte{[]byte("eligible")}, nil
 			},
 		}
-		vp, _ := NewValidatorsProvider(arg)
+		vp := newTestValidatorsProvider(arg)
 
 		cache := vp.createNewCache(0, []*state.ValidatorInfo{
 			{PublicKey: []byte("elected"), List: string(core.ElectedList)},
@@ -259,6 +259,66 @@ func TestValidatorsProvider_Close(t *testing.T) {
 
 	err := vp.Close()
 	assert.Nil(t, err)
+}
+
+func TestValidatorsProvider_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	arg := createDefaultValidatorsProviderArg()
+	arg.ValidatorStatistics = &mock.ValidatorStatisticsProcessorStub{
+		LastFinalizedRootHashCalled: func() []byte {
+			return []byte("rootHash")
+		},
+		GetValidatorInfoForRootHashCalled: func(rootHash []byte) ([]*state.ValidatorInfo, error) {
+			return []*state.ValidatorInfo{
+				{PublicKey: []byte("validator1"), List: string(core.EligibleList)},
+			}, nil
+		},
+	}
+	vp, err := NewValidatorsProvider(arg)
+	assert.Nil(t, err)
+
+	// hammer the public read path while the background refresher is alive;
+	// the 1ms refresh interval keeps forcing the stale->updateCache path
+	wg := sync.WaitGroup{}
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				_ = vp.GetLatestValidators()
+			}
+		}()
+	}
+
+	// force refreshes through the epoch channel, as epochStartEventHandler does
+	for epoch := uint32(0); epoch < 10; epoch++ {
+		vp.refreshCache <- epoch
+	}
+
+	wg.Wait()
+	assert.Nil(t, vp.Close())
+
+	validators := vp.GetLatestValidators()
+	assert.Contains(t, validators, hex.EncodeToString([]byte("validator1")))
+}
+
+// newTestValidatorsProvider builds a validatorsProvider without launching the
+// background refresh goroutine, keeping cache-focused unit tests deterministic
+// and race-free. The constructor's goroutine/lifecycle is covered separately by
+// the NewValidatorsProvider-based tests (Close, Cancel_startRefreshProcess).
+func newTestValidatorsProvider(arg ArgValidatorsProvider) *validatorsProvider {
+	return &validatorsProvider{
+		nodesCoordinator:             arg.NodesCoordinator,
+		validatorStatistics:          arg.ValidatorStatistics,
+		cache:                        make(map[string]*state.ValidatorApiResponse),
+		cacheRefreshIntervalDuration: arg.CacheRefreshInterval,
+		refreshCache:                 make(chan uint32),
+		cancelFunc:                   func() {},
+		pubkeyConverter:              arg.PubKeyConverter,
+		maxRating:                    arg.MaxRating,
+		currentEpoch:                 arg.StartEpoch,
+	}
 }
 
 func createDefaultValidatorsProviderArg() ArgValidatorsProvider {
