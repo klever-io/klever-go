@@ -14,6 +14,7 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewValidatorsProvider_WithNilValidatorStatisticsShouldErr(t *testing.T) {
@@ -276,7 +277,8 @@ func TestValidatorsProvider_ConcurrentAccess(t *testing.T) {
 		},
 	}
 	vp, err := NewValidatorsProvider(arg)
-	assert.Nil(t, err)
+	require.Nil(t, err)
+	t.Cleanup(func() { _ = vp.Close() })
 
 	// hammer the public read path while the background refresher is alive;
 	// the 1ms refresh interval keeps forcing the stale->updateCache path
