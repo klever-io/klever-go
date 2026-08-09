@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/network/p2p"
 	"github.com/klever-io/klever-go/node/heartbeat"
 	"github.com/klever-io/klever-go/node/heartbeat/data"
@@ -16,6 +17,7 @@ import (
 	"github.com/klever-io/klever-go/node/heartbeat/storage"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var fromConnectedPeerId = core.PeerID("from connected peer Id")
@@ -409,6 +411,7 @@ func TestMonitor_RemoveInactiveValidatorsIfIntervalExceeded(t *testing.T) {
 	pubKey2 := "pk2-eligible"
 	pubKey3 := "pk3-observer"
 	pubKey4 := "pk4-inactive"
+	pubKey5 := "pk5-waiting"
 
 	storer, _ := storage.NewHeartbeatDbStorer(mock.NewStorerMock(), &mock.MarshalizerMock{})
 
@@ -436,6 +439,8 @@ func TestMonitor_RemoveInactiveValidatorsIfIntervalExceeded(t *testing.T) {
 					return core.ObserverList, 0, nil
 				case pubKey4:
 					return core.InactiveList, 0, nil
+				case pubKey5:
+					return core.WaitingList, 0, nil
 				}
 				return core.ObserverList, 0, nil
 			},
@@ -447,28 +452,32 @@ func TestMonitor_RemoveInactiveValidatorsIfIntervalExceeded(t *testing.T) {
 		HideInactiveValidatorIntervalInSec: 600,
 	}
 	mon, _ := process.NewMonitor(arg)
+	defer func() {
+		_ = mon.Close()
+	}()
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pkValidator)})
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey1)})
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey2)})
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey3)})
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey4)})
+	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey5)})
 
 	// Check that all are added
 	mon.RefreshHeartbeatMessageInfo()
 	hbStatus := mon.GetHeartbeats()
-	assert.Equal(t, 5, len(hbStatus))
+	assert.Equal(t, 6, len(hbStatus))
 
 	timer.IncrementSeconds(int(arg.HideInactiveValidatorIntervalInSec) - 20)
 	mon.RefreshHeartbeatMessageInfo()
 	hbStatus = mon.GetHeartbeats()
-	assert.Equal(t, 5, len(hbStatus))
+	assert.Equal(t, 6, len(hbStatus))
 
 	// increase to over HideInactiveValidatorIntervalInSec ~ 10 min
 	timer.IncrementSeconds(int(arg.HideInactiveValidatorIntervalInSec) + 10)
 	mon.RefreshHeartbeatMessageInfo()
 	hbStatus = mon.GetHeartbeats()
-	// check if pk1 and pk2 are still on
-	assert.Equal(t, 2, len(hbStatus))
+	// check if pk1, pk2 and pk5 are still on
+	assert.Equal(t, 3, len(hbStatus))
 }
 
 func TestMonitor_ProcessReceivedMessageImpersonatedMessageShouldErr(t *testing.T) {
@@ -556,6 +565,150 @@ func TestMonitor_AddAndGetDoubleSignerPeersShouldWork(t *testing.T) {
 
 	mon.AddDoubleSignerPeers(&data.Heartbeat{Pubkey: []byte("pk3"), Pid: []byte("pid3.4")})
 	assert.Equal(t, uint64(1), mon.GetNumInstancesOfPublicKey(string("pk3")))
+}
+
+func TestMonitor_WaitingNodeSurvivesRefreshAndCleanupRounds(t *testing.T) {
+	t.Parallel()
+
+	pkWaiting := "pk-waiting"
+
+	timer := mock.NewTimerMock()
+	genesisTime := timer.Now()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.GenesisTime = genesisTime
+	arg.Timer = timer
+	arg.PubKeysList = []string{}
+	arg.PeerTypeProvider = &mock.PeerTypeProviderStub{
+		ComputeForPubKeyCalled: func(pubKey []byte) (core.PeerType, uint32, error) {
+			if string(pubKey) == pkWaiting {
+				return core.WaitingList, 0, nil
+			}
+			return core.ObserverList, 0, nil
+		},
+		GetAllPeerTypeInfosCalled: func() []*state.PeerTypeInfo {
+			return []*state.PeerTypeInfo{
+				{PublicKey: pkWaiting, PeerType: string(core.WaitingList)},
+			}
+		},
+	}
+	mon, err := process.NewMonitor(arg)
+	require.Nil(t, err)
+	defer func() {
+		_ = mon.Close()
+	}()
+
+	// move far past the hide interval so an unshielded inactive entry would be
+	// deleted by Cleanup and recreated by the next refresh (the churn cycle)
+	timer.SetSeconds(int(arg.HideInactiveValidatorIntervalInSec) + 100)
+
+	mon.RefreshHeartbeatMessageInfo()
+	assert.Equal(t, 1, mon.GetNumHearbeatMessages())
+
+	for i := 0; i < 3; i++ {
+		mon.Cleanup()
+		assert.Equal(t, 1, mon.GetNumHearbeatMessages())
+		mon.RefreshHeartbeatMessageInfo()
+		assert.Equal(t, 1, mon.GetNumHearbeatMessages())
+	}
+}
+
+func TestMonitor_ActiveWaitingNodeCountsAsLiveValidator(t *testing.T) {
+	t.Parallel()
+
+	pkWaiting := "pk-waiting"
+	pkObserver := "pk-observer"
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.MaxDurationPeerUnresponsive = time.Second * 1000
+	arg.PubKeysList = []string{}
+	arg.PeerTypeProvider = &mock.PeerTypeProviderStub{
+		ComputeForPubKeyCalled: func(pubKey []byte) (core.PeerType, uint32, error) {
+			if string(pubKey) == pkWaiting {
+				return core.WaitingList, 0, nil
+			}
+			return core.ObserverList, 0, nil
+		},
+	}
+	mon, err := process.NewMonitor(arg)
+	require.Nil(t, err)
+	// stop the background refresher before installing the status handler so a
+	// stale initial refresh can never overwrite the asserted metric values;
+	// the test drives the refresh manually
+	_ = mon.Close()
+
+	liveValidators := uint64(0)
+	connectedNodes := uint64(0)
+	_ = mon.SetAppStatusHandler(&mock.AppStatusHandlerStub{
+		SetUInt64ValueHandler: func(key string, value uint64) {
+			switch key {
+			case core.MetricLiveValidatorNodes:
+				liveValidators = value
+			case core.MetricConnectedNodes:
+				connectedNodes = value
+			}
+		},
+	})
+
+	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pkWaiting)})
+	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pkObserver)})
+
+	mon.RefreshHeartbeatMessageInfo()
+
+	assert.Equal(t, uint64(1), liveValidators)
+	assert.Equal(t, uint64(2), connectedNodes)
+}
+
+func TestMonitor_UnstakedWaitingNodeIsDemotedAndCleaned(t *testing.T) {
+	t.Parallel()
+
+	pkWaiting := "pk-waiting"
+
+	timer := mock.NewTimerMock()
+	genesisTime := timer.Now()
+
+	stillWaiting := true
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.GenesisTime = genesisTime
+	arg.Timer = timer
+	arg.PubKeysList = []string{}
+	arg.PeerTypeProvider = &mock.PeerTypeProviderStub{
+		ComputeForPubKeyCalled: func(pubKey []byte) (core.PeerType, uint32, error) {
+			if stillWaiting && string(pubKey) == pkWaiting {
+				return core.WaitingList, 0, nil
+			}
+			return core.ObserverList, 0, nil
+		},
+		GetAllPeerTypeInfosCalled: func() []*state.PeerTypeInfo {
+			if stillWaiting {
+				return []*state.PeerTypeInfo{
+					{PublicKey: pkWaiting, PeerType: string(core.WaitingList)},
+				}
+			}
+			return nil
+		},
+	}
+	mon, err := process.NewMonitor(arg)
+	require.Nil(t, err)
+	// stop the background refresher: the test drives refresh and cleanup
+	// manually, and flips the stub without synchronization
+	_ = mon.Close()
+
+	timer.SetSeconds(int(arg.HideInactiveValidatorIntervalInSec) + 100)
+
+	mon.RefreshHeartbeatMessageInfo()
+	mon.Cleanup()
+	assert.Equal(t, 1, mon.GetNumHearbeatMessages())
+
+	// the key leaves the waiting list (e.g. unstaked before promotion): the
+	// cache rebuild drops it and ComputeForPubKey falls back to observer, so
+	// the entry must be demoted by the next refresh and removed by Cleanup
+	stillWaiting = false
+
+	mon.RefreshHeartbeatMessageInfo()
+	mon.Cleanup()
+	assert.Equal(t, 0, mon.GetNumHearbeatMessages())
 }
 
 func TestMonitor_CleanupShouldWork(t *testing.T) {

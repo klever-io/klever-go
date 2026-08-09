@@ -206,9 +206,19 @@ func (hbmi *heartbeatMessageInfo) GetIsActive() bool {
 	return isActive
 }
 
+// isValidatorPeerType returns true for the peer types that count as validators
+// (waiting, elected, eligible). GetIsValidator and Monitor.shouldSkipValidator
+// must share this definition so the klv_live_validator_nodes metric and the
+// Cleanup shielding cannot diverge.
+func isValidatorPeerType(peerType string) bool {
+	return peerType == string(core.ElectedList) ||
+		peerType == string(core.EligibleList) ||
+		peerType == string(core.WaitingList)
+}
+
 // GetIsValidator will return true is the peer is a validator
 func (hbmi *heartbeatMessageInfo) GetIsValidator() bool {
 	hbmi.updateMutex.Lock()
 	defer hbmi.updateMutex.Unlock()
-	return hbmi.peerType == string(core.ElectedList) || hbmi.peerType == string(core.EligibleList)
+	return isValidatorPeerType(hbmi.peerType)
 }
