@@ -1181,13 +1181,19 @@ func TestHasLogsSubscriberOrMirror(t *testing.T) {
 	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c))
 	assert.Equal(t, 1, hub.logsSubscriberCount, "re-subscribing the same (address, client) to LOGS must not double-count")
 
-	// TestHasLogsSubscriberOrMirror_CounterMaintenance guards logsSubscriberCount staying
-	// in sync (not just the map) across unsubscribe and disconnect — it must be
-	// incrementally correct, not a one-shot snapshot, since HasLogsSubscriberOrMirror no
-	// longer scans addressSubscription itself (see the field's doc comment).
+	// logsSubscriberCount must stay in sync incrementally (not just the map), since
+	// HasLogsSubscriberOrMirror no longer scans addressSubscription itself (see the
+	// field's doc comment) — covering unsubscribe, a redundant repeated unsubscribe, and
+	// disconnect.
 	hub.HandleClientRemoval([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c)
 	assert.False(t, hub.HasLogsSubscriberOrMirror(), "unsubscribing from LOGS must decrement the counter")
 	assert.Equal(t, 0, hub.logsSubscriberCount)
+
+	// A second, redundant unsubscribe (already-cleared acceptLogs) must not drive the
+	// counter negative — a negative count masks a later genuine subscriber, since
+	// HasLogsSubscriberOrMirror only checks count > 0.
+	hub.HandleClientRemoval([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c)
+	assert.Equal(t, 0, hub.logsSubscriberCount, "a repeated unsubscribe must not drive the counter negative")
 
 	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c))
 	require.Equal(t, 1, hub.logsSubscriberCount)
