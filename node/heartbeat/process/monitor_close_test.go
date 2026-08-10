@@ -13,22 +13,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// countMonitorGoroutines counts how many goroutines are currently parked
-// inside startValidatorProcessing (identified by the function name in their stack).
+// countMonitorGoroutines counts the monitor refresh goroutines currently alive,
+// identified by their runRefreshLoop stack frame. debug=2 prints one stack per
+// goroutine; debug=1 would aggregate identical stacks into a single entry,
+// hiding new goroutines behind existing ones.
 func countMonitorGoroutines(t *testing.T) int {
 	t.Helper()
 	var buf strings.Builder
-	if err := pprof.Lookup("goroutine").WriteTo(&logWriter{&buf}, 1); err != nil {
+	if err := pprof.Lookup("goroutine").WriteTo(&buf, 2); err != nil {
 		t.Fatalf("pprof dump failed: %v", err)
 	}
-	return strings.Count(buf.String(), "startValidatorProcessing")
-}
-
-type logWriter struct{ b *strings.Builder }
-
-func (w *logWriter) Write(p []byte) (int, error) {
-	w.b.Write(p)
-	return len(p), nil
+	return strings.Count(buf.String(), ".runRefreshLoop(")
 }
 
 func TestMonitor_CloseStopsGoroutine(t *testing.T) {
@@ -49,7 +44,7 @@ func TestMonitor_CloseStopsGoroutine(t *testing.T) {
 		runtime.Gosched()
 		return countMonitorGoroutines(t) > before
 	}, 2*time.Second, 10*time.Millisecond,
-		"expected new startValidatorProcessing goroutine to appear")
+		"expected new monitor refresh goroutine to appear")
 
 	// Now call Close and verify the goroutine actually exits.
 	closeDone := make(chan error, 1)
@@ -161,7 +156,7 @@ func TestMonitor_ConcurrentClose(t *testing.T) {
 }
 
 func TestMonitor_NoGoroutineLeakAcrossManyCreates(t *testing.T) {
-	// Create and Close 50 monitors; verify no accumulation of startValidatorProcessing goroutines.
+	// Create and Close 50 monitors; verify no accumulation of refresh goroutines.
 	// No t.Parallel: depends on global goroutine count.
 
 	storer, err := storage.NewHeartbeatDbStorer(mock.NewStorerMock(), &mock.MarshalizerMock{})

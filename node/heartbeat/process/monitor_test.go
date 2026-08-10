@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -197,8 +198,11 @@ func TestNewMonitor_OkValsShouldCreatePubkeyMap(t *testing.T) {
 	arg.PubKeysList = []string{"pk1", "pk2"}
 	mon, err := process.NewMonitor(arg)
 
-	assert.Nil(t, err)
-	defer mon.Close()
+	require.NoError(t, err)
+	require.NotNil(t, mon)
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 	assert.False(t, check.IfNil(mon))
 
 	hbStatus := mon.GetHeartbeats()
@@ -228,17 +232,25 @@ func TestMonitor_ProcessReceivedMessageShouldWork(t *testing.T) {
 			return &rcvHb, nil
 		},
 	}
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	require.NotNil(t, mon)
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	hb := data.Heartbeat{
 		Pubkey: []byte(pubKey),
 	}
 	hbBytes, _ := json.Marshal(&hb)
-	err := mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: hbBytes}, fromConnectedPeerId)
+	err = mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: hbBytes}, fromConnectedPeerId)
 	assert.Nil(t, err)
 
-	//a delay is mandatory for the go routine to finish its job
-	time.Sleep(time.Second)
+	// wait for the processing goroutine to register the heartbeat
+	require.Eventually(t, func() bool {
+		hb := mon.GetHeartbeats()
+		return len(hb) == 1 && hb[0].IsActive
+	}, 5*time.Second, 10*time.Millisecond)
 
 	hbStatus := mon.GetHeartbeats()
 	assert.Equal(t, 1, len(hbStatus))
@@ -266,17 +278,24 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKey(t *testing.T) {
 			return &rcvHb, nil
 		},
 	}
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	require.NotNil(t, mon)
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	hb := data.Heartbeat{
 		Pubkey: []byte(pubKey),
 	}
 	hbBytes, _ := json.Marshal(&hb)
-	err := mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: hbBytes}, fromConnectedPeerId)
+	err = mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: hbBytes}, fromConnectedPeerId)
 	assert.Nil(t, err)
 
-	//a delay is mandatory for the go routine to finish its job
-	time.Sleep(time.Second)
+	// wait for the processing goroutine to add the new public key
+	require.Eventually(t, func() bool {
+		return len(mon.GetHeartbeats()) == 2
+	}, 5*time.Second, 10*time.Millisecond)
 
 	//there should be 2 heartbeats, because a new one should have been added with pk2
 	hbStatus := mon.GetHeartbeats()
@@ -308,7 +327,12 @@ func TestMonitor_ProcessReceivedMessageWithNewShardID(t *testing.T) {
 		},
 	}
 
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	require.NotNil(t, mon)
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	// First send from pk1 from shard 0
 	hb := &data.Heartbeat{
@@ -321,8 +345,11 @@ func TestMonitor_ProcessReceivedMessageWithNewShardID(t *testing.T) {
 	err = mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: buffToSend}, fromConnectedPeerId)
 	assert.Nil(t, err)
 
-	//a delay is mandatory for the go routine to finish its job
-	time.Sleep(time.Second)
+	// wait for the processing goroutine to register the first heartbeat
+	require.Eventually(t, func() bool {
+		hb := mon.GetHeartbeats()
+		return len(hb) == 1 && hb[0].IsActive
+	}, 5*time.Second, 10*time.Millisecond)
 
 	// now we send a new heartbeat which will contain a new shard id
 	hb = &data.Heartbeat{
@@ -335,11 +362,10 @@ func TestMonitor_ProcessReceivedMessageWithNewShardID(t *testing.T) {
 	err = mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: buffToSend}, fromConnectedPeerId)
 	assert.Nil(t, err)
 
-	time.Sleep(1 * time.Second)
-
-	hbStatus := mon.GetHeartbeats()
-
-	assert.Equal(t, 1, len(hbStatus))
+	// the second heartbeat reuses the same pubkey, so no new entry may appear
+	assert.Never(t, func() bool {
+		return len(mon.GetHeartbeats()) != 1
+	}, time.Second, 50*time.Millisecond)
 }
 
 func TestMonitor_ProcessReceivedMessageShouldSetPeerInactive(t *testing.T) {
@@ -370,10 +396,15 @@ func TestMonitor_ProcessReceivedMessageShouldSetPeerInactive(t *testing.T) {
 	arg.Storer = storer
 	arg.Timer = th
 	arg.HideInactiveValidatorIntervalInSec = 600
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	require.NotNil(t, mon)
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	// First send from pk1
-	err := sendHbMessageFromPubKey(pubKey1, mon)
+	err = sendHbMessageFromPubKey(pubKey1, mon)
 	assert.Nil(t, err)
 
 	// Send from pk2
@@ -451,7 +482,9 @@ func TestMonitor_RemoveInactiveValidatorsIfIntervalExceeded(t *testing.T) {
 		HeartbeatRefreshIntervalInSec:      1,
 		HideInactiveValidatorIntervalInSec: 600,
 	}
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	require.NotNil(t, mon)
 	t.Cleanup(func() {
 		require.NoError(t, mon.Close())
 	})
@@ -514,7 +547,12 @@ func TestMonitor_ProcessReceivedMessageImpersonatedMessageShouldErr(t *testing.T
 			}
 		},
 	}
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	require.NotNil(t, mon)
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	hb := data.Heartbeat{
 		Pubkey: []byte(pubKey),
@@ -525,7 +563,7 @@ func TestMonitor_ProcessReceivedMessageImpersonatedMessageShouldErr(t *testing.T
 		PeerField: originator,
 	}
 
-	err := mon.ProcessReceivedMessage(message, fromConnectedPeerId)
+	err = mon.ProcessReceivedMessage(message, fromConnectedPeerId)
 	assert.True(t, errors.Is(err, heartbeat.ErrHeartbeatPidMismatch))
 	assert.True(t, originatorWasBlacklisted)
 	assert.True(t, connectedPeerWasBlacklisted)
@@ -545,7 +583,12 @@ func TestMonitor_AddAndGetDoubleSignerPeersShouldWork(t *testing.T) {
 
 	arg := createMockArgHeartbeatMonitor()
 	arg.MaxDurationPeerUnresponsive = time.Millisecond * 100
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	require.NotNil(t, mon)
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	assert.Equal(t, uint64(0), mon.GetNumInstancesOfPublicKey(string("pk0")))
 
@@ -736,7 +779,12 @@ func TestMonitor_CleanupShouldWork(t *testing.T) {
 	}
 
 	arg.Timer = timer
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	require.NotNil(t, mon)
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	assert.Equal(t, 1, mon.GetNumHearbeatMessages())
 	assert.Equal(t, 0, mon.GetNumDoubleSignerPeers())
@@ -757,4 +805,38 @@ func TestMonitor_CleanupShouldWork(t *testing.T) {
 
 	assert.Equal(t, 0, mon.GetNumHearbeatMessages())
 	assert.Equal(t, 0, mon.GetNumDoubleSignerPeers())
+}
+
+func TestMonitor_SetAppStatusHandlerRepublishesStartupMetrics(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	require.NotNil(t, mon)
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
+
+	// the constructor's initial refresh ran against the placeholder handler;
+	// wiring the real one must re-publish the computed metrics
+	var mut sync.Mutex
+	published := make(map[string]uint64)
+	err = mon.SetAppStatusHandler(&mock.AppStatusHandlerStub{
+		SetUInt64ValueHandler: func(key string, value uint64) {
+			mut.Lock()
+			published[key] = value
+			mut.Unlock()
+		},
+	})
+	require.NoError(t, err)
+
+	mut.Lock()
+	defer mut.Unlock()
+	_, hasLiveValidators := published[core.MetricLiveValidatorNodes]
+	_, hasLiveConsensusValidators := published[core.MetricLiveConsensusValidatorNodes]
+	_, hasConnectedNodes := published[core.MetricConnectedNodes]
+	assert.True(t, hasLiveValidators)
+	assert.True(t, hasLiveConsensusValidators)
+	assert.True(t, hasConnectedNodes)
 }
