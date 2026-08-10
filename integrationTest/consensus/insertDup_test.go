@@ -13,6 +13,10 @@ import (
 )
 
 func TestConsensus_InsertDupTransaction(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
 	numOfNodes := 3
 
 	nodes, wallets, err := initTest(t, numOfNodes)

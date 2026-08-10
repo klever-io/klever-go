@@ -60,6 +60,9 @@ type Monitor struct {
 	validatorPubkeyConverter           core.PubkeyConverter
 	heartbeatRefreshIntervalInSec      uint32
 	hideInactiveValidatorIntervalInSec uint32
+	numActiveValidators                uint64
+	numActiveConsensusValidators       uint64
+	numConnectedNodes                  uint64
 	stopCh                             chan struct{}
 	wg                                 sync.WaitGroup
 	closeOnce                          sync.Once
@@ -121,7 +124,7 @@ func NewMonitor(arg ArgHeartbeatMonitor) (*Monitor, error) {
 		return nil, err
 	}
 
-	err = mon.initializeHeartbeatMessagesInfo(arg.PubKeysList)
+	pubKeysToSave, err := mon.initializeHeartbeatMessagesInfo(arg.PubKeysList)
 	if err != nil {
 		return nil, err
 	}
@@ -131,26 +134,30 @@ func NewMonitor(arg ArgHeartbeatMonitor) (*Monitor, error) {
 		log.Debug("heartbeat can't load public keys from storage", "error", err.Error())
 	}
 
+	// Initial refresh runs synchronously, then the newly created records are
+	// persisted post-refresh. Deferring either to a goroutine lets it execute
+	// at an arbitrary later time, racing callers that advance the timer.
+	mon.refreshHeartbeatMessageInfo()
+	mon.SaveMultipleHeartbeatMessageInfos(pubKeysToSave)
+
 	mon.startValidatorProcessing()
 
 	return mon, nil
 }
 
-func (m *Monitor) initializeHeartbeatMessagesInfo(pubKeysList []string) error {
+func (m *Monitor) initializeHeartbeatMessagesInfo(pubKeysList []string) (map[string]*heartbeatMessageInfo, error) {
 	pubKeysListCopy := make([]string, 0)
 	pubKeysToSave := make(map[string]*heartbeatMessageInfo)
 
 	for _, pubkey := range pubKeysList {
 		e := m.initializeHeartBeatForPK(pubkey, pubKeysToSave, &pubKeysListCopy)
 		if e != nil {
-			return e
+			return nil, e
 		}
 	}
 
-	go m.SaveMultipleHeartbeatMessageInfos(pubKeysToSave)
-
 	m.pubKeysList = pubKeysListCopy
-	return nil
+	return pubKeysToSave, nil
 }
 
 func (m *Monitor) initializeHeartBeatForPK(
@@ -240,6 +247,11 @@ func (m *Monitor) SetAppStatusHandler(ash core.AppStatusHandler) error {
 
 	m.mutAppStatusHandler.Lock()
 	m.appStatusHandler = ash
+	// re-publish the metrics computed by the constructor's initial refresh,
+	// which only reached the placeholder handler
+	m.appStatusHandler.SetUInt64Value(core.MetricLiveValidatorNodes, m.numActiveValidators)
+	m.appStatusHandler.SetUInt64Value(core.MetricLiveConsensusValidatorNodes, m.numActiveConsensusValidators)
+	m.appStatusHandler.SetUInt64Value(core.MetricConnectedNodes, m.numConnectedNodes)
 	m.mutAppStatusHandler.Unlock()
 	return nil
 }
@@ -398,12 +410,15 @@ func (m *Monitor) computeAllHeartbeatMessages() {
 	}
 
 	m.mutHeartbeatMessages.Unlock()
-	go m.SaveMultipleHeartbeatMessageInfos(hbChangedStateToInactiveMap)
+	m.SaveMultipleHeartbeatMessageInfos(hbChangedStateToInactiveMap)
 
 	m.mutAppStatusHandler.Lock()
-	m.appStatusHandler.SetUInt64Value(core.MetricLiveValidatorNodes, uint64(counterActiveValidators))                   // #nosec G115
-	m.appStatusHandler.SetUInt64Value(core.MetricLiveConsensusValidatorNodes, uint64(counterActiveConsensusValidators)) // #nosec G115
-	m.appStatusHandler.SetUInt64Value(core.MetricConnectedNodes, uint64(counterConnectedNodes))                         // #nosec G115
+	m.numActiveValidators = uint64(counterActiveValidators)                   // #nosec G115
+	m.numActiveConsensusValidators = uint64(counterActiveConsensusValidators) // #nosec G115
+	m.numConnectedNodes = uint64(counterConnectedNodes)                       // #nosec G115
+	m.appStatusHandler.SetUInt64Value(core.MetricLiveValidatorNodes, m.numActiveValidators)
+	m.appStatusHandler.SetUInt64Value(core.MetricLiveConsensusValidatorNodes, m.numActiveConsensusValidators)
+	m.appStatusHandler.SetUInt64Value(core.MetricConnectedNodes, m.numConnectedNodes)
 	m.mutAppStatusHandler.Unlock()
 }
 
@@ -447,7 +462,7 @@ func (m *Monitor) computeInactiveHeartbeatMessages() {
 	}
 
 	m.mutHeartbeatMessages.Unlock()
-	go m.SaveMultipleHeartbeatMessageInfos(inactiveHbChangedMap)
+	m.SaveMultipleHeartbeatMessageInfos(inactiveHbChangedMap)
 }
 
 // GetHeartbeats returns the heartbeat status
@@ -556,31 +571,32 @@ func (m *Monitor) convertFromExportedStruct(hbDTO *data.HeartbeatDTO, maxDuratio
 	return hbmi
 }
 
-// startValidatorProcessing will start the updating of the information about the nodes
+// startValidatorProcessing starts the periodic refresh of the nodes' information.
+// The initial refresh already ran synchronously in NewMonitor; this only drives
+// the recurring ticker updates.
 func (m *Monitor) startValidatorProcessing() {
 	m.wg.Add(1)
-	go func() {
-		defer m.wg.Done()
-		refreshInterval := time.Duration(m.heartbeatRefreshIntervalInSec) * time.Second
-		ticker := time.NewTicker(refreshInterval)
-		defer ticker.Stop()
-
-		// Initial refresh on startup so metrics/state are persisted immediately,
-		// matching the pre-ticker behavior.
-		m.refreshHeartbeatMessageInfo()
-
-		for {
-			select {
-			case <-m.stopCh:
-				return
-			case <-ticker.C:
-				m.refreshHeartbeatMessageInfo()
-			}
-		}
-	}()
+	go m.runRefreshLoop()
 }
 
-// Close will stop the background processing goroutine and wait for it to exit.
+func (m *Monitor) runRefreshLoop() {
+	defer m.wg.Done()
+	refreshInterval := time.Duration(m.heartbeatRefreshIntervalInSec) * time.Second
+	ticker := time.NewTicker(refreshInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-m.stopCh:
+			return
+		case <-ticker.C:
+			m.refreshHeartbeatMessageInfo()
+		}
+	}
+}
+
+// Close will stop the background processing goroutine and wait for it to exit,
+// including any state saves of its in-flight refresh pass.
 // Safe to call multiple times; subsequent calls are no-ops.
 func (m *Monitor) Close() error {
 	m.closeOnce.Do(func() {

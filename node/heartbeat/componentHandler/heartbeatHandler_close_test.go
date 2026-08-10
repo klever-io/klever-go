@@ -12,14 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type strBuf struct{ b *strings.Builder }
-
-func (w *strBuf) Write(p []byte) (int, error) { w.b.Write(p); return len(p), nil }
-
+// countHeartbeatGoroutines counts live goroutines whose stack contains marker.
+// debug=2 prints one stack per goroutine; debug=1 would aggregate identical
+// stacks into a single entry, hiding new goroutines behind existing ones.
 func countHeartbeatGoroutines(t *testing.T, marker string) int {
 	t.Helper()
 	var buf strings.Builder
-	require.NoError(t, pprof.Lookup("goroutine").WriteTo(&strBuf{&buf}, 1))
+	require.NoError(t, pprof.Lookup("goroutine").WriteTo(&buf, 2))
 	return strings.Count(buf.String(), marker)
 }
 
@@ -36,7 +35,7 @@ func TestHeartbeatHandler_CloseStopsMonitorGoroutine(t *testing.T) {
 	// Wait until the monitor goroutine is visible in pprof.
 	require.Eventually(t, func() bool {
 		runtime.Gosched()
-		return countHeartbeatGoroutines(t, "startValidatorProcessing") >= 1
+		return countHeartbeatGoroutines(t, ".runRefreshLoop(") >= 1
 	}, 2*time.Second, 10*time.Millisecond,
 		"expected at least one monitor goroutine after construction")
 
@@ -55,7 +54,7 @@ func TestHeartbeatHandler_CloseStopsMonitorGoroutine(t *testing.T) {
 	require.Eventually(t, func() bool {
 		runtime.GC()
 		runtime.Gosched()
-		return countHeartbeatGoroutines(t, "startValidatorProcessing") == 0
+		return countHeartbeatGoroutines(t, ".runRefreshLoop(") == 0
 	}, 2*time.Second, 10*time.Millisecond,
 		"monitor goroutine should be gone after HeartbeatHandler.Close")
 }

@@ -22,17 +22,19 @@ func createMonitor(
 ) *process.Monitor {
 
 	arg := process.ArgHeartbeatMonitor{
-		Marshalizer:                        &mock.MarshalizerMock{},
-		MaxDurationPeerUnresponsive:        maxDurationPeerUnresponsive,
-		PubKeysList:                        []string{pkValidator},
-		GenesisTime:                        genesisTime,
-		MessageHandler:                     &mock.MessageHandlerStub{},
-		Storer:                             storer,
-		PeerTypeProvider:                   &mock.PeerTypeProviderStub{},
-		Timer:                              timer,
-		AntifloodHandler:                   createMockP2PAntifloodHandler(),
-		ValidatorPubkeyConverter:           mock.NewPubkeyConverterMock(32),
-		HeartbeatRefreshIntervalInSec:      1,
+		Marshalizer:                 &mock.MarshalizerMock{},
+		MaxDurationPeerUnresponsive: maxDurationPeerUnresponsive,
+		PubKeysList:                 []string{pkValidator},
+		GenesisTime:                 genesisTime,
+		MessageHandler:              &mock.MessageHandlerStub{},
+		Storer:                      storer,
+		PeerTypeProvider:            &mock.PeerTypeProviderStub{},
+		Timer:                       timer,
+		AntifloodHandler:            createMockP2PAntifloodHandler(),
+		ValidatorPubkeyConverter:    mock.NewPubkeyConverterMock(32),
+		// These tests drive refreshes explicitly through the mock timer; the interval
+		// only needs to keep the real-time ticker from firing mid-test on slow machines.
+		HeartbeatRefreshIntervalInSec:      3600,
 		HideInactiveValidatorIntervalInSec: 600,
 	}
 	mon, _ := process.NewMonitor(arg)
