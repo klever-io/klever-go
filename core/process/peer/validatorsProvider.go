@@ -251,7 +251,7 @@ func (vp *validatorsProvider) createNewCache(
 	for _, src := range listSources {
 		keys, err := src.getKeys(epoch, false)
 		if err != nil {
-			log.Debug("validatorsProvider - "+src.name+" failed", "epoch", epoch)
+			log.Debug("validatorsProvider - "+src.name+" failed", "epoch", epoch, "error", err)
 		}
 		vp.aggregateLists(newCache, keys, src.peerType)
 	}
