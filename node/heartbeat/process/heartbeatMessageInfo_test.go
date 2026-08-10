@@ -9,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/node/heartbeat/mock"
 	"github.com/klever-io/klever-go/node/heartbeat/process"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const dummyPeerType = "dummy peer type"
@@ -333,12 +334,13 @@ func TestHeartbeatMessageInfo_GetIsValidator_PeerTypeJailedShouldReturnFalse(t *
 
 	mockTimer := mock.NewTimerMock()
 	genesisTime := time.Unix(1, 0)
-	hbmi, _ := process.NewHeartbeatMessageInfo(
+	hbmi, err := process.NewHeartbeatMessageInfo(
 		100*time.Second,
 		string(core.JailedList),
 		genesisTime,
 		mockTimer,
 	)
+	require.NoError(t, err)
 
 	// jailed is a registered validator but not part of the working set, so it
 	// counts toward neither klv_live_validator_nodes nor the consensus gauge

@@ -96,9 +96,9 @@ func (ncm *NodesCoordinatorMock) GetAllWaitingValidatorsKeys(epoch uint32, inclu
 }
 
 // GetAllLeavingValidatorsKeys -
-func (ncm *NodesCoordinatorMock) GetAllLeavingValidatorsKeys(epoch uint32, includeLeaving bool) ([][]byte, error) {
+func (ncm *NodesCoordinatorMock) GetAllLeavingValidatorsKeys(epoch uint32, ownerKey bool) ([][]byte, error) {
 	if ncm.GetAllLeavingValidatorsKeysWithEpochCalled != nil {
-		return ncm.GetAllLeavingValidatorsKeysWithEpochCalled(epoch, includeLeaving)
+		return ncm.GetAllLeavingValidatorsKeysWithEpochCalled(epoch, ownerKey)
 	}
 	if ncm.GetAllLeavingValidatorsKeysCalled != nil {
 		return ncm.GetAllLeavingValidatorsKeysCalled()
