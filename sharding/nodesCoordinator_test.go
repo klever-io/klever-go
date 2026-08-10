@@ -1139,7 +1139,14 @@ func TestNodesCoordinator_SetNodesStoresLeavingListAndGetterReturnsIt(t *testing
 	ihgs, err := NewNodesCoordinator(arguments)
 	require.Nil(t, err)
 
-	leaving := createDummyNodesList(2, "leaving")
+	// build the leaving validators with owner addresses distinct from the
+	// pubkeys (the validator mock drops its owner argument), so the ownerKey
+	// leg below asserts real owner correspondence instead of comparing nils
+	leaving0, err := NewValidator([]byte("owner-leaving-0"), []byte("pk-leaving-0"), DefaultSelectionChances, 0)
+	require.Nil(t, err)
+	leaving1, err := NewValidator([]byte("owner-leaving-1"), []byte("pk-leaving-1"), DefaultSelectionChances, 1)
+	require.Nil(t, err)
+	leaving := []Validator{leaving0, leaving1}
 	epoch := uint32(7)
 	err = ihgs.SetNodes(createDummyNodesList(4, "elected"), createDummyNodesList(1, "eligible"), []Validator{}, leaving, epoch)
 	require.Nil(t, err)
@@ -1241,6 +1248,41 @@ func TestNodesCoordinator_LoadStateWithoutLeavingFieldIsNilSafe(t *testing.T) {
 	electedKeys, err := coordinator.GetAllElectedValidatorsKeys(3, false)
 	require.Nil(t, err)
 	require.Equal(t, 4, len(electedKeys))
+}
+
+func TestNodesCoordinator_LoadStateWithMalformedLeavingValidatorFails(t *testing.T) {
+	t.Parallel()
+
+	// a leaving validator with a nil pubkey must fail the restore instead of
+	// being silently dropped
+	registry := &NodesCoordinatorRegistry{
+		CurrentEpoch: 2,
+		EpochsConfig: map[string]*EpochValidators{
+			"2": {
+				ElectedValidators:  ValidatorArrayToSerializableValidatorArray(createDummyNodesList(4, "malformedElected")),
+				EligibleValidators: ValidatorArrayToSerializableValidatorArray(createDummyNodesList(1, "malformedEligible")),
+				WaitingValidators:  ValidatorArrayToSerializableValidatorArray([]Validator{}),
+				LeavingValidators: []*SerializableValidator{
+					{OwnerAddress: []byte("owner"), PubKey: nil, Index: 1},
+				},
+			},
+		},
+	}
+	raw, err := json.Marshal(registry)
+	require.Nil(t, err)
+
+	bootStorer := mock.NewStorerMock()
+	savedKey := []byte("malformed-leaving-key")
+	ncInternalKey := append([]byte(core.NodesCoordinatorRegistryKeyPrefix), savedKey...)
+	require.Nil(t, bootStorer.Put(ncInternalKey, raw))
+
+	args := createArguments()
+	args.BootStorer = bootStorer
+	coordinator, err := NewNodesCoordinator(args)
+	require.Nil(t, err)
+
+	err = coordinator.LoadState(savedKey)
+	require.ErrorIs(t, err, ErrNilPubKey)
 }
 
 func TestNodesCoordinator_EpochStartPrepareStoresLeavingList(t *testing.T) {
