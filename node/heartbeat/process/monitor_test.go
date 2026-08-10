@@ -229,7 +229,8 @@ func TestMonitor_ProcessReceivedMessageShouldWork(t *testing.T) {
 			return &rcvHb, nil
 		},
 	}
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
 	require.NotNil(t, mon)
 	defer mon.Close()
 
@@ -237,7 +238,7 @@ func TestMonitor_ProcessReceivedMessageShouldWork(t *testing.T) {
 		Pubkey: []byte(pubKey),
 	}
 	hbBytes, _ := json.Marshal(&hb)
-	err := mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: hbBytes}, fromConnectedPeerId)
+	err = mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: hbBytes}, fromConnectedPeerId)
 	assert.Nil(t, err)
 
 	// wait for the processing goroutine to register the heartbeat
@@ -272,7 +273,8 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKey(t *testing.T) {
 			return &rcvHb, nil
 		},
 	}
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
 	require.NotNil(t, mon)
 	defer mon.Close()
 
@@ -280,7 +282,7 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKey(t *testing.T) {
 		Pubkey: []byte(pubKey),
 	}
 	hbBytes, _ := json.Marshal(&hb)
-	err := mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: hbBytes}, fromConnectedPeerId)
+	err = mon.ProcessReceivedMessage(&mock.P2PMessageStub{DataField: hbBytes}, fromConnectedPeerId)
 	assert.Nil(t, err)
 
 	// wait for the processing goroutine to add the new public key
@@ -318,7 +320,8 @@ func TestMonitor_ProcessReceivedMessageWithNewShardID(t *testing.T) {
 		},
 	}
 
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
 	require.NotNil(t, mon)
 	defer mon.Close()
 
@@ -384,12 +387,13 @@ func TestMonitor_ProcessReceivedMessageShouldSetPeerInactive(t *testing.T) {
 	arg.Storer = storer
 	arg.Timer = th
 	arg.HideInactiveValidatorIntervalInSec = 600
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
 	require.NotNil(t, mon)
 	defer mon.Close()
 
 	// First send from pk1
-	err := sendHbMessageFromPubKey(pubKey1, mon)
+	err = sendHbMessageFromPubKey(pubKey1, mon)
 	assert.Nil(t, err)
 
 	// Send from pk2
@@ -467,7 +471,8 @@ func TestMonitor_RemoveInactiveValidatorsIfIntervalExceeded(t *testing.T) {
 		HeartbeatRefreshIntervalInSec:      1,
 		HideInactiveValidatorIntervalInSec: 600,
 	}
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
 	require.NotNil(t, mon)
 	t.Cleanup(func() {
 		require.NoError(t, mon.Close())
@@ -531,7 +536,8 @@ func TestMonitor_ProcessReceivedMessageImpersonatedMessageShouldErr(t *testing.T
 			}
 		},
 	}
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
 	require.NotNil(t, mon)
 	defer mon.Close()
 
@@ -544,7 +550,7 @@ func TestMonitor_ProcessReceivedMessageImpersonatedMessageShouldErr(t *testing.T
 		PeerField: originator,
 	}
 
-	err := mon.ProcessReceivedMessage(message, fromConnectedPeerId)
+	err = mon.ProcessReceivedMessage(message, fromConnectedPeerId)
 	assert.True(t, errors.Is(err, heartbeat.ErrHeartbeatPidMismatch))
 	assert.True(t, originatorWasBlacklisted)
 	assert.True(t, connectedPeerWasBlacklisted)
@@ -564,7 +570,8 @@ func TestMonitor_AddAndGetDoubleSignerPeersShouldWork(t *testing.T) {
 
 	arg := createMockArgHeartbeatMonitor()
 	arg.MaxDurationPeerUnresponsive = time.Millisecond * 100
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
 	require.NotNil(t, mon)
 	defer mon.Close()
 
@@ -757,7 +764,8 @@ func TestMonitor_CleanupShouldWork(t *testing.T) {
 	}
 
 	arg.Timer = timer
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
 	require.NotNil(t, mon)
 	defer mon.Close()
 
@@ -786,7 +794,8 @@ func TestMonitor_SetAppStatusHandlerRepublishesStartupMetrics(t *testing.T) {
 	t.Parallel()
 
 	arg := createMockArgHeartbeatMonitor()
-	mon, _ := process.NewMonitor(arg)
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
 	require.NotNil(t, mon)
 	defer mon.Close()
 
@@ -794,7 +803,7 @@ func TestMonitor_SetAppStatusHandlerRepublishesStartupMetrics(t *testing.T) {
 	// wiring the real one must re-publish the computed metrics
 	var mut sync.Mutex
 	published := make(map[string]uint64)
-	err := mon.SetAppStatusHandler(&mock.AppStatusHandlerStub{
+	err = mon.SetAppStatusHandler(&mock.AppStatusHandlerStub{
 		SetUInt64ValueHandler: func(key string, value uint64) {
 			mut.Lock()
 			published[key] = value
@@ -806,7 +815,9 @@ func TestMonitor_SetAppStatusHandlerRepublishesStartupMetrics(t *testing.T) {
 	mut.Lock()
 	defer mut.Unlock()
 	_, hasLiveValidators := published[core.MetricLiveValidatorNodes]
+	_, hasLiveConsensusValidators := published[core.MetricLiveConsensusValidatorNodes]
 	_, hasConnectedNodes := published[core.MetricConnectedNodes]
 	assert.True(t, hasLiveValidators)
+	assert.True(t, hasLiveConsensusValidators)
 	assert.True(t, hasConnectedNodes)
 }

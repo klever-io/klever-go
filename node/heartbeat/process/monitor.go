@@ -597,6 +597,8 @@ func (m *Monitor) runRefreshLoop() {
 
 // Close will stop the background processing goroutine and wait for it to exit,
 // including any state saves of its in-flight refresh pass.
+// Message-driven goroutines spawned by ProcessReceivedMessage are not tracked
+// and may still write to the storer after Close returns.
 // Safe to call multiple times; subsequent calls are no-ops.
 func (m *Monitor) Close() error {
 	m.closeOnce.Do(func() {

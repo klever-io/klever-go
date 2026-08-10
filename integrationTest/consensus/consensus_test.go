@@ -177,6 +177,21 @@ type blockWaitCondition struct {
 	value    uint64
 }
 
+// clusterStateString renders each node's chain head and slot index so a
+// timeout log identifies the failure mode without reproduction (issue #106).
+func clusterStateString(nodes []*processorNode.ProcessorNode, nodesComplete []bool) string {
+	var state strings.Builder
+	for i, n := range nodes {
+		var headerSlot, headerNonce uint64
+		if header, _ := n.GetCurrentBlockHeaderAndHash(); header != nil {
+			headerSlot, headerNonce = header.GetSlot(), header.GetNonce()
+		}
+		fmt.Fprintf(&state, " node%d{done=%v headerSlot=%d headerNonce=%d slotIndex=%d}",
+			i, nodesComplete[i], headerSlot, headerNonce, n.SlotManager.SlotIndex.Load())
+	}
+	return state.String()
+}
+
 func waitForBlockConditionOrTimeOut(t *testing.T, nodes []*processorNode.ProcessorNode, condition blockWaitCondition, timeout int) {
 	t.Helper()
 	nodesComplete := make([]bool, len(nodes))
@@ -216,16 +231,8 @@ func waitForBlockConditionOrTimeOut(t *testing.T, nodes []*processorNode.Process
 			if check() {
 				return
 			}
-			var state strings.Builder
-			for i, n := range nodes {
-				var headerSlot, headerNonce uint64
-				if header, _ := n.GetCurrentBlockHeaderAndHash(); header != nil {
-					headerSlot, headerNonce = header.GetSlot(), header.GetNonce()
-				}
-				fmt.Fprintf(&state, " node%d{done=%v headerSlot=%d headerNonce=%d slotIndex=%d}",
-					i, nodesComplete[i], headerSlot, headerNonce, n.SlotManager.SlotIndex.Load())
-			}
-			t.Fatalf("%s: value=%d nodesComplete=%v state:%s", condition.errorMsg, condition.value, nodesComplete, state.String())
+			t.Fatalf("%s: value=%d nodesComplete=%v state:%s",
+				condition.errorMsg, condition.value, nodesComplete, clusterStateString(nodes, nodesComplete))
 			return
 		case <-time.After(backoff):
 			backoff *= 2
