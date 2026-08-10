@@ -443,6 +443,7 @@ func TestMonitor_RemoveInactiveValidatorsIfIntervalExceeded(t *testing.T) {
 	pubKey3 := "pk3-observer"
 	pubKey4 := "pk4-inactive"
 	pubKey5 := "pk5-waiting"
+	pubKey6 := "pk6-jailed"
 
 	storer, _ := storage.NewHeartbeatDbStorer(mock.NewStorerMock(), &mock.MarshalizerMock{})
 
@@ -472,6 +473,8 @@ func TestMonitor_RemoveInactiveValidatorsIfIntervalExceeded(t *testing.T) {
 					return core.InactiveList, 0, nil
 				case pubKey5:
 					return core.WaitingList, 0, nil
+				case pubKey6:
+					return core.JailedList, 0, nil
 				}
 				return core.ObserverList, 0, nil
 			},
@@ -494,23 +497,25 @@ func TestMonitor_RemoveInactiveValidatorsIfIntervalExceeded(t *testing.T) {
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey3)})
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey4)})
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey5)})
+	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pubKey6)})
 
 	// Check that all are added
 	mon.RefreshHeartbeatMessageInfo()
 	hbStatus := mon.GetHeartbeats()
-	assert.Equal(t, 6, len(hbStatus))
+	assert.Equal(t, 7, len(hbStatus))
 
 	timer.IncrementSeconds(int(arg.HideInactiveValidatorIntervalInSec) - 20)
 	mon.RefreshHeartbeatMessageInfo()
 	hbStatus = mon.GetHeartbeats()
-	assert.Equal(t, 6, len(hbStatus))
+	assert.Equal(t, 7, len(hbStatus))
 
 	// increase to over HideInactiveValidatorIntervalInSec ~ 10 min
 	timer.IncrementSeconds(int(arg.HideInactiveValidatorIntervalInSec) + 10)
 	mon.RefreshHeartbeatMessageInfo()
 	hbStatus = mon.GetHeartbeats()
-	// check if pk1, pk2 and pk5 are still on
-	assert.Equal(t, 3, len(hbStatus))
+	// check if pk1, pk2, pk5 and pk6 are still on: elected, eligible, waiting
+	// and jailed are all shielded from the hide interval
+	assert.Equal(t, 4, len(hbStatus))
 }
 
 func TestMonitor_ProcessReceivedMessageImpersonatedMessageShouldErr(t *testing.T) {
@@ -760,6 +765,161 @@ func TestMonitor_UnstakedWaitingNodeIsDemotedAndCleaned(t *testing.T) {
 	// cache rebuild drops it and ComputeForPubKey falls back to observer, so
 	// the entry must be demoted by the next refresh and removed by Cleanup
 	stillWaiting = false
+
+	mon.RefreshHeartbeatMessageInfo()
+	mon.Cleanup()
+	assert.Equal(t, 0, mon.GetNumHearbeatMessages())
+}
+
+func TestMonitor_JailedNodeSurvivesRefreshAndCleanupRounds(t *testing.T) {
+	t.Parallel()
+
+	pkJailed := "pk-jailed"
+
+	timer := mock.NewTimerMock()
+	genesisTime := timer.Now()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.GenesisTime = genesisTime
+	arg.Timer = timer
+	arg.PubKeysList = []string{}
+	arg.PeerTypeProvider = &mock.PeerTypeProviderStub{
+		ComputeForPubKeyCalled: func(pubKey []byte) (core.PeerType, uint32, error) {
+			if string(pubKey) == pkJailed {
+				return core.JailedList, 0, nil
+			}
+			return core.ObserverList, 0, nil
+		},
+		GetAllPeerTypeInfosCalled: func() []*state.PeerTypeInfo {
+			return []*state.PeerTypeInfo{
+				{PublicKey: pkJailed, PeerType: string(core.JailedList)},
+			}
+		},
+	}
+	mon, err := process.NewMonitor(arg)
+	require.Nil(t, err)
+	// stop the background refresher before the Cleanup/assert rounds: if it
+	// kept running it could recreate an evicted entry between Cleanup and the
+	// assertion, masking a shielding regression
+	require.NoError(t, mon.Close())
+
+	// the jailed validator never sent a heartbeat: the entry is created from
+	// the peer-type cache seeding alone, and must stay visible past the hide
+	// interval so operators can see the jailed node
+	timer.SetSeconds(int(arg.HideInactiveValidatorIntervalInSec) + 100)
+
+	mon.RefreshHeartbeatMessageInfo()
+	assert.Equal(t, 1, mon.GetNumHearbeatMessages())
+
+	for i := 0; i < 3; i++ {
+		mon.Cleanup()
+		assert.Equal(t, 1, mon.GetNumHearbeatMessages())
+		mon.RefreshHeartbeatMessageInfo()
+		assert.Equal(t, 1, mon.GetNumHearbeatMessages())
+	}
+}
+
+func TestMonitor_ActiveJailedNodeCountsOnlyAsConnected(t *testing.T) {
+	t.Parallel()
+
+	pkJailed := "pk-jailed"
+	pkEligible := "pk-eligible"
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.MaxDurationPeerUnresponsive = time.Second * 1000
+	arg.PubKeysList = []string{}
+	arg.PeerTypeProvider = &mock.PeerTypeProviderStub{
+		ComputeForPubKeyCalled: func(pubKey []byte) (core.PeerType, uint32, error) {
+			switch string(pubKey) {
+			case pkJailed:
+				return core.JailedList, 0, nil
+			case pkEligible:
+				return core.EligibleList, 0, nil
+			}
+			return core.ObserverList, 0, nil
+		},
+	}
+	mon, err := process.NewMonitor(arg)
+	require.Nil(t, err)
+	// stop the background refresher before installing the status handler so a
+	// stale initial refresh can never overwrite the asserted metric values;
+	// the test drives the refresh manually
+	require.NoError(t, mon.Close())
+
+	liveValidators := uint64(0)
+	liveConsensusValidators := uint64(0)
+	connectedNodes := uint64(0)
+	require.NoError(t, mon.SetAppStatusHandler(&mock.AppStatusHandlerStub{
+		SetUInt64ValueHandler: func(key string, value uint64) {
+			switch key {
+			case core.MetricLiveValidatorNodes:
+				liveValidators = value
+			case core.MetricLiveConsensusValidatorNodes:
+				liveConsensusValidators = value
+			case core.MetricConnectedNodes:
+				connectedNodes = value
+			}
+		},
+	}))
+
+	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pkJailed)})
+	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pkEligible)})
+
+	mon.RefreshHeartbeatMessageInfo()
+
+	// a live jailed node is connected but does not count toward the validator
+	// gauges: it is registered, not part of the working set
+	assert.Equal(t, uint64(1), liveValidators)
+	assert.Equal(t, uint64(1), liveConsensusValidators)
+	assert.Equal(t, uint64(2), connectedNodes)
+}
+
+func TestMonitor_UnjailedNodeIsDemotedAndCleaned(t *testing.T) {
+	t.Parallel()
+
+	pkJailed := "pk-jailed"
+
+	timer := mock.NewTimerMock()
+	genesisTime := timer.Now()
+
+	stillJailed := true
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.GenesisTime = genesisTime
+	arg.Timer = timer
+	arg.PubKeysList = []string{}
+	arg.PeerTypeProvider = &mock.PeerTypeProviderStub{
+		ComputeForPubKeyCalled: func(pubKey []byte) (core.PeerType, uint32, error) {
+			if stillJailed && string(pubKey) == pkJailed {
+				return core.JailedList, 0, nil
+			}
+			return core.ObserverList, 0, nil
+		},
+		GetAllPeerTypeInfosCalled: func() []*state.PeerTypeInfo {
+			if stillJailed {
+				return []*state.PeerTypeInfo{
+					{PublicKey: pkJailed, PeerType: string(core.JailedList)},
+				}
+			}
+			return nil
+		},
+	}
+	mon, err := process.NewMonitor(arg)
+	require.Nil(t, err)
+	// stop the background refresher: the test drives refresh and cleanup
+	// manually, and flips the stub without synchronization
+	require.NoError(t, mon.Close())
+
+	timer.SetSeconds(int(arg.HideInactiveValidatorIntervalInSec) + 100)
+
+	mon.RefreshHeartbeatMessageInfo()
+	mon.Cleanup()
+	assert.Equal(t, 1, mon.GetNumHearbeatMessages())
+
+	// the key leaves the coordinator lists entirely (e.g. dropped after the
+	// jail period): ComputeForPubKey falls back to observer, so the entry
+	// loses its shielding and is removed by the next Cleanup
+	stillJailed = false
 
 	mon.RefreshHeartbeatMessageInfo()
 	mon.Cleanup()

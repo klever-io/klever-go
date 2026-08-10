@@ -373,7 +373,15 @@ func createNodesCoordinator(
 				return nil, err
 			}
 
-			err = nodesCoordinator.SetNodes(electedValidators, eligibleValidators, waitingValidators, currentEpoch-1)
+			// registries saved before the leaving list was persisted have no
+			// LeavingValidators field; the list is then simply empty
+			leaving := prevEpochsConfig.LeavingValidators
+			leavingValidators, err := sharding.SerializableValidatorsToValidators(leaving)
+			if err != nil {
+				return nil, err
+			}
+
+			err = nodesCoordinator.SetNodes(electedValidators, eligibleValidators, waitingValidators, leavingValidators, currentEpoch-1)
 			if err != nil {
 				return nil, err
 			}

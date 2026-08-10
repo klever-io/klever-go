@@ -360,6 +360,13 @@ func epochValidatorsToEpochNodesConfig(config *EpochValidators) (*epochNodesConf
 		return nil, err
 	}
 
+	// registries saved before the leaving list was persisted have no
+	// LeavingValidators field; the list stays empty until the next epoch start
+	result.leavingList, err = serializableValidatorArrayToValidatorArray(config.LeavingValidators)
+	if err != nil {
+		return nil, err
+	}
+
 	return result, nil
 }
 
@@ -695,6 +702,35 @@ func (ihgs *indexHashedNodesCoordinator) GetAllWaitingValidatorsKeys(epoch uint3
 	return validatorsPubKeys, nil
 }
 
+// GetAllLeavingValidatorsKeys will return all leaving validators public keys.
+// The leaving list is populated by computeNodesConfigFromList from validators
+// whose list is jailed, minus the ones promoted back to eligible to fill the
+// consensus size.
+func (ihgs *indexHashedNodesCoordinator) GetAllLeavingValidatorsKeys(epoch uint32, ownerKey bool) ([][]byte, error) {
+	validatorsPubKeys := make([][]byte, 0)
+
+	ihgs.mutNodesConfig.RLock()
+	nodesConfig, ok := ihgs.nodesConfig[epoch]
+	ihgs.mutNodesConfig.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("%w epoch=%v", ErrEpochNodesConfigDoesNotExist, epoch)
+	}
+
+	nodesConfig.mutNodesMaps.RLock()
+	defer nodesConfig.mutNodesMaps.RUnlock()
+
+	for i := 0; i < len(nodesConfig.leavingList); i++ {
+		if ownerKey {
+			validatorsPubKeys = append(validatorsPubKeys, nodesConfig.leavingList[i].OwnerAddress())
+		} else {
+			validatorsPubKeys = append(validatorsPubKeys, nodesConfig.leavingList[i].PubKey())
+		}
+	}
+
+	return validatorsPubKeys, nil
+}
+
 // CheckValidatorSlot - TODO: refactor
 func (ihgs *indexHashedNodesCoordinator) CheckValidatorSlot(epoch uint32, slotIndex int64, pubkey []byte) bool {
 	ihgs.mutNodesConfig.RLock()
@@ -792,7 +828,7 @@ func (ihgs *indexHashedNodesCoordinator) EpochStartPrepare(metaHdr data.HeaderHa
 		return
 	}
 
-	err = ihgs.SetNodes(resUpdateNodes.Elected, resUpdateNodes.Eligible, newNodesConfig.waitingList, newEpoch)
+	err = ihgs.SetNodes(resUpdateNodes.Elected, resUpdateNodes.Eligible, newNodesConfig.waitingList, newNodesConfig.leavingList, newEpoch)
 	if err != nil {
 		log.Error("set nodes per shard failed", "error", err.Error())
 	}
@@ -830,6 +866,7 @@ func (ihgs *indexHashedNodesCoordinator) SetNodes(
 	elected []Validator,
 	eligible []Validator,
 	waiting []Validator,
+	leaving []Validator,
 	epoch uint32,
 ) error {
 	ihgs.mutNodesConfig.Lock()
@@ -853,6 +890,7 @@ func (ihgs *indexHashedNodesCoordinator) SetNodes(
 	nodesConfig.electedList = elected
 	nodesConfig.eligibleList = eligible
 	nodesConfig.waitingList = waiting
+	nodesConfig.leavingList = leaving
 	nodesConfig.selector, err = ihgs.createSelector(nodesConfig)
 	if err != nil {
 		return err

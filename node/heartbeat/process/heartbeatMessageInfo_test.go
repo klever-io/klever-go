@@ -328,6 +328,49 @@ func TestHeartbeatMessageInfo_GetIsConsensusCapable_PeerTypeWaitingShouldReturnF
 	assert.False(t, hbmi.GetIsConsensusCapable())
 }
 
+func TestHeartbeatMessageInfo_GetIsValidator_PeerTypeJailedShouldReturnFalse(t *testing.T) {
+	t.Parallel()
+
+	mockTimer := mock.NewTimerMock()
+	genesisTime := time.Unix(1, 0)
+	hbmi, _ := process.NewHeartbeatMessageInfo(
+		100*time.Second,
+		string(core.JailedList),
+		genesisTime,
+		mockTimer,
+	)
+
+	// jailed is a registered validator but not part of the working set, so it
+	// counts toward neither klv_live_validator_nodes nor the consensus gauge
+	assert.False(t, hbmi.GetIsValidator())
+	assert.False(t, hbmi.GetIsConsensusCapable())
+}
+
+func TestIsRegisteredValidatorPeerType(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		peerType string
+		expected bool
+	}{
+		{peerType: string(core.ElectedList), expected: true},
+		{peerType: string(core.EligibleList), expected: true},
+		{peerType: string(core.WaitingList), expected: true},
+		{peerType: string(core.JailedList), expected: true},
+		{peerType: string(core.ObserverList), expected: false},
+		{peerType: string(core.InactiveList), expected: false},
+		// the peer-type cache reports leaving-list members as jailed and never
+		// emits "leaving", so the raw string is deliberately not registered
+		{peerType: string(core.LeavingList), expected: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.peerType, func(t *testing.T) {
+			assert.Equal(t, tc.expected, process.IsRegisteredValidatorPeerType(tc.peerType))
+		})
+	}
+}
+
 //------- UpdatePeerType
 
 func TestHeartbeatMessageInfo_Update(t *testing.T) {

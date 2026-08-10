@@ -1,6 +1,8 @@
 package sharding
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -8,6 +10,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/sharding/mock"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
@@ -745,6 +748,77 @@ func TestNodesCoordinator_computeNodesConfigFromList_Validators(t *testing.T) {
 	assert.Equal(t, 0, len(newNodesConfig.leavingList))
 }
 
+func TestNodesCoordinator_computeNodesConfigFromList_JailedGoToLeavingList(t *testing.T) {
+	t.Parallel()
+
+	arguments := createArguments() // ConsensusGroupSize = 4
+	ihgs, err := NewNodesCoordinator(arguments)
+	require.Nil(t, err)
+
+	validatorInfos := []*block.EValidatorInfo{
+		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList), Index: 1},
+		{OwnerAddress: []byte("pk1"), PublicKey: []byte("pk1"), List: string(core.ElectedList), Index: 2},
+		{OwnerAddress: []byte("pk2"), PublicKey: []byte("pk2"), List: string(core.EligibleList), Index: 3},
+		{OwnerAddress: []byte("pk3"), PublicKey: []byte("pk3"), List: string(core.EligibleList), Index: 4},
+		{OwnerAddress: []byte("jailed0"), PublicKey: []byte("jailed0"), List: string(core.JailedList), Index: 5},
+		{OwnerAddress: []byte("jailed1"), PublicKey: []byte("jailed1"), List: string(core.JailedList), Index: 6},
+	}
+
+	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos)
+	require.Nil(t, err)
+
+	// consensus size (4) is covered by elected+eligible, so nothing is promoted
+	require.Equal(t, 2, len(newNodesConfig.leavingList))
+	assert.True(t, containsValidatorWithPubKey(newNodesConfig.leavingList, []byte("jailed0")))
+	assert.True(t, containsValidatorWithPubKey(newNodesConfig.leavingList, []byte("jailed1")))
+	assert.Equal(t, 2, len(newNodesConfig.eligibleList))
+	assert.False(t, containsValidatorWithPubKey(newNodesConfig.eligibleList, []byte("jailed0")))
+}
+
+func TestNodesCoordinator_computeNodesConfigFromList_JailedPromotedWhenConsensusShort(t *testing.T) {
+	t.Parallel()
+
+	arguments := createArguments() // ConsensusGroupSize = 4
+	ihgs, err := NewNodesCoordinator(arguments)
+	require.Nil(t, err)
+
+	validatorInfos := []*block.EValidatorInfo{
+		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList), Index: 1},
+		{OwnerAddress: []byte("pk1"), PublicKey: []byte("pk1"), List: string(core.ElectedList), Index: 2},
+		{OwnerAddress: []byte("pk2"), PublicKey: []byte("pk2"), List: string(core.EligibleList), Index: 3},
+		{OwnerAddress: []byte("jailed0"), PublicKey: []byte("jailed0"), List: string(core.JailedList), Index: 4},
+		{OwnerAddress: []byte("jailed1"), PublicKey: []byte("jailed1"), List: string(core.JailedList), Index: 5},
+	}
+
+	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos)
+	require.Nil(t, err)
+
+	// numToStay = 4 - 3 = 1: one jailed validator is promoted to eligible and
+	// removed from the leaving list, the remainder stays leaving
+	require.Equal(t, 2, len(newNodesConfig.eligibleList))
+	assert.True(t, containsValidatorWithPubKey(newNodesConfig.eligibleList, []byte("jailed0")))
+	require.Equal(t, 1, len(newNodesConfig.leavingList))
+	assert.True(t, containsValidatorWithPubKey(newNodesConfig.leavingList, []byte("jailed1")))
+}
+
+func containsValidatorWithPubKey(list []Validator, pubKey []byte) bool {
+	for _, v := range list {
+		if bytes.Equal(v.PubKey(), pubKey) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsByteSlice(haystack [][]byte, needle []byte) bool {
+	for _, h := range haystack {
+		if bytes.Equal(h, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestNodesCoordinator_IsInterfaceNil(t *testing.T) {
 	t.Parallel()
 
@@ -835,7 +909,7 @@ func TestNodesCoordinator_LoadStateMultiEpochPrecedence(t *testing.T) {
 	require.Nil(t, err)
 
 	for ep := baseEpoch + 1; ep <= highestEpoch; ep++ {
-		err = coordinator.SetNodes(makeElected(ep, ep*10), []Validator{}, []Validator{}, ep)
+		err = coordinator.SetNodes(makeElected(ep, ep*10), []Validator{}, []Validator{}, []Validator{}, ep)
 		require.Nil(t, err)
 	}
 
@@ -947,4 +1021,160 @@ func TestNodesCoordinator_ConstructorSavesStateOnGenesisStart(t *testing.T) {
 	validator, err := coordinator2.GetValidatorWithPublicKey(elected[0].PubKey())
 	require.Nil(t, err)
 	require.Equal(t, elected[0].PubKey(), validator.PubKey())
+}
+
+func TestNodesCoordinator_SetNodesStoresLeavingListAndGetterReturnsIt(t *testing.T) {
+	t.Parallel()
+
+	arguments := createArguments()
+	ihgs, err := NewNodesCoordinator(arguments)
+	require.Nil(t, err)
+
+	leaving := createDummyNodesList(2, "leaving")
+	epoch := uint32(7)
+	err = ihgs.SetNodes(createDummyNodesList(4, "elected"), createDummyNodesList(1, "eligible"), []Validator{}, leaving, epoch)
+	require.Nil(t, err)
+
+	keys, err := ihgs.GetAllLeavingValidatorsKeys(epoch, false)
+	require.Nil(t, err)
+	require.Equal(t, 2, len(keys))
+	for _, v := range leaving {
+		assert.True(t, containsByteSlice(keys, v.PubKey()))
+	}
+
+	ownerKeys, err := ihgs.GetAllLeavingValidatorsKeys(epoch, true)
+	require.Nil(t, err)
+	require.Equal(t, 2, len(ownerKeys))
+	for _, v := range leaving {
+		assert.True(t, containsByteSlice(ownerKeys, v.OwnerAddress()))
+	}
+
+	_, err = ihgs.GetAllLeavingValidatorsKeys(999, false)
+	require.True(t, errors.Is(err, ErrEpochNodesConfigDoesNotExist))
+}
+
+func TestNodesCoordinator_SaveLoadStateRoundTripsLeavingList(t *testing.T) {
+	t.Parallel()
+
+	bootStorer := mock.NewStorerMock()
+	args := createArguments()
+	args.BootStorer = bootStorer
+	coordinator, err := NewNodesCoordinator(args)
+	require.Nil(t, err)
+
+	leaving := createDummyNodesList(2, "leavingRT")
+	err = coordinator.SetNodes(createDummyNodesList(4, "electedRT"), createDummyNodesList(1, "eligibleRT"), []Validator{}, leaving, 0)
+	require.Nil(t, err)
+
+	savedKey := []byte("leaving-roundtrip-key")
+	require.Nil(t, coordinator.saveState(savedKey))
+
+	argsLoad := createArguments()
+	argsLoad.BootStorer = bootStorer
+	coordinatorLoad, err := NewNodesCoordinator(argsLoad)
+	require.Nil(t, err)
+
+	require.Nil(t, coordinatorLoad.LoadState(savedKey))
+
+	keys, err := coordinatorLoad.GetAllLeavingValidatorsKeys(0, false)
+	require.Nil(t, err)
+	require.Equal(t, 2, len(keys))
+	for _, v := range leaving {
+		assert.True(t, containsByteSlice(keys, v.PubKey()))
+	}
+}
+
+func TestNodesCoordinator_LoadStateWithoutLeavingFieldIsNilSafe(t *testing.T) {
+	t.Parallel()
+
+	// registry JSON written by binaries that predate leaving-list persistence
+	// has no leavingValidators field at all
+	type legacyEpochValidators struct {
+		ElectedValidators  []*SerializableValidator `json:"electedValidators"`
+		EligibleValidators []*SerializableValidator `json:"eligibleValidators"`
+		WaitingValidators  []*SerializableValidator `json:"waitingValidators"`
+	}
+	type legacyRegistry struct {
+		EpochsConfig map[string]*legacyEpochValidators `json:"epochConfigs"`
+		CurrentEpoch uint32                            `json:"currentEpoch"`
+	}
+
+	elected := createDummyNodesList(4, "legacyElected")
+	legacy := &legacyRegistry{
+		CurrentEpoch: 3,
+		EpochsConfig: map[string]*legacyEpochValidators{
+			"3": {
+				ElectedValidators:  ValidatorArrayToSerializableValidatorArray(elected),
+				EligibleValidators: ValidatorArrayToSerializableValidatorArray(createDummyNodesList(1, "legacyEligible")),
+				WaitingValidators:  ValidatorArrayToSerializableValidatorArray([]Validator{}),
+			},
+		},
+	}
+	raw, err := json.Marshal(legacy)
+	require.Nil(t, err)
+
+	bootStorer := mock.NewStorerMock()
+	savedKey := []byte("legacy-registry-key")
+	ncInternalKey := append([]byte(core.NodesCoordinatorRegistryKeyPrefix), savedKey...)
+	require.Nil(t, bootStorer.Put(ncInternalKey, raw))
+
+	args := createArguments()
+	args.BootStorer = bootStorer
+	coordinator, err := NewNodesCoordinator(args)
+	require.Nil(t, err)
+
+	require.Nil(t, coordinator.LoadState(savedKey))
+
+	keys, err := coordinator.GetAllLeavingValidatorsKeys(3, false)
+	require.Nil(t, err)
+	require.Empty(t, keys)
+
+	electedKeys, err := coordinator.GetAllElectedValidatorsKeys(3, false)
+	require.Nil(t, err)
+	require.Equal(t, 4, len(electedKeys))
+}
+
+func TestNodesCoordinator_EpochStartPrepareStoresLeavingList(t *testing.T) {
+	t.Parallel()
+
+	arguments := createArguments() // ConsensusGroupSize = 4
+	// the shuffler requires elected+eligible >= Nodes; match it to the
+	// validator set below (4 elected + 2 eligible)
+	nodeShuffler, err := NewHashValidatorsShuffler(&NodesShufflerArgs{
+		Nodes:                6,
+		MaxNodesEnableConfig: nil,
+	})
+	require.Nil(t, err)
+	arguments.Shuffler = nodeShuffler
+	ihgs, err := NewNodesCoordinator(arguments)
+	require.Nil(t, err)
+
+	epoch := uint32(1)
+	validatorsInfo := []*state.ValidatorInfo{
+		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList), Index: 1},
+		{OwnerAddress: []byte("pk1"), PublicKey: []byte("pk1"), List: string(core.ElectedList), Index: 2},
+		{OwnerAddress: []byte("pk2"), PublicKey: []byte("pk2"), List: string(core.ElectedList), Index: 3},
+		{OwnerAddress: []byte("pk3"), PublicKey: []byte("pk3"), List: string(core.ElectedList), Index: 4},
+		{OwnerAddress: []byte("pk4"), PublicKey: []byte("pk4"), List: string(core.EligibleList), Index: 5},
+		{OwnerAddress: []byte("pk5"), PublicKey: []byte("pk5"), List: string(core.EligibleList), Index: 6},
+		{OwnerAddress: []byte("jailed0"), PublicKey: []byte("jailed0"), List: string(core.JailedList), Index: 7},
+	}
+	require.Nil(t, ihgs.SetEpochValidatorsInfo(epoch, validatorsInfo))
+
+	epochStartBlock := &block.Block{
+		Header: &block.BlockHeader{
+			Nonce:        10,
+			PrevRandSeed: []byte("rand seed"),
+			IsEpochStart: true,
+			Epoch:        epoch,
+		},
+	}
+
+	ihgs.EpochStartPrepare(epochStartBlock)
+
+	// the computed leaving list must be stored on the epoch config, not discarded
+	keys, err := ihgs.GetAllLeavingValidatorsKeys(epoch, false)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(keys))
+	assert.Equal(t, []byte("jailed0"), keys[0])
 }
