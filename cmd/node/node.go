@@ -371,6 +371,12 @@ func genesisValidators(nodesConfig *sharding.NodesSetup) ([]sharding.Validator, 
 func registryEpochValidators(
 	epochsConfig *sharding.EpochValidators,
 ) (elected, eligible, waiting, leaving []sharding.Validator, err error) {
+	// a registry entry can be present but null in the stored JSON; fail
+	// explicitly instead of panicking during bootstrap
+	if epochsConfig == nil {
+		return nil, nil, nil, nil, fmt.Errorf("nil registry epoch validators")
+	}
+
 	elected, err = sharding.SerializableValidatorsToValidators(epochsConfig.ElectedValidators)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -411,8 +417,14 @@ func seedPreviousEpochFromRegistry(
 	if nodeRegistry == nil {
 		return nil
 	}
+	// epoch 0 has no previous epoch; subtracting would wrap around and could
+	// match an unrelated registry entry
+	if currentEpoch == 0 {
+		return nil
+	}
 
-	prevEpochsConfig, ok := nodeRegistry.EpochsConfig[fmt.Sprintf("%d", currentEpoch-1)]
+	prevEpoch := currentEpoch - 1
+	prevEpochsConfig, ok := nodeRegistry.EpochsConfig[fmt.Sprintf("%d", prevEpoch)]
 	if !ok {
 		return nil
 	}
@@ -422,5 +434,5 @@ func seedPreviousEpochFromRegistry(
 		return err
 	}
 
-	return setter.SetNodes(elected, eligible, waiting, leaving, currentEpoch-1)
+	return setter.SetNodes(elected, eligible, waiting, leaving, prevEpoch)
 }
