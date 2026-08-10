@@ -36,6 +36,7 @@ type NodesCoordinator interface {
 	GetAllElectedValidatorsKeys(epoch uint32, ownerKey bool) ([][]byte, error)
 	GetAllEligibleValidatorsKeys(epoch uint32, ownerKey bool) ([][]byte, error)
 	GetAllWaitingValidatorsKeys(epoch uint32, ownerKey bool) ([][]byte, error)
+	GetAllLeavingValidatorsKeys(epoch uint32, ownerKey bool) ([][]byte, error)
 	SetEpochValidatorsInfo(epoch uint32, validatorsInfo []*state.ValidatorInfo) error
 	CheckValidatorSlot(epoch uint32, slotIndex int64, pubkey []byte) bool
 	GetConsensusValidatorsPublicKeys(randomness []byte, slot uint64, epoch uint32) ([]string, error)
