@@ -282,10 +282,12 @@ func TestPeerTypeProvider_CreateNewCacheScenarios(t *testing.T) {
 	cache, ok := ptp.createNewCache(0)
 	require.True(t, ok)
 	require.Len(t, cache, 4)
-	assert.Equal(t, core.EligibleList, cache["elected1"].pType) // elected1 is also eligible as it have been updated in the eligible list
+	// elected1 is in the leaving, elected and eligible lists: leaving is seeded
+	// first, so the working lists win and the last one seeded (eligible) sticks
+	assert.Equal(t, core.EligibleList, cache["elected1"].pType)
 	assert.Equal(t, core.ElectedList, cache["elected2"].pType)
 	assert.Equal(t, core.EligibleList, cache["eligible1"].pType)
-	// leaving is seeded first, so a working list wins over jailed for the same key
+	// jailed1 appears only in the leaving list, so it stays jailed
 	assert.Equal(t, core.JailedList, cache["jailed1"].pType)
 }
 
