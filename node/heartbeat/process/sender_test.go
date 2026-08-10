@@ -9,12 +9,14 @@ import (
 	"testing"
 
 	cMock "github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/node/heartbeat"
 	"github.com/klever-io/klever-go/node/heartbeat/data"
 	"github.com/klever-io/klever-go/node/heartbeat/mock"
 	"github.com/klever-io/klever-go/node/heartbeat/process"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 //------- NewSender
@@ -291,6 +293,75 @@ func TestSender_SendHeartbeatShouldWork(t *testing.T) {
 	assert.True(t, signCalled)
 	assert.True(t, genPubKeyCalled)
 	assert.True(t, marshalCalled)
+}
+
+func TestSender_SendHeartbeatUpdatesNodeTypeMetrics(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		peerType         core.PeerType
+		expectedNodeType string
+		expectedPeerType string
+	}{
+		{
+			name:             "waiting node reports validator node type",
+			peerType:         core.WaitingList,
+			expectedNodeType: string(core.NodeTypeValidator),
+			expectedPeerType: string(core.WaitingList),
+		},
+		{
+			name:             "observer node reports observer node type",
+			peerType:         core.ObserverList,
+			expectedNodeType: string(core.NodeTypeObserver),
+			expectedPeerType: string(core.ObserverList),
+		},
+		{
+			// pins the allowlist default: a peer type outside the validator
+			// set (unreachable via the provider today) maps to observer
+			name:             "inactive node reports observer node type",
+			peerType:         core.InactiveList,
+			expectedNodeType: string(core.NodeTypeObserver),
+			expectedPeerType: string(core.InactiveList),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			arg := createMockArgHeartbeatSender()
+			arg.PrivKey = &mock.PrivateKeyStub{
+				GeneratePublicHandler: func() crypto.PublicKey {
+					return &mock.PublicKeyMock{
+						ToByteArrayHandler: func() (i []byte, e error) {
+							return []byte("pub key"), nil
+						},
+					}
+				},
+			}
+			arg.PeerTypeProvider = &mock.PeerTypeProviderStub{
+				ComputeForPubKeyCalled: func(pubKey []byte) (core.PeerType, uint32, error) {
+					return tc.peerType, 0, nil
+				},
+			}
+
+			// SendHeartbeat runs synchronously, so plain map access is safe
+			metrics := make(map[string]string)
+			arg.StatusHandler = &mock.AppStatusHandlerStub{
+				SetStringValueHandler: func(key string, value string) {
+					metrics[key] = value
+				},
+			}
+
+			sender, err := process.NewSender(arg)
+			require.NoError(t, err)
+
+			err = sender.SendHeartbeat()
+
+			assert.Nil(t, err)
+			assert.Equal(t, tc.expectedNodeType, metrics[core.MetricNodeType])
+			assert.Equal(t, tc.expectedPeerType, metrics[core.MetricPeerType])
+		})
+	}
 }
 
 func TestSender_SendHeartbeatNotABackupNodeShouldWork(t *testing.T) {

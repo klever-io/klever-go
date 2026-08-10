@@ -190,7 +190,12 @@ const MetricTxPoolLoad = "klv_tx_pool_load"
 const MetricIsSyncing = "klv_is_syncing"
 
 // MetricLiveValidatorNodes is the metric for monitoring live validators on the network
+// (elected, eligible or waiting)
 const MetricLiveValidatorNodes = "klv_live_validator_nodes"
+
+// MetricLiveConsensusValidatorNodes is the metric for monitoring live validators that can
+// participate in consensus (elected or eligible, excluding the waiting list)
+const MetricLiveConsensusValidatorNodes = "klv_live_consensus_validator_nodes"
 
 // MetricConnectedNodes is the metric for monitoring total connected nodes on the network
 const MetricConnectedNodes = "klv_connected_nodes"

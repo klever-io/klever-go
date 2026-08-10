@@ -268,6 +268,66 @@ func TestHeartbeatMessageInfo_GetIsValidator_PeerTypeEligibleShouldReturnTrue(t 
 	assert.True(t, hbmi.GetIsValidator())
 }
 
+func TestHeartbeatMessageInfo_GetIsValidator_PeerTypeWaitingShouldReturnTrue(t *testing.T) {
+	t.Parallel()
+
+	mockTimer := mock.NewTimerMock()
+	genesisTime := time.Unix(1, 0)
+	hbmi, _ := process.NewHeartbeatMessageInfo(
+		100*time.Second,
+		string(core.WaitingList),
+		genesisTime,
+		mockTimer,
+	)
+
+	assert.True(t, hbmi.GetIsValidator())
+}
+
+func TestHeartbeatMessageInfo_GetIsValidator_PeerTypeObserverShouldReturnFalse(t *testing.T) {
+	t.Parallel()
+
+	mockTimer := mock.NewTimerMock()
+	genesisTime := time.Unix(1, 0)
+	hbmi, _ := process.NewHeartbeatMessageInfo(
+		100*time.Second,
+		string(core.ObserverList),
+		genesisTime,
+		mockTimer,
+	)
+
+	assert.False(t, hbmi.GetIsValidator())
+}
+
+func TestHeartbeatMessageInfo_GetIsConsensusCapable_PeerTypeEligibleShouldReturnTrue(t *testing.T) {
+	t.Parallel()
+
+	mockTimer := mock.NewTimerMock()
+	genesisTime := time.Unix(1, 0)
+	hbmi, _ := process.NewHeartbeatMessageInfo(
+		100*time.Second,
+		string(core.EligibleList),
+		genesisTime,
+		mockTimer,
+	)
+
+	assert.True(t, hbmi.GetIsConsensusCapable())
+}
+
+func TestHeartbeatMessageInfo_GetIsConsensusCapable_PeerTypeWaitingShouldReturnFalse(t *testing.T) {
+	t.Parallel()
+
+	mockTimer := mock.NewTimerMock()
+	genesisTime := time.Unix(1, 0)
+	hbmi, _ := process.NewHeartbeatMessageInfo(
+		100*time.Second,
+		string(core.WaitingList),
+		genesisTime,
+		mockTimer,
+	)
+
+	assert.False(t, hbmi.GetIsConsensusCapable())
+}
+
 //------- UpdatePeerType
 
 func TestHeartbeatMessageInfo_Update(t *testing.T) {

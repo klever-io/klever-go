@@ -373,6 +373,7 @@ func (m *Monitor) computePeerType(pubkey []byte) string {
 func (m *Monitor) computeAllHeartbeatMessages() {
 	m.mutHeartbeatMessages.Lock()
 	counterActiveValidators := 0
+	counterActiveConsensusValidators := 0
 	counterConnectedNodes := 0
 	hbChangedStateToInactiveMap := make(map[string]*heartbeatMessageInfo)
 	for key, v := range m.heartbeatMessages {
@@ -386,6 +387,9 @@ func (m *Monitor) computeAllHeartbeatMessages() {
 			if v.GetIsValidator() {
 				counterActiveValidators++
 			}
+			if v.GetIsConsensusCapable() {
+				counterActiveConsensusValidators++
+			}
 		}
 		changedStateToInactive := previousActive && !isActive
 		if changedStateToInactive {
@@ -397,8 +401,9 @@ func (m *Monitor) computeAllHeartbeatMessages() {
 	go m.SaveMultipleHeartbeatMessageInfos(hbChangedStateToInactiveMap)
 
 	m.mutAppStatusHandler.Lock()
-	m.appStatusHandler.SetUInt64Value(core.MetricLiveValidatorNodes, uint64(counterActiveValidators)) // #nosec G115
-	m.appStatusHandler.SetUInt64Value(core.MetricConnectedNodes, uint64(counterConnectedNodes))       // #nosec G115
+	m.appStatusHandler.SetUInt64Value(core.MetricLiveValidatorNodes, uint64(counterActiveValidators))                   // #nosec G115
+	m.appStatusHandler.SetUInt64Value(core.MetricLiveConsensusValidatorNodes, uint64(counterActiveConsensusValidators)) // #nosec G115
+	m.appStatusHandler.SetUInt64Value(core.MetricConnectedNodes, uint64(counterConnectedNodes))                         // #nosec G115
 	m.mutAppStatusHandler.Unlock()
 }
 
@@ -482,11 +487,17 @@ func (m *Monitor) GetHeartbeats() []data.PubKeyHeartbeat {
 }
 
 func (m *Monitor) shouldSkipValidator(v *heartbeatMessageInfo) bool {
-	isInactiveObserver := !v.GetIsActive() &&
-		(v.peerType != string(core.ElectedList) &&
-			v.peerType != string(core.EligibleList))
-	if isInactiveObserver {
-		lastInactiveInterval := m.timer.Now().Sub(v.timestamp)
+	// snapshot the fields under updateMutex: HeartbeatReceived writes them while
+	// holding only that mutex, so raw reads here race with inbound heartbeats
+	v.updateMutex.RLock()
+	isActive := v.isActive
+	peerType := v.peerType
+	timestamp := v.timestamp
+	v.updateMutex.RUnlock()
+
+	isInactiveNonValidator := !isActive && !isValidatorPeerType(peerType)
+	if isInactiveNonValidator {
+		lastInactiveInterval := m.timer.Now().Sub(timestamp)
 		if lastInactiveInterval.Seconds() > float64(m.hideInactiveValidatorIntervalInSec) {
 			return true
 		}

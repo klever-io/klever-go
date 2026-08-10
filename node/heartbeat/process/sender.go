@@ -176,10 +176,8 @@ func (s *Sender) getCurrentPrivateAndPublicKeys() (crypto.PrivateKey, crypto.Pub
 func (s *Sender) updateMetrics(hb *heartbeatData.Heartbeat) {
 	result := s.computePeerList(hb.Pubkey)
 
-	nodeType := ""
-	if result == string(core.ObserverList) {
-		nodeType = string(core.NodeTypeObserver)
-	} else {
+	nodeType := string(core.NodeTypeObserver)
+	if isValidatorPeerType(result) {
 		nodeType = string(core.NodeTypeValidator)
 	}
 

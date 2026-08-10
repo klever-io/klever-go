@@ -7,7 +7,8 @@ import (
 
 // PeerTypeProviderStub -
 type PeerTypeProviderStub struct {
-	ComputeForPubKeyCalled func(pubKey []byte) (core.PeerType, uint32, error)
+	ComputeForPubKeyCalled    func(pubKey []byte) (core.PeerType, uint32, error)
+	GetAllPeerTypeInfosCalled func() []*state.PeerTypeInfo
 }
 
 // ComputeForPubKey -
@@ -21,6 +22,9 @@ func (p *PeerTypeProviderStub) ComputeForPubKey(pubKey []byte) (core.PeerType, u
 
 // GetAllPeerTypeInfos -
 func (p *PeerTypeProviderStub) GetAllPeerTypeInfos() []*state.PeerTypeInfo {
+	if p.GetAllPeerTypeInfosCalled != nil {
+		return p.GetAllPeerTypeInfosCalled()
+	}
 	return nil
 }
 

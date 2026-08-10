@@ -206,9 +206,34 @@ func (hbmi *heartbeatMessageInfo) GetIsActive() bool {
 	return isActive
 }
 
+// isConsensusCapablePeerType is the single definition of which peer types can
+// participate in the consensus rotation: elected and eligible. It feeds the
+// klv_live_consensus_validator_nodes metric.
+func isConsensusCapablePeerType(peerType string) bool {
+	return peerType == string(core.ElectedList) ||
+		peerType == string(core.EligibleList)
+}
+
+// isValidatorPeerType is the single definition of which peer types count as
+// validators: waiting plus the consensus-capable types. Every consumer that
+// classifies a peer as a validator (metrics counting, Cleanup shielding,
+// node-type reporting) must use this predicate instead of comparing peer
+// types itself, so the classifications cannot diverge.
+func isValidatorPeerType(peerType string) bool {
+	return isConsensusCapablePeerType(peerType) ||
+		peerType == string(core.WaitingList)
+}
+
 // GetIsValidator will return true is the peer is a validator
 func (hbmi *heartbeatMessageInfo) GetIsValidator() bool {
-	hbmi.updateMutex.Lock()
-	defer hbmi.updateMutex.Unlock()
-	return hbmi.peerType == string(core.ElectedList) || hbmi.peerType == string(core.EligibleList)
+	hbmi.updateMutex.RLock()
+	defer hbmi.updateMutex.RUnlock()
+	return isValidatorPeerType(hbmi.peerType)
+}
+
+// GetIsConsensusCapable will return true if the peer can participate in consensus
+func (hbmi *heartbeatMessageInfo) GetIsConsensusCapable() bool {
+	hbmi.updateMutex.RLock()
+	defer hbmi.updateMutex.RUnlock()
+	return isConsensusCapablePeerType(hbmi.peerType)
 }

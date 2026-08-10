@@ -93,7 +93,9 @@ func (ptp *PeerTypeProvider) epochStartEventHandler() sharding.EpochStartActionH
 				"epoch", hdr.GetEpoch())
 			ptp.UpdateCache(hdr.GetEpoch())
 		},
-		func(_ data.HeaderHandler) {},
+		func(_ data.HeaderHandler) {
+			// nothing to prepare before an epoch start; the cache is rebuilt in the action handler above
+		},
 		core.IndexerOrder,
 	)
 
@@ -119,6 +121,15 @@ func (ptp *PeerTypeProvider) createNewCache(
 	epoch uint32,
 ) (map[string]*peerListAndShard, bool) {
 	newCache := make(map[string]*peerListAndShard)
+
+	// waiting is seeded first so elected and eligible entries take precedence
+	// if a key ever appears in more than one list
+	nodesMapWaiting, err := ptp.nodesCoordinator.GetAllWaitingValidatorsKeys(epoch, false)
+	if err != nil {
+		log.Warn("peerTypeProvider - GetAllWaitingValidatorsKeys failed", "epoch", epoch, "error", err)
+		return nil, false
+	}
+	computePeerType(newCache, nodesMapWaiting, core.WaitingList)
 
 	nodesMapElected, err := ptp.nodesCoordinator.GetAllElectedValidatorsKeys(epoch, false)
 	if err != nil {
