@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -339,6 +340,31 @@ func TestValidatorsProvider_CreateNewCache(t *testing.T) {
 		assert.Len(t, cache, 2)
 		assert.Equal(t, string(core.ElectedList), cache[hex.EncodeToString([]byte("elected"))].ValidatorStatus)
 		assert.Equal(t, string(core.EligibleList), cache[hex.EncodeToString([]byte("eligible"))].ValidatorStatus)
+	})
+
+	t.Run("failing getter keeps trie-based cache and remaining overlays", func(t *testing.T) {
+		// unlike the peerTypeProvider sibling, a getter error must not discard
+		// the cache: the trie-based entries are still served and the other
+		// list overlays still run
+		arg := createDefaultValidatorsProviderArg()
+		arg.NodesCoordinator = &mock.NodesCoordinatorMock{
+			GetAllElectedValidatorsKeysCalled: func() ([][]byte, error) {
+				return nil, fmt.Errorf("list unavailable")
+			},
+			GetAllEligibleValidatorsKeysCalled: func() ([][]byte, error) {
+				return [][]byte{[]byte("promoted")}, nil
+			},
+		}
+		vp := newTestValidatorsProvider(arg)
+
+		cache := vp.createNewCache(0, []*state.ValidatorInfo{
+			{PublicKey: []byte("elected"), List: string(core.ElectedList)},
+			{PublicKey: []byte("promoted"), List: string(core.WaitingList)},
+		})
+
+		assert.Len(t, cache, 2)
+		assert.Equal(t, string(core.ElectedList), cache[hex.EncodeToString([]byte("elected"))].ValidatorStatus)
+		assert.Equal(t, string(core.EligibleList), cache[hex.EncodeToString([]byte("promoted"))].ValidatorStatus)
 	})
 }
 
