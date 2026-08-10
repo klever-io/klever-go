@@ -198,7 +198,8 @@ func TestNewMonitor_OkValsShouldCreatePubkeyMap(t *testing.T) {
 	arg.PubKeysList = []string{"pk1", "pk2"}
 	mon, err := process.NewMonitor(arg)
 
-	assert.Nil(t, err)
+	require.NoError(t, err)
+	require.NotNil(t, mon)
 	t.Cleanup(func() {
 		require.NoError(t, mon.Close())
 	})
