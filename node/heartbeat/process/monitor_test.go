@@ -199,7 +199,9 @@ func TestNewMonitor_OkValsShouldCreatePubkeyMap(t *testing.T) {
 	mon, err := process.NewMonitor(arg)
 
 	assert.Nil(t, err)
-	defer mon.Close()
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 	assert.False(t, check.IfNil(mon))
 
 	hbStatus := mon.GetHeartbeats()
@@ -232,7 +234,9 @@ func TestMonitor_ProcessReceivedMessageShouldWork(t *testing.T) {
 	mon, err := process.NewMonitor(arg)
 	require.NoError(t, err)
 	require.NotNil(t, mon)
-	defer mon.Close()
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	hb := data.Heartbeat{
 		Pubkey: []byte(pubKey),
@@ -276,7 +280,9 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKey(t *testing.T) {
 	mon, err := process.NewMonitor(arg)
 	require.NoError(t, err)
 	require.NotNil(t, mon)
-	defer mon.Close()
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	hb := data.Heartbeat{
 		Pubkey: []byte(pubKey),
@@ -323,7 +329,9 @@ func TestMonitor_ProcessReceivedMessageWithNewShardID(t *testing.T) {
 	mon, err := process.NewMonitor(arg)
 	require.NoError(t, err)
 	require.NotNil(t, mon)
-	defer mon.Close()
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	// First send from pk1 from shard 0
 	hb := &data.Heartbeat{
@@ -390,7 +398,9 @@ func TestMonitor_ProcessReceivedMessageShouldSetPeerInactive(t *testing.T) {
 	mon, err := process.NewMonitor(arg)
 	require.NoError(t, err)
 	require.NotNil(t, mon)
-	defer mon.Close()
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	// First send from pk1
 	err = sendHbMessageFromPubKey(pubKey1, mon)
@@ -539,7 +549,9 @@ func TestMonitor_ProcessReceivedMessageImpersonatedMessageShouldErr(t *testing.T
 	mon, err := process.NewMonitor(arg)
 	require.NoError(t, err)
 	require.NotNil(t, mon)
-	defer mon.Close()
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	hb := data.Heartbeat{
 		Pubkey: []byte(pubKey),
@@ -573,7 +585,9 @@ func TestMonitor_AddAndGetDoubleSignerPeersShouldWork(t *testing.T) {
 	mon, err := process.NewMonitor(arg)
 	require.NoError(t, err)
 	require.NotNil(t, mon)
-	defer mon.Close()
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	assert.Equal(t, uint64(0), mon.GetNumInstancesOfPublicKey(string("pk0")))
 
@@ -767,7 +781,9 @@ func TestMonitor_CleanupShouldWork(t *testing.T) {
 	mon, err := process.NewMonitor(arg)
 	require.NoError(t, err)
 	require.NotNil(t, mon)
-	defer mon.Close()
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	assert.Equal(t, 1, mon.GetNumHearbeatMessages())
 	assert.Equal(t, 0, mon.GetNumDoubleSignerPeers())
@@ -797,7 +813,9 @@ func TestMonitor_SetAppStatusHandlerRepublishesStartupMetrics(t *testing.T) {
 	mon, err := process.NewMonitor(arg)
 	require.NoError(t, err)
 	require.NotNil(t, mon)
-	defer mon.Close()
+	t.Cleanup(func() {
+		require.NoError(t, mon.Close())
+	})
 
 	// the constructor's initial refresh ran against the placeholder handler;
 	// wiring the real one must re-publish the computed metrics
