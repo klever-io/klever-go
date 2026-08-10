@@ -171,7 +171,9 @@ func (vp *validatorsProvider) epochStartEventHandler() sharding.EpochStartAction
 				vp.refreshCache <- hdr.GetEpoch()
 			}()
 		},
-		func(_ data.HeaderHandler) {},
+		func(_ data.HeaderHandler) {
+			// nothing to prepare before an epoch start; the cache is refreshed in the action handler above
+		},
 		core.IndexerOrder,
 	)
 
@@ -235,17 +237,24 @@ func (vp *validatorsProvider) createNewCache(
 ) map[string]*state.ValidatorApiResponse {
 	newCache := vp.createValidatorAPIResponseMapFromValidatorInfoMap(allNodes)
 
-	nodesElected, err := vp.nodesCoordinator.GetAllElectedValidatorsKeys(epoch, false)
-	if err != nil {
-		log.Debug("validatorsProvider - GetAllElectedValidatorsKeys failed", "epoch", epoch)
+	// unlike the peerTypeProvider sibling, a failing getter is not fatal here:
+	// the trie-based cache is still served, only the list overlay is skipped
+	listSources := []struct {
+		name     string
+		peerType core.PeerType
+		getKeys  func(epoch uint32, ownerKey bool) ([][]byte, error)
+	}{
+		{"GetAllElectedValidatorsKeys", core.ElectedList, vp.nodesCoordinator.GetAllElectedValidatorsKeys},
+		{"GetAllEligibleValidatorsKeys", core.EligibleList, vp.nodesCoordinator.GetAllEligibleValidatorsKeys},
 	}
-	vp.aggregateLists(newCache, nodesElected, core.ElectedList)
 
-	nodesEligible, err := vp.nodesCoordinator.GetAllEligibleValidatorsKeys(epoch, false)
-	if err != nil {
-		log.Debug("validatorsProvider - GetAllEligibleValidatorsKeys failed", "epoch", epoch)
+	for _, src := range listSources {
+		keys, err := src.getKeys(epoch, false)
+		if err != nil {
+			log.Debug("validatorsProvider - "+src.name+" failed", "epoch", epoch)
+		}
+		vp.aggregateLists(newCache, keys, src.peerType)
 	}
-	vp.aggregateLists(newCache, nodesEligible, core.EligibleList)
 
 	return newCache
 }

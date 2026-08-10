@@ -124,26 +124,24 @@ func (ptp *PeerTypeProvider) createNewCache(
 
 	// waiting is seeded first so elected and eligible entries take precedence
 	// if a key ever appears in more than one list
-	nodesMapWaiting, err := ptp.nodesCoordinator.GetAllWaitingValidatorsKeys(epoch, false)
-	if err != nil {
-		log.Warn("peerTypeProvider - GetAllWaitingValidatorsKeys failed", "epoch", epoch, "error", err)
-		return nil, false
+	listSources := []struct {
+		name     string
+		peerType core.PeerType
+		getKeys  func(epoch uint32, ownerKey bool) ([][]byte, error)
+	}{
+		{"GetAllWaitingValidatorsKeys", core.WaitingList, ptp.nodesCoordinator.GetAllWaitingValidatorsKeys},
+		{"GetAllElectedValidatorsKeys", core.ElectedList, ptp.nodesCoordinator.GetAllElectedValidatorsKeys},
+		{"GetAllEligibleValidatorsKeys", core.EligibleList, ptp.nodesCoordinator.GetAllEligibleValidatorsKeys},
 	}
-	computePeerType(newCache, nodesMapWaiting, core.WaitingList)
 
-	nodesMapElected, err := ptp.nodesCoordinator.GetAllElectedValidatorsKeys(epoch, false)
-	if err != nil {
-		log.Warn("peerTypeProvider - GetAllElectedValidatorsKeys failed", "epoch", epoch, "error", err)
-		return nil, false
+	for _, src := range listSources {
+		keys, err := src.getKeys(epoch, false)
+		if err != nil {
+			log.Warn("peerTypeProvider - "+src.name+" failed", "epoch", epoch, "error", err)
+			return nil, false
+		}
+		computePeerType(newCache, keys, src.peerType)
 	}
-	computePeerType(newCache, nodesMapElected, core.ElectedList)
-
-	nodesMapEligible, err := ptp.nodesCoordinator.GetAllEligibleValidatorsKeys(epoch, false)
-	if err != nil {
-		log.Warn("peerTypeProvider - GetAllEligibleValidatorsKeys failed", "epoch", epoch, "error", err)
-		return nil, false
-	}
-	computePeerType(newCache, nodesMapEligible, core.EligibleList)
 
 	return newCache, true
 }
