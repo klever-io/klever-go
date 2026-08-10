@@ -295,8 +295,14 @@ func (wr *WidgetsRender) prepareBlockInfo() {
 		rows[6] = []string{"Consensus slot state: N/A (syncing)"}
 	case 0:
 		instanceType := wr.presenter.GetNodeType()
+		peerType := wr.presenter.GetPeerType()
 		if instanceType == string(core.NodeTypeObserver) {
 			rows[6] = []string{fmt.Sprintf("Consensus slot state: N/A (%s)", string(core.NodeTypeObserver))}
+		} else if peerType == string(core.WaitingList) {
+			// a waiting validator is outside the consensus rotation, so no
+			// subround ever writes the slot-state metric; render N/A instead
+			// of the empty string it would otherwise show
+			rows[6] = []string{fmt.Sprintf("Consensus slot state: N/A (%s)", string(core.WaitingList))}
 		} else {
 			consensusSlotState := wr.presenter.GetConsensusSlotState()
 			rows[6] = []string{fmt.Sprintf("Consensus slot state: %s", consensusSlotState)}

@@ -594,9 +594,10 @@ func TestMonitor_WaitingNodeSurvivesRefreshAndCleanupRounds(t *testing.T) {
 	}
 	mon, err := process.NewMonitor(arg)
 	require.Nil(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, mon.Close())
-	})
+	// stop the background refresher before the Cleanup/assert rounds: if it
+	// kept running it could recreate an evicted entry between Cleanup and the
+	// assertion, masking a shielding regression
+	require.NoError(t, mon.Close())
 
 	// move far past the hide interval so an unshielded inactive entry would be
 	// deleted by Cleanup and recreated by the next refresh (the churn cycle)
@@ -617,6 +618,7 @@ func TestMonitor_ActiveWaitingNodeCountsAsLiveValidator(t *testing.T) {
 	t.Parallel()
 
 	pkWaiting := "pk-waiting"
+	pkEligible := "pk-eligible"
 	pkObserver := "pk-observer"
 
 	arg := createMockArgHeartbeatMonitor()
@@ -624,8 +626,11 @@ func TestMonitor_ActiveWaitingNodeCountsAsLiveValidator(t *testing.T) {
 	arg.PubKeysList = []string{}
 	arg.PeerTypeProvider = &mock.PeerTypeProviderStub{
 		ComputeForPubKeyCalled: func(pubKey []byte) (core.PeerType, uint32, error) {
-			if string(pubKey) == pkWaiting {
+			switch string(pubKey) {
+			case pkWaiting:
 				return core.WaitingList, 0, nil
+			case pkEligible:
+				return core.EligibleList, 0, nil
 			}
 			return core.ObserverList, 0, nil
 		},
@@ -638,12 +643,15 @@ func TestMonitor_ActiveWaitingNodeCountsAsLiveValidator(t *testing.T) {
 	require.NoError(t, mon.Close())
 
 	liveValidators := uint64(0)
+	liveConsensusValidators := uint64(0)
 	connectedNodes := uint64(0)
 	require.NoError(t, mon.SetAppStatusHandler(&mock.AppStatusHandlerStub{
 		SetUInt64ValueHandler: func(key string, value uint64) {
 			switch key {
 			case core.MetricLiveValidatorNodes:
 				liveValidators = value
+			case core.MetricLiveConsensusValidatorNodes:
+				liveConsensusValidators = value
 			case core.MetricConnectedNodes:
 				connectedNodes = value
 			}
@@ -651,12 +659,16 @@ func TestMonitor_ActiveWaitingNodeCountsAsLiveValidator(t *testing.T) {
 	}))
 
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pkWaiting)})
+	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pkEligible)})
 	mon.SendHeartbeatMessage(&data.Heartbeat{Pubkey: []byte(pkObserver)})
 
 	mon.RefreshHeartbeatMessageInfo()
 
-	assert.Equal(t, uint64(1), liveValidators)
-	assert.Equal(t, uint64(2), connectedNodes)
+	// waiting and eligible count as live validators, only eligible as
+	// consensus-capable, all three as connected
+	assert.Equal(t, uint64(2), liveValidators)
+	assert.Equal(t, uint64(1), liveConsensusValidators)
+	assert.Equal(t, uint64(3), connectedNodes)
 }
 
 func TestMonitor_UnstakedWaitingNodeIsDemotedAndCleaned(t *testing.T) {

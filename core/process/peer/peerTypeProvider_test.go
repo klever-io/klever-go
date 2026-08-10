@@ -355,6 +355,9 @@ func TestPeerTypeProvider_UpdateCache_KeepsPreviousOnFailure(t *testing.T) {
 	ptp.UpdateCache(99)
 
 	require.Len(t, ptp.cache, 3)
+	require.Contains(t, ptp.cache, "waiting1")
+	require.Contains(t, ptp.cache, "elected1")
+	require.Contains(t, ptp.cache, "eligible1")
 	assert.Equal(t, core.WaitingList, ptp.cache["waiting1"].pType)
 	assert.Equal(t, core.ElectedList, ptp.cache["elected1"].pType)
 	assert.Equal(t, core.EligibleList, ptp.cache["eligible1"].pType)
