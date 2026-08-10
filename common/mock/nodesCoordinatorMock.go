@@ -24,7 +24,8 @@ type NodesCoordinatorMock struct {
 	GetAllEligibleValidatorsKeysWithEpochCalled func(uint32, bool) ([][]byte, error)
 	GetAllWaitingValidatorsKeysCalled           func() ([][]byte, error)
 	GetAllWaitingValidatorsKeysWithEpochCalled  func(uint32, bool) ([][]byte, error)
-	GetAllLeavingValidatorsPublicKeysCalled     func() ([][]byte, error)
+	GetAllLeavingValidatorsKeysCalled           func() ([][]byte, error)
+	GetAllLeavingValidatorsKeysWithEpochCalled  func(uint32, bool) ([][]byte, error)
 	CheckValidatorSlotCalled                    func(epoch uint32, slotIndex int64, pubkey []byte) bool
 	ConsensusGroupSizeCalled                    func() int
 	LoadValidatorsCalled                        func(validators []*state.ValidatorInfo) error
@@ -90,6 +91,17 @@ func (ncm *NodesCoordinatorMock) GetAllWaitingValidatorsKeys(epoch uint32, inclu
 	}
 	if ncm.GetAllWaitingValidatorsKeysCalled != nil {
 		return ncm.GetAllWaitingValidatorsKeysCalled()
+	}
+	return nil, nil
+}
+
+// GetAllLeavingValidatorsKeys -
+func (ncm *NodesCoordinatorMock) GetAllLeavingValidatorsKeys(epoch uint32, includeLeaving bool) ([][]byte, error) {
+	if ncm.GetAllLeavingValidatorsKeysWithEpochCalled != nil {
+		return ncm.GetAllLeavingValidatorsKeysWithEpochCalled(epoch, includeLeaving)
+	}
+	if ncm.GetAllLeavingValidatorsKeysCalled != nil {
+		return ncm.GetAllLeavingValidatorsKeysCalled()
 	}
 	return nil, nil
 }
@@ -223,11 +235,6 @@ func (ncm *NodesCoordinatorMock) GetValidatorWithPublicKey(publicKey []byte) (sh
 	}
 
 	return nil, sharding.ErrValidatorNotFound
-}
-
-// GetAllLeavingValidatorsPublicKeys -
-func (ncm *NodesCoordinatorMock) GetAllLeavingValidatorsPublicKeys(_ uint32) ([][]byte, error) {
-	return nil, nil
 }
 
 // GetOwnPublicKey -

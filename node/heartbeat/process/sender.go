@@ -176,8 +176,10 @@ func (s *Sender) getCurrentPrivateAndPublicKeys() (crypto.PrivateKey, crypto.Pub
 func (s *Sender) updateMetrics(hb *heartbeatData.Heartbeat) {
 	result := s.computePeerList(hb.Pubkey)
 
+	// registered tier: a jailed validator still self-reports as a validator
+	// node; the punished state is visible through klv_peer_type
 	nodeType := string(core.NodeTypeObserver)
-	if isValidatorPeerType(result) {
+	if isRegisteredValidatorPeerType(result) {
 		nodeType = string(core.NodeTypeValidator)
 	}
 
