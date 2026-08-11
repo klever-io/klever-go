@@ -551,6 +551,15 @@ func (ei *elasticProcessor) SaveTransactions(
 		return err
 	}
 
+	// Drop the cached conversion once consumed: PreparedBlockData sits in the dispatcher's
+	// work-item queue (up to indexerCacheSize deep) until this method runs, pinning the
+	// hex-expanded logs for that whole wait; clearing it here caps the exposure to one
+	// in-flight block instead of the full queue depth.
+	if p, ok := prepared.(*data.PreparedBlockData); ok && p != nil {
+		p.LogsDB = nil
+		p.LogsResults = nil
+	}
+
 	if err := ei.doBulkRequests("", buffers.Buffers()); err != nil {
 		log.Warn("indexer indexing bulk of transactions", "error", err.Error())
 		return err

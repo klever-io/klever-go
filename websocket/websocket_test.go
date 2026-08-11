@@ -1176,10 +1176,10 @@ func TestHasLogsSubscriberOrMirror(t *testing.T) {
 
 	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c))
 	assert.True(t, hub.HasLogsSubscriberOrMirror(), "an address-scoped LOGS subscriber must count")
-	assert.Equal(t, 1, hub.logsSubscriberCount)
+	assert.Equal(t, int64(1), hub.logsSubscriberCount.Load())
 
 	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c))
-	assert.Equal(t, 1, hub.logsSubscriberCount, "re-subscribing the same (address, client) to LOGS must not double-count")
+	assert.Equal(t, int64(1), hub.logsSubscriberCount.Load(), "re-subscribing the same (address, client) to LOGS must not double-count")
 
 	// logsSubscriberCount must stay in sync incrementally (not just the map), since
 	// HasLogsSubscriberOrMirror no longer scans addressSubscription itself (see the
@@ -1187,25 +1187,42 @@ func TestHasLogsSubscriberOrMirror(t *testing.T) {
 	// disconnect.
 	hub.HandleClientRemoval([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c)
 	assert.False(t, hub.HasLogsSubscriberOrMirror(), "unsubscribing from LOGS must decrement the counter")
-	assert.Equal(t, 0, hub.logsSubscriberCount)
+	assert.Equal(t, int64(0), hub.logsSubscriberCount.Load())
 
 	// A second, redundant unsubscribe (already-cleared acceptLogs) must not drive the
 	// counter negative — a negative count masks a later genuine subscriber, since
 	// HasLogsSubscriberOrMirror only checks count > 0.
 	hub.HandleClientRemoval([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c)
-	assert.Equal(t, 0, hub.logsSubscriberCount, "a repeated unsubscribe must not drive the counter negative")
+	assert.Equal(t, int64(0), hub.logsSubscriberCount.Load(), "a repeated unsubscribe must not drive the counter negative")
 
 	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c))
-	require.Equal(t, 1, hub.logsSubscriberCount)
+	require.Equal(t, int64(1), hub.logsSubscriberCount.Load())
 	killClient(c) // newTestClient's conn is nil; killClient makes close() a no-op so handleClientDelete is safe to call directly.
 	hub.handleClientDelete(c)
-	assert.Equal(t, 0, hub.logsSubscriberCount, "disconnecting a client must decrement the counter for every address it accepted LOGS on")
+	assert.Equal(t, int64(0), hub.logsSubscriberCount.Load(), "disconnecting a client must decrement the counter for every address it accepted LOGS on")
 
 	mirrorHub := NewHub("http://mirror.example", "", nil)
 	assert.True(t, mirrorHub.HasLogsSubscriberOrMirror(), "a configured mirror must count even with no client subscribers")
 
 	apiKeyOnlyHub := NewHub("", "api-key-without-url", nil)
 	assert.False(t, apiKeyOnlyHub.HasLogsSubscriberOrMirror(), "an API key without a URL never actually enables the mirror (see NewHub)")
+}
+
+// TestHasLogsSubscriberOrMirror_NeverBlocksOnHubMutex guards the exact scenario a
+// reviewer flagged: HasLogsSubscriberOrMirror runs synchronously on the block-commit
+// goroutine, and handleClientDelete holds h.mu (Lock) across a socket close and a full
+// map scan. If the checker still took h.mu (RLock), a burst of client disconnects could
+// park the commit goroutine behind that queue (RWMutex gives a pending writer priority
+// over new readers). Holding h.mu.Lock() for the whole test and calling the checker from
+// another goroutine proves it returns without ever needing the lock.
+func TestHasLogsSubscriberOrMirror_NeverBlocksOnHubMutex(t *testing.T) {
+	hub := newTestHub(nil)
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+
+	assertReturnsQuickly(t, time.Second, "HasLogsSubscriberOrMirror blocked while h.mu was held elsewhere", func() {
+		hub.HasLogsSubscriberOrMirror()
+	})
 }
 
 func TestStartServer_LogsEvent_MultipleEntriesDifferentAddresses(t *testing.T) {

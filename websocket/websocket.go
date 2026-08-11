@@ -93,12 +93,13 @@ type SocketHub struct {
 	addressSubscription     map[string]map[*client]userOptions
 	clientAddresses         map[*client]int
 	// logsSubscriberCount is the number of (address, client) entries currently accepting
-	// LOGS, maintained incrementally alongside addressSubscription (guarded by the same
-	// mu). HasLogsSubscriberOrMirror reads this instead of scanning addressSubscription,
-	// because it runs synchronously on the block-commit goroutine for every block with
-	// logs — an O(n) scan there would let a client cheaply inflate commit-goroutine cost
-	// simply by holding many address subscriptions, without ever accepting LOGS.
-	logsSubscriberCount int
+	// LOGS, maintained incrementally alongside addressSubscription. Mutated only while mu
+	// (Lock) is already held for the surrounding map edit, but read lock-free via Load() —
+	// HasLogsSubscriberOrMirror runs synchronously on the block-commit goroutine for every
+	// block with logs, so it must never be able to block on mu: a burst of client
+	// disconnects holds mu (Lock) across a socket close and a map scan, and RWMutex's
+	// fairness would park a new RLock behind that queue.
+	logsSubscriberCount atomic.Int64
 	limits              resolvedLimits
 	unregister          chan *client
 	// postQueue feeds the bounded postWSConnection worker pool; nil when the mirror is
@@ -271,12 +272,7 @@ func (h *SocketHub) dispatchToAddress(evType indexer.EventType, address, hash st
 // network/api/api.go) so the block-commit goroutine can skip the log-conversion cost
 // entirely for a block that nobody would receive it for.
 func (h *SocketHub) HasLogsSubscriberOrMirror() bool {
-	if h.mirrorConfigured {
-		return true
-	}
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-	return h.logsSubscriberCount > 0
+	return h.mirrorConfigured || h.logsSubscriberCount.Load() > 0
 }
 
 func (h *SocketHub) broadcastToSubscription(parsed *Send, subscription map[*client]struct{}) {
@@ -586,7 +582,7 @@ func (h *SocketHub) addAddressSubscriptions(addresses []string, c *client, opts 
 			existing.acceptTransaction = true
 		}
 		if opts.acceptLogs && !existing.acceptLogs {
-			h.logsSubscriberCount++
+			h.logsSubscriberCount.Add(1)
 			existing.acceptLogs = true
 		}
 		value[c] = existing
@@ -612,7 +608,7 @@ func (h *SocketHub) deleteAll() {
 		delete(h.addressSubscription, addr)
 	}
 	h.clientAddresses = make(map[*client]int)
-	h.logsSubscriberCount = 0
+	h.logsSubscriberCount.Store(0)
 
 	closeAndClear(h.blockSubscription)
 	closeAndClear(h.transactionSubscription)
@@ -630,7 +626,7 @@ func (h *SocketHub) handleClientDelete(c *client) {
 	// permanently (GHSA-4fwh-wrm6-97xm, Impact C).
 	for addr, clients := range h.addressSubscription {
 		if opts, has := clients[c]; has && opts.acceptLogs {
-			h.logsSubscriberCount--
+			h.logsSubscriberCount.Add(-1)
 		}
 		delete(clients, c)
 		if len(clients) == 0 {
@@ -810,7 +806,7 @@ func (h *SocketHub) removeClientFromAddress(addr string, c *client, remove userO
 		existing.acceptTransaction = false
 	}
 	if remove.acceptLogs && existing.acceptLogs {
-		h.logsSubscriberCount--
+		h.logsSubscriberCount.Add(-1)
 		existing.acceptLogs = false
 	}
 	if !existing.acceptAccount && !existing.acceptTransaction && !existing.acceptLogs {

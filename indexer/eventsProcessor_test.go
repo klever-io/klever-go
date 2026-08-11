@@ -22,6 +22,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// countingLogsProc wraps a real LogsAndEventsHandler, counting PrepareLogsForDB calls so a
+// test can assert the conversion never ran at all — a stash-based check (e.g. asserting
+// PreparedBlockData.LogsDB stayed nil) can't distinguish "never called" from "called, then
+// its result discarded before the stash," which a gate moved just slightly later would
+// still pass.
+type countingLogsProc struct {
+	inner                 LogsAndEventsHandler
+	prepareLogsForDBCalls int32
+}
+
+func (c *countingLogsProc) PrepareLogsForDB(logsAndEvents []*nodeData.LogData, txsMap map[string]*data.Transaction, timestamp int64) []*data.Logs {
+	atomic.AddInt32(&c.prepareLogsForDBCalls, 1)
+	return c.inner.PrepareLogsForDB(logsAndEvents, txsMap, timestamp)
+}
+
+func (c *countingLogsProc) ExtractDataFromLogs(pool *indexer.Pool, txs []*data.Transaction, timestamp int64) *data.PreparedLogsResults {
+	return c.inner.ExtractDataFromLogs(pool, txs, timestamp)
+}
+
 type indexerStub struct {
 	saveBlockCalled                    func(args *indexer.ArgsSaveBlockData)
 	revertIndexedBlockCalled           func(header nodeData.HeaderHandler)
@@ -525,6 +544,52 @@ func TestEventsProcessor_SaveBlock_DispatchesLogEvents(t *testing.T) {
 	assert.True(t, entry.Events[0].IsSystemLog)
 }
 
+// TestEventsProcessor_SaveBlock_LogsPayloadConsistentWithoutIndexer guards a real payload
+// divergence: ExtractDataFromLogs sets tx.HasLogs/HasOperations and (for a writeLog/
+// signalError event) overwrites tx.Status — fields the websocket payload itself reports.
+// Gating that call on indexerEnabled meant a ws-only node emitted different LOGS/
+// TRANSACTIONS payloads than a ws+ES node for the identical block. This runs on a ws-only
+// processor (createTestEventsProcessor has no indexer) and expects the same
+// informativeLogsProcessor-driven Status override an ES-enabled node would see.
+func TestEventsProcessor_SaveBlock_LogsPayloadConsistentWithoutIndexer(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor(t)
+
+	contract := transaction.TransferContract{ToAddress: []byte("receiver"), Amount: 100}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	require.NoError(t, err)
+
+	logHandler := &transaction.Log{
+		Address:    []byte("contractaddr"),
+		ContractID: 7,
+		Events: []*transaction.Event{
+			{Address: []byte("contractaddr"), Identifier: []byte("writeLog")},
+		},
+	}
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Txs:  map[string]nodeData.TransactionHandler{"txHash1": tx},
+		Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txHash1"}},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	events := drainAllEvents(testQueue)
+
+	logsEvent := findEventType(events, LOGS)
+	require.NotNil(t, logsEvent)
+	logsDB := logsEvent.Message.([]*data.Logs)
+	require.Len(t, logsDB, 1)
+	assert.Equal(t, transaction.Transaction_SUCCESS.String(), logsDB[0].Status,
+		"writeLog must override tx.Status even without an indexer configured")
+
+	txEvent := findEventType(events, TRANSACTIONS)
+	require.NotNil(t, txEvent)
+	txs := txEvent.Message.([]*data.Transaction)
+	require.Len(t, txs, 1)
+	assert.True(t, txs[0].HasLogs, "HasLogs must be set on the websocket payload without an indexer configured")
+}
+
 // TestEventsProcessor_SaveBlock_DispatchesLogEvents_WhenPrepareIsSkipped: LOGS must still
 // dispatch when prepared == nil (empty Txs forces prepare()'s early-return path), with
 // Caller/Status/ResultCode degrading to zero values on the resulting nil txsMap instead of
@@ -590,6 +655,38 @@ func TestEventsProcessor_SaveBlock_SkipsLogConversionWithNoSubscriber(t *testing
 
 	logsEvent := findEventType(drainAllEvents(testQueue), LOGS)
 	assert.Nil(t, logsEvent, "LOGS must not dispatch when LogsSubscriberChecker reports nobody is listening")
+}
+
+// TestEventsProcessor_SaveBlock_SkipsLogConversionWithNoSubscriber_PinsGateOrdering asserts
+// PrepareLogsForDB itself was never called, via a call-counting wrapper — not just that no
+// event was observed, or that a stash field stayed nil. Either of those weaker checks would
+// still pass if the gate moved to just after the PrepareLogsForDB call (but before using
+// its result), which would still pay the conversion cost the fix exists to avoid.
+func TestEventsProcessor_SaveBlock_SkipsLogConversionWithNoSubscriber_PinsGateOrdering(t *testing.T) {
+	saveAndRestoreEventQueue(t, true)
+	original := LogsSubscriberChecker
+	LogsSubscriberChecker = func() bool { return false }
+	t.Cleanup(func() { LogsSubscriberChecker = original })
+
+	ep := createTestEventsProcessor(t)
+	counting := &countingLogsProc{inner: ep.logsAndEventsProc}
+	ep.logsAndEventsProc = counting
+
+	contract := transaction.TransferContract{ToAddress: []byte("receiver"), Amount: 100}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	require.NoError(t, err)
+
+	logHandler := &transaction.Log{Address: []byte("contractaddr"), ContractID: 7}
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Txs:  map[string]nodeData.TransactionHandler{"txHash1": tx},
+		Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txHash1"}},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	assert.Equal(t, int32(0), atomic.LoadInt32(&counting.prepareLogsForDBCalls),
+		"PrepareLogsForDB must not run at all when the gate reports no subscriber")
 }
 
 func TestEventsProcessor_SaveBlock_NoLogsNoOp(t *testing.T) {

@@ -103,12 +103,13 @@ func (ep *eventsProcessor) SaveBlock(args *indexerData.ArgsSaveBlockData) {
 		var txsMap map[string]*data.Transaction
 		if prepared != nil {
 			txsMap = prepared.TxsMap
-			if indexerEnabled {
-				// Run here, synchronously, so the elastic worker's async SaveTransactions
-				// doesn't race the websocket hub's json.Marshal of the same prepared.Txs
-				// pointers by mutating tx.HasLogs/HasOperations on its own goroutine.
-				prepared.LogsResults = ep.logsAndEventsProc.ExtractDataFromLogs(args.TransactionsPool, prepared.Txs, args.Header.GetTimestamp())
-			}
+			// Run unconditionally (not just when indexerEnabled): this sets
+			// tx.HasLogs/HasOperations/Status, which the websocket payload itself reports —
+			// gating it on indexerEnabled would make a ws-only node and a ws+ES node emit
+			// different payloads for the same block. Doing it here also keeps it
+			// synchronous with dispatchTransactionEvents, so the elastic worker's async
+			// goroutine can't race the hub's marshal of the same prepared.Txs pointers.
+			prepared.LogsResults = ep.logsAndEventsProc.ExtractDataFromLogs(args.TransactionsPool, prepared.Txs, args.Header.GetTimestamp())
 			ep.dispatchTransactionEvents(prepared.Txs)
 			ep.dispatchAccountEventsFromAlteredAccounts(args.Header.GetTimestamp(), prepared.Altered.Accounts)
 		}
