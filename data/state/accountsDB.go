@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -850,12 +851,13 @@ func (adb *AccountsDB) recreateTrie(rootHash []byte) error {
 
 // RecreateAllTries recreates all the tries from the accounts DB
 func (adb *AccountsDB) RecreateAllTries(rootHash []byte, ctx context.Context) (map[string]data.Trie, error) {
-	leavesChannel, err := adb.mainTrie.GetAllLeavesOnChannel(rootHash, ctx)
+	// Recreated before the walk starts, so a failure here cannot abandon a running producer.
+	recreatedTrie, err := adb.mainTrie.Recreate(rootHash)
 	if err != nil {
 		return nil, err
 	}
 
-	recreatedTrie, err := adb.mainTrie.Recreate(rootHash)
+	leavesChannels, err := adb.mainTrie.GetAllLeavesOnChannel(rootHash, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -863,22 +865,28 @@ func (adb *AccountsDB) RecreateAllTries(rootHash []byte, ctx context.Context) (m
 	allTries := make(map[string]data.Trie)
 	allTries[string(rootHash)] = recreatedTrie
 
-	for leaf := range leavesChannel {
+	// A truncated walk would silently drop data tries, so fail rather than return a partial map.
+	err = leavesChannels.ForEach(func(leaf data.KeyValueHolder) error {
 		account := &userAccount{}
-		err = adb.marshalizer.Unmarshal(account, leaf.Value())
-		if err != nil {
-			log.Trace("this must be a leaf with code", "err", err)
-			continue
+		errUnmarshal := adb.marshalizer.Unmarshal(account, leaf.Value())
+		if errUnmarshal != nil {
+			log.Trace("this must be a leaf with code", "err", errUnmarshal)
+			return nil
 		}
 
 		if len(account.RootHash) > 0 {
 			dataTrie, errRecreate := adb.mainTrie.Recreate(account.RootHash)
 			if errRecreate != nil {
-				return nil, errRecreate
+				return errRecreate
 			}
 
 			allTries[string(account.RootHash)] = dataTrie
 		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return allTries, nil
@@ -926,10 +934,13 @@ func (adb *AccountsDB) SnapshotState(rootHash []byte, ctx context.Context) {
 	stats := newSnapshotStatistics(1)
 	go func() {
 		trieStorageManager.TakeSnapshot(rootHash)
-		adb.snapshotUserAccountDataTrie(rootHash, ctx)
+		errSnapshot := adb.snapshotUserAccountDataTrie(rootHash, ctx)
 		trieStorageManager.ExitPruningBufferingMode()
 
-		adb.increaseNumCheckpoints()
+		// Recording a checkpoint that was never completed would overstate the persisted count.
+		if errSnapshot == nil {
+			adb.increaseNumCheckpoints()
+		}
 
 		stats.SnapshotFinished()
 	}()
@@ -939,24 +950,41 @@ func (adb *AccountsDB) SnapshotState(rootHash []byte, ctx context.Context) {
 	}
 }
 
-func (adb *AccountsDB) snapshotUserAccountDataTrie(rootHash []byte, ctx context.Context) {
-	leavesChannel, err := adb.mainTrie.GetAllLeavesOnChannel(rootHash, ctx)
+// snapshotUserAccountDataTrie checkpoints the data trie of every user account. It reports a truncated
+// walk so the caller does not record the snapshot as a completed checkpoint. A shutdown is not a
+// fault, so ErrContextClosing is not reported as one.
+func (adb *AccountsDB) snapshotUserAccountDataTrie(rootHash []byte, ctx context.Context) error {
+	leavesChannels, err := adb.mainTrie.GetAllLeavesOnChannel(rootHash, ctx)
 	if err != nil {
 		log.Error("incomplete snapshot as getAllLeaves error", "error", err)
-		return
+		return err
 	}
 
-	for leaf := range leavesChannel {
+	err = leavesChannels.ForEach(func(leaf data.KeyValueHolder) error {
 		account := &userAccount{}
-		err = adb.marshalizer.Unmarshal(account, leaf.Value())
-		if err != nil {
-			log.Trace("this must be a leaf with code", "err", err)
-			continue
+		errUnmarshal := adb.marshalizer.Unmarshal(account, leaf.Value())
+		if errUnmarshal != nil {
+			log.Trace("this must be a leaf with code", "err", errUnmarshal)
+			return nil
 		}
 		if len(account.RootHash) > 0 {
 			adb.mainTrie.GetStorageManager().SetCheckpoint(account.RootHash)
 		}
+
+		return nil
+	})
+	if err == nil {
+		return nil
 	}
+
+	if errors.Is(err, data.ErrContextClosing) {
+		log.Debug("snapshot of user account data tries stopped early", "error", err)
+		return nil
+	}
+
+	log.Error("incomplete snapshot as trie iteration failed", "error", err)
+
+	return err
 }
 
 // SetStateCheckpoint sets a checkpoint for the state trie
@@ -971,10 +999,13 @@ func (adb *AccountsDB) SetStateCheckpoint(rootHash []byte, ctx context.Context) 
 	stats := newSnapshotStatistics(1)
 	go func() {
 		trieStorageManager.SetCheckpoint(rootHash)
-		adb.snapshotUserAccountDataTrie(rootHash, ctx)
+		errCheckpoint := adb.snapshotUserAccountDataTrie(rootHash, ctx)
 		trieStorageManager.ExitPruningBufferingMode()
 
-		adb.increaseNumCheckpoints()
+		// Recording a checkpoint that was never completed would overstate the persisted count.
+		if errCheckpoint == nil {
+			adb.increaseNumCheckpoints()
+		}
 
 		stats.SnapshotFinished()
 	}()
@@ -1005,7 +1036,7 @@ func (adb *AccountsDB) IsPruningEnabled() bool {
 }
 
 // GetAllLeaves returns all the leaves from a given rootHash
-func (adb *AccountsDB) GetAllLeaves(rootHash []byte, ctx context.Context) (chan data.KeyValueHolder, error) {
+func (adb *AccountsDB) GetAllLeaves(rootHash []byte, ctx context.Context) (*data.TrieIteratorChannels, error) {
 	adb.mutOp.Lock()
 	defer adb.mutOp.Unlock()
 

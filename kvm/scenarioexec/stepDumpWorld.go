@@ -24,7 +24,11 @@ import (
 const includeProtectedStorage = false
 
 func (ae *VMTestExecutor) convertMockAccountToScenarioFormat(account state.UserAccountHandler) (*scenjsonmodel.Account, error) {
-	accountStorage := ae.World.ExtractAccountStorage(account)
+	accountStorage, err := ae.World.ExtractAccountStorage(account)
+	if err != nil {
+		return nil, err
+	}
+
 	var storageKeys []string
 	var kdaKeys []string
 	for storageKey := range accountStorage {

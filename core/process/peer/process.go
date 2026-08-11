@@ -305,24 +305,29 @@ func (vs *validatorStatistics) PeerAccountToValidatorInfo(peer state.PeerAccount
 }
 
 func (vs *validatorStatistics) getValidatorDataFromLeaves(
-	leavesChannel chan data.KeyValueHolder,
+	leavesChannels *data.TrieIteratorChannels,
 ) ([]*state.ValidatorInfo, error) {
 
 	validators := make([]*state.ValidatorInfo, 0)
 
-	for pa := range leavesChannel {
-		peerAccount, err := vs.unmarshalPeer(pa.Value())
-		if err != nil {
-			return nil, err
+	err := leavesChannels.ForEach(func(pa data.KeyValueHolder) error {
+		peerAccount, errUnmarshal := vs.unmarshalPeer(pa.Value())
+		if errUnmarshal != nil {
+			return errUnmarshal
 		}
 
 		if vs.forkController.FixStakingBuckets() &&
 			peerAccount.GetRevoked() {
-			continue
+			return nil
 		}
 
 		validatorInfoData := vs.PeerAccountToValidatorInfo(peerAccount)
 		validators = append(validators, validatorInfoData)
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return validators, nil
@@ -338,12 +343,12 @@ func (vs *validatorStatistics) ListPeerAccounts(rootHash []byte) ([]state.PeerAc
 	}()
 
 	ctx := context.Background()
-	leavesChannel, err := vs.peerAdapter.GetAllLeaves(rootHash, ctx)
+	leavesChannels, err := vs.peerAdapter.GetAllLeaves(rootHash, ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	vInfos, err := vs.makePeerAccountFromBuffer(leavesChannel)
+	vInfos, err := vs.makePeerAccountFromBuffer(leavesChannels)
 	if err != nil {
 		return nil, err
 	}
@@ -351,16 +356,21 @@ func (vs *validatorStatistics) ListPeerAccounts(rootHash []byte) ([]state.PeerAc
 	return vInfos, err
 }
 
-func (vs *validatorStatistics) makePeerAccountFromBuffer(leavesChannel chan data.KeyValueHolder) ([]state.PeerAccountHandler, error) {
+func (vs *validatorStatistics) makePeerAccountFromBuffer(leavesChannels *data.TrieIteratorChannels) ([]state.PeerAccountHandler, error) {
 	peers := make([]state.PeerAccountHandler, 0)
 
-	for pa := range leavesChannel {
-		peerAccount, err := vs.unmarshalPeer(pa.Value())
-		if err != nil {
-			return nil, err
+	err := leavesChannels.ForEach(func(pa data.KeyValueHolder) error {
+		peerAccount, errUnmarshal := vs.unmarshalPeer(pa.Value())
+		if errUnmarshal != nil {
+			return errUnmarshal
 		}
 
 		peers = append(peers, peerAccount)
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return peers, nil
@@ -385,12 +395,12 @@ func (vs *validatorStatistics) GetValidatorInfoForRootHash(rootHash []byte) ([]*
 	}()
 
 	ctx := context.Background()
-	leavesChannel, err := vs.peerAdapter.GetAllLeaves(rootHash, ctx)
+	leavesChannels, err := vs.peerAdapter.GetAllLeaves(rootHash, ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	vInfos, err := vs.getValidatorDataFromLeaves(leavesChannel)
+	vInfos, err := vs.getValidatorDataFromLeaves(leavesChannels)
 	if err != nil {
 		return nil, err
 	}
@@ -407,21 +417,14 @@ func (vs *validatorStatistics) GetValidatorAccountRootHash(rootHash []byte) ([]k
 	}()
 
 	ctx := context.Background()
-	leavesChannel, err := vs.peerAdapter.GetAllLeaves(rootHash, ctx)
+	leavesChannels, err := vs.peerAdapter.GetAllLeaves(rootHash, ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	valOwners := make([][]byte, 0)
-	for pa := range leavesChannel {
-		peerAccount, err := vs.unmarshalPeer(pa.Value())
-		if err != nil {
-			return nil, err
-		}
-		if peerAccount.GetRevoked() {
-			continue
-		}
-		valOwners = append(valOwners, peerAccount.GetOwnerAddress())
+	valOwners, err := vs.collectOwnerAddresses(leavesChannels)
+	if err != nil {
+		return nil, err
 	}
 
 	// get info from kapp
@@ -437,21 +440,31 @@ func (vs *validatorStatistics) GetPeersAccountsPubkeysFromRootHash(rootHash []by
 	}()
 
 	ctx := context.Background()
-	leavesChannel, err := vs.peerAdapter.GetAllLeaves(rootHash, ctx)
+	leavesChannels, err := vs.peerAdapter.GetAllLeaves(rootHash, ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	return vs.collectOwnerAddresses(leavesChannels)
+}
+
+func (vs *validatorStatistics) collectOwnerAddresses(leavesChannels *data.TrieIteratorChannels) ([][]byte, error) {
 	valOwners := make([][]byte, 0)
-	for pa := range leavesChannel {
-		peerAccount, err := vs.unmarshalPeer(pa.Value())
-		if err != nil {
-			return nil, err
+
+	err := leavesChannels.ForEach(func(pa data.KeyValueHolder) error {
+		peerAccount, errUnmarshal := vs.unmarshalPeer(pa.Value())
+		if errUnmarshal != nil {
+			return errUnmarshal
 		}
 		if peerAccount.GetRevoked() {
-			continue
+			return nil
 		}
 		valOwners = append(valOwners, peerAccount.GetOwnerAddress())
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return valOwners, nil

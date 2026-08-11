@@ -21,7 +21,7 @@ type TrieStub struct {
 	AppendToOldHashesCalled     func([][]byte)
 	GetSerializedNodesCalled    func([]byte, uint64) ([][]byte, uint64, error)
 	GetAllHashesCalled          func() ([][]byte, error)
-	GetAllLeavesOnChannelCalled func(rootHash []byte) (chan data.KeyValueHolder, error)
+	GetAllLeavesOnChannelCalled func(rootHash []byte) (*data.TrieIteratorChannels, error)
 	GetProofCalled              func(key []byte) ([][]byte, error)
 	VerifyProofCalled           func(key []byte, proof [][]byte) (bool, error)
 	GetStorageManagerCalled     func() data.StorageManager
@@ -60,15 +60,12 @@ func (ts *TrieStub) ClosePersister() error {
 }
 
 // GetAllLeavesOnChannel -
-func (ts *TrieStub) GetAllLeavesOnChannel(rootHash []byte, _ context.Context) (chan data.KeyValueHolder, error) {
+func (ts *TrieStub) GetAllLeavesOnChannel(rootHash []byte, _ context.Context) (*data.TrieIteratorChannels, error) {
 	if ts.GetAllLeavesOnChannelCalled != nil {
 		return ts.GetAllLeavesOnChannelCalled(rootHash)
 	}
 
-	ch := make(chan data.KeyValueHolder)
-	close(ch)
-
-	return ch, nil
+	return data.NewCompletedTrieIteratorChannels(), nil
 }
 
 // Get -

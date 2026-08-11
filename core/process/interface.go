@@ -296,8 +296,8 @@ type Bootstrapper interface {
 
 // ValidatorsProvider is the main interface for validators' provider
 type ValidatorsProvider interface {
-	GetLatestValidators() map[string]*state.ValidatorApiResponse
-	GetLatestPeers() []state.PeerAccountHandler
+	GetLatestValidators() (map[string]*state.ValidatorApiResponse, error)
+	GetLatestPeers() ([]state.PeerAccountHandler, error)
 	IsInterfaceNil() bool
 }
 

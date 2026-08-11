@@ -615,13 +615,14 @@ func TestPatriciaMerkleTrie_GetAllLeafsCollapsedTrie(t *testing.T) {
 	}
 	tr.root = root
 
-	leavesChannel, err := tr.GetAllLeavesOnChannel(tr.root.getHash(), context.Background())
+	leavesChannels, err := tr.GetAllLeavesOnChannel(tr.root.getHash(), context.Background())
 	assert.Nil(t, err)
 	leaves := make(map[string][]byte)
 
-	for l := range leavesChannel {
+	for l := range leavesChannels.LeavesChan {
 		leaves[string(l.Key())] = l.Value()
 	}
+	assert.Nil(t, leavesChannels.Err())
 
 	assert.Equal(t, 3, len(leaves))
 	assert.Equal(t, []byte("reindeer"), leaves["doe"])

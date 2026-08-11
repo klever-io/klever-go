@@ -9,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/common"
 	kdafeespool "github.com/klever-io/klever-go/core/kapp/kdaFeesPool"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
+	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/network/api/models"
@@ -159,8 +160,8 @@ func addGuarded(total *int64, amount int64, context string) {
 
 // scanKAppDataTrie invokes accumulate with each stored value whose key matches prefix (nil scans all;
 // GetStorage trims the trie tail). Keys are collected before reading values so the scan goroutine
-// finishes first. Mid-walk trie errors are swallowed upstream, so a truncated walk yields a silently
-// undercounted total (KLC-2509).
+// finishes first. A walk truncated by a read failure or a cancelled context is reported as an error
+// rather than yielding a silently undercounted total.
 func (n *Node) scanKAppDataTrie(address []byte, prefix []byte, accumulate func(value []byte) error) error {
 	app, err := n.loadKAppAccount(address)
 	if err != nil {
@@ -171,19 +172,26 @@ func (n *Node) scanKAppDataTrie(address []byte, prefix []byte, accumulate func(v
 	if check.IfNil(dataTrie) {
 		return nil
 	}
-	leavesChannel, err := dataTrie.GetAllLeavesOnChannel(app.GetRootHash(), context.Background())
+	leavesChannels, err := dataTrie.GetAllLeavesOnChannel(app.GetRootHash(), context.Background())
 	if err != nil {
 		return err
 	}
 
 	keys := make([][]byte, 0)
-	for leaf := range leavesChannel {
+
+	// A truncated walk undercounts the total, which must not be reported as a success.
+	err = leavesChannels.ForEach(func(leaf data.KeyValueHolder) error {
 		if len(prefix) > 0 && !bytes.HasPrefix(leaf.Key(), prefix) {
-			continue
+			return nil
 		}
 		key := make([]byte, len(leaf.Key()))
 		copy(key, leaf.Key())
 		keys = append(keys, key)
+
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	for _, key := range keys {

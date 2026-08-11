@@ -849,12 +849,12 @@ func (n *Node) GetHeartbeats() []heartbeatData.PubKeyHeartbeat {
 
 // ValidatorStatisticsAPI will return the statistics for all the validators from the initial nodes pub keys
 func (n *Node) ValidatorStatisticsAPI() (map[string]*state.ValidatorApiResponse, error) {
-	return n.validatorsProvider.GetLatestValidators(), nil
+	return n.validatorsProvider.GetLatestValidators()
 }
 
 // PeersAPI will return the statistics for all the validators from the initial nodes pub keys
 func (n *Node) PeersAPI() ([]state.PeerAccountHandler, error) {
-	return n.validatorsProvider.GetLatestPeers(), nil
+	return n.validatorsProvider.GetLatestPeers()
 }
 
 // EncodeAddressPubkey will encode the provided address public key bytes to string

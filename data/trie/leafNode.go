@@ -346,7 +346,7 @@ func (ln *leafNode) getAllLeavesOnChannel(
 	key []byte,
 	_ data.DBWriteCacher,
 	_ marshal.Marshalizer,
-	_ context.Context,
+	ctx context.Context,
 ) error {
 	err := ln.isEmptyOrNil()
 	if err != nil {
@@ -360,7 +360,14 @@ func (ln *leafNode) getAllLeavesOnChannel(
 	}
 
 	trieLeaf := keyValStorage.NewKeyValStorage(nodeKey, ln.Value)
-	leavesChannel <- trieLeaf
+
+	// A bare send would wedge this goroutine forever once the buffer fills and the consumer stops
+	// reading, leaving the trie stuck in pruning buffering mode.
+	select {
+	case leavesChannel <- trieLeaf:
+	case <-ctx.Done():
+		return ErrContextClosing
+	}
 
 	return nil
 }

@@ -1079,20 +1079,27 @@ func indexGenesisAccounts(startTime int64, accountsAdapter state.AccountsAdapter
 	}
 
 	ctx := context.Background()
-	leavesChannel, err := accountsAdapter.GetAllLeaves(rootHash, ctx)
+	leavesChannels, err := accountsAdapter.GetAllLeaves(rootHash, ctx)
 	if err != nil {
 		return err
 	}
 
 	genesisAccounts := make([]state.UserAccountHandler, 0)
-	for leaf := range leavesChannel {
+
+	// A truncated walk would index an incomplete genesis account set.
+	err = leavesChannels.ForEach(func(leaf data.KeyValueHolder) error {
 		userAccount, errUnmarshal := unmarshalUserAccount(leaf.Key(), leaf.Value(), marshalizer)
 		if errUnmarshal != nil {
 			log.Debug("cannot unmarshal genesis user account. it may be a code leaf", "error", errUnmarshal)
-			continue
+			return nil
 		}
 
 		genesisAccounts = append(genesisAccounts, userAccount)
+
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	eventsProcessor.SaveAccounts(startTime, genesisAccounts)

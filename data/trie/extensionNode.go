@@ -595,7 +595,8 @@ func (en *extensionNode) getAllLeavesOnChannel(
 	select {
 	case <-ctx.Done():
 		log.Trace("getAllLeavesOnChannel interrupted")
-		return nil
+		// Reported as an error so the consumer can tell a cancelled walk from a complete one.
+		return ErrContextClosing
 	default:
 		err = resolveIfCollapsed(en, 0, db)
 		if err != nil {

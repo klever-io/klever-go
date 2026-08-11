@@ -144,7 +144,7 @@ type AccountsAdapter interface {
 	SnapshotState(rootHash []byte, ctx context.Context)
 	SetStateCheckpoint(rootHash []byte, ctx context.Context)
 	IsPruningEnabled() bool
-	GetAllLeaves(rootHash []byte, ctx context.Context) (chan data.KeyValueHolder, error)
+	GetAllLeaves(rootHash []byte, ctx context.Context) (*data.TrieIteratorChannels, error)
 	RecreateAllTries(rootHash []byte, ctx context.Context) (map[string]data.Trie, error)
 
 	IsInterfaceNil() bool

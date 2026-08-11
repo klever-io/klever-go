@@ -400,7 +400,10 @@ func verifyTransfers(tb testing.TB, mockWorld *worldmock.MockWorld, totalTokenSu
 	ownerKey := createERC20Key("owner")
 	receiverKey := createERC20Key("receiver")
 
-	scStorage := mockWorld.GetAccount(address).Storage
+	scAccount, err := mockWorld.GetAccount(address)
+	require.Nil(tb, err)
+
+	scStorage := scAccount.Storage
 	ownerTokens := big.NewInt(0).SetBytes(scStorage[ownerKey])
 	receiverTokens := big.NewInt(0).SetBytes(scStorage[receiverKey])
 	require.Equal(tb, vmhost.Zero, ownerTokens)

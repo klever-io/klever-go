@@ -16,6 +16,7 @@ import (
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
+	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/trie"
 	"github.com/klever-io/klever-go/kapps"
@@ -181,41 +182,53 @@ func convertMockWorldAccount(testAcct *Account) (state.UserAccountHandler, error
 	return acct, nil
 }
 
-func (b *MockWorld) ExtractAccountStorage(acc state.UserAccountHandler) map[string][]byte {
+func (b *MockWorld) ExtractAccountStorage(acc state.UserAccountHandler) (map[string][]byte, error) {
 	userStorage := make(map[string][]byte)
 	// restore storage from trie
 	if acc.DataTrie() != nil {
-		leavesChannel, err := acc.DataTrie().GetAllLeavesOnChannel(acc.GetRootHash(), context.Background())
-		if err == nil {
-			for leaf := range leavesChannel {
-				// remove key suffix from value
-				suffix := leaf.Key()
-				lenValue := len(leaf.Value())
-				position := bytes.Index(leaf.Value(), suffix)
-				if position > lenValue {
-					userStorage[string(leaf.Key())] = leaf.Value()
-					continue
-				}
-				userStorage[string(leaf.Key())] = leaf.Value()[:position]
+		leavesChannels, err := acc.DataTrie().GetAllLeavesOnChannel(acc.GetRootHash(), context.Background())
+		if err != nil {
+			return nil, err
+		}
+
+		err = leavesChannels.ForEach(func(leaf data.KeyValueHolder) error {
+			// remove key suffix from value
+			suffix := leaf.Key()
+			lenValue := len(leaf.Value())
+			position := bytes.Index(leaf.Value(), suffix)
+			if position > lenValue {
+				userStorage[string(leaf.Key())] = leaf.Value()
+				return nil
 			}
+			userStorage[string(leaf.Key())] = leaf.Value()[:position]
+
+			return nil
+		})
+		if err != nil {
+			return nil, err
 		}
 	}
-	return userStorage
+	return userStorage, nil
 }
 
-func (b *MockWorld) ConvertAccountToWorldMock(acc state.UserAccountHandler) *Account {
+func (b *MockWorld) ConvertAccountToWorldMock(acc state.UserAccountHandler) (*Account, error) {
+	storage, err := b.ExtractAccountStorage(acc)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Account{
 		Exists:  acc != nil,
 		Address: acc.AddressBytes(),
 		Nonce:   acc.GetNonce(),
 		Balance: big.NewInt(acc.GetBalance(nil, true)),
-		Storage: b.ExtractAccountStorage(acc),
+		Storage: storage,
 		//Code:            acc.GetCode(),
 		CodeMetadata:    acc.GetCodeMetadata(),
 		OwnerAddress:    acc.GetOwnerAddress(),
 		IsSmartContract: len(acc.GetCodeHash()) > 0,
 		MockWorld:       nil,
-	}
+	}, nil
 }
 
 func (b *MockWorld) PutAccount(acct *Account) {
@@ -230,7 +243,7 @@ func (b *MockWorld) PutAccounts(accounts []*Account) {
 	}
 }
 
-func (b *MockWorld) GetAccount(address []byte) *Account {
+func (b *MockWorld) GetAccount(address []byte) (*Account, error) {
 	acctHandler, _ := b.AccountsCacher.LoadUser(address)
 
 	return b.ConvertAccountToWorldMock(acctHandler)

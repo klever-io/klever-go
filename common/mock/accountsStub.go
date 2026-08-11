@@ -26,7 +26,7 @@ type AccountsStub struct {
 	SnapshotStateCalled      func(rootHash []byte)
 	SetStateCheckpointCalled func(rootHash []byte)
 	IsPruningEnabledCalled   func() bool
-	GetAllLeavesCalled       func(rootHash []byte) (chan data.KeyValueHolder, error)
+	GetAllLeavesCalled       func(rootHash []byte) (*data.TrieIteratorChannels, error)
 	RecreateAllTriesCalled   func(rootHash []byte) (map[string]data.Trie, error)
 	GetNumCheckpointsCalled  func() uint32
 	GetCodeCalled            func([]byte) []byte
@@ -76,11 +76,11 @@ func (as *AccountsStub) SaveAccount(account state.AccountHandler) error {
 }
 
 // GetAllLeaves -
-func (as *AccountsStub) GetAllLeaves(rootHash []byte, _ context.Context) (chan data.KeyValueHolder, error) {
+func (as *AccountsStub) GetAllLeaves(rootHash []byte, _ context.Context) (*data.TrieIteratorChannels, error) {
 	if as.GetAllLeavesCalled != nil {
 		return as.GetAllLeavesCalled(rootHash)
 	}
-	return nil, nil
+	return data.NewCompletedTrieIteratorChannels(), nil
 }
 
 var errAccNotImplemented = errors.New("not implemented")

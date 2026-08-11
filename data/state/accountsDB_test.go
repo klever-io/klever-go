@@ -174,11 +174,8 @@ func TestAccountsDB_SetStateCheckpointSavesNumCheckpoints(t *testing.T) {
 			},
 			RecreateCalled: func(root []byte) (data.Trie, error) {
 				return &mock.TrieStub{
-					GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
-						ch := make(chan data.KeyValueHolder)
-						close(ch)
-
-						return ch, nil
+					GetAllLeavesOnChannelCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
+						return data.NewCompletedTrieIteratorChannels(), nil
 					},
 				}, nil
 			},
@@ -1159,13 +1156,10 @@ func TestAccountsDB_GetAllLeaves(t *testing.T) {
 
 	getAllLeavesCalled := false
 	trieStub := &mock.TrieStub{
-		GetAllLeavesOnChannelCalled: func(rootHash []byte) (chan data.KeyValueHolder, error) {
+		GetAllLeavesOnChannelCalled: func(rootHash []byte) (*data.TrieIteratorChannels, error) {
 			getAllLeavesCalled = true
 
-			ch := make(chan data.KeyValueHolder)
-			close(ch)
-
-			return ch, nil
+			return data.NewCompletedTrieIteratorChannels(), nil
 		},
 		GetStorageManagerCalled: func() data.StorageManager {
 			return &mock.StorageManagerStub{
@@ -1639,14 +1633,15 @@ func TestAccountsDB_RecreateAllTries(t *testing.T) {
 	acc1Bytes, _ := marshalizer.Marshal(acc1)
 	acc2Bytes, _ := marshalizer.Marshal(acc2)
 
-	ch := make(chan data.KeyValueHolder, 2)
-	ch <- &mock.KeyValueHolderStub{ValueCalled: func() []byte { return acc1Bytes }}
-	ch <- &mock.KeyValueHolderStub{ValueCalled: func() []byte { return acc2Bytes }}
-	close(ch)
-
 	dataTrie1, dataTrie2, mainTrieRecreated := &mock.TrieStub{}, &mock.TrieStub{}, &mock.TrieStub{}
 	ts := &mock.TrieStub{
-		GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) { return ch, nil },
+		// Built per call: a shared instance would hand an already drained channel to a second walk.
+		GetAllLeavesOnChannelCalled: func(hash []byte) (*data.TrieIteratorChannels, error) {
+			return data.NewCompletedTrieIteratorChannels(
+				&mock.KeyValueHolderStub{ValueCalled: func() []byte { return acc1Bytes }},
+				&mock.KeyValueHolderStub{ValueCalled: func() []byte { return acc2Bytes }},
+			), nil
+		},
 		RecreateCalled: func(root []byte) (data.Trie, error) {
 			switch string(root) {
 			case string(rootHash):
@@ -1681,13 +1676,14 @@ func TestAccountsDB_SnapshotCheckpointsDataTries(t *testing.T) {
 	acc.SetRootHash([]byte("datatrie1"))
 	accBytes, _ := marshalizer.Marshal(acc)
 
-	ch := make(chan data.KeyValueHolder, 1)
-	ch <- &mock.KeyValueHolderStub{ValueCalled: func() []byte { return accBytes }}
-	close(ch)
-
 	checkpointCalls := 0
 	ts := &mock.TrieStub{
-		GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) { return ch, nil },
+		// Built per call: a shared instance would hand an already drained channel to a second walk.
+		GetAllLeavesOnChannelCalled: func(hash []byte) (*data.TrieIteratorChannels, error) {
+			return data.NewCompletedTrieIteratorChannels(
+				&mock.KeyValueHolderStub{ValueCalled: func() []byte { return accBytes }},
+			), nil
+		},
 		GetStorageManagerCalled: func() data.StorageManager {
 			return &mock.StorageManagerStub{
 				SetCheckpointCalled: func(hash []byte) { checkpointCalls++ },
@@ -1700,6 +1696,36 @@ func TestAccountsDB_SnapshotCheckpointsDataTries(t *testing.T) {
 	adb.SetStateCheckpoint(rootHash, context.Background())
 
 	assert.True(t, checkpointCalls >= 2) // main trie + data trie
+	assert.Equal(t, uint32(1), adb.GetNumCheckpoints())
+}
+
+func TestAccountsDB_TruncatedSnapshotWalkIsNotCountedAsACheckpoint(t *testing.T) {
+	rootHash := []byte("roothash")
+	marshalizer := &mock.MarshalizerMock{}
+
+	acc, _ := state.NewUserAccount([]byte("addr1"))
+	acc.SetRootHash([]byte("datatrie1"))
+	accBytes, _ := marshalizer.Marshal(acc)
+
+	ts := &mock.TrieStub{
+		GetAllLeavesOnChannelCalled: func(hash []byte) (*data.TrieIteratorChannels, error) {
+			return data.NewFailedTrieIteratorChannels(
+				errors.New("trie iteration failed"),
+				&mock.KeyValueHolderStub{ValueCalled: func() []byte { return accBytes }},
+			), nil
+		},
+		GetStorageManagerCalled: func() data.StorageManager {
+			return &mock.StorageManagerStub{
+				SetCheckpointCalled: func(hash []byte) {},
+				DatabaseCalled:      func() data.DBWriteCacher { return mock.NewMemDbMock() },
+			}
+		},
+	}
+
+	adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, marshalizer, &factory.AccountCreator{}, core.ImportDb)
+	adb.SetStateCheckpoint(rootHash, context.Background())
+
+	assert.Equal(t, uint32(0), adb.GetNumCheckpoints())
 }
 
 //------- RevertToSnapshot
@@ -1766,9 +1792,10 @@ func TestAccountsDB_RecreateAllTries_ErrorPaths(t *testing.T) {
 	t.Run("GetAllLeavesOnChannel error", func(t *testing.T) {
 		expectedErr := errors.New("leaves error")
 		ts := &mock.TrieStub{
-			GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) {
+			GetAllLeavesOnChannelCalled: func(hash []byte) (*data.TrieIteratorChannels, error) {
 				return nil, expectedErr
 			},
+			RecreateCalled:          func(root []byte) (data.Trie, error) { return &mock.TrieStub{}, nil },
 			GetStorageManagerCalled: defaultStorageManager(),
 		}
 		adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, &mock.MarshalizerMock{}, &factory.AccountCreator{}, core.Normal)
@@ -1778,12 +1805,12 @@ func TestAccountsDB_RecreateAllTries_ErrorPaths(t *testing.T) {
 
 	t.Run("Recreate error for main trie", func(t *testing.T) {
 		expectedErr := errors.New("recreate error")
-		ch := make(chan data.KeyValueHolder)
-		close(ch)
 		ts := &mock.TrieStub{
-			GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) { return ch, nil },
-			RecreateCalled:              func(root []byte) (data.Trie, error) { return nil, expectedErr },
-			GetStorageManagerCalled:     defaultStorageManager(),
+			GetAllLeavesOnChannelCalled: func(hash []byte) (*data.TrieIteratorChannels, error) {
+				return data.NewCompletedTrieIteratorChannels(), nil
+			},
+			RecreateCalled:          func(root []byte) (data.Trie, error) { return nil, expectedErr },
+			GetStorageManagerCalled: defaultStorageManager(),
 		}
 		adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, &mock.MarshalizerMock{}, &factory.AccountCreator{}, core.Normal)
 		_, err := adb.RecreateAllTries([]byte("root"), context.Background())
@@ -1796,14 +1823,14 @@ func TestAccountsDB_RecreateAllTries_ErrorPaths(t *testing.T) {
 		acc.SetRootHash([]byte("datatrie1"))
 		accBytes, _ := marshalizer.Marshal(acc)
 
-		ch := make(chan data.KeyValueHolder, 1)
-		ch <- &mock.KeyValueHolderStub{ValueCalled: func() []byte { return accBytes }}
-		close(ch)
+		ch := data.NewCompletedTrieIteratorChannels(
+			&mock.KeyValueHolderStub{ValueCalled: func() []byte { return accBytes }},
+		)
 
 		expectedErr := errors.New("data trie recreate error")
 		mainRecreated := &mock.TrieStub{}
 		ts := &mock.TrieStub{
-			GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) { return ch, nil },
+			GetAllLeavesOnChannelCalled: func(hash []byte) (*data.TrieIteratorChannels, error) { return ch, nil },
 			RecreateCalled: func(root []byte) (data.Trie, error) {
 				if string(root) == "datatrie1" {
 					return nil, expectedErr
@@ -1817,14 +1844,38 @@ func TestAccountsDB_RecreateAllTries_ErrorPaths(t *testing.T) {
 		assert.Equal(t, expectedErr, err)
 	})
 
+	t.Run("truncated leaves walk is not reported as a complete set of tries", func(t *testing.T) {
+		marshalizer := &mock.MarshalizerMock{}
+		acc, _ := state.NewUserAccount([]byte("addr1"))
+		acc.SetRootHash([]byte("datatrie1"))
+		accBytes, _ := marshalizer.Marshal(acc)
+
+		expectedErr := errors.New("trie iteration failed")
+		ts := &mock.TrieStub{
+			GetAllLeavesOnChannelCalled: func(hash []byte) (*data.TrieIteratorChannels, error) {
+				return data.NewFailedTrieIteratorChannels(
+					expectedErr,
+					&mock.KeyValueHolderStub{ValueCalled: func() []byte { return accBytes }},
+				), nil
+			},
+			RecreateCalled:          func(root []byte) (data.Trie, error) { return &mock.TrieStub{}, nil },
+			GetStorageManagerCalled: defaultStorageManager(),
+		}
+		adb, _ := state.NewAccountsDB(ts, &mock.HasherMock{}, marshalizer, &factory.AccountCreator{}, core.Normal)
+
+		allTries, err := adb.RecreateAllTries([]byte("root"), context.Background())
+		assert.ErrorIs(t, err, expectedErr)
+		assert.Nil(t, allTries)
+	})
+
 	t.Run("unmarshal error skips leaf continues", func(t *testing.T) {
-		ch := make(chan data.KeyValueHolder, 1)
-		ch <- &mock.KeyValueHolderStub{ValueCalled: func() []byte { return []byte("not-valid-proto") }}
-		close(ch)
+		ch := data.NewCompletedTrieIteratorChannels(
+			&mock.KeyValueHolderStub{ValueCalled: func() []byte { return []byte("not-valid-proto") }},
+		)
 
 		mainRecreated := &mock.TrieStub{}
 		ts := &mock.TrieStub{
-			GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) { return ch, nil },
+			GetAllLeavesOnChannelCalled: func(hash []byte) (*data.TrieIteratorChannels, error) { return ch, nil },
 			RecreateCalled:              func(root []byte) (data.Trie, error) { return mainRecreated, nil },
 			GetStorageManagerCalled:     defaultStorageManager(),
 		}
@@ -1840,7 +1891,7 @@ func TestAccountsDB_SnapshotUserAccountDataTrie_ErrorPaths(t *testing.T) {
 
 	t.Run("GetAllLeavesOnChannel error does not panic", func(t *testing.T) {
 		ts := &mock.TrieStub{
-			GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) {
+			GetAllLeavesOnChannelCalled: func(hash []byte) (*data.TrieIteratorChannels, error) {
 				return nil, errors.New("leaves error")
 			},
 			GetStorageManagerCalled: func() data.StorageManager {
@@ -1857,14 +1908,14 @@ func TestAccountsDB_SnapshotUserAccountDataTrie_ErrorPaths(t *testing.T) {
 	})
 
 	t.Run("unmarshal error skips leaf", func(t *testing.T) {
-		ch := make(chan data.KeyValueHolder, 1)
-		ch <- &mock.KeyValueHolderStub{ValueCalled: func() []byte { return []byte("invalid-proto") }}
-		close(ch)
+		ch := data.NewCompletedTrieIteratorChannels(
+			&mock.KeyValueHolderStub{ValueCalled: func() []byte { return []byte("invalid-proto") }},
+		)
 
 		checkpointCalls := 0
 		snapshotMut := sync.Mutex{}
 		ts := &mock.TrieStub{
-			GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) { return ch, nil },
+			GetAllLeavesOnChannelCalled: func(hash []byte) (*data.TrieIteratorChannels, error) { return ch, nil },
 			GetStorageManagerCalled: func() data.StorageManager {
 				return &mock.StorageManagerStub{
 					TakeSnapshotCalled: func(rootHash []byte) {},
@@ -1890,14 +1941,14 @@ func TestAccountsDB_SnapshotUserAccountDataTrie_ErrorPaths(t *testing.T) {
 		acc, _ := state.NewUserAccount([]byte("addr"))
 		accBytes, _ := marshalizer.Marshal(acc)
 
-		ch := make(chan data.KeyValueHolder, 1)
-		ch <- &mock.KeyValueHolderStub{ValueCalled: func() []byte { return accBytes }}
-		close(ch)
+		ch := data.NewCompletedTrieIteratorChannels(
+			&mock.KeyValueHolderStub{ValueCalled: func() []byte { return accBytes }},
+		)
 
 		checkpointCalls := 0
 		snapshotMut := sync.Mutex{}
 		ts := &mock.TrieStub{
-			GetAllLeavesOnChannelCalled: func(hash []byte) (chan data.KeyValueHolder, error) { return ch, nil },
+			GetAllLeavesOnChannelCalled: func(hash []byte) (*data.TrieIteratorChannels, error) { return ch, nil },
 			GetStorageManagerCalled: func() data.StorageManager {
 				return &mock.StorageManagerStub{
 					TakeSnapshotCalled: func(rootHash []byte) {},

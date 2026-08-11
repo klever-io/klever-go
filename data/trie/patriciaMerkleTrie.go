@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -24,6 +25,9 @@ const (
 	leaf
 	branch
 )
+
+// leavesChannelSize is how many leaves the iteration may run ahead of its consumer
+const leavesChannelSize = 100
 
 // EmptyTrieHash returns the value with empty trie hash
 var EmptyTrieHash = make([]byte, 32)
@@ -541,41 +545,46 @@ func (tr *patriciaMerkleTrie) GetSerializedNodes(rootHash []byte, maxBuffToSend 
 	return nodes, remainingSpace, nil
 }
 
-// GetAllLeavesOnChannel adds all the trie leaves to the given channel
-func (tr *patriciaMerkleTrie) GetAllLeavesOnChannel(rootHash []byte, ctx context.Context) (chan data.KeyValueHolder, error) {
-	leavesChannel := make(chan data.KeyValueHolder, 100)
+// GetAllLeavesOnChannel streams all the trie leaves on the returned channels. The traversal runs in
+// its own goroutine, so a failure part-way through it cannot be reported by this function's error
+// return; it is delivered on the returned channels instead. Consumers must drain LeavesChan and then
+// check Err before trusting the leaves as a complete view of the trie.
+func (tr *patriciaMerkleTrie) GetAllLeavesOnChannel(rootHash []byte, ctx context.Context) (*data.TrieIteratorChannels, error) {
 	tr.mutOperation.RLock()
 
 	newTrie, err := tr.recreate(rootHash)
 	if err != nil {
 		tr.mutOperation.RUnlock()
-		close(leavesChannel)
 		return nil, err
 	}
 
 	if check.IfNil(newTrie) || newTrie.root == nil {
 		tr.mutOperation.RUnlock()
-		close(leavesChannel)
-		return leavesChannel, nil
+		return data.NewCompletedTrieIteratorChannels(), nil
 	}
 
 	tr.trieStorage.EnterPruningBufferingMode()
 	tr.mutOperation.RUnlock()
 
+	channels := data.NewTrieIteratorChannels(leavesChannelSize)
+
 	go func() {
-		err = newTrie.root.getAllLeavesOnChannel(leavesChannel, []byte{}, tr.trieStorage.Database(), tr.marshalizer, ctx)
-		if err != nil {
-			log.Error("could not get all trie leaves: ", "error", err)
+		errIteration := newTrie.root.getAllLeavesOnChannel(channels.LeavesChan, []byte{}, tr.trieStorage.Database(), tr.marshalizer, ctx)
+		if errors.Is(errIteration, ErrContextClosing) {
+			// An expected stop during shutdown - still an incomplete walk, but not a fault.
+			log.Debug("trie leaves iteration interrupted", "error", errIteration)
+		} else if errIteration != nil {
+			log.Error("could not get all trie leaves", "error", errIteration)
 		}
 
 		tr.mutOperation.RLock()
 		tr.trieStorage.ExitPruningBufferingMode()
 		tr.mutOperation.RUnlock()
 
-		close(leavesChannel)
+		channels.Close(errIteration)
 	}()
 
-	return leavesChannel, nil
+	return channels, nil
 }
 
 // GetAllHashes returns all the hashes from the trie

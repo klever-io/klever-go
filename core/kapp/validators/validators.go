@@ -17,6 +17,7 @@ import (
 	txProcess "github.com/klever-io/klever-go/core/process/transaction"
 	"github.com/klever-io/klever-go/crypto/signing"
 	"github.com/klever-io/klever-go/crypto/signing/mcl"
+	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
@@ -1187,7 +1188,6 @@ func (v *validatorsKApp) ClaimPendingRewards(address []byte) (int64, error) {
 
 // GetPendingRewardsTotal sums every PREW entry in the Validators KApp trie (uncached, O(n)).
 // For low-frequency callers (economics endpoint / per-epoch indexer); KLC-2507 makes it O(1).
-// Mid-walk trie errors are swallowed upstream, so a truncated walk undercounts silently (KLC-2509).
 func (v *validatorsKApp) GetPendingRewardsTotal() (int64, error) {
 	app, err := v.accountsCacher.LoadKAppUncached(kapps.ValidatorsKAppAddress)
 	if err != nil {
@@ -1199,35 +1199,42 @@ func (v *validatorsKApp) GetPendingRewardsTotal() (int64, error) {
 		return 0, nil
 	}
 
-	leavesChannel, err := dataTrie.GetAllLeavesOnChannel(app.GetRootHash(), context.Background())
+	leavesChannels, err := dataTrie.GetAllLeavesOnChannel(app.GetRootHash(), context.Background())
 	if err != nil {
 		return 0, err
 	}
 
 	prefix := []byte(PENDING_REWARDS + kapps.Sp)
 	total := int64(0)
-	for leaf := range leavesChannel {
+
+	// A truncated walk undercounts the total, which must not be reported as a success.
+	err = leavesChannels.ForEach(func(leaf data.KeyValueHolder) error {
 		if !bytes.HasPrefix(leaf.Key(), prefix) {
-			continue
+			return nil
 		}
 
 		// Value = 8-byte BE amount + trie tail (see TrackableDataTrie.SaveKeyValue).
 		value := leaf.Value()
 		if len(value) < 8 {
-			continue
+			return nil
 		}
 
 		//nolint:gosec // G115: stored as uint64, summed as int64 for API parity (see getPendingRewards)
 		amount := int64(binary.BigEndian.Uint64(value[:8]))
 		if amount < 0 {
 			log.Warn("GetPendingRewardsTotal: pending reward out of int64 range, skipping")
-			continue
+			return nil
 		}
 		if total > math.MaxInt64-amount {
 			log.Warn("GetPendingRewardsTotal: sum would overflow int64, skipping entry")
-			continue
+			return nil
 		}
 		total += amount
+
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
 
 	return total, nil

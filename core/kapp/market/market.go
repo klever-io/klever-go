@@ -18,6 +18,7 @@ import (
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	txProcess "github.com/klever-io/klever-go/core/process/transaction"
 	"github.com/klever-io/klever-go/crypto/hashing"
+	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
@@ -192,7 +193,6 @@ func (m *marketKapp) GetMarketOrder(orderID []byte) (state.KAppAccountHandler, *
 
 // GetMarketEscrowTotal returns the total KLV held in open market orders: each unclaimed order's
 // RoyaltiesFixedDeposit (always KLV) plus its CurrentBid when the order is priced in KLV.
-// Mid-walk trie errors are swallowed upstream, so a truncated walk undercounts silently (KLC-2509).
 func (m *marketKapp) GetMarketEscrowTotal() (int64, error) {
 	app, err := m.accountsCacher.LoadKAppUncached(kapps.MarketKAppAddress)
 	if err != nil {
@@ -204,7 +204,7 @@ func (m *marketKapp) GetMarketEscrowTotal() (int64, error) {
 		return 0, nil
 	}
 
-	leavesChannel, err := dataTrie.GetAllLeavesOnChannel(app.GetRootHash(), context.Background())
+	leavesChannels, err := dataTrie.GetAllLeavesOnChannel(app.GetRootHash(), context.Background())
 	if err != nil {
 		return 0, err
 	}
@@ -212,13 +212,20 @@ func (m *marketKapp) GetMarketEscrowTotal() (int64, error) {
 	// Collect order keys first so the scan goroutine finishes before we read values back.
 	prefix := []byte(kapps.MarketOrderPrefix + kapps.Sp)
 	orderKeys := make([][]byte, 0)
-	for leaf := range leavesChannel {
+
+	// A truncated walk undercounts the total, which must not be reported as a success.
+	err = leavesChannels.ForEach(func(leaf data.KeyValueHolder) error {
 		if !bytes.HasPrefix(leaf.Key(), prefix) {
-			continue
+			return nil
 		}
 		key := make([]byte, len(leaf.Key()))
 		copy(key, leaf.Key())
 		orderKeys = append(orderKeys, key)
+
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
 
 	total := int64(0)

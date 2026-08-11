@@ -8,6 +8,7 @@ import (
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core/fork"
+	"github.com/klever-io/klever-go/core/keyValStorage"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/economics"
 	"github.com/klever-io/klever-go/core/process/peer"
@@ -630,4 +631,62 @@ func TestValidatorStatistics_ProcessRatingsEndOfEpochWithNilValidatorInfos(t *te
 	err := vs.ProcessRatingsEndOfEpoch(nil, 1)
 
 	require.Equal(t, process.ErrNilValidatorInfos, err)
+}
+
+func TestValidatorStatistics_TruncatedPeerTrieWalkIsReported(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("trie iteration failed")
+
+	marshalizer := &mock.ProtoMarshalizerMock{}
+	peerAccount := state.NewEmptyPeerAccount()
+	peerAccount.SetOwnerAddress([]byte("owner"))
+	peerBytes, errMarshal := marshalizer.Marshal(peerAccount)
+	require.Nil(t, errMarshal)
+
+	newProcessor := func() process.ValidatorStatisticsProcessor {
+		arguments := createMockArguments()
+		arguments.ForkController = mock.NewForkControllerStub()
+		peerAdapter := getAccountsMock()
+		peerAdapter.GetAllLeavesCalled = func(_ []byte) (*data.TrieIteratorChannels, error) {
+			return data.NewFailedTrieIteratorChannels(
+				expectedErr,
+				keyValStorage.NewKeyValStorage([]byte("pubkey"), peerBytes),
+			), nil
+		}
+		arguments.PeerAdapter = peerAdapter
+
+		vs, err := peer.NewValidatorStatisticsProcessor(arguments)
+		require.Nil(t, err)
+
+		return vs
+	}
+
+	t.Run("GetValidatorInfoForRootHash", func(t *testing.T) {
+		t.Parallel()
+		vInfos, err := newProcessor().GetValidatorInfoForRootHash([]byte("rootHash"))
+		require.ErrorIs(t, err, expectedErr)
+		assert.Nil(t, vInfos)
+	})
+
+	t.Run("ListPeerAccounts", func(t *testing.T) {
+		t.Parallel()
+		peers, err := newProcessor().ListPeerAccounts([]byte("rootHash"))
+		require.ErrorIs(t, err, expectedErr)
+		assert.Nil(t, peers)
+	})
+
+	t.Run("GetValidatorAccountRootHash", func(t *testing.T) {
+		t.Parallel()
+		infos, err := newProcessor().GetValidatorAccountRootHash([]byte("rootHash"))
+		require.ErrorIs(t, err, expectedErr)
+		assert.Nil(t, infos)
+	})
+
+	t.Run("GetPeersAccountsPubkeysFromRootHash", func(t *testing.T) {
+		t.Parallel()
+		pubkeys, err := newProcessor().GetPeersAccountsPubkeysFromRootHash([]byte("rootHash"))
+		require.ErrorIs(t, err, expectedErr)
+		assert.Nil(t, pubkeys)
+	})
 }

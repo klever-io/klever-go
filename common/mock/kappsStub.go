@@ -81,8 +81,8 @@ func (k KappsDBMock) IsPruningEnabled() bool {
 	return false
 }
 
-func (k KappsDBMock) GetAllLeaves(rootHash []byte, ctx context.Context) (chan data.KeyValueHolder, error) {
-	return nil, nil
+func (k KappsDBMock) GetAllLeaves(rootHash []byte, ctx context.Context) (*data.TrieIteratorChannels, error) {
+	return data.NewCompletedTrieIteratorChannels(), nil
 }
 
 func (k KappsDBMock) RecreateAllTries(rootHash []byte, ctx context.Context) (map[string]data.Trie, error) {

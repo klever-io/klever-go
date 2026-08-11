@@ -7,6 +7,12 @@ import (
 // ErrNilCacher signals that a nil cache has been provided
 var ErrNilCacher = errors.New("nil cacher")
 
+// ErrContextClosing signals that the parent context requested the closing of its children
+var ErrContextClosing = errors.New("context closing")
+
+// ErrNilTrieIteratorChannels signals that a nil set of trie iterator channels has been provided
+var ErrNilTrieIteratorChannels = errors.New("nil trie iterator channels")
+
 // ErrNilMarshalizer is raised when the NewTrie() function is called, but a marshalizer isn't provided
 var ErrNilMarshalizer = errors.New("no marshalizer provided")
 

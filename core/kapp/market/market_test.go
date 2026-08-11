@@ -1648,13 +1648,8 @@ func TestMarketKApp_GetMarketEscrowTotal(t *testing.T) {
 	leaves = append(leaves, keyValStorage.NewKeyValStorage([]byte("OTHER/x"), []byte("ignored")))
 
 	trieStub := &mock.TrieStub{
-		GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
-			ch := make(chan data.KeyValueHolder, len(leaves))
-			for _, l := range leaves {
-				ch <- l
-			}
-			close(ch)
-			return ch, nil
+		GetAllLeavesOnChannelCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
+			return data.NewCompletedTrieIteratorChannels(leaves...), nil
 		},
 	}
 	app := &mock.KAppAccountHandlerStub{
@@ -1692,13 +1687,8 @@ func TestMarketKApp_GetMarketEscrowTotal_ErrorPaths(t *testing.T) {
 		}
 		return &mock.KAppAccountHandlerStub{
 			DataTrieCalled: func() data.Trie {
-				return &mock.TrieStub{GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
-					ch := make(chan data.KeyValueHolder, len(leaves))
-					for _, l := range leaves {
-						ch <- l
-					}
-					close(ch)
-					return ch, nil
+				return &mock.TrieStub{GetAllLeavesOnChannelCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
+					return data.NewCompletedTrieIteratorChannels(leaves...), nil
 				}}
 			},
 			GetRootHashCalled: func() []byte { return []byte("root") },
@@ -1741,12 +1731,39 @@ func TestMarketKApp_GetMarketEscrowTotal_ErrorPaths(t *testing.T) {
 		expectedErr := errors.New("trie error")
 		setApp(t, mk, &mock.KAppAccountHandlerStub{
 			DataTrieCalled: func() data.Trie {
-				return &mock.TrieStub{GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
+				return &mock.TrieStub{GetAllLeavesOnChannelCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
 					return nil, expectedErr
 				}}
 			},
 			GetRootHashCalled: func() []byte { return []byte("root") },
 		})
+		total, err := mk.GetMarketEscrowTotal()
+		require.ErrorIs(t, err, expectedErr)
+		require.Zero(t, total)
+	})
+
+	t.Run("truncated leaves walk is not reported as a total", func(t *testing.T) {
+		t.Parallel()
+		mk := newEscrowKApp(t)
+		marshalizer := marshal.NewProtoMarshalizer()
+		raw, err := marshalizer.Marshal(&kapps.MarketOrderData{ID: []byte("o1"), CurrencyID: []byte("KLV"), CurrentBid: 500})
+		require.NoError(t, err)
+
+		orders := map[string][]byte{orderKey("o1"): raw}
+		expectedErr := errors.New("trie iteration failed")
+		setApp(t, mk, &mock.KAppAccountHandlerStub{
+			DataTrieCalled: func() data.Trie {
+				return &mock.TrieStub{GetAllLeavesOnChannelCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
+					return data.NewFailedTrieIteratorChannels(
+						expectedErr,
+						keyValStorage.NewKeyValStorage(kdautils.ToMarketOrderKey([]byte("o1")), nil),
+					), nil
+				}}
+			},
+			GetRootHashCalled: func() []byte { return []byte("root") },
+			GetStorageCalled:  func(key []byte) []byte { return orders[string(key)] },
+		})
+
 		total, err := mk.GetMarketEscrowTotal()
 		require.ErrorIs(t, err, expectedErr)
 		require.Zero(t, total)

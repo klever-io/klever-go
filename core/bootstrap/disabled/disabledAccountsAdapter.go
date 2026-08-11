@@ -102,8 +102,8 @@ func (a *accountsAdapter) ClosePersister() error {
 }
 
 // GetAllLeaves -
-func (a *accountsAdapter) GetAllLeaves(_ []byte, _ context.Context) (chan data.KeyValueHolder, error) {
-	return nil, nil
+func (a *accountsAdapter) GetAllLeaves(_ []byte, _ context.Context) (*data.TrieIteratorChannels, error) {
+	return data.NewCompletedTrieIteratorChannels(), nil
 }
 
 // RecreateAllTries -

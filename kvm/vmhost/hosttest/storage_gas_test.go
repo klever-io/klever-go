@@ -9,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var smallKey = []byte("testKey")
@@ -104,7 +105,8 @@ func loadStorageFromAddress(t *testing.T, key []byte) {
 			host.Metering().GasSchedule().BaseOperationCost.PersistPerByte = 0
 			host.Metering().GasSchedule().DynamicStorageLoad.Constant = 10
 
-			account := world.GetAccount(test.UserAddress)
+			account, errAccount := world.GetAccount(test.UserAddress)
+			require.Nil(t, errAccount)
 			account.Storage[string(key)] = value
 			account.CodeMetadata = []byte{vmcommon.MetadataReadable, 0}
 			world.PutAccount(account)
@@ -166,7 +168,8 @@ func setStorage(t *testing.T, key []byte, expectedUsedGas uint64) {
 			host.Metering().GasSchedule().BaseOperationCost.DataCopyPerByte = dataCopyGas
 			host.Metering().GasSchedule().BaseOperationCost.PersistPerByte = 0
 
-			account := world.GetAccount(test.UserAddress)
+			account, errAccount := world.GetAccount(test.UserAddress)
+			require.Nil(t, errAccount)
 			account.Storage[string(key)] = value
 			account.CodeMetadata = []byte{vmcommon.MetadataReadable, 0}
 			world.PutAccount(account)

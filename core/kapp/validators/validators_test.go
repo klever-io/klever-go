@@ -1255,13 +1255,8 @@ func TestValidatorsKApp_GetPendingRewardsTotal(t *testing.T) {
 	}
 
 	trie := &mock.TrieStub{
-		GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
-			ch := make(chan data.KeyValueHolder, len(leaves))
-			for _, l := range leaves {
-				ch <- l
-			}
-			close(ch)
-			return ch, nil
+		GetAllLeavesOnChannelCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
+			return data.NewCompletedTrieIteratorChannels(leaves...), nil
 		},
 	}
 	app := &mock.KAppAccountHandlerStub{
@@ -1298,7 +1293,7 @@ func TestValidatorsKApp_PendingRewards_ErrorPaths(t *testing.T) {
 		addFunctionalCacher(t, v)
 		expectedErr := errors.New("trie error")
 		trie := &mock.TrieStub{
-			GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
+			GetAllLeavesOnChannelCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
 				return nil, expectedErr
 			},
 		}
@@ -1348,13 +1343,8 @@ func TestValidatorsKApp_PendingRewards_ErrorPaths(t *testing.T) {
 			prew("over", mkVal(uint64(math.MaxInt64))), // would overflow, skipped
 		}
 		trie := &mock.TrieStub{
-			GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
-				ch := make(chan data.KeyValueHolder, len(leaves))
-				for _, l := range leaves {
-					ch <- l
-				}
-				close(ch)
-				return ch, nil
+			GetAllLeavesOnChannelCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
+				return data.NewCompletedTrieIteratorChannels(leaves...), nil
 			},
 		}
 		app := &mock.KAppAccountHandlerStub{
@@ -1368,5 +1358,32 @@ func TestValidatorsKApp_PendingRewards_ErrorPaths(t *testing.T) {
 		total, err := v.GetPendingRewardsTotal()
 		require.NoError(t, err)
 		assert.Equal(t, int64(math.MaxInt64), total)
+	})
+
+	t.Run("GetPendingRewardsTotal: truncated leaves walk is not reported as a total", func(t *testing.T) {
+		v := setupValidatorsKApp(t)
+		addFunctionalCacher(t, v)
+		prefix := []byte(PENDING_REWARDS + kapps.Sp)
+		value := make([]byte, 8)
+		binary.BigEndian.PutUint64(value, 1000)
+		key := append(append([]byte{}, prefix...), makeAddress("delivered")...)
+
+		expectedErr := errors.New("trie iteration failed")
+		trie := &mock.TrieStub{
+			GetAllLeavesOnChannelCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
+				return data.NewFailedTrieIteratorChannels(expectedErr, keyValStorage.NewKeyValStorage(key, value)), nil
+			},
+		}
+		app := &mock.KAppAccountHandlerStub{
+			DataTrieCalled:    func() data.Trie { return trie },
+			GetRootHashCalled: func() []byte { return []byte("root") },
+		}
+		v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppUncachedCalled = func(_ []byte) (state.KAppAccountHandler, error) {
+			return app, nil
+		}
+
+		total, err := v.GetPendingRewardsTotal()
+		require.ErrorIs(t, err, expectedErr)
+		assert.Equal(t, int64(0), total)
 	})
 }

@@ -946,25 +946,32 @@ func (e *epochStartBootstrap) GetEpochValidatorsFromTrie(validatorsTrieRoot []by
 	}
 
 	ctx := context.Background()
-	leavesChannel, err := peerAdapter.GetAllLeaves(validatorsTrieRoot, ctx)
+	leavesChannels, err := peerAdapter.GetAllLeaves(validatorsTrieRoot, ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	validators := make([]*state.ValidatorInfo, 0)
-	for pa := range leavesChannel {
+
+	// A truncated walk would bootstrap the node from an incomplete validator set.
+	err = leavesChannels.ForEach(func(pa data.KeyValueHolder) error {
 		peerAccount := state.NewEmptyPeerAccount()
-		err := e.marshalizer.Unmarshal(peerAccount, pa.Value())
-		if err != nil {
-			return nil, err
+		errUnmarshal := e.marshalizer.Unmarshal(peerAccount, pa.Value())
+		if errUnmarshal != nil {
+			return errUnmarshal
 		}
 
 		if peerAccount.GetRevoked() {
-			continue
+			return nil
 		}
 
 		validatorInfoData := e.PeerAccountToValidatorInfo(peerAccount)
 		validators = append(validators, validatorInfoData)
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return validators, nil

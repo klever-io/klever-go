@@ -91,35 +91,40 @@ func NewValidatorsProvider(
 }
 
 // GetLatestValidators gets the latest configuration of validators from the peerAccountsTrie
-func (vp *validatorsProvider) GetLatestValidators() map[string]*state.ValidatorApiResponse {
+func (vp *validatorsProvider) GetLatestValidators() (map[string]*state.ValidatorApiResponse, error) {
 	vp.lock.RLock()
 	shouldUpdate := time.Since(vp.lastCacheUpdate) > vp.cacheRefreshIntervalDuration
 	vp.lock.RUnlock()
 
 	if shouldUpdate {
-		vp.updateCache()
+		err := vp.updateCache()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	vp.lock.RLock()
 	clonedMap := cloneMap(vp.cache)
 	vp.lock.RUnlock()
 
-	return clonedMap
+	return clonedMap, nil
 }
 
 // GetLatestPeers gets the latest configuration of validators from the peerAccountsTrie
-func (vp *validatorsProvider) GetLatestPeers() []state.PeerAccountHandler {
+func (vp *validatorsProvider) GetLatestPeers() ([]state.PeerAccountHandler, error) {
 	lastFinalizedRootHash := vp.validatorStatistics.LastFinalizedRootHash()
 	if len(lastFinalizedRootHash) == 0 {
-		return nil
+		return nil, nil
 	}
 
+	// A truncated peer trie walk must not be answered as an empty peer set.
 	allPeers, err := vp.validatorStatistics.ListPeerAccounts(lastFinalizedRootHash)
 	if err != nil {
-		log.Trace("validatorsProvider - GetLatestValidatorInfos failed", "error", err)
+		log.Warn("validatorsProvider - ListPeerAccounts failed", "error", err)
+		return nil, err
 	}
 
-	return allPeers
+	return allPeers, nil
 }
 
 func cloneMap(cache map[string]*state.ValidatorApiResponse) map[string]*state.ValidatorApiResponse {
@@ -175,7 +180,10 @@ func (vp *validatorsProvider) epochStartEventHandler() sharding.EpochStartAction
 
 func (vp *validatorsProvider) startRefreshProcess(ctx context.Context) {
 	for {
-		vp.updateCache()
+		err := vp.updateCache()
+		if err != nil {
+			log.Warn("startRefreshProcess - updateCache failed", "error", err)
+		}
 		select {
 		case epoch := <-vp.refreshCache:
 			vp.lock.Lock()
@@ -189,14 +197,22 @@ func (vp *validatorsProvider) startRefreshProcess(ctx context.Context) {
 	}
 }
 
-func (vp *validatorsProvider) updateCache() {
+func (vp *validatorsProvider) updateCache() error {
 	lastFinalizedRootHash := vp.validatorStatistics.LastFinalizedRootHash()
 	if len(lastFinalizedRootHash) == 0 {
-		return
+		return nil
 	}
 	allNodes, err := vp.validatorStatistics.GetValidatorInfoForRootHash(lastFinalizedRootHash)
 	if err != nil {
-		log.Trace("validatorsProvider - GetLatestValidatorInfos failed", "error", err)
+		// Rebuilding the cache from a truncated walk would blank every peer-derived field, so the
+		// previously cached values are kept until a refresh succeeds.
+		log.Warn("validatorsProvider - GetValidatorInfoForRootHash failed, keeping previous cache", "error", err)
+
+		vp.lock.Lock()
+		vp.lastCacheUpdate = time.Now()
+		vp.lock.Unlock()
+
+		return err
 	}
 
 	vp.lock.RLock()
@@ -209,6 +225,8 @@ func (vp *validatorsProvider) updateCache() {
 	vp.lastCacheUpdate = time.Now()
 	vp.cache = newCache
 	vp.lock.Unlock()
+
+	return nil
 }
 
 func (vp *validatorsProvider) createNewCache(

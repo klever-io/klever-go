@@ -150,7 +150,7 @@ type Trie interface {
 	GetDirtyHashes() (ModifiedHashes, error)
 	SetNewHashes(ModifiedHashes)
 	GetSerializedNodes([]byte, uint64) ([][]byte, uint64, error)
-	GetAllLeavesOnChannel(rootHash []byte, ctx context.Context) (chan KeyValueHolder, error)
+	GetAllLeavesOnChannel(rootHash []byte, ctx context.Context) (*TrieIteratorChannels, error)
 	GetAllHashes() ([][]byte, error)
 	IsInterfaceNil() bool
 	ClosePersister() error

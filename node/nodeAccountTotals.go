@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/tools/check"
@@ -18,8 +19,9 @@ func (n *Node) GetAccountTotals() (*models.AccountTotalsResponse, error) {
 
 // computeAccountTotals walks the user-accounts trie, summing each account's inline Balance and Allowance
 // (frozen/unfrozen live in sub-tries, excluded). Code leaves share this trie and can decode cleanly into
-// UserAccountData, so accounts are identified by Address == leaf key, not by decode success. Mid-walk trie
-// errors are swallowed upstream (KLC-2509). Use GetAccountTotals (cached).
+// UserAccountData, so accounts are identified by Address == leaf key, not by decode success. A walk
+// truncated by a read failure or a cancelled context is reported as an error rather than yielding
+// silently undercounted totals. Use GetAccountTotals (cached).
 func (n *Node) computeAccountTotals() (*models.AccountTotalsResponse, error) {
 	if check.IfNil(n.accounts) {
 		return nil, common.ErrNilAccountsAdapter
@@ -30,23 +32,30 @@ func (n *Node) computeAccountTotals() (*models.AccountTotalsResponse, error) {
 		return nil, err
 	}
 
-	leavesChannel, err := n.accounts.GetAllLeaves(rootHash, context.Background())
+	leavesChannels, err := n.accounts.GetAllLeaves(rootHash, context.Background())
 	if err != nil {
 		return nil, err
 	}
 
 	totals := &models.AccountTotalsResponse{}
-	for leaf := range leavesChannel {
+
+	// A truncated walk undercounts every total, which must not be reported as a success.
+	err = leavesChannels.ForEach(func(leaf data.KeyValueHolder) error {
 		acc := &state.UserAccountData{}
 		if errUnmarshal := n.internalMarshalizer.Unmarshal(acc, leaf.Value()); errUnmarshal != nil {
-			continue
+			return nil
 		}
 		if !bytes.Equal(acc.GetAddress(), leaf.Key()) {
-			continue // code leaf, not an account
+			return nil // code leaf, not an account
 		}
 		totals.AccountCount++
 		totals.BalanceTotal += acc.GetBalance()
 		totals.AllowanceTotal += acc.GetAllowance()
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return totals, nil

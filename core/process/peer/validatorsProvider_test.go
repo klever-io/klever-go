@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -120,7 +121,8 @@ func TestValidatorsProvider_GetLatestValidators(t *testing.T) {
 		}
 		vp.lastCacheUpdate = time.Now()
 
-		validators := vp.GetLatestValidators()
+		validators, err := vp.GetLatestValidators()
+		require.NoError(t, err)
 		assert.Len(t, validators, 1)
 		assert.Equal(t, "eligible", validators["validator1"].ValidatorStatus)
 	})
@@ -148,9 +150,38 @@ func TestValidatorsProvider_GetLatestValidators(t *testing.T) {
 
 		time.Sleep(time.Millisecond * 10) // Ensure cache refresh interval has passed
 
-		validators := vp.GetLatestValidators()
+		validators, err := vp.GetLatestValidators()
+		require.NoError(t, err)
 		assert.Len(t, validators, 1)
 		assert.Contains(t, validators, hex.EncodeToString([]byte("validator2")))
+	})
+
+	t.Run("should return the error when the validator trie walk is truncated", func(t *testing.T) {
+		expectedErr := errors.New("truncated validator trie walk")
+		arg := createDefaultValidatorsProviderArg()
+		arg.ValidatorStatistics = &mock.ValidatorStatisticsProcessorStub{
+			LastFinalizedRootHashCalled: func() []byte {
+				return []byte("rootHash")
+			},
+			GetValidatorInfoForRootHashCalled: func(rootHash []byte) ([]*state.ValidatorInfo, error) {
+				return nil, expectedErr
+			},
+		}
+		vp := &validatorsProvider{
+			nodesCoordinator:             arg.NodesCoordinator,
+			validatorStatistics:          arg.ValidatorStatistics,
+			cache:                        make(map[string]*state.ValidatorApiResponse),
+			cacheRefreshIntervalDuration: arg.CacheRefreshInterval,
+			refreshCache:                 make(chan uint32),
+			lock:                         sync.RWMutex{},
+			maxRating:                    arg.MaxRating,
+			pubkeyConverter:              arg.PubKeyConverter,
+			currentEpoch:                 arg.StartEpoch,
+		}
+
+		validators, err := vp.GetLatestValidators()
+		require.ErrorIs(t, err, expectedErr)
+		assert.Nil(t, validators)
 	})
 }
 
@@ -166,7 +197,8 @@ func TestValidatorsProvider_GetLatestPeers(t *testing.T) {
 		}
 		vp := newTestValidatorsProvider(arg)
 
-		peers := vp.GetLatestPeers()
+		peers, err := vp.GetLatestPeers()
+		assert.Nil(t, err)
 		assert.Nil(t, peers)
 	})
 
@@ -185,8 +217,27 @@ func TestValidatorsProvider_GetLatestPeers(t *testing.T) {
 		}
 		vp := newTestValidatorsProvider(arg)
 
-		peers := vp.GetLatestPeers()
+		peers, err := vp.GetLatestPeers()
+		assert.Nil(t, err)
 		assert.Len(t, peers, 2)
+	})
+
+	t.Run("should return the error of a truncated peer trie walk", func(t *testing.T) {
+		expectedErr := errors.New("truncated peer trie walk")
+		arg := createDefaultValidatorsProviderArg()
+		arg.ValidatorStatistics = &mock.ValidatorStatisticsProcessorStub{
+			LastFinalizedRootHashCalled: func() []byte {
+				return []byte("rootHash")
+			},
+			ListPeerAccountsCalled: func(rootHash []byte) ([]state.PeerAccountHandler, error) {
+				return nil, expectedErr
+			},
+		}
+		vp, _ := NewValidatorsProvider(arg)
+
+		peers, err := vp.GetLatestPeers()
+		require.ErrorIs(t, err, expectedErr)
+		assert.Nil(t, peers)
 	})
 }
 
@@ -223,6 +274,45 @@ func TestValidatorsProvider_UpdateCache(t *testing.T) {
 		vp.updateCache()
 		assert.Len(t, vp.cache, 1)
 		assert.Contains(t, vp.cache, hex.EncodeToString([]byte("validator1")))
+	})
+
+	t.Run("should keep the previous cache when the validator trie walk is truncated", func(t *testing.T) {
+		shouldFail := false
+		arg := createDefaultValidatorsProviderArg()
+		arg.ValidatorStatistics = &mock.ValidatorStatisticsProcessorStub{
+			LastFinalizedRootHashCalled: func() []byte {
+				return []byte("rootHash")
+			},
+			GetValidatorInfoForRootHashCalled: func(rootHash []byte) ([]*state.ValidatorInfo, error) {
+				if shouldFail {
+					return nil, errors.New("truncated validator trie walk")
+				}
+
+				return []*state.ValidatorInfo{
+					{PublicKey: []byte("validator1"), List: string(core.EligibleList), TempRating: 42},
+				}, nil
+			},
+		}
+		vp := &validatorsProvider{
+			nodesCoordinator:             arg.NodesCoordinator,
+			validatorStatistics:          arg.ValidatorStatistics,
+			cache:                        make(map[string]*state.ValidatorApiResponse),
+			cacheRefreshIntervalDuration: arg.CacheRefreshInterval,
+			refreshCache:                 make(chan uint32),
+			lock:                         sync.RWMutex{},
+			maxRating:                    arg.MaxRating,
+			pubkeyConverter:              arg.PubKeyConverter,
+			currentEpoch:                 arg.StartEpoch,
+		}
+
+		vp.updateCache()
+		require.Len(t, vp.cache, 1)
+
+		shouldFail = true
+		vp.updateCache()
+
+		require.Len(t, vp.cache, 1)
+		assert.Equal(t, float32(42), vp.cache[hex.EncodeToString([]byte("validator1"))].TempRating)
 	})
 }
 

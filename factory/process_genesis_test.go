@@ -34,7 +34,7 @@ func TestIndexGenesisAccounts_GetAllLeavesError(t *testing.T) {
 		RootHashCalled: func() ([]byte, error) {
 			return []byte("roothash"), nil
 		},
-		GetAllLeavesCalled: func(rootHash []byte) (chan data.KeyValueHolder, error) {
+		GetAllLeavesCalled: func(rootHash []byte) (*data.TrieIteratorChannels, error) {
 			return nil, errTestGenesis
 		},
 	}
@@ -52,16 +52,14 @@ func TestIndexGenesisAccounts_CallsSaveAccounts(t *testing.T) {
 	accBytes, err := marshalizer.Marshal(acc)
 	require.NoError(t, err)
 
-	ch := make(chan data.KeyValueHolder, 1)
-	ch <- keyValStorage.NewKeyValStorage([]byte("test-address-1234"), accBytes)
-	close(ch)
+	leaves := data.NewCompletedTrieIteratorChannels(keyValStorage.NewKeyValStorage([]byte("test-address-1234"), accBytes))
 
 	accounts := &mock.AccountsStub{
 		RootHashCalled: func() ([]byte, error) {
 			return []byte("roothash"), nil
 		},
-		GetAllLeavesCalled: func(rootHash []byte) (chan data.KeyValueHolder, error) {
-			return ch, nil
+		GetAllLeavesCalled: func(rootHash []byte) (*data.TrieIteratorChannels, error) {
+			return leaves, nil
 		},
 	}
 
@@ -79,24 +77,54 @@ func TestIndexGenesisAccounts_CallsSaveAccounts(t *testing.T) {
 	require.Equal(t, int32(1), atomic.LoadInt32(&saveAccountsCalled))
 }
 
-func TestIndexGenesisAccounts_SkipsBadLeaves(t *testing.T) {
+func TestIndexGenesisAccounts_TruncatedWalkIsNotIndexed(t *testing.T) {
 	t.Parallel()
 
-	ch := make(chan data.KeyValueHolder, 2)
-	ch <- keyValStorage.NewKeyValStorage([]byte("bad-address"), []byte("invalid-data"))
-
 	marshalizer := &mock.MarshalizerMock{}
-	acc, _ := state.NewUserAccount([]byte("good-address-12345"))
+	acc, _ := state.NewUserAccount([]byte("test-address-1234"))
 	accBytes, _ := marshalizer.Marshal(acc)
-	ch <- keyValStorage.NewKeyValStorage([]byte("good-address-12345"), accBytes)
-	close(ch)
 
 	accounts := &mock.AccountsStub{
 		RootHashCalled: func() ([]byte, error) {
 			return []byte("roothash"), nil
 		},
-		GetAllLeavesCalled: func(rootHash []byte) (chan data.KeyValueHolder, error) {
-			return ch, nil
+		GetAllLeavesCalled: func(rootHash []byte) (*data.TrieIteratorChannels, error) {
+			return data.NewFailedTrieIteratorChannels(
+				errTestGenesis,
+				keyValStorage.NewKeyValStorage([]byte("test-address-1234"), accBytes),
+			), nil
+		},
+	}
+
+	var saveAccountsCalled int32
+	eventsProc := &mock.EventsProcessorStub{
+		SaveAccountsCalled: func(_ int64, _ []state.UserAccountHandler) {
+			atomic.AddInt32(&saveAccountsCalled, 1)
+		},
+	}
+
+	err := indexGenesisAccounts(100, accounts, eventsProc, marshalizer)
+	require.ErrorIs(t, err, errTestGenesis)
+	require.Zero(t, atomic.LoadInt32(&saveAccountsCalled))
+}
+
+func TestIndexGenesisAccounts_SkipsBadLeaves(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerMock{}
+	acc, _ := state.NewUserAccount([]byte("good-address-12345"))
+	accBytes, _ := marshalizer.Marshal(acc)
+	leaves := data.NewCompletedTrieIteratorChannels(
+		keyValStorage.NewKeyValStorage([]byte("bad-address"), []byte("invalid-data")),
+		keyValStorage.NewKeyValStorage([]byte("good-address-12345"), accBytes),
+	)
+
+	accounts := &mock.AccountsStub{
+		RootHashCalled: func() ([]byte, error) {
+			return []byte("roothash"), nil
+		},
+		GetAllLeavesCalled: func(rootHash []byte) (*data.TrieIteratorChannels, error) {
+			return leaves, nil
 		},
 	}
 

@@ -276,7 +276,8 @@ func TestBlockchainContext_NewAddress(t *testing.T) {
 	// Test error propagation from GetNonce()
 	blockchainContext, _ := NewBlockchainContext(host, mockWorld)
 	creatorAddress := []byte("account_new")
-	creatorAccount := mockWorld.GetAccount(creatorAddress)
+	creatorAccount, errAccount := mockWorld.GetAccount(creatorAddress)
+	require.Nil(t, errAccount)
 	creatorOutputAccount := mockOutput.NewVMOutputAccountFromMockAccount(creatorAccount)
 	mockOutput.OutputAccountMock = creatorOutputAccount
 	mockOutput.OutputAccountIsNew = true
@@ -290,7 +291,8 @@ func TestBlockchainContext_NewAddress(t *testing.T) {
 
 	// Test if nonce is not deducted if 0, before calling BlockchainHook.NewAddres()
 	creatorAddress = []byte("account_new")
-	creatorAccount = mockWorld.GetAccount(creatorAddress)
+	creatorAccount, errAccount = mockWorld.GetAccount(creatorAddress)
+	require.Nil(t, errAccount)
 	creatorOutputAccount = mockOutput.NewVMOutputAccountFromMockAccount(creatorAccount)
 	mockOutput.OutputAccountMock = creatorOutputAccount
 	mockOutput.OutputAccountIsNew = true
@@ -314,7 +316,8 @@ func TestBlockchainContext_NewAddress(t *testing.T) {
 
 	// Test if nonce is correctly deducted if greater than 0, before calling BlockchainHook.NewAddres()
 	creatorAddress = []byte("account_old_with_money")
-	creatorAccount = mockWorld.GetAccount(creatorAddress)
+	creatorAccount, errAccount = mockWorld.GetAccount(creatorAddress)
+	require.Nil(t, errAccount)
 	creatorOutputAccount = mockOutput.NewVMOutputAccountFromMockAccount(creatorAccount)
 	mockOutput.OutputAccountMock = creatorOutputAccount
 	mockOutput.OutputAccountIsNew = false
@@ -338,7 +341,8 @@ func TestBlockchainContext_NewAddress(t *testing.T) {
 
 	// Test if error is propagated from Blockchain.NewAddress
 	creatorAddress = []byte("account_with_code")
-	creatorAccount = mockWorld.GetAccount(creatorAddress)
+	creatorAccount, errAccount = mockWorld.GetAccount(creatorAddress)
+	require.Nil(t, errAccount)
 	creatorOutputAccount = mockOutput.NewVMOutputAccountFromMockAccount(creatorAccount)
 	mockOutput.OutputAccountMock = creatorOutputAccount
 	mockOutput.OutputAccountIsNew = false

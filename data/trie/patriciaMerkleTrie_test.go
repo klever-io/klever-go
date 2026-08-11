@@ -1,6 +1,7 @@
 package trie_test
 
 import (
+	"bytes"
 	"context"
 	cryptoRand "crypto/rand"
 	"encoding/base64"
@@ -634,12 +635,13 @@ func TestPatriciaMerkleTrie_GetAllLeavesOnChannelEmptyTrie(t *testing.T) {
 
 	tr := emptyTrie()
 
-	leavesChannel, err := tr.GetAllLeavesOnChannel([]byte{}, context.Background())
+	leavesChannels, err := tr.GetAllLeavesOnChannel([]byte{}, context.Background())
 	assert.Nil(t, err)
-	assert.NotNil(t, leavesChannel)
+	assert.NotNil(t, leavesChannels)
 
-	_, ok := <-leavesChannel
+	_, ok := <-leavesChannels.LeavesChan
 	assert.False(t, ok)
+	assert.Nil(t, leavesChannels.Err())
 }
 
 func TestPatriciaMerkleTrie_GetAllLeavesOnChannel(t *testing.T) {
@@ -654,15 +656,107 @@ func TestPatriciaMerkleTrie_GetAllLeavesOnChannel(t *testing.T) {
 	_ = tr.Commit()
 	rootHash, _ := tr.RootHash()
 
-	leavesChannel, err := tr.GetAllLeavesOnChannel(rootHash, context.Background())
+	leavesChannels, err := tr.GetAllLeavesOnChannel(rootHash, context.Background())
 	assert.Nil(t, err)
-	assert.NotNil(t, leavesChannel)
+	assert.NotNil(t, leavesChannels)
 
 	recovered := make(map[string][]byte)
-	for leaf := range leavesChannel {
+	for leaf := range leavesChannels.LeavesChan {
 		recovered[string(leaf.Key())] = leaf.Value()
 	}
 	assert.Equal(t, leaves, recovered)
+	assert.Nil(t, leavesChannels.Err())
+}
+
+func TestPatriciaMerkleTrie_GetAllLeavesOnChannelReportsMidScanError(t *testing.T) {
+	t.Parallel()
+
+	tr := initTrie()
+	_ = tr.Commit()
+	rootHash, _ := tr.RootHash()
+
+	// Drop a non-root node from the DB, as partial state or disk corruption would. The walk then
+	// fails while resolving that child - after GetAllLeavesOnChannel has already returned nil error.
+	hashes, err := tr.GetAllHashes()
+	require.Nil(t, err)
+	require.Greater(t, len(hashes), 1)
+
+	db := tr.GetStorageManager().Database()
+	for _, hash := range hashes {
+		if !bytes.Equal(hash, rootHash) {
+			require.Nil(t, db.Remove(hash))
+			break
+		}
+	}
+
+	leavesChannels, err := tr.GetAllLeavesOnChannel(rootHash, context.Background())
+	require.Nil(t, err)
+
+	numLeaves := 0
+	for range leavesChannels.LeavesChan {
+		numLeaves++
+	}
+
+	// The truncated walk must not look like a complete one, on this or any later call.
+	errIteration := leavesChannels.Err()
+	require.Error(t, errIteration)
+	require.Equal(t, errIteration, leavesChannels.Err())
+	assert.Less(t, numLeaves, 3)
+}
+
+func TestPatriciaMerkleTrie_GetAllLeavesOnChannelReportsCancelledContext(t *testing.T) {
+	t.Parallel()
+
+	tr := initTrie()
+	_ = tr.Commit()
+	rootHash, _ := tr.RootHash()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	leavesChannels, err := tr.GetAllLeavesOnChannel(rootHash, ctx)
+	require.Nil(t, err)
+
+	for range leavesChannels.LeavesChan {
+	}
+
+	require.ErrorIs(t, leavesChannels.Err(), data.ErrContextClosing)
+}
+
+func TestPatriciaMerkleTrie_GetAllLeavesOnChannelReleasesProducerOnAbandonedIteration(t *testing.T) {
+	t.Parallel()
+
+	// More leaves than the iteration buffer holds, so the producer blocks once the consumer stops.
+	tr := emptyTrie()
+	for i := 0; i < 500; i++ {
+		_ = tr.Update([]byte(fmt.Sprintf("key%d", i)), []byte("value"))
+	}
+	_ = tr.Commit()
+	rootHash, _ := tr.RootHash()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	leavesChannels, err := tr.GetAllLeavesOnChannel(rootHash, ctx)
+	require.Nil(t, err)
+
+	// Nothing is read, so the producer fills the buffer and then blocks handing over the next leaf.
+	require.Eventually(t, func() bool {
+		return len(leavesChannels.LeavesChan) == cap(leavesChannels.LeavesChan)
+	}, time.Second, time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
+
+	cancel()
+
+	errIteration := make(chan error, 1)
+	go func() {
+		errIteration <- leavesChannels.Err()
+	}()
+
+	select {
+	case errWalk := <-errIteration:
+		require.ErrorIs(t, errWalk, data.ErrContextClosing)
+	case <-time.After(time.Second):
+		require.Fail(t, "the iteration was left blocked on a full leaves channel")
+	}
 }
 
 func TestPatriciaMerkleTree_Prove(t *testing.T) {

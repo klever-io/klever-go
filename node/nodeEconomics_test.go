@@ -31,13 +31,12 @@ func (m *marketKappEscrowStub) GetMarketEscrowTotal() (int64, error) { return m.
 // trieWithKeys returns a trie stub whose leaves channel yields the given keys (values via GetStorage).
 func trieWithKeys(keys ...string) *mock.TrieStub {
 	return &mock.TrieStub{
-		GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
-			ch := make(chan data.KeyValueHolder, len(keys))
+		GetAllLeavesOnChannelCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
+			leaves := make([]data.KeyValueHolder, 0, len(keys))
 			for _, k := range keys {
-				ch <- keyValStorage.NewKeyValStorage([]byte(k), nil)
+				leaves = append(leaves, keyValStorage.NewKeyValStorage([]byte(k), nil))
 			}
-			close(ch)
-			return ch, nil
+			return data.NewCompletedTrieIteratorChannels(leaves...), nil
 		},
 	}
 }
@@ -140,7 +139,7 @@ func TestNode_scanKAppDataTrie_channelError(t *testing.T) {
 	expectedErr := errors.New("walk failed")
 	app := &mock.KAppAccountHandlerStub{
 		DataTrieCalled: func() data.Trie {
-			return &mock.TrieStub{GetAllLeavesOnChannelCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
+			return &mock.TrieStub{GetAllLeavesOnChannelCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
 				return nil, expectedErr
 			}}
 		},
@@ -155,6 +154,41 @@ func TestNode_scanKAppDataTrie_channelError(t *testing.T) {
 
 	err := n.scanKAppDataTrie([]byte("addr"), nil, func(_ []byte) error { return nil })
 	require.ErrorIs(t, err, expectedErr)
+}
+
+func TestNode_scanKAppDataTrie_truncatedWalk(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("trie iteration failed")
+	records := map[string][]byte{"KLV": []byte("delivered")}
+	app := &mock.KAppAccountHandlerStub{
+		DataTrieCalled: func() data.Trie {
+			return &mock.TrieStub{GetAllLeavesOnChannelCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
+				return data.NewFailedTrieIteratorChannels(
+					expectedErr,
+					keyValStorage.NewKeyValStorage([]byte("KLV"), nil),
+				), nil
+			}}
+		},
+		GetRootHashCalled: func() []byte { return []byte("root") },
+		GetStorageCalled:  func(key []byte) []byte { return records[string(key)] },
+	}
+	n := &Node{
+		kapps: &mock.AccountsStub{
+			LoadAccountCalled: func(_ []byte) (state.AccountHandler, error) { return app, nil },
+		},
+		internalMarshalizer: marshal.NewProtoMarshalizer(),
+	}
+
+	accumulated := 0
+	err := n.scanKAppDataTrie([]byte("addr"), nil, func(_ []byte) error {
+		accumulated++
+		return nil
+	})
+
+	// The partially scanned leaf must not reach the accumulator.
+	require.ErrorIs(t, err, expectedErr)
+	require.Zero(t, accumulated)
 }
 
 func TestNode_loadKAppAccount_errors(t *testing.T) {

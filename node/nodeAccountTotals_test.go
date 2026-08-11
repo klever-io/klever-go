@@ -37,13 +37,8 @@ func TestNode_computeAccountTotals(t *testing.T) {
 	n := &Node{
 		accounts: &mock.AccountsStub{
 			RootHashCalled: func() ([]byte, error) { return []byte("root"), nil },
-			GetAllLeavesCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
-				ch := make(chan data.KeyValueHolder, len(leaves))
-				for _, l := range leaves {
-					ch <- l
-				}
-				close(ch)
-				return ch, nil
+			GetAllLeavesCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
+				return data.NewCompletedTrieIteratorChannels(leaves...), nil
 			},
 		},
 		internalMarshalizer: marshalizer,
@@ -54,6 +49,33 @@ func TestNode_computeAccountTotals(t *testing.T) {
 	require.Equal(t, int64(3), totals.AccountCount)     // code leaf skipped
 	require.Equal(t, int64(3500), totals.BalanceTotal)  // 1000 + 2500 + 0
 	require.Equal(t, int64(750), totals.AllowanceTotal) // 50 + 0 + 700
+}
+
+func TestNode_computeAccountTotals_truncatedWalk(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := marshal.NewProtoMarshalizer()
+	raw, err := marshalizer.Marshal(&state.UserAccountData{Address: []byte("addr-a"), Balance: 1000, Allowance: 50})
+	require.NoError(t, err)
+
+	expectedErr := errors.New("trie iteration failed")
+	n := &Node{
+		accounts: &mock.AccountsStub{
+			RootHashCalled: func() ([]byte, error) { return []byte("root"), nil },
+			GetAllLeavesCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
+				return data.NewFailedTrieIteratorChannels(
+					expectedErr,
+					keyValStorage.NewKeyValStorage([]byte("addr-a"), raw),
+				), nil
+			},
+		},
+		internalMarshalizer: marshalizer,
+	}
+
+	// The partial sum of the leaves that did arrive must not be handed back as the totals.
+	totals, err := n.computeAccountTotals()
+	require.ErrorIs(t, err, expectedErr)
+	require.Nil(t, totals)
 }
 
 func TestNode_GetAccountTotals(t *testing.T) {
@@ -67,11 +89,8 @@ func TestNode_GetAccountTotals(t *testing.T) {
 		blkc: &mock.BlockChainMock{GetCurrentBlockHeaderCalled: func() data.HeaderHandler { return nil }},
 		accounts: &mock.AccountsStub{
 			RootHashCalled: func() ([]byte, error) { return []byte("root"), nil },
-			GetAllLeavesCalled: func(_ []byte) (chan data.KeyValueHolder, error) {
-				ch := make(chan data.KeyValueHolder, 1)
-				ch <- keyValStorage.NewKeyValStorage([]byte("addr-a"), raw)
-				close(ch)
-				return ch, nil
+			GetAllLeavesCalled: func(_ []byte) (*data.TrieIteratorChannels, error) {
+				return data.NewCompletedTrieIteratorChannels(keyValStorage.NewKeyValStorage([]byte("addr-a"), raw)), nil
 			},
 		},
 		internalMarshalizer: marshalizer,

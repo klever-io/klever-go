@@ -179,23 +179,30 @@ func (u *userAccountsSyncer) findAllAccountRootHashes(mainTrie data.Trie, ctx co
 		return nil, err
 	}
 
-	leavesChannel, err := mainTrie.GetAllLeavesOnChannel(mainRootHash, ctx)
+	leavesChannels, err := mainTrie.GetAllLeavesOnChannel(mainRootHash, ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	rootHashes := make([][]byte, 0)
-	for leaf := range leavesChannel {
+
+	// A truncated walk would leave part of the state unsynced without anyone noticing.
+	err = leavesChannels.ForEach(func(leaf data.KeyValueHolder) error {
 		account := state.NewEmptyUserAccount()
-		err = u.marshalizer.Unmarshal(account, leaf.Value())
-		if err != nil {
-			log.Trace("this must be a leaf with code", "err", err)
-			continue
+		errUnmarshal := u.marshalizer.Unmarshal(account, leaf.Value())
+		if errUnmarshal != nil {
+			log.Trace("this must be a leaf with code", "err", errUnmarshal)
+			return nil
 		}
 
 		if len(account.RootHash) > 0 {
 			rootHashes = append(rootHashes, account.RootHash)
 		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return rootHashes, nil
