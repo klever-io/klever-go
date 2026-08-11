@@ -11,8 +11,13 @@ import (
 // It's only compiled during tests (note the _test.go suffix).
 
 // ComputeReferralAmount exports the private computeReferralAmount method for testing
-func (m *marketKapp) ComputeReferralAmount(ctx kapp.KappContext, marketOrder *kapps.MarketOrderData, referralAmount int64, currencyID []byte) (transaction.Transaction_TXResultCode, error) {
-	return m.computeReferralAmount(ctx, marketOrder, referralAmount, currencyID)
+func (m *marketKapp) ComputeReferralAmount(ctx kapp.KappContext, marketOrder *kapps.MarketOrderData, referralAddress []byte, referralAmount int64, currencyID []byte) (transaction.Transaction_TXResultCode, error) {
+	return m.computeReferralAmount(ctx, marketOrder, referralAddress, referralAmount, currencyID)
+}
+
+// ReferralBeneficiary exports the private referralBeneficiary method for testing
+func (m *marketKapp) ReferralBeneficiary(marketOrder *kapps.MarketOrderData) ([]byte, error) {
+	return m.referralBeneficiary(marketOrder)
 }
 
 // ComputeRoyaltiesFixedDeposit exports the private computeRoyaltiesFixedDeposit method for testing

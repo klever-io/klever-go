@@ -370,13 +370,14 @@ func TestMarketKApp_computeReferralAmount(t *testing.T) {
 	}
 
 	t.Run("ZeroReferralAmount", func(t *testing.T) {
-		status, err := marketKApp.computeReferralAmount(ctx, marketOrder, 0, []byte("KLV"))
+		// The address is irrelevant below the threshold: the early return fires first.
+		status, err := marketKApp.computeReferralAmount(ctx, marketOrder, nil, 0, []byte("KLV"))
 		require.NoError(t, err)
 		require.Equal(t, transaction.Transaction_Ok, status)
 	})
 
 	t.Run("NegativeReferralAmount", func(t *testing.T) {
-		status, err := marketKApp.computeReferralAmount(ctx, marketOrder, -100, []byte("KLV"))
+		status, err := marketKApp.computeReferralAmount(ctx, marketOrder, nil, -100, []byte("KLV"))
 		require.NoError(t, err)
 		require.Equal(t, transaction.Transaction_Ok, status)
 	})
@@ -385,7 +386,11 @@ func TestMarketKApp_computeReferralAmount(t *testing.T) {
 		referralAmount := int64(50000) // 5% of 1000000
 		initialBalance := userReferralAcc.GetBalance([]byte("KLV"), false)
 
-		status, err := marketKApp.computeReferralAmount(ctx, marketOrder, referralAmount, []byte("KLV"))
+		referralAddress, err := marketKApp.referralBeneficiary(marketOrder)
+		require.NoError(t, err)
+		require.Equal(t, defaultOther, referralAddress)
+
+		status, err := marketKApp.computeReferralAmount(ctx, marketOrder, referralAddress, referralAmount, []byte("KLV"))
 		require.NoError(t, err)
 		require.Equal(t, transaction.Transaction_Ok, status)
 
@@ -396,15 +401,31 @@ func TestMarketKApp_computeReferralAmount(t *testing.T) {
 		require.Equal(t, initialBalance+referralAmount, finalBalance)
 	})
 
+	// Resolving the beneficiary is what touches the marketplace, so a missing record now
+	// fails there rather than inside computeReferralAmount. executeBuyMarket maps the error
+	// to the same Transaction_ParameterInvalid it returned before.
 	t.Run("InvalidMarketplace", func(t *testing.T) {
 		invalidOrder := &kapps.MarketOrderData{
 			ID:            []byte("order-invalid"),
 			MarketplaceID: []byte("nonexistent-marketplace"),
 			Price:         1000000,
 		}
-		status, err := marketKApp.computeReferralAmount(ctx, invalidOrder, 50000, []byte("KLV"))
+		_, err := marketKApp.referralBeneficiary(invalidOrder)
 		require.Error(t, err)
-		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+	})
+
+	// A snapshotted order answers from its own bytes, so no marketplace read happens at all.
+	t.Run("SnapshottedOrderSkipsTheMarketplaceRead", func(t *testing.T) {
+		snapshotted := &kapps.MarketOrderData{
+			ID:                  []byte("order-snapshotted"),
+			MarketplaceID:       []byte("nonexistent-marketplace"),
+			Price:               1000000,
+			ReferralAddress:     defaultOther,
+			ReferralSnapshotted: true,
+		}
+		referralAddress, err := marketKApp.referralBeneficiary(snapshotted)
+		require.NoError(t, err, "a snapshotted order must not depend on the marketplace record")
+		require.Equal(t, defaultOther, referralAddress)
 	})
 }
 
@@ -991,6 +1012,307 @@ func TestMarketKApp_ConfigMarketplace(t *testing.T) {
 	})
 }
 
+// ConfigMarketplace must never leave a positive referral percentage without a referral
+// address, which strands the escrow of every open order (KLR-47).
+func TestMarketKApp_ConfigMarketplace_ReferralAddress(t *testing.T) {
+	t.Parallel()
+
+	newCtx := func(marketKApp *marketKapp) *mock.ReceiptsContextStub {
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		_ = marketKApp.SetKAppController(&stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		})
+
+		return receiptsStub
+	}
+
+	storeMarketplace := func(t *testing.T, marketKApp *marketKapp, accCacher state.AccountsCacher, referralAddress []byte, referralPercentage uint32) *kapps.Marketplace {
+		t.Helper()
+
+		marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
+		require.NoError(t, err)
+
+		marketplace := &kapps.Marketplace{
+			ID:                 []byte("marketplace-referral"),
+			OwnerAddress:       defaultAddr,
+			Name:               []byte("Referral Marketplace"),
+			ReferralAddress:    referralAddress,
+			ReferralPercentage: referralPercentage,
+		}
+		require.NoError(t, marketKApp.SetMarketplace(marketKappAcc, marketplace))
+		require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
+
+		return marketplace
+	}
+
+	t.Run("PostForkOmittedAddressIsPreserved", func(t *testing.T) {
+		t.Parallel()
+
+		marketKApp, accCacher, _ := createTestMarketKApp(t)
+		marketplace := storeMarketplace(t, marketKApp, accCacher, defaultOther, 500)
+		newCtx(marketKApp)
+
+		status, err := marketKApp.ConfigMarketplace(defaultAddr, &transaction.ConfigMarketplaceContract{
+			MarketplaceID:      marketplace.ID,
+			ReferralPercentage: 1000,
+		})
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		_, updated, err := marketKApp.GetMarketplace(marketplace.ID)
+		require.NoError(t, err)
+		require.Equal(t, defaultOther, updated.ReferralAddress, "omitted referral address must keep the stored one")
+		require.Equal(t, uint32(1000), updated.ReferralPercentage)
+	})
+
+	t.Run("PostForkSuppliedAddressReplaces", func(t *testing.T) {
+		t.Parallel()
+
+		marketKApp, accCacher, _ := createTestMarketKApp(t)
+		marketplace := storeMarketplace(t, marketKApp, accCacher, defaultOther, 500)
+		newCtx(marketKApp)
+
+		status, err := marketKApp.ConfigMarketplace(defaultAddr, &transaction.ConfigMarketplaceContract{
+			MarketplaceID:      marketplace.ID,
+			ReferralAddress:    defaultAddr,
+			ReferralPercentage: 700,
+		})
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		_, updated, err := marketKApp.GetMarketplace(marketplace.ID)
+		require.NoError(t, err)
+		require.Equal(t, defaultAddr, updated.ReferralAddress)
+		require.Equal(t, uint32(700), updated.ReferralPercentage)
+	})
+
+	t.Run("PostForkPositivePercentageWithoutAddressIsRejected", func(t *testing.T) {
+		t.Parallel()
+
+		// Address already cleared pre-fork: raising the percentage must be refused. The stored
+		// percentage and the name are both non-default so the assertions below can tell a
+		// rollback apart from state that already matched.
+		marketKApp, accCacher, _ := createTestMarketKApp(t)
+		marketplace := storeMarketplace(t, marketKApp, accCacher, nil, 500)
+		newCtx(marketKApp)
+
+		status, err := marketKApp.ConfigMarketplace(defaultAddr, &transaction.ConfigMarketplaceContract{
+			MarketplaceID:      marketplace.ID,
+			Name:               []byte("Renamed"),
+			ReferralPercentage: 1000,
+		})
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, status)
+
+		_, updated, err := marketKApp.GetMarketplace(marketplace.ID)
+		require.NoError(t, err)
+		require.Empty(t, updated.ReferralAddress)
+		require.Equal(t, uint32(500), updated.ReferralPercentage, "the rejected update must not be persisted")
+		require.Equal(t, []byte("Referral Marketplace"), updated.Name, "no part of the rejected update may survive")
+	})
+
+	t.Run("PostForkZeroPercentageWithoutAddressIsAllowed", func(t *testing.T) {
+		t.Parallel()
+
+		// Nothing to settle, so no address is required.
+		marketKApp, accCacher, _ := createTestMarketKApp(t)
+		marketplace := storeMarketplace(t, marketKApp, accCacher, nil, 0)
+		newCtx(marketKApp)
+
+		status, err := marketKApp.ConfigMarketplace(defaultAddr, &transaction.ConfigMarketplaceContract{
+			MarketplaceID: marketplace.ID,
+			Name:          []byte("Renamed"),
+		})
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		_, updated, err := marketKApp.GetMarketplace(marketplace.ID)
+		require.NoError(t, err)
+		require.Equal(t, []byte("Renamed"), updated.Name)
+	})
+
+	t.Run("PreForkOmittedAddressStillClears", func(t *testing.T) {
+		t.Parallel()
+
+		marketKApp, accCacher, forkController := createTestMarketKApp(t)
+		forkController.SetFork("FixAuditChangesV4", false)
+		marketplace := storeMarketplace(t, marketKApp, accCacher, defaultOther, 500)
+		newCtx(marketKApp)
+
+		status, err := marketKApp.ConfigMarketplace(defaultAddr, &transaction.ConfigMarketplaceContract{
+			MarketplaceID:      marketplace.ID,
+			ReferralPercentage: 1000,
+		})
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		_, updated, err := marketKApp.GetMarketplace(marketplace.ID)
+		require.NoError(t, err)
+		require.Empty(t, updated.ReferralAddress, "pre-fork behaviour must be unchanged")
+		require.Equal(t, uint32(1000), updated.ReferralPercentage)
+	})
+
+	t.Run("SettlementSurvivesAnOmittedAddressUpdate", func(t *testing.T) {
+		t.Parallel()
+
+		// Pre-fork this update cleared the address and the next settlement reverted.
+		marketKApp, accCacher, _ := createTestMarketKApp(t)
+		marketplace := storeMarketplace(t, marketKApp, accCacher, defaultOther, 500)
+		receiptsStub := newCtx(marketKApp)
+
+		status, err := marketKApp.ConfigMarketplace(defaultAddr, &transaction.ConfigMarketplaceContract{
+			MarketplaceID:      marketplace.ID,
+			ReferralPercentage: 500,
+		})
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		ctx := marketKApp.KAppController.GetCurrentKAppContext()
+		order := &kapps.MarketOrderData{
+			ID:                 []byte("order-referral"),
+			MarketplaceID:      marketplace.ID,
+			ReferralPercentage: 500,
+			CurrentBid:         1000000,
+		}
+
+		referralAmount := int64(50000)
+		before := receiptsStub.Get()
+
+		referralAddress, err := marketKApp.referralBeneficiary(order)
+		require.NoError(t, err)
+
+		status, err = marketKApp.computeReferralAmount(ctx, order, referralAddress, referralAmount, []byte("KLV"))
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+		require.Len(t, receiptsStub.Get(), len(before)+1)
+
+		referralAcc, err := accCacher.LoadUser(defaultOther)
+		require.NoError(t, err)
+		require.Equal(t, referralAmount, referralAcc.GetBalance([]byte("KLV"), false))
+	})
+
+}
+
+// The ConfigMarketplace gate above only stops new bad configs. Marketplaces cleared before
+// the fork epoch, which is the state KLR-47 describes as already reachable, still carry
+// orders that snapshotted a positive referral percentage, and settlement pays the live
+// address. Without a fallback those orders are permanently unsettleable: LoadAccount rejects
+// the empty address, CancelOrder refuses expired orders, and Claim only recovers when the
+// reserve was not met, so the escrowed asset and the winning bid have no exit.
+func TestMarketKApp_ExecuteBuyMarket_ClearedReferralAddress(t *testing.T) {
+	t.Parallel()
+
+	const (
+		bid         = int64(1000000)
+		referralPct = uint32(500) // 5%
+	)
+	collectionID := []byte("STRAND-COLL")
+	assetID := []byte("1")
+	marketplaceID := []byte("mp-strand")
+
+	// run settles a buy against a marketplace holding no referral address, on an order that
+	// snapshotted referralPct, and returns the settlement result plus the balances of the
+	// order owner (who receives marketOwnerAmount) and of the marketplace owner. The two are
+	// deliberately different addresses so the assertions show where the dropped share lands.
+	run := func(t *testing.T, fixActive bool) (transaction.Transaction_TXResultCode, error, int64, int64) {
+		t.Helper()
+
+		marketKApp, accCacher, fc := createTestMarketKApp(t)
+		fc.FixMarketBuyOverflowValue = true
+		fc.SetFork("FixAuditChangesV4", fixActive)
+
+		seller := defaultAddr
+		bidder := defaultOther
+		marketplaceOwner := makeAddress("mp-owner")
+		for _, addr := range [][]byte{seller, bidder, marketplaceOwner} {
+			acc, err := accCacher.LoadUser(addr)
+			require.NoError(t, err)
+			require.NoError(t, accCacher.UpdateUser(acc))
+		}
+
+		marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
+		require.NoError(t, err)
+		// Address cleared while the pre-fork ConfigMarketplace still allowed it.
+		require.NoError(t, marketKApp.SetMarketplace(marketKappAcc, &kapps.Marketplace{
+			ID: marketplaceID, OwnerAddress: marketplaceOwner, Name: []byte("strand"),
+			ReferralAddress: nil, ReferralPercentage: referralPct,
+		}))
+		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft")))
+		require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
+
+		asset := &kapps.KDAData{
+			OwnerAddress: seller,
+			Royalties: &kapps.RoyaltiesData{
+				Address:          seller,
+				MarketPercentage: 0,
+				SplitRoyalties:   make(map[string]*kapps.RoyaltySplitData),
+			},
+		}
+
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		require.NoError(t, marketKApp.SetKAppController(&stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+			GetKDAKAppCalled: func() kapp.KDAKapp {
+				return &stub.KDAKappStub{
+					GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+						return nil, asset, nil
+					},
+				}
+			},
+		}))
+
+		order := &kapps.MarketOrderData{
+			ID: []byte("order-strand"), MarketplaceID: marketplaceID,
+			MarketType: kapps.MarketOrderData_BuyItNow, OwnerAddress: seller,
+			CollectionID: collectionID, AssetID: assetID, CurrencyID: kdautils.KLVIdentifier,
+			Price: bid, ReferralPercentage: referralPct, CurrentBid: bid, CurrentBidder: bidder,
+		}
+		bidderAcc, err := accCacher.LoadUser(bidder)
+		require.NoError(t, err)
+
+		status, execErr := marketKApp.ExecuteBuyMarket(bidderAcc, marketKappAcc, order, kdautils.KLVIdentifier)
+
+		sellerAcc, err := accCacher.LoadUser(seller)
+		require.NoError(t, err)
+		marketplaceOwnerAcc, err := accCacher.LoadUser(marketplaceOwner)
+		require.NoError(t, err)
+
+		return status, execErr,
+			sellerAcc.GetBalance(kdautils.KLVIdentifier, false),
+			marketplaceOwnerAcc.GetBalance(kdautils.KLVIdentifier, false)
+	}
+
+	t.Run("PreForkTheOrderIsStranded", func(t *testing.T) {
+		t.Parallel()
+
+		status, err, sellerBalance, marketplaceOwnerBalance := run(t, false)
+		require.Error(t, err)
+		require.Equal(t, transaction.Transaction_LoadAccountError, status)
+		require.Zero(t, sellerBalance, "nothing settles, the bid stays escrowed in the KApp")
+		require.Zero(t, marketplaceOwnerBalance)
+	})
+
+	t.Run("PostForkTheReferralShareFoldsIntoTheOrderOwner", func(t *testing.T) {
+		t.Parallel()
+
+		status, err, sellerBalance, marketplaceOwnerBalance := run(t, true)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+		// referralAmount is zeroed before marketOwnerAmount is derived, so the whole bid
+		// reaches the order owner instead of 5% being stranded inside the KApp.
+		require.Equal(t, bid, sellerBalance, "the dropped referral share must not stay in the KApp")
+		require.Zero(t, marketplaceOwnerBalance, "the marketplace owner is not the payee here")
+	})
+}
+
 func TestMarketKApp_ExecuteBuyMarket_RoyaltyReferralInflation(t *testing.T) {
 	t.Parallel()
 
@@ -1287,6 +1609,118 @@ func TestMarketKApp_Sell_SnapshotsRoyalty(t *testing.T) {
 		require.False(t, order.RoyaltySnapshotted, "pre-fork orders must not be snapshotted")
 		require.Equal(t, uint32(0), order.RoyaltyPercentage)
 	})
+}
+
+// A marketplace can already be sitting at empty ReferralAddress with a positive percentage:
+// PreForkOmittedAddressStillClears shows that state is reachable today, and an owner can
+// arm it deliberately before the fork activates. Sell copies the percentage into every new
+// order without ever consulting the address (the only referral validation is the
+// MarketPercentage + ReferralPercentage bound), so the marketplace keeps minting orders
+// carrying a payout with no payee long after the fork.
+//
+// The executeBuyMarket fallback is what covers them. It keys on the live address at
+// settlement rather than on when the order was listed, so orders created before and after
+// the fork are both settleable and no Sell-side gate is needed to unbrick them.
+func TestMarketKApp_Sell_IntoClearedReferralMarketplaceStillSettles(t *testing.T) {
+	t.Parallel()
+
+	const (
+		nonce       = uint64(7)
+		price       = int64(1000000)
+		referralPct = uint32(1000) // 10%
+	)
+	seed := []byte("rand-seed-cleared")
+	collection := []byte("CLEARSELL")
+	nftNonce := []byte("1")
+	marketplaceID := []byte("mp-clearsell")
+
+	marketKApp, accCacher, fc := createTestMarketKApp(t)
+	fc.FixMarketBuyOverflowValue = true
+	fc.SetFork("FixAuditChangesV4", true)
+
+	seller := defaultAddr
+	bidder := defaultOther
+
+	sellerAcc, err := accCacher.LoadUser(seller)
+	require.NoError(t, err)
+	require.NoError(t, sellerAcc.AddInternalKDA(collection, nftNonce, []byte("nft-data")))
+	require.NoError(t, accCacher.UpdateUser(sellerAcc))
+
+	bidderAcc, err := accCacher.LoadUser(bidder)
+	require.NoError(t, err)
+	require.NoError(t, accCacher.UpdateUser(bidderAcc))
+
+	marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
+	require.NoError(t, err)
+	// The armed trap: a payout percentage with nobody to pay it to.
+	require.NoError(t, marketKApp.SetMarketplace(marketKappAcc, &kapps.Marketplace{
+		ID: marketplaceID, OwnerAddress: seller, Name: []byte("clearsell"),
+		ReferralAddress: nil, ReferralPercentage: referralPct,
+	}))
+	require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
+
+	asset := &kapps.KDAData{
+		AssetType:    kapps.KDAData_NonFungible,
+		OwnerAddress: seller,
+		Royalties: &kapps.RoyaltiesData{
+			Address:          seller,
+			MarketPercentage: 0,
+			SplitRoyalties:   make(map[string]*kapps.RoyaltySplitData),
+		},
+	}
+
+	now := int64(1000000)
+	blk := &block.Block{Header: &block.BlockHeader{Timestamp: now, RandSeed: seed}}
+	receiptsStub := mock.NewReceiptsContextStub()
+	ctx := &mock.KAppContextStub{
+		ContractIDCalled: func() int { return 0 },
+		ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		BlockCalled:      func() *block.Block { return blk },
+		TxNonceCalled:    func() uint64 { return nonce },
+	}
+	require.NoError(t, marketKApp.SetKAppController(&stub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &stub.KDAKappStub{
+				GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, asset, nil
+				},
+			}
+		},
+	}))
+
+	status, err := marketKApp.Sell(seller, &transaction.SellContract{
+		MarketType:    transaction.SellContract_BuyItNowMarket,
+		MarketplaceID: marketplaceID,
+		AssetID:       []byte(string(collection) + kapps.Sp + string(nftNonce)),
+		Price:         price,
+		EndTime:       now + 3600,
+	})
+	require.NoError(t, err)
+	require.Equal(t, transaction.Transaction_Ok, status)
+
+	orderID := kdautils.ToMarketID(&sha256.Sha256{}, seed, seller, nonce, 0, kdautils.MarketKeyLength)
+	_, order, err := marketKApp.GetMarketOrder(orderID)
+	require.NoError(t, err)
+	require.Equal(t, referralPct, order.ReferralPercentage,
+		"Sell snapshots the percentage with no address check, so the new order is armed too")
+
+	order.CurrentBid = price
+	order.CurrentBidder = bidder
+
+	marketKappAcc, err = accCacher.LoadKApp(kapps.MarketKAppAddress)
+	require.NoError(t, err)
+	bidderAcc, err = accCacher.LoadUser(bidder)
+	require.NoError(t, err)
+
+	status, err = marketKApp.ExecuteBuyMarket(bidderAcc, marketKappAcc, order, kdautils.KLVIdentifier)
+	require.NoError(t, err, "a freshly listed order must not inherit the unsettleable state")
+	require.Equal(t, transaction.Transaction_Ok, status)
+
+	settledSeller, err := accCacher.LoadUser(seller)
+	require.NoError(t, err)
+	require.Equal(t, price, settledSeller.GetBalance(kdautils.KLVIdentifier, false),
+		"the referral share with no payee folds into the order owner's proceeds")
 }
 
 // TestMarketKApp_Claim_MarketClaimRoyaltyReferralInflation verifies KLC-2457 item 2:
@@ -1812,4 +2246,297 @@ func TestMarketKApp_GetMarketEscrowTotal_ErrorPaths(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, int64(math.MaxInt64), total) // second entry skipped, no wrap-around
 	})
+}
+
+// Sell fixes ReferralPercentage into every order but used to leave the beneficiary to
+// settlement, which reloaded the live marketplace. Once FixAuditChangesV4 is active the
+// address is captured at list time too, so both halves of the referral payout are decided
+// when the bidder can still see them. Before the fork nothing is written, keeping the
+// stored order bytes deterministic across the rollout.
+func TestMarketKApp_Sell_SnapshotsReferralAddress(t *testing.T) {
+	t.Parallel()
+
+	const nonce = uint64(11)
+	seed := []byte("rand-seed-refsnap")
+	collection := []byte("REFSELL")
+	nftNonce := []byte("1")
+	marketplaceID := []byte("mp-refsnap")
+
+	run := func(t *testing.T, fixActive bool) *kapps.MarketOrderData {
+		marketKApp, accCacher, fc := createTestMarketKApp(t)
+		fc.FixAuditChangesV4Value = fixActive
+
+		seller := defaultAddr
+		referral := makeAddress("referral-at-list")
+
+		sellerAcc, err := accCacher.LoadUser(seller)
+		require.NoError(t, err)
+		require.NoError(t, sellerAcc.AddInternalKDA(collection, nftNonce, []byte("nft-data")))
+		require.NoError(t, accCacher.UpdateUser(sellerAcc))
+
+		marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
+		require.NoError(t, err)
+		require.NoError(t, marketKApp.SetMarketplace(marketKappAcc, &kapps.Marketplace{
+			ID: marketplaceID, OwnerAddress: seller, Name: []byte("refsnap"),
+			ReferralAddress: referral, ReferralPercentage: 500,
+		}))
+		require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
+
+		asset := &kapps.KDAData{
+			AssetType:    kapps.KDAData_NonFungible,
+			OwnerAddress: seller,
+			Royalties: &kapps.RoyaltiesData{
+				Address:          seller,
+				MarketPercentage: 0,
+				SplitRoyalties:   make(map[string]*kapps.RoyaltySplitData),
+			},
+		}
+
+		now := int64(1000000)
+		blk := &block.Block{Header: &block.BlockHeader{Timestamp: now, RandSeed: seed}}
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+			BlockCalled:      func() *block.Block { return blk },
+			TxNonceCalled:    func() uint64 { return nonce },
+		}
+		require.NoError(t, marketKApp.SetKAppController(&stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+			GetKDAKAppCalled: func() kapp.KDAKapp {
+				return &stub.KDAKappStub{
+					GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+						return nil, asset, nil
+					},
+				}
+			},
+		}))
+
+		assetID := []byte(string(collection) + kapps.Sp + string(nftNonce))
+		status, err := marketKApp.Sell(seller, &transaction.SellContract{
+			MarketType:    transaction.SellContract_BuyItNowMarket,
+			MarketplaceID: marketplaceID,
+			AssetID:       assetID,
+			Price:         int64(1000000),
+			EndTime:       now + 3600,
+		})
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		orderID := kdautils.ToMarketID(&sha256.Sha256{}, seed, seller, nonce, 0, kdautils.MarketKeyLength)
+		_, order, err := marketKApp.GetMarketOrder(orderID)
+		require.NoError(t, err)
+		return order
+	}
+
+	t.Run("ForkActive_SnapshotsLiveAddressAtList", func(t *testing.T) {
+		order := run(t, true)
+		require.True(t, order.ReferralSnapshotted, "order must be marked referral-snapshotted post-fork")
+		require.Equal(t, makeAddress("referral-at-list"), order.ReferralAddress,
+			"snapshot must capture the marketplace referral address at Sell")
+		require.Equal(t, uint32(500), order.ReferralPercentage)
+	})
+
+	t.Run("ForkInactive_NoSnapshot", func(t *testing.T) {
+		order := run(t, false)
+		require.False(t, order.ReferralSnapshotted, "pre-fork orders must not be snapshotted")
+		require.Empty(t, order.ReferralAddress)
+		require.Equal(t, uint32(500), order.ReferralPercentage, "the percentage snapshot is unchanged")
+	})
+}
+
+// The clearing bug KLC-2570 reported had a more severe sibling: settlement reloaded the
+// live marketplace for the referral address, so an owner could call ConfigMarketplace
+// mid-auction and repoint it to another address they control. The bid is already escrowed
+// at that point, so the referral cut left for a party the bidder never agreed to, with no
+// revert and nothing in the record marking the redirection.
+//
+// With the address snapshotted at Sell, the payout follows the order, not the marketplace.
+func TestMarketKApp_ExecuteBuyMarket_RedirectedReferralAddress(t *testing.T) {
+	t.Parallel()
+
+	const (
+		bid         = int64(1000000)
+		referralPct = uint32(500) // 5%
+	)
+	collectionID := []byte("REDIR-COLL")
+	assetID := []byte("1")
+	marketplaceID := []byte("mp-redir")
+
+	// run lists against referral address A, repoints the live marketplace to B, then
+	// settles. It returns what A and B were credited.
+	run := func(t *testing.T, snapshotted bool) (paidToListed, paidToRedirected int64) {
+		marketKApp, accCacher, fc := createTestMarketKApp(t)
+		fc.FixMarketBuyOverflowValue = true
+		fc.FixAuditChangesV4Value = true
+
+		seller := defaultAddr
+		bidder := defaultOther
+		listedReferral := makeAddress("referral-listed")
+		redirectedReferral := makeAddress("referral-redirected")
+		for _, addr := range [][]byte{seller, bidder, listedReferral, redirectedReferral} {
+			acc, err := accCacher.LoadUser(addr)
+			require.NoError(t, err)
+			require.NoError(t, accCacher.UpdateUser(acc))
+		}
+
+		marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
+		require.NoError(t, err)
+		// The live marketplace already carries the redirected address: the owner
+		// repointed it after the order was listed and before settlement.
+		require.NoError(t, marketKApp.SetMarketplace(marketKappAcc, &kapps.Marketplace{
+			ID: marketplaceID, OwnerAddress: seller, Name: []byte("redir"),
+			ReferralAddress: redirectedReferral, ReferralPercentage: referralPct,
+		}))
+		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft")))
+		require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
+
+		asset := &kapps.KDAData{
+			OwnerAddress: seller,
+			Royalties: &kapps.RoyaltiesData{
+				Address:          seller,
+				MarketPercentage: 0,
+				SplitRoyalties:   make(map[string]*kapps.RoyaltySplitData),
+			},
+		}
+
+		receiptsStub := mock.NewReceiptsContextStub()
+		ctx := &mock.KAppContextStub{
+			ContractIDCalled: func() int { return 0 },
+			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+		}
+		require.NoError(t, marketKApp.SetKAppController(&stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+			GetKDAKAppCalled: func() kapp.KDAKapp {
+				return &stub.KDAKappStub{
+					GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+						return nil, asset, nil
+					},
+				}
+			},
+		}))
+
+		order := &kapps.MarketOrderData{
+			ID: []byte("order-redir"), MarketplaceID: marketplaceID,
+			MarketType: kapps.MarketOrderData_BuyItNow, OwnerAddress: seller,
+			CollectionID: collectionID, AssetID: assetID, CurrencyID: kdautils.KLVIdentifier,
+			Price: bid, ReferralPercentage: referralPct, CurrentBid: bid, CurrentBidder: bidder,
+		}
+		if snapshotted {
+			order.ReferralAddress = listedReferral
+			order.ReferralSnapshotted = true
+		}
+
+		bidderAcc, err := accCacher.LoadUser(bidder)
+		require.NoError(t, err)
+
+		status, err := marketKApp.ExecuteBuyMarket(bidderAcc, marketKappAcc, order, kdautils.KLVIdentifier)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+
+		listedAcc, err := accCacher.LoadUser(listedReferral)
+		require.NoError(t, err)
+		redirectedAcc, err := accCacher.LoadUser(redirectedReferral)
+		require.NoError(t, err)
+		return listedAcc.GetBalance(kdautils.KLVIdentifier, false),
+			redirectedAcc.GetBalance(kdautils.KLVIdentifier, false)
+	}
+
+	t.Run("SnapshottedOrderPaysTheAddressTheBidderSaw", func(t *testing.T) {
+		paidToListed, paidToRedirected := run(t, true)
+		require.Equal(t, int64(50000), paidToListed, "5%% of the bid must go to the listed referral address")
+		require.Zero(t, paidToRedirected, "the mid-auction redirection must not divert the referral share")
+	})
+
+	t.Run("LegacyOrderWithoutSnapshotFollowsLiveMarketplace", func(t *testing.T) {
+		// Pre-fork orders carry no snapshot, so they keep resolving the live address.
+		// Documented, not endorsed: the snapshot is what closes the redirection, and it
+		// can only apply to orders listed at or after the fork.
+		paidToListed, paidToRedirected := run(t, false)
+		require.Zero(t, paidToListed)
+		require.Equal(t, int64(50000), paidToRedirected)
+	})
+}
+
+// A snapshotted order whose captured address is empty must still settle. CreateMarketplace
+// accepts a positive ReferralPercentage with no address, so the snapshot can be empty
+// through no fault of the bidder; without the drop the payout would target the empty
+// address and strand the escrowed asset exactly like the case KLC-2570 reported.
+func TestMarketKApp_ExecuteBuyMarket_EmptySnapshottedReferralStillSettles(t *testing.T) {
+	t.Parallel()
+
+	const (
+		bid         = int64(1000000)
+		referralPct = uint32(500) // 5%
+	)
+	collectionID := []byte("EMPTY-SNAP")
+	assetID := []byte("1")
+	marketplaceID := []byte("mp-emptysnap")
+
+	marketKApp, accCacher, fc := createTestMarketKApp(t)
+	fc.FixMarketBuyOverflowValue = true
+	fc.FixAuditChangesV4Value = true
+
+	seller := defaultAddr
+	bidder := defaultOther
+	for _, addr := range [][]byte{seller, bidder} {
+		acc, err := accCacher.LoadUser(addr)
+		require.NoError(t, err)
+		require.NoError(t, accCacher.UpdateUser(acc))
+	}
+
+	marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
+	require.NoError(t, err)
+	require.NoError(t, marketKApp.SetMarketplace(marketKappAcc, &kapps.Marketplace{
+		ID: marketplaceID, OwnerAddress: seller, Name: []byte("emptysnap"),
+		ReferralPercentage: referralPct,
+	}))
+	require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft")))
+	require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
+
+	asset := &kapps.KDAData{
+		OwnerAddress: seller,
+		Royalties: &kapps.RoyaltiesData{
+			Address:          seller,
+			MarketPercentage: 0,
+			SplitRoyalties:   make(map[string]*kapps.RoyaltySplitData),
+		},
+	}
+
+	receiptsStub := mock.NewReceiptsContextStub()
+	ctx := &mock.KAppContextStub{
+		ContractIDCalled: func() int { return 0 },
+		ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
+	}
+	require.NoError(t, marketKApp.SetKAppController(&stub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &stub.KDAKappStub{
+				GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, asset, nil
+				},
+			}
+		},
+	}))
+
+	order := &kapps.MarketOrderData{
+		ID: []byte("order-emptysnap"), MarketplaceID: marketplaceID,
+		MarketType: kapps.MarketOrderData_BuyItNow, OwnerAddress: seller,
+		CollectionID: collectionID, AssetID: assetID, CurrencyID: kdautils.KLVIdentifier,
+		Price: bid, ReferralPercentage: referralPct, CurrentBid: bid, CurrentBidder: bidder,
+		ReferralSnapshotted: true,
+	}
+
+	bidderAcc, err := accCacher.LoadUser(bidder)
+	require.NoError(t, err)
+
+	status, err := marketKApp.ExecuteBuyMarket(bidderAcc, marketKappAcc, order, kdautils.KLVIdentifier)
+	require.NoError(t, err)
+	require.Equal(t, transaction.Transaction_Ok, status)
+
+	// The dropped referral share folds into the order owner's proceeds rather than
+	// stranding inside the KApp.
+	sellerAcc, err := accCacher.LoadUser(seller)
+	require.NoError(t, err)
+	require.Equal(t, bid, sellerAcc.GetBalance(kdautils.KLVIdentifier, false))
 }

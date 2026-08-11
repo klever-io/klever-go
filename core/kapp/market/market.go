@@ -453,17 +453,33 @@ func (m *marketKapp) Buy(sender []byte, tc *transaction.BuyContract) (transactio
 	return transaction.Transaction_Ok, nil
 }
 
-func (m *marketKapp) computeReferralAmount(ctx kapp.KappContext, marketOrder *kapps.MarketOrderData, referralAmount int64, currencyID []byte) (transaction.Transaction_TXResultCode, error) {
-	if referralAmount <= 0 {
-		return transaction.Transaction_Ok, nil
+// referralBeneficiary resolves who receives the referral share of an order. Orders listed
+// at or after FixAuditChangesV4 carry the address snapshotted at Sell time, so a
+// ConfigMarketplace issued while the bid sits in escrow can neither redirect the payout to
+// another address nor strand the order by clearing it. Orders listed before the fork have
+// no snapshot and keep resolving the live marketplace.
+func (m *marketKapp) referralBeneficiary(marketOrder *kapps.MarketOrderData) ([]byte, error) {
+	if marketOrder.ReferralSnapshotted {
+		return marketOrder.ReferralAddress, nil
 	}
 
 	_, marketplace, err := m.GetMarketplace(marketOrder.MarketplaceID)
 	if err != nil {
-		return transaction.Transaction_ParameterInvalid, err
+		return nil, err
 	}
 
-	referralAcc, err := m.LoadUserAccount(marketplace.ReferralAddress)
+	return marketplace.ReferralAddress, nil
+}
+
+// computeReferralAmount credits the referral share to referralAddress, which the caller
+// resolved through referralBeneficiary. Taking it as a parameter keeps settlement to a
+// single marketplace read for orders that still need one.
+func (m *marketKapp) computeReferralAmount(ctx kapp.KappContext, marketOrder *kapps.MarketOrderData, referralAddress []byte, referralAmount int64, currencyID []byte) (transaction.Transaction_TXResultCode, error) {
+	if referralAmount <= 0 {
+		return transaction.Transaction_Ok, nil
+	}
+
+	referralAcc, err := m.LoadUserAccount(referralAddress)
 	if err != nil {
 		return transaction.Transaction_LoadAccountError, err
 	}
@@ -683,6 +699,40 @@ func (m *marketKapp) executeBuyMarket(bidderAcc state.UserAccountHandler, market
 	if err != nil {
 		return transaction.Transaction_ParameterInvalid, err
 	}
+
+	// Marketplaces whose referral address was cleared before the fork still carry orders that
+	// snapshotted a positive percentage, and settlement pays the live address, so LoadAccount
+	// rejects the empty address and the order can never settle. CancelOrder refuses expired
+	// orders and Claim only recovers when the reserve was not met, so the escrowed asset and
+	// the bid would have no exit but the owner voluntarily reconfiguring. Drop the referral
+	// share here rather than in computeReferralAmount: marketOwnerAmount is derived below, so
+	// zeroing it at the source folds the share into that amount, which settles to the order
+	// owner, instead of stranding it inside the KApp.
+	//
+	// Resolved once here and handed to computeReferralAmount below, so a settlement that
+	// still needs the live marketplace reads it a single time. A snapshotted order reads it
+	// not at all. The resolution goes through referralBeneficiary so the order is judged on
+	// its own address, not the live one: reading the marketplace here would hand the owner
+	// the diversion back, since clearing the address after listing would fold the referral
+	// share into the amount that settles to the order owner. A snapshot can still be empty
+	// when the marketplace was created with a percentage but no address, and that order
+	// would strand the same way, so the drop covers both.
+	//
+	// The read moving ahead of the marketOwnerAmount overflow check is not fork-gated, but
+	// it cannot change which error a settlement returns: an order always names a marketplace
+	// that exists, since Sell rejects a nil or unknown ID and marketplaces are never deleted.
+	var referralAddress []byte
+	if referralAmount > 0 {
+		referralAddress, err = m.referralBeneficiary(marketOrder)
+		if err != nil {
+			return transaction.Transaction_ParameterInvalid, err
+		}
+	}
+
+	if m.forkController.FixAuditChangesV4() && len(referralAddress) == 0 {
+		referralAmount = 0
+	}
+
 	// Use the royalty snapshotted into the order at Sell time when present, so the order
 	// economics are fixed at list time and a later UpdateRoyalties cannot change the payout
 	// (KLC-2457 / GHSA-p7gw-2pcp-5pf8). Orders listed before the fork carry no snapshot and
@@ -702,7 +752,7 @@ func (m *marketKapp) executeBuyMarket(bidderAcc state.UserAccountHandler, market
 		return transaction.Transaction_AmountInvalid, common.ErrInvalidValue
 	}
 
-	status, err := m.computeReferralAmount(ctx, marketOrder, referralAmount, currencyID)
+	status, err := m.computeReferralAmount(ctx, marketOrder, referralAddress, referralAmount, currencyID)
 	if err != nil {
 		return status, err
 	}
@@ -1122,6 +1172,21 @@ func (m *marketKapp) Sell(sender []byte, tc *transaction.SellContract) (transact
 		marketOrder.RoyaltySnapshotted = true
 	}
 
+	// Same reasoning for the referral beneficiary: the order already fixes
+	// ReferralPercentage at list time, but settlement reloaded the live marketplace to
+	// find the address, so an owner could repoint ReferralAddress mid-auction and divert
+	// the referral share to a party the bidder never saw. Snapshot the address too, so
+	// both halves of the referral payout are decided when the order is listed.
+	//
+	// Gated on FixAuditChangesV4 rather than V3: V3 already shipped in this audit round
+	// with only the royalty fields, so a re-sync must not start writing these bytes at
+	// the V3 epoch. Orders listed before V4 carry no marker and keep resolving the live
+	// address (see computeReferralAmount).
+	if m.forkController.FixAuditChangesV4() {
+		marketOrder.ReferralAddress = marketplace.ReferralAddress
+		marketOrder.ReferralSnapshotted = true
+	}
+
 	err = m.SetMarketOrder(marketKapp, marketOrder)
 	if err != nil {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
@@ -1391,7 +1456,28 @@ func (m *marketKapp) ConfigMarketplace(sender []byte, tc *transaction.ConfigMark
 		marketplace.Name = tc.GetName()
 	}
 
-	marketplace.ReferralAddress = tc.GetReferralAddress()
+	// Settlement reloads the live marketplace, so an empty address would otherwise strand
+	// every open order that snapshotted a positive referral percentage. executeBuyMarket
+	// tolerates the marketplaces already cleared before the fork; this gate keeps new ones
+	// from appearing, so the referral share is not silently rerouted to the order owner.
+	// Since proto3 cannot tell an explicitly empty bytes field from an omitted one, an
+	// address can no longer be cleared.
+	if m.forkController.FixAuditChangesV4() {
+		if len(tc.GetReferralAddress()) > 0 {
+			marketplace.ReferralAddress = tc.GetReferralAddress()
+		}
+
+		if tc.GetReferralPercentage() > 0 && len(marketplace.ReferralAddress) == 0 {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, common.ErrInvalidValue.Error())
+			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+		}
+	} else {
+		marketplace.ReferralAddress = tc.GetReferralAddress()
+	}
+
+	// The two referral fields do not behave alike: the address above is sticky post-fork,
+	// while the percentage is always overwritten, omitted or not. A config that only renames
+	// the marketplace therefore still drops referral payouts to zero.
 	marketplace.ReferralPercentage = tc.GetReferralPercentage()
 
 	err = m.SetMarketplace(marketplaceKapp, marketplace)

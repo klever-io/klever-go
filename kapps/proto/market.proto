@@ -35,4 +35,6 @@ message MarketOrderData {
     bool             IsClaimed             = 16 [json_name = "isClaimed"];
     uint32           RoyaltyPercentage     = 17 [json_name = "royaltyPercentage,omitempty"];
     bool             RoyaltySnapshotted    = 18 [json_name = "royaltySnapshotted,omitempty"];
+    bytes            ReferralAddress       = 19 [json_name = "referralAddress,omitempty"];
+    bool             ReferralSnapshotted   = 20 [json_name = "referralSnapshotted,omitempty"];
 }
