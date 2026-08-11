@@ -542,8 +542,12 @@ func (ei *elasticProcessor) SaveTransactions(
 	// Non-nil only when the websocket dispatcher already computed them synchronously on
 	// the commit goroutine (see eventsProcessor.SaveBlock) — reusing them here avoids both
 	// a redundant conversion pass and the data race that computing them here would race.
+	// That reuse only ever happens when it was computed full=true (indexerEnabled was true
+	// at commit time, the same condition that hands prepared to this worker at all), so the
+	// fallback below — computing it ourselves — always needs full=true too: this path only
+	// runs when ES will actually index ScDeploys/AlteredSCs.
 	if ld == nil {
-		ld = ei.logsAndEventsProc.ExtractDataFromLogs(pool, txs, headerTimestamp)
+		ld = ei.logsAndEventsProc.ExtractDataFromLogs(pool, txs, headerTimestamp, true)
 	}
 	buffers := data.NewBufferSlice(data.DefaultMaxBulkSize)
 
@@ -551,18 +555,22 @@ func (ei *elasticProcessor) SaveTransactions(
 		return err
 	}
 
-	// Drop the cached conversion once consumed: PreparedBlockData sits in the dispatcher's
-	// work-item queue (up to indexerCacheSize deep) until this method runs, pinning the
-	// hex-expanded logs for that whole wait; clearing it here caps the exposure to one
-	// in-flight block instead of the full queue depth.
-	if p, ok := prepared.(*data.PreparedBlockData); ok && p != nil {
-		p.LogsDB = nil
-		p.LogsResults = nil
-	}
-
 	if err := ei.doBulkRequests("", buffers.Buffers()); err != nil {
 		log.Warn("indexer indexing bulk of transactions", "error", err.Error())
 		return err
+	}
+
+	// Drop the cached conversion only once this work item has fully succeeded and won't be
+	// retried: PreparedBlockData sits in the dispatcher's work-item queue (up to
+	// indexerCacheSize deep) until this method returns without error, pinning the
+	// hex-expanded logs for that whole wait; clearing it here caps the exposure to one
+	// in-flight block instead of the full queue depth. Clearing it before a possible retry
+	// (dataDispatcher.doWork re-runs this on the same PreparedBlockData on error) would
+	// force ExtractDataFromLogs to recompute on this goroutine — reintroducing the exact
+	// race with the websocket hub's marshal that computing it here was meant to avoid.
+	if p, ok := prepared.(*data.PreparedBlockData); ok && p != nil {
+		p.LogsDB = nil
+		p.LogsResults = nil
 	}
 
 	return nil

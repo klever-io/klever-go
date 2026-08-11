@@ -37,8 +37,8 @@ func (c *countingLogsProc) PrepareLogsForDB(logsAndEvents []*nodeData.LogData, t
 	return c.inner.PrepareLogsForDB(logsAndEvents, txsMap, timestamp)
 }
 
-func (c *countingLogsProc) ExtractDataFromLogs(pool *indexer.Pool, txs []*data.Transaction, timestamp int64) *data.PreparedLogsResults {
-	return c.inner.ExtractDataFromLogs(pool, txs, timestamp)
+func (c *countingLogsProc) ExtractDataFromLogs(pool *indexer.Pool, txs []*data.Transaction, timestamp int64, full bool) *data.PreparedLogsResults {
+	return c.inner.ExtractDataFromLogs(pool, txs, timestamp, full)
 }
 
 type indexerStub struct {

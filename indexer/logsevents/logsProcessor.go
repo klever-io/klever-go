@@ -31,20 +31,39 @@ type ArgsLogsAndEventsProcessor struct {
 }
 
 type logsAndEventsProcessor struct {
-	hasher           hashing.Hasher
-	pubKeyConverter  core.PubkeyConverter
-	eventsProcessors []eventsProcessor
+	hasher          hashing.Hasher
+	pubKeyConverter core.PubkeyConverter
+	// eventsProcessors is the full set (scDeploy/scInvocation extraction, plus the cheap
+	// informative-status tracking); lightweightProcessors holds only the latter. Kept as
+	// two slices sharing the same informativeLogsProcessor instance, rather than filtering
+	// eventsProcessors per call, so ExtractDataFromLogs(full=false) never even reaches the
+	// scDeploy/scInvocation processors' address-decoding of contract-controlled event
+	// topics — those results (ScDeploys/AlteredSCs) are Elasticsearch-only and unused by
+	// the websocket payload, so paying their cost when no indexer will consume them is
+	// pure waste, and on malformed/adversarial topics a real (if bounded) one.
+	eventsProcessors      []eventsProcessor
+	lightweightProcessors []eventsProcessor
 
 	logsData *logsData
 }
 
-// ExtractDataFromLogs will extract data from the provided logs and events and put in altered addresses
+// ExtractDataFromLogs extracts data from the provided logs and events, always setting the
+// cheap per-tx tracking (HasLogs/HasOperations/Status via informativeLogsProcessor) needed
+// for websocket payload parity. full additionally runs the scDeploy/scInvocation
+// processors and populates the returned ScDeploys/AlteredSCs — pass true only when the
+// caller will actually index them (Elasticsearch enabled); the websocket dispatcher never
+// reads those fields.
 func (lep *logsAndEventsProcessor) ExtractDataFromLogs(
 	pool *indexer.Pool,
 	txs []*data.Transaction,
 	timestamp int64,
+	full bool,
 ) *data.PreparedLogsResults {
 	lep.logsData = newLogsData(timestamp, txs)
+	procs := lep.lightweightProcessors
+	if full {
+		procs = lep.eventsProcessors
+	}
 
 	for _, txLog := range pool.Logs {
 		if txLog == nil || check.IfNil(txLog.LogHandler) {
@@ -54,7 +73,7 @@ func (lep *logsAndEventsProcessor) ExtractDataFromLogs(
 		txHashHexEncoded := hex.EncodeToString([]byte(txLog.TxHash))
 
 		events := txLog.GetLogEvents()
-		lep.processEvents(txHashHexEncoded, txLog.GetAddress(), events)
+		lep.processEvents(procs, txHashHexEncoded, txLog.GetAddress(), events)
 
 		tx, ok := lep.logsData.txsMap[txHashHexEncoded]
 		if ok {
@@ -83,19 +102,19 @@ func newLogsData(
 	return ld
 }
 
-func (lep *logsAndEventsProcessor) processEvents(logHash string, logAddress []byte, events []transaction.EventHandler) {
+func (lep *logsAndEventsProcessor) processEvents(procs []eventsProcessor, logHash string, logAddress []byte, events []transaction.EventHandler) {
 	for _, event := range events {
 		if check.IfNil(event) {
 			continue
 		}
 
-		lep.processEvent(logHash, logAddress, event)
+		lep.processEvent(procs, logHash, logAddress, event)
 	}
 
 }
 
-func (lep *logsAndEventsProcessor) processEvent(logHashHexEncoded string, logAddress []byte, event transaction.EventHandler) {
-	for _, proc := range lep.eventsProcessors {
+func (lep *logsAndEventsProcessor) processEvent(procs []eventsProcessor, logHashHexEncoded string, logAddress []byte, event transaction.EventHandler) {
+	for _, proc := range procs {
 		res := proc.processEvent(&argsProcessEvent{
 			event:            event,
 			txHashHexEncoded: logHashHexEncoded,
@@ -218,12 +237,13 @@ func NewLogsAndEventsProcessor(args ArgsLogsAndEventsProcessor) (*logsAndEventsP
 		return nil, err
 	}
 
-	eventsProcessors := createEventsProcessors(args)
+	eventsProcessors, lightweightProcessors := createEventsProcessors(args)
 
 	return &logsAndEventsProcessor{
-		pubKeyConverter:  args.PubKeyConverter,
-		eventsProcessors: eventsProcessors,
-		hasher:           args.Hasher,
+		pubKeyConverter:       args.PubKeyConverter,
+		eventsProcessors:      eventsProcessors,
+		lightweightProcessors: lightweightProcessors,
+		hasher:                args.Hasher,
 	}, nil
 }
 
@@ -241,16 +261,22 @@ func checkArgsLogsAndEventsProcessor(args ArgsLogsAndEventsProcessor) error {
 	return nil
 }
 
-func createEventsProcessors(args ArgsLogsAndEventsProcessor) []eventsProcessor {
+// createEventsProcessors returns the full processor set and, sharing the same
+// informativeLogsProcessor instance, a lightweight subset used when the caller won't
+// consume ScDeploys/AlteredSCs (see ExtractDataFromLogs's full parameter).
+func createEventsProcessors(args ArgsLogsAndEventsProcessor) (full, lightweight []eventsProcessor) {
 	scDeploysProc := newSCDeploysProcessor(args.PubKeyConverter)
 	scInvocationsProc := newSCInvocationsProcessor(args.PubKeyConverter)
 	informativeProc := newInformativeLogsProcessor()
 
-	eventsProcs := []eventsProcessor{
+	full = []eventsProcessor{
 		scDeploysProc,
 		scInvocationsProc,
 		informativeProc,
 	}
+	lightweight = []eventsProcessor{
+		informativeProc,
+	}
 
-	return eventsProcs
+	return full, lightweight
 }

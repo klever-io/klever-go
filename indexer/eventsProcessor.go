@@ -109,7 +109,10 @@ func (ep *eventsProcessor) SaveBlock(args *indexerData.ArgsSaveBlockData) {
 			// different payloads for the same block. Doing it here also keeps it
 			// synchronous with dispatchTransactionEvents, so the elastic worker's async
 			// goroutine can't race the hub's marshal of the same prepared.Txs pointers.
-			prepared.LogsResults = ep.logsAndEventsProc.ExtractDataFromLogs(args.TransactionsPool, prepared.Txs, args.Header.GetTimestamp())
+			// full=indexerEnabled: only pay for the ScDeploys/AlteredSCs extraction (which
+			// decodes contract-controlled event topics as addresses) when Elasticsearch
+			// will actually consume it — the websocket payload never reads those fields.
+			prepared.LogsResults = ep.logsAndEventsProc.ExtractDataFromLogs(args.TransactionsPool, prepared.Txs, args.Header.GetTimestamp(), indexerEnabled)
 			ep.dispatchTransactionEvents(prepared.Txs)
 			ep.dispatchAccountEventsFromAlteredAccounts(args.Header.GetTimestamp(), prepared.Altered.Accounts)
 		}
