@@ -1,6 +1,7 @@
 package mock
 
 import (
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/consensus"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/crypto"
@@ -26,6 +27,7 @@ type ConsensusCoreMock struct {
 	blsSingleSigner         crypto.SingleSigner
 	multiSigner             crypto.MultiSigner
 	slotManager             consensus.SlotManager
+	forkController          core.ForkController
 	syncTimer               ntp.SyncTimer
 	validatorGroupSelector  sharding.NodesCoordinator
 	epochStartNotifier      eventNotifier.RegistrationHandler
@@ -89,6 +91,16 @@ func (ccm *ConsensusCoreMock) MultiSigner() crypto.MultiSigner {
 // SlotManager -
 func (ccm *ConsensusCoreMock) SlotManager() consensus.SlotManager {
 	return ccm.slotManager
+}
+
+// ForkController -
+func (ccm *ConsensusCoreMock) ForkController() core.ForkController {
+	return ccm.forkController
+}
+
+// SetForkController -
+func (ccm *ConsensusCoreMock) SetForkController(forkController core.ForkController) {
+	ccm.forkController = forkController
 }
 
 // SyncTimer -

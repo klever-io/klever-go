@@ -912,3 +912,175 @@ func TestSubslotEndSlot_IsBlockHeaderFinalInfoValidShouldReturnTrue(t *testing.T
 	isValid := sr.IsBlockHeaderFinalInfoValid(cnsDta)
 	assert.True(t, isValid)
 }
+
+// The leader bails before broadcasting, not only before committing: a header
+// dated ahead of the local chronology must not be propagated to the network
+// either, otherwise the participants are handed the very block the guard is
+// meant to stop.
+func TestSubslotEndSlot_DoEndSlotJobByLeaderWithFutureSlotHeaderShouldFail(t *testing.T) {
+	t.Parallel()
+
+	container, committed, broadcast := leaderContainerForSlotGuard()
+	container.SetSlotManager(&mock.SlotManagerMock{SlotIndex: 10})
+
+	sr := *initSubslotEndSlotWithContainer(container)
+	sr.SetSelfPubKey("A")
+	require.True(t, sr.IsSelfLeaderInCurrentSlot())
+
+	sr.Header = &block.Block{Header: &block.BlockHeader{Slot: 500}}
+
+	assert.False(t, sr.DoEndSlotJob())
+	assert.False(t, *broadcast, "a future-dated header must not be propagated")
+	assert.False(t, *committed, "a future-dated header must not be committed")
+}
+
+// A nil consensus header stops the leader path outright instead of being read
+// as "not in the future, carry on": every step after the snapshot dereferences
+// the header, starting with SetPubKeysBitmap, so failing open here would panic
+// rather than merely skip the guard.
+func TestSubslotEndSlot_DoEndSlotJobByLeaderWithNilHeaderShouldFail(t *testing.T) {
+	t.Parallel()
+
+	container, committed, broadcast := leaderContainerForSlotGuard()
+	container.SetSlotManager(&mock.SlotManagerMock{SlotIndex: 10})
+
+	sr := *initSubslotEndSlotWithContainer(container)
+	sr.SetSelfPubKey("A")
+	require.True(t, sr.IsSelfLeaderInCurrentSlot())
+
+	sr.Header = nil
+
+	require.NotPanics(t, func() {
+		assert.False(t, sr.DoEndSlotJob())
+	})
+	assert.False(t, *broadcast)
+	assert.False(t, *committed)
+}
+
+// Counterpart of the test above, and the reason it is not passing for the wrong
+// reason: the exact same fixture with a header for the current slot runs the
+// leader path through to commit and broadcast.
+func TestSubslotEndSlot_DoEndSlotJobByLeaderWithCurrentSlotShouldSucceed(t *testing.T) {
+	t.Parallel()
+
+	container, committed, broadcast := leaderContainerForSlotGuard()
+	container.SetSlotManager(&mock.SlotManagerMock{SlotIndex: 10})
+
+	sr := *initSubslotEndSlotWithContainer(container)
+	sr.SetSelfPubKey("A")
+	require.True(t, sr.IsSelfLeaderInCurrentSlot())
+
+	sr.Header = &block.Block{Header: &block.BlockHeader{Slot: 10}}
+
+	assert.True(t, sr.DoEndSlotJob())
+	assert.True(t, *committed)
+	assert.True(t, *broadcast)
+}
+
+// With the fork inactive the leader path is unchanged, so the future-dated
+// header is signed, committed and broadcast as before.
+func TestSubslotEndSlot_DoEndSlotJobByLeaderWithFutureSlotIsInertBeforeTheFork(t *testing.T) {
+	t.Parallel()
+
+	container, committed, broadcast := leaderContainerForSlotGuard()
+	container.SetSlotManager(&mock.SlotManagerMock{SlotIndex: 10})
+	container.SetForkController(cMock.NewForkControllerStub().
+		SetFork("FixAuditChangesV4", false))
+
+	sr := *initSubslotEndSlotWithContainer(container)
+	sr.SetSelfPubKey("A")
+	require.True(t, sr.IsSelfLeaderInCurrentSlot())
+
+	sr.Header = &block.Block{Header: &block.BlockHeader{Slot: 500}}
+
+	assert.True(t, sr.DoEndSlotJob())
+	assert.True(t, *committed, "with the fork inactive the guard must not fire")
+	assert.True(t, *broadcast, "with the fork inactive the guard must not fire")
+}
+
+// leaderContainerForSlotGuard builds a container on which doEndSlotJobByLeader
+// reaches the slot guard: the default single signer returns an empty producer
+// signature, which the header validity check rejects before the guard is ever
+// consulted. The returned flags record whether the block was committed and
+// broadcast.
+func leaderContainerForSlotGuard() (container *mock.ConsensusCoreMock, committed, broadcast *bool) {
+	container = mock.InitConsensusCore()
+	committed, broadcast = new(bool), new(bool)
+
+	container.SetSingleSigner(&cMock.SingleSignerMock{
+		SignStub: func(private crypto.PrivateKey, msg []byte) ([]byte, error) {
+			var receivedHdr block.Block
+			if err := container.Marshalizer().Unmarshal(&receivedHdr, msg); err != nil {
+				return nil, err
+			}
+
+			return []byte("signature"), nil
+		},
+	})
+
+	blProcMock := mock.InitBlockProcessorMock()
+	blProcMock.CommitBlockCalled = func(header data.HeaderHandler) error {
+		*committed = true
+		return nil
+	}
+	container.SetBlockProcessor(blProcMock)
+
+	container.SetBroadcastMessenger(&mock.BroadcastMessengerMock{
+		BroadcastBlockCalled: func(handler data.HeaderHandler) error {
+			*broadcast = true
+			return nil
+		},
+	})
+
+	return container, committed, broadcast
+}
+
+// The participant path must refuse to commit the same header. The lower-bound
+// check it already had cannot catch this: the header slot is above the current
+// slot, not below it.
+func TestSubslotEndSlot_DoEndSlotJobByParticipantWithFutureSlotShouldReturnFalse(t *testing.T) {
+	t.Parallel()
+
+	container := mock.InitConsensusCore()
+	container.SetSlotManager(&mock.SlotManagerMock{SlotIndex: 10})
+
+	committed := false
+	blProcMock := mock.InitBlockProcessorMock()
+	blProcMock.CommitBlockCalled = func(header data.HeaderHandler) error {
+		committed = true
+		return nil
+	}
+	container.SetBlockProcessor(blProcMock)
+
+	sr := *initSubslotEndSlotWithContainer(container)
+
+	hdr := &block.Block{Header: &block.BlockHeader{Nonce: 37, Slot: 500}}
+	sr.Header = hdr
+	sr.AddReceivedHeader(hdr)
+
+	sr.SetStatus(2, slot.SsFinished)
+	sr.SetStatus(3, slot.SsNotFinished)
+
+	assert.False(t, sr.DoEndSlotJobByParticipant(&consensus.Message{}))
+	assert.False(t, committed, "a future-dated header must not be committed")
+}
+
+// Counterpart of the test above: a header for the current slot still commits,
+// so the new upper bound has not displaced the normal participant path.
+func TestSubslotEndSlot_DoEndSlotJobByParticipantWithCurrentSlotShouldReturnTrue(t *testing.T) {
+	t.Parallel()
+
+	container := mock.InitConsensusCore()
+	container.SetSlotManager(&mock.SlotManagerMock{SlotIndex: 10})
+
+	sr := *initSubslotEndSlotWithContainer(container)
+
+	hdr := &block.Block{Header: &block.BlockHeader{Nonce: 37, Slot: 10}}
+	sr.Header = hdr
+	sr.AddReceivedHeader(hdr)
+
+	sr.SetStatus(2, slot.SsFinished)
+	sr.SetStatus(3, slot.SsNotFinished)
+
+	assert.True(t, sr.DoEndSlotJobByParticipant(&consensus.Message{}))
+}

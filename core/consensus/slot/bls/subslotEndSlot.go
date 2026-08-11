@@ -182,6 +182,37 @@ func (sr *subslotEndSlot) doEndSlotJob() bool {
 	return sr.doEndSlotJobByLeader()
 }
 
+// isHeaderSlotInTheFuture reports whether the header is dated ahead of the local
+// chronology. The end-slot paths only ever guarded the lower bound, so a header
+// for a future slot could be committed; once committed, every honest block for
+// the intervening slots is rejected as having a lower slot, stalling the chain
+// until the wall clock catches up (KLR-39).
+//
+// This is a backstop at the broadcast/commit point, not the primary defence: a
+// future-dated header is already kept out of sr.Header upstream, by the slot
+// bind in subslotBlock.receivedBlockHeader (which pins the header slot to
+// cnsDta.SlotIndex) together with CanProcessReceivedMessage forcing the active
+// slot. Both of those and this check sit behind the same fork gate, so they
+// switch on together; this one only catches a header that reached endSlot with
+// a future slot despite the upstream binds.
+func (sr *subslotEndSlot) isHeaderSlotInTheFuture(header data.HeaderHandler) bool {
+	if !sr.ForkController().FixAuditChangesV4() {
+		return false
+	}
+
+	currentSlot := tools.SafeI64ToU64(sr.SlotManager().Index())
+	if header.GetSlot() <= currentSlot {
+		return false
+	}
+
+	log.Debug("header slot is ahead of the current slot",
+		"header slot", header.GetSlot(),
+		"current slot", currentSlot,
+	)
+
+	return true
+}
+
 func (sr *subslotEndSlot) doEndSlotJobByLeader() bool {
 	bitmap := sr.GenerateBitmap(SrSignature)
 	err := sr.checkSignaturesValidity(bitmap)
@@ -211,6 +242,17 @@ func (sr *subslotEndSlot) doEndSlotJobByLeader() bool {
 	sr.RLockSlotState()
 	header := sr.Header
 	sr.RUnlockSlotState()
+
+	if check.IfNil(header) {
+		log.Debug("doEndSlotJobByLeader: nil consensus header")
+		return false
+	}
+
+	// Bail before broadcasting rather than only before committing: a header
+	// dated ahead of the local chronology must not be propagated either (KLR-39).
+	if sr.isHeaderSlotInTheFuture(header) {
+		return false
+	}
 
 	header.SetPubKeysBitmap(bitmap)
 	header.SetSignature(sig)
@@ -368,10 +410,17 @@ func (sr *subslotEndSlot) doEndSlotJobByParticipant(cnsDta *consensus.Message) b
 	extendedCalled := sr.ExtendedCalled
 	sr.RUnlockSlotState()
 
-	shouldNotCommitBlock := extendedCalled || header.GetSlot() < tools.SafeI64ToU64(sr.SlotManager().Index())
+	// Snapshot the chronology index once so both bounds are compared against the
+	// same slot: post-fork the two clauses together mean "header slot != current".
+	slotIndex := sr.SlotManager().Index()
+	currentSlot := tools.SafeI64ToU64(slotIndex)
+
+	shouldNotCommitBlock := extendedCalled ||
+		header.GetSlot() < currentSlot ||
+		sr.isHeaderSlotInTheFuture(header)
 	if shouldNotCommitBlock {
 		log.Debug("canceled slot, extended has been called or slot index has been changed",
-			"slot", sr.SlotManager().Index(),
+			"slot", slotIndex,
 			"subslot", sr.Name(),
 			"header slot", header.GetSlot(),
 			"extended called", extendedCalled,

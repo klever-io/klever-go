@@ -1,6 +1,7 @@
 package slot
 
 import (
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/consensus"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/crypto"
@@ -35,6 +36,7 @@ type ConsensusCore struct {
 	headerSigVerifier             consensus.HeaderSigVerifier
 	fallbackHeaderValidator       consensus.FallbackHeaderValidator
 	nodeRedundancyHandler         consensus.NodeRedundancyHandler
+	forkController                core.ForkController
 }
 
 // ConsensusCoreArgs store all arguments that are needed to create a ConsensusCore object
@@ -58,6 +60,7 @@ type ConsensusCoreArgs struct {
 	HeaderSigVerifier             consensus.HeaderSigVerifier
 	FallbackHeaderValidator       consensus.FallbackHeaderValidator
 	NodeRedundancyHandler         consensus.NodeRedundancyHandler
+	ForkController                core.ForkController
 }
 
 // NewConsensusCore creates a new ConsensusCore instance
@@ -84,6 +87,7 @@ func NewConsensusCore(
 		headerSigVerifier:             args.HeaderSigVerifier,
 		fallbackHeaderValidator:       args.FallbackHeaderValidator,
 		nodeRedundancyHandler:         args.NodeRedundancyHandler,
+		forkController:                args.ForkController,
 	}
 
 	err := ValidateConsensusCore(consensusCore)
@@ -92,6 +96,11 @@ func NewConsensusCore(
 	}
 
 	return consensusCore, nil
+}
+
+// ForkController gets the ForkController stored in the ConsensusCore
+func (cc *ConsensusCore) ForkController() core.ForkController {
+	return cc.forkController
 }
 
 // Blockchain gets the ChainHandler stored in the ConsensusCore

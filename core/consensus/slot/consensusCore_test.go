@@ -31,6 +31,7 @@ func createDefaultConsensusCoreArgs() *slot.ConsensusCoreArgs {
 		HeaderSigVerifier:             consensusCoreMock.HeaderSigVerifier(),
 		FallbackHeaderValidator:       consensusCoreMock.FallbackHeaderValidator(),
 		NodeRedundancyHandler:         consensusCoreMock.NodeRedundancyHandler(),
+		ForkController:                consensusCoreMock.ForkController(),
 	}
 	return args
 }
@@ -283,6 +284,20 @@ func TestConsensusCore_WithNilNodeRedundancyHandlerShouldFail(t *testing.T) {
 
 	assert.Nil(t, consensusCore)
 	assert.Equal(t, slot.ErrNilNodeRedundancyHandler, err)
+}
+
+func TestConsensusCore_WithNilForkControllerShouldFail(t *testing.T) {
+	t.Parallel()
+
+	args := createDefaultConsensusCoreArgs()
+	args.ForkController = nil
+
+	consensusCore, err := slot.NewConsensusCore(
+		args,
+	)
+
+	assert.Nil(t, consensusCore)
+	assert.Equal(t, slot.ErrNilForkController, err)
 }
 
 func TestConsensusCore_CreateConsensusCoreShouldWork(t *testing.T) {

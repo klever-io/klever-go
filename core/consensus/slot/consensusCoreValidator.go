@@ -61,6 +61,9 @@ func ValidateConsensusCore(container ConsensusCoreHandler) error {
 	if check.IfNil(container.NodeRedundancyHandler()) {
 		return ErrNilNodeRedundancyHandler
 	}
+	if check.IfNil(container.ForkController()) {
+		return ErrNilForkController
+	}
 
 	return nil
 }

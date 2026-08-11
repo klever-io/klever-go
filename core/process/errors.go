@@ -189,6 +189,12 @@ var ErrBlockHashDoesNotMatch = errors.New("block hash does not match")
 // ErrLowerSlotInBlock signals that a header slot is too low for processing it
 var ErrLowerSlotInBlock = errors.New("header slot is lower than last committed")
 
+// ErrSlotAheadOfChronology signals that a header slot is ahead of the local chronology.
+// Deliberately not named ErrHigherSlotInBlock: sync.ErrHigherSlotInBlock already
+// exists for the fork-detector check, and two same-named errors with different
+// messages are indistinguishable in logs and ambiguous to errors.Is.
+var ErrSlotAheadOfChronology = errors.New("header slot is ahead of the current slot")
+
 // ErrNilBlockSizeThrottler signals that block size throttler si nil
 var ErrNilBlockSizeThrottler = errors.New("block size throttler is nil")
 

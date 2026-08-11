@@ -86,6 +86,9 @@ var ErrNilFallbackHeaderValidator = errors.New("nil fallback header validator")
 // ErrNilNodeRedundancyHandler signals that provided node redundancy handler is nil
 var ErrNilNodeRedundancyHandler = errors.New("nil node redundancy handler")
 
+// ErrNilForkController signals that provided fork controller is nil
+var ErrNilForkController = errors.New("nil fork controller")
+
 // ErrInvalidPublicKeySize signals that an invalid public key size has been received from consensus topic
 var ErrInvalidPublicKeySize = errors.New("invalid public key size")
 

@@ -138,6 +138,9 @@ func InitConsensusCore() *ConsensusCoreMock {
 	headerSigVerifier := &HeaderSigVerifierStub{}
 	fallbackHeaderValidator := &cMock.FallBackHeaderValidatorStub{}
 	nodeRedundancyHandler := &NodeRedundancyHandlerStub{}
+	// every fork active unless a test opts out explicitly via SetForkController
+	// or by mutating this instance
+	forkControllerStub := cMock.NewForkControllerStub()
 
 	container := &ConsensusCoreMock{
 		blockChain:              blockChain,
@@ -160,6 +163,7 @@ func InitConsensusCore() *ConsensusCoreMock {
 		headerSigVerifier:       headerSigVerifier,
 		fallbackHeaderValidator: fallbackHeaderValidator,
 		nodeRedundancyHandler:   nodeRedundancyHandler,
+		forkController:          forkControllerStub,
 	}
 
 	return container

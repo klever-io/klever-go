@@ -43,6 +43,8 @@ type ConsensusCoreHandler interface {
 	MultiSigner() crypto.MultiSigner
 	// SlotManager gets the SlotManager stored in the ConsensusCore
 	SlotManager() consensus.SlotManager
+	// ForkController gets the ForkController stored in the ConsensusCore
+	ForkController() core.ForkController
 	// SyncTimer gets the SyncTimer stored in the ConsensusCore
 	SyncTimer() ntp.SyncTimer
 	// NodesCoordinator gets the NodesCoordinator stored in the ConsensusCore

@@ -676,3 +676,137 @@ func TestSubslotBlock_DoBlockJobShouldFail(t *testing.T) {
 	r = sr.DoBlockJob()
 	assert.False(t, r)
 }
+
+// KLR-39: the consensus message path pins the envelope slot to the active slot
+// but never bound the slot carried by the decoded header to it, so a valid
+// current-slot leader could get a header dated arbitrarily far ahead processed,
+// signed and committed.
+func TestSubslotBlock_ReceivedBlockHeaderWithFutureSlotShouldFail(t *testing.T) {
+	t.Parallel()
+
+	container := mock.InitConsensusCore()
+	blockProcessor := &mock.BlockProcessorMock{
+		DecodeBlockHeaderCalled: func(dta []byte) data.HeaderHandler {
+			// dated far ahead of the slot the message was sent for
+			return &block.Block{Header: &block.BlockHeader{Slot: 500}}
+		},
+	}
+	container.SetBlockProcessor(blockProcessor)
+
+	sr := *initSubslotBlock(nil, container)
+
+	cnsMsg := consensus.NewConsensusMessage(
+		[]byte("header hash"),
+		nil,
+		[]byte("header"),
+		[]byte(sr.ConsensusGroup()[0]),
+		[]byte("sig"),
+		int(bls.MtBlockHeader),
+		0,
+		0,
+		chainID,
+		nil,
+		nil,
+		nil,
+		currentPid,
+	)
+
+	sr.Data = nil
+	sr.Header = nil
+
+	assert.False(t, sr.ReceivedBlockHeader(cnsMsg))
+	assert.Nil(t, sr.Header, "a header rejected for its slot must not be stored")
+}
+
+// Behind the fork flag the binding must be inert, so nodes that have not
+// activated FixAuditChangesV4 keep the previous behaviour.
+func TestSubslotBlock_ReceivedBlockHeaderWithFutureSlotIsInertBeforeTheFork(t *testing.T) {
+	t.Parallel()
+
+	container := mock.InitConsensusCore()
+	container.SetForkController(cMock.NewForkControllerStub().
+		SetFork("FixAuditChangesV4", false))
+	blockProcessor := &mock.BlockProcessorMock{
+		DecodeBlockHeaderCalled: func(dta []byte) data.HeaderHandler {
+			return &block.Block{Header: &block.BlockHeader{Slot: 500}}
+		},
+		// with the guard inert the header reaches processing, which is not what
+		// this test is about - fail it so the subround unwinds cleanly
+		ProcessBlockCalled: func(header data.HeaderHandler, haveTime func() time.Duration) error {
+			return errors.New("not under test")
+		},
+		RevertStateToSnapshotCalled: func(header data.HeaderHandler) {},
+	}
+	container.SetBlockProcessor(blockProcessor)
+
+	sr := *initSubslotBlock(nil, container)
+
+	cnsMsg := consensus.NewConsensusMessage(
+		[]byte("header hash"),
+		nil,
+		[]byte("header"),
+		[]byte(sr.ConsensusGroup()[0]),
+		[]byte("sig"),
+		int(bls.MtBlockHeader),
+		0,
+		0,
+		chainID,
+		nil,
+		nil,
+		nil,
+		currentPid,
+	)
+
+	sr.Data = nil
+	sr.Header = nil
+
+	// the guard is what prevents the header from being stored, so with the fork
+	// inactive the future-dated header is accepted into the consensus state
+	// again - whatever the rest of the path then decides
+	_ = sr.ReceivedBlockHeader(cnsMsg)
+	assert.NotNil(t, sr.Header, "with the fork inactive the guard must not fire")
+}
+
+// Counterpart of ReceivedBlockHeaderWithFutureSlotShouldFail: a header whose
+// slot matches the message that delivered it is accepted into the consensus
+// state, so the binding does not reject honest traffic.
+func TestSubslotBlock_ReceivedBlockHeaderWithMatchingSlotShouldBeStored(t *testing.T) {
+	t.Parallel()
+
+	container := mock.InitConsensusCore()
+	container.SetBlockProcessor(&mock.BlockProcessorMock{
+		DecodeBlockHeaderCalled: func(dta []byte) data.HeaderHandler {
+			return &block.Block{Header: &block.BlockHeader{Slot: 0}}
+		},
+		// processing is not what this test is about - fail it so the subround
+		// unwinds cleanly once the header has been stored
+		ProcessBlockCalled: func(header data.HeaderHandler, haveTime func() time.Duration) error {
+			return errors.New("not under test")
+		},
+		RevertStateToSnapshotCalled: func(header data.HeaderHandler) {},
+	})
+
+	sr := *initSubslotBlock(nil, container)
+
+	cnsMsg := consensus.NewConsensusMessage(
+		[]byte("header hash"),
+		nil,
+		[]byte("header"),
+		[]byte(sr.ConsensusGroup()[0]),
+		[]byte("sig"),
+		int(bls.MtBlockHeader),
+		0,
+		0,
+		chainID,
+		nil,
+		nil,
+		nil,
+		currentPid,
+	)
+
+	sr.Data = nil
+	sr.Header = nil
+
+	_ = sr.ReceivedBlockHeader(cnsMsg)
+	assert.NotNil(t, sr.Header, "a header matching the message slot must be accepted")
+}

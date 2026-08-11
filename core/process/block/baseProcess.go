@@ -110,6 +110,10 @@ func (bp *baseProcessor) checkBlockValidity(
 		return process.ErrNilBlockHeader
 	}
 
+	if err := bp.checkSlotIsNotInTheFuture(headerHandler); err != nil {
+		return err
+	}
+
 	currentBlockHeader := bp.blockChain.GetCurrentBlockHeader()
 
 	if check.IfNil(currentBlockHeader) {
@@ -121,6 +125,34 @@ func (bp *baseProcessor) checkBlockValidity(
 	}
 
 	return bp.validateBlockAndSlot(headerHandler)
+}
+
+// checkSlotIsNotInTheFuture rejects a header whose slot is ahead of the local
+// chronology. Every other slot check on this path is a lower bound, so without
+// this a header dated in the future is processed and committed, and from then on
+// validateBlockAgainstCurrentHeader rejects each honest block until the wall
+// clock catches up - a single block stalls the chain for as many slots as the
+// header was dated ahead (KLR-39).
+//
+// The tolerance of one slot matches the fork detector's own bound in
+// checkBlockBasicValidity: a header for the next slot may legitimately arrive
+// while the local chronology has not ticked over yet. An equality check against
+// the active slot is not used here because this runs on the sync path too, where
+// historical blocks are processed by design.
+func (bp *baseProcessor) checkSlotIsNotInTheFuture(headerHandler data.HeaderHandler) error {
+	if !bp.forkController.FixAuditChangesV4() {
+		return nil
+	}
+
+	maxAcceptedSlot := tools.SafeI64ToU64(bp.slotManager.Index()) + 1
+	if headerHandler.GetSlot() > maxAcceptedSlot {
+		log.Debug("slot is in the future",
+			"received block slot", headerHandler.GetSlot(),
+			"max accepted slot", maxAcceptedSlot)
+		return process.ErrSlotAheadOfChronology
+	}
+
+	return nil
 }
 
 // Helper function to validate the genesis block

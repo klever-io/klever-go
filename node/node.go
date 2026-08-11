@@ -461,6 +461,7 @@ func (n *Node) StartConsensus() error {
 		HeaderSigVerifier:             n.headerSigVerifier,
 		FallbackHeaderValidator:       n.fallbackHeaderValidator,
 		NodeRedundancyHandler:         n.nodeRedundancyHandler,
+		ForkController:                n.forkController,
 	}
 
 	consensusDataContainer, err := slot.NewConsensusCore(

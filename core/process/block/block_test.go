@@ -47,6 +47,11 @@ import (
 
 var marshalizer = marshal.NewProtoMarshalizer()
 
+// testChronologySlotIndex is the slot the mocked chronology reports. It is well
+// above every slot used by the fixtures so that the future-slot guard (KLR-39)
+// only fires in the tests that target it explicitly.
+const testChronologySlotIndex = int64(1000)
+
 func createMockMetaArguments() blproc.ArgMetaProcessor {
 	mdp := initDataPool([]byte("tx_hash"))
 
@@ -110,7 +115,11 @@ func createMockMetaArguments() blproc.ArgMetaProcessor {
 			TxCoordinator:     &mock.TransactionCoordinatorMock{},
 			FeeHandler:        &mock.FeeAccumulatorStub{},
 			EpochStartTrigger: &mock.EpochStartTriggerStub{},
-			SlotManager:       &consensusMock.SlotManagerMock{},
+			// the chronology is far enough ahead that the future-slot guard
+			// (KLR-39) never fires on the small slot numbers used by fixtures
+			SlotManager: &consensusMock.SlotManagerMock{
+				IndexCalled: func() int64 { return testChronologySlotIndex },
+			},
 			BootStorer: &mock.BoostrapStorerMock{
 				PutCalled: func(slot int64, bootData *bootstrapStorage.BootstrapData) error {
 					return nil
@@ -660,6 +669,104 @@ func TestMetaProcessor_ProcessWithDirtyAccountShouldErr(t *testing.T) {
 	err = mp.ProcessBlock(&hdr, haveTime)
 	assert.NotNil(t, err)
 	assert.Equal(t, err, process.ErrAccountStateDirty)
+}
+
+// KLR-39: every slot check on the block path was a lower bound, so a header
+// dated ahead of the local chronology was processed and committed. Once
+// committed it stalls the chain, because validateBlockAgainstCurrentHeader then
+// rejects every honest block until the wall clock catches up.
+func TestMetaProcessor_ProcessBlockWithFutureSlotShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+
+	hdr := &block.Block{
+		Header: &block.BlockHeader{
+			Nonce: 1,
+			Slot:  uint64(testChronologySlotIndex) + 2,
+		},
+	}
+
+	err = mp.ProcessBlock(hdr, haveTime)
+	assert.Equal(t, process.ErrSlotAheadOfChronology, err)
+}
+
+// The next slot is accepted: a header for slot index+1 may legitimately arrive
+// before the local chronology has ticked over. This matches the tolerance the
+// fork detector already applies in checkBlockBasicValidity. The nonce is
+// deliberately wrong so the header is rejected by the following check, which
+// proves the slot guard let it through.
+func TestMetaProcessor_ProcessBlockWithNextSlotShouldNotBeRejectedAsFuture(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+
+	hdr := &block.Block{
+		Header: &block.BlockHeader{
+			Nonce: 5,
+			Slot:  uint64(testChronologySlotIndex) + 1,
+		},
+	}
+
+	err = mp.ProcessBlock(hdr, haveTime)
+	assert.Equal(t, process.ErrWrongNonceInBlock, err)
+}
+
+// Behind the fork flag the guard must be inert, so nodes that have not yet
+// activated FixAuditChangesV4 keep the previous behaviour.
+func TestMetaProcessor_ProcessBlockWithFutureSlotIsInertBeforeTheFork(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	arguments.ForkController = mock.NewForkControllerStub().
+		SetFork("FixAuditChangesV4", false)
+
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+
+	// same future-dated header as the test above, but the nonce is wrong too:
+	// with the guard active the slot is reported first, with it inert the header
+	// falls through to the pre-existing nonce check
+	hdr := &block.Block{
+		Header: &block.BlockHeader{
+			Nonce: 5,
+			Slot:  uint64(testChronologySlotIndex) + 2,
+		},
+	}
+
+	err = mp.ProcessBlock(hdr, haveTime)
+	assert.Equal(t, process.ErrWrongNonceInBlock, err)
+}
+
+// Past slots stay rejected by the pre-existing lower bound; locked in so the
+// new upper bound does not displace it.
+func TestMetaProcessor_ProcessBlockWithPastSlotShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	blkc := blockchain.NewBlockChain()
+	_ = blkc.SetCurrentBlockHeader(
+		&block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 10}},
+	)
+	_ = blkc.SetGenesisHeader(&block.Block{Header: &block.BlockHeader{Nonce: 0}})
+	arguments.BlockChain = blkc
+
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+
+	hdr := &block.Block{
+		Header: &block.BlockHeader{
+			Nonce: 2,
+			Slot:  9,
+		},
+	}
+
+	err = mp.ProcessBlock(hdr, haveTime)
+	assert.Equal(t, process.ErrLowerSlotInBlock, err)
 }
 
 func TestMetaProcessor_ProcessWithHeaderNotFirstShouldErr(t *testing.T) {

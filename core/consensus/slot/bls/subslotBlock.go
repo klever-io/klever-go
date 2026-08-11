@@ -273,6 +273,10 @@ func (sr *subslotBlock) receivedBlockHeader(cnsDta *consensus.Message) bool {
 		return false
 	}
 
+	if !sr.isHeaderSlotBoundToMessage(decodedHeader, cnsDta) {
+		return false
+	}
+
 	sr.LockSlotState()
 	sr.Data = headerHash
 	sr.Header = decodedHeader
@@ -293,6 +297,33 @@ func (sr *subslotBlock) receivedBlockHeader(cnsDta *consensus.Message) bool {
 	)
 
 	return blockProcessedWithSuccess
+}
+
+// isHeaderSlotBoundToMessage binds the slot carried by the decoded header to the
+// slot of the consensus message that delivered it. CanProcessReceivedMessage
+// already pins the message slot to the active slot, so this transitively pins the
+// header to the active slot without introducing a second, independent dependency
+// on the local chronology.
+//
+// Without it, a valid current-slot leader can embed a header dated arbitrarily
+// far ahead: every other slot check on this path is a lower bound, so the block
+// is processed, signed and committed, and from then on the chain rejects every
+// honest block until the wall clock catches up (KLR-39).
+func (sr *subslotBlock) isHeaderSlotBoundToMessage(header data.HeaderHandler, cnsDta *consensus.Message) bool {
+	if !sr.ForkController().FixAuditChangesV4() {
+		return true
+	}
+
+	if header.GetSlot() != tools.SafeI64ToU64(cnsDta.SlotIndex) {
+		log.Debug("received header slot does not match the consensus message slot",
+			"header slot", header.GetSlot(),
+			"message slot", cnsDta.SlotIndex,
+			"current slot", sr.SlotManager().Index(),
+		)
+		return false
+	}
+
+	return true
 }
 
 func (sr *subslotBlock) processReceivedBlock(cnsDta *consensus.Message) bool {
