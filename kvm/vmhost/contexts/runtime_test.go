@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	commonMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
 	"github.com/klever-io/klever-go/crypto/hashing/blake2b"
@@ -20,6 +21,7 @@ import (
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	hostmock "github.com/klever-io/klever-go/kvm/vmhost/mock"
 	"github.com/klever-io/klever-go/kvm/vmhost/vmhooks"
+	"github.com/klever-io/klever-go/kvm/wasmbytes"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/require"
 )
@@ -41,6 +43,7 @@ func InitializeVMAndWasmer() *contextmock.VMHostMock {
 	host.BlockchainContext, _ = NewBlockchainContext(host, worldmock.NewMockWorld())
 	host.OutputContext, _ = NewOutputContext(host)
 	host.CryptoHook = factory.NewVMCrypto()
+	host.ForkControllerContext = commonMock.NewForkControllerStub()
 	return host
 }
 
@@ -852,4 +855,207 @@ func TestRuntimeContext_PopInstanceIfStackIsEmptyShouldNotPanic(t *testing.T) {
 	runtimeCtx.popInstance()
 
 	require.Equal(t, 0, len(runtimeCtx.stateStack))
+}
+
+func startFunctionMarker(t *testing.T, runtimeCtx *runtimeContext) byte {
+	instance := runtimeCtx.iTracker.Instance()
+	require.NotNil(t, instance)
+
+	memory, err := instance.MemLoad(0, 1)
+	require.Nil(t, err)
+
+	return memory[0]
+}
+
+func TestRuntimeContext_StartWasmerInstanceRejectsStartSectionOnNewCode(t *testing.T) {
+	host := InitializeVMAndWasmer()
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+	runtimeCtx.SetMaxInstanceStackSize(1)
+
+	err := runtimeCtx.StartWasmerInstance(contextmock.WasmCodeWithStartSection(), 1000, true)
+
+	require.ErrorIs(t, err, vmhost.ErrContractHasStartSection)
+}
+
+func TestRuntimeContext_StartWasmerInstanceAcceptsNewCodeWithoutStartSection(t *testing.T) {
+	host := InitializeVMAndWasmer()
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+	runtimeCtx.SetMaxInstanceStackSize(1)
+
+	err := runtimeCtx.StartWasmerInstance(contextmock.WasmCodeWithoutStartSection(), 1000, true)
+
+	require.Nil(t, err)
+	require.Equal(t, byte(0), startFunctionMarker(t, runtimeCtx))
+}
+
+func TestRuntimeContext_StartWasmerInstanceRejectsUndecodableCodeOnNewCode(t *testing.T) {
+	host := InitializeVMAndWasmer()
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+	runtimeCtx.SetMaxInstanceStackSize(1)
+
+	err := runtimeCtx.StartWasmerInstance([]byte("not a wasm module"), 1000, true)
+
+	require.ErrorIs(t, err, vmhost.ErrContractCodeNotDecodable)
+}
+
+func TestRuntimeContext_StartWasmerInstanceAcceptsStartSectionBeforeAuditV4(t *testing.T) {
+	host := InitializeVMAndWasmer()
+	forkController := commonMock.NewForkControllerStub()
+	forkController.FixAuditChangesV4Value = false
+	host.ForkControllerContext = forkController
+
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+	runtimeCtx.SetMaxInstanceStackSize(1)
+
+	err := runtimeCtx.StartWasmerInstance(contextmock.WasmCodeWithStartSection(), 1000, true)
+
+	require.Nil(t, err)
+	require.Equal(t, contextmock.StartSectionMarker, startFunctionMarker(t, runtimeCtx))
+}
+
+func TestRuntimeContext_StartWasmerInstanceIgnoresStartSectionOnExistingCode(t *testing.T) {
+	host := InitializeVMAndWasmer()
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+	runtimeCtx.SetMaxInstanceStackSize(1)
+
+	err := runtimeCtx.StartWasmerInstance(contextmock.WasmCodeWithStartSection(), 1000, false)
+
+	require.Nil(t, err)
+	require.Equal(t, contextmock.StartSectionMarker, startFunctionMarker(t, runtimeCtx))
+}
+
+func moduleWithTableFunction(body ...byte) []byte {
+	module := []byte{
+		0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00,
+		0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
+		0x03, 0x02, 0x01, 0x00,
+		0x04, 0x04, 0x01, 0x70, 0x00, 0x01,
+		0x05, 0x03, 0x01, 0x00, 0x01,
+		0x07, 0x11, 0x02, 0x06, 'm', 'e', 'm', 'o', 'r', 'y', 0x02, 0x00,
+	}
+	module = append(module, 0x04, 'm', 'a', 'i', 'n', 0x00, 0x00)
+
+	function := append([]byte{0x00}, body...)
+	module = append(module, 0x0A, byte(len(function)+2), 0x01, byte(len(function)))
+
+	return append(module, function...)
+}
+
+func moduleMutatingTable() []byte {
+	return moduleWithTableFunction(0x41, 0x00, 0xD0, 0x70, 0x26, 0x00, 0x0B)
+}
+
+func moduleMutatingTableWithPaddedOpcode() []byte {
+	return moduleWithTableFunction(0xD0, 0x70, 0x41, 0x00, 0xFC, 0x8F, 0x00, 0x00, 0x1A, 0x0B)
+}
+
+func moduleReadingTable() []byte {
+	return moduleWithTableFunction(0x41, 0x00, 0x25, 0x00, 0x1A, 0x0B)
+}
+
+func seedWarmInstance(t *testing.T, runtimeCtx *runtimeContext, contract []byte) []byte {
+	codeHash := defaultHasher.Compute(string(contract))
+	runtimeCtx.iTracker.SetCodeHash(codeHash)
+	require.Nil(t, runtimeCtx.iTracker.SetNewInstance(&contextmock.InstanceMock{}, Precompiled))
+	runtimeCtx.iTracker.SaveAsWarmInstance()
+	require.True(t, runtimeCtx.iTracker.warmInstanceCache.Has(codeHash))
+
+	return codeHash
+}
+
+func TestRuntimeContext_WarmInstanceRefusedForTableMutatingModule(t *testing.T) {
+	for name, contract := range map[string][]byte{
+		"canonical opcode": moduleMutatingTable(),
+		"padded opcode":    moduleMutatingTableWithPaddedOpcode(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			host := InitializeVMAndWasmer()
+			runtimeCtx := makeDefaultRuntimeContext(t, host)
+			defer runtimeCtx.ClearWarmInstanceCache()
+			runtimeCtx.SetMaxInstanceStackSize(1)
+
+			codeHash := seedWarmInstance(t, runtimeCtx, contract)
+
+			reused, err := runtimeCtx.useWarmInstanceIfExists(1000, false, wasmbytes.MutatesTables(contract))
+
+			require.Nil(t, err)
+			require.False(t, reused)
+			require.False(t, runtimeCtx.iTracker.warmInstanceCache.Has(codeHash))
+		})
+	}
+}
+
+func TestRuntimeContext_WarmInstanceReusedForTableReadingModule(t *testing.T) {
+	host := InitializeVMAndWasmer()
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+	runtimeCtx.SetMaxInstanceStackSize(1)
+
+	contract := moduleReadingTable()
+	codeHash := seedWarmInstance(t, runtimeCtx, contract)
+
+	reused, err := runtimeCtx.useWarmInstanceIfExists(1000, false, wasmbytes.MutatesTables(contract))
+
+	require.Nil(t, err)
+	require.True(t, reused)
+	require.True(t, runtimeCtx.iTracker.warmInstanceCache.Has(codeHash))
+}
+
+func TestRuntimeContext_TableMutatingModuleLeavesNoLeakedInstance(t *testing.T) {
+	host := InitializeVMAndWasmer()
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+	runtimeCtx.SetMaxInstanceStackSize(1)
+
+	require.Nil(t, runtimeCtx.StartWasmerInstance(moduleMutatingTable(), 1000, false))
+	runtimeCtx.EndExecution()
+
+	require.Nil(t, runtimeCtx.ValidateInstances())
+}
+
+func TestRuntimeContext_StartWasmerInstanceRefusesTableMutatingModuleBeforeAuditV4(t *testing.T) {
+	host := InitializeVMAndWasmer()
+	forkController := commonMock.NewForkControllerStub()
+	forkController.FixAuditChangesV4Value = false
+	host.ForkControllerContext = forkController
+
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+	runtimeCtx.SetMaxInstanceStackSize(1)
+
+	contract := moduleMutatingTable()
+	codeHash := seedWarmInstance(t, runtimeCtx, contract)
+	seeded, found := runtimeCtx.iTracker.GetWarmInstance(codeHash)
+	require.True(t, found)
+
+	require.Nil(t, runtimeCtx.StartWasmerInstance(contract, 1000, false))
+
+	require.NotEqual(t, Warm, runtimeCtx.iTracker.cacheLevel)
+	require.NotEqual(t, seeded.ID(), runtimeCtx.iTracker.Instance().ID())
+}
+
+func TestRuntimeContext_StartWasmerInstanceRefusesWarmInstanceForTableMutatingModule(t *testing.T) {
+	host := InitializeVMAndWasmer()
+	forkController := commonMock.NewForkControllerStub()
+	forkController.FixAuditChangesV4Value = true
+	host.ForkControllerContext = forkController
+
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+	runtimeCtx.SetMaxInstanceStackSize(1)
+
+	contract := moduleMutatingTable()
+	codeHash := seedWarmInstance(t, runtimeCtx, contract)
+	seeded, found := runtimeCtx.iTracker.GetWarmInstance(codeHash)
+	require.True(t, found)
+
+	require.Nil(t, runtimeCtx.StartWasmerInstance(contract, 1000, false))
+
+	require.NotEqual(t, Warm, runtimeCtx.iTracker.cacheLevel)
+	require.NotEqual(t, seeded.ID(), runtimeCtx.iTracker.Instance().ID())
 }

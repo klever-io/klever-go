@@ -68,10 +68,11 @@ func (executorMock *ExecutorMock) CreateAndStoreInstanceMock(t testing.TB, host 
 	instance.Address = code
 	instance.T = t
 	instance.Host = host
-	executorMock.InstanceMap[string(code)] = *instance
+	wrappedCode := MockContractCode(code)
+	executorMock.InstanceMap[string(wrappedCode)] = *instance
 
 	if createAccount {
-		account := executorMock.World.CreateSmartContractAccountWithCodeHash(nil, code, code, codeHash, executorMock.World)
+		account := executorMock.World.CreateSmartContractAccountWithCodeHash(nil, code, wrappedCode, codeHash, executorMock.World)
 		account.SetBalance(balance)
 		account.CodeMetadata = codeMetadata
 		account.OwnerAddress = ownerAddress

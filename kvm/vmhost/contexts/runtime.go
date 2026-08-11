@@ -9,6 +9,7 @@ import (
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/vmhost"
+	"github.com/klever-io/klever-go/kvm/wasmbytes"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/vmcommon"
 )
@@ -21,6 +22,8 @@ const warmCacheSize = 100
 
 // WarmInstancesEnabled controls the usage of warm instances
 const WarmInstancesEnabled = true
+
+const verifyContractCodeTrace = "verify contract code"
 
 type runtimeContext struct {
 	host                 vmhost.VMHost
@@ -135,6 +138,16 @@ func (context *runtimeContext) StartWasmerInstance(contract []byte, gasLimit uin
 		return vmhost.ErrMaxInstancesReached
 	}
 
+	if newCode && context.host.ForkController().FixAuditChangesV4() {
+		err := VerifyNoStartSection(contract)
+		if err != nil {
+			logRuntime.Trace(verifyContractCodeTrace, "error", err)
+			return err
+		}
+	}
+
+	mutatesTables := wasmbytes.MutatesTables(contract)
+
 	codeHash := context.hasher.Compute(string(contract))
 
 	context.iTracker.SetCodeSize(uint64(len(contract)))
@@ -145,7 +158,7 @@ func (context *runtimeContext) StartWasmerInstance(contract []byte, gasLimit uin
 		logRuntime.Trace("code was new", "new", newCode)
 	}()
 
-	warmInstanceUsed, err := context.useWarmInstanceIfExists(gasLimit, newCode)
+	warmInstanceUsed, err := context.useWarmInstanceIfExists(gasLimit, newCode, mutatesTables)
 	if err != nil {
 		return err
 	}
@@ -249,7 +262,7 @@ func (context *runtimeContext) makeInstanceFromContractByteCode(contract []byte,
 	return nil
 }
 
-func (context *runtimeContext) useWarmInstanceIfExists(gasLimit uint64, newCode bool) (bool, error) {
+func (context *runtimeContext) useWarmInstanceIfExists(gasLimit uint64, newCode bool, mutatesTables bool) (bool, error) {
 	if !WarmInstancesEnabled {
 		return false, nil
 	}
@@ -260,6 +273,12 @@ func (context *runtimeContext) useWarmInstanceIfExists(gasLimit uint64, newCode 
 	}
 
 	if context.isContractOrCodeHashOnTheStack() {
+		return false, nil
+	}
+
+	if mutatesTables {
+		logRuntime.Trace("refused warm instance", "reason", "module mutates wasm tables", "codeHash", codeHash)
+		context.iTracker.EvictWarmInstance(codeHash)
 		return false, nil
 	}
 
@@ -622,19 +641,19 @@ func (context *runtimeContext) VerifyContractCode() error {
 
 	err := context.validator.verifyMemoryDeclaration(context.iTracker.Instance())
 	if err != nil {
-		logRuntime.Trace("verify contract code", "error", err)
+		logRuntime.Trace(verifyContractCodeTrace, "error", err)
 		return err
 	}
 
 	err = context.validator.verifyFunctions(context.iTracker.Instance())
 	if err != nil {
-		logRuntime.Trace("verify contract code", "error", err)
+		logRuntime.Trace(verifyContractCodeTrace, "error", err)
 		return err
 	}
 
 	err = context.validator.verifyProtectedFunctions(context.iTracker.Instance())
 	if err != nil {
-		logRuntime.Trace("verify contract code", "error", err)
+		logRuntime.Trace(verifyContractCodeTrace, "error", err)
 		return err
 	}
 

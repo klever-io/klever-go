@@ -2654,10 +2654,10 @@ func TestExecution_Mocked_Wasmer_Instances(t *testing.T) {
 				// test.ParentAddress
 				// Balance(test.ParentAddress, 1000).
 				// BalanceDelta(test.ParentAddress, -4).
-				GasUsed(test.ParentAddress, 547).
+				GasUsed(test.ParentAddress, 562).
 				// BalanceDelta(test.ChildAddress, 4).
-				GasUsed(test.ChildAddress, 146).
-				GasRemaining(307).
+				GasUsed(test.ChildAddress, 161).
+				GasRemaining(277).
 				ReturnData([]byte("parent returns this"), []byte("child returns this")).
 				Storage(
 					test.CreateStoreEntry(test.ParentAddress).WithKey([]byte("parent")).WithValue([]byte("parent storage")),

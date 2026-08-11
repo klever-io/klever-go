@@ -188,7 +188,7 @@ func (callerTest *MockInstancesTestTemplate) runTest(
 	case CreateTest:
 		vmOutput, err = host.RunSmartContractCreate(&vmcommon.ContractCreateInput{
 			VMInput:      callerTest.input.VMInput,
-			ContractCode: callerTest.input.RecipientAddr,
+			ContractCode: mock.MockContractCode(callerTest.input.RecipientAddr),
 		})
 	}
 

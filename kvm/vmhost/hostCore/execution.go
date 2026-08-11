@@ -15,6 +15,7 @@ import (
 	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/math"
 	"github.com/klever-io/klever-go/kvm/vmhost"
+	"github.com/klever-io/klever-go/kvm/vmhost/contexts"
 	"github.com/klever-io/klever-go/kvm/vmhost/vmhooks"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/vmcommon"
@@ -148,6 +149,9 @@ func (host *vmHost) performCodeDeployment(input vmhost.CodeDeployInput, initFunc
 	err = runtime.StartWasmerInstance(input.ContractCode, metering.GetGasForExecution(), true)
 	if err != nil {
 		log.Trace("performCodeDeployment/StartWasmerInstance", "err", err)
+		if host.ForkController().FixAuditChangesV4() && errors.Is(err, vmhost.ErrContractInvalid) {
+			return nil, err
+		}
 		return nil, vmhost.ErrContractInvalid
 	}
 
@@ -767,6 +771,12 @@ func (host *vmHost) CreateNewContract(input *vmcommon.ContractCreateInput, creat
 	}
 
 	codeDeployInput.ContractAddress = newContractAddress
+
+	err = host.verifyNoStartSectionOnDeploy(codeDeployInput.ContractCode)
+	if err != nil {
+		return
+	}
+
 	output.DeployCode(codeDeployInput)
 
 	defer func() {
@@ -800,6 +810,19 @@ func (host *vmHost) CreateNewContract(input *vmcommon.ContractCreateInput, creat
 	}
 
 	return
+}
+
+func (host *vmHost) verifyNoStartSectionOnDeploy(contractCode []byte) error {
+	if !host.ForkController().FixAuditChangesV4() {
+		return nil
+	}
+
+	err := contexts.VerifyNoStartSection(contractCode)
+	if err != nil {
+		log.Trace("CreateNewContract/VerifyNoStartSection", "err", err)
+	}
+
+	return err
 }
 
 func (host *vmHost) checkUpgradePermission(vmInput *vmcommon.ContractCallInput) error {
@@ -862,6 +885,9 @@ func (host *vmHost) executeUpgrade(input *vmcommon.ContractCallInput) error {
 	err = runtime.StartWasmerInstance(codeDeployInput.ContractCode, metering.GetGasForExecution(), true)
 	if err != nil {
 		log.Trace("performCodeDeployment/StartWasmerInstance", "err", err)
+		if host.ForkController().FixAuditChangesV4() && errors.Is(err, vmhost.ErrContractInvalid) {
+			return err
+		}
 		return vmhost.ErrContractInvalid
 	}
 

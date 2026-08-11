@@ -33,6 +33,25 @@ func getDeployFromSourceTestConfig() testcommon.TestConfig {
 	}
 }
 
+func preForkAuditV4EnableEpochs() blockchainConfig.EnableEpochs {
+	return blockchainConfig.EnableEpochs{
+		ClaimKFI:                0,
+		ProcessorFlowITOPrice:   0,
+		FixStakingBuckets:       0,
+		KdaFpr:                  0,
+		BigBucketsCompute:       0,
+		FPRComputeAndKdaFeeFlow: 0,
+		FixDelegationSameEpoch:  0,
+		SmartContracts:          0,
+		FixAuditChanges:         0,
+		EpochRewardsV2:          0,
+		FixAuditChangesV2:       0,
+		FixMarketBuyOverflow:    0,
+		FixAuditChangesV3:       0,
+		FixAuditChangesV4:       1_000_000,
+	}
+}
+
 func getUpdateFromSourceTestConfig() testcommon.TestConfig {
 	config := getDeployFromSourceTestConfig()
 	config.ContractToBeUpdatedAddress = sc2Address
@@ -43,7 +62,7 @@ func getUpdateFromSourceTestConfig() testcommon.TestConfig {
 
 func TestDeployFromSource_Success(t *testing.T) {
 	testConfig := getDeployFromSourceTestConfig()
-	deployedCode := testConfig.DeployedContractAddress /* this is the actual mock code of the deployed contract */
+	deployedCode := mock.MockContractCode(testConfig.DeployedContractAddress) /* this is the actual mock code of the deployed contract */
 	deployedCodeLen := uint64(len(deployedCode))
 	runDeployFromSourceTest(t, &testConfig, func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
 		newContractAddress := verify.VmOutput.ReturnData[0]
@@ -96,14 +115,60 @@ func TestDeployFromSource_NoContract(t *testing.T) {
 	})
 }
 
-func runDeployFromSourceTest(t *testing.T, testConfig *testcommon.TestConfig, asserts func(world *worldmock.MockWorld, verify *test.VMOutputVerifier)) {
+func TestDeployFromSource_CodeDeclaringStartSection(t *testing.T) {
+	testConfig := getDeployFromSourceTestConfig()
+	runDeployFromSourceTest(t, &testConfig, func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
+		verify.
+			ExecutionFailed().
+			HasRuntimeErrors(vmhost.ErrContractHasStartSection.Error())
+	}, func(_ vmhost.VMHost, world *worldmock.MockWorld) {
+		account := world.GetAccount(testConfig.DeployedContractAddress)
+		account.SetCodeAndMetadata(mock.WasmCodeWithStartSection(), &vmcommon.CodeMetadata{Payable: true})
+		world.PutAccount(account)
+	})
+}
+
+func TestDeployFromSource_CodeDeclaringStartSection_PreFork(t *testing.T) {
+	testConfig := getDeployFromSourceTestConfig()
+	epochs := preForkAuditV4EnableEpochs()
+	runDeployFromSourceTestWithEpochs(t, &testConfig, &epochs, func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
+		verify.
+			Ok().
+			Code(verify.VmOutput.ReturnData[0], mock.WasmCodeWithStartSection())
+	}, func(_ vmhost.VMHost, world *worldmock.MockWorld) {
+		account := world.GetAccount(testConfig.DeployedContractAddress)
+		account.SetCodeAndMetadata(mock.WasmCodeWithStartSection(), &vmcommon.CodeMetadata{Payable: true})
+		world.PutAccount(account)
+	})
+}
+
+func runDeployFromSourceTest(
+	t *testing.T,
+	testConfig *testcommon.TestConfig,
+	asserts func(world *worldmock.MockWorld, verify *test.VMOutputVerifier),
+	extraSetup ...func(host vmhost.VMHost, world *worldmock.MockWorld),
+) {
+	runDeployFromSourceTestWithEpochs(t, testConfig, nil, asserts, extraSetup...)
+}
+
+func runDeployFromSourceTestWithEpochs(
+	t *testing.T,
+	testConfig *testcommon.TestConfig,
+	epochs *blockchainConfig.EnableEpochs,
+	asserts func(world *worldmock.MockWorld, verify *test.VMOutputVerifier),
+	extraSetup ...func(host vmhost.VMHost, world *worldmock.MockWorld),
+) {
 	var deployedContract test.MockTestSmartContract
 	if testConfig.DeployedContractAddress != nil {
 		deployedContract = test.CreateMockContract(testConfig.DeployedContractAddress).
 			WithConfig(testConfig).
 			WithMethods(contracts.InitMockMethod)
 	}
-	_, err := test.BuildMockInstanceCallTest(t).
+	callTest := test.BuildMockInstanceCallTest(t)
+	if epochs != nil {
+		callTest = callTest.WithEnableEpochs(*epochs)
+	}
+	_, err := callTest.
 		WithContracts(
 			deployedContract,
 			test.CreateMockContract(test.ParentAddress).
@@ -119,6 +184,9 @@ func runDeployFromSourceTest(t *testing.T, testConfig *testcommon.TestConfig, as
 			setZeroCodeCosts(host)
 			host.Metering().GasSchedule().BaseOperationCost.AoTPreparePerByte = testConfig.AoTPreparePerByteCost
 			host.Metering().GasSchedule().BaseOperationCost.CompilePerByte = testConfig.CompilePerByteCost
+			for _, setup := range extraSetup {
+				setup(host, world)
+			}
 		}).
 		AndAssertResults(asserts)
 	assert.Nil(t, err)
@@ -126,7 +194,7 @@ func runDeployFromSourceTest(t *testing.T, testConfig *testcommon.TestConfig, as
 
 func TestUpdateFromSource_Success_EpochFlag(t *testing.T) {
 	testConfig := getUpdateFromSourceTestConfig()
-	updatedCode := testConfig.DeployedContractAddress
+	updatedCode := mock.MockContractCode(testConfig.DeployedContractAddress)
 	runUpdateFromSourceTest(t, &testConfig, func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
 		verify.
 			Ok().
@@ -136,7 +204,7 @@ func TestUpdateFromSource_Success_EpochFlag(t *testing.T) {
 
 func TestUpdateFromSource_CallbackFails_EpochFlag(t *testing.T) {
 	testConfig := getUpdateFromSourceTestConfig()
-	updatedCode := testConfig.DeployedContractAddress
+	updatedCode := mock.MockContractCode(testConfig.DeployedContractAddress)
 	runUpdateFromSourceTest(t, &testConfig, func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
 		verify.
 			Code(testConfig.ContractToBeUpdatedAddress, updatedCode)
@@ -146,7 +214,7 @@ func TestUpdateFromSource_CallbackFails_EpochFlag(t *testing.T) {
 func TestUpdateFromSource_Success_NoEpochFlag(t *testing.T) {
 	testConfig := getUpdateFromSourceTestConfig()
 	testConfig.IsFlagEnabled = false
-	updatedCode := testConfig.DeployedContractAddress /* this is the actual mock code of the deployed contract */
+	updatedCode := mock.MockContractCode(testConfig.DeployedContractAddress) /* this is the actual mock code of the deployed contract */
 	runUpdateFromSourceTest(t, &testConfig, func(world *worldmock.MockWorld, verify *test.VMOutputVerifier) {
 		verify.
 			Ok().
@@ -382,7 +450,7 @@ func TestDeployFromSource_NestedDeployWithDuplicateAddressAbortsTransaction(t *t
 }
 
 func requireDeployedFromNestedDeploySource(t *testing.T, result nestedDeployResult) {
-	sourceCode := nestedDeploySourceAddress
+	sourceCode := mock.MockContractCode(nestedDeploySourceAddress)
 
 	deployedAccount := result.vmOutput.OutputAccounts[string(result.outerAddress)]
 	require.NotNil(t, deployedAccount)

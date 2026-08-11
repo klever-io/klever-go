@@ -88,6 +88,12 @@ var ErrContractInvalid = fmt.Errorf("invalid contract code")
 // ErrContractNotFound signals that the contract was not found
 var ErrContractNotFound = fmt.Errorf("%w (not found)", ErrContractInvalid)
 
+// ErrContractHasStartSection signals that the contract declares a WASM start section
+var ErrContractHasStartSection = fmt.Errorf("%w (declares a start section)", ErrContractInvalid)
+
+// ErrContractCodeNotDecodable signals that the contract code could not be decoded as a WASM module
+var ErrContractCodeNotDecodable = fmt.Errorf("%w (not a decodable wasm module)", ErrContractInvalid)
+
 // ErrMemoryDeclarationMissing signals that a memory declaration is missing
 var ErrMemoryDeclarationMissing = fmt.Errorf("%w (missing memory declaration)", ErrContractInvalid)
 

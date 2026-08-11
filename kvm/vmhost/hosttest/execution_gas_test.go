@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"testing"
 
+	mock "github.com/klever-io/klever-go/kvm/mock/context"
 	"github.com/klever-io/klever-go/kvm/mock/contracts"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 	test "github.com/klever-io/klever-go/kvm/testcommon"
@@ -516,7 +517,7 @@ func TestGasUsed_MockUpgradeContract(t *testing.T) {
 			WithRecipientAddr(test.ParentAddress).
 			WithGasProvided(testConfig.GasProvided).
 			WithFunction(vmhost.UpgradeFunctionName).
-			WithArguments(test.ParentAddress, codeMetadata).
+			WithArguments(mock.MockContractCode(test.ParentAddress), codeMetadata).
 			Build()).
 		WithSetup(func(host vmhost.VMHost, world *worldmock.MockWorld) {
 			setZeroCodeCosts(host)

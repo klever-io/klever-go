@@ -338,7 +338,7 @@ func TestExecution_CreateContract(t *testing.T) {
 			name:         "fail with invalid contract code",
 			callerAddr:   testOwnerAddress,
 			contractCode: []byte("invalid code"),
-			expectedMsg:  "invalid contract code",
+			expectedMsg:  vmhost.ErrContractCodeNotDecodable.Error(),
 			shouldCreate: false,
 		},
 		{

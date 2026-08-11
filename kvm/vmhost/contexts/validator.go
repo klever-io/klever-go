@@ -6,6 +6,7 @@ import (
 
 	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/vmhost"
+	"github.com/klever-io/klever-go/kvm/wasmbytes"
 	"github.com/klever-io/klever-go/vmcommon"
 )
 
@@ -21,6 +22,21 @@ func newWASMValidator(scAPINames vmcommon.FunctionNames, builtInFuncContainer vm
 	return &wasmValidator{
 		reserved: NewReservedFunctions(scAPINames, builtInFuncContainer),
 	}
+}
+
+// VerifyNoStartSection rejects contract code declaring a WASM start section, whose function
+// runs at instantiation, outside the gas meter and before any module-level validation.
+func VerifyNoStartSection(contract []byte) error {
+	hasStartSection, err := wasmbytes.HasStartSection(contract)
+	if err != nil {
+		return vmhost.ErrContractCodeNotDecodable
+	}
+
+	if hasStartSection {
+		return vmhost.ErrContractHasStartSection
+	}
+
+	return nil
 }
 
 func (validator *wasmValidator) verifyMemoryDeclaration(instance executor.Instance) error {

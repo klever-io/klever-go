@@ -424,3 +424,7 @@ func (tracker *instanceTracker) updateNumRunningInstances(delta int) {
 	tracker.numRunningInstances += delta
 	logTracker.Trace("num running instances updated", "delta", delta)
 }
+
+func (tracker *instanceTracker) EvictWarmInstance(codeHash []byte) {
+	tracker.warmInstanceCache.Remove(codeHash)
+}
