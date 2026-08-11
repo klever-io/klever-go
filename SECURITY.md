@@ -142,6 +142,198 @@ To help secure the Klever blockchain ecosystem:
 - Be cautious of social engineering attempts
 - Report suspicious activity to the team
 
+## Deploying / Exposing the REST API
+
+The node's REST and WebSocket API performs **no origin checking**, and applies access control only
+where a route is explicitly marked `secured` in `api.yaml`. Whether it is safe is entirely a function
+of how you deploy it. This section is the operator-facing counterpart to the user guidance above, and
+covers both deployables: the validator/observer node (`config/node/`) and the seednode
+(`config/seednode/`), which ship separate API configurations.
+
+### The exposure model
+
+By default the API binds to `localhost:8080` (`DefaultRestInterface`, `common/facade/nodeFacade.go`),
+reachable only from the node host. **Exposing it beyond that is a deliberate operator choice, and the
+node does not second-guess it.**
+
+If you expose the API, it MUST be fronted by a reverse proxy that terminates TLS, enforces
+origin/CORS policy, and requires authentication. Firewall the API port so the node is reachable only
+through that proxy. The node itself will not reject a cross-origin request: `CheckOrigin` returns
+`true` unconditionally at all three WebSocket entry points
+(`network/api/websocket/routes.go`, `network/api/api.go`, `cmd/seednode/api/api.go`).
+That is by design — origin policy belongs to the proxy — but it means an exposed node with no proxy
+has no origin protection at all.
+
+**Do not run a browser on a validator host.** Because the API has no origin control, any page you
+visit can issue cross-origin requests to `localhost:8080` and reach the node.
+
+### Per-endpoint guidance
+
+Most routes are configured in `config/node/api.yaml` (`config/seednode/api.yaml` for the seednode);
+the exceptions are `/debug/pprof/*` and `/swagger/*`, both covered below. For the configured ones,
+two flags govern each route, and they do **not** mean what their names suggest when combined:
+
+- `open` controls whether the route is **registered at all**.
+- `secured` only **attaches Basic Auth** to a route that is already open.
+
+> **`secured: true` with `open: false` does not produce an authenticated endpoint — it produces no
+> endpoint.** The route is simply absent. The node logs a warning for `/subscribe` in this case
+> (`network/api/api.go`); there is no equivalent warning for other routes, so check your
+> config rather than relying on a log line.
+
+**`/log`** — ships enabled and authenticated (`open: true`, `secured: true`). It streams node-wide
+logs, which can include operational detail you would not want public. Keep `secured: true` if it is
+reachable off-host, or set `open: false` to remove it entirely.
+
+**`/subscribe`** — ships enabled and **unauthenticated** (`open: true`, no `secured`). It is a public
+event feed by design. For a public or mainnet deployment, add `secured: true` to require Basic Auth
+on the handshake, or set `open: false` to disable it. Its resource limits are covered below.
+
+**`/node/peerinfo`, `/node/p2pstatus`** — both ship enabled and **unauthenticated** (`open: true`, no
+`secured`). `/node/peerinfo` returns the addresses and validator public keys of every peer you are
+connected to; the `pid` query parameter only filters that list, and omitting it returns all of them.
+`/node/p2pstatus` reports the node's own p2p listen addresses. Together they describe your network
+topology. Set `secured: true`, or `open: false`, unless you intend that data to be public.
+
+**`/debug/pprof/*`** — registered only when the node runs with `--profile-mode`, and **not governed
+by `api.yaml`**: the routes are attached directly to the gin engine outside the normal route-group
+registration (`network/api/api.go`), so they have no `open`/`secured` flag and no Basic Auth. The
+flag is the only control. `/debug/pprof/heap` and `/debug/pprof/goroutine` dump process memory and
+full goroutine stacks to any caller that can reach the port. Never run with `--profile-mode` on an
+exposed node; if you must profile, keep the API bound to `localhost` and tunnel to it.
+
+**`/swagger/*`** — registered unconditionally when the API starts (`network/api/api.go`), before the
+`api.yaml` routes: no `open`/`secured` flag, no Basic Auth, and unlike `/debug/pprof/*` not even a
+CLI flag to disable it. It serves the Swagger UI and the compiled-in spec, generated at build time,
+so it lists every route the binary knows about including the ones you set `open: false`. No runtime
+state leaks through it, so this is surface enumeration rather than data disclosure. Block it at the
+reverse proxy if that matters to you.
+
+### Seednode
+
+The seednode is a separate deployable with its own API config (`config/seednode/api.yaml`), its own
+`credentials` block, and its own routes. Hardening `config/node/api.yaml` does nothing for it — go
+through this section a second time against the seednode file.
+
+Its shipped defaults differ from the node's:
+
+- **`/log`** — `open: true`, `secured: true`, same as the node.
+- **`/peers`** — `open: true` with **no `secured`**. It exposes connected peer addresses, i.e. your
+  network topology. Set `open: false` to remove it, or `secured: true` to require auth, unless you
+  intend that data to be public.
+- **`/node/metrics`** — `open: true` and deliberately unsecured, because Prometheus does not send
+  Basic Auth. Restrict it at the network layer rather than in `api.yaml`, unless your scraper is
+  configured for credentials.
+
+### Credentials
+
+Authentication is HTTP Basic Auth (`network/api/middleware/authHandler.go`). The `password` field
+in `api.yaml` is **not** the password — it is the **hex-encoded digest** of the password under the
+configured hasher (`authHandler.go`; hasher selected by `hasher.type`, `sha256` by default).
+
+The shipped credentials are placeholders and are not usable — `config/node/api.yaml` ships two
+entries, and `config/seednode/api.yaml` ships its own:
+
+```yaml
+credentials:
+  - username: example
+    password: hashed password
+  - username: example2
+    password: hashed password
+hasher:
+  type: sha256
+```
+
+Replace **every** entry, in both files, before enabling `secured` anywhere. Generate the digest
+without leaving the plaintext password in your shell history:
+
+```bash
+read -rs -p 'password: ' pw && printf '%s' "$pw" | sha256sum | cut -d' ' -f1; unset pw
+```
+
+(`sha256sum` is GNU coreutils; on macOS use `shasum -a 256`.)
+
+Leaving the credentials list **empty** does not disable auth — it makes every authenticated request
+fail with HTTP 500.
+
+### Recommended hardened configuration
+
+For a node whose API is reachable off-host, start from this and adjust:
+
+```yaml
+# config/node/api.yaml
+apiPackages:
+  log:
+    routes:
+      - name: /log
+        open: true
+        secured: true       # or open: false to remove the route entirely
+  subscribe:
+    routes:
+      - name: /subscribe
+        open: true
+        secured: true       # public feed by default; require auth when exposed
+
+credentials:
+  - username: <operator>
+    password: <hex sha256 digest of the password>
+hasher:
+  type: sha256
+```
+
+**This edits the `log` and `subscribe` entries of the shipped file — it is not a replacement for the
+whole file.** The real `apiPackages` block also carries the other route groups (`address`,
+`transaction`, `block`, `node`, `vm`, …); dropping them leaves `apiPackages` without those keys, and
+every route whose group is missing fails its enabled check and is never registered. The same applies
+to the indentation: `log`/`subscribe` must stay nested under `apiPackages`, while `credentials` and
+`hasher` stay at the top level. Get that wrong and the config parses without error while silently
+discarding the credentials, which lands you in the HTTP 500 state described above.
+
+Pair it with: `--rest-api-interface=localhost:8080` (the default) plus a reverse proxy, or a firewall
+rule restricting the port to the proxy host.
+
+### WebSocket resource limits
+
+`/subscribe` connection and subscription limits are tunable under `webServer` in
+`config/node/config.yaml`:
+
+| Setting | Purpose | `0` means |
+|---|---|---|
+| `webSocketConnections` | node-wide cap on live connections | unlimited |
+| `webSocketConnectionsPerIP` | per-source-IP cap | unlimited |
+| `webSocketMaxAddressesPerSubscribe` | addresses accepted in one subscribe call | use the built-in default |
+| `webSocketMaxAddressesPerClient` | total addresses one connection may watch | use the built-in default |
+
+Note the split in the last column. Only the two connection caps treat `0` as unlimited. The two
+address caps fall back to their built-in defaults on any non-positive value, so they **cannot be
+disabled** — to lift them, set an explicit high value rather than `0`.
+
+**Behind a reverse proxy, every client shares the proxy's IP**, so `webSocketConnectionsPerIP` will
+throttle all of them together. Raise it, or set it to `0` to disable, for proxied deployments — and
+enforce per-client limits at the proxy instead.
+
+Note that the HTTP throttlers (`simultaneousRequests`, `sameSourceRequests`) release their slot at
+the HTTP-to-WebSocket upgrade, so they do not bound live WebSocket connections. The `webSocket*`
+settings are what do.
+
+### Operational checklist
+
+- [ ] API bound to `localhost` unless deliberately exposed
+- [ ] If exposed: reverse proxy enforcing TLS, origin/CORS, and authentication
+- [ ] API port firewalled to the proxy host
+- [ ] Real credentials configured; all placeholder entries replaced, in both `config/node/api.yaml`
+      and `config/seednode/api.yaml` if you run a seednode
+- [ ] `/log` secured or disabled
+- [ ] `/subscribe` secured or disabled if not intended to be public
+- [ ] `/node/peerinfo` and `/node/p2pstatus` disabled or secured — they expose network topology
+- [ ] Seednode `/peers` disabled or secured unless network topology is meant to be public
+- [ ] `--profile-mode` off, or API localhost-only — `/debug/pprof` is unauthenticated
+- [ ] `/swagger` blocked at the proxy if you do not want the API surface enumerated
+- [ ] `webSocketConnectionsPerIP` adjusted if behind a proxy
+- [ ] No browser running on validator hosts
+- [ ] Node software kept up to date
+- [ ] Key management per the practices above
+
 ## Security Audits
 
 Our codebase undergoes regular security audits by reputable third-party firms. Audit reports are published on our website and documentation.
@@ -160,4 +352,4 @@ We would like to thank the security researchers and community members who help k
 
 ---
 
-**Last Updated**: October 2025
+**Last Updated**: August 2026
