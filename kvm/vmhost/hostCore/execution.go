@@ -761,6 +761,11 @@ func (host *vmHost) CreateNewContract(input *vmcommon.ContractCreateInput, creat
 		return
 	}
 
+	if host.ForkController().FixAuditChangesV4() && output.HasPendingCodeUpdate(newContractAddress) {
+		err = vmhost.ErrDeploymentOverExistingAccount
+		return
+	}
+
 	codeDeployInput.ContractAddress = newContractAddress
 	output.DeployCode(codeDeployInput)
 

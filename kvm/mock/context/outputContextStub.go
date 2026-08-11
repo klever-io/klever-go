@@ -23,6 +23,7 @@ type OutputContextStub struct {
 	GetOutputAccountsCalled           func() map[string]*vmcommon.OutputAccount
 	GetOutputAccountCalled            func(address []byte) (*vmcommon.OutputAccount, bool)
 	DeleteOutputAccountCalled         func(address []byte)
+	HasPendingCodeUpdateCalled        func(address []byte) bool
 	WriteLogCalled                    func(address []byte, topics [][]byte, data [][]byte)
 	WriteLogWithIdentifierCalled      func(address []byte, topics [][]byte, data [][]byte, identifier []byte)
 	TransferCalled                    func(destination []byte, sender []byte, gasLimit uint64, value *big.Int, input []byte) error
@@ -138,6 +139,14 @@ func (o *OutputContextStub) DeleteOutputAccount(address []byte) {
 	if o.DeleteOutputAccountCalled != nil {
 		o.DeleteOutputAccountCalled(address)
 	}
+}
+
+// HasPendingCodeUpdate mocked method
+func (o *OutputContextStub) HasPendingCodeUpdate(address []byte) bool {
+	if o.HasPendingCodeUpdateCalled != nil {
+		return o.HasPendingCodeUpdateCalled(address)
+	}
+	return false
 }
 
 // WriteLog mocked method

@@ -244,6 +244,7 @@ type OutputContext interface {
 	SetOutputAccount(address []byte, data *vmcommon.OutputAccount)
 	GetOutputAccounts() map[string]*vmcommon.OutputAccount
 	DeleteOutputAccount(address []byte)
+	HasPendingCodeUpdate(address []byte) bool
 	WriteLog(address []byte, topics [][]byte, data [][]byte)
 	WriteLogWithIdentifier(address []byte, topics [][]byte, data [][]byte, identifier []byte)
 	TransferValueOnly(destination []byte, sender []byte, value *big.Int, checkPayable bool) error

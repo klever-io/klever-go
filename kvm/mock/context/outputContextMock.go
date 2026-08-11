@@ -98,6 +98,11 @@ func (o *OutputContextMock) SetOutputAccount(_ []byte, _ *vmcommon.OutputAccount
 func (o *OutputContextMock) DeleteOutputAccount(_ []byte) {
 }
 
+// HasPendingCodeUpdate mocked method
+func (o *OutputContextMock) HasPendingCodeUpdate(_ []byte) bool {
+	return false
+}
+
 // ReturnData mocked method
 func (o *OutputContextMock) ReturnData() [][]byte {
 	return o.ReturnDataMock

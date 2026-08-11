@@ -25,6 +25,7 @@ type outputContext struct {
 	outputState      *vmcommon.VMOutput
 	stateStack       []*vmcommon.VMOutput
 	codeUpdates      map[string]struct{}
+	codeUpdatesStack []map[string]struct{}
 	crtTransferIndex uint32
 	callArgsParser   vmcommon.CallArgsParser
 }
@@ -38,6 +39,7 @@ func NewOutputContext(host vmhost.VMHost) (*outputContext, error) {
 	context := &outputContext{
 		host:             host,
 		stateStack:       make([]*vmcommon.VMOutput, 0),
+		codeUpdatesStack: make([]map[string]struct{}, 0),
 		crtTransferIndex: 1,
 		callArgsParser:   parsers.NewCallArgsParser(),
 	}
@@ -81,6 +83,7 @@ func (context *outputContext) PushState() {
 	newState := newVMOutput()
 	mergeVMOutputs(newState, context.outputState)
 	context.stateStack = append(context.stateStack, newState)
+	context.pushCodeUpdatesState()
 }
 
 // PopSetActiveState removes the latest entry from the state stack and sets it as the current vm output
@@ -93,6 +96,10 @@ func (context *outputContext) PopSetActiveState() {
 	prevState := context.stateStack[stateStackLen-1]
 	context.stateStack = context.stateStack[:stateStackLen-1]
 	context.outputState = prevState
+
+	if prevCodeUpdates := context.popCodeUpdatesState(); prevCodeUpdates != nil {
+		context.codeUpdates = prevCodeUpdates
+	}
 }
 
 // PopMergeActiveState merges the current state into the head of the stateStack,
@@ -108,6 +115,7 @@ func (context *outputContext) PopMergeActiveState() {
 
 	prevState := context.stateStack[stateStackLen-1]
 	context.stateStack = context.stateStack[:stateStackLen-1]
+	context.popCodeUpdatesState()
 
 	mergeVMOutputs(prevState, context.outputState)
 	context.outputState = newVMOutput()
@@ -123,11 +131,34 @@ func (context *outputContext) PopDiscard() {
 	}
 
 	context.stateStack = context.stateStack[:stateStackLen-1]
+	context.popCodeUpdatesState()
 }
 
 // ClearStateStack reinitializes the state stack.
 func (context *outputContext) ClearStateStack() {
 	context.stateStack = make([]*vmcommon.VMOutput, 0)
+	context.codeUpdatesStack = make([]map[string]struct{}, 0)
+}
+
+func (context *outputContext) pushCodeUpdatesState() {
+	codeUpdates := make(map[string]struct{}, len(context.codeUpdates))
+	for address := range context.codeUpdates {
+		codeUpdates[address] = struct{}{}
+	}
+
+	context.codeUpdatesStack = append(context.codeUpdatesStack, codeUpdates)
+}
+
+func (context *outputContext) popCodeUpdatesState() map[string]struct{} {
+	codeUpdatesStackLen := len(context.codeUpdatesStack)
+	if codeUpdatesStackLen == 0 {
+		return nil
+	}
+
+	prevCodeUpdates := context.codeUpdatesStack[codeUpdatesStackLen-1]
+	context.codeUpdatesStack = context.codeUpdatesStack[:codeUpdatesStackLen-1]
+
+	return prevCodeUpdates
 }
 
 // CensorVMOutput will cause the next executed SC to appear isolated, as if
@@ -185,6 +216,15 @@ func (context *outputContext) GetOutputAccounts() map[string]*vmcommon.OutputAcc
 func (context *outputContext) DeleteOutputAccount(address []byte) {
 	delete(context.outputState.OutputAccounts, string(address))
 	delete(context.codeUpdates, string(address))
+}
+
+// HasPendingCodeUpdate returns true if a code deployment or upgrade is already staged
+// for the given address in the current transaction. Entries staged before a PushState stay
+// visible inside nested executions, while entries staged by a frame that is rolled back
+// through PopSetActiveState are discarded together with its output state.
+func (context *outputContext) HasPendingCodeUpdate(address []byte) bool {
+	_, pending := context.codeUpdates[string(address)]
+	return pending
 }
 
 // ReturnData returns the data of the current output state.

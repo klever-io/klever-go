@@ -550,3 +550,145 @@ func TestOutputContext_SetOutputAccount(t *testing.T) {
 
 	require.Equal(t, account, outputAccount)
 }
+
+func TestOutputContext_PendingCodeUpdateLifecycle(t *testing.T) {
+	t.Parallel()
+
+	host := &contextmock.VMHostStub{}
+	host.RuntimeCalled = func() vmhost.RuntimeContext {
+		return &contextmock.RuntimeContextMock{VMInput: &vmcommon.ContractCallInput{}}
+	}
+	outputContext, _ := NewOutputContext(host)
+
+	address := []byte("pending-deploy-address")
+
+	require.False(t, outputContext.HasPendingCodeUpdate(address))
+
+	outputContext.DeployCode(vmhost.CodeDeployInput{
+		ContractAddress:      address,
+		ContractCode:         []byte("code"),
+		ContractCodeMetadata: []byte("metadata"),
+		CodeDeployerAddress:  []byte("deployer"),
+	})
+	require.True(t, outputContext.HasPendingCodeUpdate(address))
+
+	outputContext.DeleteOutputAccount(address)
+	require.False(t, outputContext.HasPendingCodeUpdate(address))
+
+	outputContext.DeployCode(vmhost.CodeDeployInput{
+		ContractAddress:      address,
+		ContractCode:         []byte("code"),
+		ContractCodeMetadata: []byte("metadata"),
+		CodeDeployerAddress:  []byte("deployer"),
+	})
+	require.True(t, outputContext.HasPendingCodeUpdate(address))
+
+	outputContext.InitState()
+	require.False(t, outputContext.HasPendingCodeUpdate(address))
+}
+
+func TestOutputContext_PendingCodeUpdateSurvivesNestedCall(t *testing.T) {
+	t.Parallel()
+
+	host := &contextmock.VMHostStub{}
+	host.RuntimeCalled = func() vmhost.RuntimeContext {
+		return &contextmock.RuntimeContextMock{VMInput: &vmcommon.ContractCallInput{}}
+	}
+	outputContext, _ := NewOutputContext(host)
+
+	address := []byte("pending-deploy-address")
+
+	outputContext.DeployCode(vmhost.CodeDeployInput{
+		ContractAddress:      address,
+		ContractCode:         []byte("code"),
+		ContractCodeMetadata: []byte("metadata"),
+		CodeDeployerAddress:  []byte("deployer"),
+	})
+
+	outputContext.PushState()
+
+	require.True(t, outputContext.HasPendingCodeUpdate(address))
+
+	outputContext.PopSetActiveState()
+
+	require.True(t, outputContext.HasPendingCodeUpdate(address))
+}
+
+func TestOutputContext_PendingCodeUpdateFromNestedCallDiscardedOnRollback(t *testing.T) {
+	t.Parallel()
+
+	host := &contextmock.VMHostStub{}
+	host.RuntimeCalled = func() vmhost.RuntimeContext {
+		return &contextmock.RuntimeContextMock{VMInput: &vmcommon.ContractCallInput{}}
+	}
+	outputContext, _ := NewOutputContext(host)
+
+	address := []byte("pending-deploy-address")
+
+	outputContext.PushState()
+
+	outputContext.DeployCode(vmhost.CodeDeployInput{
+		ContractAddress:      address,
+		ContractCode:         []byte("code"),
+		ContractCodeMetadata: []byte("metadata"),
+		CodeDeployerAddress:  []byte("deployer"),
+	})
+	require.True(t, outputContext.HasPendingCodeUpdate(address))
+
+	outputContext.PopSetActiveState()
+
+	require.False(t, outputContext.HasPendingCodeUpdate(address))
+}
+
+func TestOutputContext_PendingCodeUpdateFromNestedCallKeptOnMerge(t *testing.T) {
+	t.Parallel()
+
+	host := &contextmock.VMHostStub{}
+	host.RuntimeCalled = func() vmhost.RuntimeContext {
+		return &contextmock.RuntimeContextMock{VMInput: &vmcommon.ContractCallInput{}}
+	}
+	outputContext, _ := NewOutputContext(host)
+
+	address := []byte("pending-deploy-address")
+
+	outputContext.PushState()
+
+	outputContext.DeployCode(vmhost.CodeDeployInput{
+		ContractAddress:      address,
+		ContractCode:         []byte("code"),
+		ContractCodeMetadata: []byte("metadata"),
+		CodeDeployerAddress:  []byte("deployer"),
+	})
+
+	outputContext.PopMergeActiveState()
+
+	require.True(t, outputContext.HasPendingCodeUpdate(address))
+	require.Equal(t, []byte("code"), outputContext.GetOutputAccounts()[string(address)].Code)
+}
+
+func TestOutputContext_PendingCodeUpdateFromNestedCallKeptOnDiscard(t *testing.T) {
+	t.Parallel()
+
+	host := &contextmock.VMHostStub{}
+	host.RuntimeCalled = func() vmhost.RuntimeContext {
+		return &contextmock.RuntimeContextMock{VMInput: &vmcommon.ContractCallInput{}}
+	}
+	outputContext, _ := NewOutputContext(host)
+
+	address := []byte("pending-deploy-address")
+
+	outputContext.PushState()
+
+	outputContext.DeployCode(vmhost.CodeDeployInput{
+		ContractAddress:      address,
+		ContractCode:         []byte("code"),
+		ContractCodeMetadata: []byte("metadata"),
+		CodeDeployerAddress:  []byte("deployer"),
+	})
+
+	outputContext.PopDiscard()
+
+	require.True(t, outputContext.HasPendingCodeUpdate(address))
+	require.Equal(t, []byte("code"), outputContext.GetOutputAccounts()[string(address)].Code)
+	require.Equal(t, 0, len(outputContext.codeUpdatesStack))
+}

@@ -4,18 +4,22 @@ import (
 	"math/big"
 	"testing"
 
+	blockchainConfig "github.com/klever-io/klever-go/config"
 	mock "github.com/klever-io/klever-go/kvm/mock/context"
 	"github.com/klever-io/klever-go/kvm/mock/contracts"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 	"github.com/klever-io/klever-go/kvm/testcommon"
 	test "github.com/klever-io/klever-go/kvm/testcommon"
 	"github.com/klever-io/klever-go/kvm/vmhost"
+	"github.com/klever-io/klever-go/kvm/vmhost/vmhooks"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var sc1Address = testcommon.MakeTestSCAddress("sc1")
 var sc2Address = testcommon.MakeTestSCAddress("sc2")
+var nestedDeploySourceAddress = testcommon.MakeTestSCAddress("nestedDeploySource")
 
 func getDeployFromSourceTestConfig() testcommon.TestConfig {
 	return test.TestConfig{
@@ -260,4 +264,129 @@ func runUpdateFromSourceTest(t *testing.T, testConfig *testcommon.TestConfig, as
 		}).
 		AndAssertResults(asserts)
 	assert.Nil(t, err)
+}
+
+type nestedDeployResult struct {
+	outerAddress []byte
+	outerErr     error
+	innerAddress []byte
+	innerErr     error
+	initCalls    int
+	vmOutput     *vmcommon.VMOutput
+}
+
+func runNestedDeployTest(t *testing.T, fixAuditChangesV4 uint32, propagateFault bool, asserts func(world *worldmock.MockWorld, verify *test.VMOutputVerifier)) nestedDeployResult {
+	result := nestedDeployResult{}
+
+	deployFromSource := func(host vmhost.VMHost) ([]byte, error) {
+		return vmhooks.DeployFromSourceContractWithTypedArgs(
+			host,
+			nestedDeploySourceAddress,
+			[]byte{0, 0},
+			big.NewInt(0),
+			[][]byte{},
+			100000,
+		)
+	}
+
+	vmOutput, err := test.BuildMockInstanceCallTest(t).
+		WithEnableEpochs(blockchainConfig.EnableEpochs{FixAuditChangesV4: fixAuditChangesV4}).
+		WithContracts(
+			test.CreateMockContract(nestedDeploySourceAddress).
+				WithMethods(func(sourceInstance *mock.InstanceMock, _ any) {
+					sourceInstance.AddMockMethod("init", func() *mock.InstanceMock {
+						result.initCalls++
+						if result.initCalls == 1 {
+							vmhooks.ExecuteOnDestContextWithTypedArgs(
+								sourceInstance.Host,
+								100000,
+								big.NewInt(0),
+								[]byte("deployAgain"),
+								test.ParentAddress,
+								[][]byte{},
+							)
+						}
+						return sourceInstance
+					})
+				}),
+			test.CreateMockContract(test.ParentAddress).
+				WithMethods(func(parentInstance *mock.InstanceMock, _ any) {
+					parentInstance.AddMockMethod("deployOnce", func() *mock.InstanceMock {
+						result.outerAddress, result.outerErr = deployFromSource(parentInstance.Host)
+						if propagateFault && result.outerErr != nil {
+							parentInstance.Host.Runtime().FailExecution(result.outerErr)
+						}
+						return parentInstance
+					})
+					parentInstance.AddMockMethod("deployAgain", func() *mock.InstanceMock {
+						result.innerAddress, result.innerErr = deployFromSource(parentInstance.Host)
+						if propagateFault && result.innerErr != nil {
+							parentInstance.Host.Runtime().FailExecution(result.innerErr)
+						}
+						return parentInstance
+					})
+				}),
+		).
+		WithInput(test.CreateTestContractCallInputBuilder().
+			WithRecipientAddr(test.ParentAddress).
+			WithGasProvided(1000000).
+			WithFunction("deployOnce").
+			Build()).
+		WithSetup(func(host vmhost.VMHost, _ *worldmock.MockWorld) {
+			setZeroCodeCosts(host)
+		}).
+		AndAssertResults(asserts)
+
+	assert.Nil(t, err)
+
+	result.vmOutput = vmOutput
+
+	return result
+}
+
+func TestDeployFromSource_NestedDeployRejectsDuplicateAddressWithinTransaction(t *testing.T) {
+	result := runNestedDeployTest(t, 0, false, func(_ *worldmock.MockWorld, verify *test.VMOutputVerifier) {
+		verify.Ok()
+	})
+
+	require.Equal(t, 1, result.initCalls)
+	require.NoError(t, result.outerErr)
+	require.Equal(t, vmhost.ErrDeploymentOverExistingAccount, result.innerErr)
+	require.Nil(t, result.innerAddress)
+
+	requireDeployedFromNestedDeploySource(t, result)
+}
+
+func TestDeployFromSource_NestedDeployReusesAddressBeforeAuditV4(t *testing.T) {
+	result := runNestedDeployTest(t, 1_000_000, false, func(_ *worldmock.MockWorld, verify *test.VMOutputVerifier) {
+		verify.Ok()
+	})
+
+	require.Equal(t, 2, result.initCalls)
+	require.NoError(t, result.outerErr)
+	require.NoError(t, result.innerErr)
+	require.Equal(t, result.outerAddress, result.innerAddress)
+
+	requireDeployedFromNestedDeploySource(t, result)
+}
+
+func TestDeployFromSource_NestedDeployWithDuplicateAddressAbortsTransaction(t *testing.T) {
+	result := runNestedDeployTest(t, 0, true, func(_ *worldmock.MockWorld, verify *test.VMOutputVerifier) {
+		verify.
+			ExecutionFailed().
+			HasRuntimeErrors(vmhost.ErrDeploymentOverExistingAccount.Error())
+	})
+
+	require.Equal(t, 1, result.initCalls)
+	require.Empty(t, result.vmOutput.OutputAccounts)
+}
+
+func requireDeployedFromNestedDeploySource(t *testing.T, result nestedDeployResult) {
+	sourceCode := nestedDeploySourceAddress
+
+	deployedAccount := result.vmOutput.OutputAccounts[string(result.outerAddress)]
+	require.NotNil(t, deployedAccount)
+	require.Equal(t, sourceCode, deployedAccount.Code)
+	require.Equal(t, []byte{0, 0}, deployedAccount.CodeMetadata)
+	require.Equal(t, test.ParentAddress, deployedAccount.CodeDeployerAddress)
 }
