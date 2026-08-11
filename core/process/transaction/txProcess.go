@@ -300,10 +300,10 @@ func (txProc *txProcessor) ProcessTransaction(block *block.Block, txHash []byte,
 		return err
 	}
 
-	// Consensus account freeze (FixMarketBuyOverflow fork): reject a tx from a frozen
-	// sender before any state is touched. On the apply/verify path, so a block
-	// carrying such a tx is rejected fleet-wide.
-	if txProc.forkController.FixMarketBuyOverflow() && common.IsAccountFrozen(tx.GetSender()) {
+	// Consensus account freeze: reject a tx from a frozen sender before any state is
+	// touched. On the apply/verify path, so a block carrying such a tx is rejected
+	// fleet-wide. Fork gating lives inside IsAccountFrozen, per-account.
+	if common.IsAccountFrozen(tx.GetSender(), txProc.forkController) {
 		tx.ResultCode = transaction.Transaction_ParameterInvalid
 		return common.ErrAccountFrozen
 	}

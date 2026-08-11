@@ -706,19 +706,18 @@ func (txs *transactions) createAndProcessBlock(
 		// clear any TX previous processing status
 		tx.PrepareForProcessing()
 
-		// Consensus account freeze (FixMarketBuyOverflow fork): never propose a tx from a
-		// frozen sender — it would be rejected on verify and invalidate the block.
-		if txs.forkProcessor.FixMarketBuyOverflow() && common.IsAccountFrozen(tx.GetSender()) {
+		// Consensus account freeze: never propose a tx from a frozen sender — it would be
+		// rejected on verify and invalidate the block. Fork gating lives inside
+		// IsAccountFrozen, per-account.
+		if common.IsAccountFrozen(tx.GetSender(), txs.forkProcessor) {
 			numTxsSkipped++
 			continue
 		}
 
 		txHash := sortedTxs[index].TxHash
-		if len(senderAddressToSkip) > 0 {
-			if bytes.Equal(senderAddressToSkip, tx.GetSender()) {
-				numTxsSkipped++
-				continue
-			}
+		if len(senderAddressToSkip) > 0 && bytes.Equal(senderAddressToSkip, tx.GetSender()) {
+			numTxsSkipped++
+			continue
 		}
 
 		// execute transaction to change the trie root hash
@@ -739,9 +738,7 @@ func (txs *transactions) createAndProcessBlock(
 		// or BW fee is not enough, Result is not set to FAILED
 		// then remove from pool as nothing can be done
 		if err != nil && tx.Result != transaction.Transaction_FAILED {
-			if errors.Is(err, process.ErrHigherNonceInTransaction) {
-				senderAddressToSkip = tx.GetSender()
-			}
+			senderAddressToSkip = senderToSkipAfterBadTx(err, tx, senderAddressToSkip)
 
 			numTxsBad++
 			log.Trace("bad tx",
@@ -762,14 +759,9 @@ func (txs *transactions) createAndProcessBlock(
 		txResults = append(txResults, uint32(tx.ResultCode))
 	}
 
-	if len(txHashes) > 0 {
-		// Update block TxRootHash
-		blk.TxHashes = txHashes
-		blk.TxResults = txResults
-		err := blk.UpdateTxRootHash(txs.hasher)
-		if err != nil {
-			return nil, err
-		}
+	err := txs.updateBlockTxRootHash(blk, txHashes, txResults)
+	if err != nil {
+		return nil, err
 	}
 
 	log.Debug("createAndProcessBlock has been finished",
@@ -785,6 +777,26 @@ func (txs *transactions) createAndProcessBlock(
 		txHashes: txHashes,
 		size:     txsSize,
 	}, nil
+}
+
+func (txs *transactions) updateBlockTxRootHash(blk *block.Block, txHashes [][]byte, txResults []uint32) error {
+	if len(txHashes) == 0 {
+		return nil
+	}
+
+	// Update block TxRootHash
+	blk.TxHashes = txHashes
+	blk.TxResults = txResults
+
+	return blk.UpdateTxRootHash(txs.hasher)
+}
+
+func senderToSkipAfterBadTx(err error, tx *transaction.Transaction, currentSkip []byte) []byte {
+	if errors.Is(err, process.ErrHigherNonceInTransaction) {
+		return tx.GetSender()
+	}
+
+	return currentSkip
 }
 
 // processAndRemoveBadTransaction processed transactions, if txs are with error it removes them from pool

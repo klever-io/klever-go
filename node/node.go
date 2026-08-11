@@ -560,10 +560,12 @@ func (n *Node) SendTransaction(tx *transaction.Transaction) (string, error) {
 	// Consensus account freeze: refuse to accept or relay a tx submitted to this
 	// node's API from a frozen account. Local ingestion policy, off the block /
 	// sync path, so it cannot affect replay or block validity — the fork-gated
-	// check in ProcessTransaction stays the consensus guarantee. Returns a generic
-	// rejection (not a freeze-specific error) so the API can't be used to enumerate
-	// the frozen set; the real reason is logged for operators.
-	if common.IsAccountFrozen(tx.GetSender()) {
+	// check in ProcessTransaction stays the consensus guarantee. Blocks from binary
+	// rollout rather than from the freeze fork, but honours the per-account thaw, so
+	// an account released at a later fork is accepted here too.
+	// Returns a generic rejection (not a freeze-specific error) so the API can't be
+	// used to enumerate the frozen set; the real reason is logged for operators.
+	if common.IsAccountFrozenAtAPI(tx.GetSender(), n.forkController) {
 		log.Debug("rejected API tx from frozen account", "sender", hex.EncodeToString(tx.GetSender()))
 		return "", process.ErrWrongTransaction
 	}
@@ -595,7 +597,7 @@ func (n *Node) SendBulkTransactions(txs []*transaction.Transaction) ([]string, e
 	for i, tx := range txs {
 
 		// Consensus account freeze: refuse frozen-account txs at the API (see SendTransaction).
-		if common.IsAccountFrozen(tx.GetSender()) {
+		if common.IsAccountFrozenAtAPI(tx.GetSender(), n.forkController) {
 			log.Debug("rejected API tx from frozen account", "sender", hex.EncodeToString(tx.GetSender()))
 			return nil, fmt.Errorf("invalid transaction %d: %w", i, process.ErrWrongTransaction)
 		}

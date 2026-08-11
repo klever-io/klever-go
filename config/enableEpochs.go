@@ -1,5 +1,7 @@
 package config
 
+import "fmt"
+
 // EnableEpochsConfig-
 type EnableEpochsConfig struct {
 	// Shuffler
@@ -29,6 +31,24 @@ type EnableEpochs struct {
 	FixMarketBuyOverflow    uint32 `yaml:"fixMarketBuyOverflow"`
 	FixAuditChangesV3       uint32 `yaml:"fixAuditChangesV3"`
 	FixAuditChangesV4       uint32 `yaml:"fixAuditChangesV4"`
+}
+
+// Validate checks that the configured activation epochs are mutually consistent. It runs
+// on the operator config at node start-up, so an inconsistent schedule fails loudly
+// instead of silently disabling the behaviour it was meant to activate.
+func (e EnableEpochs) Validate() error {
+	// The account freeze (common.IsAccountFrozen) holds an account only while
+	// fixMarketBuyOverflow is active and fixAuditChangesV4 is not, so a thaw epoch that
+	// is not strictly after the freeze epoch leaves an empty window and the listed
+	// accounts are never immobilised. Epoch 0 is the template placeholder rather than a
+	// real schedule, so only a configured freeze epoch is checked.
+	if e.FixMarketBuyOverflow != 0 && e.FixAuditChangesV4 <= e.FixMarketBuyOverflow {
+		return fmt.Errorf("fixAuditChangesV4 (%d) must be after fixMarketBuyOverflow (%d), "+
+			"otherwise the account freeze window is empty",
+			e.FixAuditChangesV4, e.FixMarketBuyOverflow)
+	}
+
+	return nil
 }
 
 // GasScheduleByEpochs represents a gas schedule toml entry that will be applied from the provided epoch

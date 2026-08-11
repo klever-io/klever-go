@@ -502,6 +502,10 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 
 	epochStartNotifier := notifier.NewEpochStartSubscriptionHandler()
 
+	if err := cfg.EnableEpochs.Validate(); err != nil {
+		return err
+	}
+
 	forkController, err := fork.NewForkController(cfg.EnableEpochs, epochNotifier)
 	if err != nil {
 		return err

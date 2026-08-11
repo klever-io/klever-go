@@ -1103,20 +1103,22 @@ func TestTransactions_CreateAndProcessBlockTransactions(t *testing.T) {
 func TestTransactions_CreateAndProcessBlock_ExcludesFrozenSender(t *testing.T) {
 	t.Parallel()
 
+	forkStatus := &commonMock.ForkControllerStub{FixMarketBuyOverflowValue: true}
+
 	frozenSender, err := hex.DecodeString("54ea28e527d4136508be955374afa54a8c25c19a48c674f412f7ce02db0f4e1b")
 	require.NoError(t, err)
-	require.True(t, common.IsAccountFrozen(frozenSender))
+	require.True(t, common.IsAccountFrozen(frozenSender, forkStatus))
 
 	normalSender, err := hex.DecodeString("11111111111111111111111111111111111111111111111111111111111111ff")
 	require.NoError(t, err)
-	require.False(t, common.IsAccountFrozen(normalSender))
+	require.False(t, common.IsAccountFrozen(normalSender, forkStatus))
 
 	poolHolders := createCacheWithTransactions(t, []*txcache.WrappedTransaction{
 		{TxHash: []byte("TX-FROZEN"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 1, Sender: frozenSender, Data: [][]byte{}}, GasLimit: 50000}},
 		{TxHash: []byte("TX-NORMAL"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 1, Sender: normalSender, Data: [][]byte{}}, GasLimit: 50000}},
 	})
 
-	txs := createGoodPreprocessorWithFork(poolHolders, &commonMock.ForkControllerStub{FixMarketBuyOverflowValue: true})
+	txs := createGoodPreprocessorWithFork(poolHolders, forkStatus)
 
 	processed := map[string]bool{}
 	txs.GetTXProcessor().(*mock.TxProcessorMock).ProcessTransactionCalled = func(_ *block.Block, _ []byte, tx *transaction.Transaction) error {
@@ -1132,4 +1134,45 @@ func TestTransactions_CreateAndProcessBlock_ExcludesFrozenSender(t *testing.T) {
 	require.False(t, processed[string(frozenSender)], "a frozen sender must never reach ProcessTransaction on the proposer path")
 	require.True(t, processed[string(normalSender)], "a normal sender must be processed")
 	require.Equal(t, 1, processResult.Length(), "only the normal tx should be included in the proposed block")
+}
+
+func TestTransactions_CreateAndProcessBlock_SkipsSenderAfterHigherNonce(t *testing.T) {
+	t.Parallel()
+
+	gappedSender := []byte("addr-gapped")
+	healthySender := []byte("addr-healthy")
+
+	poolHolders := createCacheWithTransactions(t, []*txcache.WrappedTransaction{
+		{TxHash: []byte("TX-GAP-1"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 1, Nonce: 1, Sender: gappedSender, Data: [][]byte{}}, GasLimit: 50000}},
+		{TxHash: []byte("TX-GAP-2"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 2, Nonce: 2, Sender: gappedSender, Data: [][]byte{}}, GasLimit: 50000}},
+		{TxHash: []byte("TX-OK"), Tx: &transaction.Transaction{RawData: &transaction.Transaction_Raw{Version: 3, Nonce: 1, Sender: healthySender, Data: [][]byte{}}, GasLimit: 50000}},
+	})
+
+	txs := createGoodPreprocessor(poolHolders)
+
+	preProcessedPerSender := map[string]int{}
+	txs.GetTXProcessor().(*mock.TxProcessorMock).PreProcessTransactionCalled = func(tx *transaction.Transaction) (state.UserAccountHandler, []byte, error) {
+		preProcessedPerSender[string(tx.GetSender())]++
+		if bytes.Equal(tx.GetSender(), gappedSender) {
+			return nil, nil, process.ErrHigherNonceInTransaction
+		}
+
+		return nil, nil, nil
+	}
+
+	processed := map[string]bool{}
+	txs.GetTXProcessor().(*mock.TxProcessorMock).ProcessTransactionCalled = func(_ *block.Block, _ []byte, tx *transaction.Transaction) error {
+		processed[string(tx.GetSender())] = true
+		return nil
+	}
+	txs.GetEconomicsFee().(*commonMock.FeeHandlerStub).MaxGasLimitPerBlockValue = 300_000
+
+	blk := &block.Block{Header: &block.BlockHeader{Nonce: 1, RandSeed: []byte("rand_seed")}}
+	processResult, err := txs.CreateAndProcessBlockTransactions(blk, func() bool { return true })
+	require.NoError(t, err)
+
+	require.Equal(t, 1, preProcessedPerSender[string(gappedSender)], "once a sender hits a higher nonce its remaining txs must be skipped, not re-processed")
+	require.False(t, processed[string(gappedSender)], "no tx from the gapped sender may reach ProcessTransaction")
+	require.True(t, processed[string(healthySender)], "the skip must be scoped to the gapped sender")
+	require.Equal(t, 1, processResult.Length(), "only the healthy sender's tx should be included in the proposed block")
 }

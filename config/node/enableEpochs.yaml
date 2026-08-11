@@ -28,11 +28,15 @@ enableEpochs:
   # Overflow / mint-past-bound guards: market buy settlement and split
   # royalties (GHSA-p7gw-2pcp-5pf8), and SFT add-quantity circulation
   # overflow (GHSA-mrpp-v6pg-p54x).
+  # Also starts the account freeze: once scheduled at a real (non-zero) epoch,
+  # fixAuditChangesV4 MUST be strictly greater, or the freeze window for the
+  # accounts released at that fork is empty. The node refuses to start otherwise.
   fixMarketBuyOverflow: 0
   # Audit Changes V3 (reject non-positive kdaFeesPool fee ratios + range-check
   # swap price) + block indirect dispatch of the upgrade lifecycle hook
   fixAuditChangesV3: 0
-  # Audit Changes V4 
+  # Audit Changes V4
+  # Also releases the frozen swap-service account: must be after fixMarketBuyOverflow.
   fixAuditChangesV4: 0
 gasSchedule:
   gasScheduleByEpochs:
