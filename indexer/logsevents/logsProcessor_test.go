@@ -1,6 +1,7 @@
 package logsevents_test
 
 import (
+	"encoding/hex"
 	"testing"
 
 	"github.com/klever-io/klever-go/common/mock"
@@ -37,25 +38,42 @@ func TestExtractDataFromLogs_LightweightModeSkipsExpensiveProcessors(t *testing.
 	})
 	require.NoError(t, err)
 
-	// An SCDeploy-identified event with well-formed topics: the full processor set would
-	// populate ScDeploys via two Encode calls (creator + deployed address); informativeLogsProcessor
-	// doesn't react to this identifier at all, so lightweight mode should do nothing with it.
-	event := &transaction.Event{
+	// Two events on the same log: an SCDeploy-identified one (well-formed topics) that only
+	// scDeploysProcessor reacts to — the full processor set would populate ScDeploys via
+	// two Encode calls (creator + deployed address) — and a writeLog-identified one that
+	// only informativeLogsProcessor reacts to, overwriting tx.Status. txsMap is keyed by
+	// tx.Hash matched against hex.EncodeToString(TxHash) (see converters.ConvertTxsSliceIntoMap
+	// and ExtractDataFromLogs's lookup), so the tx's Hash must be the hex-encoded raw hash.
+	rawTxHash := "txhash1"
+	deployEvent := &transaction.Event{
 		Identifier: []byte(core.SCDeployIdentifier),
 		Topics:     [][]byte{[]byte("deployedaddr12345678901234567890"), []byte("creatoraddr123456789012345678901")},
 	}
+	writeLogEvent := &transaction.Event{Identifier: []byte("writeLog")}
 	logHandler := &transaction.Log{
 		Address: []byte("contractaddr"),
-		Events:  []*transaction.Event{event},
+		Events:  []*transaction.Event{deployEvent, writeLogEvent},
 	}
-	pool := &indexer.Pool{Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txhash1"}}}
-	txs := []*data.Transaction{{Hash: "txhash1"}}
+	pool := &indexer.Pool{Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: rawTxHash}}}
+	newTxs := func() []*data.Transaction {
+		return []*data.Transaction{{Hash: hex.EncodeToString([]byte(rawTxHash))}}
+	}
 
-	lightResult := lep.ExtractDataFromLogs(pool, txs, 100, false)
+	lightTxs := newTxs()
+	lightResult := lep.ExtractDataFromLogs(pool, lightTxs, 100, false)
 	assert.Empty(t, lightResult.ScDeploys, "lightweight mode must not populate ScDeploys")
 	assert.Equal(t, 0, encodeCalls, "lightweight mode must never call pubKeyConverter.Encode")
+	assert.True(t, lightTxs[0].HasLogs)
+	assert.True(t, lightTxs[0].HasOperations, "the cheap informativeLogsProcessor path must still mark HasOperations")
+	assert.Equal(t, transaction.Transaction_SUCCESS.String(), lightTxs[0].Status,
+		"informativeLogsProcessor's Status override must survive in lightweight mode — it's what the websocket payload reports")
 
-	fullResult := lep.ExtractDataFromLogs(pool, txs, 100, true)
+	fullTxs := newTxs()
+	fullResult := lep.ExtractDataFromLogs(pool, fullTxs, 100, true)
 	assert.NotEmpty(t, fullResult.ScDeploys, "full mode must populate ScDeploys as before")
 	assert.Greater(t, encodeCalls, 0, "full mode must still call pubKeyConverter.Encode")
+	assert.True(t, fullTxs[0].HasLogs)
+	assert.True(t, fullTxs[0].HasOperations)
+	assert.Equal(t, transaction.Transaction_SUCCESS.String(), fullTxs[0].Status,
+		"full mode must produce the same tx-field parity as lightweight mode")
 }
