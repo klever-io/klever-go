@@ -2,6 +2,7 @@ package block
 
 import (
 	"github.com/klever-io/klever-go/data"
+	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/tools/marshal"
@@ -20,8 +21,15 @@ func NewMetaProcessorForTests(mp *metaProcessor) *MetaProcessorForTests {
 	}
 }
 
-func (m *MetaProcessorForTests) ProcessProposalsEndOfEpoch(headerHandler data.HeaderHandler) error {
+func (m *MetaProcessorForTests) ProcessProposalsEndOfEpoch(headerHandler data.HeaderHandler) ([]string, error) {
 	return m.processProposalsEndOfEpoch(headerHandler)
+}
+
+func (m *MetaProcessorForTests) ApplyEpochStartSideEffects(header *block.Block, validatorsInfo []*state.ValidatorInfo, proposalsToIndex []string) error {
+	return m.applyEpochStartSideEffects(header, &epochStartSideEffects{
+		validatorsInfo:   validatorsInfo,
+		proposalsToIndex: proposalsToIndex,
+	})
 }
 
 func (m *MetaProcessorForTests) GetKAppAdapter() state.AccountsAdapter {

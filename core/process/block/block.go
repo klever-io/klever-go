@@ -145,11 +145,22 @@ func (mp *metaProcessor) ProcessBlock(
 	prevCurrentHeader := mp.blockChain.GetCurrentBlockHeader()
 	restoreEpochTrigger := snapshotEpochTrigger(mp.epochStartTrigger)
 
+	// Only the epoch start branch settles proposals, so only it can move the
+	// in-memory proposal parameters.
+	var restoreProposalParameters func()
+	if header.GetIsEpochStart() {
+		restoreProposalParameters = snapshotProposalParameters(mp.proposalController)
+	}
+
 	defer func() {
 		if err != nil {
 			log.Error("ProcessBlock revert: ", "error", err.Error())
 			mp.RevertStateToSnapshot(header)
 			mp.restoreEpochState(prevEpoch, prevCurrentHeader, restoreEpochTrigger)
+
+			if restoreProposalParameters != nil {
+				restoreProposalParameters()
+			}
 		}
 	}()
 
@@ -276,21 +287,27 @@ func (mp *metaProcessor) dispatchAsyncHeaderMetrics(header *block.Block) {
 }
 
 // handleEpochStartBlock runs the epoch-start branch of ProcessBlock: process
-// the epoch-start block, then verify fees. The fees error is reported and
-// returned, but does not skip the bugsnag notification.
+// the epoch-start block, verify fees, and only then commit the side effects
+// that no rollback can undo. verifyFees is the last check of the epoch start
+// path, so it has to run before the side effects are applied, not after: it
+// used to reject a block whose validators info and indexer notification had
+// already been published. Each failure keeps its own bugsnag notification.
 func (mp *metaProcessor) handleEpochStartBlock(header *block.Block) error {
-	err := mp.processEpochStartBlock(header)
+	sideEffects, err := mp.processEpochStartBlock(header)
 	if err != nil {
-		_ = bugsnag.Notify(fmt.Errorf("process epoch start block: %w", err), bugsnag.MetaData{"data": {"header": header}})
 		return err
 	}
 
+	// Reads the proposal parameters this block just settled, matching the
+	// proposer, which stamps the rewards into the header from the same set once
+	// CreateEpochStartHeader has run (see applyHeader).
 	err = mp.verifyFees(header)
 	if err != nil {
 		_ = bugsnag.Notify(fmt.Errorf("process verify fees: %w", err), bugsnag.MetaData{"data": {"header": header}})
+		return err
 	}
 
-	return err
+	return mp.applyEpochStartSideEffects(header, sideEffects)
 }
 
 // verifyBlockTrieRoots runs the three post-transaction trie-root checks
@@ -319,30 +336,54 @@ func (mp *metaProcessor) verifyBlockTrieRoots(header *block.Block) error {
 	return nil
 }
 
+// epochStartSideEffects holds the epoch start mutations that live outside the
+// accounts snapshot and therefore cannot be undone by RevertStateToSnapshot:
+// the nodes coordinator in-memory validators map and the indexer notification.
+// They are collected during processing and applied only once the block is fully
+// verified, so a rejected epoch start block leaves no trace behind.
+type epochStartSideEffects struct {
+	validatorsInfo   []*state.ValidatorInfo
+	proposalsToIndex []string
+}
+
+// processEpochStartBlock processes the epoch start block and verifies its three
+// trie roots. It returns the side effects for the caller to commit once every
+// remaining check has passed, rather than applying them here.
 func (mp *metaProcessor) processEpochStartBlock(
 	header *block.Block,
+) (*epochStartSideEffects, error) {
+	sideEffects, err := mp.baseProcessEpochStartBlock(header)
+	if err != nil {
+		_ = bugsnag.Notify(fmt.Errorf("process epoch start block: %w", err), bugsnag.MetaData{"data": {"header": header}})
+		return nil, err
+	}
+
+	// Same three trie roots as the non epoch start path, validated here after
+	// the rewards, validator list and proposals updates. verifyBlockTrieRoots
+	// reports each failure to bugsnag on its own.
+	err = mp.verifyBlockTrieRoots(header)
+	if err != nil {
+		return nil, err
+	}
+
+	return sideEffects, nil
+}
+
+// applyEpochStartSideEffects commits the non-revertible epoch start mutations.
+// It must only be called once every check of the epoch start block has passed:
+// the three trie roots and the fee verification.
+func (mp *metaProcessor) applyEpochStartSideEffects(
+	header *block.Block,
+	sideEffects *epochStartSideEffects,
 ) error {
-	err := mp.baseProcessEpochStartBlock(header)
+	// Update nodes coodinator with new list of validators/peers
+	err := mp.nodesCoordinator.SetEpochValidatorsInfo(header.GetEpoch(), sideEffects.validatorsInfo)
 	if err != nil {
 		return err
 	}
 
-	// Validate Account Trie after rewards update
-	if !mp.verifyStateRootAccount(header.GetTrieRoot()) {
-		err = process.ErrRootStateDoesNotMatch
-		return err
-	}
-
-	// Validate Validator Trie after list update
-	err = mp.verifyValidatorStatisticsRootHash(header)
-	if err != nil {
-		return err
-	}
-
-	// Validate KApp Trie after validaotr list and proposals update
-	err = mp.verifyKAppRootHash(header)
-	if err != nil {
-		return err
+	if len(sideEffects.proposalsToIndex) > 0 && !check.IfNil(mp.eventsProcessor) {
+		mp.eventsProcessor.UpdateProposalsAndParameters(sideEffects.proposalsToIndex)
 	}
 
 	return nil
@@ -350,62 +391,59 @@ func (mp *metaProcessor) processEpochStartBlock(
 
 func (mp *metaProcessor) baseProcessEpochStartBlock(
 	header *block.Block,
-) error {
+) (*epochStartSideEffects, error) {
 	// Epoch Start does not handle any transaction, so Tx/Kapps Fees must be zero
 	if header.GetTxCount() != 0 {
-		return process.ErrInvalidTXCount
+		return nil, process.ErrInvalidTXCount
 	}
 
 	if header.GetTxFees() != 0 ||
 		header.GetKAppFees() != 0 ||
 		header.GetTxBurnedFees() != 0 {
-		return process.ErrInvalidTXFees
+		return nil, process.ErrInvalidTXFees
 
 	}
 
 	currentRootHash, err := mp.validatorStatisticsProcessor.RootHash()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Get All Validators Info from PeerAccount List
 	allValidatorsInfo, err := mp.validatorStatisticsProcessor.GetValidatorInfoForRootHash(currentRootHash)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// process new rating and jail if bellow threshold
 	err = mp.validatorStatisticsProcessor.ProcessRatingsEndOfEpoch(allValidatorsInfo, header.GetEpoch())
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// process proposals prior economics, as it could change economics model
-	err = mp.processProposalsEndOfEpoch(header)
+	proposalsToIndex, err := mp.processProposalsEndOfEpoch(header)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// distribute rewards, Set node as inactive/waiting/eligible based on stake
 	// (will not change list if have been sent to jail)
 	err = mp.processEconomicsEndOfEpoch(allValidatorsInfo, header)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// reset rating and jail if needed... also returns update list to be set in nodes coordinator
 	updatedList, err := mp.validatorStatisticsProcessor.ResetValidatorStatisticsAtNewEpoch(allValidatorsInfo)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// Update nodes coodinator with new list of validators/peers
-	err = mp.nodesCoordinator.SetEpochValidatorsInfo(header.GetEpoch(), updatedList)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return &epochStartSideEffects{
+		validatorsInfo:   updatedList,
+		proposalsToIndex: proposalsToIndex,
+	}, nil
 }
 
 func (mp *metaProcessor) verifyKAppRootHash(header *block.Block) error {
@@ -513,6 +551,53 @@ func snapshotEpochTrigger(trigger process.EpochStartTriggerHandler) func() {
 	epoch, isEpochStart, currentSlot, currEpochStartSlot, prevEpochStartSlot, nextEpochStartSlot := reverter.EpochStateSnapshot()
 	return func() {
 		reverter.RestoreEpochState(epoch, isEpochStart, currentSlot, currEpochStartSlot, prevEpochStartSlot, nextEpochStartSlot)
+	}
+}
+
+// snapshotProposalParameters captures the live proposal parameter set and
+// returns a closure restoring it, or nil when there is nothing to snapshot.
+//
+// finalizeProposalUpdates writes the settled parameters into the in-memory
+// proposalController while the epoch start block is still being processed, and
+// RevertStateToSnapshot cannot undo that: it restores every accounts DB,
+// including the KApp trie copy of the controller, but not this map. A rejected
+// epoch start block therefore left the node computing rewards and fees from a
+// block that never committed.
+//
+// The write cannot be deferred to applyEpochStartSideEffects the way the
+// validators info and the indexer notification are, because
+// epochStartNativeStakingKapps reads MaxEpochsUnclaimed back out of this set
+// later in the same baseProcessEpochStartBlock run. Holding it back would change
+// how many FPR buckets are rolled and burned, which moves the KApp trie root.
+// So the write stays where it is and is undone on failure instead.
+func snapshotProposalParameters(controller kapps.ActiveProposalController) func() {
+	if check.IfNil(controller) {
+		return nil
+	}
+
+	live := controller.GetActiveParameters()
+	snapshot := make(map[int32]*kapps.Parameter, len(live))
+	for key, param := range live {
+		if param == nil {
+			continue
+		}
+
+		value := make([]byte, len(param.Value))
+		copy(value, param.Value)
+		snapshot[key] = &kapps.Parameter{Type: param.Type, Value: value}
+	}
+
+	return func() {
+		live := controller.GetActiveParameters()
+		// UpdateParameters only overwrites and adds, so parameters a settled
+		// proposal introduced have to be dropped before merging the snapshot back.
+		for key := range live {
+			if _, ok := snapshot[key]; !ok {
+				delete(live, key)
+			}
+		}
+
+		controller.UpdateParameters(snapshot)
 	}
 }
 
@@ -644,7 +729,15 @@ func (mp *metaProcessor) CreateEpochStartHeader(blk *block.Block) error {
 		"nonce", blk.GetNonce(),
 	)
 
-	return mp.baseProcessEpochStartBlock(blk)
+	sideEffects, err := mp.baseProcessEpochStartBlock(blk)
+	if err != nil {
+		return err
+	}
+
+	// on the proposer path there are no trie roots to verify - they are computed
+	// from this very execution - so the side effects are applied right away,
+	// preserving the previous behaviour for block creation
+	return mp.applyEpochStartSideEffects(blk, sideEffects)
 }
 
 // CommitBlock commits the block in the blockchain if everything was checked successfully
@@ -1293,36 +1386,42 @@ func (mp *metaProcessor) epochStartNativeStakingKapps(blk data.HeaderHandler) er
 	return mp.setNativeStakingKApps(staking, klv, kfi)
 }
 
-func (mp *metaProcessor) processProposalsEndOfEpoch(headerHandler data.HeaderHandler) error {
+// processProposalsEndOfEpoch settles the proposals active in the header's epoch
+// and returns the ids that must be pushed to the indexer. The notification
+// itself is deliberately left to the caller: it is an external side effect that
+// no state rollback can undo, so it may only fire once the block is verified.
+func (mp *metaProcessor) processProposalsEndOfEpoch(headerHandler data.HeaderHandler) ([]string, error) {
 	log.Debug("Started Proposals Processing")
 
 	proposalKApp, controller, err := mp.getProposalController()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// check if there are active proposals for the current epoch
 	if controller.ActiveProposals[headerHandler.GetEpoch()] == nil {
-		return nil
+		return nil, nil
 	}
 
 	// retrieve staking data
 	_, _, kfi, err := mp.getNativeStakingKApps()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	proposalsToUpdate, err := mp.processAllProposals(proposalKApp, controller, kfi, headerHandler)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	if !check.IfNil(mp.eventsProcessor) {
-		mp.eventsProcessor.UpdateProposalsAndParameters(proposalsToUpdate)
-	}
 	delete(controller.ActiveProposals, headerHandler.GetEpoch())
 
-	return mp.finalizeProposalUpdates(proposalKApp, controller)
+	err = mp.finalizeProposalUpdates(proposalKApp, controller)
+	if err != nil {
+		return nil, err
+	}
+
+	return proposalsToUpdate, nil
 }
 
 func (mp *metaProcessor) processAllProposals(proposalKApp state.KAppAccountHandler, controller *kapps.ProposalController, kfi *kapps.StakingData, headerHandler data.HeaderHandler) ([]string, error) {
@@ -1401,7 +1500,13 @@ func (mp *metaProcessor) finalizeProposalUpdates(proposalKApp state.KAppAccountH
 		return err
 	}
 
-	// After All processing, updates block activeParams instance
+	// After All processing, updates block activeParams instance.
+	//
+	// This lands mid-processing on purpose: epochStartNativeStakingKapps reads
+	// MaxEpochsUnclaimed back out of it later in the same epoch start run. It is
+	// also the one epoch start mutation that no accounts DB snapshot covers, so
+	// ProcessBlock snapshots the parameter set up front and restores it on
+	// failure (see snapshotProposalParameters).
 	mp.proposalController.UpdateParameters(controller.ActiveParameters)
 
 	return nil

@@ -671,6 +671,700 @@ func TestMetaProcessor_ProcessWithDirtyAccountShouldErr(t *testing.T) {
 	assert.Equal(t, err, process.ErrAccountStateDirty)
 }
 
+// createEpochStartHeaderForProcess builds the minimal epoch start header accepted
+// by checkBlockValidity, so ProcessBlock reaches the epoch start branch.
+func createEpochStartHeaderForProcess() *block.Block {
+	return &block.Block{
+		Header: &block.BlockHeader{
+			Nonce:        1,
+			ParentHash:   []byte(""),
+			TrieRoot:     []byte("roothash"),
+			IsEpochStart: true,
+		},
+		ProducerSignature: []byte("signature"),
+	}
+}
+
+// Pins that every failure mode of the epoch start branch reaches the rollback
+// defer of ProcessBlock, so a rejected epoch start block leaves no accounts
+// snapshot behind.
+func TestMetaProcessor_ProcessBlockEpochStartErrorShouldRevertState(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("epoch start failure")
+
+	tests := []struct {
+		name        string
+		expectedErr error
+		prepare     func(hdr *block.Block, arguments *blproc.ArgMetaProcessor)
+	}{
+		{
+			name:        "invalid tx count",
+			expectedErr: process.ErrInvalidTXCount,
+			prepare: func(hdr *block.Block, _ *blproc.ArgMetaProcessor) {
+				hdr.Header.TxCount = 1
+			},
+		},
+		{
+			name:        "invalid tx fees",
+			expectedErr: process.ErrInvalidTXFees,
+			prepare: func(hdr *block.Block, _ *blproc.ArgMetaProcessor) {
+				hdr.Header.TxFees = 1
+			},
+		},
+		{
+			name:        "validator statistics root hash fails",
+			expectedErr: expectedErr,
+			prepare: func(_ *block.Block, arguments *blproc.ArgMetaProcessor) {
+				arguments.ValidatorStatisticsProcessor = &mock.ValidatorStatisticsProcessorStub{
+					RootHashCalled: func() ([]byte, error) {
+						return nil, expectedErr
+					},
+				}
+			},
+		},
+		{
+			name:        "process ratings end of epoch fails",
+			expectedErr: expectedErr,
+			prepare: func(_ *block.Block, arguments *blproc.ArgMetaProcessor) {
+				arguments.ValidatorStatisticsProcessor = &mock.ValidatorStatisticsProcessorStub{
+					ProcessRatingsEndOfEpochCalled: func(_ []*state.ValidatorInfo, _ uint32) error {
+						return expectedErr
+					},
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			revertCalls := 0
+			hdr := createEpochStartHeaderForProcess()
+
+			arguments := createMockMetaArguments()
+			arguments.AccountsDB[state.UserAccountsState] = &mock.AccountsStub{
+				JournalLenCalled: func() int { return 0 },
+				RevertToSnapshotCalled: func(_ int) error {
+					revertCalls++
+					return nil
+				},
+			}
+			tt.prepare(hdr, &arguments)
+
+			mp, err := blproc.NewMetaProcessor(arguments)
+			require.NoError(t, err)
+
+			controller, _ := kapps.NewProposalController(arguments.ForkController)
+			_ = mp.SetProposalController(controller)
+
+			err = mp.ProcessBlock(hdr, haveTime)
+			require.Equal(t, tt.expectedErr, err)
+			assert.Positive(t, revertCalls, "epoch start error must trigger RevertStateToSnapshot")
+		})
+	}
+}
+
+// Without the rollback the accounts journal stays dirty after a failed epoch
+// start block, and every subsequent block is rejected with ErrAccountStateDirty
+// - a liveness DoS on the node.
+func TestMetaProcessor_ProcessBlockEpochStartErrorShouldNotLeaveAccountsDirty(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("epoch start failure")
+	journalLen := 0
+
+	arguments := createMockMetaArguments()
+	arguments.AccountsDB[state.UserAccountsState] = &mock.AccountsStub{
+		JournalLenCalled: func() int { return journalLen },
+		RevertToSnapshotCalled: func(_ int) error {
+			journalLen = 0
+			return nil
+		},
+	}
+	arguments.ValidatorStatisticsProcessor = &mock.ValidatorStatisticsProcessorStub{
+		ProcessRatingsEndOfEpochCalled: func(_ []*state.ValidatorInfo, _ uint32) error {
+			// stand in for the account mutations performed by the epoch start
+			// chain (ratings, proposals, economics) before the failure
+			journalLen = 5
+			return expectedErr
+		},
+	}
+
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+
+	controller, _ := kapps.NewProposalController(arguments.ForkController)
+	_ = mp.SetProposalController(controller)
+
+	err = mp.ProcessBlock(createEpochStartHeaderForProcess(), haveTime)
+	require.Equal(t, expectedErr, err)
+	require.Zero(t, journalLen, "failed epoch start block must leave a clean accounts journal")
+
+	// the next block must not be rejected because of leftover dirty state
+	nextHdr := createEpochStartHeaderForProcess()
+	nextHdr.Header.IsEpochStart = false
+
+	err = mp.ProcessBlock(nextHdr, haveTime)
+	assert.NotEqual(t, process.ErrAccountStateDirty, err)
+}
+
+// SetEpochValidatorsInfo writes an in-memory map on the nodes coordinator and
+// UpdateProposalsAndParameters notifies the indexer. Neither is covered by
+// RevertStateToSnapshot, so a rejected epoch start block must not reach them.
+func TestMetaProcessor_ProcessBlockEpochStartErrorShouldNotApplySideEffects(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("epoch start failure")
+
+	// every failure point of the epoch start chain, from the earliest step of
+	// baseProcessEpochStartBlock down to the last trie root verification: none of
+	// them may reach the nodes coordinator or the indexer
+	tests := []struct {
+		name        string
+		errContains string
+		prepare     func(hdr *block.Block, arguments *blproc.ArgMetaProcessor)
+	}{
+		{
+			name:        "get validator info for root hash fails",
+			errContains: expectedErr.Error(),
+			prepare: func(_ *block.Block, arguments *blproc.ArgMetaProcessor) {
+				arguments.ValidatorStatisticsProcessor = &mock.ValidatorStatisticsProcessorStub{
+					GetValidatorInfoForRootHashCalled: func(_ []byte) ([]*state.ValidatorInfo, error) {
+						return nil, expectedErr
+					},
+				}
+			},
+		},
+		{
+			name: "process proposals end of epoch fails",
+			// the proposal kapp account is never seeded, so getProposalController
+			// fails while unmarshalling an empty controller payload
+			errContains: "cannot parse invalid wire-format data",
+			prepare: func(_ *block.Block, arguments *blproc.ArgMetaProcessor) {
+				arguments.AccountsDB[state.KAppAccountsState] = &mock.AccountsStub{
+					LoadAccountCalled: func(_ []byte) (state.AccountHandler, error) {
+						return nil, errors.New("cannot parse invalid wire-format data")
+					},
+				}
+			},
+		},
+		{
+			name:        "process economics end of epoch fails",
+			errContains: common.ErrEmptyString.Error(),
+			prepare: func(_ *block.Block, arguments *blproc.ArgMetaProcessor) {
+				// wipe the staked KLV entry, so rolling the FPR fails
+				adapter := arguments.AccountsDB[state.KAppAccountsState]
+				acnt, err := adapter.LoadAccount(kapps.StakingKAppAddress)
+				require.NoError(t, err)
+
+				stakingKApp, ok := acnt.(state.KAppAccountHandler)
+				require.True(t, ok)
+				require.NoError(t, stakingKApp.DataTrieTracker().SaveKeyValue(kdautils.KLVKey, nil))
+				require.NoError(t, adapter.SaveAccount(stakingKApp))
+			},
+		},
+		{
+			name:        "reset validator statistics at new epoch fails",
+			errContains: expectedErr.Error(),
+			prepare: func(_ *block.Block, arguments *blproc.ArgMetaProcessor) {
+				arguments.ValidatorStatisticsProcessor = &mock.ValidatorStatisticsProcessorStub{
+					ResetValidatorStatisticsAtNewEpochCalled: func(_ []*state.ValidatorInfo) ([]*state.ValidatorInfo, error) {
+						return nil, expectedErr
+					},
+				}
+			},
+		},
+		{
+			name:        "account trie root does not match",
+			errContains: process.ErrRootStateDoesNotMatch.Error(),
+			prepare: func(hdr *block.Block, _ *blproc.ArgMetaProcessor) {
+				hdr.Header.TrieRoot = []byte("another root hash")
+			},
+		},
+		{
+			name:        "validator statistics trie root does not match",
+			errContains: expectedErr.Error(),
+			prepare: func(_ *block.Block, arguments *blproc.ArgMetaProcessor) {
+				arguments.ValidatorStatisticsProcessor = &mock.ValidatorStatisticsProcessorStub{
+					UpdatePeerStateCalled: func(_ data.HeaderHandler, _ data.HeaderHandler) ([]byte, error) {
+						return nil, expectedErr
+					},
+				}
+			},
+		},
+		{
+			name:        "kapp trie root does not match",
+			errContains: process.ErrRootStateDoesNotMatch.Error(),
+			prepare: func(hdr *block.Block, _ *blproc.ArgMetaProcessor) {
+				// verifyKAppRootHash is the last check before the side effects
+				hdr.Header.KAppsTrieRoot = []byte("another kapp root hash")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			setEpochValidatorsCalls := 0
+			indexerCalls := 0
+			hdr := createEpochStartHeaderForProcess()
+
+			arguments := createMockMetaArguments()
+			arguments.AccountsDB[state.UserAccountsState] = &mock.AccountsStub{
+				JournalLenCalled: func() int { return 0 },
+				RootHashCalled: func() ([]byte, error) {
+					// matches the header trie root, so verifyStateRootAccount
+					// passes and the failure lands after the old
+					// SetEpochValidatorsInfo call site
+					return []byte("roothash"), nil
+				},
+				RevertToSnapshotCalled: func(_ int) error { return nil },
+			}
+			arguments.NodesCoordinator = &mock.NodesCoordinatorMock{
+				SetEpochValidatorsInfoCalled: func(_ uint32, _ []*state.ValidatorInfo) error {
+					setEpochValidatorsCalls++
+					return nil
+				},
+			}
+			arguments.EventsProcessor = &mock.EventsProcessorStub{
+				UpdateProposalsAndParametersCalled: func(_ []string) {
+					indexerCalls++
+				},
+			}
+			tt.prepare(hdr, &arguments)
+
+			mp, err := blproc.NewMetaProcessor(arguments)
+			require.NoError(t, err)
+
+			controller, _ := kapps.NewProposalController(arguments.ForkController)
+			_ = mp.SetProposalController(controller)
+			_ = arguments.KAppController.SetProposalController(controller)
+			_ = arguments.KAppController.GetValidatorsKApp().SetKAppController(arguments.KAppController)
+
+			err = mp.ProcessBlock(hdr, haveTime)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.errContains)
+
+			assert.Zero(t, setEpochValidatorsCalls, "rejected epoch start block must not update the nodes coordinator")
+			assert.Zero(t, indexerCalls, "rejected epoch start block must not notify the indexer")
+		})
+	}
+}
+
+// Counterpart of the test above: once the block is verified the side effects
+// must still be applied, otherwise the epoch start would be a no-op.
+func TestMetaProcessor_ApplyEpochStartSideEffects(t *testing.T) {
+	t.Parallel()
+
+	expectedErr := errors.New("nodes coordinator failure")
+
+	tests := []struct {
+		name             string
+		proposalsToIndex []string
+		nilEventsProc    bool
+		coordinatorErr   error
+		expectedErr      error
+		expectIndexed    bool
+	}{
+		{
+			name:             "nodes coordinator fails, indexer is not notified",
+			proposalsToIndex: []string{"1"},
+			coordinatorErr:   expectedErr,
+			expectedErr:      expectedErr,
+			expectIndexed:    false,
+		},
+		{
+			name:             "no proposals settled, indexer is not notified",
+			proposalsToIndex: nil,
+			expectIndexed:    false,
+		},
+		{
+			name:             "nil events processor is skipped",
+			proposalsToIndex: []string{"1"},
+			nilEventsProc:    true,
+			expectIndexed:    false,
+		},
+		{
+			name:             "proposals settled, indexer is notified",
+			proposalsToIndex: []string{"1", "2"},
+			expectIndexed:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			indexerCalls := 0
+
+			var gotEpoch uint32
+			var gotValidators []*state.ValidatorInfo
+			var gotProposals []string
+
+			arguments := createMockMetaArguments()
+			arguments.NodesCoordinator = &mock.NodesCoordinatorMock{
+				SetEpochValidatorsInfoCalled: func(epoch uint32, validatorsInfo []*state.ValidatorInfo) error {
+					gotEpoch = epoch
+					gotValidators = validatorsInfo
+					return tt.coordinatorErr
+				},
+			}
+			if !tt.nilEventsProc {
+				arguments.EventsProcessor = &mock.EventsProcessorStub{
+					UpdateProposalsAndParametersCalled: func(proposalIDs []string) {
+						indexerCalls++
+						gotProposals = proposalIDs
+					},
+				}
+			}
+
+			mpp, err := blproc.NewMetaProcessor(arguments)
+			require.NoError(t, err)
+			mp := blproc.NewMetaProcessorForTests(mpp)
+
+			hdr := createEpochStartHeaderForProcess()
+			hdr.Header.Epoch = 7
+			validators := []*state.ValidatorInfo{{PublicKey: []byte("pubkey")}}
+
+			err = mp.ApplyEpochStartSideEffects(hdr, validators, tt.proposalsToIndex)
+			require.Equal(t, tt.expectedErr, err)
+
+			// the epoch and the validators info always reach the nodes coordinator
+			assert.Equal(t, uint32(7), gotEpoch)
+			assert.Equal(t, validators, gotValidators)
+
+			if tt.expectIndexed {
+				assert.Equal(t, 1, indexerCalls)
+				assert.Equal(t, tt.proposalsToIndex, gotProposals)
+			} else {
+				assert.Zero(t, indexerCalls)
+			}
+		})
+	}
+}
+
+// UpdateProposalsAndParameters used to fire from inside processProposalsEndOfEpoch,
+// so a proposal settled by an epoch start block that was later rejected was still
+// pushed to the indexer - an external effect no state rollback can undo. The
+// settlement must still produce the ids, but only the caller may publish them.
+func TestMetaProcessor_RejectedEpochStartWithSettledProposalsShouldNotNotifyIndexer(t *testing.T) {
+	t.Parallel()
+
+	// an epoch start header whose kapp trie root cannot match, so the block is
+	// rejected by the very last verification of processEpochStartBlock - after
+	// the proposals have been settled
+	newHeader := func() *block.Block {
+		hdr := createEpochStartHeaderForProcess()
+		hdr.Header.Epoch = 1
+		hdr.Header.KAppsTrieRoot = []byte("mismatching kapp root hash")
+
+		return hdr
+	}
+
+	// one active proposal for epoch 1, so the settlement yields a non-empty id list
+	seedActiveProposal := func(_ *kapps.ProposalController, kApp state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
+		err := mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{Parameters: map[int32][]byte{1: []byte("1234")}})
+		if err != nil {
+			return nil, err
+		}
+
+		return mp.GetMarshalizer().Marshal(&kapps.ProposalController{
+			ActiveProposals: map[uint32]*kapps.ActiveProposals{
+				1: {ProposalIDs: []uint64{1}},
+			},
+		})
+	}
+
+	indexerCalls := 0
+	newProcessor := func(t *testing.T) *blproc.MetaProcessorForTests {
+		arguments := createMockMetaArguments()
+		arguments.AccountsDB[state.UserAccountsState] = &mock.AccountsStub{
+			JournalLenCalled:       func() int { return 0 },
+			RootHashCalled:         func() ([]byte, error) { return []byte("roothash"), nil },
+			RevertToSnapshotCalled: func(_ int) error { return nil },
+		}
+		arguments.EventsProcessor = &mock.EventsProcessorStub{
+			UpdateProposalsAndParametersCalled: func(_ []string) { indexerCalls++ },
+		}
+
+		mpp, err := blproc.NewMetaProcessor(arguments)
+		require.NoError(t, err)
+
+		mp := blproc.NewMetaProcessorForTests(mpp)
+
+		controller, _ := kapps.NewProposalController(arguments.ForkController)
+		_ = mp.SetProposalController(controller)
+		_ = arguments.KAppController.SetProposalController(controller)
+		_ = arguments.KAppController.GetValidatorsKApp().SetKAppController(arguments.KAppController)
+
+		SetProposal(t, mp, seedActiveProposal)
+
+		return mp
+	}
+
+	// the settlement itself still happens and reports the id to its caller
+	proposalsToIndex, err := newProcessor(t).ProcessProposalsEndOfEpoch(newHeader())
+	require.NoError(t, err)
+	require.Equal(t, []string{"1"}, proposalsToIndex)
+	require.Zero(t, indexerCalls, "settling proposals must not notify the indexer by itself")
+
+	// but a block rejected after the settlement never publishes them
+	err = newProcessor(t).ProcessBlock(newHeader(), haveTime)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), process.ErrRootStateDoesNotMatch.Error())
+	assert.Zero(t, indexerCalls, "a rejected epoch start block must not notify the indexer")
+}
+
+// finalizeProposalUpdates writes the settled parameters straight into the
+// in-memory proposalController, which RevertStateToSnapshot does not cover: it
+// restores every accounts DB, including the KApp trie copy of the controller,
+// but not that map. A rejected epoch start block therefore left the node
+// computing rewards and fees from parameters of a block that never committed.
+//
+// The write stays mid-processing (epochStartNativeStakingKapps reads
+// MaxEpochsUnclaimed back out of it in the same run), so ProcessBlock snapshots
+// the set up front and restores it on failure.
+func TestMetaProcessor_RejectedEpochStartMustRollBackProposalParameters(t *testing.T) {
+	t.Parallel()
+
+	const paramKey = int32(1)
+	settledValue := []byte("1234")
+
+	// an epoch start header whose kapp trie root cannot match, so the block is
+	// rejected after the proposals have already been settled
+	newHeader := func() *block.Block {
+		hdr := createEpochStartHeaderForProcess()
+		hdr.Header.Epoch = 1
+		hdr.Header.KAppsTrieRoot = []byte("mismatching kapp root hash")
+
+		return hdr
+	}
+
+	seedActiveProposal := func(_ *kapps.ProposalController, kApp state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
+		err := mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{
+			Parameters: map[int32][]byte{paramKey: settledValue},
+			Votes:      map[int32]int64{int32(kapps.ProposalData_VoteDetail_Yes): 10},
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return mp.GetMarshalizer().Marshal(&kapps.ProposalController{
+			ActiveProposals: map[uint32]*kapps.ActiveProposals{
+				1: {ProposalIDs: []uint64{1}},
+			},
+		})
+	}
+
+	newProcessor := func(t *testing.T) *blproc.MetaProcessorForTests {
+		arguments := createMockMetaArguments()
+		arguments.AccountsDB[state.UserAccountsState] = &mock.AccountsStub{
+			JournalLenCalled:       func() int { return 0 },
+			RootHashCalled:         func() ([]byte, error) { return []byte("roothash"), nil },
+			RevertToSnapshotCalled: func(_ int) error { return nil },
+		}
+
+		mpp, err := blproc.NewMetaProcessor(arguments)
+		require.NoError(t, err)
+
+		mp := blproc.NewMetaProcessorForTests(mpp)
+
+		controller, _ := kapps.NewProposalController(arguments.ForkController)
+		_ = mp.SetProposalController(controller)
+		_ = arguments.KAppController.SetProposalController(controller)
+		_ = arguments.KAppController.GetValidatorsKApp().SetKAppController(arguments.KAppController)
+
+		SetProposal(t, mp, seedActiveProposal)
+
+		return mp
+	}
+
+	// settling applies the parameter immediately: readers later in the same
+	// epoch start run depend on seeing it
+	mp := newProcessor(t)
+	initialValue := mp.GetActiveParameters()[paramKey].Value
+	require.NotEqual(t, settledValue, initialValue, "the test parameter must actually change")
+
+	_, err := mp.ProcessProposalsEndOfEpoch(newHeader())
+	require.NoError(t, err)
+	require.Equal(t, settledValue, mp.GetActiveParameters()[paramKey].Value,
+		"settling must apply the parameter in place for the rest of the run")
+
+	// but a block rejected afterwards must leave nothing behind
+	mp = newProcessor(t)
+	err = mp.ProcessBlock(newHeader(), haveTime)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), process.ErrRootStateDoesNotMatch.Error())
+	assert.Equal(t, initialValue, mp.GetActiveParameters()[paramKey].Value,
+		"a rejected epoch start block must not leave settled parameters behind")
+}
+
+// Round trip over an epoch start block: the proposer applies the side effects
+// straight away (no trie roots to verify, they are computed from this very
+// execution), the validator applies them only after every root has been
+// verified. Both must end up with the nodes coordinator updated exactly once.
+func TestMetaProcessor_CreateAndProcessEpochStartBlockAppliesSideEffects(t *testing.T) {
+	t.Parallel()
+
+	hash := []byte("hash1")
+	hasher := &mock.HasherStub{}
+	hasher.ComputeCalled = func(_ string) []byte { return hash }
+
+	blkc := &mock.BlockChainMock{
+		GetCurrentBlockHeaderCalled: func() data.HeaderHandler {
+			return &block.Block{Header: &block.BlockHeader{Nonce: 0, Slot: 0}}
+		},
+		GetCurrentBlockHeaderHashCalled: func() []byte { return hash },
+		GetGenesisHeaderCalled: func() data.HeaderHandler {
+			return &block.Block{Header: &block.BlockHeader{Nonce: 0, Slot: 0}}
+		},
+	}
+
+	// two independent nodes, each with its own freshly seeded kapp trie, so the
+	// validator replays the epoch start from the same starting state as the
+	// proposer instead of on top of the proposer's mutations
+	newNode := func(epochs *[]uint32) blproc.ArgMetaProcessor {
+		arguments := createMockMetaArguments()
+		arguments.Hasher = hasher
+		arguments.BlockChain = blkc
+		arguments.EpochStartTrigger = &mock.EpochStartTriggerStub{
+			IsEpochStartCalled: func() bool { return true },
+			EpochCalled:        func() uint32 { return 1 },
+		}
+		arguments.NodesCoordinator = &mock.NodesCoordinatorMock{
+			SetEpochValidatorsInfoCalled: func(epoch uint32, _ []*state.ValidatorInfo) error {
+				*epochs = append(*epochs, epoch)
+				return nil
+			},
+		}
+
+		return arguments
+	}
+
+	newProcessor := func(t *testing.T, arguments blproc.ArgMetaProcessor) process.BlockProcessor {
+		mp, err := blproc.NewMetaProcessor(arguments)
+		require.NoError(t, err)
+
+		pc, _ := kapps.NewProposalController(arguments.ForkController)
+		_ = mp.SetProposalController(pc)
+		_ = arguments.KAppController.SetProposalController(pc)
+		_ = arguments.KAppController.GetValidatorsKApp().SetKAppController(arguments.KAppController)
+
+		return mp
+	}
+
+	proposerEpochs := make([]uint32, 0)
+	proposer := newProcessor(t, newNode(&proposerEpochs))
+
+	createdHdr, err := proposer.CreateBlock(&block.Block{Header: &block.BlockHeader{}}, func() bool { return true })
+	require.NoError(t, err)
+	require.Equal(t, []uint32{1}, proposerEpochs, "the proposer applies the side effects while creating the block")
+
+	hdr, ok := createdHdr.(*block.Block)
+	require.True(t, ok)
+	require.True(t, hdr.GetIsEpochStart())
+
+	hdr.Header.Nonce = 1
+	hdr.Header.Slot = 1
+	hdr.Header.ParentHash = hash
+
+	validatorEpochs := make([]uint32, 0)
+	validator := newProcessor(t, newNode(&validatorEpochs))
+
+	err = validator.ProcessBlock(hdr, haveTime)
+	require.NoError(t, err)
+	assert.Equal(t, []uint32{1}, validatorEpochs, "a verified epoch start block must update the nodes coordinator once")
+}
+
+// verifyFees is the last check of the epoch start path, but it used to run only
+// after processEpochStartBlock had already applied the side effects. A block
+// rejected for mismatching rewards had therefore already updated the nodes
+// coordinator and notified the indexer - the very bypass this fix closes for the
+// three trie roots, left open for the fee check. It is reachable on any current
+// epoch start block, since FixStakingBuckets is already active.
+func TestMetaProcessor_EpochStartWithMismatchingFeesMustNotApplySideEffects(t *testing.T) {
+	t.Parallel()
+
+	hash := []byte("hash1")
+	hasher := &mock.HasherStub{}
+	hasher.ComputeCalled = func(_ string) []byte { return hash }
+
+	blkc := &mock.BlockChainMock{
+		GetCurrentBlockHeaderCalled: func() data.HeaderHandler {
+			return &block.Block{Header: &block.BlockHeader{Nonce: 0, Slot: 0}}
+		},
+		GetCurrentBlockHeaderHashCalled: func() []byte { return hash },
+		GetGenesisHeaderCalled: func() data.HeaderHandler {
+			return &block.Block{Header: &block.BlockHeader{Nonce: 0, Slot: 0}}
+		},
+	}
+
+	newNode := func(epochs *[]uint32) blproc.ArgMetaProcessor {
+		arguments := createMockMetaArguments()
+		arguments.Hasher = hasher
+		arguments.BlockChain = blkc
+		arguments.EpochStartTrigger = &mock.EpochStartTriggerStub{
+			IsEpochStartCalled: func() bool { return true },
+			EpochCalled:        func() uint32 { return 1 },
+		}
+		arguments.NodesCoordinator = &mock.NodesCoordinatorMock{
+			SetEpochValidatorsInfoCalled: func(epoch uint32, _ []*state.ValidatorInfo) error {
+				*epochs = append(*epochs, epoch)
+				return nil
+			},
+		}
+
+		return arguments
+	}
+
+	newProcessor := func(t *testing.T, arguments blproc.ArgMetaProcessor) (process.BlockProcessor, kapps.ActiveProposalController) {
+		mp, err := blproc.NewMetaProcessor(arguments)
+		require.NoError(t, err)
+
+		pc, _ := kapps.NewProposalController(arguments.ForkController)
+		_ = mp.SetProposalController(pc)
+		_ = arguments.KAppController.SetProposalController(pc)
+		_ = arguments.KAppController.GetValidatorsKApp().SetKAppController(arguments.KAppController)
+
+		return mp, pc
+	}
+
+	proposerEpochs := make([]uint32, 0)
+	proposer, _ := newProcessor(t, newNode(&proposerEpochs))
+
+	createdHdr, err := proposer.CreateBlock(&block.Block{Header: &block.BlockHeader{}}, func() bool { return true })
+	require.NoError(t, err)
+
+	hdr, ok := createdHdr.(*block.Block)
+	require.True(t, ok)
+	require.True(t, hdr.GetIsEpochStart())
+
+	hdr.Header.Nonce = 1
+	hdr.Header.Slot = 1
+	hdr.Header.ParentHash = hash
+
+	validatorEpochs := make([]uint32, 0)
+	validator, validatorParams := newProcessor(t, newNode(&validatorEpochs))
+
+	// Disagree with the proposer on BlockRewards only. Tampering with the header
+	// instead would move the kapp trie root as well (verifyKAppRootHash feeds the
+	// header rewards into UpdateKLVCirculationSupply) and the block would be
+	// rejected one check earlier, never reaching verifyFees.
+	validatorParams.UpdateParameters(map[int32]*kapps.Parameter{
+		int32(kapps.EnumParameter_BlockRewards): {Type: kapps.EnumType_Int64, Value: []byte("123456")},
+	})
+	require.NotEqual(t, hdr.GetBlockRewards(),
+		validatorParams.GetParameterInt(kapps.EnumParameter_BlockRewards),
+		"the validator must actually disagree on the rewards")
+
+	err = validator.ProcessBlock(hdr, haveTime)
+	require.ErrorIs(t, err, process.ErrInvalidMiningRewards)
+	assert.Empty(t, validatorEpochs, "a block rejected by verifyFees must not update the nodes coordinator")
+}
+
 // KLR-39: every slot check on the block path was a lower bound, so a header
 // dated ahead of the local chronology was processed and committed. Once
 // committed it stalls the chain, because validateBlockAgainstCurrentHeader then
@@ -1318,7 +2012,10 @@ func TestMetaProcessor_ProcessProposalEndOfEpoch(t *testing.T) {
 		blk    *block.Block
 		perset func(*kapps.ProposalController, state.KAppAccountHandler, *blproc.MetaProcessorForTests) ([]byte, error)
 		check  map[int32][]byte
-		err    interface{}
+		// ids handed back to the caller for the indexer notification, which is
+		// only fired once the block is verified
+		proposalsToIndex []string
+		err              interface{}
 	}{
 		{
 			name: "Error ProposalController",
@@ -1358,6 +2055,46 @@ func TestMetaProcessor_ProcessProposalEndOfEpoch(t *testing.T) {
 			err: common.ErrEmptyString,
 		},
 		{
+			name: "Error Missing Native Staking Data",
+			blk:  &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1, Epoch: 1}},
+			perset: func(_ *kapps.ProposalController, kApp state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
+				err := mp.SetProposalKApp(kApp, 1, &kapps.ProposalData{Parameters: map[int32][]byte{1: []byte("1234")}})
+				if err != nil {
+					return nil, err
+				}
+
+				// wipe the staked KLV entry, so retrieving the staking data fails
+				// after the active proposals have been found
+				adapter := mp.GetKAppAdapter()
+				acnt, err := adapter.LoadAccount(kapps.StakingKAppAddress)
+				if err != nil {
+					return nil, err
+				}
+
+				stakingKApp, ok := acnt.(state.KAppAccountHandler)
+				if !ok {
+					return nil, common.ErrWrongTypeAssertion
+				}
+
+				err = stakingKApp.DataTrieTracker().SaveKeyValue(kdautils.KLVKey, nil)
+				if err != nil {
+					return nil, err
+				}
+
+				err = adapter.SaveAccount(stakingKApp)
+				if err != nil {
+					return nil, err
+				}
+
+				return mp.GetMarshalizer().Marshal(&kapps.ProposalController{
+					ActiveProposals: map[uint32]*kapps.ActiveProposals{
+						1: {ProposalIDs: []uint64{1}},
+					},
+				})
+			},
+			err: common.ErrEmptyString,
+		},
+		{
 			name: "Proposal Denied",
 			blk:  &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1, Epoch: 1}},
 			perset: func(pc *kapps.ProposalController, kApp state.KAppAccountHandler, mp *blproc.MetaProcessorForTests) ([]byte, error) {
@@ -1374,8 +2111,9 @@ func TestMetaProcessor_ProcessProposalEndOfEpoch(t *testing.T) {
 					},
 				})
 			},
-			check: map[int32][]byte{1: []byte("50000000000")},
-			err:   nil,
+			check:            map[int32][]byte{1: []byte("50000000000")},
+			proposalsToIndex: []string{"1"},
+			err:              nil,
 		},
 		{
 			name: "Proposal Approved",
@@ -1394,8 +2132,9 @@ func TestMetaProcessor_ProcessProposalEndOfEpoch(t *testing.T) {
 					},
 				})
 			},
-			check: map[int32][]byte{1: []byte("1234")},
-			err:   nil,
+			check:            map[int32][]byte{1: []byte("1234")},
+			proposalsToIndex: []string{"1"},
+			err:              nil,
 		},
 		{
 			name: "Proposal Approved InvalidValue",
@@ -1428,16 +2167,19 @@ func TestMetaProcessor_ProcessProposalEndOfEpoch(t *testing.T) {
 
 			SetProposal(t, mp, tt.perset)
 
-			err = mp.ProcessProposalsEndOfEpoch(tt.blk)
+			proposalsToIndex, err := mp.ProcessProposalsEndOfEpoch(tt.blk)
 			if tt.err != nil {
 				if str, ok := tt.err.(string); ok {
 					assert.True(t, strings.Contains(err.Error(), str), fmt.Sprintf("expected %s to contain %s", err.Error(), str))
 				} else {
 					assert.Equal(t, tt.err, err, "expected error equal")
 				}
+				assert.Nil(t, proposalsToIndex, "a failed settlement must not hand any id to the indexer")
 			} else {
 				assert.Nil(t, err, "expected no error")
 			}
+
+			assert.Equal(t, tt.proposalsToIndex, proposalsToIndex)
 
 			for k, v := range tt.check {
 				assert.Equal(t, v, mp.GetActiveParameters()[k].Value)

@@ -287,7 +287,11 @@ func (ncm *NodesCoordinatorMock) LoadValidators(validators []*state.ValidatorInf
 }
 
 func (ncm *NodesCoordinatorMock) SetEpochValidatorsInfo(epoch uint32, validatorsInfo []*state.ValidatorInfo) error {
-	return ncm.SetEpochValidatorsInfoCalled(epoch, validatorsInfo)
+	if ncm.SetEpochValidatorsInfoCalled != nil {
+		return ncm.SetEpochValidatorsInfoCalled(epoch, validatorsInfo)
+	}
+
+	return nil
 }
 
 // IsInterfaceNil -
