@@ -810,17 +810,27 @@ func TestHeaderSigVerifier_EpochNodesConfigMissingIsSurfacedIntact(t *testing.T)
 		require.Contains(t, buff.String(), "signature")
 	})
 
-	// The emitted lines must carry the fields an operator needs to count how many
-	// slots the window spans, not just the message.
-	t.Run("emitted lines carry epoch, nonce and slot", func(t *testing.T) {
-		output := buff.String()
+	// A single emitted line must carry the fields an operator needs to count how
+	// many slots the window spans. Asserting on one line rather than on the
+	// accumulated buffer is what makes this meaningful: over the concatenation of
+	// several lines the field assertions would still pass with a field missing
+	// from one of them.
+	t.Run("a single emitted line carries epoch, nonce and slot", func(t *testing.T) {
+		buff.Reset()
 
-		require.Contains(t, output, "missing config for epoch")
-		require.Contains(t, output, "header epoch")
-		require.Contains(t, output, "nonce")
-		require.Contains(t, output, "slot")
-		require.Contains(t, output, "42")
-		require.Contains(t, output, "43")
+		hdrSigVerifier, err := headerCheck.NewHeaderSigVerifier(newArgsRejectingEpochConfig())
+		require.Nil(t, err)
+
+		header := &block.Block{Header: &block.BlockHeader{Epoch: missingEpoch, Nonce: 42, Slot: 43}}
+
+		err = hdrSigVerifier.VerifyRandSeed(header)
+		require.True(t, errors.Is(err, sharding.ErrEpochNodesConfigDoesNotExist), "got %v", err)
+
+		output := buff.String()
+		require.Contains(t, output, "missing config for epoch = 7")
+		require.Contains(t, output, "header epoch = 7")
+		require.Contains(t, output, "nonce = 42")
+		require.Contains(t, output, "slot = 43")
 	})
 
 	// For an epoch-start header both callers verify against the previous epoch,
