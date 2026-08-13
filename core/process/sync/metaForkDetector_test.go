@@ -1,6 +1,7 @@
 package sync_test
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -152,4 +153,70 @@ func TestMetaForkDetector_AddHeaderHigherNonceThanSlotShouldErr(t *testing.T) {
 		nil,
 	)
 	assert.Equal(t, sync.ErrHigherNonceInBlock, err)
+}
+
+// isConsensusStuck derives its slot lag the same way the bootstrapper does, and
+// on this path the wrapped value does not merely trigger a wasted header request:
+// it produces the ForkInfo that isForcedRollBackOneBlock matches, so the node
+// reverts a block it just committed. checkBlockBasicValidity deliberately accepts
+// headers one slot ahead of the local index, so a node whose clock trails its
+// peers reaches this state without any peer misbehaving.
+func TestMetaForkDetector_CheckForkNoForcedRollBackWhenCheckpointIsAheadOfSlotIndex(t *testing.T) {
+	t.Parallel()
+
+	// A multiple of process.SlotModulusTrigger, so IsInProperSlot holds and only
+	// the underflow guard can keep the forced rollback from firing.
+	const laggingSlotIndex = int64(50)
+	const checkpointSlot = uint64(100)
+
+	sloterMock := &consensusMock.SlotManagerMock{
+		SlotIndex:          int64(checkpointSlot),
+		TimeDurationCalled: func() time.Duration { return 0 },
+	}
+	bfd, err := sync.NewMetaForkDetector(sloterMock, &mock.BlackListHandlerStub{}, 0)
+	assert.Nil(t, err)
+
+	hdr := &block.Block{Header: &block.BlockHeader{Nonce: 5, Slot: checkpointSlot}}
+	err = bfd.AddHeader(hdr, []byte("hash"), process.BHProcessed, nil, nil)
+	assert.Nil(t, err)
+	assert.Equal(t, checkpointSlot, bfd.LastCheckpointSlot())
+
+	// The local slot index now trails the committed block's slot.
+	sloterMock.SlotIndex = laggingSlotIndex
+
+	forkInfo := bfd.CheckFork()
+
+	assert.False(t, forkInfo.IsDetected)
+}
+
+// The counterpart of the guard above: with the checkpoint genuinely behind the
+// slot index, the consensus-stuck detection must still fire. Without this the
+// guard could disable the mechanism entirely and no test would notice.
+func TestMetaForkDetector_CheckForkStillDetectsStuckConsensusWhenCheckpointIsBehind(t *testing.T) {
+	t.Parallel()
+
+	// A multiple of process.SlotModulusTrigger, with a lag well past
+	// process.MaxSlotsWithoutCommittedBlock.
+	const checkpointSlot = uint64(1)
+	const laggingSlotIndex = int64(50)
+
+	sloterMock := &consensusMock.SlotManagerMock{
+		SlotIndex:          int64(checkpointSlot),
+		TimeDurationCalled: func() time.Duration { return 0 },
+	}
+	bfd, err := sync.NewMetaForkDetector(sloterMock, &mock.BlackListHandlerStub{}, 0)
+	assert.Nil(t, err)
+
+	hdr := &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: checkpointSlot}}
+	err = bfd.AddHeader(hdr, []byte("hash"), process.BHProcessed, nil, nil)
+	assert.Nil(t, err)
+
+	sloterMock.SlotIndex = laggingSlotIndex
+
+	forkInfo := bfd.CheckFork()
+
+	assert.True(t, forkInfo.IsDetected)
+	// The shape isForcedRollBackOneBlock matches.
+	assert.Equal(t, uint64(math.MaxUint64), forkInfo.Nonce)
+	assert.Nil(t, forkInfo.Hash)
 }
