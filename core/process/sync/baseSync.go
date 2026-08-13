@@ -376,6 +376,16 @@ func (boot *baseBootstrap) shouldTryToRequestHeaders() bool {
 	// that forced-rollback loop: once a requested header lands, isSyncing() turns
 	// true and the next stuck check stands down.
 	//
+	// Import mode is excluded because the once-per-slot bound below does not hold
+	// there: GetNodeState always answers NsNotSynchronized while importing, so
+	// syncBlock never takes its early return, the defer clearing
+	// isNodeStateCalculated runs on every pass, and computeNodeState re-enters
+	// every sleepTime. Replaying historical blocks also produces an unbounded
+	// slot lag by construction, and there are no peers to request from.
+	if boot.isInImportMode {
+		return false
+	}
+
 	// Fires at most once per slot, because syncBlock returns before registering
 	// the defer that clears isNodeStateCalculated, so computeNodeState short
 	// circuits for the rest of the slot while the node believes it is synced.
@@ -628,6 +638,12 @@ func (boot *baseBootstrap) syncBlock() error {
 	boot.computeNodeState()
 	nodeState := boot.GetNodeState()
 	if nodeState != core.NsNotSynchronized {
+		// Returning here leaves isNodeStateCalculated set, so computeNodeState
+		// short circuits for the rest of the slot. That is what bounds the
+		// slot-lag warning and the stuck-request goroutine in
+		// shouldTryToRequestHeaders to once per slot rather than once per
+		// sleepTime. Hoisting the defer above this return would make both fire
+		// on every loop iteration.
 		return nil
 	}
 

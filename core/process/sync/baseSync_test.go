@@ -1,6 +1,8 @@
 package sync
 
 import (
+	"errors"
+	"fmt"
 	"math"
 	"testing"
 
@@ -97,6 +99,26 @@ func TestShouldTryToRequestHeaders_SyncedNodeReactsToSlotLagOnEverySlot(t *testi
 		assert.Equal(t, expected, boot.shouldTryToRequestHeaders(),
 			"slot index %d, lag %d", slotIndex, slotIndex)
 	}
+}
+
+// Import mode replays historical blocks, so the slot lag is unbounded by
+// construction and there are no peers to request from. It also lacks the
+// once-per-slot latch the branch relies on, since GetNodeState always answers
+// NsNotSynchronized while importing, which would put the warning and the request
+// goroutine on the 5 ms sync loop instead.
+func TestShouldTryToRequestHeaders_ImportModeIgnoresSlotLag(t *testing.T) {
+	t.Parallel()
+
+	boot := newBootstrapForRequestGating(100, 0, headerAtSlot(0))
+	boot.isNodeSynchronized = true
+	boot.isInImportMode = true
+
+	assert.False(t, boot.shouldTryToRequestHeaders())
+
+	// The very same lag outside import mode does trigger a request, so the
+	// assertion above cannot pass for the wrong reason.
+	boot.isInImportMode = false
+	assert.True(t, boot.shouldTryToRequestHeaders())
 }
 
 func TestShouldTryToRequestHeaders_NotSynchronizedAlwaysRequests(t *testing.T) {
@@ -241,5 +263,75 @@ func TestRequestHeadersIfSyncIsStuck(t *testing.T) {
 		boot.requestHeadersIfSyncIsStuck()
 
 		assert.Empty(t, stub.requestedNonces)
+	})
+}
+
+// doJobOnSyncBlockFail decides whether a failed sync attempt rolls the chain
+// back. The decision hinges on comparing the failure against
+// process.ErrTimeIsOut: a timeout is expected and must not roll back, anything
+// else must. Comparing with != instead of errors.Is silently rolls back on a
+// wrapped timeout, so both forms are pinned here.
+func TestDoJobOnSyncBlockFail(t *testing.T) {
+	t.Parallel()
+
+	// Not a multiple of process.SlotModulusTrigger, so the synced-with-errors
+	// limit branch cannot reach the rollback and only the error decides.
+	const notAProperSlot = int64(3)
+
+	newBoot := func() (*baseBootstrap, *bool) {
+		rolledBack := false
+		boot := newBootstrapForRequestGating(notAProperSlot, 0, headerAt(1, 1))
+		boot.mapNonceSyncedWithErrors = make(map[uint64]uint32)
+		boot.marshalizer = &mock.MarshalizerMock{}
+		boot.hasher = &mock.HasherMock{}
+		boot.headers = &mock.HeadersCacherStub{}
+		boot.forkDetector = &mock.ForkDetectorMock{
+			ProbableHighestNonceCalled: func() uint64 { return 0 },
+			RemoveHeaderCalled: func(_ uint64, _ []byte) {
+				// Reached only from inside the rollback branch, and before
+				// rollBack itself, which bails out on the nil header store.
+				rolledBack = true
+			},
+		}
+
+		return boot, &rolledBack
+	}
+
+	header := headerAt(1, 1)
+
+	t.Run("plain timeout does not roll back", func(t *testing.T) {
+		t.Parallel()
+
+		boot, rolledBack := newBoot()
+		boot.doJobOnSyncBlockFail(header, process.ErrTimeIsOut)
+
+		assert.False(t, *rolledBack)
+	})
+
+	t.Run("wrapped timeout does not roll back", func(t *testing.T) {
+		t.Parallel()
+
+		boot, rolledBack := newBoot()
+		boot.doJobOnSyncBlockFail(header, fmt.Errorf("process block: %w", process.ErrTimeIsOut))
+
+		assert.False(t, *rolledBack)
+	})
+
+	t.Run("any other error rolls back", func(t *testing.T) {
+		t.Parallel()
+
+		boot, rolledBack := newBoot()
+		boot.doJobOnSyncBlockFail(header, errors.New("something else"))
+
+		assert.True(t, *rolledBack)
+	})
+
+	t.Run("no header means processing never started, so no roll back", func(t *testing.T) {
+		t.Parallel()
+
+		boot, rolledBack := newBoot()
+		boot.doJobOnSyncBlockFail(nil, errors.New("something else"))
+
+		assert.False(t, *rolledBack)
 	})
 }
