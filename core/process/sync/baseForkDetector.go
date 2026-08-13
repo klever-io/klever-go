@@ -604,7 +604,19 @@ func (bfd *baseForkDetector) isConsensusStuck() bool {
 		return false
 	}
 
-	slotsDifference := tools.SafeI64ToU64(bfd.slotManager.Index()) - bfd.lastCheckpoint().slot
+	currentSlot := tools.SafeI64ToU64(bfd.slotManager.Index())
+	lastCheckpointSlot := bfd.lastCheckpoint().slot
+	if currentSlot < lastCheckpointSlot {
+		// The last checkpoint is ahead of our own slot index, so no slots have
+		// elapsed since it. Subtracting would wrap around on uint64 and report an
+		// enormous lag, which clears the threshold below and forces a rollback of
+		// a block that was just committed. checkBlockBasicValidity deliberately
+		// accepts headers one slot ahead of the local index, so a node whose clock
+		// trails its peers can reach this state without any peer misbehaving.
+		return false
+	}
+
+	slotsDifference := currentSlot - lastCheckpointSlot
 	if slotsDifference <= process.MaxSlotsWithoutCommittedBlock {
 		return false
 	}
