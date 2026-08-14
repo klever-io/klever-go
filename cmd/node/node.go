@@ -281,17 +281,7 @@ type createNodesCoordinatorArgs struct {
 }
 
 func createNodesCoordinator(args createNodesCoordinatorArgs) (sharding.NodesCoordinator, error) {
-	nodesConfig := args.nodesConfig
-	coreComponents := args.coreComponents
-	cryptoParams := args.cryptoParams
-	epochStartNotifier := args.epochStartNotifier
-	bootStorer := args.bootStorer
-	nodeShuffler := args.nodeShuffler
-	bootstrapParameters := args.bootstrapParameters
-	startEpoch := args.startEpoch
-	fixJailedPromotionOrderEpoch := args.fixJailedPromotionOrderEpoch
-
-	electedNodesInfo, eligibleNodesInfo, err := nodesConfig.InitialNodesInfo()
+	electedNodesInfo, eligibleNodesInfo, err := args.nodesConfig.InitialNodesInfo()
 	if err != nil {
 		return nil, err
 	}
@@ -306,23 +296,13 @@ func createNodesCoordinator(args createNodesCoordinatorArgs) (sharding.NodesCoor
 		return nil, err
 	}
 
-	currentEpoch := startEpoch
-	if bootstrapParameters.NodesConfig != nil {
-		nodeRegistry := bootstrapParameters.NodesConfig
-		currentEpoch = bootstrapParameters.Epoch
-		epochsConfig, ok := nodeRegistry.EpochsConfig[fmt.Sprintf("%d", currentEpoch)]
-		if ok {
-			elected := epochsConfig.ElectedValidators
-			electedValidators, err = sharding.SerializableValidatorsToValidators(elected)
-			if err != nil {
-				return nil, err
-			}
-
-			eligibles := epochsConfig.EligibleValidators
-			eligibleValidators, err = sharding.SerializableValidatorsToValidators(eligibles)
-			if err != nil {
-				return nil, err
-			}
+	currentEpoch := args.startEpoch
+	if args.bootstrapParameters.NodesConfig != nil {
+		currentEpoch = args.bootstrapParameters.Epoch
+		electedValidators, eligibleValidators, err = registryValidatorsForEpoch(
+			args.bootstrapParameters.NodesConfig, currentEpoch, electedValidators, eligibleValidators)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -331,33 +311,28 @@ func createNodesCoordinator(args createNodesCoordinatorArgs) (sharding.NodesCoor
 		return nil, err
 	}
 
-	pubKeyBytes, err := cryptoParams.PublicKey.ToByteArray()
+	pubKeyBytes, err := args.cryptoParams.PublicKey.ToByteArray()
 	if err != nil {
 		return nil, err
 	}
 
 	arguments := sharding.ArgNodesCoordinator{
-		ConsensusGroupSize:           int(nodesConfig.ConsensusGroupSize),
-		Marshalizer:                  coreComponents.InternalMarshalizer,
-		Hasher:                       coreComponents.Hasher,
-		Shuffler:                     nodeShuffler,
-		EpochStartNotifier:           epochStartNotifier,
-		BootStorer:                   bootStorer,
+		ConsensusGroupSize:           int(args.nodesConfig.ConsensusGroupSize),
+		Marshalizer:                  args.coreComponents.InternalMarshalizer,
+		Hasher:                       args.coreComponents.Hasher,
+		Shuffler:                     args.nodeShuffler,
+		EpochStartNotifier:           args.epochStartNotifier,
+		BootStorer:                   args.bootStorer,
 		ElectedNodes:                 electedValidators,
 		EligibleNodes:                eligibleValidators,
 		SelfPublicKey:                pubKeyBytes,
 		ConsensusGroupCache:          consensusGroupCache,
 		Epoch:                        currentEpoch,
-		StartEpoch:                   startEpoch,
-		FixJailedPromotionOrderEpoch: fixJailedPromotionOrderEpoch,
-	}
-
-	if len(bootstrapParameters.CurrEpochValidatorsInfo) > 0 {
-		arguments.CurrValidatorsInfo = bootstrapParameters.CurrEpochValidatorsInfo
-	}
-
-	if len(bootstrapParameters.PrevEpochValidatorsInfo) > 0 {
-		arguments.PrevValidatorsInfo = bootstrapParameters.PrevEpochValidatorsInfo
+		StartEpoch:                   args.startEpoch,
+		FixJailedPromotionOrderEpoch: args.fixJailedPromotionOrderEpoch,
+		// NewNodesCoordinator only stores these when non-empty, so no guards needed
+		CurrValidatorsInfo: args.bootstrapParameters.CurrEpochValidatorsInfo,
+		PrevValidatorsInfo: args.bootstrapParameters.PrevEpochValidatorsInfo,
 	}
 
 	nodesCoordinator, err := sharding.NewNodesCoordinator(arguments)
@@ -365,34 +340,75 @@ func createNodesCoordinator(args createNodesCoordinatorArgs) (sharding.NodesCoor
 		return nil, err
 	}
 
-	if bootstrapParameters.NodesConfig != nil {
-		nodeRegistry := bootstrapParameters.NodesConfig
-		prevEpochsConfig, ok := nodeRegistry.EpochsConfig[fmt.Sprintf("%d", currentEpoch-1)]
-		if ok {
-			elected := prevEpochsConfig.ElectedValidators
-			electedValidators, err = sharding.SerializableValidatorsToValidators(elected)
-			if err != nil {
-				return nil, err
-			}
-
-			eligibles := prevEpochsConfig.EligibleValidators
-			eligibleValidators, err = sharding.SerializableValidatorsToValidators(eligibles)
-			if err != nil {
-				return nil, err
-			}
-
-			waiting := prevEpochsConfig.WaitingValidators
-			waitingValidators, err := sharding.SerializableValidatorsToValidators(waiting)
-			if err != nil {
-				return nil, err
-			}
-
-			err = nodesCoordinator.SetNodes(electedValidators, eligibleValidators, waitingValidators, currentEpoch-1)
-			if err != nil {
-				return nil, err
-			}
+	if args.bootstrapParameters.NodesConfig != nil {
+		err = restorePreviousEpochNodes(nodesCoordinator, args.bootstrapParameters.NodesConfig, currentEpoch)
+		if err != nil {
+			return nil, err
 		}
 	}
 
 	return nodesCoordinator, nil
+}
+
+// registryValidatorsForEpoch returns the elected and eligible validators stored
+// in the bootstrap registry for the given epoch, or the provided defaults when
+// the registry has no entry for that epoch
+func registryValidatorsForEpoch(
+	nodeRegistry *sharding.NodesCoordinatorRegistry,
+	epoch uint32,
+	defaultElected []sharding.Validator,
+	defaultEligible []sharding.Validator,
+) ([]sharding.Validator, []sharding.Validator, error) {
+	epochsConfig, ok := nodeRegistry.EpochsConfig[fmt.Sprintf("%d", epoch)]
+	if !ok {
+		return defaultElected, defaultEligible, nil
+	}
+
+	electedValidators, err := sharding.SerializableValidatorsToValidators(epochsConfig.ElectedValidators)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	eligibleValidators, err := sharding.SerializableValidatorsToValidators(epochsConfig.EligibleValidators)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return electedValidators, eligibleValidators, nil
+}
+
+// epochNodesSetter is the slice of the coordinator needed to restore the
+// previous epoch's lists; the concrete NewNodesCoordinator result implements it
+type epochNodesSetter interface {
+	SetNodes(elected []sharding.Validator, eligible []sharding.Validator, waiting []sharding.Validator, epoch uint32) error
+}
+
+// restorePreviousEpochNodes loads the previous epoch's validator lists from the
+// bootstrap registry, when present, and sets them on the coordinator
+func restorePreviousEpochNodes(
+	nodesCoordinator epochNodesSetter,
+	nodeRegistry *sharding.NodesCoordinatorRegistry,
+	currentEpoch uint32,
+) error {
+	prevEpochsConfig, ok := nodeRegistry.EpochsConfig[fmt.Sprintf("%d", currentEpoch-1)]
+	if !ok {
+		return nil
+	}
+
+	electedValidators, err := sharding.SerializableValidatorsToValidators(prevEpochsConfig.ElectedValidators)
+	if err != nil {
+		return err
+	}
+
+	eligibleValidators, err := sharding.SerializableValidatorsToValidators(prevEpochsConfig.EligibleValidators)
+	if err != nil {
+		return err
+	}
+
+	waitingValidators, err := sharding.SerializableValidatorsToValidators(prevEpochsConfig.WaitingValidators)
+	if err != nil {
+		return err
+	}
+
+	return nodesCoordinator.SetNodes(electedValidators, eligibleValidators, waitingValidators, currentEpoch-1)
 }
