@@ -1,18 +1,23 @@
 package sync
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common/mock"
 	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/statusHandler"
 	"github.com/klever-io/klever-go/storage"
 )
 
@@ -72,8 +77,8 @@ func newBootstrapForRequestGating(
 			},
 		},
 		forkInfo: &process.ForkInfo{},
-		// Populated even for the predicate tests: shouldTryToRequestHeaders logs
-		// the fork detector's nonce, so a nil here panics instead of failing.
+		// Needed by requestHeadersIfSyncIsStuck, whose logging reads the fork
+		// detector's nonce; the predicate itself is side-effect-free.
 		forkDetector: &mock.ForkDetectorMock{
 			ProbableHighestNonceCalled: func() uint64 { return 0 },
 		},
@@ -226,7 +231,7 @@ func TestRequestHeadersIfSyncIsStuck(t *testing.T) {
 
 		// Lag is exactly MaxSlotsWithoutNewBlockReceived, so the guard holds.
 		boot, stub := newBoot(int64(process.MaxSlotsWithoutNewBlockReceived), headerAt(0, 7))
-		boot.requestHeadersIfSyncIsStuck()
+		boot.requestHeadersIfSyncIsStuck(false)
 
 		assert.Empty(t, stub.requestedNonces)
 	})
@@ -236,7 +241,7 @@ func TestRequestHeadersIfSyncIsStuck(t *testing.T) {
 
 		// Lag 11 -> min(20, 10) = 10 headers, starting at nonce 8.
 		boot, stub := newBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
-		boot.requestHeadersIfSyncIsStuck()
+		boot.requestHeadersIfSyncIsStuck(false)
 
 		assert.Equal(t, []uint64{8, 9, 10, 11, 12, 13, 14, 15, 16, 17}, stub.requestedNonces)
 	})
@@ -246,7 +251,7 @@ func TestRequestHeadersIfSyncIsStuck(t *testing.T) {
 
 		// Lag 500 would ask for 499, the cap holds it to 20.
 		boot, stub := newBoot(500, headerAt(0, 7))
-		boot.requestHeadersIfSyncIsStuck()
+		boot.requestHeadersIfSyncIsStuck(false)
 
 		assert.Len(t, stub.requestedNonces, process.MaxHeadersToRequestInAdvance)
 		assert.Equal(t, uint64(8), stub.requestedNonces[0])
@@ -260,7 +265,7 @@ func TestRequestHeadersIfSyncIsStuck(t *testing.T) {
 		t.Parallel()
 
 		boot, stub := newBoot(50, headerAt(100, 7))
-		boot.requestHeadersIfSyncIsStuck()
+		boot.requestHeadersIfSyncIsStuck(false)
 
 		assert.Empty(t, stub.requestedNonces)
 	})
@@ -334,4 +339,156 @@ func TestDoJobOnSyncBlockFail(t *testing.T) {
 
 		assert.False(t, *rolledBack)
 	})
+}
+
+// newStuckRequestBoot builds the fixture requestHeadersIfSyncIsStuck needs: the
+// gating fixture plus a recording blockBootstrapper.
+func newStuckRequestBoot(slotIndex int64, currentHeader data.HeaderHandler) (*baseBootstrap, *blockBootstrapperStub) {
+	stub := &blockBootstrapperStub{}
+	boot := newBootstrapForRequestGating(slotIndex, 0, currentHeader)
+	boot.blockBootstrapper = stub
+
+	return boot, stub
+}
+
+// The once-per-slot cap must be enforced by the function itself, not by how
+// often callers happen to invoke it: before lastStuckRequestSlot existed the
+// bound depended on computeNodeState's memoization, which a refactor in
+// syncBlock could silently remove with every test still green.
+func TestRequestHeadersIfSyncIsStuck_FiresAtMostOncePerSlot(t *testing.T) {
+	t.Parallel()
+
+	boot, stub := newStuckRequestBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
+
+	boot.requestHeadersIfSyncIsStuck(false)
+	firstBurst := len(stub.requestedNonces)
+	assert.Equal(t, 10, firstBurst)
+
+	// Same slot: a second invocation must not produce a second burst.
+	boot.requestHeadersIfSyncIsStuck(false)
+	assert.Len(t, stub.requestedNonces, firstBurst)
+
+	// Next slot: the cap releases and the burst fires again.
+	boot.slotManager.(*consensusMock.SlotManagerMock).SlotIndex++
+	boot.requestHeadersIfSyncIsStuck(false)
+	assert.Greater(t, len(stub.requestedNonces), firstBurst)
+}
+
+type stallWarnFormatter struct {
+	logger.PlainFormatter
+}
+
+func (f *stallWarnFormatter) Output(line logger.LogLineHandler) []byte {
+	if line.GetMessage() != "node believes it is synchronized but has not committed a block for a while" {
+		return nil
+	}
+
+	return f.PlainFormatter.Output(line)
+}
+
+// The warning must fire exactly when the burst was decided while the node
+// believed it was synchronized: that state advertises NsSynchronized with
+// MetricIsSyncing at 0, so this line is its only signal. An honestly syncing
+// node passing through the same code path is just catching up and must stay
+// quiet. Not parallel: it registers a global log observer.
+func TestRequestHeadersIfSyncIsStuck_WarnsOnlyWhenStalledWhileSynced(t *testing.T) {
+	buff := &bytes.Buffer{}
+	require.Nil(t, logger.AddLogObserver(buff, &stallWarnFormatter{}))
+	t.Cleanup(func() {
+		require.Nil(t, logger.RemoveLogObserver(buff))
+	})
+
+	t.Run("warns when the node believed it was synchronized", func(t *testing.T) {
+		buff.Reset()
+		boot, _ := newStuckRequestBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
+
+		boot.requestHeadersIfSyncIsStuck(true)
+
+		require.Contains(t, buff.String(), "node believes it is synchronized")
+		require.Contains(t, buff.String(), "slots since last committed block")
+	})
+
+	t.Run("stays silent while honestly syncing", func(t *testing.T) {
+		buff.Reset()
+		boot, stub := newStuckRequestBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
+
+		boot.requestHeadersIfSyncIsStuck(false)
+
+		require.NotEmpty(t, stub.requestedNonces, "the burst itself must still fire")
+		require.Empty(t, buff.String())
+	})
+
+	t.Run("warning shares the once-per-slot cap", func(t *testing.T) {
+		buff.Reset()
+		boot, _ := newStuckRequestBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
+
+		boot.requestHeadersIfSyncIsStuck(true)
+		firstLen := buff.Len()
+		require.Greater(t, firstLen, 0)
+
+		boot.requestHeadersIfSyncIsStuck(true)
+		require.Equal(t, firstLen, buff.Len())
+	})
+}
+
+// signalingBlockBootstrapperStub closes done once the full burst has been
+// requested, giving the wiring test below a race-free point to observe the
+// goroutine's output.
+type signalingBlockBootstrapperStub struct {
+	blockBootstrapperStub
+	remaining int
+	done      chan struct{}
+}
+
+func (s *signalingBlockBootstrapperStub) requestHeaderByNonce(nonce uint64) {
+	s.blockBootstrapperStub.requestHeaderByNonce(nonce)
+	s.remaining--
+	if s.remaining == 0 {
+		close(s.done)
+	}
+}
+
+// Pins the spawn-site wiring in computeNodeState: the goroutine must receive
+// the freshly computed isNodeSynchronized. Every other test injects that flag
+// directly, so with the argument hard-wired to false at the spawn site the
+// package would stay green while the stalled state loses its only signal.
+// Not parallel: it registers a global log observer.
+func TestComputeNodeState_StalledWhileSyncedWiresWarnIntoBurst(t *testing.T) {
+	buff := &bytes.Buffer{}
+	require.Nil(t, logger.AddLogObserver(buff, &stallWarnFormatter{}))
+	t.Cleanup(func() {
+		require.Nil(t, logger.RemoveLogObserver(buff))
+	})
+
+	stub := &signalingBlockBootstrapperStub{
+		remaining: process.MaxHeadersToRequestInAdvance,
+		done:      make(chan struct{}),
+	}
+
+	// Last committed block at slot 0 / nonce 7 while the slot index is 30: a
+	// stalled node. The fork detector reports no fork and a probable highest
+	// nonce equal to the committed one, which is exactly the frozen state that
+	// computes isNodeSynchronized as true.
+	boot := newBootstrapForRequestGating(30, 0, headerAt(0, 7))
+	boot.blockBootstrapper = stub
+	boot.hasStarted = true
+	boot.statusHandler = statusHandler.NewNilStatusHandler()
+	boot.networkWatcher = &mock.MessengerStub{
+		IsConnectedToTheNetworkCalled: func() bool { return true },
+	}
+	boot.forkDetector = &mock.ForkDetectorMock{
+		CheckForkCalled:            func() *process.ForkInfo { return process.NewForkInfo() },
+		ProbableHighestNonceCalled: func() uint64 { return 7 },
+	}
+
+	boot.computeNodeState()
+	require.True(t, boot.isNodeSynchronized)
+
+	select {
+	case <-stub.done:
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "the stuck-recovery burst never fired")
+	}
+
+	require.Contains(t, buff.String(), "node believes it is synchronized but has not committed a block for a while")
 }

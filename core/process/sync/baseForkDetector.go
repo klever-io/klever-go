@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/klever-io/klever-go/core/consensus"
@@ -52,6 +53,10 @@ type baseForkDetector struct {
 	genesisSlot        uint64
 	maxForkHeaderEpoch uint32
 	tmpStuck           time.Time
+	// lastCheckpointAheadWarnSlot throttles the checkpoint-ahead warning to once
+	// per slot; CheckFork can run on every sync-loop iteration while the node is
+	// not synchronized.
+	lastCheckpointAheadWarnSlot atomic.Int64
 }
 
 // SetRollBackNonce sets the nonce where the chain should roll back
@@ -606,17 +611,18 @@ func (bfd *baseForkDetector) isConsensusStuck() bool {
 
 	currentSlot := tools.SafeI64ToU64(bfd.slotManager.Index())
 	lastCheckpointSlot := bfd.lastCheckpoint().slot
-	if currentSlot < lastCheckpointSlot {
+	slotsDifference, err := tools.SafeSubUint64(currentSlot, lastCheckpointSlot)
+	if err != nil {
 		// The last checkpoint is ahead of our own slot index, so no slots have
 		// elapsed since it. Subtracting would wrap around on uint64 and report an
 		// enormous lag, which clears the threshold below and forces a rollback of
 		// a block that was just committed. checkBlockBasicValidity deliberately
 		// accepts headers one slot ahead of the local index, so a node whose clock
 		// trails its peers can reach this state without any peer misbehaving.
+		bfd.warnOnceCheckpointAheadOfSlotIndex(currentSlot, lastCheckpointSlot)
 		return false
 	}
 
-	slotsDifference := currentSlot - lastCheckpointSlot
 	if slotsDifference <= process.MaxSlotsWithoutCommittedBlock {
 		return false
 	}
@@ -626,6 +632,31 @@ func (bfd *baseForkDetector) isConsensusStuck() bool {
 	}
 
 	return true
+}
+
+// warnOnceCheckpointAheadOfSlotIndex surfaces the clock-trails-tip state. While
+// it lasts, the node is otherwise silent: incoming headers are dropped below the
+// default log level because their slot exceeds the local index, the
+// bootstrapper's slot lag reads zero so its stall warning cannot fire, and the
+// node keeps reporting NsSynchronized. After an NTP step-back or a VM resume
+// this can hold for a long time, so this line is the only operator-visible
+// signal. Throttled to once per slot because CheckFork runs on every sync-loop
+// iteration while the node is not synchronized.
+//
+// The format does happen under mutNodeState, since CheckFork's only production
+// caller holds it. That is accepted here, unlike for the stall warning that was
+// moved out of that lock: the throttle caps this at one format per slot, and
+// the state has no out-of-lock observer to move it to.
+func (bfd *baseForkDetector) warnOnceCheckpointAheadOfSlotIndex(currentSlot uint64, checkpointSlot uint64) {
+	slotIndex := bfd.slotManager.Index()
+	if bfd.lastCheckpointAheadWarnSlot.Swap(slotIndex) == slotIndex {
+		return
+	}
+
+	log.Warn("last checkpoint is ahead of the local slot index, node clock appears to trail the network",
+		"local slot index", currentSlot,
+		"checkpoint slot", checkpointSlot,
+		"checkpoint nonce", bfd.lastCheckpoint().nonce)
 }
 
 func (bfd *baseForkDetector) isSyncing() bool {
