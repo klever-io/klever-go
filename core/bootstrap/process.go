@@ -562,6 +562,7 @@ func (e *epochStartBootstrap) processNodesConfig(pubKey []byte, epochStartValida
 		Hasher:             e.hasher,
 		PubKey:             pubKey,
 	}
+	argsNewValidatorStatusSyncers.FixJailedPromotionOrderEpoch = e.generalConfig.EnableEpochs.FixJailedPromotionOrder
 	e.nodesConfigHandler, err = NewSyncValidatorStatus(argsNewValidatorStatusSyncers)
 	if err != nil {
 		return err

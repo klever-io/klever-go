@@ -32,6 +32,7 @@ type EnableEpochs struct {
 	FixAuditChangesV3       uint32 `yaml:"fixAuditChangesV3"`
 	FixAuditChangesV4       uint32 `yaml:"fixAuditChangesV4"`
 	FixAuditChangesV5       uint32 `yaml:"fixAuditChangesV5"`
+	FixJailedPromotionOrder uint32 `yaml:"fixJailedPromotionOrder"`
 }
 
 // Validate checks that the configured activation epochs are mutually consistent. It runs
