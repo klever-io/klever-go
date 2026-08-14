@@ -41,6 +41,18 @@ p2p:
   # resourceManager:
   #   strategy: scaled
   #   scaledMemoryMiB: 16384
+  # Optional caps on the inbound direct-send streams this node accepts (KLC-2433).
+  # Omitting this section, or leaving a knob at 0, keeps the built-in defaults:
+  # 4 streams per peer and 512 across all peers. A well-behaved peer reuses a
+  # single direct-send stream, so the per-peer default is headroom for
+  # reset/reopen churn; the node-wide cap bounds reader goroutines when a source
+  # rotates peer identities. Raise them only if legitimate traffic is refused —
+  # the node logs "refusing inbound direct stream" when a cap is hit. Negative
+  # values are a configuration error and the node refuses to start.
+  #
+  # directSend:
+  #   maxInboundStreamsPerPeer: 4
+  #   maxInboundStreamsTotal: 512
 
 logs:
   logFileLifeSpanInSec: 86400

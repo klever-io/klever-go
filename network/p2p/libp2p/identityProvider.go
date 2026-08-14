@@ -17,6 +17,10 @@ import (
 const authProtocolID = "klever-node-auth/0.0.1"
 const maxBytesToReceive = 1024
 
+// authWriteTimeout bounds the one-shot auth payload write so a peer that accepts the stream but
+// never reads cannot pin the writer goroutine. KLC-2433 residual hardening.
+const authWriteTimeout = time.Second * 10
+
 type identityProvider struct {
 	host                     host.Host
 	networkShardingCollector p2p.NetworkShardingCollector
@@ -79,15 +83,31 @@ func (ip *identityProvider) Connected(_ network.Network, conn network.Conn) {
 		buff, err := ip.createPayload()
 		if err != nil {
 			log.Warn("identity provider can not create payload", "error", err.Error())
+			_ = s.Reset()
+			return
+		}
+
+		// Fail closed, as the direct-send reader does: on a transport where the deadline does not
+		// take, authWriteTimeout would silently become a no-op and the write unbounded — exactly
+		// the "peer accepts but never reads" case it exists for.
+		errDeadline := s.SetWriteDeadline(time.Now().Add(authWriteTimeout))
+		if errDeadline != nil {
+			log.Debug("identity provider cannot set write deadline, resetting stream",
+				"error", errDeadline.Error())
+			_ = s.Reset()
 			return
 		}
 
 		_, err = s.Write(buff)
 		if err != nil {
 			log.Debug("identity provider write", "error", err.Error())
+			_ = s.Reset()
 			return
 		}
 
+		// The auth payload is one-shot: close so neither side pins the stream for the
+		// connection's lifetime.
+		_ = s.Close()
 		log.Trace("message sent", "payload hex", hex.EncodeToString(buff))
 	}()
 }
@@ -124,8 +144,10 @@ func (ip *identityProvider) createPayload() ([]byte, error) {
 }
 
 func (ip *identityProvider) handleStreams(s network.Stream) {
-	chError := make(chan error)
-	chData := make(chan []byte)
+	// Buffered so the reader goroutine's single send never blocks after the timeout case below
+	// abandons the select — an unbuffered send would leak the goroutine forever.
+	chError := make(chan error, 1)
+	chData := make(chan []byte, 1)
 
 	go func() {
 		buff := make([]byte, maxBytesToReceive)
@@ -146,11 +168,15 @@ func (ip *identityProvider) handleStreams(s network.Stream) {
 		if err != nil {
 			log.Debug("identity provider processReceivedData", "error", err)
 		}
+		// The auth exchange is one-shot: close so the peer cannot park the stream open forever.
+		_ = s.Close()
 	case err := <-chError:
 		log.Debug("identity provider read", "error", err.Error())
 		_ = s.Close()
 	case <-time.After(ip.receiveTimeout):
 		log.Debug("identity provider read", "error", "timeout")
+		// Reset the stalled stream so the peer cannot hold it open and the pending read unblocks.
+		_ = s.Reset()
 	}
 }
 

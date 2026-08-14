@@ -6,6 +6,7 @@ type P2PConfig struct {
 	KadDhtPeerDiscovery KadDhtPeerDiscoveryConfig `yaml:"kadDhtPeerDiscovery"`
 	Sharding            ShardingConfig            `yaml:"sharding"`
 	ResourceManager     ResourceManagerConfig     `yaml:"resourceManager"`
+	DirectSend          DirectSendConfig          `yaml:"directSend"`
 }
 
 // NodeConfig will hold basic p2p settings
@@ -51,4 +52,16 @@ const (
 type ResourceManagerConfig struct {
 	Strategy        string `yaml:"strategy"`
 	ScaledMemoryMiB int    `yaml:"scaledMemoryMiB"`
+	// The following per-subnet knobs apply only to strategy "scaled"; 0 = libp2p default.
+	MaxConnsPerIPv4       int     `yaml:"maxConnsPerIPv4"`       // max connections per IPv4 /32
+	MaxConnsPerIPv6Subnet int     `yaml:"maxConnsPerIPv6Subnet"` // max connections per IPv6 /56 (/48 derived as 8x)
+	ConnRatePerSec        float64 `yaml:"connRatePerSec"`        // new connections/sec per subnet
+	ConnRateBurst         int     `yaml:"connRateBurst"`         // burst allowance over ConnRatePerSec
+}
+
+// DirectSendConfig caps the inbound direct-send streams a node accepts; 0 = built-in default
+// (4 per peer, 512 in total across all peers).
+type DirectSendConfig struct {
+	MaxInboundStreamsPerPeer int `yaml:"maxInboundStreamsPerPeer"`
+	MaxInboundStreamsTotal   int `yaml:"maxInboundStreamsTotal"`
 }

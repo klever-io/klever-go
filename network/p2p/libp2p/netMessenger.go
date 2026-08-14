@@ -7,12 +7,15 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"net/netip"
 	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/shirou/gopsutil/v4/mem"
 
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	logging "github.com/ipfs/go-log/v2"
@@ -42,6 +45,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
+	rate "github.com/libp2p/go-libp2p/x/rate"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
@@ -175,6 +179,11 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 
 	if args.IsSeedNode {
 		opts = append(opts, libp2p.ConnectionManager(connmgr.NullConnMgr{}))
+	}
+
+	err = validateDirectSendConfig(args.P2pConfig.DirectSend)
+	if err != nil {
+		return nil, err
 	}
 
 	rmOpt, rmCloser, err := buildResourceManagerOption(args.P2pConfig.ResourceManager)
@@ -330,7 +339,12 @@ func createMessenger(
 
 	netMes.createConnectionsMetric()
 
-	netMes.ds, err = NewDirectSender(ctx, p2pHost, netMes.directMessageHandler)
+	netMes.ds, err = NewDirectSender(
+		ctx,
+		p2pHost,
+		netMes.directMessageHandler,
+		withDirectSendConfig(args.P2pConfig.DirectSend),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1299,12 +1313,92 @@ func (netMes *networkMessenger) IsInterfaceNil() bool {
 	return netMes == nil
 }
 
+const (
+	// maxConnsPerSubnetLimit bounds the per-subnet connection caps. connLimitsPerSubnetV6 derives
+	// the /48 aggregate as 8x the /56 value, so inputs are bounded well below MaxInt/8 to keep that
+	// derivation from wrapping.
+	maxConnsPerSubnetLimit = math.MaxInt32 / 8
+
+	// maxConnRatePerSec and maxConnRateBurst bound the rate limiter inputs to values a real node
+	// could act on; anything larger is a configuration mistake rather than an intentional limit.
+	maxConnRatePerSec = 1e6
+	maxConnRateBurst  = maxConnsPerSubnetLimit
+)
+
+// validateResourceManagerConfig checks the per-subnet / rate knobs. They apply only to the
+// "scaled" strategy; setting them under any other strategy is a configuration error, not a silent
+// no-op. Values must be non-negative and the rate pair must be set together. KLC-2433.
+func validateResourceManagerConfig(rmCfg config.ResourceManagerConfig) error {
+	hasSubnetKnobs := rmCfg.MaxConnsPerIPv4 != 0 ||
+		rmCfg.MaxConnsPerIPv6Subnet != 0 ||
+		rmCfg.ConnRatePerSec != 0 ||
+		rmCfg.ConnRateBurst != 0
+
+	if hasSubnetKnobs && rmCfg.Strategy != config.ResourceManagerStrategyScaled {
+		return fmt.Errorf("p2p.resourceManager per-subnet limits require strategy=%q, got %q",
+			config.ResourceManagerStrategyScaled, rmCfg.Strategy)
+	}
+
+	// connRatePerSec is a float64 straight out of yaml, so `.nan` and `.inf` are representable.
+	// NaN fails every ordering comparison, so it would pass the non-negative check, defeat the
+	// paired check (false != false), and then fail `> 0` at build time — attaching no rate limiter
+	// at all. That is precisely the silent no-op this validator exists to prevent.
+	if math.IsNaN(rmCfg.ConnRatePerSec) || math.IsInf(rmCfg.ConnRatePerSec, 0) {
+		return fmt.Errorf("p2p.resourceManager.connRatePerSec must be a finite number, got %v",
+			rmCfg.ConnRatePerSec)
+	}
+
+	if rmCfg.MaxConnsPerIPv4 < 0 || rmCfg.MaxConnsPerIPv6Subnet < 0 ||
+		rmCfg.ConnRatePerSec < 0 || rmCfg.ConnRateBurst < 0 {
+		return fmt.Errorf("p2p.resourceManager per-subnet limits must be non-negative")
+	}
+
+	// The /48 aggregate is derived as 8x the /56 cap, so an input past MaxInt/8 wraps negative and
+	// the aggregate that actually matters against a provider-wide Sybil spread becomes a negative
+	// (unbounded) cap. Bound the inputs rather than the derivation, so the error names the knob.
+	if rmCfg.MaxConnsPerIPv4 > maxConnsPerSubnetLimit || rmCfg.MaxConnsPerIPv6Subnet > maxConnsPerSubnetLimit {
+		return fmt.Errorf("p2p.resourceManager per-subnet limits must not exceed %d", maxConnsPerSubnetLimit)
+	}
+
+	if rmCfg.ConnRatePerSec > maxConnRatePerSec {
+		return fmt.Errorf("p2p.resourceManager.connRatePerSec must not exceed %v", maxConnRatePerSec)
+	}
+
+	if rmCfg.ConnRateBurst > maxConnRateBurst {
+		return fmt.Errorf("p2p.resourceManager.connRateBurst must not exceed %d", maxConnRateBurst)
+	}
+
+	if (rmCfg.ConnRatePerSec > 0) != (rmCfg.ConnRateBurst > 0) {
+		return fmt.Errorf("p2p.resourceManager connRatePerSec and connRateBurst must be set together")
+	}
+
+	return nil
+}
+
+func validateDirectSendConfig(dsCfg config.DirectSendConfig) error {
+	if dsCfg.MaxInboundStreamsPerPeer < 0 {
+		return fmt.Errorf("p2p.directSend.maxInboundStreamsPerPeer must be non-negative, got %d",
+			dsCfg.MaxInboundStreamsPerPeer)
+	}
+
+	if dsCfg.MaxInboundStreamsTotal < 0 {
+		return fmt.Errorf("p2p.directSend.maxInboundStreamsTotal must be non-negative, got %d",
+			dsCfg.MaxInboundStreamsTotal)
+	}
+
+	return nil
+}
+
 // buildResourceManagerOption returns the libp2p ResourceManager option dictated
 // by rmCfg. The closer is non-nil only when a fresh rcmgr was constructed
 // (currently only the "scaled" strategy); callers must Close() it if
 // libp2p.New() fails, since the host can no longer take ownership.
 // A nil option means "let libp2p use its DefaultResourceManager".
 func buildResourceManagerOption(rmCfg config.ResourceManagerConfig) (libp2p.Option, io.Closer, error) {
+	if err := validateResourceManagerConfig(rmCfg); err != nil {
+		return nil, nil, err
+	}
+
 	switch rmCfg.Strategy {
 	case config.ResourceManagerStrategyDefault, config.ResourceManagerStrategyLibp2pDefault:
 		return nil, nil, nil
@@ -1317,9 +1411,10 @@ func buildResourceManagerOption(rmCfg config.ResourceManagerConfig) (libp2p.Opti
 			return nil, nil, fmt.Errorf("p2p.resourceManager.strategy=%q requires scaledMemoryMiB > 0",
 				rmCfg.Strategy)
 		}
-		memBytes := int64(rmCfg.ScaledMemoryMiB) << 20
+		memBytes := clampToPhysicalMemory(int64(rmCfg.ScaledMemoryMiB) << 20)
 		limits := rcmgr.DefaultLimits.Scale(memBytes, getFDLimit()/2)
-		rm, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(limits))
+		opts := scaledResourceManagerOptions(rmCfg)
+		rm, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(limits), opts...)
 		if err != nil {
 			return nil, nil, fmt.Errorf("creating scaled resource manager: %w", err)
 		}
@@ -1334,6 +1429,103 @@ func buildResourceManagerOption(rmCfg config.ResourceManagerConfig) (libp2p.Opti
 			config.ResourceManagerStrategyScaled,
 		)
 	}
+}
+
+// clampToPhysicalMemory bounds the value handed to rcmgr's Scale by the host's actual RAM. Scale
+// treats its argument as the memory available to size limits from, so a shipped default larger than
+// the host — a 16 GiB default on a 4 GiB seed, say — produces limits four times too permissive, and
+// the resource manager stops protecting exactly when it should. Clamping keeps an oversized config
+// safe; the warning makes the mismatch visible rather than silently tolerated. The bound is
+// host-level only: detection reads the host's total RAM, so a cgroup memory limit below it (a
+// containerised seed) is invisible here and will not clamp.
+func clampToPhysicalMemory(configured int64) int64 {
+	physical, err := detectPhysicalMemoryBytes()
+	if err != nil || physical <= 0 {
+		log.Debug("cannot detect physical memory, using configured scaledMemoryMiB as-is",
+			"configuredMiB", configured>>20)
+		return configured
+	}
+
+	if configured <= physical {
+		return configured
+	}
+
+	log.Warn("p2p.resourceManager.scaledMemoryMiB exceeds detected physical memory, clamping",
+		"configuredMiB", configured>>20, "detectedMiB", physical>>20)
+
+	return physical
+}
+
+func detectPhysicalMemoryBytes() (int64, error) {
+	vms, err := mem.VirtualMemory()
+	if err != nil {
+		return 0, err
+	}
+
+	if vms.Total > math.MaxInt64 {
+		return math.MaxInt64, nil
+	}
+
+	return int64(vms.Total), nil
+}
+
+// connLimitsPerSubnetV4 returns the per-/32 connection cap, or nil to keep libp2p's default.
+func connLimitsPerSubnetV4(maxConns int) []rcmgr.ConnLimitPerSubnet {
+	if maxConns <= 0 {
+		return nil
+	}
+	return []rcmgr.ConnLimitPerSubnet{{PrefixLength: 32, ConnCount: maxConns}}
+}
+
+// connLimitsPerSubnetV6 returns per-/56 and per-/48 caps (the /48 aggregate is 8x the /56, mirroring
+// libp2p's default ratio), or nil to keep libp2p's default.
+func connLimitsPerSubnetV6(maxConns int) []rcmgr.ConnLimitPerSubnet {
+	if maxConns <= 0 {
+		return nil
+	}
+	return []rcmgr.ConnLimitPerSubnet{
+		{PrefixLength: 56, ConnCount: maxConns},
+		{PrefixLength: 48, ConnCount: maxConns * 8},
+	}
+}
+
+// buildConnRateLimiter builds a per-subnet new-connection rate limiter that preserves libp2p's
+// loopback exemption (localhost is never rate limited). KLC-2433.
+func buildConnRateLimiter(rps float64, burst int) *rate.Limiter {
+	subnetLimit := rate.Limit{RPS: rps, Burst: burst}
+	return &rate.Limiter{
+		NetworkPrefixLimits: []rate.PrefixLimit{
+			{Prefix: netip.MustParsePrefix("127.0.0.0/8"), Limit: rate.Limit{}},
+			{Prefix: netip.MustParsePrefix("::1/128"), Limit: rate.Limit{}},
+		},
+		SubnetRateLimiter: rate.SubnetLimiter{
+			IPv4SubnetLimits: []rate.SubnetLimit{{PrefixLength: 32, Limit: subnetLimit}},
+			IPv6SubnetLimits: []rate.SubnetLimit{
+				{PrefixLength: 56, Limit: subnetLimit},
+				{PrefixLength: 48, Limit: rate.Limit{RPS: rps * 8, Burst: burst * 8}},
+			},
+			GracePeriod: time.Minute,
+		},
+	}
+}
+
+// scaledResourceManagerOptions translates the per-subnet config knobs into rcmgr options. nil
+// slice means "use libp2p's built-in defaults". KLC-2433.
+func scaledResourceManagerOptions(rmCfg config.ResourceManagerConfig) []rcmgr.Option {
+	var opts []rcmgr.Option
+
+	v4 := connLimitsPerSubnetV4(rmCfg.MaxConnsPerIPv4)
+	v6 := connLimitsPerSubnetV6(rmCfg.MaxConnsPerIPv6Subnet)
+	if v4 != nil || v6 != nil {
+		opts = append(opts, rcmgr.WithLimitPerSubnet(v4, v6))
+	}
+
+	if rmCfg.ConnRatePerSec > 0 {
+		opts = append(opts, rcmgr.WithConnRateLimiters(
+			buildConnRateLimiter(rmCfg.ConnRatePerSec, rmCfg.ConnRateBurst)))
+	}
+
+	return opts
 }
 
 // getFDLimit returns the soft RLIMIT_NOFILE — the effective per-process FD cap

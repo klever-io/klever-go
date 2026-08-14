@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,6 +28,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/peerstore"
 	mocknet "github.com/libp2p/go-libp2p/p2p/net/mock"
+	rate "github.com/libp2p/go-libp2p/x/rate"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -314,6 +316,51 @@ func TestNewNetworkMessenger_ResourceManagerStrategyInvalidReturnsError(t *testi
 	require.Error(t, err)
 	require.True(t, check.IfNil(mes))
 	assert.Contains(t, err.Error(), "invalid p2p.resourceManager.strategy")
+}
+
+func TestNewNetworkMessenger_SubnetLimitsRequireScaledStrategy(t *testing.T) {
+	arg := createMockNetworkArgs()
+	arg.P2pConfig.ResourceManager.Strategy = config.ResourceManagerStrategyNull
+	arg.P2pConfig.ResourceManager.MaxConnsPerIPv4 = 256
+
+	mes, err := libp2p.NewNetworkMessenger(arg)
+	require.Error(t, err)
+	require.True(t, check.IfNil(mes))
+	assert.Contains(t, err.Error(), "scaled")
+}
+
+func TestNewNetworkMessenger_ConnRateRequiresBothFields(t *testing.T) {
+	arg := createMockNetworkArgs()
+	arg.P2pConfig.ResourceManager.Strategy = config.ResourceManagerStrategyScaled
+	arg.P2pConfig.ResourceManager.ScaledMemoryMiB = 16384
+	arg.P2pConfig.ResourceManager.ConnRatePerSec = 4 // burst left at 0
+
+	mes, err := libp2p.NewNetworkMessenger(arg)
+	require.Error(t, err)
+	require.True(t, check.IfNil(mes))
+	assert.Contains(t, err.Error(), "together")
+}
+
+func TestNewNetworkMessenger_SubnetLimitsRejectNegative(t *testing.T) {
+	arg := createMockNetworkArgs()
+	arg.P2pConfig.ResourceManager.Strategy = config.ResourceManagerStrategyScaled
+	arg.P2pConfig.ResourceManager.ScaledMemoryMiB = 16384
+	arg.P2pConfig.ResourceManager.MaxConnsPerIPv4 = -1
+
+	mes, err := libp2p.NewNetworkMessenger(arg)
+	require.Error(t, err)
+	require.True(t, check.IfNil(mes))
+	assert.Contains(t, err.Error(), "non-negative")
+}
+
+func TestNewNetworkMessenger_DirectSendStreamCapsRejectNegative(t *testing.T) {
+	arg := createMockNetworkArgs()
+	arg.P2pConfig.DirectSend.MaxInboundStreamsTotal = -1
+
+	mes, err := libp2p.NewNetworkMessenger(arg)
+	require.Error(t, err)
+	require.True(t, check.IfNil(mes))
+	assert.Contains(t, err.Error(), "non-negative")
 }
 
 func TestBuildAddressFactory_EmptyBroadcastIPReturnsIdentity(t *testing.T) {
@@ -1621,7 +1668,7 @@ func TestNetworkMessenger_DirectMessageHandlerRecoversFromPanic(t *testing.T) {
 
 	mes, _ := libp2p.NewNetworkMessenger(args)
 
-	// processReceivedDirectMessage enforces From == fromConnectedPeer, so the originator
+	// validateDirectMessage enforces From == fromConnectedPeer, so the originator
 	// and connected peer are the same on the direct path.
 	peerID := mes.ID()
 
@@ -1848,4 +1895,188 @@ func TestNetworkMessenger_GetConnectedPeersInfo(t *testing.T) {
 	assert.Equal(t, 2, cpi.NumValidatorsOnShard[crossShardID])
 	assert.Equal(t, selfShardID, cpi.SelfShardID)
 	assert.Equal(t, 1, len(cpi.UnknownPeers))
+}
+
+func TestNewNetworkMessenger_ScaledWithSubnetAndRateLimitsBuilds(t *testing.T) {
+	arg := createMockNetworkArgs()
+	arg.P2pConfig.ResourceManager.Strategy = config.ResourceManagerStrategyScaled
+	arg.P2pConfig.ResourceManager.ScaledMemoryMiB = 16384
+	arg.P2pConfig.ResourceManager.MaxConnsPerIPv4 = 256
+	arg.P2pConfig.ResourceManager.MaxConnsPerIPv6Subnet = 256
+	arg.P2pConfig.ResourceManager.ConnRatePerSec = 4
+	arg.P2pConfig.ResourceManager.ConnRateBurst = 64
+
+	mes, err := libp2p.NewNetworkMessenger(arg)
+	require.NoError(t, err)
+	require.False(t, check.IfNil(mes))
+	defer func() { _ = mes.Close() }()
+
+	// Enforcement of the per-IP limit itself is exercised by libp2p's own rcmgr tests and cannot
+	// be reproduced over loopback (127.0.0.0/8 is exempt). Here we assert the tuned RM constructs
+	// and is not the null one, i.e. the options were accepted.
+	rm := mes.Host().Network().ResourceManager()
+	require.NotNil(t, rm)
+	_, isNull := rm.(*network.NullResourceManager)
+	assert.False(t, isNull, "scaled + subnet/rate limits must produce a bounded ResourceManager")
+}
+
+func TestScaledResourceManagerOptions_AppliesOnlyConfiguredKnobs(t *testing.T) {
+	cfg := config.ResourceManagerConfig{
+		Strategy:        config.ResourceManagerStrategyScaled,
+		ScaledMemoryMiB: 16384,
+	}
+	assert.Empty(t, libp2p.ScaledResourceManagerOptions(cfg),
+		"no subnet/rate knobs set => no rcmgr options")
+
+	cfg.MaxConnsPerIPv4 = 256
+	assert.Len(t, libp2p.ScaledResourceManagerOptions(cfg), 1,
+		"only subnet limit option, no rate limiter")
+
+	cfg.MaxConnsPerIPv6Subnet = 256
+	cfg.ConnRatePerSec = 4
+	cfg.ConnRateBurst = 64
+	assert.Len(t, libp2p.ScaledResourceManagerOptions(cfg), 2,
+		"subnet limit option + rate limiter option")
+}
+
+func TestConnLimitsPerSubnetV4_FieldsAndDefault(t *testing.T) {
+	assert.Nil(t, libp2p.ConnLimitsPerSubnetV4(0), "0 keeps libp2p default (nil)")
+	assert.Nil(t, libp2p.ConnLimitsPerSubnetV4(-1), "negative keeps libp2p default (nil)")
+	v4 := libp2p.ConnLimitsPerSubnetV4(256)
+	require.Len(t, v4, 1)
+	assert.Equal(t, 32, v4[0].PrefixLength)
+	assert.Equal(t, 256, v4[0].ConnCount)
+}
+
+func TestConnLimitsPerSubnetV6_FieldsAndDefault(t *testing.T) {
+	assert.Nil(t, libp2p.ConnLimitsPerSubnetV6(0), "0 keeps libp2p default (nil)")
+	v6 := libp2p.ConnLimitsPerSubnetV6(256)
+	require.Len(t, v6, 2)
+	assert.Equal(t, 56, v6[0].PrefixLength)
+	assert.Equal(t, 256, v6[0].ConnCount)
+	assert.Equal(t, 48, v6[1].PrefixLength)
+	assert.Equal(t, 256*8, v6[1].ConnCount, "/48 aggregate is 8x the /56 count")
+}
+
+func TestBuildConnRateLimiter_PreservesLoopbackExemptionAndSubnetLimits(t *testing.T) {
+	lim := libp2p.BuildConnRateLimiter(4, 64)
+	require.NotNil(t, lim)
+
+	// Loopback must be exempt: both 127.0.0.0/8 and ::1/128 present with a zero-value (unlimited) Limit.
+	exempt := map[string]rate.Limit{}
+	for _, p := range lim.NetworkPrefixLimits {
+		exempt[p.Prefix.String()] = p.Limit
+	}
+	require.Contains(t, exempt, "127.0.0.0/8")
+	require.Contains(t, exempt, "::1/128")
+	assert.Equal(t, rate.Limit{}, exempt["127.0.0.0/8"], "loopback v4 must be unlimited")
+	assert.Equal(t, rate.Limit{}, exempt["::1/128"], "loopback v6 must be unlimited")
+
+	require.Len(t, lim.SubnetRateLimiter.IPv4SubnetLimits, 1)
+	assert.Equal(t, 32, lim.SubnetRateLimiter.IPv4SubnetLimits[0].PrefixLength)
+	assert.Equal(t, rate.Limit{RPS: 4, Burst: 64}, lim.SubnetRateLimiter.IPv4SubnetLimits[0].Limit)
+
+	require.Len(t, lim.SubnetRateLimiter.IPv6SubnetLimits, 2)
+	assert.Equal(t, 56, lim.SubnetRateLimiter.IPv6SubnetLimits[0].PrefixLength)
+	assert.Equal(t, rate.Limit{RPS: 4, Burst: 64}, lim.SubnetRateLimiter.IPv6SubnetLimits[0].Limit)
+	assert.Equal(t, 48, lim.SubnetRateLimiter.IPv6SubnetLimits[1].PrefixLength)
+	assert.Equal(t, rate.Limit{RPS: 4 * 8, Burst: 64 * 8}, lim.SubnetRateLimiter.IPv6SubnetLimits[1].Limit)
+
+	assert.Equal(t, time.Minute, lim.SubnetRateLimiter.GracePeriod)
+}
+
+// TestValidateResourceManagerConfig_RejectsNonFiniteConnRate pins the knob that silently disabled
+// itself. connRatePerSec is a float64 out of yaml, so `.nan` is representable, and NaN fails every
+// ordering comparison: it slips past the non-negative check, defeats the paired check because
+// false != false, and then fails `> 0` where the limiter is attached — leaving no rate limiter at
+// all, which is the exact silent no-op the validator exists to prevent.
+func TestValidateResourceManagerConfig_RejectsNonFiniteConnRate(t *testing.T) {
+	t.Parallel()
+
+	for name, rate := range map[string]float64{
+		"NaN":               math.NaN(),
+		"positive infinity": math.Inf(1),
+		"negative infinity": math.Inf(-1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := libp2p.ValidateResourceManagerConfig(config.ResourceManagerConfig{
+				Strategy:        config.ResourceManagerStrategyScaled,
+				ScaledMemoryMiB: 4096,
+				ConnRatePerSec:  rate,
+				ConnRateBurst:   10,
+			})
+
+			require.Error(t, err, "a non-finite connRatePerSec must be rejected, not silently ignored")
+		})
+	}
+}
+
+// TestValidateResourceManagerConfig_RejectsSubnetLimitsThatOverflowTheAggregate guards the /48
+// aggregate, which connLimitsPerSubnetV6 derives as 8x the /56 cap. An unbounded input past
+// MaxInt/8 wraps negative, turning the aggregate that actually matters against a provider-wide
+// Sybil spread into an unbounded one.
+func TestValidateResourceManagerConfig_RejectsSubnetLimitsThatOverflowTheAggregate(t *testing.T) {
+	t.Parallel()
+
+	for name, rmCfg := range map[string]config.ResourceManagerConfig{
+		"ipv6 subnet cap": {
+			Strategy:              config.ResourceManagerStrategyScaled,
+			ScaledMemoryMiB:       4096,
+			MaxConnsPerIPv6Subnet: math.MaxInt32,
+		},
+		"conn rate burst": {
+			Strategy:        config.ResourceManagerStrategyScaled,
+			ScaledMemoryMiB: 4096,
+			ConnRatePerSec:  16,
+			ConnRateBurst:   math.MaxInt32,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := libp2p.ValidateResourceManagerConfig(rmCfg)
+
+			require.Error(t, err)
+		})
+	}
+}
+
+// TestValidateResourceManagerConfig_AcceptsFiniteValues keeps the guards above from being satisfied
+// by a validator that simply rejects everything.
+func TestValidateResourceManagerConfig_AcceptsFiniteValues(t *testing.T) {
+	t.Parallel()
+
+	err := libp2p.ValidateResourceManagerConfig(config.ResourceManagerConfig{
+		Strategy:              config.ResourceManagerStrategyScaled,
+		ScaledMemoryMiB:       4096,
+		MaxConnsPerIPv4:       256,
+		MaxConnsPerIPv6Subnet: 256,
+		ConnRatePerSec:        16,
+		ConnRateBurst:         32,
+	})
+
+	require.Nil(t, err)
+}
+
+func TestValidateDirectSendConfig_RejectsNegativeStreamCaps(t *testing.T) {
+	t.Parallel()
+
+	for name, dsCfg := range map[string]config.DirectSendConfig{
+		"negative per-peer cap":  {MaxInboundStreamsPerPeer: -1},
+		"negative node-wide cap": {MaxInboundStreamsTotal: -1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := libp2p.ValidateDirectSendConfig(dsCfg)
+
+			require.Error(t, err, "a negative inbound stream cap must be rejected, not silently ignored")
+		})
+	}
+}
+
+func TestValidateDirectSendConfig_AcceptsUnsetAndPositiveStreamCaps(t *testing.T) {
+	t.Parallel()
+
+	require.Nil(t, libp2p.ValidateDirectSendConfig(config.DirectSendConfig{}))
+	require.Nil(t, libp2p.ValidateDirectSendConfig(config.DirectSendConfig{
+		MaxInboundStreamsPerPeer: 8,
+		MaxInboundStreamsTotal:   1024,
+	}))
 }

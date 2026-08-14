@@ -31,17 +31,52 @@ p2p:
     # Seed-node policy. Available strategies:
     #   ""        leave libp2p's auto-scaled DefaultResourceManager in place
     #             (caps inbound peer count at TotalMemory/8 × constants — for a
-    #             4 GiB host that's ~187 connections; seeds outgrow this fast).
+    #             4 GiB host that's 96 connections; seeds outgrow this fast).
     #   "default" same as "" — explicit libp2p auto-scale.
     #   "null"    disable libp2p resource limits entirely so peer count is
-    #             bounded only by the OS (ulimit, available RAM). Recommended
-    #             default for seeds; matches the legacy seed-fork behavior.
+    #             bounded only by the OS (ulimit, available RAM). Legacy
+    #             seed-fork behavior; NOT recommended — it also disables the
+    #             per-IP connection and rate limits. Direct-send ingress still
+    #             stays bounded (the node caps inbound direct-send streams per
+    #             peer and in total, and resets streams idle beyond a read
+    #             deadline, KLC-2433), but connection-level Sybil limits are off.
     #   "scaled"  auto-scale as if the host had `scaledMemoryMiB` MiB of memory.
-    #             Useful to lift caps on small hosts while keeping a safety net.
-    strategy: "null"
-    # Memory budget (MiB) used when strategy = "scaled" (ignored otherwise).
-    # Example: 16384 = scale limits as if the host had 16 GiB of RAM.
-    scaledMemoryMiB: 0
+    #             Shipped default for seeds: keeps libp2p's per-IP connection and
+    #             rate limits (tuned below) while lifting the memory-based caps.
+    #             Unlike "null", this keeps a node-wide inbound connection ceiling
+    #             derived from scaledMemoryMiB (64 + scaledMemoryMiB/16), so the
+    #             16384 below admits 1088 concurrent inbound connections.
+    # Moving off "scaled" requires clearing the four maxConns* / connRate* knobs
+    # below (set them to 0 or remove them) — the node refuses to start otherwise.
+    strategy: "scaled"
+    # Memory budget (MiB) granted to the resource manager when strategy = "scaled" — rcmgr
+    # sizes its limits from this value; it is not a description of the host. libp2p's own
+    # auto-scale grants hostRAM/8, so 16384 is deliberately ~8x auto-scale on a 16 GiB seed.
+    # Raising this past the host's real RAM does not lift the ceiling above — the value
+    # is clamped down to detected physical memory (logged as a warning) before scaling.
+    scaledMemoryMiB: 16384
+    # Per-source connection limits (KLC-2433). 0 = libp2p default (8 per /32, 0.2 conn/s),
+    # which is too tight for seeds that accept many peers behind shared/NAT egress IPs.
+    # These are starting values — measure seed peer fan-in and adjust. They sit around the
+    # node-wide ceiling above (the derived IPv6 /48 aggregate is maxConnsPerIPv6Subnet × 8
+    # = 2048), so the node-wide limit is what binds first.
+    maxConnsPerIPv4: 256
+    maxConnsPerIPv6Subnet: 256
+    connRatePerSec: 4
+    connRateBurst: 64
+  # Optional caps on the inbound direct-send streams this seed accepts (KLC-2433).
+  # Omitting this section, or leaving a knob at 0, keeps the built-in defaults:
+  # 4 streams per peer and 512 across all peers. A well-behaved peer reuses a
+  # single direct-send stream, so the per-peer default is headroom for
+  # reset/reopen churn; the node-wide cap bounds reader goroutines when a source
+  # rotates peer identities, which is what keeps direct-send ingress bounded even
+  # under strategy "null". Raise them only if legitimate traffic is refused — the
+  # node logs "refusing inbound direct stream" when a cap is hit. Negative values
+  # are a configuration error and the seed refuses to start.
+  #
+  # directSend:
+  #   maxInboundStreamsPerPeer: 4
+  #   maxInboundStreamsTotal: 512
 
 logs:
   logFileLifeSpanInSec: 86400

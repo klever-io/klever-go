@@ -428,3 +428,106 @@ func TestIdentityProvider_HandleStreamsClosedStreamShouldNotFailOrWrite(t *testi
 
 	assert.False(t, updateWasCalled)
 }
+
+func TestIdentityProvider_HandleStreamsTimeoutShouldResetStream(t *testing.T) {
+	t.Parallel()
+
+	newStream := mock.NewStreamMock()
+	host := &mock.ConnectableHostStub{
+		SetStreamHandlerCalled: func(pid protocol.ID, handler network.StreamHandler) {},
+		IDCalled: func() peer.ID {
+			return "stub ID"
+		},
+	}
+	ip, _ := libp2p.NewIdentityProvider(
+		host,
+		&mock.NetworkShardingCollectorStub{
+			UpdatePeerIDPublicKeyCalled: func(pid core.PeerID, pk []byte) {},
+		},
+		&mock.SignerVerifierStub{},
+		createStubMarshalizerForIdentityProvider(),
+		time.Millisecond*100,
+	)
+
+	ip.HandleStreams(newStream)
+
+	// On timeout the stalled stream must be reset — otherwise the peer holds it open forever and
+	// the abandoned reader goroutine leaks blocked on it (KLC-2433 residual hardening).
+	assert.True(t, newStream.IsReset(),
+		"a stream that timed out without delivering data must be reset (RST), not merely closed")
+}
+
+func TestIdentityProvider_HandleStreamsSuccessShouldCloseStream(t *testing.T) {
+	t.Parallel()
+
+	newStream := mock.NewStreamMock()
+	host := &mock.ConnectableHostStub{
+		SetStreamHandlerCalled: func(pid protocol.ID, handler network.StreamHandler) {},
+		IDCalled: func() peer.ID {
+			return "stub ID"
+		},
+	}
+	ip, _ := libp2p.NewIdentityProvider(
+		host,
+		&mock.NetworkShardingCollectorStub{
+			UpdatePeerIDPublicKeyCalled: func(pid core.PeerID, pk []byte) {},
+		},
+		&mock.SignerVerifierStub{
+			VerifyCalled: func(message []byte, sig []byte, pk []byte) error {
+				return nil
+			},
+		},
+		createStubMarshalizerForIdentityProvider(),
+		time.Second,
+	)
+	_, _ = newStream.Write([]byte("mock data"))
+
+	ip.HandleStreams(newStream)
+
+	// The auth exchange is one-shot: after the payload is processed the stream must be closed so
+	// a peer cannot park it open for the connection's lifetime (KLC-2433 residual hardening).
+	assert.True(t, newStream.IsClosed(),
+		"a stream whose payload was processed must be closed")
+	assert.False(t, newStream.IsReset(),
+		"a successful exchange must close (FIN) so the peer keeps its half, not reset (RST)")
+}
+
+func TestIdentityProvider_ConnectedShouldCloseStreamAfterWrite(t *testing.T) {
+	t.Parallel()
+
+	newStream := mock.NewStreamMock()
+	host := &mock.ConnectableHostStub{
+		SetStreamHandlerCalled: func(pid protocol.ID, handler network.StreamHandler) {},
+		NewStreamCalled: func(ctx context.Context, p peer.ID, pids ...protocol.ID) (network.Stream, error) {
+			return newStream, nil
+		},
+		IDCalled: func() peer.ID {
+			return "stub ID"
+		},
+	}
+	ip, _ := libp2p.NewIdentityProvider(
+		host,
+		&mock.NetworkShardingCollectorStub{},
+		&mock.SignerVerifierStub{
+			PublicKeyCalled: func() []byte {
+				return []byte("pub key")
+			},
+			SignCalled: func(message []byte) ([]byte, error) {
+				return []byte("signature"), nil
+			},
+		},
+		createStubMarshalizerForIdentityProvider(),
+		time.Second,
+	)
+
+	ip.Connected(nil, createStubConnForIdentityProvider())
+
+	// The sender wrote its one-shot payload; the stream must then be closed instead of being
+	// held open for the connection's lifetime (KLC-2433 residual hardening).
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) && !newStream.IsClosed() {
+		time.Sleep(10 * time.Millisecond)
+	}
+	assert.True(t, newStream.IsClosed(),
+		"the outbound auth stream must be closed after the payload is written")
+}

@@ -122,7 +122,8 @@ func TestDeployFromSource_CodeDeclaringStartSection(t *testing.T) {
 			ExecutionFailed().
 			HasRuntimeErrors(vmhost.ErrContractHasStartSection.Error())
 	}, func(_ vmhost.VMHost, world *worldmock.MockWorld) {
-		account := world.GetAccount(testConfig.DeployedContractAddress)
+		account, errAccount := world.GetAccount(testConfig.DeployedContractAddress)
+		require.Nil(t, errAccount)
 		account.SetCodeAndMetadata(mock.WasmCodeWithStartSection(), &vmcommon.CodeMetadata{Payable: true})
 		world.PutAccount(account)
 	})
@@ -136,7 +137,8 @@ func TestDeployFromSource_CodeDeclaringStartSection_PreFork(t *testing.T) {
 			Ok().
 			Code(verify.VmOutput.ReturnData[0], mock.WasmCodeWithStartSection())
 	}, func(_ vmhost.VMHost, world *worldmock.MockWorld) {
-		account := world.GetAccount(testConfig.DeployedContractAddress)
+		account, errAccount := world.GetAccount(testConfig.DeployedContractAddress)
+		require.Nil(t, errAccount)
 		account.SetCodeAndMetadata(mock.WasmCodeWithStartSection(), &vmcommon.CodeMetadata{Payable: true})
 		world.PutAccount(account)
 	})
