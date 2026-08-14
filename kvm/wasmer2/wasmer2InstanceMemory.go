@@ -26,8 +26,10 @@ func (memory *Wasmer2Memory) Data() []byte {
 	var data = (*uint8)(cWasmerMemoryData(memory.cgoInstance))
 
 	// #nosec G103: bounded []byte view over wasmer-owned linear memory;
-	// pointer and length come from the same live instance and every caller
-	// copies in or out under the instance mutex without retaining the view.
+	// pointer and length come from the same live instance. The production
+	// callers (MemLoadFromMemory, MemStoreToMemory) copy in or out under the
+	// instance mutex without retaining the view; test-only MemDump returns
+	// the view directly but only within the instance lifetime.
 	return unsafe.Slice(data, length)
 }
 

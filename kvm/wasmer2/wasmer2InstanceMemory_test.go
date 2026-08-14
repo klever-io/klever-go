@@ -34,12 +34,19 @@ func TestWasmer2Memory_DataRoundTrip(t *testing.T) {
 	require.Equal(t, int(memoryLength), cap(dump))
 	assert.Equal(t, payload, dump[:len(payload)])
 
+	// Prove the returned view aliases live linear memory rather than copying
+	// it: a write through the view must be observable via MemLoad.
+	dump[0] ^= 0xFF
+	loaded, err = instance.MemLoad(executor.MemPtr(0), executor.MemLength(len(payload)))
+	require.NoError(t, err)
+	assert.Equal(t, dump[:len(payload)], loaded)
+
 	// Destroy is a documented no-op; the direct call (bypassing the instance
-	// mutex) is safe because this test is sequential and the body is empty.
-	// The memory must remain readable until Clean destroys the instance.
+	// mutex) is safe because the instance is local to this test goroutine and
+	// the body is empty. Memory must stay readable until Clean destroys it.
 	instance.memory.Destroy()
 
 	reloaded, err := instance.MemLoad(executor.MemPtr(0), executor.MemLength(len(payload)))
 	require.NoError(t, err)
-	assert.Equal(t, payload, reloaded)
+	assert.Equal(t, dump[:len(payload)], reloaded)
 }
