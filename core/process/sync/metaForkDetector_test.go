@@ -276,3 +276,31 @@ func TestMetaForkDetector_CheckpointAheadWarnsOncePerSlot(t *testing.T) {
 	_ = bfd.CheckFork()
 	require.Greater(t, buff.Len(), firstLen)
 }
+
+// Slot index 0 is the one value that would collide with an uninitialized
+// throttle field: without the MinInt64 sentinel stored at construction, the
+// first Swap(0) returns the zero value and swallows the warning entirely.
+func TestMetaForkDetector_CheckpointAheadWarnsAtSlotIndexZero(t *testing.T) {
+	buff := &bytes.Buffer{}
+	require.Nil(t, logger.AddLogObserver(buff, &checkpointAheadWarnFormatter{}))
+	t.Cleanup(func() {
+		require.Nil(t, logger.RemoveLogObserver(buff))
+	})
+
+	sloterMock := &consensusMock.SlotManagerMock{
+		SlotIndex:          0,
+		TimeDurationCalled: func() time.Duration { return 0 },
+	}
+	bfd, err := sync.NewMetaForkDetector(sloterMock, &mock.BlackListHandlerStub{}, 0)
+	require.Nil(t, err)
+
+	// checkBlockBasicValidity accepts headers one slot ahead of the local index,
+	// so a checkpoint at slot 1 is reachable while the index still reads 0.
+	hdr := &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1}}
+	require.Nil(t, bfd.AddHeader(hdr, []byte("hash"), process.BHProcessed, nil, nil))
+
+	forkInfo := bfd.CheckFork()
+	require.False(t, forkInfo.IsDetected)
+
+	require.Contains(t, buff.String(), "last checkpoint is ahead of the local slot index")
+}
