@@ -2,7 +2,6 @@ package wasmer2
 
 import (
 	"fmt"
-	"reflect"
 	"unsafe"
 
 	"github.com/klever-io/klever-go/kvm/executor"
@@ -10,7 +9,7 @@ import (
 
 var _ = (executor.Memory)((*Wasmer2Memory)(nil))
 
-// Wasmer2Instance represents a WebAssembly instance.
+// Wasmer2Memory represents the memory of a WebAssembly instance.
 type Wasmer2Memory struct {
 	// The underlying WebAssembly instance.
 	cgoInstance *cWasmerInstanceT
@@ -22,22 +21,14 @@ func (memory *Wasmer2Memory) Length() uint32 {
 }
 
 // Data returns a slice of bytes over the WebAssembly memory.
-// nolint
 func (memory *Wasmer2Memory) Data() []byte {
 	var length = memory.Length()
 	var data = (*uint8)(cWasmerMemoryData(memory.cgoInstance))
 
-	var header reflect.SliceHeader
-	// #nosec G103: unsafe.Pointer is used to convert to reflect.SliceHeader
-	header = *(*reflect.SliceHeader)(unsafe.Pointer(&header))
-
-	// #nosec G103: unsafe.Pointer is used to convert to uintptr
-	header.Data = uintptr(unsafe.Pointer(data))
-	header.Len = int(length)
-	header.Cap = int(length)
-
-	// #nosec G103: unsafe.Pointer is used to convert to []byte
-	return *(*[]byte)(unsafe.Pointer(&header))
+	// #nosec G103: bounded []byte view over wasmer-owned linear memory;
+	// pointer and length come from the same live instance and every caller
+	// copies in or out under the instance mutex without retaining the view.
+	return unsafe.Slice(data, length)
 }
 
 // Grow the memory by a number of pages (65kb each).
@@ -62,6 +53,8 @@ func (memory *Wasmer2Memory) Grow(numberOfPages uint32) error {
 
 // Destroy destroys inner memory. Does nothing in wasmer2.
 func (memory *Wasmer2Memory) Destroy() {
+	// Intentionally empty: the linear memory is owned by the native wasmer
+	// instance and is released by cWasmerInstanceDestroy via Clean.
 }
 
 // IsInterfaceNil returns true if underlying object is nil
