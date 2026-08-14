@@ -760,6 +760,115 @@ func TestNodesCoordinator_IsInterfaceNil(t *testing.T) {
 	require.False(t, check.IfNil(ihgs3))
 }
 
+func TestNodesCoordinator_computePublicKeyToValidatorMap(t *testing.T) {
+	t.Parallel()
+
+	makeValidator := func(pubKey string, index uint32) Validator {
+		pk := []byte(pubKey)
+		return mock.NewValidatorMock(pk, pk, DefaultSelectionChances, index)
+	}
+
+	ihgs := &indexHashedNodesCoordinator{}
+
+	t.Run("empty config yields an empty map", func(t *testing.T) {
+		t.Parallel()
+
+		require.Len(t, ihgs.computePublicKeyToValidatorMap(map[uint32]*epochNodesConfig{}), 0)
+	})
+
+	t.Run("epoch without validators yields an empty map", func(t *testing.T) {
+		t.Parallel()
+
+		require.Len(t, ihgs.computePublicKeyToValidatorMap(map[uint32]*epochNodesConfig{7: {}}), 0)
+	})
+
+	t.Run("elected and eligible are both present", func(t *testing.T) {
+		t.Parallel()
+
+		nodesConfig := map[uint32]*epochNodesConfig{
+			3: {
+				electedList:  []Validator{makeValidator("elected_pk", 1)},
+				eligibleList: []Validator{makeValidator("eligible_pk", 2)},
+			},
+		}
+
+		publicKeyToValidatorMap := ihgs.computePublicKeyToValidatorMap(nodesConfig)
+
+		require.Len(t, publicKeyToValidatorMap, 2)
+		require.Contains(t, publicKeyToValidatorMap, "elected_pk")
+		require.Contains(t, publicKeyToValidatorMap, "eligible_pk")
+		require.Equal(t, uint32(1), publicKeyToValidatorMap["elected_pk"].Index())
+		require.Equal(t, uint32(2), publicKeyToValidatorMap["eligible_pk"].Index())
+	})
+
+	t.Run("within one epoch eligible takes precedence over elected", func(t *testing.T) {
+		t.Parallel()
+
+		sharedPK := "pk_present_in_both_lists"
+		nodesConfig := map[uint32]*epochNodesConfig{
+			3: {
+				electedList:  []Validator{makeValidator(sharedPK, 1)},
+				eligibleList: []Validator{makeValidator(sharedPK, 2)},
+			},
+		}
+
+		publicKeyToValidatorMap := ihgs.computePublicKeyToValidatorMap(nodesConfig)
+
+		require.Len(t, publicKeyToValidatorMap, 1)
+		require.Contains(t, publicKeyToValidatorMap, sharedPK)
+		require.Equal(t, uint32(2), publicKeyToValidatorMap[sharedPK].Index())
+	})
+
+	t.Run("the highest epoch wins and earlier epochs still contribute", func(t *testing.T) {
+		t.Parallel()
+
+		sharedPK := "pk_present_in_every_epoch"
+		earlyOnlyPK := "pk_present_only_in_the_earliest_epoch"
+		// non-contiguous epochs, so ordering by insertion or lexicographically would pick another one
+		nodesConfig := map[uint32]*epochNodesConfig{
+			2:  {electedList: []Validator{makeValidator(sharedPK, 2), makeValidator(earlyOnlyPK, 200)}},
+			9:  {electedList: []Validator{makeValidator(sharedPK, 9)}},
+			11: {electedList: []Validator{makeValidator(sharedPK, 11)}},
+			40: {electedList: []Validator{makeValidator(sharedPK, 40)}},
+		}
+
+		// the range start offset is randomised on every execution, so repeat to make an
+		// order-dependent regression fail reliably instead of flaking
+		for i := 0; i < 100; i++ {
+			publicKeyToValidatorMap := ihgs.computePublicKeyToValidatorMap(nodesConfig)
+
+			require.Len(t, publicKeyToValidatorMap, 2)
+			require.Contains(t, publicKeyToValidatorMap, sharedPK)
+			require.Equal(t, uint32(40), publicKeyToValidatorMap[sharedPK].Index(), "iteration %d", i)
+			// a validator that only appears in an earlier epoch must survive the merge,
+			// so an implementation that reads the highest epoch alone is rejected
+			require.Contains(t, publicKeyToValidatorMap, earlyOnlyPK)
+			require.Equal(t, uint32(200), publicKeyToValidatorMap[earlyOnlyPK].Index(), "iteration %d", i)
+		}
+	})
+
+	t.Run("the epoch order outranks the list order", func(t *testing.T) {
+		t.Parallel()
+
+		sharedPK := "pk_eligible_early_then_elected_later"
+		nodesConfig := map[uint32]*epochNodesConfig{
+			5: {eligibleList: []Validator{makeValidator(sharedPK, 5)}},
+			9: {electedList: []Validator{makeValidator(sharedPK, 9)}},
+		}
+
+		// an implementation that wrote every epoch's elected list first and every
+		// epoch's eligible list second would return the stale epoch 5 record here,
+		// while passing every other assertion in this test
+		for i := 0; i < 100; i++ {
+			publicKeyToValidatorMap := ihgs.computePublicKeyToValidatorMap(nodesConfig)
+
+			require.Len(t, publicKeyToValidatorMap, 1)
+			require.Contains(t, publicKeyToValidatorMap, sharedPK)
+			require.Equal(t, uint32(9), publicKeyToValidatorMap[sharedPK].Index(), "iteration %d", i)
+		}
+	})
+}
+
 func TestNodesCoordinator_LoadStateRefillsPublicKeyToValidatorMap(t *testing.T) {
 	t.Parallel()
 

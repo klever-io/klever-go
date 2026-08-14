@@ -384,50 +384,36 @@ func (ihgs *indexHashedNodesCoordinator) fillPublicKeyToValidatorMap() {
 	ihgs.publicKeyToValidatorMap = ihgs.computePublicKeyToValidatorMap(ihgs.nodesConfig)
 }
 
-// computePublicKeyToValidatorMap merges the elected and eligible validators of
-// all given epoch configs into one lookup map, later epochs taking precedence
+// computePublicKeyToValidatorMap merges the elected and eligible validators of all
+// given epoch configs into one lookup map. Insertion order is what defines precedence,
+// the last write for a public key winning: epochs are merged in ascending order so a
+// later epoch wins, and elected is written before eligible so eligible wins. A list
+// that has to lose against the ones already handled is added before them, never after.
+//
+// The caller must hold ihgs.mutNodesConfig. nodesConfig is read in two passes, so an
+// epoch removed in between the passes would be a nil dereference.
 func (ihgs *indexHashedNodesCoordinator) computePublicKeyToValidatorMap(
 	nodesConfig map[uint32]*epochNodesConfig,
 ) map[string]Validator {
-	index := 0
-	epochList := make([]uint32, len(nodesConfig))
-	mapAllValidators := make(map[uint32]map[string]Validator)
-	for epoch, epochConfig := range nodesConfig {
-		epochConfig.mutNodesMaps.RLock()
-		mapAllValidators[epoch] = ihgs.createPublicKeyToValidatorMap(epochConfig.electedList, epochConfig.eligibleList)
-		epochConfig.mutNodesMaps.RUnlock()
-
-		epochList[index] = epoch
-		index++
+	epochList := make([]uint32, 0, len(nodesConfig))
+	for epoch := range nodesConfig {
+		epochList = append(epochList, epoch)
 	}
 
-	sort.Slice(epochList, func(i, j int) bool {
-		return epochList[i] < epochList[j]
-	})
+	slices.Sort(epochList)
 
 	publicKeyToValidatorMap := make(map[string]Validator)
 	for _, epoch := range epochList {
-		validatorsForEpoch := mapAllValidators[epoch]
-		for pubKey, vInfo := range validatorsForEpoch {
-			publicKeyToValidatorMap[pubKey] = vInfo
+		epochConfig := nodesConfig[epoch]
+
+		epochConfig.mutNodesMaps.RLock()
+		for _, validator := range epochConfig.electedList {
+			publicKeyToValidatorMap[string(validator.PubKey())] = validator
 		}
-	}
-
-	return publicKeyToValidatorMap
-}
-
-func (ihgs *indexHashedNodesCoordinator) createPublicKeyToValidatorMap(
-	elected []Validator,
-	eligible []Validator,
-) map[string]Validator {
-	publicKeyToValidatorMap := make(map[string]Validator)
-
-	for i := 0; i < len(elected); i++ {
-		publicKeyToValidatorMap[string(elected[i].PubKey())] = elected[i]
-	}
-
-	for i := 0; i < len(eligible); i++ {
-		publicKeyToValidatorMap[string(eligible[i].PubKey())] = eligible[i]
+		for _, validator := range epochConfig.eligibleList {
+			publicKeyToValidatorMap[string(validator.PubKey())] = validator
+		}
+		epochConfig.mutNodesMaps.RUnlock()
 	}
 
 	return publicKeyToValidatorMap
