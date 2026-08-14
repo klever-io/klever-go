@@ -1,16 +1,19 @@
 package sync_test
 
 import (
+	"bytes"
 	"math"
 	"testing"
 	"time"
 
+	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common/mock"
 	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/sync"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewMetaForkDetector_NilSlotManagerShouldErr(t *testing.T) {
@@ -219,4 +222,57 @@ func TestMetaForkDetector_CheckForkStillDetectsStuckConsensusWhenCheckpointIsBeh
 	// The shape isForcedRollBackOneBlock matches.
 	assert.Equal(t, uint64(math.MaxUint64), forkInfo.Nonce)
 	assert.Nil(t, forkInfo.Hash)
+}
+
+type checkpointAheadWarnFormatter struct {
+	logger.PlainFormatter
+}
+
+func (f *checkpointAheadWarnFormatter) Output(line logger.LogLineHandler) []byte {
+	if line.GetMessage() != "last checkpoint is ahead of the local slot index, node clock appears to trail the network" {
+		return nil
+	}
+
+	return f.PlainFormatter.Output(line)
+}
+
+// In the clock-trails-tip state this warning is the node's only signal, but
+// CheckFork can run on every 5 ms sync-loop iteration while the node is not
+// synchronized, so it must be throttled to once per slot or it becomes hundreds
+// of lines per second. Not parallel: it registers a global log observer.
+func TestMetaForkDetector_CheckpointAheadWarnsOncePerSlot(t *testing.T) {
+	buff := &bytes.Buffer{}
+	require.Nil(t, logger.AddLogObserver(buff, &checkpointAheadWarnFormatter{}))
+	t.Cleanup(func() {
+		require.Nil(t, logger.RemoveLogObserver(buff))
+	})
+
+	const checkpointSlot = uint64(100)
+
+	sloterMock := &consensusMock.SlotManagerMock{
+		SlotIndex:          int64(checkpointSlot),
+		TimeDurationCalled: func() time.Duration { return 0 },
+	}
+	bfd, err := sync.NewMetaForkDetector(sloterMock, &mock.BlackListHandlerStub{}, 0)
+	require.Nil(t, err)
+
+	hdr := &block.Block{Header: &block.BlockHeader{Nonce: 5, Slot: checkpointSlot}}
+	require.Nil(t, bfd.AddHeader(hdr, []byte("hash"), process.BHProcessed, nil, nil))
+
+	sloterMock.SlotIndex = 50
+	forkInfo := bfd.CheckFork()
+	require.False(t, forkInfo.IsDetected)
+
+	firstLen := buff.Len()
+	require.Greater(t, firstLen, 0)
+	require.Contains(t, buff.String(), "last checkpoint is ahead of the local slot index")
+
+	// Same slot: throttled.
+	_ = bfd.CheckFork()
+	require.Equal(t, firstLen, buff.Len())
+
+	// Next slot: the state persists, so it warns again.
+	sloterMock.SlotIndex = 51
+	_ = bfd.CheckFork()
+	require.Greater(t, buff.Len(), firstLen)
 }
