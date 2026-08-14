@@ -267,16 +267,29 @@ func startStatisticsMonitor(
 	return nil
 }
 
-func createNodesCoordinator(
-	nodesConfig *sharding.NodesSetup,
-	coreComponents *factory.CoreComponents,
-	cryptoParams *factory.CryptoParams,
-	epochStartNotifier sharding.EpochStartEventNotifier,
-	bootStorer storage.Storer,
-	nodeShuffler sharding.NodesShuffler,
-	bootstrapParameters bootstrap.Parameters,
-	startEpoch uint32,
-) (sharding.NodesCoordinator, error) {
+// createNodesCoordinatorArgs holds the dependencies for createNodesCoordinator
+type createNodesCoordinatorArgs struct {
+	nodesConfig                  *sharding.NodesSetup
+	coreComponents               *factory.CoreComponents
+	cryptoParams                 *factory.CryptoParams
+	epochStartNotifier           sharding.EpochStartEventNotifier
+	bootStorer                   storage.Storer
+	nodeShuffler                 sharding.NodesShuffler
+	bootstrapParameters          bootstrap.Parameters
+	startEpoch                   uint32
+	fixJailedPromotionOrderEpoch uint32
+}
+
+func createNodesCoordinator(args createNodesCoordinatorArgs) (sharding.NodesCoordinator, error) {
+	nodesConfig := args.nodesConfig
+	coreComponents := args.coreComponents
+	cryptoParams := args.cryptoParams
+	epochStartNotifier := args.epochStartNotifier
+	bootStorer := args.bootStorer
+	nodeShuffler := args.nodeShuffler
+	bootstrapParameters := args.bootstrapParameters
+	startEpoch := args.startEpoch
+	fixJailedPromotionOrderEpoch := args.fixJailedPromotionOrderEpoch
 
 	electedNodesInfo, eligibleNodesInfo, err := nodesConfig.InitialNodesInfo()
 	if err != nil {
@@ -324,18 +337,19 @@ func createNodesCoordinator(
 	}
 
 	arguments := sharding.ArgNodesCoordinator{
-		ConsensusGroupSize:  int(nodesConfig.ConsensusGroupSize),
-		Marshalizer:         coreComponents.InternalMarshalizer,
-		Hasher:              coreComponents.Hasher,
-		Shuffler:            nodeShuffler,
-		EpochStartNotifier:  epochStartNotifier,
-		BootStorer:          bootStorer,
-		ElectedNodes:        electedValidators,
-		EligibleNodes:       eligibleValidators,
-		SelfPublicKey:       pubKeyBytes,
-		ConsensusGroupCache: consensusGroupCache,
-		Epoch:               currentEpoch,
-		StartEpoch:          startEpoch,
+		ConsensusGroupSize:           int(nodesConfig.ConsensusGroupSize),
+		Marshalizer:                  coreComponents.InternalMarshalizer,
+		Hasher:                       coreComponents.Hasher,
+		Shuffler:                     nodeShuffler,
+		EpochStartNotifier:           epochStartNotifier,
+		BootStorer:                   bootStorer,
+		ElectedNodes:                 electedValidators,
+		EligibleNodes:                eligibleValidators,
+		SelfPublicKey:                pubKeyBytes,
+		ConsensusGroupCache:          consensusGroupCache,
+		Epoch:                        currentEpoch,
+		StartEpoch:                   startEpoch,
+		FixJailedPromotionOrderEpoch: fixJailedPromotionOrderEpoch,
 	}
 
 	if len(bootstrapParameters.CurrEpochValidatorsInfo) > 0 {
