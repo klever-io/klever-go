@@ -100,12 +100,18 @@ func (tdp *txDatabaseProcessor) prepareTransactionsForDatabase(
 	return converters.ConvertMapTxsToSlice(transactions), transactions, ad, nil
 }
 
-func (ei *elasticProcessor) prepareAndIndexLogs(logsAndEvents []*nodeData.LogData, txsMap map[string]*data.Transaction, timestamp int64, buffSlice *data.BufferSlice) error {
+// prepareAndIndexLogs indexes the block's logs. precomputed, when non-nil, is the
+// websocket dispatcher's own PrepareLogsForDB result for this block, reused here instead
+// of converting the same logs a second time.
+func (ei *elasticProcessor) prepareAndIndexLogs(logsAndEvents []*nodeData.LogData, txsMap map[string]*data.Transaction, timestamp int64, precomputed []*data.Logs, buffSlice *data.BufferSlice) error {
 	if !ei.isIndexEnabled(logsIndex) {
 		return nil
 	}
 
-	logsDB := ei.logsAndEventsProc.PrepareLogsForDB(logsAndEvents, txsMap, timestamp)
+	logsDB := precomputed
+	if logsDB == nil {
+		logsDB = ei.logsAndEventsProc.PrepareLogsForDB(logsAndEvents, txsMap, timestamp)
+	}
 
 	return SerializeLogs(logsDB, buffSlice, logsIndex)
 }

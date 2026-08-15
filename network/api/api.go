@@ -179,6 +179,7 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 		indexer.UseEventQueue = true
 		hub := clientSocket.NewHub(postConnUrl, postConnApiKey, wsFacade, hubLimits)
 		hub.SetAppStatusHandler(appStatusHandler)
+		indexer.LogsSubscriberChecker = hub.HasLogsSubscriberOrMirror
 		wsocket.SubscribeTopics(ws, hub, subscribeOpts)
 		go hub.StartServer(ctx)
 	}

@@ -75,19 +75,33 @@ func (w *dropWarner) flush() (int64, bool) {
 type userOptions struct {
 	acceptAccount     bool
 	acceptTransaction bool
+	acceptLogs        bool
 }
 
 type SocketHub struct {
-	mu                      sync.RWMutex
-	postConnectionURL       string
-	postConnectionAPIKey    string
+	mu                   sync.RWMutex
+	postConnectionURL    string
+	postConnectionAPIKey string
+	// mirrorConfigured mirrors postQueue != nil (the mirror's actual enable condition — see
+	// NewHub, URL is the single source of truth) as a plain bool so per-event dispatch
+	// doesn't need to reach through the channel. Computed once at construction; neither
+	// underlying field is ever mutated afterward.
+	mirrorConfigured        bool
 	facade                  WSFacade
 	blockSubscription       map[*client]struct{}
 	transactionSubscription map[*client]struct{}
 	addressSubscription     map[string]map[*client]userOptions
 	clientAddresses         map[*client]int
-	limits                  resolvedLimits
-	unregister              chan *client
+	// logsSubscriberCount is the number of (address, client) entries currently accepting
+	// LOGS, maintained incrementally alongside addressSubscription. Mutated only while mu
+	// (Lock) is already held for the surrounding map edit, but read lock-free via Load() —
+	// HasLogsSubscriberOrMirror runs synchronously on the block-commit goroutine for every
+	// block with logs, so it must never be able to block on mu: a burst of client
+	// disconnects holds mu (Lock) across a socket close and a map scan, and RWMutex's
+	// fairness would park a new RLock behind that queue.
+	logsSubscriberCount atomic.Int64
+	limits              resolvedLimits
+	unregister          chan *client
 	// postQueue feeds the bounded postWSConnection worker pool; nil when the mirror is
 	// disabled (no URL configured — see NewHub), so asyncPost is a no-op and never
 	// allocates a goroutine or channel slot for a feature nobody turned on.
@@ -145,6 +159,7 @@ func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade, lim
 		transactionSubscription: make(map[*client]struct{}),
 		postConnectionURL:       postConnectionURL,
 		postConnectionAPIKey:    postConnectionAPIKey,
+		mirrorConfigured:        postQueue != nil,
 		facade:                  facade,
 		limits:                  resolved,
 		postQueue:               postQueue,
@@ -219,24 +234,45 @@ func (h *SocketHub) startPostWorkers(ctx context.Context) {
 	}
 }
 
-func (h *SocketHub) notifyAddressSubscribers(address string, parsed *Send, filterFn func(userOptions) bool) {
+// dispatchToAddress marshals message for evType/address/hash and sends it to every client
+// currently watching address whose userOptions filterFn accepts, skipping the
+// marshal/mirror-post cost entirely when nobody would receive it (no matching subscriber
+// and no mirror configured). One lock/lookup snapshots the matching clients; shared by
+// every address-scoped event handler (ACCOUNTS, LOGS, tx sender/receipts) so the
+// "is anybody listening" gate isn't special-cased to one event type.
+func (h *SocketHub) dispatchToAddress(evType indexer.EventType, address, hash string, message interface{}, filterFn func(userOptions) bool) {
 	h.mu.RLock()
-	original, ok := h.addressSubscription[address]
-	if !ok {
-		h.mu.RUnlock()
-		return
-	}
-	snapshot := make(map[*client]userOptions, len(original))
-	for c, opts := range original {
-		snapshot[c] = opts
+	clients := h.addressSubscription[address]
+	snapshot := make([]*client, 0, len(clients))
+	for c, opts := range clients {
+		if filterFn(opts) {
+			snapshot = append(snapshot, c)
+		}
 	}
 	h.mu.RUnlock()
 
-	for c, opts := range snapshot {
-		if c.IsAlive() && filterFn(opts) {
+	if len(snapshot) == 0 && !h.mirrorConfigured {
+		return
+	}
+
+	parsed := h.marshalAndPost(evType, address, hash, message)
+	if parsed == nil {
+		return
+	}
+	for _, c := range snapshot {
+		if c.IsAlive() {
 			c.send(parsed)
 		}
 	}
+}
+
+// HasLogsSubscriberOrMirror reports whether dispatching a LOGS event would actually be
+// delivered anywhere — a mirror endpoint is configured, or at least one client currently
+// watches an address with LOGS accepted. Wired into indexer.LogsSubscriberChecker (see
+// network/api/api.go) so the block-commit goroutine can skip the log-conversion cost
+// entirely for a block that nobody would receive it for.
+func (h *SocketHub) HasLogsSubscriberOrMirror() bool {
+	return h.mirrorConfigured || h.logsSubscriberCount.Load() > 0
 }
 
 func (h *SocketHub) broadcastToSubscription(parsed *Send, subscription map[*client]struct{}) {
@@ -296,6 +332,8 @@ func (h *SocketHub) StartServer(ctx context.Context) {
 				h.handleAccountsEvent(event)
 			case indexer.USER_TRANSACTIONS:
 				h.handleUserTransactionEvent(event)
+			case indexer.LOGS:
+				h.handleLogsEvent(event)
 			case indexer.TRANSACTIONS:
 				h.handleBroadcastEvent(event, h.transactionSubscription)
 			default:
@@ -309,11 +347,25 @@ func (h *SocketHub) handleAccountsEvent(event indexer.Event) {
 	accounts := event.Message.(map[string]*data.AccountInfo)
 	acceptAccount := func(opts userOptions) bool { return opts.acceptAccount }
 	for account, info := range accounts {
-		parsed := h.marshalAndPost(event.EvType, account, "", info)
-		if parsed == nil {
+		h.dispatchToAddress(event.EvType, account, "", info, acceptAccount)
+	}
+}
+
+func (h *SocketHub) handleLogsEvent(event indexer.Event) {
+	logs, ok := event.Message.([]*data.Logs)
+	if !ok {
+		log.Error("ws.EventReceive", "err", "cannot convert message to []*data.Logs")
+		return
+	}
+	acceptLogs := func(opts userOptions) bool { return opts.acceptLogs }
+	for _, entry := range logs {
+		if entry == nil || entry.Address == "" {
 			continue
 		}
-		h.notifyAddressSubscribers(account, parsed, acceptAccount)
+		// entry.ID is the hex-encoded hash of the transaction that produced this log
+		// (already computed for the Elasticsearch-facing shape; reused here as the
+		// envelope hash so a subscriber can correlate a log back to its transaction).
+		h.dispatchToAddress(event.EvType, entry.Address, entry.ID, entry, acceptLogs)
 	}
 }
 
@@ -332,11 +384,7 @@ func (h *SocketHub) handleUserTransactionEvent(event indexer.Event) {
 
 func (h *SocketHub) notifyTxSender(wg *sync.WaitGroup, evType indexer.EventType, tx *data.Transaction, acceptTx func(userOptions) bool) {
 	defer wg.Done()
-	parsed := h.marshalAndPost(evType, tx.Sender, "", tx)
-	if parsed == nil {
-		return
-	}
-	h.notifyAddressSubscribers(tx.Sender, parsed, acceptTx)
+	h.dispatchToAddress(evType, tx.Sender, "", tx, acceptTx)
 }
 
 func (h *SocketHub) notifyTxReceipts(wg *sync.WaitGroup, evType indexer.EventType, tx *data.Transaction, acceptTx func(userOptions) bool) {
@@ -350,11 +398,7 @@ func (h *SocketHub) notifyTxReceipts(wg *sync.WaitGroup, evType indexer.EventTyp
 		if !ok {
 			continue
 		}
-		parsed := h.marshalAndPost(evType, address, "", tx)
-		if parsed == nil {
-			continue
-		}
-		h.notifyAddressSubscribers(address, parsed, acceptTx)
+		h.dispatchToAddress(evType, address, "", tx, acceptTx)
 	}
 }
 
@@ -456,18 +500,18 @@ func (h *SocketHub) HandleClientInsertion(eventType []indexer.EventType, address
 		return fmt.Errorf("address subscription limit reached for this connection (max %d)", h.limits.maxAddressesPerClient)
 	}
 
-	acceptAccounts, acceptTransactions := h.applyEventTypes(eventType, c)
+	opts := h.applyEventTypes(eventType, c)
 	if wantsAddresses {
-		h.addAddressSubscriptions(addresses, c, acceptAccounts, acceptTransactions)
+		h.addAddressSubscriptions(addresses, c, opts)
 	}
 	return nil
 }
 
 // containsAddressScoped reports whether eventType includes a type for which the
-// request's addresses are meaningful (ACCOUNTS or USER_TRANSACTIONS).
+// request's addresses are meaningful (ACCOUNTS, USER_TRANSACTIONS or LOGS).
 func containsAddressScoped(eventType []indexer.EventType) bool {
 	for _, t := range eventType {
-		if t == indexer.ACCOUNTS || t == indexer.USER_TRANSACTIONS {
+		if t == indexer.ACCOUNTS || t == indexer.USER_TRANSACTIONS || t == indexer.LOGS {
 			return true
 		}
 	}
@@ -495,8 +539,9 @@ func (h *SocketHub) countNewAddresses(addresses []string, c *client) int {
 }
 
 // applyEventTypes registers the global block/transaction subscriptions for c and returns
-// the per-address accept flags. The caller must hold h.mu.
-func (h *SocketHub) applyEventTypes(eventType []indexer.EventType, c *client) (acceptAccounts, acceptTransactions bool) {
+// the per-address accept flags as a userOptions value. The caller must hold h.mu.
+func (h *SocketHub) applyEventTypes(eventType []indexer.EventType, c *client) userOptions {
+	var opts userOptions
 	for _, t := range eventType {
 		switch t {
 		case indexer.BLOCKS:
@@ -504,17 +549,20 @@ func (h *SocketHub) applyEventTypes(eventType []indexer.EventType, c *client) (a
 		case indexer.TRANSACTIONS:
 			h.transactionSubscription[c] = struct{}{}
 		case indexer.USER_TRANSACTIONS:
-			acceptTransactions = true
+			opts.acceptTransaction = true
 		case indexer.ACCOUNTS:
-			acceptAccounts = true
+			opts.acceptAccount = true
+		case indexer.LOGS:
+			opts.acceptLogs = true
 		}
 	}
-	return acceptAccounts, acceptTransactions
+	return opts
 }
 
-// addAddressSubscriptions adds c to each address with the given accept flags, bumping the
-// per-client count for newly added (address, client) pairs. The caller must hold h.mu.
-func (h *SocketHub) addAddressSubscriptions(addresses []string, c *client, acceptAccounts, acceptTransactions bool) {
+// addAddressSubscriptions adds c to each address, merging opts' set flags into any
+// existing subscription instead of replacing it, and bumping the per-client count for
+// newly added (address, client) pairs. The caller must hold h.mu.
+func (h *SocketHub) addAddressSubscriptions(addresses []string, c *client, opts userOptions) {
 	for _, address := range addresses {
 		value, ok := h.addressSubscription[address]
 		if !ok {
@@ -527,11 +575,15 @@ func (h *SocketHub) addAddressSubscriptions(addresses []string, c *client, accep
 		}
 
 		existing := value[c]
-		if acceptAccounts {
+		if opts.acceptAccount {
 			existing.acceptAccount = true
 		}
-		if acceptTransactions {
+		if opts.acceptTransaction {
 			existing.acceptTransaction = true
+		}
+		if opts.acceptLogs && !existing.acceptLogs {
+			h.logsSubscriberCount.Add(1)
+			existing.acceptLogs = true
 		}
 		value[c] = existing
 	}
@@ -556,6 +608,7 @@ func (h *SocketHub) deleteAll() {
 		delete(h.addressSubscription, addr)
 	}
 	h.clientAddresses = make(map[*client]int)
+	h.logsSubscriberCount.Store(0)
 
 	closeAndClear(h.blockSubscription)
 	closeAndClear(h.transactionSubscription)
@@ -572,6 +625,9 @@ func (h *SocketHub) handleClientDelete(c *client) {
 	// inner map empties. Without this, a disconnect leaks one map entry per address
 	// permanently (GHSA-4fwh-wrm6-97xm, Impact C).
 	for addr, clients := range h.addressSubscription {
+		if opts, has := clients[c]; has && opts.acceptLogs {
+			h.logsSubscriberCount.Add(-1)
+		}
 		delete(clients, c)
 		if len(clients) == 0 {
 			delete(h.addressSubscription, addr)
@@ -711,8 +767,7 @@ func (h *SocketHub) HandleClientRemoval(eventTypes []indexer.EventType, addresse
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	var removeAccounts bool
-	var removeTransactions bool
+	var remove userOptions
 	for _, t := range eventTypes {
 		switch t {
 		case indexer.BLOCKS:
@@ -720,18 +775,22 @@ func (h *SocketHub) HandleClientRemoval(eventTypes []indexer.EventType, addresse
 		case indexer.TRANSACTIONS:
 			delete(h.transactionSubscription, c)
 		case indexer.ACCOUNTS:
-			removeAccounts = true
+			remove.acceptAccount = true
 		case indexer.USER_TRANSACTIONS:
-			removeTransactions = true
+			remove.acceptTransaction = true
+		case indexer.LOGS:
+			remove.acceptLogs = true
 		}
 	}
 
 	for _, addr := range addresses {
-		h.removeClientFromAddress(addr, c, removeAccounts, removeTransactions)
+		h.removeClientFromAddress(addr, c, remove)
 	}
 }
 
-func (h *SocketHub) removeClientFromAddress(addr string, c *client, removeAccounts, removeTransactions bool) {
+// removeClientFromAddress clears each set flag in remove from c's subscription at addr.
+// The caller must hold h.mu.
+func (h *SocketHub) removeClientFromAddress(addr string, c *client, remove userOptions) {
 	clients, ok := h.addressSubscription[addr]
 	if !ok {
 		return
@@ -740,13 +799,17 @@ func (h *SocketHub) removeClientFromAddress(addr string, c *client, removeAccoun
 	if !ok {
 		return
 	}
-	if removeAccounts {
+	if remove.acceptAccount {
 		existing.acceptAccount = false
 	}
-	if removeTransactions {
+	if remove.acceptTransaction {
 		existing.acceptTransaction = false
 	}
-	if !existing.acceptAccount && !existing.acceptTransaction {
+	if remove.acceptLogs && existing.acceptLogs {
+		h.logsSubscriberCount.Add(-1)
+		existing.acceptLogs = false
+	}
+	if !existing.acceptAccount && !existing.acceptTransaction && !existing.acceptLogs {
 		delete(clients, c)
 		h.decrClientAddresses(c)
 	} else {

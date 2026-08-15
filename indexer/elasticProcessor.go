@@ -534,15 +534,24 @@ func (ei *elasticProcessor) SaveTransactions(
 ) error {
 	headerTimestamp := header.GetTimestamp()
 
-	txs, txsMap, ad, err := ei.resolvePreparedBlockData(header, pool, prepared)
+	txs, txsMap, ad, ld, logsDB, err := ei.resolvePreparedBlockData(header, pool, prepared)
 	if err != nil {
 		return err
 	}
 
-	ld := ei.logsAndEventsProc.ExtractDataFromLogs(pool, txs, headerTimestamp)
+	// Non-nil only when the websocket dispatcher already computed them synchronously on
+	// the commit goroutine (see eventsProcessor.SaveBlock) — reusing them here avoids both
+	// a redundant conversion pass and the data race that computing them here would race.
+	// That reuse only ever happens when it was computed full=true (indexerEnabled was true
+	// at commit time, the same condition that hands prepared to this worker at all), so the
+	// fallback below — computing it ourselves — always needs full=true too: this path only
+	// runs when ES will actually index ScDeploys/AlteredSCs.
+	if ld == nil {
+		ld = ei.logsAndEventsProc.ExtractDataFromLogs(pool, txs, headerTimestamp, true)
+	}
 	buffers := data.NewBufferSlice(data.DefaultMaxBulkSize)
 
-	if err := ei.indexBlockArtifacts(buffers, headerTimestamp, txs, txsMap, ad, ld, pool); err != nil {
+	if err := ei.indexBlockArtifacts(buffers, headerTimestamp, txs, txsMap, ad, ld, logsDB, pool); err != nil {
 		return err
 	}
 
@@ -551,20 +560,35 @@ func (ei *elasticProcessor) SaveTransactions(
 		return err
 	}
 
+	// Drop the cached conversion only once this work item has fully succeeded and won't be
+	// retried: PreparedBlockData sits in the dispatcher's work-item queue (up to
+	// indexerCacheSize deep) until this method returns without error, pinning the
+	// hex-expanded logs for that whole wait; clearing it here caps the exposure to one
+	// in-flight block instead of the full queue depth. Clearing it before a possible retry
+	// (dataDispatcher.doWork re-runs this on the same PreparedBlockData on error) would
+	// force ExtractDataFromLogs to recompute on this goroutine — reintroducing the exact
+	// race with the websocket hub's marshal that computing it here was meant to avoid.
+	if p, ok := prepared.(*data.PreparedBlockData); ok && p != nil {
+		p.LogsDB = nil
+		p.LogsResults = nil
+	}
+
 	return nil
 }
 
-// resolvePreparedBlockData returns the prepared block data if provided,
-// otherwise it runs prepareTransactionsForDatabase as a fallback.
+// resolvePreparedBlockData returns the prepared block data if provided (including any
+// LogsResults/LogsDB the websocket dispatcher already computed, nil otherwise), or runs
+// prepareTransactionsForDatabase as a fallback.
 func (ei *elasticProcessor) resolvePreparedBlockData(
 	header nodeData.HeaderHandler,
 	pool *indexer.Pool,
 	prepared any,
-) ([]*data.Transaction, map[string]*data.Transaction, *data.AlteredData, error) {
+) ([]*data.Transaction, map[string]*data.Transaction, *data.AlteredData, *data.PreparedLogsResults, []*data.Logs, error) {
 	if p, ok := prepared.(*data.PreparedBlockData); ok && p != nil {
-		return p.Txs, p.TxsMap, p.Altered, nil
+		return p.Txs, p.TxsMap, p.Altered, p.LogsResults, p.LogsDB, nil
 	}
-	return ei.prepareTransactionsForDatabase(header, pool)
+	txs, txsMap, ad, err := ei.prepareTransactionsForDatabase(header, pool)
+	return txs, txsMap, ad, nil, nil, err
 }
 
 // indexBlockArtifacts runs every sub-index step for a block. The list is
@@ -576,6 +600,7 @@ func (ei *elasticProcessor) indexBlockArtifacts(
 	txsMap map[string]*data.Transaction,
 	ad *data.AlteredData,
 	ld *data.PreparedLogsResults,
+	logsDB []*data.Logs,
 	pool *indexer.Pool,
 ) error {
 	steps := []func() error{
@@ -587,7 +612,7 @@ func (ei *elasticProcessor) indexBlockArtifacts(
 		func() error { return ei.indexMarketplaces(ad.Marketplaces.GetAll(), buffers) },
 		func() error { return ei.indexOrders(ad.Orders.GetAll(), buffers) },
 		func() error { return ei.indexAlteredAccounts(headerTimestamp, ad.Accounts.GetAll(), buffers) },
-		func() error { return ei.prepareAndIndexLogs(pool.Logs, txsMap, headerTimestamp, buffers) },
+		func() error { return ei.prepareAndIndexLogs(pool.Logs, txsMap, headerTimestamp, logsDB, buffers) },
 		func() error { return ei.indexScDeploys(ld.ScDeploys, buffers) },
 		func() error { return ei.indexAlteredSmartContracts(ld.AlteredSCs, buffers) },
 	}
