@@ -130,7 +130,15 @@ func (context *VMHooksImpl) MBufferGetByteSlice(
 	}
 	managedType.ConsumeGasForBytes(sourceBytes)
 
-	if startingPosition < 0 || sliceLength < 0 || int(startingPosition+sliceLength) > len(sourceBytes) {
+	// Pre-fork, startingPosition+sliceLength was added as int32 before the bounds
+	// check, so a crafted overflow wraps negative, fails this check for the wrong
+	// reason, and falls through to a panic on the slice expression below
+	// (recovered upstream as an irrecoverable execution failure). Changing that
+	// outcome for historical blocks would break replay, so only the overflow
+	// case is fork-gated; the legacy widening and slice expression are untouched.
+	_, addErr := math.AddInt32WithErr(startingPosition, sliceLength)
+	if startingPosition < 0 || sliceLength < 0 || int(startingPosition+sliceLength) > len(sourceBytes) ||
+		(addErr != nil && context.host.ForkController().FixAuditChangesV3()) {
 		// does not fail execution if slice exceeds bounds
 		return 1
 	}
@@ -167,7 +175,10 @@ func ManagedBufferCopyByteSliceWithHost(host vmhost.VMHost, sourceHandle int32, 
 	}
 	managedType.ConsumeGasForBytes(sourceBytes)
 
-	if startingPosition < 0 || sliceLength < 0 || int(startingPosition+sliceLength) > len(sourceBytes) {
+	// See the identical fork-gating rationale in MBufferGetByteSlice above.
+	_, addErr := math.AddInt32WithErr(startingPosition, sliceLength)
+	if startingPosition < 0 || sliceLength < 0 || int(startingPosition+sliceLength) > len(sourceBytes) ||
+		(addErr != nil && host.ForkController().FixAuditChangesV3()) {
 		// does not fail execution if slice exceeds bounds
 		return 1
 	}

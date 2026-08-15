@@ -3,9 +3,12 @@ package contexts
 import (
 	"bytes"
 	"crypto/elliptic"
+	"math"
 	"math/big"
 	"testing"
 
+	commonMock "github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/tools/check"
@@ -781,6 +784,48 @@ func TestManagedTypesContext_SetByteSlice(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, []byte{1, 0xAA, 0xBB, 4}, result)
 	})
+}
+
+// TestManagedTypesContext_SetByteSlice_OverflowIsForkGated guards a real crash: this
+// method (extracted from vmhooks.ManagedBufferSetByteSliceWithTypedArgs after this
+// PR branched) computes startingPosition+dataLength as int32 before the bounds check,
+// so a crafted overflow wraps negative, passes the check for the wrong reason, and
+// panics on the slice expression — recovered upstream pre-fork (matching the sibling
+// MBufferGetByteSlice/MBufferCopyByteSlice sites), but must return a graceful (false, nil)
+// post-fork instead.
+func TestManagedTypesContext_SetByteSlice_OverflowIsForkGated(t *testing.T) {
+	t.Parallel()
+
+	for _, fixAuditV3 := range []bool{false, true} {
+		t.Run(mapBoolToLabel(fixAuditV3), func(t *testing.T) {
+			host := &contextmock.VMHostStub{
+				ForkControllerCalled: func() core.ForkController {
+					return &commonMock.ForkControllerStub{FixAuditChangesV3Value: fixAuditV3}
+				},
+			}
+			managedTypesCtx, _ := NewManagedTypesContext(host)
+			mBufferHandle := managedTypesCtx.NewManagedBufferFromBytes([]byte{1, 2, 3, 4})
+
+			// startingPosition + dataLength overflows int32 (wraps negative), so the
+			// naive `int(startingPosition+dataLength) > len(mBuffer)` check is bypassed.
+			if fixAuditV3 {
+				ok, err := managedTypesCtx.SetByteSlice(mBufferHandle, 10, math.MaxInt32-5, []byte{0xAA})
+				require.False(t, ok)
+				require.Nil(t, err)
+			} else {
+				require.Panics(t, func() {
+					_, _ = managedTypesCtx.SetByteSlice(mBufferHandle, 10, math.MaxInt32-5, []byte{0xAA})
+				})
+			}
+		})
+	}
+}
+
+func mapBoolToLabel(fixAuditV3 bool) string {
+	if fixAuditV3 {
+		return "FixAuditChangesV3=true"
+	}
+	return "FixAuditChangesV3=false"
 }
 
 func TestManagedTypesContext_PopSetActiveStateIfStackIsEmptyShouldNotPanic(t *testing.T) {
