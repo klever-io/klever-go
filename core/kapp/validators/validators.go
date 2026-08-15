@@ -540,22 +540,16 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 		val.Name = tc.GetConfig().GetName()
 	}
 
-	// NodeVersion is intentionally ignored (not rejected) before the versionAttestation
-	// fork: old binaries accept the unknown field as Transaction_Ok, so any observable
-	// difference (error code or receipt) would fork state pre-activation. Operators must
-	// attest at or after the fork epoch for the attestation to be recorded.
-	if len(tc.GetConfig().GetNodeVersion()) > 0 && v.forkController.VersionAttestation() {
-		nodeVersion := tc.GetConfig().GetNodeVersion()
-		if !utf8.ValidString(nodeVersion) ||
-			len(nodeVersion) > core.MaxSoftwareVersionLengthInBytes {
-			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidNodeVersion, common.ErrInvalidValue.Error())
-			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-		}
-
-		val.AttestedVersion = nodeVersion
-		val.AttestedEpoch = ctx.Block().GetHeader().GetEpoch()
+	if code, err := v.applyNodeVersionAttestation(ctx, val, tc); err != nil {
+		return code, err
 	}
 
+	// Unlike RewardAddress/Logo/URIs/Name/NodeVersion above, these three are overwritten
+	// unconditionally from the transaction, with no len(...)>0 guard — an absent field
+	// means zero. An attestation-only transaction (BLSPublicKey + NodeVersion, nothing
+	// else set) therefore silently resets commission to 0, disables delegation and clears
+	// MaxDelegation. Callers/tooling MUST echo the validator's full current config in every
+	// ValidatorConfig transaction, attestation-only ones included.
 	val.CanDelegate = tc.GetConfig().GetCanDelegate()
 	val.Commission = tc.GetConfig().GetCommission()
 	val.MaxDelegation = tc.GetConfig().GetMaxDelegationAmount()
@@ -575,6 +569,33 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 		ctx.ContractID(),
 		sender,
 	))
+
+	return transaction.Transaction_Ok, nil
+}
+
+// applyNodeVersionAttestation records tc's NodeVersion onto val when the versionAttestation
+// fork is active and a version is present. NodeVersion is intentionally ignored (not
+// rejected) before the fork: old binaries accept the unknown field as Transaction_Ok, so
+// any observable difference (error code or receipt) would fork state pre-activation.
+// Operators must attest at or after the fork epoch for the attestation to be recorded.
+func (v *validatorsKApp) applyNodeVersionAttestation(
+	ctx kapp.KappContext,
+	val *ValidatorData,
+	tc *transaction.ValidatorConfigContract,
+) (transaction.Transaction_TXResultCode, error) {
+	if len(tc.GetConfig().GetNodeVersion()) == 0 || !v.forkController.VersionAttestation() {
+		return transaction.Transaction_Ok, nil
+	}
+
+	nodeVersion := tc.GetConfig().GetNodeVersion()
+	if !utf8.ValidString(nodeVersion) ||
+		len(nodeVersion) > core.MaxSoftwareVersionLengthInBytes {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidNodeVersion, common.ErrInvalidValue.Error())
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	val.AttestedVersion = nodeVersion
+	val.AttestedEpoch = ctx.Block().GetHeader().GetEpoch()
 
 	return transaction.Transaction_Ok, nil
 }
