@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/klever-io/klever-go/sharding"
@@ -105,6 +106,26 @@ func TestRestorePreviousEpochNodes_RestoresPreviousEpochLists(t *testing.T) {
 	assert.Equal(t, []byte("eligible0"), gotEligible[0].PubKey())
 	require.Equal(t, 1, len(gotWaiting))
 	assert.Equal(t, []byte("waiting0"), gotWaiting[0].PubKey())
+}
+
+func TestRestorePreviousEpochNodes_PropagatesSetNodesError(t *testing.T) {
+	t.Parallel()
+
+	nodeRegistry := &sharding.NodesCoordinatorRegistry{
+		EpochsConfig: map[string]*sharding.EpochValidators{
+			"4": {ElectedValidators: serializableValidators("elected0")},
+		},
+	}
+	expectedErr := errors.New("set nodes failed")
+	stub := &nodesSetterStub{
+		setNodesCalled: func(_ []sharding.Validator, _ []sharding.Validator, _ []sharding.Validator, _ uint32) error {
+			return expectedErr
+		},
+	}
+
+	err := restorePreviousEpochNodes(stub, nodeRegistry, 5)
+
+	require.Equal(t, expectedErr, err)
 }
 
 func TestRegistryValidatorsForEpoch_MissingEpochReturnsDefaults(t *testing.T) {
