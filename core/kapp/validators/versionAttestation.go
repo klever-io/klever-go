@@ -36,10 +36,13 @@ type versionEnforcement struct {
 	demote bool
 	// required is the version demanded for the target epoch
 	required string
-	// minAttestedEpoch is the minimum AttestedEpoch for an attestation to count.
-	// It is the start epoch of the versionsByEpochs entry preceding the required one,
-	// so every validator must have (re-)attested at least once per release cycle;
-	// a single inflated attestation (e.g. "99.9.9") cannot grant a permanent exemption.
+	// minAttestedEpoch is the minimum AttestedEpoch for an attestation to count. It is
+	// the start epoch of the versionsByEpochs entry preceding the required one, so an
+	// attestation made anywhere in that previous release cycle still counts for the
+	// current one: a single attestation carries a validator through the release cycle
+	// it was made in plus the one after, going stale only once a third cycle begins.
+	// A single inflated attestation (e.g. "99.9.9") still cannot grant a permanent
+	// exemption, since it goes stale once the required version has advanced far enough.
 	minAttestedEpoch uint32
 }
 
