@@ -2208,6 +2208,63 @@ func TestProcessEconomicsEndOfEpoch_V1V2(t *testing.T) {
 
 }
 
+// TestProcessEconomicsEndOfEpoch_PropagatesPerValidatorError pins the two lines this
+// package's ProcessEconomicsEndOfEpochV1/V2 loops had zero coverage on: the `return err`
+// bodies that surface a single validator's processing failure from the whole epoch call,
+// for both fork versions. A peer-account load failure (used here as a concrete, easy to
+// trigger error) must abort the epoch call instead of being silently skipped.
+func TestProcessEconomicsEndOfEpoch_PropagatesPerValidatorError(t *testing.T) {
+	t.Parallel()
+
+	validatorAddress := []byte("validator1")
+	blsPubKey := []byte("blspubkey1")
+	const currentEpoch = uint32(10)
+	loadPeerErr := errors.New("peer load failed")
+
+	for _, isV2 := range []bool{false, true} {
+		t.Run(fmt.Sprintf("V2=%t", isV2), func(t *testing.T) {
+			v := setupValidatorsKApp(t)
+			addFunctionalCacher(t, v)
+			v.forkController.(*mock.ForkControllerStub).EpochRewardsV2Value = isV2
+			v.KAppController = &stub.KAppControllerStub{
+				GetProposalControllerCalled: func() kapps.ActiveProposalController {
+					return &mock.ProposalControllerStub{}
+				},
+			}
+
+			rawData := make(map[string][]byte)
+			data, err := v.marshalizer.Marshal(&ValidatorData{
+				BlsPubKey:      blsPubKey,
+				RewardsAddress: validatorAddress,
+				SelfStake:      200000,
+			})
+			require.NoError(t, err)
+			rawData["VAL/"+string(validatorAddress)] = data
+			loadKApp := func(address []byte) (state.KAppAccountHandler, error) {
+				return &mock.KAppAccountHandlerStub{
+					GetStorageCalled: func(key []byte) []byte { return rawData[string(key)] },
+					SetStorageCalled: func(key []byte, value []byte) error {
+						rawData[string(key)] = value
+						return nil
+					},
+				}, nil
+			}
+			v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppCalled = loadKApp
+			v.accountsCacher.(*mock.AccountsCacherStub).LoadKAppUncachedCalled = loadKApp
+			v.accountsCacher.(*mock.AccountsCacherStub).LoadPeerCalled = func(peer []byte) (state.PeerAccountHandler, error) {
+				return nil, loadPeerErr
+			}
+
+			validatorInfos := []*state.ValidatorInfo{
+				{PublicKey: blsPubKey, OwnerAddress: validatorAddress, List: string(state.List_eligible)},
+			}
+
+			err = v.ProcessEconomicsEndOfEpoch(currentEpoch, validatorInfos)
+			require.ErrorIs(t, err, loadPeerErr)
+		})
+	}
+}
+
 func TestV2CommissionBigIntHandlesOverflow(t *testing.T) {
 	rewardsAddr := makeAddress("rewards-address")
 	delegatorAddr := makeAddress("delegator-1")
