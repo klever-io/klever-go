@@ -685,6 +685,11 @@ var ErrEmptyAddress = errors.New("empty address")
 // ErrInvalidTransactionVersion signals that an invalid transaction version has been provided
 var ErrInvalidTransactionVersion = errors.New("invalid transaction version")
 
+// ErrInvalidVersionsByEpochs signals that the versions.versionsByEpochs config is malformed:
+// entries must start with StartEpoch 0 and have strictly increasing StartEpoch values, and
+// each version string must not exceed the configured length limit
+var ErrInvalidVersionsByEpochs = errors.New("invalid versions by epochs configuration")
+
 // ErrTransactionNotFound signals that a transaction was not found
 var ErrTransactionNotFound = errors.New("transaction not found")
 

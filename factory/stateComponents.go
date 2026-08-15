@@ -23,15 +23,19 @@ type StateComponentsFactoryArgs struct {
 	PathManager    storage.PathManagerHandler
 	RatingsData    process.RatingsInfoHandler
 	ProcessingMode core.NodeProcessingMode
+	// MinElectableNodes is the nodes shuffler's minimum electable count (genesis
+	// MinNumberOfNodes), used as a floor guard for validator version demotion
+	MinElectableNodes uint32
 }
 
 type stateComponentsFactory struct {
-	config         config.Config
-	core           *CoreComponents
-	tries          *TriesComponents
-	pathManager    storage.PathManagerHandler
-	ratingsData    process.RatingsInfoHandler
-	processingMode core.NodeProcessingMode
+	config            config.Config
+	core              *CoreComponents
+	tries             *TriesComponents
+	pathManager       storage.PathManagerHandler
+	ratingsData       process.RatingsInfoHandler
+	processingMode    core.NodeProcessingMode
+	minElectableNodes uint32
 }
 
 // NewStateComponentsFactory will return a new instance of stateComponentsFactory
@@ -47,12 +51,13 @@ func NewStateComponentsFactory(args StateComponentsFactoryArgs) (*stateComponent
 	}
 
 	return &stateComponentsFactory{
-		config:         args.Config,
-		core:           args.Core,
-		tries:          args.Tries,
-		pathManager:    args.PathManager,
-		ratingsData:    args.RatingsData,
-		processingMode: args.ProcessingMode,
+		config:            args.Config,
+		core:              args.Core,
+		tries:             args.Tries,
+		pathManager:       args.PathManager,
+		ratingsData:       args.RatingsData,
+		processingMode:    args.ProcessingMode,
+		minElectableNodes: args.MinElectableNodes,
 	}, nil
 }
 
@@ -90,11 +95,13 @@ func (scf *stateComponentsFactory) Create(forkController core.ForkController) (*
 	}
 
 	argsKapp := kappcontroller.ArgsNewKApp{
-		Hasher:         scf.core.Hasher,
-		Marshalizer:    scf.core.InternalMarshalizer,
-		PubkeyConv:     processPubkeyConverter,
-		ForkController: forkController,
-		RatingsData:    scf.ratingsData,
+		Hasher:            scf.core.Hasher,
+		Marshalizer:       scf.core.InternalMarshalizer,
+		PubkeyConv:        processPubkeyConverter,
+		ForkController:    forkController,
+		RatingsData:       scf.ratingsData,
+		VersionsByEpochs:  scf.config.Versions.VersionsByEpochs,
+		MinElectableNodes: scf.minElectableNodes,
 	}
 
 	kAppController, err := kappcontroller.NewKappController(argsKapp)

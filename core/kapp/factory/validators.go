@@ -1,6 +1,7 @@
 package factory
 
 import (
+	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/kapp/validators"
@@ -14,13 +15,17 @@ func NewValidatorKApp(
 	PubkeyConv core.PubkeyConverter,
 	ForkController core.ForkController,
 	RatingsData process.RatingsInfoHandler,
+	VersionsByEpochs []config.VersionByEpochs,
+	MinElectableNodes uint32,
 ) (kapp.ValidatorsKapp, error) {
 
 	args := &validators.ArgsNewValidatorKApp{
-		Marshalizer:    Marshalizer,
-		PubkeyConv:     PubkeyConv,
-		RatingsData:    RatingsData,
-		ForkController: ForkController,
+		Marshalizer:       Marshalizer,
+		PubkeyConv:        PubkeyConv,
+		RatingsData:       RatingsData,
+		ForkController:    ForkController,
+		VersionsByEpochs:  VersionsByEpochs,
+		MinElectableNodes: MinElectableNodes,
 	}
 
 	return validators.NewValidatorKApp(args)

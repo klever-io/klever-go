@@ -74,6 +74,7 @@ const (
 	ErrFieldInvalidURI           = "InvalidURI"
 	ErrFieldURICountExceeded     = "URICountExceeded"
 	ErrFieldInvalidLogo          = "InvalidLogo"
+	ErrFieldInvalidNodeVersion   = "InvalidNodeVersion"
 
 	// Proposal errors
 	ErrFieldInvalidProposal       = "InvalidProposal"

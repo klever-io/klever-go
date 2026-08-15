@@ -11,6 +11,7 @@ import (
 	"github.com/bugsnag/bugsnag-go/v2"
 	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
@@ -60,15 +61,17 @@ type blsPublicKeyValidator interface {
 }
 
 type validatorsKApp struct {
-	marshalizer     marshal.Marshalizer
-	pubkeyConv      core.PubkeyConverter
-	accountsCacher  state.AccountsCacher
-	forkController  core.ForkController
-	ratingsData     process.RatingsInfoHandler
-	rater           sharding.PeerAccountListAndRatingHandler
-	blsKeyValidator blsPublicKeyValidator
-	addressLen      int
-	KAppController  kapp.KAppController
+	marshalizer       marshal.Marshalizer
+	pubkeyConv        core.PubkeyConverter
+	accountsCacher    state.AccountsCacher
+	forkController    core.ForkController
+	ratingsData       process.RatingsInfoHandler
+	rater             sharding.PeerAccountListAndRatingHandler
+	blsKeyValidator   blsPublicKeyValidator
+	addressLen        int
+	versionsByEpochs  []config.VersionByEpochs
+	minElectableNodes uint32
+	KAppController    kapp.KAppController
 }
 
 // ArgsNewValidatorKApp holds the arguments needed to create a ValidatorsKApp
@@ -79,6 +82,19 @@ type ArgsNewValidatorKApp struct {
 	RatingsData    process.RatingsInfoHandler
 	// BLSKeyValidator is optional; when nil a BLS12-381 G2 validator is used.
 	BLSKeyValidator blsPublicKeyValidator
+	// VersionsByEpochs is the versions.versionsByEpochs config used to determine the
+	// node version required per epoch; nil or wildcard entries disable version enforcement.
+	// This is the same node-local config headerCheck.headerIntegrityVerifier uses for
+	// header version checks, historically a graceful-degradation input (a stale table just
+	// falls back to accepting any version). Once the versionAttestation fork is active and
+	// a non-wildcard entry applies, the same table also drives peer-list demotion, so a
+	// node with an outdated local copy can diverge from validators demoted or retained by
+	// the rest of the network. Entries are validated at construction (validateVersionsByEpochs).
+	VersionsByEpochs []config.VersionByEpochs
+	// MinElectableNodes is the nodes shuffler's minimum electable count (genesis
+	// MinNumberOfNodes); version demotion never reduces the attested electable set
+	// below this floor. Zero disables the floor guard.
+	MinElectableNodes uint32
 }
 
 // NewValidatorKApp creates a validator KApp
@@ -99,18 +115,24 @@ func NewValidatorKApp(
 		return nil, common.ErrNilForkController
 	}
 
+	if err := validateVersionsByEpochs(args.VersionsByEpochs); err != nil {
+		return nil, err
+	}
+
 	blsKeyValidator := args.BLSKeyValidator
 	if blsKeyValidator == nil {
 		blsKeyValidator = signing.NewKeyGenerator(mcl.NewSuiteBLS12())
 	}
 
 	v := &validatorsKApp{
-		marshalizer:     args.Marshalizer,
-		addressLen:      args.PubkeyConv.Len(),
-		ratingsData:     args.RatingsData,
-		pubkeyConv:      args.PubkeyConv,
-		forkController:  args.ForkController,
-		blsKeyValidator: blsKeyValidator,
+		marshalizer:       args.Marshalizer,
+		addressLen:        args.PubkeyConv.Len(),
+		ratingsData:       args.RatingsData,
+		pubkeyConv:        args.PubkeyConv,
+		forkController:    args.ForkController,
+		blsKeyValidator:   blsKeyValidator,
+		versionsByEpochs:  args.VersionsByEpochs,
+		minElectableNodes: args.MinElectableNodes,
 	}
 
 	return v, nil
@@ -528,6 +550,16 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 		val.Name = tc.GetConfig().GetName()
 	}
 
+	if code, err := v.applyNodeVersionAttestation(ctx, val, tc); err != nil {
+		return code, err
+	}
+
+	// Unlike RewardAddress/Logo/URIs/Name/NodeVersion above, these three are overwritten
+	// unconditionally from the transaction, with no len(...)>0 guard — an absent field
+	// means zero. An attestation-only transaction (BLSPublicKey + NodeVersion, nothing
+	// else set) therefore silently resets commission to 0, disables delegation and clears
+	// MaxDelegation. Callers/tooling MUST echo the validator's full current config in every
+	// ValidatorConfig transaction, attestation-only ones included.
 	val.CanDelegate = tc.GetConfig().GetCanDelegate()
 	val.Commission = tc.GetConfig().GetCommission()
 	val.MaxDelegation = tc.GetConfig().GetMaxDelegationAmount()
@@ -547,6 +579,39 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 		ctx.ContractID(),
 		sender,
 	))
+
+	return transaction.Transaction_Ok, nil
+}
+
+// applyNodeVersionAttestation records tc's NodeVersion onto val when the versionAttestation
+// fork is active and a version is present. NodeVersion is intentionally ignored (not
+// rejected) before the fork: old binaries accept the unknown field as Transaction_Ok, so
+// any observable difference (error code or receipt) would fork state pre-activation.
+// Operators must attest at or after the fork epoch for the attestation to be recorded.
+//
+// NodeVersion is self-declared by the sender and stored as-is: nothing binds it to the
+// software the validator's node is actually running. Enforcement (versionSatisfies,
+// computeVersionEnforcement) therefore only catches operators who have not yet attested at
+// all, i.e. the honest-but-late case; it is an operability signal, not a security control,
+// and does not by itself guarantee any validator runs a particular binary.
+func (v *validatorsKApp) applyNodeVersionAttestation(
+	ctx kapp.KappContext,
+	val *ValidatorData,
+	tc *transaction.ValidatorConfigContract,
+) (transaction.Transaction_TXResultCode, error) {
+	if len(tc.GetConfig().GetNodeVersion()) == 0 || !v.forkController.VersionAttestation() {
+		return transaction.Transaction_Ok, nil
+	}
+
+	nodeVersion := tc.GetConfig().GetNodeVersion()
+	if !utf8.ValidString(nodeVersion) ||
+		len(nodeVersion) > core.MaxSoftwareVersionLengthInBytes {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidNodeVersion, common.ErrInvalidValue.Error())
+		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	val.AttestedVersion = nodeVersion
+	val.AttestedEpoch = ctx.Block().GetHeader().GetEpoch()
 
 	return transaction.Transaction_Ok, nil
 }
