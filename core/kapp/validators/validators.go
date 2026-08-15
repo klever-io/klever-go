@@ -588,6 +588,12 @@ func (v *validatorsKApp) UpdateValidator(sender []byte, tc *transaction.Validato
 // rejected) before the fork: old binaries accept the unknown field as Transaction_Ok, so
 // any observable difference (error code or receipt) would fork state pre-activation.
 // Operators must attest at or after the fork epoch for the attestation to be recorded.
+//
+// NodeVersion is self-declared by the sender and stored as-is: nothing binds it to the
+// software the validator's node is actually running. Enforcement (versionSatisfies,
+// computeVersionEnforcement) therefore only catches operators who have not yet attested at
+// all, i.e. the honest-but-late case; it is an operability signal, not a security control,
+// and does not by itself guarantee any validator runs a particular binary.
 func (v *validatorsKApp) applyNodeVersionAttestation(
 	ctx kapp.KappContext,
 	val *ValidatorData,
