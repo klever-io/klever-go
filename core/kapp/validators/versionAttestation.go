@@ -1,9 +1,13 @@
 package validators
 
 import (
+	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/klever-io/klever-go/common"
+	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data/state"
 )
@@ -43,6 +47,40 @@ type versionEnforcement struct {
 func (e versionEnforcement) isSatisfiedBy(val *ValidatorData) bool {
 	return val.AttestedEpoch >= e.minAttestedEpoch &&
 		versionSatisfies(val.AttestedVersion, e.required)
+}
+
+// validateVersionsByEpochs enforces the same shape headerCheck.headerIntegrityVerifier
+// requires of the release-shipped versions.versionsByEpochs config: a nil or empty list
+// disables version enforcement, but once entries are present the earliest one must start
+// at epoch 0, StartEpoch values must be strictly increasing, and every version string must
+// respect the length cap. requiredVersionForEpoch tolerates an unsorted or malformed table
+// silently (it just resolves ambiguous entries rather than failing), so this runs once at
+// construction to catch a misconfigured table before enforcement activity depends on it.
+func validateVersionsByEpochs(versionsByEpochs []config.VersionByEpochs) error {
+	if len(versionsByEpochs) == 0 {
+		return nil
+	}
+
+	sorted := make([]config.VersionByEpochs, len(versionsByEpochs))
+	copy(sorted, versionsByEpochs)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].StartEpoch < sorted[j].StartEpoch
+	})
+
+	if sorted[0].StartEpoch != 0 {
+		return fmt.Errorf("%w: first entry must start at epoch 0", common.ErrInvalidVersionsByEpochs)
+	}
+
+	for i, entry := range sorted {
+		if len(entry.Version) > core.MaxSoftwareVersionLengthInBytes {
+			return fmt.Errorf("%w: version %q exceeds max length", common.ErrInvalidVersionsByEpochs, entry.Version)
+		}
+		if i > 0 && sorted[i-1].StartEpoch >= entry.StartEpoch {
+			return fmt.Errorf("%w: duplicate or non-increasing StartEpoch at %d", common.ErrInvalidVersionsByEpochs, entry.StartEpoch)
+		}
+	}
+
+	return nil
 }
 
 // requiredVersionForEpoch returns the version required for the given epoch based on the

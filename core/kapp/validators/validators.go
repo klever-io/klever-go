@@ -83,7 +83,13 @@ type ArgsNewValidatorKApp struct {
 	// BLSKeyValidator is optional; when nil a BLS12-381 G2 validator is used.
 	BLSKeyValidator blsPublicKeyValidator
 	// VersionsByEpochs is the versions.versionsByEpochs config used to determine the
-	// node version required per epoch; nil or wildcard entries disable version enforcement
+	// node version required per epoch; nil or wildcard entries disable version enforcement.
+	// This is the same node-local config headerCheck.headerIntegrityVerifier uses for
+	// header version checks, historically a graceful-degradation input (a stale table just
+	// falls back to accepting any version). Once the versionAttestation fork is active and
+	// a non-wildcard entry applies, the same table also drives peer-list demotion, so a
+	// node with an outdated local copy can diverge from validators demoted or retained by
+	// the rest of the network. Entries are validated at construction (validateVersionsByEpochs).
 	VersionsByEpochs []config.VersionByEpochs
 	// MinElectableNodes is the nodes shuffler's minimum electable count (genesis
 	// MinNumberOfNodes); version demotion never reduces the attested electable set
@@ -107,6 +113,10 @@ func NewValidatorKApp(
 
 	if check.IfNil(args.ForkController) {
 		return nil, common.ErrNilForkController
+	}
+
+	if err := validateVersionsByEpochs(args.VersionsByEpochs); err != nil {
+		return nil, err
 	}
 
 	blsKeyValidator := args.BLSKeyValidator
