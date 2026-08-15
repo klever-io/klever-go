@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.6
 // 	protoc        v6.33.1
-// source: core/kapp/validators/proto/validatorData.proto
+// source: validatorData.proto
 
 package validators
 
@@ -50,7 +50,7 @@ type ValidatorData struct {
 
 func (x *ValidatorData) Reset() {
 	*x = ValidatorData{}
-	mi := &file_core_kapp_validators_proto_validatorData_proto_msgTypes[0]
+	mi := &file_validatorData_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -62,7 +62,7 @@ func (x *ValidatorData) String() string {
 func (*ValidatorData) ProtoMessage() {}
 
 func (x *ValidatorData) ProtoReflect() protoreflect.Message {
-	mi := &file_core_kapp_validators_proto_validatorData_proto_msgTypes[0]
+	mi := &file_validatorData_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -75,7 +75,7 @@ func (x *ValidatorData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidatorData.ProtoReflect.Descriptor instead.
 func (*ValidatorData) Descriptor() ([]byte, []int) {
-	return file_core_kapp_validators_proto_validatorData_proto_rawDescGZIP(), []int{0}
+	return file_validatorData_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *ValidatorData) GetOwnerAddress() []byte {
@@ -234,7 +234,7 @@ type PeerData struct {
 
 func (x *PeerData) Reset() {
 	*x = PeerData{}
-	mi := &file_core_kapp_validators_proto_validatorData_proto_msgTypes[1]
+	mi := &file_validatorData_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -246,7 +246,7 @@ func (x *PeerData) String() string {
 func (*PeerData) ProtoMessage() {}
 
 func (x *PeerData) ProtoReflect() protoreflect.Message {
-	mi := &file_core_kapp_validators_proto_validatorData_proto_msgTypes[1]
+	mi := &file_validatorData_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -259,7 +259,7 @@ func (x *PeerData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerData.ProtoReflect.Descriptor instead.
 func (*PeerData) Descriptor() ([]byte, []int) {
-	return file_core_kapp_validators_proto_validatorData_proto_rawDescGZIP(), []int{1}
+	return file_validatorData_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *PeerData) GetBuckets() map[string]*PeerBucket {
@@ -282,7 +282,7 @@ type PeerBucket struct {
 
 func (x *PeerBucket) Reset() {
 	*x = PeerBucket{}
-	mi := &file_core_kapp_validators_proto_validatorData_proto_msgTypes[2]
+	mi := &file_validatorData_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -294,7 +294,7 @@ func (x *PeerBucket) String() string {
 func (*PeerBucket) ProtoMessage() {}
 
 func (x *PeerBucket) ProtoReflect() protoreflect.Message {
-	mi := &file_core_kapp_validators_proto_validatorData_proto_msgTypes[2]
+	mi := &file_validatorData_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -307,7 +307,7 @@ func (x *PeerBucket) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerBucket.ProtoReflect.Descriptor instead.
 func (*PeerBucket) Descriptor() ([]byte, []int) {
-	return file_core_kapp_validators_proto_validatorData_proto_rawDescGZIP(), []int{2}
+	return file_validatorData_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *PeerBucket) GetDelegatedAt() int64 {
@@ -356,7 +356,7 @@ type ElementInList struct {
 
 func (x *ElementInList) Reset() {
 	*x = ElementInList{}
-	mi := &file_core_kapp_validators_proto_validatorData_proto_msgTypes[3]
+	mi := &file_validatorData_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -368,7 +368,7 @@ func (x *ElementInList) String() string {
 func (*ElementInList) ProtoMessage() {}
 
 func (x *ElementInList) ProtoReflect() protoreflect.Message {
-	mi := &file_core_kapp_validators_proto_validatorData_proto_msgTypes[3]
+	mi := &file_validatorData_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -381,7 +381,7 @@ func (x *ElementInList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ElementInList.ProtoReflect.Descriptor instead.
 func (*ElementInList) Descriptor() ([]byte, []int) {
-	return file_core_kapp_validators_proto_validatorData_proto_rawDescGZIP(), []int{3}
+	return file_validatorData_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ElementInList) GetBLSPublicKey() []byte {
@@ -417,7 +417,7 @@ type WaitingList struct {
 
 func (x *WaitingList) Reset() {
 	*x = WaitingList{}
-	mi := &file_core_kapp_validators_proto_validatorData_proto_msgTypes[4]
+	mi := &file_validatorData_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -429,7 +429,7 @@ func (x *WaitingList) String() string {
 func (*WaitingList) ProtoMessage() {}
 
 func (x *WaitingList) ProtoReflect() protoreflect.Message {
-	mi := &file_core_kapp_validators_proto_validatorData_proto_msgTypes[4]
+	mi := &file_validatorData_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -442,7 +442,7 @@ func (x *WaitingList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WaitingList.ProtoReflect.Descriptor instead.
 func (*WaitingList) Descriptor() ([]byte, []int) {
-	return file_core_kapp_validators_proto_validatorData_proto_rawDescGZIP(), []int{4}
+	return file_validatorData_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *WaitingList) GetFirstKey() []byte {
@@ -473,11 +473,11 @@ func (x *WaitingList) GetLastJailedKey() []byte {
 	return nil
 }
 
-var File_core_kapp_validators_proto_validatorData_proto protoreflect.FileDescriptor
+var File_validatorData_proto protoreflect.FileDescriptor
 
-const file_core_kapp_validators_proto_validatorData_proto_rawDesc = "" +
+const file_validatorData_proto_rawDesc = "" +
 	"\n" +
-	".core/kapp/validators/proto/validatorData.proto\x12\x05proto\"\x80\x06\n" +
+	"\x13validatorData.proto\x12\x05proto\"\x80\x06\n" +
 	"\rValidatorData\x12\"\n" +
 	"\fOwnerAddress\x18\x01 \x01(\fR\fownerAddress\x12&\n" +
 	"\x0eRewardsAddress\x18\x02 \x01(\fR\x0erewardsAddress\x12$\n" +
@@ -535,19 +535,19 @@ const file_core_kapp_validators_proto_validatorData_proto_rawDesc = "" +
 	"\rLastJailedKey\x18\x04 \x01(\fR\rlastJailedKeyB\x0fZ\r./;validatorsb\x06proto3"
 
 var (
-	file_core_kapp_validators_proto_validatorData_proto_rawDescOnce sync.Once
-	file_core_kapp_validators_proto_validatorData_proto_rawDescData []byte
+	file_validatorData_proto_rawDescOnce sync.Once
+	file_validatorData_proto_rawDescData []byte
 )
 
-func file_core_kapp_validators_proto_validatorData_proto_rawDescGZIP() []byte {
-	file_core_kapp_validators_proto_validatorData_proto_rawDescOnce.Do(func() {
-		file_core_kapp_validators_proto_validatorData_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_core_kapp_validators_proto_validatorData_proto_rawDesc), len(file_core_kapp_validators_proto_validatorData_proto_rawDesc)))
+func file_validatorData_proto_rawDescGZIP() []byte {
+	file_validatorData_proto_rawDescOnce.Do(func() {
+		file_validatorData_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_validatorData_proto_rawDesc), len(file_validatorData_proto_rawDesc)))
 	})
-	return file_core_kapp_validators_proto_validatorData_proto_rawDescData
+	return file_validatorData_proto_rawDescData
 }
 
-var file_core_kapp_validators_proto_validatorData_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
-var file_core_kapp_validators_proto_validatorData_proto_goTypes = []any{
+var file_validatorData_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_validatorData_proto_goTypes = []any{
 	(*ValidatorData)(nil), // 0: proto.ValidatorData
 	(*PeerData)(nil),      // 1: proto.PeerData
 	(*PeerBucket)(nil),    // 2: proto.PeerBucket
@@ -556,7 +556,7 @@ var file_core_kapp_validators_proto_validatorData_proto_goTypes = []any{
 	nil,                   // 5: proto.ValidatorData.URIsEntry
 	nil,                   // 6: proto.PeerData.BucketsEntry
 }
-var file_core_kapp_validators_proto_validatorData_proto_depIdxs = []int32{
+var file_validatorData_proto_depIdxs = []int32{
 	5, // 0: proto.ValidatorData.URIs:type_name -> proto.ValidatorData.URIsEntry
 	6, // 1: proto.PeerData.Buckets:type_name -> proto.PeerData.BucketsEntry
 	2, // 2: proto.PeerData.BucketsEntry.value:type_name -> proto.PeerBucket
@@ -567,26 +567,26 @@ var file_core_kapp_validators_proto_validatorData_proto_depIdxs = []int32{
 	0, // [0:3] is the sub-list for field type_name
 }
 
-func init() { file_core_kapp_validators_proto_validatorData_proto_init() }
-func file_core_kapp_validators_proto_validatorData_proto_init() {
-	if File_core_kapp_validators_proto_validatorData_proto != nil {
+func init() { file_validatorData_proto_init() }
+func file_validatorData_proto_init() {
+	if File_validatorData_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_core_kapp_validators_proto_validatorData_proto_rawDesc), len(file_core_kapp_validators_proto_validatorData_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_validatorData_proto_rawDesc), len(file_validatorData_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_core_kapp_validators_proto_validatorData_proto_goTypes,
-		DependencyIndexes: file_core_kapp_validators_proto_validatorData_proto_depIdxs,
-		MessageInfos:      file_core_kapp_validators_proto_validatorData_proto_msgTypes,
+		GoTypes:           file_validatorData_proto_goTypes,
+		DependencyIndexes: file_validatorData_proto_depIdxs,
+		MessageInfos:      file_validatorData_proto_msgTypes,
 	}.Build()
-	File_core_kapp_validators_proto_validatorData_proto = out.File
-	file_core_kapp_validators_proto_validatorData_proto_goTypes = nil
-	file_core_kapp_validators_proto_validatorData_proto_depIdxs = nil
+	File_validatorData_proto = out.File
+	file_validatorData_proto_goTypes = nil
+	file_validatorData_proto_depIdxs = nil
 }

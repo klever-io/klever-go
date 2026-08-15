@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.6
 // 	protoc        v6.33.1
-// source: data/transaction/proto/contracts.proto
+// source: contracts.proto
 
 package transaction
 
@@ -54,11 +54,11 @@ func (x CreateAssetContract_EnumAssetType) String() string {
 }
 
 func (CreateAssetContract_EnumAssetType) Descriptor() protoreflect.EnumDescriptor {
-	return file_data_transaction_proto_contracts_proto_enumTypes[0].Descriptor()
+	return file_contracts_proto_enumTypes[0].Descriptor()
 }
 
 func (CreateAssetContract_EnumAssetType) Type() protoreflect.EnumType {
-	return &file_data_transaction_proto_contracts_proto_enumTypes[0]
+	return &file_contracts_proto_enumTypes[0]
 }
 
 func (x CreateAssetContract_EnumAssetType) Number() protoreflect.EnumNumber {
@@ -67,7 +67,7 @@ func (x CreateAssetContract_EnumAssetType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use CreateAssetContract_EnumAssetType.Descriptor instead.
 func (CreateAssetContract_EnumAssetType) EnumDescriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{1, 0}
+	return file_contracts_proto_rawDescGZIP(), []int{1, 0}
 }
 
 type StakingInfo_InterestType int32
@@ -100,11 +100,11 @@ func (x StakingInfo_InterestType) String() string {
 }
 
 func (StakingInfo_InterestType) Descriptor() protoreflect.EnumDescriptor {
-	return file_data_transaction_proto_contracts_proto_enumTypes[1].Descriptor()
+	return file_contracts_proto_enumTypes[1].Descriptor()
 }
 
 func (StakingInfo_InterestType) Type() protoreflect.EnumType {
-	return &file_data_transaction_proto_contracts_proto_enumTypes[1]
+	return &file_contracts_proto_enumTypes[1]
 }
 
 func (x StakingInfo_InterestType) Number() protoreflect.EnumNumber {
@@ -113,7 +113,7 @@ func (x StakingInfo_InterestType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use StakingInfo_InterestType.Descriptor instead.
 func (StakingInfo_InterestType) EnumDescriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{4, 0}
+	return file_contracts_proto_rawDescGZIP(), []int{4, 0}
 }
 
 type AssetTriggerContract_EnumTriggerType int32
@@ -197,11 +197,11 @@ func (x AssetTriggerContract_EnumTriggerType) String() string {
 }
 
 func (AssetTriggerContract_EnumTriggerType) Descriptor() protoreflect.EnumDescriptor {
-	return file_data_transaction_proto_contracts_proto_enumTypes[2].Descriptor()
+	return file_contracts_proto_enumTypes[2].Descriptor()
 }
 
 func (AssetTriggerContract_EnumTriggerType) Type() protoreflect.EnumType {
-	return &file_data_transaction_proto_contracts_proto_enumTypes[2]
+	return &file_contracts_proto_enumTypes[2]
 }
 
 func (x AssetTriggerContract_EnumTriggerType) Number() protoreflect.EnumNumber {
@@ -210,7 +210,7 @@ func (x AssetTriggerContract_EnumTriggerType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AssetTriggerContract_EnumTriggerType.Descriptor instead.
 func (AssetTriggerContract_EnumTriggerType) EnumDescriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{10, 0}
+	return file_contracts_proto_rawDescGZIP(), []int{10, 0}
 }
 
 type WithdrawContract_EnumWithdrawType int32
@@ -243,11 +243,11 @@ func (x WithdrawContract_EnumWithdrawType) String() string {
 }
 
 func (WithdrawContract_EnumWithdrawType) Descriptor() protoreflect.EnumDescriptor {
-	return file_data_transaction_proto_contracts_proto_enumTypes[3].Descriptor()
+	return file_contracts_proto_enumTypes[3].Descriptor()
 }
 
 func (WithdrawContract_EnumWithdrawType) Type() protoreflect.EnumType {
-	return &file_data_transaction_proto_contracts_proto_enumTypes[3]
+	return &file_contracts_proto_enumTypes[3]
 }
 
 func (x WithdrawContract_EnumWithdrawType) Number() protoreflect.EnumNumber {
@@ -256,7 +256,7 @@ func (x WithdrawContract_EnumWithdrawType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use WithdrawContract_EnumWithdrawType.Descriptor instead.
 func (WithdrawContract_EnumWithdrawType) EnumDescriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{18, 0}
+	return file_contracts_proto_rawDescGZIP(), []int{18, 0}
 }
 
 type ClaimContract_EnumClaimType int32
@@ -292,11 +292,11 @@ func (x ClaimContract_EnumClaimType) String() string {
 }
 
 func (ClaimContract_EnumClaimType) Descriptor() protoreflect.EnumDescriptor {
-	return file_data_transaction_proto_contracts_proto_enumTypes[4].Descriptor()
+	return file_contracts_proto_enumTypes[4].Descriptor()
 }
 
 func (ClaimContract_EnumClaimType) Type() protoreflect.EnumType {
-	return &file_data_transaction_proto_contracts_proto_enumTypes[4]
+	return &file_contracts_proto_enumTypes[4]
 }
 
 func (x ClaimContract_EnumClaimType) Number() protoreflect.EnumNumber {
@@ -305,7 +305,7 @@ func (x ClaimContract_EnumClaimType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ClaimContract_EnumClaimType.Descriptor instead.
 func (ClaimContract_EnumClaimType) EnumDescriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{19, 0}
+	return file_contracts_proto_rawDescGZIP(), []int{19, 0}
 }
 
 type VoteContract_EnumVoteType int32
@@ -338,11 +338,11 @@ func (x VoteContract_EnumVoteType) String() string {
 }
 
 func (VoteContract_EnumVoteType) Descriptor() protoreflect.EnumDescriptor {
-	return file_data_transaction_proto_contracts_proto_enumTypes[5].Descriptor()
+	return file_contracts_proto_enumTypes[5].Descriptor()
 }
 
 func (VoteContract_EnumVoteType) Type() protoreflect.EnumType {
-	return &file_data_transaction_proto_contracts_proto_enumTypes[5]
+	return &file_contracts_proto_enumTypes[5]
 }
 
 func (x VoteContract_EnumVoteType) Number() protoreflect.EnumNumber {
@@ -351,7 +351,7 @@ func (x VoteContract_EnumVoteType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use VoteContract_EnumVoteType.Descriptor instead.
 func (VoteContract_EnumVoteType) EnumDescriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{23, 0}
+	return file_contracts_proto_rawDescGZIP(), []int{23, 0}
 }
 
 type ConfigITOContract_EnumITOStatus int32
@@ -387,11 +387,11 @@ func (x ConfigITOContract_EnumITOStatus) String() string {
 }
 
 func (ConfigITOContract_EnumITOStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_data_transaction_proto_contracts_proto_enumTypes[6].Descriptor()
+	return file_contracts_proto_enumTypes[6].Descriptor()
 }
 
 func (ConfigITOContract_EnumITOStatus) Type() protoreflect.EnumType {
-	return &file_data_transaction_proto_contracts_proto_enumTypes[6]
+	return &file_contracts_proto_enumTypes[6]
 }
 
 func (x ConfigITOContract_EnumITOStatus) Number() protoreflect.EnumNumber {
@@ -400,7 +400,7 @@ func (x ConfigITOContract_EnumITOStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ConfigITOContract_EnumITOStatus.Descriptor instead.
 func (ConfigITOContract_EnumITOStatus) EnumDescriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{24, 0}
+	return file_contracts_proto_rawDescGZIP(), []int{24, 0}
 }
 
 type ITOTriggerContract_EnumITOTriggerType int32
@@ -457,11 +457,11 @@ func (x ITOTriggerContract_EnumITOTriggerType) String() string {
 }
 
 func (ITOTriggerContract_EnumITOTriggerType) Descriptor() protoreflect.EnumDescriptor {
-	return file_data_transaction_proto_contracts_proto_enumTypes[7].Descriptor()
+	return file_contracts_proto_enumTypes[7].Descriptor()
 }
 
 func (ITOTriggerContract_EnumITOTriggerType) Type() protoreflect.EnumType {
-	return &file_data_transaction_proto_contracts_proto_enumTypes[7]
+	return &file_contracts_proto_enumTypes[7]
 }
 
 func (x ITOTriggerContract_EnumITOTriggerType) Number() protoreflect.EnumNumber {
@@ -470,7 +470,7 @@ func (x ITOTriggerContract_EnumITOTriggerType) Number() protoreflect.EnumNumber 
 
 // Deprecated: Use ITOTriggerContract_EnumITOTriggerType.Descriptor instead.
 func (ITOTriggerContract_EnumITOTriggerType) EnumDescriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{27, 0}
+	return file_contracts_proto_rawDescGZIP(), []int{27, 0}
 }
 
 type ITOTriggerContract_EnumITOStatus int32
@@ -506,11 +506,11 @@ func (x ITOTriggerContract_EnumITOStatus) String() string {
 }
 
 func (ITOTriggerContract_EnumITOStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_data_transaction_proto_contracts_proto_enumTypes[8].Descriptor()
+	return file_contracts_proto_enumTypes[8].Descriptor()
 }
 
 func (ITOTriggerContract_EnumITOStatus) Type() protoreflect.EnumType {
-	return &file_data_transaction_proto_contracts_proto_enumTypes[8]
+	return &file_contracts_proto_enumTypes[8]
 }
 
 func (x ITOTriggerContract_EnumITOStatus) Number() protoreflect.EnumNumber {
@@ -519,7 +519,7 @@ func (x ITOTriggerContract_EnumITOStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ITOTriggerContract_EnumITOStatus.Descriptor instead.
 func (ITOTriggerContract_EnumITOStatus) EnumDescriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{27, 1}
+	return file_contracts_proto_rawDescGZIP(), []int{27, 1}
 }
 
 type BuyContract_EnumBuyType int32
@@ -552,11 +552,11 @@ func (x BuyContract_EnumBuyType) String() string {
 }
 
 func (BuyContract_EnumBuyType) Descriptor() protoreflect.EnumDescriptor {
-	return file_data_transaction_proto_contracts_proto_enumTypes[9].Descriptor()
+	return file_contracts_proto_enumTypes[9].Descriptor()
 }
 
 func (BuyContract_EnumBuyType) Type() protoreflect.EnumType {
-	return &file_data_transaction_proto_contracts_proto_enumTypes[9]
+	return &file_contracts_proto_enumTypes[9]
 }
 
 func (x BuyContract_EnumBuyType) Number() protoreflect.EnumNumber {
@@ -565,7 +565,7 @@ func (x BuyContract_EnumBuyType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use BuyContract_EnumBuyType.Descriptor instead.
 func (BuyContract_EnumBuyType) EnumDescriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{30, 0}
+	return file_contracts_proto_rawDescGZIP(), []int{30, 0}
 }
 
 type SellContract_EnumMarketType int32
@@ -598,11 +598,11 @@ func (x SellContract_EnumMarketType) String() string {
 }
 
 func (SellContract_EnumMarketType) Descriptor() protoreflect.EnumDescriptor {
-	return file_data_transaction_proto_contracts_proto_enumTypes[10].Descriptor()
+	return file_contracts_proto_enumTypes[10].Descriptor()
 }
 
 func (SellContract_EnumMarketType) Type() protoreflect.EnumType {
-	return &file_data_transaction_proto_contracts_proto_enumTypes[10]
+	return &file_contracts_proto_enumTypes[10]
 }
 
 func (x SellContract_EnumMarketType) Number() protoreflect.EnumNumber {
@@ -611,7 +611,7 @@ func (x SellContract_EnumMarketType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SellContract_EnumMarketType.Descriptor instead.
 func (SellContract_EnumMarketType) EnumDescriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{31, 0}
+	return file_contracts_proto_rawDescGZIP(), []int{31, 0}
 }
 
 type AccPermission_AccPermissionType int32
@@ -644,11 +644,11 @@ func (x AccPermission_AccPermissionType) String() string {
 }
 
 func (AccPermission_AccPermissionType) Descriptor() protoreflect.EnumDescriptor {
-	return file_data_transaction_proto_contracts_proto_enumTypes[11].Descriptor()
+	return file_contracts_proto_enumTypes[11].Descriptor()
 }
 
 func (AccPermission_AccPermissionType) Type() protoreflect.EnumType {
-	return &file_data_transaction_proto_contracts_proto_enumTypes[11]
+	return &file_contracts_proto_enumTypes[11]
 }
 
 func (x AccPermission_AccPermissionType) Number() protoreflect.EnumNumber {
@@ -657,7 +657,7 @@ func (x AccPermission_AccPermissionType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use AccPermission_AccPermissionType.Descriptor instead.
 func (AccPermission_AccPermissionType) EnumDescriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{36, 0}
+	return file_contracts_proto_rawDescGZIP(), []int{36, 0}
 }
 
 type DepositContract_EnumDepositType int32
@@ -690,11 +690,11 @@ func (x DepositContract_EnumDepositType) String() string {
 }
 
 func (DepositContract_EnumDepositType) Descriptor() protoreflect.EnumDescriptor {
-	return file_data_transaction_proto_contracts_proto_enumTypes[12].Descriptor()
+	return file_contracts_proto_enumTypes[12].Descriptor()
 }
 
 func (DepositContract_EnumDepositType) Type() protoreflect.EnumType {
-	return &file_data_transaction_proto_contracts_proto_enumTypes[12]
+	return &file_contracts_proto_enumTypes[12]
 }
 
 func (x DepositContract_EnumDepositType) Number() protoreflect.EnumNumber {
@@ -703,7 +703,7 @@ func (x DepositContract_EnumDepositType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use DepositContract_EnumDepositType.Descriptor instead.
 func (DepositContract_EnumDepositType) EnumDescriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{38, 0}
+	return file_contracts_proto_rawDescGZIP(), []int{38, 0}
 }
 
 type SmartContract_SCType int32
@@ -736,11 +736,11 @@ func (x SmartContract_SCType) String() string {
 }
 
 func (SmartContract_SCType) Descriptor() protoreflect.EnumDescriptor {
-	return file_data_transaction_proto_contracts_proto_enumTypes[13].Descriptor()
+	return file_contracts_proto_enumTypes[13].Descriptor()
 }
 
 func (SmartContract_SCType) Type() protoreflect.EnumType {
-	return &file_data_transaction_proto_contracts_proto_enumTypes[13]
+	return &file_contracts_proto_enumTypes[13]
 }
 
 func (x SmartContract_SCType) Number() protoreflect.EnumNumber {
@@ -749,7 +749,7 @@ func (x SmartContract_SCType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SmartContract_SCType.Descriptor instead.
 func (SmartContract_SCType) EnumDescriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{40, 0}
+	return file_contracts_proto_rawDescGZIP(), []int{40, 0}
 }
 
 // TXContract available
@@ -766,7 +766,7 @@ type TransferContract struct {
 
 func (x *TransferContract) Reset() {
 	*x = TransferContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[0]
+	mi := &file_contracts_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -778,7 +778,7 @@ func (x *TransferContract) String() string {
 func (*TransferContract) ProtoMessage() {}
 
 func (x *TransferContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[0]
+	mi := &file_contracts_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -791,7 +791,7 @@ func (x *TransferContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TransferContract.ProtoReflect.Descriptor instead.
 func (*TransferContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{0}
+	return file_contracts_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *TransferContract) GetToAddress() []byte {
@@ -853,7 +853,7 @@ type CreateAssetContract struct {
 
 func (x *CreateAssetContract) Reset() {
 	*x = CreateAssetContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[1]
+	mi := &file_contracts_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -865,7 +865,7 @@ func (x *CreateAssetContract) String() string {
 func (*CreateAssetContract) ProtoMessage() {}
 
 func (x *CreateAssetContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[1]
+	mi := &file_contracts_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -878,7 +878,7 @@ func (x *CreateAssetContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAssetContract.ProtoReflect.Descriptor instead.
 func (*CreateAssetContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{1}
+	return file_contracts_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *CreateAssetContract) GetType() CreateAssetContract_EnumAssetType {
@@ -1003,7 +1003,7 @@ type PropertiesInfo struct {
 
 func (x *PropertiesInfo) Reset() {
 	*x = PropertiesInfo{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[2]
+	mi := &file_contracts_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1015,7 +1015,7 @@ func (x *PropertiesInfo) String() string {
 func (*PropertiesInfo) ProtoMessage() {}
 
 func (x *PropertiesInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[2]
+	mi := &file_contracts_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1028,7 +1028,7 @@ func (x *PropertiesInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PropertiesInfo.ProtoReflect.Descriptor instead.
 func (*PropertiesInfo) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{2}
+	return file_contracts_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *PropertiesInfo) GetCanFreeze() bool {
@@ -1100,7 +1100,7 @@ type AttributesInfo struct {
 
 func (x *AttributesInfo) Reset() {
 	*x = AttributesInfo{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[3]
+	mi := &file_contracts_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1112,7 +1112,7 @@ func (x *AttributesInfo) String() string {
 func (*AttributesInfo) ProtoMessage() {}
 
 func (x *AttributesInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[3]
+	mi := &file_contracts_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1125,7 +1125,7 @@ func (x *AttributesInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttributesInfo.ProtoReflect.Descriptor instead.
 func (*AttributesInfo) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{3}
+	return file_contracts_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *AttributesInfo) GetIsPaused() bool {
@@ -1170,7 +1170,7 @@ type StakingInfo struct {
 
 func (x *StakingInfo) Reset() {
 	*x = StakingInfo{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[4]
+	mi := &file_contracts_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1182,7 +1182,7 @@ func (x *StakingInfo) String() string {
 func (*StakingInfo) ProtoMessage() {}
 
 func (x *StakingInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[4]
+	mi := &file_contracts_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1195,7 +1195,7 @@ func (x *StakingInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StakingInfo.ProtoReflect.Descriptor instead.
 func (*StakingInfo) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{4}
+	return file_contracts_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *StakingInfo) GetType() StakingInfo_InterestType {
@@ -1247,7 +1247,7 @@ type RolesInfo struct {
 
 func (x *RolesInfo) Reset() {
 	*x = RolesInfo{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[5]
+	mi := &file_contracts_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1259,7 +1259,7 @@ func (x *RolesInfo) String() string {
 func (*RolesInfo) ProtoMessage() {}
 
 func (x *RolesInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[5]
+	mi := &file_contracts_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1272,7 +1272,7 @@ func (x *RolesInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RolesInfo.ProtoReflect.Descriptor instead.
 func (*RolesInfo) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{5}
+	return file_contracts_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RolesInfo) GetAddress() []byte {
@@ -1327,7 +1327,7 @@ type RoyaltiesInfo struct {
 
 func (x *RoyaltiesInfo) Reset() {
 	*x = RoyaltiesInfo{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[6]
+	mi := &file_contracts_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1339,7 +1339,7 @@ func (x *RoyaltiesInfo) String() string {
 func (*RoyaltiesInfo) ProtoMessage() {}
 
 func (x *RoyaltiesInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[6]
+	mi := &file_contracts_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1352,7 +1352,7 @@ func (x *RoyaltiesInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoyaltiesInfo.ProtoReflect.Descriptor instead.
 func (*RoyaltiesInfo) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{6}
+	return file_contracts_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RoyaltiesInfo) GetAddress() []byte {
@@ -1426,7 +1426,7 @@ type RoyaltySplitInfo struct {
 
 func (x *RoyaltySplitInfo) Reset() {
 	*x = RoyaltySplitInfo{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[7]
+	mi := &file_contracts_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1438,7 +1438,7 @@ func (x *RoyaltySplitInfo) String() string {
 func (*RoyaltySplitInfo) ProtoMessage() {}
 
 func (x *RoyaltySplitInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[7]
+	mi := &file_contracts_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1451,7 +1451,7 @@ func (x *RoyaltySplitInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoyaltySplitInfo.ProtoReflect.Descriptor instead.
 func (*RoyaltySplitInfo) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{7}
+	return file_contracts_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RoyaltySplitInfo) GetPercentTransferPercentage() uint32 {
@@ -1507,7 +1507,7 @@ type RoyaltyInfo struct {
 
 func (x *RoyaltyInfo) Reset() {
 	*x = RoyaltyInfo{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[8]
+	mi := &file_contracts_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1519,7 +1519,7 @@ func (x *RoyaltyInfo) String() string {
 func (*RoyaltyInfo) ProtoMessage() {}
 
 func (x *RoyaltyInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[8]
+	mi := &file_contracts_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1532,7 +1532,7 @@ func (x *RoyaltyInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoyaltyInfo.ProtoReflect.Descriptor instead.
 func (*RoyaltyInfo) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{8}
+	return file_contracts_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RoyaltyInfo) GetAmount() int64 {
@@ -1562,7 +1562,7 @@ type KDAPoolInfo struct {
 
 func (x *KDAPoolInfo) Reset() {
 	*x = KDAPoolInfo{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[9]
+	mi := &file_contracts_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1574,7 +1574,7 @@ func (x *KDAPoolInfo) String() string {
 func (*KDAPoolInfo) ProtoMessage() {}
 
 func (x *KDAPoolInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[9]
+	mi := &file_contracts_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1587,7 +1587,7 @@ func (x *KDAPoolInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use KDAPoolInfo.ProtoReflect.Descriptor instead.
 func (*KDAPoolInfo) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{9}
+	return file_contracts_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *KDAPoolInfo) GetActive() bool {
@@ -1639,7 +1639,7 @@ type AssetTriggerContract struct {
 
 func (x *AssetTriggerContract) Reset() {
 	*x = AssetTriggerContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[10]
+	mi := &file_contracts_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1651,7 +1651,7 @@ func (x *AssetTriggerContract) String() string {
 func (*AssetTriggerContract) ProtoMessage() {}
 
 func (x *AssetTriggerContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[10]
+	mi := &file_contracts_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1664,7 +1664,7 @@ func (x *AssetTriggerContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssetTriggerContract.ProtoReflect.Descriptor instead.
 func (*AssetTriggerContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{10}
+	return file_contracts_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *AssetTriggerContract) GetTriggerType() AssetTriggerContract_EnumTriggerType {
@@ -1769,7 +1769,7 @@ type ValidatorConfig struct {
 
 func (x *ValidatorConfig) Reset() {
 	*x = ValidatorConfig{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[11]
+	mi := &file_contracts_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1781,7 +1781,7 @@ func (x *ValidatorConfig) String() string {
 func (*ValidatorConfig) ProtoMessage() {}
 
 func (x *ValidatorConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[11]
+	mi := &file_contracts_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1794,7 +1794,7 @@ func (x *ValidatorConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidatorConfig.ProtoReflect.Descriptor instead.
 func (*ValidatorConfig) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{11}
+	return file_contracts_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ValidatorConfig) GetBLSPublicKey() []byte {
@@ -1871,7 +1871,7 @@ type CreateValidatorContract struct {
 
 func (x *CreateValidatorContract) Reset() {
 	*x = CreateValidatorContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[12]
+	mi := &file_contracts_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1883,7 +1883,7 @@ func (x *CreateValidatorContract) String() string {
 func (*CreateValidatorContract) ProtoMessage() {}
 
 func (x *CreateValidatorContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[12]
+	mi := &file_contracts_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1896,7 +1896,7 @@ func (x *CreateValidatorContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateValidatorContract.ProtoReflect.Descriptor instead.
 func (*CreateValidatorContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{12}
+	return file_contracts_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *CreateValidatorContract) GetOwnerAddress() []byte {
@@ -1923,7 +1923,7 @@ type ValidatorConfigContract struct {
 
 func (x *ValidatorConfigContract) Reset() {
 	*x = ValidatorConfigContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[13]
+	mi := &file_contracts_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1935,7 +1935,7 @@ func (x *ValidatorConfigContract) String() string {
 func (*ValidatorConfigContract) ProtoMessage() {}
 
 func (x *ValidatorConfigContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[13]
+	mi := &file_contracts_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1948,7 +1948,7 @@ func (x *ValidatorConfigContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidatorConfigContract.ProtoReflect.Descriptor instead.
 func (*ValidatorConfigContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{13}
+	return file_contracts_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ValidatorConfigContract) GetConfig() *ValidatorConfig {
@@ -1969,7 +1969,7 @@ type FreezeContract struct {
 
 func (x *FreezeContract) Reset() {
 	*x = FreezeContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[14]
+	mi := &file_contracts_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1981,7 +1981,7 @@ func (x *FreezeContract) String() string {
 func (*FreezeContract) ProtoMessage() {}
 
 func (x *FreezeContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[14]
+	mi := &file_contracts_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1994,7 +1994,7 @@ func (x *FreezeContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FreezeContract.ProtoReflect.Descriptor instead.
 func (*FreezeContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{14}
+	return file_contracts_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *FreezeContract) GetAssetID() []byte {
@@ -2022,7 +2022,7 @@ type UnfreezeContract struct {
 
 func (x *UnfreezeContract) Reset() {
 	*x = UnfreezeContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[15]
+	mi := &file_contracts_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2034,7 +2034,7 @@ func (x *UnfreezeContract) String() string {
 func (*UnfreezeContract) ProtoMessage() {}
 
 func (x *UnfreezeContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[15]
+	mi := &file_contracts_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2047,7 +2047,7 @@ func (x *UnfreezeContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnfreezeContract.ProtoReflect.Descriptor instead.
 func (*UnfreezeContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{15}
+	return file_contracts_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *UnfreezeContract) GetAssetID() []byte {
@@ -2075,7 +2075,7 @@ type DelegateContract struct {
 
 func (x *DelegateContract) Reset() {
 	*x = DelegateContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[16]
+	mi := &file_contracts_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2087,7 +2087,7 @@ func (x *DelegateContract) String() string {
 func (*DelegateContract) ProtoMessage() {}
 
 func (x *DelegateContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[16]
+	mi := &file_contracts_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2100,7 +2100,7 @@ func (x *DelegateContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DelegateContract.ProtoReflect.Descriptor instead.
 func (*DelegateContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{16}
+	return file_contracts_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *DelegateContract) GetToAddress() []byte {
@@ -2127,7 +2127,7 @@ type UndelegateContract struct {
 
 func (x *UndelegateContract) Reset() {
 	*x = UndelegateContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[17]
+	mi := &file_contracts_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2139,7 +2139,7 @@ func (x *UndelegateContract) String() string {
 func (*UndelegateContract) ProtoMessage() {}
 
 func (x *UndelegateContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[17]
+	mi := &file_contracts_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2152,7 +2152,7 @@ func (x *UndelegateContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UndelegateContract.ProtoReflect.Descriptor instead.
 func (*UndelegateContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{17}
+	return file_contracts_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *UndelegateContract) GetBucketID() []byte {
@@ -2175,7 +2175,7 @@ type WithdrawContract struct {
 
 func (x *WithdrawContract) Reset() {
 	*x = WithdrawContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[18]
+	mi := &file_contracts_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2187,7 +2187,7 @@ func (x *WithdrawContract) String() string {
 func (*WithdrawContract) ProtoMessage() {}
 
 func (x *WithdrawContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[18]
+	mi := &file_contracts_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2200,7 +2200,7 @@ func (x *WithdrawContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WithdrawContract.ProtoReflect.Descriptor instead.
 func (*WithdrawContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{18}
+	return file_contracts_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *WithdrawContract) GetAssetID() []byte {
@@ -2242,7 +2242,7 @@ type ClaimContract struct {
 
 func (x *ClaimContract) Reset() {
 	*x = ClaimContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[19]
+	mi := &file_contracts_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2254,7 +2254,7 @@ func (x *ClaimContract) String() string {
 func (*ClaimContract) ProtoMessage() {}
 
 func (x *ClaimContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[19]
+	mi := &file_contracts_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2267,7 +2267,7 @@ func (x *ClaimContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ClaimContract.ProtoReflect.Descriptor instead.
 func (*ClaimContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{19}
+	return file_contracts_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ClaimContract) GetClaimType() ClaimContract_EnumClaimType {
@@ -2293,7 +2293,7 @@ type UnjailContract struct {
 
 func (x *UnjailContract) Reset() {
 	*x = UnjailContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[20]
+	mi := &file_contracts_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2305,7 +2305,7 @@ func (x *UnjailContract) String() string {
 func (*UnjailContract) ProtoMessage() {}
 
 func (x *UnjailContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[20]
+	mi := &file_contracts_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2318,7 +2318,7 @@ func (x *UnjailContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnjailContract.ProtoReflect.Descriptor instead.
 func (*UnjailContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{20}
+	return file_contracts_proto_rawDescGZIP(), []int{20}
 }
 
 // SetAccountNameContract holds the data for a setAccountName transaction
@@ -2331,7 +2331,7 @@ type SetAccountNameContract struct {
 
 func (x *SetAccountNameContract) Reset() {
 	*x = SetAccountNameContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[21]
+	mi := &file_contracts_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2343,7 +2343,7 @@ func (x *SetAccountNameContract) String() string {
 func (*SetAccountNameContract) ProtoMessage() {}
 
 func (x *SetAccountNameContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[21]
+	mi := &file_contracts_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2356,7 +2356,7 @@ func (x *SetAccountNameContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetAccountNameContract.ProtoReflect.Descriptor instead.
 func (*SetAccountNameContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{21}
+	return file_contracts_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *SetAccountNameContract) GetName() []byte {
@@ -2378,7 +2378,7 @@ type ProposalContract struct {
 
 func (x *ProposalContract) Reset() {
 	*x = ProposalContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[22]
+	mi := &file_contracts_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2390,7 +2390,7 @@ func (x *ProposalContract) String() string {
 func (*ProposalContract) ProtoMessage() {}
 
 func (x *ProposalContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[22]
+	mi := &file_contracts_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2403,7 +2403,7 @@ func (x *ProposalContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProposalContract.ProtoReflect.Descriptor instead.
 func (*ProposalContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{22}
+	return file_contracts_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ProposalContract) GetParameters() map[int32][]byte {
@@ -2439,7 +2439,7 @@ type VoteContract struct {
 
 func (x *VoteContract) Reset() {
 	*x = VoteContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[23]
+	mi := &file_contracts_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2451,7 +2451,7 @@ func (x *VoteContract) String() string {
 func (*VoteContract) ProtoMessage() {}
 
 func (x *VoteContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[23]
+	mi := &file_contracts_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2464,7 +2464,7 @@ func (x *VoteContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VoteContract.ProtoReflect.Descriptor instead.
 func (*VoteContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{23}
+	return file_contracts_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *VoteContract) GetProposalID() uint64 {
@@ -2509,7 +2509,7 @@ type ConfigITOContract struct {
 
 func (x *ConfigITOContract) Reset() {
 	*x = ConfigITOContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[24]
+	mi := &file_contracts_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2521,7 +2521,7 @@ func (x *ConfigITOContract) String() string {
 func (*ConfigITOContract) ProtoMessage() {}
 
 func (x *ConfigITOContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[24]
+	mi := &file_contracts_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2534,7 +2534,7 @@ func (x *ConfigITOContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigITOContract.ProtoReflect.Descriptor instead.
 func (*ConfigITOContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{24}
+	return file_contracts_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ConfigITOContract) GetAssetID() []byte {
@@ -2630,7 +2630,7 @@ type WhitelistInfo struct {
 
 func (x *WhitelistInfo) Reset() {
 	*x = WhitelistInfo{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[25]
+	mi := &file_contracts_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2642,7 +2642,7 @@ func (x *WhitelistInfo) String() string {
 func (*WhitelistInfo) ProtoMessage() {}
 
 func (x *WhitelistInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[25]
+	mi := &file_contracts_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2655,7 +2655,7 @@ func (x *WhitelistInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WhitelistInfo.ProtoReflect.Descriptor instead.
 func (*WhitelistInfo) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{25}
+	return file_contracts_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *WhitelistInfo) GetLimit() int64 {
@@ -2676,7 +2676,7 @@ type SetITOPricesContract struct {
 
 func (x *SetITOPricesContract) Reset() {
 	*x = SetITOPricesContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[26]
+	mi := &file_contracts_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2688,7 +2688,7 @@ func (x *SetITOPricesContract) String() string {
 func (*SetITOPricesContract) ProtoMessage() {}
 
 func (x *SetITOPricesContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[26]
+	mi := &file_contracts_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2701,7 +2701,7 @@ func (x *SetITOPricesContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetITOPricesContract.ProtoReflect.Descriptor instead.
 func (*SetITOPricesContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{26}
+	return file_contracts_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *SetITOPricesContract) GetAssetID() []byte {
@@ -2740,7 +2740,7 @@ type ITOTriggerContract struct {
 
 func (x *ITOTriggerContract) Reset() {
 	*x = ITOTriggerContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[27]
+	mi := &file_contracts_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2752,7 +2752,7 @@ func (x *ITOTriggerContract) String() string {
 func (*ITOTriggerContract) ProtoMessage() {}
 
 func (x *ITOTriggerContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[27]
+	mi := &file_contracts_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2765,7 +2765,7 @@ func (x *ITOTriggerContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ITOTriggerContract.ProtoReflect.Descriptor instead.
 func (*ITOTriggerContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{27}
+	return file_contracts_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ITOTriggerContract) GetTriggerType() ITOTriggerContract_EnumITOTriggerType {
@@ -2869,7 +2869,7 @@ type PackInfo struct {
 
 func (x *PackInfo) Reset() {
 	*x = PackInfo{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[28]
+	mi := &file_contracts_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2881,7 +2881,7 @@ func (x *PackInfo) String() string {
 func (*PackInfo) ProtoMessage() {}
 
 func (x *PackInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[28]
+	mi := &file_contracts_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2894,7 +2894,7 @@ func (x *PackInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackInfo.ProtoReflect.Descriptor instead.
 func (*PackInfo) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{28}
+	return file_contracts_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *PackInfo) GetPacks() []*PackItem {
@@ -2915,7 +2915,7 @@ type PackItem struct {
 
 func (x *PackItem) Reset() {
 	*x = PackItem{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[29]
+	mi := &file_contracts_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2927,7 +2927,7 @@ func (x *PackItem) String() string {
 func (*PackItem) ProtoMessage() {}
 
 func (x *PackItem) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[29]
+	mi := &file_contracts_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2940,7 +2940,7 @@ func (x *PackItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackItem.ProtoReflect.Descriptor instead.
 func (*PackItem) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{29}
+	return file_contracts_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *PackItem) GetAmount() int64 {
@@ -2971,7 +2971,7 @@ type BuyContract struct {
 
 func (x *BuyContract) Reset() {
 	*x = BuyContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[30]
+	mi := &file_contracts_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2983,7 +2983,7 @@ func (x *BuyContract) String() string {
 func (*BuyContract) ProtoMessage() {}
 
 func (x *BuyContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[30]
+	mi := &file_contracts_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2996,7 +2996,7 @@ func (x *BuyContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BuyContract.ProtoReflect.Descriptor instead.
 func (*BuyContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{30}
+	return file_contracts_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *BuyContract) GetBuyType() BuyContract_EnumBuyType {
@@ -3050,7 +3050,7 @@ type SellContract struct {
 
 func (x *SellContract) Reset() {
 	*x = SellContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[31]
+	mi := &file_contracts_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3062,7 +3062,7 @@ func (x *SellContract) String() string {
 func (*SellContract) ProtoMessage() {}
 
 func (x *SellContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[31]
+	mi := &file_contracts_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3075,7 +3075,7 @@ func (x *SellContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SellContract.ProtoReflect.Descriptor instead.
 func (*SellContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{31}
+	return file_contracts_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *SellContract) GetMarketType() SellContract_EnumMarketType {
@@ -3137,7 +3137,7 @@ type CancelMarketOrderContract struct {
 
 func (x *CancelMarketOrderContract) Reset() {
 	*x = CancelMarketOrderContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[32]
+	mi := &file_contracts_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3149,7 +3149,7 @@ func (x *CancelMarketOrderContract) String() string {
 func (*CancelMarketOrderContract) ProtoMessage() {}
 
 func (x *CancelMarketOrderContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[32]
+	mi := &file_contracts_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3162,7 +3162,7 @@ func (x *CancelMarketOrderContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelMarketOrderContract.ProtoReflect.Descriptor instead.
 func (*CancelMarketOrderContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{32}
+	return file_contracts_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *CancelMarketOrderContract) GetOrderID() []byte {
@@ -3184,7 +3184,7 @@ type CreateMarketplaceContract struct {
 
 func (x *CreateMarketplaceContract) Reset() {
 	*x = CreateMarketplaceContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[33]
+	mi := &file_contracts_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3196,7 +3196,7 @@ func (x *CreateMarketplaceContract) String() string {
 func (*CreateMarketplaceContract) ProtoMessage() {}
 
 func (x *CreateMarketplaceContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[33]
+	mi := &file_contracts_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3209,7 +3209,7 @@ func (x *CreateMarketplaceContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMarketplaceContract.ProtoReflect.Descriptor instead.
 func (*CreateMarketplaceContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{33}
+	return file_contracts_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *CreateMarketplaceContract) GetName() []byte {
@@ -3246,7 +3246,7 @@ type ConfigMarketplaceContract struct {
 
 func (x *ConfigMarketplaceContract) Reset() {
 	*x = ConfigMarketplaceContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[34]
+	mi := &file_contracts_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3258,7 +3258,7 @@ func (x *ConfigMarketplaceContract) String() string {
 func (*ConfigMarketplaceContract) ProtoMessage() {}
 
 func (x *ConfigMarketplaceContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[34]
+	mi := &file_contracts_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3271,7 +3271,7 @@ func (x *ConfigMarketplaceContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigMarketplaceContract.ProtoReflect.Descriptor instead.
 func (*ConfigMarketplaceContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{34}
+	return file_contracts_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ConfigMarketplaceContract) GetMarketplaceID() []byte {
@@ -3312,7 +3312,7 @@ type AccKey struct {
 
 func (x *AccKey) Reset() {
 	*x = AccKey{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[35]
+	mi := &file_contracts_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3324,7 +3324,7 @@ func (x *AccKey) String() string {
 func (*AccKey) ProtoMessage() {}
 
 func (x *AccKey) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[35]
+	mi := &file_contracts_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3337,7 +3337,7 @@ func (x *AccKey) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccKey.ProtoReflect.Descriptor instead.
 func (*AccKey) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{35}
+	return file_contracts_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *AccKey) GetAddress() []byte {
@@ -3367,7 +3367,7 @@ type AccPermission struct {
 
 func (x *AccPermission) Reset() {
 	*x = AccPermission{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[36]
+	mi := &file_contracts_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3379,7 +3379,7 @@ func (x *AccPermission) String() string {
 func (*AccPermission) ProtoMessage() {}
 
 func (x *AccPermission) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[36]
+	mi := &file_contracts_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3392,7 +3392,7 @@ func (x *AccPermission) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccPermission.ProtoReflect.Descriptor instead.
 func (*AccPermission) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{36}
+	return file_contracts_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *AccPermission) GetType() AccPermission_AccPermissionType {
@@ -3440,7 +3440,7 @@ type UpdateAccountPermissionContract struct {
 
 func (x *UpdateAccountPermissionContract) Reset() {
 	*x = UpdateAccountPermissionContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[37]
+	mi := &file_contracts_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3452,7 +3452,7 @@ func (x *UpdateAccountPermissionContract) String() string {
 func (*UpdateAccountPermissionContract) ProtoMessage() {}
 
 func (x *UpdateAccountPermissionContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[37]
+	mi := &file_contracts_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3465,7 +3465,7 @@ func (x *UpdateAccountPermissionContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateAccountPermissionContract.ProtoReflect.Descriptor instead.
 func (*UpdateAccountPermissionContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{37}
+	return file_contracts_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *UpdateAccountPermissionContract) GetPermissions() []*AccPermission {
@@ -3488,7 +3488,7 @@ type DepositContract struct {
 
 func (x *DepositContract) Reset() {
 	*x = DepositContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[38]
+	mi := &file_contracts_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3500,7 +3500,7 @@ func (x *DepositContract) String() string {
 func (*DepositContract) ProtoMessage() {}
 
 func (x *DepositContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[38]
+	mi := &file_contracts_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3513,7 +3513,7 @@ func (x *DepositContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DepositContract.ProtoReflect.Descriptor instead.
 func (*DepositContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{38}
+	return file_contracts_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *DepositContract) GetDepositType() DepositContract_EnumDepositType {
@@ -3555,7 +3555,7 @@ type CallValue struct {
 
 func (x *CallValue) Reset() {
 	*x = CallValue{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[39]
+	mi := &file_contracts_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3567,7 +3567,7 @@ func (x *CallValue) String() string {
 func (*CallValue) ProtoMessage() {}
 
 func (x *CallValue) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[39]
+	mi := &file_contracts_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3580,7 +3580,7 @@ func (x *CallValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CallValue.ProtoReflect.Descriptor instead.
 func (*CallValue) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{39}
+	return file_contracts_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *CallValue) GetAmount() int64 {
@@ -3618,7 +3618,7 @@ type SmartContract struct {
 
 func (x *SmartContract) Reset() {
 	*x = SmartContract{}
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[40]
+	mi := &file_contracts_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3630,7 +3630,7 @@ func (x *SmartContract) String() string {
 func (*SmartContract) ProtoMessage() {}
 
 func (x *SmartContract) ProtoReflect() protoreflect.Message {
-	mi := &file_data_transaction_proto_contracts_proto_msgTypes[40]
+	mi := &file_contracts_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3643,7 +3643,7 @@ func (x *SmartContract) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SmartContract.ProtoReflect.Descriptor instead.
 func (*SmartContract) Descriptor() ([]byte, []int) {
-	return file_data_transaction_proto_contracts_proto_rawDescGZIP(), []int{40}
+	return file_contracts_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *SmartContract) GetType() SmartContract_SCType {
@@ -3667,11 +3667,11 @@ func (x *SmartContract) GetCallValue() map[string]*CallValue {
 	return nil
 }
 
-var File_data_transaction_proto_contracts_proto protoreflect.FileDescriptor
+var File_contracts_proto protoreflect.FileDescriptor
 
-const file_data_transaction_proto_contracts_proto_rawDesc = "" +
+const file_contracts_proto_rawDesc = "" +
 	"\n" +
-	"&data/transaction/proto/contracts.proto\x12\x05proto\"\xdc\x01\n" +
+	"\x0fcontracts.proto\x12\x05proto\"\xdc\x01\n" +
 	"\x10TransferContract\x12&\n" +
 	"\tToAddress\x18\x01 \x01(\fR\x13toAddress,omitempty\x12\"\n" +
 	"\aAssetID\x18\x02 \x01(\fR\x11assetId,omitempty\x12 \n" +
@@ -4032,20 +4032,20 @@ const file_data_transaction_proto_contracts_proto_rawDesc = "" +
 	"\bSCDeploy\x10\x01B\x10Z\x0e./;transactionb\x06proto3"
 
 var (
-	file_data_transaction_proto_contracts_proto_rawDescOnce sync.Once
-	file_data_transaction_proto_contracts_proto_rawDescData []byte
+	file_contracts_proto_rawDescOnce sync.Once
+	file_contracts_proto_rawDescData []byte
 )
 
-func file_data_transaction_proto_contracts_proto_rawDescGZIP() []byte {
-	file_data_transaction_proto_contracts_proto_rawDescOnce.Do(func() {
-		file_data_transaction_proto_contracts_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_data_transaction_proto_contracts_proto_rawDesc), len(file_data_transaction_proto_contracts_proto_rawDesc)))
+func file_contracts_proto_rawDescGZIP() []byte {
+	file_contracts_proto_rawDescOnce.Do(func() {
+		file_contracts_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_contracts_proto_rawDesc), len(file_contracts_proto_rawDesc)))
 	})
-	return file_data_transaction_proto_contracts_proto_rawDescData
+	return file_contracts_proto_rawDescData
 }
 
-var file_data_transaction_proto_contracts_proto_enumTypes = make([]protoimpl.EnumInfo, 14)
-var file_data_transaction_proto_contracts_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
-var file_data_transaction_proto_contracts_proto_goTypes = []any{
+var file_contracts_proto_enumTypes = make([]protoimpl.EnumInfo, 14)
+var file_contracts_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
+var file_contracts_proto_goTypes = []any{
 	(CreateAssetContract_EnumAssetType)(0),     // 0: proto.CreateAssetContract.EnumAssetType
 	(StakingInfo_InterestType)(0),              // 1: proto.StakingInfo.InterestType
 	(AssetTriggerContract_EnumTriggerType)(0),  // 2: proto.AssetTriggerContract.EnumTriggerType
@@ -4113,7 +4113,7 @@ var file_data_transaction_proto_contracts_proto_goTypes = []any{
 	nil,                                        // 64: proto.ITOTriggerContract.WhitelistInfoEntry
 	nil,                                        // 65: proto.SmartContract.CallValueEntry
 }
-var file_data_transaction_proto_contracts_proto_depIdxs = []int32{
+var file_contracts_proto_depIdxs = []int32{
 	0,  // 0: proto.CreateAssetContract.Type:type_name -> proto.CreateAssetContract.EnumAssetType
 	55, // 1: proto.CreateAssetContract.URIs:type_name -> proto.CreateAssetContract.URIsEntry
 	20, // 2: proto.CreateAssetContract.Royalties:type_name -> proto.RoyaltiesInfo
@@ -4170,27 +4170,27 @@ var file_data_transaction_proto_contracts_proto_depIdxs = []int32{
 	0,  // [0:49] is the sub-list for field type_name
 }
 
-func init() { file_data_transaction_proto_contracts_proto_init() }
-func file_data_transaction_proto_contracts_proto_init() {
-	if File_data_transaction_proto_contracts_proto != nil {
+func init() { file_contracts_proto_init() }
+func file_contracts_proto_init() {
+	if File_contracts_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_data_transaction_proto_contracts_proto_rawDesc), len(file_data_transaction_proto_contracts_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_contracts_proto_rawDesc), len(file_contracts_proto_rawDesc)),
 			NumEnums:      14,
 			NumMessages:   52,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_data_transaction_proto_contracts_proto_goTypes,
-		DependencyIndexes: file_data_transaction_proto_contracts_proto_depIdxs,
-		EnumInfos:         file_data_transaction_proto_contracts_proto_enumTypes,
-		MessageInfos:      file_data_transaction_proto_contracts_proto_msgTypes,
+		GoTypes:           file_contracts_proto_goTypes,
+		DependencyIndexes: file_contracts_proto_depIdxs,
+		EnumInfos:         file_contracts_proto_enumTypes,
+		MessageInfos:      file_contracts_proto_msgTypes,
 	}.Build()
-	File_data_transaction_proto_contracts_proto = out.File
-	file_data_transaction_proto_contracts_proto_goTypes = nil
-	file_data_transaction_proto_contracts_proto_depIdxs = nil
+	File_contracts_proto = out.File
+	file_contracts_proto_goTypes = nil
+	file_contracts_proto_depIdxs = nil
 }
