@@ -6,6 +6,8 @@ import (
 
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
+	"github.com/klever-io/klever-go/core/kapp"
+	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
@@ -635,6 +637,22 @@ func TestUpdateValidator_VersionAttestation(t *testing.T) {
 	t.Run("attestation is stored when fork is active", func(t *testing.T) {
 		v := setup(t, true)
 
+		// registerValidator's own addContext call leaves the block header's Epoch at its
+		// zero value, which would make a broken AttestedEpoch recording (e.g. storing 0,
+		// or reading the wrong header field) indistinguishable from a correct one. Override
+		// with a nonzero epoch so the assertion below actually pins the recording, not just
+		// the comparison logic that consumes it.
+		const expectedEpoch = uint32(42)
+		ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
+			ContractID:     0,
+			Block:          &block.Block{Header: &block.BlockHeader{Nonce: 1, Epoch: expectedEpoch}},
+			TxHash:         make([]byte, 32),
+			IsScSimulation: true,
+		})
+		v.KAppController = &stub.KAppControllerStub{
+			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		}
+
 		tc := &transaction.ValidatorConfigContract{
 			Config: &transaction.ValidatorConfig{
 				BLSPublicKey: []byte("blspubkey"),
@@ -646,10 +664,12 @@ func TestUpdateValidator_VersionAttestation(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, transaction.Transaction_Ok, resultCode)
 
-		app, _ := v.getKApp()
+		app, err := v.getKApp()
+		require.NoError(t, err)
 		val, err := v.getValidator(app, ownerAddress)
 		require.NoError(t, err)
 		assert.Equal(t, "v1.9.0", val.AttestedVersion)
+		assert.Equal(t, expectedEpoch, val.AttestedEpoch)
 	})
 
 	t.Run("attestation is ignored before the fork", func(t *testing.T) {
@@ -666,7 +686,8 @@ func TestUpdateValidator_VersionAttestation(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, transaction.Transaction_Ok, resultCode)
 
-		app, _ := v.getKApp()
+		app, err := v.getKApp()
+		require.NoError(t, err)
 		val, err := v.getValidator(app, ownerAddress)
 		require.NoError(t, err)
 		assert.Equal(t, "", val.AttestedVersion)
