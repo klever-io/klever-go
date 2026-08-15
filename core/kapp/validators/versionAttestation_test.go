@@ -7,6 +7,7 @@ import (
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core/kapp"
+	"github.com/klever-io/klever-go/core/process/headerCheck"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
@@ -168,6 +169,56 @@ func TestRequiredVersionForEpoch(t *testing.T) {
 		assert.Equal(t, "v2.0.0", required)
 		assert.Equal(t, uint32(10), minAttested, "attestations older than the v1.9.0 era do not count")
 	})
+}
+
+// TestRequiredVersionForEpoch_AgreesWithHeaderIntegrityVerifier pins that
+// requiredVersionForEpoch and headerCheck.headerIntegrityVerifier, fed the same
+// versionsByEpochs table, select the same entry for every epoch in a representative
+// range. The two lookups are consumed independently (validator demotion vs. header
+// version checks) and must not silently drift apart.
+func TestRequiredVersionForEpoch_AgreesWithHeaderIntegrityVerifier(t *testing.T) {
+	t.Parallel()
+
+	// deliberately unsorted and non-trivial, mirroring a real release table
+	versionsByEpochs := []config.VersionByEpochs{
+		{StartEpoch: 15, Version: "v2.0.0"},
+		{StartEpoch: 0, Version: "*"},
+		{StartEpoch: 5, Version: "v1.9.0"},
+		{StartEpoch: 10, Version: "v1.9.1"},
+	}
+
+	v := setupValidatorsKApp(t)
+	v.versionsByEpochs = versionsByEpochs
+
+	// prepareVersions sorts its input in place, so pass a copy to keep the two
+	// lookups fed from independently ordered tables.
+	headerCopy := make([]config.VersionByEpochs, len(versionsByEpochs))
+	copy(headerCopy, versionsByEpochs)
+	hdrIntVer, err := headerCheck.NewHeaderIntegrityVerifier(
+		[]byte("chainID"),
+		headerCopy,
+		"default",
+		&mock.CacherStub{
+			GetCalled: func(key []byte) (interface{}, bool) { return nil, false },
+			PutCalled: func(key []byte, value interface{}, sizeInBytes int) bool { return false },
+		},
+	)
+	require.NoError(t, err)
+
+	for epoch := uint32(0); epoch <= 25; epoch++ {
+		required, _, ok := v.requiredVersionForEpoch(epoch)
+		headerVersion := hdrIntVer.GetVersion(epoch)
+
+		if !ok {
+			// wildcard or missing entry: headerCheck resolves it to the default
+			// version rather than reporting "no requirement", so there is nothing
+			// to compare for this epoch beyond both agreeing it is not a specific one.
+			assert.Equal(t, "default", headerVersion, "epoch %d: wildcard should resolve to defaultVersion", epoch)
+			continue
+		}
+
+		assert.Equal(t, required, headerVersion, "epoch %d: validators and headerCheck disagree on the required version", epoch)
+	}
 }
 
 func TestUpdatePeerListStatus_VersionEnforcement(t *testing.T) {
