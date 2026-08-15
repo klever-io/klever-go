@@ -602,7 +602,15 @@ func (context *managedTypesContext) SetByteSlice(mBufferHandle int32, startingPo
 		return false, vmhost.ErrNoManagedBufferUnderThisHandle
 	}
 
-	if startingPosition < 0 || dataLength < 0 || int(startingPosition+dataLength) > len(mBuffer) {
+	// Pre-fork, startingPosition+dataLength was added as int32 before the bounds check, so
+	// a crafted overflow wraps negative, fails this check for the wrong reason, and falls
+	// through to a panic on the slice expression below (recovered upstream as an
+	// irrecoverable execution failure). Changing that outcome for historical blocks would
+	// break replay, so only the overflow case is fork-gated; the legacy widening and slice
+	// expression are untouched. Same rationale as vmhooks.MBufferGetByteSlice.
+	_, addErr := math.AddInt32WithErr(startingPosition, dataLength)
+	if startingPosition < 0 || dataLength < 0 || int(startingPosition+dataLength) > len(mBuffer) ||
+		(addErr != nil && context.host.ForkController().FixAuditChangesV3()) {
 		return false, nil
 	}
 
