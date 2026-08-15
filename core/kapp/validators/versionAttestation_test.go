@@ -69,6 +69,7 @@ func TestComparePrerelease(t *testing.T) {
 		{"alpha", "1", 1},
 		{"alpha", "alpha.1", -1}, // fewer fields, otherwise equal prefix, ranks lower
 		{"alpha.1", "alpha", 1},
+		{"01", "1", 0}, // numerically equal despite differing as strings
 	}
 
 	for _, tc := range tests {
@@ -649,24 +650,49 @@ func TestComputeVersionEnforcement(t *testing.T) {
 		assert.True(t, enforcement.active)
 	})
 
-	t.Run("unreadable validator record does not count as satisfied", func(t *testing.T) {
+	t.Run("unreadable validator record counts as electable but unsatisfied", func(t *testing.T) {
+		// 4 electable validators: 2 satisfied, 1 genuinely unsatisfied, 1 unreadable.
+		// True support is 2/4 = 50%, below the 2/3 supermajority. If an unreadable
+		// record were excluded from the denominator instead of counted as unsatisfied,
+		// this would wrongly read as 2/3 = 66.7% and pass the guard — this fixture is
+		// built specifically so the two behaviors diverge (a 3-validator fixture where
+		// the unreadable one is the only difference between pass/fail doesn't, since
+		// excluding vs. counting-as-unsatisfied both fail the guard the same way there).
 		v, infos, app := attestationTestSetup(t, map[string]string{
 			"owner1": "v1.9.0",
 			"owner2": "v1.9.0",
 			"owner3": "",
+			"owner4": "v1.9.0",
 		}, nil)
 		v.versionsByEpochs = requiredVersions
 
-		// Corrupt owner1's stored record so getValidator fails to unmarshal it
+		// Corrupt owner4's stored record so getValidator fails to unmarshal it
 		// (the test marshalizer is JSON-backed; this is simply not valid JSON).
-		// Without this, owner1+owner2 both satisfy and reach the supermajority
-		// (see "outdated validator is demoted..." above); this pins the
-		// fail-closed behavior (versionAttestation.go's getValidator-error
-		// branch: counted as not-satisfied, not skipped/counted-as-satisfied).
+		require.NoError(t, app.SetStorage(v.validatorKey([]byte("owner4")), []byte("not valid record data")))
+
+		enforcement := v.computeVersionEnforcement(app, infos, 10)
+		assert.False(t, enforcement.demote, "an unreadable record must count towards the electable denominator, not disappear from it")
+		assert.True(t, enforcement.active)
+	})
+
+	t.Run("unreadable sole elected validator's record still counts towards the elected-list guard", func(t *testing.T) {
+		// owner1 is the only elected validator and its record is unreadable. If the
+		// guard only counted successfully-loaded records towards tally.elected, this
+		// would read as "no elected validators" (tally.elected == 0) and vacuously pass
+		// preservesElectedList, wrongly allowing demotion to empty the elected list.
+		v, infos, app := attestationTestSetup(t, map[string]string{
+			"owner1": "v1.9.0",
+			"owner2": "v1.9.0",
+			"owner3": "v1.9.0",
+		}, map[string]string{
+			"owner1": state.List_elected.String(),
+		})
+		v.versionsByEpochs = requiredVersions
+
 		require.NoError(t, app.SetStorage(v.validatorKey([]byte("owner1")), []byte("not valid record data")))
 
 		enforcement := v.computeVersionEnforcement(app, infos, 10)
-		assert.False(t, enforcement.demote, "unreadable records must not count towards the supermajority")
+		assert.False(t, enforcement.demote, "an unreadable elected validator's record must not let the elected-list guard pass vacuously")
 		assert.True(t, enforcement.active)
 	})
 }

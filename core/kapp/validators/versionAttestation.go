@@ -52,13 +52,16 @@ func (e versionEnforcement) isSatisfiedBy(val *ValidatorData) bool {
 		versionSatisfies(val.AttestedVersion, e.required)
 }
 
-// validateVersionsByEpochs enforces the same shape headerCheck.headerIntegrityVerifier
-// requires of the release-shipped versions.versionsByEpochs config: a nil or empty list
-// disables version enforcement, but once entries are present the earliest one must start
-// at epoch 0, StartEpoch values must be strictly increasing, and every version string must
-// respect the length cap. requiredVersionForEpoch tolerates an unsorted or malformed table
-// silently (it just resolves ambiguous entries rather than failing), so this runs once at
-// construction to catch a misconfigured table before enforcement activity depends on it.
+// validateVersionsByEpochs enforces, on a non-empty table, the same shape
+// headerCheck.headerIntegrityVerifier requires of the release-shipped
+// versions.versionsByEpochs config: the earliest entry must start at epoch 0,
+// StartEpoch values must be strictly increasing, and every version string must respect
+// the length cap. Unlike headerCheck, an empty (or nil) table is accepted here rather
+// than rejected, since it simply disables version enforcement (requiredVersionForEpoch
+// reports no requirement) rather than being a config error for this KApp specifically.
+// requiredVersionForEpoch tolerates an unsorted or malformed table silently (it just
+// resolves ambiguous entries rather than failing), so this runs once at construction to
+// catch a misconfigured table before enforcement activity depends on it.
 func validateVersionsByEpochs(versionsByEpochs []config.VersionByEpochs) error {
 	if len(versionsByEpochs) == 0 {
 		return nil
@@ -181,10 +184,14 @@ func comparePrerelease(a, b string) int {
 		bNum, bIsNum := parseUintField(bf)
 		switch {
 		case aIsNum && bIsNum:
-			if aNum < bNum {
+			switch {
+			case aNum < bNum:
 				return -1
+			case aNum > bNum:
+				return 1
+			default:
+				continue
 			}
-			return 1
 		case aIsNum:
 			return -1 // numeric identifiers always have lower precedence
 		case bIsNum:
@@ -270,15 +277,24 @@ func (v *validatorsKApp) tallyElectableVersions(
 		default:
 			continue
 		}
+		// isElectedSnapshot is only the fallback classification used when the live peer
+		// account can't be loaded below; a successful load always takes precedence.
+		isElectedSnapshot := info.List == string(core.ElectedList)
 
 		val, err := v.getValidator(app, info.OwnerAddress)
 		if err != nil {
-			// counted as not satisfied (fail-closed: undercounting can only keep
-			// demotion off), but logged so guard undercounts are diagnosable
+			// counted as not satisfied but still electable (fail-closed: an unreadable
+			// record must not shrink the guards' denominator, or a validator we can't
+			// vouch for could inflate the satisfied ratio by disappearing from it
+			// entirely), logged so guard undercounts are diagnosable
 			log.Warn("version enforcement: cannot load validator data",
 				"ownerAddress", info.OwnerAddress,
 				"error", err,
 			)
+			tally.electable++
+			if isElectedSnapshot {
+				tally.elected++
+			}
 			continue
 		}
 
@@ -288,6 +304,10 @@ func (v *validatorsKApp) tallyElectableVersions(
 				"ownerAddress", info.OwnerAddress,
 				"error", err,
 			)
+			tally.electable++
+			if isElectedSnapshot {
+				tally.elected++
+			}
 			continue
 		}
 		isElected := peerAcc.GetList() == state.List_elected
@@ -327,6 +347,11 @@ func (v *validatorsKApp) tallyElectableVersions(
 //     it outright — sharding.computeNodesConfigFromList aborts epoch preparation entirely
 //     when the elected list alone is empty, and no combined elected+eligible count can
 //     guarantee that on its own.
+//
+// Guard 3 is deliberately all-or-nothing for the epoch: if every currently-elected
+// validator is unsatisfied while the eligible sublist alone still clears the supermajority,
+// enforcement stays off entirely rather than demoting only the eligible ones — avoiding
+// epoch preparation crashes takes priority over demoting every outdated validator promptly.
 //
 // Waiting/inactive/jailed validators neither count towards the guards nor get demoted.
 func (v *validatorsKApp) computeVersionEnforcement(
