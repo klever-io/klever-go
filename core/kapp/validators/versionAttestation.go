@@ -86,10 +86,10 @@ func (v *validatorsKApp) requiredVersionForEpoch(epoch uint32) (string, uint32, 
 	return version, minAttestedEpoch, true
 }
 
-// parseSemver parses "v1.2.3", "1.2.3", "1.2" or "1" into numeric components and
-// reports whether a pre-release suffix ("-rc1") is present; build metadata ("+meta")
-// is ignored.
-func parseSemver(version string) ([3]uint64, bool, bool) {
+// parseSemver parses "v1.2.3", "1.2.3", "1.2" or "1" into numeric components plus the
+// pre-release identifier suffix ("rc1" from "-rc1"), if any — empty means no pre-release
+// suffix is present. Build metadata ("+meta") is ignored.
+func parseSemver(version string) ([3]uint64, string, bool) {
 	var out [3]uint64
 
 	trimmed := strings.TrimSpace(version)
@@ -99,32 +99,77 @@ func parseSemver(version string) ([3]uint64, bool, bool) {
 	if idx := strings.IndexByte(trimmed, '+'); idx >= 0 {
 		trimmed = trimmed[:idx]
 	}
-	hasPrerelease := false
+	prerelease := ""
 	if idx := strings.IndexByte(trimmed, '-'); idx >= 0 {
-		hasPrerelease = true
+		prerelease = trimmed[idx+1:]
 		trimmed = trimmed[:idx]
 	}
 
 	parts := strings.Split(trimmed, ".")
 	if len(parts) == 0 || len(parts) > 3 {
-		return out, false, false
+		return out, "", false
 	}
 
 	for i, part := range parts {
 		number, err := strconv.ParseUint(part, 10, 32)
 		if err != nil {
-			return out, false, false
+			return out, "", false
 		}
 		out[i] = number
 	}
 
-	return out, hasPrerelease, true
+	return out, prerelease, true
+}
+
+// comparePrerelease orders two semver pre-release identifier strings per semver.org
+// section 11.4: dot-separated fields compare left to right, numeric fields compare
+// numerically, alphanumeric fields compare as ASCII strings, a numeric field always has
+// lower precedence than an alphanumeric one, and when all shared fields are equal the
+// side with more fields has higher precedence. Returns <0 if a<b, 0 if equal, >0 if a>b.
+func comparePrerelease(a, b string) int {
+	aFields := strings.Split(a, ".")
+	bFields := strings.Split(b, ".")
+
+	for i := 0; i < len(aFields) && i < len(bFields); i++ {
+		af, bf := aFields[i], bFields[i]
+		if af == bf {
+			continue
+		}
+
+		aNum, aIsNum := parseUintField(af)
+		bNum, bIsNum := parseUintField(bf)
+		switch {
+		case aIsNum && bIsNum:
+			if aNum < bNum {
+				return -1
+			}
+			return 1
+		case aIsNum:
+			return -1 // numeric identifiers always have lower precedence
+		case bIsNum:
+			return 1
+		case af < bf:
+			return -1
+		default:
+			return 1
+		}
+	}
+
+	return len(aFields) - len(bFields)
+}
+
+func parseUintField(s string) (uint64, bool) {
+	n, err := strconv.ParseUint(s, 10, 64)
+	return n, err == nil
 }
 
 // versionSatisfies returns true when the attested version fulfills the required one:
 // semantic compare (attested >= required) when both parse as versions, exact match
-// otherwise. On equal numeric components, a pre-release attestation does not satisfy
-// a release requirement (semver: 1.9.0-rc1 < 1.9.0).
+// otherwise. On equal numeric components: a release attestation always satisfies a
+// pre-release requirement, a pre-release attestation never satisfies a release
+// requirement (semver: 1.9.0-rc1 < 1.9.0), and when both carry a pre-release suffix the
+// identifiers themselves are compared per comparePrerelease (so e.g. "-rc2" satisfies
+// "-rc1" but not the reverse).
 func versionSatisfies(attested, required string) bool {
 	if attested == required {
 		return true
@@ -142,7 +187,14 @@ func versionSatisfies(attested, required string) bool {
 		}
 	}
 
-	return !attestedPre || requiredPre
+	switch {
+	case attestedPre == "":
+		return true
+	case requiredPre == "":
+		return false
+	default:
+		return comparePrerelease(attestedPre, requiredPre) >= 0
+	}
 }
 
 // versionTally holds the electable-population counts computeVersionEnforcement's guards

@@ -20,22 +20,23 @@ func TestParseSemver(t *testing.T) {
 	tests := []struct {
 		version    string
 		expected   [3]uint64
-		prerelease bool
+		prerelease string
 		ok         bool
 	}{
-		{"v1.2.3", [3]uint64{1, 2, 3}, false, true},
-		{"1.2.3", [3]uint64{1, 2, 3}, false, true},
-		{"V2.0.0", [3]uint64{2, 0, 0}, false, true},
-		{"1.2", [3]uint64{1, 2, 0}, false, true},
-		{"1", [3]uint64{1, 0, 0}, false, true},
-		{"v1.2.3-rc1", [3]uint64{1, 2, 3}, true, true},
-		{"v1.2.3+meta", [3]uint64{1, 2, 3}, false, true},
-		{" v1.2.3 ", [3]uint64{1, 2, 3}, false, true},
-		{"", [3]uint64{}, false, false},
-		{"abc", [3]uint64{}, false, false},
-		{"1.2.3.4", [3]uint64{}, false, false},
-		{"1.x.3", [3]uint64{}, false, false},
-		{"*", [3]uint64{}, false, false},
+		{"v1.2.3", [3]uint64{1, 2, 3}, "", true},
+		{"1.2.3", [3]uint64{1, 2, 3}, "", true},
+		{"V2.0.0", [3]uint64{2, 0, 0}, "", true},
+		{"1.2", [3]uint64{1, 2, 0}, "", true},
+		{"1", [3]uint64{1, 0, 0}, "", true},
+		{"v1.2.3-rc1", [3]uint64{1, 2, 3}, "rc1", true},
+		{"v1.2.3-rc.1.2", [3]uint64{1, 2, 3}, "rc.1.2", true},
+		{"v1.2.3+meta", [3]uint64{1, 2, 3}, "", true},
+		{" v1.2.3 ", [3]uint64{1, 2, 3}, "", true},
+		{"", [3]uint64{}, "", false},
+		{"abc", [3]uint64{}, "", false},
+		{"1.2.3.4", [3]uint64{}, "", false},
+		{"1.x.3", [3]uint64{}, "", false},
+		{"*", [3]uint64{}, "", false},
 	}
 
 	for _, tc := range tests {
@@ -44,6 +45,38 @@ func TestParseSemver(t *testing.T) {
 		if tc.ok {
 			assert.Equal(t, tc.expected, parsed, "version %q", tc.version)
 			assert.Equal(t, tc.prerelease, prerelease, "version %q", tc.version)
+		}
+	}
+}
+
+func TestComparePrerelease(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		a, b     string
+		expected int // sign only: <0, 0, >0
+	}{
+		{"rc1", "rc1", 0},
+		{"rc1", "rc2", -1},
+		{"rc2", "rc1", 1},
+		{"alpha", "beta", -1},
+		{"1", "2", -1},     // numeric fields compare numerically
+		{"2", "10", -1},    // not lexically ("10" < "2" as strings)
+		{"1", "alpha", -1}, // numeric always outranked by alphanumeric
+		{"alpha", "1", 1},
+		{"alpha", "alpha.1", -1}, // fewer fields, otherwise equal prefix, ranks lower
+		{"alpha.1", "alpha", 1},
+	}
+
+	for _, tc := range tests {
+		got := comparePrerelease(tc.a, tc.b)
+		switch {
+		case tc.expected < 0:
+			assert.Negative(t, got, "comparePrerelease(%q, %q)", tc.a, tc.b)
+		case tc.expected > 0:
+			assert.Positive(t, got, "comparePrerelease(%q, %q)", tc.a, tc.b)
+		default:
+			assert.Zero(t, got, "comparePrerelease(%q, %q)", tc.a, tc.b)
 		}
 	}
 }
@@ -70,6 +103,13 @@ func TestVersionSatisfies(t *testing.T) {
 		{"v1.9.0-rc1", "v1.9.0", false}, // pre-release does not satisfy the release
 		{"v1.9.1-rc1", "v1.9.0", true},  // higher numerics satisfy regardless of suffix
 		{"v1.9.0", "v1.9.0-rc1", true},  // release satisfies a pre-release requirement
+		// prerelease-against-prerelease at equal numeric core: identifiers are compared,
+		// not just presence/absence — an older rc must not satisfy a newer one.
+		{"v1.9.0-rc1", "v1.9.0-rc2", false},
+		{"v1.9.0-rc2", "v1.9.0-rc1", true},
+		{"v1.9.0-alpha", "v1.9.0-rc1", false},
+		{"v1.9.0-rc1", "v1.9.0-alpha", true},
+		{"v1.9.0-rc1", "v1.9.0-rc1", true},
 	}
 
 	for _, tc := range tests {
