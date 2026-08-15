@@ -390,7 +390,14 @@ func restorePreviousEpochNodes(
 	nodeRegistry *sharding.NodesCoordinatorRegistry,
 	currentEpoch uint32,
 ) error {
-	prevEpochsConfig, ok := nodeRegistry.EpochsConfig[fmt.Sprintf("%d", currentEpoch-1)]
+	if currentEpoch == 0 {
+		// no previous epoch exists; without this guard the uint32 subtraction
+		// below would wrap and look up epoch 4294967295 in the registry
+		return nil
+	}
+
+	prevEpoch := currentEpoch - 1
+	prevEpochsConfig, ok := nodeRegistry.EpochsConfig[fmt.Sprintf("%d", prevEpoch)]
 	if !ok {
 		return nil
 	}
@@ -410,5 +417,5 @@ func restorePreviousEpochNodes(
 		return err
 	}
 
-	return nodesCoordinator.SetNodes(electedValidators, eligibleValidators, waitingValidators, currentEpoch-1)
+	return nodesCoordinator.SetNodes(electedValidators, eligibleValidators, waitingValidators, prevEpoch)
 }
