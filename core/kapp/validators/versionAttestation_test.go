@@ -277,13 +277,25 @@ func TestUpdatePeerListStatus_VersionEnforcement(t *testing.T) {
 
 // attestationTestSetup builds a validators KApp with in-memory kapp storage holding
 // one ValidatorData entry per owner, plus matching validator infos.
+// attestationTestSetup builds a validatorsKApp plus a validatorInfos snapshot for
+// computeVersionEnforcement. By default each validator's live peer account list is kept
+// in sync with its validatorInfos.List entry (matching production, where the snapshot is
+// normally still current) — pass a same-shaped map in peerListByOwner to diverge them,
+// simulating a validator whose peer account was reclassified (e.g. jailed) after the
+// snapshot was taken but before this runs in the same epoch boundary.
 func attestationTestSetup(
 	t *testing.T,
 	attestedByOwner map[string]string,
 	listByOwner map[string]string,
+	peerListByOwner ...map[string]string,
 ) (*validatorsKApp, []*state.ValidatorInfo, state.KAppAccountHandler) {
 	v := setupValidatorsKApp(t)
 	addFunctionalCacher(t, v)
+
+	var peerOverrides map[string]string
+	if len(peerListByOwner) > 0 {
+		peerOverrides = peerListByOwner[0]
+	}
 
 	rawData := make(map[string][]byte)
 	loadKApp := func(address []byte) (state.KAppAccountHandler, error) {
@@ -305,8 +317,9 @@ func attestationTestSetup(
 
 	validatorInfos := make([]*state.ValidatorInfo, 0, len(attestedByOwner))
 	for owner, attested := range attestedByOwner {
+		blsKey := []byte("bls_" + owner)
 		val := &ValidatorData{
-			BlsPubKey:       []byte("bls_" + owner),
+			BlsPubKey:       blsKey,
 			SelfStake:       1000,
 			AttestedVersion: attested,
 		}
@@ -319,9 +332,17 @@ func attestationTestSetup(
 
 		validatorInfos = append(validatorInfos, &state.ValidatorInfo{
 			OwnerAddress: []byte(owner),
-			PublicKey:    []byte("bls_" + owner),
+			PublicKey:    blsKey,
 			List:         list,
 		})
+
+		peerList := list
+		if fromMap, ok := peerOverrides[owner]; ok {
+			peerList = fromMap
+		}
+		peerAcc, err := v.loadPeerAccount(blsKey)
+		require.NoError(t, err)
+		peerAcc.SetList(state.List(state.List_value[peerList])) // #nosec G115
 	}
 
 	return v, validatorInfos, app
@@ -473,6 +494,66 @@ func TestComputeVersionEnforcement(t *testing.T) {
 
 		enforcement := v.computeVersionEnforcement(app, infos, 10)
 		assert.False(t, enforcement.demote)
+	})
+
+	t.Run("demotion refused when it would empty the elected list", func(t *testing.T) {
+		// 1 elected (unsatisfied) + 3 eligible (satisfied): supermajority (3*3=9 >= 4*2=8)
+		// and the floor (disabled, minElectableNodes=0) both hold, but demoting the one
+		// elected validator would leave the elected list empty — sharding's
+		// computeNodesConfigFromList aborts epoch preparation entirely on that, so this
+		// guard must block demotion regardless of the other two passing.
+		v, infos, app := attestationTestSetup(t, map[string]string{
+			"owner1": "",       // elected, unsatisfied
+			"owner2": "v1.9.0", // eligible, satisfied
+			"owner3": "v1.9.0", // eligible, satisfied
+			"owner4": "v1.9.0", // eligible, satisfied
+		}, map[string]string{
+			"owner1": state.List_elected.String(),
+		})
+		v.versionsByEpochs = requiredVersions
+
+		enforcement := v.computeVersionEnforcement(app, infos, 10)
+		assert.False(t, enforcement.demote, "must not demote the only elected validator and empty the elected list")
+		assert.True(t, enforcement.active)
+	})
+
+	t.Run("demotion proceeds when at least one elected validator satisfies", func(t *testing.T) {
+		// Same shape as above, but owner1 (elected) is satisfied too, so demoting the
+		// unsatisfied eligible validators cannot empty the elected list.
+		v, infos, app := attestationTestSetup(t, map[string]string{
+			"owner1": "v1.9.0", // elected, satisfied
+			"owner2": "v1.9.0", // eligible, satisfied
+			"owner3": "v1.9.0", // eligible, satisfied
+			"owner4": "",       // eligible, unsatisfied
+		}, map[string]string{
+			"owner1": state.List_elected.String(),
+		})
+		v.versionsByEpochs = requiredVersions
+
+		enforcement := v.computeVersionEnforcement(app, infos, 10)
+		assert.True(t, enforcement.demote)
+	})
+
+	t.Run("stale snapshot: a since-jailed validator does not inflate the guards", func(t *testing.T) {
+		// owner2's validatorInfos snapshot still says "eligible" (as it would have been
+		// when the epoch-start snapshot was taken), but its live peer account is already
+		// "jailed" — simulating the ratings pass jailing it earlier in the same epoch
+		// boundary, before this runs. The stale entry must not count towards either guard:
+		// with it wrongly included, satisfied=2 meets a floor of 2; excluded, satisfied=1
+		// does not.
+		v, infos, app := attestationTestSetup(t, map[string]string{
+			"owner1": "v1.9.0", // eligible, satisfied, not stale
+			"owner2": "v1.9.0", // snapshot says eligible+satisfied, but peer account is jailed
+			"owner3": "",       // eligible, unsatisfied
+		}, nil, map[string]string{
+			"owner2": state.List_jailed.String(),
+		})
+		v.versionsByEpochs = requiredVersions
+		v.minElectableNodes = 2
+
+		enforcement := v.computeVersionEnforcement(app, infos, 10)
+		assert.False(t, enforcement.demote, "a since-jailed validator must not count towards the floor guard")
+		assert.True(t, enforcement.active)
 	})
 
 	t.Run("unreadable validator record does not count as satisfied", func(t *testing.T) {

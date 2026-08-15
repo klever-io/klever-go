@@ -145,17 +145,95 @@ func versionSatisfies(attested, required string) bool {
 	return !attestedPre || requiredPre
 }
 
+// versionTally holds the electable-population counts computeVersionEnforcement's guards
+// are evaluated against.
+type versionTally struct {
+	electable int
+	satisfied int
+	// elected/electedSatisfied count the electable sublist alone (not eligible), so
+	// demotion can be refused if it would empty the elected list specifically — see
+	// preservesElectedList in computeVersionEnforcement.
+	elected          int
+	electedSatisfied int
+}
+
+// tallyElectableVersions counts, over validatorInfos, how many validators are currently
+// electable and how many of those satisfy enforcement. It re-derives "currently electable"
+// from each validator's live peer account rather than trusting info.List: validatorInfos is
+// a snapshot taken at epoch-start, and a validator can be jailed or otherwise reclassified
+// by earlier end-of-epoch processing (e.g. the ratings pass) before this runs later in the
+// same boundary — counting that stale entry would inflate both guards with a validator that
+// will not actually remain in the electable population this boundary protects.
+func (v *validatorsKApp) tallyElectableVersions(
+	app state.KAppAccountHandler,
+	validatorInfos []*state.ValidatorInfo,
+	enforcement versionEnforcement,
+) versionTally {
+	var tally versionTally
+
+	for _, info := range validatorInfos {
+		switch info.List {
+		case string(core.ElectedList), string(core.EligibleList):
+		default:
+			continue
+		}
+
+		val, err := v.getValidator(app, info.OwnerAddress)
+		if err != nil {
+			// counted as not satisfied (fail-closed: undercounting can only keep
+			// demotion off), but logged so guard undercounts are diagnosable
+			log.Warn("version enforcement: cannot load validator data",
+				"ownerAddress", info.OwnerAddress,
+				"error", err,
+			)
+			continue
+		}
+
+		peerAcc, err := v.loadPeerAccount(val.BlsPubKey)
+		if err != nil {
+			log.Warn("version enforcement: cannot load peer account",
+				"ownerAddress", info.OwnerAddress,
+				"error", err,
+			)
+			continue
+		}
+		isElected := peerAcc.GetList() == state.List_elected
+		switch peerAcc.GetList() {
+		case state.List_elected, state.List_eligible:
+		default:
+			continue
+		}
+
+		tally.electable++
+		if isElected {
+			tally.elected++
+		}
+		if enforcement.isSatisfiedBy(val) {
+			tally.satisfied++
+			if isElected {
+				tally.electedSatisfied++
+			}
+		}
+	}
+
+	return tally
+}
+
 // computeVersionEnforcement decides, once per end-of-epoch processing, whether validators
 // without a satisfying attested version should be demoted to the observer list when
 // preparing the lists for targetEpoch. Demotion requires the versionAttestation fork to
-// be active, a non-wildcard required version for targetEpoch, and two safety guards over
-// the electable set (elected + eligible — the population demotion actually removes from):
+// be active, a non-wildcard required version for targetEpoch, and three safety guards over
+// the electable population (elected + eligible — see tallyElectableVersions):
 //
 //  1. supermajority: at least 2/3 of the electable set already attested a satisfying
 //     version, bounding demotion to less than 1/3 of the consensus-carrying validators;
 //  2. floor: the attested validators alone can still satisfy the nodes shuffler's
-//     minimum electable count (minElectableNodes, from genesis MinNumberOfNodes), so
-//     demotion can never reduce elected+eligible below what EpochStartPrepare needs.
+//     minimum electable count (minElectableNodes, from genesis MinNumberOfNodes);
+//  3. elected list preserved: at least one currently-elected validator satisfies the
+//     requirement whenever the elected sublist is non-empty, so demotion can never empty
+//     it outright — sharding.computeNodesConfigFromList aborts epoch preparation entirely
+//     when the elected list alone is empty, and no combined elected+eligible count can
+//     guarantee that on its own.
 //
 // Waiting/inactive/jailed validators neither count towards the guards nor get demoted.
 func (v *validatorsKApp) computeVersionEnforcement(
@@ -178,43 +256,25 @@ func (v *validatorsKApp) computeVersionEnforcement(
 		minAttestedEpoch: minAttestedEpoch,
 	}
 
-	electable := 0
-	satisfied := 0
-	for _, info := range validatorInfos {
-		switch info.List {
-		case string(core.ElectedList), string(core.EligibleList):
-		default:
-			continue
-		}
-		electable++
+	tally := v.tallyElectableVersions(app, validatorInfos, enforcement)
 
-		val, err := v.getValidator(app, info.OwnerAddress)
-		if err != nil {
-			// counted as not satisfied (fail-closed: undercounting can only keep
-			// demotion off), but logged so guard undercounts are diagnosable
-			log.Warn("version enforcement: cannot load validator data",
-				"ownerAddress", info.OwnerAddress,
-				"error", err,
-			)
-			continue
-		}
-		if enforcement.isSatisfiedBy(val) {
-			satisfied++
-		}
-	}
+	hasSupermajority := tally.electable > 0 &&
+		tally.satisfied*versionEnforcementDenominator >= tally.electable*versionEnforcementNumerator
+	holdsFloor := v.minElectableNodes == 0 || uint32(tally.satisfied) >= v.minElectableNodes // #nosec G115
+	preservesElectedList := tally.elected == 0 || tally.electedSatisfied > 0
 
-	hasSupermajority := electable > 0 &&
-		satisfied*versionEnforcementDenominator >= electable*versionEnforcementNumerator
-	holdsFloor := v.minElectableNodes == 0 || uint32(satisfied) >= v.minElectableNodes // #nosec G115
-
-	if !hasSupermajority || !holdsFloor {
+	if !hasSupermajority || !holdsFloor || !preservesElectedList {
 		log.Debug("version demotion skipped: safety guards not met",
 			"requiredVersion", required,
 			"targetEpoch", targetEpoch,
-			"electable", electable,
-			"satisfied", satisfied,
+			"electable", tally.electable,
+			"satisfied", tally.satisfied,
+			"elected", tally.elected,
+			"electedSatisfied", tally.electedSatisfied,
 			"minElectableNodes", v.minElectableNodes,
 			"hasSupermajority", hasSupermajority,
+			"holdsFloor", holdsFloor,
+			"preservesElectedList", preservesElectedList,
 		)
 		return enforcement
 	}
@@ -222,8 +282,8 @@ func (v *validatorsKApp) computeVersionEnforcement(
 	log.Debug("version demotion active",
 		"requiredVersion", required,
 		"targetEpoch", targetEpoch,
-		"electable", electable,
-		"satisfied", satisfied,
+		"electable", tally.electable,
+		"satisfied", tally.satisfied,
 	)
 
 	enforcement.demote = true
