@@ -357,7 +357,7 @@ func (v *validatorsKApp) computeVersionEnforcement(
 	preservesElectedList := tally.elected == 0 || tally.electedSatisfied > 0
 
 	if !hasSupermajority || !holdsFloor || !preservesElectedList {
-		log.Debug("version demotion skipped: safety guards not met",
+		log.Info("version demotion skipped: safety guards not met",
 			"requiredVersion", required,
 			"targetEpoch", targetEpoch,
 			"electable", tally.electable,
@@ -372,7 +372,7 @@ func (v *validatorsKApp) computeVersionEnforcement(
 		return enforcement
 	}
 
-	log.Debug("version demotion active",
+	log.Info("version demotion active",
 		"requiredVersion", required,
 		"targetEpoch", targetEpoch,
 		"electable", tally.electable,
