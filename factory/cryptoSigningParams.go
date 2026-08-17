@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
@@ -146,9 +145,10 @@ func (cspf *cryptoSigningParamsLoader) getSkPk() ([]byte, []byte, error) {
 	return skBytes, pkBytes, nil
 }
 
-// isSkPemFileNotFound reports whether the key file is simply absent. The string
-// check is kept as a fallback for loaders that flatten the wrapped os error.
+// isSkPemFileNotFound reports whether the key file is simply absent. Matched by
+// type only: a substring match on the not-found text is satisfied by any error
+// carrying a path that happens to contain it, which would send a corrupt key
+// file down the generate-and-replace branch.
 func isSkPemFileNotFound(err error) bool {
-	return errors.Is(err, os.ErrNotExist) ||
-		strings.Contains(err.Error(), ErrFileNotFound.Error())
+	return errors.Is(err, os.ErrNotExist)
 }
