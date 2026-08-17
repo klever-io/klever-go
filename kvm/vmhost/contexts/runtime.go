@@ -82,7 +82,7 @@ func NewRuntimeContext(
 		errors:     nil,
 	}
 
-	iTracker, err := NewInstanceTracker()
+	iTracker, err := NewInstanceTracker(host.ForkController())
 	if err != nil {
 		return nil, err
 	}
@@ -208,6 +208,7 @@ func (context *runtimeContext) makeInstanceFromCompiledCode(gasLimit uint64, new
 
 	err = context.iTracker.SetNewInstance(newInstance, Precompiled)
 	if err != nil {
+		newInstance.Clean()
 		return false, err
 	}
 	context.verifyCode = false
@@ -240,6 +241,7 @@ func (context *runtimeContext) makeInstanceFromContractByteCode(contract []byte,
 
 	err = context.iTracker.SetNewInstance(newInstance, Bytecode)
 	if err != nil {
+		newInstance.Clean()
 		return err
 	}
 
@@ -257,7 +259,13 @@ func (context *runtimeContext) makeInstanceFromContractByteCode(contract []byte,
 		"id", context.iTracker.Instance().ID(),
 		"codeHash", context.iTracker.CodeHash(),
 	)
-	context.saveCompiledCode()
+	err = context.saveCompiledCode()
+	// Handing the instance to the warm cache is what gives it an owner, so it must
+	// not depend on saveCompiledCode having succeeded: serializing the module is
+	// unrelated, and an uncached instance off the codeHash stack is freed by nobody.
+	if err != nil && context.host.ForkController().FixAuditChangesV4() {
+		context.saveWarmInstance()
+	}
 
 	return nil
 }
@@ -315,11 +323,11 @@ func (context *runtimeContext) GetSCCodeSize() uint64 {
 	return context.iTracker.GetCodeSize()
 }
 
-func (context *runtimeContext) saveCompiledCode() {
+func (context *runtimeContext) saveCompiledCode() error {
 	compiledCode, err := context.iTracker.Instance().Cache()
 	if err != nil {
 		logRuntime.Error("getCompiledCode from instance", "error", err)
-		return
+		return err
 	}
 
 	codeHash := context.iTracker.CodeHash()
@@ -333,6 +341,7 @@ func (context *runtimeContext) saveCompiledCode() {
 	}
 
 	context.saveWarmInstance()
+	return nil
 }
 
 func (context *runtimeContext) saveWarmInstance() {

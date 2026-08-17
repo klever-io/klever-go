@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/storage"
@@ -18,6 +19,11 @@ var _ vmhost.InstanceTracker = (*instanceTracker)(nil)
 type instanceCacheLevel int
 
 var errTooManyInstances = errors.New("too many instances")
+
+// maxTrackedInstances is the number of instances a single transaction may hold at
+// once. It stays below warmCacheSize so that saving a warm instance can never evict
+// and clean an instance the transaction is still using.
+const maxTrackedInstances = warmCacheSize - 2
 
 const (
 	// Warm indicates that the instance to track is a warm instance
@@ -45,17 +51,25 @@ type instanceTracker struct {
 	codeHashStack       [][]byte
 	codeSizeStack       []uint64
 
-	instances map[string]executor.Instance
+	instances           map[string]executor.Instance
+	numTrackedInstances int
+
+	forkController core.ForkController
 }
 
 // NewInstanceTracker creates a new instanceTracker instance
-func NewInstanceTracker() (*instanceTracker, error) {
+func NewInstanceTracker(forkController core.ForkController) (*instanceTracker, error) {
+	if check.IfNil(forkController) {
+		return nil, vmhost.ErrNilEnableEpochsHandler
+	}
+
 	tracker := &instanceTracker{
 		instances:           make(map[string]executor.Instance),
 		instanceStack:       make([]executor.Instance, 0),
 		codeHashStack:       make([][]byte, 0),
 		codeSizeStack:       make([]uint64, 0),
 		numRunningInstances: 0,
+		forkController:      forkController,
 	}
 
 	var err error
@@ -77,6 +91,7 @@ func (tracker *instanceTracker) InitState() {
 	tracker.instance = nil
 	tracker.codeHash = make([]byte, 0)
 	tracker.instances = make(map[string]executor.Instance)
+	tracker.numTrackedInstances = 0
 	tracker.codeSize = 0
 }
 
@@ -119,11 +134,24 @@ func (tracker *instanceTracker) PopSetActiveState() {
 
 func (tracker *instanceTracker) cleanPoppedInstance(instance executor.Instance, codeHash []byte) {
 	if !check.IfNil(instance) {
-		if instance.Clean() {
-			tracker.updateNumRunningInstances(-1)
-		}
+		tracker.cleanInstance(instance)
 
 		logTracker.Trace("clean popped instance", "id", instance.ID(), "codeHash", codeHash)
+	}
+}
+
+// cleanInstance destroys the given instance and hands back the tracking budget it
+// held, if it is an instance the current transaction is tracking. The identity guard
+// is what makes this safe at every call site: the warm cache outlives the tracked
+// instances map, so an eviction can clean an instance this transaction never counted.
+func (tracker *instanceTracker) cleanInstance(instance executor.Instance) {
+	if !instance.Clean() {
+		return
+	}
+
+	tracker.updateNumRunningInstances(-1)
+	if tracker.instances[instance.ID()] == instance {
+		tracker.numTrackedInstances--
 	}
 }
 
@@ -201,6 +229,8 @@ func (tracker *instanceTracker) UseWarmInstance(codeHash []byte, newCode bool) (
 		return false, nil
 	}
 
+	// Unlike the cold paths in runtimeContext, a rejection here must not be followed
+	// by Clean(): the warm cache still owns this instance and will hand it out again.
 	err := tracker.SetNewInstance(instance, Warm)
 	return true, err
 }
@@ -220,9 +250,7 @@ func (tracker *instanceTracker) ForceCleanInstance(bypassWarmAndStackChecks bool
 	}()
 
 	if bypassWarmAndStackChecks {
-		if tracker.instance.Clean() {
-			tracker.updateNumRunningInstances(-1)
-		}
+		tracker.cleanInstance(tracker.instance)
 
 		return
 	}
@@ -230,9 +258,7 @@ func (tracker *instanceTracker) ForceCleanInstance(bypassWarmAndStackChecks bool
 	onStack := tracker.IsCodeHashOnTheStack(tracker.codeHash)
 	coldOnlyEnabled := !WarmInstancesEnabled
 	if onStack || coldOnlyEnabled {
-		if tracker.instance.Clean() {
-			tracker.updateNumRunningInstances(-1)
-		}
+		tracker.cleanInstance(tracker.instance)
 	} else {
 		tracker.warmInstanceCache.Remove(tracker.codeHash)
 	}
@@ -294,17 +320,48 @@ func (tracker *instanceTracker) GetCodeSize() uint64 {
 
 // SetNewInstance sets the given instance as active and tracks its creation
 func (tracker *instanceTracker) SetNewInstance(instance executor.Instance, cacheLevel instanceCacheLevel) error {
+	// A stale entry left behind by a cleaned instance can carry the same ID as a
+	// genuinely new one, because ID() is the native pointer and the allocator
+	// reuses freed addresses; compare identity, not just the key.
+	alreadyTracked := tracker.instances[instance.ID()] == instance
+
+	if tracker.isOverCapacity(instance, alreadyTracked) {
+		return errTooManyInstances
+	}
+
 	tracker.ReplaceInstance(instance)
 	tracker.cacheLevel = cacheLevel
-	if cacheLevel != Warm {
-		tracker.updateNumRunningInstances(+1)
+	if !alreadyTracked {
+		tracker.numTrackedInstances++
+		if cacheLevel != Warm {
+			tracker.updateNumRunningInstances(+1)
+		}
 	}
 	tracker.instances[instance.ID()] = instance
 
-	if len(tracker.instances) >= warmCacheSize-1 {
-		return errTooManyInstances
-	}
 	return nil
+}
+
+// isOverCapacity reports whether tracking the given instance would exceed the ceiling
+// on instances held by one transaction. The ceiling stays below warmCacheSize so that
+// a warm cache eviction can never reclaim an instance still on the instance stack.
+func (tracker *instanceTracker) isOverCapacity(instance executor.Instance, alreadyTracked bool) bool {
+	if !tracker.forkController.FixAuditChangesV4() {
+		// Pre-fork bound, kept verbatim for replay determinism: the size of a map that
+		// is never pruned and is keyed on a native pointer the allocator recycles, so
+		// it counts freed instances and misses new ones that inherited a freed ID.
+		_, trackedByID := tracker.instances[instance.ID()]
+		lenAfterInsert := len(tracker.instances)
+		if !trackedByID {
+			lenAfterInsert++
+		}
+
+		return lenAfterInsert >= warmCacheSize-1
+	}
+
+	// Instances the transaction cleaned hold no warm cache slot, so freeing one hands
+	// its budget back; what the counter bounds is the instances held at once.
+	return !alreadyTracked && tracker.numTrackedInstances >= maxTrackedInstances
 }
 
 // ReplaceInstance replaces the currently active instance with the given one
@@ -414,9 +471,7 @@ func (tracker *instanceTracker) makeInstanceEvictionCallback() func(interface{},
 		}
 
 		logTracker.Trace("evicted instance", "id", instance.ID())
-		if instance.Clean() {
-			tracker.updateNumRunningInstances(-1)
-		}
+		tracker.cleanInstance(instance)
 	}
 }
 

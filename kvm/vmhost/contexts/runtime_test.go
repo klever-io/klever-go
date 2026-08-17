@@ -227,7 +227,7 @@ func TestRuntimeContext_StartWasmerInstanceDoesNotReuseWarmInstanceForDifferentC
 }
 
 func TestRuntimeContext_StateSettersAndGetters(t *testing.T) {
-	host := &contextmock.VMHostMock{}
+	host := &contextmock.VMHostMock{ForkControllerContext: commonMock.NewForkControllerStub()}
 
 	runtimeCtx := makeDefaultRuntimeContext(t, host)
 	defer runtimeCtx.ClearWarmInstanceCache()
@@ -313,7 +313,7 @@ func TestRuntimeContext_PushPopInstance(t *testing.T) {
 }
 
 func TestRuntimeContext_PushPopState(t *testing.T) {
-	host := &contextmock.VMHostMock{}
+	host := &contextmock.VMHostMock{ForkControllerContext: commonMock.NewForkControllerStub()}
 	runtimeCtx := makeDefaultRuntimeContext(t, host)
 	defer runtimeCtx.ClearWarmInstanceCache()
 
@@ -377,7 +377,7 @@ func TestRuntimeContext_CountContractInstancesOnStack(t *testing.T) {
 	beta := []byte("beta")
 	gamma := []byte("gamma")
 
-	host := &contextmock.VMHostMock{}
+	host := &contextmock.VMHostMock{ForkControllerContext: commonMock.NewForkControllerStub()}
 
 	testVMType := []byte("type")
 	execFactory := testexecutor.NewDefaultTestExecutorFactory(t)
@@ -855,6 +855,167 @@ func TestRuntimeContext_PopInstanceIfStackIsEmptyShouldNotPanic(t *testing.T) {
 	runtimeCtx.popInstance()
 
 	require.Equal(t, 0, len(runtimeCtx.stateStack))
+}
+
+// recordingExecutor hands out mock instances and keeps a reference to each one,
+// so a test can inspect an instance that the runtime context allocated and then
+// dropped internally.
+type recordingExecutor struct {
+	*contextmock.ExecutorMock
+	created []executor.Instance
+
+	// failCache makes the handed out instances fail to serialize their module,
+	// which is the only way to reach the early return in saveCompiledCode.
+	failCache bool
+}
+
+// cacheFailingInstance is an instance whose module cannot be serialized. It stays
+// perfectly usable otherwise, which mirrors the native contract: vm_exec_instance_cache
+// takes a const instance pointer and leaves it untouched on failure.
+type cacheFailingInstance struct {
+	*contextmock.InstanceMock
+}
+
+func (instance *cacheFailingInstance) Cache() ([]byte, error) {
+	return nil, errors.New("caching failed")
+}
+
+func (exec *recordingExecutor) record(code []byte) (executor.Instance, error) {
+	var instance executor.Instance = contextmock.NewInstanceMock(code)
+	if exec.failCache {
+		instance = &cacheFailingInstance{InstanceMock: instance.(*contextmock.InstanceMock)}
+	}
+
+	exec.created = append(exec.created, instance)
+	return instance, nil
+}
+
+func (exec *recordingExecutor) NewInstanceWithOptions(
+	code []byte,
+	_ executor.CompilationOptions,
+) (executor.Instance, error) {
+	return exec.record(code)
+}
+
+func (exec *recordingExecutor) NewInstanceFromCompiledCodeWithOptions(
+	code []byte,
+	_ executor.CompilationOptions,
+) (executor.Instance, error) {
+	return exec.record(code)
+}
+
+func TestRuntimeContext_StartWasmerInstanceCleansInstanceRejectedByTracker(t *testing.T) {
+	contractCode := []byte("some contract code")
+	gasLimit := uint64(100000000)
+
+	testCases := []struct {
+		name             string
+		precompiledCache bool
+	}{
+		{name: "from bytecode", precompiledCache: false},
+		{name: "from compiled code", precompiledCache: true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			host := InitializeVMAndWasmer()
+			runtimeCtx := makeDefaultRuntimeContext(t, host)
+			defer runtimeCtx.ClearWarmInstanceCache()
+
+			exec := &recordingExecutor{ExecutorMock: contextmock.NewExecutorMock(nil)}
+			runtimeCtx.ReplaceVMExecutor(exec)
+			runtimeCtx.SetMaxInstanceStackSize(1)
+
+			if testCase.precompiledCache {
+				host.Blockchain().SaveCompiledCode(defaultHasher.Compute(string(contractCode)), contractCode)
+			}
+
+			// Fill the tracker so that the instance about to be created is rejected.
+			fillTracker(t, runtimeCtx.iTracker)
+			numRunningBefore := runtimeCtx.iTracker.numRunningInstances
+
+			err := runtimeCtx.StartWasmerInstance(contractCode, gasLimit, false)
+			require.ErrorIs(t, err, errTooManyInstances)
+
+			// The instance was allocated before the tracker refused it, so the
+			// caller has to free it; nothing else can reach it afterwards.
+			require.Len(t, exec.created, 1)
+			require.True(t, exec.created[0].IsAlreadyCleaned(),
+				"instance rejected by the tracker was not cleaned, its native allocation leaks")
+
+			// The rejection must not have touched the tracker.
+			require.Len(t, runtimeCtx.iTracker.instances, warmCacheSize-2)
+			require.Equal(t, numRunningBefore, runtimeCtx.iTracker.numRunningInstances)
+		})
+	}
+}
+
+func TestRuntimeContext_StartWasmerInstanceKeepsWarmInstanceRejectedByTracker(t *testing.T) {
+	// Must be a decodable module that leaves the tables alone, otherwise the warm
+	// instance is evicted before the tracker ever gets to refuse it.
+	contractCode := moduleReadingTable()
+	codeHash := defaultHasher.Compute(string(contractCode))
+	gasLimit := uint64(100000000)
+
+	host := InitializeVMAndWasmer()
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+
+	exec := &recordingExecutor{ExecutorMock: contextmock.NewExecutorMock(nil)}
+	runtimeCtx.ReplaceVMExecutor(exec)
+	runtimeCtx.SetMaxInstanceStackSize(1)
+
+	require.NoError(t, runtimeCtx.StartWasmerInstance(contractCode, gasLimit, false))
+	warmInstance, ok := runtimeCtx.iTracker.GetWarmInstance(codeHash)
+	require.True(t, ok)
+
+	// The warm cache outlives the transaction while the tracked instances map does
+	// not, so the next transaction meets this instance as untracked.
+	runtimeCtx.iTracker.InitState()
+	fillTracker(t, runtimeCtx.iTracker)
+
+	require.ErrorIs(t, runtimeCtx.StartWasmerInstance(contractCode, gasLimit, false), errTooManyInstances)
+
+	// Unlike the cold paths, a rejected warm instance must not be cleaned: being
+	// refused by the tracker is not a transfer of ownership, the cache still holds it.
+	require.False(t, warmInstance.IsAlreadyCleaned(),
+		"rejected warm instance was cleaned while still owned by the warm cache")
+	stillCached, ok := runtimeCtx.iTracker.GetWarmInstance(codeHash)
+	require.True(t, ok)
+	require.Same(t, warmInstance, stillCached)
+
+	// Rejected on the warm path, before any cold fallback could allocate.
+	require.Len(t, exec.created, 1)
+}
+
+func TestRuntimeContext_StartWasmerInstanceSavesWarmInstanceWhenCachingFails(t *testing.T) {
+	contractCode := []byte("some contract code")
+	codeHash := defaultHasher.Compute(string(contractCode))
+	gasLimit := uint64(100000000)
+
+	host := InitializeVMAndWasmer()
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+
+	exec := &recordingExecutor{ExecutorMock: contextmock.NewExecutorMock(nil), failCache: true}
+	runtimeCtx.ReplaceVMExecutor(exec)
+	runtimeCtx.SetMaxInstanceStackSize(1)
+
+	// Serializing the module fails, but that is not an execution error: the
+	// instance is started and used as usual.
+	err := runtimeCtx.StartWasmerInstance(contractCode, gasLimit, false)
+	require.Nil(t, err)
+
+	// Pins that the failing branch of saveCompiledCode was the one taken.
+	found, _ := host.Blockchain().GetCompiledCode(codeHash)
+	require.False(t, found)
+
+	// Saving the warm instance is what gives the instance an owner. Skipping it
+	// leaves an instance that the warm cache never took and that PopSetActiveState
+	// will not clean either, since its codeHash is not on the stack.
+	warmInstance, ok := runtimeCtx.iTracker.GetWarmInstance(codeHash)
+	require.True(t, ok, "instance was not saved as warm, its native allocation leaks")
+	require.Same(t, runtimeCtx.iTracker.Instance(), warmInstance)
 }
 
 func startFunctionMarker(t *testing.T, runtimeCtx *runtimeContext) byte {
