@@ -33,6 +33,7 @@ func TestKeyFileSafety_CorruptPemIsNeverOverwritten(t *testing.T) {
 	require.NoError(t, os.WriteFile(pem, []byte(corruptPem), 0o600))
 
 	_, _, err := newLoaderFor(t, pem).getSkPk()
+	require.Error(t, err, "an unloadable pem must surface an error, not be swallowed")
 	t.Logf("corrupt pem -> err=%v", err)
 
 	after, rerr := os.ReadFile(pem)

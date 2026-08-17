@@ -121,7 +121,8 @@ apiPackages:
 # will never authenticate.
 #
 # Generate one with:
-#   printf '%s' 'your-password' | shasum -a 256 | cut -d' ' -f1
+#   printf '%s' 'your-password' | sha256sum | cut -d' ' -f1     # GNU coreutils
+#   printf '%s' 'your-password' | shasum -a 256 | cut -d' ' -f1 # macOS / perl
 #
 # Anyone who can read this file can attempt an offline crack against these digests,
 # so keep it readable only by the node user, and terminate TLS in front of the API.

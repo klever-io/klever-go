@@ -114,7 +114,7 @@ func (cspf *cryptoSigningParamsLoader) getSkPk() ([]byte, []byte, error) {
 		// (corrupt pem, wrong KEY_PASSWORD, permissions) must surface here rather
 		// than fall through and fail later against an empty key.
 		if !isSkPemFileNotFound(err) {
-			return nil, nil, fmt.Errorf("%w while loading %s", err, cspf.skPemFileName)
+			return nil, nil, fmt.Errorf("loading validator key: %w", err)
 		}
 
 		keyGen := signing.NewKeyGenerator(cspf.suite)
