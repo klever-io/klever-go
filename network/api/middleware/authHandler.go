@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
 
@@ -60,7 +61,8 @@ func NewAuthenticationFunc(credentialsConfig config.APIRoutesConfig) gin.Handler
 			return
 		}
 
-		if userPassword != hex.EncodeToString(hasher.Compute(pass)) {
+		expected := hex.EncodeToString(hasher.Compute(pass))
+		if subtle.ConstantTimeCompare([]byte(userPassword), []byte(expected)) != 1 {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, shared.GenericAPIResponse{
 				Data:  nil,
 				Error: "invalid password",

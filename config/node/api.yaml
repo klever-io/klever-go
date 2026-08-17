@@ -85,8 +85,10 @@ apiPackages:
         open: true
       - name: /p2pstatus
         open: true
+      # /debug returns cached interceptor and resolver state; keep it behind auth.
       - name: /debug
         open: true
+        secured: true
       - name: /peerinfo
         open: true
       - name: /statistics
@@ -114,10 +116,19 @@ apiPackages:
       - name: /query
         open: true
 
+# `password` holds a DIGEST, not the password itself: the hex-encoded hash of the
+# password, using the algorithm named under `hasher` below. A plaintext value here
+# will never authenticate.
+#
+# Generate one with:
+#   printf '%s' 'your-password' | shasum -a 256 | cut -d' ' -f1
+#
+# Anyone who can read this file can attempt an offline crack against these digests,
+# so keep it readable only by the node user, and terminate TLS in front of the API.
 credentials:
   - username: example
-    password: hashed password
+    password: replace-me-with-a-sha256-digest
   - username: example2
-    password: hashed password
+    password: replace-me-with-a-sha256-digest
 hasher:
   type: sha256
