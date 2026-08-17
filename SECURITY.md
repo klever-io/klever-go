@@ -66,25 +66,32 @@ Please include:
 
 ### Reproducers
 
-A report that includes a runnable reproducer is triaged faster and classified higher than
-one that does not. The most useful form is a Go test in this repository that fails on the
-affected version, together with the exact command to run it and its verbatim output. State
-explicitly which fork flags (`EnableEpochs`) your reproducer assumes, since most state
-behaviour in this codebase is fork-gated.
+A report that includes a runnable reproducer is triaged faster than one that does not.
+A reproducer is what turns a theoretical report into demonstrated impact; it does not
+raise the severity grade on its own. The most useful form is a Go test in this
+repository that fails on the affected version, together with the exact command to run
+it and its verbatim output. State explicitly which fork flags (`EnableEpochs`) your
+reproducer assumes, since most state behaviour in this codebase is fork-gated.
 
 Please also state what you are **not** claiming. Reports that clearly bound their own
 scope are taken more seriously, not less.
 
 ## How We Classify Reports
 
-Every report is placed in exactly one of three buckets. All three are legitimate outcomes
-and all three are credited.
+Every report is placed in exactly one of three buckets. Advisory and hardening
+findings are credited. Reports that are not a security issue are closed with a
+written explanation citing the rule; they are not credited in an advisory or in
+release notes.
+
+A duplicate is not a fourth bucket and is not "not a security issue." It stays in
+the same bucket as the original finding and is closed as a valid duplicate, with
+credit, as described in the next section.
 
 | Bucket | What it means | Outcome |
 | ------ | ------------- | ------- |
 | **Security advisory** | A demonstrated impact from the table below | GitHub Security Advisory published after the fix ships; CVE where appropriate; credited in the advisory |
-| **Security hardening** | A real weakness that does not on its own produce an impact from the table below — defence-in-depth, unsafe defaults, missing safety rails | Tracked as a normal issue, fixed on the ordinary release schedule, credited in the release notes; **no advisory published** |
-| **Not a security issue** | Matches an exclusion below, is a duplicate, or is not reproducible | Closed with a written explanation citing the specific rule |
+| **Security hardening** | A real weakness that does not on its own produce an impact from the table below — defence-in-depth, unsafe defaults, missing safety rails | Tracked internally (or as a private unpublished advisory) until the fix ships, then credited in the release notes; **no public issue before the fix, and no advisory published** |
+| **Not a security issue** | Matches an exclusion below, or is not reproducible | Closed with a written explanation citing the specific rule; not credited |
 
 We will always tell you which bucket a report landed in and why.
 
@@ -129,7 +136,7 @@ are questioned**:
 - A finding that meets the advisory bar gets a **draft advisory opened at the time it is
   recorded**, with the auditor or internal finder credited and the audit reference and its
   date noted in the advisory.
-- Findings below that bar are tracked as ordinary dated tickets, which serve the same
+- Findings below that bar are tracked as internal dated tickets, which serve the same
   evidentiary purpose.
 
 We can cite an audit finding's identifier and date as proof of prior knowledge without
@@ -147,19 +154,19 @@ standard above. In that case the report is new, and it is credited as new.
 
 ### What counts as a duplicate
 
-We use the remediation test rather than the vulnerability class: **two findings are the
-same only if fixing one removes the need to change code for the other.**
+We use one test, and it turns on what we had already recorded: **a later report of a
+path we already recorded is a duplicate of that path. A report that causes us to
+change a path we had not recorded is not.** Put another way, a report is a duplicate
+only if we would have changed the same code anyway — and the dated record described
+above is how that is demonstrated, not our recollection.
 
-- Reports that reach the same subsystem through a different code path are **separate
-  findings**, even when the eventual fix ends up shared, and even when they carry the same
-  CWE.
-- Several instances of one weakness are a single finding only when one framework- or
-  interface-level change resolves all of them.
+Independently reachable paths are separate findings even if we later extract a shared
+helper. Sharing a CWE is not enough.
+
+- Several instances of one weakness collapse only when one already-planned
+  framework- or interface-level change resolves all of them.
 - A report that establishes an impact we had not established is a new finding, not a
   duplicate, even where the underlying defect was known.
-
-If your report causes us to change code we would not otherwise have changed, it is not a
-duplicate.
 
 ### What we can tell you while the fix is embargoed
 
@@ -210,7 +217,7 @@ Two things follow from this that are worth stating plainly:
   originated from another researcher, we will not, because that would expose their
   submission. In that case you are credited but will see the advisory when it publishes.
 
-If your report is a variant rather than a duplicate under the remediation test above, none
+If your report is a variant rather than a duplicate under the test above, none
 of this applies — it is accepted and tracked as its own finding.
 
 If you believe we have mis-assigned duplicate status or priority, say so. We will show you
@@ -261,6 +268,10 @@ reachable that impact actually is.
 These are applied after the impact is matched. Each rule that applies reduces the
 severity by one level. A finding reduced below Low is classified as hardening.
 
+**A rule is not applied if the matched impact bullet already incorporates it.** We
+still cite the rule as reasoning so the match is reviewable; we do not decrement
+twice for the same fact.
+
 1. **Non-default configuration** — the impact requires an asset, chain, or node
    configuration that differs from what we ship, and that an issuer or operator chose.
 2. **Self-inflicted trigger** — the impact requires the affected user's own transaction,
@@ -270,9 +281,33 @@ severity by one level. A finding reduced below Low is classified as hardening.
 4. **Local or non-default reachability** — the impact requires access to the local host,
    or requires an interface bound beyond the loopback default we ship.
 
+Worked example: permanent loss of user funds that requires the user's own transaction
+*and* a non-default asset configuration matches the Medium self-inflicted /
+non-default-asset bullet. Rule 2 is already priced into that bullet and is not
+applied again. Rule 1 still applies, so the result is Low — not hardening.
+
+The same applies at Low: "information disclosure reachable only from the local host"
+already incorporates Rule 4; Rule 4 is not applied again to drop that finding to
+hardening.
+
 We will state which rules we applied. If you think we applied one incorrectly, say so —
 several published advisories on this repository were re-rated after a reporter pushed back
 with a better argument.
+
+### What "shipped default" means
+
+Classification uses the **binary default in this repository**, not a third-party
+runbook, a Docker `--publish` flag, or a how-to-run example. The REST API default is
+`localhost:8080` (`common/facade.DefaultRestInterface`). Binding beyond loopback —
+including `--rest-api-interface=0.0.0.0:8080`, `--rest-api-interface :8080`,
+`--network=host`, or publishing container port 8080 — is an operator choice.
+
+Some published how-to-run examples do that. Those examples do not change the default
+we grade against.
+
+The YAML in this repository is the developer checkout, not a production hardening
+guide. An operator who publishes the REST API is expected to review `api.yaml`
+and `config.yaml` before doing so.
 
 ## Not a Security Issue
 
@@ -280,17 +315,22 @@ The following are not treated as vulnerabilities. Most are still accepted as **h
 where the underlying observation is sound, and we would rather receive them than not — but
 they will not be published as advisories.
 
-- **REST API exposure.** The node binds its REST API to loopback by default. Exposing it
-  more widely is an operator decision, and securing that deployment is an operator
-  responsibility. See our REST API deployment hardening documentation. Findings that
-  depend on the API being bound beyond the shipped default are hardening at most.
-- **Missing `secured:` on read-only diagnostic routes.** Treated as hardening. Routes that
-  *mutate* node state or configuration are in scope as vulnerabilities.
+- **REST API exposure.** The node binds its REST API to loopback by default
+  (`localhost:8080`). Exposing it more widely is an operator decision, and securing
+  that deployment is an operator responsibility. If you bind beyond loopback, put the
+  listener behind authentication and TLS (a reverse proxy is the usual shape) and do
+  not leave mutate routes unauthenticated. Findings that depend on the API being
+  bound beyond the shipped default are hardening at most, except for routes that
+  *mutate* node state or configuration, which stay in scope as vulnerabilities.
+- **Missing `secured:` on read-only diagnostic routes.** Treated as hardening.
+  Tightening those flags is an operator edit when the API is published. Routes that
+  *mutate* node state or configuration stay in scope as vulnerabilities.
 - **Local attackers already present.** If an attacker must already have code execution,
   filesystem write access, or an account on the node host, they can generally do worse
   directly. The bar for these is correspondingly higher.
-- **Debug and diagnostic surfaces** that are disabled by default, or that only expose
-  counters and operational telemetry.
+- **Debug and diagnostic surfaces** that expose only counters, operational telemetry,
+  or cached protocol bookkeeping — that is, data that does not identify peers or
+  users, carry key material, or reveal unpublished chain state.
 - **Credential-hashing strength** where the shipped default fails closed and the
   credential file already sits alongside material of equal or greater sensitivity.
 - **Operator misconfiguration or key-file mismanagement**, including losing or failing to
@@ -355,8 +395,9 @@ What we do commit to:
 
 - **Attribution.** Reporters are credited in the published advisory, or in the release
   notes for findings classified as hardening, unless you ask us not to be named.
-- **A stated decision.** Every report receives a bucket, a severity, and the reasoning
-  behind both — including which downgrade rules we applied and why.
+- **A stated decision.** Every report receives a bucket and the reasoning behind it.
+  Advisory and hardening findings also receive a severity, including which downgrade
+  rules we applied and why.
 - **Safe harbour.** We will not pursue legal action against, or ask platforms to act
   against, anyone who researches and reports in good faith under the responsible
   disclosure guidelines below. If you are unsure whether an activity is covered, ask us
@@ -396,8 +437,10 @@ Please do not:
 ## Security Best Practices for Node Operators
 
 - Keep node software up to date
-- Do not expose the REST API beyond loopback without authentication and TLS termination
-- Review the REST API deployment hardening documentation before running a public observer
+- Leave the REST API on loopback (`localhost:8080`) unless you have a reason not to
+- If you bind beyond loopback (including Docker `-p 8080:8080` plus a non-loopback
+  `--rest-api-interface`, or `--network=host`), require authentication and TLS
+  termination in front of the listener. Do not leave mutate routes unauthenticated.
 - Back up and protect validator key material; verify your node starts under the identity
   you registered
 - Follow secure key management practices and use hardware wallets for significant holdings
