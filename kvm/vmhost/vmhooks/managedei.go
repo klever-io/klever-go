@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"math/big"
+	"slices"
 
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/tools/check"
@@ -280,10 +281,17 @@ func (context *VMHooksImpl) ManagedGetMultiKDAWithoutKLVCallValue(multiCallValue
 	metering.UseGasAndAddTracedGas(managedGetMultiKDAWithoutKLVCallValueName, gasToUse)
 
 	kdaTransfers := runtime.GetVMInput().KDATransfers
+	if context.host.ForkController().FixAuditChangesV4() {
+		// the loop below deletes in place, which would shuffle the runtime input's backing array
+		// it would also leave duplicate elements in the backing array
+		kdaTransfers = slices.Clone(kdaTransfers)
+	}
 	// remove klv transfers if any
 	for i := 0; i < len(kdaTransfers); {
-		if kdaTransfers[i].KDATokenName == nil ||
-			bytes.Equal(kdaTransfers[i].KDATokenName, kdautils.KLVIdentifier) {
+		kdaName := kdaTransfers[i].KDATokenName
+		if kdaName == nil ||
+			len(kdaName) == 0 && context.host.ForkController().FixAuditChangesV4() ||
+			bytes.Equal(kdaName, kdautils.KLVIdentifier) {
 			// Remove the element by creating a new slice without it
 			kdaTransfers = append(kdaTransfers[:i], kdaTransfers[i+1:]...)
 		} else {

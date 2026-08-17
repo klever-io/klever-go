@@ -1571,3 +1571,127 @@ func TestManagedGetMultiKDACallValue(t *testing.T) {
 	assert.Equal(t, []byte("OTHER_KDA"), mockManaged.GetManagedBuffer()[4])
 	assert.Equal(t, int64(300), mockManaged.GetManagedBigInt()[4].Int64())
 }
+
+func TestManagedGetMultiKDAWithoutKLVCallValueDoesNotMutateVMInput(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		fixAuditChangesV4  bool
+		transfers          []*vmcommon.KDATransfer
+		expectedHookTokens [][]byte
+		expectedHookValues []int64
+		expectedTokens     [][]byte
+		expectedOtherKDA   int64
+		expectedKLV        int64
+	}{
+		{
+			name:              "with fix, runtime transfers are left untouched",
+			fixAuditChangesV4: true,
+			transfers: []*vmcommon.KDATransfer{
+				{KDAValue: big.NewInt(100), KDATokenName: []byte("KFI")},
+				{KDAValue: big.NewInt(200), KDATokenName: []byte("KLV")},
+				{KDAValue: big.NewInt(300), KDATokenName: []byte("OTHER_KDA")},
+			},
+			expectedHookTokens: [][]byte{[]byte("KFI"), []byte("OTHER_KDA")},
+			expectedHookValues: []int64{100, 300},
+			expectedTokens:     [][]byte{[]byte("KFI"), []byte("KLV"), []byte("OTHER_KDA")},
+			expectedOtherKDA:   300,
+			expectedKLV:        200,
+		},
+		{
+			// legacy behaviour: the in-place delete shifts OTHER_KDA over KLV and leaves
+			// a stale duplicate behind, so KLV disappears and OTHER_KDA is counted twice
+			name:              "without fix, runtime transfers keep the duplicated entry",
+			fixAuditChangesV4: false,
+			transfers: []*vmcommon.KDATransfer{
+				{KDAValue: big.NewInt(100), KDATokenName: []byte("KFI")},
+				{KDAValue: big.NewInt(200), KDATokenName: []byte("KLV")},
+				{KDAValue: big.NewInt(300), KDATokenName: []byte("OTHER_KDA")},
+			},
+			expectedHookTokens: [][]byte{[]byte("KFI"), []byte("OTHER_KDA")},
+			expectedHookValues: []int64{100, 300},
+			expectedTokens:     [][]byte{[]byte("KFI"), []byte("OTHER_KDA"), []byte("OTHER_KDA")},
+			expectedOtherKDA:   600,
+			expectedKLV:        0,
+		},
+		{
+			// an empty token name means KLV too, so it hits the same delete-in-place branch
+			name:              "with fix, empty token name is filtered without touching runtime transfers",
+			fixAuditChangesV4: true,
+			transfers: []*vmcommon.KDATransfer{
+				{KDAValue: big.NewInt(100), KDATokenName: []byte("KFI")},
+				{KDAValue: big.NewInt(200), KDATokenName: []byte{}},
+				{KDAValue: big.NewInt(300), KDATokenName: []byte("OTHER_KDA")},
+			},
+			expectedHookTokens: [][]byte{[]byte("KFI"), []byte("OTHER_KDA")},
+			expectedHookValues: []int64{100, 300},
+			expectedTokens:     [][]byte{[]byte("KFI"), []byte{}, []byte("OTHER_KDA")},
+			expectedOtherKDA:   300,
+			expectedKLV:        200,
+		},
+		{
+			name:              "without fix, empty token name is NOT filtered but other getters properly count it ",
+			fixAuditChangesV4: false,
+			transfers: []*vmcommon.KDATransfer{
+				{KDAValue: big.NewInt(100), KDATokenName: []byte("KFI")},
+				{KDAValue: big.NewInt(200), KDATokenName: []byte{}},
+				{KDAValue: big.NewInt(300), KDATokenName: []byte("OTHER_KDA")},
+			},
+			expectedHookTokens: [][]byte{[]byte("KFI"), []byte{}, []byte("OTHER_KDA")},
+			expectedHookValues: []int64{100, 200, 300},
+			expectedTokens:     [][]byte{[]byte("KFI"), []byte{}, []byte("OTHER_KDA")},
+			expectedOtherKDA:   300,
+			expectedKLV:        200,
+		},
+		{
+			name:              "with fix, all transfers filtered out returns an empty buffer",
+			fixAuditChangesV4: true,
+			transfers: []*vmcommon.KDATransfer{
+				{KDAValue: big.NewInt(100), KDATokenName: []byte("KLV")},
+				{KDAValue: big.NewInt(200), KDATokenName: []byte{}},
+				{KDAValue: big.NewInt(300), KDATokenName: []byte("KLV")},
+			},
+			expectedTokens:   [][]byte{[]byte("KLV"), []byte{}, []byte("KLV")},
+			expectedOtherKDA: 0,
+			expectedKLV:      600,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			host := newMockVMHost()
+			host.ForkControllerContext = &commonMock.ForkControllerStub{FixAuditChangesV4Value: tt.fixAuditChangesV4}
+			host.RuntimeContext.(*contextmock.RuntimeContextMock).VMInput = &vmcommon.ContractCallInput{
+				VMInput: vmcommon.VMInput{KDATransfers: tt.transfers},
+			}
+
+			callValueHandle := int32(0)
+			mockManaged := host.ManagedTypes().(*hostmock.ManagedTypesContextMock)
+
+			hooks := vmhooks.NewVMHooksImpl(host)
+
+			// call the filtering hook first - the ordering is what hides the corruption
+			hooks.ManagedGetMultiKDAWithoutKLVCallValue(callValueHandle)
+
+			require.Len(t, mockManaged.GetManagedBuffer(), len(tt.expectedHookTokens))
+			for i, expectedToken := range tt.expectedHookTokens {
+				assert.Equal(t, expectedToken, mockManaged.GetManagedBuffer()[i])
+				assert.Equal(t, tt.expectedHookValues[i], mockManaged.GetManagedBigInt()[i].Int64())
+			}
+
+			// what the rest of the execution sees afterwards
+			vmInput := host.RuntimeContext.(*contextmock.RuntimeContextMock).VMInput
+			require.Len(t, vmInput.KDATransfers, len(tt.expectedTokens))
+			actualTokens := make([][]byte, 0, len(vmInput.KDATransfers))
+			for _, transfer := range vmInput.KDATransfers {
+				actualTokens = append(actualTokens, transfer.KDATokenName)
+			}
+			assert.Equal(t, tt.expectedTokens, actualTokens)
+			assert.Equal(t, tt.expectedOtherKDA, vmInput.GetKDACallValue([]byte("OTHER_KDA")).Int64())
+			assert.Equal(t, tt.expectedKLV, vmInput.GetKDACallValue([]byte("KLV")).Int64())
+		})
+	}
+}
