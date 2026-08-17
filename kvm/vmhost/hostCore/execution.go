@@ -620,7 +620,13 @@ func (host *vmHost) ExecuteOnSameContext(input *vmcommon.ContractCallInput) erro
 
 	var err error
 
-	defer host.finishExecuteOnSameContext(err)
+	defer func() {
+		deferredErr := error(nil)
+		if host.ForkController().FixAuditChangesV4() {
+			deferredErr = err
+		}
+		host.finishExecuteOnSameContext(deferredErr)
+	}()
 
 	// Perform a value transfer to the called SC. If the execution fails, this
 	// transfer will not persist.
@@ -989,6 +995,13 @@ func (host *vmHost) execute(input *vmcommon.ContractCallInput) error {
 	err = host.callSCMethodIndirect()
 	if err != nil {
 		return err
+	}
+
+	if host.ForkController().FixAuditChangesV4() {
+		err = host.checkFinalGasAfterExit()
+		if err != nil {
+			return err
+		}
 	}
 
 	if output.ReturnCode() != vmcommon.Ok {
