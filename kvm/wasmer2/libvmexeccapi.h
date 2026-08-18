@@ -412,6 +412,18 @@ uint64_t vm_exec_instance_get_points_used(const vm_exec_instance_t *instance_ptr
 int vm_exec_instance_has_function(vm_exec_instance_t *instance_ptr, const char *func_name_ptr);
 
 /**
+ * Returns the largest maximum size declared among all of the instance's
+ * tables (imported or local, exported or not). A table with no declared
+ * maximum is reported as `u32::MAX`. Returns 0 if the instance declares no
+ * tables, or if `instance_ptr` is a null pointer.
+ *
+ * # Safety
+ *
+ * C API function, works with raw object pointers.
+ */
+uint32_t vm_exec_instance_max_declared_table_size(vm_exec_instance_t *instance_ptr);
+
+/**
  * Gets a pointer to the beginning of the contiguous memory data
  * bytes.
  *

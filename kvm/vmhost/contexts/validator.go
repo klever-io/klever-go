@@ -2,6 +2,7 @@ package contexts
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/klever-io/klever-go/kvm/executor"
@@ -42,6 +43,32 @@ func VerifyNoStartSection(contract []byte) error {
 func (validator *wasmValidator) verifyMemoryDeclaration(instance executor.Instance) error {
 	if !instance.HasMemory() {
 		return vmhost.ErrMemoryDeclarationMissing
+	}
+
+	return nil
+}
+
+// verifyTableDeclaration rejects contracts that declare a WASM table with no
+// maximum (reported by Wasmer as u32::MAX), or with a maximum exceeding
+// maxDeclaredTableSize (KLC-2526 / KLR-19). This is a redundant safety net:
+// the primary enforcement runs earlier, during instantiation itself (see
+// validate_tables in klever-vm-executor-rs), since a check that only runs
+// after instantiation is too late to prevent the allocation it exists to
+// stop. Checks the largest single table's maximum, not the sum across
+// tables, but Wasmer itself caps a module to 100 tables, bounding the
+// aggregate regardless.
+//
+// "No declared maximum" is checked explicitly, ahead of and independent of
+// the maxDeclaredTableSize comparison: a declared maximum and an
+// operator-configured cap occupy the same uint32 space, so a cap of exactly
+// math.MaxUint32 (a plausible way to write "effectively unlimited") would
+// otherwise make instance.MaxDeclaredTableSize() > maxDeclaredTableSize a
+// silent no-op for genuinely unbounded tables, defeating the point of the
+// check for the one case it most needs to catch.
+func (validator *wasmValidator) verifyTableDeclaration(instance executor.Instance, maxDeclaredTableSize uint32) error {
+	declaredMax := instance.MaxDeclaredTableSize()
+	if declaredMax == math.MaxUint32 || declaredMax > maxDeclaredTableSize {
+		return vmhost.ErrDeclaredTableSizeExceedsMaximum
 	}
 
 	return nil

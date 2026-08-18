@@ -7,14 +7,26 @@ import (
 )
 
 // CompilationOptions contains configurations for instantiating an executor instance.
+//
+// This struct crosses the cgo boundary as a raw pointer cast (see
+// wasmer2Executor.go), not through per-field marshaling, so its field order
+// must exactly match the Rust CompilationOptions struct (#[repr(C)], in
+// vm-executor/src/instance.rs) - do not reorder without updating both sides.
 type CompilationOptions struct {
 	GasLimit           uint64
 	UnmeteredLocals    uint64
 	MaxMemoryGrow      uint64
 	MaxMemoryGrowDelta uint64
-	OpcodeTrace        bool
-	Metering           bool
-	RuntimeBreakpoints bool
+	// MaxDeclaredTableSize rejects the module if any declared WASM table's
+	// maximum exceeds it (see KLC-2526 / KLR-19); math.MaxUint64 disables the
+	// check entirely. Unlike this struct's other numeric fields, the Go zero
+	// value (0) is not a harmless default here - it rejects any table
+	// declaration at all, not merely fails to cap one. Every construction
+	// site must set this field explicitly.
+	MaxDeclaredTableSize uint64
+	OpcodeTrace          bool
+	Metering             bool
+	RuntimeBreakpoints   bool
 }
 
 // Executor defines the functionality needed to create any executor instance.

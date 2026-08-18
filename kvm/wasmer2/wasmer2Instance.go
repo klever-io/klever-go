@@ -267,6 +267,25 @@ func (instance *Wasmer2Instance) HasMemory() bool {
 	return true
 }
 
+// MaxDeclaredTableSize returns the largest maximum size declared among all of
+// the instance's WASM tables (imported or local, exported or not), as parsed
+// by Wasmer itself. Tables with no declared maximum are reported as
+// math.MaxUint32. Returns 0 if the instance declares no tables - the same
+// value returned below for a cleaned/nil instance, since 0 is the safe
+// choice for a caller unable to distinguish "no tables" from "couldn't
+// read it": the real enforcement for oversized tables (KLC-2526) runs
+// earlier, during instantiation, so an instance reaching this call has
+// already passed that check regardless of what this returns.
+func (instance *Wasmer2Instance) MaxDeclaredTableSize() uint32 {
+	instance.mutex.Lock()
+	defer instance.mutex.Unlock()
+	if instance.alreadyClean || instance.cgoInstance == nil {
+		instance.logCleanedAccess("MaxDeclaredTableSize")
+		return 0
+	}
+	return uint32(cWasmerInstanceMaxDeclaredTableSize(instance.cgoInstance))
+}
+
 // MemLoad returns the contents from the given offset of the WASM memory.
 func (instance *Wasmer2Instance) MemLoad(memPtr executor.MemPtr, length executor.MemLength) ([]byte, error) {
 	instance.mutex.Lock()

@@ -97,6 +97,10 @@ var ErrContractCodeNotDecodable = fmt.Errorf("%w (not a decodable wasm module)",
 // ErrMemoryDeclarationMissing signals that a memory declaration is missing
 var ErrMemoryDeclarationMissing = fmt.Errorf("%w (missing memory declaration)", ErrContractInvalid)
 
+// ErrDeclaredTableSizeExceedsMaximum signals that a table declared by the
+// contract has no maximum, or a maximum exceeding the protocol cap
+var ErrDeclaredTableSizeExceedsMaximum = fmt.Errorf("%w (declared table size exceeds maximum)", ErrContractInvalid)
+
 // ErrMaxInstancesReached signals that the max number of Wasmer instances has been reached.
 var ErrMaxInstancesReached = fmt.Errorf("%w (max instances reached)", ErrExecutionFailed)
 

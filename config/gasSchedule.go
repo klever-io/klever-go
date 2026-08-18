@@ -682,6 +682,7 @@ type WASMOpcodeCost struct {
 	LocalsUnmetered           uint64 `yaml:"LocalsUnmetered"`
 	MaxMemoryGrowDelta        uint64 `yaml:"MaxMemoryGrowDelta"`
 	MaxMemoryGrow             uint64 `yaml:"MaxMemoryGrow"`
+	MaxDeclaredTableSize      uint64 `yaml:"MaxDeclaredTableSize"`
 	Catch                     uint32 `yaml:"Catch"`
 	CatchAll                  uint32 `yaml:"CatchAll"`
 	Delegate                  uint32 `yaml:"Delegate"`

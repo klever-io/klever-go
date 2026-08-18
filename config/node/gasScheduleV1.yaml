@@ -681,6 +681,7 @@ WASMOpcodeCost:
   LocalsUnmetered: 100
   MaxMemoryGrowDelta: 1
   MaxMemoryGrow: 10
+  MaxDeclaredTableSize: 1000
   Catch: 1
   CatchAll: 1
   Delegate: 1

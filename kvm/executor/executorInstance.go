@@ -14,6 +14,7 @@ type Instance interface {
 	GetFunctionNames() []string
 	ValidateFunctionArities() error
 	HasMemory() bool
+	MaxDeclaredTableSize() uint32
 	MemLoad(memPtr MemPtr, length MemLength) ([]byte, error)
 	MemStore(memPtr MemPtr, data []byte) error
 	MemLength() uint32

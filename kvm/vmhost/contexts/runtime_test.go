@@ -2,14 +2,18 @@ package contexts
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"testing"
 	"time"
 
 	commonMock "github.com/klever-io/klever-go/common/mock"
+	blockchainConfig "github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/fork"
 	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
 	"github.com/klever-io/klever-go/crypto/hashing/blake2b"
 	"github.com/klever-io/klever-go/kvm/config"
@@ -1095,7 +1099,12 @@ func moduleWithTableFunction(body ...byte) []byte {
 		0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00,
 		0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
 		0x03, 0x02, 0x01, 0x00,
-		0x04, 0x04, 0x01, 0x70, 0x00, 0x01,
+		// Table: funcref, limits flag 0x01 (has a maximum), min 1, max 1.
+		// The maximum is required: a table declared without one reports
+		// u32::MAX and is rejected by the KLC-2526 declared-size cap, so a
+		// flag-0x00 table here would fail instantiation before these tests
+		// could observe the warm-cache behaviour they are about.
+		0x04, 0x05, 0x01, 0x70, 0x01, 0x01, 0x01,
 		0x05, 0x03, 0x01, 0x00, 0x01,
 		0x07, 0x11, 0x02, 0x06, 'm', 'e', 'm', 'o', 'r', 'y', 0x02, 0x00,
 	}
@@ -1219,4 +1228,160 @@ func TestRuntimeContext_StartWasmerInstanceRefusesWarmInstanceForTableMutatingMo
 
 	require.NotEqual(t, Warm, runtimeCtx.iTracker.cacheLevel)
 	require.NotEqual(t, seeded.ID(), runtimeCtx.iTracker.Instance().ID())
+}
+
+// oversizedTableWasmHex declares a funcref table with max=200,000,000, well
+// above any configured cap, and exports grow_one so it can be executed.
+const oversizedTableWasmHex = "0061736d010000000104016000000307060000000000000408017001008084af5f0503010001077b07066d656d6f727902000867726f775f6f6e6500000d67726f775f74686f7573616e6400011567726f775f68756e647265645f74686f7573616e6400020c67726f775f6d696c6c696f6e00031167726f775f666976655f6d696c6c696f6e0004186173736572745f73697a655f666976655f6d696c6c696f6e00050a50060a00d0704101fc0f001a0b0b00d07041e807fc0f001a0b0c00d07041a08d06fc0f001a0b0c00d07041c0843dfc0f001a0b0d00d07041c096b102fc0f001a0b0f00fc100041c096b102470440000b0b"
+
+// oversizedTableNonMutatingWasmHex declares the same over-cap table maximum as
+// oversizedTableWasmHex, but its code section contains no table-mutating
+// opcode. That distinction is load-bearing: useWarmInstanceIfExists refuses a
+// warm instance outright for any module wasmbytes.MutatesTables reports true
+// for, which short-circuits before verifyTableDeclarationIfActive is reached.
+// A fixture using table.grow therefore cannot exercise the warm-rejection
+// branch at all - the test would still pass, but because both paths went cold
+// rather than because the branch behaves correctly.
+const oversizedTableNonMutatingWasmHex = "0061736d0100000001040160000003030200000408017001008084af5f0503010001071803066d656d6f7279020004696e69740000046d61696e00010a070202000b02000b000b046e616d65050401000174"
+
+// TestRuntimeContext_VerifyContractCode_RedundantTableCheck exercises the
+// verifyTableDeclaration branch of runCodeValidations directly, at the
+// wasmValidator level rather than through a full deploy. This branch is the
+// Go-side redundant safety net (see validator.go): the primary enforcement
+// (KLC-2526) now runs earlier, in klever-vm-executor-rs, before Instance::new
+// ever allocates a declared table. A module whose table exceeds the cap can
+// no longer be instantiated at all, so this branch can no longer be reached
+// by deploying a real oversized-table contract - the instantiation itself
+// already fails first. Exercising it here, against a mock instance that
+// never goes through real instantiation, is the only way left to cover it.
+func TestRuntimeContext_VerifyContractCode_RedundantTableCheck(t *testing.T) {
+	epochNotifier := &commonMock.EpochNotifierStub{}
+	forkController, err := fork.NewForkController(blockchainConfig.EnableEpochs{
+		FixAuditChangesV4: 0, // active from genesis
+	}, epochNotifier)
+	require.NoError(t, err)
+
+	host := InitializeVMAndWasmer()
+	host.ForkControllerContext = forkController
+
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+
+	runtimeCtx.iTracker.instance = &contextmock.InstanceMock{
+		MaxDeclaredTableSizeMock: math.MaxUint32,
+	}
+	runtimeCtx.verifyCode = true
+
+	err = runtimeCtx.VerifyContractCode()
+	require.ErrorIs(t, err, vmhost.ErrDeclaredTableSizeExceedsMaximum)
+}
+
+// TestRuntimeContext_WarmAndColdRejectionsAreIdentical guards the consensus
+// property that a rejected oversized table produces the *same* error whether
+// the node held the instance warm or had to instantiate it.
+//
+// This asserts at the StartWasmerInstance boundary on purpose. The top-level
+// execution path substitutes vmhost.ErrContractInvalid for whatever
+// StartWasmerInstance returned, which hides any difference; a nested call does
+// not, and carries the raw error into ReturnMessage and the internalVMErrors
+// log. Since warm-cache occupancy is node-local, a difference here would mean
+// two honest nodes reporting different messages for the same transaction.
+func TestRuntimeContext_WarmAndColdRejectionsAreIdentical(t *testing.T) {
+	// max=200,000,000 - far above any configured cap - and deliberately free of
+	// table-mutating opcodes so the warm path is actually reached (see the
+	// constant's doc comment).
+	oversized, err := hex.DecodeString(oversizedTableNonMutatingWasmHex)
+	require.NoError(t, err)
+	require.False(t, wasmbytes.MutatesTables(oversized),
+		"fixture must not mutate tables, or the mutatesTables guard short-circuits the warm path this test exists to cover")
+
+	newCtx := func(t *testing.T) (*runtimeContext, interface{ EpochConfirmed(uint32) }) {
+		t.Helper()
+		epochNotifier := &commonMock.EpochNotifierStub{}
+		fc, err := fork.NewForkController(blockchainConfig.EnableEpochs{
+			FixAuditChangesV4: 1, // inactive at epoch 0, active from epoch 1
+		}, epochNotifier)
+		require.NoError(t, err)
+
+		host := InitializeVMAndWasmer()
+		host.ForkControllerContext = fc
+		ctx := makeDefaultRuntimeContext(t, host)
+		ctx.SetMaxInstanceStackSize(2)
+		return ctx, fc
+	}
+
+	// Warm path: instantiate pre-fork so the instance is cached, then retry
+	// with the fork active so the warm branch runs.
+	warmCtx, warmFork := newCtx(t)
+	defer warmCtx.ClearWarmInstanceCache()
+	warmFork.EpochConfirmed(0)
+	require.NoError(t, warmCtx.StartWasmerInstance(oversized, 100_000_000, false),
+		"pre-fork instantiation should succeed and populate the warm cache")
+	warmFork.EpochConfirmed(1)
+	warmErr := warmCtx.StartWasmerInstance(oversized, 100_000_000, false)
+
+	// Cold path: a context that never saw the contract, with the fork active.
+	coldCtx, coldFork := newCtx(t)
+	defer coldCtx.ClearWarmInstanceCache()
+	coldFork.EpochConfirmed(1)
+	coldErr := coldCtx.StartWasmerInstance(oversized, 100_000_000, false)
+
+	require.Error(t, warmErr, "warm path must reject once the fork is active")
+	require.Error(t, coldErr, "cold path must reject once the fork is active")
+	require.Equal(t, coldErr.Error(), warmErr.Error(),
+		"warm and cold rejections must be indistinguishable; differing here leaks node-local cache state into consensus")
+	t.Logf("both paths reject with: %v", warmErr)
+}
+
+// TestRuntimeContext_VerifyContractCode_TableCheckSkippedPreFork is the
+// pre-fork counterpart to TestRuntimeContext_VerifyContractCode_RedundantTableCheck.
+// The same instance that is rejected once FixAuditChangesV4 is active must be
+// accepted before it, or nodes on either side of the fork would disagree on
+// the same transaction. It also covers VerifyContractCode's success path,
+// which no other test in this file reaches with verifyCode set.
+func TestRuntimeContext_VerifyContractCode_TableCheckSkippedPreFork(t *testing.T) {
+	epochNotifier := &commonMock.EpochNotifierStub{}
+	forkController, err := fork.NewForkController(blockchainConfig.EnableEpochs{
+		FixAuditChangesV4: 10, // not reached at epoch 0
+	}, epochNotifier)
+	require.NoError(t, err)
+
+	host := InitializeVMAndWasmer()
+	host.ForkControllerContext = forkController
+
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+
+	runtimeCtx.iTracker.instance = &contextmock.InstanceMock{
+		MaxDeclaredTableSizeMock: math.MaxUint32,
+	}
+	runtimeCtx.verifyCode = true
+
+	require.NoError(t, runtimeCtx.VerifyContractCode(),
+		"an unbounded table must still pass before the fork activates")
+	require.False(t, runtimeCtx.verifyCode, "VerifyContractCode must clear the flag")
+}
+
+// TestRuntimeContext_VerifyContractCode_StopsAtFirstFailedValidation checks
+// that runCodeValidations returns the first validation error rather than
+// continuing. The protected-function check is used because it is the last one
+// before the table check, so a failure there also proves the table check is
+// not reached once an earlier validation has already failed.
+func TestRuntimeContext_VerifyContractCode_StopsAtFirstFailedValidation(t *testing.T) {
+	host := InitializeVMAndWasmer()
+	runtimeCtx := makeDefaultRuntimeContext(t, host)
+	defer runtimeCtx.ClearWarmInstanceCache()
+
+	world := worldmock.NewMockWorld()
+	imb := contextmock.NewExecutorMock(world)
+	instance := imb.CreateAndStoreInstanceMock(t, host, []byte{}, []byte{}, []byte{}, []byte{}, 0, false)
+	instance.AddMockMethod("transferValueOnly", func() *contextmock.InstanceMock {
+		return contextmock.GetMockInstance(instance.Host)
+	})
+
+	runtimeCtx.iTracker.instance = instance
+	runtimeCtx.verifyCode = true
+
+	require.Error(t, runtimeCtx.VerifyContractCode(),
+		"declaring a protected function must fail validation")
 }

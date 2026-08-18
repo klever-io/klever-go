@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/klever-io/klever-go/kvm/executor"
@@ -74,6 +75,46 @@ func TestDecode_ZeroGasCostError(t *testing.T) {
 
 	err = checkForZeroUint64Fields(*wasmCosts)
 	assert.Error(t, err)
+}
+
+func TestDecode_Uint32OverflowError(t *testing.T) {
+	gasMap := FillGasMapWASMOpcodeValues(1)
+	assert.Nil(t, checkForUint32Overflow(gasMap))
+
+	// Every WASMOpcodeCost field is uint32, but the gas schedule carries
+	// uint64 values, and mapstructure truncates on overflow instead of
+	// erroring. Without the range check a limit field such as
+	// MaxDeclaredTableSize would silently become 1 and cap every contract
+	// table at a single element.
+	gasMap["MaxDeclaredTableSize"] = uint64(math.MaxUint32) + 2
+	assert.Error(t, checkForUint32Overflow(gasMap))
+
+	// Demonstrates the truncation this guard exists to prevent.
+	wasmCosts := &executor.WASMOpcodeCost{}
+	err := mapstructure.Decode(gasMap, wasmCosts)
+	assert.Nil(t, err)
+	assert.Equal(t, uint32(1), wasmCosts.MaxDeclaredTableSize)
+
+	// Exactly MaxUint32 still fits and must remain accepted.
+	gasMap["MaxDeclaredTableSize"] = uint64(math.MaxUint32)
+	assert.Nil(t, checkForUint32Overflow(gasMap))
+}
+
+// TestCreateGasConfig_RejectsUint32Overflow covers the overflow guard through
+// CreateGasConfig rather than by calling checkForUint32Overflow directly, so
+// the wiring is exercised too: a guard that is correct but never called from
+// the decode path would leave the truncation in place.
+func TestCreateGasConfig_RejectsUint32Overflow(t *testing.T) {
+	gasScheduleMap := MakeGasMap(1)
+	gasCost, err := CreateGasConfig(gasScheduleMap)
+	assert.Nil(t, err)
+	assert.NotNil(t, gasCost)
+
+	gasScheduleMap["WASMOpcodeCost"]["MaxDeclaredTableSize"] = uint64(math.MaxUint32) + 2
+
+	gasCost, err = CreateGasConfig(gasScheduleMap)
+	assert.Error(t, err)
+	assert.Nil(t, gasCost, "an overflowing entry must abort the whole decode, not yield a truncated config")
 }
 
 func Test_getSignedCoefficient(t *testing.T) {

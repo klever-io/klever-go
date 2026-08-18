@@ -158,6 +158,12 @@ func cWasmerInstanceHasFunction(
 	))
 }
 
+func cWasmerInstanceMaxDeclaredTableSize(instance *cWasmerInstanceT) cUint32T {
+	return (cUint32T)(C.vm_exec_instance_max_declared_table_size(
+		(*C.vm_exec_instance_t)(instance),
+	))
+}
+
 func cWasmerInstanceExportedFunctionNamesLength(instance *cWasmerInstanceT) cInt {
 	return (cInt)(C.vm_exported_function_names_length(
 		(*C.vm_exec_instance_t)(instance),

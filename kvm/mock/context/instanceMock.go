@@ -30,6 +30,9 @@ type InstanceMock struct {
 	T               testing.TB
 	Address         []byte
 	AlreadyClean    bool
+
+	// MaxDeclaredTableSizeMock is returned by MaxDeclaredTableSize.
+	MaxDeclaredTableSizeMock uint32
 }
 
 // NewInstanceMock creates a new InstanceMock
@@ -143,6 +146,11 @@ func (instance *InstanceMock) ValidateFunctionArities() error {
 // HasMemory mocked method
 func (instance *InstanceMock) HasMemory() bool {
 	return true
+}
+
+// MaxDeclaredTableSize mocked method
+func (instance *InstanceMock) MaxDeclaredTableSize() uint32 {
+	return instance.MaxDeclaredTableSizeMock
 }
 
 // MemLoad returns the contents from the given offset of the WASM memory.

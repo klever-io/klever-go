@@ -490,6 +490,7 @@ LocalsUnmetered
 Loop
 MaxMemoryGrow
 MaxMemoryGrowDelta
+MaxDeclaredTableSize
 MemoryAtomicNotify
 MemoryAtomicWait32
 MemoryAtomicWait64

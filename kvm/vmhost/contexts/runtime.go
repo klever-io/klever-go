@@ -7,6 +7,7 @@ import (
 	builtinMath "math"
 
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/kvm/config"
 	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/wasmbytes"
@@ -192,13 +193,14 @@ func (context *runtimeContext) makeInstanceFromCompiledCode(gasLimit uint64, new
 
 	gasSchedule := context.host.Metering().GasSchedule()
 	options := executor.CompilationOptions{
-		GasLimit:           gasLimit,
-		UnmeteredLocals:    uint64(gasSchedule.WASMOpcodeCost.LocalsUnmetered),
-		MaxMemoryGrow:      uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrow),
-		MaxMemoryGrowDelta: uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrowDelta),
-		OpcodeTrace:        false,
-		Metering:           true,
-		RuntimeBreakpoints: true,
+		GasLimit:             gasLimit,
+		UnmeteredLocals:      uint64(gasSchedule.WASMOpcodeCost.LocalsUnmetered),
+		MaxMemoryGrow:        uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrow),
+		MaxMemoryGrowDelta:   uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrowDelta),
+		MaxDeclaredTableSize: context.effectiveMaxDeclaredTableSize(gasSchedule),
+		OpcodeTrace:          false,
+		Metering:             true,
+		RuntimeBreakpoints:   true,
 	}
 	newInstance, err := context.vmExecutor.NewInstanceFromCompiledCodeWithOptions(compiledCode, options)
 	if err != nil {
@@ -221,16 +223,54 @@ func (context *runtimeContext) makeInstanceFromCompiledCode(gasLimit uint64, new
 	return true, nil
 }
 
+// isTableCheckActive reports whether the KLC-2526 declared-table-size cap is
+// enforced at the current epoch. A nil ForkController (some lightweight test
+// hosts never wire one) is treated as "not yet active" rather than panicking,
+// so every caller of the table check agrees on the same precondition.
+func (context *runtimeContext) isTableCheckActive() bool {
+	forkController := context.host.ForkController()
+	return !check.IfNil(forkController) && forkController.FixAuditChangesV4()
+}
+
+// effectiveMaxDeclaredTableSize returns the table-maximum cap to pass to the
+// executor for this instantiation. The executor has no fork-epoch awareness
+// of its own (see KLC-2526 / KLR-19): it always enforces whatever value it is
+// given, on every instantiation, which is what makes it safe to call
+// unconditionally without risking a consensus split during rollout - nodes
+// on the old binary never see this parameter at all, and nodes on the new
+// binary only start passing the real cap once FixAuditChangesV4 is reached
+// network-wide. Before that, math.MaxUint64 disables the check entirely.
+func (context *runtimeContext) effectiveMaxDeclaredTableSize(gasSchedule *config.GasCost) uint64 {
+	if !context.isTableCheckActive() {
+		return builtinMath.MaxUint64
+	}
+	return uint64(gasSchedule.WASMOpcodeCost.MaxDeclaredTableSize)
+}
+
+// verifyTableDeclarationIfActive runs the declared-table-size check against the
+// currently active instance, when the fork gate is active. Callable on any
+// instance the runtime is about to execute, however it was obtained.
+func (context *runtimeContext) verifyTableDeclarationIfActive() error {
+	if !context.isTableCheckActive() {
+		return nil
+	}
+
+	gasSchedule := context.host.Metering().GasSchedule()
+	maxDeclaredTableSize := uint32(gasSchedule.WASMOpcodeCost.MaxDeclaredTableSize)
+	return context.validator.verifyTableDeclaration(context.iTracker.Instance(), maxDeclaredTableSize)
+}
+
 func (context *runtimeContext) makeInstanceFromContractByteCode(contract []byte, gasLimit uint64, newCode bool) error {
 	gasSchedule := context.host.Metering().GasSchedule()
 	options := executor.CompilationOptions{
-		GasLimit:           gasLimit,
-		UnmeteredLocals:    uint64(gasSchedule.WASMOpcodeCost.LocalsUnmetered),
-		MaxMemoryGrow:      uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrow),
-		MaxMemoryGrowDelta: uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrowDelta),
-		OpcodeTrace:        false,
-		Metering:           true,
-		RuntimeBreakpoints: true,
+		GasLimit:             gasLimit,
+		UnmeteredLocals:      uint64(gasSchedule.WASMOpcodeCost.LocalsUnmetered),
+		MaxMemoryGrow:        uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrow),
+		MaxMemoryGrowDelta:   uint64(gasSchedule.WASMOpcodeCost.MaxMemoryGrowDelta),
+		MaxDeclaredTableSize: context.effectiveMaxDeclaredTableSize(gasSchedule),
+		OpcodeTrace:          false,
+		Metering:             true,
+		RuntimeBreakpoints:   true,
 	}
 	newInstance, err := context.vmExecutor.NewInstanceWithOptions(contract, options)
 	if err != nil {
@@ -295,6 +335,38 @@ func (context *runtimeContext) useWarmInstanceIfExists(gasLimit uint64, newCode 
 		return false, err
 	}
 	if !ok {
+		return false, nil
+	}
+
+	// KLC-2526: a warm instance reaches execution without passing either
+	// enforcement layer. The executor only validates declared tables when it
+	// actually compiles or instantiates a module, and VerifyContractCode is
+	// disabled just below by clearing verifyCode. Re-checking here matters for
+	// consensus, not just for the missed rejection: warm-cache occupancy is
+	// node-local state, so without this a contract over the cap keeps
+	// executing on nodes that happen to hold it warm while nodes that must
+	// reinstantiate reject it, and the two disagree on the same transaction.
+	err = context.verifyTableDeclarationIfActive()
+	if err != nil {
+		// Evict, then fall through rather than returning the error.
+		//
+		// ForceCleanInstance(false) removes the entry from the warm cache (the
+		// instance is not on the stack - checked above), so the caller
+		// continues to the instantiation path, which rejects the same module
+		// and produces the same error on every node.
+		//
+		// Returning err here instead would reintroduce the divergence this
+		// check exists to remove, one level down: a warm hit would surface
+		// ErrDeclaredTableSizeExceedsMaximum while a warm miss falls through to
+		// NewInstanceWithOptions, whose failures all map to
+		// ErrFailedInstantiation. Nested calls are not normalised the way the
+		// top-level path is (execution.go substitutes ErrContractInvalid), and
+		// the message set by FailExecution survives into ReturnMessage and the
+		// internalVMErrors log. Two honest nodes would then report different
+		// messages for the same transaction purely because of node-local
+		// warm-cache occupancy.
+		context.iTracker.ForceCleanInstance(false)
+		logRuntime.Trace("warm instance rejected, falling through to instantiation", "error", err)
 		return false, nil
 	}
 
@@ -648,19 +720,7 @@ func (context *runtimeContext) VerifyContractCode() error {
 
 	context.verifyCode = false
 
-	err := context.validator.verifyMemoryDeclaration(context.iTracker.Instance())
-	if err != nil {
-		logRuntime.Trace(verifyContractCodeTrace, "error", err)
-		return err
-	}
-
-	err = context.validator.verifyFunctions(context.iTracker.Instance())
-	if err != nil {
-		logRuntime.Trace(verifyContractCodeTrace, "error", err)
-		return err
-	}
-
-	err = context.validator.verifyProtectedFunctions(context.iTracker.Instance())
+	err := context.runCodeValidations()
 	if err != nil {
 		logRuntime.Trace(verifyContractCodeTrace, "error", err)
 		return err
@@ -669,6 +729,29 @@ func (context *runtimeContext) VerifyContractCode() error {
 	logRuntime.Trace("verified contract code")
 
 	return nil
+}
+
+// runCodeValidations runs each WASM bytecode validation in turn against the
+// current instance, stopping and returning the first error encountered.
+func (context *runtimeContext) runCodeValidations() error {
+	instance := context.iTracker.Instance()
+
+	err := context.validator.verifyMemoryDeclaration(instance)
+	if err != nil {
+		return err
+	}
+
+	err = context.validator.verifyFunctions(instance)
+	if err != nil {
+		return err
+	}
+
+	err = context.validator.verifyProtectedFunctions(instance)
+	if err != nil {
+		return err
+	}
+
+	return context.verifyTableDeclarationIfActive()
 }
 
 // BaseOpsErrorShouldFailExecution returns true

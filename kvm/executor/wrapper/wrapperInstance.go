@@ -100,6 +100,11 @@ func (inst *WrapperInstance) HasMemory() bool {
 	return inst.wrappedInstance.HasMemory()
 }
 
+// MaxDeclaredTableSize wraps the call to the underlying instance.
+func (inst *WrapperInstance) MaxDeclaredTableSize() uint32 {
+	return inst.wrappedInstance.MaxDeclaredTableSize()
+}
+
 // MemLoad returns the contents from the given offset of the WASM memory.
 func (inst *WrapperInstance) MemLoad(memPtr executor.MemPtr, length executor.MemLength) ([]byte, error) {
 	return inst.wrappedInstance.MemLoad(memPtr, length)

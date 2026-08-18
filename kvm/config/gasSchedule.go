@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -104,6 +105,11 @@ func CreateGasConfig(gasMap GasScheduleMap) (*GasCost, error) {
 		return nil, err
 	}
 
+	err = checkForUint32Overflow(gasMap["WASMOpcodeCost"])
+	if err != nil {
+		return nil, err
+	}
+
 	wasmOps := &executor.WASMOpcodeCost{}
 	err = mapstructure.Decode(gasMap["WASMOpcodeCost"], wasmOps)
 	if err != nil {
@@ -184,6 +190,24 @@ func getSignedCoefficient(coefficient uint64, sign uint64) int64 {
 	}
 
 	return int64(coefficient) // #nosec G115
+}
+
+// checkForUint32Overflow rejects gas schedule entries that do not fit in the
+// uint32 fields of WASMOpcodeCost (every field of that struct is uint32).
+// mapstructure truncates silently rather than erroring, so without this a
+// value of 2^32+1 decodes to 1 - which for a limit field such as
+// MaxDeclaredTableSize would cap every contract table at a single element
+// instead of failing loudly at startup. 2^32 itself decodes to 0 and is
+// already caught by checkForZeroUint64Fields, but nothing above it was.
+func checkForUint32Overflow(gasMap map[string]uint64) error {
+	for name, value := range gasMap {
+		if value > math.MaxUint32 {
+			return fmt.Errorf("gas cost for operation %s is set to %d, which exceeds the maximum allowed value of %d",
+				name, value, uint64(math.MaxUint32))
+		}
+	}
+
+	return nil
 }
 
 func checkForZeroUint64Fields(arg interface{}) error {
@@ -502,6 +526,14 @@ func FillGasMapManagedMapAPICosts(value uint64) map[string]uint64 {
 }
 
 // FillGasMapWASMOpcodeValues dills the wasm opcodes costs
+//
+// A few entries here are not opcode costs but limits (e.g.
+// MaxDeclaredTableSize, MaxMemoryGrow, MaxMemoryGrowDelta) that ride along in
+// this map because they live in the same WASMOpcodeCost struct. Callers that
+// go through FillGasMap get these corrected afterwards by
+// customFillGasMapWASMOpcodeCosts; a caller using this function's result
+// directly does not, and will see whatever N was passed in as the actual
+// configured limit.
 func FillGasMapWASMOpcodeValues(value uint64) map[string]uint64 {
 	gasMap := make(map[string]uint64)
 
@@ -997,6 +1029,7 @@ func FillGasMapWASMOpcodeValues(value uint64) map[string]uint64 {
 	gasMap["Loop"] = value
 	gasMap["MaxMemoryGrow"] = value
 	gasMap["MaxMemoryGrowDelta"] = value
+	gasMap["MaxDeclaredTableSize"] = value
 	gasMap["MemoryAtomicNotify"] = value
 	gasMap["MemoryAtomicWait32"] = value
 	gasMap["MemoryAtomicWait64"] = value
@@ -1089,4 +1122,5 @@ func customFillGasMapWASMOpcodeCosts(gasMap map[string]uint64) {
 	gasMap["LocalsUnmetered"] = 100
 	gasMap["MaxMemoryGrow"] = 8
 	gasMap["MaxMemoryGrowDelta"] = 10
+	gasMap["MaxDeclaredTableSize"] = 1000
 }

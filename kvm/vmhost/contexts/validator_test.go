@@ -1,12 +1,14 @@
 package contexts
 
 import (
+	"math"
 	"strings"
 	"testing"
 
 	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/require"
 )
@@ -66,4 +68,24 @@ func TestFunctionsProtected(t *testing.T) {
 
 	err := validator.verifyProtectedFunctions(instance)
 	require.NotNil(t, err)
+}
+
+func TestTableDeclaration_verifyTableDeclaration(t *testing.T) {
+	validator := newWASMValidator(testImportNames(), builtInFunctions.NewBuiltInFunctionContainer())
+	instance := contextmock.NewInstanceMock([]byte{})
+
+	instance.MaxDeclaredTableSizeMock = 500
+	require.NoError(t, validator.verifyTableDeclaration(instance, 500))
+	require.NoError(t, validator.verifyTableDeclaration(instance, 1000))
+
+	instance.MaxDeclaredTableSizeMock = 501
+	require.ErrorIs(t, validator.verifyTableDeclaration(instance, 500), vmhost.ErrDeclaredTableSizeExceedsMaximum)
+
+	instance.MaxDeclaredTableSizeMock = math.MaxUint32 // no declared maximum, as reported by Wasmer
+	require.ErrorIs(t, validator.verifyTableDeclaration(instance, 10000), vmhost.ErrDeclaredTableSizeExceedsMaximum)
+
+	// A configured cap of exactly math.MaxUint32 collides numerically with the
+	// "no declared maximum" sentinel; a plain > comparison would have made this
+	// specific cap value a silent no-op for the case it most needs to catch.
+	require.ErrorIs(t, validator.verifyTableDeclaration(instance, math.MaxUint32), vmhost.ErrDeclaredTableSizeExceedsMaximum)
 }
