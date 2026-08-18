@@ -382,7 +382,7 @@ func TestValidatorsProvider_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				_ = vp.GetLatestValidators()
+				_, _ = vp.GetLatestValidators()
 			}
 		}()
 	}
@@ -395,7 +395,8 @@ func TestValidatorsProvider_ConcurrentAccess(t *testing.T) {
 	wg.Wait()
 	assert.Nil(t, vp.Close())
 
-	validators := vp.GetLatestValidators()
+	validators, err := vp.GetLatestValidators()
+	require.NoError(t, err)
 	assert.Contains(t, validators, hex.EncodeToString([]byte("validator1")))
 }
 
