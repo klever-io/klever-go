@@ -3,7 +3,6 @@ package hostCore
 import (
 	"context"
 	"testing"
-	"time"
 
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	"github.com/klever-io/klever-go/kvm/vmhost"
@@ -37,7 +36,10 @@ func TestVmHost_WaitExecutionWithDeterministicCompletion_DoneOnly(t *testing.T) 
 func TestVmHost_WaitExecutionWithDeterministicCompletion_TimeoutWhileExecutionInFlight(t *testing.T) {
 	t.Parallel()
 
-	runtimeCtx := &contextmock.RuntimeContextMock{}
+	timeoutStarted := make(chan struct{})
+	runtimeCtx := &contextmock.RuntimeContextMock{
+		FailExecutionCalled: func(error) { close(timeoutStarted) },
+	}
 	host := &vmHost{runtimeContext: runtimeCtx}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -46,7 +48,7 @@ func TestVmHost_WaitExecutionWithDeterministicCompletion_TimeoutWhileExecutionIn
 	hookCtx, cancelHook := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		time.Sleep(20 * time.Millisecond)
+		<-timeoutStarted
 		close(done)
 	}()
 
