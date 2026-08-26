@@ -3,13 +3,14 @@ package hostCore
 import (
 	"context"
 	"testing"
+	"time"
 
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/stretchr/testify/require"
 )
 
-func TestVmHost_WaitExecutionWithDeterministicTimeout_DoneOnly(t *testing.T) {
+func TestVmHost_WaitExecutionWithDeterministicCompletion_DoneOnly(t *testing.T) {
 	t.Parallel()
 
 	runtimeCtx := &contextmock.RuntimeContextMock{}
@@ -22,7 +23,7 @@ func TestVmHost_WaitExecutionWithDeterministicTimeout_DoneOnly(t *testing.T) {
 	done := make(chan struct{})
 	close(done)
 
-	err := host.waitExecutionWithDeterministicTimeout(ctx, cancelHook, done)
+	err := host.waitExecutionWithDeterministicCompletion(ctx, cancelHook, done)
 	require.NoError(t, err)
 	require.Nil(t, runtimeCtx.FailExecutionErr)
 
@@ -33,7 +34,7 @@ func TestVmHost_WaitExecutionWithDeterministicTimeout_DoneOnly(t *testing.T) {
 	}
 }
 
-func TestVmHost_WaitExecutionWithDeterministicTimeout_TimeoutOnly(t *testing.T) {
+func TestVmHost_WaitExecutionWithDeterministicCompletion_TimeoutWhileExecutionInFlight(t *testing.T) {
 	t.Parallel()
 
 	runtimeCtx := &contextmock.RuntimeContextMock{}
@@ -44,21 +45,29 @@ func TestVmHost_WaitExecutionWithDeterministicTimeout_TimeoutOnly(t *testing.T) 
 
 	hookCtx, cancelHook := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	close(done)
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		close(done)
+	}()
 
-	err := host.waitExecutionWithDeterministicTimeout(ctx, cancelHook, done)
+	err := host.waitExecutionWithDeterministicCompletion(ctx, cancelHook, done)
 	require.Equal(t, vmhost.ErrExecutionFailedWithTimeout, err)
 	require.Equal(t, vmhost.ErrExecutionFailedWithTimeout, runtimeCtx.FailExecutionErr)
 
 	select {
+	case <-done:
+	default:
+		t.Fatalf("timeout path should wait for execution to finish before returning")
+	}
+
+	select {
 	case <-hookCtx.Done():
-		// expected: timeout path cancels hook context
 	default:
 		t.Fatalf("hook context should be canceled on timeout")
 	}
 }
 
-func TestVmHost_WaitExecutionWithDeterministicTimeout_TieBreakerTimeoutWins(t *testing.T) {
+func TestVmHost_WaitExecutionWithDeterministicCompletion_TieBreakerCompletionWins(t *testing.T) {
 	t.Parallel()
 
 	for i := 0; i < 100; i++ {
@@ -72,15 +81,14 @@ func TestVmHost_WaitExecutionWithDeterministicTimeout_TieBreakerTimeoutWins(t *t
 		done := make(chan struct{})
 		close(done)
 
-		err := host.waitExecutionWithDeterministicTimeout(ctx, cancelHook, done)
-		require.Equal(t, vmhost.ErrExecutionFailedWithTimeout, err)
-		require.Equal(t, vmhost.ErrExecutionFailedWithTimeout, runtimeCtx.FailExecutionErr)
+		err := host.waitExecutionWithDeterministicCompletion(ctx, cancelHook, done)
+		require.NoError(t, err)
+		require.Nil(t, runtimeCtx.FailExecutionErr)
 
 		select {
 		case <-hookCtx.Done():
-			// expected in timeout-wins tie-breaker
+			t.Fatalf("hook context should not be canceled when completion wins the tie")
 		default:
-			t.Fatalf("hook context should be canceled on timeout tie-breaker")
 		}
 	}
 }

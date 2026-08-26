@@ -472,23 +472,25 @@ func (host *vmHost) handleTimeout(cancelHook context.CancelFunc, done <-chan str
 	return vmhost.ErrExecutionFailedWithTimeout
 }
 
-// waitExecutionWithDeterministicTimeout waits for execution completion or timeout.
-// If both completion and timeout are observable at the same boundary, timeout wins.
-func (host *vmHost) waitExecutionWithDeterministicTimeout(
+// waitExecutionWithDeterministicCompletion waits for execution completion or timeout.
+// If both completion and timeout are observable at the same boundary, completion wins:
+// a closed done channel proves execution finished within budget, while an expired
+// context also reflects how long this goroutine waited to be scheduled.
+func (host *vmHost) waitExecutionWithDeterministicCompletion(
 	ctx context.Context,
 	cancelHook context.CancelFunc,
 	done <-chan struct{},
 ) error {
 	select {
-	case <-ctx.Done():
-		return host.handleTimeout(cancelHook, done)
 	case <-done:
-		// Deterministic tie-breaker: if timeout is also ready, timeout wins.
+		return nil
+	case <-ctx.Done():
+		// Deterministic tie-breaker: if execution also completed, completion wins.
 		select {
-		case <-ctx.Done():
-			return host.handleTimeout(cancelHook, done)
-		default:
+		case <-done:
 			return nil
+		default:
+			return host.handleTimeout(cancelHook, done)
 		}
 	}
 }
@@ -555,7 +557,7 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 		host.logFromGasTracer("init")
 	}()
 
-	timeoutErr := host.waitExecutionWithDeterministicTimeout(ctx, cancel, done)
+	timeoutErr := host.waitExecutionWithDeterministicCompletion(ctx, cancel, done)
 	if timeoutErr != nil {
 		err = timeoutErr
 	}
@@ -636,7 +638,7 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 		host.logFromGasTracer(input.Function)
 	}()
 
-	timeoutErr := host.waitExecutionWithDeterministicTimeout(ctx, cancel, done)
+	timeoutErr := host.waitExecutionWithDeterministicCompletion(ctx, cancel, done)
 	if timeoutErr != nil {
 		err = timeoutErr
 	}
