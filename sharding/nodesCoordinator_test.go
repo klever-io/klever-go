@@ -1057,3 +1057,28 @@ func TestNodesCoordinator_ConstructorSavesStateOnGenesisStart(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, elected[0].PubKey(), validator.PubKey())
 }
+
+type fixedIndexesSelector struct {
+	indexes []uint32
+}
+
+func (s *fixedIndexesSelector) Select(_ []byte, _ uint32) ([]uint32, error) {
+	return s.indexes, nil
+}
+
+func (s *fixedIndexesSelector) IsInterfaceNil() bool {
+	return s == nil
+}
+
+func TestSelectValidators_SelectedIndexEqualToElectedListLenShouldErr(t *testing.T) {
+	t.Parallel()
+
+	electedList := createDummyNodesList(3, "elected")
+	// an index equal to len(electedList) is out of range and must be rejected instead of indexed
+	selector := &fixedIndexesSelector{indexes: []uint32{0, 1, uint32(len(electedList))}}
+
+	selected, err := selectValidators(selector, []byte("randomness"), 3, electedList, 0)
+
+	require.Equal(t, ErrSmallElectedListSize, err)
+	require.Nil(t, selected)
+}
