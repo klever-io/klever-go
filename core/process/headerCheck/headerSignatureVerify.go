@@ -1,6 +1,7 @@
 package headerCheck
 
 import (
+	"errors"
 	"math/bits"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -113,6 +114,7 @@ func (hsv *HeaderSigVerifier) VerifySignature(header data.HeaderHandler) error {
 		epoch,
 	)
 	if err != nil {
+		logIfEpochConfigMissing(err, header, epoch, "signature")
 		return err
 	}
 
@@ -293,9 +295,42 @@ func (hsv *HeaderSigVerifier) getLeader(header data.HeaderHandler) (crypto.Publi
 
 	headerConsensusGroup, err := hsv.nodesCoordinator.ComputeConsensusGroup(prevRandSeed, header.GetSlot(), epoch)
 	if err != nil {
+		logIfEpochConfigMissing(err, header, epoch, "leader")
 		return nil, err
 	}
 
 	leaderPubKeyValidator := headerConsensusGroup[0]
 	return hsv.keyGen.PublicKeyFromByteArray(leaderPubKeyValidator.PubKey())
+}
+
+// logIfEpochConfigMissing emits a dedicated line when a header is rejected only
+// because the consensus configuration for its epoch has not been built yet. That
+// configuration is created when the epoch-start block is committed, so between an
+// epoch boundary and that commit every new-epoch header fails here, on gossip, on
+// self-requested headers and on the consensus topic alike (issue #90).
+//
+// Kept at debug level on purpose: an unauthenticated peer can trigger this path
+// with a header carrying an arbitrary future epoch, so a louder level would be a
+// cheap log-flood lever. Enable process/headerCheck:DEBUG to measure how many
+// slots the window actually spans. The header hash is deliberately absent for the
+// same reason: it is not computed yet at this point, and computing one here would
+// put a marshal plus a hash on a path an unauthenticated peer can drive.
+//
+// lookupEpoch is the epoch whose configuration was actually missing, which is not
+// the header's own epoch for an epoch-start header: both callers verify those
+// against the previous epoch. Both values are logged so the line cannot send an
+// operator looking for the wrong configuration.
+func logIfEpochConfigMissing(err error, header data.HeaderHandler, lookupEpoch uint32, stage string) {
+	if !errors.Is(err, sharding.ErrEpochNodesConfigDoesNotExist) {
+		return
+	}
+
+	log.Debug("header rejected, epoch consensus config not built yet",
+		"stage", stage,
+		"missing config for epoch", lookupEpoch,
+		"header epoch", header.GetEpoch(),
+		"nonce", header.GetNonce(),
+		"slot", header.GetSlot(),
+		"is epoch start", header.GetIsEpochStart(),
+	)
 }

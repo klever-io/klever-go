@@ -36,9 +36,6 @@ const MaxSyncWithErrorsAllowed = 10
 // SlotModulusTrigger defines a slot modulus on which a trigger for an action will be released
 const SlotModulusTrigger = 5
 
-// SlotModulusTriggerWhenSyncIsStuck defines a slot modulus on which a trigger for an action when sync is stuck will be released
-const SlotModulusTriggerWhenSyncIsStuck = 20
-
 // MinForkSlot represents the minimum fork slot set by a notarized header received
 const MinForkSlot = uint64(0)
 
