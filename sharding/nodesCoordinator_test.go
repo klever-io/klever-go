@@ -1057,3 +1057,25 @@ func TestNodesCoordinator_ConstructorSavesStateOnGenesisStart(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, elected[0].PubKey(), validator.PubKey())
 }
+
+type selectorEqualLenStub struct {
+	indexes []uint32
+}
+
+func (s *selectorEqualLenStub) Select(_ []byte, _ uint32) ([]uint32, error) {
+	return s.indexes, nil
+}
+
+func (s *selectorEqualLenStub) IsInterfaceNil() bool {
+	return s == nil
+}
+
+func TestSelectValidators_SelectedIndexEqualToElectedListLengthShouldErr(t *testing.T) {
+	t.Parallel()
+
+	electedList := createDummyNodesList(3, "elected")
+	selector := &selectorEqualLenStub{indexes: []uint32{3}}
+
+	_, err := selectValidators(selector, []byte("randomness"), 1, electedList, 0)
+	require.Equal(t, ErrSmallElectedListSize, err)
+}
