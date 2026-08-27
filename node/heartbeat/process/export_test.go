@@ -106,6 +106,11 @@ func VerifyLengths(hbmi *data.Heartbeat) error {
 	return verifyLengths(hbmi)
 }
 
+// IsRegisteredValidatorPeerType -
+func IsRegisteredValidatorPeerType(peerType string) bool {
+	return isRegisteredValidatorPeerType(peerType)
+}
+
 // GetMaxSizeInBytes -
 func GetMaxSizeInBytes() int {
 	return maxSizeInBytes
