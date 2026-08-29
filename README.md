@@ -297,7 +297,7 @@ Quick start:
 
 **Report security vulnerabilities**: See [SECURITY.md](SECURITY.md)
 
-For bug bounty and security audit information, contact: security@klever.org
+For security audit information, contact: security@klever.io
 
 ## Support
 
