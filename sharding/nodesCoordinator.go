@@ -74,6 +74,7 @@ type indexHashedNodesCoordinator struct {
 	consensusGroupSize            int
 	currentEpoch                  atomic.Uint32
 	startEpoch                    uint32
+	fixJailedPromotionOrderEpoch  uint32
 
 	stateReady atomic.Bool
 }
@@ -114,6 +115,7 @@ func NewNodesCoordinator(arguments ArgNodesCoordinator) (*indexHashedNodesCoordi
 		consensusGroupSize:            arguments.ConsensusGroupSize,
 		publicKeyToValidatorMap:       make(map[string]Validator),
 		startEpoch:                    arguments.StartEpoch,
+		fixJailedPromotionOrderEpoch:  arguments.FixJailedPromotionOrderEpoch,
 	}
 	ihgs.currentEpoch.Store(arguments.StartEpoch)
 	// no need to wait for load state, as we have the initial configuration
@@ -759,7 +761,7 @@ func (ihgs *indexHashedNodesCoordinator) EpochStartPrepare(metaHdr data.HeaderHa
 		return
 	}
 
-	newNodesConfig, err := ihgs.computeNodesConfigFromList(allValidatorInfo)
+	newNodesConfig, err := ihgs.computeNodesConfigFromList(allValidatorInfo, newEpoch)
 	if err != nil {
 		log.Error("could not compute nodes config from list - do nothing on nodesCoordinator epochStartPrepare", "error", err.Error())
 		return
@@ -899,6 +901,7 @@ func (ihgs *indexHashedNodesCoordinator) GetOwnPublicKey() []byte {
 
 func (ihgs *indexHashedNodesCoordinator) computeNodesConfigFromList(
 	validators []*block.EValidatorInfo,
+	epoch uint32,
 ) (*epochNodesConfig, error) {
 	electedList := make([]Validator, 0)
 	eligibleList := make([]Validator, 0)
@@ -926,6 +929,16 @@ func (ihgs *indexHashedNodesCoordinator) computeNodesConfigFromList(
 		}
 	}
 
+	if epoch >= ihgs.fixJailedPromotionOrderEpoch {
+		// sort before the promotion slice below, so the promoted subset follows
+		// the deterministic validatorList order instead of whatever order the
+		// validator info happened to arrive in (trie traversal order)
+		sort.Sort(validatorList(leavingList))
+	}
+
+	// the promotion is all-or-nothing on purpose: a partial promotion can never
+	// reach consensusGroupSize, so the shuffler still fails its MinNodes check
+	// (MinNodes >= consensusGroupSize) and the epoch config is not built anyway
 	numToStay := ihgs.consensusGroupSize - (len(electedList) + len(eligibleList))
 	if numToStay > 0 {
 		if len(leavingList) >= numToStay {
@@ -934,6 +947,8 @@ func (ihgs *indexHashedNodesCoordinator) computeNodesConfigFromList(
 		}
 	}
 
+	// keep this leaving-list sort: the legacy branch below the enable epoch
+	// relies on it; it is a no-op once the list is pre-sorted above
 	sort.Sort(validatorList(leavingList))
 	sort.Sort(validatorList(eligibleList))
 	sort.Sort(validatorList(electedList))

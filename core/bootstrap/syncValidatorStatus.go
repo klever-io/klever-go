@@ -35,6 +35,9 @@ type ArgsNewSyncValidatorStatus struct {
 	GenesisNodesConfig sharding.GenesisNodesSetupHandler
 	NodeShuffler       sharding.NodesShuffler
 	PubKey             []byte
+	// FixJailedPromotionOrderEpoch must match the node's enableEpochs config so
+	// that epoch-start replay during bootstrap computes the same lists as live nodes
+	FixJailedPromotionOrderEpoch uint32
 }
 
 // NewSyncValidatorStatus creates a new validator status process component
@@ -69,16 +72,17 @@ func NewSyncValidatorStatus(args ArgsNewSyncValidatorStatus) (*syncValidatorStat
 	s.memDB = disabled.CreateMemUnit()
 
 	argsNodesCoordinator := sharding.ArgNodesCoordinator{
-		ConsensusGroupSize:  int(args.GenesisNodesConfig.GetConsensusGroupSize()),
-		Marshalizer:         args.Marshalizer,
-		Hasher:              args.Hasher,
-		Shuffler:            args.NodeShuffler,
-		EpochStartNotifier:  &disabled.EpochStartNotifier{},
-		BootStorer:          s.memDB,
-		ElectedNodes:        electedValidators,
-		EligibleNodes:       eligibleValidators,
-		SelfPublicKey:       args.PubKey,
-		ConsensusGroupCache: consensusGroupCache,
+		ConsensusGroupSize:           int(args.GenesisNodesConfig.GetConsensusGroupSize()),
+		Marshalizer:                  args.Marshalizer,
+		Hasher:                       args.Hasher,
+		Shuffler:                     args.NodeShuffler,
+		EpochStartNotifier:           &disabled.EpochStartNotifier{},
+		BootStorer:                   s.memDB,
+		ElectedNodes:                 electedValidators,
+		EligibleNodes:                eligibleValidators,
+		SelfPublicKey:                args.PubKey,
+		ConsensusGroupCache:          consensusGroupCache,
+		FixJailedPromotionOrderEpoch: args.FixJailedPromotionOrderEpoch,
 	}
 
 	baseNodesCoordinator, err := sharding.NewNodesCoordinator(argsNodesCoordinator)

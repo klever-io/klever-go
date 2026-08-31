@@ -658,16 +658,17 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		cfg.StoragePruning.CleanOldEpochsData = !ctx.GlobalBool(keepOldEpochsData.Name)
 	}
 
-	nodesCoordinator, err := createNodesCoordinator(
-		genesisNodesConfig,
-		coreComponents,
-		cryptoParams,
-		epochStartNotifier,
-		dataComponents.Store.GetStorer(retriever.BootstrapUnit),
-		nodesShuffler,
-		bootstrapParameters,
-		storerEpoch,
-	)
+	nodesCoordinator, err := createNodesCoordinator(createNodesCoordinatorArgs{
+		nodesConfig:                  genesisNodesConfig,
+		coreComponents:               coreComponents,
+		cryptoParams:                 cryptoParams,
+		epochStartNotifier:           epochStartNotifier,
+		bootStorer:                   dataComponents.Store.GetStorer(retriever.BootstrapUnit),
+		nodeShuffler:                 nodesShuffler,
+		bootstrapParameters:          bootstrapParameters,
+		startEpoch:                   storerEpoch,
+		fixJailedPromotionOrderEpoch: cfg.EnableEpochs.FixJailedPromotionOrder,
+	})
 	if err != nil {
 		return err
 	}
