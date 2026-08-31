@@ -3,9 +3,9 @@ package factory
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
@@ -109,14 +109,27 @@ func (cspf *cryptoSigningParamsLoader) getSkPk() ([]byte, []byte, error) {
 	skIndex := cspf.skIndex
 	encodedSk, pkString, err := tools.LoadSkPkFromPemFile(cspf.skPemFileName, skIndex, os.Getenv("KEY_PASSWORD"))
 	if err != nil {
-		if strings.Contains(err.Error(), ErrFileNotFound.Error()) {
-			keyGen := signing.NewKeyGenerator(cspf.suite)
-			encodedSk, pkString, err = tools.CreateWallet(cspf.skPemFileName, os.Getenv("KEY_PASSWORD"), keyGen, cspf.pubkeyConverter)
-			if err != nil {
-				return nil, nil, err
-			}
+		// Only a missing file is recoverable by generating a key. Anything else
+		// (corrupt pem, wrong KEY_PASSWORD, permissions) must surface here rather
+		// than fall through and fail later against an empty key.
+		if !isSkPemFileNotFound(err) {
+			return nil, nil, fmt.Errorf("loading validator key: %w", err)
 		}
 
+		keyGen := signing.NewKeyGenerator(cspf.suite)
+		encodedSk, pkString, err = tools.CreateWallet(cspf.skPemFileName, os.Getenv("KEY_PASSWORD"), keyGen, cspf.pubkeyConverter)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// Generating a key here is intentional: it lets an observer start without
+		// operator-provided key material. It is only a problem when the node was
+		// meant to run under an already-registered validator identity, which we
+		// cannot distinguish at this point, so say so rather than staying silent.
+		log.Warn("no key file found - generated a new node identity",
+			"file", cspf.skPemFileName,
+			"public key", pkString,
+			"note", "expected for a new observer; if this node should run as a registered validator, stop it and restore its key file")
 	}
 
 	skBytes, err := hex.DecodeString(string(encodedSk))
@@ -130,4 +143,12 @@ func (cspf *cryptoSigningParamsLoader) getSkPk() ([]byte, []byte, error) {
 	}
 
 	return skBytes, pkBytes, nil
+}
+
+// isSkPemFileNotFound reports whether the key file is simply absent. Matched by
+// type only: a substring match on the not-found text is satisfied by any error
+// carrying a path that happens to contain it, which would send a corrupt key
+// file down the generate-and-replace branch.
+func isSkPemFileNotFound(err error) bool {
+	return errors.Is(err, os.ErrNotExist)
 }
