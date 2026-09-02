@@ -88,28 +88,35 @@ func (lep *logsAndEventsProcessor) smartContractAddresses(
 	logAddress []byte,
 	events []transaction.EventHandler,
 ) []string {
-	seen := make(map[string]struct{}, len(existing)+1)
-	for _, address := range existing {
-		seen[address] = struct{}{}
+	// Allocated on the first qualifying address: most logs belong to plain transfers and
+	// name no contract at all, and this runs once per log of every block.
+	var seen map[string]struct{}
+	add := func(encoded string) {
+		if seen == nil {
+			seen = make(map[string]struct{}, len(existing)+2)
+			for _, address := range existing {
+				seen[address] = struct{}{}
+			}
+		}
+		seen[encoded] = struct{}{}
 	}
-
-	add := func(address []byte) {
-		if !core.IsSmartContractAddress(address) || core.IsEmptyAddress(address) {
+	addIfContract := func(address []byte) {
+		if core.IsEmptyAddress(address) || !core.IsSmartContractAddress(address) {
 			return
 		}
-		seen[lep.pubKeyConverter.Encode(address)] = struct{}{}
+		add(lep.pubKeyConverter.Encode(address))
 	}
 
-	add(logAddress)
+	addIfContract(logAddress)
 	for _, event := range events {
 		if check.IfNil(event) {
 			continue
 		}
-		add(event.GetAddress())
+		addIfContract(event.GetAddress())
 	}
 
 	if len(seen) == 0 {
-		return nil
+		return existing
 	}
 
 	addresses := make([]string, 0, len(seen))

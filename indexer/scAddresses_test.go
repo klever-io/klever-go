@@ -14,7 +14,10 @@ import (
 	dataBlock "github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/indexer"
 	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/indexer/data"
 	imock "github.com/klever-io/klever-go/indexer/mock"
+	"github.com/klever-io/klever-go/indexer/templates"
+	"github.com/klever-io/klever-go/indexer/templates/noKibana"
 	"github.com/stretchr/testify/require"
 )
 
@@ -149,18 +152,18 @@ func TestSaveTransactions_LeavesTheFieldOffTransactionsWithoutContracts(t *testi
 
 // TestNewElasticProcessor_PutsTheAddedPropertiesOnTheTransactionsIndex covers start-up: the
 // template only reaches indices created after it, so the processor must put the added
-// properties onto the live transactions index itself, every time it starts, and must refuse
-// to start when that fails. A processor that started anyway would write the field into an
-// index that types it dynamically, and the filter written for the keyword type would miss it.
+// properties onto the live transactions index itself, every time it starts, rewrite the
+// stored template so later indices carry them too, and refuse to start when either fails.
+// A processor that started anyway would write the field into an index that types it
+// dynamically, and the filter written for the keyword type would miss it.
 func TestNewElasticProcessor_PutsTheAddedPropertiesOnTheTransactionsIndex(t *testing.T) {
-	t.Run("puts the keyword mapping on the transactions alias", func(t *testing.T) {
+	t.Run("checks and updates the mapping on the transactions alias", func(t *testing.T) {
 		var gotIndex string
-		var gotBody map[string]interface{}
+		var gotProperties templates.Object
 		args := createMockElasticProcessorArgs()
 		args.DBClient = &imock.DatabaseWriterStub{
-			CheckAndUpdateMappingCalled: func(index string, properties *bytes.Buffer) error {
-				gotIndex = index
-				require.NoError(t, json.Unmarshal(properties.Bytes(), &gotBody))
+			CheckAndUpdateMappingCalled: func(index string, properties templates.Object) error {
+				gotIndex, gotProperties = index, properties
 				return nil
 			},
 		}
@@ -169,19 +172,84 @@ func TestNewElasticProcessor_PutsTheAddedPropertiesOnTheTransactionsIndex(t *tes
 		require.NoError(t, err)
 
 		require.Equal(t, txIndex, gotIndex)
-		properties, ok := gotBody["properties"].(map[string]interface{})
+		properties, ok := gotProperties["properties"].(templates.Object)
 		require.True(t, ok, "the body must be a mapping update, {\"properties\": ...}")
-		require.Equal(t, map[string]interface{}{"type": "keyword"}, properties["scAddresses"])
+		require.Equal(t, templates.Object{"type": "keyword"}, properties["scAddresses"])
+	})
+
+	t.Run("rewrites the stored transactions template", func(t *testing.T) {
+		var gotTemplates []string
+		args := createMockElasticProcessorArgs()
+		args.IndexTemplates = map[string]*bytes.Buffer{txIndex: noKibana.Transactions.ToBuffer(), blockIndex: noKibana.Blocks.ToBuffer()}
+		args.DBClient = &imock.DatabaseWriterStub{
+			PutTemplateCalled: func(name string, template *bytes.Buffer) error {
+				gotTemplates = append(gotTemplates, name)
+				require.True(t, bytes.Contains(template.Bytes(), []byte(`"scAddresses":{"type":"keyword"}`)), "template: %s", template.String())
+				return nil
+			},
+		}
+
+		_, err := NewElasticProcessor(args)
+		require.NoError(t, err)
+		require.Equal(t, []string{txIndex}, gotTemplates, "only the transactions template is rewritten unconditionally")
 	})
 
 	t.Run("a failed mapping update stops start-up", func(t *testing.T) {
 		mappingErr := errors.New("mapping rejected")
 		args := createMockElasticProcessorArgs()
 		args.DBClient = &imock.DatabaseWriterStub{
-			CheckAndUpdateMappingCalled: func(string, *bytes.Buffer) error { return mappingErr },
+			CheckAndUpdateMappingCalled: func(string, templates.Object) error { return mappingErr },
 		}
 
 		_, err := NewElasticProcessor(args)
 		require.ErrorIs(t, err, mappingErr)
 	})
+
+	t.Run("a failed template write stops start-up", func(t *testing.T) {
+		templateErr := errors.New("template rejected")
+		args := createMockElasticProcessorArgs()
+		args.IndexTemplates = map[string]*bytes.Buffer{txIndex: noKibana.Transactions.ToBuffer()}
+		args.DBClient = &imock.DatabaseWriterStub{
+			PutTemplateCalled: func(string, *bytes.Buffer) error { return templateErr },
+		}
+
+		_, err := NewElasticProcessor(args)
+		require.ErrorIs(t, err, templateErr)
+	})
+}
+
+// TestSaveTransactions_WritesTheFieldOnThePreparedPath covers the production path of every
+// websocket-enabled node: the transactions arrive already prepared, and the field must be
+// derived on those structs before they are serialized, exactly as on the fallback path.
+func TestSaveTransactions_WritesTheFieldOnThePreparedPath(t *testing.T) {
+	var sent bytes.Buffer
+	dbWriter := &imock.DatabaseWriterStub{
+		DoBulkRequestCalled: func(buff *bytes.Buffer, _ string) error {
+			sent.Write(buff.Bytes())
+			return nil
+		},
+	}
+
+	invoked := contractAddressForTest(1)
+	tx, err := createTransactionHandlerMock(
+		&transaction.TransferContract{ToAddress: []byte("klv1d05ju9jaj6u99zph0ant9jh7gksg"), Amount: 45},
+		transaction.TXContract_TransferContractType,
+		[]byte("klv1d05ju9jaj6u99zph0ant9jh7gksf"),
+	)
+	require.NoError(t, err)
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 7, Timestamp: 100}, TxHashes: [][]byte{[]byte("h1")}}
+	pool := &indexer.Pool{
+		Txs:  map[string]nodeData.TransactionHandler{"h1": tx},
+		Logs: []*nodeData.LogData{{TxHash: "h1", LogHandler: &transaction.Log{Address: invoked}}},
+	}
+
+	ep := newTestElasticSearchDatabase(dbWriter, hexEncodingArgs())
+	txs, txsMap, altered, err := ep.prepareTransactionsForDatabase(header, pool)
+	require.NoError(t, err)
+
+	require.NoError(t, ep.SaveTransactions(header, pool, &data.PreparedBlockData{Txs: txs, TxsMap: txsMap, Altered: altered}))
+
+	item := transactionBulkItem(t, sent.Bytes(), hex.EncodeToString([]byte("h1")))
+	require.Equal(t, []interface{}{hex.EncodeToString(invoked)}, item["upsert"].(map[string]interface{})["scAddresses"])
 }
