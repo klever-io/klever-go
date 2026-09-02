@@ -17,6 +17,9 @@ var ErrNoElasticUrlProvided = errors.New("no elastic url provided")
 // ErrCouldNotCreatePolicy -
 var ErrCouldNotCreatePolicy = errors.New("could not create policy")
 
+// ErrCouldNotUpdateMapping signals that a mapping property could not be added to an index
+var ErrCouldNotUpdateMapping = errors.New("could not update mapping")
+
 // ErrNilPubkeyConverter signals that an operation has been attempted to or with a nil public key converter implementation
 var ErrNilPubkeyConverter = errors.New("nil pubkey converter")
 

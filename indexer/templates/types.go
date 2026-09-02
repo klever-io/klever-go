@@ -20,3 +20,16 @@ func (o *Object) ToBuffer() *bytes.Buffer {
 
 	return buff
 }
+
+// TransactionsAddedProperties are mapping properties added to the transactions index after
+// deployments may already carry that index. Both transactions templates include them, so a
+// new index gets them at creation; elasticProcessor puts the same properties onto a live
+// index at start-up, because a template only applies when an index is created and a field
+// first written without a mapping is typed dynamically, as text with a keyword subfield,
+// which is not the keyword type a filter on it is written for. One definition, two uses,
+// so the template and the live index cannot disagree on the type.
+var TransactionsAddedProperties = Object{
+	"scAddresses": Object{
+		"type": "keyword",
+	},
+}
