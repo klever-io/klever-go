@@ -339,12 +339,19 @@ func (b *backfiller) clearScroll(scrollID string) {
 
 	body, err := json.Marshal(map[string]interface{}{"scroll_id": []string{scrollID}})
 	if err != nil {
+		b.logf("clear scroll: %v\n", err)
 		return
 	}
 
 	cleared, err := b.source.ClearScroll(b.source.ClearScroll.WithContext(ctx), b.source.ClearScroll.WithBody(bytes.NewReader(body)))
-	if err == nil {
-		_ = cleared.Body.Close()
+	if err != nil {
+		b.logf("clear scroll: %v; the source frees the cursor when the keepalive expires\n", err)
+		return
+	}
+	defer func() { _ = cleared.Body.Close() }()
+
+	if cleared.IsError() {
+		b.logf("clear scroll: %s; the source frees the cursor when the keepalive expires\n", cleared.String())
 	}
 }
 
@@ -502,7 +509,7 @@ func readBulkResult(body io.Reader, out io.Writer) (applyResult, error) {
 // derives the field from a log, and only a smart contract transaction's log names one.
 func smartContractTransactionsWithLogs() []interface{} {
 	return []interface{}{
-		map[string]interface{}{"term": map[string]interface{}{"contract.type": 63}},
+		map[string]interface{}{"term": map[string]interface{}{"contract.type": int32(transaction.TXContract_SmartContractType)}},
 		map[string]interface{}{"term": map[string]interface{}{"hasLogs": true}},
 	}
 }

@@ -2358,8 +2358,20 @@ func prepareSerializedDataForATransaction(
 		return nil, nil, err
 	}
 
-	upsertScript := []byte(fmt.Sprintf(`{"script":{"source":"%s","lang": "painless", "params": %s},"upsert":%s}`,
-		transactionUpdateScript, string(params), string(marshaledTx)))
+	// The envelope is marshaled rather than formatted, so a future edit to the script that
+	// adds a quote or a newline cannot break the bulk line silently.
+	upsertScript, err := json.Marshal(map[string]interface{}{
+		"script": map[string]interface{}{
+			"source": transactionUpdateScript,
+			"lang":   "painless",
+			"params": json.RawMessage(params),
+		},
+		"upsert": json.RawMessage(marshaledTx),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
 	return meta, upsertScript, nil
 }
 

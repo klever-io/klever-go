@@ -18,11 +18,13 @@ import (
 // can assert the read happened before the write and that the write carries the property.
 // The product header is what the client checks before trusting a server.
 type mappingCluster struct {
-	mu        sync.Mutex
-	fieldType string // "" means the field is not mapped
-	rejectPut bool
-	requests  []string
-	putBody   []byte
+	mu             sync.Mutex
+	fieldType      string // "" means the field is not mapped
+	secondIndex    string // "" means one backing index; "unmapped" adds one without the field; "empty" adds one with an empty mapping object
+	rejectPut      bool
+	requests       []string
+	putBody        []byte
+	templateBodies [][]byte // every body written to the transactions template, in order
 }
 
 func (c *mappingCluster) handler() http.Handler {
@@ -36,11 +38,18 @@ func (c *mappingCluster) handler() http.Handler {
 
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/"+txIndex+"/_mapping/field/scAddresses":
-			if c.fieldType == "" {
-				_, _ = io.WriteString(w, `{"transactions-000001":{"mappings":{}}}`)
-				return
+			first := `"transactions-000001":{"mappings":{}}`
+			if c.fieldType != "" {
+				first = `"transactions-000001":{"mappings":{"scAddresses":{"full_name":"scAddresses","mapping":{"scAddresses":{"type":"` + c.fieldType + `"}}}}}`
 			}
-			_, _ = io.WriteString(w, `{"transactions-000001":{"mappings":{"scAddresses":{"full_name":"scAddresses","mapping":{"scAddresses":{"type":"`+c.fieldType+`"}}}}}}`)
+			switch c.secondIndex {
+			case "unmapped":
+				_, _ = io.WriteString(w, `{`+first+`,"transactions-000002":{"mappings":{}}}`)
+			case "empty":
+				_, _ = io.WriteString(w, `{`+first+`,"transactions-000002":{"mappings":{"scAddresses":{"full_name":"scAddresses","mapping":{}}}}}`)
+			default:
+				_, _ = io.WriteString(w, `{`+first+`}`)
+			}
 		case r.Method == http.MethodPut && r.URL.Path == "/"+txIndex+"/_mapping":
 			c.putBody, _ = io.ReadAll(r.Body)
 			if c.rejectPut {
@@ -50,6 +59,8 @@ func (c *mappingCluster) handler() http.Handler {
 			}
 			_, _ = io.WriteString(w, `{"acknowledged":true}`)
 		case r.Method == http.MethodPut && r.URL.Path == "/_template/"+txIndex:
+			body, _ := io.ReadAll(r.Body)
+			c.templateBodies = append(c.templateBodies, body)
 			if c.rejectPut {
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = io.WriteString(w, `{"error":{"type":"illegal_argument_exception","reason":"bad template"}}`)
@@ -68,6 +79,20 @@ func (c *mappingCluster) seen() []string {
 	defer c.mu.Unlock()
 
 	return append([]string(nil), c.requests...)
+}
+
+func (c *mappingCluster) mappingPutBody() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.putBody
+}
+
+func (c *mappingCluster) templatesWritten() [][]byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return append([][]byte(nil), c.templateBodies...)
 }
 
 func newMappingClient(t *testing.T, url string) *elasticClient {
@@ -98,7 +123,7 @@ func TestCheckAndUpdateMapping(t *testing.T) {
 
 		require.Equal(t, []string{"GET /transactions/_mapping/field/scAddresses", "PUT /transactions/_mapping"}, cluster.seen(),
 			"the live mapping is read first, then the missing property is written")
-		require.True(t, bytes.Contains(cluster.putBody, []byte(`"scAddresses":{"type":"keyword"}`)), "body: %s", cluster.putBody)
+		require.True(t, bytes.Contains(cluster.mappingPutBody(), []byte(`"scAddresses":{"type":"keyword"}`)), "body: %s", cluster.mappingPutBody())
 	})
 
 	t.Run("an index that already maps the property gets no write", func(t *testing.T) {
@@ -148,6 +173,27 @@ func TestCheckAndUpdateMapping(t *testing.T) {
 	})
 }
 
+// TestCheckAndUpdateMapping_WritesWhenAnyBackingIndexLacksTheField covers an alias with
+// several indices behind it: the field mapped on one of them says nothing about the others,
+// and an entry with an empty mapping object is not a mapping.
+func TestCheckAndUpdateMapping_WritesWhenAnyBackingIndexLacksTheField(t *testing.T) {
+	t.Parallel()
+
+	for _, second := range []string{"unmapped", "empty"} {
+		t.Run(second, func(t *testing.T) {
+			t.Parallel()
+
+			cluster := &mappingCluster{fieldType: "keyword", secondIndex: second}
+			server := httptest.NewServer(cluster.handler())
+			defer server.Close()
+
+			require.NoError(t, newMappingClient(t, server.URL).CheckAndUpdateMapping(txIndex, addedProperties))
+			require.Equal(t, []string{"GET /transactions/_mapping/field/scAddresses", "PUT /transactions/_mapping"}, cluster.seen(),
+				"one index carrying the field must not suppress the write for the one that lacks it")
+		})
+	}
+}
+
 func TestCheckFieldMapping_ReportsWhatIsMissing(t *testing.T) {
 	t.Parallel()
 
@@ -161,6 +207,55 @@ func TestCheckFieldMapping_ReportsWhatIsMissing(t *testing.T) {
 	require.Equal(t, []string{"GET /transactions/_mapping/field/scAddresses"}, cluster.seen(), "a check reads and never writes")
 }
 
+// TestCheckAndCreateTemplate_LeavesTheBufferForTheNextRequest pins the contract the start-up
+// path relies on: the create step and the rewrite share one buffer out of the templates map,
+// so the create request must read a copy of it and leave the buffer intact for the rewrite.
+func TestCheckAndCreateTemplate_LeavesTheBufferForTheNextRequest(t *testing.T) {
+	t.Parallel()
+
+	cluster := &mappingCluster{}
+	server := httptest.NewServer(cluster.handler())
+	defer server.Close()
+
+	client := newMappingClient(t, server.URL)
+	template := addedProperties.ToBuffer()
+	want := append([]byte(nil), template.Bytes()...)
+
+	require.NoError(t, client.CheckAndCreateTemplate(txIndex, template))
+	require.Equal(t, want, template.Bytes(), "the create request must not consume the caller's buffer")
+	require.NoError(t, client.PutTemplate(txIndex, template.Bytes()))
+
+	require.Equal(t, []string{"HEAD /_template/transactions", "PUT /_template/transactions", "PUT /_template/transactions"}, cluster.seen())
+	require.Equal(t, [][]byte{want, want}, cluster.templatesWritten(), "both writes must carry the full template")
+}
+
+// TestNewElasticProcessor_OnAFreshClusterWritesTheTransactionsTemplateTwiceInFull is the
+// start-up on a cluster that has nothing yet: every existence check answers 404, so the
+// create step sends the templates, and the rewrite that follows must send the transactions
+// template again in full, not the empty remainder of a buffer the create request read. On a
+// cluster that already carries the template the create step never reads the buffer, which
+// is why only a fresh cluster shows this.
+func TestNewElasticProcessor_OnAFreshClusterWritesTheTransactionsTemplateTwiceInFull(t *testing.T) {
+	cluster := &mappingCluster{}
+	server := httptest.NewServer(cluster.handler())
+	defer server.Close()
+
+	indexTemplates, indexPolicies, err := GetElasticTemplatesAndPolicies(false)
+	require.NoError(t, err)
+	want := append([]byte(nil), indexTemplates[txIndex].Bytes()...)
+
+	args := createMockElasticProcessorArgs()
+	args.DBClient = newMappingClient(t, server.URL)
+	args.IndexTemplates, args.IndexPolicies = indexTemplates, indexPolicies
+
+	_, err = NewElasticProcessor(args)
+	require.NoError(t, err)
+
+	require.Contains(t, cluster.seen(), "HEAD /_template/transactions", "the premise: the create step checked, found nothing, and wrote")
+	require.Equal(t, [][]byte{want, want}, cluster.templatesWritten(), "the create step and the rewrite must both carry the full template")
+	require.Equal(t, want, indexTemplates[txIndex].Bytes(), "start-up must leave the shared buffer intact")
+}
+
 func TestPutTemplate_WritesWhetherOrNotOneExists(t *testing.T) {
 	t.Parallel()
 
@@ -171,7 +266,7 @@ func TestPutTemplate_WritesWhetherOrNotOneExists(t *testing.T) {
 		server := httptest.NewServer(cluster.handler())
 		defer server.Close()
 
-		require.NoError(t, newMappingClient(t, server.URL).PutTemplate(txIndex, addedProperties.ToBuffer()))
+		require.NoError(t, newMappingClient(t, server.URL).PutTemplate(txIndex, addedProperties.ToBuffer().Bytes()))
 		require.Equal(t, []string{"PUT /_template/transactions"}, cluster.seen(), "no existence check may short-circuit the write")
 	})
 
@@ -182,6 +277,17 @@ func TestPutTemplate_WritesWhetherOrNotOneExists(t *testing.T) {
 		server := httptest.NewServer(cluster.handler())
 		defer server.Close()
 
-		require.ErrorIs(t, newMappingClient(t, server.URL).PutTemplate(txIndex, addedProperties.ToBuffer()), ErrCouldNotCreateTemplate)
+		require.ErrorIs(t, newMappingClient(t, server.URL).PutTemplate(txIndex, addedProperties.ToBuffer().Bytes()), ErrCouldNotCreateTemplate)
+	})
+
+	t.Run("an empty body is refused before it reaches the cluster", func(t *testing.T) {
+		t.Parallel()
+
+		cluster := &mappingCluster{}
+		server := httptest.NewServer(cluster.handler())
+		defer server.Close()
+
+		require.ErrorIs(t, newMappingClient(t, server.URL).PutTemplate(txIndex, nil), ErrCouldNotCreateTemplate)
+		require.Empty(t, cluster.seen(), "a consumed buffer must not turn into an empty template on the cluster")
 	})
 }

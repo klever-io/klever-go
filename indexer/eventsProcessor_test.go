@@ -1434,6 +1434,14 @@ func TestDetachPreparedBlockData(t *testing.T) {
 	require.Same(t, detached.Txs[1], detached.TxsMap["bb"])
 	require.Same(t, prepared.Altered, detached.Altered, "altered data is read, not written, on the indexer path")
 
+	mapOnly := &data.Transaction{Hash: "cc", Sender: "s3"}
+	withMapOnly := detachPreparedBlockData(&data.PreparedBlockData{
+		Txs:    []*data.Transaction{first},
+		TxsMap: map[string]*data.Transaction{"aa": first, "cc": mapOnly},
+	})
+	require.NotSame(t, mapOnly, withMapOnly.TxsMap["cc"], "a transaction that exists only in the map must be copied too")
+	require.Equal(t, "s3", withMapOnly.TxsMap["cc"].Sender)
+
 	detached.Txs[0].SCAddresses = []string{"klv1contract"}
 	detached.Txs[0].HasLogs = true
 	require.Nil(t, first.SCAddresses, "a write on the indexer's copy must not reach the websocket's struct")
