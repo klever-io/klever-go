@@ -2,6 +2,7 @@ package logsevents
 
 import (
 	"encoding/hex"
+	"sort"
 	"time"
 
 	"github.com/klever-io/klever-go/common"
@@ -59,6 +60,7 @@ func (lep *logsAndEventsProcessor) ExtractDataFromLogs(
 		tx, ok := lep.logsData.txsMap[txHashHexEncoded]
 		if ok {
 			tx.HasLogs = true
+			tx.SCAddresses = lep.smartContractAddresses(tx.SCAddresses, txLog.GetAddress(), events)
 			continue
 		}
 	}
@@ -67,6 +69,56 @@ func (lep *logsAndEventsProcessor) ExtractDataFromLogs(
 		ScDeploys:  lep.logsData.scDeploys,
 		AlteredSCs: lep.logsData.alteredSC,
 	}
+}
+
+// smartContractAddresses returns the distinct smart contracts that took part in a
+// transaction, bech32 encoded and sorted, merged into whatever an earlier log of the same
+// transaction already contributed. The log's own address is the contract the transaction
+// invoked; each event's address is the contract that emitted it, which differs from the
+// log's address inside an inner call and is how a contract reached through another
+// contract gets listed. Wallets are left out, and so is the empty system address, which
+// IsSmartContractAddress accepts through its IsEmptyAddress branch. Nil when nothing
+// qualifies, so the field stays off the document.
+//
+// This runs in the events loop rather than as an eventsProcessor on purpose: processEvent
+// returns on the first processor that reports an event as processed, so a processor keyed
+// on the same identifiers as an existing one would either shadow it or be shadowed by it.
+func (lep *logsAndEventsProcessor) smartContractAddresses(
+	existing []string,
+	logAddress []byte,
+	events []transaction.EventHandler,
+) []string {
+	seen := make(map[string]struct{}, len(existing)+1)
+	for _, address := range existing {
+		seen[address] = struct{}{}
+	}
+
+	add := func(address []byte) {
+		if !core.IsSmartContractAddress(address) || core.IsEmptyAddress(address) {
+			return
+		}
+		seen[lep.pubKeyConverter.Encode(address)] = struct{}{}
+	}
+
+	add(logAddress)
+	for _, event := range events {
+		if check.IfNil(event) {
+			continue
+		}
+		add(event.GetAddress())
+	}
+
+	if len(seen) == 0 {
+		return nil
+	}
+
+	addresses := make([]string, 0, len(seen))
+	for address := range seen {
+		addresses = append(addresses, address)
+	}
+	sort.Strings(addresses)
+
+	return addresses
 }
 
 func newLogsData(

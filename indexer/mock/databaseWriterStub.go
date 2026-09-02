@@ -23,6 +23,7 @@ type DatabaseWriterStub struct {
 	DoUpdateCalled                func(index string, id string, body *bytes.Buffer) error
 	ConvertObjectToOrderCalled    func(obj object) (*data.Order, error)
 	ConvertObjectToDataCalled     func(obj object, data any) error
+	CheckAndUpdateMappingCalled   func(index string, properties *bytes.Buffer) error
 }
 
 type object = map[string]interface{}
@@ -136,6 +137,15 @@ func (dwm *DatabaseWriterStub) CheckAndCreateTemplate(_ string, _ *bytes.Buffer)
 
 // CheckAndCreatePolicy -
 func (dwm *DatabaseWriterStub) CheckAndCreatePolicy(_ string, _ *bytes.Buffer) error {
+	return nil
+}
+
+// CheckAndUpdateMapping -
+func (dwm *DatabaseWriterStub) CheckAndUpdateMapping(index string, properties *bytes.Buffer) error {
+	if dwm.CheckAndUpdateMappingCalled != nil {
+		return dwm.CheckAndUpdateMappingCalled(index, properties)
+	}
+
 	return nil
 }
 

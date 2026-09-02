@@ -112,6 +112,29 @@ func (ec *elasticClient) CheckAndCreateAlias(alias string, indexName string) err
 	return ec.createAlias(alias, indexName)
 }
 
+// CheckAndUpdateMapping adds properties to the mapping of an existing index. Templates only
+// apply when an index is created, so a property added to a template later never reaches an
+// index that already exists; the first document carrying the field would then type it
+// dynamically, as text with a keyword subfield, instead of the type the template names.
+// Adding a property is idempotent, so this runs on every start-up. Elasticsearch rejects a
+// change to an existing property's type, and that rejection surfaces here as an error
+// rather than being closed and forgotten, because a mapping that silently failed to apply
+// is exactly the drift this exists to prevent.
+func (ec *elasticClient) CheckAndUpdateMapping(index string, properties *bytes.Buffer) error {
+	res, err := ec.es.Indices.PutMapping([]string{index}, properties)
+	if err != nil {
+		return err
+	}
+
+	defer closeResponseBody(res, "elasticClient.CheckAndUpdateMapping")
+
+	if res.IsError() {
+		return fmt.Errorf("%w: index %s: %s", ErrCouldNotUpdateMapping, index, res.String())
+	}
+
+	return nil
+}
+
 // DoRequest will do a request to elastic server
 func (ec *elasticClient) DoRequest(req *esapi.IndexRequest) error {
 	res, err := req.Do(context.Background(), ec.es)
