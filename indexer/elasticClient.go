@@ -77,13 +77,16 @@ func NewElasticClient(cfg elasticsearch.Config) (*elasticClient, error) {
 	return ec, nil
 }
 
-// CheckAndCreateTemplate creates an index template if it does not already exist
+// CheckAndCreateTemplate creates an index template if it does not already exist. The
+// request reads a copy of the buffer's bytes, never the buffer itself: start-up hands the
+// same buffer to this and to PutTemplate, and a buffer read to its end by the first
+// request has nothing left for the second.
 func (ec *elasticClient) CheckAndCreateTemplate(templateName string, template *bytes.Buffer) error {
 	if ec.templateExists(templateName) {
 		return nil
 	}
 
-	return ec.createIndexTemplate(templateName, template)
+	return ec.createIndexTemplate(templateName, bytes.NewReader(template.Bytes()))
 }
 
 // CheckAndCreatePolicy creates a new index policy if it does not already exist
@@ -148,19 +151,7 @@ func (ec *elasticClient) CheckFieldMapping(index string, properties templates.Ob
 		return nil, fmt.Errorf("%w: index %s: %w", ErrCouldNotUpdateMapping, index, err)
 	}
 
-	mapped, err := mappedFields(live, wanted)
-	if err != nil {
-		return nil, err
-	}
-
-	missing := make([]string, 0, len(names))
-	for _, name := range names {
-		if _, ok := mapped[name]; !ok {
-			missing = append(missing, name)
-		}
-	}
-
-	return missing, nil
+	return missingFields(live, wanted, names)
 }
 
 // liveFieldMappings is the shape of a field mapping response: concrete index, then field,
@@ -171,20 +162,40 @@ type liveFieldMappings map[string]struct {
 	} `json:"mappings"`
 }
 
-// mappedFields returns the wanted properties the live mapping already carries, and refuses
-// the first one it carries with another type.
-func mappedFields(live liveFieldMappings, wanted map[string]string) (map[string]struct{}, error) {
-	mapped := make(map[string]struct{})
-	for concreteIndex, indexMappings := range live {
-		for name, field := range indexMappings.Mappings {
-			if err := checkFieldType(concreteIndex, name, field.Mapping, wanted[name]); err != nil {
-				return nil, err
-			}
-			mapped[name] = struct{}{}
+// missingFields returns, sorted, every wanted property that at least one concrete index
+// behind the queried name does not map. An alias answers with one entry per backing index,
+// and a property present on one of them says nothing about the others, so a PUT is due as
+// long as any index lacks it; the PUT on the alias reaches all of them. A field entry with
+// an empty mapping object is not mapped either. A property carried with another type is an
+// error, since no PUT can change it.
+func missingFields(live liveFieldMappings, wanted map[string]string, names []string) ([]string, error) {
+	missing := make(map[string]struct{}, len(names))
+	if len(live) == 0 {
+		for _, name := range names {
+			missing[name] = struct{}{}
 		}
 	}
 
-	return mapped, nil
+	for concreteIndex, indexMappings := range live {
+		for _, name := range names {
+			field, ok := indexMappings.Mappings[name]
+			if !ok || len(field.Mapping) == 0 {
+				missing[name] = struct{}{}
+				continue
+			}
+			if err := checkFieldType(concreteIndex, name, field.Mapping, wanted[name]); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	sorted := make([]string, 0, len(missing))
+	for name := range missing {
+		sorted = append(sorted, name)
+	}
+	sort.Strings(sorted)
+
+	return sorted, nil
 }
 
 func checkFieldType(index string, name string, mapping map[string]map[string]interface{}, want string) error {
@@ -240,11 +251,18 @@ func (ec *elasticClient) CheckAndUpdateMapping(index string, properties template
 }
 
 // PutTemplate writes an index template whether or not one exists under that name, so a
-// template that gained a property reaches clusters that already carry the old one. A
-// template only shapes indices created after it, which is why the live index is handled
-// by CheckAndUpdateMapping separately.
-func (ec *elasticClient) PutTemplate(templateName string, template *bytes.Buffer) error {
-	res, err := ec.es.Indices.PutTemplate(templateName, template)
+// template that gained a property reaches clusters that already carry the old one. It takes
+// bytes rather than a reader, so no call can consume state its caller still needs, and it
+// refuses an empty body rather than writing it: on a fresh cluster this runs right after
+// the create step, and an empty template would replace the one just installed. A template
+// only shapes indices created after it, which is why the live index is handled by
+// CheckAndUpdateMapping separately.
+func (ec *elasticClient) PutTemplate(templateName string, template []byte) error {
+	if len(template) == 0 {
+		return fmt.Errorf("%w: template %s: empty body", ErrCouldNotCreateTemplate, templateName)
+	}
+
+	res, err := ec.es.Indices.PutTemplate(templateName, bytes.NewReader(template))
 	if err != nil {
 		return err
 	}
