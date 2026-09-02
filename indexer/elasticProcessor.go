@@ -169,7 +169,7 @@ func (ei *elasticProcessor) initWithKibana(indexTemplates, indexPolicies map[str
 		return err
 	}
 
-	return nil
+	return ei.ensureFieldMappings()
 }
 
 func (ei *elasticProcessor) initNoKibana(indexTemplates map[string]*bytes.Buffer) error {
@@ -193,7 +193,7 @@ func (ei *elasticProcessor) initNoKibana(indexTemplates map[string]*bytes.Buffer
 		return err
 	}
 
-	return nil
+	return ei.ensureFieldMappings()
 }
 
 // nolint: unused
@@ -263,6 +263,21 @@ func (ei *elasticProcessor) createIndexes() error {
 			return err
 		}
 	}
+	return nil
+}
+
+// ensureFieldMappings puts the properties added to the transactions template after a
+// deployment may already carry the index onto the live index, on every start-up. See
+// templates.TransactionsAddedProperties for why the template alone is not enough.
+func (ei *elasticProcessor) ensureFieldMappings() error {
+	properties := templates.Object{"properties": templates.TransactionsAddedProperties}
+
+	err := ei.elasticClient.CheckAndUpdateMapping(txIndex, properties.ToBuffer())
+	if err != nil {
+		log.Error("check and update mapping", "index", txIndex, "err", err)
+		return err
+	}
+
 	return nil
 }
 

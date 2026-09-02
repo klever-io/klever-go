@@ -32,6 +32,12 @@ type Transaction struct {
 	Logs          *Logs                    `json:"logs,omitempty"`
 	HasLogs       bool                     `json:"hasLogs,omitempty"`
 	HasOperations bool                     `json:"hasOperations,omitempty"`
+	// SCAddresses lists every smart contract that took part in the transaction: the
+	// contract it invoked and every contract that emitted an event while it ran, distinct,
+	// bech32 encoded and sorted. It is derived from the transaction's logs, so a contract
+	// that ran without emitting an event is not listed. Nil when nothing qualifies, and
+	// then absent from the document.
+	SCAddresses []string `json:"scAddresses,omitempty"`
 }
 
 // Logs represents logs with changed fields
