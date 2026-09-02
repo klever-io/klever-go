@@ -575,7 +575,7 @@ func (ec *elasticClient) aliasExists(alias string) bool {
 func (ec *elasticClient) createIndex(index string) error {
 	res, err := ec.es.Indices.Create(index)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: index %s: %w", ErrCouldNotCreateIndex, index, err)
 	}
 
 	if err := parseResponse(res, nil, elasticDefaultErrorResponseHandler); err != nil {
@@ -632,7 +632,7 @@ func (ec *elasticClient) createPolicy(policyName string, policy *bytes.Buffer) e
 func (ec *elasticClient) createIndexTemplate(templateName string, template io.Reader) error {
 	res, err := ec.es.Indices.PutTemplate(templateName, template)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: template %s: %w", ErrCouldNotCreateTemplate, templateName, err)
 	}
 
 	if err := parseResponse(res, nil, elasticDefaultErrorResponseHandler); err != nil {
@@ -648,7 +648,7 @@ func (ec *elasticClient) createIndexTemplate(templateName string, template io.Re
 func (ec *elasticClient) createAlias(alias string, index string) error {
 	res, err := ec.es.Indices.PutAlias([]string{index}, alias)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: alias %s on %s: %w", ErrCouldNotCreateAlias, alias, index, err)
 	}
 
 	if err := parseResponse(res, nil, elasticDefaultErrorResponseHandler); err != nil {

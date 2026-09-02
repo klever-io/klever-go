@@ -28,6 +28,7 @@ type mappingCluster struct {
 	requests       []string
 	putBody        []byte
 	templateBodies [][]byte // every body written to the transactions template, in order
+	ioErr          error    // the first read or write that failed inside the handler
 }
 
 func (c *mappingCluster) handler() http.Handler {
@@ -47,55 +48,88 @@ func (c *mappingCluster) handler() http.Handler {
 			}
 			switch c.secondIndex {
 			case "unmapped":
-				_, _ = io.WriteString(w, `{`+first+`,"transactions-000002":{"mappings":{}}}`)
+				c.write(w, `{`+first+`,"transactions-000002":{"mappings":{}}}`)
 			case "empty":
-				_, _ = io.WriteString(w, `{`+first+`,"transactions-000002":{"mappings":{"scAddresses":{"full_name":"scAddresses","mapping":{}}}}}`)
+				c.write(w, `{`+first+`,"transactions-000002":{"mappings":{"scAddresses":{"full_name":"scAddresses","mapping":{}}}}}`)
 			default:
-				_, _ = io.WriteString(w, `{`+first+`}`)
+				c.write(w, `{`+first+`}`)
 			}
 		case r.Method == http.MethodPut && r.URL.Path == "/"+txIndex+"/_mapping":
-			c.putBody, _ = io.ReadAll(r.Body)
+			c.putBody = c.read(r)
 			if c.rejectPut {
 				w.WriteHeader(http.StatusBadRequest)
-				_, _ = io.WriteString(w, `{"error":{"type":"illegal_argument_exception","reason":"mapper [scAddresses] cannot be changed"}}`)
+				c.write(w, `{"error":{"type":"illegal_argument_exception","reason":"mapper [scAddresses] cannot be changed"}}`)
 				return
 			}
-			_, _ = io.WriteString(w, `{"acknowledged":true}`)
+			c.write(w, `{"acknowledged":true}`)
 		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/_template/"):
 			if r.URL.Path == "/_template/"+txIndex {
-				body, _ := io.ReadAll(r.Body)
+				body := c.read(r)
 				c.templateBodies = append(c.templateBodies, body)
 			}
 			if c.rejectPut {
 				w.WriteHeader(http.StatusBadRequest)
-				_, _ = io.WriteString(w, `{"error":{"type":"illegal_argument_exception","reason":"bad template"}}`)
+				c.write(w, `{"error":{"type":"illegal_argument_exception","reason":"bad template"}}`)
 				return
 			}
-			_, _ = io.WriteString(w, `{"acknowledged":true}`)
+			c.write(w, `{"acknowledged":true}`)
 		case r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/_alias"):
 			if c.rejectPut {
 				w.WriteHeader(http.StatusBadRequest)
-				_, _ = io.WriteString(w, `{"error":{"type":"illegal_argument_exception","reason":"bad alias"}}`)
+				c.write(w, `{"error":{"type":"illegal_argument_exception","reason":"bad alias"}}`)
 				return
 			}
-			_, _ = io.WriteString(w, `{"acknowledged":true}`)
+			c.write(w, `{"acknowledged":true}`)
 		case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "-000001"):
 			if c.indexTaken {
 				w.WriteHeader(http.StatusBadRequest)
-				_, _ = io.WriteString(w, `{"error":{"type":"resource_already_exists_exception","reason":"index already exists"}}`)
+				c.write(w, `{"error":{"type":"resource_already_exists_exception","reason":"index already exists"}}`)
 				return
 			}
 			if c.rejectPut {
 				w.WriteHeader(http.StatusBadRequest)
-				_, _ = io.WriteString(w, `{"error":{"type":"illegal_argument_exception","reason":"bad index"}}`)
+				c.write(w, `{"error":{"type":"illegal_argument_exception","reason":"bad index"}}`)
 				return
 			}
-			_, _ = io.WriteString(w, `{"acknowledged":true}`)
+			c.write(w, `{"acknowledged":true}`)
 		default:
 			w.WriteHeader(http.StatusNotFound)
-			_, _ = io.WriteString(w, `{"error":{"type":"resource_not_found_exception"}}`)
+			c.write(w, `{"error":{"type":"resource_not_found_exception"}}`)
 		}
 	})
+}
+
+// write and read record the first I/O failure inside the handler, which holds c.mu, so a
+// partial fixture surfaces as a test failure rather than as a puzzling client error.
+func (c *mappingCluster) write(w io.Writer, s string) {
+	if _, err := io.WriteString(w, s); err != nil && c.ioErr == nil {
+		c.ioErr = err
+	}
+}
+
+func (c *mappingCluster) read(r *http.Request) []byte {
+	body, err := io.ReadAll(r.Body)
+	if err != nil && c.ioErr == nil {
+		c.ioErr = err
+	}
+
+	return body
+}
+
+// serve starts the fake and, when the test ends, closes it and fails the test on any I/O
+// error the handler recorded.
+func serve(t *testing.T, cluster *mappingCluster) *httptest.Server {
+	t.Helper()
+
+	server := httptest.NewServer(cluster.handler())
+	t.Cleanup(func() {
+		server.Close()
+		cluster.mu.Lock()
+		defer cluster.mu.Unlock()
+		require.NoError(t, cluster.ioErr, "the fake must have served every request in full")
+	})
+
+	return server
 }
 
 func (c *mappingCluster) seen() []string {
@@ -140,8 +174,7 @@ func TestCheckAndUpdateMapping(t *testing.T) {
 		t.Parallel()
 
 		cluster := &mappingCluster{}
-		server := httptest.NewServer(cluster.handler())
-		defer server.Close()
+		server := serve(t, cluster)
 
 		require.NoError(t, newMappingClient(t, server.URL).CheckAndUpdateMapping(txIndex, addedProperties))
 
@@ -154,8 +187,7 @@ func TestCheckAndUpdateMapping(t *testing.T) {
 		t.Parallel()
 
 		cluster := &mappingCluster{fieldType: "keyword"}
-		server := httptest.NewServer(cluster.handler())
-		defer server.Close()
+		server := serve(t, cluster)
 
 		require.NoError(t, newMappingClient(t, server.URL).CheckAndUpdateMapping(txIndex, addedProperties))
 		require.Equal(t, []string{"GET /transactions/_mapping/field/scAddresses"}, cluster.seen(),
@@ -166,8 +198,7 @@ func TestCheckAndUpdateMapping(t *testing.T) {
 		t.Parallel()
 
 		cluster := &mappingCluster{fieldType: "text"}
-		server := httptest.NewServer(cluster.handler())
-		defer server.Close()
+		server := serve(t, cluster)
 
 		err := newMappingClient(t, server.URL).CheckAndUpdateMapping(txIndex, addedProperties)
 		require.ErrorIs(t, err, ErrCouldNotUpdateMapping)
@@ -179,8 +210,7 @@ func TestCheckAndUpdateMapping(t *testing.T) {
 		t.Parallel()
 
 		cluster := &mappingCluster{rejectPut: true}
-		server := httptest.NewServer(cluster.handler())
-		defer server.Close()
+		server := serve(t, cluster)
 
 		err := newMappingClient(t, server.URL).CheckAndUpdateMapping(txIndex, addedProperties)
 		require.ErrorIs(t, err, ErrCouldNotUpdateMapping)
@@ -190,7 +220,7 @@ func TestCheckAndUpdateMapping(t *testing.T) {
 	t.Run("an unreachable cluster is an error", func(t *testing.T) {
 		t.Parallel()
 
-		server := httptest.NewServer((&mappingCluster{}).handler())
+		server := serve(t, &mappingCluster{})
 		server.Close()
 
 		require.Error(t, newMappingClient(t, server.URL).CheckAndUpdateMapping(txIndex, addedProperties))
@@ -208,8 +238,7 @@ func TestCheckAndUpdateMapping_WritesWhenAnyBackingIndexLacksTheField(t *testing
 			t.Parallel()
 
 			cluster := &mappingCluster{fieldType: "keyword", secondIndex: second}
-			server := httptest.NewServer(cluster.handler())
-			defer server.Close()
+			server := serve(t, cluster)
 
 			require.NoError(t, newMappingClient(t, server.URL).CheckAndUpdateMapping(txIndex, addedProperties))
 			require.Equal(t, []string{"GET /transactions/_mapping/field/scAddresses", "PUT /transactions/_mapping"}, cluster.seen(),
@@ -222,8 +251,7 @@ func TestCheckFieldMapping_ReportsWhatIsMissing(t *testing.T) {
 	t.Parallel()
 
 	cluster := &mappingCluster{}
-	server := httptest.NewServer(cluster.handler())
-	defer server.Close()
+	server := serve(t, cluster)
 
 	missing, err := newMappingClient(t, server.URL).CheckFieldMapping(txIndex, addedProperties)
 	require.NoError(t, err)
@@ -238,8 +266,7 @@ func TestCheckAndCreateTemplate_LeavesTheBufferForTheNextRequest(t *testing.T) {
 	t.Parallel()
 
 	cluster := &mappingCluster{}
-	server := httptest.NewServer(cluster.handler())
-	defer server.Close()
+	server := serve(t, cluster)
 
 	client := newMappingClient(t, server.URL)
 	template := addedProperties.ToBuffer()
@@ -261,8 +288,7 @@ func TestCheckAndCreateTemplate_LeavesTheBufferForTheNextRequest(t *testing.T) {
 // is why only a fresh cluster shows this.
 func TestNewElasticProcessor_OnAFreshClusterWritesTheTransactionsTemplateTwiceInFull(t *testing.T) {
 	cluster := &mappingCluster{}
-	server := httptest.NewServer(cluster.handler())
-	defer server.Close()
+	server := serve(t, cluster)
 
 	indexTemplates, indexPolicies, err := GetElasticTemplatesAndPolicies(false)
 	require.NoError(t, err)
@@ -290,8 +316,7 @@ func TestCreateSteps_ARefusalIsAnError(t *testing.T) {
 		t.Parallel()
 
 		cluster := &mappingCluster{rejectPut: true}
-		server := httptest.NewServer(cluster.handler())
-		defer server.Close()
+		server := serve(t, cluster)
 
 		err := newMappingClient(t, server.URL).CheckAndCreateTemplate(txIndex, addedProperties.ToBuffer())
 		require.ErrorIs(t, err, ErrCouldNotCreateTemplate)
@@ -302,8 +327,7 @@ func TestCreateSteps_ARefusalIsAnError(t *testing.T) {
 		t.Parallel()
 
 		cluster := &mappingCluster{rejectPut: true}
-		server := httptest.NewServer(cluster.handler())
-		defer server.Close()
+		server := serve(t, cluster)
 
 		err := newMappingClient(t, server.URL).CheckAndCreateIndex("transactions-000001")
 		require.ErrorIs(t, err, ErrCouldNotCreateIndex)
@@ -314,8 +338,7 @@ func TestCreateSteps_ARefusalIsAnError(t *testing.T) {
 		t.Parallel()
 
 		cluster := &mappingCluster{indexTaken: true}
-		server := httptest.NewServer(cluster.handler())
-		defer server.Close()
+		server := serve(t, cluster)
 
 		require.NoError(t, newMappingClient(t, server.URL).CheckAndCreateIndex("transactions-000001"))
 		require.Equal(t, []string{"HEAD /transactions-000001", "PUT /transactions-000001"}, cluster.seen(),
@@ -326,12 +349,23 @@ func TestCreateSteps_ARefusalIsAnError(t *testing.T) {
 		t.Parallel()
 
 		cluster := &mappingCluster{rejectPut: true}
-		server := httptest.NewServer(cluster.handler())
-		defer server.Close()
+		server := serve(t, cluster)
 
 		err := newMappingClient(t, server.URL).CheckAndCreateAlias(txIndex, "transactions-000001")
 		require.ErrorIs(t, err, ErrCouldNotCreateAlias)
 		require.ErrorContains(t, err, "bad alias")
+	})
+
+	t.Run("an unreachable cluster is an error naming the resource", func(t *testing.T) {
+		t.Parallel()
+
+		server := serve(t, &mappingCluster{})
+		server.Close()
+		client := newMappingClient(t, server.URL)
+
+		require.ErrorIs(t, client.CheckAndCreateTemplate(txIndex, addedProperties.ToBuffer()), ErrCouldNotCreateTemplate)
+		require.ErrorIs(t, client.CheckAndCreateIndex("transactions-000001"), ErrCouldNotCreateIndex)
+		require.ErrorIs(t, client.CheckAndCreateAlias(txIndex, "transactions-000001"), ErrCouldNotCreateAlias)
 	})
 }
 
@@ -342,8 +376,7 @@ func TestPutTemplate_WritesWhetherOrNotOneExists(t *testing.T) {
 		t.Parallel()
 
 		cluster := &mappingCluster{}
-		server := httptest.NewServer(cluster.handler())
-		defer server.Close()
+		server := serve(t, cluster)
 
 		require.NoError(t, newMappingClient(t, server.URL).PutTemplate(txIndex, addedProperties.ToBuffer().Bytes()))
 		require.Equal(t, []string{"PUT /_template/transactions"}, cluster.seen(), "no existence check may short-circuit the write")
@@ -353,8 +386,7 @@ func TestPutTemplate_WritesWhetherOrNotOneExists(t *testing.T) {
 		t.Parallel()
 
 		cluster := &mappingCluster{rejectPut: true}
-		server := httptest.NewServer(cluster.handler())
-		defer server.Close()
+		server := serve(t, cluster)
 
 		require.ErrorIs(t, newMappingClient(t, server.URL).PutTemplate(txIndex, addedProperties.ToBuffer().Bytes()), ErrCouldNotCreateTemplate)
 	})
@@ -363,8 +395,7 @@ func TestPutTemplate_WritesWhetherOrNotOneExists(t *testing.T) {
 		t.Parallel()
 
 		cluster := &mappingCluster{}
-		server := httptest.NewServer(cluster.handler())
-		defer server.Close()
+		server := serve(t, cluster)
 
 		require.ErrorIs(t, newMappingClient(t, server.URL).PutTemplate(txIndex, nil), ErrCouldNotCreateTemplate)
 		require.Empty(t, cluster.seen(), "a consumed buffer must not turn into an empty template on the cluster")

@@ -348,7 +348,11 @@ func (b *backfiller) clearScroll(scrollID string) {
 		b.logf("clear scroll: %v; the source frees the cursor when the keepalive expires\n", err)
 		return
 	}
-	defer func() { _ = cleared.Body.Close() }()
+	defer func() {
+		if closeErr := cleared.Body.Close(); closeErr != nil {
+			b.logf("clear scroll: close response: %v\n", closeErr)
+		}
+	}()
 
 	if cleared.IsError() {
 		b.logf("clear scroll: %s; the source frees the cursor when the keepalive expires\n", cleared.String())
