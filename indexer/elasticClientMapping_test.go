@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -13,15 +14,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mappingCluster is the slice of Elasticsearch the mapping bootstrap talks to: the field
-// mapping read and the mapping write. It records what it was asked, in order, so a test
-// can assert the read happened before the write and that the write carries the property.
-// The product header is what the client checks before trusting a server.
+// mappingCluster is the slice of Elasticsearch start-up talks to: the existence checks,
+// which all answer 404, the template, index and alias creates, and the field mapping read
+// and write. It records what it was asked, in order, so a test can assert the read happened
+// before the write and that the write carries the property. The product header is what the
+// client checks before trusting a server.
 type mappingCluster struct {
 	mu             sync.Mutex
 	fieldType      string // "" means the field is not mapped
 	secondIndex    string // "" means one backing index; "unmapped" adds one without the field; "empty" adds one with an empty mapping object
-	rejectPut      bool
+	rejectPut      bool   // every write is refused with 400
+	indexTaken     bool   // an index create answers that the index already exists
 	requests       []string
 	putBody        []byte
 	templateBodies [][]byte // every body written to the transactions template, in order
@@ -58,12 +61,33 @@ func (c *mappingCluster) handler() http.Handler {
 				return
 			}
 			_, _ = io.WriteString(w, `{"acknowledged":true}`)
-		case r.Method == http.MethodPut && r.URL.Path == "/_template/"+txIndex:
-			body, _ := io.ReadAll(r.Body)
-			c.templateBodies = append(c.templateBodies, body)
+		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/_template/"):
+			if r.URL.Path == "/_template/"+txIndex {
+				body, _ := io.ReadAll(r.Body)
+				c.templateBodies = append(c.templateBodies, body)
+			}
 			if c.rejectPut {
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = io.WriteString(w, `{"error":{"type":"illegal_argument_exception","reason":"bad template"}}`)
+				return
+			}
+			_, _ = io.WriteString(w, `{"acknowledged":true}`)
+		case r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/_alias"):
+			if c.rejectPut {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = io.WriteString(w, `{"error":{"type":"illegal_argument_exception","reason":"bad alias"}}`)
+				return
+			}
+			_, _ = io.WriteString(w, `{"acknowledged":true}`)
+		case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "-000001"):
+			if c.indexTaken {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = io.WriteString(w, `{"error":{"type":"resource_already_exists_exception","reason":"index already exists"}}`)
+				return
+			}
+			if c.rejectPut {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = io.WriteString(w, `{"error":{"type":"illegal_argument_exception","reason":"bad index"}}`)
 				return
 			}
 			_, _ = io.WriteString(w, `{"acknowledged":true}`)
@@ -254,6 +278,61 @@ func TestNewElasticProcessor_OnAFreshClusterWritesTheTransactionsTemplateTwiceIn
 	require.Contains(t, cluster.seen(), "HEAD /_template/transactions", "the premise: the create step checked, found nothing, and wrote")
 	require.Equal(t, [][]byte{want, want}, cluster.templatesWritten(), "the create step and the rewrite must both carry the full template")
 	require.Equal(t, want, indexTemplates[txIndex].Bytes(), "start-up must leave the shared buffer intact")
+}
+
+// TestCreateSteps_ARefusalIsAnError pins that a template, index or alias the cluster refuses
+// stops start-up instead of being closed and forgotten, and that an index which exists by
+// the time the create arrives is not an error, since that is what the call wanted.
+func TestCreateSteps_ARefusalIsAnError(t *testing.T) {
+	t.Parallel()
+
+	t.Run("template", func(t *testing.T) {
+		t.Parallel()
+
+		cluster := &mappingCluster{rejectPut: true}
+		server := httptest.NewServer(cluster.handler())
+		defer server.Close()
+
+		err := newMappingClient(t, server.URL).CheckAndCreateTemplate(txIndex, addedProperties.ToBuffer())
+		require.ErrorIs(t, err, ErrCouldNotCreateTemplate)
+		require.ErrorContains(t, err, "bad template", "the cluster's reason must reach the operator")
+	})
+
+	t.Run("index", func(t *testing.T) {
+		t.Parallel()
+
+		cluster := &mappingCluster{rejectPut: true}
+		server := httptest.NewServer(cluster.handler())
+		defer server.Close()
+
+		err := newMappingClient(t, server.URL).CheckAndCreateIndex("transactions-000001")
+		require.ErrorIs(t, err, ErrCouldNotCreateIndex)
+		require.ErrorContains(t, err, "bad index")
+	})
+
+	t.Run("index that exists by the time the create arrives", func(t *testing.T) {
+		t.Parallel()
+
+		cluster := &mappingCluster{indexTaken: true}
+		server := httptest.NewServer(cluster.handler())
+		defer server.Close()
+
+		require.NoError(t, newMappingClient(t, server.URL).CheckAndCreateIndex("transactions-000001"))
+		require.Equal(t, []string{"HEAD /transactions-000001", "PUT /transactions-000001"}, cluster.seen(),
+			"the premise: the existence check said no, the create was sent, the cluster said it exists")
+	})
+
+	t.Run("alias", func(t *testing.T) {
+		t.Parallel()
+
+		cluster := &mappingCluster{rejectPut: true}
+		server := httptest.NewServer(cluster.handler())
+		defer server.Close()
+
+		err := newMappingClient(t, server.URL).CheckAndCreateAlias(txIndex, "transactions-000001")
+		require.ErrorIs(t, err, ErrCouldNotCreateAlias)
+		require.ErrorContains(t, err, "bad alias")
+	})
 }
 
 func TestPutTemplate_WritesWhetherOrNotOneExists(t *testing.T) {
