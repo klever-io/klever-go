@@ -25,7 +25,7 @@ type DatabaseWriterStub struct {
 	ConvertObjectToDataCalled     func(obj object, data any) error
 	CheckFieldMappingCalled       func(index string, properties templates.Object) ([]string, error)
 	CheckAndUpdateMappingCalled   func(index string, properties templates.Object) error
-	PutTemplateCalled             func(templateName string, template *bytes.Buffer) error
+	PutTemplateCalled             func(templateName string, template []byte) error
 }
 
 type object = map[string]interface{}
@@ -161,7 +161,7 @@ func (dwm *DatabaseWriterStub) CheckAndUpdateMapping(index string, properties te
 }
 
 // PutTemplate -
-func (dwm *DatabaseWriterStub) PutTemplate(templateName string, template *bytes.Buffer) error {
+func (dwm *DatabaseWriterStub) PutTemplate(templateName string, template []byte) error {
 	if dwm.PutTemplateCalled != nil {
 		return dwm.PutTemplateCalled(templateName, template)
 	}

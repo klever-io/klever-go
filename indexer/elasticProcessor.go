@@ -269,10 +269,11 @@ func (ei *elasticProcessor) createIndexes() error {
 // predate the properties in templates.TransactionsAddedProperties: the stored template is
 // rewritten so indices created from now on carry them, and the live index gains whichever
 // of them it does not map yet. Both run on every start-up; the live index is read before it
-// is written, so a node whose index is already up to date sends no write.
+// is written, so a node whose index is already up to date sends no write. The template is
+// the same buffer the create step was handed, which is why that step must not consume it.
 func (ei *elasticProcessor) ensureFieldMappings(indexTemplates map[string]*bytes.Buffer) error {
 	if template := getTemplateByName(txIndex, indexTemplates); template != nil {
-		err := ei.elasticClient.PutTemplate(txIndex, template)
+		err := ei.elasticClient.PutTemplate(txIndex, template.Bytes())
 		if err != nil {
 			log.Error("put template", "index", txIndex, "err", err)
 			return err

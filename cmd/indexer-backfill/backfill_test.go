@@ -141,6 +141,7 @@ type fakeES struct {
 	counts      []int64
 	failBulk    bool
 	failCount   bool
+	failClear   bool
 	requests    []string // "METHOD path?query"
 	bulkBody    bytes.Buffer
 	scrollNext  []byte
@@ -180,6 +181,9 @@ func (f *fakeES) handler() http.Handler {
 				hits = append(hits, map[string]interface{}{"_id": hash, "_source": doc})
 			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"_scroll_id": "cursor-1", "hits": map[string]interface{}{"hits": hits}})
+		case r.URL.Path == "/_search/scroll" && r.Method == http.MethodDelete && f.failClear:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error":{"type":"search_context_missing_exception"}}`)
 		case r.URL.Path == "/_search/scroll" && r.Method == http.MethodDelete:
 			f.scrollClear, _ = io.ReadAll(r.Body)
 			_, _ = io.WriteString(w, `{"succeeded":true}`)
@@ -203,6 +207,11 @@ func (f *fakeES) handler() http.Handler {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = io.WriteString(w, `{"error":{"type":"search_phase_execution_exception"}}`)
 		case r.URL.Path == "/"+transactionsAlias+"/_count":
+			if len(f.counts) == 0 {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = io.WriteString(w, `{"error":{"type":"fake_out_of_counts","reason":"the test queued fewer counts than the tool asked for"}}`)
+				return
+			}
 			count := f.counts[0]
 			f.counts = f.counts[1:]
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"count": count})
@@ -211,6 +220,21 @@ func (f *fakeES) handler() http.Handler {
 			_, _ = io.WriteString(w, `{"error":{"type":"resource_not_found_exception"}}`)
 		}
 	})
+}
+
+// sentBulkBody and scrollBodies read what the handler wrote, under the same mutex.
+func (f *fakeES) sentBulkBody() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.bulkBody.String()
+}
+
+func (f *fakeES) scrollBodies() (next, clear []byte) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.scrollNext, f.scrollClear
 }
 
 // paths returns the recorded requests without their query strings, in order.
@@ -308,7 +332,7 @@ func TestBackfill_WritesWhatTheIndexerDerives(t *testing.T) {
 	require.NoError(t, err)
 	want, err := bulkBody("transactions-000001", derive(cluster.logs))
 	require.NoError(t, err)
-	require.Equal(t, string(want), cluster.bulkBody.String(), "the bulk body must be exactly the derived updates")
+	require.Equal(t, string(want), cluster.sentBulkBody(), "the bulk body must be exactly the derived updates")
 
 	paths := cluster.paths()
 	require.Equal(t, 1, cluster.countPath("/_bulk"))
@@ -319,9 +343,10 @@ func TestBackfill_WritesWhatTheIndexerDerives(t *testing.T) {
 	require.Contains(t, search, "scroll=60000ms", "the first page must open a scroll with the keepalive")
 	require.Contains(t, search, "size=10", "the page size must follow the batch size")
 	require.Contains(t, search, "_source=address%2Cevents.address")
-	require.JSONEq(t, `{"scroll_id":"cursor-1","scroll":"60000ms"}`, string(cluster.scrollNext),
+	next, clear := cluster.scrollBodies()
+	require.JSONEq(t, `{"scroll_id":"cursor-1","scroll":"60000ms"}`, string(next),
 		"the follow-up must carry the cursor and the keepalive in the body, in the unit Elasticsearch accepts")
-	require.JSONEq(t, `{"scroll_id":["cursor-2"]}`, string(cluster.scrollClear), "the last cursor must be cleared through the body")
+	require.JSONEq(t, `{"scroll_id":["cursor-2"]}`, string(clear), "the last cursor must be cleared through the body")
 	require.Contains(t, out.String(), "logs read: 2, with contracts: 1")
 	require.Contains(t, out.String(), "updated: 1, already set: 0, no such transaction: 0, failed: 0")
 }
@@ -397,6 +422,18 @@ func TestBackfill_SurfacesABulkFailure(t *testing.T) {
 	}})
 
 	require.ErrorContains(t, cluster.backfiller(t, options{}, io.Discard).backfill(context.Background()), "bulk update")
+}
+
+// TestBackfill_ReportsAFailedScrollCleanup keeps the clean-up non-fatal but visible: a
+// cursor the source refuses to release stays open until the keepalive expires, and the
+// operator should read that in the output rather than nothing.
+func TestBackfill_ReportsAFailedScrollCleanup(t *testing.T) {
+	cluster := startFake(t, &fakeES{failClear: true, aliases: []string{"transactions-000001"}, fieldType: "keyword", logs: map[string]logDocument{}})
+
+	var out bytes.Buffer
+	require.NoError(t, cluster.backfiller(t, options{}, &out).backfill(context.Background()))
+	require.Contains(t, out.String(), "clear scroll: ")
+	require.Contains(t, out.String(), "the source frees the cursor when the keepalive expires")
 }
 
 func TestPause_StopsWhenTheRunIsCancelled(t *testing.T) {

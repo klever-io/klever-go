@@ -182,9 +182,9 @@ func TestNewElasticProcessor_PutsTheAddedPropertiesOnTheTransactionsIndex(t *tes
 		args := createMockElasticProcessorArgs()
 		args.IndexTemplates = map[string]*bytes.Buffer{txIndex: noKibana.Transactions.ToBuffer(), blockIndex: noKibana.Blocks.ToBuffer()}
 		args.DBClient = &imock.DatabaseWriterStub{
-			PutTemplateCalled: func(name string, template *bytes.Buffer) error {
+			PutTemplateCalled: func(name string, template []byte) error {
 				gotTemplates = append(gotTemplates, name)
-				require.True(t, bytes.Contains(template.Bytes(), []byte(`"scAddresses":{"type":"keyword"}`)), "template: %s", template.String())
+				require.True(t, bytes.Contains(template, []byte(`"scAddresses":{"type":"keyword"}`)), "template: %s", template)
 				return nil
 			},
 		}
@@ -210,7 +210,7 @@ func TestNewElasticProcessor_PutsTheAddedPropertiesOnTheTransactionsIndex(t *tes
 		args := createMockElasticProcessorArgs()
 		args.IndexTemplates = map[string]*bytes.Buffer{txIndex: noKibana.Transactions.ToBuffer()}
 		args.DBClient = &imock.DatabaseWriterStub{
-			PutTemplateCalled: func(string, *bytes.Buffer) error { return templateErr },
+			PutTemplateCalled: func(string, []byte) error { return templateErr },
 		}
 
 		_, err := NewElasticProcessor(args)

@@ -56,7 +56,7 @@ type DatabaseClientHandler interface {
 	CheckAndCreatePolicy(policyName string, policy *bytes.Buffer) error
 	CheckFieldMapping(index string, properties templates.Object) ([]string, error)
 	CheckAndUpdateMapping(index string, properties templates.Object) error
-	PutTemplate(templateName string, template *bytes.Buffer) error
+	PutTemplate(templateName string, template []byte) error
 	DocExists(index string, id string) bool
 	ConvertObjectToOrder(obj object) (*data.Order, error)
 	ConvertObjectToData(obj object, data any) error
