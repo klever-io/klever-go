@@ -54,7 +54,9 @@ type DatabaseClientHandler interface {
 	CheckAndCreateAlias(alias string, index string) error
 	CheckAndCreateTemplate(templateName string, template *bytes.Buffer) error
 	CheckAndCreatePolicy(policyName string, policy *bytes.Buffer) error
-	CheckAndUpdateMapping(index string, properties *bytes.Buffer) error
+	CheckFieldMapping(index string, properties templates.Object) ([]string, error)
+	CheckAndUpdateMapping(index string, properties templates.Object) error
+	PutTemplate(templateName string, template *bytes.Buffer) error
 	DocExists(index string, id string) bool
 	ConvertObjectToOrder(obj object) (*data.Order, error)
 	ConvertObjectToData(obj object, data any) error

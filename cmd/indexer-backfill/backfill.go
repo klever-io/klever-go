@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,12 +19,22 @@ import (
 	"github.com/klever-io/klever-go/data/indexer"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/indexer/data"
+	"github.com/klever-io/klever-go/indexer/templates"
 )
 
 const (
 	logsIndex         = "logs"
 	transactionsAlias = "transactions"
 	fieldName         = "scAddresses"
+
+	// retriesOnConflict is how often an update is retried when the live indexer upserts
+	// the same transaction in between; a version conflict on the newest documents is
+	// expected while the chain moves and is not a reason to fail the run.
+	retriesOnConflict = 3
+
+	// clearScrollTimeout bounds the clean-up of the source cursor, which runs after the
+	// context that drove the scroll may already have been cancelled.
+	clearScrollTimeout = 10 * time.Second
 )
 
 type options struct {
@@ -53,6 +64,12 @@ type deriveFunc func(docs map[string]logDocument) map[string][]string
 // logsExtractor is the one indexer method the derivation relies on.
 type logsExtractor interface {
 	ExtractDataFromLogs(pool *indexer.Pool, txs []*data.Transaction, timestamp int64) *data.PreparedLogsResults
+}
+
+// mappingClient is the slice of the indexer's client the mapping step relies on.
+type mappingClient interface {
+	CheckFieldMapping(index string, properties templates.Object) ([]string, error)
+	CheckAndUpdateMapping(index string, properties templates.Object) error
 }
 
 // newDerivation feeds each log document to the indexer exactly as the indexer would have
@@ -107,9 +124,14 @@ func newDerivation(extractor logsExtractor, converter core.PubkeyConverter) deri
 
 type backfiller struct {
 	source, target *elasticsearch.Client
+	mapping        mappingClient
 	derive         deriveFunc
 	opts           options
 	out            io.Writer
+}
+
+func newBackfiller(source, target *elasticsearch.Client, mapping mappingClient, derive deriveFunc, opts options, out io.Writer) *backfiller {
+	return &backfiller{source: source, target: target, mapping: mapping, derive: derive, opts: opts, out: out}
 }
 
 // logf writes progress; a failed write to the progress writer is not a reason to stop a backfill.
@@ -117,21 +139,21 @@ func (b *backfiller) logf(format string, args ...interface{}) {
 	_, _ = fmt.Fprintf(b.out, format, args...)
 }
 
-func newBackfiller(source, target *elasticsearch.Client, derive deriveFunc, opts options, out io.Writer) *backfiller {
-	return &backfiller{source: source, target: target, derive: derive, opts: opts, out: out}
-}
-
 // tally is what a run reports at the end.
 type tally struct {
 	read, withContracts, updated, unchanged, missing, failed int
 }
 
-func (b *backfiller) run(ctx context.Context) error {
+func (b *backfiller) backfill(ctx context.Context) error {
 	index, err := resolveSingleIndex(ctx, b.target, transactionsAlias)
 	if err != nil {
 		return err
 	}
 	b.logf("target: %s (alias %s)\n", index, transactionsAlias)
+
+	if err := b.ensureMapping(index); err != nil {
+		return err
+	}
 
 	var totals tally
 	err = b.scroll(ctx, func(docs map[string]logDocument) error {
@@ -152,11 +174,7 @@ func (b *backfiller) run(ctx context.Context) error {
 		totals.missing += result.missing
 		totals.failed += result.failed
 
-		if b.opts.pause > 0 {
-			time.Sleep(b.opts.pause)
-		}
-
-		return nil
+		return pause(ctx, b.opts.pause)
 	})
 	if err != nil {
 		return err
@@ -176,6 +194,48 @@ func (b *backfiller) run(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// ensureMapping brings the target's mapping up to date before anything is written, through
+// the indexer's own client: the first document carrying an unmapped field would type it
+// dynamically as text, and every node built with the field would then refuse to start
+// against that index. A dry run reads and reports, and refuses only when the field is
+// already mapped with another type, which no run can repair.
+func (b *backfiller) ensureMapping(index string) error {
+	properties := templates.Object{"properties": templates.TransactionsAddedProperties}
+
+	if !b.opts.dryRun {
+		return b.mapping.CheckAndUpdateMapping(index, properties)
+	}
+
+	missing, err := b.mapping.CheckFieldMapping(index, properties)
+	if err != nil {
+		return err
+	}
+	if len(missing) > 0 {
+		b.logf("mapping: %s not mapped on %s yet; a real run puts it before writing\n", strings.Join(missing, ", "), index)
+		return nil
+	}
+	b.logf("mapping: up to date on %s\n", index)
+
+	return nil
+}
+
+// pause waits between batches without outliving a cancelled run.
+func pause(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // resolveSingleIndex returns the one concrete index behind alias. A bulk update addressed
@@ -210,7 +270,9 @@ func resolveSingleIndex(ctx context.Context, client *elasticsearch.Client, alias
 	return names[0], nil
 }
 
-// scroll walks the whole source logs index in batches and hands each batch to visit.
+// scroll walks the whole source logs index in batches and hands each batch to visit. The
+// cursor travels in the request body, not the URL: its size grows with the source's shard
+// count and a URL has a length limit the body does not.
 func (b *backfiller) scroll(ctx context.Context, visit func(map[string]logDocument) error) error {
 	body, err := json.Marshal(b.searchBody())
 	if err != nil {
@@ -234,34 +296,55 @@ func (b *backfiller) scroll(ctx context.Context, visit func(map[string]logDocume
 		if scrollID == "" {
 			return
 		}
-		clear, err := b.source.ClearScroll(b.source.ClearScroll.WithScrollID(scrollID))
-		if err == nil {
-			_ = clear.Body.Close()
-		}
+		b.clearScroll(scrollID)
 	}()
 
 	for {
-		page, err := readPage(res)
+		current, err := readPage(res)
 		if err != nil {
 			return err
 		}
-		scrollID = page.scrollID
+		scrollID = current.scrollID
 
-		if len(page.docs) == 0 {
+		if len(current.docs) == 0 {
 			return nil
 		}
-		if err := visit(page.docs); err != nil {
+		if err := visit(current.docs); err != nil {
 			return err
 		}
 
-		res, err = b.source.Scroll(
-			b.source.Scroll.WithContext(ctx),
-			b.source.Scroll.WithScrollID(scrollID),
-			b.source.Scroll.WithScroll(b.opts.scrollKeepAlive),
-		)
+		next, err := json.Marshal(map[string]interface{}{"scroll_id": scrollID, "scroll": esDuration(b.opts.scrollKeepAlive)})
+		if err != nil {
+			return err
+		}
+		res, err = b.source.Scroll(b.source.Scroll.WithContext(ctx), b.source.Scroll.WithBody(bytes.NewReader(next)))
 		if err != nil {
 			return fmt.Errorf("scroll %s: %w", logsIndex, err)
 		}
+	}
+}
+
+// esDuration renders a keepalive the way the client renders its own query parameters:
+// whole milliseconds. Go's Duration.String() form ("1m0s") is not an Elasticsearch time
+// value and is rejected.
+func esDuration(d time.Duration) string {
+	return strconv.FormatInt(d.Milliseconds(), 10) + "ms"
+}
+
+// clearScroll releases the source's cursor on a context of its own, so an interrupted run
+// still frees it and a source that stops answering cannot hold the run open.
+func (b *backfiller) clearScroll(scrollID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), clearScrollTimeout)
+	defer cancel()
+
+	body, err := json.Marshal(map[string]interface{}{"scroll_id": []string{scrollID}})
+	if err != nil {
+		return
+	}
+
+	cleared, err := b.source.ClearScroll(b.source.ClearScroll.WithContext(ctx), b.source.ClearScroll.WithBody(bytes.NewReader(body)))
+	if err == nil {
+		_ = cleared.Body.Close()
 	}
 }
 
@@ -358,7 +441,11 @@ func bulkBody(index string, derived map[string][]string) ([]byte, error) {
 
 	var body bytes.Buffer
 	for _, hash := range hashes {
-		action, err := json.Marshal(map[string]interface{}{"update": map[string]string{"_index": index, "_id": hash}})
+		action, err := json.Marshal(map[string]interface{}{"update": map[string]interface{}{
+			"_index":            index,
+			"_id":               hash,
+			"retry_on_conflict": retriesOnConflict,
+		}})
 		if err != nil {
 			return nil, err
 		}
@@ -411,35 +498,52 @@ func readBulkResult(body io.Reader, out io.Writer) (applyResult, error) {
 	return result, nil
 }
 
-// report prints the two counts that say whether the backfill is complete on the target:
-// smart contract transactions the indexer saw logs for, against transactions carrying the
-// field. The first minus the second is what is still missing.
+// smartContractTransactionsWithLogs is the population a backfill can reach: the indexer
+// derives the field from a log, and only a smart contract transaction's log names one.
+func smartContractTransactionsWithLogs() []interface{} {
+	return []interface{}{
+		map[string]interface{}{"term": map[string]interface{}{"contract.type": 63}},
+		map[string]interface{}{"term": map[string]interface{}{"hasLogs": true}},
+	}
+}
+
+// report prints what is left to do on the target, counted directly rather than as a
+// difference of two totals: smart contract transactions with logs, how many of those carry
+// the field, and how many do not. The last number may not reach zero: a log that names no
+// contract (a failed deploy logs under the sender) leaves its transaction without a field,
+// on a backfill and on a fresh index alike.
 func report(ctx context.Context, target *elasticsearch.Client, out io.Writer) error {
-	withLogs, err := count(ctx, target, map[string]interface{}{
-		"query": map[string]interface{}{"bool": map[string]interface{}{"filter": []interface{}{
-			map[string]interface{}{"term": map[string]interface{}{"contract.type": 63}},
-			map[string]interface{}{"term": map[string]interface{}{"hasLogs": true}},
-		}}},
-	})
+	population := smartContractTransactionsWithLogs()
+	hasField := map[string]interface{}{"exists": map[string]interface{}{"field": fieldName}}
+
+	withLogs, err := count(ctx, target, map[string]interface{}{"bool": map[string]interface{}{"filter": population}})
 	if err != nil {
 		return err
 	}
 
-	withField, err := count(ctx, target, map[string]interface{}{
-		"query": map[string]interface{}{"exists": map[string]interface{}{"field": fieldName}},
-	})
+	withField, err := count(ctx, target, map[string]interface{}{"bool": map[string]interface{}{
+		"filter": append(append([]interface{}{}, population...), hasField),
+	}})
 	if err != nil {
 		return err
 	}
 
-	_, _ = fmt.Fprintf(out, "target %s: smart contract transactions with logs: %d, carrying %s: %d, missing: %d\n",
-		transactionsAlias, withLogs, fieldName, withField, withLogs-withField)
+	withoutField, err := count(ctx, target, map[string]interface{}{"bool": map[string]interface{}{
+		"filter":   population,
+		"must_not": []interface{}{hasField},
+	}})
+	if err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintf(out, "target %s: smart contract transactions with logs: %d, of which carrying %s: %d, without it: %d\n",
+		transactionsAlias, withLogs, fieldName, withField, withoutField)
 
 	return nil
 }
 
 func count(ctx context.Context, client *elasticsearch.Client, query map[string]interface{}) (int64, error) {
-	body, err := json.Marshal(query)
+	body, err := json.Marshal(map[string]interface{}{"query": query})
 	if err != nil {
 		return 0, err
 	}
