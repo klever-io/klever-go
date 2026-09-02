@@ -567,14 +567,20 @@ func (ec *elasticClient) aliasExists(alias string) bool {
 	return exists(response, nil)
 }
 
-// CreateIndex creates an elasticsearch index
+// createIndex creates an elasticsearch index. A refusal is an error: the first document
+// would otherwise create the index with a dynamic mapping and nothing would say why. An
+// index that exists by the time the create arrives, because the existence check answered
+// false on a transport error or another node created it first, is the outcome this call
+// wanted, and the response handler treats it as success.
 func (ec *elasticClient) createIndex(index string) error {
 	res, err := ec.es.Indices.Create(index)
 	if err != nil {
 		return err
 	}
 
-	defer closeResponseBody(res, "elasticClient.createIndex")
+	if err := parseResponse(res, nil, elasticDefaultErrorResponseHandler); err != nil {
+		return fmt.Errorf("%w: index %s: %w", ErrCouldNotCreateIndex, index, err)
+	}
 
 	return nil
 }
@@ -620,26 +626,34 @@ func (ec *elasticClient) createPolicy(policyName string, policy *bytes.Buffer) e
 	return nil
 }
 
-// CreateIndexTemplate creates an elasticsearch index template
+// createIndexTemplate creates an elasticsearch index template. A template the cluster
+// refuses is an error: indices created without it would type every field dynamically, and
+// nothing later would say why.
 func (ec *elasticClient) createIndexTemplate(templateName string, template io.Reader) error {
 	res, err := ec.es.Indices.PutTemplate(templateName, template)
 	if err != nil {
 		return err
 	}
 
-	defer closeResponseBody(res, "elasticClient.createIndexTemplate")
+	if err := parseResponse(res, nil, elasticDefaultErrorResponseHandler); err != nil {
+		return fmt.Errorf("%w: template %s: %w", ErrCouldNotCreateTemplate, templateName, err)
+	}
 
 	return nil
 }
 
-// CreateAlias creates an index alias
+// createAlias creates an index alias. A refusal is an error, since every write and read
+// goes through the alias; an alias that already exists is treated as success by the
+// response handler.
 func (ec *elasticClient) createAlias(alias string, index string) error {
 	res, err := ec.es.Indices.PutAlias([]string{index}, alias)
 	if err != nil {
 		return err
 	}
 
-	defer closeResponseBody(res, "elasticClient.createAlias")
+	if err := parseResponse(res, nil, elasticDefaultErrorResponseHandler); err != nil {
+		return fmt.Errorf("%w: alias %s on %s: %w", ErrCouldNotCreateAlias, alias, index, err)
+	}
 
 	return nil
 }
