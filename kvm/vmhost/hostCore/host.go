@@ -557,8 +557,7 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 		host.logFromGasTracer("init")
 	}()
 
-	timeoutErr := host.waitExecutionWithDeterministicCompletion(ctx, cancel, done)
-	if timeoutErr != nil {
+	if timeoutErr := host.waitExecutionWithDeterministicCompletion(ctx, cancel, done); timeoutErr != nil {
 		err = timeoutErr
 	}
 
@@ -638,8 +637,7 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 		host.logFromGasTracer(input.Function)
 	}()
 
-	timeoutErr := host.waitExecutionWithDeterministicCompletion(ctx, cancel, done)
-	if timeoutErr != nil {
+	if timeoutErr := host.waitExecutionWithDeterministicCompletion(ctx, cancel, done); timeoutErr != nil {
 		err = timeoutErr
 	}
 
