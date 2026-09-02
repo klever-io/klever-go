@@ -1117,3 +1117,60 @@ func Test_serializedDataForUpdateAccounts(t *testing.T) {
 		}
 	})
 }
+
+// TestPrepareSerializedDataForATransaction_WritesSmartContractAddressesOnUpdate covers the
+// half of the field that the upsert body cannot: a document that already exists receives
+// only what the script writes, so a resync or an import-db replay would leave scAddresses
+// off every existing document unless the script sets it. The payload is parsed rather
+// than matched as text, because a quoting mistake inside the script source is exactly
+// the kind of defect a substring check reads as a pass.
+func TestPrepareSerializedDataForATransaction_WritesSmartContractAddressesOnUpdate(t *testing.T) {
+	t.Parallel()
+
+	decode := func(t *testing.T, payload []byte) map[string]interface{} {
+		t.Helper()
+
+		var body map[string]interface{}
+		require.NoError(t, json.Unmarshal(payload, &body), "the bulk item must be valid JSON")
+
+		return body
+	}
+
+	t.Run("with contracts", func(t *testing.T) {
+		t.Parallel()
+
+		tx := &data.Transaction{Hash: "h1", SCAddresses: []string{"klv1a", "klv1b"}}
+		_, payload, err := prepareSerializedDataForATransaction(tx, txIndex)
+		require.NoError(t, err)
+
+		body := decode(t, payload)
+		script := body["script"].(map[string]interface{})
+		params := script["params"].(map[string]interface{})
+
+		require.Equal(t, []interface{}{"klv1a", "klv1b"}, params["scAddresses"],
+			"an existing document gets the field through the script parameters")
+		require.Contains(t, script["source"], "ctx._source.scAddresses = params.scAddresses")
+		require.Contains(t, script["source"], "params.scAddresses != null",
+			"the script must guard the write, so a transaction without contracts never writes an empty array")
+		require.Equal(t, "h1", params["hash"], "the hash write the script always did must survive")
+
+		upsert := body["upsert"].(map[string]interface{})
+		require.Equal(t, []interface{}{"klv1a", "klv1b"}, upsert["scAddresses"],
+			"a new document gets the field through the upsert body")
+	})
+
+	t.Run("without contracts", func(t *testing.T) {
+		t.Parallel()
+
+		tx := &data.Transaction{Hash: "h2"}
+		_, payload, err := prepareSerializedDataForATransaction(tx, txIndex)
+		require.NoError(t, err)
+
+		body := decode(t, payload)
+		params := body["script"].(map[string]interface{})["params"].(map[string]interface{})
+		require.Nil(t, params["scAddresses"], "null, so the guarded script leaves the document alone")
+
+		upsert := body["upsert"].(map[string]interface{})
+		require.NotContains(t, upsert, "scAddresses", "omitempty keeps the field off a document without contracts")
+	})
+}

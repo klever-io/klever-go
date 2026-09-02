@@ -90,13 +90,44 @@ func (ep *eventsProcessor) SaveBlock(args *indexerData.ArgsSaveBlockData) {
 			ep.dispatchAccountEventsFromAlteredAccounts(args.Header.GetTimestamp(), prepared.Altered.Accounts)
 		}
 		if indexerEnabled {
-			args.Prepared = prepared
+			args.Prepared = detachPreparedBlockData(prepared)
 		}
 	}
 
 	if indexerEnabled {
 		ep.indexer.SaveBlock(args)
 	}
+}
+
+// detachPreparedBlockData gives the indexer its own transaction structs. The websocket hub
+// marshals the prepared transactions on its own goroutines while the indexer worker runs
+// ExtractDataFromLogs on them, which writes hasLogs, hasOperations, scAddresses and the
+// status onto the same structs; sharing the pointers is an unsynchronized write against a
+// concurrent read. The copies keep the websocket stream the snapshot it was prepared as.
+// Nil in, nil out, so a block without transactions needs no special case.
+func detachPreparedBlockData(prepared *data.PreparedBlockData) *data.PreparedBlockData {
+	if prepared == nil {
+		return nil
+	}
+
+	txs := make([]*data.Transaction, len(prepared.Txs))
+	txsMap := make(map[string]*data.Transaction, len(prepared.TxsMap))
+	byOriginal := make(map[*data.Transaction]*data.Transaction, len(prepared.Txs))
+	for i, tx := range prepared.Txs {
+		detached := *tx
+		txs[i] = &detached
+		byOriginal[tx] = &detached
+	}
+	for hash, tx := range prepared.TxsMap {
+		if detached, ok := byOriginal[tx]; ok {
+			txsMap[hash] = detached
+			continue
+		}
+		detached := *tx
+		txsMap[hash] = &detached
+	}
+
+	return &data.PreparedBlockData{Txs: txs, TxsMap: txsMap, Altered: prepared.Altered}
 }
 
 func (ep *eventsProcessor) prepare(args *indexerData.ArgsSaveBlockData) *data.PreparedBlockData {

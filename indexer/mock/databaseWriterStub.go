@@ -23,6 +23,9 @@ type DatabaseWriterStub struct {
 	DoUpdateCalled                func(index string, id string, body *bytes.Buffer) error
 	ConvertObjectToOrderCalled    func(obj object) (*data.Order, error)
 	ConvertObjectToDataCalled     func(obj object, data any) error
+	CheckFieldMappingCalled       func(index string, properties templates.Object) ([]string, error)
+	CheckAndUpdateMappingCalled   func(index string, properties templates.Object) error
+	PutTemplateCalled             func(templateName string, template []byte) error
 }
 
 type object = map[string]interface{}
@@ -136,6 +139,33 @@ func (dwm *DatabaseWriterStub) CheckAndCreateTemplate(_ string, _ *bytes.Buffer)
 
 // CheckAndCreatePolicy -
 func (dwm *DatabaseWriterStub) CheckAndCreatePolicy(_ string, _ *bytes.Buffer) error {
+	return nil
+}
+
+// CheckFieldMapping -
+func (dwm *DatabaseWriterStub) CheckFieldMapping(index string, properties templates.Object) ([]string, error) {
+	if dwm.CheckFieldMappingCalled != nil {
+		return dwm.CheckFieldMappingCalled(index, properties)
+	}
+
+	return nil, nil
+}
+
+// CheckAndUpdateMapping -
+func (dwm *DatabaseWriterStub) CheckAndUpdateMapping(index string, properties templates.Object) error {
+	if dwm.CheckAndUpdateMappingCalled != nil {
+		return dwm.CheckAndUpdateMappingCalled(index, properties)
+	}
+
+	return nil
+}
+
+// PutTemplate -
+func (dwm *DatabaseWriterStub) PutTemplate(templateName string, template []byte) error {
+	if dwm.PutTemplateCalled != nil {
+		return dwm.PutTemplateCalled(templateName, template)
+	}
+
 	return nil
 }
 

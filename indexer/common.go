@@ -2326,6 +2326,10 @@ func prepareSerializedAccountBalanceHistory(address string, account *data.Accoun
 	return meta, serializedData, nil
 }
 
+// transactionUpdateScript runs when a transaction document already exists; see
+// prepareSerializedDataForATransaction for why scAddresses is written here as well.
+const transactionUpdateScript = "ctx._source.hash = params.hash; if (params.scAddresses != null) { ctx._source.scAddresses = params.scAddresses }"
+
 func prepareSerializedDataForATransaction(
 	tx *data.Transaction,
 	index string,
@@ -2341,7 +2345,33 @@ func prepareSerializedDataForATransaction(
 	meta := []byte(fmt.Sprintf(`{ "update" : { "_index":"%s", "_id" : "%s" } }%s`, index, tx.Hash, "\n"))
 	log.Trace("indexer tx:", "meta", string(meta), "marshaledTx", string(marshaledTx))
 
-	upsertScript := []byte(fmt.Sprintf(`{"script":{"source":"ctx._source.hash = params.hash","lang": "painless", "params": {"hash": "%s"}},"upsert":%s}`, tx.Hash, string(marshaledTx)))
+	// The upsert body carries the whole document, but a document that already exists only
+	// receives what the script writes. scAddresses is set here as well so a resync or an
+	// import-db replay over existing documents fills the field instead of leaving it to a
+	// separate backfill; null when the transaction has none, and the script leaves the
+	// document alone then rather than writing an empty array.
+	params, err := json.Marshal(map[string]interface{}{
+		"hash":        tx.Hash,
+		"scAddresses": tx.SCAddresses,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// The envelope is marshaled rather than formatted, so a future edit to the script that
+	// adds a quote or a newline cannot break the bulk line silently.
+	upsertScript, err := json.Marshal(map[string]interface{}{
+		"script": map[string]interface{}{
+			"source": transactionUpdateScript,
+			"lang":   "painless",
+			"params": json.RawMessage(params),
+		},
+		"upsert": json.RawMessage(marshaledTx),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
 	return meta, upsertScript, nil
 }
 
