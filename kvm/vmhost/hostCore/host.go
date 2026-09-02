@@ -472,6 +472,29 @@ func (host *vmHost) handleTimeout(cancelHook context.CancelFunc, done <-chan str
 	return vmhost.ErrExecutionFailedWithTimeout
 }
 
+// waitExecutionWithDeterministicCompletion waits for execution completion or timeout.
+// If both completion and timeout are observable at the same boundary, completion wins:
+// a closed done channel proves execution finished within budget, while an expired
+// context also reflects how long this goroutine waited to be scheduled.
+func (host *vmHost) waitExecutionWithDeterministicCompletion(
+	ctx context.Context,
+	cancelHook context.CancelFunc,
+	done <-chan struct{},
+) error {
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		// Deterministic tie-breaker: if execution also completed, completion wins.
+		select {
+		case <-done:
+			return nil
+		default:
+			return host.handleTimeout(cancelHook, done)
+		}
+	}
+}
+
 // RunSmartContractCreate executes the deployment of a new contract
 func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) (vmOutput *vmcommon.VMOutput, err error) {
 	err = validateVMInput(&input.VMInput)
@@ -534,12 +557,8 @@ func (host *vmHost) RunSmartContractCreate(input *vmcommon.ContractCreateInput) 
 		host.logFromGasTracer("init")
 	}()
 
-	select {
-	case <-done:
-		// Normal termination
-		return
-	case <-ctx.Done():
-		err = host.handleTimeout(cancel, done)
+	if timeoutErr := host.waitExecutionWithDeterministicCompletion(ctx, cancel, done); timeoutErr != nil {
+		err = timeoutErr
 	}
 
 	return
@@ -618,11 +637,8 @@ func (host *vmHost) RunSmartContractCall(input *vmcommon.ContractCallInput) (vmO
 		host.logFromGasTracer(input.Function)
 	}()
 
-	select {
-	case <-done:
-		// Normal termination.
-	case <-ctx.Done():
-		err = host.handleTimeout(cancel, done)
+	if timeoutErr := host.waitExecutionWithDeterministicCompletion(ctx, cancel, done); timeoutErr != nil {
+		err = timeoutErr
 	}
 
 	return vmOutput, err
