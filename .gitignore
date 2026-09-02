@@ -56,3 +56,5 @@ test-output.json
 # CI report
 report.xml
 report.json
+/indexer-backfill
+/cmd/indexer-backfill/indexer-backfill

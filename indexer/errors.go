@@ -20,6 +20,9 @@ var ErrCouldNotCreatePolicy = errors.New("could not create policy")
 // ErrCouldNotUpdateMapping signals that a mapping property could not be added to an index
 var ErrCouldNotUpdateMapping = errors.New("could not update mapping")
 
+// ErrCouldNotCreateTemplate signals that an index template could not be written
+var ErrCouldNotCreateTemplate = errors.New("could not create template")
+
 // ErrNilPubkeyConverter signals that an operation has been attempted to or with a nil public key converter implementation
 var ErrNilPubkeyConverter = errors.New("nil pubkey converter")
 

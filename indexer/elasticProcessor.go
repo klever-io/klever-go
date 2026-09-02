@@ -168,7 +168,7 @@ func (ei *elasticProcessor) initWithKibana(indexTemplates, indexPolicies map[str
 		return err
 	}
 
-	return ei.ensureFieldMappings()
+	return ei.ensureFieldMappings(indexTemplates)
 }
 
 func (ei *elasticProcessor) initNoKibana(indexTemplates map[string]*bytes.Buffer) error {
@@ -192,7 +192,7 @@ func (ei *elasticProcessor) initNoKibana(indexTemplates map[string]*bytes.Buffer
 		return err
 	}
 
-	return ei.ensureFieldMappings()
+	return ei.ensureFieldMappings(indexTemplates)
 }
 
 // nolint: unused
@@ -265,13 +265,23 @@ func (ei *elasticProcessor) createIndexes() error {
 	return nil
 }
 
-// ensureFieldMappings puts the properties added to the transactions template after a
-// deployment may already carry the index onto the live index, on every start-up. See
-// templates.TransactionsAddedProperties for why the template alone is not enough.
-func (ei *elasticProcessor) ensureFieldMappings() error {
+// ensureFieldMappings brings the transactions mapping up to date on a cluster that may
+// predate the properties in templates.TransactionsAddedProperties: the stored template is
+// rewritten so indices created from now on carry them, and the live index gains whichever
+// of them it does not map yet. Both run on every start-up; the live index is read before it
+// is written, so a node whose index is already up to date sends no write.
+func (ei *elasticProcessor) ensureFieldMappings(indexTemplates map[string]*bytes.Buffer) error {
+	if template := getTemplateByName(txIndex, indexTemplates); template != nil {
+		err := ei.elasticClient.PutTemplate(txIndex, template)
+		if err != nil {
+			log.Error("put template", "index", txIndex, "err", err)
+			return err
+		}
+	}
+
 	properties := templates.Object{"properties": templates.TransactionsAddedProperties}
 
-	err := ei.elasticClient.CheckAndUpdateMapping(txIndex, properties.ToBuffer())
+	err := ei.elasticClient.CheckAndUpdateMapping(txIndex, properties)
 	if err != nil {
 		log.Error("check and update mapping", "index", txIndex, "err", err)
 		return err
