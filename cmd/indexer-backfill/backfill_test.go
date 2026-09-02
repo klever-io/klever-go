@@ -61,8 +61,9 @@ func eventsOf(addresses ...string) []struct {
 
 // TestDerivation_IsTheIndexersOwn feeds log documents through the real indexer processor,
 // wired exactly as main wires it, and checks the field comes out as the indexer writes it:
-// the invoked contract and the inner contract, once each, sorted; the wallet and the empty
-// system address left out; a transaction whose log names no contract absent.
+// the invoked contract (reachable only through the log's own address here) and the inner
+// contract, sorted; the wallet and the empty system address left out; a transaction whose
+// log names no contract absent.
 func TestDerivation_IsTheIndexersOwn(t *testing.T) {
 	derive, err := indexerDerivation()
 	require.NoError(t, err)
@@ -71,7 +72,7 @@ func TestDerivation_IsTheIndexersOwn(t *testing.T) {
 	wallet, empty := bech32(t, walletBytes(9)), bech32(t, make([]byte, 32))
 
 	derived := derive(map[string]logDocument{
-		hashOf("swap"):   {Address: invoked, Events: eventsOf(inner, invoked, wallet, empty)},
+		hashOf("swap"):   {Address: invoked, Events: eventsOf(inner, wallet, empty)},
 		hashOf("plain"):  {Address: wallet, Events: eventsOf(wallet)},
 		"not-hex-at-all": {Address: invoked},
 	})
@@ -117,12 +118,14 @@ func TestReadBulkResult_TalliesEveryOutcome(t *testing.T) {
 // fakeES is the slice of Elasticsearch the tool talks to. The product header is what the
 // client checks before trusting a server.
 type fakeES struct {
-	t        *testing.T
-	aliases  []string
-	logs     map[string]logDocument
-	counts   []int64
-	bulkBody *bytes.Buffer
-	bulkHits int
+	failBulk  bool
+	failCount bool
+	t         *testing.T
+	aliases   []string
+	logs      map[string]logDocument
+	counts    []int64
+	bulkBody  *bytes.Buffer
+	bulkHits  int
 }
 
 func (f *fakeES) handler() http.Handler {
@@ -150,6 +153,9 @@ func (f *fakeES) handler() http.Handler {
 			_, _ = io.WriteString(w, `{"succeeded":true}`)
 		case r.URL.Path == "/_search/scroll":
 			_, _ = io.WriteString(w, `{"_scroll_id":"cursor-2","hits":{"hits":[]}}`)
+		case r.URL.Path == "/_bulk" && f.failBulk:
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(w, `{"error":{"type":"cluster_block_exception"}}`)
 		case r.URL.Path == "/_bulk":
 			f.bulkHits++
 			raw, _ := io.ReadAll(r.Body)
@@ -161,6 +167,9 @@ func (f *fakeES) handler() http.Handler {
 				}
 			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{"items": items})
+		case r.URL.Path == "/"+transactionsAlias+"/_count" && f.failCount:
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"error":{"type":"search_phase_execution_exception"}}`)
 		case r.URL.Path == "/"+transactionsAlias+"/_count":
 			count := f.counts[0]
 			f.counts = f.counts[1:]
@@ -251,4 +260,45 @@ func TestReport_PrintsWhatIsStillMissing(t *testing.T) {
 	var out bytes.Buffer
 	require.NoError(t, report(t.Context(), clientFor(t, server.URL), &out))
 	require.Contains(t, out.String(), "smart contract transactions with logs: 480483, carrying scAddresses: 479460, missing: 1023")
+}
+
+func TestRun_SurfacesABulkFailure(t *testing.T) {
+	invoked := bech32(t, contractBytes(1))
+	fake := &fakeES{t: t, failBulk: true, aliases: []string{"transactions-000001"}, bulkBody: &bytes.Buffer{}, logs: map[string]logDocument{
+		hashOf("swap"): {Address: invoked},
+	}}
+	server := httptest.NewServer(fake.handler())
+	defer server.Close()
+
+	derive, err := indexerDerivation()
+	require.NoError(t, err)
+
+	b := newBackfiller(clientFor(t, server.URL), clientFor(t, server.URL), derive, options{batchSize: 10}, io.Discard)
+	require.ErrorContains(t, b.run(t.Context()), "bulk update")
+}
+
+func TestReport_SurfacesACountFailure(t *testing.T) {
+	fake := &fakeES{t: t, failCount: true}
+	server := httptest.NewServer(fake.handler())
+	defer server.Close()
+
+	require.ErrorContains(t, report(t.Context(), clientFor(t, server.URL), io.Discard), "count")
+}
+
+func TestSearchBody_BoundsTheScrollOnlyWhenAsked(t *testing.T) {
+	unbounded := (&backfiller{opts: options{}}).searchBody()
+	require.Equal(t, map[string]interface{}{"match_all": map[string]interface{}{}}, unbounded["query"])
+
+	lower := (&backfiller{opts: options{timestampFrom: 100}}).searchBody()
+	require.Equal(t, map[string]interface{}{"range": map[string]interface{}{"timestamp": map[string]interface{}{"gte": int64(100)}}}, lower["query"])
+
+	both := (&backfiller{opts: options{timestampFrom: 100, timestampTo: 200}}).searchBody()
+	require.Equal(t, map[string]interface{}{"range": map[string]interface{}{"timestamp": map[string]interface{}{"gte": int64(100), "lte": int64(200)}}}, both["query"])
+}
+
+// TestRun_RefusesToStartWithoutItsTargets covers the flag validation, the one part of main
+// that runs before any client is built.
+func TestRun_RefusesToStartWithoutItsTargets(t *testing.T) {
+	require.ErrorContains(t, run(options{}), "-target-url is required")
+	require.ErrorContains(t, run(options{targetURL: "http://127.0.0.1:1"}), "-source-url is required")
 }
