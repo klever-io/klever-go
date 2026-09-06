@@ -122,10 +122,8 @@ func (cspf *cryptoSigningParamsLoader) getSkPk() ([]byte, []byte, error) {
 			return nil, nil, err
 		}
 
-		// Generating a key here is intentional: it lets an observer start without
-		// operator-provided key material. It is only a problem when the node was
-		// meant to run under an already-registered validator identity, which we
-		// cannot distinguish at this point, so say so rather than staying silent.
+		// We cannot tell here whether this node was meant to carry a registered
+		// validator identity, so the warning has to cover both cases.
 		log.Warn("no key file found - generated a new node identity",
 			"file", cspf.skPemFileName,
 			"public key", pkString,

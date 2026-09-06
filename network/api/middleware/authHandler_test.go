@@ -63,7 +63,7 @@ func TestIncorrectPassword(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	assert.JSONEq(t, `{"data": null, "error": "invalid password", "code": "bad_request"}`, w.Body.String())
+	assert.JSONEq(t, `{"data": null, "error": "invalid credentials", "code": "bad_request"}`, w.Body.String())
 
 }
 
@@ -82,7 +82,7 @@ func TestIncorrectUser(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
-	assert.JSONEq(t, `{"data": null, "error": "username does not exist", "code": "bad_request"}`, w.Body.String())
+	assert.JSONEq(t, `{"data": null, "error": "invalid credentials", "code": "bad_request"}`, w.Body.String())
 }
 
 func TestSuccessfulAuthentication(t *testing.T) {
@@ -102,4 +102,34 @@ func TestSuccessfulAuthentication(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.JSONEq(t, `{"message": "success"}`, w.Body.String())
+}
+
+// An unknown username and a wrong password must be indistinguishable from outside: a
+// distinct "username does not exist" body made usernames enumerable one request at a
+// time. Pins the two responses as byte-identical, not merely both 401.
+func TestUnknownUserIsIndistinguishableFromWrongPassword(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	authFunc := createAuth("test", "test")
+
+	r := gin.New()
+	r.Use(authFunc)
+	r.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "success"})
+	})
+
+	respond := func(user, pass string) (int, string) {
+		req, _ := http.NewRequest(http.MethodGet, "/test", nil)
+		req.SetBasicAuth(user, pass)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code, w.Body.String()
+	}
+
+	unknownUserCode, unknownUserBody := respond("another_user", "wrongpassword")
+	wrongPassCode, wrongPassBody := respond("test", "wrongpassword")
+
+	assert.Equal(t, http.StatusUnauthorized, unknownUserCode)
+	assert.Equal(t, wrongPassCode, unknownUserCode)
+	assert.Equal(t, wrongPassBody, unknownUserBody,
+		"an unknown username must not be distinguishable from a wrong password")
 }

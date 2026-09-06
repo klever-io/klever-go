@@ -18,6 +18,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/statistics"
 	"github.com/klever-io/klever-go/network/api/errors"
+	"github.com/klever-io/klever-go/network/api/middleware"
 	"github.com/klever-io/klever-go/network/api/mock"
 	"github.com/klever-io/klever-go/network/api/node"
 	"github.com/klever-io/klever-go/network/api/shared"
@@ -551,10 +552,41 @@ func getRoutesConfig() config.APIRoutesConfig {
 					{Name: "/statistics", Open: true},
 					{Name: "/heartbeatstatus", Open: true},
 					{Name: "/p2pstatus", Open: true},
-					{Name: "/debug", Open: true},
+					{Name: "/debug", Open: true, Secured: true},
 					{Name: "/peerinfo", Open: true},
 				},
 			},
 		},
 	}
+}
+
+// The secured flag only takes effect when the router is built with an auth handler:
+// RegisterHandler skips the wrapper when none is passed, which is why every other case
+// here reaches the handler unauthenticated. This pins the gate itself, so dropping
+// secured:true from /debug fails a test rather than only a review.
+func TestQueryDebug_SecuredRejectsUnauthenticated(t *testing.T) {
+	t.Parallel()
+
+	routesCfg := getRoutesConfig()
+	routesCfg.Credentials = []config.Credential{{Username: "user", Password: "digest"}}
+	routesCfg.Hasher = config.TypeConfig{Type: "sha256"}
+
+	ws := gin.New()
+	ws.Use(func(c *gin.Context) {
+		c.Set("facade", &mock.Facade{})
+	})
+
+	ginNodeRoutes := ws.Group("/node")
+	nodeRoutes, err := wrapper.NewRouterWrapper("node", ginNodeRoutes, routesCfg, middleware.NewAuthenticationFunc(routesCfg))
+	require.NoError(t, err)
+	node.Routes(nodeRoutes)
+
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, httptest.NewRequest(
+		http.MethodPost,
+		"/node/debug",
+		bytes.NewBufferString(`{"name":"interceptor"}`),
+	))
+
+	require.Equal(t, http.StatusUnauthorized, resp.Code)
 }
