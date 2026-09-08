@@ -42,6 +42,7 @@ type RuntimeContextMock struct {
 	InstanceMock             executor.Instance
 	SignalErrorMessage       string
 	FailExecutionErr         error
+	FailExecutionCalled      func(err error)
 }
 
 // InitState mocked method
@@ -317,6 +318,9 @@ func (r *RuntimeContextMock) ManagedMapAPIErrorShouldFailExecution() bool {
 // FailExecution mocked method
 func (r *RuntimeContextMock) FailExecution(err error) {
 	r.FailExecutionErr = err
+	if r.FailExecutionCalled != nil {
+		r.FailExecutionCalled(err)
+	}
 }
 
 // SetCustomCallFunction mocked method
