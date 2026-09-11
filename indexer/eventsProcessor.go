@@ -10,20 +10,34 @@ import (
 	indexerData "github.com/klever-io/klever-go/data/indexer"
 	dataState "github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/indexer/data"
+	"github.com/klever-io/klever-go/indexer/logsevents"
 	"github.com/klever-io/klever-go/indexer/workItems"
 	"github.com/klever-io/klever-go/tools/check"
 )
 
 type eventsProcessor struct {
 	*txDatabaseProcessor
-	indexer         Indexer
-	parser          *dataParser
-	kappsController kapp.KAppController
-	accountsDB      dataState.AccountsAdapter
+	indexer           Indexer
+	parser            *dataParser
+	kappsController   kapp.KAppController
+	accountsDB        dataState.AccountsAdapter
+	logsAndEventsProc LogsAndEventsHandler
 }
 
 func NewEventsProcessor(arguments ArgEventsProcessor) (*eventsProcessor, error) {
 	err := checkArgEventsProcessor(arguments)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reuses the same converter (bech32 addresses, hex topics/data) already used to
+	// prepare logs for the Elasticsearch index, so a LOGS websocket event and its
+	// Elasticsearch counterpart for the same block never drift in shape.
+	logsAndEventsProc, err := logsevents.NewLogsAndEventsProcessor(logsevents.ArgsLogsAndEventsProcessor{
+		PubKeyConverter: arguments.AddressPubkeyConverter,
+		Marshalizer:     arguments.Marshalizer,
+		Hasher:          arguments.Hasher,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -41,8 +55,9 @@ func NewEventsProcessor(arguments ArgEventsProcessor) (*eventsProcessor, error) 
 			hasher:      arguments.Hasher,
 			marshalizer: arguments.Marshalizer,
 		},
-		kappsController: arguments.KAppController,
-		accountsDB:      arguments.AccountsDB,
+		kappsController:   arguments.KAppController,
+		accountsDB:        arguments.AccountsDB,
+		logsAndEventsProc: logsAndEventsProc,
 	}
 
 	return ep, nil
@@ -85,10 +100,25 @@ func (ep *eventsProcessor) SaveBlock(args *indexerData.ArgsSaveBlockData) {
 	if wsEnabled {
 		prepared := ep.prepare(args)
 		ep.dispatchBlockEvent(args)
+		var txsMap map[string]*data.Transaction
 		if prepared != nil {
+			txsMap = prepared.TxsMap
+			// Run unconditionally (not just when indexerEnabled): this sets
+			// tx.HasLogs/HasOperations/Status, which the websocket payload itself reports —
+			// gating it on indexerEnabled would make a ws-only node and a ws+ES node emit
+			// different payloads for the same block. Doing it here also keeps it
+			// synchronous with dispatchTransactionEvents, so the elastic worker's async
+			// goroutine can't race the hub's marshal of the same prepared.Txs pointers.
+			// full=indexerEnabled: only pay for the ScDeploys/AlteredSCs extraction (which
+			// decodes contract-controlled event topics as addresses) when Elasticsearch
+			// will actually consume it — the websocket payload never reads those fields.
+			prepared.LogsResults = ep.logsAndEventsProc.ExtractDataFromLogs(args.TransactionsPool, prepared.Txs, args.Header.GetTimestamp(), indexerEnabled)
 			ep.dispatchTransactionEvents(prepared.Txs)
 			ep.dispatchAccountEventsFromAlteredAccounts(args.Header.GetTimestamp(), prepared.Altered.Accounts)
 		}
+		// Dispatched outside the prepared-only branch: a tx-prep failure must not silently
+		// drop a block's logs, same as BLOCKS already ships regardless of prepare().
+		ep.dispatchLogEvents(prepared, args.TransactionsPool, txsMap, args.Header.GetTimestamp())
 		if indexerEnabled {
 			args.Prepared = prepared
 		}
@@ -146,6 +176,34 @@ func (ep *eventsProcessor) dispatchTransactionEvents(txs []*data.Transaction) {
 	trySendEvent(Event{
 		EvType:  TRANSACTIONS,
 		Message: txs,
+	})
+}
+
+// dispatchLogEvents converts the block's raw smart-contract logs into the same shape
+// already used for the Elasticsearch index (bech32 addresses, hex topics/data) and
+// dispatches them as one LOGS event; the websocket hub fans each entry out by its
+// contract address, same as it does per-account for ACCOUNTS. When prepared is non-nil,
+// the conversion is also stashed on it (PreparedBlockData.LogsDB) so the elastic worker's
+// own logs indexing reuses it instead of paying the same bech32/hex-encoding pass twice.
+func (ep *eventsProcessor) dispatchLogEvents(prepared *data.PreparedBlockData, pool *indexerData.Pool, txsMap map[string]*data.Transaction, blockTimestamp int64) {
+	if pool == nil || len(pool.Logs) == 0 {
+		return
+	}
+	if LogsSubscriberChecker != nil && !LogsSubscriberChecker() {
+		return
+	}
+
+	logsDB := ep.logsAndEventsProc.PrepareLogsForDB(pool.Logs, txsMap, blockTimestamp)
+	if prepared != nil {
+		prepared.LogsDB = logsDB
+	}
+	if len(logsDB) == 0 {
+		return
+	}
+
+	trySendEvent(Event{
+		EvType:  LOGS,
+		Message: logsDB,
 	})
 }
 

@@ -18,8 +18,28 @@ import (
 	"github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// countingLogsProc wraps a real LogsAndEventsHandler, counting PrepareLogsForDB calls so a
+// test can assert the conversion never ran at all — a stash-based check (e.g. asserting
+// PreparedBlockData.LogsDB stayed nil) can't distinguish "never called" from "called, then
+// its result discarded before the stash," which a gate moved just slightly later would
+// still pass.
+type countingLogsProc struct {
+	inner                 LogsAndEventsHandler
+	prepareLogsForDBCalls int32
+}
+
+func (c *countingLogsProc) PrepareLogsForDB(logsAndEvents []*nodeData.LogData, txsMap map[string]*data.Transaction, timestamp int64) []*data.Logs {
+	atomic.AddInt32(&c.prepareLogsForDBCalls, 1)
+	return c.inner.PrepareLogsForDB(logsAndEvents, txsMap, timestamp)
+}
+
+func (c *countingLogsProc) ExtractDataFromLogs(pool *indexer.Pool, txs []*data.Transaction, timestamp int64, full bool) *data.PreparedLogsResults {
+	return c.inner.ExtractDataFromLogs(pool, txs, timestamp, full)
+}
 
 type indexerStub struct {
 	saveBlockCalled                    func(args *indexer.ArgsSaveBlockData)
@@ -161,6 +181,33 @@ func drainTestQueue(ch chan Event) {
 	}
 }
 
+// drainAllEvents drains up to 10 pending events from queue (comfortably more than any
+// single SaveBlock call dispatches) into a slice, for tests that need to inspect which
+// event types arrived without asserting on exact ordering.
+func drainAllEvents(queue chan Event) []Event {
+	events := make([]Event, 0, 10)
+	for i := 0; i < 10; i++ {
+		select {
+		case ev := <-queue:
+			events = append(events, ev)
+		default:
+			return events
+		}
+	}
+	return events
+}
+
+// findEventType returns the first event of evType in events, or nil if none matches.
+func findEventType(events []Event, evType EventType) *Event {
+	for _, ev := range events {
+		if ev.EvType == evType {
+			evCopy := ev
+			return &evCopy
+		}
+	}
+	return nil
+}
+
 // pad32 returns a 32-byte slice with s copied into it, zero-padded.
 func pad32(s string) []byte {
 	b := make([]byte, 32)
@@ -269,6 +316,7 @@ func TestNewEventsProcessor(t *testing.T) {
 		})
 		require.Nil(t, err)
 		require.NotNil(t, ep)
+		require.NotNil(t, ep.logsAndEventsProc)
 	})
 }
 
@@ -438,6 +486,270 @@ func TestEventsProcessor_SaveBlock_NilPool(t *testing.T) {
 	}
 }
 
+func TestEventsProcessor_SaveBlock_DispatchesLogEvents(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor(t)
+
+	contract := transaction.TransferContract{
+		ToAddress: []byte("receiver"),
+		Amount:    100,
+	}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	require.NoError(t, err)
+
+	logHandler := &transaction.Log{
+		Address:    []byte("contractaddr"),
+		ContractID: 7,
+		Events: []*transaction.Event{
+			{
+				Address:     []byte("eventaddr"),
+				Identifier:  []byte("transfer"),
+				Topics:      [][]byte{[]byte("topic1")},
+				Data:        [][]byte{[]byte("data1")},
+				IsSystemLog: true,
+			},
+		},
+	}
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Txs:  map[string]nodeData.TransactionHandler{"txHash1": tx},
+		Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txHash1"}},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	logsEvent := findEventType(drainAllEvents(testQueue), LOGS)
+	require.NotNil(t, logsEvent, "expected a LOGS event to be dispatched")
+	logsDB, ok := logsEvent.Message.([]*data.Logs)
+	require.True(t, ok)
+	require.Len(t, logsDB, 1)
+
+	// Full payload contract, not just "some log arrived": ID is what the hub uses as the
+	// envelope hash, Caller/Status/ResultCode resolve from txsMap (keyed by the same raw
+	// tx-hash bytes as pool.Txs — if that keying is ever "unified" to hex elsewhere, this
+	// must catch it going blank), and addresses/topics/data are hex-encoded.
+	entry := logsDB[0]
+	assert.Equal(t, hex.EncodeToString([]byte("txHash1")), entry.ID)
+	assert.Equal(t, hex.EncodeToString([]byte("contractaddr")), entry.Address)
+	assert.Equal(t, hex.EncodeToString([]byte("sender")), entry.Caller, "Caller must resolve from txsMap")
+	assert.Equal(t, int32(7), entry.ContractID)
+	assert.Equal(t, "success", entry.Status)
+	assert.Equal(t, transaction.Transaction_Ok.String(), entry.ResultCode)
+	require.Len(t, entry.Events, 1)
+	assert.Equal(t, hex.EncodeToString([]byte("eventaddr")), entry.Events[0].Address)
+	assert.Equal(t, "transfer", entry.Events[0].Identifier)
+	assert.Equal(t, []string{hex.EncodeToString([]byte("topic1"))}, entry.Events[0].Topics)
+	assert.Equal(t, []string{hex.EncodeToString([]byte("data1"))}, entry.Events[0].Data)
+	assert.True(t, entry.Events[0].IsSystemLog)
+}
+
+// TestEventsProcessor_SaveBlock_LogsPayloadConsistentWithoutIndexer guards a real payload
+// divergence: ExtractDataFromLogs sets tx.HasLogs/HasOperations and (for a writeLog/
+// signalError event) overwrites tx.Status — fields the websocket payload itself reports.
+// Gating that call on indexerEnabled meant a ws-only node emitted different LOGS/
+// TRANSACTIONS payloads than a ws+ES node for the identical block. This runs on a ws-only
+// processor (createTestEventsProcessor has no indexer) and expects the same
+// informativeLogsProcessor-driven Status override an ES-enabled node would see.
+func TestEventsProcessor_SaveBlock_LogsPayloadConsistentWithoutIndexer(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor(t)
+
+	contract := transaction.TransferContract{ToAddress: []byte("receiver"), Amount: 100}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	require.NoError(t, err)
+
+	logHandler := &transaction.Log{
+		Address:    []byte("contractaddr"),
+		ContractID: 7,
+		Events: []*transaction.Event{
+			{Address: []byte("contractaddr"), Identifier: []byte("writeLog")},
+		},
+	}
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Txs:  map[string]nodeData.TransactionHandler{"txHash1": tx},
+		Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txHash1"}},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	events := drainAllEvents(testQueue)
+
+	logsEvent := findEventType(events, LOGS)
+	require.NotNil(t, logsEvent)
+	logsDB := logsEvent.Message.([]*data.Logs)
+	require.Len(t, logsDB, 1)
+	assert.Equal(t, transaction.Transaction_SUCCESS.String(), logsDB[0].Status,
+		"writeLog must override tx.Status even without an indexer configured")
+
+	txEvent := findEventType(events, TRANSACTIONS)
+	require.NotNil(t, txEvent)
+	txs := txEvent.Message.([]*data.Transaction)
+	require.Len(t, txs, 1)
+	assert.True(t, txs[0].HasLogs, "HasLogs must be set on the websocket payload without an indexer configured")
+}
+
+// TestEventsProcessor_SaveBlock_DispatchesLogEvents_WhenPrepareIsSkipped: LOGS must still
+// dispatch when prepared == nil (empty Txs forces prepare()'s early-return path), with
+// Caller/Status/ResultCode degrading to zero values on the resulting nil txsMap instead of
+// panicking.
+func TestEventsProcessor_SaveBlock_DispatchesLogEvents_WhenPrepareIsSkipped(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor(t)
+
+	logHandler := &transaction.Log{
+		Address:    []byte("contractaddr"),
+		ContractID: 7,
+		Events: []*transaction.Event{
+			{
+				Address:    []byte("eventaddr"),
+				Identifier: []byte("transfer"),
+			},
+		},
+	}
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txHash1"}},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	logsEvent := findEventType(drainAllEvents(testQueue), LOGS)
+	require.NotNil(t, logsEvent, "LOGS must still dispatch even when prepared == nil")
+	logsDB, ok := logsEvent.Message.([]*data.Logs)
+	require.True(t, ok)
+	require.Len(t, logsDB, 1)
+
+	entry := logsDB[0]
+	assert.Equal(t, hex.EncodeToString([]byte("contractaddr")), entry.Address)
+	assert.Equal(t, int32(7), entry.ContractID)
+	assert.Empty(t, entry.Caller, "txsMap is nil: Caller must degrade to zero value, not panic")
+	assert.Empty(t, entry.Status)
+	assert.Empty(t, entry.ResultCode)
+}
+
+// TestEventsProcessor_SaveBlock_SkipsLogConversionWithNoSubscriber guards the fix for a
+// real perf/consensus-timing concern: dispatchLogEvents used to always pay the full
+// bech32/hex-encoding PrepareLogsForDB conversion on the block-commit goroutine whenever
+// UseEventQueue was on, even when no client subscribed to LOGS and no mirror was
+// configured — the hub's own subscriber gate only skipped cost later, per entry, after
+// conversion had already run for all of them. LogsSubscriberChecker lets the commit
+// goroutine skip the conversion (and the LOGS event) entirely in that case.
+func TestEventsProcessor_SaveBlock_SkipsLogConversionWithNoSubscriber(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	original := LogsSubscriberChecker
+	LogsSubscriberChecker = func() bool { return false }
+	t.Cleanup(func() { LogsSubscriberChecker = original })
+
+	ep := createTestEventsProcessor(t)
+
+	logHandler := &transaction.Log{Address: []byte("contractaddr"), ContractID: 7}
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txHash1"}},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	logsEvent := findEventType(drainAllEvents(testQueue), LOGS)
+	assert.Nil(t, logsEvent, "LOGS must not dispatch when LogsSubscriberChecker reports nobody is listening")
+}
+
+// TestEventsProcessor_SaveBlock_SkipsLogConversionWithNoSubscriber_PinsGateOrdering asserts
+// PrepareLogsForDB itself was never called, via a call-counting wrapper — not just that no
+// event was observed, or that a stash field stayed nil. Either of those weaker checks would
+// still pass if the gate moved to just after the PrepareLogsForDB call (but before using
+// its result), which would still pay the conversion cost the fix exists to avoid.
+func TestEventsProcessor_SaveBlock_SkipsLogConversionWithNoSubscriber_PinsGateOrdering(t *testing.T) {
+	saveAndRestoreEventQueue(t, true)
+	original := LogsSubscriberChecker
+	LogsSubscriberChecker = func() bool { return false }
+	t.Cleanup(func() { LogsSubscriberChecker = original })
+
+	ep := createTestEventsProcessor(t)
+	counting := &countingLogsProc{inner: ep.logsAndEventsProc}
+	ep.logsAndEventsProc = counting
+
+	contract := transaction.TransferContract{ToAddress: []byte("receiver"), Amount: 100}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	require.NoError(t, err)
+
+	logHandler := &transaction.Log{Address: []byte("contractaddr"), ContractID: 7}
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Txs:  map[string]nodeData.TransactionHandler{"txHash1": tx},
+		Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txHash1"}},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	assert.Equal(t, int32(0), atomic.LoadInt32(&counting.prepareLogsForDBCalls),
+		"PrepareLogsForDB must not run at all when the gate reports no subscriber")
+}
+
+func TestEventsProcessor_SaveBlock_NoLogsNoOp(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor(t)
+
+	contract := transaction.TransferContract{
+		ToAddress: []byte("receiver"),
+		Amount:    100,
+	}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	require.NoError(t, err)
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Txs: map[string]nodeData.TransactionHandler{"txHash1": tx},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	logsEvent := findEventType(drainAllEvents(testQueue), LOGS)
+	require.Nil(t, logsEvent, "expected no LOGS event when pool.Logs is empty")
+}
+
+func TestEventsProcessor_SaveBlock_NilPool_SkipsLogEvents(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, true)
+	ep := createTestEventsProcessor(t)
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+
+	require.NotPanics(t, func() {
+		ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: nil})
+	})
+
+	event := <-testQueue
+	require.Equal(t, BLOCKS, event.EvType)
+
+	select {
+	case ev := <-testQueue:
+		require.NotEqual(t, LOGS, ev.EvType, "expected no LOGS event with nil pool")
+	default:
+	}
+}
+
+func TestEventsProcessor_SaveBlock_SkipsLogEventsWhenDisabled(t *testing.T) {
+	testQueue := saveAndRestoreEventQueue(t, false)
+	ep := createTestEventsProcessor(t)
+
+	logHandler := &transaction.Log{Address: []byte("contractaddr")}
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txHash1"}},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	select {
+	case ev := <-testQueue:
+		t.Fatalf("expected no events when UseEventQueue is false, got %s", ev.EvType)
+	default:
+	}
+}
+
 func TestEventsProcessor_SaveBlock_DispatchesAccountEvents(t *testing.T) {
 	testQueue := saveAndRestoreEventQueue(t, true)
 
@@ -591,6 +903,63 @@ func TestEventsProcessor_SaveBlock_DispatchesAllEventsAndPreparesIndexer(t *test
 	require.NotNil(t, prepared)
 	require.NotEmpty(t, prepared.Txs)
 	require.NotNil(t, prepared.Altered)
+}
+
+// TestEventsProcessor_SaveBlock_PreparesLogsResultsWhenIndexerActive guards the fix for a
+// real data race: SaveTransactions (elasticProcessor, invoked asynchronously via
+// indexer.SaveBlock -> dispatcher.Add) used to call ExtractDataFromLogs itself, mutating
+// tx.HasLogs/tx.HasOperations on the same *data.Transaction pointers the websocket hub
+// concurrently json.Marshals via dispatchTransactionEvents on a different goroutine
+// (caught under -race). SaveBlock must now run ExtractDataFromLogs synchronously, before
+// either consumer can touch prepared.Txs, and stash the result on prepared.LogsResults
+// (plus PrepareLogsForDB's own result on prepared.LogsDB) for the elastic worker to reuse
+// instead of recomputing.
+func TestEventsProcessor_SaveBlock_PreparesLogsResultsWhenIndexerActive(t *testing.T) {
+	saveAndRestoreEventQueue(t, true)
+
+	acc := createTestAccountStub()
+	accountsDB := &mock.AccountsStub{
+		GetExistingAccountCalled: func(_ []byte) (state.AccountHandler, error) { return acc, nil },
+	}
+
+	var receivedPrepared any
+	idx := &indexerStub{
+		isNilIndexer:    false,
+		saveBlockCalled: func(args *indexer.ArgsSaveBlockData) { receivedPrepared = args.Prepared },
+	}
+
+	ep, err := NewEventsProcessor(ArgEventsProcessor{
+		Marshalizer:              &mock.MarshalizerMock{},
+		Hasher:                   &mock.HasherMock{},
+		AddressPubkeyConverter:   mock.NewPubkeyConverterMock(32),
+		ValidatorPubkeyConverter: mock.NewPubkeyConverterMock(32),
+		Indexer:                  idx,
+		AccountsDB:               accountsDB,
+	})
+	require.NoError(t, err)
+
+	contract := transaction.TransferContract{ToAddress: []byte("receiver"), Amount: 100}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType, []byte("sender"))
+	require.NoError(t, err)
+
+	logHandler := &transaction.Log{Address: []byte("contractaddr"), ContractID: 7}
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 1, Timestamp: 100}}
+	pool := &indexer.Pool{
+		Txs:  map[string]nodeData.TransactionHandler{"txHash1": tx},
+		Logs: []*nodeData.LogData{{LogHandler: logHandler, TxHash: "txHash1"}},
+	}
+
+	ep.SaveBlock(&indexer.ArgsSaveBlockData{Header: header, TransactionsPool: pool})
+
+	prepared, ok := receivedPrepared.(*data.PreparedBlockData)
+	require.True(t, ok)
+	require.NotNil(t, prepared.LogsResults, "LogsResults must be computed synchronously when both ws and indexer are active")
+	require.NotNil(t, prepared.LogsDB, "LogsDB must be stashed for the elastic worker to reuse")
+	require.Len(t, prepared.LogsDB, 1)
+	require.NotEmpty(t, prepared.TxsMap)
+	for _, dbTx := range prepared.TxsMap {
+		assert.True(t, dbTx.HasLogs, "ExtractDataFromLogs must have already set HasLogs before args.Prepared was handed off")
+	}
 }
 
 // Regression: SaveBlock must not drain TransactionsPool.Txs — the work item

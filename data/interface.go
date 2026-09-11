@@ -240,6 +240,8 @@ type LogHandler interface {
 	GetAddress() []byte
 	// GetLogEvents returns the events from a transaction log entry
 	GetLogEvents() []transaction.EventHandler
+	// GetContractID returns the numeric identifier of the contract that produced this log
+	GetContractID() int32
 
 	IsInterfaceNil() bool
 }

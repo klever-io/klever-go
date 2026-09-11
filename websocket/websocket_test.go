@@ -522,6 +522,16 @@ func TestMarshalMessage_NonBlocks(t *testing.T) {
 	assert.NotEmpty(t, msg.Data)
 }
 
+func TestMarshalMessage_Logs(t *testing.T) {
+	payload := &data.Logs{Address: "klv1contract", Events: []*data.Event{{Identifier: "transfer"}}}
+	msg, err := marshalMessage(indexer.LOGS, "klv1contract", "hash1", payload)
+	require.NoError(t, err)
+	assert.Equal(t, indexer.LOGS, msg.Type)
+	assert.Equal(t, "klv1contract", msg.Address)
+	assert.Equal(t, "hash1", msg.Hash)
+	assert.NotEmpty(t, msg.Data)
+}
+
 func TestHandleClientInsertion_BlocksAndTransactions(t *testing.T) {
 	hub := newTestHub(nil)
 	c := newTestClient(hub)
@@ -541,7 +551,8 @@ func TestHandleClientInsertion_AddressTypes(t *testing.T) {
 	hub := newTestHub(nil)
 	c := newTestClient(hub)
 
-	hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS, indexer.USER_TRANSACTIONS}, []string{"klv1test"}, c)
+	err := hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS, indexer.USER_TRANSACTIONS, indexer.LOGS}, []string{"klv1test"}, c)
+	require.NoError(t, err)
 
 	hub.mu.Lock()
 	opts := hub.addressSubscription["klv1test"][c]
@@ -549,6 +560,11 @@ func TestHandleClientInsertion_AddressTypes(t *testing.T) {
 
 	assert.True(t, opts.acceptAccount)
 	assert.True(t, opts.acceptTransaction)
+	assert.True(t, opts.acceptLogs)
+}
+
+func TestContainsAddressScoped_Logs(t *testing.T) {
+	assert.True(t, containsAddressScoped([]indexer.EventType{indexer.LOGS}))
 }
 
 func TestHandleClientRemoval_BlocksAndTransactions(t *testing.T) {
@@ -586,6 +602,32 @@ func TestHandleClientRemoval_FullUnsubscribeRemovesEntry(t *testing.T) {
 	hub.mu.Unlock()
 
 	assert.False(t, exists)
+}
+
+func TestHandleClientRemoval_LogsOnlyLeavesOtherFlagsIntact(t *testing.T) {
+	hub := newTestHub(nil)
+	c := newTestClient(hub)
+
+	hub.mu.Lock()
+	hub.addressSubscription["klv1x"] = map[*client]userOptions{c: {acceptAccount: true, acceptLogs: true}}
+	hub.mu.Unlock()
+
+	hub.HandleClientRemoval([]indexer.EventType{indexer.LOGS}, []string{"klv1x"}, c)
+
+	hub.mu.Lock()
+	opts, exists := hub.addressSubscription["klv1x"][c]
+	hub.mu.Unlock()
+
+	require.True(t, exists, "address entry must survive while acceptAccount is still set")
+	assert.True(t, opts.acceptAccount)
+	assert.False(t, opts.acceptLogs)
+
+	hub.HandleClientRemoval([]indexer.EventType{indexer.ACCOUNTS}, []string{"klv1x"}, c)
+
+	hub.mu.Lock()
+	_, exists = hub.addressSubscription["klv1x"]
+	hub.mu.Unlock()
+	assert.False(t, exists, "address entry must be removed once every flag is cleared")
 }
 
 func TestHandleClientRemoval_UnknownAddressNoOp(t *testing.T) {
@@ -1035,6 +1077,190 @@ func TestStartServer_AccountsEvent_NoSubscribers(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 	env.teardown()
+}
+
+func TestStartServer_LogsEvent(t *testing.T) {
+	env := startServerEnv(t, nil)
+	c := newTestClient(env.hub)
+
+	env.hub.mu.Lock()
+	env.hub.addressSubscription["klv1contract"] = map[*client]userOptions{c: {acceptLogs: true}}
+	env.hub.mu.Unlock()
+
+	env.queue <- indexer.Event{
+		EvType:  indexer.LOGS,
+		Message: []*data.Logs{{ID: "txhash1", Address: "klv1contract", Events: []*data.Event{{Identifier: "transfer"}}}},
+	}
+
+	s := awaitSend(t, c)
+	assert.Equal(t, indexer.LOGS, s.Type)
+	assert.Equal(t, "klv1contract", s.Address)
+	assert.Equal(t, "txhash1", s.Hash)
+
+	env.teardown(c)
+}
+
+// TestStartServer_AccountsEvent_NoSubscribersButMirrorConfigured guards the fix
+// generalizing the "skip when nobody's listening" gate (previously LOGS-only) to every
+// address-scoped handler via dispatchToAddress: an ACCOUNTS event with zero subscribers
+// must still reach a configured mirror, exactly as it did before the gate was
+// generalized, since the gate only skips when there is neither a subscriber nor a mirror.
+func TestStartServer_AccountsEvent_NoSubscribersButMirrorConfigured(t *testing.T) {
+	receivedCh := make(chan []byte, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedCh <- body
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	hub := NewHub(ts.URL, "", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	origQueue := indexer.EventQueue
+	testQueue := make(chan indexer.Event, 10)
+	indexer.EventQueue = testQueue
+	t.Cleanup(func() { indexer.EventQueue = origQueue })
+	done := make(chan struct{})
+	go func() {
+		hub.StartServer(ctx)
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	testQueue <- indexer.Event{
+		EvType:  indexer.ACCOUNTS,
+		Message: map[string]*data.AccountInfo{"klv1nobody": {Address: "klv1nobody"}},
+	}
+
+	select {
+	case body := <-receivedCh:
+		assert.Contains(t, string(body), "klv1nobody")
+	case <-time.After(2 * time.Second):
+		t.Fatal("mirror did not receive the ACCOUNTS event despite having no subscribers")
+	}
+}
+
+func TestStartServer_LogsEvent_NoSubscribers(t *testing.T) {
+	env := startServerEnv(t, nil)
+	c := newTestClient(env.hub)
+
+	env.hub.mu.Lock()
+	env.hub.blockSubscription[c] = struct{}{}
+	env.hub.mu.Unlock()
+
+	env.queue <- indexer.Event{
+		EvType:  indexer.LOGS,
+		Message: []*data.Logs{{Address: "klv1nobody"}},
+	}
+	// StartServer drains env.queue in order; observing this second, subscribed event
+	// confirms the no-subscriber LOGS event above was already processed without
+	// panicking, without needing a sleep to "give it time".
+	env.queue <- indexer.Event{EvType: indexer.BLOCKS, Message: []byte(`{"nonce":1}`)}
+
+	s := awaitSend(t, c)
+	assert.Equal(t, indexer.BLOCKS, s.Type)
+
+	env.teardown(c)
+}
+
+func TestHasLogsSubscriberOrMirror(t *testing.T) {
+	hub := newTestHub(nil)
+	assert.False(t, hub.HasLogsSubscriberOrMirror(), "no client, no mirror: nothing would receive a LOGS event")
+
+	c := newTestClient(hub)
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS}, []string{"klv1contract"}, c))
+	assert.False(t, hub.HasLogsSubscriberOrMirror(), "a subscriber for a different type must not count as a LOGS subscriber")
+
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c))
+	assert.True(t, hub.HasLogsSubscriberOrMirror(), "an address-scoped LOGS subscriber must count")
+	assert.Equal(t, int64(1), hub.logsSubscriberCount.Load())
+
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c))
+	assert.Equal(t, int64(1), hub.logsSubscriberCount.Load(), "re-subscribing the same (address, client) to LOGS must not double-count")
+
+	// logsSubscriberCount must stay in sync incrementally (not just the map), since
+	// HasLogsSubscriberOrMirror no longer scans addressSubscription itself (see the
+	// field's doc comment) — covering unsubscribe, a redundant repeated unsubscribe, and
+	// disconnect.
+	hub.HandleClientRemoval([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c)
+	assert.False(t, hub.HasLogsSubscriberOrMirror(), "unsubscribing from LOGS must decrement the counter")
+	assert.Equal(t, int64(0), hub.logsSubscriberCount.Load())
+
+	// A second, redundant unsubscribe (already-cleared acceptLogs) must not drive the
+	// counter negative — a negative count masks a later genuine subscriber, since
+	// HasLogsSubscriberOrMirror only checks count > 0.
+	hub.HandleClientRemoval([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c)
+	assert.Equal(t, int64(0), hub.logsSubscriberCount.Load(), "a repeated unsubscribe must not drive the counter negative")
+
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c))
+	require.Equal(t, int64(1), hub.logsSubscriberCount.Load())
+	killClient(c) // newTestClient's conn is nil; killClient makes close() a no-op so handleClientDelete is safe to call directly.
+	hub.handleClientDelete(c)
+	assert.Equal(t, int64(0), hub.logsSubscriberCount.Load(), "disconnecting a client must decrement the counter for every address it accepted LOGS on")
+
+	mirrorHub := NewHub("http://mirror.example", "", nil)
+	assert.True(t, mirrorHub.HasLogsSubscriberOrMirror(), "a configured mirror must count even with no client subscribers")
+
+	apiKeyOnlyHub := NewHub("", "api-key-without-url", nil)
+	assert.False(t, apiKeyOnlyHub.HasLogsSubscriberOrMirror(), "an API key without a URL never actually enables the mirror (see NewHub)")
+}
+
+// TestHasLogsSubscriberOrMirror_NeverBlocksOnHubMutex guards the exact scenario a
+// reviewer flagged: HasLogsSubscriberOrMirror runs synchronously on the block-commit
+// goroutine, and handleClientDelete holds h.mu (Lock) across a socket close and a full
+// map scan. If the checker still took h.mu (RLock), a burst of client disconnects could
+// park the commit goroutine behind that queue (RWMutex gives a pending writer priority
+// over new readers). Holding h.mu.Lock() for the whole test and calling the checker from
+// another goroutine proves it returns without ever needing the lock.
+func TestHasLogsSubscriberOrMirror_NeverBlocksOnHubMutex(t *testing.T) {
+	hub := newTestHub(nil)
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+
+	assertReturnsQuickly(t, time.Second, "HasLogsSubscriberOrMirror blocked while h.mu was held elsewhere", func() {
+		hub.HasLogsSubscriberOrMirror()
+	})
+}
+
+func TestStartServer_LogsEvent_MultipleEntriesDifferentAddresses(t *testing.T) {
+	env := startServerEnv(t, nil)
+	cA := newTestClient(env.hub)
+	cB := newTestClient(env.hub)
+
+	env.hub.mu.Lock()
+	env.hub.addressSubscription["klv1contractA"] = map[*client]userOptions{cA: {acceptLogs: true}}
+	env.hub.addressSubscription["klv1contractB"] = map[*client]userOptions{cB: {acceptLogs: true}}
+	env.hub.mu.Unlock()
+
+	env.queue <- indexer.Event{
+		EvType: indexer.LOGS,
+		Message: []*data.Logs{
+			{Address: "klv1contractA", Events: []*data.Event{{Identifier: "eventA"}}},
+			{Address: "klv1contractB", Events: []*data.Event{{Identifier: "eventB"}}},
+		},
+	}
+
+	sA := awaitSend(t, cA)
+	assert.Equal(t, "klv1contractA", sA.Address)
+
+	sB := awaitSend(t, cB)
+	assert.Equal(t, "klv1contractB", sB.Address)
+
+	select {
+	case <-cA.out:
+		t.Fatal("client A must not receive client B's log entry")
+	default:
+	}
+	select {
+	case <-cB.out:
+		t.Fatal("client B must not receive client A's log entry")
+	default:
+	}
+
+	env.teardown(cA, cB)
 }
 
 func TestStartServer_UserTransactionEvent(t *testing.T) {

@@ -202,6 +202,76 @@ func TestElasticProcessor_SaveTransactions_FallbackPrepWhenPreparedNil(t *testin
 		"fallback must run the full indexing pipeline when prepared is nil")
 }
 
+// TestElasticProcessor_SaveTransactions_ClearsCachedLogsAfterConsuming guards a memory
+// retention fix: PreparedBlockData.LogsDB/LogsResults (the websocket dispatcher's
+// precomputed conversion, reused here to avoid a duplicate pass — see resolvePreparedBlockData)
+// must not outlive this call. Left set, they'd stay pinned for as long as the containing
+// work item sits in the elastic dispatcher's queue after this point, for no further
+// benefit since nothing downstream reads them again.
+func TestElasticProcessor_SaveTransactions_ClearsCachedLogsAfterConsuming(t *testing.T) {
+	dbWriter := &imock.DatabaseWriterStub{
+		DoBulkRequestCalled: func(_ *bytes.Buffer, _ string) error { return nil },
+	}
+
+	contract := transaction.TransferContract{ToAddress: []byte("klv1d05ju9jaj6u99zph0ant9jh7gksg"), Amount: 45}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType,
+		[]byte("klv1d05ju9jaj6u99zph0ant9jh7gksf"))
+	require.NoError(t, err)
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 7, Timestamp: 100}, TxHashes: [][]byte{[]byte("h1")}}
+	pool := &indexer.Pool{Txs: map[string]nodeData.TransactionHandler{"h1": tx}}
+
+	prepared := &data.PreparedBlockData{
+		Txs:         []*data.Transaction{{Hash: "h1"}},
+		TxsMap:      map[string]*data.Transaction{"h1": {Hash: "h1"}},
+		Altered:     data.NewAlteredData(),
+		LogsDB:      []*data.Logs{{ID: "h1", Address: "klv1contract"}},
+		LogsResults: &data.PreparedLogsResults{ScDeploys: map[string]*data.ScDeployInfo{}, AlteredSCs: data.NewAlteredSmartContracts()},
+	}
+
+	ep := newTestElasticSearchDatabase(dbWriter, createMockElasticProcessorArgs())
+	require.NoError(t, ep.SaveTransactions(header, pool, prepared))
+
+	require.Nil(t, prepared.LogsDB, "LogsDB must be cleared once the elastic worker has consumed it")
+	require.Nil(t, prepared.LogsResults, "LogsResults must be cleared once the elastic worker has consumed it")
+}
+
+// TestElasticProcessor_SaveTransactions_KeepsCachedLogsOnBulkRequestError guards a
+// regression in the fix above: dataDispatcher.doWork retries a failed work item on the
+// same *data.PreparedBlockData. Clearing LogsDB/LogsResults before doBulkRequests could
+// fail would force the retry's resolvePreparedBlockData to see them as nil and recompute
+// ExtractDataFromLogs on this (elastic worker) goroutine — reintroducing the exact race
+// with the websocket hub's marshal that computing it on the commit goroutine was meant to
+// avoid. So on error, both fields must survive untouched for the retry to reuse.
+func TestElasticProcessor_SaveTransactions_KeepsCachedLogsOnBulkRequestError(t *testing.T) {
+	localErr := errors.New("bulk request failed")
+	dbWriter := &imock.DatabaseWriterStub{
+		DoBulkRequestCalled: func(_ *bytes.Buffer, _ string) error { return localErr },
+	}
+
+	contract := transaction.TransferContract{ToAddress: []byte("klv1d05ju9jaj6u99zph0ant9jh7gksg"), Amount: 45}
+	tx, err := createTransactionHandlerMock(&contract, transaction.TXContract_TransferContractType,
+		[]byte("klv1d05ju9jaj6u99zph0ant9jh7gksf"))
+	require.NoError(t, err)
+
+	header := &dataBlock.Block{Header: &dataBlock.BlockHeader{Nonce: 7, Timestamp: 100}, TxHashes: [][]byte{[]byte("h1")}}
+	pool := &indexer.Pool{Txs: map[string]nodeData.TransactionHandler{"h1": tx}}
+
+	prepared := &data.PreparedBlockData{
+		Txs:         []*data.Transaction{{Hash: "h1"}},
+		TxsMap:      map[string]*data.Transaction{"h1": {Hash: "h1"}},
+		Altered:     data.NewAlteredData(),
+		LogsDB:      []*data.Logs{{ID: "h1", Address: "klv1contract"}},
+		LogsResults: &data.PreparedLogsResults{ScDeploys: map[string]*data.ScDeployInfo{}, AlteredSCs: data.NewAlteredSmartContracts()},
+	}
+
+	ep := newTestElasticSearchDatabase(dbWriter, createMockElasticProcessorArgs())
+	require.ErrorIs(t, ep.SaveTransactions(header, pool, prepared), localErr)
+
+	require.NotNil(t, prepared.LogsDB, "LogsDB must survive a doBulkRequests error for a retry to reuse")
+	require.NotNil(t, prepared.LogsResults, "LogsResults must survive a doBulkRequests error for a retry to reuse")
+}
+
 func TestElasticseachSaveTransactions_ShouldReturnErr(t *testing.T) {
 	localErr := errors.New("localErr")
 	arguments := createMockElasticProcessorArgs()
