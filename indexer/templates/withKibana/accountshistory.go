@@ -15,6 +15,15 @@ var AccountsHistory = Object{
 			"timestamp": Object{
 				"type": "date",
 			},
+			"balance": Object{
+				"type": "long",
+			},
+			"frozenBalance": Object{
+				"type": "long",
+			},
+			"unfrozenBalance": Object{
+				"type": "long",
+			},
 		},
 	},
 }

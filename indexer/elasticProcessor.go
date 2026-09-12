@@ -1623,10 +1623,11 @@ func (ei *elasticProcessor) saveAccountsHistory(blockTimestamp int64, accountsIn
 	accountsMap := make(map[string]*data.AccountBalanceHistory)
 	for address, userAccount := range accountsInfoMap {
 		acc := &data.AccountBalanceHistory{
-			Address:       address,
-			Balance:       userAccount.Balance,
-			FrozenBalance: userAccount.FrozenBalance,
-			Timestamp:     toMilliseconds(blockTimestamp),
+			Address:         address,
+			Balance:         userAccount.Balance,
+			FrozenBalance:   userAccount.FrozenBalance,
+			UnfrozenBalance: userAccount.UnfrozenBalance,
+			Timestamp:       toMilliseconds(blockTimestamp),
 		}
 		addressKey := fmt.Sprintf("%s_%d", address, blockTimestamp)
 		accountsMap[addressKey] = acc

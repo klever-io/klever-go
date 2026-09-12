@@ -1664,6 +1664,130 @@ func TestElasticProcessor_SaveHeader_RefreshPolicy(t *testing.T) {
 	})
 }
 
+func decodeAccountsHistoryBulk(t *testing.T, buff *bytes.Buffer) []data.AccountBalanceHistory {
+	t.Helper()
+
+	// the bulk body is strict meta/source pairs, so the records are the odd lines
+	lines := splitNDJSON(buff.Bytes())
+	records := make([]data.AccountBalanceHistory, 0, len(lines)/2)
+	for i := 1; i < len(lines); i += 2 {
+		record := data.AccountBalanceHistory{}
+		require.NoError(t, json.Unmarshal(lines[i], &record))
+		records = append(records, record)
+	}
+
+	return records
+}
+
+func TestElasticProcessor_SaveAccountsHistoryRecordsUnfrozenBalance(t *testing.T) {
+	t.Parallel()
+
+	address := "klv1d05ju9jaj6u99zph0ant9jh7gksf"
+	userAccount := createTestAccountStub()
+	userAccount.AddressBytesCalled = func() []byte { return []byte(address) }
+	userAccount.GetBalanceCalled = func(assetID []byte, cdd bool) int64 { return 1000 }
+	userAccount.GetUserKDACalled = func(assetID []byte, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+		return &kapps.UserKDA{
+			FrozenBalance: 2000,
+			Buckets: map[string]*kapps.UserBucket{
+				"stakedBucket":   {Value: 2000, UnstakedEpoch: core.DefaultUnstakedEpoch},
+				"unstakedBucket": {Value: 3000, UnstakedEpoch: 12},
+			},
+		}, nil
+	}
+
+	historyBuffers := make([]*bytes.Buffer, 0)
+	dbWriter := &imock.DatabaseWriterStub{
+		DoBulkRequestCalled: func(buff *bytes.Buffer, index string) error {
+			if index == accountsHistoryIndex {
+				historyBuffers = append(historyBuffers, bytes.NewBuffer(buff.Bytes()))
+			}
+			return nil
+		},
+	}
+
+	arguments := createMockElasticProcessorArgs()
+	elasticDatabase := newTestElasticSearchDatabase(dbWriter, arguments)
+	elasticDatabase.kappsController = nil
+
+	err := elasticDatabase.SaveAccounts(1234567890, []*data.Account{{UserAccount: userAccount, IsSender: true}})
+	require.NoError(t, err)
+	require.Len(t, historyBuffers, 1)
+
+	records := decodeAccountsHistoryBulk(t, historyBuffers[0])
+	require.Len(t, records, 1)
+	require.Equal(t, address, records[0].Address)
+	require.Equal(t, int64(1000), records[0].Balance)
+	require.Equal(t, int64(2000), records[0].FrozenBalance)
+	require.Equal(t, int64(3000), records[0].UnfrozenBalance)
+}
+
+func TestElasticProcessor_SaveAccountsHistoryKeepsTotalValueAcrossUnfreezeCooldown(t *testing.T) {
+	t.Parallel()
+
+	// A freeze/unfreeze/withdraw cycle moves the same 4000 between the three
+	// balances without ever losing any of it, which is the reason the history
+	// record needs the unfrozen field at all.
+	stages := []struct {
+		name            string
+		balance         int64
+		frozenBalance   int64
+		buckets         map[string]*kapps.UserBucket
+		expectedFrozen  int64
+		expectedUnfroze int64
+	}{
+		{
+			name:            "after freeze",
+			balance:         1000,
+			frozenBalance:   3000,
+			buckets:         map[string]*kapps.UserBucket{"b1": {Value: 3000, UnstakedEpoch: core.DefaultUnstakedEpoch}},
+			expectedFrozen:  3000,
+			expectedUnfroze: 0,
+		},
+		{
+			name:            "after unfreeze",
+			balance:         1000,
+			frozenBalance:   0,
+			buckets:         map[string]*kapps.UserBucket{"b1": {Value: 3000, UnstakedEpoch: 12}},
+			expectedFrozen:  0,
+			expectedUnfroze: 3000,
+		},
+		{
+			name:            "after withdraw",
+			balance:         4000,
+			frozenBalance:   0,
+			buckets:         map[string]*kapps.UserBucket{},
+			expectedFrozen:  0,
+			expectedUnfroze: 0,
+		},
+	}
+
+	for _, stage := range stages {
+		t.Run(stage.name, func(t *testing.T) {
+			t.Parallel()
+
+			userAccount := createTestAccountStub()
+			userAccount.GetBalanceCalled = func(assetID []byte, cdd bool) int64 { return stage.balance }
+			userAccount.GetUserKDACalled = func(assetID []byte, nonce []byte, checkDirtData bool) (*kapps.UserKDA, error) {
+				return &kapps.UserKDA{
+					FrozenBalance: stage.frozenBalance,
+					Buckets:       stage.buckets,
+				}, nil
+			}
+
+			ep := newTestElasticSearchDatabase(&imock.DatabaseWriterStub{}, createMockElasticProcessorArgs())
+			ep.kappsController = nil // nil so getAllowanceWithPendingRewards returns base allowance
+
+			result, err := buildAccountInfo(ep.addressPubkeyConverter, ep.kappsController, userAccount, 1234567890)
+
+			require.NoError(t, err)
+			require.Equal(t, stage.balance, result.Balance)
+			require.Equal(t, stage.expectedFrozen, result.FrozenBalance)
+			require.Equal(t, stage.expectedUnfroze, result.UnfrozenBalance)
+		})
+	}
+}
+
 func TestElasticProcessor_SaveEpochInfo(t *testing.T) {
 	t.Parallel()
 

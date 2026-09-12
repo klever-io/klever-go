@@ -45,6 +45,7 @@ type AccountBalanceHistory struct {
 	Timestamp       time.Duration `json:"timestamp"`
 	Balance         int64         `json:"balance"`
 	FrozenBalance   int64         `json:"frozenBalance"`
+	UnfrozenBalance int64         `json:"unfrozenBalance"`
 	TokenIdentifier string        `json:"token,omitempty"`
 	IsSender        bool          `json:"isSender,omitempty"`
 }
