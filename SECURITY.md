@@ -2,145 +2,500 @@
 
 ## Overview
 
-The Klever blockchain team takes security vulnerabilities seriously. We appreciate your efforts to responsibly disclose your findings and will make every effort to acknowledge your contributions.
+The Klever blockchain team takes security vulnerabilities seriously. We appreciate your
+efforts to responsibly disclose your findings and will make every effort to acknowledge
+your contributions.
+
+This policy states, as precisely as we can, **what we treat as a security vulnerability,
+what we treat as hardening, and what we do not treat as a security issue at all**. We
+publish these criteria so that reporters know before they invest effort how a finding
+will be classified, and so that our decisions are consistent and reviewable rather than
+case-by-case.
 
 ## Supported Versions
 
-We actively support and provide security updates for the following versions:
+**Only the latest released version is supported.** Security fixes ship forward in the next
+release; we do not backport them to earlier releases, and there are no long-term support
+branches. If you are not on the most recent release, assume you are missing security fixes.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.7.x   | :white_check_mark: |
-| < 1.7.0 | :x:                |
+Release-candidate (`-rcN`) tags are pre-release builds. They are not supported for
+production use unless we explicitly ask operators to run a specific candidate, which we
+do when an urgent security fix cannot wait for the final release. That candidate carries
+the fix it was cut for and is supported until the final release ships; move to the final
+when it does. The reverse does not hold: candidates are cut incrementally, so a fix
+present in the final release, or in a later candidate, is not necessarily present in an
+earlier candidate of the same version.
 
-**Note:** We strongly recommend using the latest stable release to ensure you have the most recent security patches and improvements.
+The current release is listed at
+https://github.com/klever-io/klever-go/releases/latest.
+
+### How we express affected versions in advisories
+
+Advisories state the affected range as `< <first-patched-version>`, paired with the
+patched version — for example `< 1.7.21` with `patched_versions: 1.7.21`. We do not use
+`<= <last-known-vulnerable>`, because under semantic versioning a pre-release such as
+`1.7.21-rc1` sorts after `1.7.20`, so a `<=` range silently excludes release candidates
+that are in fact affected.
+
+The first patched version is the first tag that carries the fix, and that includes a
+release candidate when the fix first shipped in one and we asked operators to run it —
+for example `< 1.7.21-rc1` with `patched_versions: 1.7.21-rc1`. Naming the final
+release instead would report that candidate as still vulnerable. Where the fix first
+shipped in the final, the range is `< 1.7.21`, which correctly includes every candidate
+of that version. The range and the patched version always name the same version.
+
+Advisory version fields are written without the `v` prefix, which is how the GitHub
+Advisory Database and the Go vulnerability database record Go versions. Git tags and Go
+module versions keep the prefix: `1.7.21` in an advisory is the tag `v1.7.21`.
+
+Where a defect was introduced in a specific release rather than being present since the
+beginning, we state a lower bound as well, for example `>= 1.7.14, < 1.7.18`.
 
 ## Reporting a Vulnerability
 
-**Please do NOT report security vulnerabilities through public GitHub issues, discussions, or pull requests.**
-
-Instead, please report security vulnerabilities using one of the following methods:
+**Please do NOT report security vulnerabilities through public GitHub issues,
+discussions, or pull requests.**
 
 ### Private Security Advisory (Recommended)
 
-Report vulnerabilities through GitHub's private vulnerability reporting:
 1. Navigate to the **Security** tab of this repository
 2. Click **Report a vulnerability**
 3. Fill out the vulnerability details form
 
 ### Email
 
-Send details to: **security@klever.org**
+Send details to: **security@klever.io**
 
-Please include the following information in your report:
+Please include:
 
-- **Type of vulnerability** (e.g., consensus failure, smart contract execution bypass, DoS, etc.)
-- **Affected component(s)** (e.g., KVM, consensus mechanism, networking layer)
-- **Step-by-step instructions** to reproduce the issue
-- **Proof of concept** or exploit code (if available)
-- **Potential impact** of the vulnerability
+- **Type of vulnerability** (e.g. consensus failure, execution bypass, DoS)
+- **Affected component(s)** (e.g. KVM, consensus, networking, state)
+- **Step-by-step instructions** to reproduce
+- **Proof of concept** — see "Reproducers" below
+- **Potential impact**, stated as a concrete demonstrated outcome
 - **Suggested mitigation** (if you have one)
-- **Your contact information** for follow-up questions
+- **Your contact information** for follow-up
 
-## Vulnerability Severity Classification
+### Reproducers
 
-We use the following severity levels to classify security issues:
+A report that includes a runnable reproducer is triaged faster than one that does not.
+A reproducer is what turns a theoretical report into demonstrated impact; it does not
+raise the severity grade on its own. The most useful form is a Go test in this
+repository that fails on the affected version, together with the exact command to run
+it and its verbatim output. State explicitly which fork flags (`EnableEpochs`) your
+reproducer assumes, since most state behaviour in this codebase is fork-gated.
+
+Please also state what you are **not** claiming. Reports that clearly bound their own
+scope are taken more seriously, not less.
+
+## How We Classify Reports
+
+Every report is placed in exactly one of three buckets. Advisory and hardening
+findings are credited. Reports that are not a security issue are closed with a
+written explanation citing the rule; they are not credited in an advisory or in
+release notes.
+
+A duplicate is not a fourth bucket and is not "not a security issue." It stays in
+the same bucket as the original finding, is credited, and is closed only once the
+canonical advisory is public — or, for a hardening finding, once the fix ships — as
+described in the next section.
+
+| Bucket | What it means | Outcome |
+| ------ | ------------- | ------- |
+| **Security advisory** | A demonstrated impact from the table below | GitHub Security Advisory published after the fix ships; CVE where appropriate; credited in the advisory |
+| **Security hardening** | A real weakness that does not on its own produce an impact from the table below — defence-in-depth, unsafe defaults, missing safety rails — including a report that matches an exclusion below but rests on a sound observation | Tracked internally (or as a private unpublished advisory) until the fix ships, then credited in the release notes; **no public issue before the fix, and no advisory published** |
+| **Not a security issue** | Matches an exclusion below with no sound underlying weakness, or is not reproducible | Closed with a written explanation citing the specific rule; not credited |
+
+We will always tell you which bucket a report landed in and why.
+
+## Duplicates and Findings Already Under Embargo
+
+Some reports describe an issue we already know about — found in internal review, raised by
+an audit, or reported earlier by someone else — where the fix is not yet public. This is
+common and it is not a criticism of the report.
+
+We follow the norms established by the major vulnerability-coordination platforms, because
+they exist to answer exactly this question and researchers already expect them.
+
+### A duplicate is not "not a security issue"
+
+We never close a duplicate with the reasoning we use for out-of-scope reports. A duplicate
+report describes a real finding. GitHub gives us no duplicate status, only Close, so we
+record the disposition in your report thread: that the finding is valid, which advisory it
+duplicates, and the dated record behind that. We close the report when the canonical
+advisory publishes, or when the fix ships for a hardening finding that will have no
+advisory, so "closed" never points at something you cannot see.
+
+### How we substantiate a known-issue claim
+
+When we say a report describes something we already knew about, we say it from a dated
+record, not from memory. The records we rely on are:
+
+- A commit or pull request, identified by hash and repository, with its date visible
+- An internal ticket or audit finding with a verifiable creation date
+- Dated written correspondence that states the vulnerability and its impact
+
+A later public disclosure does not show that we knew earlier, and neither does a finding
+having been "on our roadmap"; we do not cite either.
+
+You can ask to see the record, and we will share what the embargo allows. Where no dated
+record exists, we treat the report as new.
+
+### Findings from audits and internal review
+
+Not every finding we know about starts life as a GitHub advisory. Third-party audit
+findings arrive as an audit deliverable, and internal review findings start as tickets or
+commits. To keep provenance honest, we record these **when they are found, not when they
+are questioned**:
+
+- A finding that meets the advisory bar gets a **draft advisory opened at the time it is
+  recorded**, with the auditor or internal finder credited and the audit reference and its
+  date noted in the advisory.
+- Findings below that bar are tracked as internal dated tickets, which serve the same
+  evidentiary purpose.
+
+We can cite an audit finding's identifier and date as proof of prior knowledge without
+publishing the audit report itself, so a report still under its own embargo does not
+prevent us from substantiating a claim to you.
+
+**If you report something we hold in an audit or ticket but for which no advisory exists
+yet, we do not open our own advisory and close yours.** Where the finding meets the
+advisory bar, we accept your report as the canonical advisory and add the original finder
+alongside you in the credits, citing their dated reference. Where it is hardening, your
+report stays open as the record until the fix ships, and the release notes credit you
+alongside the original finder. You keep the record you filed; they keep their attribution.
+
+**If we have no dated record at all, it is not a known issue.** A finding that was
+discussed informally, or was on someone's list but never written down, does not meet the
+standard above. In that case the report is new, and it is credited as new.
+
+### What counts as a duplicate
+
+We use one test, and it turns on what we had already recorded: **a later report of a
+path we already recorded is a duplicate of that path. A report that causes us to
+change a path we had not recorded is not.** Put another way, a report is a duplicate
+only if we would have changed the same code anyway — and the dated record described
+above is how that is demonstrated, not our recollection.
+
+Independently reachable paths are separate findings even if we later extract a shared
+helper. Sharing a CWE is not enough.
+
+- Several instances of one weakness collapse only when one already-planned
+  framework- or interface-level change resolves all of them.
+- A report that establishes an impact we had not established is a new finding, not a
+  duplicate, even where the underlying defect was known.
+
+### What we can tell you while the fix is embargoed
+
+- That your finding overlaps something already tracked, and whether the overlap is total or
+  partial
+- The date we first recorded it, with the evidence above
+- Which release or fork the remediation is expected in, once known
+- Nothing that would disclose an unpublished vulnerability belonging to a third party, and
+  no details of another reporter's submission
+
+### Credit
+
+**If you found an issue independently, you are credited — even if you were not the first to
+tell us about it.**
+
+Many programs recognise only the first valid report, because a reward has to be paid once.
+Credit does not work that way: naming everyone who found an issue takes nothing away from
+anyone who found it earlier. So we name everyone.
+
+- **Any report that reaches us before the finding is publicly disclosed is credited as an
+  independent discovery**, whether or not we recorded it first.
+- Where the overlap is partial, we credit the part you contributed and state what it was.
+- Where you report something already fixed on an unreleased branch, we cite the commit so
+  you can verify it, and still record the report.
+
+### How crediting works in practice
+
+One vulnerability gets one advisory. We do not open a second advisory for a duplicate,
+because two GitHub Security Advisory identifiers for a single issue fragment the record for
+everyone downstream who consumes them. Instead:
+
+1. We keep a single canonical record for the finding: an advisory, or an internal ticket
+   where the finding is hardening.
+2. We confirm the duplicate in a comment on your report at triage, with the dated record
+   described above and the release the fix is expected in. Your report stays open.
+3. We **add you to that advisory's credits** at the same time, normally as `finder` for
+   independent discovery or `reporter` where you were first to notify us. GitHub sends you
+   a **credit request.** Accept it if you want your username to appear in the published
+   advisory. Declining is a supported choice and we will not press you on it; GitHub does
+   not display a credit publicly unless you accept. For a hardening finding we record you
+   for the release-note credit instead.
+4. We close your report when the canonical advisory publishes, with a comment that links
+   it. For a hardening finding we close when the fix ships, with a comment that links the
+   release notes.
+
+Two things follow from this that are worth stating plainly:
+
+- **Your open report is your channel during the embargo.** We post the milestones there:
+  fix merged, release tagged, fork activated where relevant, advisory published or, for
+  hardening, release notes out. Where the
+  canonical advisory originated from our own internal review, we also add you as a
+  collaborator on it so you can follow the fix directly. Where it originated from another
+  researcher, we do not, because that would expose their submission; your own report
+  thread carries the updates instead.
+- **Closing your report is not a rejection.** It happens at publication, or at release
+  for a hardening finding; the closing comment links the public advisory or the release
+  notes, and that comment remains in your report thread.
+
+If your report is a variant rather than a duplicate under the test above, none
+of this applies — it is accepted and tracked as its own finding.
+
+If you believe we have mis-assigned duplicate status or priority, say so. We will show you
+the dated evidence we relied on, and we will correct the record if we cannot support it.
+
+## Severity Classification
+
+We classify by **demonstrated impact**, not by how the finding was discovered or how
+sophisticated it is. We then apply the downgrade rules below, which account for how
+reachable that impact actually is.
+
+Critical is reserved for impacts that are systemic — the chain, every holder, or a node's
+keys — or that pay the attacker and therefore scale. High covers severe harm that is
+bounded to identifiable victims or to availability. Where a demonstrated impact matches
+more than one bullet, the highest applies; a bypass is graded by what it demonstrably
+reaches, not by its mechanism.
 
 ### Critical
-- Consensus failures or chain halts (BLS-based slot consensus with Byzantine fault tolerance)
-- Unauthorized fund access or theft
-- Remote code execution
-- Private key exposure
-- Byzantine attacks affecting consensus integrity
+
+- Consensus failure, chain halt, or chain split
+- Unauthorized minting, or theft of funds belonging to another account — by whatever
+  route, including a signature, transaction-validation, or authorization bypass that lets
+  an attacker act as the victim
+- Remote code execution on a node
+- Private key extraction
 
 ### High
-- Denial of Service affecting network availability
-- Smart contract execution vulnerabilities
-- Authentication/authorization bypass
-- Transaction validation bypass
+
+- Remote unauthenticated node crash or resource exhaustion that affects network availability
+- Transaction or signature validation bypass whose demonstrated impact stops short of a
+  Critical bullet — for example, a quorum check that still requires a majority of genuine
+  signatures
+- Authorization bypass over another account's assets or permissions that stops short of
+  theft or takeover — for example, altering an asset's properties without reaching its
+  holders' balances
+- Permanent loss or freezing of user funds that a third party can inflict on a victim
 
 ### Medium
-- Information disclosure
-- Performance degradation attacks
-- Non-critical DoS vectors
+
+- Permanent loss or freezing of user funds reachable only through the affected user's own
+  transaction
+- Permanent loss or freezing of user funds reachable only under a non-default asset
+  configuration
+- Bounded denial of service against an individual node
+- State inconsistency that does not affect consensus
+- Disclosure of non-public node or user data, reachable remotely under the **shipped
+  default configuration**
 
 ### Low
-- Issues with limited impact
-- Best practice violations
-- Security improvements
+
+- Any impact above that the downgrade rules bring to exactly Low
+- Information disclosure reachable only from the local host
+- Missing hardening on a debug, diagnostic, or non-default surface
+
+> **Note:** "information disclosure" is not automatically Medium. It is Medium only when
+> the disclosed data is non-public *and* the endpoint is reachable remotely under the
+> configuration we ship. Node telemetry, counters, and diagnostic state reachable only on
+> loopback are Low or hardening.
+
+### Downgrade Rules
+
+These are applied after the impact is matched. Each rule that applies reduces the
+severity by one level. A finding reduced below Low is classified as hardening.
+
+**A rule is not applied if the matched impact bullet already incorporates it.** We
+still cite the rule as reasoning so the match is reviewable; we do not decrement
+twice for the same fact.
+
+1. **Non-default configuration** — the impact requires an asset, chain, or node
+   configuration that differs from what we ship, and that an issuer or operator chose.
+2. **Self-inflicted trigger** — the impact requires the affected user's own transaction,
+   with no third party able to cause it.
+3. **Privileged actor** — the impact requires an actor who already holds a privileged
+   role over the affected asset or node, where that role already confers comparable power.
+4. **Local or non-default reachability** — the impact requires access to the local host,
+   or requires an interface bound beyond the loopback default we ship.
+
+Worked example: permanent loss of user funds that requires the user's own transaction
+*and* a non-default asset configuration matches the Medium self-inflicted bullet. Rule 2
+is priced into that bullet and is not applied again; Rule 1 is not, so it applies once and
+the result is Low — not hardening. Matching the non-default-asset bullet instead reaches
+the same place by the mirror route, which is why the two are listed separately.
+
+The same applies at Low: "information disclosure reachable only from the local host"
+already incorporates Rule 4; Rule 4 is not applied again to drop that finding to
+hardening.
+
+We will state which rules we applied. If you think we applied one incorrectly, say so —
+several published advisories on this repository were re-rated after a reporter pushed back
+with a better argument.
+
+### What "shipped default" means
+
+Classification uses the **mainnet deployment as we publish it**: the release binary or
+image, the current mainnet configuration package from backup.mainnet.klever.org, and
+the run command in the Node Operations Guide. The YAML in this repository is the
+developer checkout; a setting counts as shipped only if it survives into that package,
+and where the two differ, the package governs.
+
+Under that deployment the REST API binds to `localhost:8080`
+(`common/facade.DefaultRestInterface`). Only `--rest-api-interface` moves the listener
+off loopback — `--rest-api-interface=0.0.0.0:8080` or `--rest-api-interface :8080` — and
+the guide does not pass it. Docker `-p 8080:8080` and `--network=host` carry a
+non-loopback listener onto the network but do not rebind one themselves. Either way, the
+change is an operator choice, and an operator who makes it is expected to put
+authentication and TLS in front of the listener.
+
+## Not a Security Issue
+
+The following are not treated as vulnerabilities and are not published as advisories.
+Where the underlying observation is sound, the report is accepted as **hardening** and
+credited; where it is not, it is closed as not a security issue. We would rather receive
+these than not.
+
+- **REST API exposure.** The shipped deployment binds the REST API to loopback
+  (`localhost:8080`). Exposing it more widely is an operator decision, and securing
+  that deployment is an operator responsibility. If you bind beyond loopback, put the
+  listener behind authentication and TLS (a reverse proxy is the usual shape) and do
+  not leave mutate routes unauthenticated. Exposure on its own is not a finding. Where a
+  finding does carry demonstrated impact, requiring a non-loopback bind takes the Rule 4
+  reachability downgrade rather than leaving scope outright — it is hardening only once
+  that downgrade reduces it below Low. Routes that *mutate* node state or configuration
+  stay in scope as vulnerabilities.
+- **Missing `secured:` on read-only diagnostic routes.** Treated as hardening.
+  Tightening those flags is a change to the mainnet configuration package, or an operator
+  edit where a deployment publishes the API. Routes that *mutate* node state or
+  configuration stay in scope as vulnerabilities.
+- **Local attackers already present.** If an attacker must already have code execution,
+  filesystem write access, or an account on the node host, they can generally do worse
+  directly. The bar for these is correspondingly higher.
+- **Debug and diagnostic surfaces** that expose only counters, operational telemetry,
+  or cached protocol bookkeeping — that is, data that does not identify peers or
+  users, carry key material, or reveal unpublished chain state.
+- **Credential-hashing strength** where the shipped default fails closed and the
+  credential file already sits alongside material of equal or greater sensitivity.
+- **Operator misconfiguration or key-file mismanagement**, including losing or failing to
+  provision key material. Improving the safety rails around these is hardening.
+- **Duplicates and issues already fixed** on an unreleased branch are not listed here as
+  exclusions, because they describe real findings. They are handled under "Duplicates and
+  Findings Already Under Embargo" above, and are still credited. Please check `develop`
+  before reporting.
+- **Theoretical impact without a reproducer**, or automated scanner output with no
+  demonstrated exploitability.
+- **Third-party dependencies** — please report to the respective maintainers. If a
+  dependency issue is reachable through our code in a way the upstream advisory does not
+  describe, that is in scope.
+- **Test code and fixtures.** Test servers and helpers in this repository are not intended
+  for production use and are not hardened.
+- **Social engineering, phishing, and physical attacks.**
+- **Centralization, governance, and economic-design concerns** that do not stem from a
+  code defect. These are welcome as ordinary issues or discussions.
 
 ## Response Timeline
 
-We are committed to addressing security vulnerabilities promptly:
+These are the targets we plan around. When we see that one will be missed, we say so in
+your report thread with the reason and the new expected date.
 
-1. **Initial Response**: Within 48 hours of receiving your report
-2. **Triage and Assessment**: Within 5 business days
-3. **Fix Development**: Depending on complexity and severity
-   - Critical: 7-14 days
-   - High: 14-30 days
-   - Medium: 30-60 days
-   - Low: 60-90 days
-4. **Coordinated Disclosure**: We will work with you to determine an appropriate disclosure timeline
+1. **Initial response**: within 36 hours
+2. **Triage and bucket assignment**: within 5 business days, with the reasoning stated
+3. **Fix available in a tagged build**, counted from the report date. A release candidate
+   we ask operators to run counts; fork-gated activation follows the epoch schedule and is
+   outside this window.
+   - Critical: 14 days
+   - High: 30 days
+   - Medium: 90 days
+   - Low / hardening: on the ordinary release schedule
+4. **Coordinated disclosure**: timeline agreed with you, per the model below
 
-## Security Update Process
+## Disclosure Model
 
-When a security vulnerability is confirmed:
+Klever follows a **coordinated, fix-first disclosure model**. Vulnerabilities are
+remediated privately and disclosed after operators have had the opportunity to upgrade.
+This is consistent with practice for comparable node software.
 
-1. We will develop and test a fix
-2. We will prepare security advisories
-3. We will notify affected users and node operators through official channels
-4. We will release the patched version
-5. After a reasonable adoption period, we will publish the security advisory with credit to the reporter (if desired)
+Two properties of this codebase shape our timing:
 
-## Bug Bounty Program
+- Many state-behaviour fixes are **fork-gated** (`EnableEpochs`). A fix that has shipped in
+  a release is not yet active on the network until its fork epoch activates. We disclose
+  after **activation**, not after release, where premature disclosure would describe live
+  reachable behaviour.
+- Where a finding gives an asset issuer or operator an economic advantage over their own
+  users, we delay disclosure until the fix is active, so publication does not amount to
+  distributing a recipe.
 
-We value the security research community's contributions. Details about our bug bounty program:
+| Severity | Disclosure timing |
+| -------- | ----------------- |
+| Low / Medium | Approximately four weeks after the fix is released and, where fork-gated, active |
+| High | After the fix is active and adoption is confirmed |
+| Critical | Case by case; details may be limited or withheld while networks upgrade |
 
-- **Scope**: Vulnerabilities in the core blockchain protocol, consensus mechanism, KVM, smart contract execution, and cryptographic implementations
-- **Rewards**: Determined based on severity and impact (see classification above)
-- **Eligibility**: Must follow responsible disclosure practices
+Reporters are credited in the published advisory unless they ask not to be. Hardening
+findings are credited in release notes.
 
-For current bounty amounts and specific program details, please contact **security@klever.org**.
+## Recognition and Rewards
 
-## Out of Scope
+We do not currently operate a bounty program with published reward tiers, and we would
+rather say so plainly than imply terms we have not set.
 
-The following are generally considered out of scope:
+What we do commit to:
 
-- Issues in third-party dependencies (please report to the respective maintainers)
-- Social engineering attacks
-- Physical attacks on infrastructure
-- Vulnerabilities requiring unlikely user interaction
-- Issues already reported or fixed
-- Automated scanning results without proof of exploitability
+- **Attribution.** Reporters are credited in the published advisory, or in the release
+  notes for findings classified as hardening, unless you ask us not to be named.
+- **A stated decision.** Every report receives a bucket and the reasoning behind it.
+  Advisory and hardening findings also receive a severity, including which downgrade
+  rules we applied and why.
+- **Safe harbour.** We will not pursue legal action against, or ask platforms to act
+  against, anyone who researches and reports in good faith under the responsible
+  disclosure guidelines below. If you are unsure whether an activity is covered, ask us
+  first at security@klever.io and we will answer before you proceed.
+
+**Monetary awards are discretionary.** We may recognise reports that are especially
+severe, especially well-evidenced, or that prevent a real incident. Because there are no
+published tiers, no severity rating on this repository constitutes an offer or an
+entitlement, and we would ask reporters not to invest effort on the assumption of payment.
+
+**Scope** for the purposes of this policy: the core blockchain protocol, consensus, KVM,
+smart contract execution, state and account handling, networking, and cryptographic
+implementations in this repository.
+
+We are working toward a formally hosted program. If and when one launches, its published
+impacts-in-scope list and reward ranges will become authoritative over this section, and we
+will say so here.
 
 ## Responsible Disclosure Guidelines
 
-When researching vulnerabilities, please:
+Please:
 
-- ✅ Make every effort to avoid privacy violations, data destruction, and service disruption
+- ✅ Avoid privacy violations, data destruction, and service disruption
 - ✅ Only interact with accounts you own or have explicit permission to test
-- ✅ Do not exploit vulnerabilities beyond what is necessary to demonstrate the issue
-- ✅ Keep all vulnerability details confidential until they are resolved
-- ✅ Give us reasonable time to fix vulnerabilities before public disclosure
+- ✅ Do not exploit beyond what is necessary to demonstrate the issue
+- ✅ Keep details confidential until we have coordinated disclosure
+- ✅ Give us reasonable time to fix before public disclosure
 
-Please **do not**:
+Please do not:
 
-- ❌ Access, modify, or delete data that doesn't belong to you
-- ❌ Perform DoS/DDoS attacks on the mainnet or public testnet
+- ❌ Access, modify, or delete data that is not yours
+- ❌ Perform DoS/DDoS against mainnet or public testnet
 - ❌ Compromise user privacy or degrade user experience
 - ❌ Execute attacks against network participants
-- ❌ Publicly disclose vulnerabilities before coordinated release
+- ❌ Publicly disclose before coordinated release
 
-## Security Best Practices for Users
+## Security Best Practices for Node Operators
 
-To help secure the Klever blockchain ecosystem:
-
-- Keep your node software up to date
-- Follow secure key management practices
-- Use hardware wallets for significant holdings
-- Verify transaction details before signing
-- Be cautious of social engineering attempts
-- Report suspicious activity to the team
+- Keep node software up to date
+- Run the current mainnet configuration package from backup.mainnet.klever.org and
+  refresh it when a release says to; the YAML in this repository is a developer checkout
+- Leave the REST API on loopback (`localhost:8080`) unless you have a reason not to
+- If you bind beyond loopback — a non-loopback `--rest-api-interface`, reached either by
+  Docker `-p 8080:8080` or `--network=host` — require authentication and TLS termination
+  in front of the listener. Do not leave mutate routes unauthenticated.
+- Back up and protect validator key material; verify your node starts under the identity
+  you registered
+- Follow secure key management practices and use hardware wallets for significant holdings
 
 ## Deploying / Exposing the REST API
 
@@ -336,20 +691,21 @@ settings are what do.
 
 ## Security Audits
 
-Our codebase undergoes regular security audits by reputable third-party firms. Audit reports are published on our website and documentation.
+Our codebase undergoes regular security audits by reputable third-party firms. Audit
+reports are published on our website and documentation.
 
 ## Contact
 
-For any security-related questions or concerns:
-
-- **Email**: security@klever.org
+- **Email**: security@klever.io
 - **Website**: https://klever.org
 - **Documentation**: https://docs.klever.org
 
 ## Acknowledgments
 
-We would like to thank the security researchers and community members who help keep Klever safe. Contributors who follow responsible disclosure practices will be acknowledged (with permission) in our security advisories.
+We thank the security researchers and community members who help keep Klever safe.
+Contributors who follow responsible disclosure are acknowledged, with permission, in our
+advisories and release notes.
 
 ---
 
-**Last Updated**: August 2026
+**Last Updated**: September 2026

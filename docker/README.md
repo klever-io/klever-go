@@ -51,6 +51,12 @@ kleverapp/klever-go:[variant-][environment-]<version>[network-suffix]
 
 ## Quick Start
 
+The examples below publish host port 8080. That only reaches the REST API if the
+process also binds beyond loopback. The binary default is `localhost:8080`. Do
+not combine a published port with `--rest-api-interface=0.0.0.0:8080` (or
+`:8080`) unless authentication and TLS sit in front of the listener. See
+[SECURITY.md](../SECURITY.md).
+
 ### Running a Full Node (Debian)
 
 ```bash
