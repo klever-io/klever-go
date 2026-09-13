@@ -168,7 +168,7 @@ func (ei *elasticProcessor) initWithKibana(indexTemplates, indexPolicies map[str
 		return err
 	}
 
-	return nil
+	return ei.ensureFieldMappings(indexTemplates)
 }
 
 func (ei *elasticProcessor) initNoKibana(indexTemplates map[string]*bytes.Buffer) error {
@@ -192,7 +192,7 @@ func (ei *elasticProcessor) initNoKibana(indexTemplates map[string]*bytes.Buffer
 		return err
 	}
 
-	return nil
+	return ei.ensureFieldMappings(indexTemplates)
 }
 
 // nolint: unused
@@ -262,6 +262,32 @@ func (ei *elasticProcessor) createIndexes() error {
 			return err
 		}
 	}
+	return nil
+}
+
+// ensureFieldMappings brings the transactions mapping up to date on a cluster that may
+// predate the properties in templates.TransactionsAddedProperties: the stored template is
+// rewritten so indices created from now on carry them, and the live index gains whichever
+// of them it does not map yet. Both run on every start-up; the live index is read before it
+// is written, so a node whose index is already up to date sends no write. The template is
+// the same buffer the create step was handed, which is why that step must not consume it.
+func (ei *elasticProcessor) ensureFieldMappings(indexTemplates map[string]*bytes.Buffer) error {
+	if template := getTemplateByName(txIndex, indexTemplates); template != nil {
+		err := ei.elasticClient.PutTemplate(txIndex, template.Bytes())
+		if err != nil {
+			log.Error("put template", "index", txIndex, "err", err)
+			return err
+		}
+	}
+
+	properties := templates.Object{"properties": templates.TransactionsAddedProperties}
+
+	err := ei.elasticClient.CheckAndUpdateMapping(txIndex, properties)
+	if err != nil {
+		log.Error("check and update mapping", "index", txIndex, "err", err)
+		return err
+	}
+
 	return nil
 }
 
