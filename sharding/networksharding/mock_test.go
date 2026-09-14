@@ -17,7 +17,7 @@ func (ncm *nodesCoordinatorStub) GetChance(uint32) uint32 {
 }
 
 // GetAllLeavingValidatorsKeys -
-func (ncs *nodesCoordinatorStub) GetAllLeavingValidatorsKeys(_ uint32) ([][]byte, error) {
+func (ncs *nodesCoordinatorStub) GetAllLeavingValidatorsKeys(_ uint32, _ bool) ([][]byte, error) {
 	return nil, nil
 }
 

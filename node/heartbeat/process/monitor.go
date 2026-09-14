@@ -668,7 +668,8 @@ func (m *Monitor) shouldSkipValidator(v *heartbeatMessageInfo) bool {
 	timestamp := v.timestamp
 	v.updateMutex.RUnlock()
 
-	isInactiveNonValidator := !isActive && !isValidatorPeerType(peerType)
+	// registered tier: jailed validators keep their heartbeat entry visible
+	isInactiveNonValidator := !isActive && !isRegisteredValidatorPeerType(peerType)
 	if isInactiveNonValidator {
 		lastInactiveInterval := m.timer.Now().Sub(timestamp)
 		if lastInactiveInterval.Seconds() > float64(m.hideInactiveValidatorIntervalInSec) {
