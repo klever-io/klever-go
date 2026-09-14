@@ -3,8 +3,10 @@ package headerCheck_test
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"testing"
 
+	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common"
 	cMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core/process"
@@ -725,4 +727,150 @@ func TestHeaderSigVerifier_VerifySignatureOkWhenFallbackThresholdCouldBeApplied(
 	err := hdrSigVerifier.VerifySignature(header)
 	require.Nil(t, err)
 	require.True(t, wasCalled)
+}
+
+// epochConfigLogFormatter keeps everything except the epoch-config rejection line
+// out of the observer buffer, so unrelated log output from other tests in this
+// package cannot make the assertions below flaky. Same idiom as
+// core/process/transactionLog/printTxLogProcessor_test.go.
+type epochConfigLogFormatter struct {
+	logger.PlainFormatter
+}
+
+func (f *epochConfigLogFormatter) Output(line logger.LogLineHandler) []byte {
+	if line.GetMessage() != "header rejected, epoch consensus config not built yet" {
+		return nil
+	}
+
+	return f.PlainFormatter.Output(line)
+}
+
+// The epoch consensus configuration is only built when the epoch-start block is
+// committed, so between an epoch boundary and that commit every new-epoch header
+// is rejected here (issue #90).
+//
+// Two things must hold. The sentinel has to reach the caller intact, because the
+// worker's blacklist suppression keys off it (core/consensus/slot/worker.go) and
+// a header rejected only for this reason is early rather than invalid. And the
+// rejection has to be observable, because counting the slots it spans is how the
+// window's real duration gets measured.
+//
+// Not parallel: it mutates the global log level and observer list.
+func TestHeaderSigVerifier_EpochNodesConfigMissingIsSurfacedIntact(t *testing.T) {
+	const missingEpoch = uint32(7)
+
+	previousPattern := logger.GetLogLevelPattern()
+	require.Nil(t, logger.SetLogLevel("*:DEBUG"))
+
+	buff := &bytes.Buffer{}
+	require.Nil(t, logger.AddLogObserver(buff, &epochConfigLogFormatter{}))
+
+	t.Cleanup(func() {
+		require.Nil(t, logger.RemoveLogObserver(buff))
+		require.Nil(t, logger.SetLogLevel(previousPattern))
+	})
+
+	newArgsRejectingEpochConfig := func() *headerCheck.ArgsHeaderSigVerifier {
+		args := createHeaderSigVerifierArgs()
+		args.NodesCoordinator = &cMock.NodesCoordinatorMock{
+			ComputeValidatorsGroupCalled: func(_ []byte, _ uint64, epoch uint32) ([]sharding.Validator, error) {
+				// Same wrapping the real coordinator applies, so the test also
+				// pins that errors.Is survives it.
+				return nil, fmt.Errorf("%w epoch=%v", sharding.ErrEpochNodesConfigDoesNotExist, epoch)
+			},
+		}
+
+		return args
+	}
+
+	t.Run("leader lookup path", func(t *testing.T) {
+		hdrSigVerifier, err := headerCheck.NewHeaderSigVerifier(newArgsRejectingEpochConfig())
+		require.Nil(t, err)
+
+		header := &block.Block{Header: &block.BlockHeader{Epoch: missingEpoch, Nonce: 42, Slot: 43}}
+
+		err = hdrSigVerifier.VerifyRandSeed(header)
+
+		require.True(t, errors.Is(err, sharding.ErrEpochNodesConfigDoesNotExist), "got %v", err)
+		require.Contains(t, buff.String(), "leader")
+	})
+
+	t.Run("signature path", func(t *testing.T) {
+		hdrSigVerifier, err := headerCheck.NewHeaderSigVerifier(newArgsRejectingEpochConfig())
+		require.Nil(t, err)
+
+		header := &block.Block{
+			Header:        &block.BlockHeader{Epoch: missingEpoch, Nonce: 42, Slot: 43},
+			PubKeysBitmap: []byte("1"),
+		}
+
+		err = hdrSigVerifier.VerifySignature(header)
+
+		require.True(t, errors.Is(err, sharding.ErrEpochNodesConfigDoesNotExist), "got %v", err)
+		require.Contains(t, buff.String(), "signature")
+	})
+
+	// A single emitted line must carry the fields an operator needs to count how
+	// many slots the window spans. Asserting on one line rather than on the
+	// accumulated buffer is what makes this meaningful: over the concatenation of
+	// several lines the field assertions would still pass with a field missing
+	// from one of them.
+	t.Run("a single emitted line carries epoch, nonce and slot", func(t *testing.T) {
+		buff.Reset()
+
+		hdrSigVerifier, err := headerCheck.NewHeaderSigVerifier(newArgsRejectingEpochConfig())
+		require.Nil(t, err)
+
+		header := &block.Block{Header: &block.BlockHeader{Epoch: missingEpoch, Nonce: 42, Slot: 43}}
+
+		err = hdrSigVerifier.VerifyRandSeed(header)
+		require.True(t, errors.Is(err, sharding.ErrEpochNodesConfigDoesNotExist), "got %v", err)
+
+		output := buff.String()
+		require.Contains(t, output, "missing config for epoch = 7")
+		require.Contains(t, output, "header epoch = 7")
+		require.Contains(t, output, "nonce = 42")
+		require.Contains(t, output, "slot = 43")
+	})
+
+	// For an epoch-start header both callers verify against the previous epoch,
+	// so the line must name that epoch as the missing one. Reporting the header's
+	// own epoch would send an operator looking for the wrong configuration.
+	t.Run("epoch-start header names the previous epoch as the missing one", func(t *testing.T) {
+		buff.Reset()
+
+		hdrSigVerifier, err := headerCheck.NewHeaderSigVerifier(newArgsRejectingEpochConfig())
+		require.Nil(t, err)
+
+		header := &block.Block{
+			Header: &block.BlockHeader{Epoch: missingEpoch, Nonce: 42, Slot: 43, IsEpochStart: true},
+		}
+
+		err = hdrSigVerifier.VerifyRandSeed(header)
+		require.True(t, errors.Is(err, sharding.ErrEpochNodesConfigDoesNotExist), "got %v", err)
+
+		require.Contains(t, buff.String(), "missing config for epoch = 6")
+		require.Contains(t, buff.String(), "header epoch = 7")
+	})
+
+	// A different error must leave the diagnostic silent, otherwise the line stops
+	// meaning "the epoch window is open".
+	t.Run("stays silent for an unrelated error", func(t *testing.T) {
+		buff.Reset()
+
+		args := createHeaderSigVerifierArgs()
+		args.NodesCoordinator = &cMock.NodesCoordinatorMock{
+			ComputeValidatorsGroupCalled: func(_ []byte, _ uint64, _ uint32) ([]sharding.Validator, error) {
+				return nil, errors.New("some other failure")
+			},
+		}
+
+		hdrSigVerifier, err := headerCheck.NewHeaderSigVerifier(args)
+		require.Nil(t, err)
+
+		err = hdrSigVerifier.VerifyRandSeed(&block.Block{Header: &block.BlockHeader{}})
+		require.NotNil(t, err)
+
+		require.Empty(t, buff.String())
+	})
 }

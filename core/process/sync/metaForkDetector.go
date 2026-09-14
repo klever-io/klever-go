@@ -47,6 +47,13 @@ func NewMetaForkDetector(
 	bfd.fork.rollBackNonce = math.MaxUint64
 	bfd.fork.probableHighestNonce = bfd.genesisNonce
 	bfd.fork.highestNonceReceived = bfd.genesisNonce
+	// Sentinels below any real slot index: the zero values would otherwise
+	// collide with slot index 0. For the warn throttle that swallows the first
+	// checkpoint-ahead warning; for lastSlotWithForcedFork it makes
+	// isConsensusStuck treat the genesis slot as if a forced fork just happened
+	// and skip its entire body.
+	bfd.lastCheckpointAheadWarnSlot.Store(math.MinInt64)
+	bfd.fork.lastSlotWithForcedFork = math.MinInt64
 
 	mfd := metaForkDetector{
 		baseForkDetector: bfd,
