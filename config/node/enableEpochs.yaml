@@ -38,6 +38,13 @@ enableEpochs:
   # Audit Changes V4
   # Also releases the frozen swap-service account: must be after fixMarketBuyOverflow.
   fixAuditChangesV4: 0
+  # Sort the leaving list before the consensus backfill promotion, so the
+  # promoted subset no longer depends on validator-info input order.
+  # Live networks must set this to an epoch after the last validator has
+  # upgraded: leaving it at 0 during a rolling upgrade activates the new
+  # ordering immediately on upgraded nodes while older binaries keep the
+  # legacy ordering.
+  fixJailedPromotionOrder: 0
 gasSchedule:
   gasScheduleByEpochs:
     - startEpoch: 0
