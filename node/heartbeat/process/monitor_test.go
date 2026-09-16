@@ -1282,3 +1282,93 @@ func TestMonitor_ProcessReceivedMessageConcurrentNearCap(t *testing.T) {
 	mon.Cleanup()
 	assert.LessOrEqual(t, len(mon.GetHeartbeats()), int(arg.MaxUnknownHeartbeatPubKeys))
 }
+
+func TestMonitor_UnknownIdentitiesStayWithinCapBeforeCleanup(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.MaxDurationPeerUnresponsive = 10 * time.Second
+	arg.MaxUnknownHeartbeatPubKeys = 4
+	arg.MaxUnknownHeartbeatPubKeysPerOrigin = 2
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	defer mon.Close()
+
+	for origin := 0; origin < 10; origin++ {
+		for idx := 0; idx < 2; idx++ {
+			hb := &data.Heartbeat{
+				Pubkey: []byte(fmt.Sprintf("unknown-%d-%d", origin, idx)),
+				Pid:    []byte(fmt.Sprintf("pid-%d-%d", origin, idx)),
+			}
+			mon.AddHeartbeatMessageFromOrigin(hb, core.PeerID(fmt.Sprintf("origin-%d", origin)))
+		}
+	}
+
+	assert.LessOrEqual(t, mon.GetNumHearbeatMessages(), int(arg.MaxUnknownHeartbeatPubKeys))
+	assert.LessOrEqual(t, mon.GetNumDoubleSignerPeers(), int(arg.MaxUnknownHeartbeatPubKeys))
+}
+
+func TestMonitor_UnknownIdentitiesAreNeverPersisted(t *testing.T) {
+	t.Parallel()
+
+	var mutPersisted sync.Mutex
+	persistedPubKeys := make([]string, 0)
+
+	timer := mock.NewTimerMock()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.Timer = timer
+	arg.MaxDurationPeerUnresponsive = 10 * time.Second
+	arg.Storer = &mock.HeartbeatStorerStub{
+		UpdateGenesisTimeCalled: func(genesisTime time.Time) error {
+			return nil
+		},
+		LoadHeartBeatDTOCalled: func(pubKey string) (*data.HeartbeatDTO, error) {
+			return nil, errors.New("not found")
+		},
+		LoadKeysCalled: func() ([][]byte, error) {
+			return nil, nil
+		},
+		SavePubkeyDataCalled: func(pubkey []byte, heartbeat *data.HeartbeatDTO) error {
+			mutPersisted.Lock()
+			persistedPubKeys = append(persistedPubKeys, string(pubkey))
+			mutPersisted.Unlock()
+			return nil
+		},
+		RemovePubkeyDataCalled: func(pubkey []byte) error {
+			return nil
+		},
+		SaveKeysCalled: func(peersSlice [][]byte) error {
+			return nil
+		},
+	}
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	defer mon.Close()
+
+	admittedPubKey := "admitted-validator-pk"
+	unknownPubKey := "unknown-external-pk"
+
+	mon.AddTrustedHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(admittedPubKey), Pid: []byte("pid-admitted")})
+	mon.AddHeartbeatMessageFromOrigin(
+		&data.Heartbeat{Pubkey: []byte(unknownPubKey), Pid: []byte("pid-unknown")},
+		core.PeerID("origin-a"),
+	)
+
+	mutPersisted.Lock()
+	persistedPubKeys = persistedPubKeys[:0]
+	mutPersisted.Unlock()
+
+	timer.IncrementSeconds(60)
+	mon.RefreshHeartbeatMessageInfo()
+
+	mutPersisted.Lock()
+	defer mutPersisted.Unlock()
+
+	assert.Contains(t, persistedPubKeys, admittedPubKey)
+	assert.NotContains(t, persistedPubKeys, unknownPubKey)
+}

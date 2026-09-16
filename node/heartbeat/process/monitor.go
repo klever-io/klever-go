@@ -222,6 +222,10 @@ func (m *Monitor) SaveMultipleHeartbeatMessageInfos(pubKeysToSave map[string]*he
 	defer m.mutHeartbeatMessages.RUnlock()
 
 	for key, hmbi := range pubKeysToSave {
+		if !m.isAdmittedHeartbeatPubKey(key) {
+			continue
+		}
+
 		hbDTO := m.convertToExportedStruct(hmbi)
 		err := m.storer.SavePubkeyData([]byte(key), hbDTO)
 		if err != nil {
@@ -383,12 +387,19 @@ func (m *Monitor) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPe
 func (m *Monitor) addHeartbeatMessageToMap(hb *data.Heartbeat, fromConnectedPeer core.PeerID) {
 	pubKeyStr := string(hb.Pubkey)
 	isAdmittedPubKey := m.isAdmittedHeartbeatPubKey(pubKeyStr)
+	droppedPubKeys := make([]string, 0)
 	if !isAdmittedPubKey {
-		if !m.trackTransientUnknownHeartbeatPubKey(pubKeyStr, fromConnectedPeer) {
+		tracked, dropped := m.trackTransientUnknownHeartbeatPubKey(pubKeyStr, fromConnectedPeer)
+		droppedPubKeys = dropped
+		if !tracked {
+			m.mutHeartbeatMessages.Lock()
+			m.dropLiveHeartbeatStateLocked(droppedPubKeys)
+			m.mutHeartbeatMessages.Unlock()
 			return
 		}
 	}
 	m.mutHeartbeatMessages.Lock()
+	m.dropLiveHeartbeatStateLocked(droppedPubKeys)
 	if len(hb.Pid) > 0 {
 		m.addDoubleSignerPeers(hb)
 	}
@@ -460,24 +471,27 @@ func (m *Monitor) markHeartbeatPubKeyAsAdmitted(pubKey string) {
 	m.mutTransientUnknownHeartbeatPubKeys.Unlock()
 }
 
-func (m *Monitor) trackTransientUnknownHeartbeatPubKey(pubKey string, originPeer core.PeerID) bool {
+func (m *Monitor) trackTransientUnknownHeartbeatPubKey(pubKey string, originPeer core.PeerID) (bool, []string) {
 	m.mutTransientUnknownHeartbeatPubKeys.Lock()
 	defer m.mutTransientUnknownHeartbeatPubKeys.Unlock()
 
-	m.sweepTransientUnknownHeartbeatPubKeysLocked()
+	droppedPubKeys := m.sweepTransientUnknownHeartbeatPubKeysLocked()
 
 	if existing, ok := m.transientUnknownHeartbeatPubKeys[pubKey]; ok {
 		existing.lastSeen = m.timer.Now()
 		m.transientUnknownHeartbeatPubKeys[pubKey] = existing
-		return true
+		return true, droppedPubKeys
 	}
 
 	if m.countTransientUnknownHeartbeatPubKeysForOriginLocked(originPeer) >= int(m.maxUnknownHeartbeatPubKeysPerOrigin) {
-		return false
+		return false, droppedPubKeys
 	}
 
 	if len(m.transientUnknownHeartbeatPubKeys) >= int(m.maxUnknownHeartbeatPubKeys) {
-		m.evictOldestTransientUnknownHeartbeatPubKeyLocked()
+		evictedPubKey, evicted := m.evictOldestTransientUnknownHeartbeatPubKeyLocked()
+		if evicted {
+			droppedPubKeys = append(droppedPubKeys, evictedPubKey)
+		}
 	}
 
 	m.transientUnknownHeartbeatPubKeys[pubKey] = transientUnknownHeartbeatInfo{
@@ -485,7 +499,18 @@ func (m *Monitor) trackTransientUnknownHeartbeatPubKey(pubKey string, originPeer
 		lastSeen:   m.timer.Now(),
 	}
 
-	return true
+	return true, droppedPubKeys
+}
+
+func (m *Monitor) dropLiveHeartbeatStateLocked(pubKeys []string) {
+	for _, pubKey := range pubKeys {
+		if m.isAdmittedHeartbeatPubKey(pubKey) {
+			continue
+		}
+
+		delete(m.heartbeatMessages, pubKey)
+		delete(m.doubleSignerPeers, pubKey)
+	}
 }
 
 func (m *Monitor) countTransientUnknownHeartbeatPubKeysForOriginLocked(originPeer core.PeerID) int {
@@ -499,16 +524,20 @@ func (m *Monitor) countTransientUnknownHeartbeatPubKeysForOriginLocked(originPee
 	return count
 }
 
-func (m *Monitor) sweepTransientUnknownHeartbeatPubKeysLocked() {
+func (m *Monitor) sweepTransientUnknownHeartbeatPubKeysLocked() []string {
 	now := m.timer.Now()
+	droppedPubKeys := make([]string, 0)
 	for pubKey, info := range m.transientUnknownHeartbeatPubKeys {
 		if now.Sub(info.lastSeen) > m.maxDurationPeerUnresponsive {
 			delete(m.transientUnknownHeartbeatPubKeys, pubKey)
+			droppedPubKeys = append(droppedPubKeys, pubKey)
 		}
 	}
+
+	return droppedPubKeys
 }
 
-func (m *Monitor) evictOldestTransientUnknownHeartbeatPubKeyLocked() {
+func (m *Monitor) evictOldestTransientUnknownHeartbeatPubKeyLocked() (string, bool) {
 	var oldestKey string
 	var oldestTime time.Time
 	hasOldest := false
@@ -524,6 +553,8 @@ func (m *Monitor) evictOldestTransientUnknownHeartbeatPubKeyLocked() {
 	if hasOldest {
 		delete(m.transientUnknownHeartbeatPubKeys, oldestKey)
 	}
+
+	return oldestKey, hasOldest
 }
 
 func (m *Monitor) isPeerInFullPeersSlice(pubKey []byte) bool {
@@ -810,13 +841,17 @@ func (m *Monitor) getNumInstancesOfPublicKey(pubKeyStr string) uint64 {
 // Cleanup will delete all the entries in the heartbeatMessages map
 func (m *Monitor) Cleanup() {
 	m.mutTransientUnknownHeartbeatPubKeys.Lock()
-	m.sweepTransientUnknownHeartbeatPubKeysLocked()
+	_ = m.sweepTransientUnknownHeartbeatPubKeysLocked()
+	trackedUnknownPubKeys := make(map[string]struct{}, len(m.transientUnknownHeartbeatPubKeys))
+	for pubKey := range m.transientUnknownHeartbeatPubKeys {
+		trackedUnknownPubKeys[pubKey] = struct{}{}
+	}
 	m.mutTransientUnknownHeartbeatPubKeys.Unlock()
 
 	m.mutHeartbeatMessages.Lock()
 	for k, v := range m.heartbeatMessages {
 		if !m.isAdmittedHeartbeatPubKey(k) {
-			_, stillTracked := m.transientUnknownHeartbeatInfo(k)
+			_, stillTracked := trackedUnknownPubKeys[k]
 			if !stillTracked {
 				delete(m.heartbeatMessages, k)
 				delete(m.doubleSignerPeers, k)
@@ -830,12 +865,4 @@ func (m *Monitor) Cleanup() {
 		}
 	}
 	m.mutHeartbeatMessages.Unlock()
-}
-
-func (m *Monitor) transientUnknownHeartbeatInfo(pubKey string) (transientUnknownHeartbeatInfo, bool) {
-	m.mutTransientUnknownHeartbeatPubKeys.Lock()
-	defer m.mutTransientUnknownHeartbeatPubKeys.Unlock()
-
-	info, ok := m.transientUnknownHeartbeatPubKeys[pubKey]
-	return info, ok
 }
