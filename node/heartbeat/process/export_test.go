@@ -59,6 +59,10 @@ func (m *Monitor) AddHeartbeatMessageFromOrigin(hb *data.Heartbeat, origin core.
 	m.addHeartbeatMessageToMap(hb, origin)
 }
 
+func (m *Monitor) ProcessValidatedHeartbeat(hb *data.Heartbeat, origin core.PeerID) {
+	m.processValidatedHeartbeat(hb, origin)
+}
+
 // AddTrustedHeartbeatMessageToMap bypasses admission limits explicitly for tests
 // that need to seed trusted validator state.
 func (m *Monitor) AddTrustedHeartbeatMessageToMap(hb *data.Heartbeat) {

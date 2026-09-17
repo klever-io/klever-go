@@ -1372,3 +1372,51 @@ func TestMonitor_UnknownIdentitiesAreNeverPersisted(t *testing.T) {
 	assert.Contains(t, persistedPubKeys, admittedPubKey)
 	assert.NotContains(t, persistedPubKeys, unknownPubKey)
 }
+
+func TestMonitor_RejectedUnknownHeartbeatDoesNotTriggerRecompute(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = 10 * time.Second
+	arg.MaxUnknownHeartbeatPubKeys = 1
+	arg.MaxUnknownHeartbeatPubKeysPerOrigin = 1
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	defer mon.Close()
+
+	var mutRecomputes sync.Mutex
+	recomputes := 0
+	err = mon.SetAppStatusHandler(&mock.AppStatusHandlerStub{
+		SetUInt64ValueHandler: func(key string, value uint64) {
+			if key != core.MetricConnectedNodes {
+				return
+			}
+			mutRecomputes.Lock()
+			recomputes++
+			mutRecomputes.Unlock()
+		},
+	})
+	require.NoError(t, err)
+
+	mutRecomputes.Lock()
+	recomputes = 0
+	mutRecomputes.Unlock()
+
+	origin := core.PeerID("origin-a")
+	mon.ProcessValidatedHeartbeat(&data.Heartbeat{Pubkey: []byte("unknown-accepted"), Pid: []byte("pid-1")}, origin)
+
+	mutRecomputes.Lock()
+	afterAccepted := recomputes
+	mutRecomputes.Unlock()
+	assert.Equal(t, 1, afterAccepted)
+
+	mon.ProcessValidatedHeartbeat(&data.Heartbeat{Pubkey: []byte("unknown-rejected"), Pid: []byte("pid-2")}, origin)
+
+	mutRecomputes.Lock()
+	afterRejected := recomputes
+	mutRecomputes.Unlock()
+	assert.Equal(t, 1, afterRejected)
+}

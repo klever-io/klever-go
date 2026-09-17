@@ -377,14 +377,20 @@ func (m *Monitor) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPe
 	}
 
 	//message is validated, process should be done async, method can return nil
-	go m.addHeartbeatMessageToMap(hbRecv, fromConnectedPeer)
-
-	go m.computeAllHeartbeatMessages()
+	go m.processValidatedHeartbeat(hbRecv, fromConnectedPeer)
 
 	return nil
 }
 
-func (m *Monitor) addHeartbeatMessageToMap(hb *data.Heartbeat, fromConnectedPeer core.PeerID) {
+func (m *Monitor) processValidatedHeartbeat(hb *data.Heartbeat, fromConnectedPeer core.PeerID) {
+	if !m.addHeartbeatMessageToMap(hb, fromConnectedPeer) {
+		return
+	}
+
+	m.computeAllHeartbeatMessages()
+}
+
+func (m *Monitor) addHeartbeatMessageToMap(hb *data.Heartbeat, fromConnectedPeer core.PeerID) bool {
 	pubKeyStr := string(hb.Pubkey)
 	isAdmittedPubKey := m.isAdmittedHeartbeatPubKey(pubKeyStr)
 	droppedPubKeys := make([]string, 0)
@@ -395,7 +401,7 @@ func (m *Monitor) addHeartbeatMessageToMap(hb *data.Heartbeat, fromConnectedPeer
 			m.mutHeartbeatMessages.Lock()
 			m.dropLiveHeartbeatStateLocked(droppedPubKeys)
 			m.mutHeartbeatMessages.Unlock()
-			return
+			return false
 		}
 	}
 	m.mutHeartbeatMessages.Lock()
@@ -411,7 +417,7 @@ func (m *Monitor) addHeartbeatMessageToMap(hb *data.Heartbeat, fromConnectedPeer
 		if err != nil {
 			log.Debug("error creating heartbeat message info", "error", err.Error())
 			m.mutHeartbeatMessages.Unlock()
-			return
+			return false
 		}
 		m.heartbeatMessages[pubKeyStr] = hbmi
 	}
@@ -429,7 +435,7 @@ func (m *Monitor) addHeartbeatMessageToMap(hb *data.Heartbeat, fromConnectedPeer
 		numInstances,
 	)
 	if !isAdmittedPubKey {
-		return
+		return true
 	}
 
 	hbDTO := m.convertToExportedStruct(hbmi)
@@ -439,6 +445,8 @@ func (m *Monitor) addHeartbeatMessageToMap(hb *data.Heartbeat, fromConnectedPeer
 		log.Debug("cannot save heartbeat to db", "error", err.Error())
 	}
 	m.addPeerToFullPeersSlice(hb.Pubkey)
+
+	return true
 }
 
 func (m *Monitor) addPeerToFullPeersSlice(pubKey []byte) {
