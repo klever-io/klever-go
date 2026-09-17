@@ -540,13 +540,21 @@ func (m *Monitor) trackTransientUnknownHeartbeatPubKey(pubKey string, originPeer
 
 func (m *Monitor) dropLiveHeartbeatStateLocked(pubKeys []string) {
 	for _, pubKey := range pubKeys {
-		if m.isAdmittedHeartbeatPubKey(pubKey) {
+		if m.isAdmittedHeartbeatPubKey(pubKey) || m.isTransientUnknownHeartbeatPubKeyTracked(pubKey) {
 			continue
 		}
 
 		delete(m.heartbeatMessages, pubKey)
 		delete(m.doubleSignerPeers, pubKey)
 	}
+}
+
+func (m *Monitor) isTransientUnknownHeartbeatPubKeyTracked(pubKey string) bool {
+	m.mutTransientUnknownHeartbeatPubKeys.Lock()
+	_, ok := m.transientUnknownHeartbeatPubKeys[pubKey]
+	m.mutTransientUnknownHeartbeatPubKeys.Unlock()
+
+	return ok
 }
 
 func (m *Monitor) countTransientUnknownHeartbeatPubKeysForOriginLocked(originPeer core.PeerID) int {
@@ -888,7 +896,7 @@ func (m *Monitor) Cleanup() {
 	for k, v := range m.heartbeatMessages {
 		if !m.isAdmittedHeartbeatPubKey(k) {
 			_, stillTracked := trackedUnknownPubKeys[k]
-			if !stillTracked {
+			if !stillTracked && !m.isTransientUnknownHeartbeatPubKeyTracked(k) {
 				delete(m.heartbeatMessages, k)
 				delete(m.doubleSignerPeers, k)
 			}

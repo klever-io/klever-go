@@ -1503,3 +1503,63 @@ func TestMonitor_BurstOfAcceptedHeartbeatsCoalescesRecomputes(t *testing.T) {
 	defer mutWalks.Unlock()
 	assert.Equal(t, 2, walks)
 }
+
+func TestMonitor_LiveUnknownStateMatchesTrackedSetUnderConcurrentChurn(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = time.Hour
+	arg.MaxUnknownHeartbeatPubKeys = 16
+	arg.MaxUnknownHeartbeatPubKeysPerOrigin = 4
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	defer mon.Close()
+
+	const (
+		senders   = 32
+		perSender = 100
+		origins   = 8
+		keyPool   = 64
+	)
+
+	var stopCleanup atomic.Bool
+	var cleanupWg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		cleanupWg.Add(1)
+		go func() {
+			defer cleanupWg.Done()
+			for !stopCleanup.Load() {
+				mon.Cleanup()
+			}
+		}()
+	}
+
+	var sendWg sync.WaitGroup
+	for s := 0; s < senders; s++ {
+		sendWg.Add(1)
+		go func(s int) {
+			defer sendWg.Done()
+			for i := 0; i < perSender; i++ {
+				idx := (s*perSender + i) % keyPool
+				hb := &data.Heartbeat{
+					Pubkey: []byte(fmt.Sprintf("unknown-%d", idx)),
+					Pid:    []byte(fmt.Sprintf("pid-%d", idx)),
+				}
+				mon.AddHeartbeatMessageFromOrigin(hb, core.PeerID(fmt.Sprintf("origin-%d", (s+i)%origins)))
+			}
+		}(s)
+	}
+	sendWg.Wait()
+	stopCleanup.Store(true)
+	cleanupWg.Wait()
+
+	mon.Cleanup()
+
+	tracked := mon.GetNumTransientUnknownHeartbeatPubKeys()
+	assert.LessOrEqual(t, tracked, int(arg.MaxUnknownHeartbeatPubKeys))
+	assert.Equal(t, tracked, mon.GetNumHearbeatMessages())
+	assert.Equal(t, tracked, mon.GetNumDoubleSignerPeers())
+}
