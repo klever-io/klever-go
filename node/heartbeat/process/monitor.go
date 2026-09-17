@@ -394,6 +394,10 @@ func (m *Monitor) processValidatedHeartbeat(hb *data.Heartbeat, fromConnectedPee
 }
 
 func (m *Monitor) scheduleHeartbeatRecompute() {
+	if m.isStopped() {
+		return
+	}
+
 	m.recomputeDirty.Store(true)
 	if !m.recomputeRunning.CompareAndSwap(false, true) {
 		return
@@ -405,6 +409,11 @@ func (m *Monitor) scheduleHeartbeatRecompute() {
 func (m *Monitor) runScheduledRecomputes() {
 	for {
 		for m.recomputeDirty.Swap(false) {
+			if m.isStopped() {
+				m.recomputeRunning.Store(false)
+				return
+			}
+
 			m.computeAllHeartbeatMessages()
 		}
 
@@ -434,6 +443,13 @@ func (m *Monitor) addHeartbeatMessageToMap(hb *data.Heartbeat, fromConnectedPeer
 	}
 	m.mutHeartbeatMessages.Lock()
 	m.dropLiveHeartbeatStateLocked(droppedPubKeys)
+	if !isAdmittedPubKey {
+		isAdmittedPubKey = m.isAdmittedHeartbeatPubKey(pubKeyStr)
+		if !isAdmittedPubKey && !m.isTransientUnknownHeartbeatPubKeyTracked(pubKeyStr) {
+			m.mutHeartbeatMessages.Unlock()
+			return false
+		}
+	}
 	if len(hb.Pid) > 0 {
 		m.addDoubleSignerPeers(hb)
 	}
@@ -835,10 +851,22 @@ func (m *Monitor) runRefreshLoop() {
 	}
 }
 
+func (m *Monitor) isStopped() bool {
+	select {
+	case <-m.stopCh:
+		return true
+	default:
+		return false
+	}
+}
+
 // Close will stop the background processing goroutine and wait for it to exit,
 // including any state saves of its in-flight refresh pass.
-// Message-driven goroutines spawned by ProcessReceivedMessage are not tracked
-// and may still write to the storer after Close returns.
+// Recomputes scheduled by received heartbeats stop once Close is called: a walk
+// already in progress completes, but no further walks start.
+// Neither that walk nor the per-message goroutines spawned by
+// ProcessReceivedMessage are tracked, so both may still write admitted keys to
+// the storer after Close returns.
 // Safe to call multiple times; subsequent calls are no-ops.
 func (m *Monitor) Close() error {
 	m.closeOnce.Do(func() {
