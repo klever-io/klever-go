@@ -63,6 +63,10 @@ func (m *Monitor) ProcessValidatedHeartbeat(hb *data.Heartbeat, origin core.Peer
 	m.processValidatedHeartbeat(hb, origin)
 }
 
+func (m *Monitor) HasPendingRecompute() bool {
+	return m.recomputeDirty.Load() || m.recomputeRunning.Load()
+}
+
 // AddTrustedHeartbeatMessageToMap bypasses admission limits explicitly for tests
 // that need to seed trusted validator state.
 func (m *Monitor) AddTrustedHeartbeatMessageToMap(hb *data.Heartbeat) {

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -62,6 +63,8 @@ type Monitor struct {
 	heartbeatMessages                   map[string]*heartbeatMessageInfo
 	admittedHeartbeatPubKeys            map[string]struct{}
 	transientUnknownHeartbeatPubKeys    map[string]transientUnknownHeartbeatInfo
+	recomputeDirty                      atomic.Bool
+	recomputeRunning                    atomic.Bool
 	doubleSignerPeers                   map[string]process.TimeCacher
 	pubKeysList                         []string
 	mutFullPeersSlice                   sync.RWMutex
@@ -387,7 +390,32 @@ func (m *Monitor) processValidatedHeartbeat(hb *data.Heartbeat, fromConnectedPee
 		return
 	}
 
-	m.computeAllHeartbeatMessages()
+	m.scheduleHeartbeatRecompute()
+}
+
+func (m *Monitor) scheduleHeartbeatRecompute() {
+	m.recomputeDirty.Store(true)
+	if !m.recomputeRunning.CompareAndSwap(false, true) {
+		return
+	}
+
+	go m.runScheduledRecomputes()
+}
+
+func (m *Monitor) runScheduledRecomputes() {
+	for {
+		for m.recomputeDirty.Swap(false) {
+			m.computeAllHeartbeatMessages()
+		}
+
+		m.recomputeRunning.Store(false)
+		if !m.recomputeDirty.Load() {
+			return
+		}
+		if !m.recomputeRunning.CompareAndSwap(false, true) {
+			return
+		}
+	}
 }
 
 func (m *Monitor) addHeartbeatMessageToMap(hb *data.Heartbeat, fromConnectedPeer core.PeerID) bool {
