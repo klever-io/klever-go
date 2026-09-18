@@ -141,14 +141,6 @@ func (mh *MutexHolder) Mutexes() storage.Cacher {
 	return mh.mutexes
 }
 
-func (ip *identityProvider) HandleStreams(s network.Stream) {
-	ip.handleStreams(s)
-}
-
-func (ip *identityProvider) ProcessReceivedData(recvBuff []byte, fromPid core.PeerID) error {
-	return ip.processReceivedData(recvBuff, fromPid)
-}
-
 // CreateP2PPrivKey exports createP2PPrivKey for testing.
 func CreateP2PPrivKey(seed string, legacySeed bool) (libp2pCrypto.PrivKey, error) {
 	return createP2PPrivKey(seed, legacySeed)
