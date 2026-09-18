@@ -59,6 +59,21 @@ func (m *Monitor) AddHeartbeatMessageFromOrigin(hb *data.Heartbeat, origin core.
 	m.addHeartbeatMessageToMap(hb, origin)
 }
 
+func (m *Monitor) ProcessValidatedHeartbeat(hb *data.Heartbeat, origin core.PeerID) {
+	m.processValidatedHeartbeat(hb, origin)
+}
+
+func (m *Monitor) GetNumTransientUnknownHeartbeatPubKeys() int {
+	m.mutTransientUnknownHeartbeatPubKeys.Lock()
+	defer m.mutTransientUnknownHeartbeatPubKeys.Unlock()
+
+	return len(m.transientUnknownHeartbeatPubKeys)
+}
+
+func (m *Monitor) HasPendingRecompute() bool {
+	return m.recomputeDirty.Load() || m.recomputeRunning.Load()
+}
+
 // AddTrustedHeartbeatMessageToMap bypasses admission limits explicitly for tests
 // that need to seed trusted validator state.
 func (m *Monitor) AddTrustedHeartbeatMessageToMap(hb *data.Heartbeat) {
