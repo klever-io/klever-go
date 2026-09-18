@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"os"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -257,10 +256,11 @@ func TestSerialDB_LatestWriteSurvivesOlderDetachedFlushAfterRestart(t *testing.T
 }
 
 type flushPauseHook struct {
-	armed     atomic.Bool
-	triggered atomic.Bool
-	entered   chan struct{}
-	release   chan struct{}
+	armed       atomic.Bool
+	triggered   atomic.Bool
+	entered     chan struct{}
+	release     chan struct{}
+	releaseOnce sync.Once
 }
 
 func newFlushPauseHook() *flushPauseHook {
@@ -278,6 +278,10 @@ func (h *flushPauseHook) pause() {
 		close(h.entered)
 		<-h.release
 	}
+}
+
+func (h *flushPauseHook) unpause() {
+	h.releaseOnce.Do(func() { close(h.release) })
 }
 
 func (h *flushPauseHook) waitUntilPaused(t *testing.T) {
@@ -309,23 +313,25 @@ func startPausedFlush(t *testing.T, db *SerialDB, hook *flushPauseHook) chan err
 	go func() {
 		flushDone <- db.putBatch()
 	}()
+	t.Cleanup(hook.unpause)
 	hook.waitUntilPaused(t)
 
 	return flushDone
 }
 
-func readWhilePaused(t *testing.T, db *SerialDB, key []byte) ([]byte, error, error) {
+type pausedReadResult struct {
+	val    []byte
+	getErr error
+	hasErr error
+}
+
+func readWhilePaused(t *testing.T, db *SerialDB, key []byte) pausedReadResult {
 	t.Helper()
 
-	type getOutcome struct {
-		val []byte
-		err error
-	}
-
-	getDone := make(chan getOutcome, 1)
+	getDone := make(chan pausedReadResult, 1)
 	go func() {
 		val, err := db.Get(key)
-		getDone <- getOutcome{val, err}
+		getDone <- pausedReadResult{val: val, getErr: err}
 	}()
 
 	hasDone := make(chan error, 1)
@@ -333,21 +339,20 @@ func readWhilePaused(t *testing.T, db *SerialDB, key []byte) ([]byte, error, err
 		hasDone <- db.Has(key)
 	}()
 
-	var got getOutcome
+	var result pausedReadResult
 	select {
-	case got = <-getDone:
+	case result = <-getDone:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Get blocked during the batch handoff")
 	}
 
-	var hasErr error
 	select {
-	case hasErr = <-hasDone:
+	case result.hasErr = <-hasDone:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Has blocked during the batch handoff")
 	}
 
-	return got.val, got.err, hasErr
+	return result
 }
 
 func TestSerialDB_ReadsSeeInsertedKeyDuringFlushHandoff(t *testing.T) {
@@ -357,14 +362,14 @@ func TestSerialDB_ReadsSeeInsertedKeyDuringFlushHandoff(t *testing.T) {
 	assert.Nil(t, db.Put(key, []byte("insertedValue")))
 
 	flushDone := startPausedFlush(t, db, hook)
-	val, getErr, hasErr := readWhilePaused(t, db, key)
+	read := readWhilePaused(t, db, key)
 
-	close(hook.release)
+	hook.unpause()
 	assert.Nil(t, <-flushDone)
 
-	assert.Nil(t, getErr)
-	assert.Equal(t, []byte("insertedValue"), val)
-	assert.Nil(t, hasErr)
+	assert.Nil(t, read.getErr)
+	assert.Equal(t, []byte("insertedValue"), read.val)
+	assert.Nil(t, read.hasErr)
 }
 
 func TestSerialDB_ReadsSeeUpdatedValueDuringFlushHandoff(t *testing.T) {
@@ -376,14 +381,14 @@ func TestSerialDB_ReadsSeeUpdatedValueDuringFlushHandoff(t *testing.T) {
 	assert.Nil(t, db.Put(key, []byte("newValue")))
 
 	flushDone := startPausedFlush(t, db, hook)
-	val, getErr, hasErr := readWhilePaused(t, db, key)
+	read := readWhilePaused(t, db, key)
 
-	close(hook.release)
+	hook.unpause()
 	assert.Nil(t, <-flushDone)
 
-	assert.Nil(t, getErr)
-	assert.Equal(t, []byte("newValue"), val)
-	assert.Nil(t, hasErr)
+	assert.Nil(t, read.getErr)
+	assert.Equal(t, []byte("newValue"), read.val)
+	assert.Nil(t, read.hasErr)
 }
 
 func TestSerialDB_ReadsSeeRemovedKeyAsAbsentDuringFlushHandoff(t *testing.T) {
@@ -395,14 +400,14 @@ func TestSerialDB_ReadsSeeRemovedKeyAsAbsentDuringFlushHandoff(t *testing.T) {
 	assert.Nil(t, db.Remove(key))
 
 	flushDone := startPausedFlush(t, db, hook)
-	val, getErr, hasErr := readWhilePaused(t, db, key)
+	read := readWhilePaused(t, db, key)
 
-	close(hook.release)
+	hook.unpause()
 	assert.Nil(t, <-flushDone)
 
-	assert.Nil(t, val)
-	assert.ErrorIs(t, getErr, storage.ErrKeyNotFound)
-	assert.ErrorIs(t, hasErr, storage.ErrKeyNotFound)
+	assert.Nil(t, read.val)
+	assert.ErrorIs(t, read.getErr, storage.ErrKeyNotFound)
+	assert.ErrorIs(t, read.hasErr, storage.ErrKeyNotFound)
 }
 
 func TestSerialDB_ConcurrentFlushesPreserveReadVisibility(t *testing.T) {
@@ -412,7 +417,15 @@ func TestSerialDB_ConcurrentFlushesPreserveReadVisibility(t *testing.T) {
 	const keysPerWriter = 250
 
 	var wg sync.WaitGroup
-	failures := make(chan string, writers*keysPerWriter)
+	failures := make(chan string)
+	var collected []string
+	collectorDone := make(chan struct{})
+	go func() {
+		defer close(collectorDone)
+		for failure := range failures {
+			collected = append(collected, failure)
+		}
+	}()
 
 	for w := 0; w < writers; w++ {
 		wg.Add(1)
@@ -463,10 +476,32 @@ func TestSerialDB_ConcurrentFlushesPreserveReadVisibility(t *testing.T) {
 
 	wg.Wait()
 	close(failures)
+	<-collectorDone
 
-	for failure := range failures {
+	for _, failure := range collected {
 		t.Error(failure)
 	}
+}
+
+func TestSerialDB_ReadsDoNotServeEntriesFromFailedFlush(t *testing.T) {
+	ldb := createSerialLevelDb(t, "", 3600, 1000, 10)
+
+	key := []byte("undurableKey")
+	assert.Nil(t, ldb.Put(key, []byte("undurableValue")))
+
+	assert.Nil(t, ldb.db.Close())
+
+	assert.NotNil(t, ldb.putBatch())
+
+	ldb.mutBatch.RLock()
+	flushing := ldb.flushingBatch
+	ldb.mutBatch.RUnlock()
+	assert.Nil(t, flushing)
+
+	val, err := ldb.Get(key)
+	assert.Nil(t, val)
+	assert.NotNil(t, err)
+	assert.NotNil(t, ldb.Has(key))
 }
 
 // getHoldingFlushLock is the read path as it would look under the alternative
@@ -524,34 +559,18 @@ func (s *SerialDB) getHoldingFlushLock(key []byte) ([]byte, error) {
 // comparison to mean anything.
 //
 // The database must sit on a real block device. On hosts where the temp dir is
-// tmpfs the fsync is free and the difference under measurement disappears; set
-// SERIALDB_BENCH_DIR to a disk-backed directory in that case.
+// tmpfs the fsync is free and the difference under measurement disappears; point
+// TMPDIR at a disk-backed directory in that case.
 const (
 	benchFlushBudget = 1500
 	benchReaders     = 4
 	benchSampleEvery = 8
 )
 
-func benchmarkDir(b *testing.B) string {
-	b.Helper()
-
-	baseDir := os.Getenv("SERIALDB_BENCH_DIR")
-	if baseDir == "" {
-		return b.TempDir()
-	}
-
-	dir, err := os.MkdirTemp(baseDir, "serialdb-bench-")
-	if err != nil {
-		b.Fatalf("failed creating benchmark dir under %s: %v", baseDir, err)
-	}
-	b.Cleanup(func() { _ = os.RemoveAll(dir) })
-	return dir
-}
-
 func runReadsUnderFlushBudget(b *testing.B, read func(*SerialDB, []byte) ([]byte, error)) (time.Duration, int, []time.Duration) {
 	b.Helper()
 
-	ldb, err := NewSerialDB(benchmarkDir(b), 3600, 1000, 10)
+	ldb, err := NewSerialDB(b.TempDir(), 3600, 1000, 10)
 	if err != nil {
 		b.Fatalf("failed creating leveldb database file: %v", err)
 	}
@@ -623,6 +642,10 @@ func benchmarkReadsUnderFlushBudget(b *testing.B, read func(*SerialDB, []byte) (
 		samples = append(samples, runSamples...)
 	}
 	b.StopTimer()
+
+	if len(samples) == 0 {
+		b.Fatal("no read samples were collected")
+	}
 
 	sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
 	percentile := func(p float64) float64 {
