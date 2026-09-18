@@ -25,6 +25,7 @@ type SerialDB struct {
 	batchDelaySeconds       int
 	sizeBatch               int
 	batch                   storage.Batcher
+	flushingBatch           storage.Batcher
 	mutBatch                sync.RWMutex
 	mutAccess               sync.RWMutex
 	mutFlush                sync.Mutex
@@ -140,6 +141,32 @@ func (s *SerialDB) Put(key, val []byte) error {
 	return s.updateBatchWithIncrementLocked()
 }
 
+// getFromBatches looks the key up in the in-memory batches, newest first: the
+// active batch, then the batch currently being handed off to processLoop. Both
+// are read under a single mutBatch.RLock so the swap performed by
+// putBatchLocked is observed atomically and a key can never appear absent from
+// both. A nil result means the key is not pending in memory and the caller must
+// fall back to leveldb.
+//
+// Lock order is mutAccess -> mutFlush -> mutBatch. Readers take only mutAccess
+// and mutBatch and never mutFlush, so they cannot invert the order or block
+// behind an in-flight flush.
+func (s *SerialDB) getFromBatches(key []byte) []byte {
+	s.mutBatch.RLock()
+	defer s.mutBatch.RUnlock()
+
+	data := s.batch.Get(key)
+	if data != nil {
+		return data
+	}
+
+	if s.flushingBatch != nil {
+		return s.flushingBatch.Get(key)
+	}
+
+	return nil
+}
+
 // Get returns the value associated to the key
 func (s *SerialDB) Get(key []byte) ([]byte, error) {
 	s.mutAccess.RLock()
@@ -149,9 +176,7 @@ func (s *SerialDB) Get(key []byte) ([]byte, error) {
 		return nil, storage.ErrSerialDBIsClosed
 	}
 
-	s.mutBatch.RLock()
-	data := s.batch.Get(key)
-	s.mutBatch.RUnlock()
+	data := s.getFromBatches(key)
 
 	if data != nil {
 		if bytes.Equal(data, []byte(removed)) {
@@ -189,9 +214,7 @@ func (s *SerialDB) Has(key []byte) error {
 		return storage.ErrSerialDBIsClosed
 	}
 
-	s.mutBatch.RLock()
-	data := s.batch.Get(key)
-	s.mutBatch.RUnlock()
+	data := s.getFromBatches(key)
 
 	if data != nil {
 		if bytes.Equal(data, []byte(removed)) {
@@ -235,6 +258,15 @@ func (s *SerialDB) putBatch() error {
 // serializes the swap-and-send end-to-end so concurrent flushes (from Put/Remove
 // triggering a size-based flush and the timer-based flush) can't interleave and
 // reorder or drop batches, even though callers now only hold mutAccess.RLock().
+//
+// The detached batch is published as flushingBatch in the same mutBatch critical
+// section that installs the new empty batch, so readers never observe a window in
+// which an acknowledged entry is neither in a batch nor durable in leveldb. It is
+// replaced by the next flush rather than cleared after a successful one: once the
+// write lands, every entry it holds matches what leveldb would return, so keeping
+// it readable is equivalent and avoids a second exclusive mutBatch acquisition on
+// the hot path. A failed write is different - those entries never became durable -
+// so that batch is dropped and readers fall through to leveldb.
 func (s *SerialDB) putBatchLocked() error {
 	s.mutFlush.Lock()
 	defer s.mutFlush.Unlock()
@@ -247,6 +279,7 @@ func (s *SerialDB) putBatchLocked() error {
 	}
 	s.sizeBatch = 0
 	s.batch = NewBatch()
+	s.flushingBatch = dbBatch
 	s.mutBatch.Unlock()
 
 	if s.testHookBeforeBatchSend != nil {
@@ -262,6 +295,14 @@ func (s *SerialDB) putBatchLocked() error {
 	s.dbAccess <- req
 	result := <-ch
 	close(ch)
+
+	if result != nil {
+		s.mutBatch.Lock()
+		if s.flushingBatch == dbBatch {
+			s.flushingBatch = nil
+		}
+		s.mutBatch.Unlock()
+	}
 
 	return result
 }
@@ -320,6 +361,7 @@ func (s *SerialDB) Destroy() error {
 	s.mutBatch.Lock()
 	s.batch.Reset()
 	s.sizeBatch = 0
+	s.flushingBatch = nil
 	s.mutBatch.Unlock()
 
 	s.cancel()
