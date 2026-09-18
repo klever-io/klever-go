@@ -10,3 +10,7 @@ var ErrPollingDurationToSmall = errors.New("polling duration it's to small")
 
 // ErrNilHandlerFunc will be returned when the handler function is nil
 var ErrNilHandlerFunc = errors.New("handler function is nil")
+
+// ErrCloseTimeout will be returned when Close gave up waiting for an in-flight
+// polling handler to return
+var ErrCloseTimeout = errors.New("timed out waiting for the polling goroutine to exit")
