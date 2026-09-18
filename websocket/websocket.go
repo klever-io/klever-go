@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,16 @@ const (
 	errMissingNonceHash = "must provide nonce or hash"
 	errTxNotFound       = "transaction not found"
 	errBlockNotFound    = "block not found"
+	// errInternal answers a request whose handler panicked. It is deliberately opaque: the
+	// panic value can carry node internals, and this route is unauthenticated (KLC-2596).
+	// The detail goes to the node log instead.
+	errInternal = "internal error"
+
+	// The client goroutines guarded by a panic barrier. Named here because each one carries
+	// its own stack budget on the hub; see panicWarner.
+	opLoopIn              = "ws.loopIn"
+	opLoopOut             = "ws.loopOut"
+	opHandleClientRequest = "ws.HandleClientRequest"
 
 	postQueueDropLogIntervalSeconds = 10
 
@@ -170,6 +181,15 @@ type SocketHub struct {
 	sendDropWarn      dropWarner
 	writeFailWarn     dropWarner
 	queryFailWarn     dropWarner
+	// One stack budget per barrier rather than one for the hub, for the same reason the
+	// failure budgets above are not shared: a peer that can drive a panic on one path would
+	// otherwise spend the budget a rarer defect on another path needs, and the rare one's
+	// stack — the only evidence it leaves — would be dropped in favour of the flood's.
+	// These bound only the stack, never the panic line itself; see logRecoveredPanic.
+	loopInPanicWarn  dropWarner
+	loopOutPanicWarn dropWarner
+	requestPanicWarn dropWarner
+	otherPanicWarn   dropWarner
 	// appStatusHandler exports the mirror's cumulative drop/failure counts (see
 	// MetricWSMirrorQueueDroppedTotal/MetricWSMirrorPostFailuresTotal) alongside the
 	// rate-limited WARN logs above — the log is a periodic sample, this is the exact
@@ -226,6 +246,10 @@ func NewHub(postConnectionURL, postConnectionAPIKey string, facade WSFacade, lim
 		sendDropWarn:            dropWarner{windowSecs: postQueueDropLogIntervalSeconds},
 		writeFailWarn:           dropWarner{windowSecs: postQueueDropLogIntervalSeconds},
 		queryFailWarn:           dropWarner{windowSecs: postQueueDropLogIntervalSeconds},
+		loopInPanicWarn:         dropWarner{windowSecs: postQueueDropLogIntervalSeconds},
+		loopOutPanicWarn:        dropWarner{windowSecs: postQueueDropLogIntervalSeconds},
+		requestPanicWarn:        dropWarner{windowSecs: postQueueDropLogIntervalSeconds},
+		otherPanicWarn:          dropWarner{windowSecs: postQueueDropLogIntervalSeconds},
 		appStatusHandler:        statusHandler.NewNilStatusHandler(),
 	}
 }
@@ -392,6 +416,13 @@ func (h *SocketHub) StartServer(ctx context.Context) {
 				{&h.writeFailWarn, "connection writes failed (final)"},
 				{&h.queryFailWarn, "client queries failed (final)"},
 				{&h.rejectWarn, "subscription inserts rejected at a cap (final)"},
+				// Every one of these panics was already logged in full; what is folded here
+				// is only the stacks that were omitted. Flushed with the rest so a residual
+				// count cannot be misattributed to a later window on hub reuse.
+				{&h.loopInPanicWarn, "reader-loop panic stacks omitted (final)"},
+				{&h.loopOutPanicWarn, "writer-loop panic stacks omitted (final)"},
+				{&h.requestPanicWarn, "client-request panic stacks omitted (final)"},
+				{&h.otherPanicWarn, "other client panic stacks omitted (final)"},
 			} {
 				if count, ok := final.warner.flush(); ok {
 					log.Warn(peerFailLogOp, "msg", final.msg, "count", count)
@@ -607,9 +638,14 @@ func loggableError(err error) string {
 		return ""
 	}
 
-	text := err.Error()
-	if len(text) > maxLoggableErrorLength {
-		text = text[:maxLoggableErrorLength] + fmt.Sprintf("… (%d bytes)", len(text))
+	return loggableText(err.Error(), maxLoggableErrorLength)
+}
+
+// loggableText bounds and scrubs one field of text that peer input may have reached. Shared
+// by loggableError and loggablePanic, which differ only in where the text comes from.
+func loggableText(text string, maxLength int) string {
+	if len(text) > maxLength {
+		text = text[:maxLength] + fmt.Sprintf("… (%d bytes)", len(text))
 	}
 
 	// Anything that could end a log line becomes a space: CR/LF, the other control runes,
@@ -625,6 +661,61 @@ func loggableError(err error) string {
 
 		return r
 	}, text)
+}
+
+// loggablePanic renders a recovered panic value. A panic value is not trustworthy text just
+// because the node produced it: the message routinely quotes what it was handed, so peer
+// input reaches the log through it exactly as it does through an error, and a value of
+// "\nERROR ..." would forge a log line. It gets the same bound and scrub as loggableError.
+func loggablePanic(r interface{}) string {
+	const maxLoggablePanicLength = 256
+
+	return loggableText(fmt.Sprintf("%v", r), maxLoggablePanicLength)
+}
+
+// panicWarner returns the stack budget for one barrier. An op with no budget of its own
+// falls back to a shared one rather than to no limit, so adding a barrier and forgetting to
+// name it here cannot reintroduce an unbounded stack.
+func (h *SocketHub) panicWarner(op string) *dropWarner {
+	switch op {
+	case opLoopIn:
+		return &h.loopInPanicWarn
+	case opLoopOut:
+		return &h.loopOutPanicWarn
+	case opHandleClientRequest:
+		return &h.requestPanicWarn
+	default:
+		return &h.otherPanicWarn
+	}
+}
+
+// logRecoveredPanic reports a panic caught by one of the client goroutine barriers
+// (KLC-2596). Unlike the peer-driven failures above, every occurrence is logged, at Error,
+// and none is folded away: a recovered panic is a node defect rather than ordinary peer
+// behaviour, and hiding the second one behind a rate limit costs more than the log volume
+// saves. What is bounded is the stack — the only multi-kilobyte field in this package. If a
+// latent panic ever does become peer-triggerable, a stack per request would turn this
+// barrier into the log-amplification lever the budgets above exist to deny, so the stack
+// rides the first panic of each window on that barrier.
+//
+// stacksOmitted is therefore not the sibling of similarSinceLastLog above: there a folded
+// occurrence produced no line at all, so the count is what the operator never saw. Here
+// every occurrence produced a line and only its stack was dropped, so the count is reported
+// one lower — this panic's own stack is attached, not omitted.
+func (h *SocketHub) logRecoveredPanic(op string, r interface{}) {
+	if count, ok := h.panicWarner(op).fire(); ok {
+		log.Error(op+" panicked",
+			"panic", loggablePanic(r),
+			"stack", string(debug.Stack()),
+			"stacksOmitted", count-1,
+		)
+		return
+	}
+
+	log.Error(op+" panicked",
+		"panic", loggablePanic(r),
+		"stack", "omitted; attached to the first panic of this window on this path",
+	)
 }
 
 // loggableHash renders a peer-supplied hash safely: a well-formed one is returned as-is,
