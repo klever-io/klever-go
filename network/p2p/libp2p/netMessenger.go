@@ -120,7 +120,6 @@ type networkMessenger struct {
 	outgoingPLB         p2p.ChannelLoadBalancer
 	poc                 *peersOnChannel
 	goRoutinesThrottler *throttler.NumGoRoutinesThrottler
-	ip                  *identityProvider
 	connectionsMetric   *metrics.Connections
 	debugger            p2p.Debugger
 	marshalizer         p2p.Marshalizer
@@ -600,17 +599,6 @@ func (netMes *networkMessenger) checkExternalLoggers() {
 
 		setupExternalP2PLoggers()
 	}
-}
-
-// ApplyOptions can set up different configurable options of a networkMessenger instance
-func (netMes *networkMessenger) ApplyOptions(opts ...Option) error {
-	for _, opt := range opts {
-		err := opt(netMes)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // Close closes the host, connections and streams

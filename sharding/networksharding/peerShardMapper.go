@@ -20,7 +20,6 @@ const uint32Size = 4
 
 var log = logger.GetOrCreate("sharding/networksharding")
 
-var _ p2p.NetworkShardingCollector = (*PeerShardMapper)(nil)
 var _ p2p.PeerShardResolver = (*PeerShardMapper)(nil)
 
 // PeerShardMapper stores the mappings between peer IDs and shard IDs
