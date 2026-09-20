@@ -49,6 +49,7 @@ func TestForkController_FlagsToggleAtConfiguredEpoch(t *testing.T) {
 		FixAuditChangesV3:       12,
 		FixAuditChangesV4:       13,
 		FixAuditChangesV5:       14,
+		FixAuditChangesV6:       15,
 	}
 	fc := &forkController{enableEpochs: cfg}
 
@@ -71,6 +72,7 @@ func TestForkController_FlagsToggleAtConfiguredEpoch(t *testing.T) {
 		{"FixAuditChangesV3", cfg.FixAuditChangesV3, fc.FixAuditChangesV3},
 		{"FixAuditChangesV4", cfg.FixAuditChangesV4, fc.FixAuditChangesV4},
 		{"FixAuditChangesV5", cfg.FixAuditChangesV5, fc.FixAuditChangesV5},
+		{"FixAuditChangesV6", cfg.FixAuditChangesV6, fc.FixAuditChangesV6},
 	}
 
 	maxEpoch := uint32(0)
@@ -87,4 +89,20 @@ func TestForkController_FlagsToggleAtConfiguredEpoch(t *testing.T) {
 				"flag %s (activation epoch %d) is wired wrong: unexpected state at confirmed epoch %d", f.name, f.epoch, epoch)
 		}
 	}
+}
+
+func TestForkController_InEpochGatesIgnoreConfirmedEpoch(t *testing.T) {
+	cfg := config.EnableEpochs{
+		FixAuditChangesV5: 14,
+		FixAuditChangesV6: 15,
+	}
+	fc := &forkController{enableEpochs: cfg}
+	fc.EpochConfirmed(0)
+
+	require.False(t, fc.FixAuditChangesV5())
+	require.False(t, fc.FixAuditChangesV6())
+	require.False(t, fc.FixAuditChangesV5InEpoch(13))
+	require.True(t, fc.FixAuditChangesV5InEpoch(14))
+	require.False(t, fc.FixAuditChangesV6InEpoch(14))
+	require.True(t, fc.FixAuditChangesV6InEpoch(15))
 }

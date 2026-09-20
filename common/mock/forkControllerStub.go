@@ -19,6 +19,7 @@ type ForkControllerStub struct {
 	FixAuditChangesV3Value       bool
 	FixAuditChangesV4Value       bool
 	FixAuditChangesV5Value       bool
+	FixAuditChangesV6Value       bool
 	EpochConfirmedCalled         bool
 	LastConfirmedEpoch           uint32
 
@@ -26,6 +27,10 @@ type ForkControllerStub struct {
 	// FixAuditChangesV5InEpoch. When nil the stub falls back to FixAuditChangesV5Value, so
 	// the epoch-aware gate matches the boolean one for tests that only set the latter.
 	FixAuditChangesV5Epoch *uint32
+	// FixAuditChangesV6Epoch, when non-nil, is the activation epoch answered by
+	// FixAuditChangesV6InEpoch. When nil the stub falls back to FixAuditChangesV6Value, so
+	// the epoch-aware gate matches the boolean one for tests that only set the latter.
+	FixAuditChangesV6Epoch *uint32
 }
 
 func NewForkControllerStub() *ForkControllerStub {
@@ -68,6 +73,8 @@ func (s *ForkControllerStub) SetFork(forkName string, value bool) *ForkControlle
 		s.FixAuditChangesV4Value = value
 	case "FixAuditChangesV5":
 		s.FixAuditChangesV5Value = value
+	case "FixAuditChangesV6":
+		s.FixAuditChangesV6Value = value
 	}
 
 	return s
@@ -90,6 +97,7 @@ func (s *ForkControllerStub) SetAll(value bool) {
 	s.FixAuditChangesV3Value = value
 	s.FixAuditChangesV4Value = value
 	s.FixAuditChangesV5Value = value
+	s.FixAuditChangesV6Value = value
 	s.LastConfirmedEpoch = 0
 }
 
@@ -111,6 +119,8 @@ func (s *ForkControllerStub) SetByConfig(config config.EnableEpochs) {
 	s.FixAuditChangesV4Value = config.FixAuditChangesV4 == 0
 	s.FixAuditChangesV5Value = config.FixAuditChangesV5 == 0
 	s.FixAuditChangesV5Epoch = &config.FixAuditChangesV5
+	s.FixAuditChangesV6Value = config.FixAuditChangesV6 == 0
+	s.FixAuditChangesV6Epoch = &config.FixAuditChangesV6
 	s.LastConfirmedEpoch = 0
 }
 
@@ -197,6 +207,21 @@ func (s *ForkControllerStub) FixAuditChangesV5InEpoch(epoch uint32) bool {
 	}
 
 	return epoch >= *s.FixAuditChangesV5Epoch
+}
+
+// FixAuditChangesV6 returns the stubbed value
+func (s *ForkControllerStub) FixAuditChangesV6() bool {
+	return s.FixAuditChangesV6Value
+}
+
+// FixAuditChangesV6InEpoch returns the stubbed value for an explicit epoch, using the
+// configured activation epoch when one was set and the boolean value otherwise
+func (s *ForkControllerStub) FixAuditChangesV6InEpoch(epoch uint32) bool {
+	if s.FixAuditChangesV6Epoch == nil {
+		return s.FixAuditChangesV6Value
+	}
+
+	return epoch >= *s.FixAuditChangesV6Epoch
 }
 
 // EpochConfirmed records that the method was called and stores the epoch
