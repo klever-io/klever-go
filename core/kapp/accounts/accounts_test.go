@@ -8168,6 +8168,17 @@ func Test_Transfer_SemiFungibleAccountToAccountMovesBalance(t *testing.T) {
 	require.Equal(t, int64(0), f.dst.GetBalance(assetID, true),
 		"a nonce-scoped transfer must not touch the nonce-less balance of the same asset")
 
+	// Unlike the fungible and non-fungible helpers, processSemiFungibleTransfer
+	// never calls UpdateUser. That is by design, not a gap: SFT transfers are
+	// gated behind EnableSmartContracts, which on every production config
+	// activates after ProcessorFlowITOPrice has turned the accounts cache on,
+	// and UpdateUser is a no-op with the cache on. Pinned so the asymmetry is
+	// deliberate in code and any change to it is a conscious one.
+	require.Equal(t, 0, f.saved[string(senderAddr)],
+		"processSemiFungibleTransfer relies on the accounts cache, not UpdateUser, to persist the sender")
+	require.Equal(t, 0, f.saved[string(receiverAddr)],
+		"processSemiFungibleTransfer relies on the accounts cache, not UpdateUser, to persist the receiver")
+
 	receipts := f.ctx.Receipts().Get()
 	require.Len(t, receipts, 1, "a successful transfer emits exactly one transfer receipt and no error receipt")
 	requireTransferReceipt(t, receipts[0], senderAddr, receiverAddr, transferValue, assetID, internalID, kapps.KDAData_SemiFungible)
