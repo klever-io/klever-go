@@ -8010,13 +8010,20 @@ type transferFixture struct {
 	saved    map[string]int
 }
 
-func newTransferFixture(t *testing.T, assetType kapps.KDAData_EnumAssetType, sender, receiver []byte) transferFixture {
+func newTransferFixture(t *testing.T, cfg config.EnableEpochs, assetType kapps.KDAData_EnumAssetType, sender, receiver []byte) transferFixture {
 	t.Helper()
 
 	src, err := state.NewUserAccount(sender)
 	require.NoError(t, err)
 	dst, err := state.NewUserAccount(receiver)
 	require.NoError(t, err)
+
+	// Pre-fork code reads balances with checkDirtyData=false, which on a
+	// trie-less account short-circuits to zero. An empty trie behind each
+	// account keeps dirty data readable in both fork states.
+	emptyTrie := &commonMock.TrieStub{GetCalled: func([]byte) ([]byte, error) { return nil, nil }}
+	src.SetDataTrie(emptyTrie)
+	dst.SetDataTrie(emptyTrie)
 
 	accounts := map[string]state.UserAccountHandler{string(sender): src, string(receiver): dst}
 	saved := make(map[string]int)
@@ -8055,7 +8062,7 @@ func newTransferFixture(t *testing.T, assetType kapps.KDAData_EnumAssetType, sen
 		},
 	}
 
-	accKapp := setupAccountsKapp(t, config.EnableEpochs{})
+	accKapp := setupAccountsKapp(t, cfg)
 	require.NoError(t, accKapp.SetAccountsCacher(cacher))
 	require.NoError(t, accKapp.SetKAppController(controller))
 
@@ -8087,7 +8094,7 @@ func Test_ProcessFungibleTransfer_DebitsSenderAndCreditsReceiver(t *testing.T) {
 	senderAddr := makeAddress("fungible-sender")
 	receiverAddr := makeAddress("fungible-receiver")
 
-	f := newTransferFixture(t, kapps.KDAData_Fungible, senderAddr, receiverAddr)
+	f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_Fungible, senderAddr, receiverAddr)
 	require.NoError(t, f.src.AddToBalance(transferSenderStart, assetID, true))
 	require.NoError(t, f.dst.AddToBalance(transferReceiverStart, assetID, true))
 
@@ -8117,7 +8124,7 @@ func Test_ProcessNonFungibleTransfer_MovesUnitToReceiver(t *testing.T) {
 	senderAddr := makeAddress("nonFungible-sender")
 	receiverAddr := makeAddress("nonFungible-receiver")
 
-	f := newTransferFixture(t, kapps.KDAData_NonFungible, senderAddr, receiverAddr)
+	f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_NonFungible, senderAddr, receiverAddr)
 	require.NoError(t, f.src.AddInternalKDA(assetID, internalID, nftPayload))
 
 	status, err := f.accKapp.processNonFungibleTransfer(assetID, internalID, f.src, f.dst)
@@ -8149,7 +8156,7 @@ func Test_Transfer_SemiFungibleAccountToAccountMovesBalance(t *testing.T) {
 	senderAddr := makeAddress("semiFungible-sender")
 	receiverAddr := makeAddress("semiFungible-receiver")
 
-	f := newTransferFixture(t, kapps.KDAData_SemiFungible, senderAddr, receiverAddr)
+	f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_SemiFungible, senderAddr, receiverAddr)
 	require.NoError(t, f.src.AddToBalanceWithNonce(transferSenderStart, assetID, internalID, true))
 	require.NoError(t, f.dst.AddToBalanceWithNonce(transferReceiverStart, assetID, internalID, true))
 
@@ -8182,6 +8189,150 @@ func Test_Transfer_SemiFungibleAccountToAccountMovesBalance(t *testing.T) {
 	receipts := f.ctx.Receipts().Get()
 	require.Len(t, receipts, 1, "a successful transfer emits exactly one transfer receipt and no error receipt")
 	requireTransferReceipt(t, receipts[0], senderAddr, receiverAddr, transferValue, assetID, internalID, kapps.KDAData_SemiFungible)
+}
+
+// The NFT amount guard is gated on FixAuditChangesV3: before the fork the
+// amount is ignored and the unit moves; after it anything but 1 is rejected.
+func Test_Transfer_NonFungibleAmountGuardFollowsFixAuditChangesV3(t *testing.T) {
+	assetID := []byte("NONFUNGI-1234")
+	internalID := []byte("7")
+	senderAddr := makeAddress("nft-amount-sender")
+	receiverAddr := makeAddress("nft-amount-receiver")
+
+	forks := []struct {
+		name   string
+		cfg    config.EnableEpochs
+		active bool
+	}{
+		{name: "pre-fork", cfg: config.EnableEpochs{FixAuditChangesV3: 1000}},
+		{name: "post-fork", cfg: config.EnableEpochs{}, active: true},
+	}
+
+	for _, fk := range forks {
+		for _, amount := range []int64{0, 2} {
+			t.Run(fk.name+"/amount="+strconv.FormatInt(amount, 10), func(t *testing.T) {
+				f := newTransferFixture(t, fk.cfg, kapps.KDAData_NonFungible, senderAddr, receiverAddr)
+				require.NoError(t, f.src.AddInternalKDA(assetID, internalID, []byte("nft-metadata")))
+
+				tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: []byte("NONFUNGI-1234/7"), Amount: amount}
+
+				status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+
+				if !fk.active {
+					require.NoError(t, err)
+					require.Equal(t, transaction.Transaction_Ok, status)
+					_, err = f.dst.SubInternalKDA(assetID, internalID)
+					require.NoError(t, err, "pre-fork the amount is ignored and the unit moves to the receiver")
+					return
+				}
+
+				require.ErrorIs(t, err, common.ErrInvalidValue)
+				require.Equal(t, transaction.Transaction_ContractInvalid, status)
+				_, err = f.src.SubInternalKDA(assetID, internalID)
+				require.NoError(t, err, "the unit must still belong to the sender")
+				require.Empty(t, f.saved, "nothing is persisted on rejection")
+			})
+		}
+	}
+}
+
+// LimitTransfer is only enforced once EnableSmartContracts is active; before
+// the fork a limited asset moves without any role on either side.
+func Test_Transfer_LimitTransferRequiresARoleAfterSmartContracts(t *testing.T) {
+	assetID := []byte("FUNGI-1234")
+	senderAddr := makeAddress("limited-sender")
+	receiverAddr := makeAddress("limited-receiver")
+
+	tests := []struct {
+		name    string
+		cfg     config.EnableEpochs
+		roles   []*kapps.RolesData
+		allowed bool
+	}{
+		{name: "pre-fork/no role is not checked", cfg: config.EnableEpochs{SmartContracts: 1000}, allowed: true},
+		{name: "post-fork/no role on either side is blocked"},
+		{name: "post-fork/sender with transfer role", roles: []*kapps.RolesData{{Address: senderAddr, HasRoleTransfer: true}}, allowed: true},
+		{name: "post-fork/receiver with deposit role", roles: []*kapps.RolesData{{Address: receiverAddr, HasRoleDeposit: true}}, allowed: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newTransferFixture(t, tt.cfg, kapps.KDAData_Fungible, senderAddr, receiverAddr)
+			f.kda.Properties.LimitTransfer = true
+			f.kda.Roles = tt.roles
+			require.NoError(t, f.src.AddToBalance(transferSenderStart, assetID, true))
+
+			tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: assetID, Amount: transferValue}
+
+			status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+			if !tt.allowed {
+				require.ErrorIs(t, err, process.ErrKDATransferNotAllowed)
+				require.Equal(t, transaction.Transaction_KDATransferNotAllowed, status)
+				require.Equal(t, transferSenderStart, f.src.GetBalance(assetID, true), "a blocked transfer must not debit the sender")
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, transaction.Transaction_Ok, status)
+			require.Equal(t, transferValue, f.dst.GetBalance(assetID, true))
+		})
+	}
+}
+
+// Before EnableSmartContracts a semi-fungible asset cannot be transferred at all:
+// a nonce in the asset ID is not even parsed, and without one the SFT helper
+// refuses the asset type.
+func Test_Transfer_SemiFungibleBeforeSmartContractsIsRejected(t *testing.T) {
+	senderAddr := makeAddress("presc-sender")
+	receiverAddr := makeAddress("presc-receiver")
+
+	tests := []struct {
+		assetID string
+		status  transaction.Transaction_TXResultCode
+		err     error
+	}{
+		{assetID: "SEMI-1234", status: transaction.Transaction_AssetTypeInvalid, err: common.ErrAssetTypeInvalid},
+		{assetID: "SEMI-1234/1", status: transaction.Transaction_ParameterInvalid, err: common.ErrInvalidValue},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.assetID, func(t *testing.T) {
+			f := newTransferFixture(t, config.EnableEpochs{SmartContracts: 1000}, kapps.KDAData_SemiFungible, senderAddr, receiverAddr)
+
+			tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: []byte(tt.assetID), Amount: transferValue}
+
+			status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+			require.ErrorIs(t, err, tt.err)
+			require.Equal(t, tt.status, status)
+		})
+	}
+}
+
+// An SFT balance lives under its exact nonce string. An asset ID with no nonce
+// or a differently spelled one resolves to another (empty) balance and must
+// not reach the units stored under the canonical nonce.
+func Test_Transfer_SemiFungibleRequiresTheCanonicalNonce(t *testing.T) {
+	assetID := []byte("SEMI-1234")
+	internalID := []byte("1")
+	senderAddr := makeAddress("sft-nonce-sender")
+	receiverAddr := makeAddress("sft-nonce-receiver")
+
+	for _, id := range []string{"SEMI-1234", "SEMI-1234/01"} {
+		t.Run(id, func(t *testing.T) {
+			f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_SemiFungible, senderAddr, receiverAddr)
+			require.NoError(t, f.src.AddToBalanceWithNonce(transferSenderStart, assetID, internalID, true))
+
+			tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: []byte(id), Amount: transferValue}
+
+			status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+			require.ErrorIs(t, err, process.ErrInsufficientFunds)
+			require.Equal(t, transaction.Transaction_OutOfFunds, status)
+
+			require.Equal(t, transferSenderStart, f.src.GetBalanceWithNonce(assetID, internalID, true),
+				"the canonical nonce balance must not be reachable through another asset ID spelling")
+			require.Equal(t, int64(0), f.dst.GetBalanceWithNonce(assetID, internalID, true))
+		})
+	}
 }
 
 func TestTransfer_FungibleWritableCacher_CommitsBothSides(t *testing.T) {
