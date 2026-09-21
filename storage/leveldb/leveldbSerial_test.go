@@ -355,59 +355,83 @@ func readWhilePaused(t *testing.T, db *SerialDB, key []byte) pausedReadResult {
 	return result
 }
 
-func TestSerialDB_ReadsSeeInsertedKeyDuringFlushHandoff(t *testing.T) {
-	db, hook := createSerialLevelDbWithPausedFlush(t, 1000)
+func TestSerialDB_ReadsSeeLatestStateDuringFlushHandoff(t *testing.T) {
+	key := []byte("handoffKey")
 
-	key := []byte("insertedKey")
-	assert.Nil(t, db.Put(key, []byte("insertedValue")))
+	cases := []struct {
+		name        string
+		before      func(t *testing.T, db *SerialDB)
+		whilePaused func(t *testing.T, db *SerialDB)
+		expectedVal []byte
+		expectedErr error
+	}{
+		{
+			name: "inserted key",
+			before: func(t *testing.T, db *SerialDB) {
+				assert.Nil(t, db.Put(key, []byte("insertedValue")))
+			},
+			expectedVal: []byte("insertedValue"),
+		},
+		{
+			name: "updated value",
+			before: func(t *testing.T, db *SerialDB) {
+				assert.Nil(t, db.Put(key, []byte("oldValue")))
+				assert.Nil(t, db.putBatch())
+				assert.Nil(t, db.Put(key, []byte("newValue")))
+			},
+			expectedVal: []byte("newValue"),
+		},
+		{
+			name: "removed key",
+			before: func(t *testing.T, db *SerialDB) {
+				assert.Nil(t, db.Put(key, []byte("value")))
+				assert.Nil(t, db.putBatch())
+				assert.Nil(t, db.Remove(key))
+			},
+			expectedErr: storage.ErrKeyNotFound,
+		},
+		{
+			name: "value emptied while flushing",
+			before: func(t *testing.T, db *SerialDB) {
+				assert.Nil(t, db.Put(key, []byte("flushingValue")))
+			},
+			whilePaused: func(t *testing.T, db *SerialDB) {
+				assert.Nil(t, db.Put(key, nil))
+			},
+			expectedVal: []byte{},
+		},
+		{
+			name: "value emptied after durable write",
+			before: func(t *testing.T, db *SerialDB) {
+				assert.Nil(t, db.Put(key, []byte("durableValue")))
+				assert.Nil(t, db.putBatch())
+			},
+			whilePaused: func(t *testing.T, db *SerialDB) {
+				assert.Nil(t, db.Put(key, nil))
+			},
+			expectedVal: []byte{},
+		},
+	}
 
-	flushDone := startPausedFlush(t, db, hook)
-	read := readWhilePaused(t, db, key)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, hook := createSerialLevelDbWithPausedFlush(t, 1000)
+			tc.before(t, db)
 
-	hook.unpause()
-	assert.Nil(t, <-flushDone)
+			flushDone := startPausedFlush(t, db, hook)
+			if tc.whilePaused != nil {
+				tc.whilePaused(t, db)
+			}
+			read := readWhilePaused(t, db, key)
 
-	assert.Nil(t, read.getErr)
-	assert.Equal(t, []byte("insertedValue"), read.val)
-	assert.Nil(t, read.hasErr)
-}
+			hook.unpause()
+			assert.Nil(t, <-flushDone)
 
-func TestSerialDB_ReadsSeeUpdatedValueDuringFlushHandoff(t *testing.T) {
-	db, hook := createSerialLevelDbWithPausedFlush(t, 1000)
-
-	key := []byte("mutableKey")
-	assert.Nil(t, db.Put(key, []byte("oldValue")))
-	assert.Nil(t, db.putBatch())
-	assert.Nil(t, db.Put(key, []byte("newValue")))
-
-	flushDone := startPausedFlush(t, db, hook)
-	read := readWhilePaused(t, db, key)
-
-	hook.unpause()
-	assert.Nil(t, <-flushDone)
-
-	assert.Nil(t, read.getErr)
-	assert.Equal(t, []byte("newValue"), read.val)
-	assert.Nil(t, read.hasErr)
-}
-
-func TestSerialDB_ReadsSeeRemovedKeyAsAbsentDuringFlushHandoff(t *testing.T) {
-	db, hook := createSerialLevelDbWithPausedFlush(t, 1000)
-
-	key := []byte("doomedKey")
-	assert.Nil(t, db.Put(key, []byte("value")))
-	assert.Nil(t, db.putBatch())
-	assert.Nil(t, db.Remove(key))
-
-	flushDone := startPausedFlush(t, db, hook)
-	read := readWhilePaused(t, db, key)
-
-	hook.unpause()
-	assert.Nil(t, <-flushDone)
-
-	assert.Nil(t, read.val)
-	assert.ErrorIs(t, read.getErr, storage.ErrKeyNotFound)
-	assert.ErrorIs(t, read.hasErr, storage.ErrKeyNotFound)
+			assert.Equal(t, tc.expectedVal, read.val)
+			assert.ErrorIs(t, read.getErr, tc.expectedErr)
+			assert.ErrorIs(t, read.hasErr, tc.expectedErr)
+		})
+	}
 }
 
 func TestSerialDB_ConcurrentFlushesPreserveReadVisibility(t *testing.T) {
