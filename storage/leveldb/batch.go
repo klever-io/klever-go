@@ -28,6 +28,9 @@ func NewBatch() *batch {
 
 // Put inserts one entry - key, value pair - into the batch
 func (b *batch) Put(key []byte, val []byte) error {
+	if val == nil {
+		val = []byte{}
+	}
 	b.mutBatch.Lock()
 	b.batch.Put(key, val)
 	b.cachedData[string(key)] = val
