@@ -79,7 +79,6 @@ apiPackages:
     routes:
       - name: /status
         open: true
-        secured: true
       - name: /metrics
         open: true
       - name: /overview

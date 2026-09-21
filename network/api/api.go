@@ -52,7 +52,6 @@ const (
 	subscribeRoute   = "/subscribe"
 
 	nodePackage = "node"
-	debugRoute  = "/debug"
 
 	// defaultLogWSMaxConnections is the node-wide /log cap used when logWebSocketConnections
 	// resolves to 0 (a config.yaml predating the key). It cannot be disabled: before the cap
@@ -63,6 +62,10 @@ const (
 	// (the same rule the address caps follow).
 	defaultLogWSMaxConnections = 32
 )
+
+// nodeDiagnosticRoutes expose cached interceptor and resolver state, peer addresses
+// and validator keys, and the node's own p2p listen addresses.
+var nodeDiagnosticRoutes = []string{"/debug", "/p2pstatus", "/peerinfo", "/heartbeatstatus"}
 
 type validatorInput struct {
 	Name      string
@@ -167,10 +170,13 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 	}
 
 	// Upgrading the binary does not rewrite an operator's api.yaml, so a node installed
-	// before /debug was secured keeps serving cached interceptor and resolver state
-	// unauthenticated with nothing to signal it. The edit is the operator's to make.
-	if routesConfig.IsRouteEnabled(nodePackage, debugRoute) && !routesConfig.IsRouteSecured(nodePackage, debugRoute) {
-		log.Warn("node debug route is open but not secured; /node/debug answers unauthenticated with cached interceptor and resolver state. Add secured:true to /debug in api.yaml.")
+	// before the diagnostic routes were secured keeps serving cached internal state and
+	// network topology unauthenticated with nothing to signal it. The edit is the
+	// operator's to make.
+	for _, route := range nodeDiagnosticRoutes {
+		if routesConfig.IsRouteEnabled(nodePackage, route) && !routesConfig.IsRouteSecured(nodePackage, route) {
+			log.Warn("node diagnostic route is open but not secured; it answers unauthenticated. Add secured:true to it in api.yaml.", "route", nodePackage+route)
+		}
 	}
 
 	if routesConfig.IsRouteEnabled(subscribePackage, subscribeRoute) {

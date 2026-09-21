@@ -550,10 +550,10 @@ func getRoutesConfig() config.APIRoutesConfig {
 					{Name: "/status", Open: true},
 					{Name: "/metrics", Open: true},
 					{Name: "/statistics", Open: true},
-					{Name: "/heartbeatstatus", Open: true},
-					{Name: "/p2pstatus", Open: true},
+					{Name: "/heartbeatstatus", Open: true, Secured: true},
+					{Name: "/p2pstatus", Open: true, Secured: true},
 					{Name: "/debug", Open: true, Secured: true},
-					{Name: "/peerinfo", Open: true},
+					{Name: "/peerinfo", Open: true, Secured: true},
 				},
 			},
 		},
@@ -563,8 +563,8 @@ func getRoutesConfig() config.APIRoutesConfig {
 // The secured flag only takes effect when the router is built with an auth handler:
 // RegisterHandler skips the wrapper when none is passed, which is why every other case
 // here reaches the handler unauthenticated. This pins the gate itself, so dropping
-// secured:true from /debug fails a test rather than only a review.
-func TestQueryDebug_SecuredRejectsUnauthenticated(t *testing.T) {
+// secured:true from a diagnostic route fails a test rather than only a review.
+func TestNodeDiagnosticRoutes_SecuredRejectsUnauthenticated(t *testing.T) {
 	t.Parallel()
 
 	routesCfg := getRoutesConfig()
@@ -581,12 +581,20 @@ func TestQueryDebug_SecuredRejectsUnauthenticated(t *testing.T) {
 	require.NoError(t, err)
 	node.Routes(nodeRoutes)
 
-	resp := httptest.NewRecorder()
-	ws.ServeHTTP(resp, httptest.NewRequest(
-		http.MethodPost,
-		"/node/debug",
-		bytes.NewBufferString(`{"name":"interceptor"}`),
-	))
+	tests := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{method: http.MethodPost, path: "/node/debug", body: `{"name":"interceptor"}`},
+		{method: http.MethodGet, path: "/node/p2pstatus"},
+		{method: http.MethodGet, path: "/node/peerinfo"},
+		{method: http.MethodGet, path: "/node/heartbeatstatus"},
+	}
+	for _, tt := range tests {
+		resp := httptest.NewRecorder()
+		ws.ServeHTTP(resp, httptest.NewRequest(tt.method, tt.path, bytes.NewBufferString(tt.body)))
 
-	require.Equal(t, http.StatusUnauthorized, resp.Code)
+		require.Equal(t, http.StatusUnauthorized, resp.Code, "%s %s", tt.method, tt.path)
+	}
 }

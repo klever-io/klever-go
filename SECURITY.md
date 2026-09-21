@@ -547,11 +547,15 @@ reachable off-host, or set `open: false` to remove it entirely.
 event feed by design. For a public or mainnet deployment, add `secured: true` to require Basic Auth
 on the handshake, or set `open: false` to disable it. Its resource limits are covered below.
 
-**`/node/peerinfo`, `/node/p2pstatus`** — both ship enabled and **unauthenticated** (`open: true`, no
-`secured`). `/node/peerinfo` returns the addresses and validator public keys of every peer you are
+**`/node/debug`, `/node/peerinfo`, `/node/p2pstatus`, `/node/heartbeatstatus`** — ship enabled and
+authenticated (`open: true`, `secured: true`). `/node/debug` returns cached interceptor and resolver
+state. `/node/peerinfo` returns the addresses and validator public keys of every peer you are
 connected to; the `pid` query parameter only filters that list, and omitting it returns all of them.
-`/node/p2pstatus` reports the node's own p2p listen addresses. Together they describe your network
-topology. Set `secured: true`, or `open: false`, unless you intend that data to be public.
+`/node/p2pstatus` reports the node's own p2p listen addresses, and `/node/heartbeatstatus` the
+heartbeat view of the validator set. Together they describe your network topology. Upgrading the
+binary does not rewrite an existing `api.yaml`: a node configured before these defaults keeps
+serving them unauthenticated, and logs a warning at startup for each one (`network/api/api.go`).
+Add `secured: true`, or set `open: false`, on each of them.
 
 **`/debug/pprof/*`** — registered only when the node runs with `--profile-mode`, and **not governed
 by `api.yaml`**: the routes are attached directly to the gin engine outside the normal route-group
@@ -763,7 +767,8 @@ disabled unless you are actively tailing it.
       and `config/seednode/api.yaml` if you run a seednode
 - [ ] `/log` secured or disabled
 - [ ] `/subscribe` secured or disabled if not intended to be public
-- [ ] `/node/peerinfo` and `/node/p2pstatus` disabled or secured — they expose network topology
+- [ ] `/node/debug`, `/node/peerinfo`, `/node/p2pstatus` and `/node/heartbeatstatus` secured or
+      disabled — shipped secured, but an `api.yaml` from before the upgrade is not rewritten
 - [ ] Seednode `/peers` disabled or secured unless network topology is meant to be public
 - [ ] `--profile-mode` off, or API localhost-only — `/debug/pprof` is unauthenticated
 - [ ] `/swagger` blocked at the proxy if you do not want the API surface enumerated
