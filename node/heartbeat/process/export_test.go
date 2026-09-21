@@ -74,13 +74,6 @@ func (m *Monitor) HasPendingRecompute() bool {
 	return len(m.recomputeCh) > 0
 }
 
-func (m *Monitor) DrainPendingRecompute() {
-	select {
-	case <-m.recomputeCh:
-	default:
-	}
-}
-
 func (m *Monitor) StopSignal() <-chan struct{} {
 	return m.stopCh
 }

@@ -393,10 +393,6 @@ func (m *Monitor) processValidatedHeartbeat(hb *data.Heartbeat, fromConnectedPee
 }
 
 func (m *Monitor) scheduleHeartbeatRecompute() {
-	if m.isStopping() {
-		return
-	}
-
 	select {
 	case m.recomputeCh <- struct{}{}:
 	default:
@@ -934,17 +930,12 @@ func (m *Monitor) getNumInstancesOfPublicKey(pubKeyStr string) uint64 {
 func (m *Monitor) Cleanup() {
 	m.mutTransientUnknownHeartbeatPubKeys.Lock()
 	_ = m.sweepTransientUnknownHeartbeatPubKeysLocked()
-	trackedUnknownPubKeys := make(map[string]struct{}, len(m.transientUnknownHeartbeatPubKeys))
-	for pubKey := range m.transientUnknownHeartbeatPubKeys {
-		trackedUnknownPubKeys[pubKey] = struct{}{}
-	}
 	m.mutTransientUnknownHeartbeatPubKeys.Unlock()
 
 	m.mutHeartbeatMessages.Lock()
 	for k, v := range m.heartbeatMessages {
 		if !m.isAdmittedHeartbeatPubKey(k) {
-			_, stillTracked := trackedUnknownPubKeys[k]
-			if !stillTracked && !m.isTransientUnknownHeartbeatPubKeyTracked(k) {
+			if !m.isTransientUnknownHeartbeatPubKeyTracked(k) {
 				delete(m.heartbeatMessages, k)
 				delete(m.doubleSignerPeers, k)
 			}

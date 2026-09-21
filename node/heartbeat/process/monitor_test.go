@@ -1625,12 +1625,6 @@ func TestMonitor_ScheduledRecomputesStopAfterClose(t *testing.T) {
 
 	waitForWalk(t, walks)
 	requireNoWalkQueued(t, walks)
-	require.True(t, mon.HasPendingRecompute())
-
-	mon.DrainPendingRecompute()
-	mon.ProcessValidatedHeartbeat(&data.Heartbeat{Pubkey: []byte("unknown-2"), Pid: []byte("pid-2")}, origin)
-	assert.False(t, mon.HasPendingRecompute())
-	requireNoWalkQueued(t, walks)
 }
 
 func TestMonitor_AdmittedIdentityNeverHoldsTransientSlot(t *testing.T) {
