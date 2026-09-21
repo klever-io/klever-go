@@ -7783,3 +7783,209 @@ func TestUnfreezeDoesNotReadAProposalCreatedAfterTheFork(t *testing.T) {
 	require.Equal(t, int64(60), voterAmountOf(proposals[1]), "the pre-fork vote is still shrunk")
 	require.Equal(t, int64(100), postFork.Voters[otherVoter].Amount, "and the other voter is untouched")
 }
+
+const (
+	splitRoyaltyAssetID      = "ROY-1234"
+	splitRoyaltyMaxSupply    = int64(150)
+	splitRoyaltyRate         = uint32(5000) // 50%
+	splitRoyaltyTransferSize = int64(100)
+	splitRoyaltyPartialSplit = uint32(6000) // 60%
+)
+
+// splitRoyaltyAccountsAdapter models the trie-backed accounts adapter for a single
+// KDA: every load returns a fresh account copy and SaveAccount writes the
+// asset balance back into `store`, the committed state.
+func splitRoyaltyAccountsAdapter(store map[string]int64) *commonMock.AccountsStub {
+	assetID := []byte(splitRoyaltyAssetID)
+	build := func(address []byte) (state.AccountHandler, error) {
+		acc, err := state.NewUserAccount(address)
+		if err != nil {
+			return nil, err
+		}
+		if bal := store[string(address)]; bal > 0 {
+			if err := acc.AddToBalance(bal, assetID, true); err != nil {
+				return nil, err
+			}
+		}
+		return acc, nil
+	}
+
+	return &commonMock.AccountsStub{
+		LoadAccountCalled: build,
+		SaveAccountCalled: func(account state.AccountHandler) error {
+			userAcc, ok := account.(state.UserAccountHandler)
+			if !ok {
+				return errors.New("unexpected account type")
+			}
+			store[string(account.AddressBytes())] = userAcc.GetBalance(assetID, true)
+			return nil
+		},
+	}
+}
+
+// splitRoyaltyKDAController resolves the asset to a fungible KDA with InitialSupply ==
+// MaxSupply, a 50% transfer royalty paid to royaltyAddr and splitPercent of it
+// split to splitAddr
+func splitRoyaltyKDAController(royaltyAddr, splitAddr []byte, splitPercent uint32) *kvmStub.KAppControllerStub {
+	return setupKappController(&kvmStub.KAppControllerStub{
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetKDACalled: func(assetID []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, &kapps.KDAData{
+						ID:                []byte(splitRoyaltyAssetID),
+						AssetType:         kapps.KDAData_Fungible,
+						InitialSupply:     splitRoyaltyMaxSupply,
+						MaxSupply:         splitRoyaltyMaxSupply,
+						CirculatingSupply: splitRoyaltyMaxSupply,
+						Attributes:        &kapps.AttributesData{},
+						Properties:        &kapps.PropertiesData{},
+						Royalties: &kapps.RoyaltiesData{
+							Address: royaltyAddr,
+							TransferPercentage: []*kapps.RoyaltyData{
+								{Amount: 1_000_000, Percentage: splitRoyaltyRate},
+							},
+							SplitRoyalties: map[string]*kapps.RoyaltySplitData{
+								hex.EncodeToString(splitAddr): {PercentTransferPercentage: splitPercent},
+							},
+						},
+					}, nil
+				},
+			}
+		},
+	})
+}
+
+func splitRoyaltyTotalSupplyHeld(store map[string]int64) int64 {
+	total := int64(0)
+	for _, bal := range store {
+		total += bal
+	}
+	return total
+}
+
+// TestFullySplitPercentageRoyalty_CannotMintPastSupply runs the split percentage royalty
+// scenario end to end through Transfer with the production accounts cacher and
+// checks the committed spendable balances against the asset supply.
+func TestFullySplitPercentageRoyalty_CannotMintPastSupply(t *testing.T) {
+	sender := makeAddress("splitRoyalty-sender")
+	receiver := makeAddress("splitRoyalty-receiver")
+	owner := makeAddress("splitRoyalty-owner")
+	thirdParty := makeAddress("splitRoyalty-third-party")
+
+	fixOn := config.EnableEpochs{}
+	// A valid schedule with FixMarketBuyOverflow not yet active at epoch 0.
+	fixOff := config.EnableEpochs{
+		FixMarketBuyOverflow: 1,
+		FixAuditChangesV3:    2,
+		FixAuditChangesV4:    3,
+		FixAuditChangesV5:    4,
+	}
+	require.NoError(t, fixOff.Validate())
+
+	transfer := func(t *testing.T, cfg config.EnableEpochs, store map[string]int64, from []byte, amount int64, kdaController *kvmStub.KAppControllerStub) {
+		t.Helper()
+
+		cacher, err := state.NewAccountsCacher(state.ArgsAcccountCacher{
+			Accounts: splitRoyaltyAccountsAdapter(store),
+			Kapps:    &commonMock.AccountsStub{},
+			Peers:    &commonMock.AccountsStub{},
+		})
+		require.NoError(t, err)
+		// Cache on, as in production since ProcessorFlowITOPrice: one account
+		// instance per address for the whole transaction.
+		cacher.ResetAll(true)
+
+		accKapp := setupAccountsKapp(t, cfg)
+		require.NoError(t, accKapp.SetAccountsCacher(cacher))
+		require.NoError(t, accKapp.SetKAppController(kdaController))
+
+		royalty := amount * int64(splitRoyaltyRate) / int64(core.HundredPercent)
+		status, err := accKapp.Transfer(transaction.TXContract_TransferContractType, from, &transaction.TransferContract{
+			ToAddress:    receiver,
+			AssetID:      []byte(splitRoyaltyAssetID),
+			Amount:       amount,
+			KDARoyalties: royalty,
+		})
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+		require.NoError(t, cacher.SaveAll())
+	}
+
+	t.Run("fix_on_split_to_sender_conserves_supply", func(t *testing.T) {
+		store := map[string]int64{string(sender): splitRoyaltyMaxSupply}
+		kdaController := splitRoyaltyKDAController(owner, sender, core.HundredPercent)
+
+		transfer(t, fixOn, store, sender, splitRoyaltyTransferSize, kdaController)
+
+		require.Equal(t, int64(50), store[string(sender)],
+			"sender pays 100 + 50 royalty and gets the 50 split back")
+		require.Equal(t, splitRoyaltyTransferSize, store[string(receiver)])
+		require.Equal(t, int64(0), store[string(owner)], "a 100% split leaves no owner remainder")
+		require.Equal(t, splitRoyaltyMaxSupply, splitRoyaltyTotalSupplyHeld(store),
+			"spendable balances must equal the supply")
+
+		// A second transfer cannot compound a mint either.
+		transfer(t, fixOn, store, sender, 30, kdaController)
+
+		require.Equal(t, int64(20), store[string(sender)])
+		require.Equal(t, int64(130), store[string(receiver)])
+		require.Equal(t, splitRoyaltyMaxSupply, splitRoyaltyTotalSupplyHeld(store),
+			"spendable balances must still equal the supply")
+	})
+
+	t.Run("fix_on_split_to_third_party_conserves_supply", func(t *testing.T) {
+		store := map[string]int64{string(sender): splitRoyaltyMaxSupply}
+
+		transfer(t, fixOn, store, sender, splitRoyaltyTransferSize,
+			splitRoyaltyKDAController(owner, thirdParty, core.HundredPercent))
+
+		require.Equal(t, int64(0), store[string(sender)])
+		require.Equal(t, splitRoyaltyTransferSize, store[string(receiver)])
+		require.Equal(t, int64(50), store[string(thirdParty)])
+		require.Equal(t, int64(0), store[string(owner)], "a 100% split leaves no owner remainder")
+		require.Equal(t, splitRoyaltyMaxSupply, splitRoyaltyTotalSupplyHeld(store),
+			"spendable balances must equal the supply")
+	})
+
+	t.Run("fix_on_partial_split_remainder_to_owner_conserves_supply", func(t *testing.T) {
+		store := map[string]int64{string(sender): splitRoyaltyMaxSupply}
+
+		transfer(t, fixOn, store, sender, splitRoyaltyTransferSize,
+			splitRoyaltyKDAController(owner, thirdParty, splitRoyaltyPartialSplit))
+
+		require.Equal(t, int64(0), store[string(sender)])
+		require.Equal(t, splitRoyaltyTransferSize, store[string(receiver)])
+		require.Equal(t, int64(30), store[string(thirdParty)], "60% of the 50 royalty")
+		require.Equal(t, int64(20), store[string(owner)], "the 40% remainder goes to the royalty address")
+		require.Equal(t, splitRoyaltyMaxSupply, splitRoyaltyTotalSupplyHeld(store),
+			"spendable balances must equal the supply")
+	})
+
+	t.Run("fix_on_partial_split_remainder_to_sender_conserves_supply", func(t *testing.T) {
+		store := map[string]int64{string(sender): splitRoyaltyMaxSupply}
+
+		transfer(t, fixOn, store, sender, splitRoyaltyTransferSize,
+			splitRoyaltyKDAController(sender, thirdParty, splitRoyaltyPartialSplit))
+
+		require.Equal(t, int64(20), store[string(sender)],
+			"sender pays 100 + 50 royalty and gets the 20 remainder back")
+		require.Equal(t, splitRoyaltyTransferSize, store[string(receiver)])
+		require.Equal(t, int64(30), store[string(thirdParty)])
+		require.Equal(t, splitRoyaltyMaxSupply, splitRoyaltyTotalSupplyHeld(store),
+			"spendable balances must equal the supply")
+	})
+
+	t.Run("fix_off_split_to_sender_legacy_mint_preserved", func(t *testing.T) {
+		store := map[string]int64{string(sender): splitRoyaltyMaxSupply}
+
+		transfer(t, fixOff, store, sender, splitRoyaltyTransferSize,
+			splitRoyaltyKDAController(owner, sender, core.HundredPercent))
+
+		require.Equal(t, int64(100), store[string(sender)],
+			"sender pays only the 100 transfer and still gets the 50 split")
+		require.Equal(t, splitRoyaltyTransferSize, store[string(receiver)])
+		require.Equal(t, int64(0), store[string(owner)])
+		require.Equal(t, int64(200), splitRoyaltyTotalSupplyHeld(store),
+			"pre-fork replay keeps the mint: the royalty pool is never debited")
+	})
+}
