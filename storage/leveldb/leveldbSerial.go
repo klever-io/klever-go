@@ -261,12 +261,10 @@ func (s *SerialDB) putBatch() error {
 //
 // The detached batch is published as flushingBatch in the same mutBatch critical
 // section that installs the new empty batch, so readers never observe a window in
-// which an acknowledged entry is neither in a batch nor durable in leveldb. It is
-// replaced by the next flush rather than cleared after a successful one: once the
-// write lands, every entry it holds matches what leveldb would return, so keeping
-// it readable is equivalent and avoids a second exclusive mutBatch acquisition on
-// the hot path. A failed write is different - those entries never became durable -
-// so that batch is dropped and readers fall through to leveldb.
+// which an acknowledged entry is neither in a batch nor durable in leveldb. Once
+// the write has returned - successfully, so leveldb now holds every entry, or
+// not, so those entries never became durable - the batch is dropped and readers
+// fall through to leveldb.
 func (s *SerialDB) putBatchLocked() error {
 	s.mutFlush.Lock()
 	defer s.mutFlush.Unlock()
@@ -296,13 +294,9 @@ func (s *SerialDB) putBatchLocked() error {
 	result := <-ch
 	close(ch)
 
-	if result != nil {
-		s.mutBatch.Lock()
-		if s.flushingBatch == dbBatch {
-			s.flushingBatch = nil
-		}
-		s.mutBatch.Unlock()
-	}
+	s.mutBatch.Lock()
+	s.flushingBatch = nil
+	s.mutBatch.Unlock()
 
 	return result
 }
