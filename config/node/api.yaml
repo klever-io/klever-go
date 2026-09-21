@@ -79,18 +79,20 @@ apiPackages:
     routes:
       - name: /status
         open: true
+        secured: true
       - name: /metrics
         open: true
       - name: /overview
         open: true
       - name: /p2pstatus
         open: true
-      # /debug returns cached interceptor and resolver state; keep it behind auth.
+        secured: true
       - name: /debug
         open: true
         secured: true
       - name: /peerinfo
         open: true
+        secured: true
       - name: /statistics
         open: true
       - name: /set-redundancy
@@ -100,6 +102,7 @@ apiPackages:
         open: true
       - name: /heartbeatstatus
         open: true
+        secured: true
   log:
     routes:
       - name: /log
