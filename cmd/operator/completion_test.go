@@ -29,6 +29,15 @@ func runOperator(t *testing.T, args ...string) (string, error) {
 	})
 
 	err := rootCmd.Execute()
+
+	// Execute adds cobra's default `completion` command bound to the current out writer;
+	// drop it so the next run binds its own and rootCmd is left as found.
+	for _, c := range rootCmd.Commands() {
+		if c.Name() == completionCmdName {
+			rootCmd.RemoveCommand(c)
+		}
+	}
+
 	return out.String(), err
 }
 
@@ -47,10 +56,10 @@ func TestCompletionRequestSkipsWalletLoading(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "0\tstaking rewards\n1\tallowance\n2\tmarketplace\n:4\n", out)
 
-	rootCmd.InitDefaultCompletionCmd()
-	completion, _, err := rootCmd.Find([]string{"completion", "bash"})
+	out, err = runOperator(t, completionCmdName, "bash")
 	require.NoError(t, err)
-	assert.True(t, isCompletionRequest(completion))
+	assert.True(t, strings.HasPrefix(out, "# bash completion V2 for operator"), out[:min(len(out), 80)])
+
 	assert.False(t, isCompletionRequest(rootCmd))
 }
 
@@ -66,7 +75,7 @@ func TestCompletionsResolveThroughCobra(t *testing.T) {
 		{[]string{"account", "batchsend", "--kda", ""}, assets},
 		{[]string{"account", "freeze", "--kda", ""}, assets},
 		{[]string{"account", "unfreeze", "--kda", ""}, assets},
-		{[]string{"account", "claim", "--id", ""}, assets},
+		{[]string{"account", "claim", "--id", ""}, ":4\n"},
 		{[]string{"account", "claim", "0", "--id", ""}, assets},
 		{[]string{"account", "claim", "1", "--id", ""}, assets},
 		{[]string{"account", "claim", "2", "--id", ""}, ":4\n"},
@@ -81,6 +90,7 @@ func TestCompletionsResolveThroughCobra(t *testing.T) {
 func TestIsCompletionArgv(t *testing.T) {
 	assert.True(t, isCompletionArgv([]string{"operator", cobra.ShellCompRequestCmd, "account", ""}))
 	assert.True(t, isCompletionArgv([]string{"operator", cobra.ShellCompNoDescRequestCmd, "account", ""}))
+	assert.True(t, isCompletionArgv([]string{"operator", completionCmdName, "bash"}))
 	assert.False(t, isCompletionArgv([]string{"operator", "account", "send", "--message", cobra.ShellCompRequestCmd}))
 	assert.False(t, isCompletionArgv([]string{"operator"}))
 }

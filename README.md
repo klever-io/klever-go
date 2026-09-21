@@ -141,7 +141,8 @@ For detailed CLI documentation, see [cmd/operator/docs/](cmd/operator/docs/).
 
 The operator CLI ships with Tab completion for Bash, Zsh, Fish and PowerShell. It
 completes subcommand names, the `claim` type argument, the `--kda` / `--id` asset flags
-of the `account` subcommands, and file paths (filtered to `.csv` for `account csv`).
+of the `account` subcommands, and file paths. `account csv` filters them to `.csv` in
+Bash and Zsh; Fish and PowerShell offer every file.
 
 Run `operator completion <shell> --help` for the install instructions of your shell.
 

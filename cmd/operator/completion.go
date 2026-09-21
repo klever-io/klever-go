@@ -17,12 +17,15 @@ var completeBaseAsset = cobra.FixedCompletions([]string{
 	"KFI\tKlever Finance",
 }, cobra.ShellCompDirectiveNoFileComp)
 
+// Bash and Zsh honour the extension filter; cobra 1.8.1's Fish and PowerShell scripts do not
+// and fall back to the shell's unfiltered file completion.
 var completeCSVFile = cobra.FixedCompletions([]string{"csv"}, cobra.ShellCompDirectiveFilterFileExt)
 
 // completeClaimID suggests assets only for the claim types whose --id is an asset (staking,
-// allowance); a marketplace claim's --id is a marketplace ID.
+// allowance); a marketplace claim's --id is a marketplace ID. Before the claim type is typed
+// nothing is suggested, so a `--id <TAB>` pick cannot end up as a marketplace ID.
 func completeClaimID(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	if len(args) == 0 || args[0] == "0" || args[0] == "1" {
+	if len(args) > 0 && (args[0] == "0" || args[0] == "1") {
 		return completeBaseAsset(cmd, args, toComplete)
 	}
 
@@ -42,16 +45,16 @@ func isCompletionRequest(cmd *cobra.Command) bool {
 	return false
 }
 
-// isCompletionArgv reports whether argv is a shell-issued completion request. Every
-// generated script runs `operator __complete ...` (or `__completeNoDesc`) on TAB, so the
-// hook name is always argv[1].
+// isCompletionArgv reports whether argv is a completion request: the `completion <shell>`
+// script generator, or the `__complete` / `__completeNoDesc` hook every generated script
+// runs on TAB. Both are always argv[1].
 func isCompletionArgv(argv []string) bool {
 	if len(argv) < 2 {
 		return false
 	}
 
 	switch argv[1] {
-	case cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd:
+	case cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd, completionCmdName:
 		return true
 	}
 
