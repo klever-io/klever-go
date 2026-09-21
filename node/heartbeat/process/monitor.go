@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -63,8 +62,7 @@ type Monitor struct {
 	heartbeatMessages                   map[string]*heartbeatMessageInfo
 	admittedHeartbeatPubKeys            map[string]struct{}
 	transientUnknownHeartbeatPubKeys    map[string]transientUnknownHeartbeatInfo
-	recomputeDirty                      atomic.Bool
-	recomputeRunning                    atomic.Bool
+	recomputeCh                         chan struct{}
 	doubleSignerPeers                   map[string]process.TimeCacher
 	pubKeysList                         []string
 	mutFullPeersSlice                   sync.RWMutex
@@ -153,6 +151,7 @@ func NewMonitor(arg ArgHeartbeatMonitor) (*Monitor, error) {
 		maxUnknownHeartbeatPubKeys:          maxUnknownHeartbeatPubKeys,
 		maxUnknownHeartbeatPubKeysPerOrigin: maxUnknownHeartbeatPubKeysPerOrigin,
 		doubleSignerPeers:                   make(map[string]process.TimeCacher),
+		recomputeCh:                         make(chan struct{}, 1),
 		stopCh:                              make(chan struct{}),
 	}
 
@@ -394,50 +393,31 @@ func (m *Monitor) processValidatedHeartbeat(hb *data.Heartbeat, fromConnectedPee
 }
 
 func (m *Monitor) scheduleHeartbeatRecompute() {
-	if m.isStopped() {
+	select {
+	case <-m.stopCh:
 		return
+	default:
 	}
 
-	m.recomputeDirty.Store(true)
-	if !m.recomputeRunning.CompareAndSwap(false, true) {
-		return
-	}
-
-	go m.runScheduledRecomputes()
-}
-
-func (m *Monitor) runScheduledRecomputes() {
-	for {
-		for m.recomputeDirty.Swap(false) {
-			if m.isStopped() {
-				m.recomputeRunning.Store(false)
-				return
-			}
-
-			m.computeAllHeartbeatMessages()
-		}
-
-		m.recomputeRunning.Store(false)
-		if !m.recomputeDirty.Load() {
-			return
-		}
-		if !m.recomputeRunning.CompareAndSwap(false, true) {
-			return
-		}
+	select {
+	case m.recomputeCh <- struct{}{}:
+	default:
 	}
 }
 
 func (m *Monitor) addHeartbeatMessageToMap(hb *data.Heartbeat, fromConnectedPeer core.PeerID) bool {
 	pubKeyStr := string(hb.Pubkey)
 	isAdmittedPubKey := m.isAdmittedHeartbeatPubKey(pubKeyStr)
-	droppedPubKeys := make([]string, 0)
+	var droppedPubKeys []string
 	if !isAdmittedPubKey {
 		tracked, dropped := m.trackTransientUnknownHeartbeatPubKey(pubKeyStr, fromConnectedPeer)
 		droppedPubKeys = dropped
 		if !tracked {
-			m.mutHeartbeatMessages.Lock()
-			m.dropLiveHeartbeatStateLocked(droppedPubKeys)
-			m.mutHeartbeatMessages.Unlock()
+			if len(droppedPubKeys) > 0 {
+				m.mutHeartbeatMessages.Lock()
+				m.dropLiveHeartbeatStateLocked(droppedPubKeys)
+				m.mutHeartbeatMessages.Unlock()
+			}
 			return false
 		}
 	}
@@ -445,7 +425,9 @@ func (m *Monitor) addHeartbeatMessageToMap(hb *data.Heartbeat, fromConnectedPeer
 	m.dropLiveHeartbeatStateLocked(droppedPubKeys)
 	if !isAdmittedPubKey {
 		isAdmittedPubKey = m.isAdmittedHeartbeatPubKey(pubKeyStr)
-		if !isAdmittedPubKey && !m.isTransientUnknownHeartbeatPubKeyTracked(pubKeyStr) {
+		if isAdmittedPubKey {
+			m.untrackTransientUnknownHeartbeatPubKey(pubKeyStr)
+		} else if !m.isTransientUnknownHeartbeatPubKeyTracked(pubKeyStr) {
 			m.mutHeartbeatMessages.Unlock()
 			return false
 		}
@@ -518,6 +500,10 @@ func (m *Monitor) markHeartbeatPubKeyAsAdmitted(pubKey string) {
 	m.admittedHeartbeatPubKeys[pubKey] = struct{}{}
 	m.mutAdmittedHeartbeatPubKeys.Unlock()
 
+	m.untrackTransientUnknownHeartbeatPubKey(pubKey)
+}
+
+func (m *Monitor) untrackTransientUnknownHeartbeatPubKey(pubKey string) {
 	m.mutTransientUnknownHeartbeatPubKeys.Lock()
 	delete(m.transientUnknownHeartbeatPubKeys, pubKey)
 	m.mutTransientUnknownHeartbeatPubKeys.Unlock()
@@ -828,8 +814,8 @@ func (m *Monitor) convertFromExportedStruct(hbDTO *data.HeartbeatDTO, maxDuratio
 }
 
 // startValidatorProcessing starts the periodic refresh of the nodes' information.
-// The initial refresh already ran synchronously in NewMonitor; this only drives
-// the recurring ticker updates.
+// The initial refresh already ran synchronously in NewMonitor; this drives the
+// recurring ticker updates and the recomputes requested by received heartbeats.
 func (m *Monitor) startValidatorProcessing() {
 	m.wg.Add(1)
 	go m.runRefreshLoop()
@@ -845,28 +831,25 @@ func (m *Monitor) runRefreshLoop() {
 		select {
 		case <-m.stopCh:
 			return
+		default:
+		}
+
+		select {
+		case <-m.stopCh:
+			return
 		case <-ticker.C:
 			m.refreshHeartbeatMessageInfo()
+		case <-m.recomputeCh:
+			m.computeAllHeartbeatMessages()
 		}
 	}
 }
 
-func (m *Monitor) isStopped() bool {
-	select {
-	case <-m.stopCh:
-		return true
-	default:
-		return false
-	}
-}
-
 // Close will stop the background processing goroutine and wait for it to exit,
-// including any state saves of its in-flight refresh pass.
-// Recomputes scheduled by received heartbeats stop once Close is called: a walk
-// already in progress completes, but no further walks start.
-// Neither that walk nor the per-message goroutines spawned by
-// ProcessReceivedMessage are tracked, so both may still write admitted keys to
-// the storer after Close returns.
+// including any state saves of its in-flight refresh pass or heartbeat-driven
+// recompute. Recomputes requested after Close is called are dropped.
+// The per-message goroutines spawned by ProcessReceivedMessage are not tracked
+// and may still write admitted keys to the storer after Close returns.
 // Safe to call multiple times; subsequent calls are no-ops.
 func (m *Monitor) Close() error {
 	m.closeOnce.Do(func() {

@@ -71,7 +71,22 @@ func (m *Monitor) GetNumTransientUnknownHeartbeatPubKeys() int {
 }
 
 func (m *Monitor) HasPendingRecompute() bool {
-	return m.recomputeDirty.Load() || m.recomputeRunning.Load()
+	return len(m.recomputeCh) > 0
+}
+
+func (m *Monitor) DrainPendingRecompute() {
+	select {
+	case <-m.recomputeCh:
+	default:
+	}
+}
+
+func (m *Monitor) StopSignal() <-chan struct{} {
+	return m.stopCh
+}
+
+func (m *Monitor) MarkHeartbeatPubKeyAsAdmitted(pubKey string) {
+	m.markHeartbeatPubKeyAsAdmitted(pubKey)
 }
 
 // AddTrustedHeartbeatMessageToMap bypasses admission limits explicitly for tests

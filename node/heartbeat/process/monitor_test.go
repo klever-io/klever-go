@@ -1374,6 +1374,59 @@ func TestMonitor_UnknownIdentitiesAreNeverPersisted(t *testing.T) {
 	assert.NotContains(t, persistedPubKeys, unknownPubKey)
 }
 
+func newWalkSignalHandler(t *testing.T, walks chan<- struct{}, gate <-chan struct{}, gateWalks *atomic.Bool, entered chan<- struct{}) *mock.AppStatusHandlerStub {
+	t.Helper()
+
+	return &mock.AppStatusHandlerStub{
+		SetUInt64ValueHandler: func(key string, value uint64) {
+			if key != core.MetricConnectedNodes {
+				return
+			}
+			if gateWalks != nil && gateWalks.Load() {
+				select {
+				case entered <- struct{}{}:
+				default:
+				}
+				<-gate
+			}
+			select {
+			case walks <- struct{}{}:
+			default:
+			}
+		},
+	}
+}
+
+func waitForWalk(t *testing.T, walks <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-walks:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "recompute did not run")
+	}
+}
+
+func requireNoWalkQueued(t *testing.T, walks <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-walks:
+		require.FailNow(t, "unexpected recompute")
+	default:
+	}
+}
+
+func drainWalks(walks <-chan struct{}) {
+	for {
+		select {
+		case <-walks:
+		default:
+			return
+		}
+	}
+}
+
 func TestMonitor_RejectedUnknownHeartbeatDoesNotTriggerRecompute(t *testing.T) {
 	t.Parallel()
 
@@ -1386,50 +1439,20 @@ func TestMonitor_RejectedUnknownHeartbeatDoesNotTriggerRecompute(t *testing.T) {
 
 	mon, err := process.NewMonitor(arg)
 	require.NoError(t, err)
-	defer mon.Close()
+	t.Cleanup(func() { _ = mon.Close() })
 
-	var mutRecomputes sync.Mutex
-	recomputes := 0
-	err = mon.SetAppStatusHandler(&mock.AppStatusHandlerStub{
-		SetUInt64ValueHandler: func(key string, value uint64) {
-			if key != core.MetricConnectedNodes {
-				return
-			}
-			mutRecomputes.Lock()
-			recomputes++
-			mutRecomputes.Unlock()
-		},
-	})
-	require.NoError(t, err)
-
-	mutRecomputes.Lock()
-	recomputes = 0
-	mutRecomputes.Unlock()
+	walks := make(chan struct{}, 16)
+	require.NoError(t, mon.SetAppStatusHandler(newWalkSignalHandler(t, walks, nil, nil, nil)))
+	drainWalks(walks)
 
 	origin := core.PeerID("origin-a")
 	mon.ProcessValidatedHeartbeat(&data.Heartbeat{Pubkey: []byte("unknown-accepted"), Pid: []byte("pid-1")}, origin)
-	waitForScheduledRecomputes(t, mon)
-
-	mutRecomputes.Lock()
-	afterAccepted := recomputes
-	mutRecomputes.Unlock()
-	assert.Equal(t, 1, afterAccepted)
+	waitForWalk(t, walks)
+	requireNoWalkQueued(t, walks)
 
 	mon.ProcessValidatedHeartbeat(&data.Heartbeat{Pubkey: []byte("unknown-rejected"), Pid: []byte("pid-2")}, origin)
-
 	assert.False(t, mon.HasPendingRecompute())
-	mutRecomputes.Lock()
-	afterRejected := recomputes
-	mutRecomputes.Unlock()
-	assert.Equal(t, 1, afterRejected)
-}
-
-func waitForScheduledRecomputes(t *testing.T, mon *process.Monitor) {
-	deadline := time.Now().Add(5 * time.Second)
-	for mon.HasPendingRecompute() {
-		require.True(t, time.Now().Before(deadline), "scheduled recompute did not finish")
-		time.Sleep(time.Millisecond)
-	}
+	requireNoWalkQueued(t, walks)
 }
 
 func TestMonitor_BurstOfAcceptedHeartbeatsCoalescesRecomputes(t *testing.T) {
@@ -1444,43 +1467,21 @@ func TestMonitor_BurstOfAcceptedHeartbeatsCoalescesRecomputes(t *testing.T) {
 
 	mon, err := process.NewMonitor(arg)
 	require.NoError(t, err)
-	defer mon.Close()
+	t.Cleanup(func() { _ = mon.Close() })
 
-	var mutWalks sync.Mutex
-	walks := 0
-	var gateWalks atomic.Bool
+	walks := make(chan struct{}, 64)
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
 	var releaseOnce sync.Once
 	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	var gateWalks atomic.Bool
 
-	err = mon.SetAppStatusHandler(&mock.AppStatusHandlerStub{
-		SetUInt64ValueHandler: func(key string, value uint64) {
-			if key != core.MetricConnectedNodes {
-				return
-			}
-			mutWalks.Lock()
-			walks++
-			mutWalks.Unlock()
-			if gateWalks.Load() {
-				select {
-				case entered <- struct{}{}:
-				default:
-				}
-				<-release
-			}
-		},
-	})
-	require.NoError(t, err)
-
-	mutWalks.Lock()
-	walks = 0
-	mutWalks.Unlock()
+	require.NoError(t, mon.SetAppStatusHandler(newWalkSignalHandler(t, walks, release, &gateWalks, entered)))
+	drainWalks(walks)
 	gateWalks.Store(true)
 
 	origin := core.PeerID("origin-a")
 	mon.ProcessValidatedHeartbeat(&data.Heartbeat{Pubkey: []byte("unknown-0"), Pid: []byte("pid-0")}, origin)
-
 	select {
 	case <-entered:
 	case <-time.After(5 * time.Second):
@@ -1496,12 +1497,13 @@ func TestMonitor_BurstOfAcceptedHeartbeatsCoalescesRecomputes(t *testing.T) {
 	}
 	require.True(t, mon.HasPendingRecompute())
 
+	gateWalks.Store(false)
 	releaseOnce.Do(func() { close(release) })
-	waitForScheduledRecomputes(t, mon)
+	waitForWalk(t, walks)
+	waitForWalk(t, walks)
 
-	mutWalks.Lock()
-	defer mutWalks.Unlock()
-	assert.Equal(t, 2, walks)
+	assert.False(t, mon.HasPendingRecompute())
+	requireNoWalkQueued(t, walks)
 }
 
 func TestMonitor_LiveUnknownStateMatchesTrackedSetUnderConcurrentChurn(t *testing.T) {
@@ -1580,37 +1582,17 @@ func TestMonitor_ScheduledRecomputesStopAfterClose(t *testing.T) {
 
 	mon, err := process.NewMonitor(arg)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = mon.Close() })
 
-	var mutWalks sync.Mutex
-	walks := 0
-	var gateWalks atomic.Bool
+	walks := make(chan struct{}, 64)
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
 	var releaseOnce sync.Once
 	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	var gateWalks atomic.Bool
 
-	err = mon.SetAppStatusHandler(&mock.AppStatusHandlerStub{
-		SetUInt64ValueHandler: func(key string, value uint64) {
-			if key != core.MetricConnectedNodes {
-				return
-			}
-			mutWalks.Lock()
-			walks++
-			mutWalks.Unlock()
-			if gateWalks.Load() {
-				select {
-				case entered <- struct{}{}:
-				default:
-				}
-				<-release
-			}
-		},
-	})
-	require.NoError(t, err)
-
-	mutWalks.Lock()
-	walks = 0
-	mutWalks.Unlock()
+	require.NoError(t, mon.SetAppStatusHandler(newWalkSignalHandler(t, walks, release, &gateWalks, entered)))
+	drainWalks(walks)
 	gateWalks.Store(true)
 
 	origin := core.PeerID("origin-a")
@@ -1624,14 +1606,63 @@ func TestMonitor_ScheduledRecomputesStopAfterClose(t *testing.T) {
 	mon.ProcessValidatedHeartbeat(&data.Heartbeat{Pubkey: []byte("unknown-1"), Pid: []byte("pid-1")}, origin)
 	require.True(t, mon.HasPendingRecompute())
 
-	require.NoError(t, mon.Close())
-	releaseOnce.Do(func() { close(release) })
-	waitForScheduledRecomputes(t, mon)
+	closed := make(chan error, 1)
+	go func() { closed <- mon.Close() }()
+	select {
+	case <-mon.StopSignal():
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "close never signalled stop")
+	}
 
+	gateWalks.Store(false)
+	releaseOnce.Do(func() { close(release) })
+	select {
+	case err = <-closed:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "close did not return")
+	}
+
+	waitForWalk(t, walks)
+	requireNoWalkQueued(t, walks)
+	require.True(t, mon.HasPendingRecompute())
+
+	mon.DrainPendingRecompute()
 	mon.ProcessValidatedHeartbeat(&data.Heartbeat{Pubkey: []byte("unknown-2"), Pid: []byte("pid-2")}, origin)
 	assert.False(t, mon.HasPendingRecompute())
+	requireNoWalkQueued(t, walks)
+}
 
-	mutWalks.Lock()
-	defer mutWalks.Unlock()
-	assert.Equal(t, 1, walks)
+func TestMonitor_AdmittedIdentityNeverHoldsTransientSlot(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = time.Hour
+	arg.MaxUnknownHeartbeatPubKeys = 8192
+	arg.MaxUnknownHeartbeatPubKeysPerOrigin = 8192
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mon.Close() })
+
+	const iterations = 3000
+	origin := core.PeerID("origin-a")
+	for i := 0; i < iterations; i++ {
+		pubKey := fmt.Sprintf("racing-%d", i)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			mon.AddHeartbeatMessageFromOrigin(&data.Heartbeat{Pubkey: []byte(pubKey), Pid: []byte("pid")}, origin)
+		}()
+		go func() {
+			defer wg.Done()
+			mon.MarkHeartbeatPubKeyAsAdmitted(pubKey)
+		}()
+		wg.Wait()
+	}
+
+	assert.Equal(t, 0, mon.GetNumTransientUnknownHeartbeatPubKeys())
 }
