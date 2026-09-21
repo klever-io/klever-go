@@ -10,6 +10,7 @@ import (
 
 	commonMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/kvm/config"
 	"github.com/klever-io/klever-go/kvm/executor"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	"github.com/klever-io/klever-go/kvm/vmhost"
@@ -398,6 +399,55 @@ func TestVMHooksImpl_WriteLog(t *testing.T) {
 			assert.Equal(t, tt.expectedError, host.RuntimeContext.(*contextmock.RuntimeContextMock).FailExecutionErr)
 		})
 	}
+}
+
+// UseGasBoundedAndAddTracedGas used to record the charge twice in the diagnostic gas trace: once
+// into whichever trace was current (the previous hook's) and once as a fresh writeLog entry, while
+// the meter itself only deducted once. A real meteringContext is used so both the trace and the
+// deduction are observed end to end through the hook.
+func TestVMHooksImpl_WriteLog_TracesGasOnce(t *testing.T) {
+	t.Parallel()
+
+	const gasProvided = uint64(1000)
+	scAddress := []byte("scAddress1")
+
+	host := newMockVMHost()
+	host.ForkControllerContext = &commonMock.ForkControllerStub{FixAuditChangesV4Value: true}
+	host.OutputContext = &contextmock.OutputContextStub{}
+	host.RuntimeContext.(*contextmock.RuntimeContextMock).SCAddress = scAddress
+
+	metering, err := contexts.NewMeteringContext(host, config.MakeGasMapForTests())
+	require.NoError(t, err)
+	metering.InitStateFromContractCallInput(&vmcommon.VMInput{GasProvided: gasProvided})
+	metering.SetGasTracing(true)
+	host.MeteringContext = metering
+
+	// the trace the leaked copy used to land in
+	metering.StartGasTracing("previousHook")
+
+	data := []byte("log message")
+	topics := [][]byte{makeAddress("topic1"), makeAddress("topic2")}
+	require.NoError(t, host.MemStoreToMock(executor.MemPtr(0), data))
+	topicPtr := executor.MemPtr(100)
+	for i, topic := range topics {
+		require.NoError(t, host.MemStoreToMock(topicPtr.Offset(int32(i)*vmhost.HashLen), topic))
+	}
+
+	schedule := metering.GasSchedule()
+	expectedGas := schedule.BaseOpsAPICost.Log +
+		schedule.BaseOperationCost.PersistPerByte*uint64(len(topics)*vmhost.HashLen+len(data))
+
+	vmhooks.NewVMHooksImpl(host).WriteLog(executor.MemPtr(0), executor.MemLength(len(data)), topicPtr, int32(len(topics)))
+
+	require.Nil(t, host.RuntimeContext.(*contextmock.RuntimeContextMock).FailExecutionErr)
+	// the meter deducts the charge exactly once
+	assert.Equal(t, gasProvided-expectedGas, metering.GasLeft())
+	// the trace attributes it exactly once, under writeLog, leaving the previous trace untouched
+	expectedTrace := map[string]map[string][]uint64{string(scAddress): {
+		"previousHook": {0},
+		"writeLog":     {expectedGas},
+	}}
+	assert.Equal(t, expectedTrace, metering.GetGasTrace())
 }
 
 func TestVMHooksImpl_GetArgumentLength(t *testing.T) {

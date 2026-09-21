@@ -113,11 +113,7 @@ func useBoundedGas(host vmhost.VMHost, functionName string, gasToUse uint64) err
 		return nil
 	}
 
-	// UseGasBoundedAndAddTracedGas would record the amount twice, once into whichever trace is
-	// current and once as a new traced entry, so open this hook's own trace and let UseGasBounded
-	// record it there exactly once, the same shape the pre-fork helper produces
-	metering.StartGasTracing(functionName)
-	return metering.UseGasBounded(gasToUse)
+	return metering.UseGasBoundedAndAddTracedGas(functionName, gasToUse)
 }
 
 // MBufferNew VMHooks implementation.

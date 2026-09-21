@@ -494,3 +494,46 @@ func TestMeteringContext_GasTracer(t *testing.T) {
 	require.Equal(t, 2, len(gasTrace))
 	require.Equal(t, gasUsed2, gasTrace["scAddress2"]["function2"][0])
 }
+
+// UseGasBoundedAndAddTracedGas used to call UseGasBounded (which records into the current trace)
+// and then append the same amount again under functionName, so every bounded+traced hook showed
+// up twice in the diagnostic trace while the meter deducted once.
+func TestMeteringContext_UseGasBoundedAndAddTracedGas_TracesOnce(t *testing.T) {
+	t.Parallel()
+
+	newTracedMetering := func(gasProvided uint64) (*meteringContext, *contextmock.RuntimeContextMock) {
+		mockRuntime := &contextmock.RuntimeContextMock{SCAddress: []byte("scAddress1")}
+		meteringCtx, err := NewMeteringContext(&contextmock.VMHostMock{RuntimeContext: mockRuntime}, config.MakeGasMapForTests())
+		require.NoError(t, err)
+		meteringCtx.InitStateFromContractCallInput(&vmcommon.VMInput{GasProvided: gasProvided})
+		meteringCtx.SetGasTracing(true)
+		// the trace the leaked copy used to land in
+		meteringCtx.StartGasTracing("previousHook")
+		return meteringCtx, mockRuntime
+	}
+
+	t.Run("charge is deducted once and traced once under functionName", func(t *testing.T) {
+		meteringCtx, mockRuntime := newTracedMetering(1000)
+
+		require.NoError(t, meteringCtx.UseGasBoundedAndAddTracedGas("hook", 76))
+
+		require.Equal(t, uint64(76), mockRuntime.GetPointsUsed())
+		require.Equal(t, map[string]map[string][]uint64{"scAddress1": {
+			"previousHook": {0},
+			"hook":         {76},
+		}}, meteringCtx.GetGasTrace())
+	})
+
+	t.Run("not enough gas deducts nothing and leaves an empty trace entry", func(t *testing.T) {
+		meteringCtx, mockRuntime := newTracedMetering(75)
+
+		require.ErrorIs(t, meteringCtx.UseGasBoundedAndAddTracedGas("hook", 76), vmhost.ErrNotEnoughGas)
+
+		require.Equal(t, uint64(0), mockRuntime.GetPointsUsed())
+		// same shape every StartGasTracing-first hook leaves when it fails before charging
+		require.Equal(t, map[string]map[string][]uint64{"scAddress1": {
+			"previousHook": {0},
+			"hook":         {0},
+		}}, meteringCtx.GetGasTrace())
+	})
+}

@@ -320,15 +320,13 @@ func (context *meteringContext) UseGasAndAddTracedGas(functionName string, gas u
 	context.addToGasTrace(functionName, gas)
 }
 
-// UseGasBoundedAndAddTracedGas sets in the runtime context the given gas as gas used and adds to current trace
+// UseGasBoundedAndAddTracedGas sets in the runtime context the given gas as gas used, bounded by the
+// gas left, and records it once under functionName's own trace
 func (context *meteringContext) UseGasBoundedAndAddTracedGas(functionName string, gas uint64) error {
-	err := context.UseGasBounded(gas)
-	if err != nil {
-		return err
-	}
-
-	context.addToGasTrace(functionName, gas)
-	return nil
+	// UseGasBounded records into the current trace, so open functionName's trace first rather than
+	// appending a second entry afterwards, which would count the charge twice
+	context.StartGasTracing(functionName)
+	return context.UseGasBounded(gas)
 }
 
 // GetGasTrace returns the gasTrace map
