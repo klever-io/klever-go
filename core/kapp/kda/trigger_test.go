@@ -1962,6 +1962,49 @@ func TestKDATrigger_UpdateRoyalties(t *testing.T) {
 				assert.Equal(t, int64(250), asset.Royalties.ITOFixed)
 			},
 		},
+		// TransferPercentage is a fungible-only royalty: accounts.Transfer debits it
+		// from the nonce-less balance, which NFT/SFT holders never have. The NFT/SFT
+		// branch must ignore it even when the trigger supplies one.
+		{
+			name:   "Update royalties for non-fungible asset ignores TransferPercentage",
+			sender: owner,
+			asset: &kapps.KDAData{
+				OwnerAddress: owner,
+				AssetType:    kapps.KDAData_NonFungible,
+				Royalties:    &kapps.RoyaltiesData{},
+				Attributes:   &kapps.AttributesData{},
+			},
+			royalties: &transaction.RoyaltiesInfo{
+				TransferPercentage: []*transaction.RoyaltyInfo{{Amount: 1000, Percentage: 10}},
+				TransferFixed:      150,
+			},
+			expectedCode:  transaction.Transaction_Ok,
+			expectedError: nil,
+			validate: func(t *testing.T, asset *kapps.KDAData) {
+				assert.Equal(t, int64(150), asset.Royalties.TransferFixed)
+				assert.Empty(t, asset.Royalties.TransferPercentage)
+			},
+		},
+		{
+			name:   "Update royalties for semi-fungible asset ignores TransferPercentage",
+			sender: owner,
+			asset: &kapps.KDAData{
+				OwnerAddress: owner,
+				AssetType:    kapps.KDAData_SemiFungible,
+				Royalties:    &kapps.RoyaltiesData{},
+				Attributes:   &kapps.AttributesData{},
+			},
+			royalties: &transaction.RoyaltiesInfo{
+				TransferPercentage: []*transaction.RoyaltyInfo{{Amount: 1000, Percentage: 10}},
+				TransferFixed:      150,
+			},
+			expectedCode:  transaction.Transaction_Ok,
+			expectedError: nil,
+			validate: func(t *testing.T, asset *kapps.KDAData) {
+				assert.Equal(t, int64(150), asset.Royalties.TransferFixed)
+				assert.Empty(t, asset.Royalties.TransferPercentage)
+			},
+		},
 		{
 			name:   "Update royalties by non-owner",
 			sender: nonOwner,
