@@ -188,6 +188,7 @@ func subAccount() []*cobra.Command {
 		},
 	}
 	cmdSend.Flags().StringVar(&kdaID, "kda", "KLV", "--kda=KDAID-0000")
+	mustRegisterFlagCompletion(cmdSend, "kda", completeBaseAsset)
 
 	var batchValues map[string]string
 	cmdBatchSend := &cobra.Command{
@@ -220,6 +221,7 @@ func subAccount() []*cobra.Command {
 		},
 	}
 	cmdBatchSend.Flags().StringVar(&kdaID, "kda", "KLV", "--kda=KDAID-0000")
+	mustRegisterFlagCompletion(cmdBatchSend, "kda", completeBaseAsset)
 	cmdBatchSend.Flags().StringToStringVar(&batchValues, "values", nil, "--values 'addr1=val1, addr2=val2, addr3=val3'")
 
 	cmdFreeze := &cobra.Command{
@@ -237,6 +239,7 @@ func subAccount() []*cobra.Command {
 		},
 	}
 	cmdFreeze.Flags().StringVar(&kdaID, "kda", "KLV", "--kda=KDAID-00000")
+	mustRegisterFlagCompletion(cmdFreeze, "kda", completeBaseAsset)
 
 	cmdUnFreeze := &cobra.Command{
 		Use:     "unfreeze",
@@ -257,6 +260,7 @@ func subAccount() []*cobra.Command {
 		},
 	}
 	cmdUnFreeze.Flags().StringVar(&kdaID, "kda", "KLV", "--kda=KDAID-00000")
+	mustRegisterFlagCompletion(cmdUnFreeze, "kda", completeBaseAsset)
 	cmdUnFreeze.Flags().StringVar(&bucketID, "bucketID", "", "--bucketID=000...000")
 
 	cmdDelegate := &cobra.Command{
@@ -295,10 +299,11 @@ func subAccount() []*cobra.Command {
 	cmdUnDelegate.Flags().StringVar(&bucketID, "bucketID", "", "--bucketID=000...000")
 
 	cmdClaim := &cobra.Command{
-		Use:     "claim <CLAIM_TYPE>",
-		Aliases: []string{"c"},
-		Short:   "claim transaction",
-		Args:    cobra.MaximumNArgs(1),
+		Use:       "claim <CLAIM_TYPE>",
+		Aliases:   []string{"c"},
+		Short:     "claim transaction",
+		Args:      cobra.MaximumNArgs(1),
+		ValidArgs: claimTypeCompletions,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			claimType := int64(0)
 			var err error
@@ -313,6 +318,7 @@ func subAccount() []*cobra.Command {
 		},
 	}
 	cmdClaim.Flags().StringVar(&kdaID, "id", "KLV", "--id=KDAID-00000")
+	mustRegisterFlagCompletion(cmdClaim, "id", completeClaimID)
 
 	cmdWithdraw := &cobra.Command{
 		Use:     "withdraw",
@@ -323,6 +329,7 @@ func subAccount() []*cobra.Command {
 		},
 	}
 	cmdWithdraw.Flags().StringVar(&kdaID, "kda", "KLV", "--kda=KDAID-00000")
+	mustRegisterFlagCompletion(cmdWithdraw, "kda", completeBaseAsset)
 
 	cmdSetName := &cobra.Command{
 		Use:     "set-name [NAME]",
@@ -356,9 +363,10 @@ func subAccount() []*cobra.Command {
 	cmdPermission.Flags().StringArrayVarP(&perms, "perm", "", []string{}, `--perm='{"type":1, "threshold": 2, "operations":"0fff", "signers": [{"address":"klv1fpwjz234gy8aaae3gx0e8q9f52vymzzn3z5q0s5h60pvktzx0n0qwvtux5", "weight": 1},{"address":"klv18cgjm6mfahuvnl3vj8kx3fph8qvth048we0486cd8xp9nenm4saqg0h9jl", "weight": 1}]}'`)
 
 	cmdCSV := &cobra.Command{
-		Use:   "csv FILENAME",
-		Short: "send transactions based on CSV file",
-		Args:  cobra.ExactArgs(1),
+		Use:               "csv FILENAME",
+		Short:             "send transactions based on CSV file",
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeCSVFile,
 		RunE: func(cmd *cobra.Command, args []string) error {
 
 			return csvSend(args[0])

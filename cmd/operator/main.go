@@ -87,6 +87,11 @@ var rootCmd = &cobra.Command{
 	SilenceUsage: true,
 	Version:      appVersion,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		if isCompletionRequest(cmd) {
+			log.SetLevel(logger.LogNone)
+			return nil
+		}
+
 		if resultOnly {
 			if !await && !isDisabledLogsCommand(cmd) {
 				return fmt.Errorf("await flag is required to use result-only")
@@ -212,7 +217,10 @@ func Execute() {
 }
 
 func main() {
-	processEnv()
+	// A TAB press runs the binary from whatever directory the user is in; never read a .env there.
+	if !isCompletionArgv(os.Args) {
+		processEnv()
+	}
 
 	rootCmd.AddCommand(&cobra.Command{
 		Use:   "version",
