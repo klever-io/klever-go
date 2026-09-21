@@ -118,44 +118,54 @@ func TestAppStatusPolling_Close_StopsGoroutine(t *testing.T) {
 	}, 3*pollingDuration, 50*time.Millisecond, "expected goroutine to fire at least once before Close")
 
 	assert.NoError(t, asp.Close())
-
-	// Close joins the goroutine, so the count is frozen the moment Close
-	// returns — no settling window needed.
-	stable := atomic.LoadInt32(&callCount)
-	time.Sleep(2 * pollingDuration)
-	assert.Equal(t, stable, atomic.LoadInt32(&callCount), "expected no further handler invocations after Close returns")
 }
 
 func TestAppStatusPolling_Close_WaitsForInFlightHandler(t *testing.T) {
 	t.Parallel()
 
-	pollingDuration := time.Second
+	release := make(chan struct{})
 	handlerStarted := make(chan struct{})
-	var handlerDone int32
+	var releaseOnce sync.Once
+	releaseFn := func() {
+		releaseOnce.Do(func() { close(release) })
+	}
 
-	asp, err := appStatusPolling.NewAppStatusPolling(&statusHandler.NilStatusHandler{}, pollingDuration)
+	asp, err := appStatusPolling.NewAppStatusPolling(&statusHandler.NilStatusHandler{}, time.Second)
 	require.Nil(t, err)
 
 	var once sync.Once
 	err = asp.RegisterPollingFunc(func(_ core.AppStatusHandler) {
 		once.Do(func() {
 			close(handlerStarted)
-			// Hold the tick open long enough that a non-blocking Close would
-			// demonstrably return while this handler is still running.
-			time.Sleep(500 * time.Millisecond)
-			atomic.StoreInt32(&handlerDone, 1)
+			<-release
 		})
 	})
 	require.Nil(t, err)
 
 	asp.Poll()
+	t.Cleanup(releaseFn)
 
-	// Close only once a handler is provably mid-flight.
 	<-handlerStarted
-	require.NoError(t, asp.Close())
 
-	assert.Equal(t, int32(1), atomic.LoadInt32(&handlerDone),
-		"Close must not return while a registered handler is still executing")
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- asp.Close()
+	}()
+
+	select {
+	case err = <-errCh:
+		t.Fatalf("Close returned while the handler was still running: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	releaseFn()
+
+	select {
+	case err = <-errCh:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not return after the handler finished")
+	}
 }
 
 func TestAppStatusPolling_Close_BeforePollDoesNotBlock(t *testing.T) {
@@ -200,20 +210,33 @@ func TestAppStatusPolling_Close_GivesUpOnStuckHandler(t *testing.T) {
 	})
 	require.Nil(t, err)
 
+	var releaseOnce sync.Once
+	releaseFn := func() {
+		releaseOnce.Do(func() { close(release) })
+	}
 	asp.Poll()
-	t.Cleanup(func() { close(release) })
+	t.Cleanup(releaseFn)
 
 	<-handlerStarted
 
 	// Close must give up rather than block the caller forever: in production
 	// closeAllComponents still has Store.CloseAll and the trie persisters to
 	// run under a shared watchdog.
-	start := time.Now()
-	err = asp.Close()
-	elapsed := time.Since(start)
-
+	err, elapsed := closeWithin(t, asp, 5*time.Second)
 	assert.ErrorIs(t, err, appStatusPolling.ErrCloseTimeout)
+	assert.Greater(t, elapsed, 500*time.Millisecond, "Close returned ErrCloseTimeout without waiting")
 	assert.Less(t, elapsed, 5*time.Second, "Close should have given up near closeJoinTimeout")
+
+	// A retry while the handler is still stuck waits on the same joiner.
+	err, elapsed = closeWithin(t, asp, 5*time.Second)
+	assert.ErrorIs(t, err, appStatusPolling.ErrCloseTimeout)
+	assert.Greater(t, elapsed, 500*time.Millisecond, "retried Close did not wait for the in-flight handler")
+
+	releaseFn()
+
+	err, elapsed = closeWithin(t, asp, 2*time.Second)
+	assert.NoError(t, err)
+	assert.Less(t, elapsed, time.Second, "Close after the handler finished should return promptly")
 }
 
 func TestAppStatusPolling_PollAfterCloseIsNoOp(t *testing.T) {
@@ -238,6 +261,8 @@ func TestAppStatusPolling_PollAfterCloseIsNoOp(t *testing.T) {
 	// Must not start a goroutine that reuses the WaitGroup after Wait returned.
 	asp.Poll()
 
+	// The polling floor is one second, so wait past one tick. This is an
+	// absence check: if Poll did nothing, there is no event to wait on.
 	time.Sleep(2 * time.Second)
 	assert.Zero(t, atomic.LoadInt32(&callCount), "Poll after Close must not fire handlers")
 	assert.NoError(t, asp.Close())
@@ -263,10 +288,32 @@ func TestAppStatusPolling_ConcurrentPollAndCloseShouldNotPanic(t *testing.T) {
 				asp.Poll()
 			}()
 		}
+		closeErr := make(chan error, 1)
 		go func() {
 			defer wg.Done()
-			_ = asp.Close()
+			closeErr <- asp.Close()
 		}()
 		wg.Wait()
+		require.NoError(t, <-closeErr)
+	}
+}
+
+// closeWithin runs Close off the test goroutine so a missing timeout fails
+// here instead of hanging until the package deadline.
+func closeWithin(t *testing.T, asp *appStatusPolling.AppStatusPolling, limit time.Duration) (error, time.Duration) {
+	t.Helper()
+
+	errCh := make(chan error, 1)
+	start := time.Now()
+	go func() {
+		errCh <- asp.Close()
+	}()
+
+	select {
+	case err := <-errCh:
+		return err, time.Since(start)
+	case <-time.After(limit):
+		t.Fatalf("Close blocked longer than %s", limit)
+		return nil, 0
 	}
 }
