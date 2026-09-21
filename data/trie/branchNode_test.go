@@ -2,6 +2,7 @@ package trie
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -1092,6 +1093,52 @@ func TestBranchNode_isEmptyOrNilRejectsWrongChildrenCount(t *testing.T) {
 	// first place a mismatched pair can be indexed.
 	bn.EncodedChildren = nil
 	assert.Equal(t, ErrInvalidBranchNodeChildrenCount, bn.isEmptyOrNil())
+}
+
+func TestBranchNode_childWalksRejectShortEncodedChildren(t *testing.T) {
+	t.Parallel()
+
+	marsh, hsh := getTestMarshalizerAndHasher()
+
+	// every walk below iterates nrOfChildren slots and indexes EncodedChildren[i], directly or
+	// through resolveIfCollapsed; a truncated slice must fail the shape check instead of panicking
+	walks := map[string]func(bn *branchNode) error{
+		"getCollapsedBn": func(bn *branchNode) error {
+			_, err := bn.getCollapsedBn()
+			return err
+		},
+		"commit": func(bn *branchNode) error {
+			return bn.commit(true, 0, 5, mock.NewMemDbMock(), mock.NewMemDbMock())
+		},
+		"getChildren": func(bn *branchNode) error {
+			_, err := bn.getChildren(mock.NewMemDbMock())
+			return err
+		},
+		"getAllLeavesOnChannel": func(bn *branchNode) error {
+			leaves := make(chan data.KeyValueHolder, nrOfChildren)
+			return bn.getAllLeavesOnChannel(leaves, []byte{}, mock.NewMemDbMock(), marsh, context.Background())
+		},
+		"getAllHashes": func(bn *branchNode) error {
+			_, err := bn.getAllHashes(mock.NewMemDbMock())
+			return err
+		},
+	}
+
+	for name, walk := range walks {
+		walk := walk
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			bn, collapsedBn := getBnAndCollapsedBn(marsh, hsh)
+			for _, n := range []*branchNode{bn, collapsedBn} {
+				n.EncodedChildren = n.EncodedChildren[:nrOfChildren-1]
+
+				var err error
+				assert.NotPanics(t, func() { err = walk(n) })
+				assert.True(t, errors.Is(err, ErrInvalidBranchNodeChildrenCount), "got %v", err)
+			}
+		})
+	}
 }
 
 func TestDecodeNodeRejectsBranchWithWrongChildrenCount(t *testing.T) {

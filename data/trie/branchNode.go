@@ -96,7 +96,7 @@ func (bn *branchNode) getCollapsedBn() (*branchNode, error) {
 		return bn, nil
 	}
 	collapsed := bn.clone()
-	for i := range bn.children {
+	for i := 0; i < nrOfChildren; i++ {
 		if bn.children[i] != nil {
 			var ok bool
 			ok, err = hasValidHash(bn.children[i])
@@ -258,7 +258,7 @@ func (bn *branchNode) commit(force bool, level byte, maxTrieLevelInMemory uint, 
 		return nil
 	}
 
-	for i := range bn.children {
+	for i := 0; i < nrOfChildren; i++ {
 		if force {
 			err = resolveIfCollapsed(bn, byte(i), originDb)
 			if err != nil {
@@ -633,7 +633,7 @@ func (bn *branchNode) print(writer io.Writer, index int, db data.DBWriteCacher) 
 		return
 	}
 
-	for i := 0; i < len(bn.children); i++ {
+	for i := 0; i < nrOfChildren; i++ {
 		err := resolveIfCollapsed(bn, byte(i), db)
 		if err != nil {
 			log.Debug("branch node: print trie err", "error", err, "hash", bn.EncodedChildren[i])
@@ -726,7 +726,7 @@ func (bn *branchNode) getChildren(db data.DBWriteCacher) ([]node, error) {
 
 	nextNodes := make([]node, 0)
 
-	for i := range bn.children {
+	for i := 0; i < nrOfChildren; i++ {
 		err = resolveIfCollapsed(bn, byte(i), db)
 		if err != nil {
 			return nil, err
@@ -800,7 +800,7 @@ func (bn *branchNode) getAllLeavesOnChannel(
 		return fmt.Errorf("getAllLeavesOnChannel error: %w", err)
 	}
 
-	for i := range bn.children {
+	for i := 0; i < nrOfChildren; i++ {
 		select {
 		case <-ctx.Done():
 			log.Trace("getAllLeavesOnChannel interrupted")
@@ -837,7 +837,7 @@ func (bn *branchNode) getAllHashes(db data.DBWriteCacher) ([][]byte, error) {
 
 	var childrenHashes [][]byte
 	hashes := make([][]byte, 0)
-	for i := range bn.children {
+	for i := 0; i < nrOfChildren; i++ {
 		err = resolveIfCollapsed(bn, byte(i), db)
 		if err != nil {
 			return nil, err
