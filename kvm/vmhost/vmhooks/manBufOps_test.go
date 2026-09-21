@@ -927,6 +927,36 @@ func TestMBufferStorageStoreChargesPerByteBeforeClone(t *testing.T) {
 	})
 }
 
+// useBoundedGas post-fork goes through UseGasBoundedAndAddTracedGas. A real meteringContext is used
+// because MeteringContextMock ignores the function name and its StartGasTracing is a no-op, so
+// re-adding StartGasTracing beside the helper would trace [0, gas] without any mock test noticing.
+// MBufferToBigIntUnsigned on an empty buffer is used because its only charge is the flat one.
+func TestUseBoundedGasTracesOnceUnderTheHook(t *testing.T) {
+	hooks := newManBufHooks(t, true)
+	provideGas(hooks, 1_000_000)
+	metering := hooks.GetMeteringContext()
+	metering.SetGasTracing(true)
+	// the trace the leaked copy used to land in
+	metering.StartGasTracing("previousHook")
+
+	managedType := hooks.GetManagedTypesContext()
+	mBufferHandle := managedType.NewManagedBuffer()
+	bigIntHandle := managedType.NewBigIntFromInt64(0)
+	gas := metering.GasSchedule().ManagedBufferAPICost.MBufferToBigIntUnsigned
+
+	var ret int32
+	consumed := gasConsumedBy(hooks, func() {
+		ret = hooks.MBufferToBigIntUnsigned(mBufferHandle, bigIntHandle)
+	})
+
+	require.Equal(t, int32(0), ret)
+	require.Equal(t, gas, consumed)
+	require.Equal(t, map[string]map[string][]uint64{string(manBufTestContractCode): {
+		"previousHook":            {0},
+		"mBufferToBigIntUnsigned": {gas},
+	}}, metering.GetGasTrace())
+}
+
 func TestMBufferStorageLoadChargesPerByteBeforeLoad(t *testing.T) {
 	key := []byte("storageKeyOfSomeLength")
 	value := []byte("storageValueOfSomeLength")
