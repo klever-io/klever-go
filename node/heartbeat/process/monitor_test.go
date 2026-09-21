@@ -1666,3 +1666,27 @@ func TestMonitor_AdmittedIdentityNeverHoldsTransientSlot(t *testing.T) {
 
 	assert.Equal(t, 0, mon.GetNumTransientUnknownHeartbeatPubKeys())
 }
+
+func TestMonitor_HeartbeatFromAdmittedIdentityReleasesTransientSlot(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = time.Hour
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mon.Close() })
+
+	pubKey := "admitted-with-stale-slot"
+	origin := core.PeerID("origin-a")
+	mon.MarkHeartbeatPubKeyAsAdmitted(pubKey)
+	require.True(t, mon.TrackTransientUnknownHeartbeatPubKey(pubKey, origin))
+	require.Equal(t, 1, mon.GetNumTransientUnknownHeartbeatPubKeys())
+
+	mon.AddHeartbeatMessageFromOrigin(&data.Heartbeat{Pubkey: []byte(pubKey), Pid: []byte("pid")}, origin)
+
+	assert.Equal(t, 0, mon.GetNumTransientUnknownHeartbeatPubKeys())
+	assert.Equal(t, 1, mon.GetNumHearbeatMessages())
+}

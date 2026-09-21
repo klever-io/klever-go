@@ -393,10 +393,8 @@ func (m *Monitor) processValidatedHeartbeat(hb *data.Heartbeat, fromConnectedPee
 }
 
 func (m *Monitor) scheduleHeartbeatRecompute() {
-	select {
-	case <-m.stopCh:
+	if m.isStopping() {
 		return
-	default:
 	}
 
 	select {
@@ -476,11 +474,7 @@ func (m *Monitor) admitHeartbeatPubKey(pubKeyStr string, fromConnectedPeer core.
 }
 
 func (m *Monitor) confirmHeartbeatAdmissionLocked(pubKeyStr string, isAdmittedPubKey bool) (bool, bool) {
-	if isAdmittedPubKey {
-		return true, true
-	}
-
-	if m.isAdmittedHeartbeatPubKey(pubKeyStr) {
+	if isAdmittedPubKey || m.isAdmittedHeartbeatPubKey(pubKeyStr) {
 		m.untrackTransientUnknownHeartbeatPubKey(pubKeyStr)
 		return true, true
 	}
@@ -858,20 +852,33 @@ func (m *Monitor) runRefreshLoop() {
 	defer ticker.Stop()
 
 	for {
-		select {
-		case <-m.stopCh:
+		if m.isStopping() {
 			return
-		default:
 		}
 
 		select {
 		case <-m.stopCh:
 			return
 		case <-ticker.C:
+			if m.isStopping() {
+				return
+			}
 			m.refreshHeartbeatMessageInfo()
 		case <-m.recomputeCh:
+			if m.isStopping() {
+				return
+			}
 			m.computeAllHeartbeatMessages()
 		}
+	}
+}
+
+func (m *Monitor) isStopping() bool {
+	select {
+	case <-m.stopCh:
+		return true
+	default:
+		return false
 	}
 }
 

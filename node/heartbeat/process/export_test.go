@@ -89,6 +89,11 @@ func (m *Monitor) MarkHeartbeatPubKeyAsAdmitted(pubKey string) {
 	m.markHeartbeatPubKeyAsAdmitted(pubKey)
 }
 
+func (m *Monitor) TrackTransientUnknownHeartbeatPubKey(pubKey string, origin core.PeerID) bool {
+	tracked, _ := m.trackTransientUnknownHeartbeatPubKey(pubKey, origin)
+	return tracked
+}
+
 // AddTrustedHeartbeatMessageToMap bypasses admission limits explicitly for tests
 // that need to seed trusted validator state.
 func (m *Monitor) AddTrustedHeartbeatMessageToMap(hb *data.Heartbeat) {
