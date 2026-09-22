@@ -59,6 +59,34 @@ func (m *Monitor) AddHeartbeatMessageFromOrigin(hb *data.Heartbeat, origin core.
 	m.addHeartbeatMessageToMap(hb, origin)
 }
 
+func (m *Monitor) ProcessValidatedHeartbeat(hb *data.Heartbeat, origin core.PeerID) {
+	m.processValidatedHeartbeat(hb, origin)
+}
+
+func (m *Monitor) GetNumTransientUnknownHeartbeatPubKeys() int {
+	m.mutTransientUnknownHeartbeatPubKeys.Lock()
+	defer m.mutTransientUnknownHeartbeatPubKeys.Unlock()
+
+	return len(m.transientUnknownHeartbeatPubKeys)
+}
+
+func (m *Monitor) HasPendingRecompute() bool {
+	return len(m.recomputeCh) > 0
+}
+
+func (m *Monitor) StopSignal() <-chan struct{} {
+	return m.stopCh
+}
+
+func (m *Monitor) MarkHeartbeatPubKeyAsAdmitted(pubKey string) {
+	m.markHeartbeatPubKeyAsAdmitted(pubKey)
+}
+
+func (m *Monitor) TrackTransientUnknownHeartbeatPubKey(pubKey string, origin core.PeerID) bool {
+	tracked, _ := m.trackTransientUnknownHeartbeatPubKey(pubKey, origin)
+	return tracked
+}
+
 // AddTrustedHeartbeatMessageToMap bypasses admission limits explicitly for tests
 // that need to seed trusted validator state.
 func (m *Monitor) AddTrustedHeartbeatMessageToMap(hb *data.Heartbeat) {

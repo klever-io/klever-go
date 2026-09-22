@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -310,6 +311,7 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKey(t *testing.T) {
 	mon, err := process.NewMonitor(arg)
 	require.NoError(t, err)
 	require.NotNil(t, mon)
+	savedKeysAfterStart := savedKeys
 	t.Cleanup(func() {
 		require.NoError(t, mon.Close())
 	})
@@ -328,7 +330,7 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKey(t *testing.T) {
 	hbStatus := mon.GetHeartbeats()
 	assert.Equal(t, 2, len(hbStatus))
 	assert.Equal(t, 1, savedPubkeyData)
-	assert.Equal(t, 0, savedKeys)
+	assert.Equal(t, savedKeysAfterStart, savedKeys)
 }
 
 func TestMonitor_ProcessReceivedMessageWithNewPublicKeyIsTransient(t *testing.T) {
@@ -371,6 +373,7 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKeyIsTransient(t *testing.T)
 		},
 	}
 	mon, _ := process.NewMonitor(arg)
+	savedKeysAfterStart := savedKeys
 
 	hb := data.Heartbeat{Pubkey: []byte(pubKey)}
 	hbBytes, _ := json.Marshal(&hb)
@@ -380,7 +383,7 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKeyIsTransient(t *testing.T)
 	time.Sleep(time.Second)
 	hbStatus := mon.GetHeartbeats()
 	assert.Equal(t, 2, len(hbStatus))
-	assert.Equal(t, 0, savedKeys)
+	assert.Equal(t, savedKeysAfterStart, savedKeys)
 
 	timer.IncrementSeconds(6)
 	mon.Cleanup()
@@ -1281,4 +1284,589 @@ func TestMonitor_ProcessReceivedMessageConcurrentNearCap(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	mon.Cleanup()
 	assert.LessOrEqual(t, len(mon.GetHeartbeats()), int(arg.MaxUnknownHeartbeatPubKeys))
+}
+
+func TestMonitor_UnknownIdentitiesStayWithinCapBeforeCleanup(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.MaxDurationPeerUnresponsive = 10 * time.Second
+	arg.MaxUnknownHeartbeatPubKeys = 4
+	arg.MaxUnknownHeartbeatPubKeysPerOrigin = 2
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	defer mon.Close()
+
+	for origin := 0; origin < 10; origin++ {
+		for idx := 0; idx < 2; idx++ {
+			hb := &data.Heartbeat{
+				Pubkey: []byte(fmt.Sprintf("unknown-%d-%d", origin, idx)),
+				Pid:    []byte(fmt.Sprintf("pid-%d-%d", origin, idx)),
+			}
+			mon.AddHeartbeatMessageFromOrigin(hb, core.PeerID(fmt.Sprintf("origin-%d", origin)))
+		}
+	}
+
+	assert.LessOrEqual(t, mon.GetNumHearbeatMessages(), int(arg.MaxUnknownHeartbeatPubKeys))
+	assert.LessOrEqual(t, mon.GetNumDoubleSignerPeers(), int(arg.MaxUnknownHeartbeatPubKeys))
+}
+
+func TestMonitor_UnknownIdentitiesAreNeverPersisted(t *testing.T) {
+	t.Parallel()
+
+	var mutPersisted sync.Mutex
+	persistedPubKeys := make([]string, 0)
+
+	timer := mock.NewTimerMock()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.Timer = timer
+	arg.MaxDurationPeerUnresponsive = 10 * time.Second
+	arg.Storer = &mock.HeartbeatStorerStub{
+		UpdateGenesisTimeCalled: func(genesisTime time.Time) error {
+			return nil
+		},
+		LoadHeartBeatDTOCalled: func(pubKey string) (*data.HeartbeatDTO, error) {
+			return nil, errors.New("not found")
+		},
+		LoadKeysCalled: func() ([][]byte, error) {
+			return nil, nil
+		},
+		SavePubkeyDataCalled: func(pubkey []byte, heartbeat *data.HeartbeatDTO) error {
+			mutPersisted.Lock()
+			persistedPubKeys = append(persistedPubKeys, string(pubkey))
+			mutPersisted.Unlock()
+			return nil
+		},
+		RemovePubkeyDataCalled: func(pubkey []byte) error {
+			return nil
+		},
+		SaveKeysCalled: func(peersSlice [][]byte) error {
+			return nil
+		},
+	}
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	defer mon.Close()
+
+	admittedPubKey := "admitted-validator-pk"
+	unknownPubKey := "unknown-external-pk"
+
+	mon.AddTrustedHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(admittedPubKey), Pid: []byte("pid-admitted")})
+	mon.AddHeartbeatMessageFromOrigin(
+		&data.Heartbeat{Pubkey: []byte(unknownPubKey), Pid: []byte("pid-unknown")},
+		core.PeerID("origin-a"),
+	)
+
+	mutPersisted.Lock()
+	persistedPubKeys = persistedPubKeys[:0]
+	mutPersisted.Unlock()
+
+	timer.IncrementSeconds(60)
+	mon.RefreshHeartbeatMessageInfo()
+
+	mutPersisted.Lock()
+	defer mutPersisted.Unlock()
+
+	assert.Contains(t, persistedPubKeys, admittedPubKey)
+	assert.NotContains(t, persistedPubKeys, unknownPubKey)
+}
+
+func newWalkSignalHandler(t *testing.T, walks chan<- struct{}, gate <-chan struct{}, gateWalks *atomic.Bool, entered chan<- struct{}) *mock.AppStatusHandlerStub {
+	t.Helper()
+
+	return &mock.AppStatusHandlerStub{
+		SetUInt64ValueHandler: func(key string, value uint64) {
+			if key != core.MetricConnectedNodes {
+				return
+			}
+			if gateWalks != nil && gateWalks.Load() {
+				select {
+				case entered <- struct{}{}:
+				default:
+				}
+				<-gate
+			}
+			select {
+			case walks <- struct{}{}:
+			default:
+			}
+		},
+	}
+}
+
+func waitForWalk(t *testing.T, walks <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-walks:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "recompute did not run")
+	}
+}
+
+func requireNoWalkQueued(t *testing.T, walks <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-walks:
+		require.FailNow(t, "unexpected recompute")
+	default:
+	}
+}
+
+func drainWalks(walks <-chan struct{}) {
+	for {
+		select {
+		case <-walks:
+		default:
+			return
+		}
+	}
+}
+
+func TestMonitor_RejectedUnknownHeartbeatDoesNotTriggerRecompute(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = 10 * time.Second
+	arg.MaxUnknownHeartbeatPubKeys = 1
+	arg.MaxUnknownHeartbeatPubKeysPerOrigin = 1
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mon.Close() })
+
+	walks := make(chan struct{}, 16)
+	require.NoError(t, mon.SetAppStatusHandler(newWalkSignalHandler(t, walks, nil, nil, nil)))
+	drainWalks(walks)
+
+	origin := core.PeerID("origin-a")
+	mon.ProcessValidatedHeartbeat(&data.Heartbeat{Pubkey: []byte("unknown-accepted"), Pid: []byte("pid-1")}, origin)
+	waitForWalk(t, walks)
+	requireNoWalkQueued(t, walks)
+
+	mon.ProcessValidatedHeartbeat(&data.Heartbeat{Pubkey: []byte("unknown-rejected"), Pid: []byte("pid-2")}, origin)
+	assert.False(t, mon.HasPendingRecompute())
+	requireNoWalkQueued(t, walks)
+}
+
+func TestMonitor_BurstOfAcceptedHeartbeatsCoalescesRecomputes(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = 10 * time.Second
+	arg.MaxUnknownHeartbeatPubKeys = 64
+	arg.MaxUnknownHeartbeatPubKeysPerOrigin = 64
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mon.Close() })
+
+	walks := make(chan struct{}, 64)
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	var gateWalks atomic.Bool
+
+	require.NoError(t, mon.SetAppStatusHandler(newWalkSignalHandler(t, walks, release, &gateWalks, entered)))
+	drainWalks(walks)
+	gateWalks.Store(true)
+
+	origin := core.PeerID("origin-a")
+	mon.ProcessValidatedHeartbeat(&data.Heartbeat{Pubkey: []byte("unknown-0"), Pid: []byte("pid-0")}, origin)
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "first recompute never started")
+	}
+
+	const burst = 25
+	for i := 1; i <= burst; i++ {
+		mon.ProcessValidatedHeartbeat(
+			&data.Heartbeat{Pubkey: []byte(fmt.Sprintf("unknown-%d", i)), Pid: []byte(fmt.Sprintf("pid-%d", i))},
+			origin,
+		)
+	}
+	require.True(t, mon.HasPendingRecompute())
+
+	gateWalks.Store(false)
+	releaseOnce.Do(func() { close(release) })
+	waitForWalk(t, walks)
+	waitForWalk(t, walks)
+
+	assert.False(t, mon.HasPendingRecompute())
+	requireNoWalkQueued(t, walks)
+}
+
+func TestMonitor_LiveUnknownStateMatchesTrackedSetUnderConcurrentChurn(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = time.Hour
+	arg.MaxUnknownHeartbeatPubKeys = 16
+	arg.MaxUnknownHeartbeatPubKeysPerOrigin = 4
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	defer mon.Close()
+
+	const (
+		senders   = 32
+		perSender = 100
+		origins   = 8
+		keyPool   = 64
+	)
+
+	var stopCleanup atomic.Bool
+	var cleanupWg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		cleanupWg.Add(1)
+		go func() {
+			defer cleanupWg.Done()
+			for !stopCleanup.Load() {
+				mon.Cleanup()
+			}
+		}()
+	}
+
+	var sendWg sync.WaitGroup
+	for s := 0; s < senders; s++ {
+		sendWg.Add(1)
+		go func(s int) {
+			defer sendWg.Done()
+			for i := 0; i < perSender; i++ {
+				idx := (s*perSender + i) % keyPool
+				hb := &data.Heartbeat{
+					Pubkey: []byte(fmt.Sprintf("unknown-%d", idx)),
+					Pid:    []byte(fmt.Sprintf("pid-%d", idx)),
+				}
+				mon.AddHeartbeatMessageFromOrigin(hb, core.PeerID(fmt.Sprintf("origin-%d", (s+i)%origins)))
+			}
+		}(s)
+	}
+	sendWg.Wait()
+	stopCleanup.Store(true)
+	cleanupWg.Wait()
+
+	tracked := mon.GetNumTransientUnknownHeartbeatPubKeys()
+	assert.LessOrEqual(t, tracked, int(arg.MaxUnknownHeartbeatPubKeys))
+	assert.Equal(t, tracked, mon.GetNumHearbeatMessages())
+	assert.Equal(t, tracked, mon.GetNumDoubleSignerPeers())
+
+	mon.Cleanup()
+
+	assert.Equal(t, tracked, mon.GetNumTransientUnknownHeartbeatPubKeys())
+	assert.Equal(t, tracked, mon.GetNumHearbeatMessages())
+	assert.Equal(t, tracked, mon.GetNumDoubleSignerPeers())
+}
+
+func TestMonitor_ScheduledRecomputesStopAfterClose(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = 10 * time.Second
+	arg.MaxUnknownHeartbeatPubKeys = 64
+	arg.MaxUnknownHeartbeatPubKeysPerOrigin = 64
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mon.Close() })
+
+	walks := make(chan struct{}, 64)
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	var gateWalks atomic.Bool
+
+	require.NoError(t, mon.SetAppStatusHandler(newWalkSignalHandler(t, walks, release, &gateWalks, entered)))
+	drainWalks(walks)
+	gateWalks.Store(true)
+
+	origin := core.PeerID("origin-a")
+	mon.ProcessValidatedHeartbeat(&data.Heartbeat{Pubkey: []byte("unknown-0"), Pid: []byte("pid-0")}, origin)
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "first recompute never started")
+	}
+
+	mon.ProcessValidatedHeartbeat(&data.Heartbeat{Pubkey: []byte("unknown-1"), Pid: []byte("pid-1")}, origin)
+	require.True(t, mon.HasPendingRecompute())
+
+	closed := make(chan error, 1)
+	go func() { closed <- mon.Close() }()
+	select {
+	case <-mon.StopSignal():
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "close never signalled stop")
+	}
+
+	gateWalks.Store(false)
+	releaseOnce.Do(func() { close(release) })
+	select {
+	case err = <-closed:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "close did not return")
+	}
+
+	waitForWalk(t, walks)
+	requireNoWalkQueued(t, walks)
+}
+
+func TestMonitor_AdmittedIdentityNeverHoldsTransientSlot(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = time.Hour
+	arg.MaxUnknownHeartbeatPubKeys = 8192
+	arg.MaxUnknownHeartbeatPubKeysPerOrigin = 8192
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mon.Close() })
+
+	const iterations = 3000
+	origin := core.PeerID("origin-a")
+	for i := 0; i < iterations; i++ {
+		pubKey := fmt.Sprintf("racing-%d", i)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			mon.AddHeartbeatMessageFromOrigin(&data.Heartbeat{Pubkey: []byte(pubKey), Pid: []byte("pid")}, origin)
+		}()
+		go func() {
+			defer wg.Done()
+			mon.MarkHeartbeatPubKeyAsAdmitted(pubKey)
+		}()
+		wg.Wait()
+	}
+
+	assert.Equal(t, 0, mon.GetNumTransientUnknownHeartbeatPubKeys())
+}
+
+func TestMonitor_HeartbeatFromAdmittedIdentityReleasesTransientSlot(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = time.Hour
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mon.Close() })
+
+	pubKey := "admitted-with-stale-slot"
+	origin := core.PeerID("origin-a")
+	mon.MarkHeartbeatPubKeyAsAdmitted(pubKey)
+	require.True(t, mon.TrackTransientUnknownHeartbeatPubKey(pubKey, origin))
+	require.Equal(t, 1, mon.GetNumTransientUnknownHeartbeatPubKeys())
+
+	mon.AddHeartbeatMessageFromOrigin(&data.Heartbeat{Pubkey: []byte(pubKey), Pid: []byte("pid")}, origin)
+
+	assert.Equal(t, 0, mon.GetNumTransientUnknownHeartbeatPubKeys())
+	assert.Equal(t, 1, mon.GetNumHearbeatMessages())
+}
+
+func TestMonitor_RefreshPersistsIdentityAdmittedAfterFirstHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	var mutStore sync.Mutex
+	persisted := make([]string, 0)
+	savedKeyLists := make([][][]byte, 0)
+	var listed atomic.Bool
+	admittedPubKey := "late-validator"
+	secondAdmittedPubKey := "late-validator-2"
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = time.Hour
+	arg.PeerTypeProvider = &mock.PeerTypeProviderStub{
+		ComputeForPubKeyCalled: func(pubKey []byte) (core.PeerType, uint32, error) {
+			return "", 1, nil
+		},
+		GetAllPeerTypeInfosCalled: func() []*state.PeerTypeInfo {
+			if !listed.Load() {
+				return nil
+			}
+			return []*state.PeerTypeInfo{
+				{PublicKey: admittedPubKey, PeerType: string(core.EligibleList)},
+				{PublicKey: secondAdmittedPubKey, PeerType: string(core.EligibleList)},
+			}
+		},
+	}
+	arg.Storer = &mock.HeartbeatStorerStub{
+		UpdateGenesisTimeCalled: func(genesisTime time.Time) error { return nil },
+		LoadHeartBeatDTOCalled:  func(pubKey string) (*data.HeartbeatDTO, error) { return nil, errors.New("not found") },
+		LoadKeysCalled:          func() ([][]byte, error) { return nil, nil },
+		SavePubkeyDataCalled: func(pubkey []byte, heartbeat *data.HeartbeatDTO) error {
+			mutStore.Lock()
+			persisted = append(persisted, string(pubkey))
+			mutStore.Unlock()
+			return nil
+		},
+		RemovePubkeyDataCalled: func(pubkey []byte) error { return nil },
+		SaveKeysCalled: func(peersSlice [][]byte) error {
+			mutStore.Lock()
+			savedKeyLists = append(savedKeyLists, peersSlice)
+			mutStore.Unlock()
+			return nil
+		},
+	}
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mon.Close() })
+
+	mon.AddHeartbeatMessageFromOrigin(&data.Heartbeat{Pubkey: []byte(admittedPubKey), Pid: []byte("pid")}, core.PeerID("origin-a"))
+	mon.AddHeartbeatMessageFromOrigin(&data.Heartbeat{Pubkey: []byte(secondAdmittedPubKey), Pid: []byte("pid-2")}, core.PeerID("origin-a"))
+	mutStore.Lock()
+	require.Empty(t, persisted)
+	require.Empty(t, savedKeyLists)
+	mutStore.Unlock()
+
+	listed.Store(true)
+	mon.RefreshHeartbeatMessageInfo()
+
+	mutStore.Lock()
+	defer mutStore.Unlock()
+	assert.ElementsMatch(t, []string{admittedPubKey, secondAdmittedPubKey}, persisted)
+	require.Len(t, savedKeyLists, 1)
+	assert.ElementsMatch(t, [][]byte{[]byte(admittedPubKey), []byte(secondAdmittedPubKey)}, savedKeyLists[0])
+	assert.Equal(t, 0, mon.GetNumTransientUnknownHeartbeatPubKeys())
+}
+
+func TestMonitor_SavedIdentitiesAreAlwaysInTheKeyList(t *testing.T) {
+	t.Parallel()
+
+	var mutStore sync.Mutex
+	persisted := make([]string, 0)
+	savedKeyLists := make([][][]byte, 0)
+	pubKey := "registry-only-validator"
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = time.Hour
+	arg.PeerTypeProvider = &mock.PeerTypeProviderStub{
+		ComputeForPubKeyCalled: func(pk []byte) (core.PeerType, uint32, error) {
+			return core.WaitingList, 0, nil
+		},
+		GetAllPeerTypeInfosCalled: func() []*state.PeerTypeInfo {
+			return []*state.PeerTypeInfo{{PublicKey: pubKey, PeerType: string(core.EligibleList)}}
+		},
+	}
+	arg.Storer = &mock.HeartbeatStorerStub{
+		UpdateGenesisTimeCalled: func(genesisTime time.Time) error { return nil },
+		LoadHeartBeatDTOCalled:  func(pk string) (*data.HeartbeatDTO, error) { return nil, errors.New("not found") },
+		LoadKeysCalled:          func() ([][]byte, error) { return nil, nil },
+		SavePubkeyDataCalled: func(pk []byte, heartbeat *data.HeartbeatDTO) error {
+			mutStore.Lock()
+			persisted = append(persisted, string(pk))
+			mutStore.Unlock()
+			return nil
+		},
+		RemovePubkeyDataCalled: func(pk []byte) error { return nil },
+		SaveKeysCalled: func(peersSlice [][]byte) error {
+			mutStore.Lock()
+			savedKeyLists = append(savedKeyLists, peersSlice)
+			mutStore.Unlock()
+			return nil
+		},
+	}
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mon.Close() })
+
+	mutStore.Lock()
+	require.Empty(t, persisted)
+	require.Empty(t, savedKeyLists)
+	mutStore.Unlock()
+
+	mon.RefreshHeartbeatMessageInfo()
+
+	mutStore.Lock()
+	defer mutStore.Unlock()
+	assert.Equal(t, []string{pubKey}, persisted)
+	require.Len(t, savedKeyLists, 1)
+	assert.Equal(t, [][]byte{[]byte(pubKey)}, savedKeyLists[0])
+}
+
+func TestMonitor_KeyListWriteIsRetriedAfterStorerError(t *testing.T) {
+	t.Parallel()
+
+	var mutStore sync.Mutex
+	saveKeysCalls := 0
+	var lastSaved [][]byte
+	pubKey := "trusted-retry"
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = time.Hour
+	arg.Storer = &mock.HeartbeatStorerStub{
+		UpdateGenesisTimeCalled: func(genesisTime time.Time) error { return nil },
+		LoadHeartBeatDTOCalled:  func(pk string) (*data.HeartbeatDTO, error) { return nil, errors.New("not found") },
+		LoadKeysCalled:          func() ([][]byte, error) { return nil, nil },
+		SavePubkeyDataCalled:    func(pk []byte, heartbeat *data.HeartbeatDTO) error { return nil },
+		RemovePubkeyDataCalled:  func(pk []byte) error { return nil },
+		SaveKeysCalled: func(peersSlice [][]byte) error {
+			mutStore.Lock()
+			defer mutStore.Unlock()
+			saveKeysCalls++
+			if saveKeysCalls == 1 {
+				return errors.New("disk full")
+			}
+			lastSaved = peersSlice
+			return nil
+		},
+	}
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mon.Close() })
+
+	mon.AddTrustedHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pubKey), Pid: []byte("pid")})
+	mutStore.Lock()
+	require.Equal(t, 1, saveKeysCalls)
+	require.Nil(t, lastSaved)
+	mutStore.Unlock()
+
+	mon.AddTrustedHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pubKey), Pid: []byte("pid")})
+	mutStore.Lock()
+	defer mutStore.Unlock()
+	assert.Equal(t, 2, saveKeysCalls)
+	assert.Equal(t, [][]byte{[]byte(pubKey)}, lastSaved)
+}
+
+func TestNewMonitor_ZeroMaxDurationPeerUnresponsiveShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.MaxDurationPeerUnresponsive = 0
+	mon, err := process.NewMonitor(arg)
+
+	assert.Nil(t, mon)
+	assert.Equal(t, heartbeat.ErrInvalidMaxDurationPeerUnresponsive, err)
 }

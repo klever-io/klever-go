@@ -62,6 +62,7 @@ type Monitor struct {
 	heartbeatMessages                   map[string]*heartbeatMessageInfo
 	admittedHeartbeatPubKeys            map[string]struct{}
 	transientUnknownHeartbeatPubKeys    map[string]transientUnknownHeartbeatInfo
+	recomputeCh                         chan struct{}
 	doubleSignerPeers                   map[string]process.TimeCacher
 	pubKeysList                         []string
 	mutFullPeersSlice                   sync.RWMutex
@@ -87,35 +88,9 @@ type Monitor struct {
 
 // NewMonitor returns a new monitor instance
 func NewMonitor(arg ArgHeartbeatMonitor) (*Monitor, error) {
-	if check.IfNil(arg.Marshalizer) {
-		return nil, heartbeat.ErrNilMarshalizer
-	}
-	if check.IfNil(arg.PeerTypeProvider) {
-		return nil, heartbeat.ErrNilPeerTypeProvider
-	}
-	if arg.PubKeysList == nil {
-		return nil, heartbeat.ErrNilPublicKeysMap
-	}
-	if check.IfNil(arg.MessageHandler) {
-		return nil, heartbeat.ErrNilMessageHandler
-	}
-	if check.IfNil(arg.Storer) {
-		return nil, heartbeat.ErrNilHeartbeatStorer
-	}
-	if check.IfNil(arg.Timer) {
-		return nil, heartbeat.ErrNilTimer
-	}
-	if check.IfNil(arg.AntifloodHandler) {
-		return nil, heartbeat.ErrNilAntifloodHandler
-	}
-	if check.IfNil(arg.ValidatorPubkeyConverter) {
-		return nil, heartbeat.ErrNilPubkeyConverter
-	}
-	if arg.HeartbeatRefreshIntervalInSec == 0 {
-		return nil, heartbeat.ErrZeroHeartbeatRefreshIntervalInSec
-	}
-	if arg.HideInactiveValidatorIntervalInSec == 0 {
-		return nil, heartbeat.ErrZeroHideInactiveValidatorIntervalInSec
+	err := checkArgHeartbeatMonitor(arg)
+	if err != nil {
+		return nil, err
 	}
 
 	maxUnknownHeartbeatPubKeys := arg.MaxUnknownHeartbeatPubKeys
@@ -150,10 +125,11 @@ func NewMonitor(arg ArgHeartbeatMonitor) (*Monitor, error) {
 		maxUnknownHeartbeatPubKeys:          maxUnknownHeartbeatPubKeys,
 		maxUnknownHeartbeatPubKeysPerOrigin: maxUnknownHeartbeatPubKeysPerOrigin,
 		doubleSignerPeers:                   make(map[string]process.TimeCacher),
+		recomputeCh:                         make(chan struct{}, 1),
 		stopCh:                              make(chan struct{}),
 	}
 
-	err := mon.storer.UpdateGenesisTime(arg.GenesisTime)
+	err = mon.storer.UpdateGenesisTime(arg.GenesisTime)
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +153,44 @@ func NewMonitor(arg ArgHeartbeatMonitor) (*Monitor, error) {
 	mon.startValidatorProcessing()
 
 	return mon, nil
+}
+
+func checkArgHeartbeatMonitor(arg ArgHeartbeatMonitor) error {
+	if check.IfNil(arg.Marshalizer) {
+		return heartbeat.ErrNilMarshalizer
+	}
+	if check.IfNil(arg.PeerTypeProvider) {
+		return heartbeat.ErrNilPeerTypeProvider
+	}
+	if arg.PubKeysList == nil {
+		return heartbeat.ErrNilPublicKeysMap
+	}
+	if check.IfNil(arg.MessageHandler) {
+		return heartbeat.ErrNilMessageHandler
+	}
+	if check.IfNil(arg.Storer) {
+		return heartbeat.ErrNilHeartbeatStorer
+	}
+	if check.IfNil(arg.Timer) {
+		return heartbeat.ErrNilTimer
+	}
+	if check.IfNil(arg.AntifloodHandler) {
+		return heartbeat.ErrNilAntifloodHandler
+	}
+	if check.IfNil(arg.ValidatorPubkeyConverter) {
+		return heartbeat.ErrNilPubkeyConverter
+	}
+	if arg.HeartbeatRefreshIntervalInSec == 0 {
+		return heartbeat.ErrZeroHeartbeatRefreshIntervalInSec
+	}
+	if arg.HideInactiveValidatorIntervalInSec == 0 {
+		return heartbeat.ErrZeroHideInactiveValidatorIntervalInSec
+	}
+	if arg.MaxDurationPeerUnresponsive == 0 {
+		return heartbeat.ErrInvalidMaxDurationPeerUnresponsive
+	}
+
+	return nil
 }
 
 func (m *Monitor) initializeHeartbeatMessagesInfo(pubKeysList []string) (map[string]*heartbeatMessageInfo, error) {
@@ -216,18 +230,28 @@ func (m *Monitor) initializeHeartBeatForPK(
 	return nil
 }
 
-// SaveMultipleHeartbeatMessageInfos stores all heartbeatMessageInfos to the storer
+// SaveMultipleHeartbeatMessageInfos stores the given heartbeatMessageInfos to the storer,
+// skipping any public key that is not admitted (transient/unknown identities are never persisted)
 func (m *Monitor) SaveMultipleHeartbeatMessageInfos(pubKeysToSave map[string]*heartbeatMessageInfo) {
-	m.mutHeartbeatMessages.RLock()
-	defer m.mutHeartbeatMessages.RUnlock()
+	savedPubKeys := make([][]byte, 0, len(pubKeysToSave))
 
+	m.mutHeartbeatMessages.RLock()
 	for key, hmbi := range pubKeysToSave {
+		if !m.isAdmittedHeartbeatPubKey(key) {
+			continue
+		}
+
 		hbDTO := m.convertToExportedStruct(hmbi)
 		err := m.storer.SavePubkeyData([]byte(key), hbDTO)
 		if err != nil {
 			log.Debug("cannot save heartbeat to db", "error", err.Error())
+			continue
 		}
+		savedPubKeys = append(savedPubKeys, []byte(key))
 	}
+	m.mutHeartbeatMessages.RUnlock()
+
+	m.addPeersToFullPeersSlice(savedPubKeys)
 }
 
 func (m *Monitor) loadRestOfPubKeysFromStorage() error {
@@ -373,36 +397,48 @@ func (m *Monitor) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPe
 	}
 
 	//message is validated, process should be done async, method can return nil
-	go m.addHeartbeatMessageToMap(hbRecv, fromConnectedPeer)
-
-	go m.computeAllHeartbeatMessages()
+	go m.processValidatedHeartbeat(hbRecv, fromConnectedPeer)
 
 	return nil
 }
 
-func (m *Monitor) addHeartbeatMessageToMap(hb *data.Heartbeat, fromConnectedPeer core.PeerID) {
-	pubKeyStr := string(hb.Pubkey)
-	isAdmittedPubKey := m.isAdmittedHeartbeatPubKey(pubKeyStr)
-	if !isAdmittedPubKey {
-		if !m.trackTransientUnknownHeartbeatPubKey(pubKeyStr, fromConnectedPeer) {
-			return
-		}
+func (m *Monitor) processValidatedHeartbeat(hb *data.Heartbeat, fromConnectedPeer core.PeerID) {
+	if !m.addHeartbeatMessageToMap(hb, fromConnectedPeer) {
+		return
 	}
+
+	m.scheduleHeartbeatRecompute()
+}
+
+func (m *Monitor) scheduleHeartbeatRecompute() {
+	select {
+	case m.recomputeCh <- struct{}{}:
+	default:
+	}
+}
+
+func (m *Monitor) addHeartbeatMessageToMap(hb *data.Heartbeat, fromConnectedPeer core.PeerID) bool {
+	pubKeyStr := string(hb.Pubkey)
+	isAdmittedPubKey, droppedPubKeys, accepted := m.admitHeartbeatPubKey(pubKeyStr, fromConnectedPeer)
+	if !accepted {
+		return false
+	}
+
 	m.mutHeartbeatMessages.Lock()
+	m.dropLiveHeartbeatStateLocked(droppedPubKeys)
+	isAdmittedPubKey, stillAccepted := m.confirmHeartbeatAdmissionLocked(pubKeyStr, isAdmittedPubKey)
+	if !stillAccepted {
+		m.mutHeartbeatMessages.Unlock()
+		return false
+	}
+	hbmi, err := m.getOrCreateHeartbeatMessageInfoLocked(hb)
+	if err != nil {
+		log.Debug("error creating heartbeat message info", "error", err.Error())
+		m.mutHeartbeatMessages.Unlock()
+		return false
+	}
 	if len(hb.Pid) > 0 {
 		m.addDoubleSignerPeers(hb)
-	}
-	hbmi, ok := m.heartbeatMessages[pubKeyStr]
-	if hbmi == nil || !ok {
-		var err error
-		peerType := m.computePeerType(hb.Pubkey)
-		hbmi, err = newHeartbeatMessageInfo(m.maxDurationPeerUnresponsive, peerType, m.genesisTime, m.timer)
-		if err != nil {
-			log.Debug("error creating heartbeat message info", "error", err.Error())
-			m.mutHeartbeatMessages.Unlock()
-			return
-		}
-		m.heartbeatMessages[pubKeyStr] = hbmi
 	}
 	numInstances := m.getNumInstancesOfPublicKey(pubKeyStr)
 	m.mutHeartbeatMessages.Unlock()
@@ -418,27 +454,91 @@ func (m *Monitor) addHeartbeatMessageToMap(hb *data.Heartbeat, fromConnectedPeer
 		numInstances,
 	)
 	if !isAdmittedPubKey {
-		return
+		return true
 	}
 
 	hbDTO := m.convertToExportedStruct(hbmi)
 
-	err := m.storer.SavePubkeyData(hb.Pubkey, hbDTO)
+	err = m.storer.SavePubkeyData(hb.Pubkey, hbDTO)
 	if err != nil {
 		log.Debug("cannot save heartbeat to db", "error", err.Error())
+		return true
 	}
-	m.addPeerToFullPeersSlice(hb.Pubkey)
+	m.addPeersToFullPeersSlice([][]byte{hb.Pubkey})
+
+	return true
 }
 
-func (m *Monitor) addPeerToFullPeersSlice(pubKey []byte) {
+func (m *Monitor) admitHeartbeatPubKey(pubKeyStr string, fromConnectedPeer core.PeerID) (isAdmitted bool, droppedPubKeys []string, accepted bool) {
+	if m.isAdmittedHeartbeatPubKey(pubKeyStr) {
+		return true, nil, true
+	}
+
+	tracked, droppedPubKeys := m.trackTransientUnknownHeartbeatPubKey(pubKeyStr, fromConnectedPeer)
+	if tracked {
+		return false, droppedPubKeys, true
+	}
+
+	if len(droppedPubKeys) > 0 {
+		m.mutHeartbeatMessages.Lock()
+		m.dropLiveHeartbeatStateLocked(droppedPubKeys)
+		m.mutHeartbeatMessages.Unlock()
+	}
+
+	return false, nil, false
+}
+
+// requires mutHeartbeatMessages held; acquires mutAdmittedHeartbeatPubKeys and mutTransientUnknownHeartbeatPubKeys
+func (m *Monitor) confirmHeartbeatAdmissionLocked(pubKeyStr string, isAdmittedPubKey bool) (isAdmitted bool, stillAccepted bool) {
+	if isAdmittedPubKey || m.isAdmittedHeartbeatPubKey(pubKeyStr) {
+		m.untrackTransientUnknownHeartbeatPubKey(pubKeyStr)
+		return true, true
+	}
+
+	return false, m.isTransientUnknownHeartbeatPubKeyTracked(pubKeyStr)
+}
+
+// requires mutHeartbeatMessages held
+func (m *Monitor) getOrCreateHeartbeatMessageInfoLocked(hb *data.Heartbeat) (*heartbeatMessageInfo, error) {
+	pubKeyStr := string(hb.Pubkey)
+	hbmi, ok := m.heartbeatMessages[pubKeyStr]
+	if ok && hbmi != nil {
+		return hbmi, nil
+	}
+
+	peerType := m.computePeerType(hb.Pubkey)
+	hbmi, err := newHeartbeatMessageInfo(m.maxDurationPeerUnresponsive, peerType, m.genesisTime, m.timer)
+	if err != nil {
+		return nil, err
+	}
+	m.heartbeatMessages[pubKeyStr] = hbmi
+
+	return hbmi, nil
+}
+
+func (m *Monitor) addPeersToFullPeersSlice(pubKeys [][]byte) {
+	if len(pubKeys) == 0 {
+		return
+	}
+
 	m.mutFullPeersSlice.Lock()
 	defer m.mutFullPeersSlice.Unlock()
-	if !m.isPeerInFullPeersSlice(pubKey) {
-		m.fullPeersSlice = append(m.fullPeersSlice, pubKey)
-		err := m.storer.SaveKeys(m.fullPeersSlice)
-		if err != nil {
-			log.Debug("can't store the keys slice", "error", err.Error())
+
+	previousLen := len(m.fullPeersSlice)
+	for _, pubKey := range pubKeys {
+		if m.isPeerInFullPeersSlice(pubKey) {
+			continue
 		}
+		m.fullPeersSlice = append(m.fullPeersSlice, pubKey)
+	}
+	if len(m.fullPeersSlice) == previousLen {
+		return
+	}
+
+	err := m.storer.SaveKeys(m.fullPeersSlice)
+	if err != nil {
+		m.fullPeersSlice = m.fullPeersSlice[:previousLen]
+		log.Debug("can't store the keys slice", "error", err.Error())
 	}
 }
 
@@ -450,34 +550,44 @@ func (m *Monitor) isAdmittedHeartbeatPubKey(pubKey string) bool {
 	return ok
 }
 
-func (m *Monitor) markHeartbeatPubKeyAsAdmitted(pubKey string) {
+func (m *Monitor) markHeartbeatPubKeyAsAdmitted(pubKey string) bool {
 	m.mutAdmittedHeartbeatPubKeys.Lock()
+	_, alreadyAdmitted := m.admittedHeartbeatPubKeys[pubKey]
 	m.admittedHeartbeatPubKeys[pubKey] = struct{}{}
 	m.mutAdmittedHeartbeatPubKeys.Unlock()
 
+	m.untrackTransientUnknownHeartbeatPubKey(pubKey)
+
+	return !alreadyAdmitted
+}
+
+func (m *Monitor) untrackTransientUnknownHeartbeatPubKey(pubKey string) {
 	m.mutTransientUnknownHeartbeatPubKeys.Lock()
 	delete(m.transientUnknownHeartbeatPubKeys, pubKey)
 	m.mutTransientUnknownHeartbeatPubKeys.Unlock()
 }
 
-func (m *Monitor) trackTransientUnknownHeartbeatPubKey(pubKey string, originPeer core.PeerID) bool {
+func (m *Monitor) trackTransientUnknownHeartbeatPubKey(pubKey string, originPeer core.PeerID) (bool, []string) {
 	m.mutTransientUnknownHeartbeatPubKeys.Lock()
 	defer m.mutTransientUnknownHeartbeatPubKeys.Unlock()
 
-	m.sweepTransientUnknownHeartbeatPubKeysLocked()
+	droppedPubKeys := m.sweepTransientUnknownHeartbeatPubKeysLocked()
 
 	if existing, ok := m.transientUnknownHeartbeatPubKeys[pubKey]; ok {
 		existing.lastSeen = m.timer.Now()
 		m.transientUnknownHeartbeatPubKeys[pubKey] = existing
-		return true
+		return true, droppedPubKeys
 	}
 
 	if m.countTransientUnknownHeartbeatPubKeysForOriginLocked(originPeer) >= int(m.maxUnknownHeartbeatPubKeysPerOrigin) {
-		return false
+		return false, droppedPubKeys
 	}
 
 	if len(m.transientUnknownHeartbeatPubKeys) >= int(m.maxUnknownHeartbeatPubKeys) {
-		m.evictOldestTransientUnknownHeartbeatPubKeyLocked()
+		evictedPubKey, evicted := m.evictOldestTransientUnknownHeartbeatPubKeyLocked()
+		if evicted {
+			droppedPubKeys = append(droppedPubKeys, evictedPubKey)
+		}
 	}
 
 	m.transientUnknownHeartbeatPubKeys[pubKey] = transientUnknownHeartbeatInfo{
@@ -485,9 +595,31 @@ func (m *Monitor) trackTransientUnknownHeartbeatPubKey(pubKey string, originPeer
 		lastSeen:   m.timer.Now(),
 	}
 
-	return true
+	return true, droppedPubKeys
 }
 
+// requires mutHeartbeatMessages held; acquires mutAdmittedHeartbeatPubKeys and
+// mutTransientUnknownHeartbeatPubKeys. Never call with mutTransientUnknownHeartbeatPubKeys held.
+func (m *Monitor) dropLiveHeartbeatStateLocked(pubKeys []string) {
+	for _, pubKey := range pubKeys {
+		if m.isAdmittedHeartbeatPubKey(pubKey) || m.isTransientUnknownHeartbeatPubKeyTracked(pubKey) {
+			continue
+		}
+
+		delete(m.heartbeatMessages, pubKey)
+		delete(m.doubleSignerPeers, pubKey)
+	}
+}
+
+func (m *Monitor) isTransientUnknownHeartbeatPubKeyTracked(pubKey string) bool {
+	m.mutTransientUnknownHeartbeatPubKeys.Lock()
+	_, ok := m.transientUnknownHeartbeatPubKeys[pubKey]
+	m.mutTransientUnknownHeartbeatPubKeys.Unlock()
+
+	return ok
+}
+
+// requires mutTransientUnknownHeartbeatPubKeys held
 func (m *Monitor) countTransientUnknownHeartbeatPubKeysForOriginLocked(originPeer core.PeerID) int {
 	count := 0
 	for _, info := range m.transientUnknownHeartbeatPubKeys {
@@ -499,16 +631,22 @@ func (m *Monitor) countTransientUnknownHeartbeatPubKeysForOriginLocked(originPee
 	return count
 }
 
-func (m *Monitor) sweepTransientUnknownHeartbeatPubKeysLocked() {
+// requires mutTransientUnknownHeartbeatPubKeys held
+func (m *Monitor) sweepTransientUnknownHeartbeatPubKeysLocked() []string {
 	now := m.timer.Now()
+	droppedPubKeys := make([]string, 0)
 	for pubKey, info := range m.transientUnknownHeartbeatPubKeys {
 		if now.Sub(info.lastSeen) > m.maxDurationPeerUnresponsive {
 			delete(m.transientUnknownHeartbeatPubKeys, pubKey)
+			droppedPubKeys = append(droppedPubKeys, pubKey)
 		}
 	}
+
+	return droppedPubKeys
 }
 
-func (m *Monitor) evictOldestTransientUnknownHeartbeatPubKeyLocked() {
+// requires mutTransientUnknownHeartbeatPubKeys held
+func (m *Monitor) evictOldestTransientUnknownHeartbeatPubKeyLocked() (string, bool) {
 	var oldestKey string
 	var oldestTime time.Time
 	hasOldest := false
@@ -524,6 +662,8 @@ func (m *Monitor) evictOldestTransientUnknownHeartbeatPubKeyLocked() {
 	if hasOldest {
 		delete(m.transientUnknownHeartbeatPubKeys, oldestKey)
 	}
+
+	return oldestKey, hasOldest
 }
 
 func (m *Monitor) isPeerInFullPeersSlice(pubKey []byte) bool {
@@ -615,14 +755,20 @@ func (m *Monitor) computeInactiveHeartbeatMessages() {
 
 	peerTypeInfos := m.peerTypeProvider.GetAllPeerTypeInfos()
 	for _, peerTypeInfo := range peerTypeInfos {
-		m.markHeartbeatPubKeyAsAdmitted(peerTypeInfo.PublicKey)
-		if m.heartbeatMessages[peerTypeInfo.PublicKey] == nil {
-			hbmi, err := newHeartbeatMessageInfo(m.maxDurationPeerUnresponsive, peerTypeInfo.PeerType, m.genesisTime, m.timer)
+		newlyAdmitted := m.markHeartbeatPubKeyAsAdmitted(peerTypeInfo.PublicKey)
+		hbmi := m.heartbeatMessages[peerTypeInfo.PublicKey]
+		if hbmi == nil {
+			var err error
+			hbmi, err = newHeartbeatMessageInfo(m.maxDurationPeerUnresponsive, peerTypeInfo.PeerType, m.genesisTime, m.timer)
 			if err != nil {
 				log.Debug("could not create hbmi ", "err", err)
 				continue
 			}
 			m.heartbeatMessages[peerTypeInfo.PublicKey] = hbmi
+			continue
+		}
+		if newlyAdmitted {
+			inactiveHbChangedMap[peerTypeInfo.PublicKey] = hbmi
 		}
 	}
 
@@ -737,8 +883,8 @@ func (m *Monitor) convertFromExportedStruct(hbDTO *data.HeartbeatDTO, maxDuratio
 }
 
 // startValidatorProcessing starts the periodic refresh of the nodes' information.
-// The initial refresh already ran synchronously in NewMonitor; this only drives
-// the recurring ticker updates.
+// The initial refresh already ran synchronously in NewMonitor; this drives the
+// recurring ticker updates and the recomputes requested by received heartbeats.
 func (m *Monitor) startValidatorProcessing() {
 	m.wg.Add(1)
 	go m.runRefreshLoop()
@@ -755,15 +901,33 @@ func (m *Monitor) runRefreshLoop() {
 		case <-m.stopCh:
 			return
 		case <-ticker.C:
+			if m.isStopping() {
+				return
+			}
 			m.refreshHeartbeatMessageInfo()
+		case <-m.recomputeCh:
+			if m.isStopping() {
+				return
+			}
+			m.computeAllHeartbeatMessages()
 		}
 	}
 }
 
+func (m *Monitor) isStopping() bool {
+	select {
+	case <-m.stopCh:
+		return true
+	default:
+		return false
+	}
+}
+
 // Close will stop the background processing goroutine and wait for it to exit,
-// including any state saves of its in-flight refresh pass.
-// Message-driven goroutines spawned by ProcessReceivedMessage are not tracked
-// and may still write to the storer after Close returns.
+// including any state saves of its in-flight refresh pass or heartbeat-driven
+// recompute. Recomputes requested after Close is called are dropped.
+// The per-message goroutines spawned by ProcessReceivedMessage are not tracked
+// and may still write admitted keys to the storer after Close returns.
 // Safe to call multiple times; subsequent calls are no-ops.
 func (m *Monitor) Close() error {
 	m.closeOnce.Do(func() {
@@ -810,14 +974,13 @@ func (m *Monitor) getNumInstancesOfPublicKey(pubKeyStr string) uint64 {
 // Cleanup will delete all the entries in the heartbeatMessages map
 func (m *Monitor) Cleanup() {
 	m.mutTransientUnknownHeartbeatPubKeys.Lock()
-	m.sweepTransientUnknownHeartbeatPubKeysLocked()
+	_ = m.sweepTransientUnknownHeartbeatPubKeysLocked()
 	m.mutTransientUnknownHeartbeatPubKeys.Unlock()
 
 	m.mutHeartbeatMessages.Lock()
 	for k, v := range m.heartbeatMessages {
 		if !m.isAdmittedHeartbeatPubKey(k) {
-			_, stillTracked := m.transientUnknownHeartbeatInfo(k)
-			if !stillTracked {
+			if !m.isTransientUnknownHeartbeatPubKeyTracked(k) {
 				delete(m.heartbeatMessages, k)
 				delete(m.doubleSignerPeers, k)
 			}
@@ -830,12 +993,4 @@ func (m *Monitor) Cleanup() {
 		}
 	}
 	m.mutHeartbeatMessages.Unlock()
-}
-
-func (m *Monitor) transientUnknownHeartbeatInfo(pubKey string) (transientUnknownHeartbeatInfo, bool) {
-	m.mutTransientUnknownHeartbeatPubKeys.Lock()
-	defer m.mutTransientUnknownHeartbeatPubKeys.Unlock()
-
-	info, ok := m.transientUnknownHeartbeatPubKeys[pubKey]
-	return info, ok
 }
