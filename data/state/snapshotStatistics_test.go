@@ -98,8 +98,9 @@ func TestSnapshotStatistics_NewSnapshotStarted(t *testing.T) {
 		done <- true
 	}()
 
-	ss.SnapshotFinished()
+	// Add must not follow a drop to zero while Wait is pending (sync.WaitGroup rule)
 	ss.NewSnapshotStarted()
+	ss.SnapshotFinished()
 	ss.SnapshotFinished()
 
 	<-done
