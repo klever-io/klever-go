@@ -484,7 +484,7 @@ func TestNodesCoordinator_EpochStart_ElectedSortedAscendingByIndex(t *testing.T)
 	require.Equal(t, pk2, secondEligible)
 }
 
-func TestNodesCoordinator_EpochStartPrepare_PromotesSortedJailedIntoElected(t *testing.T) {
+func TestNodesCoordinator_EpochStartPrepare_PromotesTrieOrderedJailedIntoElected(t *testing.T) {
 	t.Parallel()
 
 	shufflerArgs := &NodesShufflerArgs{
@@ -510,12 +510,12 @@ func TestNodesCoordinator_EpochStartPrepare_PromotesSortedJailedIntoElected(t *t
 	require.Nil(t, err)
 
 	epoch := uint32(1)
-	// one elected validator and two jailed candidates, highest index first:
-	// the deficit is 1, so exactly one jailed validator gets promoted
+	// one elected validator and two jailed candidates: the deficit is 1, so exactly
+	// one jailed validator gets promoted
 	err = ihgs.SetEpochValidatorsInfo(epoch, []*state.ValidatorInfo{
-		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList), Index: 1},
-		{OwnerAddress: []byte("jailedHi"), PublicKey: []byte("jailedHi"), List: string(core.JailedList), Index: 9},
-		{OwnerAddress: []byte("jailedLo"), PublicKey: []byte("jailedLo"), List: string(core.JailedList), Index: 5},
+		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList)},
+		{OwnerAddress: []byte("jailed-ab"), PublicKey: []byte("jailed-ab"), List: string(core.JailedList)},
+		{OwnerAddress: []byte("jailed-ba"), PublicKey: []byte("jailed-ba"), List: string(core.JailedList)},
 	})
 	require.Nil(t, err)
 
@@ -527,14 +527,14 @@ func TestNodesCoordinator_EpochStartPrepare_PromotesSortedJailedIntoElected(t *t
 		},
 	})
 
-	// the promotion sorted the leaving list first, so the lowest (Index, PubKey)
-	// jailed validator fills the consensus deficit and reaches the elected set
+	// jailed-ba comes first in trie leaf order (last byte 'a' < 'b'), although it is
+	// second in both input and byte order
 	electedKeys, err := ihgs.GetAllElectedValidatorsKeys(epoch, false)
 	require.Nil(t, err)
 	require.Equal(t, 2, len(electedKeys))
 	assert.True(t, keysContain(electedKeys, []byte("pk0")))
-	assert.True(t, keysContain(electedKeys, []byte("jailedLo")))
-	assert.False(t, keysContain(electedKeys, []byte("jailedHi")))
+	assert.True(t, keysContain(electedKeys, []byte("jailed-ba")))
+	assert.False(t, keysContain(electedKeys, []byte("jailed-ab")))
 }
 
 func keysContain(keys [][]byte, wanted []byte) bool {
@@ -611,12 +611,12 @@ func TestNodesCoordinator_computeNodesConfigFromList_NoValidators(t *testing.T) 
 	ihgs, _ := NewNodesCoordinator(arguments)
 
 	validatorInfos := make([]*block.EValidatorInfo, 0)
-	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos, 0)
+	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos)
 
 	assert.Nil(t, newNodesConfig)
 	assert.True(t, errors.Is(err, ErrListSizeZero))
 
-	newNodesConfig, err = ihgs.computeNodesConfigFromList(nil, 0)
+	newNodesConfig, err = ihgs.computeNodesConfigFromList(nil)
 
 	assert.Nil(t, newNodesConfig)
 	assert.True(t, errors.Is(err, ErrListSizeZero))
@@ -718,7 +718,7 @@ func TestNodesCoordinator_computeNodesConfigFromList_NilPk(t *testing.T) {
 			},
 		}
 
-	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos, 0)
+	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos)
 
 	assert.Nil(t, newNodesConfig)
 	assert.NotNil(t, err)
@@ -794,7 +794,7 @@ func TestNodesCoordinator_computeNodesConfigFromList_Validators(t *testing.T) {
 			nodeLeaving0,
 		}
 
-	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos, 0)
+	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos)
 	assert.Nil(t, err)
 
 	assert.Equal(t, 2, len(newNodesConfig.electedList))
@@ -818,18 +818,6 @@ func hasValidatorWithPubKey(list []Validator, pubKey []byte) bool {
 	return false
 }
 
-func jailedPromotionValidatorInfos() []*block.EValidatorInfo {
-	// consensusGroupSize is 4 (createArguments): 2 elected + 1 eligible leaves a
-	// deficit of 1, with two jailed candidates listed highest index first
-	return []*block.EValidatorInfo{
-		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList), Index: 1},
-		{OwnerAddress: []byte("pk1"), PublicKey: []byte("pk1"), List: string(core.ElectedList), Index: 2},
-		{OwnerAddress: []byte("pk2"), PublicKey: []byte("pk2"), List: string(core.EligibleList), Index: 3},
-		{OwnerAddress: []byte("jailedHi"), PublicKey: []byte("jailedHi"), List: string(core.JailedList), Index: 9},
-		{OwnerAddress: []byte("jailedLo"), PublicKey: []byte("jailedLo"), List: string(core.JailedList), Index: 5},
-	}
-}
-
 func TestNodesCoordinator_computeNodesConfigFromList_NoPromotionWhenLeavingSmallerThanDeficit(t *testing.T) {
 	t.Parallel()
 
@@ -843,7 +831,7 @@ func TestNodesCoordinator_computeNodesConfigFromList_NoPromotionWhenLeavingSmall
 		{OwnerAddress: []byte("jailed0"), PublicKey: []byte("jailed0"), List: string(core.JailedList), Index: 3},
 	}
 
-	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos, 0)
+	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos)
 	require.Nil(t, err)
 
 	// deficit is 2 and only 1 jailed validator is available: promotion is
@@ -867,7 +855,7 @@ func TestNodesCoordinator_computeNodesConfigFromList_PromotionAtExactDeficitProm
 		{OwnerAddress: []byte("jailed1"), PublicKey: []byte("jailed1"), List: string(core.JailedList), Index: 4},
 	}
 
-	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos, 0)
+	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos)
 	require.Nil(t, err)
 
 	// deficit is 2 and exactly 2 jailed validators are available: the >= guard
@@ -878,50 +866,32 @@ func TestNodesCoordinator_computeNodesConfigFromList_PromotionAtExactDeficitProm
 	assert.Equal(t, 0, len(newNodesConfig.leavingList))
 }
 
-func TestNodesCoordinator_computeNodesConfigFromList_PromotionTieBreaksOnPubKey(t *testing.T) {
+func TestNodesCoordinator_computeNodesConfigFromList_PromotionFollowsTrieLeafOrder(t *testing.T) {
 	t.Parallel()
 
 	arguments := createArguments()
 	ihgs, err := NewNodesCoordinator(arguments)
 	require.Nil(t, err)
 
-	// both jailed candidates share the same index, so the pubkey tie-break of
-	// the validatorList order decides; input lists the byte-higher key first
+	// consensusGroupSize is 4: 2 elected + 1 eligible leaves a deficit of 1; the
+	// input lists jailed-ab first, which is also the byte-order head
 	validatorInfos := []*block.EValidatorInfo{
-		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList), Index: 1},
-		{OwnerAddress: []byte("pk1"), PublicKey: []byte("pk1"), List: string(core.ElectedList), Index: 2},
-		{OwnerAddress: []byte("pk2"), PublicKey: []byte("pk2"), List: string(core.EligibleList), Index: 3},
-		{OwnerAddress: []byte("jailedB"), PublicKey: []byte("jailedB"), List: string(core.JailedList), Index: 7},
-		{OwnerAddress: []byte("jailedA"), PublicKey: []byte("jailedA"), List: string(core.JailedList), Index: 7},
+		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList)},
+		{OwnerAddress: []byte("pk1"), PublicKey: []byte("pk1"), List: string(core.ElectedList)},
+		{OwnerAddress: []byte("pk2"), PublicKey: []byte("pk2"), List: string(core.EligibleList)},
+		{OwnerAddress: []byte("jailed-ab"), PublicKey: []byte("jailed-ab"), List: string(core.JailedList)},
+		{OwnerAddress: []byte("jailed-ba"), PublicKey: []byte("jailed-ba"), List: string(core.JailedList)},
 	}
 
-	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos, 0)
+	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos)
 	require.Nil(t, err)
 
+	// trie leaf order compares the last byte first, so jailed-ba is the head
 	require.Equal(t, 2, len(newNodesConfig.eligibleList))
-	assert.True(t, hasValidatorWithPubKey(newNodesConfig.eligibleList, []byte("jailedA")))
-	assert.False(t, hasValidatorWithPubKey(newNodesConfig.eligibleList, []byte("jailedB")))
+	assert.True(t, hasValidatorWithPubKey(newNodesConfig.eligibleList, []byte("jailed-ba")))
+	assert.False(t, hasValidatorWithPubKey(newNodesConfig.eligibleList, []byte("jailed-ab")))
 	require.Equal(t, 1, len(newNodesConfig.leavingList))
-	assert.True(t, hasValidatorWithPubKey(newNodesConfig.leavingList, []byte("jailedB")))
-}
-
-func TestNodesCoordinator_computeNodesConfigFromList_PromotionPicksSortedHead(t *testing.T) {
-	t.Parallel()
-
-	arguments := createArguments()
-	ihgs, err := NewNodesCoordinator(arguments)
-	require.Nil(t, err)
-
-	newNodesConfig, err := ihgs.computeNodesConfigFromList(jailedPromotionValidatorInfos(), 0)
-	require.Nil(t, err)
-
-	// with the fix active the promoted validator is the lowest (Index, PubKey)
-	// even though the input listed the highest index first
-	require.Equal(t, 2, len(newNodesConfig.eligibleList))
-	assert.True(t, hasValidatorWithPubKey(newNodesConfig.eligibleList, []byte("jailedLo")))
-	assert.False(t, hasValidatorWithPubKey(newNodesConfig.eligibleList, []byte("jailedHi")))
-	require.Equal(t, 1, len(newNodesConfig.leavingList))
-	assert.True(t, hasValidatorWithPubKey(newNodesConfig.leavingList, []byte("jailedHi")))
+	assert.True(t, hasValidatorWithPubKey(newNodesConfig.leavingList, []byte("jailed-ab")))
 }
 
 func TestNodesCoordinator_computeNodesConfigFromList_PromotionIndependentOfInputOrder(t *testing.T) {
@@ -933,17 +903,17 @@ func TestNodesCoordinator_computeNodesConfigFromList_PromotionIndependentOfInput
 
 	// 1 elected, deficit 3, 4 jailed candidates: a strict subset is promoted
 	orderA := []*block.EValidatorInfo{
-		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList), Index: 1},
-		{OwnerAddress: []byte("j5"), PublicKey: []byte("j5"), List: string(core.JailedList), Index: 5},
-		{OwnerAddress: []byte("j6"), PublicKey: []byte("j6"), List: string(core.JailedList), Index: 6},
-		{OwnerAddress: []byte("j7"), PublicKey: []byte("j7"), List: string(core.JailedList), Index: 7},
-		{OwnerAddress: []byte("j8"), PublicKey: []byte("j8"), List: string(core.JailedList), Index: 8},
+		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList)},
+		{OwnerAddress: []byte("j5"), PublicKey: []byte("j5"), List: string(core.JailedList)},
+		{OwnerAddress: []byte("j6"), PublicKey: []byte("j6"), List: string(core.JailedList)},
+		{OwnerAddress: []byte("j7"), PublicKey: []byte("j7"), List: string(core.JailedList)},
+		{OwnerAddress: []byte("j8"), PublicKey: []byte("j8"), List: string(core.JailedList)},
 	}
 	orderB := []*block.EValidatorInfo{orderA[0], orderA[4], orderA[3], orderA[2], orderA[1]}
 
-	configA, err := ihgs.computeNodesConfigFromList(orderA, 0)
+	configA, err := ihgs.computeNodesConfigFromList(orderA)
 	require.Nil(t, err)
-	configB, err := ihgs.computeNodesConfigFromList(orderB, 0)
+	configB, err := ihgs.computeNodesConfigFromList(orderB)
 	require.Nil(t, err)
 
 	require.Equal(t, len(configA.eligibleList), len(configB.eligibleList))
@@ -955,35 +925,35 @@ func TestNodesCoordinator_computeNodesConfigFromList_PromotionIndependentOfInput
 		assert.Equal(t, configA.leavingList[i].PubKey(), configB.leavingList[i].PubKey())
 	}
 
-	// the lowest three indices are promoted, the highest one keeps leaving
+	// the first three in trie leaf order are promoted, the last one keeps leaving
 	require.Equal(t, 1, len(configA.leavingList))
 	assert.True(t, hasValidatorWithPubKey(configA.leavingList, []byte("j8")))
 }
 
-func TestNodesCoordinator_computeNodesConfigFromList_LegacyPromotionOrderBeforeEnableEpoch(t *testing.T) {
+func TestCompareTrieLeafOrder(t *testing.T) {
 	t.Parallel()
 
-	arguments := createArguments()
-	arguments.FixJailedPromotionOrderEpoch = 100
-	ihgs, err := NewNodesCoordinator(arguments)
-	require.Nil(t, err)
+	tests := []struct {
+		name string
+		a, b []byte
+		want int
+	}{
+		{name: "equal keys", a: []byte{0x12, 0x34}, b: []byte{0x12, 0x34}, want: 0},
+		{name: "last byte decides first", a: []byte{0xff, 0x01}, b: []byte{0x00, 0x02}, want: -1},
+		{name: "low nibble before high nibble", a: []byte{0xf1}, b: []byte{0x02}, want: -1},
+		{name: "high nibble breaks a low nibble tie", a: []byte{0x21}, b: []byte{0x11}, want: 1},
+		{name: "longer key sorts before its suffix", a: []byte{0x00, 0x34}, b: []byte{0x34}, want: -1},
+		{name: "empty key sorts last", a: []byte{}, b: []byte{0x00}, want: 1},
+	}
 
-	// before the enable epoch the legacy behaviour promotes the input-order
-	// head, which here is the highest index
-	legacyConfig, err := ihgs.computeNodesConfigFromList(jailedPromotionValidatorInfos(), 99)
-	require.Nil(t, err)
-	assert.True(t, hasValidatorWithPubKey(legacyConfig.eligibleList, []byte("jailedHi")))
-	assert.False(t, hasValidatorWithPubKey(legacyConfig.eligibleList, []byte("jailedLo")))
-	require.Equal(t, 1, len(legacyConfig.leavingList))
-	assert.True(t, hasValidatorWithPubKey(legacyConfig.leavingList, []byte("jailedLo")))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	// from the enable epoch on the sorted selection takes over
-	fixedConfig, err := ihgs.computeNodesConfigFromList(jailedPromotionValidatorInfos(), 100)
-	require.Nil(t, err)
-	assert.True(t, hasValidatorWithPubKey(fixedConfig.eligibleList, []byte("jailedLo")))
-	assert.False(t, hasValidatorWithPubKey(fixedConfig.eligibleList, []byte("jailedHi")))
-	require.Equal(t, 1, len(fixedConfig.leavingList))
-	assert.True(t, hasValidatorWithPubKey(fixedConfig.leavingList, []byte("jailedHi")))
+			assert.Equal(t, tt.want, CompareTrieLeafOrder(tt.a, tt.b))
+			assert.Equal(t, -tt.want, CompareTrieLeafOrder(tt.b, tt.a))
+		})
+	}
 }
 
 func TestNodesCoordinator_IsInterfaceNil(t *testing.T) {

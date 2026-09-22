@@ -2,6 +2,7 @@ package sharding
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -44,6 +45,31 @@ func (v validatorList) Less(i, j int) bool {
 	return v[i].Index() < v[j].Index()
 }
 
+// sortByTrieLeafOrder sorts validators in the order the peer trie walk yields their
+// keys: the trie stores a key as nibbles from the last byte to the first, low nibble
+// first, followed by a terminator that sorts after every nibble
+func sortByTrieLeafOrder(validators []Validator) {
+	slices.SortStableFunc(validators, func(a, b Validator) int {
+		return CompareTrieLeafOrder(a.PubKey(), b.PubKey())
+	})
+}
+
+// CompareTrieLeafOrder compares two keys in the order a peer trie walk yields them
+func CompareTrieLeafOrder(a, b []byte) int {
+	for i := 1; i <= len(a) && i <= len(b); i++ {
+		byteA, byteB := a[len(a)-i], b[len(b)-i]
+		if c := cmp.Compare(byteA&0x0f, byteB&0x0f); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(byteA>>4, byteB>>4); c != 0 {
+			return c
+		}
+	}
+
+	// the shorter key reaches its terminator first, which sorts after any nibble
+	return cmp.Compare(len(b), len(a))
+}
+
 // TODO: move this to config parameters
 const nodeCoordinatorStoredEpochs = 10
 
@@ -74,7 +100,6 @@ type indexHashedNodesCoordinator struct {
 	consensusGroupSize            int
 	currentEpoch                  atomic.Uint32
 	startEpoch                    uint32
-	fixJailedPromotionOrderEpoch  uint32
 
 	stateReady atomic.Bool
 }
@@ -115,7 +140,6 @@ func NewNodesCoordinator(arguments ArgNodesCoordinator) (*indexHashedNodesCoordi
 		consensusGroupSize:            arguments.ConsensusGroupSize,
 		publicKeyToValidatorMap:       make(map[string]Validator),
 		startEpoch:                    arguments.StartEpoch,
-		fixJailedPromotionOrderEpoch:  arguments.FixJailedPromotionOrderEpoch,
 	}
 	ihgs.currentEpoch.Store(arguments.StartEpoch)
 	// no need to wait for load state, as we have the initial configuration
@@ -761,7 +785,7 @@ func (ihgs *indexHashedNodesCoordinator) EpochStartPrepare(metaHdr data.HeaderHa
 		return
 	}
 
-	newNodesConfig, err := ihgs.computeNodesConfigFromList(allValidatorInfo, newEpoch)
+	newNodesConfig, err := ihgs.computeNodesConfigFromList(allValidatorInfo)
 	if err != nil {
 		log.Error("could not compute nodes config from list - do nothing on nodesCoordinator epochStartPrepare", "error", err.Error())
 		return
@@ -901,7 +925,6 @@ func (ihgs *indexHashedNodesCoordinator) GetOwnPublicKey() []byte {
 
 func (ihgs *indexHashedNodesCoordinator) computeNodesConfigFromList(
 	validators []*block.EValidatorInfo,
-	epoch uint32,
 ) (*epochNodesConfig, error) {
 	electedList := make([]Validator, 0)
 	eligibleList := make([]Validator, 0)
@@ -929,12 +952,10 @@ func (ihgs *indexHashedNodesCoordinator) computeNodesConfigFromList(
 		}
 	}
 
-	if epoch >= ihgs.fixJailedPromotionOrderEpoch {
-		// sort before the promotion slice below, so the promoted subset follows
-		// the deterministic validatorList order instead of whatever order the
-		// validator info happened to arrive in (trie traversal order)
-		sort.Sort(validatorList(leavingList))
-	}
+	// pin the promotion order to peer-trie leaf order, which is the order the input
+	// has always arrived in; this keeps the promoted subset identical to what the
+	// chain computed so far while making it independent of the input order
+	sortByTrieLeafOrder(leavingList)
 
 	// the promotion is all-or-nothing on purpose: a partial promotion can never
 	// reach consensusGroupSize, so the shuffler still fails its MinNodes check
@@ -947,8 +968,6 @@ func (ihgs *indexHashedNodesCoordinator) computeNodesConfigFromList(
 		}
 	}
 
-	// keep this leaving-list sort: the legacy branch below the enable epoch
-	// relies on it; it is a no-op once the list is pre-sorted above
 	sort.Sort(validatorList(leavingList))
 	sort.Sort(validatorList(eligibleList))
 	sort.Sort(validatorList(electedList))

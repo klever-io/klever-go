@@ -267,21 +267,18 @@ func startStatisticsMonitor(
 	return nil
 }
 
-// createNodesCoordinatorArgs holds the dependencies for createNodesCoordinator
-type createNodesCoordinatorArgs struct {
-	nodesConfig                  *sharding.NodesSetup
-	coreComponents               *factory.CoreComponents
-	cryptoParams                 *factory.CryptoParams
-	epochStartNotifier           sharding.EpochStartEventNotifier
-	bootStorer                   storage.Storer
-	nodeShuffler                 sharding.NodesShuffler
-	bootstrapParameters          bootstrap.Parameters
-	startEpoch                   uint32
-	fixJailedPromotionOrderEpoch uint32
-}
+func createNodesCoordinator(
+	nodesConfig *sharding.NodesSetup,
+	coreComponents *factory.CoreComponents,
+	cryptoParams *factory.CryptoParams,
+	epochStartNotifier sharding.EpochStartEventNotifier,
+	bootStorer storage.Storer,
+	nodeShuffler sharding.NodesShuffler,
+	bootstrapParameters bootstrap.Parameters,
+	startEpoch uint32,
+) (sharding.NodesCoordinator, error) {
 
-func createNodesCoordinator(args createNodesCoordinatorArgs) (sharding.NodesCoordinator, error) {
-	electedNodesInfo, eligibleNodesInfo, err := args.nodesConfig.InitialNodesInfo()
+	electedNodesInfo, eligibleNodesInfo, err := nodesConfig.InitialNodesInfo()
 	if err != nil {
 		return nil, err
 	}
@@ -296,11 +293,11 @@ func createNodesCoordinator(args createNodesCoordinatorArgs) (sharding.NodesCoor
 		return nil, err
 	}
 
-	currentEpoch := args.startEpoch
-	if args.bootstrapParameters.NodesConfig != nil {
-		currentEpoch = args.bootstrapParameters.Epoch
+	currentEpoch := startEpoch
+	if bootstrapParameters.NodesConfig != nil {
+		currentEpoch = bootstrapParameters.Epoch
 		electedValidators, eligibleValidators, err = registryValidatorsForEpoch(
-			args.bootstrapParameters.NodesConfig, currentEpoch, electedValidators, eligibleValidators)
+			bootstrapParameters.NodesConfig, currentEpoch, electedValidators, eligibleValidators)
 		if err != nil {
 			return nil, err
 		}
@@ -311,28 +308,27 @@ func createNodesCoordinator(args createNodesCoordinatorArgs) (sharding.NodesCoor
 		return nil, err
 	}
 
-	pubKeyBytes, err := args.cryptoParams.PublicKey.ToByteArray()
+	pubKeyBytes, err := cryptoParams.PublicKey.ToByteArray()
 	if err != nil {
 		return nil, err
 	}
 
 	arguments := sharding.ArgNodesCoordinator{
-		ConsensusGroupSize:           int(args.nodesConfig.ConsensusGroupSize),
-		Marshalizer:                  args.coreComponents.InternalMarshalizer,
-		Hasher:                       args.coreComponents.Hasher,
-		Shuffler:                     args.nodeShuffler,
-		EpochStartNotifier:           args.epochStartNotifier,
-		BootStorer:                   args.bootStorer,
-		ElectedNodes:                 electedValidators,
-		EligibleNodes:                eligibleValidators,
-		SelfPublicKey:                pubKeyBytes,
-		ConsensusGroupCache:          consensusGroupCache,
-		Epoch:                        currentEpoch,
-		StartEpoch:                   args.startEpoch,
-		FixJailedPromotionOrderEpoch: args.fixJailedPromotionOrderEpoch,
+		ConsensusGroupSize:  int(nodesConfig.ConsensusGroupSize),
+		Marshalizer:         coreComponents.InternalMarshalizer,
+		Hasher:              coreComponents.Hasher,
+		Shuffler:            nodeShuffler,
+		EpochStartNotifier:  epochStartNotifier,
+		BootStorer:          bootStorer,
+		ElectedNodes:        electedValidators,
+		EligibleNodes:       eligibleValidators,
+		SelfPublicKey:       pubKeyBytes,
+		ConsensusGroupCache: consensusGroupCache,
+		Epoch:               currentEpoch,
+		StartEpoch:          startEpoch,
 		// NewNodesCoordinator only stores these when non-empty, so no guards needed
-		CurrValidatorsInfo: args.bootstrapParameters.CurrEpochValidatorsInfo,
-		PrevValidatorsInfo: args.bootstrapParameters.PrevEpochValidatorsInfo,
+		CurrValidatorsInfo: bootstrapParameters.CurrEpochValidatorsInfo,
+		PrevValidatorsInfo: bootstrapParameters.PrevEpochValidatorsInfo,
 	}
 
 	nodesCoordinator, err := sharding.NewNodesCoordinator(arguments)
@@ -340,8 +336,8 @@ func createNodesCoordinator(args createNodesCoordinatorArgs) (sharding.NodesCoor
 		return nil, err
 	}
 
-	if args.bootstrapParameters.NodesConfig != nil {
-		err = restorePreviousEpochNodes(nodesCoordinator, args.bootstrapParameters.NodesConfig, currentEpoch)
+	if bootstrapParameters.NodesConfig != nil {
+		err = restorePreviousEpochNodes(nodesCoordinator, bootstrapParameters.NodesConfig, currentEpoch)
 		if err != nil {
 			return nil, err
 		}
