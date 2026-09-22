@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -9,11 +10,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	ws "github.com/gorilla/websocket"
+	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/data/api"
 	indexer "github.com/klever-io/klever-go/indexer"
 	"github.com/stretchr/testify/assert"
@@ -259,9 +262,8 @@ func TestPanicBarrier_LoopIn_ClosesAndDeregisters(t *testing.T) {
 	assertClientDeregistered(t, hub, c)
 }
 
-// TestPanicBarrier_LoopIn_RecoversPanicInTeardown panics inside Close, the first teardown
-// step. The barrier defer is registered before that teardown, so it runs after it and must
-// recover the panic. Swapping the defers lets Close's panic escape and crash the test.
+// TestPanicBarrier_LoopIn_RecoversPanicInTeardown: the nil conn panics at SetReadLimit
+// first, then again in Close as the teardown runs. Swapping the defers lets Close's escape.
 func TestPanicBarrier_LoopIn_RecoversPanicInTeardown(t *testing.T) {
 	c := newTestClient(newTestHub(nil))
 
@@ -294,22 +296,30 @@ func (panicMarshaler) MarshalJSON() ([]byte, error) {
 	panic("boom: simulated panic while marshalling an outbound frame")
 }
 
-// TestPanicBarrier_LoopOut_KeepsNodeAlive asserts the write loop's barrier tears the
-// connection down rather than leaving a client with no writer behind it.
+// TestPanicBarrier_LoopOut_KeepsNodeAlive asserts the barrier closes the client and loopIn
+// then deregisters it. Registered first: liveness alone passes on a broken chain.
 func TestPanicBarrier_LoopOut_KeepsNodeAlive(t *testing.T) {
-	_, c := dialLiveClient(t, newTestHub(nil))
+	hub := newTestHub(nil)
+	_, c := dialLiveClient(t, hub)
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.BLOCKS}, nil, c))
 
 	c.send(panicMarshaler{})
 
 	require.Eventually(t, func() bool { return !c.IsAlive() }, 3*time.Second, 20*time.Millisecond,
 		"loopOut's panic barrier must close the client instead of leaving a half-live connection")
+	require.Eventually(t, func() bool {
+		hub.mu.RLock()
+		defer hub.mu.RUnlock()
+		_, stillThere := hub.clients[c]
+		return !stillThere
+	}, 3*time.Second, 20*time.Millisecond,
+		"loopIn must deregister the client once loopOut's barrier closes it")
+	assertClientDeregistered(t, hub, c)
 }
 
-// TestPanicWarner_BudgetsAreNotSharedAcrossBarriers pins the separation the stack budgets
-// exist for. A peer that can drive a panic on one path must not spend the budget a rarer
-// defect on another path needs: if both shared a window, the rare panic would log with its
-// stack omitted and the only evidence it leaves would be gone — attached instead to an
-// unrelated panic in a different goroutine.
+// TestPanicWarner_BudgetsAreNotSharedAcrossBarriers pins the separation the log budgets
+// exist for: a peer flooding one path must not spend the budget a rarer defect elsewhere
+// needs, which would now leave that panic with no line at all.
 func TestPanicWarner_BudgetsAreNotSharedAcrossBarriers(t *testing.T) {
 	t.Parallel()
 
@@ -319,16 +329,61 @@ func TestPanicWarner_BudgetsAreNotSharedAcrossBarriers(t *testing.T) {
 	_, ok := hub.panicWarner(opHandleClientRequest).fire()
 	require.True(t, ok, "the first panic on a path must open that path's window")
 	_, ok = hub.panicWarner(opHandleClientRequest).fire()
-	require.False(t, ok, "a second panic on the same path within the window is stack-suppressed")
+	require.False(t, ok, "a second panic on the same path within the window is folded into the counter")
 
-	// The rarer paths must still be able to report a stack.
+	// The rarer paths must still be able to log.
 	for _, op := range []string{opLoopIn, opLoopOut, "ws.somethingNew"} {
 		_, ok := hub.panicWarner(op).fire()
-		assert.True(t, ok, "%s must keep its own stack budget; a flood elsewhere may not spend it", op)
+		assert.True(t, ok, "%s must keep its own log budget; a flood elsewhere may not spend it", op)
 	}
 
 	assert.Same(t, hub.panicWarner("ws.somethingNew"), hub.panicWarner("ws.anotherNewOne"),
 		"an unnamed barrier must fall back to a shared budget, never to no limit")
+}
+
+// lockedBuffer collects log output. The log subsystem is global, so writes are concurrent.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.String()
+}
+
+// TestLogRecoveredPanic_FoldsTheLineNotJustTheStack pins the bound on the line, not only
+// the stack: a peer repeating a panicking request must not buy an Error line per frame.
+func TestLogRecoveredPanic_FoldsTheLineNotJustTheStack(t *testing.T) {
+	const (
+		probeOp = "ws.foldingProbe"
+		first   = "boom: first panic of the window"
+		second  = "boom: second panic of the same window"
+	)
+
+	var observed lockedBuffer
+	require.NoError(t, logger.AddLogObserver(&observed, &logger.PlainFormatter{}))
+	t.Cleanup(func() { _ = logger.RemoveLogObserver(&observed) })
+
+	// A fresh hub, so the probe op's window is this test's alone.
+	hub := newTestHub(nil)
+	hub.logRecoveredPanic(probeOp, first)
+	hub.logRecoveredPanic(probeOp, second)
+
+	out := observed.String()
+	assert.Equal(t, 1, strings.Count(out, probeOp+" panicked"),
+		"a second panic inside the window must fold into the counter, not buy a log line of its own")
+	assert.Contains(t, out, first, "the first panic of a window must still be logged in full")
+	assert.NotContains(t, out, second, "a folded panic's value must not reach the log")
 }
 
 // TestLoggablePanic_ScrubsPeerInputFromTheLogLine pins the sanitising the panic path adds:

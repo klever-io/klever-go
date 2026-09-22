@@ -37,7 +37,7 @@ const (
 	// errInternal is the opaque answer for a panicked request. The value stays in the log (KLC-2596).
 	errInternal = "internal error"
 
-	// Client goroutines with their own stack budget. See panicWarner.
+	// Client goroutines with their own log budget. See panicWarner.
 	opLoopIn              = "ws.loopIn"
 	opLoopOut             = "ws.loopOut"
 	opHandleClientRequest = "ws.HandleClientRequest"
@@ -410,11 +410,10 @@ func (h *SocketHub) StartServer(ctx context.Context) {
 				{&h.writeFailWarn, "connection writes failed (final)"},
 				{&h.queryFailWarn, "client queries failed (final)"},
 				{&h.rejectWarn, "subscription inserts rejected at a cap (final)"},
-				// Omitted stacks only; the panic line was already logged.
-				{&h.loopInPanicWarn, "reader-loop panic stacks omitted (final)"},
-				{&h.loopOutPanicWarn, "writer-loop panic stacks omitted (final)"},
-				{&h.requestPanicWarn, "client-request panic stacks omitted (final)"},
-				{&h.otherPanicWarn, "other client panic stacks omitted (final)"},
+				{&h.loopInPanicWarn, "reader-loop panics omitted (final)"},
+				{&h.loopOutPanicWarn, "writer-loop panics omitted (final)"},
+				{&h.requestPanicWarn, "client-request panics omitted (final)"},
+				{&h.otherPanicWarn, "other client panics omitted (final)"},
 			} {
 				if count, ok := final.warner.flush(); ok {
 					log.Warn(peerFailLogOp, "msg", final.msg, "count", count)
@@ -663,7 +662,7 @@ func loggablePanic(r interface{}) string {
 	return loggableText(fmt.Sprintf("%v", r), maxLoggablePanicLength)
 }
 
-// panicWarner is the stack budget for one barrier. An unknown op shares otherPanicWarn.
+// panicWarner is the log budget for one barrier. An unknown op shares otherPanicWarn.
 func (h *SocketHub) panicWarner(op string) *dropWarner {
 	switch op {
 	case opLoopIn:
@@ -678,22 +677,17 @@ func (h *SocketHub) panicWarner(op string) *dropWarner {
 }
 
 // logRecoveredPanic logs a panic from a client goroutine outside gin.Recovery (KLC-2596).
-// The panic value is scrubbed. The stack is kept for the first panic of the window;
-// stacksOmitted is count-1 because this line's own stack is attached.
+// The whole line folds through the warner, like the other peer-driven sites: the request
+// barrier leaves the socket open, so budgeting the stack alone still bought a line per frame.
+// A second, distinct panic value inside a window survives only as the counter.
 func (h *SocketHub) logRecoveredPanic(op string, r interface{}) {
 	if count, ok := h.panicWarner(op).fire(); ok {
 		log.Error(op+" panicked",
 			"panic", loggablePanic(r),
 			"stack", string(debug.Stack()),
-			"stacksOmitted", count-1,
+			"similarSinceLastLog", count,
 		)
-		return
 	}
-
-	log.Error(op+" panicked",
-		"panic", loggablePanic(r),
-		"stack", "omitted; attached to the first panic of this window on this path",
-	)
 }
 
 // loggableHash renders a peer-supplied hash safely: a well-formed one is returned as-is,

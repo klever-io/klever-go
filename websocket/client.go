@@ -113,13 +113,9 @@ func (c *client) recoverPanic(op string, teardown func()) {
 	c.hub.logRecoveredPanic(op, r)
 }
 
-// runTeardown runs one barrier's teardown under its own recover. The teardown runs after
-// recover() has already consumed the original panic, so a panic here would replace it and
-// escape the goroutine — killing the node this barrier exists to keep alive, and taking the
-// original panic's log line with it. loopIn needs none of this: its teardown is a separate
-// defer registered after the barrier, so it runs before it and is recovered already.
-// A teardown panic is logged under its own op, which falls to the shared budget in
-// panicWarner rather than spending the barrier's.
+// runTeardown runs one barrier's teardown under its own recover: it runs after recover()
+// consumed the original panic, so a panic here would replace it and escape the goroutine.
+// Its own op falls to panicWarner's shared budget rather than spending the barrier's.
 func (c *client) runTeardown(op string, teardown func()) {
 	defer func() {
 		if r := recover(); r != nil {
