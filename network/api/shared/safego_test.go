@@ -22,6 +22,24 @@ func (c *closerStub) Close() error {
 	return errors.New("close failed") // SafeGo must swallow this; teardown is best-effort
 }
 
+// stackArg returns the value paired with the "stack" key. Key presence alone would
+// still pass if SafeRun logged an empty or unrelated value.
+func stackArg(t *testing.T, args []interface{}) string {
+	t.Helper()
+	for i := 0; i+1 < len(args); i++ {
+		key, ok := args[i].(string)
+		if !ok || key != "stack" {
+			continue
+		}
+		stack, ok := args[i+1].(string)
+		require.True(t, ok, "stack value must be a string")
+		require.NotEmpty(t, stack)
+		return stack
+	}
+	t.Fatal("recovered panic log is missing the stack value")
+	return ""
+}
+
 func wait(t *testing.T, ch <-chan struct{}, msg string) {
 	t.Helper()
 	select {
@@ -87,7 +105,8 @@ func TestSafeGo_RecoversPanicLogsAndClosesConn(t *testing.T) {
 		require.Contains(t, args, "boom-routine")
 		// Quoted, not raw: the panic value is rendered through QuoteForLog (KLC-2596).
 		require.Contains(t, args, `"boom"`)
-		require.Contains(t, args, "stack", "a recovered panic without its stack is not actionable")
+		require.Contains(t, stackArg(t, args), "shared.SafeRun",
+			"a recovered panic without its stack is not actionable")
 	case <-time.After(2 * time.Second):
 		t.Fatal("panic must be logged")
 	}

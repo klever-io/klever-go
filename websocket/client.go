@@ -100,15 +100,8 @@ func unexpectedClose(err error) bool {
 	return !errors.Is(err, net.ErrClosed)
 }
 
-// recoverPanic is the panic barrier for the goroutines this client owns. They are spawned
-// outside the gin handler, so gin.Recovery() cannot see them: without this, an unrecovered
-// panic here terminates the whole node process instead of dropping one connection
-// (KLC-2596). It is this package's counterpart to shared.SafeRun, which guards the
-// goroutines the API layer detaches, and takes a teardown func rather than an io.Closer
-// because the per-request worker must answer its client instead of closing the connection.
-//
-// teardown, when set, runs before the panic is logged so it stays unconditional even if
-// rendering the panic value misbehaves.
+// recoverPanic is the barrier for client goroutines spawned outside gin.Recovery (KLC-2596).
+// teardown, when set, runs before the panic is logged.
 func (c *client) recoverPanic(op string, teardown func()) {
 	r := recover()
 	if r == nil {
@@ -122,9 +115,7 @@ func (c *client) recoverPanic(op string, teardown func()) {
 
 // watch this function read client messages to check if client cancel the conn or send a ping
 func (c *client) loopIn() {
-	// Registered before the teardown defer so it runs after it: the connection is closed and
-	// deregistered exactly as on a clean exit, and a panic raised inside that teardown is
-	// caught here too.
+	// After the teardown defer, so Close and deregister run first and a panic there is recovered.
 	defer c.recoverPanic(opLoopIn, nil)
 	defer func() {
 		c.Close()
@@ -182,12 +173,7 @@ func (c *client) loopIn() {
 		}
 		ctx := c.ctx
 		go func(ctx context.Context, req WSRequest) {
-			// This goroutine runs the attacker-supplied req through the facade — the same
-			// methods REST serves behind gin.Recovery() — so it is the widest unauthenticated
-			// panic surface in the node. Registered before the semaphore release so it unwinds
-			// last, keeping the recover in place while the other defers run. The slot release
-			// itself is order-independent: a receive on a live channel cannot panic, and Go
-			// runs the remaining defers even when a deferred call panics.
+			// Peer request, outside gin.Recovery (KLC-2596). Registered first so it recovers last.
 			defer c.recoverPanic(opHandleClientRequest, func() {
 				c.send(WSResponse{ID: req.ID, Error: errInternal})
 			})
@@ -203,9 +189,7 @@ func (c *client) loopIn() {
 }
 
 func (c *client) loopOut() {
-	// loopOut owns the only writer for this connection, so a panic here leaves it unusable:
-	// close it rather than leaking a half-live client. loopIn then observes the closed conn
-	// and deregisters from the hub, exactly as on a write error below.
+	// The only writer; a panic here closes the client, and loopIn then deregisters it (KLC-2596).
 	defer c.recoverPanic(opLoopOut, c.Close)
 
 	// Ping the client periodically; its pong refreshes loopIn's read deadline, keeping

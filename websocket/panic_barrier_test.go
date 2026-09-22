@@ -1,15 +1,21 @@
 package websocket
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	ws "github.com/gorilla/websocket"
 	"github.com/klever-io/klever-go/data/api"
+	indexer "github.com/klever-io/klever-go/indexer"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -135,16 +141,131 @@ func TestPanicBarrier_HandleClientRequest_ReleasesWorkerSlot(t *testing.T) {
 		"every recovered request must hand its worker slot back; a leak here wedges the connection")
 }
 
-// TestPanicBarrier_LoopIn_KeepsNodeAlive drives the read loop into a panic and asserts it
-// unwinds to a clean return. newTestClient leaves conn nil, so loopIn's first conn call
-// panics — a stand-in for any latent panic on the read path. killClient runs first so the
-// teardown defer's c.Close() is a no-op on that nil conn, leaving the barrier itself, and
-// its ordering behind the teardown, as what is under test.
-func TestPanicBarrier_LoopIn_KeepsNodeAlive(t *testing.T) {
-	c := newTestClient(newTestHub(nil))
-	killClient(c)
+// panicReadConn panics from Read once armed, after the websocket handshake has finished.
+type panicReadConn struct {
+	net.Conn
+	prefix      []byte
+	panicOnRead atomic.Bool
+}
 
+func (p *panicReadConn) Read(b []byte) (int, error) {
+	if p.panicOnRead.Load() {
+		panic("boom: simulated panic on the read path")
+	}
+	if len(p.prefix) > 0 {
+		n := copy(b, p.prefix)
+		p.prefix = p.prefix[n:]
+		return n, nil
+	}
+	return p.Conn.Read(b)
+}
+
+// panicHijackWriter hands Upgrade a connection whose later reads can be made to panic.
+type panicHijackWriter struct {
+	http.ResponseWriter
+	conn *panicReadConn
+}
+
+func (w *panicHijackWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	raw, brw, err := w.ResponseWriter.(http.Hijacker).Hijack()
+	if err != nil {
+		return nil, nil, err
+	}
+	var prefix []byte
+	if n := brw.Reader.Buffered(); n > 0 {
+		prefix = make([]byte, n)
+		if _, err := io.ReadFull(brw.Reader, prefix); err != nil {
+			_ = raw.Close()
+			return nil, nil, err
+		}
+	}
+	w.conn = &panicReadConn{Conn: raw, prefix: prefix}
+	return w.conn, bufio.NewReadWriter(bufio.NewReader(w.conn), bufio.NewWriter(w.conn)), nil
+}
+
+// dialPanicReadServer upgrades one connection and returns the server side plus the
+// conn that loopIn will read. The panic stays disarmed until the test arms it.
+func dialPanicReadServer(t *testing.T) (*ws.Conn, *panicReadConn) {
+	t.Helper()
+
+	upgrader := ws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	served := make(chan *ws.Conn, 1)
+	var raw *panicReadConn
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hw := &panicHijackWriter{ResponseWriter: w}
+		conn, err := upgrader.Upgrade(hw, r, nil)
+		if err != nil {
+			t.Errorf("server failed to upgrade the websocket connection: %v", err)
+			return
+		}
+		raw = hw.conn
+		served <- conn
+	}))
+	t.Cleanup(srv.Close)
+
+	peer, _, err := ws.DefaultDialer.Dial("ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = peer.Close() })
+
+	select {
+	case conn := <-served:
+		t.Cleanup(func() { _ = conn.Close() })
+		require.NotNil(t, raw)
+		return conn, raw
+	case <-time.After(3 * time.Second):
+		t.Fatal("server never finished the websocket upgrade")
+		return nil, nil
+	}
+}
+
+func assertClientDeregistered(t *testing.T, hub *SocketHub, c *client) {
+	t.Helper()
+	_, inClients := hub.clients[c]
+	_, inBlocks := hub.blockSubscription[c]
+	_, inTxs := hub.transactionSubscription[c]
+	_, inAddrs := hub.clientAddresses[c]
+	assert.False(t, inClients, "closed client must leave hub.clients")
+	assert.False(t, inBlocks, "closed client must leave blockSubscription")
+	assert.False(t, inTxs, "closed client must leave transactionSubscription")
+	assert.False(t, inAddrs, "closed client must leave clientAddresses")
+	for addr, subs := range hub.addressSubscription {
+		_, ok := subs[c]
+		assert.Falsef(t, ok, "closed client still subscribed to %s", addr)
+	}
+}
+
+// TestPanicBarrier_LoopIn_ClosesAndDeregisters panics on the read path of a registered
+// client. A barrier that recovered but skipped Close or handleClientDelete fails here.
+func TestPanicBarrier_LoopIn_ClosesAndDeregisters(t *testing.T) {
+	hub := newTestHub(nil)
+	serverConn, raw := dialPanicReadServer(t)
+
+	c := newTestClient(hub)
+	c.conn = serverConn
+	c.ctx, c.cancel = context.WithCancel(context.Background())
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.BLOCKS}, nil, c))
+
+	raw.panicOnRead.Store(true)
 	assertReturnsQuickly(t, 2*time.Second, "loopIn did not return; its panic barrier failed to recover", func() {
+		c.loopIn()
+	})
+
+	assert.False(t, c.IsAlive(), "loopIn's panic barrier must close the client")
+	select {
+	case <-c.Done():
+	default:
+		t.Fatal("loopIn's teardown must cancel the client context")
+	}
+	assertClientDeregistered(t, hub, c)
+}
+
+// TestPanicBarrier_LoopIn_RecoversPanicInTeardown panics inside Close, the first teardown
+// step. The barrier defer is registered before that teardown, so it runs after it and must
+// recover the panic. Swapping the defers lets Close's panic escape and crash the test.
+func TestPanicBarrier_LoopIn_RecoversPanicInTeardown(t *testing.T) {
+	c := newTestClient(newTestHub(nil))
+
+	assertReturnsQuickly(t, 2*time.Second, "loopIn did not return; a panic in Close escaped the barrier", func() {
 		c.loopIn()
 	})
 }
