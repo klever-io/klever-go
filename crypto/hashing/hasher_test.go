@@ -85,6 +85,11 @@ func TestFnv_ConcurrentEmptyHash(t *testing.T) {
 	testConcurrentEmptyHash(t, fnv.Fnv{})
 }
 
+func TestBlake2b_ConcurrentEmptyHash(t *testing.T) {
+	t.Parallel()
+	testConcurrentEmptyHash(t, &blake2b.Blake2b{})
+}
+
 func testConcurrentEmptyHash(t *testing.T, h hashing.Hasher) {
 	expected := h.EmptyHash()
 	goroutines := 50
@@ -120,6 +125,11 @@ func TestSha256_EmptyHashReturnsCopy(t *testing.T) {
 func TestFnv_EmptyHashReturnsCopy(t *testing.T) {
 	t.Parallel()
 	testEmptyHashReturnsCopy(t, fnv.Fnv{})
+}
+
+func TestBlake2b_EmptyHashReturnsCopy(t *testing.T) {
+	t.Parallel()
+	testEmptyHashReturnsCopy(t, &blake2b.Blake2b{})
 }
 
 func testEmptyHashReturnsCopy(t *testing.T, h hashing.Hasher) {
