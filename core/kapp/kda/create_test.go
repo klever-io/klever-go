@@ -399,10 +399,9 @@ func Test_CreateKDA(t *testing.T) {
 	}
 }
 
-// TransferPercentage royalties exist only for fungible assets: accounts.Transfer
-// validates and debits them against the nonce-less balance, which an NFT/SFT
-// holder never has. Pin that Create drops the field on the NFT/SFT branch and
-// keeps it on the fungible one, so the accounts-side assumption stays true.
+// TransferPercentage is fungible-only because Create never writes it on the
+// NFT/SFT branch; accounts.Transfer does not reject it for SFTs. Pin that
+// Create drops the field on the NFT/SFT branch and keeps it on the fungible one.
 func Test_CreateKDA_TransferPercentagePersistedOnlyForFungible(t *testing.T) {
 	for _, tt := range []struct {
 		assetType transaction.CreateAssetContract_EnumAssetType

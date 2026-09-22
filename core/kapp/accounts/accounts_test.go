@@ -8168,9 +8168,21 @@ func Test_ProcessNonFungibleTransfer_MovesUnitToReceiver(t *testing.T) {
 	require.Len(t, receipts, 1)
 	requireTransferReceipt(t, receipts[0], senderAddr, receiverAddr, 1, assetID, internalID, kapps.KDAData_NonFungible)
 
+	// Commit the sender's dirty data so the deleted key reads back empty from
+	// the trie; an uncommitted nil entry fails earlier with ErrNegativeValue.
+	committed := make(map[string][]byte)
+	for k, v := range f.src.DataTrieTracker().DirtyData() {
+		committed[k] = v
+	}
+	f.src.SetDataTrie(&commonMock.TrieStub{GetCalled: func(key []byte) ([]byte, error) {
+		return committed[string(key)], nil
+	}})
+	f.src.DataTrieTracker().ClearDataCaches()
+
 	status, err = f.accKapp.processNonFungibleTransfer(assetID, internalID, f.src, f.dst)
-	require.Error(t, err, "the sender no longer owns the unit, so it cannot be sent twice")
+	require.ErrorIs(t, err, common.ErrAssetNotFound, "the sender no longer owns the unit, so it cannot be sent twice")
 	require.Equal(t, transaction.Transaction_BalanceError, status)
+	require.Len(t, f.ctx.Receipts().Get(), 1, "a rejected second send must not add a receipt")
 
 	moved, err := f.dst.SubInternalKDA(assetID, internalID)
 	require.NoError(t, err, "receiver must own the unit after the transfer")
@@ -8279,16 +8291,17 @@ func Test_Transfer_SemiFungibleBeforeSmartContractsIsRejected(t *testing.T) {
 	receiverAddr := makeAddress("presc-receiver")
 
 	tests := []struct {
+		name    string
 		assetID string
 		status  transaction.Transaction_TXResultCode
 		err     error
 	}{
-		{assetID: "SEMI-1234", status: transaction.Transaction_AssetTypeInvalid, err: common.ErrAssetTypeInvalid},
-		{assetID: "SEMI-1234/1", status: transaction.Transaction_ParameterInvalid, err: common.ErrInvalidValue},
+		{name: "no nonce", assetID: "SEMI-1234", status: transaction.Transaction_AssetTypeInvalid, err: common.ErrAssetTypeInvalid},
+		{name: "with nonce", assetID: "SEMI-1234/1", status: transaction.Transaction_ParameterInvalid, err: common.ErrInvalidValue},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.assetID, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			f := newTransferFixture(t, config.EnableEpochs{SmartContracts: 1000}, kapps.KDAData_SemiFungible, senderAddr, receiverAddr)
 
 			tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: []byte(tt.assetID), Amount: transferValue}

@@ -1964,9 +1964,9 @@ func TestKDATrigger_UpdateRoyalties(t *testing.T) {
 				assert.Empty(t, asset.Royalties.TransferPercentage)
 			},
 		},
-		// TransferPercentage is a fungible-only royalty: accounts.Transfer debits it
-		// from the nonce-less balance, which NFT/SFT holders never have. The NFT/SFT
-		// branch must ignore it even when the trigger supplies one.
+		// TransferPercentage stays fungible-only only because updateRoyalties never
+		// writes it on the NFT/SFT branch; accounts.Transfer does not reject it for
+		// SFTs. The NFT/SFT branch must ignore it even when the trigger supplies one.
 		{
 			name:   "Update royalties for semi-fungible asset ignores TransferPercentage",
 			sender: owner,
