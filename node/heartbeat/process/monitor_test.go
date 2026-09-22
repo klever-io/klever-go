@@ -311,6 +311,7 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKey(t *testing.T) {
 	mon, err := process.NewMonitor(arg)
 	require.NoError(t, err)
 	require.NotNil(t, mon)
+	savedKeysAfterStart := savedKeys
 	t.Cleanup(func() {
 		require.NoError(t, mon.Close())
 	})
@@ -329,7 +330,7 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKey(t *testing.T) {
 	hbStatus := mon.GetHeartbeats()
 	assert.Equal(t, 2, len(hbStatus))
 	assert.Equal(t, 1, savedPubkeyData)
-	assert.Equal(t, 0, savedKeys)
+	assert.Equal(t, savedKeysAfterStart, savedKeys)
 }
 
 func TestMonitor_ProcessReceivedMessageWithNewPublicKeyIsTransient(t *testing.T) {
@@ -372,6 +373,7 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKeyIsTransient(t *testing.T)
 		},
 	}
 	mon, _ := process.NewMonitor(arg)
+	savedKeysAfterStart := savedKeys
 
 	hb := data.Heartbeat{Pubkey: []byte(pubKey)}
 	hbBytes, _ := json.Marshal(&hb)
@@ -381,7 +383,7 @@ func TestMonitor_ProcessReceivedMessageWithNewPublicKeyIsTransient(t *testing.T)
 	time.Sleep(time.Second)
 	hbStatus := mon.GetHeartbeats()
 	assert.Equal(t, 2, len(hbStatus))
-	assert.Equal(t, 0, savedKeys)
+	assert.Equal(t, savedKeysAfterStart, savedKeys)
 
 	timer.IncrementSeconds(6)
 	mon.Cleanup()
@@ -1693,6 +1695,7 @@ func TestMonitor_RefreshPersistsIdentityAdmittedAfterFirstHeartbeat(t *testing.T
 	savedKeyLists := make([][][]byte, 0)
 	var listed atomic.Bool
 	admittedPubKey := "late-validator"
+	secondAdmittedPubKey := "late-validator-2"
 
 	arg := createMockArgHeartbeatMonitor()
 	arg.PubKeysList = []string{}
@@ -1706,7 +1709,10 @@ func TestMonitor_RefreshPersistsIdentityAdmittedAfterFirstHeartbeat(t *testing.T
 			if !listed.Load() {
 				return nil
 			}
-			return []*state.PeerTypeInfo{{PublicKey: admittedPubKey, PeerType: string(core.EligibleList)}}
+			return []*state.PeerTypeInfo{
+				{PublicKey: admittedPubKey, PeerType: string(core.EligibleList)},
+				{PublicKey: secondAdmittedPubKey, PeerType: string(core.EligibleList)},
+			}
 		},
 	}
 	arg.Storer = &mock.HeartbeatStorerStub{
@@ -1733,8 +1739,10 @@ func TestMonitor_RefreshPersistsIdentityAdmittedAfterFirstHeartbeat(t *testing.T
 	t.Cleanup(func() { _ = mon.Close() })
 
 	mon.AddHeartbeatMessageFromOrigin(&data.Heartbeat{Pubkey: []byte(admittedPubKey), Pid: []byte("pid")}, core.PeerID("origin-a"))
+	mon.AddHeartbeatMessageFromOrigin(&data.Heartbeat{Pubkey: []byte(secondAdmittedPubKey), Pid: []byte("pid-2")}, core.PeerID("origin-a"))
 	mutStore.Lock()
 	require.Empty(t, persisted)
+	require.Empty(t, savedKeyLists)
 	mutStore.Unlock()
 
 	listed.Store(true)
@@ -1742,8 +1750,123 @@ func TestMonitor_RefreshPersistsIdentityAdmittedAfterFirstHeartbeat(t *testing.T
 
 	mutStore.Lock()
 	defer mutStore.Unlock()
-	assert.Contains(t, persisted, admittedPubKey)
-	require.NotEmpty(t, savedKeyLists)
-	assert.Contains(t, savedKeyLists[len(savedKeyLists)-1], []byte(admittedPubKey))
+	assert.ElementsMatch(t, []string{admittedPubKey, secondAdmittedPubKey}, persisted)
+	require.Len(t, savedKeyLists, 1)
+	assert.ElementsMatch(t, [][]byte{[]byte(admittedPubKey), []byte(secondAdmittedPubKey)}, savedKeyLists[0])
 	assert.Equal(t, 0, mon.GetNumTransientUnknownHeartbeatPubKeys())
+}
+
+func TestMonitor_SavedIdentitiesAreAlwaysInTheKeyList(t *testing.T) {
+	t.Parallel()
+
+	var mutStore sync.Mutex
+	persisted := make([]string, 0)
+	savedKeyLists := make([][][]byte, 0)
+	pubKey := "registry-only-validator"
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = time.Hour
+	arg.PeerTypeProvider = &mock.PeerTypeProviderStub{
+		ComputeForPubKeyCalled: func(pk []byte) (core.PeerType, uint32, error) {
+			return core.WaitingList, 0, nil
+		},
+		GetAllPeerTypeInfosCalled: func() []*state.PeerTypeInfo {
+			return []*state.PeerTypeInfo{{PublicKey: pubKey, PeerType: string(core.EligibleList)}}
+		},
+	}
+	arg.Storer = &mock.HeartbeatStorerStub{
+		UpdateGenesisTimeCalled: func(genesisTime time.Time) error { return nil },
+		LoadHeartBeatDTOCalled:  func(pk string) (*data.HeartbeatDTO, error) { return nil, errors.New("not found") },
+		LoadKeysCalled:          func() ([][]byte, error) { return nil, nil },
+		SavePubkeyDataCalled: func(pk []byte, heartbeat *data.HeartbeatDTO) error {
+			mutStore.Lock()
+			persisted = append(persisted, string(pk))
+			mutStore.Unlock()
+			return nil
+		},
+		RemovePubkeyDataCalled: func(pk []byte) error { return nil },
+		SaveKeysCalled: func(peersSlice [][]byte) error {
+			mutStore.Lock()
+			savedKeyLists = append(savedKeyLists, peersSlice)
+			mutStore.Unlock()
+			return nil
+		},
+	}
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mon.Close() })
+
+	mutStore.Lock()
+	require.Empty(t, persisted)
+	require.Empty(t, savedKeyLists)
+	mutStore.Unlock()
+
+	mon.RefreshHeartbeatMessageInfo()
+
+	mutStore.Lock()
+	defer mutStore.Unlock()
+	assert.Equal(t, []string{pubKey}, persisted)
+	require.Len(t, savedKeyLists, 1)
+	assert.Equal(t, [][]byte{[]byte(pubKey)}, savedKeyLists[0])
+}
+
+func TestMonitor_KeyListWriteIsRetriedAfterStorerError(t *testing.T) {
+	t.Parallel()
+
+	var mutStore sync.Mutex
+	saveKeysCalls := 0
+	var lastSaved [][]byte
+	pubKey := "trusted-retry"
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = time.Hour
+	arg.Storer = &mock.HeartbeatStorerStub{
+		UpdateGenesisTimeCalled: func(genesisTime time.Time) error { return nil },
+		LoadHeartBeatDTOCalled:  func(pk string) (*data.HeartbeatDTO, error) { return nil, errors.New("not found") },
+		LoadKeysCalled:          func() ([][]byte, error) { return nil, nil },
+		SavePubkeyDataCalled:    func(pk []byte, heartbeat *data.HeartbeatDTO) error { return nil },
+		RemovePubkeyDataCalled:  func(pk []byte) error { return nil },
+		SaveKeysCalled: func(peersSlice [][]byte) error {
+			mutStore.Lock()
+			defer mutStore.Unlock()
+			saveKeysCalls++
+			if saveKeysCalls == 1 {
+				return errors.New("disk full")
+			}
+			lastSaved = peersSlice
+			return nil
+		},
+	}
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mon.Close() })
+
+	mon.AddTrustedHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pubKey), Pid: []byte("pid")})
+	mutStore.Lock()
+	require.Equal(t, 1, saveKeysCalls)
+	require.Nil(t, lastSaved)
+	mutStore.Unlock()
+
+	mon.AddTrustedHeartbeatMessageToMap(&data.Heartbeat{Pubkey: []byte(pubKey), Pid: []byte("pid")})
+	mutStore.Lock()
+	defer mutStore.Unlock()
+	assert.Equal(t, 2, saveKeysCalls)
+	assert.Equal(t, [][]byte{[]byte(pubKey)}, lastSaved)
+}
+
+func TestNewMonitor_ZeroMaxDurationPeerUnresponsiveShouldErr(t *testing.T) {
+	t.Parallel()
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.MaxDurationPeerUnresponsive = 0
+	mon, err := process.NewMonitor(arg)
+
+	assert.Nil(t, mon)
+	assert.Equal(t, heartbeat.ErrInvalidMaxDurationPeerUnresponsive, err)
 }
