@@ -1946,11 +1946,12 @@ func TestKDATrigger_UpdateRoyalties(t *testing.T) {
 				Attributes:   &kapps.AttributesData{},
 			},
 			royalties: &transaction.RoyaltiesInfo{
-				MarketPercentage: 2000,
-				MarketFixed:      300,
-				TransferFixed:    150,
-				ITOPercentage:    3000,
-				ITOFixed:         250,
+				MarketPercentage:   2000,
+				MarketFixed:        300,
+				TransferFixed:      150,
+				TransferPercentage: []*transaction.RoyaltyInfo{{Amount: 1000, Percentage: 10}},
+				ITOPercentage:      3000,
+				ITOFixed:           250,
 			},
 			expectedCode:  transaction.Transaction_Ok,
 			expectedError: nil,
@@ -1960,6 +1961,30 @@ func TestKDATrigger_UpdateRoyalties(t *testing.T) {
 				assert.Equal(t, int64(150), asset.Royalties.TransferFixed)
 				assert.Equal(t, uint32(3000), asset.Royalties.ITOPercentage)
 				assert.Equal(t, int64(250), asset.Royalties.ITOFixed)
+				assert.Empty(t, asset.Royalties.TransferPercentage)
+			},
+		},
+		// TransferPercentage stays fungible-only only because updateRoyalties never
+		// writes it on the NFT/SFT branch; accounts.Transfer does not reject it for
+		// SFTs. The NFT/SFT branch must ignore it even when the trigger supplies one.
+		{
+			name:   "Update royalties for semi-fungible asset ignores TransferPercentage",
+			sender: owner,
+			asset: &kapps.KDAData{
+				OwnerAddress: owner,
+				AssetType:    kapps.KDAData_SemiFungible,
+				Royalties:    &kapps.RoyaltiesData{},
+				Attributes:   &kapps.AttributesData{},
+			},
+			royalties: &transaction.RoyaltiesInfo{
+				TransferPercentage: []*transaction.RoyaltyInfo{{Amount: 1000, Percentage: 10}},
+				TransferFixed:      150,
+			},
+			expectedCode:  transaction.Transaction_Ok,
+			expectedError: nil,
+			validate: func(t *testing.T, asset *kapps.KDAData) {
+				assert.Equal(t, int64(150), asset.Royalties.TransferFixed)
+				assert.Empty(t, asset.Royalties.TransferPercentage)
 			},
 		},
 		{

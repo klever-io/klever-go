@@ -399,6 +399,61 @@ func Test_CreateKDA(t *testing.T) {
 	}
 }
 
+// TransferPercentage is fungible-only because Create never writes it on the
+// NFT/SFT branch; accounts.Transfer does not reject it for SFTs. Pin that
+// Create drops the field on the NFT/SFT branch and keeps it on the fungible one.
+func Test_CreateKDA_TransferPercentagePersistedOnlyForFungible(t *testing.T) {
+	for _, tt := range []struct {
+		assetType transaction.CreateAssetContract_EnumAssetType
+		persisted bool
+	}{
+		{transaction.CreateAssetContract_Fungible, true},
+		{transaction.CreateAssetContract_NonFungible, false},
+		{transaction.CreateAssetContract_SemiFungible, false},
+	} {
+		t.Run(tt.assetType.String(), func(t *testing.T) {
+			// One shared KDA KApp account so the asset written by Create can be read back.
+			kdaAcc, err := state.NewKAppAccount(makeAddress("kda-kapp"))
+			require.NoError(t, err)
+			kdaAcc.SetDataTrie(&mock.TrieStub{GetCalled: func([]byte) ([]byte, error) { return nil, nil }})
+
+			ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
+				Block: &block.Block{Header: &block.BlockHeader{RandSeed: []byte{0}}},
+			})
+
+			kdaKapp := setupKDAKapp(t, config.EnableEpochs{})
+			require.NoError(t, kdaKapp.SetKAppController(&vmStub.KAppControllerStub{
+				GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+			}))
+			require.NoError(t, kdaKapp.SetAccountsCacher(&mock.AccountsCacherStub{
+				GetExistingKappCalled: func([]byte) (state.KAppAccountHandler, error) { return kdaAcc, nil },
+			}))
+
+			status, err := kdaKapp.Create(makeAddress("valid"), &transaction.CreateAssetContract{
+				OwnerAddress: makeAddress("valid"),
+				Name:         []byte("KDA"),
+				Ticker:       []byte("KDA"),
+				Type:         tt.assetType,
+				Properties:   &transaction.PropertiesInfo{CanMint: true},
+				Royalties: &transaction.RoyaltiesInfo{
+					TransferPercentage: []*transaction.RoyaltyInfo{{Amount: 1000, Percentage: 10}},
+				},
+			})
+			require.NoError(t, err)
+			require.Equal(t, transaction.Transaction_Ok, status)
+
+			_, stored, err := kdaKapp.GetKDA(ctx.GetAndClearReturnData()[0])
+			require.NoError(t, err)
+			if tt.persisted {
+				require.Len(t, stored.Royalties.TransferPercentage, 1)
+			} else {
+				require.Empty(t, stored.Royalties.TransferPercentage,
+					"%s must never carry TransferPercentage royalties", tt.assetType)
+			}
+		})
+	}
+}
+
 func Test_validateSplitRoyaltyPercentages(t *testing.T) {
 	overflow := &transaction.RoyaltiesInfo{
 		SplitRoyalties: map[string]*transaction.RoyaltySplitInfo{

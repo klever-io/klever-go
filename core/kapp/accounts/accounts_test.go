@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -20,6 +21,7 @@ import (
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
+	txProcess "github.com/klever-io/klever-go/core/process/transaction"
 	cryptoMock "github.com/klever-io/klever-go/crypto/mock"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
@@ -6386,6 +6388,7 @@ func Test_ProcessNonFungibleTransfer_NonCanonicalAmount(t *testing.T) {
 	tests := []struct {
 		description  string
 		enableEpochs config.EnableEpochs
+		amount       int64
 		// forkActive reports whether FixAuditChangesV3 is active at the current
 		// epoch (0). An unset epoch field defaults to 0, so it is active; a field
 		// set to 1000 is not yet reached at epoch 0.
@@ -6394,11 +6397,37 @@ func Test_ProcessNonFungibleTransfer_NonCanonicalAmount(t *testing.T) {
 		{
 			description:  "fork off: legacy behaviour accepts non-canonical amount",
 			enableEpochs: config.EnableEpochs{FixAuditChangesV3: 1000},
+			amount:       inflated,
+			forkActive:   false,
+		},
+		{
+			description:  "fork off: legacy behaviour accepts zero amount",
+			enableEpochs: config.EnableEpochs{FixAuditChangesV3: 1000},
+			amount:       0,
 			forkActive:   false,
 		},
 		{
 			description:  "fork on: non-canonical amount is rejected",
 			enableEpochs: config.EnableEpochs{},
+			amount:       inflated,
+			forkActive:   true,
+		},
+		{
+			description:  "fork on: zero amount is rejected",
+			enableEpochs: config.EnableEpochs{},
+			amount:       0,
+			forkActive:   true,
+		},
+		{
+			description:  "fork on: amount of two is rejected",
+			enableEpochs: config.EnableEpochs{},
+			amount:       2,
+			forkActive:   true,
+		},
+		{
+			description:  "fork on: negative amount is rejected",
+			enableEpochs: config.EnableEpochs{},
+			amount:       -1,
 			forkActive:   true,
 		},
 	}
@@ -6474,7 +6503,7 @@ func Test_ProcessNonFungibleTransfer_NonCanonicalAmount(t *testing.T) {
 
 			tc := &transaction.TransferContract{
 				ToAddress: recipient,
-				Amount:    inflated,
+				Amount:    tt.amount,
 				AssetID:   []byte("NFT-1234/7"),
 			}
 
@@ -6487,7 +6516,7 @@ func Test_ProcessNonFungibleTransfer_NonCanonicalAmount(t *testing.T) {
 				require.Equal(t, transaction.Transaction_ContractInvalid, code)
 				require.False(t, subInternalCalled, "internal KDA path (sub) must not run on rejection")
 				require.False(t, addInternalCalled, "internal KDA path (add) must not run on rejection")
-				assert.Equal(t, inflated, tc.Amount)
+				assert.Equal(t, tt.amount, tc.Amount)
 				return
 			}
 
@@ -6496,7 +6525,7 @@ func Test_ProcessNonFungibleTransfer_NonCanonicalAmount(t *testing.T) {
 			require.Equal(t, transaction.Transaction_Ok, code)
 			require.True(t, subInternalCalled, "true NFT was not moved through the internal KDA path (sub)")
 			require.True(t, addInternalCalled, "true NFT was not moved through the internal KDA path (add)")
-			assert.Equal(t, inflated, tc.Amount)
+			assert.Equal(t, tt.amount, tc.Amount)
 		})
 	}
 }
@@ -7988,4 +8017,380 @@ func TestFullySplitPercentageRoyalty_CannotMintPastSupply(t *testing.T) {
 		require.Equal(t, int64(200), splitRoyaltyTotalSupplyHeld(store),
 			"pre-fork replay keeps the mint: the royalty pool is never debited")
 	})
+}
+
+const (
+	transferSenderStart   = int64(1_000)
+	transferReceiverStart = int64(250)
+	transferValue         = int64(400)
+	// Non-zero so receipts that ignore ctx.ContractID() are caught.
+	transferContractID = 3
+)
+
+// transferFixture wires an accountsKapp to two live user accounts through a
+// cacher that hands back the same instance on every load (the production cacher
+// with the cache on) and counts UpdateUser calls per address in `saved`. The
+// context is pinned so receipts can be read back after the call.
+type transferFixture struct {
+	accKapp  *accountsKapp
+	src, dst state.UserAccountHandler
+	ctx      kapp.KappContext
+	kda      *kapps.KDAData
+	saved    map[string]int
+}
+
+func newTransferFixture(t *testing.T, cfg config.EnableEpochs, assetType kapps.KDAData_EnumAssetType, sender, receiver []byte) transferFixture {
+	t.Helper()
+
+	src, err := state.NewUserAccount(sender)
+	require.NoError(t, err)
+	dst, err := state.NewUserAccount(receiver)
+	require.NoError(t, err)
+
+	// Pre-fork code reads balances with checkDirtyData=false, which on a
+	// trie-less account short-circuits to zero. An empty trie behind each
+	// account keeps dirty data readable in both fork states.
+	emptyTrie := &commonMock.TrieStub{GetCalled: func([]byte) ([]byte, error) { return nil, nil }}
+	src.SetDataTrie(emptyTrie)
+	dst.SetDataTrie(emptyTrie)
+
+	accounts := map[string]state.UserAccountHandler{string(sender): src, string(receiver): dst}
+	saved := make(map[string]int)
+	cacher := &commonMock.AccountsCacherStub{
+		LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+			acc, ok := accounts[string(address)]
+			if !ok {
+				return nil, fmt.Errorf("unexpected account load %x", address)
+			}
+			return acc, nil
+		},
+		UpdateUserCalled: func(account state.AccountHandler) error {
+			saved[string(account.AddressBytes())]++
+			return nil
+		},
+	}
+
+	kda := &kapps.KDAData{
+		AssetType:  assetType,
+		Attributes: &kapps.AttributesData{},
+		Properties: &kapps.PropertiesData{},
+	}
+	ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
+		OriginalSender: sender,
+		ContractID:     transferContractID,
+		ContractType:   transaction.TXContract_TransferContractType,
+		Block:          &block.Block{},
+	})
+	controller := &kvmStub.KAppControllerStub{
+		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetKDAKAppCalled: func() kapp.KDAKapp {
+			return &kvmStub.KDAKappStub{
+				GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+					return nil, kda, nil
+				},
+			}
+		},
+	}
+
+	accKapp := setupAccountsKapp(t, cfg)
+	require.NoError(t, accKapp.SetAccountsCacher(cacher))
+	require.NoError(t, accKapp.SetKAppController(controller))
+
+	return transferFixture{accKapp: accKapp, src: src, dst: dst, ctx: ctx, kda: kda, saved: saved}
+}
+
+func requireTransferReceipt(
+	t *testing.T,
+	receipt *transaction.Transaction_Receipt,
+	from, to []byte,
+	amount int64,
+	assetID, internalID []byte,
+	assetType kapps.KDAData_EnumAssetType,
+) {
+	t.Helper()
+
+	require.Len(t, receipt.Data, 7)
+	require.Equal(t, []byte{byte(txProcess.Transfer), transferContractID}, receipt.Data[0])
+	require.Equal(t, from, receipt.Data[1])
+	require.Equal(t, to, receipt.Data[2])
+	require.Equal(t, []byte(strconv.FormatInt(amount, 10)), receipt.Data[3])
+	require.Equal(t, assetID, receipt.Data[4])
+	require.Equal(t, internalID, receipt.Data[5])
+	require.Equal(t, byte(assetType), receipt.Data[6][0])
+}
+
+func Test_ProcessFungibleTransfer_DebitsSenderAndCreditsReceiver(t *testing.T) {
+	assetID := []byte("FUNGI-1234")
+	senderAddr := makeAddress("fungible-sender")
+	receiverAddr := makeAddress("fungible-receiver")
+
+	f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_Fungible, senderAddr, receiverAddr)
+	require.NoError(t, f.src.AddToBalance(transferSenderStart, assetID, true))
+	require.NoError(t, f.dst.AddToBalance(transferReceiverStart, assetID, true))
+
+	tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: assetID, Amount: transferValue}
+
+	status, err := f.accKapp.processFungibleTransfer(tc, assetID, f.src, f.dst, f.kda)
+	require.NoError(t, err)
+	require.Equal(t, transaction.Transaction_Ok, status)
+
+	require.Equal(t, transferSenderStart-transferValue, f.src.GetBalance(assetID, true),
+		"sender must be debited exactly the transferred amount")
+	require.Equal(t, transferReceiverStart+transferValue, f.dst.GetBalance(assetID, true),
+		"receiver must be credited exactly the transferred amount")
+
+	require.Equal(t, 1, f.saved[string(senderAddr)], "debited sender must be handed to the cacher")
+	require.Equal(t, 1, f.saved[string(receiverAddr)], "credited receiver must be handed to the cacher")
+
+	receipts := f.ctx.Receipts().Get()
+	require.Len(t, receipts, 1)
+	requireTransferReceipt(t, receipts[0], senderAddr, receiverAddr, transferValue, assetID, nil, kapps.KDAData_Fungible)
+}
+
+func Test_ProcessNonFungibleTransfer_MovesUnitToReceiver(t *testing.T) {
+	assetID := []byte("NONFUNGI-1234")
+	internalID := []byte("7")
+	nftPayload := []byte("nft-metadata")
+	senderAddr := makeAddress("nonFungible-sender")
+	receiverAddr := makeAddress("nonFungible-receiver")
+
+	f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_NonFungible, senderAddr, receiverAddr)
+	require.NoError(t, f.src.AddInternalKDA(assetID, internalID, nftPayload))
+
+	status, err := f.accKapp.processNonFungibleTransfer(assetID, internalID, f.src, f.dst)
+	require.NoError(t, err)
+	require.Equal(t, transaction.Transaction_Ok, status)
+
+	require.Equal(t, 1, f.saved[string(senderAddr)], "debited sender must be handed to the cacher")
+	require.Equal(t, 1, f.saved[string(receiverAddr)], "credited receiver must be handed to the cacher")
+
+	receipts := f.ctx.Receipts().Get()
+	require.Len(t, receipts, 1)
+	requireTransferReceipt(t, receipts[0], senderAddr, receiverAddr, 1, assetID, internalID, kapps.KDAData_NonFungible)
+
+	// Commit the sender's dirty data so the deleted key reads back empty from
+	// the trie; an uncommitted nil entry fails earlier with ErrNegativeValue.
+	committed := make(map[string][]byte)
+	for k, v := range f.src.DataTrieTracker().DirtyData() {
+		committed[k] = v
+	}
+	f.src.SetDataTrie(&commonMock.TrieStub{GetCalled: func(key []byte) ([]byte, error) {
+		return committed[string(key)], nil
+	}})
+	f.src.DataTrieTracker().ClearDataCaches()
+
+	status, err = f.accKapp.processNonFungibleTransfer(assetID, internalID, f.src, f.dst)
+	require.ErrorIs(t, err, common.ErrAssetNotFound, "the sender no longer owns the unit, so it cannot be sent twice")
+	require.Equal(t, transaction.Transaction_BalanceError, status)
+	require.Len(t, f.ctx.Receipts().Get(), 1, "a rejected second send must not add a receipt")
+
+	moved, err := f.dst.SubInternalKDA(assetID, internalID)
+	require.NoError(t, err, "receiver must own the unit after the transfer")
+	require.Equal(t, nftPayload, moved, "the unit payload must survive the transfer unchanged")
+}
+
+// Transfer routes a SemiFungible asset straight into processSemiFungibleTransfer
+// (no royalties configured), so this covers the helper and the account-to-account
+// path in one go.
+func Test_Transfer_SemiFungibleAccountToAccountMovesBalance(t *testing.T) {
+	assetID := []byte("SEMI-1234")
+	internalID := []byte("1")
+	senderAddr := makeAddress("semiFungible-sender")
+	receiverAddr := makeAddress("semiFungible-receiver")
+
+	f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_SemiFungible, senderAddr, receiverAddr)
+	require.NoError(t, f.src.AddToBalanceWithNonce(transferSenderStart, assetID, internalID, true))
+	require.NoError(t, f.dst.AddToBalanceWithNonce(transferReceiverStart, assetID, internalID, true))
+
+	tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: []byte("SEMI-1234/1"), Amount: transferValue}
+
+	status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+	require.NoError(t, err)
+	require.Equal(t, transaction.Transaction_Ok, status)
+
+	require.Equal(t, transferSenderStart-transferValue, f.src.GetBalanceWithNonce(assetID, internalID, true),
+		"sender must be debited exactly the transferred quantity of the nonce")
+	require.Equal(t, transferReceiverStart+transferValue, f.dst.GetBalanceWithNonce(assetID, internalID, true),
+		"receiver must be credited exactly the transferred quantity of the nonce")
+	require.Equal(t, int64(0), f.src.GetBalance(assetID, true),
+		"a nonce-scoped transfer must not touch the nonce-less balance of the same asset")
+	require.Equal(t, int64(0), f.dst.GetBalance(assetID, true),
+		"a nonce-scoped transfer must not touch the nonce-less balance of the same asset")
+
+	receipts := f.ctx.Receipts().Get()
+	require.Len(t, receipts, 1, "a successful transfer emits exactly one transfer receipt and no error receipt")
+	requireTransferReceipt(t, receipts[0], senderAddr, receiverAddr, transferValue, assetID, internalID, kapps.KDAData_SemiFungible)
+}
+
+// LimitTransfer is only enforced once EnableSmartContracts is active; before
+// the fork a limited asset moves without any role on either side.
+func Test_Transfer_LimitTransferRequiresARoleAfterSmartContracts(t *testing.T) {
+	assetID := []byte("FUNGI-1234")
+	senderAddr := makeAddress("limited-sender")
+	receiverAddr := makeAddress("limited-receiver")
+
+	tests := []struct {
+		name         string
+		cfg          config.EnableEpochs
+		roles        []*kapps.RolesData
+		owner, admin []byte
+		allowed      bool
+	}{
+		{name: "pre-fork/no role is not checked", cfg: config.EnableEpochs{SmartContracts: 1000}, allowed: true},
+		{name: "post-fork/no role on either side is blocked"},
+		{name: "post-fork/sender with transfer role", roles: []*kapps.RolesData{{Address: senderAddr, HasRoleTransfer: true}}, allowed: true},
+		{name: "post-fork/receiver with deposit role", roles: []*kapps.RolesData{{Address: receiverAddr, HasRoleDeposit: true}}, allowed: true},
+		{name: "post-fork/sender with only the deposit role is blocked", roles: []*kapps.RolesData{{Address: senderAddr, HasRoleDeposit: true}}},
+		{name: "post-fork/receiver with only the transfer role is blocked", roles: []*kapps.RolesData{{Address: receiverAddr, HasRoleTransfer: true}}},
+		{name: "post-fork/owner as sender", owner: senderAddr, allowed: true},
+		{name: "post-fork/owner as receiver", owner: receiverAddr, allowed: true},
+		{name: "post-fork/admin as sender", admin: senderAddr, allowed: true},
+		{name: "post-fork/admin as receiver", admin: receiverAddr, allowed: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newTransferFixture(t, tt.cfg, kapps.KDAData_Fungible, senderAddr, receiverAddr)
+			f.kda.Properties.LimitTransfer = true
+			f.kda.Roles = tt.roles
+			f.kda.OwnerAddress, f.kda.AdminAddress = tt.owner, tt.admin
+			require.NoError(t, f.src.AddToBalance(transferSenderStart, assetID, true))
+
+			tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: assetID, Amount: transferValue}
+
+			status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+			if !tt.allowed {
+				require.ErrorIs(t, err, process.ErrKDATransferNotAllowed)
+				require.Equal(t, transaction.Transaction_KDATransferNotAllowed, status)
+				require.Equal(t, transferSenderStart, f.src.GetBalance(assetID, true), "a blocked transfer must not debit the sender")
+				require.Equal(t, int64(0), f.dst.GetBalance(assetID, true), "a blocked transfer must not credit the receiver")
+
+				receipts := f.ctx.Receipts().Get()
+				require.Len(t, receipts, 1)
+				require.Equal(t, [][]byte{
+					{byte(kapp.ReceiptTypeError), transferContractID},
+					[]byte(common.ErrFieldTransferNotAllowed),
+					[]byte(process.ErrKDATransferNotAllowed.Error()),
+				}, receipts[0].Data)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, transaction.Transaction_Ok, status)
+			require.Equal(t, transferSenderStart-transferValue, f.src.GetBalance(assetID, true))
+			require.Equal(t, transferValue, f.dst.GetBalance(assetID, true))
+		})
+	}
+}
+
+// Before EnableSmartContracts a semi-fungible asset cannot be transferred at all:
+// a nonce in the asset ID is not even parsed, and without one the SFT helper
+// refuses the asset type.
+func Test_Transfer_SemiFungibleBeforeSmartContractsIsRejected(t *testing.T) {
+	senderAddr := makeAddress("presc-sender")
+	receiverAddr := makeAddress("presc-receiver")
+
+	tests := []struct {
+		name    string
+		assetID string
+		status  transaction.Transaction_TXResultCode
+		err     error
+	}{
+		{name: "no nonce", assetID: "SEMI-1234", status: transaction.Transaction_AssetTypeInvalid, err: common.ErrAssetTypeInvalid},
+		{name: "with nonce", assetID: "SEMI-1234/1", status: transaction.Transaction_ParameterInvalid, err: common.ErrInvalidValue},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newTransferFixture(t, config.EnableEpochs{SmartContracts: 1000}, kapps.KDAData_SemiFungible, senderAddr, receiverAddr)
+
+			tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: []byte(tt.assetID), Amount: transferValue}
+
+			status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+			require.ErrorIs(t, err, tt.err)
+			require.Equal(t, tt.status, status)
+		})
+	}
+}
+
+// An SFT balance lives under its exact nonce string. An asset ID with no nonce
+// or a differently spelled one resolves to another (empty) balance and must
+// not reach the units stored under the canonical nonce. Even when that
+// nonce-less balance is funded, a missing or zero nonce is rejected by the
+// account layer before anything moves.
+func Test_Transfer_SemiFungibleRequiresTheCanonicalNonce(t *testing.T) {
+	assetID := []byte("SEMI-1234")
+	internalID := []byte("1")
+	senderAddr := makeAddress("sft-nonce-sender")
+	receiverAddr := makeAddress("sft-nonce-receiver")
+
+	tests := []struct {
+		name         string
+		id           string
+		noNonceStart int64
+		status       transaction.Transaction_TXResultCode
+		err          error
+	}{
+		{name: "no nonce/empty nonce-less balance", id: "SEMI-1234", status: transaction.Transaction_OutOfFunds, err: process.ErrInsufficientFunds},
+		{name: "padded nonce", id: "SEMI-1234/01", status: transaction.Transaction_OutOfFunds, err: process.ErrInsufficientFunds},
+		{name: "no nonce/funded nonce-less balance", id: "SEMI-1234", noNonceStart: transferSenderStart, status: transaction.Transaction_BalanceError, err: strconv.ErrSyntax},
+		{name: "zero nonce/funded nonce-less balance", id: "SEMI-1234/0", noNonceStart: transferSenderStart, status: transaction.Transaction_BalanceError, err: state.ErrInvalidNonce},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_SemiFungible, senderAddr, receiverAddr)
+			require.NoError(t, f.src.AddToBalanceWithNonce(transferSenderStart, assetID, internalID, true))
+			require.NoError(t, f.src.AddToBalance(tt.noNonceStart, assetID, true))
+
+			tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: []byte(tt.id), Amount: transferValue}
+
+			status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+			require.ErrorIs(t, err, tt.err)
+			require.Equal(t, tt.status, status)
+
+			require.Equal(t, transferSenderStart, f.src.GetBalanceWithNonce(assetID, internalID, true),
+				"the canonical nonce balance must not be reachable through another asset ID spelling")
+			require.Equal(t, int64(0), f.dst.GetBalanceWithNonce(assetID, internalID, true))
+			require.Equal(t, tt.noNonceStart, f.src.GetBalance(assetID, true),
+				"a nonce-less SFT balance is never debited by Transfer")
+			require.Equal(t, int64(0), f.dst.GetBalance(assetID, true))
+		})
+	}
+}
+
+func TestTransfer_FungibleWritableCacher_CommitsBothSides(t *testing.T) {
+	for _, cacheEnabled := range []bool{false, true} {
+		name := "cacheDisabled"
+		if cacheEnabled {
+			name = "cacheEnabled"
+		}
+
+		t.Run(name, func(t *testing.T) {
+			sender := makeAddress("writable-sender")
+			receiver := makeAddress("writable-receiver")
+
+			store := map[string]int64{string(sender): readOnlySenderStart}
+			adapter := fundedUserAccountsAdapter(store)
+
+			prodCacher, err := state.NewAccountsCacher(readOnlyCacherArgs(adapter))
+			require.NoError(t, err)
+			prodCacher.ResetAll(cacheEnabled)
+
+			accKapp := setupAccountsKapp(t, config.EnableEpochs{})
+			require.NoError(t, accKapp.SetAccountsCacher(prodCacher))
+			require.NoError(t, accKapp.SetKAppController(fungibleKDAController()))
+
+			status, err := accKapp.Transfer(transaction.TXContract_TransferContractType, sender, readOnlyTransferContract(receiver))
+			require.NoError(t, err)
+			require.Equal(t, transaction.Transaction_Ok, status)
+
+			require.NoError(t, prodCacher.SaveAll())
+
+			require.Equal(t, readOnlySenderStart-readOnlyTransferValue, store[string(sender)],
+				"a writable transfer must debit the sender in committed state")
+			require.Equal(t, readOnlyTransferValue, store[string(receiver)],
+				"a writable transfer must credit the receiver in committed state")
+		})
+	}
 }
