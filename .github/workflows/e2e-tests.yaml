@@ -19,7 +19,7 @@ jobs:
       E2E_NODE_URL: ${{ secrets.E2E_DEVNET_NODE_URL }}
       E2E_PROXY_URL: ${{ secrets.E2E_DEVNET_PROXY_URL }}
       E2E_PRIVATE_KEYS: ${{ secrets.E2E_DEVNET_PRIVATE_KEYS }}
-      GO_VERSION: ${{ vars.GO_VERSION || '1.22' }}
+      GO_VERSION: ${{ vars.GO_VERSION || '1.25.7' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6

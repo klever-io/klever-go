@@ -10,11 +10,9 @@ import (
 
 const minPollingDuration = time.Second
 
-// closeJoinTimeout bounds how long Close waits for an in-flight handler batch.
-// Handlers normally complete in well under a millisecond, so this is ~1000x
-// headroom; it exists only so that a handler stuck on a syscall cannot consume
-// the node's whole shutdown budget. See the note on Close.
-const closeJoinTimeout = time.Second
+// defaultCloseJoinTimeout bounds Close's wait for an in-flight handler batch, so
+// that one stuck handler cannot consume the node's whole shutdown budget.
+const defaultCloseJoinTimeout = time.Second
 
 // AppStatusPolling will update an AppStatusHandler by polling components at a predefined interval
 type AppStatusPolling struct {
@@ -23,10 +21,10 @@ type AppStatusPolling struct {
 	registeredFunctions []func(appStatusHandler core.AppStatusHandler)
 	appStatusHandler    core.AppStatusHandler
 	done                chan struct{}
-	wg                  sync.WaitGroup
 	mutClose            sync.Mutex
 	closed              bool
-	joined              chan struct{}
+	stopped             chan struct{}
+	closeJoinTimeout    time.Duration
 }
 
 // NewAppStatusPolling will return an instance of AppStatusPolling
@@ -41,6 +39,7 @@ func NewAppStatusPolling(appStatusHandler core.AppStatusHandler, pollingDuration
 		pollingDuration:  pollingDuration,
 		appStatusHandler: appStatusHandler,
 		done:             make(chan struct{}),
+		closeJoinTimeout: defaultCloseJoinTimeout,
 	}, nil
 }
 
@@ -55,22 +54,20 @@ func (asp *AppStatusPolling) RegisterPollingFunc(handler func(appStatusHandler c
 	return nil
 }
 
-// Poll will notify the AppStatusHandler at a given time. The goroutine runs
-// until Close is called.
-//
-// Poll after Close is a no-op. Registering the goroutine under mutClose is what
-// makes that safe: it keeps wg.Go's Add from landing while Close's waiter is
-// inside wg.Wait, which sync detects and answers with a process-killing
-// "WaitGroup misuse: Add called concurrently with Wait" panic.
+// Poll starts the polling goroutine, which runs until Close. It is a no-op
+// after Close, and a no-op if the goroutine is already running.
 func (asp *AppStatusPolling) Poll() {
 	asp.mutClose.Lock()
 	defer asp.mutClose.Unlock()
 
-	if asp.closed {
+	if asp.closed || asp.stopped != nil {
 		return
 	}
 
-	asp.wg.Go(func() {
+	asp.stopped = make(chan struct{})
+	go func(stopped chan struct{}) {
+		defer close(stopped)
+
 		ticker := time.NewTicker(asp.pollingDuration)
 		defer ticker.Stop()
 
@@ -79,6 +76,15 @@ func (asp *AppStatusPolling) Poll() {
 			case <-asp.done:
 				return
 			case <-ticker.C:
+				// A batch slower than pollingDuration leaves a tick queued, so the
+				// select above sees two ready cases and picks at random. Re-check
+				// done here, or Close can be followed by one more batch.
+				select {
+				case <-asp.done:
+					return
+				default:
+				}
+
 				asp.mutRegisteredFunc.RLock()
 				for _, handler := range asp.registeredFunctions {
 					handler(asp.appStatusHandler)
@@ -86,51 +92,34 @@ func (asp *AppStatusPolling) Poll() {
 				asp.mutRegisteredFunc.RUnlock()
 			}
 		}
-	})
+	}(asp.stopped)
 }
 
-// Close stops the polling goroutine and waits for it to exit, so that a handler
-// caught mid-tick cannot still be reading from components that the caller tears
-// down after Close returns. cmd/node/startup.go:closeAllComponents relies on
-// this: it drains the background closers before closing NetMessenger (still
-// read by in-flight handlers) and then the Store and trie persisters.
-//
-// The join is bounded by closeJoinTimeout rather than unbounded, because
-// closeAllComponents drains these closers *before* Store.CloseAll and the trie
-// persisters, under a single maxTimeToClose watchdog (cmd/node/main.go). An
-// unbounded wait on a stuck handler would let that watchdog fire and skip the
-// storage close entirely — a worse outcome than the shutdown race this join
-// exists to prevent. Not every handler is a cheap in-memory read:
-// registerMemStatistics calls runtime.ReadMemStats plus several gopsutil /proc
-// lookups, any of which can stall on an IO-loaded node.
-//
-// On timeout Close returns ErrCloseTimeout and gives up rather than blocking;
-// closeAllComponents logs it via LogIfError and proceeds to close storage. The
-// first Close starts one waiter; later calls share it. The waiter exits once
-// the handler returns.
-//
-// Idempotent. A call from inside a registered polling handler returns
-// ErrCloseTimeout after closeJoinTimeout; the handler then finishes and the
-// waiter completes.
+// Close stops the polling goroutine and waits for the in-flight handler batch,
+// so a handler cannot still be reading a component that closeAllComponents
+// (cmd/node/startup.go) tears down after this returns. The wait is bounded by
+// closeJoinTimeout because that drain shares one watchdog with the storage
+// close; on timeout Close returns ErrCloseTimeout and gives up rather than let
+// the watchdog skip storage. Idempotent, and safe to call from a handler.
 func (asp *AppStatusPolling) Close() error {
 	asp.mutClose.Lock()
 	if !asp.closed {
 		asp.closed = true
 		close(asp.done)
-		asp.joined = make(chan struct{})
-		go func(joined chan struct{}) {
-			asp.wg.Wait()
-			close(joined)
-		}(asp.joined)
 	}
-	joined := asp.joined
+	stopped := asp.stopped
+	joinTimeout := asp.closeJoinTimeout
 	asp.mutClose.Unlock()
 
-	timer := time.NewTimer(closeJoinTimeout)
+	if stopped == nil {
+		return nil
+	}
+
+	timer := time.NewTimer(joinTimeout)
 	defer timer.Stop()
 
 	select {
-	case <-joined:
+	case <-stopped:
 		return nil
 	case <-timer.C:
 		return ErrCloseTimeout
