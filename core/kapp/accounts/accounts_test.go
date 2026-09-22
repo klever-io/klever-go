@@ -6418,6 +6418,18 @@ func Test_ProcessNonFungibleTransfer_NonCanonicalAmount(t *testing.T) {
 			amount:       0,
 			forkActive:   true,
 		},
+		{
+			description:  "fork on: amount of two is rejected",
+			enableEpochs: config.EnableEpochs{},
+			amount:       2,
+			forkActive:   true,
+		},
+		{
+			description:  "fork on: negative amount is rejected",
+			enableEpochs: config.EnableEpochs{},
+			amount:       -1,
+			forkActive:   true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -8011,6 +8023,8 @@ const (
 	transferSenderStart   = int64(1_000)
 	transferReceiverStart = int64(250)
 	transferValue         = int64(400)
+	// Non-zero so receipts that ignore ctx.ContractID() are caught.
+	transferContractID = 3
 )
 
 // transferFixture wires an accountsKapp to two live user accounts through a
@@ -8063,6 +8077,7 @@ func newTransferFixture(t *testing.T, cfg config.EnableEpochs, assetType kapps.K
 	}
 	ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
 		OriginalSender: sender,
+		ContractID:     transferContractID,
 		ContractType:   transaction.TXContract_TransferContractType,
 		Block:          &block.Block{},
 	})
@@ -8095,7 +8110,7 @@ func requireTransferReceipt(
 	t.Helper()
 
 	require.Len(t, receipt.Data, 7)
-	require.Equal(t, byte(txProcess.Transfer), receipt.Data[0][0])
+	require.Equal(t, []byte{byte(txProcess.Transfer), transferContractID}, receipt.Data[0])
 	require.Equal(t, from, receipt.Data[1])
 	require.Equal(t, to, receipt.Data[2])
 	require.Equal(t, []byte(strconv.FormatInt(amount, 10)), receipt.Data[3])
@@ -8190,24 +8205,11 @@ func Test_Transfer_SemiFungibleAccountToAccountMovesBalance(t *testing.T) {
 	require.Equal(t, int64(0), f.dst.GetBalance(assetID, true),
 		"a nonce-scoped transfer must not touch the nonce-less balance of the same asset")
 
-	// Unlike the fungible and non-fungible helpers, processSemiFungibleTransfer
-	// never calls UpdateUser. That is by design, not a gap: SFT transfers are
-	// gated behind EnableSmartContracts, which on every production config
-	// activates after ProcessorFlowITOPrice has turned the accounts cache on,
-	// and UpdateUser is a no-op with the cache on. Pinned so the asymmetry is
-	// deliberate in code and any change to it is a conscious one.
-	require.Equal(t, 0, f.saved[string(senderAddr)],
-		"processSemiFungibleTransfer relies on the accounts cache, not UpdateUser, to persist the sender")
-	require.Equal(t, 0, f.saved[string(receiverAddr)],
-		"processSemiFungibleTransfer relies on the accounts cache, not UpdateUser, to persist the receiver")
-
 	receipts := f.ctx.Receipts().Get()
 	require.Len(t, receipts, 1, "a successful transfer emits exactly one transfer receipt and no error receipt")
 	requireTransferReceipt(t, receipts[0], senderAddr, receiverAddr, transferValue, assetID, internalID, kapps.KDAData_SemiFungible)
 }
 
-// The NFT amount guard is gated on FixAuditChangesV3: before the fork the
-// amount is ignored and the unit moves; after it anything but 1 is rejected.
 // LimitTransfer is only enforced once EnableSmartContracts is active; before
 // the fork a limited asset moves without any role on either side.
 func Test_Transfer_LimitTransferRequiresARoleAfterSmartContracts(t *testing.T) {
@@ -8249,11 +8251,21 @@ func Test_Transfer_LimitTransferRequiresARoleAfterSmartContracts(t *testing.T) {
 				require.ErrorIs(t, err, process.ErrKDATransferNotAllowed)
 				require.Equal(t, transaction.Transaction_KDATransferNotAllowed, status)
 				require.Equal(t, transferSenderStart, f.src.GetBalance(assetID, true), "a blocked transfer must not debit the sender")
+				require.Equal(t, int64(0), f.dst.GetBalance(assetID, true), "a blocked transfer must not credit the receiver")
+
+				receipts := f.ctx.Receipts().Get()
+				require.Len(t, receipts, 1)
+				require.Equal(t, [][]byte{
+					{byte(kapp.ReceiptTypeError), transferContractID},
+					[]byte(common.ErrFieldTransferNotAllowed),
+					[]byte(process.ErrKDATransferNotAllowed.Error()),
+				}, receipts[0].Data)
 				return
 			}
 
 			require.NoError(t, err)
 			require.Equal(t, transaction.Transaction_Ok, status)
+			require.Equal(t, transferSenderStart-transferValue, f.src.GetBalance(assetID, true))
 			require.Equal(t, transferValue, f.dst.GetBalance(assetID, true))
 		})
 	}
