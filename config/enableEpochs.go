@@ -38,6 +38,14 @@ type EnableEpochs struct {
 // on the operator config at node start-up, so an inconsistent schedule fails loudly
 // instead of silently disabling the behaviour it was meant to activate.
 func (e EnableEpochs) Validate() error {
+	// SFT transfers rely on the accounts cache (enabled by processorFlowITOPrice) to
+	// persist balances, so smartContracts must not activate before it.
+	if e.SmartContracts < e.ProcessorFlowITOPrice {
+		return fmt.Errorf("smartContracts (%d) must not be before processorFlowITOPrice (%d), "+
+			"otherwise semi-fungible transfers are not persisted",
+			e.SmartContracts, e.ProcessorFlowITOPrice)
+	}
+
 	// The account freeze (common.IsAccountFrozen) holds an account only while
 	// fixMarketBuyOverflow is active and fixAuditChangesV4 is not, so a thaw epoch that
 	// is not strictly after the freeze epoch leaves an empty window and the listed

@@ -8295,8 +8295,9 @@ func Test_Transfer_SemiFungibleBeforeSmartContractsIsRejected(t *testing.T) {
 		assetID string
 		status  transaction.Transaction_TXResultCode
 		err     error
+		field   string
 	}{
-		{name: "no nonce", assetID: "SEMI-1234", status: transaction.Transaction_AssetTypeInvalid, err: common.ErrAssetTypeInvalid},
+		{name: "no nonce", assetID: "SEMI-1234", status: transaction.Transaction_AssetTypeInvalid, err: common.ErrAssetTypeInvalid, field: common.ErrFieldInvalidAssetType},
 		{name: "with nonce", assetID: "SEMI-1234/1", status: transaction.Transaction_ParameterInvalid, err: common.ErrInvalidValue},
 	}
 
@@ -8309,8 +8310,23 @@ func Test_Transfer_SemiFungibleBeforeSmartContractsIsRejected(t *testing.T) {
 			status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
 			require.ErrorIs(t, err, tt.err)
 			require.Equal(t, tt.status, status)
+			if tt.field != "" {
+				requireErrorReceipt(t, f.ctx.Receipts().Get(), tt.field, err)
+			}
 		})
 	}
+}
+
+// requireErrorReceipt asserts the only receipt is an error receipt naming field and err.
+func requireErrorReceipt(t *testing.T, receipts []*transaction.Transaction_Receipt, field string, err error) {
+	t.Helper()
+
+	require.Len(t, receipts, 1)
+	require.Equal(t, [][]byte{
+		{byte(kapp.ReceiptTypeError), transferContractID},
+		[]byte(field),
+		[]byte(err.Error()),
+	}, receipts[0].Data)
 }
 
 // An SFT balance lives under its exact nonce string. An asset ID with no nonce
@@ -8330,11 +8346,12 @@ func Test_Transfer_SemiFungibleRequiresTheCanonicalNonce(t *testing.T) {
 		noNonceStart int64
 		status       transaction.Transaction_TXResultCode
 		err          error
+		field        string
 	}{
-		{name: "no nonce/empty nonce-less balance", id: "SEMI-1234", status: transaction.Transaction_OutOfFunds, err: process.ErrInsufficientFunds},
-		{name: "padded nonce", id: "SEMI-1234/01", status: transaction.Transaction_OutOfFunds, err: process.ErrInsufficientFunds},
-		{name: "no nonce/funded nonce-less balance", id: "SEMI-1234", noNonceStart: transferSenderStart, status: transaction.Transaction_BalanceError, err: strconv.ErrSyntax},
-		{name: "zero nonce/funded nonce-less balance", id: "SEMI-1234/0", noNonceStart: transferSenderStart, status: transaction.Transaction_BalanceError, err: state.ErrInvalidNonce},
+		{name: "no nonce/empty nonce-less balance", id: "SEMI-1234", status: transaction.Transaction_OutOfFunds, err: process.ErrInsufficientFunds, field: common.ErrFieldInsufficientFunds},
+		{name: "padded nonce", id: "SEMI-1234/01", status: transaction.Transaction_OutOfFunds, err: process.ErrInsufficientFunds, field: common.ErrFieldInsufficientFunds},
+		{name: "no nonce/funded nonce-less balance", id: "SEMI-1234", noNonceStart: transferSenderStart, status: transaction.Transaction_BalanceError, err: strconv.ErrSyntax, field: common.ErrFieldBalanceError},
+		{name: "zero nonce/funded nonce-less balance", id: "SEMI-1234/0", noNonceStart: transferSenderStart, status: transaction.Transaction_BalanceError, err: state.ErrInvalidNonce, field: common.ErrFieldBalanceError},
 	}
 
 	for _, tt := range tests {
@@ -8348,6 +8365,7 @@ func Test_Transfer_SemiFungibleRequiresTheCanonicalNonce(t *testing.T) {
 			status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
 			require.ErrorIs(t, err, tt.err)
 			require.Equal(t, tt.status, status)
+			requireErrorReceipt(t, f.ctx.Receipts().Get(), tt.field, err)
 
 			require.Equal(t, transferSenderStart, f.src.GetBalanceWithNonce(assetID, internalID, true),
 				"the canonical nonce balance must not be reachable through another asset ID spelling")

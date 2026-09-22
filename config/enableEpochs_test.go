@@ -53,3 +53,16 @@ func TestEnableEpochs_Validate_AuditChangesV5AfterV4(t *testing.T) {
 		FixAuditChangesV4:    101,
 	}.Validate(), "V5 left at the placeholder activates from genesis")
 }
+
+func TestEnableEpochs_Validate_SmartContractsNotBeforeProcessorFlowITOPrice(t *testing.T) {
+	t.Parallel()
+
+	assert.NoError(t, config.EnableEpochs{ProcessorFlowITOPrice: 165, SmartContracts: 4860}.Validate(), "mainnet schedule")
+	assert.NoError(t, config.EnableEpochs{ProcessorFlowITOPrice: 100, SmartContracts: 100}.Validate(),
+		"the cache is on from the first block of a shared epoch")
+
+	assert.Error(t, config.EnableEpochs{ProcessorFlowITOPrice: 101, SmartContracts: 100}.Validate(),
+		"SFT transfers before the accounts cache are never persisted")
+	assert.Error(t, config.EnableEpochs{ProcessorFlowITOPrice: 100}.Validate(),
+		"smart contracts left at the placeholder activate from genesis, before the cache")
+}
