@@ -218,7 +218,8 @@ func (m *Monitor) initializeHeartBeatForPK(
 	return nil
 }
 
-// SaveMultipleHeartbeatMessageInfos stores all heartbeatMessageInfos to the storer
+// SaveMultipleHeartbeatMessageInfos stores the given heartbeatMessageInfos to the storer,
+// skipping any public key that is not admitted (transient/unknown identities are never persisted)
 func (m *Monitor) SaveMultipleHeartbeatMessageInfos(pubKeysToSave map[string]*heartbeatMessageInfo) {
 	m.mutHeartbeatMessages.RLock()
 	defer m.mutHeartbeatMessages.RUnlock()
@@ -515,12 +516,15 @@ func (m *Monitor) isAdmittedHeartbeatPubKey(pubKey string) bool {
 	return ok
 }
 
-func (m *Monitor) markHeartbeatPubKeyAsAdmitted(pubKey string) {
+func (m *Monitor) markHeartbeatPubKeyAsAdmitted(pubKey string) bool {
 	m.mutAdmittedHeartbeatPubKeys.Lock()
+	_, alreadyAdmitted := m.admittedHeartbeatPubKeys[pubKey]
 	m.admittedHeartbeatPubKeys[pubKey] = struct{}{}
 	m.mutAdmittedHeartbeatPubKeys.Unlock()
 
 	m.untrackTransientUnknownHeartbeatPubKey(pubKey)
+
+	return !alreadyAdmitted
 }
 
 func (m *Monitor) untrackTransientUnknownHeartbeatPubKey(pubKey string) {
@@ -711,20 +715,31 @@ func (m *Monitor) computeInactiveHeartbeatMessages() {
 	}
 
 	peerTypeInfos := m.peerTypeProvider.GetAllPeerTypeInfos()
+	newlyAdmittedPubKeys := make([][]byte, 0)
 	for _, peerTypeInfo := range peerTypeInfos {
-		m.markHeartbeatPubKeyAsAdmitted(peerTypeInfo.PublicKey)
-		if m.heartbeatMessages[peerTypeInfo.PublicKey] == nil {
-			hbmi, err := newHeartbeatMessageInfo(m.maxDurationPeerUnresponsive, peerTypeInfo.PeerType, m.genesisTime, m.timer)
+		newlyAdmitted := m.markHeartbeatPubKeyAsAdmitted(peerTypeInfo.PublicKey)
+		hbmi := m.heartbeatMessages[peerTypeInfo.PublicKey]
+		if hbmi == nil {
+			var err error
+			hbmi, err = newHeartbeatMessageInfo(m.maxDurationPeerUnresponsive, peerTypeInfo.PeerType, m.genesisTime, m.timer)
 			if err != nil {
 				log.Debug("could not create hbmi ", "err", err)
 				continue
 			}
 			m.heartbeatMessages[peerTypeInfo.PublicKey] = hbmi
+			continue
+		}
+		if newlyAdmitted {
+			inactiveHbChangedMap[peerTypeInfo.PublicKey] = hbmi
+			newlyAdmittedPubKeys = append(newlyAdmittedPubKeys, []byte(peerTypeInfo.PublicKey))
 		}
 	}
 
 	m.mutHeartbeatMessages.Unlock()
 	m.SaveMultipleHeartbeatMessageInfos(inactiveHbChangedMap)
+	for _, pubKey := range newlyAdmittedPubKeys {
+		m.addPeerToFullPeersSlice(pubKey)
+	}
 }
 
 // GetHeartbeats returns the heartbeat status
@@ -848,10 +863,6 @@ func (m *Monitor) runRefreshLoop() {
 	defer ticker.Stop()
 
 	for {
-		if m.isStopping() {
-			return
-		}
-
 		select {
 		case <-m.stopCh:
 			return

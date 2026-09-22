@@ -1684,3 +1684,66 @@ func TestMonitor_HeartbeatFromAdmittedIdentityReleasesTransientSlot(t *testing.T
 	assert.Equal(t, 0, mon.GetNumTransientUnknownHeartbeatPubKeys())
 	assert.Equal(t, 1, mon.GetNumHearbeatMessages())
 }
+
+func TestMonitor_RefreshPersistsIdentityAdmittedAfterFirstHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	var mutStore sync.Mutex
+	persisted := make([]string, 0)
+	savedKeyLists := make([][][]byte, 0)
+	var listed atomic.Bool
+	admittedPubKey := "late-validator"
+
+	arg := createMockArgHeartbeatMonitor()
+	arg.PubKeysList = []string{}
+	arg.HeartbeatRefreshIntervalInSec = 3600
+	arg.MaxDurationPeerUnresponsive = time.Hour
+	arg.PeerTypeProvider = &mock.PeerTypeProviderStub{
+		ComputeForPubKeyCalled: func(pubKey []byte) (core.PeerType, uint32, error) {
+			return "", 1, nil
+		},
+		GetAllPeerTypeInfosCalled: func() []*state.PeerTypeInfo {
+			if !listed.Load() {
+				return nil
+			}
+			return []*state.PeerTypeInfo{{PublicKey: admittedPubKey, PeerType: string(core.EligibleList)}}
+		},
+	}
+	arg.Storer = &mock.HeartbeatStorerStub{
+		UpdateGenesisTimeCalled: func(genesisTime time.Time) error { return nil },
+		LoadHeartBeatDTOCalled:  func(pubKey string) (*data.HeartbeatDTO, error) { return nil, errors.New("not found") },
+		LoadKeysCalled:          func() ([][]byte, error) { return nil, nil },
+		SavePubkeyDataCalled: func(pubkey []byte, heartbeat *data.HeartbeatDTO) error {
+			mutStore.Lock()
+			persisted = append(persisted, string(pubkey))
+			mutStore.Unlock()
+			return nil
+		},
+		RemovePubkeyDataCalled: func(pubkey []byte) error { return nil },
+		SaveKeysCalled: func(peersSlice [][]byte) error {
+			mutStore.Lock()
+			savedKeyLists = append(savedKeyLists, peersSlice)
+			mutStore.Unlock()
+			return nil
+		},
+	}
+
+	mon, err := process.NewMonitor(arg)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mon.Close() })
+
+	mon.AddHeartbeatMessageFromOrigin(&data.Heartbeat{Pubkey: []byte(admittedPubKey), Pid: []byte("pid")}, core.PeerID("origin-a"))
+	mutStore.Lock()
+	require.Empty(t, persisted)
+	mutStore.Unlock()
+
+	listed.Store(true)
+	mon.RefreshHeartbeatMessageInfo()
+
+	mutStore.Lock()
+	defer mutStore.Unlock()
+	assert.Contains(t, persisted, admittedPubKey)
+	require.NotEmpty(t, savedKeyLists)
+	assert.Contains(t, savedKeyLists[len(savedKeyLists)-1], []byte(admittedPubKey))
+	assert.Equal(t, 0, mon.GetNumTransientUnknownHeartbeatPubKeys())
+}
