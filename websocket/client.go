@@ -101,16 +101,33 @@ func unexpectedClose(err error) bool {
 }
 
 // recoverPanic is the barrier for client goroutines spawned outside gin.Recovery (KLC-2596).
-// teardown, when set, runs before the panic is logged.
+// teardown, when set, runs before the panic is logged, under a recover of its own.
 func (c *client) recoverPanic(op string, teardown func()) {
 	r := recover()
 	if r == nil {
 		return
 	}
 	if teardown != nil {
-		teardown()
+		c.runTeardown(op, teardown)
 	}
 	c.hub.logRecoveredPanic(op, r)
+}
+
+// runTeardown runs one barrier's teardown under its own recover. The teardown runs after
+// recover() has already consumed the original panic, so a panic here would replace it and
+// escape the goroutine — killing the node this barrier exists to keep alive, and taking the
+// original panic's log line with it. loopIn needs none of this: its teardown is a separate
+// defer registered after the barrier, so it runs before it and is recovered already.
+// A teardown panic is logged under its own op, which falls to the shared budget in
+// panicWarner rather than spending the barrier's.
+func (c *client) runTeardown(op string, teardown func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			c.hub.logRecoveredPanic(op+".teardown", r)
+		}
+	}()
+
+	teardown()
 }
 
 // watch this function read client messages to check if client cancel the conn or send a ping

@@ -270,6 +270,22 @@ func TestPanicBarrier_LoopIn_RecoversPanicInTeardown(t *testing.T) {
 	})
 }
 
+// TestPanicBarrier_RecoverPanic_TeardownPanicDoesNotEscape covers the barrier's own failure
+// mode. Unlike loopIn's, the teardown loopOut and the request worker hand to recoverPanic
+// runs after recover() has consumed the original panic, so a panic in it is a fresh one with
+// nothing left to catch it: it escapes the goroutine, takes the node down and the original
+// panic is never logged. Drop runTeardown's recover and this crashes the test binary.
+func TestPanicBarrier_RecoverPanic_TeardownPanicDoesNotEscape(t *testing.T) {
+	c := newTestClient(newTestHub(nil))
+
+	assertReturnsQuickly(t, 2*time.Second, "a panic in the barrier's teardown escaped the barrier", func() {
+		defer c.recoverPanic(opLoopOut, func() {
+			panic("boom: simulated panic in the barrier's teardown")
+		})
+		panic("boom: simulated panic in the guarded goroutine")
+	})
+}
+
 // panicMarshaler panics as the outbound writer marshals it, standing in for any latent
 // panic on the write path.
 type panicMarshaler struct{}
