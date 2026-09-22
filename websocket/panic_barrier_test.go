@@ -372,7 +372,9 @@ func TestLogRecoveredPanic_FoldsTheLineNotJustTheStack(t *testing.T) {
 
 	var observed lockedBuffer
 	require.NoError(t, logger.AddLogObserver(&observed, &logger.PlainFormatter{}))
-	t.Cleanup(func() { _ = logger.RemoveLogObserver(&observed) })
+	t.Cleanup(func() {
+		assert.NoError(t, logger.RemoveLogObserver(&observed))
+	})
 
 	// A fresh hub, so the probe op's window is this test's alone.
 	hub := newTestHub(nil)

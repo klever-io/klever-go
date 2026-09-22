@@ -22,7 +22,7 @@ type client struct {
 	sem       chan struct{}
 }
 
-// NewClient create a new client, add into hub and start ping and watch
+// NewClient creates a client and starts its read and write loops. The caller registers it with the hub.
 func NewClient(conn *ws.Conn, hub *SocketHub) *client {
 	client := &client{conn: conn, hub: hub, out: make(chan interface{}, outChannelSize), alive: true, sem: make(chan struct{}, maxWorkers)}
 	client.ctx, client.cancel = context.WithCancel(context.Background())
