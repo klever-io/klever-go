@@ -12,22 +12,10 @@ import (
 var _ hashing.Hasher = (*Blake2b)(nil)
 
 // Blake2b is a blake2b implementation of the hasher interface.
-//
-// HashSize must be 0 (meaning blake2b-256) or in the range 1..64, and must be set at
-// construction and never mutated afterwards — it is read without synchronization. Given that,
-// the zero value is ready to use and a single instance is safe for concurrent use. Instances
-// must not be copied after first use.
+// HashSize (0 means 256-bit, else 1..64) must not change after construction; must not be copied after first use.
 type Blake2b struct {
 	HashSize int
-	// emptyHash caches the digest of the empty string. It is computed lazily because it
-	// depends on HashSize, which is only known once the caller has built the struct.
-	// emptyMut guards it, and the cached digest is never handed out directly, only copied,
-	// so a caller mutating a result cannot corrupt later calls.
-	//
-	// A mutex rather than a sync.Once: sync.Once marks itself done even when its function
-	// panics, so an out-of-range HashSize would panic on the first call and then silently
-	// yield a zero-length digest on every call after. Re-checking under a mutex keeps that
-	// misconfiguration loud on every call.
+	// a mutex, not sync.Once: Once would cache a panicking init and later return an empty digest
 	emptyMut  sync.Mutex
 	emptyHash []byte
 }
@@ -40,8 +28,7 @@ func (b2b *Blake2b) getHasher() hash.Hash {
 
 	h, err := blake2b.New(b2b.HashSize, nil)
 	if err != nil {
-		// blake2b.New returns a nil *digest boxed in a non-nil hash.Hash alongside the
-		// error, so returning it would nil-dereference inside Sum. Fail with the cause.
+		// the returned hash.Hash is non-nil but wraps a nil *digest
 		panic(fmt.Sprintf("blake2b: invalid HashSize %d: %v", b2b.HashSize, err))
 	}
 

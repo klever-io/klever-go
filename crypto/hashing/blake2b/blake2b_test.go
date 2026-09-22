@@ -46,9 +46,7 @@ func TestBlake2b_Empty(t *testing.T) {
 	assert.Equal(t, resEmpty, resNil)
 }
 
-// The shared suite in crypto/hashing covers the EmptyHash() entry point for every hasher
-// (TestBlake2b_EmptyHashReturnsCopy). This covers the Compute("") entry point, which routes
-// through the same cache but is not exercised there.
+// the shared suite covers EmptyHash(); this covers the Compute("") entry point
 func TestBlake2b_ComputeEmptyReturnsCopy(t *testing.T) {
 	t.Parallel()
 
@@ -70,10 +68,7 @@ func TestBlake2b_ComputeEmptyReturnsCopy(t *testing.T) {
 func TestBlake2b_InvalidHashSizePanicsOnEveryCall(t *testing.T) {
 	t.Parallel()
 
-	// blake2b accepts 1..64; an out-of-range size is a programming error and must stay loud.
-	// A failed initialization must not be cached: if it were, the first call would panic and
-	// every later call would silently hand back a zero-length digest while Size() still
-	// reported 65.
+	// a failed init must not be cached, or later calls would return an empty digest
 	hasher := &blake2b.Blake2b{HashSize: 65}
 
 	assert.Panics(t, func() { _ = hasher.EmptyHash() })
@@ -81,10 +76,7 @@ func TestBlake2b_InvalidHashSizePanicsOnEveryCall(t *testing.T) {
 	assert.Panics(t, func() { _ = hasher.Compute("") })
 }
 
-// The shared suite's testConcurrentEmptyHash calls EmptyHash() once before spawning its
-// goroutines, so the cache is already warm and the lazy initialization itself never races.
-// That is why it never caught this bug. This test leaves the instance cold so the goroutines
-// race the initialization, and mixes both entry points into it.
+// unlike the shared suite, starts cold so the goroutines race the lazy init
 func TestBlake2b_ConcurrentEmptyInputIsRaceFree(t *testing.T) {
 	t.Parallel()
 
@@ -92,7 +84,6 @@ func TestBlake2b_ConcurrentEmptyInputIsRaceFree(t *testing.T) {
 
 	expected := (&blake2b.Blake2b{HashSize: 32}).Compute("")
 
-	// one instance shared by every goroutine, as NewAuthenticationFunc and the trie do
 	hasher := &blake2b.Blake2b{HashSize: 32}
 
 	start := make(chan struct{})

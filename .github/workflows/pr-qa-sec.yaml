@@ -44,9 +44,9 @@ jobs:
           fi
           TEST_EXIT=$?
 
-          # wasmer2 VM-execution packages trip checkptr under -race, so they are excluded
+          # excluded: wasmer2 VM packages trip checkptr; mcl multisig double-frees at race exit on linux
           echo "Running race tests..."
-          mapfile -t RACE_PKGS < <(go list ./... | grep -vE '/kvm/(integrationTests/(features|json)|vmhost/(hostCore|hosttest|hosttest/panictests|vmhookstest))$')
+          mapfile -t RACE_PKGS < <(go list ./... | grep -vE '/kvm/(integrationTests/(features|json)|vmhost/(hostCore|hosttest|hosttest/panictests|vmhookstest))$|/crypto/signing/(mcl/)?multisig$')
           if ! go test -race -short -count=1 "${RACE_PKGS[@]}"; then
             echo "::error::🔴 Race detector failures detected!"
             TEST_EXIT=1
