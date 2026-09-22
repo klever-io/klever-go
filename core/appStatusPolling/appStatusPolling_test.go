@@ -67,6 +67,7 @@ func TestAppStatusPolling_Poll_TestNumOfConnectedAddressesCalled(t *testing.T) {
 	}
 	asp, err := appStatusPolling.NewAppStatusPolling(&ash, pollingDuration)
 	assert.Nil(t, err)
+	asp.SetCloseJoinTimeout(longJoinTimeout)
 
 	err = asp.RegisterPollingFunc(func(appStatusHandler core.AppStatusHandler) {
 		appStatusHandler.SetInt64Value(core.MetricNumConnectedPeers, int64(10))
@@ -74,7 +75,7 @@ func TestAppStatusPolling_Poll_TestNumOfConnectedAddressesCalled(t *testing.T) {
 	assert.Nil(t, err)
 
 	asp.Poll()
-	t.Cleanup(func() { _ = asp.Close() })
+	t.Cleanup(func() { assert.NoError(t, asp.Close()) })
 
 	select {
 	case <-chDone:
@@ -113,6 +114,7 @@ func TestAppStatusPolling_Close_StopsGoroutine(t *testing.T) {
 	assert.Nil(t, err)
 
 	asp.Poll()
+	stopped := asp.StoppedChan()
 	// Poll until the goroutine has fired at least once — tolerant of -race jitter.
 	require.Eventually(t, func() bool {
 		return atomic.LoadInt32(&callCount) > 0
@@ -120,11 +122,13 @@ func TestAppStatusPolling_Close_StopsGoroutine(t *testing.T) {
 
 	assert.NoError(t, asp.Close())
 
-	// The join makes this deterministic: Close only returns nil once the
-	// goroutine is gone, so the count can no longer move.
-	atClose := atomic.LoadInt32(&callCount)
-	time.Sleep(2 * pollingDuration)
-	assert.Equal(t, atClose, atomic.LoadInt32(&callCount), "a handler fired after Close returned")
+	// Nothing can fire after Close returned because the goroutine is already
+	// gone. Assert that directly rather than sampling the count over a sleep.
+	select {
+	case <-stopped:
+	default:
+		t.Fatal("Close returned before the polling goroutine exited")
+	}
 }
 
 func TestAppStatusPolling_Close_WaitsForInFlightHandler(t *testing.T) {
@@ -258,29 +262,20 @@ func TestAppStatusPolling_PollAfterCloseIsNoOp(t *testing.T) {
 func TestAppStatusPolling_SecondPollIsNoOp(t *testing.T) {
 	t.Parallel()
 
-	pollingDuration := time.Second
-	var callCount int32
-	ash := mock.AppStatusHandlerStub{
-		SetInt64ValueHandler: func(key string, value int64) {
-			atomic.AddInt32(&callCount, 1)
-		},
-	}
-	asp, err := appStatusPolling.NewAppStatusPolling(&ash, pollingDuration)
+	asp, err := appStatusPolling.NewAppStatusPolling(&statusHandler.NilStatusHandler{}, time.Second)
 	require.Nil(t, err)
 	asp.SetCloseJoinTimeout(longJoinTimeout)
 
-	err = asp.RegisterPollingFunc(func(appStatusHandler core.AppStatusHandler) {
-		appStatusHandler.SetInt64Value(core.MetricNumConnectedPeers, int64(10))
-	})
-	require.Nil(t, err)
-
-	// A second goroutine would double every metric update at the same interval.
+	// A second goroutine would double every metric update at the same interval,
+	// so the second Poll must leave the first goroutine's channel in place.
 	asp.Poll()
-	asp.Poll()
-	t.Cleanup(func() { _ = asp.Close() })
+	first := asp.StoppedChan()
+	require.NotNil(t, first)
 
-	time.Sleep(2*pollingDuration + pollingDuration/2)
-	assert.LessOrEqual(t, atomic.LoadInt32(&callCount), int32(3), "a second Poll started a duplicate ticker")
+	asp.Poll()
+	t.Cleanup(func() { assert.NoError(t, asp.Close()) })
+
+	assert.True(t, first == asp.StoppedChan(), "a second Poll replaced the polling goroutine")
 }
 
 func TestAppStatusPolling_ConcurrentPollAndCloseShouldNotPanic(t *testing.T) {

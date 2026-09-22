@@ -26,3 +26,12 @@ func (asp *AppStatusPolling) CloseRequested() bool {
 
 	return asp.closed
 }
+
+// StoppedChan returns the channel the polling goroutine closes on exit, or nil
+// if Poll never started one.
+func (asp *AppStatusPolling) StoppedChan() <-chan struct{} {
+	asp.mutClose.Lock()
+	defer asp.mutClose.Unlock()
+
+	return asp.stopped
+}
