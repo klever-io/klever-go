@@ -120,4 +120,11 @@ func TestBlake2b_ConcurrentEmptyInputIsRaceFree(t *testing.T) {
 	for i, res := range results {
 		assert.Equal(t, expected, res, "goroutine %d got a different digest", i)
 	}
+
+	// fails without -race: the old code handed every caller the same cached slice
+	for i := 0; i < numGoroutines; i++ {
+		for j := i + 1; j < numGoroutines; j++ {
+			assert.NotSame(t, &results[i][0], &results[j][0], "goroutines %d and %d share a backing array", i, j)
+		}
+	}
 }
