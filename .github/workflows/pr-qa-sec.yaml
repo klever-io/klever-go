@@ -42,7 +42,16 @@ jobs:
             echo "Running short tests..."
             go test -short -covermode=atomic -coverprofile=coverage.out -json ./... > test-output.json
           fi
-          echo "test_exit_code=$?" >> $GITHUB_OUTPUT
+          TEST_EXIT=$?
+
+          # wasmer2 VM-execution packages trip checkptr under -race, so they are excluded
+          echo "Running race tests..."
+          mapfile -t RACE_PKGS < <(go list ./... | grep -vE '/kvm/(integrationTests/(features|json)|vmhost/(hostCore|hosttest|hosttest/panictests|vmhookstest))$')
+          if ! go test -race -short -count=1 "${RACE_PKGS[@]}"; then
+            echo "::error::🔴 Race detector failures detected!"
+            TEST_EXIT=1
+          fi
+          echo "test_exit_code=$TEST_EXIT" >> $GITHUB_OUTPUT
 
       - name: Process test results
         if: always()

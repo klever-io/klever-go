@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -410,9 +411,9 @@ func TestSaveSpansLogWithEmptyTracer(t *testing.T) {
 }
 
 func TestBatchFlushOnSize(t *testing.T) {
-	sentBatches := 0
+	var sentBatches atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sentBatches++
+		sentBatches.Add(1)
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer server.Close()
@@ -431,13 +432,13 @@ func TestBatchFlushOnSize(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Should have sent one batch
-	assert.Equal(t, 1, sentBatches)
+	assert.Equal(t, int32(1), sentBatches.Load())
 }
 
 func TestPushLoopWithTicker(t *testing.T) {
-	sentCount := 0
+	var sentCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sentCount++
+		sentCount.Add(1)
 		w.WriteHeader(http.StatusAccepted)
 	}))
 	defer server.Close()
@@ -453,7 +454,7 @@ func TestPushLoopWithTicker(t *testing.T) {
 	time.Sleep(60 * time.Millisecond)
 
 	// Should have sent due to ticker
-	assert.GreaterOrEqual(t, sentCount, 1)
+	assert.GreaterOrEqual(t, sentCount.Load(), int32(1))
 
 	tracer.DisableServerPush()
 }
