@@ -310,6 +310,8 @@ Quick start:
 
 **Report security vulnerabilities**: See [SECURITY.md](SECURITY.md)
 
+**Hardening a node's REST API**: See [docs/node-api-hardening.md](docs/node-api-hardening.md)
+
 For security audit information, contact: security@klever.io
 
 ## Support
