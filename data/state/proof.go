@@ -17,15 +17,26 @@ var ErrStateRootUnavailable = errors.New("state root is not available")
 // ErrInvalidProofRequest is returned when a proof call is missing its key or root.
 var ErrInvalidProofRequest = errors.New("invalid proof request")
 
-// MerkleProof is an inclusion proof for one key under a state root.
+// MerkleProof is an inclusion proof for one key under a state root. A client can check
+// it without the node:
 //
-// External verification uses the chain hasher (blake2b in config/node/config.yaml) over
-// the raw encoded trie node bytes: hasher.Compute(string(node)). The first node hashes
-// to RootHash, and each following node hashes to the child selected by the key. The key
-// is the raw account address, with nibbles reversed and a hex terminator appended
-// (data/trie keyBytesToHex). Value is the leaf bytes stored at that key, which for an
-// account is the protobuf-encoded account. A valid proof shows inclusion under RootHash
-// only; RootHash itself must come from a finalized block header.
+//  1. Key: take the raw account address, reverse its bytes, and emit each byte's low
+//     nibble then its high nibble; append the terminator nibble 16
+//     (data/trie keyBytesToHex).
+//  2. Hash: each node must hash to the expected hash, starting with RootHash. The hash
+//     is unkeyed blake2b-256 (config/node/config.yaml hasher) over the full node bytes.
+//  3. Decode: the last byte of a node is its type (0 extension, 1 leaf, 2 branch); the
+//     bytes before it are the protobuf CollapsedEn{Key, EncodedChild},
+//     CollapsedLn{Key, Value} or CollapsedBn{EncodedChildren} (data/trie/proto/node.proto).
+//  4. Walk: a branch always has 17 EncodedChildren slots; the next hash is
+//     EncodedChildren[key[0]] and one nibble is consumed. An extension's Key must prefix
+//     the remaining key; the next hash is EncodedChild and len(Key) nibbles are consumed.
+//     A leaf ends the proof; its Key must equal the remaining key, terminator included.
+//  5. Value: the leaf Value is the protobuf-encoded account and must equal Value.
+//     VerifyMerkleProof checks steps 1-4 only.
+//
+// A valid proof shows inclusion under RootHash only; RootHash itself must come from a
+// finalized block header.
 type MerkleProof struct {
 	RootHash []byte
 	Value    []byte

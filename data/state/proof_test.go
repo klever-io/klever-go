@@ -1,16 +1,19 @@
 package state_test
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/state/factory"
 	"github.com/klever-io/klever-go/data/trie"
+	"github.com/klever-io/klever-go/storage/storageUnit"
 	"github.com/stretchr/testify/require"
 )
 
@@ -242,4 +245,86 @@ func TestAccountsDB_MerkleProofTrieErrors(t *testing.T) {
 		_, err = adb.GetMerkleProofAtRoot(other, key)
 		require.ErrorIs(t, err, errBoom)
 	})
+}
+
+// hookDb calls onGet before each read, so a test can act while a trie walk is in progress.
+type hookDb struct {
+	*mock.MemDbMock
+	onGet func(key []byte)
+}
+
+func (h *hookDb) Get(key []byte) ([]byte, error) {
+	if h.onGet != nil {
+		h.onGet(key)
+	}
+	return h.MemDbMock.Get(key)
+}
+
+func TestAccountsDB_MerkleProofHoldsLockAgainstPruning(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.ProtobufMarshalizerMock{}
+	hsh := &mock.HasherMock{}
+	db := &hookDb{MemDbMock: mock.NewMemDbMock()}
+	ewl, err := mock.NewEvictionWaitingList(100, mock.NewMemDbMock(), marshalizer)
+	require.NoError(t, err)
+	tsm, err := trie.NewTrieStorageManager(
+		db,
+		marshalizer,
+		hsh,
+		config.DBConfig{
+			FilePath:          t.TempDir(),
+			Type:              string(storageUnit.LvlDBSerial),
+			BatchDelaySeconds: 1,
+			MaxBatchSize:      1,
+			MaxOpenFiles:      10,
+		},
+		ewl,
+		config.TrieStorageManagerConfig{PruningBufferLen: 1000, SnapshotsBufferLen: 10, MaxSnapshots: 2},
+	)
+	require.NoError(t, err)
+	tr, err := trie.NewTrie(tsm, marshalizer, hsh, 5)
+	require.NoError(t, err)
+	adb, err := state.NewAccountsDB(tr, hsh, marshalizer, factory.NewAccountCreator(), core.Normal)
+	require.NoError(t, err)
+
+	address := make([]byte, 32)
+	address[0] = 1
+	other := make([]byte, 32)
+	other[0] = 2
+	putBalance(t, adb, address, 10)
+	putBalance(t, adb, other, 3)
+	root1, err := adb.Commit()
+	require.NoError(t, err)
+	putBalance(t, adb, address, 5)
+	_, err = adb.Commit()
+	require.NoError(t, err)
+
+	// Child nodes are read only while the proof walks root1. PruneTrie takes the same
+	// accounts lock, so the lock must still be held at every such read.
+	walkReads := 0
+	db.onGet = func(key []byte) {
+		if bytes.Equal(key, root1) {
+			return
+		}
+		walkReads++
+		require.False(t, adb.TryLockMutOp(), "accounts lock released during the proof walk")
+	}
+	proof, err := adb.GetMerkleProofAtRoot(root1, address)
+	db.onGet = nil
+	require.NoError(t, err)
+	require.Positive(t, walkReads)
+
+	// The last node is the account leaf: a protobuf CollapsedLn followed by the leaf type byte.
+	last := proof.Proof[len(proof.Proof)-1]
+	require.Equal(t, byte(1), last[len(last)-1])
+	leaf := &trie.CollapsedLn{}
+	require.NoError(t, marshalizer.Unmarshal(leaf, last[:len(last)-1]))
+	require.Equal(t, proof.Value, leaf.Value)
+
+	// Once root1 is pruned, a proof for it is a clear unavailable-root error.
+	adb.CancelPrune(root1, data.NewRoot)
+	adb.PruneTrie(root1, data.OldRoot)
+	_, err = adb.GetMerkleProofAtRoot(root1, address)
+	require.ErrorIs(t, err, state.ErrStateRootUnavailable)
 }

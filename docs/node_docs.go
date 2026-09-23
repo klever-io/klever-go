@@ -3551,7 +3551,7 @@ const docTemplatenode = `{
             "type": "object",
             "properties": {
                 "proof": {
-                    "description": "Hex-encoded trie nodes from the root down to the account leaf.",
+                    "description": "Hex-encoded trie nodes from the root down to the account leaf. Each node is a\nprotobuf body plus a trailing type byte (0 extension CollapsedEn{Key, EncodedChild},\n1 leaf CollapsedLn{Key, Value}, 2 branch CollapsedBn{EncodedChildren}, 17 slots).\nThe first node hashes to rootHash with unkeyed blake2b-256 over the full bytes; each\nnext node hashes to the child selected by the key. The key is the address bytes\nreversed, each byte as low then high nibble, plus terminator nibble 16. A branch\nconsumes one nibble, an extension its Key; the leaf Key must equal the rest.",
                     "type": "array",
                     "items": {
                         "type": "string"

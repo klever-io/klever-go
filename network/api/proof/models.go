@@ -1,19 +1,15 @@
 package proof
 
 // ProofResponse is a Merkle inclusion proof for one account under a state root.
-//
-// Proof is the encoded Patricia trie nodes from the root down to the leaf, hex-encoded.
-// An external verifier hashes each node with the chain hasher (blake2b; config hasher.type)
-// over the raw decoded bytes: hasher.Compute(string(node)). The first node must hash to
-// RootHash. The key is the decoded bech32 address, with nibbles reversed and a hex
-// terminator appended, which is how the accounts trie walks a key. Value is the leaf
-// bytes at that key (the protobuf-encoded account), hex-encoded.
-//
-// A valid proof establishes inclusion under RootHash only. Take RootHash from a
-// finalized block header. A historical root is served only while that root is still
-// stored; pruned nodes return a clear error instead of a proof.
+// The full client-side verification steps are documented on state.MerkleProof.
 type ProofResponse struct {
-	// Hex-encoded trie nodes from the root down to the account leaf.
+	// Hex-encoded trie nodes from the root down to the account leaf. Each node is a
+	// protobuf body plus a trailing type byte (0 extension CollapsedEn{Key, EncodedChild},
+	// 1 leaf CollapsedLn{Key, Value}, 2 branch CollapsedBn{EncodedChildren}, 17 slots).
+	// The first node hashes to rootHash with unkeyed blake2b-256 over the full bytes; each
+	// next node hashes to the child selected by the key. The key is the address bytes
+	// reversed, each byte as low then high nibble, plus terminator nibble 16. A branch
+	// consumes one nibble, an extension its Key; the leaf Key must equal the rest.
 	Proof []string `json:"proof"`
 	// Hex protobuf-encoded account leaf. /proof/verify does not check this field;
 	// compare it with the leaf in the verified proof nodes.
