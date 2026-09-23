@@ -88,6 +88,11 @@ type ForkController interface {
 	// notifier's current one, for callers that run before the notifier has been advanced
 	// to the header's epoch.
 	FixAuditChangesV5InEpoch(epoch uint32) bool
+	FixAuditChangesV6() bool
+	// FixAuditChangesV6InEpoch reports the gate for an explicit epoch instead of the
+	// notifier's current one, for callers that run before the notifier has been advanced
+	// to the header's epoch.
+	FixAuditChangesV6InEpoch(epoch uint32) bool
 	IsInterfaceNil() bool
 }
 

@@ -17,6 +17,8 @@ type ForkControllerStub struct {
 	FixAuditChangesV4Called        func() bool
 	FixAuditChangesV5Called        func() bool
 	FixAuditChangesV5InEpochCalled func(epoch uint32) bool
+	FixAuditChangesV6Called        func() bool
+	FixAuditChangesV6InEpochCalled func(epoch uint32) bool
 }
 
 // ProcessorFlowITOPrice -
@@ -149,6 +151,22 @@ func (fc *ForkControllerStub) FixAuditChangesV5InEpoch(epoch uint32) bool {
 	}
 
 	return fc.FixAuditChangesV5()
+}
+
+func (fc *ForkControllerStub) FixAuditChangesV6() bool {
+	if fc.FixAuditChangesV6Called != nil {
+		return fc.FixAuditChangesV6Called()
+	}
+
+	return false
+}
+
+func (fc *ForkControllerStub) FixAuditChangesV6InEpoch(epoch uint32) bool {
+	if fc.FixAuditChangesV6InEpochCalled != nil {
+		return fc.FixAuditChangesV6InEpochCalled(epoch)
+	}
+
+	return fc.FixAuditChangesV6()
 }
 
 // IsInterfaceNil -
