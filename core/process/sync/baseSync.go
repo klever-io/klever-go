@@ -38,7 +38,10 @@ const sleepTime = 5 * time.Millisecond
 
 // maxSlotsAheadToPostponeSync is how far ahead of the local chronology a header can be
 // dated and still be kept queued: the chronology can step back a couple of slots, but a
-// header further ahead than that is not going to become valid soon and would stall sync
+// header further ahead than that is not going to become valid soon and would stall sync.
+// It is a local sync heuristic, not a validity bound: a header past it is only removed
+// from the pools and the fork detector - no rollback, no sync failure counted - so it is
+// requested and accepted again once the chronology catches up.
 const maxSlotsAheadToPostponeSync = 3
 
 // HdrInfo hold the data related to a header
@@ -556,6 +559,10 @@ func (boot *baseBootstrap) doJobOnSyncBlockFail(headerHandler data.HeaderHandler
 
 		// Further ahead it would be picked again on every slot and shadow any other
 		// header for the same nonce, so it is dropped, still without a rollback.
+		log.Debug("sync block dropped a header too far ahead of the chronology",
+			"nonce", headerHandler.GetNonce(),
+			"header slot", headerHandler.GetSlot(),
+			"current slot", slotIndex)
 		hash := boot.removeHeaderFromPools(headerHandler)
 		boot.forkDetector.RemoveHeader(headerHandler.GetNonce(), hash)
 		return

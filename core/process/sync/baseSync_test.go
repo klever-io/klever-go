@@ -403,3 +403,43 @@ func TestSyncBlock_FarFutureHeaderShouldBeDroppedWithoutRollBack(t *testing.T) {
 	assert.Equal(t, uint64(6), sim.currentHeader().GetNonce())
 	assert.Equal(t, 0, sim.numReverts)
 }
+
+func TestDoJobOnSyncBlockFail_SlotAheadBoundary(t *testing.T) {
+	t.Run("exactly maxSlotsAhead is postponed", func(t *testing.T) {
+		sim, boot := newSyncSim(t)
+		hdr := newHeader(6, uint64(sim.index())+maxSlotsAheadToPostponeSync, []byte("h5"))
+
+		boot.doJobOnSyncBlockFail(hdr, process.ErrSlotAheadOfChronology, sim.index())
+
+		assert.True(t, boot.isSyncPostponed())
+		assertNothingDiscarded(t, sim, boot)
+	})
+	t.Run("one past maxSlotsAhead is dropped", func(t *testing.T) {
+		sim, boot := newSyncSim(t)
+		hdr := newHeader(6, uint64(sim.index())+maxSlotsAheadToPostponeSync+1, []byte("h5"))
+
+		boot.doJobOnSyncBlockFail(hdr, process.ErrSlotAheadOfChronology, sim.index())
+
+		assert.False(t, boot.isSyncPostponed())
+		sim.mut.Lock()
+		defer sim.mut.Unlock()
+		assert.Equal(t, uint64(5), sim.current.GetNonce(), "the committed block must not be rolled back")
+		assert.Equal(t, 0, sim.numReverts)
+		assert.Equal(t, 1, sim.numRemovedFromPool)
+		assert.Equal(t, 1, sim.numRemovedFromFork)
+		assert.Equal(t, uint32(0), boot.GetNumSyncedWithErrorsForNonce(6))
+	})
+}
+
+func TestIsSyncPostponed_ShouldReleaseWhenNonceChangesInSameSlot(t *testing.T) {
+	sim, boot := newSyncSim(t)
+
+	sim.setSlot(10)
+	require.ErrorIs(t, boot.syncBlock(), process.ErrSlotAheadOfChronology)
+	require.True(t, boot.isSyncPostponed())
+
+	// The chain moves to nonce 6 while the chronology stays on the same slot.
+	require.NoError(t, boot.chainHandler.SetCurrentBlockHeaderAndHash(newHeader(6, 10, []byte("h5")), []byte("h6")))
+
+	assert.False(t, boot.isSyncPostponed())
+}
