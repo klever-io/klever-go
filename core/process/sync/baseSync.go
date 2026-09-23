@@ -3,9 +3,11 @@ package sync
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -111,8 +113,11 @@ type baseBootstrap struct {
 	indexer           process.Indexer
 	isInImportMode    bool
 	mutRequestHeaders sync.Mutex
-	cancelFunc        func()
-	hasStarted        bool
+	// lastStuckRequestSlot caps the stuck-recovery burst and its warning to once
+	// per slot, regardless of how often the trigger path runs.
+	lastStuckRequestSlot atomic.Int64
+	cancelFunc           func()
+	hasStarted           bool
 
 	// For Backtest Purpose
 	chanStopNodeProcess chan endProcess.ArgEndProcess
@@ -340,7 +345,7 @@ func (boot *baseBootstrap) computeNodeState() {
 		"isNodeSynchronized", boot.isNodeSynchronized)
 
 	if boot.shouldTryToRequestHeaders() {
-		go boot.requestHeadersIfSyncIsStuck()
+		go boot.requestHeadersIfSyncIsStuck(boot.isNodeSynchronized)
 	}
 }
 
@@ -358,19 +363,95 @@ func (boot *baseBootstrap) shouldTryToRequestHeaders() bool {
 		return true
 	}
 
-	return boot.slotManager.Index()%process.SlotModulusTriggerWhenSyncIsStuck == 0
+	// The node believes it is synchronized, but that belief comes from the fork
+	// detector, whose counters only move for headers that were accepted. While
+	// header intake is blocked (for instance right after an epoch boundary, when
+	// the new epoch's consensus config does not exist yet) the node sits at a
+	// stale nonce and still reports itself synced. The slot lag is derived from
+	// the slot manager and the last committed block instead, so it stays truthful
+	// in exactly that state.
+	//
+	// This replaces a slot-index modulus trigger (every 20th slot) that could
+	// never fire here: baseForkDetector.isConsensusStuck uses the same lag
+	// threshold and fires on process.SlotModulusTrigger (5), so every slot that
+	// satisfied the old modulus of 20 also produced a forced-rollback ForkInfo,
+	// which the isForcedRollBackOneBlock guard above short-circuits on.
+	// Requesting on the slots in between is what keeps the fork detector out of
+	// that forced-rollback loop: once a requested header lands, isSyncing() turns
+	// true and the next stuck check stands down.
+	//
+	// Import mode replays historical blocks, so the slot lag is unbounded by
+	// construction and there are no peers to request from.
+	if boot.isInImportMode {
+		return false
+	}
+
+	// The resulting burst and its warning are capped to once per slot by
+	// lastStuckRequestSlot inside requestHeadersIfSyncIsStuck, independently of
+	// how often this predicate is evaluated.
+	return boot.slotsSinceLastCommittedBlock() > process.MaxSlotsWithoutNewBlockReceived
 }
 
-func (boot *baseBootstrap) requestHeadersIfSyncIsStuck() {
+// slotsSinceLastCommittedBlock returns how many slots have passed since the slot
+// of the last committed block. It deliberately avoids the fork detector, so that
+// it remains meaningful when header intake is blocked and the fork detector's
+// counters are frozen.
+func (boot *baseBootstrap) slotsSinceLastCommittedBlock() uint64 {
 	lastSyncedSlot := boot.chainHandler.GetGenesisHeader().GetSlot()
 	currHeader := boot.chainHandler.GetCurrentBlockHeader()
 	if !check.IfNil(currHeader) {
 		lastSyncedSlot = currHeader.GetSlot()
 	}
 
-	slotDiff := tools.SafeI64ToU64(boot.slotManager.Index()) - lastSyncedSlot
+	lag, err := tools.SafeSubUint64(tools.SafeI64ToU64(boot.slotManager.Index()), lastSyncedSlot)
+	if err != nil {
+		// The last committed block is ahead of our own slot index, so no slots
+		// have elapsed since it. Subtracting would wrap around on uint64 and
+		// report an enormous lag, which gates a per-slot request path. Debug
+		// rather than warn on purpose: this can run under mutNodeState, and the
+		// operator-facing warning for this state lives in
+		// baseForkDetector.isConsensusStuck, which observes the same condition.
+		log.Debug("last committed block is ahead of the local slot index",
+			"local slot index", boot.slotManager.Index(),
+			"last committed block slot", lastSyncedSlot)
+		return 0
+	}
+
+	return lag
+}
+
+// requestHeadersIfSyncIsStuck fires the recovery burst once the node has not
+// committed a block for more than MaxSlotsWithoutNewBlockReceived slots.
+// stalledWhileSynced tells it whether the node believed it was synchronized at
+// the moment the burst was decided; that state deserves a warning, because the
+// node advertises NsSynchronized and MetricIsSyncing reads 0 throughout, while
+// an honestly syncing node passing through here is just catching up.
+func (boot *baseBootstrap) requestHeadersIfSyncIsStuck(stalledWhileSynced bool) {
+	slotDiff := boot.slotsSinceLastCommittedBlock()
 	if slotDiff <= process.MaxSlotsWithoutNewBlockReceived {
 		return
+	}
+
+	// Self-enforcing once-per-slot cap. Before this field the bound depended on
+	// computeNodeState's per-slot memoization, which in turn depended on the
+	// position of a defer in syncBlock; a refactor there would have silently put
+	// this burst on the 5 ms sync loop. The swap also keeps concurrent callers
+	// in the same slot down to one burst.
+	currentSlot := boot.slotManager.Index()
+	if boot.lastStuckRequestSlot.Swap(currentSlot) == currentSlot {
+		return
+	}
+
+	if stalledWhileSynced {
+		// Warn level, and emitted here rather than in shouldTryToRequestHeaders:
+		// this goroutine runs outside mutNodeState, which consensus contends on
+		// through GetNodeState, so log formatting stays out of that lock. It
+		// cannot be driven by a peer, since both operands are local (own slot
+		// index, own last committed block).
+		log.Warn("node believes it is synchronized but has not committed a block for a while",
+			"slots since last committed block", slotDiff,
+			"last committed nonce", boot.getNonceForCurrentBlock(),
+			"fork detector highest nonce", boot.forkDetector.ProbableHighestNonce())
 	}
 
 	fromNonce := boot.getNonceForNextBlock()
@@ -531,7 +612,7 @@ func (boot *baseBootstrap) syncBlocks(ctx context.Context) {
 
 func (boot *baseBootstrap) doJobOnSyncBlockFail(headerHandler data.HeaderHandler, err error) {
 	processBlockStarted := !check.IfNil(headerHandler)
-	isProcessWithError := processBlockStarted && err != process.ErrTimeIsOut
+	isProcessWithError := processBlockStarted && !errors.Is(err, process.ErrTimeIsOut)
 
 	numSyncedWithErrors := boot.incrementSyncedWithErrorsForNonce(boot.getNonceForNextBlock())
 	allowedSyncWithErrorsLimitReached := numSyncedWithErrors >= process.MaxSyncWithErrorsAllowed
@@ -576,6 +657,11 @@ func (boot *baseBootstrap) syncBlock() error {
 	boot.computeNodeState()
 	nodeState := boot.GetNodeState()
 	if nodeState != core.NsNotSynchronized {
+		// Returning here leaves isNodeStateCalculated set, so computeNodeState
+		// short circuits for the rest of the slot. The stuck-recovery burst and
+		// its warning carry their own once-per-slot cap (lastStuckRequestSlot),
+		// so hoisting the defer above this return would waste work but no
+		// longer changes how often they fire.
 		return nil
 	}
 
