@@ -29,6 +29,7 @@ import (
 	"github.com/klever-io/klever-go/network/api/middleware"
 	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/network/api/node"
+	"github.com/klever-io/klever-go/network/api/proof"
 	transactionAPI "github.com/klever-io/klever-go/network/api/transaction"
 	"github.com/klever-io/klever-go/network/api/validator"
 	"github.com/klever-io/klever-go/node/heartbeat/data"
@@ -49,6 +50,7 @@ const DefaultRestPortOff = "off"
 
 var _ = address.FacadeHandler(&nodeFacade{})
 var _ = node.FacadeHandler(&nodeFacade{})
+var _ = proof.FacadeHandler(&nodeFacade{})
 var _ = transactionAPI.FacadeHandler(&nodeFacade{})
 var _ = validator.FacadeHandler(&nodeFacade{})
 
@@ -502,6 +504,21 @@ func (nf *nodeFacade) GetTransaction(hash string, withResults bool) (*dataAPI.Tr
 // about the account correlated with provided address
 func (nf *nodeFacade) GetAccount(address string) (state.UserAccountHandler, error) {
 	return nf.node.GetAccount(address)
+}
+
+// GetProof returns a Merkle proof of the account under the current state root.
+func (nf *nodeFacade) GetProof(address string) (*state.MerkleProof, error) {
+	return nf.node.GetProof(address)
+}
+
+// GetProofForRootHash returns a Merkle proof of the account under rootHash.
+func (nf *nodeFacade) GetProofForRootHash(rootHash []byte, address string) (*state.MerkleProof, error) {
+	return nf.node.GetProofForRootHash(rootHash, address)
+}
+
+// VerifyProof reports whether proof shows the account included under rootHash.
+func (nf *nodeFacade) VerifyProof(rootHash []byte, address string, proof [][]byte) (bool, error) {
+	return nf.node.VerifyProof(rootHash, address, proof)
 }
 
 // GetNextNonce returns account next nonce

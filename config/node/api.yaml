@@ -13,6 +13,16 @@ apiPackages:
         open: true
       - name: /:address/allowance/list
         open: true
+  # Account inclusion proofs. open/secured follow the same RouterWrapper rules as the
+  # other groups. Historical roots need the state root still stored (pruning off).
+  proof:
+    routes:
+      - name: /address/:address
+        open: true
+      - name: /root-hash/:roothash/address/:address
+        open: true
+      - name: /verify
+        open: true
   subscribe:
     routes:
       # /subscribe is a public WebSocket event feed. `open: true` keeps it enabled for

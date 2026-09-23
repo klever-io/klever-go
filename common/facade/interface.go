@@ -51,6 +51,16 @@ type NodeHandler interface {
 	//  about the account correlated with provided address
 	GetAccount(address string) (state.UserAccountHandler, error)
 
+	// GetProof returns a Merkle proof of the account under the current state root.
+	GetProof(address string) (*state.MerkleProof, error)
+
+	// GetProofForRootHash returns a Merkle proof of the account under rootHash.
+	// rootHash is the raw state root. The live trie is not replaced.
+	GetProofForRootHash(rootHash []byte, address string) (*state.MerkleProof, error)
+
+	// VerifyProof reports whether proof shows the account included under rootHash.
+	VerifyProof(rootHash []byte, address string, proof [][]byte) (bool, error)
+
 	// GetNextNonce returns account next nonce
 	GetNextNonce(address string) (uint64, uint64, uint64, error)
 

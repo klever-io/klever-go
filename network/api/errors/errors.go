@@ -89,6 +89,12 @@ var ErrValidationEmptyTxHash = errors.New("TxHash is empty")
 // ErrGetTransaction signals an error happening when trying to fetch a transaction
 var ErrGetTransaction = errors.New("getting transaction failed")
 
+// ErrGetProof signals that a Merkle proof could not be built
+var ErrGetProof = errors.New("could not get merkle proof")
+
+// ErrVerifyProof signals that a Merkle proof could not be checked
+var ErrVerifyProof = errors.New("could not verify merkle proof")
+
 func errMsgToString(msg interface{}) string {
 	switch msgTyped := msg.(type) {
 	case string:

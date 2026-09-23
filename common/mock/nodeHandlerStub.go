@@ -44,6 +44,11 @@ func (n *NodeHandlerStub) TXPool(string, int, int) ([]*api.Transaction, int, err
 	return nil, 0, nil
 }
 func (n *NodeHandlerStub) GetAccount(string) (state.UserAccountHandler, error) { return nil, nil }
+func (n *NodeHandlerStub) GetProof(string) (*state.MerkleProof, error)         { return nil, nil }
+func (n *NodeHandlerStub) GetProofForRootHash([]byte, string) (*state.MerkleProof, error) {
+	return nil, nil
+}
+func (n *NodeHandlerStub) VerifyProof([]byte, string, [][]byte) (bool, error) { return false, nil }
 func (n *NodeHandlerStub) GetNextNonce(string) (uint64, uint64, uint64, error) {
 	return 0, 0, 0, nil
 }

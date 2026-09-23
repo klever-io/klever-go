@@ -13,6 +13,9 @@ var ErrContextClosing = errors.New("context closing")
 // ErrNilTrieIteratorChannels signals that a nil set of trie iterator channels has been provided
 var ErrNilTrieIteratorChannels = errors.New("nil trie iterator channels")
 
+// ErrHashNotFound signals that the given hash was not found in db or snapshots.
+var ErrHashNotFound = errors.New("hash not found")
+
 // ErrNilMarshalizer is raised when the NewTrie() function is called, but a marshalizer isn't provided
 var ErrNilMarshalizer = errors.New("no marshalizer provided")
 

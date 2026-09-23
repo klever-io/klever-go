@@ -159,3 +159,31 @@ func TestRegisterRoutes_LogRouteSecuredRejectsUnauthenticated(t *testing.T) {
 func TestRegisterRoutes_LogRouteNotEnabledNotRegistered(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, registeredRouteStatus(t, subscribeRoutesConfig(true, false), "/log"))
 }
+
+func proofRoutesConfig(open, secured bool) config.APIRoutesConfig {
+	return config.APIRoutesConfig{
+		APIPackages: map[string]config.APIPackageConfig{
+			"proof": {Routes: []config.RouteConfig{
+				{Name: "/address/:address", Open: open, Secured: secured},
+				{Name: "/root-hash/:roothash/address/:address", Open: open, Secured: secured},
+				{Name: "/verify", Open: open, Secured: secured},
+			}},
+		},
+		Credentials: []config.Credential{{Username: "u", Password: "p"}},
+		Hasher:      config.TypeConfig{Type: "sha256"},
+	}
+}
+
+func TestRegisterRoutes_ProofOpenReachesHandler(t *testing.T) {
+	// No facade is installed, so a registered handler answers 500 rather than 404.
+	assert.Equal(t, http.StatusInternalServerError, registeredRouteStatus(t, proofRoutesConfig(true, false), "/proof/address/klv1addr"))
+}
+
+func TestRegisterRoutes_ProofSecuredRejectsUnauthenticated(t *testing.T) {
+	assert.Equal(t, http.StatusUnauthorized, registeredRouteStatus(t, proofRoutesConfig(true, true), "/proof/address/klv1addr"))
+}
+
+func TestRegisterRoutes_ProofNotOpenNotRegistered(t *testing.T) {
+	assert.Equal(t, http.StatusNotFound, registeredRouteStatus(t, proofRoutesConfig(false, true), "/proof/address/klv1addr"))
+	assert.Equal(t, http.StatusNotFound, registeredRouteStatus(t, proofRoutesConfig(false, true), "/proof/verify"))
+}
