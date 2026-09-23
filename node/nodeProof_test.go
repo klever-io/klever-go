@@ -63,6 +63,18 @@ func TestNode_GetProofRequiresProverAndConverter(t *testing.T) {
 	_, err = n.GetProof(encoded)
 	require.EqualError(t, err, "accounts adapter does not support merkle proofs")
 
+	_, err = n.GetProofForRootHash([]byte{0x01}, encoded)
+	require.EqualError(t, err, "accounts adapter does not support merkle proofs")
+	_, err = n.VerifyProof([]byte{0x01}, encoded, nil)
+	require.EqualError(t, err, "accounts adapter does not support merkle proofs")
+
+	_, err = n.GetProofForRootHash([]byte{0x01}, "not-an-address")
+	require.ErrorIs(t, err, state.ErrInvalidProofRequest)
+	_, err = n.VerifyProof([]byte{0x01}, "not-an-address", nil)
+	require.ErrorIs(t, err, state.ErrInvalidProofRequest)
+	_, err = n.GetProof("")
+	require.ErrorIs(t, err, state.ErrInvalidProofRequest)
+
 	n.accounts = nil
 	n.addressPubkeyConverter = nil
 	_, err = n.GetProof(encoded)

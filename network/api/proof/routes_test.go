@@ -3,6 +3,7 @@ package proof
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -210,4 +211,70 @@ func TestProofRoutes_SecuredRejectsUnauthenticated(t *testing.T) {
 	resp := httptest.NewRecorder()
 	ws.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/proof/address/klv1addr", nil))
 	require.Equal(t, http.StatusUnauthorized, resp.Code)
+}
+
+func TestProofRoutes_MissingOrWrongFacade(t *testing.T) {
+	t.Parallel()
+
+	ws := newProofEngine(t, proofRoutesConfig(true, false), nil)
+	for _, path := range []string{"/proof/address/klv1addr", "/proof/root-hash/aa/address/klv1addr"} {
+		resp := httptest.NewRecorder()
+		ws.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, path, nil))
+		require.Equal(t, http.StatusInternalServerError, resp.Code)
+	}
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, httptest.NewRequest(http.MethodPost, "/proof/verify", nil))
+	require.Equal(t, http.StatusInternalServerError, resp.Code)
+
+	wrong := gin.New()
+	wrong.Use(func(c *gin.Context) { c.Set("facade", "not a facade") })
+	cfg := proofRoutesConfig(true, false)
+	router, err := wrapper.NewRouterWrapper("proof", wrong.Group("/proof"), cfg, middleware.NewAuthenticationFunc(cfg))
+	require.NoError(t, err)
+	Routes(router)
+	resp = httptest.NewRecorder()
+	wrong.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/proof/address/klv1addr", nil))
+	require.Equal(t, http.StatusInternalServerError, resp.Code)
+	require.Contains(t, decodeBody(t, resp).Error, "invalid app context")
+}
+
+func TestGetProofForRootHash_Success(t *testing.T) {
+	t.Parallel()
+
+	ws := newProofEngine(t, proofRoutesConfig(true, false), &stubFacade{
+		getAtRoot: func([]byte, string) (*state.MerkleProof, error) {
+			return &state.MerkleProof{RootHash: []byte{0xaa}, Value: []byte{0x01}, Proof: [][]byte{{0x02}}}, nil
+		},
+	})
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/proof/root-hash/aa/address/klv1addr", nil))
+	require.Equal(t, http.StatusOK, resp.Code)
+}
+
+func TestVerifyProof_RejectsBadInput(t *testing.T) {
+	t.Parallel()
+
+	ws := newProofEngine(t, proofRoutesConfig(true, false), &stubFacade{
+		verify: func([]byte, string, [][]byte) (bool, error) {
+			return false, errors.New("boom")
+		},
+	})
+
+	cases := map[string]struct {
+		body   string
+		status int
+	}{
+		"bad root hex":   {`{"rootHash":"zz","address":"a","proof":["22"]}`, http.StatusBadRequest},
+		"empty root":     {`{"rootHash":"","address":"a","proof":["22"]}`, http.StatusBadRequest},
+		"empty proof":    {`{"rootHash":"11","address":"a","proof":[]}`, http.StatusBadRequest},
+		"bad proof node": {`{"rootHash":"11","address":"a","proof":["zz"]}`, http.StatusBadRequest},
+		"facade failure": {`{"rootHash":"11","address":"a","proof":["22"]}`, http.StatusInternalServerError},
+	}
+	for name, tc := range cases {
+		req := httptest.NewRequest(http.MethodPost, "/proof/verify", bytes.NewBufferString(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		resp := httptest.NewRecorder()
+		ws.ServeHTTP(resp, req)
+		require.Equal(t, tc.status, resp.Code, name)
+	}
 }

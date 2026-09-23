@@ -41,19 +41,21 @@ type MerkleProver interface {
 
 var _ MerkleProver = (*AccountsDB)(nil)
 
-// GetMerkleProof returns a proof of key under the current accounts root.
+// GetMerkleProof returns a proof of key under the last committed accounts root, so
+// uncommitted changes are never proven.
 func (adb *AccountsDB) GetMerkleProof(key []byte) (*MerkleProof, error) {
 	if len(key) == 0 {
 		return nil, fmt.Errorf("%w in GetMerkleProof", common.ErrNilAddress)
 	}
 
 	adb.mutOp.Lock()
-	defer adb.mutOp.Unlock()
+	committed := cloneBytes(adb.lastRootHash)
+	adb.mutOp.Unlock()
 
-	if check.IfNil(adb.mainTrie) {
-		return nil, common.ErrNilTrie
+	if len(committed) == 0 {
+		return nil, ErrStateRootUnavailable
 	}
-	return proveOnTrie(adb.mainTrie, nil, key)
+	return adb.GetMerkleProofAtRoot(committed, key)
 }
 
 // GetMerkleProofAtRoot returns a proof of key under rootHash.
@@ -95,7 +97,8 @@ func (adb *AccountsDB) VerifyMerkleProof(rootHash []byte, key []byte, proof [][]
 
 // withTrieAtRoot runs fn on the live trie when rootHash is the current root, and on a
 // trie from Trie.Recreate otherwise. The accounts lock is held only while the live trie
-// is in use. RecreateTrie is not called.
+// is in use. RecreateTrie is not called. Roots missing from the main trie DB are
+// rejected, since recreating from a snapshot copies the whole trie into the main DB.
 func (adb *AccountsDB) withTrieAtRoot(rootHash []byte, fn func(data.Trie) error) error {
 	if len(rootHash) == 0 {
 		return fmt.Errorf("%w: empty root hash", ErrInvalidProofRequest)
@@ -116,6 +119,16 @@ func (adb *AccountsDB) withTrieAtRoot(rootHash []byte, fn func(data.Trie) error)
 		err = fn(adb.mainTrie)
 		adb.mutOp.Unlock()
 		return err
+	}
+
+	storage := adb.mainTrie.GetStorageManager()
+	if check.IfNil(storage) {
+		adb.mutOp.Unlock()
+		return ErrStateRootUnavailable
+	}
+	if _, err = storage.Database().Get(rootHash); err != nil {
+		adb.mutOp.Unlock()
+		return fmt.Errorf("%w: %w", ErrStateRootUnavailable, err)
 	}
 
 	tr, err := adb.mainTrie.Recreate(rootHash)
