@@ -255,20 +255,34 @@ func TestRecreateFromMainDbIgnoresSnapshotDb(t *testing.T) {
 	//t.Parallel()
 
 	tr := initTrie()
-	_ = tr.Commit()
+	require.NoError(t, tr.Commit())
 	storageManager := tr.GetStorageManager()
-	rootHash, _ := tr.RootHash()
+	tsm, ok := storageManager.(*trieStorageManager)
+	require.True(t, ok)
+	rootHash, err := tr.RootHash()
+	require.NoError(t, err)
+
 	storageManager.TakeSnapshot(rootHash)
-	time.Sleep(snapshotDelay)
+	require.Eventually(t, func() bool {
+		db := storageManager.GetSnapshotThatContainsHash(rootHash)
+		if db == nil {
+			return false
+		}
+		db.DecreaseNumReferences()
 
-	_ = tr.Update([]byte("doge"), []byte("doge"))
-	_ = tr.Commit()
+		tsm.storageOperationMutex.Lock()
+		defer tsm.storageOperationMutex.Unlock()
+		return tsm.pruningBlockingOps == 0
+	}, 5*time.Second, 10*time.Millisecond)
 
+	require.NoError(t, tr.Update([]byte("doge"), []byte("doge")))
+	require.NoError(t, tr.Commit())
+
+	// Pruning is not blocked, so Prune removes the old root synchronously.
 	storageManager.CancelPrune(rootHash, data.NewRoot)
 	storageManager.Prune(rootHash, data.OldRoot)
-	time.Sleep(pruningDelay)
 
-	_, err := storageManager.Database().Get(rootHash)
+	_, err = storageManager.Database().Get(rootHash)
 	require.NotNil(t, err)
 
 	_, err = tr.RecreateFromMainDb(rootHash)

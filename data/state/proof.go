@@ -96,33 +96,31 @@ func (adb *AccountsDB) VerifyMerkleProof(rootHash []byte, key []byte, proof [][]
 }
 
 // withTrieAtRoot runs fn on the live trie when rootHash is the current root, and on a
-// trie from Trie.Recreate otherwise. The accounts lock is held only while the live trie
-// is in use. RecreateTrie is not called. Historical roots are read from the main trie DB
-// only, since recreating from a snapshot copies the whole trie into the main DB.
+// trie recreated from the main trie DB otherwise; snapshots are never used, since
+// recreating from one copies the whole trie into the main DB. RecreateTrie is not
+// called. The accounts lock is held until fn returns, so PruneTrie cannot remove nodes
+// of a historical root mid-walk.
 func (adb *AccountsDB) withTrieAtRoot(rootHash []byte, fn func(data.Trie) error) error {
 	if len(rootHash) == 0 {
 		return fmt.Errorf("%w: empty root hash", ErrInvalidProofRequest)
 	}
 
 	adb.mutOp.Lock()
+	defer adb.mutOp.Unlock()
+
 	if check.IfNil(adb.mainTrie) {
-		adb.mutOp.Unlock()
 		return common.ErrNilTrie
 	}
 
 	current, err := adb.mainTrie.RootHash()
 	if err != nil {
-		adb.mutOp.Unlock()
 		return err
 	}
 	if bytes.Equal(current, rootHash) {
-		err = fn(adb.mainTrie)
-		adb.mutOp.Unlock()
-		return err
+		return fn(adb.mainTrie)
 	}
 
 	tr, err := adb.mainTrie.RecreateFromMainDb(rootHash)
-	adb.mutOp.Unlock()
 	if err != nil {
 		if errors.Is(err, data.ErrHashNotFound) {
 			return fmt.Errorf("%w: %w", ErrStateRootUnavailable, err)
