@@ -3,6 +3,7 @@ package sync
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -34,6 +35,11 @@ var _ closing.Closer = (*baseBootstrap)(nil)
 
 // sleepTime defines the time in milliseconds between each iteration made in syncBlocks method
 const sleepTime = 5 * time.Millisecond
+
+// maxSlotsAheadToPostponeSync is how far ahead of the local chronology a header can be
+// dated and still be kept queued: the chronology can step back a couple of slots, but a
+// header further ahead than that is not going to become valid soon and would stall sync
+const maxSlotsAheadToPostponeSync = 3
 
 // HdrInfo hold the data related to a header
 type HdrInfo struct {
@@ -93,6 +99,11 @@ type baseBootstrap struct {
 	uint64Converter          typeConverters.Uint64ByteSliceConverter
 	mapNonceSyncedWithErrors map[uint64]uint32
 	mutNonceSyncedWithErrors sync.RWMutex
+
+	// only accessed from the syncBlocks goroutine, like lastRollbackHash
+	isSyncPostponedForSlot bool
+	postponedSyncSlotIndex int64
+	postponedSyncNonce     uint64
 
 	requestBlockTXs func(headerHandler data.HeaderHandler)
 
@@ -529,7 +540,27 @@ func (boot *baseBootstrap) syncBlocks(ctx context.Context) {
 	}
 }
 
-func (boot *baseBootstrap) doJobOnSyncBlockFail(headerHandler data.HeaderHandler, err error) {
+// doJobOnSyncBlockFail handles a failed sync attempt; slotIndex is the chronology slot the
+// failed ProcessBlock or CommitBlock ran against.
+func (boot *baseBootstrap) doJobOnSyncBlockFail(headerHandler data.HeaderHandler, err error, slotIndex int64) {
+	// The header is only early against the local chronology, so rolling back here would
+	// revert an honest block whenever the chronology steps back a slot (KLR-39), and it
+	// is not counted as a sync failure either.
+	if errors.Is(err, process.ErrSlotAheadOfChronology) && !check.IfNil(headerHandler) {
+		// Within the chronology drift it becomes valid once the slot ticks over, so it
+		// is retried as it is.
+		if headerHandler.GetSlot() <= tools.SafeI64ToU64(slotIndex)+maxSlotsAheadToPostponeSync {
+			boot.postponeSync(slotIndex, headerHandler.GetNonce())
+			return
+		}
+
+		// Further ahead it would be picked again on every slot and shadow any other
+		// header for the same nonce, so it is dropped, still without a rollback.
+		hash := boot.removeHeaderFromPools(headerHandler)
+		boot.forkDetector.RemoveHeader(headerHandler.GetNonce(), hash)
+		return
+	}
+
 	processBlockStarted := !check.IfNil(headerHandler)
 	isProcessWithError := processBlockStarted && err != process.ErrTimeIsOut
 
@@ -555,6 +586,29 @@ func (boot *baseBootstrap) doJobOnSyncBlockFail(headerHandler data.HeaderHandler
 			boot.removeHeadersHigherThanNonceFromPool(boot.getNonceForCurrentBlock())
 		}
 	}
+}
+
+// postponeSync records the chronology position a header was postponed at, so the
+// sync loop - which spins every few milliseconds - does not rebuild the same
+// doomed attempt, and its header requests, until something moves. The position is
+// the one the attempt ran at, not the current one, so a slot that ticked over in
+// the meantime is still tried.
+func (boot *baseBootstrap) postponeSync(slotIndex int64, nonce uint64) {
+	log.Debug("sync block postponed until the chronology catches up",
+		"nonce", nonce,
+		"current slot", slotIndex)
+
+	boot.isSyncPostponedForSlot = true
+	boot.postponedSyncSlotIndex = slotIndex
+	boot.postponedSyncNonce = nonce
+}
+
+// isSyncPostponed returns true while neither the chronology nor the chain has moved
+// since the last postponed header, which is exactly when a retry would fail again.
+func (boot *baseBootstrap) isSyncPostponed() bool {
+	return boot.isSyncPostponedForSlot &&
+		boot.postponedSyncSlotIndex == boot.slotManager.Index() &&
+		boot.postponedSyncNonce == boot.getNonceForNextBlock()
 }
 
 func (boot *baseBootstrap) incrementSyncedWithErrorsForNonce(nonce uint64) uint32 {
@@ -635,12 +689,17 @@ func (boot *baseBootstrap) syncBlock() error {
 
 	var header data.HeaderHandler
 	var err error
+	var attemptSlotIndex int64
 
 	defer func() {
 		if err != nil {
-			boot.doJobOnSyncBlockFail(header, err)
+			boot.doJobOnSyncBlockFail(header, err, attemptSlotIndex)
 		}
 	}()
+
+	if boot.isSyncPostponed() {
+		return nil
+	}
 
 	header, err = boot.getNextHeaderRequestingIfMissing()
 	if err != nil {
@@ -663,6 +722,7 @@ func (boot *baseBootstrap) syncBlock() error {
 	}
 
 	startProcessBlockTime := time.Now()
+	attemptSlotIndex = boot.slotManager.Index()
 	err = boot.blockProcessor.ProcessBlock(header, haveTime)
 	elapsedTime := time.Since(startProcessBlockTime)
 	log.Debug("elapsed time to process block",
@@ -673,6 +733,7 @@ func (boot *baseBootstrap) syncBlock() error {
 	}
 
 	startCommitBlockTime := time.Now()
+	attemptSlotIndex = boot.slotManager.Index()
 	err = boot.blockProcessor.CommitBlock(header)
 	elapsedTime = time.Since(startCommitBlockTime)
 	if elapsedTime >= core.CommitMaxTime {
