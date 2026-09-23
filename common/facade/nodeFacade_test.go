@@ -8,6 +8,7 @@ import (
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/network/api/models"
 	"github.com/klever-io/klever-go/statusHandler"
 	"github.com/stretchr/testify/require"
@@ -357,4 +358,42 @@ func TestNodeFacade_GetAccountTotals(t *testing.T) {
 	resp, err := nf.GetAccountTotals()
 	require.NoError(t, err)
 	require.Same(t, expected, resp)
+}
+
+func TestNodeFacade_ProofForwarding(t *testing.T) {
+	t.Parallel()
+
+	expected := &state.MerkleProof{RootHash: []byte{0x01}}
+	args := createMockArgNodeFacade()
+	args.Node = &mock.NodeHandlerStub{
+		GetProofCalled: func(address string) (*state.MerkleProof, error) {
+			require.Equal(t, "addr", address)
+			return expected, nil
+		},
+		GetProofForRootCalled: func(rootHash []byte, address string) (*state.MerkleProof, error) {
+			require.Equal(t, []byte{0x02}, rootHash)
+			require.Equal(t, "addr", address)
+			return expected, nil
+		},
+		VerifyProofCalled: func(rootHash []byte, address string, proof [][]byte) (bool, error) {
+			require.Equal(t, []byte{0x03}, rootHash)
+			require.Equal(t, "addr", address)
+			require.Equal(t, [][]byte{{0x04}}, proof)
+			return true, nil
+		},
+	}
+	nf, err := facade.NewNodeFacade(args)
+	require.NoError(t, err)
+
+	proof, err := nf.GetProof("addr")
+	require.NoError(t, err)
+	require.Same(t, expected, proof)
+
+	proof, err = nf.GetProofForRootHash([]byte{0x02}, "addr")
+	require.NoError(t, err)
+	require.Same(t, expected, proof)
+
+	ok, err := nf.VerifyProof([]byte{0x03}, "addr", [][]byte{{0x04}})
+	require.NoError(t, err)
+	require.True(t, ok)
 }

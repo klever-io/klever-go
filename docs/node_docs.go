@@ -144,7 +144,7 @@ const docTemplatenode = `{
                     },
                     {
                         "type": "string",
-                        "description": "assets (comma-separated asset IDs), e.g. KLV,KFI",
+                        "description": "assets (comma-separated asset IDs, max 25), e.g. KLV,KFI",
                         "name": "asset",
                         "in": "query",
                         "required": true
@@ -673,6 +673,48 @@ const docTemplatenode = `{
                 }
             }
         },
+        "/network/account-totals": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Network"
+                ],
+                "summary": "returns aggregates over all user accounts (count, KLV balance, allowance)",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "accountTotals": {
+                                                    "$ref": "#/definitions/models.AccountTotalsResponse"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/network/config": {
             "get": {
                 "produces": [
@@ -704,6 +746,48 @@ const docTemplatenode = `{
                                     }
                                 }
                             ]
+                        }
+                    }
+                }
+            }
+        },
+        "/network/economics": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Network"
+                ],
+                "summary": "returns KLV economics: supply figures plus node-state held aggregates",
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "properties": {
+                                                "economics": {
+                                                    "$ref": "#/definitions/models.EconomicsResponse"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
                         }
                     }
                 }
@@ -1139,6 +1223,174 @@ const docTemplatenode = `{
                                     }
                                 }
                             ]
+                        }
+                    }
+                }
+            }
+        },
+        "/proof/address/{address}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Proof"
+                ],
+                "summary": "Merkle proof of an account at the current state root",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "bech32 address",
+                        "name": "address",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/proof.ProofResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "bad address, missing account, or unavailable root",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/proof/root-hash/{roothash}/address/{address}": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Proof"
+                ],
+                "summary": "Merkle proof of an account at a historical state root",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "hex state root",
+                        "name": "roothash",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "bech32 address",
+                        "name": "address",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/proof.ProofResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "bad request, missing account, or unavailable root",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/proof/verify": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Proof"
+                ],
+                "summary": "Verify a Merkle proof of an account",
+                "parameters": [
+                    {
+                        "description": "root, address, and proof nodes",
+                        "name": "proof",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/proof.VerifyRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "ok",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/shared.GenericAPIResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/proof.VerifyResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "bad request or unavailable root",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "internal error",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
                         }
                     }
                 }
@@ -2257,7 +2509,22 @@ const docTemplatenode = `{
                 "fixAuditChanges": {
                     "type": "integer"
                 },
+                "fixAuditChangesV2": {
+                    "type": "integer"
+                },
+                "fixAuditChangesV3": {
+                    "type": "integer"
+                },
+                "fixAuditChangesV4": {
+                    "type": "integer"
+                },
+                "fixAuditChangesV5": {
+                    "type": "integer"
+                },
                 "fixDelegationSameEpoch": {
+                    "type": "integer"
+                },
+                "fixMarketBuyOverflow": {
                     "type": "integer"
                 },
                 "fixStakingBuckets": {
@@ -2395,6 +2662,9 @@ const docTemplatenode = `{
                 },
                 "unfrozenBalance": {
                     "type": "integer"
+                },
+                "updatedAt": {
+                    "$ref": "#/definitions/time.Duration"
                 }
             }
         },
@@ -2878,6 +3148,20 @@ const docTemplatenode = `{
                 }
             }
         },
+        "kapps.StakeSegment": {
+            "type": "object",
+            "properties": {
+                "StakedEpoch": {
+                    "type": "integer"
+                },
+                "ThroughEpoch": {
+                    "type": "integer"
+                },
+                "Value": {
+                    "type": "integer"
+                }
+            }
+        },
         "kapps.UserBucket": {
             "type": "object",
             "properties": {
@@ -2885,6 +3169,12 @@ const docTemplatenode = `{
                     "type": "array",
                     "items": {
                         "type": "integer"
+                    }
+                },
+                "History": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/kapps.StakeSegment"
                     }
                 },
                 "StakedAt": {
@@ -2988,6 +3278,20 @@ const docTemplatenode = `{
                 }
             }
         },
+        "models.AccountTotalsResponse": {
+            "type": "object",
+            "properties": {
+                "accountCount": {
+                    "type": "integer"
+                },
+                "allowanceTotal": {
+                    "type": "integer"
+                },
+                "balanceTotal": {
+                    "type": "integer"
+                }
+            }
+        },
         "models.AvailableClaimListResponse": {
             "type": "object",
             "properties": {
@@ -3039,6 +3343,47 @@ const docTemplatenode = `{
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "models.EconomicsResponse": {
+            "type": "object",
+            "properties": {
+                "accumulatedFeesTotal": {
+                    "type": "integer"
+                },
+                "burnedValue": {
+                    "type": "integer"
+                },
+                "circulatingSupply": {
+                    "type": "integer"
+                },
+                "feesPoolKlvTotal": {
+                    "type": "integer"
+                },
+                "fprPoolTotal": {
+                    "type": "integer"
+                },
+                "initialSupply": {
+                    "type": "integer"
+                },
+                "marketEscrowTotal": {
+                    "type": "integer"
+                },
+                "maxSupply": {
+                    "type": "integer"
+                },
+                "mintedValue": {
+                    "type": "integer"
+                },
+                "pendingRewardsTotal": {
+                    "type": "integer"
+                },
+                "systemAccountKlvBalance": {
+                    "type": "integer"
+                },
+                "totalStaked": {
+                    "type": "integer"
                 }
             }
         },
@@ -3199,6 +3544,55 @@ const docTemplatenode = `{
                 },
                 "totalProcessedTxCount": {
                     "type": "string"
+                }
+            }
+        },
+        "proof.ProofResponse": {
+            "type": "object",
+            "properties": {
+                "proof": {
+                    "description": "Hex-encoded trie nodes from the root down to the account leaf. Each node is a\nprotobuf body plus a trailing type byte (0 extension CollapsedEn{Key, EncodedChild},\n1 leaf CollapsedLn{Key, Value}, 2 branch CollapsedBn{EncodedChildren}, 17 slots).\nThe first node hashes to rootHash with unkeyed blake2b-256 over the full bytes; each\nnext node hashes to the child selected by the key. The key is the address bytes\nreversed, each byte as low then high nibble, plus terminator nibble 16. A branch\nconsumes one nibble, an extension its Key; the leaf Key must equal the rest.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "rootHash": {
+                    "description": "Hex state root the proof is under. Trust it only when it matches the accounts\nTrieRoot of a finalized block header obtained independently of this node.",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "Hex protobuf-encoded account leaf. /proof/verify does not check this field;\ncompare it with the leaf in the verified proof nodes.",
+                    "type": "string"
+                }
+            }
+        },
+        "proof.VerifyRequest": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "description": "Bech32 account address.",
+                    "type": "string"
+                },
+                "proof": {
+                    "description": "Hex-encoded trie nodes, as returned in ProofResponse.proof.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "rootHash": {
+                    "description": "Hex state root, taken from a finalized block header obtained independently.",
+                    "type": "string"
+                }
+            }
+        },
+        "proof.VerifyResponse": {
+            "type": "object",
+            "properties": {
+                "ok": {
+                    "description": "True when the proof shows the address included under rootHash. It does not\nauthenticate the root itself or any separately supplied account value.",
+                    "type": "boolean"
                 }
             }
         },

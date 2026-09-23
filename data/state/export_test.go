@@ -44,3 +44,12 @@ func (adb *AccountsDB) Journalize(entry JournalAccountEntry) {
 func (adb *AccountsDB) RemoveCodeAndDataTrie(acnt AccountHandler) error {
 	return adb.removeCodeAndDataTrie(acnt)
 }
+
+// TryLockMutOp reports whether the accounts lock is free, releasing it again if taken.
+func (adb *AccountsDB) TryLockMutOp() bool {
+	if !adb.mutOp.TryLock() {
+		return false
+	}
+	adb.mutOp.Unlock()
+	return true
+}

@@ -20,6 +20,9 @@ import (
 type NodeHandlerStub struct {
 	GetEconomicsCalled     func() (*models.EconomicsResponse, error)
 	GetAccountTotalsCalled func() (*models.AccountTotalsResponse, error)
+	GetProofCalled         func(address string) (*state.MerkleProof, error)
+	GetProofForRootCalled  func(rootHash []byte, address string) (*state.MerkleProof, error)
+	VerifyProofCalled      func(rootHash []byte, address string, proof [][]byte) (bool, error)
 }
 
 func (n *NodeHandlerStub) StartConsensus() error { return nil }
@@ -44,6 +47,24 @@ func (n *NodeHandlerStub) TXPool(string, int, int) ([]*api.Transaction, int, err
 	return nil, 0, nil
 }
 func (n *NodeHandlerStub) GetAccount(string) (state.UserAccountHandler, error) { return nil, nil }
+func (n *NodeHandlerStub) GetProof(address string) (*state.MerkleProof, error) {
+	if n.GetProofCalled != nil {
+		return n.GetProofCalled(address)
+	}
+	return nil, nil
+}
+func (n *NodeHandlerStub) GetProofForRootHash(rootHash []byte, address string) (*state.MerkleProof, error) {
+	if n.GetProofForRootCalled != nil {
+		return n.GetProofForRootCalled(rootHash, address)
+	}
+	return nil, nil
+}
+func (n *NodeHandlerStub) VerifyProof(rootHash []byte, address string, proof [][]byte) (bool, error) {
+	if n.VerifyProofCalled != nil {
+		return n.VerifyProofCalled(rootHash, address, proof)
+	}
+	return false, nil
+}
 func (n *NodeHandlerStub) GetNextNonce(string) (uint64, uint64, uint64, error) {
 	return 0, 0, 0, nil
 }

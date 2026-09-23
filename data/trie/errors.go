@@ -73,8 +73,9 @@ var ErrNilRequestHandler = errors.New("the request handler is nil")
 // ErrTimeIsOut signals that time is out
 var ErrTimeIsOut = errors.New("time is out")
 
-// ErrHashNotFound signals that the given hash was not found in db or snapshots
-var ErrHashNotFound = errors.New("hash not found")
+// ErrHashNotFound signals that the given hash was not found in db or snapshots.
+// Aliased from the data package, which consumers that cannot import this one can still reach.
+var ErrHashNotFound = data.ErrHashNotFound
 
 // ErrNilTrieStorage is raised when a nil trie storage is provided
 var ErrNilTrieStorage = errors.New("nil trie storage provided")

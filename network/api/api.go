@@ -32,6 +32,7 @@ import (
 	"github.com/klever-io/klever-go/network/api/middleware"
 	"github.com/klever-io/klever-go/network/api/network"
 	"github.com/klever-io/klever-go/network/api/node"
+	"github.com/klever-io/klever-go/network/api/proof"
 	"github.com/klever-io/klever-go/network/api/shared"
 	"github.com/klever-io/klever-go/network/api/transaction"
 	valStats "github.com/klever-io/klever-go/network/api/validator"
@@ -139,6 +140,7 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 
 	registerRouteGroup(ws, "node", routesConfig, authHandler, node.Routes)
 	registerRouteGroup(ws, "address", routesConfig, authHandler, address.Routes)
+	registerRouteGroup(ws, "proof", routesConfig, authHandler, proof.Routes)
 	registerRouteGroup(ws, "network", routesConfig, authHandler, network.Routes)
 	registerRouteGroup(ws, "transaction", routesConfig, authHandler, transaction.Routes)
 	registerRouteGroup(ws, "validator", routesConfig, authHandler, valStats.Routes)

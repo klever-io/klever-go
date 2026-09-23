@@ -14,6 +14,7 @@ import (
 	"github.com/klever-io/klever-go/storage/memorydb"
 	"github.com/klever-io/klever-go/storage/storageUnit"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const pruningDelay = time.Second / 2
@@ -248,6 +249,48 @@ func TestRecreateTrieFromSnapshotDb(t *testing.T) {
 	newTrie, err := tr.Recreate(rootHash)
 	assert.Nil(t, err)
 	assert.NotNil(t, newTrie)
+}
+
+func TestRecreateFromMainDbIgnoresSnapshotDb(t *testing.T) {
+	//t.Parallel()
+
+	tr := initTrie()
+	require.NoError(t, tr.Commit())
+	storageManager := tr.GetStorageManager()
+	tsm, ok := storageManager.(*trieStorageManager)
+	require.True(t, ok)
+	rootHash, err := tr.RootHash()
+	require.NoError(t, err)
+
+	storageManager.TakeSnapshot(rootHash)
+	require.Eventually(t, func() bool {
+		db := storageManager.GetSnapshotThatContainsHash(rootHash)
+		if db == nil {
+			return false
+		}
+		db.DecreaseNumReferences()
+
+		tsm.storageOperationMutex.Lock()
+		defer tsm.storageOperationMutex.Unlock()
+		return tsm.pruningBlockingOps == 0
+	}, 5*time.Second, 10*time.Millisecond)
+
+	require.NoError(t, tr.Update([]byte("doge"), []byte("doge")))
+	require.NoError(t, tr.Commit())
+
+	// Pruning is not blocked, so Prune removes the old root synchronously.
+	storageManager.CancelPrune(rootHash, data.NewRoot)
+	storageManager.Prune(rootHash, data.OldRoot)
+
+	_, err = storageManager.Database().Get(rootHash)
+	require.NotNil(t, err)
+
+	_, err = tr.RecreateFromMainDb(rootHash)
+	assert.ErrorIs(t, err, ErrHashNotFound)
+
+	// The snapshot is never copied back into the main DB.
+	_, err = storageManager.Database().Get(rootHash)
+	assert.NotNil(t, err)
 }
 
 func TestEachSnapshotCreatesOwnDatabase(t *testing.T) {

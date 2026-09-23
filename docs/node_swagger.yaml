@@ -289,7 +289,17 @@ definitions:
         type: integer
       fixAuditChanges:
         type: integer
+      fixAuditChangesV2:
+        type: integer
+      fixAuditChangesV3:
+        type: integer
+      fixAuditChangesV4:
+        type: integer
+      fixAuditChangesV5:
+        type: integer
       fixDelegationSameEpoch:
+        type: integer
+      fixMarketBuyOverflow:
         type: integer
       fixStakingBuckets:
         type: integer
@@ -380,6 +390,8 @@ definitions:
         $ref: '#/definitions/time.Duration'
       unfrozenBalance:
         type: integer
+      updatedAt:
+        $ref: '#/definitions/time.Duration'
     type: object
   data.Event:
     properties:
@@ -698,11 +710,24 @@ definitions:
       PercentTransferPercentage:
         type: integer
     type: object
+  kapps.StakeSegment:
+    properties:
+      StakedEpoch:
+        type: integer
+      ThroughEpoch:
+        type: integer
+      Value:
+        type: integer
+    type: object
   kapps.UserBucket:
     properties:
       Delegation:
         items:
           type: integer
+        type: array
+      History:
+        items:
+          $ref: '#/definitions/kapps.StakeSegment'
         type: array
       StakedAt:
         type: integer
@@ -770,6 +795,15 @@ definitions:
       txPending:
         type: integer
     type: object
+  models.AccountTotalsResponse:
+    properties:
+      accountCount:
+        type: integer
+      allowanceTotal:
+        type: integer
+      balanceTotal:
+        type: integer
+    type: object
   models.AvailableClaimListResponse:
     properties:
       assets:
@@ -804,6 +838,33 @@ definitions:
         items:
           type: string
         type: array
+    type: object
+  models.EconomicsResponse:
+    properties:
+      accumulatedFeesTotal:
+        type: integer
+      burnedValue:
+        type: integer
+      circulatingSupply:
+        type: integer
+      feesPoolKlvTotal:
+        type: integer
+      fprPoolTotal:
+        type: integer
+      initialSupply:
+        type: integer
+      marketEscrowTotal:
+        type: integer
+      maxSupply:
+        type: integer
+      mintedValue:
+        type: integer
+      pendingRewardsTotal:
+        type: integer
+      systemAccountKlvBalance:
+        type: integer
+      totalStaked:
+        type: integer
     type: object
   models.KDAResponse:
     properties:
@@ -908,6 +969,54 @@ definitions:
         type: integer
       totalProcessedTxCount:
         type: string
+    type: object
+  proof.ProofResponse:
+    properties:
+      proof:
+        description: |-
+          Hex-encoded trie nodes from the root down to the account leaf. Each node is a
+          protobuf body plus a trailing type byte (0 extension CollapsedEn{Key, EncodedChild},
+          1 leaf CollapsedLn{Key, Value}, 2 branch CollapsedBn{EncodedChildren}, 17 slots).
+          The first node hashes to rootHash with unkeyed blake2b-256 over the full bytes; each
+          next node hashes to the child selected by the key. The key is the address bytes
+          reversed, each byte as low then high nibble, plus terminator nibble 16. A branch
+          consumes one nibble, an extension its Key; the leaf Key must equal the rest.
+        items:
+          type: string
+        type: array
+      rootHash:
+        description: |-
+          Hex state root the proof is under. Trust it only when it matches the accounts
+          TrieRoot of a finalized block header obtained independently of this node.
+        type: string
+      value:
+        description: |-
+          Hex protobuf-encoded account leaf. /proof/verify does not check this field;
+          compare it with the leaf in the verified proof nodes.
+        type: string
+    type: object
+  proof.VerifyRequest:
+    properties:
+      address:
+        description: Bech32 account address.
+        type: string
+      proof:
+        description: Hex-encoded trie nodes, as returned in ProofResponse.proof.
+        items:
+          type: string
+        type: array
+      rootHash:
+        description: Hex state root, taken from a finalized block header obtained
+          independently.
+        type: string
+    type: object
+  proof.VerifyResponse:
+    properties:
+      ok:
+        description: |-
+          True when the proof shows the address included under rootHash. It does not
+          authenticate the root itself or any separately supplied account value.
+        type: boolean
     type: object
   shared.GenericAPIResponse:
     properties:
@@ -1946,6 +2055,30 @@ paths:
       summary: returns an marketplaceResponse containing information about the marketplace
       tags:
       - Marketplace
+  /network/account-totals:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    accountTotals:
+                      $ref: '#/definitions/models.AccountTotalsResponse'
+                  type: object
+              type: object
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: returns aggregates over all user accounts (count, KLV balance, allowance)
+      tags:
+      - Network
   /network/config:
     get:
       produces:
@@ -1964,6 +2097,30 @@ paths:
                   type: object
               type: object
       summary: returns metrics related to the network configuration
+      tags:
+      - Network
+  /network/economics:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  properties:
+                    economics:
+                      $ref: '#/definitions/models.EconomicsResponse'
+                  type: object
+              type: object
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: 'returns KLV economics: supply figures plus node-state held aggregates'
       tags:
       - Network
   /network/network-parameters:
@@ -2219,6 +2376,107 @@ paths:
         p2p statistics
       tags:
       - Node
+  /proof/address/{address}:
+    get:
+      parameters:
+      - description: bech32 address
+        in: path
+        name: address
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/proof.ProofResponse'
+              type: object
+        "400":
+          description: bad address, missing account, or unavailable root
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: Merkle proof of an account at the current state root
+      tags:
+      - Proof
+  /proof/root-hash/{roothash}/address/{address}:
+    get:
+      parameters:
+      - description: hex state root
+        in: path
+        name: roothash
+        required: true
+        type: string
+      - description: bech32 address
+        in: path
+        name: address
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/proof.ProofResponse'
+              type: object
+        "400":
+          description: bad request, missing account, or unavailable root
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: Merkle proof of an account at a historical state root
+      tags:
+      - Proof
+  /proof/verify:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: root, address, and proof nodes
+        in: body
+        name: proof
+        required: true
+        schema:
+          $ref: '#/definitions/proof.VerifyRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: ok
+          schema:
+            allOf:
+            - $ref: '#/definitions/shared.GenericAPIResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/proof.VerifyResponse'
+              type: object
+        "400":
+          description: bad request or unavailable root
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+        "500":
+          description: internal error
+          schema:
+            $ref: '#/definitions/shared.GenericAPIResponse'
+      summary: Verify a Merkle proof of an account
+      tags:
+      - Proof
   /transaction/{txhash}:
     get:
       consumes:
