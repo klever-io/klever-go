@@ -14,6 +14,7 @@ import (
 	"github.com/klever-io/klever-go/storage/memorydb"
 	"github.com/klever-io/klever-go/storage/storageUnit"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const pruningDelay = time.Second / 2
@@ -248,6 +249,34 @@ func TestRecreateTrieFromSnapshotDb(t *testing.T) {
 	newTrie, err := tr.Recreate(rootHash)
 	assert.Nil(t, err)
 	assert.NotNil(t, newTrie)
+}
+
+func TestRecreateFromMainDbIgnoresSnapshotDb(t *testing.T) {
+	//t.Parallel()
+
+	tr := initTrie()
+	_ = tr.Commit()
+	storageManager := tr.GetStorageManager()
+	rootHash, _ := tr.RootHash()
+	storageManager.TakeSnapshot(rootHash)
+	time.Sleep(snapshotDelay)
+
+	_ = tr.Update([]byte("doge"), []byte("doge"))
+	_ = tr.Commit()
+
+	storageManager.CancelPrune(rootHash, data.NewRoot)
+	storageManager.Prune(rootHash, data.OldRoot)
+	time.Sleep(pruningDelay)
+
+	_, err := storageManager.Database().Get(rootHash)
+	require.NotNil(t, err)
+
+	_, err = tr.RecreateFromMainDb(rootHash)
+	assert.ErrorIs(t, err, ErrHashNotFound)
+
+	// The snapshot is never copied back into the main DB.
+	_, err = storageManager.Database().Get(rootHash)
+	assert.NotNil(t, err)
 }
 
 func TestEachSnapshotCreatesOwnDatabase(t *testing.T) {

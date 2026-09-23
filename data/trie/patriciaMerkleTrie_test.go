@@ -394,6 +394,33 @@ func TestPatriciaMerkleTrie_RecreateWithInvalidRootHash(t *testing.T) {
 	assert.Equal(t, emptyTrieHash, root)
 }
 
+func TestPatriciaMerkleTrie_RecreateFromMainDb(t *testing.T) {
+	t.Parallel()
+
+	tr := initTrie()
+	_ = tr.Commit()
+	rootHash, _ := tr.RootHash()
+
+	newTr, err := tr.RecreateFromMainDb(rootHash)
+	require.Nil(t, err)
+	root, _ := newTr.RootHash()
+	assert.Equal(t, rootHash, root)
+
+	emptyTr, err := tr.RecreateFromMainDb(nil)
+	require.Nil(t, err)
+	root, _ = emptyTr.RootHash()
+	assert.Equal(t, emptyTrieHash, root)
+
+	_, err = tr.RecreateFromMainDb([]byte("missing root"))
+	assert.ErrorIs(t, err, trie.ErrHashNotFound)
+
+	corrupt := []byte("corrupt root")
+	require.Nil(t, tr.GetStorageManager().Database().Put(corrupt, []byte("not a node")))
+	_, err = tr.RecreateFromMainDb(corrupt)
+	assert.NotNil(t, err)
+	assert.NotErrorIs(t, err, trie.ErrHashNotFound)
+}
+
 func TestPatriciaMerkleTrie_PruneAfterCancelPruneShouldFail(t *testing.T) {
 	t.Parallel()
 

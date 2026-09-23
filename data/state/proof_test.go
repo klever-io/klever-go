@@ -168,14 +168,6 @@ func TestAccountsDB_MerkleProofTrieErrors(t *testing.T) {
 	other := []byte("other-root")
 	key := []byte("key")
 
-	storageWithRoot := func(t *testing.T, root []byte) data.StorageManager {
-		db := mock.NewMemDbMock()
-		require.NoError(t, db.Put(root, []byte("node")))
-		sm, err := trie.NewTrieStorageManagerWithoutPruning(db)
-		require.NoError(t, err)
-		return sm
-	}
-
 	t.Run("nil key", func(t *testing.T) {
 		t.Parallel()
 		adb := newStubProofAccountsDB(t, &mock.TrieStub{})
@@ -213,49 +205,35 @@ func TestAccountsDB_MerkleProofTrieErrors(t *testing.T) {
 		require.Nil(t, proof.Proof)
 	})
 
-	t.Run("root not in main db or no storage manager", func(t *testing.T) {
-		t.Parallel()
-		tr := &mock.TrieStub{
-			RootCalled: func() ([]byte, error) { return live, nil },
-		}
-		adb := newStubProofAccountsDB(t, tr)
-		_, err := adb.GetMerkleProofAtRoot(other, key)
-		require.ErrorIs(t, err, state.ErrStateRootUnavailable)
-
-		tr.GetStorageManagerCalled = func() data.StorageManager { return nil }
-		_, err = adb.GetMerkleProofAtRoot(other, key)
-		require.ErrorIs(t, err, state.ErrStateRootUnavailable)
-	})
-
 	t.Run("recreate failures", func(t *testing.T) {
 		t.Parallel()
-		sm := storageWithRoot(t, other)
 		tr := &mock.TrieStub{
-			RootCalled:              func() ([]byte, error) { return live, nil },
-			GetStorageManagerCalled: func() data.StorageManager { return sm },
-			RecreateCalled:          func([]byte) (data.Trie, error) { return nil, trie.ErrHashNotFound },
+			RootCalled:               func() ([]byte, error) { return live, nil },
+			RecreateFromMainDbCalled: func([]byte) (data.Trie, error) { return nil, trie.ErrHashNotFound },
+			RecreateCalled: func([]byte) (data.Trie, error) {
+				t.Fatal("proofs must not use the snapshot-capable Recreate")
+				return nil, nil
+			},
 		}
 		adb := newStubProofAccountsDB(t, tr)
 		_, err := adb.GetMerkleProofAtRoot(other, key)
 		require.ErrorIs(t, err, state.ErrStateRootUnavailable)
 
-		tr.RecreateCalled = func([]byte) (data.Trie, error) { return nil, errBoom }
+		tr.RecreateFromMainDbCalled = func([]byte) (data.Trie, error) { return nil, errBoom }
 		_, err = adb.GetMerkleProofAtRoot(other, key)
 		require.ErrorIs(t, err, errBoom)
 
-		tr.RecreateCalled = func([]byte) (data.Trie, error) { return nil, nil }
+		tr.RecreateFromMainDbCalled = func([]byte) (data.Trie, error) { return nil, nil }
 		_, err = adb.GetMerkleProofAtRoot(other, key)
 		require.ErrorIs(t, err, state.ErrStateRootUnavailable)
 	})
 
 	t.Run("recreated trie root mismatch or error", func(t *testing.T) {
 		t.Parallel()
-		sm := storageWithRoot(t, other)
 		recreated := &mock.TrieStub{RootCalled: func() ([]byte, error) { return []byte("wrong"), nil }}
 		adb := newStubProofAccountsDB(t, &mock.TrieStub{
-			RootCalled:              func() ([]byte, error) { return live, nil },
-			GetStorageManagerCalled: func() data.StorageManager { return sm },
-			RecreateCalled:          func([]byte) (data.Trie, error) { return recreated, nil },
+			RootCalled:               func() ([]byte, error) { return live, nil },
+			RecreateFromMainDbCalled: func([]byte) (data.Trie, error) { return recreated, nil },
 		})
 		_, err := adb.GetMerkleProofAtRoot(other, key)
 		require.ErrorIs(t, err, state.ErrStateRootUnavailable)

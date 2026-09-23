@@ -145,6 +145,7 @@ type Trie interface {
 	RootHash() ([]byte, error)
 	Commit() error
 	Recreate(root []byte) (Trie, error)
+	RecreateFromMainDb(root []byte) (Trie, error)
 	String() string
 	ResetOldHashes() [][]byte
 	AppendToOldHashes([][]byte)

@@ -3543,15 +3543,18 @@
             "type": "object",
             "properties": {
                 "proof": {
+                    "description": "Hex-encoded trie nodes from the root down to the account leaf.",
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
                 },
                 "rootHash": {
+                    "description": "Hex state root the proof is under. Trust it only when it matches the accounts\nTrieRoot of a finalized block header obtained independently of this node.",
                     "type": "string"
                 },
                 "value": {
+                    "description": "Hex protobuf-encoded account leaf. /proof/verify does not check this field;\ncompare it with the leaf in the verified proof nodes.",
                     "type": "string"
                 }
             }
@@ -3560,15 +3563,18 @@
             "type": "object",
             "properties": {
                 "address": {
+                    "description": "Bech32 account address.",
                     "type": "string"
                 },
                 "proof": {
+                    "description": "Hex-encoded trie nodes, as returned in ProofResponse.proof.",
                     "type": "array",
                     "items": {
                         "type": "string"
                     }
                 },
                 "rootHash": {
+                    "description": "Hex state root, taken from a finalized block header obtained independently.",
                     "type": "string"
                 }
             }
@@ -3577,6 +3583,7 @@
             "type": "object",
             "properties": {
                 "ok": {
+                    "description": "True when the proof shows the address included under rootHash. It does not\nauthenticate the root itself or any separately supplied account value.",
                     "type": "boolean"
                 }
             }

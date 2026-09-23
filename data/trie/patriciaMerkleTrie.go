@@ -305,6 +305,28 @@ func (tr *patriciaMerkleTrie) Recreate(root []byte) (data.Trie, error) {
 	return tr.recreate(root)
 }
 
+// RecreateFromMainDb returns a trie for root read only from the main trie DB. Unlike
+// Recreate it never falls back to a snapshot, so it never writes to the main DB.
+func (tr *patriciaMerkleTrie) RecreateFromMainDb(root []byte) (data.Trie, error) {
+	tr.mutOperation.Lock()
+	defer tr.mutOperation.Unlock()
+
+	if emptyTrie(root) {
+		return NewTrie(tr.trieStorage, tr.marshalizer, tr.hasher, tr.maxTrieLevelInMemory)
+	}
+
+	db := tr.trieStorage.Database()
+	if _, err := db.Get(root); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrHashNotFound, err)
+	}
+
+	newTr, _, err := tr.recreateFromDb(root, db, tr.trieStorage)
+	if err != nil {
+		return nil, err
+	}
+	return newTr, nil
+}
+
 func (tr *patriciaMerkleTrie) recreate(root []byte) (*patriciaMerkleTrie, error) {
 	if emptyTrie(root) {
 		return NewTrie(
