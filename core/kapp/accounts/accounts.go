@@ -547,6 +547,7 @@ func (a *accountsKapp) processSemiFungibleTransfer(tc *transaction.TransferContr
 	ctx := a.KAppController.GetCurrentKAppContext()
 
 	if !a.forkController.EnableSmartContracts() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrAssetTypeInvalid.Error())
 		return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
 	}
 
@@ -564,11 +565,13 @@ func (a *accountsKapp) processSemiFungibleTransfer(tc *transaction.TransferContr
 
 	err := acntSrc.SubFromBalanceWithNonce(value, assetID, internalID, a.forkController.EnableSmartContracts())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBalanceError, err.Error())
 		return transaction.Transaction_BalanceError, err
 	}
 
 	err = acntDst.AddToBalanceWithNonce(value, assetID, internalID, a.forkController.EnableSmartContracts())
 	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldBalanceError, err.Error())
 		return transaction.Transaction_BalanceError, err
 	}
 
