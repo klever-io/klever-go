@@ -8298,7 +8298,7 @@ func Test_Transfer_SemiFungibleBeforeSmartContractsIsRejected(t *testing.T) {
 		field   string
 	}{
 		{name: "no nonce", assetID: "SEMI-1234", status: transaction.Transaction_AssetTypeInvalid, err: common.ErrAssetTypeInvalid, field: common.ErrFieldInvalidAssetType},
-		{name: "with nonce", assetID: "SEMI-1234/1", status: transaction.Transaction_ParameterInvalid, err: common.ErrInvalidValue},
+		{name: "with nonce", assetID: "SEMI-1234/1", status: transaction.Transaction_ParameterInvalid, err: common.ErrInvalidValue, field: common.ErrFieldInvalidAssetID},
 	}
 
 	for _, tt := range tests {
@@ -8310,9 +8310,7 @@ func Test_Transfer_SemiFungibleBeforeSmartContractsIsRejected(t *testing.T) {
 			status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
 			require.ErrorIs(t, err, tt.err)
 			require.Equal(t, tt.status, status)
-			if tt.field != "" {
-				requireErrorReceipt(t, f.ctx.Receipts().Get(), tt.field, err)
-			}
+			requireErrorReceipt(t, f.ctx.Receipts().Get(), tt.field, err)
 		})
 	}
 }
@@ -8375,6 +8373,26 @@ func Test_Transfer_SemiFungibleRequiresTheCanonicalNonce(t *testing.T) {
 			require.Equal(t, int64(0), f.dst.GetBalance(assetID, true))
 		})
 	}
+}
+
+// A receiver-side credit that overflows fails with a balance-error receipt.
+func Test_Transfer_SemiFungibleReceiverOverflowEmitsBalanceErrorReceipt(t *testing.T) {
+	assetID := []byte("SEMI-1234")
+	internalID := []byte("1")
+	senderAddr := makeAddress("sft-overflow-sender")
+	receiverAddr := makeAddress("sft-overflow-receiver")
+
+	f := newTransferFixture(t, config.EnableEpochs{}, kapps.KDAData_SemiFungible, senderAddr, receiverAddr)
+	require.NoError(t, f.src.AddToBalanceWithNonce(transferSenderStart, assetID, internalID, true))
+	require.NoError(t, f.dst.AddToBalanceWithNonce(math.MaxInt64, assetID, internalID, true))
+
+	tc := &transaction.TransferContract{ToAddress: receiverAddr, AssetID: []byte("SEMI-1234/1"), Amount: transferValue}
+
+	status, err := f.accKapp.Transfer(transaction.TXContract_TransferContractType, senderAddr, tc)
+	require.ErrorIs(t, err, state.ErrAddBalanceOverflow)
+	require.Equal(t, transaction.Transaction_BalanceError, status)
+	requireErrorReceipt(t, f.ctx.Receipts().Get(), common.ErrFieldBalanceError, err)
+	require.Equal(t, int64(math.MaxInt64), f.dst.GetBalanceWithNonce(assetID, internalID, true))
 }
 
 func TestTransfer_FungibleWritableCacher_CommitsBothSides(t *testing.T) {
