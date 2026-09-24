@@ -696,6 +696,53 @@ func TestLibp2pMessenger_BroadcastOnChannelBlockingShouldLimitNumberOfGoRoutines
 	_ = mes.Close()
 }
 
+func TestLibp2pMessenger_BroadcastOnChannelBlockingShouldReleaseOnClose(t *testing.T) {
+	t.Parallel()
+
+	msg := []byte("test message")
+	ch := make(chan *p2p.SendableData)
+
+	mes, _ := libp2p.NewNetworkMessenger(createMockNetworkArgs())
+	mes.SetLoadBalancer(&mock.ChannelLoadBalancerStub{
+		CollectOneElementFromChannelsCalled: func() *p2p.SendableData {
+			return nil
+		},
+		GetChannelOrDefaultCalled: func(pipe string) chan *p2p.SendableData {
+			return ch
+		},
+	})
+
+	// nothing drains ch, so admitted broadcasts block holding a throttler slot;
+	// the single refusal proves every slot is taken
+	errs := make(chan error, libp2p.BroadcastGoRoutines+1)
+	for i := 0; i < libp2p.BroadcastGoRoutines+1; i++ {
+		go func() {
+			errs <- mes.BroadcastOnChannelBlocking("test", "test", msg)
+		}()
+	}
+
+	select {
+	case err := <-errs:
+		require.ErrorIs(t, err, p2p.ErrTooManyGoroutines)
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "the broadcast over the limit must be refused")
+	}
+
+	_ = mes.Close()
+
+	for i := 0; i < libp2p.BroadcastGoRoutines; i++ {
+		select {
+		case err := <-errs:
+			assert.ErrorIs(t, err, p2p.ErrMessengerClosed)
+		case <-time.After(5 * time.Second):
+			require.Fail(t, "blocked broadcasts must return on Close")
+		}
+	}
+
+	// slots were released: a new call is refused as closed, not as over the limit
+	assert.ErrorIs(t, mes.BroadcastOnChannelBlocking("test", "test", msg), p2p.ErrMessengerClosed)
+}
+
 func TestLibp2pMessenger_BroadcastDataBetween2PeersWithLargeMsgShouldWork(t *testing.T) {
 	msg := make([]byte, libp2p.MaxSendBuffSize)
 

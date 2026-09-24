@@ -50,7 +50,7 @@ func CreateEndpointThrottler(throttlerName string) gin.HandlerFunc {
 			return
 		}
 
-		if !endpointThrottler.CanProcess() {
+		if !endpointThrottler.TryStartProcessing() {
 			c.AbortWithStatusJSON(
 				http.StatusTooManyRequests,
 				shared.GenericAPIResponse{
@@ -62,7 +62,6 @@ func CreateEndpointThrottler(throttlerName string) gin.HandlerFunc {
 			return
 		}
 
-		endpointThrottler.StartProcessing()
 		defer endpointThrottler.EndProcessing()
 
 		c.Next()

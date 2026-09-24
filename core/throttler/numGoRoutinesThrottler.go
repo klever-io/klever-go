@@ -35,6 +35,19 @@ func (ngrt *NumGoRoutinesThrottler) StartProcessing() {
 	atomic.AddInt32(&ngrt.counter, 1)
 }
 
+// TryStartProcessing atomically claims a slot if one is free and reports whether it did
+func (ngrt *NumGoRoutinesThrottler) TryStartProcessing() bool {
+	for {
+		valCounter := atomic.LoadInt32(&ngrt.counter)
+		if valCounter >= ngrt.max {
+			return false
+		}
+		if atomic.CompareAndSwapInt32(&ngrt.counter, valCounter, valCounter+1) {
+			return true
+		}
+	}
+}
+
 // EndProcessing will decrement current counter
 func (ngrt *NumGoRoutinesThrottler) EndProcessing() {
 	atomic.AddInt32(&ngrt.counter, -1)

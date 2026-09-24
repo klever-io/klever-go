@@ -26,6 +26,16 @@ func (ts *ThrottlerStub) StartProcessing() {
 	}
 }
 
+// TryStartProcessing -
+func (ts *ThrottlerStub) TryStartProcessing() bool {
+	if !ts.CanProcess() {
+		return false
+	}
+	ts.StartProcessing()
+
+	return true
+}
+
 // EndProcessing -
 func (ts *ThrottlerStub) EndProcessing() {
 	ts.EndWasCalled = true

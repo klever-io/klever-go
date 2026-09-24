@@ -164,7 +164,6 @@ type MessageP2P interface {
 // ChannelLoadBalancer defines what a load balancer that uses chans should do
 type ChannelLoadBalancer interface {
 	AddChannel(channel string) error
-	RemoveChannel(channel string) error
 	GetChannelOrDefault(channel string) chan *SendableData
 	CollectOneElementFromChannels() *SendableData
 	Close() error

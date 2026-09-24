@@ -829,19 +829,22 @@ func (netMes *networkMessenger) BroadcastOnChannelBlocking(channel string, topic
 		return err
 	}
 
-	if !netMes.goRoutinesThrottler.CanProcess() {
+	if !netMes.goRoutinesThrottler.TryStartProcessing() {
 		return p2p.ErrTooManyGoroutines
 	}
-
-	netMes.goRoutinesThrottler.StartProcessing()
 
 	sendable := &p2p.SendableData{
 		Buff:  buff,
 		Topic: topic,
 	}
-	netMes.outgoingPLB.GetChannelOrDefault(channel) <- sendable
-	netMes.goRoutinesThrottler.EndProcessing()
-	return nil
+	defer netMes.goRoutinesThrottler.EndProcessing()
+
+	select {
+	case netMes.outgoingPLB.GetChannelOrDefault(channel) <- sendable:
+		return nil
+	case <-netMes.ctx.Done():
+		return p2p.ErrMessengerClosed
+	}
 }
 
 func (netMes *networkMessenger) checkSendableData(buff []byte) error {

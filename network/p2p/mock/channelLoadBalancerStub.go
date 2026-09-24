@@ -7,7 +7,6 @@ import (
 // ChannelLoadBalancerStub -
 type ChannelLoadBalancerStub struct {
 	AddChannelCalled                    func(pipe string) error
-	RemoveChannelCalled                 func(pipe string) error
 	GetChannelOrDefaultCalled           func(pipe string) chan *p2p.SendableData
 	CollectOneElementFromChannelsCalled func() *p2p.SendableData
 	CloseCalled                         func() error
@@ -16,11 +15,6 @@ type ChannelLoadBalancerStub struct {
 // AddChannel -
 func (clbs *ChannelLoadBalancerStub) AddChannel(pipe string) error {
 	return clbs.AddChannelCalled(pipe)
-}
-
-// RemoveChannel -
-func (clbs *ChannelLoadBalancerStub) RemoveChannel(pipe string) error {
-	return clbs.RemoveChannelCalled(pipe)
 }
 
 // GetChannelOrDefault -
