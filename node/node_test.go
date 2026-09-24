@@ -31,6 +31,7 @@ import (
 	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 var sigOk = []byte{191, 150, 24, 156, 89, 18, 71, 123, 244, 251, 51, 26, 55, 130, 91, 227, 104, 159, 51, 243, 201, 219, 75, 212, 173, 18, 167, 48, 22, 49, 94, 136, 109, 173, 4, 140, 86, 193, 35, 146, 217, 154, 232, 45, 10, 117, 14, 144, 24, 177, 224, 125, 161, 190, 78, 156, 145, 162, 252, 143, 180, 218, 92, 9}
@@ -806,5 +807,102 @@ func TestEstimateTransactionsFees(t *testing.T) {
 
 		assert.Equal(t, kAppFee, cost.KAppFee)
 		assert.Equal(t, expectedTotalBandwidthFee, cost.BandwidthFee)
+	})
+}
+
+func TestDecodeTransaction(t *testing.T) {
+	t.Parallel()
+
+	validAddress, err := hex.DecodeString(createDummyHexAddress(64))
+	require.NoError(t, err)
+
+	n, err := createNode(t)
+	require.NoError(t, err)
+
+	t.Run("should fail with nil transaction", func(t *testing.T) {
+		t.Parallel()
+
+		var tx *transaction.Transaction
+
+		decoded, err := n.DecodeTransaction(tx)
+		assert.Nil(t, decoded)
+		assert.Equal(t, common.ErrNilTransaction, err)
+	})
+
+	t.Run("should fail with empty raw transaction", func(t *testing.T) {
+		t.Parallel()
+
+		tx := &transaction.Transaction{}
+
+		decoded, err := n.DecodeTransaction(tx)
+		assert.Nil(t, decoded)
+		assert.Equal(t, common.ErrNilRawTransaction, err)
+	})
+
+	t.Run("should fail with nil contract", func(t *testing.T) {
+		t.Parallel()
+
+		tx := &transaction.Transaction{
+			RawData: &transaction.Transaction_Raw{
+				Sender:   validAddress,
+				Contract: []*transaction.TXContract{nil},
+			},
+		}
+
+		decoded, err := n.DecodeTransaction(tx)
+		assert.Nil(t, decoded)
+		assert.Equal(t, common.ErrInvalidContract, err)
+	})
+
+	t.Run("should work with empty validator contracts", func(t *testing.T) {
+		t.Parallel()
+
+		createValidatorParameter, err := anypb.New(&transaction.CreateValidatorContract{})
+		require.NoError(t, err)
+		validatorConfigParameter, err := anypb.New(&transaction.ValidatorConfigContract{})
+		require.NoError(t, err)
+
+		tx := &transaction.Transaction{
+			RawData: &transaction.Transaction_Raw{
+				Sender: validAddress,
+				Contract: []*transaction.TXContract{
+					{Type: transaction.TXContract_CreateValidatorContractType, Parameter: createValidatorParameter},
+					{Type: transaction.TXContract_ValidatorConfigContractType, Parameter: validatorConfigParameter},
+				},
+			},
+		}
+
+		decoded, err := n.DecodeTransaction(tx)
+		require.NoError(t, err)
+		require.NotNil(t, decoded)
+		assert.Len(t, decoded.Contracts, 2)
+	})
+
+	t.Run("should work transaction with transfer contract", func(t *testing.T) {
+		t.Parallel()
+
+		tx := transaction.NewBaseTransaction(validAddress, 0, nil, 0, 0)
+		err := tx.SetChainID(chainID)
+		require.Nil(t, err)
+
+		txArgs := transaction.TXArgs{
+			Type:   uint32(transaction.TXContract_TransferContractType),
+			Sender: validAddress,
+			Contract: json.RawMessage(`{
+				"receiver": "ff5f4bf41899fcabd6751809c037f7f18838eacad8c59d27f221dc9be9301854",
+				"amount": 1000,
+				"KDA": "KLV"
+			}`),
+			NodeHelper: n,
+		}
+
+		err = tx.AddTransaction(txArgs)
+		require.Nil(t, err)
+
+		decoded, err := n.DecodeTransaction(tx)
+		require.Nil(t, err)
+		require.NotNil(t, decoded)
+		assert.Len(t, decoded.Contracts, 1)
+		assert.NotEmpty(t, decoded.Hash)
 	})
 }

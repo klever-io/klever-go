@@ -8,6 +8,7 @@ import (
 
 	"github.com/klever-io/klever-go/common/mock"
 	ptx "github.com/klever-io/klever-go/core/process/transaction"
+	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/stretchr/testify/assert"
@@ -1116,4 +1117,137 @@ func Test_serializedDataForUpdateAccounts(t *testing.T) {
 			require.Equal(t, name, doc.Script.Params.Name)
 		}
 	})
+}
+
+func Test_convertCreateValidatorContract(t *testing.T) {
+	cp := &commonProcessor{
+		addressPubkeyConverter: &mock.PubkeyConverterStub{
+			EncodeCalled: func(pkBytes []byte) string {
+				if len(pkBytes) == 0 {
+					return ""
+				}
+				return "klv1" + hex.EncodeToString(pkBytes)
+			},
+		},
+	}
+
+	cases := []struct {
+		name  string
+		input *transaction.CreateValidatorContract
+		want  data.CreateValidatorContract
+	}{
+		{
+			"missing config",
+			&transaction.CreateValidatorContract{
+				OwnerAddress: []byte{1, 2},
+			},
+			data.CreateValidatorContract{
+				OwnerAddress: "klv10102",
+				Config: data.ValidatorConfig{
+					URIs: []*data.URI{},
+				},
+			},
+		},
+		{
+			"full config",
+			&transaction.CreateValidatorContract{
+				OwnerAddress: []byte{1, 2},
+				Config: &transaction.ValidatorConfig{
+					BLSPublicKey:        []byte{3, 4},
+					RewardAddress:       []byte{5, 6},
+					CanDelegate:         true,
+					Commission:          1000,
+					MaxDelegationAmount: 5000,
+					Logo:                "logo",
+					URIs:                map[string]string{"site": "https://klever.io"},
+					Name:                "validator",
+				},
+			},
+			data.CreateValidatorContract{
+				OwnerAddress: "klv10102",
+				Config: data.ValidatorConfig{
+					BLSPublicKey:        "0304",
+					RewardAddress:       "klv10506",
+					CanDelegate:         true,
+					Commission:          1000,
+					MaxDelegationAmount: 5000,
+					Logo:                "logo",
+					URIs:                []*data.URI{{Key: "site", Value: "https://klever.io"}},
+					Name:                "validator",
+				},
+			},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cp.convertCreateValidatorContract(tt.input)
+			assert.Equal(t, transaction.TXContract_CreateValidatorContractType, got.Type)
+			assert.Equal(t, tt.want, got.Parameter)
+		})
+	}
+}
+
+func Test_convertValidatorConfigContract(t *testing.T) {
+	cp := &commonProcessor{
+		addressPubkeyConverter: &mock.PubkeyConverterStub{
+			EncodeCalled: func(pkBytes []byte) string {
+				if len(pkBytes) == 0 {
+					return ""
+				}
+				return "klv1" + hex.EncodeToString(pkBytes)
+			},
+		},
+	}
+
+	cases := []struct {
+		name  string
+		input *transaction.ValidatorConfigContract
+		want  data.ValidatorConfigContract
+	}{
+		{
+			"missing config",
+			&transaction.ValidatorConfigContract{},
+			data.ValidatorConfigContract{
+				Config: data.ValidatorConfig{
+					URIs: []*data.URI{},
+				},
+			},
+		},
+		{
+			"full config",
+			&transaction.ValidatorConfigContract{
+				Config: &transaction.ValidatorConfig{
+					BLSPublicKey:        []byte{3, 4},
+					RewardAddress:       []byte{5, 6},
+					CanDelegate:         true,
+					Commission:          1000,
+					MaxDelegationAmount: 5000,
+					Logo:                "logo",
+					URIs:                map[string]string{"site": "https://klever.io"},
+					Name:                "validator",
+				},
+			},
+			data.ValidatorConfigContract{
+				Config: data.ValidatorConfig{
+					BLSPublicKey:        "0304",
+					RewardAddress:       "klv10506",
+					CanDelegate:         true,
+					Commission:          1000,
+					MaxDelegationAmount: 5000,
+					Logo:                "logo",
+					URIs:                []*data.URI{{Key: "site", Value: "https://klever.io"}},
+					Name:                "validator",
+				},
+			},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cp.convertValidatorConfigContract(tt.input)
+			assert.Equal(t, transaction.TXContract_ValidatorConfigContractType, got.Type)
+			assert.Equal(t, tt.want, got.Parameter)
+		})
+	}
 }

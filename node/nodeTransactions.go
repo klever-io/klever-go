@@ -342,6 +342,18 @@ func (n *Node) EstimateTransactionFees(tx *transaction.Transaction) (*transactio
 
 // DecodeTransaction sends the provided transaction to the network
 func (n *Node) DecodeTransaction(tx *transaction.Transaction) (*indexerData.Transaction, error) {
+	if tx.IsInterfaceNil() {
+		return nil, common.ErrNilTransaction
+	}
+	if tx.GetRawData() == nil {
+		return nil, common.ErrNilRawTransaction
+	}
+	for _, contract := range tx.RawData.Contract {
+		if contract == nil {
+			return nil, common.ErrInvalidContract
+		}
+	}
+
 	cp, err := indexer.NewCommonProcessor(n.addressPubkeyConverter, n.validatorPubkeyConverter)
 	if err != nil {
 		return nil, err
