@@ -808,3 +808,76 @@ func TestEstimateTransactionsFees(t *testing.T) {
 		assert.Equal(t, expectedTotalBandwidthFee, cost.BandwidthFee)
 	})
 }
+
+func TestDecodeTransaction(t *testing.T) {
+	t.Parallel()
+
+	validAddress, err := hex.DecodeString(createDummyHexAddress(64))
+	require.NoError(t, err)
+
+	n, err := createNode(t)
+	require.NoError(t, err)
+
+	t.Run("should fail with nil transaction", func(t *testing.T) {
+		t.Parallel()
+
+		var tx *transaction.Transaction
+
+		decoded, err := n.DecodeTransaction(tx)
+		assert.Nil(t, decoded)
+		assert.Equal(t, common.ErrNilTransaction, err)
+	})
+
+	t.Run("should fail with empty raw transaction", func(t *testing.T) {
+		t.Parallel()
+
+		tx := &transaction.Transaction{}
+
+		decoded, err := n.DecodeTransaction(tx)
+		assert.Nil(t, decoded)
+		assert.Equal(t, common.ErrNilRawTransaction, err)
+	})
+
+	t.Run("should fail with nil contract", func(t *testing.T) {
+		t.Parallel()
+
+		tx := &transaction.Transaction{
+			RawData: &transaction.Transaction_Raw{
+				Sender:   validAddress,
+				Contract: []*transaction.TXContract{nil},
+			},
+		}
+
+		decoded, err := n.DecodeTransaction(tx)
+		assert.Nil(t, decoded)
+		assert.Equal(t, common.ErrInvalidContract, err)
+	})
+
+	t.Run("should work transaction with transfer contract", func(t *testing.T) {
+		t.Parallel()
+
+		tx := transaction.NewBaseTransaction(validAddress, 0, nil, 0, 0)
+		err := tx.SetChainID(chainID)
+		require.Nil(t, err)
+
+		txArgs := transaction.TXArgs{
+			Type:   uint32(transaction.TXContract_TransferContractType),
+			Sender: validAddress,
+			Contract: json.RawMessage(`{
+				"receiver": "ff5f4bf41899fcabd6751809c037f7f18838eacad8c59d27f221dc9be9301854",
+				"amount": 1000,
+				"KDA": "KLV"
+			}`),
+			NodeHelper: n,
+		}
+
+		err = tx.AddTransaction(txArgs)
+		require.Nil(t, err)
+
+		decoded, err := n.DecodeTransaction(tx)
+		require.Nil(t, err)
+		require.NotNil(t, decoded)
+		assert.Len(t, decoded.Contracts, 1)
+		assert.NotEmpty(t, decoded.Hash)
+	})
+}
