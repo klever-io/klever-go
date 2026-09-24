@@ -31,6 +31,7 @@ import (
 	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 var sigOk = []byte{191, 150, 24, 156, 89, 18, 71, 123, 244, 251, 51, 26, 55, 130, 91, 227, 104, 159, 51, 243, 201, 219, 75, 212, 173, 18, 167, 48, 22, 49, 94, 136, 109, 173, 4, 140, 86, 193, 35, 146, 217, 154, 232, 45, 10, 117, 14, 144, 24, 177, 224, 125, 161, 190, 78, 156, 145, 162, 252, 143, 180, 218, 92, 9}
@@ -851,6 +852,30 @@ func TestDecodeTransaction(t *testing.T) {
 		decoded, err := n.DecodeTransaction(tx)
 		assert.Nil(t, decoded)
 		assert.Equal(t, common.ErrInvalidContract, err)
+	})
+
+	t.Run("should work with empty validator contracts", func(t *testing.T) {
+		t.Parallel()
+
+		createValidatorParameter, err := anypb.New(&transaction.CreateValidatorContract{})
+		require.NoError(t, err)
+		validatorConfigParameter, err := anypb.New(&transaction.ValidatorConfigContract{})
+		require.NoError(t, err)
+
+		tx := &transaction.Transaction{
+			RawData: &transaction.Transaction_Raw{
+				Sender: validAddress,
+				Contract: []*transaction.TXContract{
+					{Type: transaction.TXContract_CreateValidatorContractType, Parameter: createValidatorParameter},
+					{Type: transaction.TXContract_ValidatorConfigContractType, Parameter: validatorConfigParameter},
+				},
+			},
+		}
+
+		decoded, err := n.DecodeTransaction(tx)
+		require.NoError(t, err)
+		require.NotNil(t, decoded)
+		assert.Len(t, decoded.Contracts, 2)
 	})
 
 	t.Run("should work transaction with transfer contract", func(t *testing.T) {
