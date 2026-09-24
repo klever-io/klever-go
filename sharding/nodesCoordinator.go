@@ -575,7 +575,7 @@ func selectValidators(
 
 	electedListLen := uint32(len(electedList)) // #nosec G115
 	// check if the selected indexes are within the range of the elected list
-	if slices.Max(selectedIndexes) > electedListLen || len(electedList) == 0 {
+	if slices.Max(selectedIndexes) >= electedListLen || len(electedList) == 0 {
 		return nil, ErrSmallElectedListSize
 	}
 
