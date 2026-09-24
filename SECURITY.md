@@ -7,7 +7,8 @@ efforts to responsibly disclose your findings and will make every effort to ackn
 your contributions.
 
 This policy states, as precisely as we can, **what we treat as a security vulnerability,
-what we treat as hardening, and what we do not treat as a security issue at all**. We
+what we fix in the open as an ordinary defect, and what we do not treat as a security
+issue at all**. We
 publish these criteria so that reporters know before they invest effort how a finding
 will be classified, and so that our decisions are consistent and reviewable rather than
 case-by-case.
@@ -56,6 +57,12 @@ beginning, we state a lower bound as well, for example `>= 1.7.14, < 1.7.18`.
 **Please do NOT report security vulnerabilities through public GitHub issues,
 discussions, or pull requests.**
 
+If you already know that no third party can trigger what you found — a defect only the
+affected account holder or the node's own operator can cause — it is not a vulnerability
+under this policy. An ordinary public issue or pull request is the right channel for it,
+and it will be handled faster there. If you are not sure, report it privately and we
+will tell you which it is.
+
 ### Private Security Advisory (Recommended)
 
 1. Navigate to the **Security** tab of this repository
@@ -71,40 +78,71 @@ Please include:
 - **Type of vulnerability** (e.g. consensus failure, execution bypass, DoS)
 - **Affected component(s)** (e.g. KVM, consensus, networking, state)
 - **Step-by-step instructions** to reproduce
-- **Proof of concept** — see "Reproducers" below
+- **Proof of concept** — required; see "Reproducers" below
 - **Potential impact**, stated as a concrete demonstrated outcome
 - **Suggested mitigation** (if you have one)
 - **Your contact information** for follow-up
 
 ### Reproducers
 
-A report that includes a runnable reproducer is triaged faster than one that does not.
+**A working reproducer is a condition of admission, not an optional field.** A report
+that does not demonstrate the finding against a named commit SHA or release tag, or
+against the public testnet, is closed — with the bucket and the rule stated, as every
+report is, but without further discussion of the finding's technical merits. This
+applies however the finding was produced, and however plausible the reasoning behind it
+looks.
+
 A reproducer is what turns a theoretical report into demonstrated impact; it does not
 raise the severity grade on its own. The most useful form is a Go test in this
 repository that fails on the affected version, together with the exact command to run
 it and its verbatim output. State explicitly which fork flags (`EnableEpochs`) your
 reproducer assumes, since most state behaviour in this codebase is fork-gated.
 
+**Denial-of-service findings must be reproduced on a local devnet or a private network
+you control, and the report must state the topology you used.** The responsible
+disclosure guidelines below prohibit denial of service against mainnet and public
+testnet, so neither is available to you for this class of finding.
+
 Please also state what you are **not** claiming. Reports that clearly bound their own
 scope are taken more seriously, not less.
 
+## What Counts as a Vulnerability
+
+A vulnerability needs an attacker. Concretely, it requires **someone other than the
+affected party who can trigger the impact, and who gains something by doing so** —
+access, funds, disruption, or information they were not entitled to.
+
+A defect that only the affected party can cause is a defect, not a vulnerability. That
+covers an account holder whose own transaction damages their own balance, and an
+operator who opens a route on their own node and then calls it. Both can be real bugs
+we want fixed, and we do fix them — in the open, as ordinary issues and pull requests,
+credited in the commit and the release notes. They do not go through the advisory
+process, because there is no one to coordinate disclosure against.
+
+This test comes before severity. A finding that fails it is not graded and not
+published as an advisory, however serious the outcome looks.
+
 ## How We Classify Reports
 
-Every report is placed in exactly one of three buckets. Advisory and hardening
-findings are credited. Reports that are not a security issue are closed with a
-written explanation citing the rule; they are not credited in an advisory or in
-release notes.
+Every report is placed in exactly one of four buckets. The first three are credited.
+Reports that are not a security issue are closed with a written explanation citing the
+rule; they are not credited in an advisory or in release notes.
 
-A duplicate is not a fourth bucket and is not "not a security issue." It stays in
+Most reports that describe something real land in **fixed in the open**. That is not a
+lesser outcome — it is the normal one, and it gets the fix shipped sooner, because
+nothing waits on an embargo.
+
+A duplicate is not a bucket of its own and is not "not a security issue." It stays in
 the same bucket as the original finding, is credited, and is closed only once the
-canonical advisory is public — or, for a hardening finding, once the fix ships — as
+canonical advisory is public — or, where no advisory will publish, once the fix ships — as
 described in the next section.
 
 | Bucket | What it means | Outcome |
 | ------ | ------------- | ------- |
-| **Security advisory** | A demonstrated impact from the table below | GitHub Security Advisory published after the fix ships; CVE where appropriate; credited in the advisory |
-| **Security hardening** | A real weakness that does not on its own produce an impact from the table below — defence-in-depth, unsafe defaults, missing safety rails — including a report that matches an exclusion below but rests on a sound observation | Tracked internally (or as a private unpublished advisory) until the fix ships, then credited in the release notes; **no public issue before the fix, and no advisory published** |
-| **Not a security issue** | Matches an exclusion below with no sound underlying weakness, or is not reproducible | Closed with a written explanation citing the specific rule; not credited |
+| **Security advisory** | Passes the attacker test above, has a demonstrated impact, and is not reduced below Low by the downgrade rules | GitHub Security Advisory published after the fix ships; CVE where the advisory meets the CVE Program's own criteria; credited in the advisory |
+| **Fixed in the open** | A real defect or a sound hardening observation that **fails the attacker test** — no third party can trigger it, or triggering it gains them nothing — or one that passes the test but the downgrade rules reduce below Low | Ordinary public issue and pull request, on the normal release schedule, credited in the commit and the release notes; no embargo and no advisory |
+| **Security hardening (embargoed)** | The narrow case: fails the attacker test today, but fixing it in public would itself show how to reach a finding that passes | Tracked privately until the fix ships, then credited in the release notes; **no public issue before the fix, and no advisory published** |
+| **Not a security issue** | Matches an exclusion below with no sound underlying defect, or is not reproducible | Closed with a written explanation citing the specific rule; where there is a real non-security bug underneath, we say so and point you at the public tracker |
 
 We will always tell you which bucket a report landed in and why.
 
@@ -123,7 +161,7 @@ We never close a duplicate with the reasoning we use for out-of-scope reports. A
 report describes a real finding. GitHub gives us no duplicate status, only Close, so we
 record the disposition in your report thread: that the finding is valid, which advisory it
 duplicates, and the dated record behind that. We close the report when the canonical
-advisory publishes, or when the fix ships for a hardening finding that will have no
+advisory publishes, or when the fix ships for a finding that will have no
 advisory, so "closed" never points at something you cannot see.
 
 ### How we substantiate a known-issue claim
@@ -161,7 +199,8 @@ prevent us from substantiating a claim to you.
 **If you report something we hold in an audit or ticket but for which no advisory exists
 yet, we do not open our own advisory and close yours.** Where the finding meets the
 advisory bar, we accept your report as the canonical advisory and add the original finder
-alongside you in the credits, citing their dated reference. Where it is hardening, your
+alongside you in the credits, citing their dated reference. Where no advisory will
+publish, your
 report stays open as the record until the fix ships, and the release notes credit you
 alongside the original finder. You keep the record you filed; they keep their attribution.
 
@@ -215,31 +254,34 @@ One vulnerability gets one advisory. We do not open a second advisory for a dupl
 because two GitHub Security Advisory identifiers for a single issue fragment the record for
 everyone downstream who consumes them. Instead:
 
-1. We keep a single canonical record for the finding: an advisory, or an internal ticket
-   where the finding is hardening.
+1. We keep a single canonical record for the finding: an advisory, or an internal
+   ticket or public issue where no advisory will publish.
 2. We confirm the duplicate in a comment on your report at triage, with the dated record
    described above and the release the fix is expected in. Your report stays open.
 3. We **add you to that advisory's credits** at the same time, normally as `finder` for
    independent discovery or `reporter` where you were first to notify us. GitHub sends you
    a **credit request.** Accept it if you want your username to appear in the published
    advisory. Declining is a supported choice and we will not press you on it; GitHub does
-   not display a credit publicly unless you accept. For a hardening finding we record you
+   not display a credit publicly unless you accept. Where no advisory will publish we
+   record you
    for the release-note credit instead.
 4. We close your report when the canonical advisory publishes, with a comment that links
-   it. For a hardening finding we close when the fix ships, with a comment that links the
+   it. Where no advisory will publish we close when the fix ships, with a comment that
+   links the
    release notes.
 
 Two things follow from this that are worth stating plainly:
 
 - **Your open report is your channel during the embargo.** We post the milestones there:
-  fix merged, release tagged, fork activated where relevant, advisory published or, for
-  hardening, release notes out. Where the
+  fix merged, release tagged, fork activated where relevant, advisory published or,
+  where none will publish, release notes out. Where the
   canonical advisory originated from our own internal review, we also add you as a
   collaborator on it so you can follow the fix directly. Where it originated from another
   researcher, we do not, because that would expose their submission; your own report
   thread carries the updates instead.
 - **Closing your report is not a rejection.** It happens at publication, or at release
-  for a hardening finding; the closing comment links the public advisory or the release
+  where no advisory will publish; the closing comment links the public advisory or the
+  release
   notes, and that comment remains in your report thread.
 
 If your report is a variant rather than a duplicate under the test above, none
@@ -250,126 +292,207 @@ the dated evidence we relied on, and we will correct the record if we cannot sup
 
 ## Severity Classification
 
-We classify by **demonstrated impact**, not by how the finding was discovered or how
-sophisticated it is. We then apply the downgrade rules below, which account for how
-reachable that impact actually is.
+This applies to findings that have already passed the attacker test above. We classify
+by **demonstrated impact**, not by how the finding was discovered or how sophisticated
+it is. We then apply the downgrade rules below, which account for how reachable that
+impact actually is.
 
-Critical is reserved for impacts that are systemic — the chain, every holder, or a node's
-keys — or that pay the attacker and therefore scale. High covers severe harm that is
-bounded to identifiable victims or to availability. Where a demonstrated impact matches
-more than one bullet, the highest applies; a bypass is graded by what it demonstrably
-reaches, not by its mechanism.
+Severity does not decide whether we publish an advisory — the attacker test does. A
+finding that a third party can trigger gets an advisory even at Low. The one exception is
+a finding the downgrade rules reduce *below* Low: that is too slight to coordinate
+disclosure around, so it is fixed in the open like any other minor defect.
 
-### Critical
+We grade against four levels. **Critical** is reserved for impacts that are systemic —
+the chain, every holder, or a node's keys — or that pay the attacker and therefore scale.
+**High** covers severe harm that is bounded to identifiable victims or to availability.
+**Medium** covers harm bounded to a single account or node. **Low** covers impact that
+on its own reaches no further than a local or non-default surface, and any higher impact
+that the downgrade rules bring to exactly Low.
+Where a demonstrated impact matches more than one level, the highest applies; a bypass is
+graded by what it demonstrably reaches, not by its mechanism.
 
-- Consensus failure, chain halt, or chain split
-- Unauthorized minting, or theft of funds belonging to another account — by whatever
-  route, including a signature, transaction-validation, or authorization bypass that lets
-  an attacker act as the victim
-- Remote code execution on a node
-- Private key extraction
+One situation reaches Medium by a route that already prices a downgrade rule into the
+grade: harm reachable only under an asset configuration its issuer chose. That is not
+hypothetical — an issuer-chosen configuration is live on mainnet and holds real
+balances, and it is non-default only in the sense that we did not pick it. Where a
+finding matches on that route, Rule 1 is priced in and is not applied to it again.
 
-### High
+Harm that only the affected account holder's own transaction can cause used to sit here
+too. It no longer does: it fails the attacker test, so it is a defect we fix in the
+open rather than a graded vulnerability.
 
-- Remote unauthenticated node crash or resource exhaustion that affects network availability
-- Transaction or signature validation bypass whose demonstrated impact stops short of a
-  Critical bullet — for example, a quorum check that still requires a majority of genuine
-  signatures
-- Authorization bypass over another account's assets or permissions that stops short of
-  theft or takeover — for example, altering an asset's properties without reaching its
-  holders' balances
-- Permanent loss or freezing of user funds that a third party can inflict on a victim
-
-### Medium
-
-- Permanent loss or freezing of user funds reachable only through the affected user's own
-  transaction
-- Permanent loss or freezing of user funds reachable only under a non-default asset
-  configuration
-- Bounded denial of service against an individual node
-- State inconsistency that does not affect consensus
-- Disclosure of non-public node or user data, reachable remotely under the **shipped
-  default configuration**
-
-### Low
-
-- Any impact above that the downgrade rules bring to exactly Low
-- Information disclosure reachable only from the local host
-- Missing hardening on a debug, diagnostic, or non-default surface
+We do not publish a list of example vulnerabilities per level. Which level a finding
+lands on is a judgement about demonstrated impact, and we state that reasoning on the
+report rather than inviting findings to be written against a taxonomy.
 
 > **Note:** "information disclosure" is not automatically Medium. It is Medium only when
 > the disclosed data is non-public *and* the endpoint is reachable remotely under the
 > configuration we ship. Node telemetry, counters, and diagnostic state reachable only on
-> loopback are Low or hardening.
+> loopback are Low, or fixed in the open.
 
 ### Downgrade Rules
 
 These are applied after the impact is matched. Each rule that applies reduces the
-severity by one level. A finding reduced below Low is classified as hardening.
+severity by one level. A finding reduced below Low is fixed in the open, unless
+publishing the fix would itself show how to reach a finding that passes the attacker
+test.
 
-**A rule is not applied if the matched impact bullet already incorporates it.** We
-still cite the rule as reasoning so the match is reviewable; we do not decrement
-twice for the same fact.
+**A rule is not applied if the matched impact already incorporates it.** We still cite
+the rule as reasoning so the match is reviewable; we do not decrement twice for the same
+fact.
 
 1. **Non-default configuration** — the impact requires an asset, chain, or node
    configuration that differs from what we ship, and that an issuer or operator chose.
-2. **Self-inflicted trigger** — the impact requires the affected user's own transaction,
-   with no third party able to cause it.
+2. **Self-inflicted trigger** — *superseded by the attacker test.* Where the impact
+   requires the affected party's own action and no third party can cause it, the finding
+   leaves the vulnerability track entirely and is fixed in the open; it is no longer
+   downgraded by one level. Kept in place so that advisories citing Rule 3 or Rule 4
+   stay readable.
 3. **Privileged actor** — the impact requires an actor who already holds a privileged
    role over the affected asset or node, where that role already confers comparable power.
-4. **Local or non-default reachability** — the impact requires access to the local host,
-   or requires an interface bound beyond the loopback default we ship.
+4. **Local or non-default reachability** — the impact requires access to the local
+   host, or requires an interface bound beyond the loopback default we ship.
 
-Worked example: permanent loss of user funds that requires the user's own transaction
-*and* a non-default asset configuration matches the Medium self-inflicted bullet. Rule 2
-is priced into that bullet and is not applied again; Rule 1 is not, so it applies once and
-the result is Low — not hardening. Matching the non-default-asset bullet instead reaches
-the same place by the mirror route, which is why the two are listed separately.
+Worked example, in the order we apply it:
 
-The same applies at Low: "information disclosure reachable only from the local host"
-already incorporates Rule 4; Rule 4 is not applied again to drop that finding to
-hardening.
+1. **Attacker test** — an asset's issuer can inflict the impact on holders of that
+   asset and gains by doing so. Someone other than the affected party is involved and
+   gains, so this is a vulnerability and not a defect.
+2. **Matched impact** — harm bounded to the accounts holding that asset, reachable only
+   under an asset configuration its issuer chose. **Starting grade: Medium**, with
+   Rule 1 priced into that route and not applied again.
+3. **Rule 3 applies once** — but only because the role the issuer already holds over
+   this asset confers the same power the finding reaches, so the finding hands them
+   nothing they could not already do. Where the impact goes beyond that power — reaching
+   balances the issuer could not already move, or minting they could not already perform
+   — the role is not comparable, Rule 3 does not apply, and the grade stands.
+4. **Final grade: Low** — and still a published advisory, because the attacker test
+   decides that, not the grade.
 
-We will state which rules we applied. If you think we applied one incorrectly, say so —
-several published advisories on this repository were re-rated after a reporter pushed back
-with a better argument.
+The same guard applies at Low. Where the graded impact already assumes local-only
+reachability, Rule 4 is not applied again to push the finding out of the graded range.
+
+Two reachability cases come up often enough to state as worked applications of Rule 4.
+Neither is an exclusion: the finding stays in scope and is graded.
+
+- **A finding that requires the REST API bound beyond the loopback default** takes the
+  Rule 4 downgrade rather than leaving scope outright. It becomes a public fix only
+  once that downgrade reduces it below Low.
+- **A finding that requires a deployment exposed or misconfigured beyond what we
+  ship** takes the same downgrade where it still carries demonstrated impact. Where the
+  misconfiguration is itself the whole finding, it is not a security issue — see the
+  exclusions below.
+
+We will state which rules we applied. If you think we applied one incorrectly, say so.
 
 ### What "shipped default" means
 
-Classification uses the **mainnet deployment as we publish it**: the release binary or
-image, the current mainnet configuration package from backup.mainnet.klever.org, and
-the run command in the Node Operations Guide. The YAML in this repository is the
-developer checkout; a setting counts as shipped only if it survives into that package,
-and where the two differ, the package governs.
+Classification uses **the software as we ship it**: the release binary or image and
+its built-in defaults, plus the current mainnet configuration package from
+backup.mainnet.klever.org. The YAML in this repository is the developer checkout; a
+setting counts as shipped only if it survives into that package, and where the two
+differ, the package governs.
 
-Under that deployment the REST API binds to `localhost:8080`
-(`common/facade.DefaultRestInterface`). Only `--rest-api-interface` moves the listener
-off loopback — `--rest-api-interface=0.0.0.0:8080` or `--rest-api-interface :8080` — and
-the guide does not pass it. Docker `-p 8080:8080` and `--network=host` carry a
-non-loopback listener onto the network but do not rebind one themselves. Either way, the
-change is an operator choice, and an operator who makes it is expected to put
-authentication and TLS in front of the listener.
+How a given operator invokes the binary — which flags they pass, which ports they
+publish, what they put in front of it — is a property of their deployment, not of what
+we ship.
+
+The REST API's shipped default is loopback: `common/facade.DefaultRestInterface` is
+`localhost:8080`, reachable only from the node host. `--rest-api-interface` is the only
+thing that moves the listener off it, and passing that flag is a deployment choice. An
+operator who makes it is expected to put authentication and TLS in front of the
+listener.
+
+Docker does not rebind the listener on its own, and the two network modes behave
+differently:
+
+- Under `--network=host` the container shares the host network namespace, so whatever
+  address the node is told to bind is the address it occupies on the host: a loopback
+  bind stays on host loopback, and an all-interfaces bind is reachable off-host.
+  Published ports (`-p`) have no effect in this mode.
+- Under the default bridge network, `-p 8080:8080` forwards to the container's own
+  address, which cannot reach a process bound to `127.0.0.1` inside the container.
+  Publishing a port therefore exposes only a listener already bound to all interfaces —
+  and it publishes it on every host interface by default, ahead of a host firewall.
+
+Wherever the listener ends up, the deployment hardening guide covers what to put in
+front of it.
+
+## Scope
+
+This policy covers the core blockchain protocol, consensus, KVM, smart contract
+execution, state and account handling, networking, and cryptographic implementations in
+this repository.
+
+Findings in other Klever properties — the wallet, the hub, the web properties, and the
+SDKs — are outside this policy, but they reach us at the same address:
+security@klever.io.
+
+## Fixed in the Open
+
+These are real weaknesses that no third party can turn against someone else, together
+with findings that a third party can reach but the downgrade rules reduce below Low. We
+want them reported and we do fix them, as ordinary public issues and pull requests on the
+normal release schedule, credited in the commit and the release notes. They are not
+graded and not published as advisories. Where a public fix would itself show how to
+reach a finding that passes the attacker test, we hold it privately instead and credit
+it in the release notes when it ships.
+
+- **Missing `secured:` on a read-only diagnostic route that is not remotely
+  reachable.** On the loopback default we ship, tightening the flag is defence in depth
+  and we do it in the open. **Where a deployment does make such a route remotely
+  reachable and it is unsecured, a third party who reaches it and obtains non-public
+  node or peer data has gained something** — that passes the attacker test and is graded
+  under the information-disclosure note above, subject to the Rule 4 downgrade for
+  requiring a non-loopback bind. Routes that change *node state or operator
+  configuration* — the redundancy control, the log profile, and anything else that
+  reconfigures the process —
+  stay in scope as vulnerabilities whatever their reachability. Protocol submission
+  endpoints are a separate class: every node accepts signed transactions by design, the
+  signature is the authorization, and an unauthenticated `/transaction/broadcast` or
+  `/transaction/send` is not a finding.
+- **Safety rails around operator misconfiguration and key-file handling.** The
+  misconfiguration itself is not a security issue — see below — but making it harder to
+  get wrong is worth doing.
 
 ## Not a Security Issue
 
 The following are not treated as vulnerabilities and are not published as advisories.
-Where the underlying observation is sound, the report is accepted as **hardening** and
-credited; where it is not, it is closed as not a security issue. We would rather receive
-these than not.
+These are rules, not case-by-case judgements. Where the underlying observation is
+sound **and demonstrated**, the report is accepted and fixed in the open, and credited;
+where it is not, it is closed as not a security issue. A sound observation with no runnable
+reproduction is closed under the first rule below, because we cannot confirm it — being
+right in principle does not substitute for showing it. We would rather receive these
+than not.
 
-- **REST API exposure.** The shipped deployment binds the REST API to loopback
-  (`localhost:8080`). Exposing it more widely is an operator decision, and securing
-  that deployment is an operator responsibility. If you bind beyond loopback, put the
-  listener behind authentication and TLS (a reverse proxy is the usual shape) and do
-  not leave mutate routes unauthenticated. Exposure on its own is not a finding. Where a
-  finding does carry demonstrated impact, requiring a non-loopback bind takes the Rule 4
-  reachability downgrade rather than leaving scope outright — it is hardening only once
-  that downgrade reduces it below Low. Routes that *mutate* node state or configuration
-  stay in scope as vulnerabilities.
-- **Missing `secured:` on read-only diagnostic routes.** Treated as hardening.
-  Tightening those flags is a change to the mainnet configuration package, or an operator
-  edit where a deployment publishes the API. Routes that *mutate* node state or
-  configuration stay in scope as vulnerabilities.
+Two neighbouring cases are deliberately not on this list. Sound weaknesses that no
+third party can turn against someone else are under "Fixed in the Open" above, and
+findings that stay in scope but take a reachability downgrade are worked through under
+"Downgrade Rules", also above.
+
+- **Reports with no runnable reproduction**, including findings derived from reading
+  source code, from static analysis, and from model output, and including automated
+  scanner output with no demonstrated exploitability. Theoretical impact is not impact;
+  see "Reproducers" above.
+- **REST API exposure.** Where the listener is reachable is a property of the
+  deployment, and securing the deployment is an operator responsibility. If it is
+  reachable off-host, put it behind authentication and TLS (a reverse proxy is the usual
+  shape) and do not leave mutate routes unauthenticated. Exposure on its own is not a
+  finding.
+  Deployment hardening for the API is documented in
+  [docs/node-api-hardening.md](docs/node-api-hardening.md); a report that restates that
+  document back to us is not a finding.
+- **Denial of service against your own node, or that you cannot reproduce.** Load you
+  generate against a node you control, and consumption that degrades nothing beyond it,
+  is not a finding. A demonstrated remote crash or resource exhaustion of a node the
+  reporter does **not** control is a different matter: it passes the attacker test, and
+  it is graded by how far it reaches — a single node, or network availability.
+- **An operator acting on their own node.** Opening or unsecuring a route in your own
+  `api.yaml`, binding the listener where you choose, and then calling it yourself
+  crosses no boundary: you already control the node, its configuration, its keys, and
+  its database, and you can reach the same result without going through the API at all.
+  That is not a finding at any severity. What *is* in scope is a defect that lets
+  someone other than the operator reach the same result.
 - **Local attackers already present.** If an attacker must already have code execution,
   filesystem write access, or an account on the node host, they can generally do worse
   directly. The bar for these is correspondingly higher.
@@ -378,38 +501,28 @@ these than not.
   users, carry key material, or reveal unpublished chain state.
 - **Credential-hashing strength** where the shipped default fails closed and the
   credential file already sits alongside material of equal or greater sensitivity.
-- **Operator misconfiguration or key-file mismanagement**, including losing or failing to
-  provision key material. Improving the safety rails around these is hardening.
-- **Duplicates and issues already fixed** on an unreleased branch are not listed here as
-  exclusions, because they describe real findings. They are handled under "Duplicates and
-  Findings Already Under Embargo" above, and are still credited. Please check `develop`
+- **Operator misconfiguration or key-file mismanagement**, including losing or failing
+  to provision key material.
+- **Issues already public.** A vulnerability that is already disclosed in a published
+  advisory, a public issue, or a public write-up needs no coordinated disclosure and is
+  not reopened as a new report. Duplicates of findings still under embargo, and issues
+  already fixed on an unreleased branch, are a different case: they describe real
+  findings, they are credited, and they are handled under "Duplicates and Findings
+  Already Under Embargo" above. Please check the published advisories and `develop`
   before reporting.
-- **Theoretical impact without a reproducer**, or automated scanner output with no
-  demonstrated exploitability.
-- **Third-party dependencies** — please report to the respective maintainers. If a
-  dependency issue is reachable through our code in a way the upstream advisory does not
-  describe, that is in scope.
+- **Third-party dependency CVEs with no demonstrated exploit path through klever-go** —
+  please report to the respective maintainers. If a dependency issue is reachable through
+  our code in a way the upstream advisory does not describe, that is in scope.
 - **Test code and fixtures.** Test servers and helpers in this repository are not intended
   for production use and are not hardened.
 - **Social engineering, phishing, and physical attacks.**
 - **Centralization, governance, and economic-design concerns** that do not stem from a
   code defect. These are welcome as ordinary issues or discussions.
 
-## Response Timeline
+## Response
 
-These are the targets we plan around. When we see that one will be missed, we say so in
-your report thread with the reason and the new expected date.
-
-1. **Initial response**: within 36 hours
-2. **Triage and bucket assignment**: within 5 business days, with the reasoning stated
-3. **Fix available in a tagged build**, counted from the report date. A release candidate
-   we ask operators to run counts; fork-gated activation follows the epoch schedule and is
-   outside this window.
-   - Critical: 14 days
-   - High: 30 days
-   - Medium: 90 days
-   - Low / hardening: on the ordinary release schedule
-4. **Coordinated disclosure**: timeline agreed with you, per the model below
+We aim to acknowledge reports that meet the requirements above, and we do not commit to
+fixed response times.
 
 ## Disclosure Model
 
@@ -433,38 +546,31 @@ Two properties of this codebase shape our timing:
 | High | After the fix is active and adoption is confirmed |
 | Critical | Case by case; details may be limited or withheld while networks upgrade |
 
-Reporters are credited in the published advisory unless they ask not to be. Hardening
-findings are credited in release notes.
+This table covers findings that pass the attacker test. Findings fixed in the open are
+not on it: they ship on the normal release schedule with no embargo.
 
-## Recognition and Rewards
+Reporters are credited in the published advisory unless they ask not to be. Findings
+fixed in the open are credited in the commit and the release notes.
 
-We do not currently operate a bounty program with published reward tiers, and we would
-rather say so plainly than imply terms we have not set.
+## Recognition
+
+We do not operate a bug bounty program and we publish no reward tiers. Reports to this
+repository should not be filed on the expectation of payment. We would rather say that
+plainly than imply terms we have not set.
 
 What we do commit to:
 
-- **Attribution.** Reporters are credited in the published advisory, or in the release
-  notes for findings classified as hardening, unless you ask us not to be named.
+- **Attribution.** Reporters are credited in the published advisory, or in the commit
+  and the release notes for findings fixed in the open, unless you ask us not to be
+  named.
 - **A stated decision.** Every report receives a bucket and the reasoning behind it.
-  Advisory and hardening findings also receive a severity, including which downgrade
-  rules we applied and why.
+  Advisory findings also receive a severity, including which downgrade rules we applied
+  and why. Where a report fails the attacker test we say which part it fails — no third
+  party, or no gain.
 - **Safe harbour.** We will not pursue legal action against, or ask platforms to act
   against, anyone who researches and reports in good faith under the responsible
   disclosure guidelines below. If you are unsure whether an activity is covered, ask us
   first at security@klever.io and we will answer before you proceed.
-
-**Monetary awards are discretionary.** We may recognise reports that are especially
-severe, especially well-evidenced, or that prevent a real incident. Because there are no
-published tiers, no severity rating on this repository constitutes an offer or an
-entitlement, and we would ask reporters not to invest effort on the assumption of payment.
-
-**Scope** for the purposes of this policy: the core blockchain protocol, consensus, KVM,
-smart contract execution, state and account handling, networking, and cryptographic
-implementations in this repository.
-
-We are working toward a formally hosted program. If and when one launches, its published
-impacts-in-scope list and reward ranges will become authoritative over this section, and we
-will say so here.
 
 ## Responsible Disclosure Guidelines
 
@@ -484,306 +590,15 @@ Please do not:
 - ❌ Execute attacks against network participants
 - ❌ Publicly disclose before coordinated release
 
-## Security Best Practices for Node Operators
+## Node Operators
 
-- Keep node software up to date
-- Run the current mainnet configuration package from backup.mainnet.klever.org and
-  refresh it when a release says to; the YAML in this repository is a developer checkout
-- Leave the REST API on loopback (`localhost:8080`) unless you have a reason not to
-- If you bind beyond loopback — a non-loopback `--rest-api-interface`, reached either by
-  Docker `-p 8080:8080` or `--network=host` — require authentication and TLS termination
-  in front of the listener. Do not leave mutate routes unauthenticated.
-- Back up and protect validator key material; verify your node starts under the identity
-  you registered
-- Follow secure key management practices and use hardware wallets for significant holdings
-
-## Deploying / Exposing the REST API
-
-The node's REST API performs **no origin checking** (the node `/log` WebSocket route is the sole
-exception — see [WebSocket origin policy](#websocket-origin-policy)), and applies access control
-only where a route is explicitly marked `secured` in `api.yaml`. Whether it is safe is entirely a
-function of how you deploy it. This section is the operator-facing counterpart to the user guidance above, and
-covers both deployables: the validator/observer node (`config/node/`) and the seednode
-(`config/seednode/`), which ship separate API configurations.
-
-### The exposure model
-
-By default the API binds to `localhost:8080` (`DefaultRestInterface`, `common/facade/nodeFacade.go`),
-reachable only from the node host. **Exposing it beyond that is a deliberate operator choice, and the
-node does not second-guess it.**
-
-If you expose the API, it MUST be fronted by a reverse proxy that terminates TLS, enforces
-origin/CORS policy, and requires authentication. Firewall the API port so the node is reachable only
-through that proxy. Outside `/log`, the node itself will not reject a cross-origin request:
-`CheckOrigin` returns `true` unconditionally for `/subscribe` (`network/api/websocket/routes.go`).
-That is by design — origin policy belongs to the proxy — but it means an exposed node with no proxy
-has essentially no origin protection. `/log` is the exception on both deployables: the node route
-(`network/api/api.go`) enforces `logWebSocketAllowedOrigins`, and the seednode route
-(`cmd/seednode/api/api.go`) has no allowlist and blocks every browser origin, because `/log` can be
-Basic-Auth protected and streams internal node state.
-
-**Do not run a browser on a validator host.** Because the rest of the API has no origin control, any
-page you visit can issue cross-origin requests to `localhost:8080` and reach the node.
-
-### Per-endpoint guidance
-
-Most routes are configured in `config/node/api.yaml` (`config/seednode/api.yaml` for the seednode);
-the exceptions are `/debug/pprof/*` and `/swagger/*`, both covered below. For the configured ones,
-two flags govern each route, and they do **not** mean what their names suggest when combined:
-
-- `open` controls whether the route is **registered at all**.
-- `secured` only **attaches Basic Auth** to a route that is already open.
-
-> **`secured: true` with `open: false` does not produce an authenticated endpoint — it produces no
-> endpoint.** The route is simply absent. The node logs a warning for `/subscribe` in this case
-> (`network/api/api.go`); there is no equivalent warning for other routes, so check your
-> config rather than relying on a log line.
-
-**`/log`** — ships enabled and authenticated (`open: true`, `secured: true`). It streams node-wide
-logs, which can include operational detail you would not want public. Keep `secured: true` if it is
-reachable off-host, or set `open: false` to remove it entirely.
-
-**`/subscribe`** — ships enabled and **unauthenticated** (`open: true`, no `secured`). It is a public
-event feed by design. For a public or mainnet deployment, add `secured: true` to require Basic Auth
-on the handshake, or set `open: false` to disable it. Its resource limits are covered below.
-
-**`/node/debug`, `/node/peerinfo`, `/node/p2pstatus`, `/node/heartbeatstatus`** — ship enabled and
-authenticated (`open: true`, `secured: true`). `/node/debug` returns cached interceptor and resolver
-state. `/node/peerinfo` returns the addresses and validator public keys of every peer you are
-connected to; the `pid` query parameter only filters that list, and omitting it returns all of them.
-`/node/p2pstatus` reports the node's own p2p listen addresses, and `/node/heartbeatstatus` the
-heartbeat view of the validator set. Together they describe your network topology. Upgrading the
-binary does not rewrite an existing `api.yaml`: a node configured before these defaults keeps
-serving them unauthenticated, and logs a warning at startup for each one (`network/api/api.go`).
-Add `secured: true`, or set `open: false`, on each of them.
-
-**`/debug/pprof/*`** — registered only when the node runs with `--profile-mode`, and **not governed
-by `api.yaml`**: the routes are attached directly to the gin engine outside the normal route-group
-registration (`network/api/api.go`), so they have no `open`/`secured` flag and no Basic Auth. The
-flag is the only control. `/debug/pprof/heap` and `/debug/pprof/goroutine` dump process memory and
-full goroutine stacks to any caller that can reach the port. Never run with `--profile-mode` on an
-exposed node; if you must profile, keep the API bound to `localhost` and tunnel to it.
-
-**`/swagger/*`** — registered unconditionally when the API starts (`network/api/api.go`), before the
-`api.yaml` routes: no `open`/`secured` flag, no Basic Auth, and unlike `/debug/pprof/*` not even a
-CLI flag to disable it. It serves the Swagger UI and the compiled-in spec, generated at build time,
-so it lists every route the binary knows about including the ones you set `open: false`. No runtime
-state leaks through it, so this is surface enumeration rather than data disclosure. Block it at the
-reverse proxy if that matters to you.
-
-### Seednode
-
-The seednode is a separate deployable with its own API config (`config/seednode/api.yaml`), its own
-`credentials` block, and its own routes. Hardening `config/node/api.yaml` does nothing for it — go
-through this section a second time against the seednode file.
-
-Its shipped defaults differ from the node's:
-
-- **`/log`** — `open: true`, `secured: true`, same as the node.
-- **`/peers`** — `open: true` with **no `secured`**. It exposes connected peer addresses, i.e. your
-  network topology. Set `open: false` to remove it, or `secured: true` to require auth, unless you
-  intend that data to be public.
-- **`/node/metrics`** — `open: true` and deliberately unsecured, because Prometheus does not send
-  Basic Auth. Restrict it at the network layer rather than in `api.yaml`, unless your scraper is
-  configured for credentials.
-
-### Credentials
-
-Authentication is HTTP Basic Auth (`network/api/middleware/authHandler.go`). The `password` field
-in `api.yaml` is **not** the password — it is the **hex-encoded digest** of the password under the
-configured hasher (`authHandler.go`; hasher selected by `hasher.type`, `sha256` by default).
-
-The shipped credentials are placeholders and are not usable — `config/node/api.yaml` ships two
-entries, and `config/seednode/api.yaml` ships its own:
-
-```yaml
-credentials:
-  - username: example
-    password: hashed password
-  - username: example2
-    password: hashed password
-hasher:
-  type: sha256
-```
-
-Replace **every** entry, in both files, before enabling `secured` anywhere. Generate the digest
-without leaving the plaintext password in your shell history:
-
-```bash
-read -rs -p 'password: ' pw && printf '%s' "$pw" | sha256sum | cut -d' ' -f1; unset pw
-```
-
-(`sha256sum` is GNU coreutils; on macOS use `shasum -a 256`.)
-
-Leaving the credentials list **empty** does not disable auth — it makes every authenticated request
-fail with HTTP 500.
-
-### Recommended hardened configuration
-
-For a node whose API is reachable off-host, start from this and adjust:
-
-```yaml
-# config/node/api.yaml
-apiPackages:
-  log:
-    routes:
-      - name: /log
-        open: true
-        secured: true       # or open: false to remove the route entirely
-  subscribe:
-    routes:
-      - name: /subscribe
-        open: true
-        secured: true       # public feed by default; require auth when exposed
-
-credentials:
-  - username: <operator>
-    password: <hex sha256 digest of the password>
-hasher:
-  type: sha256
-```
-
-**This edits the `log` and `subscribe` entries of the shipped file — it is not a replacement for the
-whole file.** The real `apiPackages` block also carries the other route groups (`address`,
-`transaction`, `block`, `node`, `vm`, …); dropping them leaves `apiPackages` without those keys, and
-every route whose group is missing fails its enabled check and is never registered. The same applies
-to the indentation: `log`/`subscribe` must stay nested under `apiPackages`, while `credentials` and
-`hasher` stay at the top level. Get that wrong and the config parses without error while silently
-discarding the credentials, which lands you in the HTTP 500 state described above.
-
-Pair it with: `--rest-api-interface=localhost:8080` (the default) plus a reverse proxy, or a firewall
-rule restricting the port to the proxy host.
-
-### WebSocket resource limits
-
-`/subscribe` and `/log` connection and subscription limits are tunable under `webServer` in
-`config/node/config.yaml`:
-
-| Setting | Purpose | `0` means |
-|---|---|---|
-| `webSocketConnections` | node-wide cap on live `/subscribe` connections | unlimited |
-| `webSocketConnectionsPerIP` | per-source-IP cap for `/subscribe` | unlimited |
-| `webSocketMaxAddressesPerSubscribe` | addresses accepted in one subscribe call | use the built-in default |
-| `webSocketMaxAddressesPerClient` | total addresses one connection may watch | use the built-in default |
-| `logWebSocketConnections` | node-wide cap on live `/log` connections | use the built-in default |
-| `logWebSocketConnectionsPerIP` | per-source-IP cap for `/log` | unlimited |
-| `logWebSocketAllowedOrigins` | browser origins allowed to open `/log` | block every browser origin |
-
-Note the split in the last column. `webSocketConnections`, `webSocketConnectionsPerIP` and
-`logWebSocketConnectionsPerIP` treat `0` as unlimited. The two address caps and
-`logWebSocketConnections` fall back to their built-in defaults on `0` (the fields are unsigned, so
-there is no negative to reject), so they **cannot be disabled** — to lift them, set an explicit
-high value rather than `0`.
-
-`logWebSocketConnections` is in the second group on purpose. Before the `/log` cap existed,
-streaming ran on the request goroutine and so held a `simultaneousRequests` slot for the whole
-connection, bounding live `/log` connections at that setting (100 in the shipped config). Streaming
-now runs off that goroutine and the
-slot is released at the upgrade, so treating `0` as unlimited would leave a node upgraded with a
-`config.yaml` predating the key *weaker* than before. It falls back to 32 instead, and the node
-logs a warning at startup when that happens. The per-IP cap keeps `0` = unlimited because behind a
-proxy it has to be disableable; the node-wide cap still bounds the route when it is off.
-
-The `/log` caps are deliberately far smaller than `/subscribe`'s (32/8 versus 4096/1024). Every
-live `/log` connection registers a process-global log observer, so each log line is formatted and
-fanned out once per connection; `/log` is an operator diagnostic route, not a public feed.
-
-**A raised log profile stays raised while any `/log` session is connected.** On a secured `/log`,
-an authenticated client may send a logger profile in its handshake, and that profile is applied to
-the *process-global* logger — so `*:TRACE` writes trace output to every configured sink (disk
-included), not just to that websocket. The original profile is snapshotted when the first session
-connects and restored when the last one disconnects, which is what stops two overlapping sessions
-from reverting the node to each other's setting. The trade-off is that the raised profile is only
-reverted at the *last* disconnect: a session that raised verbosity and left keeps the node at that
-level for as long as any other `/log` client — including an idle one that answers pings and never
-asked for it — stays connected. Restart the tailer set, or reapply the intended profile, after a
-verbose debugging session.
-
-**Behind a reverse proxy, every client shares the proxy's IP**, so the per-IP caps throttle all of
-them together. Raise them, or set them to `0` to disable, for proxied deployments — and enforce
-per-client limits at the proxy instead. `logWebSocketConnectionsPerIP` is the one that bites first:
-at its default of 8, a proxied deployment reaches the per-IP limit long before the node-wide 32.
-
-Per-IP caps (and the `sameSourceRequests` throttler) bucket IPv6 sources by their `/64` prefix.
-Keying on the full `/128` would let anyone holding a routed `/64` pick a fresh source address per
-connection and walk past every per-IP limit. `/64` is a reduction, not an identity: it is the
-smallest prefix ISPs delegate, but `/56` and `/48` are common, so one customer can still hold 256
-to 65536 buckets. The `/log` per-IP cap is backstopped by the node-wide cap; `sameSourceRequests`
-is not, and there the quota is multiplied by the client's allocation size. Link-local zone
-identifiers are dropped before bucketing, NAT64 (`64:ff9b::/96`) keys on the embedded IPv4 since
-the translator — not the peer — writes those bits, and Teredo and 6to4 are bucketed like any other
-IPv6 because their embedded IPv4 is client-constructed.
-
-Note that neither HTTP throttler bounds live WebSocket connections. `simultaneousRequests`
-releases its slot at the HTTP-to-WebSocket upgrade, and `sameSourceRequests` counts requests per
-source until its periodic reset, so a long-lived socket costs it exactly one request. The
-`webSocket*` and `logWebSocket*` settings are what do.
-
-### WebSocket origin policy
-
-The two WebSocket routes take deliberately different stances, because they differ in what an
-attacker gains by driving one from a web page:
-
-- **`/log` enforces an origin allowlist.** A client that sends no `Origin` header (the log viewer,
-  `curl`, `wscat`) is always allowed — `Origin` is set by the browser and page script cannot forge
-  it, so its absence means no page is driving the connection. A request that *does* carry an
-  `Origin` is a browser, and is admitted only if `logWebSocketAllowedOrigins` lists it. The empty
-  default therefore blocks every web page while leaving normal tooling working. This matters
-  because `/log` can be Basic-Auth protected: without it, any site an operator visits could open
-  `ws://localhost:8080/log` and stream node logs on their credentials.
-- **`/subscribe` does not enforce origin** (KLC-2450): the node is expected to run headless behind
-  an operator proxy that owns origin/CORS policy. This is a delegation, not an absence of risk. An
-  earlier version of this document said `/subscribe` "carries no ambient credentials" — that is
-  wrong. When the route is marked `secured`, Basic Auth is attached to it exactly as it is to
-  `/log`, and browsers replay cached Basic credentials on a same-host WebSocket handshake. **A
-  secured `/subscribe` reachable from a browser without a proxy enforcing `Origin` is exposed to
-  the same CSWSH that the `/log` allowlist closes.** Either enforce origin at the proxy, or leave
-  `/subscribe` unsecured and treat its feed as public.
-
-### Seednode `/log`
-
-The seednode's `/log` route (`cmd/seednode/api/api.go`) shares the sender with the node, so the
-handshake limit and deadline, the rolling `pongWait` deadline, the ping loop, the write deadline,
-the profile refcount, the log-injection guard and the panic containment all apply, and its
-upgrader blocks every browser origin (there is no allowlist to configure, so no browser can open
-it at all). That matters because the seednode ships `/log` with `secured: true`
-(GHSA-9v8p-frvj-2pcm / KLC-2438), and `secured` also turns profile application on: without the
-origin check, a page an operator visited could stream seednode logs on cached Basic credentials
-and mute the process-global logger.
-
-Live seednode `/log` connections are capped at a built-in 32, node-wide, with no per-IP dimension
-and no configuration knob: the seednode has no `webServer` antiflood section to read one from,
-and every live session registers a process-global observer that formats every log line, so
-unbounded is the wrong default for a route nobody needs tens of. Rejected upgrades are budgeted
-the same way as the node's, one line per window with a counter of their own. Keep the route
-disabled unless you are actively tailing it.
-
-### Operational checklist
-
-- [ ] API bound to `localhost` unless deliberately exposed
-- [ ] If exposed: reverse proxy enforcing TLS, origin/CORS, and authentication
-- [ ] API port firewalled to the proxy host
-- [ ] Real credentials configured; all placeholder entries replaced, in both `config/node/api.yaml`
-      and `config/seednode/api.yaml` if you run a seednode
-- [ ] `/log` secured or disabled
-- [ ] `/subscribe` secured or disabled if not intended to be public
-- [ ] `/node/debug`, `/node/peerinfo`, `/node/p2pstatus` and `/node/heartbeatstatus` secured or
-      disabled — shipped secured, but an `api.yaml` from before the upgrade is not rewritten
-- [ ] Seednode `/peers` disabled or secured unless network topology is meant to be public
-- [ ] `--profile-mode` off, or API localhost-only — `/debug/pprof` is unauthenticated
-- [ ] `/swagger` blocked at the proxy if you do not want the API surface enumerated
-- [ ] `webSocketConnectionsPerIP` and `logWebSocketConnectionsPerIP` adjusted if behind a proxy
-- [ ] `logWebSocketConnections` sized for the deployment — `0` falls back to the built-in 32
-- [ ] `logWebSocketAllowedOrigins` left empty unless a browser-based log viewer is actually used
-- [ ] Seednode `/log` disabled unless actively in use — its cap is a built-in 32 with no per-IP dimension
-- [ ] No browser running on validator hosts
-- [ ] Node software kept up to date
-- [ ] Key management per the practices above
+Deployment hardening — REST API exposure, credentials, WebSocket limits, and the
+operational checklist — is in [docs/node-api-hardening.md](docs/node-api-hardening.md).
 
 ## Security Audits
 
-Our codebase undergoes regular security audits by reputable third-party firms. Audit
-reports are published on our website and documentation.
+The codebase undergoes periodic third-party security audits. Reports are available on
+request at security@klever.io.
 
 ## Contact
 
