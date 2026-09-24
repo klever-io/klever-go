@@ -2,6 +2,7 @@ package sharding
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -42,6 +43,31 @@ func (v validatorList) Less(i, j int) bool {
 		return bytes.Compare(v[i].PubKey(), v[j].PubKey()) < 0
 	}
 	return v[i].Index() < v[j].Index()
+}
+
+// sortByTrieLeafOrder sorts validators in the order the peer trie walk yields their
+// keys: the trie stores a key as nibbles from the last byte to the first, low nibble
+// first, followed by a terminator that sorts after every nibble
+func sortByTrieLeafOrder(validators []Validator) {
+	slices.SortStableFunc(validators, func(a, b Validator) int {
+		return CompareTrieLeafOrder(a.PubKey(), b.PubKey())
+	})
+}
+
+// CompareTrieLeafOrder compares two keys in the order a peer trie walk yields them
+func CompareTrieLeafOrder(a, b []byte) int {
+	for i := 1; i <= len(a) && i <= len(b); i++ {
+		byteA, byteB := a[len(a)-i], b[len(b)-i]
+		if c := cmp.Compare(byteA&0x0f, byteB&0x0f); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(byteA>>4, byteB>>4); c != 0 {
+			return c
+		}
+	}
+
+	// the shorter key reaches its terminator first, which sorts after any nibble
+	return cmp.Compare(len(b), len(a))
 }
 
 // TODO: move this to config parameters
@@ -926,6 +952,14 @@ func (ihgs *indexHashedNodesCoordinator) computeNodesConfigFromList(
 		}
 	}
 
+	// pin the promotion order to peer-trie leaf order, which is the order the input
+	// has always arrived in; this keeps the promoted subset identical to what the
+	// chain computed so far while making it independent of the input order
+	sortByTrieLeafOrder(leavingList)
+
+	// the promotion is all-or-nothing on purpose: a partial promotion can never
+	// reach consensusGroupSize, so the shuffler still fails its MinNodes check
+	// (MinNodes >= consensusGroupSize) and the epoch config is not built anyway
 	numToStay := ihgs.consensusGroupSize - (len(electedList) + len(eligibleList))
 	if numToStay > 0 {
 		if len(leavingList) >= numToStay {
