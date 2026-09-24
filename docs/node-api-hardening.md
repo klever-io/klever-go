@@ -139,6 +139,11 @@ read -rs -p 'password: ' pw && printf '%s' "$pw" | sha256sum | cut -d' ' -f1; un
 
 (`sha256sum` is GNU coreutils; on macOS use `shasum -a 256`.)
 
+**This command is only correct for `hasher.type: sha256`.** `NewHasher` also accepts `keccak` and
+`blake2b` (`crypto/hashing/factory/hasherFactory.go`); if you select either, generate the digest
+with that algorithm instead. A digest produced by the wrong algorithm parses fine and then fails
+every authenticated request.
+
 Leaving the credentials list **empty** does not disable auth — it makes every authenticated request
 fail with HTTP 500.
 

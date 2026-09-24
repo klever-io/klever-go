@@ -139,8 +139,8 @@ described in the next section.
 
 | Bucket | What it means | Outcome |
 | ------ | ------------- | ------- |
-| **Security advisory** | Passes the attacker test above and has a demonstrated impact | GitHub Security Advisory published after the fix ships; CVE where the advisory meets the CVE Program's own criteria; credited in the advisory |
-| **Fixed in the open** | A real defect or a sound hardening observation that **fails the attacker test** — no third party can trigger it, or triggering it gains them nothing | Ordinary public issue and pull request, on the normal release schedule, credited in the commit and the release notes; no embargo and no advisory |
+| **Security advisory** | Passes the attacker test above, has a demonstrated impact, and is not reduced below Low by the downgrade rules | GitHub Security Advisory published after the fix ships; CVE where the advisory meets the CVE Program's own criteria; credited in the advisory |
+| **Fixed in the open** | A real defect or a sound hardening observation that **fails the attacker test** — no third party can trigger it, or triggering it gains them nothing — or one that passes the test but the downgrade rules reduce below Low | Ordinary public issue and pull request, on the normal release schedule, credited in the commit and the release notes; no embargo and no advisory |
 | **Security hardening (embargoed)** | The narrow case: fails the attacker test today, but fixing it in public would itself show how to reach a finding that passes | Tracked privately until the fix ships, then credited in the release notes; **no public issue before the fix, and no advisory published** |
 | **Not a security issue** | Matches an exclusion below with no sound underlying defect, or is not reproducible | Closed with a written explanation citing the specific rule; where there is a real non-security bug underneath, we say so and point you at the public tracker |
 
@@ -298,7 +298,9 @@ it is. We then apply the downgrade rules below, which account for how reachable 
 impact actually is.
 
 Severity does not decide whether we publish an advisory — the attacker test does. A
-finding that a third party can trigger gets an advisory even at Low.
+finding that a third party can trigger gets an advisory even at Low. The one exception is
+a finding the downgrade rules reduce *below* Low: that is too slight to coordinate
+disclosure around, so it is fixed in the open like any other minor defect.
 
 We grade against four levels. **Critical** is reserved for impacts that are systemic —
 the chain, every holder, or a node's keys — or that pay the attacker and therefore scale.
@@ -428,8 +430,9 @@ security@klever.io.
 
 ## Fixed in the Open
 
-These are real weaknesses that no third party can turn against someone else. We want
-them reported and we do fix them, as ordinary public issues and pull requests on the
+These are real weaknesses that no third party can turn against someone else, together
+with findings that a third party can reach but the downgrade rules reduce below Low. We
+want them reported and we do fix them, as ordinary public issues and pull requests on the
 normal release schedule, credited in the commit and the release notes. They are not
 graded and not published as advisories. Where a public fix would itself show how to
 reach a finding that passes the attacker test, we hold it privately instead and credit
