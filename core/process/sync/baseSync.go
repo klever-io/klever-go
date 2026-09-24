@@ -36,14 +36,6 @@ var _ closing.Closer = (*baseBootstrap)(nil)
 // sleepTime defines the time in milliseconds between each iteration made in syncBlocks method
 const sleepTime = 5 * time.Millisecond
 
-// maxSlotsAheadToPostponeSync is how far ahead of the local chronology a header can be
-// dated and still be kept queued: the chronology can step back a couple of slots, but a
-// header further ahead than that is not going to become valid soon and would stall sync.
-// It is a local sync heuristic, not a validity bound: a header past it is only removed
-// from the pools and the fork detector - no rollback, no sync failure counted - so it is
-// requested and accepted again once the chronology catches up.
-const maxSlotsAheadToPostponeSync = 3
-
 // HdrInfo hold the data related to a header
 type HdrInfo struct {
 	Nonce uint64
@@ -548,23 +540,13 @@ func (boot *baseBootstrap) syncBlocks(ctx context.Context) {
 func (boot *baseBootstrap) doJobOnSyncBlockFail(headerHandler data.HeaderHandler, err error, slotIndex int64) {
 	// The header is only early against the local chronology, so rolling back here would
 	// revert an honest block whenever the chronology steps back a slot (KLR-39), and it
-	// is not counted as a sync failure either.
+	// is not counted as a sync failure either. It stays queued however far ahead it is:
+	// dropping it would only get it requested again, and a header dated after the current
+	// slot is never confirmed as received, so that wait would time out and be counted
+	// towards the rollback this avoids. Kept in the pool it costs one cheap failed check
+	// per slot, and any header for the same nonce that arrives later is picked over it.
 	if errors.Is(err, process.ErrSlotAheadOfChronology) && !check.IfNil(headerHandler) {
-		// Within the chronology drift it becomes valid once the slot ticks over, so it
-		// is retried as it is.
-		if headerHandler.GetSlot() <= tools.SafeI64ToU64(slotIndex)+maxSlotsAheadToPostponeSync {
-			boot.postponeSync(slotIndex, headerHandler.GetNonce())
-			return
-		}
-
-		// Further ahead it would be picked again on every slot and shadow any other
-		// header for the same nonce, so it is dropped, still without a rollback.
-		log.Debug("sync block dropped a header too far ahead of the chronology",
-			"nonce", headerHandler.GetNonce(),
-			"header slot", headerHandler.GetSlot(),
-			"current slot", slotIndex)
-		hash := boot.removeHeaderFromPools(headerHandler)
-		boot.forkDetector.RemoveHeader(headerHandler.GetNonce(), hash)
+		boot.postponeSync(slotIndex, headerHandler.GetNonce())
 		return
 	}
 
@@ -739,6 +721,10 @@ func (boot *baseBootstrap) syncBlock() error {
 		return err
 	}
 
+	// A slot-ahead failure here only postpones the sync and reverts the tries, leaving the
+	// in-memory state ProcessBlock advanced (epoch notifier, epoch start trigger, validators
+	// info) in place. That relies on ProcessBlock being idempotent for the same header when
+	// it is retried; a different header failing for this nonce rolls back and realigns it.
 	startCommitBlockTime := time.Now()
 	attemptSlotIndex = boot.slotManager.Index()
 	err = boot.blockProcessor.CommitBlock(header)

@@ -36,9 +36,6 @@ type syncSim struct {
 	queued       *block.Block
 	queuedHash   []byte
 	queuedInPool bool
-	// shadowed is another header for the queued nonce, appended to the pool before
-	// the queued one: it is picked once the queued header is removed from the pool
-	shadowed *block.Block
 
 	processBlockFailHook func()
 
@@ -99,11 +96,7 @@ func newSyncSim(t *testing.T) (*syncSim, *baseBootstrap) {
 		RemoveHeaderByHashCalled: func(_ []byte) {
 			sim.mut.Lock()
 			sim.numRemovedFromPool++
-			if sim.shadowed != nil {
-				sim.queued, sim.shadowed = sim.shadowed, nil
-			} else {
-				sim.queuedInPool = false
-			}
+			sim.queuedInPool = false
 			sim.mut.Unlock()
 		},
 	}
@@ -379,56 +372,34 @@ func TestSyncBlock_SlotTicksOverAfterFailedAttemptShouldStillRetry(t *testing.T)
 	assert.Equal(t, 0, sim.numReverts)
 }
 
-func TestSyncBlock_FarFutureHeaderShouldBeDroppedWithoutRollBack(t *testing.T) {
+func TestSyncBlock_FarFutureHeaderShouldBePostponedWithoutRollBack(t *testing.T) {
 	sim, boot := newSyncSim(t)
 
-	// The pool holds the honest nonce 6 and, appended last, a nonce 6 dated far
-	// beyond any chronology drift: the far-future one is picked first.
-	sim.shadowed = sim.queued
+	// A nonce 6 dated far beyond any chronology drift stays queued like any other
+	// slot-ahead header: nothing is dropped, counted or rolled back.
+	honest := sim.queued
 	sim.queued = newHeader(6, uint64(sim.index())+1000, []byte("h5"))
 
 	require.ErrorIs(t, boot.syncBlock(), process.ErrSlotAheadOfChronology)
+	assert.True(t, boot.isSyncPostponed())
+	assertNothingDiscarded(t, sim, boot)
 
+	// Repeated failures across slots are never counted towards the error limit.
+	for range process.MaxSyncWithErrorsAllowed + 1 {
+		sim.setSlot(sim.index() + 1)
+		require.ErrorIs(t, boot.syncBlock(), process.ErrSlotAheadOfChronology)
+	}
+	assertNothingDiscarded(t, sim, boot)
+
+	// The honest header arriving later is the one picked from the pool, and is
+	// synced on the next slot.
 	sim.mut.Lock()
-	assert.Equal(t, uint64(5), sim.current.GetNonce(), "the committed block must not be rolled back")
-	assert.Equal(t, 0, sim.numReverts)
-	assert.Equal(t, 1, sim.numRemovedFromPool, "the far-future header must be dropped from the pool")
-	assert.Equal(t, 1, sim.numRemovedFromFork, "the far-future header must be dropped from the fork detector")
-	assert.Equal(t, 0, sim.numResetProbable)
-	assert.Equal(t, uint32(0), boot.GetNumSyncedWithErrorsForNonce(6))
+	sim.queued = honest
 	sim.mut.Unlock()
-
-	// The honest header behind it is synced right away, within the same slot.
+	sim.setSlot(sim.index() + 1)
 	require.NoError(t, boot.syncBlock())
 	assert.Equal(t, uint64(6), sim.currentHeader().GetNonce())
 	assert.Equal(t, 0, sim.numReverts)
-}
-
-func TestDoJobOnSyncBlockFail_SlotAheadBoundary(t *testing.T) {
-	t.Run("exactly maxSlotsAhead is postponed", func(t *testing.T) {
-		sim, boot := newSyncSim(t)
-		hdr := newHeader(6, uint64(sim.index())+maxSlotsAheadToPostponeSync, []byte("h5"))
-
-		boot.doJobOnSyncBlockFail(hdr, process.ErrSlotAheadOfChronology, sim.index())
-
-		assert.True(t, boot.isSyncPostponed())
-		assertNothingDiscarded(t, sim, boot)
-	})
-	t.Run("one past maxSlotsAhead is dropped", func(t *testing.T) {
-		sim, boot := newSyncSim(t)
-		hdr := newHeader(6, uint64(sim.index())+maxSlotsAheadToPostponeSync+1, []byte("h5"))
-
-		boot.doJobOnSyncBlockFail(hdr, process.ErrSlotAheadOfChronology, sim.index())
-
-		assert.False(t, boot.isSyncPostponed())
-		sim.mut.Lock()
-		defer sim.mut.Unlock()
-		assert.Equal(t, uint64(5), sim.current.GetNonce(), "the committed block must not be rolled back")
-		assert.Equal(t, 0, sim.numReverts)
-		assert.Equal(t, 1, sim.numRemovedFromPool)
-		assert.Equal(t, 1, sim.numRemovedFromFork)
-		assert.Equal(t, uint32(0), boot.GetNumSyncedWithErrorsForNonce(6))
-	})
 }
 
 func TestIsSyncPostponed_ShouldReleaseWhenNonceChangesInSameSlot(t *testing.T) {
