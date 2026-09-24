@@ -14,6 +14,7 @@ type EpochValidators struct {
 	ElectedValidators  []*SerializableValidator `json:"electedValidators"`
 	EligibleValidators []*SerializableValidator `json:"eligibleValidators"`
 	WaitingValidators  []*SerializableValidator `json:"waitingValidators"`
+	LeavingValidators  []*SerializableValidator `json:"leavingValidators"`
 }
 
 // NodesCoordinatorRegistry holds the data that can be used to initialize a nodes coordinator
@@ -44,6 +45,7 @@ func epochNodesConfigToEpochValidators(config *epochNodesConfig) *EpochValidator
 		ElectedValidators:  ValidatorArrayToSerializableValidatorArray(config.electedList),
 		EligibleValidators: ValidatorArrayToSerializableValidatorArray(config.eligibleList),
 		WaitingValidators:  ValidatorArrayToSerializableValidatorArray(config.waitingList),
+		LeavingValidators:  ValidatorArrayToSerializableValidatorArray(config.leavingList),
 	}
 
 	return result

@@ -206,22 +206,37 @@ func (hbmi *heartbeatMessageInfo) GetIsActive() bool {
 	return isActive
 }
 
-// isConsensusCapablePeerType is the single definition of which peer types can
-// participate in the consensus rotation: elected and eligible. It feeds the
-// klv_live_consensus_validator_nodes metric.
+// The peer-type predicates below form three nested tiers. Every consumer that
+// classifies a peer must pick its tier from here instead of comparing peer
+// types itself, so the classifications cannot diverge:
+//   - consensus-capable (elected, eligible): klv_live_consensus_validator_nodes
+//   - working validators (+ waiting): klv_live_validator_nodes
+//   - registered validators (+ jailed): Cleanup shielding, klv_node_type self-reporting
+
+// isConsensusCapablePeerType reports whether the peer type can participate in
+// the consensus rotation: elected and eligible.
 func isConsensusCapablePeerType(peerType string) bool {
 	return peerType == string(core.ElectedList) ||
 		peerType == string(core.EligibleList)
 }
 
-// isValidatorPeerType is the single definition of which peer types count as
-// validators: waiting plus the consensus-capable types. Every consumer that
-// classifies a peer as a validator (metrics counting, Cleanup shielding,
-// node-type reporting) must use this predicate instead of comparing peer
-// types itself, so the classifications cannot diverge.
+// isValidatorPeerType reports whether the peer type belongs to the working
+// validator set: waiting plus the consensus-capable types. Punished (jailed)
+// validators are deliberately not part of this tier, so they do not count
+// toward klv_live_validator_nodes.
 func isValidatorPeerType(peerType string) bool {
 	return isConsensusCapablePeerType(peerType) ||
 		peerType == string(core.WaitingList)
+}
+
+// isRegisteredValidatorPeerType reports whether the peer type belongs to a
+// registered validator at all, including punished (jailed) ones. A jailed
+// validator must stay visible in the heartbeat status and keep self-reporting
+// as a validator node. core.LeavingList is deliberately absent: the peer-type
+// cache reports leaving-list members as jailed and never emits "leaving".
+func isRegisteredValidatorPeerType(peerType string) bool {
+	return isValidatorPeerType(peerType) ||
+		peerType == string(core.JailedList)
 }
 
 // GetIsValidator will return true is the peer is a validator
