@@ -158,7 +158,7 @@ func (boot *baseBootstrap) ComputeNodeState() {
 }
 
 func (boot *baseBootstrap) DoJobOnSyncBlockFail(headerHandler data.HeaderHandler, err error) {
-	boot.doJobOnSyncBlockFail(headerHandler, err)
+	boot.doJobOnSyncBlockFail(headerHandler, err, boot.slotManager.Index())
 }
 
 func (boot *baseBootstrap) SetNumSyncedWithErrorsForNonce(nonce uint64, numSyncedWithErrors uint32) {
