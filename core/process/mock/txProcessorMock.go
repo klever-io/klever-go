@@ -15,6 +15,7 @@ type TxProcessorMock struct {
 	ProcessTransactionCalled    func(block *block.Block, txHash []byte, transaction *transaction.Transaction) error
 	ProcessBandwidthFeeCalled   func(txHash []byte, tx *transaction.Transaction, ownAcc state.UserAccountHandler) (int64, error)
 	ProcessKAppFeeCalled        func(txHash []byte, tx *transaction.Transaction, ownAcc state.UserAccountHandler) (int64, error)
+	RevertBandwidthFeeCalled    func(txHash []byte, bwFee int64) error
 	SetBalancesToTrieCalled     func(accBalance map[string]*big.Int) (rootHash []byte, err error)
 }
 
@@ -56,6 +57,20 @@ func (tp *TxProcessorMock) ProcessKAppFee(txHash []byte, tx *transaction.Transac
 	}
 
 	return 0, nil
+}
+
+// RevertBandwidthFee -
+func (tp *TxProcessorMock) RevertBandwidthFee(txHash []byte, bwFee int64) error {
+	// Mirror the production contract: no-op when bwFee <= 0 (avoids zero-fee map churn
+	// in the real feeHandler implementation). Keep the mock's behavior aligned so tests
+	// exercising zero-fee TXs match production semantics.
+	if bwFee <= 0 {
+		return nil
+	}
+	if tp.RevertBandwidthFeeCalled != nil {
+		return tp.RevertBandwidthFeeCalled(txHash, bwFee)
+	}
+	return nil
 }
 
 // SetBalancesToTrie -

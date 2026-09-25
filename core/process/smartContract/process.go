@@ -2,6 +2,7 @@ package smartContract
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math/big"
 	"sort"
@@ -21,6 +22,7 @@ import (
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
@@ -398,6 +400,15 @@ func (sc *scProcessor) executeSmartContractCall(
 		}
 
 		log.Debug("run smart contract call error", "error", err.Error())
+
+		// Return the timeout sentinel unwrapped so createAndProcessBlock can
+		// detect it via errors.Is and skip the TX. Skipping ProcessIfError
+		// avoids orphan vmOutputCacher/txLogsProcessor entries for a TX that
+		// won't ship; ReturnCode stays VMUserError for cross-version parity.
+		if errors.Is(err, vmhost.ErrExecutionFailedWithTimeout) {
+			return userErrorVmOutput, err
+		}
+
 		return userErrorVmOutput, sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
 	}
 	if vmOutput == nil {
@@ -639,6 +650,11 @@ func (sc *scProcessor) doDeploySmartContract(
 	sc.wasmVMChangeLocker.RUnlock()
 	if err != nil {
 		log.Debug("VM error", "error", err.Error())
+		// Same as executeSmartContractCall: return the timeout sentinel
+		// unwrapped so the TX is skipped, not included as FAILED with fee.
+		if errors.Is(err, vmhost.ErrExecutionFailedWithTimeout) {
+			return vmcommon.VMUserError, err
+		}
 		return vmcommon.VMUserError, sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
 	}
 

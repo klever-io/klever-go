@@ -215,6 +215,20 @@ func (txProc *txProcessor) consumeFee(fee int64, tx *transaction.Transaction, ow
 	return 0, nil
 }
 
+// RevertBandwidthFee undoes the in-memory feeHandler accumulator entry created by
+// ProcessBandwidthFee. Used by the leader-side SC-timeout skip path so the produced
+// block's header TxFees stays consistent with what's actually in block.TxHashes.
+// Trie-state revert (sender balance, nonce) is the caller's responsibility via
+// account snapshots. Today this implementation cannot fail (in-memory map op);
+// the error return exists so future implementations (e.g., remote fee tracking)
+// can surface failures and the caller's fail-fast logic remains correct.
+func (txProc *txProcessor) RevertBandwidthFee(txHash []byte, bwFee int64) error {
+	if bwFee > 0 {
+		txProc.txFeeHandler.RevertTransactionFee(txHash, bwFee, 0)
+	}
+	return nil
+}
+
 // ProcessKAppFee processed fees of the transactions
 func (txProc *txProcessor) ProcessKAppFee(txHash []byte, tx *transaction.Transaction, ownerAcc state.UserAccountHandler) (int64, error) {
 	if check.IfNil(ownerAcc) {

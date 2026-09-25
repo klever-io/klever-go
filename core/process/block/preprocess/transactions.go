@@ -3,6 +3,7 @@ package preprocess
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/storage/txcache"
 	"github.com/klever-io/klever-go/tools"
 	"github.com/klever-io/klever-go/tools/check"
@@ -720,6 +722,16 @@ func (txs *transactions) createAndProcessBlock(
 			continue
 		}
 
+		// Pre-fee snapshots so a leader-side SC timeout can revert the BW-fee debit
+		// and nonce bump (along with any partial SC state changes) — leaving the TX
+		// clean for the next leader to retry. Validator path (ProcessBlockTransactions)
+		// does NOT take these snapshots, so its timeout handling stays develop-shape
+		// (TX included as FAILED with fee debited) — required for replay-safety of
+		// pre-this-PR blocks via the existing tolerance-band check (KLC-1894).
+		accsSnapshotPreFee := txs.accounts.JournalLen()
+		kappsSnapshotPreFee := txs.kapps.JournalLen()
+		peersSnapshotPreFee := txs.peers.JournalLen()
+
 		// execute transaction to change the trie root hash
 		startTime := time.Now()
 		err := txs.processAndRemoveBadTransaction(
@@ -729,6 +741,52 @@ func (txs *transactions) createAndProcessBlock(
 		)
 		elapsedTime := time.Since(startTime)
 		totalTimeUsedForProcess += elapsedTime
+
+		// Leader-side SC timeout: don't include the TX, don't charge the user. Revert
+		// every state change this attempt made (BW-fee debit, nonce bump, partial SC
+		// state, feeHandler accumulator entry) and mark the sender for skip so their
+		// subsequent TXs in this slot (whose nonces depend on this one succeeding) are
+		// deferred. The mempool retains the TX for the next leader; its TTL eventually
+		// evicts if it consistently times out everywhere.
+		//
+		// Fail-fast on revert errors: if any RevertToSnapshot or RevertBandwidthFee
+		// fails, we'd produce a block with partially mutated state but the TX missing
+		// — invalid. Abort block creation so the caller can retry.
+		if err != nil && errors.Is(err, vmhost.ErrExecutionFailedWithTimeout) {
+			if errRevert := txs.accounts.RevertToSnapshot(accsSnapshotPreFee); errRevert != nil {
+				return nil, fmt.Errorf("createAndProcessBlock: revert accounts snapshot on SC timeout failed: %w", errRevert)
+			}
+			if errRevert := txs.kapps.RevertToSnapshot(kappsSnapshotPreFee); errRevert != nil {
+				return nil, fmt.Errorf("createAndProcessBlock: revert kapps snapshot on SC timeout failed: %w", errRevert)
+			}
+			// Symmetric with processAndRemoveBadTransaction (line 890): peers state is
+			// only mutated when the SC fork is enabled, so gate the revert to avoid
+			// touching peers when it's a no-op anyway.
+			if txs.forkProcessor.EnableSmartContracts() {
+				if errRevert := txs.peers.RevertToSnapshot(peersSnapshotPreFee); errRevert != nil {
+					return nil, fmt.Errorf("createAndProcessBlock: revert peers snapshot on SC timeout failed: %w", errRevert)
+				}
+			}
+
+			// Revert the BW fee from the in-memory feeHandler accumulator so the
+			// produced block header's TxFees stays consistent with block.TxHashes.
+			if errRevert := txs.txProcessor.RevertBandwidthFee(txHash, tx.GetBandwidthFee()); errRevert != nil {
+				return nil, fmt.Errorf("createAndProcessBlock: revert BW fee on SC timeout failed: %w", errRevert)
+			}
+
+			// Drop the txHashAndInfo entry that processAndRemoveBadTransaction added,
+			// since this TX won't be in the produced block.
+			txs.txsForCurrBlock.mutTxsForBlock.Lock()
+			delete(txs.txsForCurrBlock.txHashAndInfo, string(txHash))
+			txs.txsForCurrBlock.mutTxsForBlock.Unlock()
+
+			log.Debug("SC execution timeout during block-build - skipping TX",
+				"hash", txHash, "error", err.Error())
+
+			senderAddressToSkip = tx.GetSender()
+			numTxsSkipped++
+			continue
+		}
 
 		txs.mutAccountsInfo.Lock()
 		txs.accountsInfo[string(tx.GetSender())] = true

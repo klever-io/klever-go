@@ -36,6 +36,7 @@ import (
 	"github.com/klever-io/klever-go/kapps"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	kvmStub "github.com/klever-io/klever-go/kvm/mock/stub"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/memorydb"
 	"github.com/klever-io/klever-go/storage/storageUnit"
@@ -1316,6 +1317,126 @@ func TestScProcessor_ExecuteSmartContractTransactionVMRunError(t *testing.T) {
 	_, err = sc.ExecuteSmartContractTransaction(ctx, tc, acntSrc, acntDst)
 	require.True(t, called)
 	require.Equal(t, tmpError, err)
+}
+
+// TestScProcessor_ExecuteSmartContractTransactionVMRunTimeout verifies that the
+// SC-execution timeout sentinel is propagated up the chain (via errors.Is) so the
+// leader-side createAndProcessBlock wrapper can detect the timeout and skip the TX.
+// Without sentinel preservation, ProcessIfError's wrapper masks the original
+// vmhost.ErrExecutionFailedWithTimeout and the leader skip path never fires.
+//
+// ReturnCode is intentionally NOT modified by the fix — classification stays
+// consistent with pre-fix nodes (timeouts → VMUserError default) to avoid
+// cross-version local-classification divergence. The leader skip logic and the
+// validator-side handleResultMismatch use the error sentinel, not the ResultCode,
+// to identify timeouts.
+//
+// Cases:
+//   - nil vmOutput: VM panicked before assigning a result → ReturnCode stays at VMUserError default
+//   - partial vmOutput with non-Ok code: VM was mid-execution when interrupted →
+//     ReturnCode follows vmOutput.ReturnCode (same as develop)
+func TestScProcessor_ExecuteSmartContractTransactionVMRunTimeout(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		vmOutput           *vmcommon.VMOutput
+		expectedReturnCode vmcommon.ReturnCode
+	}{
+		{
+			name:               "nil vmOutput",
+			vmOutput:           nil,
+			expectedReturnCode: vmcommon.VMUserError, // default when no vmOutput
+		},
+		{
+			name:               "partial vmOutput with VMUserError",
+			vmOutput:           &vmcommon.VMOutput{ReturnCode: vmcommon.VMUserError, ReturnMessage: "partial"},
+			expectedReturnCode: vmcommon.VMUserError, // follows vmOutput.ReturnCode
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			argParser := &contextmock.ArgumentParserMock{}
+			vmContainer := &contextmock.VMContainerMock{}
+			arguments := createMockSmartContractProcessorArguments()
+			arguments.VmContainer = vmContainer
+			arguments.ArgsParser = argParser
+
+			contract := transaction.SmartContract{
+				Type:      transaction.SmartContract_SCInvoke,
+				CallValue: map[string]*transaction.CallValue{"KLV": {Amount: 45}},
+				Address:   core.ZeroAddress,
+			}
+			tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("abba@0500@0000")})
+
+			computedHash, err := tools.CalculateHash(arguments.Marshalizer, arguments.Hasher, tx.RawData)
+			require.Nil(t, err)
+
+			ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
+				OriginalSender: tx.GetSender(),
+				ContractID:     0,
+				ContractType:   tx.RawData.GetContract()[0].Type,
+				Block:          &block.Block{},
+				TxHash:         computedHash,
+				TX:             tx,
+				IsScSimulation: true,
+			})
+
+			tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
+			require.Nil(t, err)
+
+			arguments.BlockChainHook = &contextmock.BlockchainHookStub{
+				GetKAppControllerCalled: func() kapp.KAppController {
+					kappArgs := kappcontroller.ArgsNewKApp{
+						Hasher:         arguments.Hasher,
+						Marshalizer:    arguments.Marshalizer,
+						PubkeyConv:     arguments.PubkeyConv,
+						ForkController: arguments.ForkController,
+						AccountsCacher: arguments.AccountsCacher,
+						RatingsData:    &commommock.RatingsInfoMock{},
+					}
+
+					kappCtrl, err := kappcontroller.NewKappController(kappArgs)
+					require.Nil(t, err)
+					_ = kappCtrl.GetAccountsKApp().SetAccountsCacher(arguments.AccountsCacher)
+					_ = kappCtrl.GetAccountsKApp().SetKAppController(kappCtrl)
+					_ = kappCtrl.GetKDAKApp().SetAccountsCacher(arguments.AccountsCacher)
+					_ = kappCtrl.GetKDAKApp().SetKAppController(kappCtrl)
+
+					kappCtrl.SetCurrentKAppContext(ctx)
+
+					return kappCtrl
+				},
+			}
+
+			sc, err := NewSmartContractProcessor(arguments)
+			require.NotNil(t, sc)
+			require.Nil(t, err)
+
+			acntSrc, acntDst := initAccounts(tx, arguments.AccountsCacher, contract.CallValue["KLV"].Amount*2)
+
+			acntDst.SetCode([]byte("code"))
+			vm := &contextmock.VMExecutionHandlerStub{}
+			called := false
+			vm.RunSmartContractCallCalled = func(input *vmcommon.ContractCallInput) (output *vmcommon.VMOutput, e error) {
+				called = true
+				return tt.vmOutput, vmhost.ErrExecutionFailedWithTimeout
+			}
+			vmContainer.GetCalled = func(key []byte) (handler vmcommon.VMExecutionHandler, e error) {
+				return vm, nil
+			}
+
+			returnCode, err := sc.ExecuteSmartContractTransaction(ctx, tc, acntSrc, acntDst)
+			require.True(t, called)
+			require.ErrorIs(t, err, vmhost.ErrExecutionFailedWithTimeout,
+				"timeout sentinel must propagate up the chain so leader-side createAndProcessBlock wrapper can detect timeout via errors.Is")
+			require.Equal(t, tt.expectedReturnCode, returnCode,
+				"ReturnCode must match develop behavior (not forced) to avoid cross-version classification divergence")
+		})
+	}
 }
 
 func TestScProcessor_ExecuteSmartContractTransaction(t *testing.T) {

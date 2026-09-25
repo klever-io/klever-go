@@ -13,6 +13,7 @@ import (
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/assert"
 )
@@ -847,4 +848,75 @@ func (m *mockSmartContractProcessor) LastBlock() data.HeaderHandler {
 
 func (m *mockSmartContractProcessor) IsInterfaceNil() bool {
 	return m == nil
+}
+
+// TestHandleResultMismatch_BothTimeout_DevelopClassification confirms that when
+// both sides classify a timeout as VMUserError, handleResultMismatch does not
+// report a consensus mismatch. validateTransactionResult returns before this
+// function when the codes already match; the direct call is a defense check.
+func TestHandleResultMismatch_BothTimeout_DevelopClassification(t *testing.T) {
+	t.Parallel()
+
+	txProc := &txProcessor{
+		baseTxProcessor: &baseTxProcessor{
+			scProcessor: &mockSmartContractProcessor{
+				executionMode: vmcommon.ExecutionModeValidator,
+			},
+		},
+	}
+
+	tx := &transaction.Transaction{
+		ResultCode: transaction.Transaction_VMUserError,
+	}
+	localErr := vmhost.ErrExecutionFailedWithTimeout
+	code := uint32(transaction.Transaction_VMUserError)
+
+	err := txProc.handleResultMismatch(
+		[]byte("both-timeout-tx"),
+		0,
+		tx,
+		localErr,
+		code,
+		code,
+		1_000_000,
+		vmcommon.ExecutionModeValidator,
+	)
+
+	assert.Equal(t, localErr, err)
+	assert.NotErrorIs(t, err, process.ErrTransactionResultMismatch)
+}
+
+// TestHandleResultMismatch_CaseD_LeaderOkValidatorTimeout_DevelopClassification
+// pins leader success against a local timeout classified as VMUserError.
+// CASE 2 only matches VMExecutionFailed, so this falls through to the local
+// error. The block is still rejected later by the trie-root check.
+func TestHandleResultMismatch_CaseD_LeaderOkValidatorTimeout_DevelopClassification(t *testing.T) {
+	t.Parallel()
+
+	txProc := &txProcessor{
+		baseTxProcessor: &baseTxProcessor{
+			scProcessor: &mockSmartContractProcessor{
+				executionMode: vmcommon.ExecutionModeValidator,
+			},
+		},
+	}
+
+	tx := &transaction.Transaction{
+		ResultCode: transaction.Transaction_VMUserError,
+	}
+	localErr := vmhost.ErrExecutionFailedWithTimeout
+
+	err := txProc.handleResultMismatch(
+		[]byte("case-d-tx"),
+		0,
+		tx,
+		localErr,
+		uint32(transaction.Transaction_Ok),
+		uint32(transaction.Transaction_VMUserError),
+		1_000_000,
+		vmcommon.ExecutionModeValidator,
+	)
+
+	assert.Equal(t, localErr, err)
+	assert.NotErrorIs(t, err, process.ErrTransactionResultMismatch)
 }
