@@ -191,7 +191,7 @@ type TopicHandler interface {
 // InterceptorThrottler can monitor the number of the currently running interceptor go routines
 type InterceptorThrottler interface {
 	CanProcess() bool
-	StartProcessing()
+	TryStartProcessing() bool
 	EndProcessing()
 	IsInterfaceNil() bool
 }

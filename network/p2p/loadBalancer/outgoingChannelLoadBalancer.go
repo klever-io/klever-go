@@ -59,7 +59,11 @@ func (oplb *OutgoingChannelLoadBalancer) appendChannel(channel string) {
 				return
 			}
 
-			oplb.mainChan <- obj
+			select {
+			case oplb.mainChan <- obj:
+			case <-oplb.ctx.Done():
+				return
+			}
 		}
 	}()
 }
@@ -84,46 +88,6 @@ func (oplb *OutgoingChannelLoadBalancer) AddChannel(channel string) error {
 	return nil
 }
 
-// RemoveChannel removes an existing channel from the throttler
-func (oplb *OutgoingChannelLoadBalancer) RemoveChannel(channel string) error {
-	if channel == defaultSendChannel {
-		return p2p.ErrChannelCanNotBeDeleted
-	}
-
-	oplb.mut.Lock()
-	defer oplb.mut.Unlock()
-
-	index := -1
-
-	for idx, name := range oplb.names {
-		if name == channel {
-			index = idx
-			break
-		}
-	}
-
-	if index == -1 {
-		return p2p.ErrChannelDoesNotExist
-	}
-
-	sendableChan := oplb.chans[index]
-
-	//remove the index-th element in the chan slice
-	copy(oplb.chans[index:], oplb.chans[index+1:])
-	oplb.chans[len(oplb.chans)-1] = nil
-	oplb.chans = oplb.chans[:len(oplb.chans)-1]
-
-	//remove the index-th element in the names slice
-	copy(oplb.names[index:], oplb.names[index+1:])
-	oplb.names = oplb.names[:len(oplb.names)-1]
-
-	close(sendableChan)
-
-	delete(oplb.namesChans, channel)
-
-	return nil
-}
-
 // GetChannelOrDefault fetches the required channel or the default if the channel is not present
 func (oplb *OutgoingChannelLoadBalancer) GetChannelOrDefault(channel string) chan *p2p.SendableData {
 	oplb.mut.RLock()
@@ -137,10 +101,14 @@ func (oplb *OutgoingChannelLoadBalancer) GetChannelOrDefault(channel string) cha
 	return oplb.chans[0]
 }
 
-// CollectOneElementFromChannels gets the waiting object from mainChan. It is a blocking call.
+// CollectOneElementFromChannels gets the waiting object from mainChan. It blocks until one arrives or Close is called, then returns nil
 func (oplb *OutgoingChannelLoadBalancer) CollectOneElementFromChannels() *p2p.SendableData {
-	obj := <-oplb.mainChan
-	return obj
+	select {
+	case obj := <-oplb.mainChan:
+		return obj
+	case <-oplb.ctx.Done():
+		return nil
+	}
 }
 
 // Close finishes all started go routines in this instance

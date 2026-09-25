@@ -101,88 +101,6 @@ func TestOutgoingChannelLoadBalancer_AddChannelReAddChannelShouldDoNothing(t *te
 	assert.Equal(t, 2, len(oclb.Chans()))
 }
 
-//------- RemoveChannel
-
-func TestOutgoingChannelLoadBalancer_RemoveChannelRemoveDefaultShouldErr(t *testing.T) {
-	t.Parallel()
-
-	oclb := loadBalancer.NewOutgoingChannelLoadBalancer()
-
-	err := oclb.RemoveChannel(loadBalancer.DefaultSendChannel())
-
-	assert.Equal(t, p2p.ErrChannelCanNotBeDeleted, err)
-}
-
-func TestOutgoingChannelLoadBalancer_RemoveChannelRemoveNotFoundChannelShouldErr(t *testing.T) {
-	t.Parallel()
-
-	oclb := loadBalancer.NewOutgoingChannelLoadBalancer()
-
-	err := oclb.RemoveChannel("test")
-
-	assert.Equal(t, p2p.ErrChannelDoesNotExist, err)
-}
-
-func TestOutgoingChannelLoadBalancer_RemoveChannelRemoveLastChannelAddedShouldWork(t *testing.T) {
-	t.Parallel()
-
-	oclb := loadBalancer.NewOutgoingChannelLoadBalancer()
-
-	_ = oclb.AddChannel("test1")
-	_ = oclb.AddChannel("test2")
-	_ = oclb.AddChannel("test3")
-
-	err := oclb.RemoveChannel("test3")
-
-	assert.Nil(t, err)
-
-	assert.Equal(t, 3, len(oclb.Names()))
-	assert.Nil(t, checkIntegrity(oclb, loadBalancer.DefaultSendChannel()))
-	assert.Nil(t, checkIntegrity(oclb, "test1"))
-	assert.Nil(t, checkIntegrity(oclb, "test2"))
-	assert.Equal(t, errMissingChannel, checkIntegrity(oclb, "test3"))
-}
-
-func TestOutgoingChannelLoadBalancer_RemoveChannelRemoveFirstChannelAddedShouldWork(t *testing.T) {
-	t.Parallel()
-
-	oclb := loadBalancer.NewOutgoingChannelLoadBalancer()
-
-	_ = oclb.AddChannel("test1")
-	_ = oclb.AddChannel("test2")
-	_ = oclb.AddChannel("test3")
-
-	err := oclb.RemoveChannel("test1")
-
-	assert.Nil(t, err)
-
-	assert.Equal(t, 3, len(oclb.Names()))
-	assert.Nil(t, checkIntegrity(oclb, loadBalancer.DefaultSendChannel()))
-	assert.Equal(t, errMissingChannel, checkIntegrity(oclb, "test1"))
-	assert.Nil(t, checkIntegrity(oclb, "test2"))
-	assert.Nil(t, checkIntegrity(oclb, "test3"))
-}
-
-func TestOutgoingChannelLoadBalancer_RemoveChannelRemoveMiddleChannelAddedShouldWork(t *testing.T) {
-	t.Parallel()
-
-	oclb := loadBalancer.NewOutgoingChannelLoadBalancer()
-
-	_ = oclb.AddChannel("test1")
-	_ = oclb.AddChannel("test2")
-	_ = oclb.AddChannel("test3")
-
-	err := oclb.RemoveChannel("test2")
-
-	assert.Nil(t, err)
-
-	assert.Equal(t, 3, len(oclb.Names()))
-	assert.Nil(t, checkIntegrity(oclb, loadBalancer.DefaultSendChannel()))
-	assert.Nil(t, checkIntegrity(oclb, "test1"))
-	assert.Equal(t, errMissingChannel, checkIntegrity(oclb, "test2"))
-	assert.Nil(t, checkIntegrity(oclb, "test3"))
-}
-
 //------- GetChannelOrDefault
 
 func TestOutgoingChannelLoadBalancer_GetChannelOrDefaultNotFoundShouldReturnDefault(t *testing.T) {
@@ -297,5 +215,25 @@ func TestOutgoingChannelLoadBalancer_CollectOneElementFromChannelsShouldWork(t *
 	case <-time.After(durationWait):
 		assert.Fail(t, "timeout")
 		return
+	}
+}
+
+func TestOutgoingChannelLoadBalancer_CollectOneElementFromChannelsReturnsNilOnClose(t *testing.T) {
+	t.Parallel()
+
+	oclb := loadBalancer.NewOutgoingChannelLoadBalancer()
+
+	chanDone := make(chan *p2p.SendableData)
+	go func() {
+		chanDone <- oclb.CollectOneElementFromChannels()
+	}()
+
+	_ = oclb.Close()
+
+	select {
+	case obj := <-chanDone:
+		assert.Nil(t, obj)
+	case <-time.After(durationWait):
+		assert.Fail(t, "CollectOneElementFromChannels must unblock on Close")
 	}
 }

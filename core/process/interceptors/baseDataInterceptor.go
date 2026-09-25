@@ -53,11 +53,10 @@ func (bdi *baseDataInterceptor) preProcessMessage(message p2p.MessageP2P, fromCo
 		}
 	}
 
-	if !bdi.throttler.CanProcess() {
+	if !bdi.throttler.TryStartProcessing() {
 		return common.ErrSystemBusy
 	}
 
-	bdi.throttler.StartProcessing()
 	return nil
 }
 
@@ -69,7 +68,7 @@ func (bdi *baseDataInterceptor) preProcessMessage(message p2p.MessageP2P, fromCo
 // message reaching this point has already had Signature() cryptographically verified
 // against From() and the sender's peer ID. If withMessageSigning is ever flipped off,
 // or a non-pubsub path delivers messages here, this sentinel becomes a spoofable
-// authentication-bypass vector — only the unconditional throttler.CanProcess() call
+// authentication-bypass vector — only the unconditional throttler.TryStartProcessing() call
 // in preProcessMessage prevents it from being a full anti-flood bypass. See
 // GHSA-74m6-4hjp-7226 / KLC-2356 (CWE-290 / CWE-693).
 func (bdi *baseDataInterceptor) isMessageFromSelfToSelf(fromConnectedPeer core.PeerID, message p2p.MessageP2P) bool {

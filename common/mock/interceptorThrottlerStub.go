@@ -19,6 +19,16 @@ func (its *InterceptorThrottlerStub) StartProcessing() {
 	atomic.AddInt32(&its.startProcessingCount, 1)
 }
 
+// TryStartProcessing -
+func (its *InterceptorThrottlerStub) TryStartProcessing() bool {
+	if !its.CanProcess() {
+		return false
+	}
+	its.StartProcessing()
+
+	return true
+}
+
 // EndProcessing -
 func (its *InterceptorThrottlerStub) EndProcessing() {
 	atomic.AddInt32(&its.endProcessingCount, 1)

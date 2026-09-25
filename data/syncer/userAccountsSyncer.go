@@ -106,7 +106,7 @@ func (u *userAccountsSyncer) syncAccountDataTries(rootHashes [][]byte, ssh data.
 	wg.Add(len(rootHashes))
 
 	for _, rootHash := range rootHashes {
-		for !u.throttler.CanProcess() {
+		for !u.throttler.TryStartProcessing() {
 			select {
 			case <-time.After(timeBetweenRetries):
 				continue
@@ -116,6 +116,8 @@ func (u *userAccountsSyncer) syncAccountDataTries(rootHashes [][]byte, ssh data.
 		}
 
 		go func(trieRootHash []byte) {
+			defer u.throttler.EndProcessing()
+
 			newErr := u.syncDataTrie(trieRootHash, ssh, ctx)
 			if newErr != nil {
 				errMutex.Lock()
@@ -135,9 +137,6 @@ func (u *userAccountsSyncer) syncAccountDataTries(rootHashes [][]byte, ssh data.
 }
 
 func (u *userAccountsSyncer) syncDataTrie(rootHash []byte, ssh data.SyncStatisticsHandler, ctx context.Context) error {
-	u.throttler.StartProcessing()
-	defer u.throttler.EndProcessing()
-
 	u.syncerMutex.Lock()
 	if _, ok := u.dataTries[string(rootHash)]; ok {
 		u.syncerMutex.Unlock()

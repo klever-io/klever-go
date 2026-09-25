@@ -216,7 +216,7 @@ type IntRandomizer interface {
 // ResolverThrottler can monitor the number of the currently running resolver go routines
 type ResolverThrottler interface {
 	CanProcess() bool
-	StartProcessing()
+	TryStartProcessing() bool
 	EndProcessing()
 	IsInterfaceNil() bool
 }
