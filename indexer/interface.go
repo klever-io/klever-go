@@ -73,5 +73,6 @@ type LogsAndEventsHandler interface {
 		pool *indexer.Pool,
 		txs []*data.Transaction,
 		timestamp int64,
+		full bool,
 	) *data.PreparedLogsResults
 }
