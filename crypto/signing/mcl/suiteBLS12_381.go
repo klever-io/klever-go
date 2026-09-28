@@ -47,6 +47,9 @@ func blsInit() {
 	bls.BlsGetGeneratorOfPublicKey(pubKey)
 	generatorG2 := bls.CastFromPublicKey(pubKey)
 	g2str = generatorG2.GetString(10)
+
+	var sk bls.SecretKey
+	sk.SetByCSPRNG()
 }
 
 func init() {
