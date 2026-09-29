@@ -1,6 +1,7 @@
 package sharding
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/sharding/mock"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
@@ -482,6 +484,68 @@ func TestNodesCoordinator_EpochStart_ElectedSortedAscendingByIndex(t *testing.T)
 	require.Equal(t, pk2, secondEligible)
 }
 
+func TestNodesCoordinator_EpochStartPrepare_PromotesTrieOrderedJailedIntoElected(t *testing.T) {
+	t.Parallel()
+
+	shufflerArgs := &NodesShufflerArgs{
+		Nodes:                2,
+		MaxNodesEnableConfig: nil,
+	}
+	nodeShuffler, err := NewHashValidatorsShuffler(shufflerArgs)
+	require.Nil(t, err)
+
+	arguments := ArgNodesCoordinator{
+		ConsensusGroupSize:  2,
+		Marshalizer:         &mock.MarshalizerMock{},
+		Hasher:              &mock.HasherMock{},
+		Shuffler:            nodeShuffler,
+		EpochStartNotifier:  &mock.EpochStartNotifierStub{},
+		BootStorer:          mock.NewStorerMock(),
+		ElectedNodes:        createDummyNodesList(2, "elected"),
+		EligibleNodes:       createDummyNodesList(0, "eligible"),
+		SelfPublicKey:       []byte("test"),
+		ConsensusGroupCache: &mock.NodesCoordinatorCacheMock{},
+	}
+	ihgs, err := NewNodesCoordinator(arguments)
+	require.Nil(t, err)
+
+	epoch := uint32(1)
+	// one elected validator and two jailed candidates: the deficit is 1, so exactly
+	// one jailed validator gets promoted
+	err = ihgs.SetEpochValidatorsInfo(epoch, []*state.ValidatorInfo{
+		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList)},
+		{OwnerAddress: []byte("jailed-ab"), PublicKey: []byte("jailed-ab"), List: string(core.JailedList)},
+		{OwnerAddress: []byte("jailed-ba"), PublicKey: []byte("jailed-ba"), List: string(core.JailedList)},
+	})
+	require.Nil(t, err)
+
+	ihgs.EpochStartPrepare(&block.Block{
+		Header: &block.BlockHeader{
+			PrevRandSeed: []byte("rand seed"),
+			IsEpochStart: true,
+			Epoch:        epoch,
+		},
+	})
+
+	// jailed-ba comes first in trie leaf order (last byte 'a' < 'b'), although it is
+	// second in both input and byte order
+	electedKeys, err := ihgs.GetAllElectedValidatorsKeys(epoch, false)
+	require.Nil(t, err)
+	require.Equal(t, 2, len(electedKeys))
+	assert.True(t, keysContain(electedKeys, []byte("pk0")))
+	assert.True(t, keysContain(electedKeys, []byte("jailed-ba")))
+	assert.False(t, keysContain(electedKeys, []byte("jailed-ab")))
+}
+
+func keysContain(keys [][]byte, wanted []byte) bool {
+	for _, key := range keys {
+		if bytes.Equal(key, wanted) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestNodesCoordinator_GetConsensusValidatorsPublicKeysNotExistingEpoch(t *testing.T) {
 	t.Parallel()
 
@@ -743,6 +807,153 @@ func TestNodesCoordinator_computeNodesConfigFromList_Validators(t *testing.T) {
 	assert.Equal(t, nodeWaiting0.PublicKey, newNodesConfig.waitingList[0].PubKey())
 
 	assert.Equal(t, 0, len(newNodesConfig.leavingList))
+}
+
+func hasValidatorWithPubKey(list []Validator, pubKey []byte) bool {
+	for _, v := range list {
+		if bytes.Equal(v.PubKey(), pubKey) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestNodesCoordinator_computeNodesConfigFromList_NoPromotionWhenLeavingSmallerThanDeficit(t *testing.T) {
+	t.Parallel()
+
+	arguments := createArguments()
+	ihgs, err := NewNodesCoordinator(arguments)
+	require.Nil(t, err)
+
+	validatorInfos := []*block.EValidatorInfo{
+		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList), Index: 1},
+		{OwnerAddress: []byte("pk1"), PublicKey: []byte("pk1"), List: string(core.ElectedList), Index: 2},
+		{OwnerAddress: []byte("jailed0"), PublicKey: []byte("jailed0"), List: string(core.JailedList), Index: 3},
+	}
+
+	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos)
+	require.Nil(t, err)
+
+	// deficit is 2 and only 1 jailed validator is available: promotion is
+	// all-or-nothing, so nobody is promoted and the leaving list stays intact
+	assert.Equal(t, 0, len(newNodesConfig.eligibleList))
+	require.Equal(t, 1, len(newNodesConfig.leavingList))
+	assert.True(t, hasValidatorWithPubKey(newNodesConfig.leavingList, []byte("jailed0")))
+}
+
+func TestNodesCoordinator_computeNodesConfigFromList_PromotionAtExactDeficitPromotesAll(t *testing.T) {
+	t.Parallel()
+
+	arguments := createArguments()
+	ihgs, err := NewNodesCoordinator(arguments)
+	require.Nil(t, err)
+
+	validatorInfos := []*block.EValidatorInfo{
+		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList), Index: 1},
+		{OwnerAddress: []byte("pk1"), PublicKey: []byte("pk1"), List: string(core.ElectedList), Index: 2},
+		{OwnerAddress: []byte("jailed0"), PublicKey: []byte("jailed0"), List: string(core.JailedList), Index: 3},
+		{OwnerAddress: []byte("jailed1"), PublicKey: []byte("jailed1"), List: string(core.JailedList), Index: 4},
+	}
+
+	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos)
+	require.Nil(t, err)
+
+	// deficit is 2 and exactly 2 jailed validators are available: the >= guard
+	// holds at equality, everyone is promoted and the leaving list empties
+	require.Equal(t, 2, len(newNodesConfig.eligibleList))
+	assert.True(t, hasValidatorWithPubKey(newNodesConfig.eligibleList, []byte("jailed0")))
+	assert.True(t, hasValidatorWithPubKey(newNodesConfig.eligibleList, []byte("jailed1")))
+	assert.Equal(t, 0, len(newNodesConfig.leavingList))
+}
+
+func TestNodesCoordinator_computeNodesConfigFromList_PromotionFollowsTrieLeafOrder(t *testing.T) {
+	t.Parallel()
+
+	arguments := createArguments()
+	ihgs, err := NewNodesCoordinator(arguments)
+	require.Nil(t, err)
+
+	// consensusGroupSize is 4: 2 elected + 1 eligible leaves a deficit of 1; the
+	// input lists jailed-ab first, which is also the byte-order head
+	validatorInfos := []*block.EValidatorInfo{
+		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList)},
+		{OwnerAddress: []byte("pk1"), PublicKey: []byte("pk1"), List: string(core.ElectedList)},
+		{OwnerAddress: []byte("pk2"), PublicKey: []byte("pk2"), List: string(core.EligibleList)},
+		{OwnerAddress: []byte("jailed-ab"), PublicKey: []byte("jailed-ab"), List: string(core.JailedList)},
+		{OwnerAddress: []byte("jailed-ba"), PublicKey: []byte("jailed-ba"), List: string(core.JailedList)},
+	}
+
+	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos)
+	require.Nil(t, err)
+
+	// trie leaf order compares the last byte first, so jailed-ba is the head
+	require.Equal(t, 2, len(newNodesConfig.eligibleList))
+	assert.True(t, hasValidatorWithPubKey(newNodesConfig.eligibleList, []byte("jailed-ba")))
+	assert.False(t, hasValidatorWithPubKey(newNodesConfig.eligibleList, []byte("jailed-ab")))
+	require.Equal(t, 1, len(newNodesConfig.leavingList))
+	assert.True(t, hasValidatorWithPubKey(newNodesConfig.leavingList, []byte("jailed-ab")))
+}
+
+func TestNodesCoordinator_computeNodesConfigFromList_PromotionIndependentOfInputOrder(t *testing.T) {
+	t.Parallel()
+
+	arguments := createArguments()
+	ihgs, err := NewNodesCoordinator(arguments)
+	require.Nil(t, err)
+
+	// 1 elected, deficit 3, 4 jailed candidates: a strict subset is promoted
+	orderA := []*block.EValidatorInfo{
+		{OwnerAddress: []byte("pk0"), PublicKey: []byte("pk0"), List: string(core.ElectedList)},
+		{OwnerAddress: []byte("j5"), PublicKey: []byte("j5"), List: string(core.JailedList)},
+		{OwnerAddress: []byte("j6"), PublicKey: []byte("j6"), List: string(core.JailedList)},
+		{OwnerAddress: []byte("j7"), PublicKey: []byte("j7"), List: string(core.JailedList)},
+		{OwnerAddress: []byte("j8"), PublicKey: []byte("j8"), List: string(core.JailedList)},
+	}
+	orderB := []*block.EValidatorInfo{orderA[0], orderA[4], orderA[3], orderA[2], orderA[1]}
+
+	configA, err := ihgs.computeNodesConfigFromList(orderA)
+	require.Nil(t, err)
+	configB, err := ihgs.computeNodesConfigFromList(orderB)
+	require.Nil(t, err)
+
+	require.Equal(t, len(configA.eligibleList), len(configB.eligibleList))
+	for i := range configA.eligibleList {
+		assert.Equal(t, configA.eligibleList[i].PubKey(), configB.eligibleList[i].PubKey())
+	}
+	require.Equal(t, len(configA.leavingList), len(configB.leavingList))
+	for i := range configA.leavingList {
+		assert.Equal(t, configA.leavingList[i].PubKey(), configB.leavingList[i].PubKey())
+	}
+
+	// the first three in trie leaf order are promoted, the last one keeps leaving
+	require.Equal(t, 1, len(configA.leavingList))
+	assert.True(t, hasValidatorWithPubKey(configA.leavingList, []byte("j8")))
+}
+
+func TestCompareTrieLeafOrder(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		a, b []byte
+		want int
+	}{
+		{name: "equal keys", a: []byte{0x12, 0x34}, b: []byte{0x12, 0x34}, want: 0},
+		{name: "last byte decides first", a: []byte{0xff, 0x01}, b: []byte{0x00, 0x02}, want: -1},
+		{name: "low nibble before high nibble", a: []byte{0xf1}, b: []byte{0x02}, want: -1},
+		{name: "high nibble breaks a low nibble tie", a: []byte{0x21}, b: []byte{0x11}, want: 1},
+		{name: "longer key sorts before its suffix", a: []byte{0x00, 0x34}, b: []byte{0x34}, want: -1},
+		{name: "empty key sorts last", a: []byte{}, b: []byte{0x00}, want: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, CompareTrieLeafOrder(tt.a, tt.b))
+			assert.Equal(t, -tt.want, CompareTrieLeafOrder(tt.b, tt.a))
+		})
+	}
 }
 
 func TestNodesCoordinator_IsInterfaceNil(t *testing.T) {

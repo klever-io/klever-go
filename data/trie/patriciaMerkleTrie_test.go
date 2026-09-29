@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -23,6 +24,7 @@ import (
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/trie"
+	"github.com/klever-io/klever-go/sharding"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/storageUnit"
 	"github.com/klever-io/klever-go/tools/marshal"
@@ -756,6 +758,52 @@ func TestPatriciaMerkleTrie_GetAllLeavesOnChannel(t *testing.T) {
 	}
 	assert.Equal(t, leaves, recovered)
 	assert.Nil(t, leavesChannels.Err())
+}
+
+// The nodes coordinator promotes jailed validators in sharding.CompareTrieLeafOrder
+// order, which must stay equal to the order this walk has always produced
+func TestPatriciaMerkleTrie_GetAllLeavesOnChannelFollowsTrieLeafOrder(t *testing.T) {
+	t.Parallel()
+
+	rnd := rand.New(rand.NewSource(1))
+	tr := emptyTrie()
+	keys := make([][]byte, 0, 300)
+	for i := 0; i < 300; i++ {
+		key := make([]byte, 96)
+		if i%7 == 0 {
+			key = make([]byte, 1+rnd.Intn(96))
+		}
+		_, _ = rnd.Read(key)
+		if i%5 == 0 && i > 0 {
+			// share a suffix with the previous key to force extension nodes, as the
+			// trie path starts at the last byte
+			prev := keys[i-1]
+			n := min(len(key), len(prev)) / 2
+			copy(key[len(key)-n:], prev[len(prev)-n:])
+		}
+		keys = append(keys, key)
+	}
+	// keys that end with a whole other key, so one trie path continues past the
+	// other's terminator
+	keys = append(keys, []byte{0x34}, []byte{0x00, 0x34}, []byte{0xff, 0x00, 0x34}, []byte{0x12, 0x34})
+	for _, key := range keys {
+		require.Nil(t, tr.Update(key, []byte("v")))
+	}
+	require.Nil(t, tr.Commit())
+	rootHash, err := tr.RootHash()
+	require.Nil(t, err)
+
+	leavesChannels, err := tr.GetAllLeavesOnChannel(rootHash, context.Background())
+	require.Nil(t, err)
+	walked := make([][]byte, 0, len(keys))
+	for leaf := range leavesChannels.LeavesChan {
+		walked = append(walked, leaf.Key())
+	}
+	require.Nil(t, leavesChannels.Err())
+
+	slices.SortFunc(keys, sharding.CompareTrieLeafOrder)
+	keys = slices.CompactFunc(keys, bytes.Equal)
+	require.Equal(t, keys, walked)
 }
 
 func TestPatriciaMerkleTrie_GetAllLeavesOnChannelReportsMidScanError(t *testing.T) {
