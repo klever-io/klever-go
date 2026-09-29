@@ -387,11 +387,13 @@ definitions:
       rootHash:
         type: string
       timestamp:
-        $ref: '#/definitions/time.Duration'
+        format: int64
+        type: integer
       unfrozenBalance:
         type: integer
       updatedAt:
-        $ref: '#/definitions/time.Duration'
+        format: int64
+        type: integer
     type: object
   data.Event:
     properties:
@@ -430,7 +432,8 @@ definitions:
           $ref: '#/definitions/data.Event'
         type: array
       timestamp:
-        $ref: '#/definitions/time.Duration'
+        format: int64
+        type: integer
     type: object
   data.PermissionKey:
     properties:
@@ -541,7 +544,8 @@ definitions:
       status:
         type: string
       timestamp:
-        $ref: '#/definitions/time.Duration'
+        format: int64
+        type: integer
       version:
         type: integer
     type: object
@@ -1142,27 +1146,6 @@ definitions:
       ValidatorStatus:
         type: string
     type: object
-  time.Duration:
-    enum:
-    - -9223372036854775808
-    - 9223372036854775807
-    - 1
-    - 1000
-    - 1000000
-    - 1000000000
-    - 60000000000
-    - 3600000000000
-    format: int64
-    type: integer
-    x-enum-varnames:
-    - minDuration
-    - maxDuration
-    - Nanosecond
-    - Microsecond
-    - Millisecond
-    - Second
-    - Minute
-    - Hour
   transaction.BroadcastTXRequest:
     properties:
       tx:

@@ -32,8 +32,8 @@ type AccountInfo struct {
 	UnfrozenBalance int64         `json:"unfrozenBalance"`
 	Allowance       int64         `json:"allowance"`
 	Permissions     []Permissions `json:"permissions"`
-	Timestamp       time.Duration `json:"timestamp"`
-	UpdatedAt       time.Duration `json:"updatedAt,omitempty"`
+	Timestamp       time.Duration `json:"timestamp" swaggertype:"integer" format:"int64"`
+	UpdatedAt       time.Duration `json:"updatedAt,omitempty" swaggertype:"integer" format:"int64"`
 	CodeHash        string        `json:"codeHash,omitempty"`
 	CodeMetadata    string        `json:"codeMetadata,omitempty"`
 	Foundation      bool          `json:"foundation,omitempty"`

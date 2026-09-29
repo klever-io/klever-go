@@ -17,7 +17,7 @@ type Transaction struct {
 	Nonce         uint64                   `json:"nonce"`
 	PermissionID  int32                    `json:"permissionID,omitempty"`
 	Data          []string                 `json:"data,omitempty"`
-	Timestamp     time.Duration            `json:"timestamp,omitempty"`
+	Timestamp     time.Duration            `json:"timestamp,omitempty" swaggertype:"integer" format:"int64"`
 	KAppFee       int64                    `json:"kAppFee"`
 	KDAFee        *KDAFee                  `json:"kdaFee,omitempty"`
 	BandwidthFee  int64                    `json:"bandwidthFee"`
@@ -40,7 +40,7 @@ type Logs struct {
 	Address    string        `json:"address"`
 	Caller     string        `json:"caller,omitempty"`
 	ContractID int32         `json:"contractId"`
-	Timestamp  time.Duration `json:"timestamp"`
+	Timestamp  time.Duration `json:"timestamp" swaggertype:"integer" format:"int64"`
 	Events     []*Event      `json:"events"`
 }
 
