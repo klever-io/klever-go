@@ -3,11 +3,13 @@ package sharding
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/sharding/mock"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
@@ -420,6 +422,63 @@ func TestNewNodesCoordinator_EpochStart(t *testing.T) {
 	validators, err := ihgs.GetAllElectedValidatorsKeys(epoch, false)
 	require.Nil(t, err)
 	require.NotNil(t, validators)
+}
+
+// The epoch-start notifier goroutine reads validatorsInfo through EpochStartPrepare
+// while block processing writes it through SetEpochValidatorsInfo. Run with -race.
+func TestNodesCoordinator_SetEpochValidatorsInfoConcurrentWithEpochStartPrepare(t *testing.T) {
+	t.Parallel()
+
+	ihgs, err := NewNodesCoordinator(createArguments())
+	require.Nil(t, err)
+
+	validatorsInfo := make([]*state.ValidatorInfo, 0)
+	for i := uint32(0); i < 4; i++ {
+		pk := []byte(fmt.Sprintf("pk%d_elected", i))
+		validatorsInfo = append(validatorsInfo, &state.ValidatorInfo{
+			OwnerAddress: pk,
+			PublicKey:    pk,
+			List:         string(core.ElectedList),
+			Index:        i,
+		})
+	}
+
+	const numEpochs = uint32(200)
+	errs := make([]error, numEpochs+1)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for epoch := uint32(1); epoch <= numEpochs; epoch++ {
+			errs[epoch] = ihgs.SetEpochValidatorsInfo(epoch, validatorsInfo)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for epoch := uint32(1); epoch <= numEpochs; epoch++ {
+			ihgs.EpochStartPrepare(&block.Block{
+				Header: &block.BlockHeader{
+					PrevRandSeed: []byte("rand seed"),
+					IsEpochStart: true,
+					Epoch:        epoch,
+				},
+			})
+		}
+	}()
+	wg.Wait()
+
+	for _, err := range errs {
+		require.Nil(t, err)
+	}
+
+	// only the last three epochs are kept
+	ihgs.mutValidatorsInfo.RLock()
+	defer ihgs.mutValidatorsInfo.RUnlock()
+	require.Len(t, ihgs.validatorsInfo, 3)
+	for epoch := numEpochs - 2; epoch <= numEpochs; epoch++ {
+		require.Len(t, ihgs.validatorsInfo[epoch], len(validatorsInfo))
+	}
 }
 
 func TestNodesCoordinator_EpochStart_ElectedSortedAscendingByIndex(t *testing.T) {

@@ -61,6 +61,7 @@ type indexHashedNodesCoordinator struct {
 	mutNodesConfig                sync.RWMutex
 	epochStartRegistrationHandler EpochStartEventNotifier
 	nodesConfig                   map[uint32]*epochNodesConfig
+	mutValidatorsInfo             sync.RWMutex // guards validatorsInfo
 	validatorsInfo                map[uint32][]*block.EValidatorInfo
 	publicKeyToValidatorMap       map[string]Validator
 	savedStateKey                 []byte
@@ -719,6 +720,9 @@ func (ihgs *indexHashedNodesCoordinator) SetEpochValidatorsInfo(epoch uint32, va
 		list = append(list, info)
 	}
 
+	ihgs.mutValidatorsInfo.Lock()
+	defer ihgs.mutValidatorsInfo.Unlock()
+
 	// delete old epoch history
 	for vie := range ihgs.validatorsInfo {
 		if vie+2 < epoch {
@@ -730,8 +734,14 @@ func (ihgs *indexHashedNodesCoordinator) SetEpochValidatorsInfo(epoch uint32, va
 	return nil
 }
 
+// getEpochValidatorsInfo returns the list stored for the epoch. The slice is never modified
+// after SetEpochValidatorsInfo stores it, so it is safe to use once the lock is released.
+// A dedicated mutex is used instead of mutNodesConfig because EpochStartPrepare calls this
+// and then SetNodes, which takes mutNodesConfig.
 func (ihgs *indexHashedNodesCoordinator) getEpochValidatorsInfo(epoch uint32) ([]*block.EValidatorInfo, error) {
+	ihgs.mutValidatorsInfo.RLock()
 	info, ok := ihgs.validatorsInfo[epoch]
+	ihgs.mutValidatorsInfo.RUnlock()
 	if !ok {
 		return nil, ErrValidatorListNotFound
 	}
