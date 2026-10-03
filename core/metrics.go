@@ -159,7 +159,8 @@ const MetricCountConsensus = "klv_count_consensus"
 // MetricNodeType is the metric for monitoring the type of the node
 const MetricNodeType = "klv_node_type"
 
-// MetricPeerType is the metric which tells the peer's type (in eligible list, in waiting list, or observer)
+// MetricPeerType is the metric which tells the peer's type (in elected, eligible,
+// waiting or jailed list, or observer)
 const MetricPeerType = "klv_peer_type"
 
 // MetricNumValidators is the metric for the number of validators
@@ -190,7 +191,7 @@ const MetricTxPoolLoad = "klv_tx_pool_load"
 const MetricIsSyncing = "klv_is_syncing"
 
 // MetricLiveValidatorNodes is the metric for monitoring live validators on the network
-// (elected, eligible or waiting)
+// (elected, eligible or waiting, excluding jailed)
 const MetricLiveValidatorNodes = "klv_live_validator_nodes"
 
 // MetricLiveConsensusValidatorNodes is the metric for monitoring live validators that can

@@ -324,6 +324,23 @@ func TestSender_SendHeartbeatUpdatesNodeTypeMetrics(t *testing.T) {
 			expectedNodeType: string(core.NodeTypeObserver),
 			expectedPeerType: string(core.InactiveList),
 		},
+		{
+			// registered tier: a jailed validator still self-reports as a
+			// validator node, the punished state shows in klv_peer_type
+			name:             "jailed node reports validator node type",
+			peerType:         core.JailedList,
+			expectedNodeType: string(core.NodeTypeValidator),
+			expectedPeerType: string(core.JailedList),
+		},
+		{
+			// the peer-type cache reports leaving-list members as jailed and
+			// never emits "leaving"; the raw string stays on the allowlist
+			// default deliberately
+			name:             "leaving peer type falls back to observer node type",
+			peerType:         core.LeavingList,
+			expectedNodeType: string(core.NodeTypeObserver),
+			expectedPeerType: string(core.LeavingList),
+		},
 	}
 
 	for _, tc := range testCases {

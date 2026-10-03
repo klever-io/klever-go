@@ -44,6 +44,11 @@ func (n *nodesCoordinator) GetAllWaitingValidatorsKeys(_ uint32, _ bool) ([][]by
 	return nil, nil
 }
 
+// GetAllLeavingValidatorsKeys -
+func (n *nodesCoordinator) GetAllLeavingValidatorsKeys(_ uint32, _ bool) ([][]byte, error) {
+	return nil, nil
+}
+
 // CheckValidatorSlot -
 func (n *nodesCoordinator) CheckValidatorSlot(epoch uint32, slotIndex int64, pubkey []byte) bool {
 	return false

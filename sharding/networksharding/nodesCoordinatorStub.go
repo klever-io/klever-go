@@ -8,26 +8,26 @@ import (
 // NodesCoordinatorStub can not be moved inside mock package as it generates cyclic imports.
 // TODO refactor mock package & sharding package & remove this file. Put tests in sharding_test package
 type NodesCoordinatorStub struct {
-	Validators                              []sharding.Validator
-	ConsensusSize                           uint32
-	GetSelectedPublicKeysCalled             func(selection []byte, epoch uint32) (publicKeys []string, err error)
-	GetValidatorsPublicKeysCalled           func(randomness []byte, slot uint64, epoch uint32) ([]string, error)
-	GetValidatorsRewardsAddressesCalled     func(randomness []byte, slot uint64, epoch uint32) ([]string, error)
-	SetNodesCalled                          func(nodes []sharding.Validator, epoch uint32) error
-	ComputeValidatorsGroupCalled            func(randomness []byte, slot uint64, epoch uint32) (validatorsGroup []sharding.Validator, err error)
-	GetValidatorWithPublicKeyCalled         func(publicKey []byte) (validator sharding.Validator, err error)
-	GetAllElectedValidatorsKeysCalled       func() ([][]byte, error)
-	GetAllEligibleValidatorsKeysCalled      func() ([][]byte, error)
-	GetAllWaitingValidatorsKeysCalled       func() ([][]byte, error)
-	GetAllLeavingValidatorsPublicKeysCalled func() ([][]byte, error)
-	CheckValidatorSlotCalled                func(epoch uint32, slotIndex int64, pubkey []byte) bool
-	ConsensusGroupSizeCalled                func() int
-	LoadValidatorsCalled                    func(validators []*state.ValidatorInfo) error
-	SetEpochValidatorsInfoCalled            func(epoch uint32, validatorsInfo []*state.ValidatorInfo) error
-	GetConsensusWhitelistedNodesCalled      func(epoch uint32) (map[string]struct{}, error)
-	GetOwnPublicKeyCalled                   func() []byte
-	GetSavedStateKeyCalled                  func() []byte
-	LoadStateCalled                         func(key []byte) error
+	Validators                          []sharding.Validator
+	ConsensusSize                       uint32
+	GetSelectedPublicKeysCalled         func(selection []byte, epoch uint32) (publicKeys []string, err error)
+	GetValidatorsPublicKeysCalled       func(randomness []byte, slot uint64, epoch uint32) ([]string, error)
+	GetValidatorsRewardsAddressesCalled func(randomness []byte, slot uint64, epoch uint32) ([]string, error)
+	SetNodesCalled                      func(nodes []sharding.Validator, epoch uint32) error
+	ComputeValidatorsGroupCalled        func(randomness []byte, slot uint64, epoch uint32) (validatorsGroup []sharding.Validator, err error)
+	GetValidatorWithPublicKeyCalled     func(publicKey []byte) (validator sharding.Validator, err error)
+	GetAllElectedValidatorsKeysCalled   func() ([][]byte, error)
+	GetAllEligibleValidatorsKeysCalled  func() ([][]byte, error)
+	GetAllWaitingValidatorsKeysCalled   func() ([][]byte, error)
+	GetAllLeavingValidatorsKeysCalled   func() ([][]byte, error)
+	CheckValidatorSlotCalled            func(epoch uint32, slotIndex int64, pubkey []byte) bool
+	ConsensusGroupSizeCalled            func() int
+	LoadValidatorsCalled                func(validators []*state.ValidatorInfo) error
+	SetEpochValidatorsInfoCalled        func(epoch uint32, validatorsInfo []*state.ValidatorInfo) error
+	GetConsensusWhitelistedNodesCalled  func(epoch uint32) (map[string]struct{}, error)
+	GetOwnPublicKeyCalled               func() []byte
+	GetSavedStateKeyCalled              func() []byte
+	LoadStateCalled                     func(key []byte) error
 }
 
 // GetChance -
@@ -55,6 +55,14 @@ func (ncm *NodesCoordinatorStub) GetAllEligibleValidatorsKeys(_ uint32, _ bool) 
 func (ncm *NodesCoordinatorStub) GetAllWaitingValidatorsKeys(_ uint32, _ bool) ([][]byte, error) {
 	if ncm.GetAllWaitingValidatorsKeysCalled != nil {
 		return ncm.GetAllWaitingValidatorsKeysCalled()
+	}
+	return nil, nil
+}
+
+// GetAllLeavingValidatorsKeys -
+func (ncm *NodesCoordinatorStub) GetAllLeavingValidatorsKeys(_ uint32, _ bool) ([][]byte, error) {
+	if ncm.GetAllLeavingValidatorsKeysCalled != nil {
+		return ncm.GetAllLeavingValidatorsKeysCalled()
 	}
 	return nil, nil
 }
