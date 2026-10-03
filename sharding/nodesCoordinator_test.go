@@ -558,74 +558,29 @@ func TestNodesCoordinator_computeNodesConfigFromList_NoValidators(t *testing.T) 
 	assert.True(t, errors.Is(err, ErrListSizeZero))
 }
 
-func TestNodesCoordinator_allValidatorsInfo_EpochNodesConfigDoesNotExist(t *testing.T) {
+func TestNodesCoordinator_GetAllValidatorsKeys_EpochNodesConfigDoesNotExist(t *testing.T) {
 	t.Parallel()
 
-	electedList := createDummyNodesList(6, "elected")
-	eligibleList := createDummyNodesList(0, "eligible")
-
-	shufflerArgs := &NodesShufflerArgs{
-		Nodes:                5,
-		MaxNodesEnableConfig: nil,
-	}
-	nodeShuffler, err := NewHashValidatorsShuffler(shufflerArgs)
+	ihgs, err := NewNodesCoordinator(createArguments())
 	require.Nil(t, err)
 
-	epochStartSubscriber := &mock.EpochStartNotifierStub{}
-	bootStorer := mock.NewStorerMock()
-
-	arguments := ArgNodesCoordinator{
-		ConsensusGroupSize:  5,
-		Marshalizer:         &mock.MarshalizerMock{},
-		Hasher:              &mock.HasherMock{},
-		Shuffler:            nodeShuffler,
-		EpochStartNotifier:  epochStartSubscriber,
-		BootStorer:          bootStorer,
-		ElectedNodes:        electedList,
-		EligibleNodes:       eligibleList,
-		SelfPublicKey:       []byte("test"),
-		ConsensusGroupCache: &mock.NodesCoordinatorCacheMock{},
+	missingEpoch := uint32(1)
+	getters := map[string]func(epoch uint32, ownerKey bool) ([][]byte, error){
+		"elected":  ihgs.GetAllElectedValidatorsKeys,
+		"eligible": ihgs.GetAllEligibleValidatorsKeys,
+		"waiting":  ihgs.GetAllWaitingValidatorsKeys,
 	}
 
-	ihgs, err := NewNodesCoordinator(arguments)
-	require.Nil(t, err)
+	for name, getter := range getters {
+		for _, ownerKey := range []bool{false, true} {
+			keys, err := getter(missingEpoch, ownerKey)
+			require.Nil(t, keys, name)
+			require.True(t, errors.Is(err, ErrEpochNodesConfigDoesNotExist), name)
+		}
 
-	ihgs.currentEpoch.Store(1)
-}
-
-func TestNodesCoordinator_allValidatorsInfo_KeepLeavingIfNotEnoughValidators(t *testing.T) {
-	t.Parallel()
-
-	electedList := createDummyNodesList(6, "elected")
-	eligibleList := createDummyNodesList(0, "eligible")
-
-	shufflerArgs := &NodesShufflerArgs{
-		Nodes:                5,
-		MaxNodesEnableConfig: nil,
+		_, err := getter(0, false)
+		require.Nil(t, err, name)
 	}
-	nodeShuffler, err := NewHashValidatorsShuffler(shufflerArgs)
-	require.Nil(t, err)
-
-	epochStartSubscriber := &mock.EpochStartNotifierStub{}
-	bootStorer := mock.NewStorerMock()
-
-	arguments := ArgNodesCoordinator{
-		ConsensusGroupSize:  5,
-		Marshalizer:         &mock.MarshalizerMock{},
-		Hasher:              &mock.HasherMock{},
-		Shuffler:            nodeShuffler,
-		EpochStartNotifier:  epochStartSubscriber,
-		BootStorer:          bootStorer,
-		ElectedNodes:        electedList,
-		EligibleNodes:       eligibleList,
-		SelfPublicKey:       []byte("test"),
-		ConsensusGroupCache: &mock.NodesCoordinatorCacheMock{},
-	}
-
-	ihgs, err := NewNodesCoordinator(arguments)
-	require.Nil(t, err)
-
-	ihgs.nodesConfig[0].leavingList = append(ihgs.nodesConfig[0].leavingList, electedList[0])
 }
 
 func TestNodesCoordinator_computeNodesConfigFromList_NilPk(t *testing.T) {
