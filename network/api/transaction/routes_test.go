@@ -89,6 +89,7 @@ func getRoutesConfig() config.APIRoutesConfig {
 					{Name: "/broadcast", Open: true},
 					{Name: "/:txhash", Open: true},
 					{Name: "/estimate-fee", Open: true},
+					{Name: "/pool", Open: true},
 				},
 			},
 		},
@@ -608,4 +609,35 @@ func TestBroadcastTX_BulkTransactions_SendBulkTransactionsError(t *testing.T) {
 	assert.True(t, strings.Contains(response.Error, apiErrors.ErrValidation.Error()))
 	assert.True(t, strings.Contains(response.Error, expectedError.Error()))
 	assert.Nil(t, response.Data)
+}
+
+func TestTXMemPool_InvalidPaginationShouldReturnBadRequest(t *testing.T) {
+	t.Parallel()
+
+	for _, query := range []string{"page=abc", "pageSize=abc"} {
+		ws := startNodeServer(&mock.Facade{})
+
+		req, _ := http.NewRequest("GET", "/transaction/pool?"+query, nil)
+		resp := httptest.NewRecorder()
+		ws.ServeHTTP(resp, req)
+
+		response := shared.GenericAPIResponse{}
+		loadResponse(resp.Body, &response)
+
+		assert.Equal(t, http.StatusBadRequest, resp.Code, query)
+		assert.Equal(t, shared.ReturnCodeRequestError, response.Code, query)
+		assert.True(t, strings.Contains(response.Error, apiErrors.ErrValidation.Error()), query)
+	}
+}
+
+func TestTXMemPool_ValidPaginationShouldWork(t *testing.T) {
+	t.Parallel()
+
+	ws := startNodeServer(&mock.Facade{})
+
+	req, _ := http.NewRequest("GET", "/transaction/pool?page=1&pageSize=10", nil)
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	assert.Equal(t, http.StatusOK, resp.Code)
 }

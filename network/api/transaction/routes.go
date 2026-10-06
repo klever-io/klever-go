@@ -410,11 +410,11 @@ func TXMemPool(c *gin.Context) {
 		v, err := strconv.ParseInt(data, 10, 32)
 		if err != nil {
 			c.JSON(
-				http.StatusInternalServerError,
+				http.StatusBadRequest,
 				shared.GenericAPIResponse{
 					Data:  nil,
-					Error: fmt.Sprintf("%s: %s", errors.ErrGetTransaction.Error(), err.Error()),
-					Code:  shared.ReturnCodeInternalError,
+					Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), err.Error()),
+					Code:  shared.ReturnCodeRequestError,
 				},
 			)
 			return
