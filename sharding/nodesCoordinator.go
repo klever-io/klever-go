@@ -923,6 +923,11 @@ func (ihgs *indexHashedNodesCoordinator) computeNodesConfigFromList(
 		case string(core.JailedList):
 			log.Debug("adding to leavingList", "pk", validatorInfo.PublicKey)
 			leavingList = append(leavingList, currentValidator)
+		case string(core.ObserverList):
+			// deliberately in no list: an observer does not take part in the election
+		default:
+			log.Debug("validator with unhandled list is not added to any nodes list",
+				"pk", validatorInfo.PublicKey, "list", validatorInfo.List)
 		}
 	}
 

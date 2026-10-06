@@ -661,6 +661,58 @@ func TestNodesCoordinator_computeNodesConfigFromList_NilPk(t *testing.T) {
 	assert.Equal(t, ErrNilPubKey, err)
 }
 
+func TestNodesCoordinator_computeNodesConfigFromList_ObserverLeavingAndUnknownAreInNoList(t *testing.T) {
+	t.Parallel()
+
+	arguments := createArguments()
+	arguments.SelfPublicKey = []byte("pk")
+	ihgs, _ := NewNodesCoordinator(arguments)
+
+	newValidatorInfo := func(pk string, list string, index uint32) *block.EValidatorInfo {
+		return &block.EValidatorInfo{
+			OwnerAddress: []byte(pk),
+			PublicKey:    []byte(pk),
+			List:         list,
+			Index:        index,
+			TempRating:   2,
+		}
+	}
+
+	excluded := []*block.EValidatorInfo{
+		newValidatorInfo("pkObserver", string(core.ObserverList), 4),
+		newValidatorInfo("pkLeaving", string(core.LeavingList), 5),
+		newValidatorInfo("pkUnknown", "notAList", 6),
+	}
+	validatorInfos := append([]*block.EValidatorInfo{
+		newValidatorInfo("pkElected", string(core.ElectedList), 1),
+		newValidatorInfo("pkEligible", string(core.EligibleList), 2),
+		newValidatorInfo("pkWaiting", string(core.WaitingList), 3),
+	}, excluded...)
+
+	newNodesConfig, err := ihgs.computeNodesConfigFromList(validatorInfos)
+	require.Nil(t, err)
+
+	require.Len(t, newNodesConfig.electedList, 1)
+	require.Len(t, newNodesConfig.eligibleList, 1)
+	require.Len(t, newNodesConfig.waitingList, 1)
+	require.Empty(t, newNodesConfig.leavingList)
+
+	lists := map[string][]Validator{
+		"elected":  newNodesConfig.electedList,
+		"eligible": newNodesConfig.eligibleList,
+		"waiting":  newNodesConfig.waitingList,
+		"leaving":  newNodesConfig.leavingList,
+	}
+	for name, list := range lists {
+		for _, validator := range list {
+			for _, validatorInfo := range excluded {
+				require.NotEqual(t, validatorInfo.PublicKey, validator.PubKey(),
+					"%s validator must not be in the %s list", validatorInfo.List, name)
+			}
+		}
+	}
+}
+
 func TestNodesCoordinator_computeNodesConfigFromList_Validators(t *testing.T) {
 	t.Parallel()
 
