@@ -1407,3 +1407,44 @@ func BenchmarkEventsProcessor_SaveBlock_500tx_IndexerOnly(b *testing.B) {
 }
 func BenchmarkEventsProcessor_SaveBlock_50tx_Both(b *testing.B)  { benchSaveBlock(b, 50, true, true) }
 func BenchmarkEventsProcessor_SaveBlock_500tx_Both(b *testing.B) { benchSaveBlock(b, 500, true, true) }
+
+// TestDetachPreparedBlockData covers what the websocket path hands the indexer: its own
+// transaction structs. The hub marshals the prepared transactions on its own goroutines
+// while the indexer worker writes hasLogs, hasOperations, scAddresses and the status onto
+// the structs it was given, so the two must not share pointers.
+func TestDetachPreparedBlockData(t *testing.T) {
+	t.Parallel()
+
+	require.Nil(t, detachPreparedBlockData(nil), "a block without transactions has nothing to detach")
+
+	first := &data.Transaction{Hash: "aa", Sender: "s1"}
+	second := &data.Transaction{Hash: "bb", Sender: "s2"}
+	prepared := &data.PreparedBlockData{
+		Txs:     []*data.Transaction{first, second},
+		TxsMap:  map[string]*data.Transaction{"aa": first, "bb": second},
+		Altered: &data.AlteredData{},
+	}
+
+	detached := detachPreparedBlockData(prepared)
+
+	require.Len(t, detached.Txs, 2)
+	require.NotSame(t, first, detached.Txs[0], "the indexer must get its own struct")
+	require.NotSame(t, second, detached.Txs[1])
+	require.Same(t, detached.Txs[0], detached.TxsMap["aa"], "the map must point at the copies, not at the originals")
+	require.Same(t, detached.Txs[1], detached.TxsMap["bb"])
+	require.Same(t, prepared.Altered, detached.Altered, "altered data is read, not written, on the indexer path")
+
+	mapOnly := &data.Transaction{Hash: "cc", Sender: "s3"}
+	withMapOnly := detachPreparedBlockData(&data.PreparedBlockData{
+		Txs:    []*data.Transaction{first},
+		TxsMap: map[string]*data.Transaction{"aa": first, "cc": mapOnly},
+	})
+	require.NotSame(t, mapOnly, withMapOnly.TxsMap["cc"], "a transaction that exists only in the map must be copied too")
+	require.Equal(t, "s3", withMapOnly.TxsMap["cc"].Sender)
+
+	detached.Txs[0].SCAddresses = []string{"klv1contract"}
+	detached.Txs[0].HasLogs = true
+	require.Nil(t, first.SCAddresses, "a write on the indexer's copy must not reach the websocket's struct")
+	require.False(t, first.HasLogs)
+	require.Equal(t, "s1", detached.Txs[0].Sender, "the copy carries the prepared content")
+}

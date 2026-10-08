@@ -1,5 +1,7 @@
 package noKibana
 
+import "github.com/klever-io/klever-go/indexer/templates"
+
 // Transactions will hold the configuration for the transactions index
 var Transactions = Object{
 	"index_patterns": Array{
@@ -26,6 +28,7 @@ var Transactions = Object{
 					},
 				},
 			},
+			"scAddresses": templates.TransactionsAddedProperties["scAddresses"],
 		},
 	},
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -76,13 +77,16 @@ func NewElasticClient(cfg elasticsearch.Config) (*elasticClient, error) {
 	return ec, nil
 }
 
-// CheckAndCreateTemplate creates an index template if it does not already exist
+// CheckAndCreateTemplate creates an index template if it does not already exist. The
+// request reads a copy of the buffer's bytes, never the buffer itself: start-up hands the
+// same buffer to this and to PutTemplate, and a buffer read to its end by the first
+// request has nothing left for the second.
 func (ec *elasticClient) CheckAndCreateTemplate(templateName string, template *bytes.Buffer) error {
 	if ec.templateExists(templateName) {
 		return nil
 	}
 
-	return ec.createIndexTemplate(templateName, template)
+	return ec.createIndexTemplate(templateName, bytes.NewReader(template.Bytes()))
 }
 
 // CheckAndCreatePolicy creates a new index policy if it does not already exist
@@ -110,6 +114,189 @@ func (ec *elasticClient) CheckAndCreateAlias(alias string, indexName string) err
 	}
 
 	return ec.createAlias(alias, indexName)
+}
+
+// CheckFieldMapping compares the properties with the live mapping of index and returns the
+// names of the properties the index does not map yet. A property the index maps with a
+// different type is an error: Elasticsearch cannot change a field's type in place, so the
+// only way out is a reindex, and a start-up that carried on would write into a mapping the
+// filter on that field is not written for.
+func (ec *elasticClient) CheckFieldMapping(index string, properties templates.Object) ([]string, error) {
+	wanted, err := mappingTypes(properties)
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(wanted))
+	for name := range wanted {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	res, err := ec.es.Indices.GetFieldMapping(names, ec.es.Indices.GetFieldMapping.WithIndex(index))
+	if err != nil {
+		return nil, err
+	}
+
+	defer closeResponseBody(res, "elasticClient.CheckFieldMapping")
+
+	if res.IsError() {
+		return nil, fmt.Errorf("%w: index %s: %s", ErrCouldNotUpdateMapping, index, res.String())
+	}
+
+	var live liveFieldMappings
+	// An empty body means nothing is mapped, which the PUT that follows is allowed to fix;
+	// anything else that fails to decode is a cluster answer this code does not understand.
+	if err := json.NewDecoder(res.Body).Decode(&live); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("%w: index %s: %w", ErrCouldNotUpdateMapping, index, err)
+	}
+
+	return missingFields(live, wanted, names)
+}
+
+// liveFieldMappings is the shape of a field mapping response: concrete index, then field,
+// then the leaf carrying the type.
+type liveFieldMappings map[string]struct {
+	Mappings map[string]struct {
+		Mapping map[string]map[string]interface{} `json:"mapping"`
+	} `json:"mappings"`
+}
+
+// missingFields returns, sorted, every wanted property that at least one concrete index
+// behind the queried name does not map. An alias answers with one entry per backing index,
+// and a property present on one of them says nothing about the others, so a PUT is due as
+// long as any index lacks it; the PUT on the alias reaches all of them. A field entry with
+// an empty mapping object is not mapped either. A property carried with another type is an
+// error, since no PUT can change it.
+func missingFields(live liveFieldMappings, wanted map[string]string, names []string) ([]string, error) {
+	missing := make(map[string]struct{}, len(names))
+	if len(live) == 0 {
+		for _, name := range names {
+			missing[name] = struct{}{}
+		}
+	}
+
+	for concreteIndex, indexMappings := range live {
+		for _, name := range names {
+			field, ok := indexMappings.Mappings[name]
+			if !ok || len(field.Mapping) == 0 {
+				missing[name] = struct{}{}
+				continue
+			}
+			if err := checkFieldType(concreteIndex, name, field.Mapping, wanted[name]); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	sorted := make([]string, 0, len(missing))
+	for name := range missing {
+		sorted = append(sorted, name)
+	}
+	sort.Strings(sorted)
+
+	return sorted, nil
+}
+
+func checkFieldType(index string, name string, mapping map[string]map[string]interface{}, want string) error {
+	for _, leaf := range mapping {
+		if got, _ := leaf["type"].(string); got != want {
+			return fmt.Errorf("%w: index %s maps %s as %q, this build needs %q; the index has to be reindexed",
+				ErrCouldNotUpdateMapping, index, name, got, want)
+		}
+	}
+
+	return nil
+}
+
+// CheckAndUpdateMapping adds the properties an index does not map yet. Templates only apply
+// when an index is created, so a property added to a template later never reaches an index
+// that already exists; the first document carrying the field would then type it
+// dynamically, as text with a keyword subfield, instead of the type the template names.
+// The live mapping is read first, so a node whose index already carries the properties
+// sends no write at all at start-up and needs no manage privilege for it; a property mapped
+// with another type surfaces as an error rather than being closed and forgotten, because a
+// mapping that silently failed to apply is exactly the drift this exists to prevent.
+func (ec *elasticClient) CheckAndUpdateMapping(index string, properties templates.Object) error {
+	missing, err := ec.CheckFieldMapping(index, properties)
+	if err != nil {
+		return err
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+
+	all, ok := properties["properties"].(templates.Object)
+	if !ok {
+		return fmt.Errorf("%w: properties must be an object under \"properties\"", ErrCouldNotUpdateMapping)
+	}
+	subset := templates.Object{}
+	for _, name := range missing {
+		subset[name] = all[name]
+	}
+	body := templates.Object{"properties": subset}
+
+	res, err := ec.es.Indices.PutMapping([]string{index}, body.ToBuffer())
+	if err != nil {
+		return err
+	}
+
+	defer closeResponseBody(res, "elasticClient.CheckAndUpdateMapping")
+
+	if res.IsError() {
+		return fmt.Errorf("%w: index %s: %s", ErrCouldNotUpdateMapping, index, res.String())
+	}
+
+	return nil
+}
+
+// PutTemplate writes an index template whether or not one exists under that name, so a
+// template that gained a property reaches clusters that already carry the old one. It takes
+// bytes rather than a reader, so no call can consume state its caller still needs, and it
+// refuses an empty body rather than writing it: on a fresh cluster this runs right after
+// the create step, and an empty template would replace the one just installed. A template
+// only shapes indices created after it, which is why the live index is handled by
+// CheckAndUpdateMapping separately.
+func (ec *elasticClient) PutTemplate(templateName string, template []byte) error {
+	if len(template) == 0 {
+		return fmt.Errorf("%w: template %s: empty body", ErrCouldNotCreateTemplate, templateName)
+	}
+
+	res, err := ec.es.Indices.PutTemplate(templateName, bytes.NewReader(template))
+	if err != nil {
+		return err
+	}
+
+	defer closeResponseBody(res, "elasticClient.PutTemplate")
+
+	if res.IsError() {
+		return fmt.Errorf("%w: template %s: %s", ErrCouldNotCreateTemplate, templateName, res.String())
+	}
+
+	return nil
+}
+
+// mappingTypes flattens {"properties": {name: {"type": t}}} into name -> t.
+func mappingTypes(properties templates.Object) (map[string]string, error) {
+	all, ok := properties["properties"].(templates.Object)
+	if !ok {
+		return nil, fmt.Errorf("%w: properties must be an object under \"properties\"", ErrCouldNotUpdateMapping)
+	}
+
+	types := make(map[string]string, len(all))
+	for name, raw := range all {
+		field, ok := raw.(templates.Object)
+		if !ok {
+			return nil, fmt.Errorf("%w: property %s must be an object", ErrCouldNotUpdateMapping, name)
+		}
+		fieldType, ok := field["type"].(string)
+		if !ok {
+			return nil, fmt.Errorf("%w: property %s must name a type", ErrCouldNotUpdateMapping, name)
+		}
+		types[name] = fieldType
+	}
+
+	return types, nil
 }
 
 // DoRequest will do a request to elastic server
@@ -380,14 +567,19 @@ func (ec *elasticClient) aliasExists(alias string) bool {
 	return exists(response, nil)
 }
 
-// CreateIndex creates an elasticsearch index
+// createIndex creates an elasticsearch index. A refusal is an error: the first document
+// would otherwise create the index with a dynamic mapping and nothing would say why. An
+// index that exists by the time the create arrives, because the existence check answered
+// false on a transport error or another node created it first, is the outcome this call
+// wanted, and the response handler treats it as success.
 func (ec *elasticClient) createIndex(index string) error {
 	res, err := ec.es.Indices.Create(index)
-	if err != nil {
-		return err
+	if err == nil {
+		err = parseResponse(res, nil, elasticDefaultErrorResponseHandler)
 	}
-
-	defer closeResponseBody(res, "elasticClient.createIndex")
+	if err != nil {
+		return fmt.Errorf("%w: index %s: %w", ErrCouldNotCreateIndex, index, err)
+	}
 
 	return nil
 }
@@ -433,26 +625,32 @@ func (ec *elasticClient) createPolicy(policyName string, policy *bytes.Buffer) e
 	return nil
 }
 
-// CreateIndexTemplate creates an elasticsearch index template
+// createIndexTemplate creates an elasticsearch index template. A template the cluster
+// refuses is an error: indices created without it would type every field dynamically, and
+// nothing later would say why.
 func (ec *elasticClient) createIndexTemplate(templateName string, template io.Reader) error {
 	res, err := ec.es.Indices.PutTemplate(templateName, template)
-	if err != nil {
-		return err
+	if err == nil {
+		err = parseResponse(res, nil, elasticDefaultErrorResponseHandler)
 	}
-
-	defer closeResponseBody(res, "elasticClient.createIndexTemplate")
+	if err != nil {
+		return fmt.Errorf("%w: template %s: %w", ErrCouldNotCreateTemplate, templateName, err)
+	}
 
 	return nil
 }
 
-// CreateAlias creates an index alias
+// createAlias creates an index alias. A refusal is an error, since every write and read
+// goes through the alias; an alias that already exists is treated as success by the
+// response handler.
 func (ec *elasticClient) createAlias(alias string, index string) error {
 	res, err := ec.es.Indices.PutAlias([]string{index}, alias)
-	if err != nil {
-		return err
+	if err == nil {
+		err = parseResponse(res, nil, elasticDefaultErrorResponseHandler)
 	}
-
-	defer closeResponseBody(res, "elasticClient.createAlias")
+	if err != nil {
+		return fmt.Errorf("%w: alias %s on %s: %w", ErrCouldNotCreateAlias, alias, index, err)
+	}
 
 	return nil
 }
