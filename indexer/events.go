@@ -11,6 +11,36 @@ const eventQueueBufferSize = 1000
 var EventQueue = make(chan Event, eventQueueBufferSize)
 var UseEventQueue bool
 
+// logsSubscriberChecker backs SetLogsSubscriberChecker/GetLogsSubscriberChecker. An
+// atomic.Value instead of a plain package-level func var: it is written once (by the
+// websocket hub during its construction) and cleared again on hub shutdown, but read on
+// every block from the commit goroutine — a bare var would race between that write and
+// those reads.
+var logsSubscriberChecker atomic.Value // holds a `func() bool`, possibly nil
+
+// SetLogsSubscriberChecker installs the function dispatchLogEvents consults before paying
+// the full bech32/hex-encoding conversion cost on the block-commit goroutine, so a block
+// with many SC events costs nothing extra when nobody would receive them. A nil checker
+// means "no hub wired" and converts every block; a hub that is shutting down must install
+// NoLogsSubscribers instead, so later blocks skip the conversion rather than pay for a
+// LOGS event nothing drains.
+func SetLogsSubscriberChecker(checker func() bool) {
+	logsSubscriberChecker.Store(&checker)
+}
+
+// NoLogsSubscribers is the checker for a stopped hub: nobody can receive logs, so skip.
+func NoLogsSubscribers() bool { return false }
+
+// GetLogsSubscriberChecker returns the currently installed checker, or nil if none is set
+// (no hub wired yet, or this indexer package used outside the websocket feature).
+func GetLogsSubscriberChecker() func() bool {
+	stored, _ := logsSubscriberChecker.Load().(*func() bool)
+	if stored == nil {
+		return nil
+	}
+	return *stored
+}
+
 type Event struct {
 	EvType  EventType
 	Message interface{}
@@ -24,6 +54,7 @@ const (
 	ACCOUNTS          EventType = "accounts"
 	BLOCKS            EventType = "blocks"
 	TRANSACTIONS      EventType = "transactions"
+	LOGS              EventType = "logs"
 )
 
 const dropLogIntervalSeconds = 10
@@ -60,22 +91,16 @@ func NewEventTypeStrict(evType string) (EventType, error) {
 		return BLOCKS, nil
 	case "user_transactions":
 		return USER_TRANSACTIONS, nil
+	case "logs":
+		return LOGS, nil
 	default:
 		return UNKNOWN, ErrUnknownEventType
 	}
 }
 
+// Deprecated: use NewEventTypeStrict, which reports an unknown type as an error. Kept so
+// external importers of this exported helper keep building.
 func NewEventType(evType string) EventType {
-	switch evType {
-	case "transactions":
-		return TRANSACTIONS
-	case "accounts":
-		return ACCOUNTS
-	case "blocks":
-		return BLOCKS
-	case "user_transactions":
-		return USER_TRANSACTIONS
-	default:
-		return UNKNOWN
-	}
+	t, _ := NewEventTypeStrict(evType)
+	return t
 }

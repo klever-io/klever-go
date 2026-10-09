@@ -211,6 +211,10 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 		indexer.UseEventQueue = true
 		hub := clientSocket.NewHub(postConnUrl, postConnApiKey, wsFacade, hubLimits)
 		hub.SetAppStatusHandler(appStatusHandler)
+		// Wired synchronously here so no block committed before hub.StartServer's goroutine
+		// gets scheduled ever sees a nil checker; StartServer re-wires it (idempotently) once
+		// running, and deleteAll unwires it again on shutdown — see the comments there.
+		indexer.SetLogsSubscriberChecker(hub.HasLogsSubscriberOrMirror)
 		wsocket.SubscribeTopics(ws, hub, subscribeOpts)
 		go hub.StartServer(ctx)
 	}

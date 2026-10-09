@@ -522,6 +522,16 @@ func TestMarshalMessage_NonBlocks(t *testing.T) {
 	assert.NotEmpty(t, msg.Data)
 }
 
+func TestMarshalMessage_Logs(t *testing.T) {
+	payload := &data.Logs{Address: "klv1contract", Events: []*data.Event{{Identifier: "transfer"}}}
+	msg, err := marshalMessage(indexer.LOGS, "klv1contract", "hash1", payload)
+	require.NoError(t, err)
+	assert.Equal(t, indexer.LOGS, msg.Type)
+	assert.Equal(t, "klv1contract", msg.Address)
+	assert.Equal(t, "hash1", msg.Hash)
+	assert.NotEmpty(t, msg.Data)
+}
+
 func TestHandleClientInsertion_BlocksAndTransactions(t *testing.T) {
 	hub := newTestHub(nil)
 	c := newTestClient(hub)
@@ -541,7 +551,8 @@ func TestHandleClientInsertion_AddressTypes(t *testing.T) {
 	hub := newTestHub(nil)
 	c := newTestClient(hub)
 
-	hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS, indexer.USER_TRANSACTIONS}, []string{"klv1test"}, c)
+	err := hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS, indexer.USER_TRANSACTIONS, indexer.LOGS}, []string{"klv1test"}, c)
+	require.NoError(t, err)
 
 	hub.mu.Lock()
 	opts := hub.addressSubscription["klv1test"][c]
@@ -549,6 +560,38 @@ func TestHandleClientInsertion_AddressTypes(t *testing.T) {
 
 	assert.True(t, opts.acceptAccount)
 	assert.True(t, opts.acceptTransaction)
+	assert.True(t, opts.acceptLogs)
+}
+
+// TestHandleClientInsertion_RejectsDeadClient_NoSubscriberCountLeak guards a race
+// fbsobreira flagged in review: NewClient starts loopIn/loopOut before the caller gets to
+// call HandleClientInsertion, so a client that disconnects immediately can have loopIn's
+// teardown (c.Close(), then handleClientDelete) run first. Without the IsAlive check under
+// h.mu, HandleClientInsertion would still insert the now-dead client and bump
+// logsSubscriberCount — which handleClientDelete already ran and so never undoes, leaving
+// HasLogsSubscriberOrMirror permanently true. Simulates the ordering directly (mark the
+// client dead before insertion) rather than racing real goroutines, since the property
+// under test is the guard itself, not the scheduler.
+func TestHandleClientInsertion_RejectsDeadClient_NoSubscriberCountLeak(t *testing.T) {
+	hub := newTestHub(nil)
+	c := newTestClient(hub)
+	c.alive = false // as if loopIn's teardown already ran
+
+	err := hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1test"}, c)
+
+	assert.ErrorIs(t, err, ErrClientClosed)
+	hub.mu.Lock()
+	_, tracked := hub.clients[c]
+	_, hasAddress := hub.addressSubscription["klv1test"]
+	count := hub.logsSubscriberCount.Load()
+	hub.mu.Unlock()
+	assert.False(t, tracked, "a dead client must never be tracked in hub.clients")
+	assert.False(t, hasAddress, "a dead client must never populate addressSubscription")
+	assert.Zero(t, count, "logsSubscriberCount must not be bumped for a client that never got inserted")
+}
+
+func TestContainsAddressScoped_Logs(t *testing.T) {
+	assert.True(t, containsAddressScoped([]indexer.EventType{indexer.LOGS}))
 }
 
 func TestHandleClientRemoval_BlocksAndTransactions(t *testing.T) {
@@ -586,6 +629,32 @@ func TestHandleClientRemoval_FullUnsubscribeRemovesEntry(t *testing.T) {
 	hub.mu.Unlock()
 
 	assert.False(t, exists)
+}
+
+func TestHandleClientRemoval_LogsOnlyLeavesOtherFlagsIntact(t *testing.T) {
+	hub := newTestHub(nil)
+	c := newTestClient(hub)
+
+	hub.mu.Lock()
+	hub.addressSubscription["klv1x"] = map[*client]userOptions{c: {acceptAccount: true, acceptLogs: true}}
+	hub.mu.Unlock()
+
+	hub.HandleClientRemoval([]indexer.EventType{indexer.LOGS}, []string{"klv1x"}, c)
+
+	hub.mu.Lock()
+	opts, exists := hub.addressSubscription["klv1x"][c]
+	hub.mu.Unlock()
+
+	require.True(t, exists, "address entry must survive while acceptAccount is still set")
+	assert.True(t, opts.acceptAccount)
+	assert.False(t, opts.acceptLogs)
+
+	hub.HandleClientRemoval([]indexer.EventType{indexer.ACCOUNTS}, []string{"klv1x"}, c)
+
+	hub.mu.Lock()
+	_, exists = hub.addressSubscription["klv1x"]
+	hub.mu.Unlock()
+	assert.False(t, exists, "address entry must be removed once every flag is cleared")
 }
 
 func TestHandleClientRemoval_UnknownAddressNoOp(t *testing.T) {
@@ -1048,6 +1117,222 @@ func TestStartServer_AccountsEvent_NoSubscribers(t *testing.T) {
 	env.teardown()
 }
 
+func TestStartServer_LogsEvent(t *testing.T) {
+	env := startServerEnv(t, nil)
+	c := newTestClient(env.hub)
+
+	env.hub.mu.Lock()
+	env.hub.addressSubscription["klv1contract"] = map[*client]userOptions{c: {acceptLogs: true}}
+	env.hub.mu.Unlock()
+
+	env.queue <- indexer.Event{
+		EvType:  indexer.LOGS,
+		Message: []*data.Logs{{ID: "txhash1", Address: "klv1contract", Events: []*data.Event{{Identifier: "transfer"}}}},
+	}
+
+	s := awaitSend(t, c)
+	assert.Equal(t, indexer.LOGS, s.Type)
+	assert.Equal(t, "klv1contract", s.Address)
+	assert.Equal(t, "txhash1", s.Hash)
+
+	env.teardown(c)
+}
+
+// TestStartServer_LogsEvent_DeliversToNestedEventAddress guards fbsobreira's review
+// finding that a log entry was dispatched only under entry.Address, even though a deploy
+// tx attributes entry.Address to the *deployer* (see getLogAddressByTx in
+// core/process/transactionLog) while the entry's own events carry the newly deployed
+// contract's address — so a subscriber watching the new contract never saw its own
+// deploy/init events, only the deployer's wallet did. The same gap applied to any nested
+// cross-contract call's inner contract, the README's former "Known Limitations" entry.
+func TestStartServer_LogsEvent_DeliversToNestedEventAddress(t *testing.T) {
+	env := startServerEnv(t, nil)
+	c := newTestClient(env.hub)
+
+	env.hub.mu.Lock()
+	env.hub.addressSubscription["klv1newcontract"] = map[*client]userOptions{c: {acceptLogs: true}}
+	env.hub.mu.Unlock()
+
+	env.queue <- indexer.Event{
+		EvType: indexer.LOGS,
+		Message: []*data.Logs{{
+			ID:      "txhash1",
+			Address: "klv1deployer",
+			Events:  []*data.Event{{Address: "klv1newcontract", Identifier: "init"}},
+		}},
+	}
+
+	s := awaitSend(t, c)
+	assert.Equal(t, indexer.LOGS, s.Type)
+	assert.Equal(t, "klv1newcontract", s.Address, "a subscriber to the deployed contract's own address must be reached, not just the deployer's")
+	assert.Equal(t, "txhash1", s.Hash)
+
+	env.teardown(c)
+}
+
+// TestStartServer_AccountsEvent_NoSubscribersButMirrorConfigured guards the fix
+// generalizing the "skip when nobody's listening" gate (previously LOGS-only) to every
+// address-scoped handler via dispatchToAddress: an ACCOUNTS event with zero subscribers
+// must still reach a configured mirror, exactly as it did before the gate was
+// generalized, since the gate only skips when there is neither a subscriber nor a mirror.
+func TestStartServer_AccountsEvent_NoSubscribersButMirrorConfigured(t *testing.T) {
+	receivedCh := make(chan []byte, 1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedCh <- body
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	hub := NewHub(ts.URL, "", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	origQueue := indexer.EventQueue
+	testQueue := make(chan indexer.Event, 10)
+	indexer.EventQueue = testQueue
+	t.Cleanup(func() { indexer.EventQueue = origQueue })
+	done := make(chan struct{})
+	go func() {
+		hub.StartServer(ctx)
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	testQueue <- indexer.Event{
+		EvType:  indexer.ACCOUNTS,
+		Message: map[string]*data.AccountInfo{"klv1nobody": {Address: "klv1nobody"}},
+	}
+
+	select {
+	case body := <-receivedCh:
+		assert.Contains(t, string(body), "klv1nobody")
+	case <-time.After(2 * time.Second):
+		t.Fatal("mirror did not receive the ACCOUNTS event despite having no subscribers")
+	}
+}
+
+func TestStartServer_LogsEvent_NoSubscribers(t *testing.T) {
+	env := startServerEnv(t, nil)
+	c := newTestClient(env.hub)
+
+	env.hub.mu.Lock()
+	env.hub.blockSubscription[c] = struct{}{}
+	env.hub.mu.Unlock()
+
+	env.queue <- indexer.Event{
+		EvType:  indexer.LOGS,
+		Message: []*data.Logs{{Address: "klv1nobody"}},
+	}
+	// StartServer drains env.queue in order; observing this second, subscribed event
+	// confirms the no-subscriber LOGS event above was already processed without
+	// panicking, without needing a sleep to "give it time".
+	env.queue <- indexer.Event{EvType: indexer.BLOCKS, Message: []byte(`{"nonce":1}`)}
+
+	s := awaitSend(t, c)
+	assert.Equal(t, indexer.BLOCKS, s.Type)
+
+	env.teardown(c)
+}
+
+func TestHasLogsSubscriberOrMirror(t *testing.T) {
+	hub := newTestHub(nil)
+	assert.False(t, hub.HasLogsSubscriberOrMirror(), "no client, no mirror: nothing would receive a LOGS event")
+
+	c := newTestClient(hub)
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS}, []string{"klv1contract"}, c))
+	assert.False(t, hub.HasLogsSubscriberOrMirror(), "a subscriber for a different type must not count as a LOGS subscriber")
+
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c))
+	assert.True(t, hub.HasLogsSubscriberOrMirror(), "an address-scoped LOGS subscriber must count")
+	assert.Equal(t, int64(1), hub.logsSubscriberCount.Load())
+
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c))
+	assert.Equal(t, int64(1), hub.logsSubscriberCount.Load(), "re-subscribing the same (address, client) to LOGS must not double-count")
+
+	// logsSubscriberCount must stay in sync incrementally (not just the map), since
+	// HasLogsSubscriberOrMirror no longer scans addressSubscription itself (see the
+	// field's doc comment) — covering unsubscribe, a redundant repeated unsubscribe, and
+	// disconnect.
+	hub.HandleClientRemoval([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c)
+	assert.False(t, hub.HasLogsSubscriberOrMirror(), "unsubscribing from LOGS must decrement the counter")
+	assert.Equal(t, int64(0), hub.logsSubscriberCount.Load())
+
+	// A second, redundant unsubscribe (already-cleared acceptLogs) must not drive the
+	// counter negative — a negative count masks a later genuine subscriber, since
+	// HasLogsSubscriberOrMirror only checks count > 0.
+	hub.HandleClientRemoval([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c)
+	assert.Equal(t, int64(0), hub.logsSubscriberCount.Load(), "a repeated unsubscribe must not drive the counter negative")
+
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1contract"}, c))
+	require.Equal(t, int64(1), hub.logsSubscriberCount.Load())
+	killClient(c) // newTestClient's conn is nil; killClient makes close() a no-op so handleClientDelete is safe to call directly.
+	hub.handleClientDelete(c)
+	assert.Equal(t, int64(0), hub.logsSubscriberCount.Load(), "disconnecting a client must decrement the counter for every address it accepted LOGS on")
+
+	mirrorHub := NewHub("http://mirror.example", "", nil)
+	assert.True(t, mirrorHub.HasLogsSubscriberOrMirror(), "a configured mirror must count even with no client subscribers")
+
+	apiKeyOnlyHub := NewHub("", "api-key-without-url", nil)
+	assert.False(t, apiKeyOnlyHub.HasLogsSubscriberOrMirror(), "an API key without a URL never actually enables the mirror (see NewHub)")
+}
+
+// TestHasLogsSubscriberOrMirror_NeverBlocksOnHubMutex guards the exact scenario a
+// reviewer flagged: HasLogsSubscriberOrMirror runs synchronously on the block-commit
+// goroutine, and handleClientDelete holds h.mu (Lock) across a socket close and a full
+// map scan. If the checker still took h.mu (RLock), a burst of client disconnects could
+// park the commit goroutine behind that queue (RWMutex gives a pending writer priority
+// over new readers). Holding h.mu.Lock() for the whole test and calling the checker from
+// another goroutine proves it returns without ever needing the lock.
+func TestHasLogsSubscriberOrMirror_NeverBlocksOnHubMutex(t *testing.T) {
+	hub := newTestHub(nil)
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+
+	assertReturnsQuickly(t, time.Second, "HasLogsSubscriberOrMirror blocked while h.mu was held elsewhere", func() {
+		hub.HasLogsSubscriberOrMirror()
+	})
+}
+
+func TestStartServer_LogsEvent_MultipleEntriesDifferentAddresses(t *testing.T) {
+	env := startServerEnv(t, nil)
+	cA := newTestClient(env.hub)
+	cB := newTestClient(env.hub)
+
+	env.hub.mu.Lock()
+	env.hub.addressSubscription["klv1contractA"] = map[*client]userOptions{cA: {acceptLogs: true}}
+	env.hub.addressSubscription["klv1contractB"] = map[*client]userOptions{cB: {acceptLogs: true}}
+	env.hub.mu.Unlock()
+
+	env.queue <- indexer.Event{
+		EvType: indexer.LOGS,
+		Message: []*data.Logs{
+			{Address: "klv1contractA", Events: []*data.Event{{Identifier: "eventA"}}},
+			{Address: "klv1contractB", Events: []*data.Event{{Identifier: "eventB"}}},
+		},
+	}
+
+	sA := awaitSend(t, cA)
+	assert.Equal(t, "klv1contractA", sA.Address)
+
+	sB := awaitSend(t, cB)
+	assert.Equal(t, "klv1contractB", sB.Address)
+
+	select {
+	case <-cA.out:
+		t.Fatal("client A must not receive client B's log entry")
+	default:
+	}
+	select {
+	case <-cB.out:
+		t.Fatal("client B must not receive client A's log entry")
+	default:
+	}
+
+	env.teardown(cA, cB)
+}
+
 func TestStartServer_UserTransactionEvent(t *testing.T) {
 	env := startServerEnv(t, nil)
 	c := newTestClient(env.hub)
@@ -1163,4 +1448,89 @@ func TestNewClient_LoopIn_ConnectionClose(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 	cleanup()
+}
+
+// TestLogsSubscriberCount_PerAddressAcrossRealPaths drives the counter only through the
+// real insertion/removal paths (never by writing acceptLogs into the map directly, which
+// would leave the counter out of step), with several addresses so a bug that adjusts it once
+// per client rather than once per (address, client) pair cannot pass.
+func TestLogsSubscriberCount_PerAddressAcrossRealPaths(t *testing.T) {
+	hub := newTestHub(nil)
+	c := newTestClient(hub)
+	addrs := []string{"klv1a", "klv1b", "klv1c"}
+
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, addrs, c))
+	assert.Equal(t, int64(3), hub.logsSubscriberCount.Load())
+
+	hub.HandleClientRemoval([]indexer.EventType{indexer.LOGS}, addrs[:2], c)
+	assert.Equal(t, int64(1), hub.logsSubscriberCount.Load(), "removing LOGS on two of three addresses must drop the count by exactly two")
+
+	hub.HandleClientRemoval([]indexer.EventType{indexer.LOGS}, addrs, c)
+	assert.Equal(t, int64(0), hub.logsSubscriberCount.Load(), "the already-removed addresses must not be decremented twice")
+
+	// Merge, then partial unsubscribe: ACCOUNTS+LOGS on one address, drop ACCOUNTS only. The
+	// pair still accepts LOGS, so it must still count.
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.ACCOUNTS, indexer.LOGS}, []string{"klv1a"}, c))
+	assert.Equal(t, int64(1), hub.logsSubscriberCount.Load())
+	hub.HandleClientRemoval([]indexer.EventType{indexer.ACCOUNTS}, []string{"klv1a"}, c)
+	assert.Equal(t, int64(1), hub.logsSubscriberCount.Load(), "dropping ACCOUNTS must leave the LOGS subscription counted")
+	assert.True(t, hub.HasLogsSubscriberOrMirror())
+}
+
+// TestDeleteAll_ClosesLogsGate pins the shutdown behavior a reviewer flagged: unwiring the
+// checker (nil) leaves dispatchLogEvents converting every block's logs for a LOGS event
+// nothing drains, while UseEventQueue stays true. A stopped hub must install a checker that
+// answers "nobody", and reset the count.
+func TestDeleteAll_ClosesLogsGate(t *testing.T) {
+	original := indexer.GetLogsSubscriberChecker()
+	t.Cleanup(func() { indexer.SetLogsSubscriberChecker(original) })
+
+	hub := newTestHub(nil)
+	c := newTestClient(hub)
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1a", "klv1b"}, c))
+	indexer.SetLogsSubscriberChecker(hub.HasLogsSubscriberOrMirror)
+	require.True(t, indexer.GetLogsSubscriberChecker()())
+
+	killClient(c)
+	hub.deleteAll()
+
+	assert.Equal(t, int64(0), hub.logsSubscriberCount.Load())
+	checker := indexer.GetLogsSubscriberChecker()
+	require.NotNil(t, checker, "a stopped hub must leave a closed gate, not an unwired (convert-everything) one")
+	assert.False(t, checker())
+}
+
+// TestDispatchLogEntry_MirrorOncePerEntryAndSharedPayload guards the fan-out cost: one
+// entry relevant to several addresses must be marshalled once and mirrored once, while each
+// subscribed address still receives its own envelope carrying the same payload.
+func TestDispatchLogEntry_MirrorOncePerEntryAndSharedPayload(t *testing.T) {
+	hub := NewHub("http://mirror.example", "", nil)
+	c := newTestClient(hub)
+	require.NoError(t, hub.HandleClientInsertion([]indexer.EventType{indexer.LOGS}, []string{"klv1deployer", "klv1newcontract"}, c))
+
+	entry := &data.Logs{
+		ID:      "txhash1",
+		Address: "klv1deployer",
+		Events: []*data.Event{
+			{Address: "klv1newcontract", Identifier: "init"},
+			{Address: "klv1inner", Identifier: "call"},
+		},
+	}
+	hub.dispatchLogEntry(indexer.LOGS, entry, func(o userOptions) bool { return o.acceptLogs })
+
+	require.Len(t, hub.postQueue, 1, "three fan-out addresses must produce a single mirror post")
+	mirrored := <-hub.postQueue
+	assert.Equal(t, "klv1deployer", mirrored.Address, "the mirror copy is posted under entry.Address")
+
+	got := map[string]*Send{}
+	for i := 0; i < 2; i++ {
+		s := awaitSend(t, c)
+		got[s.Address] = s
+	}
+	require.Contains(t, got, "klv1deployer")
+	require.Contains(t, got, "klv1newcontract")
+	assert.JSONEq(t, string(mirrored.Data), string(got["klv1deployer"].Data))
+	assert.JSONEq(t, string(mirrored.Data), string(got["klv1newcontract"].Data))
+	assert.Equal(t, "txhash1", got["klv1newcontract"].Hash)
+	assert.Empty(t, c.out, "no delivery for the unsubscribed klv1inner address")
 }

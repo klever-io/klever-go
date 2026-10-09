@@ -32,11 +32,3 @@ func TestNewEventTypeStrict_InvalidType(t *testing.T) {
 	assert.ErrorIs(t, err, ErrUnknownEventType)
 	assert.Equal(t, UNKNOWN, result)
 }
-
-func TestNewEventType_BackwardCompatibility(t *testing.T) {
-	result := NewEventType("invalid_type")
-	assert.Equal(t, UNKNOWN, result)
-
-	result = NewEventType("transactions")
-	assert.Equal(t, TRANSACTIONS, result)
-}

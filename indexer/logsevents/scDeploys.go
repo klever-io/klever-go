@@ -26,8 +26,14 @@ func (sdp *scDeploysProcessor) processEvent(args *argsProcessEvent) argOutputPro
 		return argOutputProcessEvent{}
 	}
 
+	// Only the node's own deploy/upgrade log counts: an event identifier is just the name of
+	// the endpoint that wrote it, and a contract can export an endpoint called SCDeploy. The
+	// topics are also contract-controlled in that case, so require an exact address length
+	// before Encode, which logs a stack-trace WARN on a wrong-sized input.
 	topics := args.event.GetTopics()
-	if len(topics) < 2 {
+	addressLen := sdp.pubKeyConverter.Len()
+	if !args.event.GetIsSystemLog() || len(topics) < 2 ||
+		len(topics[0]) != addressLen || len(topics[1]) != addressLen {
 		return argOutputProcessEvent{
 			processed: true,
 		}
