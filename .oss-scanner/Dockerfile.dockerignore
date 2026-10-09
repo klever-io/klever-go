@@ -1,0 +1,3 @@
+# The repo-root .dockerignore targets the release images and excludes tests and *.so,
+# both of which the scanner needs.
+bin/
