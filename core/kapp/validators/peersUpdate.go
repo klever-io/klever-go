@@ -312,8 +312,25 @@ func (v *validatorsKApp) updateValidatorJailStatus(val *ValidatorData, peerAcc s
 	}
 }
 
-// updatePeerListStatus updates the peer account's list status based on delegation amounts.
-func (v *validatorsKApp) updatePeerListStatus(val *ValidatorData, peerAcc state.PeerAccountHandler, minSelfDelegated, minTotalDelegated, totalDelegated int64) {
+// resolveVersionEnforcedList returns the list a stake-satisfying validator belongs on when
+// a version requirement is active and the validator does not satisfy it: demoted to observer
+// while the demotion guards hold; otherwise no new demotions, and already-demoted observers
+// stay demoted until they attest (no oscillation), while elected validators keep their slot.
+func resolveVersionEnforcedList(current state.List, enforcement versionEnforcement) state.List {
+	if enforcement.demote {
+		// demoted instead of staying electable with an outdated version; the validator
+		// returns to eligible at the first end-of-epoch after a satisfying attestation
+		return state.List_observer
+	}
+	if current == state.List_observer || current == state.List_elected {
+		return current
+	}
+	return state.List_eligible
+}
+
+// updatePeerListStatus updates the peer account's list status based on delegation amounts
+// and, when version enforcement is active, on the validator's attested node version.
+func (v *validatorsKApp) updatePeerListStatus(val *ValidatorData, peerAcc state.PeerAccountHandler, minSelfDelegated, minTotalDelegated int64, totalDelegated int64, enforcement versionEnforcement) {
 	if val.Jailed {
 		return
 	}
@@ -322,6 +339,8 @@ func (v *validatorsKApp) updatePeerListStatus(val *ValidatorData, peerAcc state.
 		peerAcc.SetList(state.List_inactive)
 	} else if totalDelegated < minTotalDelegated {
 		peerAcc.SetList(state.List_waiting)
+	} else if enforcement.active && !enforcement.isSatisfiedBy(val) {
+		peerAcc.SetList(resolveVersionEnforcedList(peerAcc.GetList(), enforcement))
 	} else if peerAcc.GetList() != state.List_elected {
 		peerAcc.SetList(state.List_eligible)
 	}
@@ -458,6 +477,7 @@ func (v *validatorsKApp) processValidatorEpochV1(
 	currentEpoch uint32,
 	minSelfDelegated, minTotalDelegated int64,
 	totalDelegations map[string]int64,
+	enforcement versionEnforcement,
 ) error {
 	addr := validatorInfo.GetOwnerAddress()
 
@@ -488,7 +508,7 @@ func (v *validatorsKApp) processValidatorEpochV1(
 		return err
 	}
 
-	v.updatePeerListStatus(val, peerAcc, minSelfDelegated, minTotalDelegated, totalDelegated)
+	v.updatePeerListStatus(val, peerAcc, minSelfDelegated, minTotalDelegated, totalDelegated, enforcement)
 
 	return v.finalizeValidatorEpoch(app, addr, val, peerAcc)
 }
@@ -611,6 +631,7 @@ func (v *validatorsKApp) processValidatorEpochV2(
 	currentEpoch uint32,
 	minSelfDelegated, minTotalDelegated int64,
 	totalDelegations map[string]int64,
+	enforcement versionEnforcement,
 ) error {
 	addr := validatorInfo.GetOwnerAddress()
 
@@ -645,7 +666,7 @@ func (v *validatorsKApp) processValidatorEpochV2(
 		return err
 	}
 
-	v.updatePeerListStatus(val, peerAcc, minSelfDelegated, minTotalDelegated, totalDelegated)
+	v.updatePeerListStatus(val, peerAcc, minSelfDelegated, minTotalDelegated, totalDelegated, enforcement)
 
 	return v.finalizeValidatorEpoch(app, addr, val, peerAcc)
 }
@@ -687,8 +708,10 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpochV1(currentEpoch uint32, valid
 		return err
 	}
 
+	enforcement := v.computeVersionEnforcement(app, validatorInfos, currentEpoch)
+
 	for _, validatorInfo := range validatorInfos {
-		if err := v.processValidatorEpochV1(app, validatorInfo, currentEpoch, minSelfDelegated, minTotalDelegated, totalDelegations); err != nil {
+		if err := v.processValidatorEpochV1(app, validatorInfo, currentEpoch, minSelfDelegated, minTotalDelegated, totalDelegations, enforcement); err != nil {
 			return err
 		}
 	}
@@ -714,8 +737,10 @@ func (v *validatorsKApp) ProcessEconomicsEndOfEpochV2(currentEpoch uint32, valid
 
 	totalDelegations := make(map[string]int64)
 
+	enforcement := v.computeVersionEnforcement(app, validatorInfos, currentEpoch)
+
 	for _, validatorInfo := range validatorInfos {
-		if err := v.processValidatorEpochV2(app, validatorInfo, currentEpoch, minSelfDelegated, minTotalDelegated, totalDelegations); err != nil {
+		if err := v.processValidatorEpochV2(app, validatorInfo, currentEpoch, minSelfDelegated, minTotalDelegated, totalDelegations, enforcement); err != nil {
 			return err
 		}
 	}

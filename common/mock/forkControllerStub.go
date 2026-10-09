@@ -20,6 +20,7 @@ type ForkControllerStub struct {
 	FixAuditChangesV4Value       bool
 	FixAuditChangesV5Value       bool
 	FixAuditChangesV6Value       bool
+	VersionAttestationValue      bool
 	EpochConfirmedCalled         bool
 	LastConfirmedEpoch           uint32
 
@@ -75,6 +76,8 @@ func (s *ForkControllerStub) SetFork(forkName string, value bool) *ForkControlle
 		s.FixAuditChangesV5Value = value
 	case "FixAuditChangesV6":
 		s.FixAuditChangesV6Value = value
+	case "VersionAttestation":
+		s.VersionAttestationValue = value
 	}
 
 	return s
@@ -98,6 +101,7 @@ func (s *ForkControllerStub) SetAll(value bool) {
 	s.FixAuditChangesV4Value = value
 	s.FixAuditChangesV5Value = value
 	s.FixAuditChangesV6Value = value
+	s.VersionAttestationValue = value
 	s.LastConfirmedEpoch = 0
 }
 
@@ -121,6 +125,7 @@ func (s *ForkControllerStub) SetByConfig(config config.EnableEpochs) {
 	s.FixAuditChangesV5Epoch = &config.FixAuditChangesV5
 	s.FixAuditChangesV6Value = config.FixAuditChangesV6 == 0
 	s.FixAuditChangesV6Epoch = &config.FixAuditChangesV6
+	s.VersionAttestationValue = config.VersionAttestation == 0
 	s.LastConfirmedEpoch = 0
 }
 
@@ -222,6 +227,11 @@ func (s *ForkControllerStub) FixAuditChangesV6InEpoch(epoch uint32) bool {
 	}
 
 	return epoch >= *s.FixAuditChangesV6Epoch
+}
+
+// VersionAttestation returns the stubbed value
+func (s *ForkControllerStub) VersionAttestation() bool {
+	return s.VersionAttestationValue
 }
 
 // EpochConfirmed records that the method was called and stores the epoch

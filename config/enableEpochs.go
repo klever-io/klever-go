@@ -33,6 +33,7 @@ type EnableEpochs struct {
 	FixAuditChangesV4       uint32 `yaml:"fixAuditChangesV4"`
 	FixAuditChangesV5       uint32 `yaml:"fixAuditChangesV5"`
 	FixAuditChangesV6       uint32 `yaml:"fixAuditChangesV6"`
+	VersionAttestation      uint32 `yaml:"versionAttestation"`
 }
 
 // Validate checks that the configured activation epochs are mutually consistent. It runs

@@ -2,6 +2,7 @@ package kappcontroller
 
 import (
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/kapp/factory"
@@ -59,6 +60,12 @@ type ArgsNewKApp struct {
 	// the VM query path (see cmd/node/sc.go). Construction-time only on purpose,
 	// so the safety cannot be switched off on a live controller.
 	ReadOnly bool
+	// VersionsByEpochs is the versions.versionsByEpochs config used by the validators
+	// KApp for node version attestation; nil disables version enforcement
+	VersionsByEpochs []config.VersionByEpochs
+	// MinElectableNodes is the nodes shuffler's minimum electable count (genesis
+	// MinNumberOfNodes), used as a floor guard for version demotion
+	MinElectableNodes uint32
 }
 
 func NewKappController(args ArgsNewKApp) (kapp.KAppController, error) {
@@ -69,6 +76,8 @@ func NewKappController(args ArgsNewKApp) (kapp.KAppController, error) {
 		args.PubkeyConv,
 		args.ForkController,
 		args.RatingsData,
+		args.VersionsByEpochs,
+		args.MinElectableNodes,
 	)
 	if err != nil {
 		return nil, err

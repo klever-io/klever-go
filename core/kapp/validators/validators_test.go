@@ -10,6 +10,7 @@ import (
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/keyValStorage"
@@ -89,6 +90,63 @@ func TestNewValidatorKApp(t *testing.T) {
 		v, err := NewValidatorKApp(args)
 		assert.Equal(t, common.ErrNilForkController, err)
 		assert.Nil(t, v)
+	})
+
+	t.Run("nil VersionsByEpochs is accepted", func(t *testing.T) {
+		args := createMockArgs()
+		args.VersionsByEpochs = nil
+
+		v, err := NewValidatorKApp(args)
+		assert.NoError(t, err)
+		assert.NotNil(t, v)
+	})
+
+	t.Run("VersionsByEpochs not starting at epoch 0 is rejected", func(t *testing.T) {
+		args := createMockArgs()
+		args.VersionsByEpochs = []config.VersionByEpochs{
+			{StartEpoch: 1, Version: "v1.0.0"},
+		}
+
+		v, err := NewValidatorKApp(args)
+		assert.ErrorIs(t, err, common.ErrInvalidVersionsByEpochs)
+		assert.Nil(t, v)
+	})
+
+	t.Run("VersionsByEpochs with duplicate StartEpoch is rejected", func(t *testing.T) {
+		args := createMockArgs()
+		args.VersionsByEpochs = []config.VersionByEpochs{
+			{StartEpoch: 0, Version: "*"},
+			{StartEpoch: 5, Version: "v1.0.0"},
+			{StartEpoch: 5, Version: "v1.0.1"},
+		}
+
+		v, err := NewValidatorKApp(args)
+		assert.ErrorIs(t, err, common.ErrInvalidVersionsByEpochs)
+		assert.Nil(t, v)
+	})
+
+	t.Run("VersionsByEpochs with too long a version string is rejected", func(t *testing.T) {
+		args := createMockArgs()
+		args.VersionsByEpochs = []config.VersionByEpochs{
+			{StartEpoch: 0, Version: fmt.Sprintf("v%0*d", core.MaxSoftwareVersionLengthInBytes, 0)},
+		}
+
+		v, err := NewValidatorKApp(args)
+		assert.ErrorIs(t, err, common.ErrInvalidVersionsByEpochs)
+		assert.Nil(t, v)
+	})
+
+	t.Run("unsorted but well-formed VersionsByEpochs is accepted", func(t *testing.T) {
+		args := createMockArgs()
+		args.VersionsByEpochs = []config.VersionByEpochs{
+			{StartEpoch: 10, Version: "v2.0.0"},
+			{StartEpoch: 0, Version: "*"},
+			{StartEpoch: 5, Version: "v1.0.0"},
+		}
+
+		v, err := NewValidatorKApp(args)
+		assert.NoError(t, err)
+		assert.NotNil(t, v)
 	})
 }
 

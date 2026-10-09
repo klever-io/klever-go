@@ -44,6 +44,10 @@ enableEpochs:
   # Audit Changes V6
   # Must be after fixAuditChangesV5.
   fixAuditChangesV6: 0
+  # Validator version attestation: validators must attest their node version on-chain;
+  # non-attested validators are demoted to observer (not jailed) while versions.versionsByEpochs
+  # requires a specific version. Dormant while versionsByEpochs is the "*" wildcard.
+  versionAttestation: 0
 gasSchedule:
   gasScheduleByEpochs:
     - startEpoch: 0
