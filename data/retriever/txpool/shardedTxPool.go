@@ -224,15 +224,14 @@ func (txPool *shardedTxPool) GetPaginated(cacheID string, page int, pageSize int
 		idxEnd = len(keys)
 	}
 
-	result := make([]interface{}, idxEnd-idx)
-	count := 0
+	// a transaction can leave the pool after its key was listed, so only the ones still found are returned
+	result := make([]interface{}, 0, idxEnd-idx)
 	for i := idx; i < idxEnd; i++ {
 		txObj, found := shard.Cache.Get(keys[i])
 		if !found {
 			continue
 		}
-		result[count] = txObj
-		count++
+		result = append(result, txObj)
 	}
 
 	return result, len(keys)

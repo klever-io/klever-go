@@ -288,6 +288,54 @@ func Test_GetCounts(t *testing.T) {
 	require.Equal(t, int64(0), pool.GetCounts().GetTotal())
 }
 
+// staleKeysCache lists a key whose transaction is no longer in the cache,
+// as happens when a transaction is removed between Keys() and Get()
+type staleKeysCache struct {
+	txCache
+}
+
+func (cache *staleKeysCache) Keys() [][]byte {
+	return append([][]byte{[]byte("hash-removed")}, cache.txCache.Keys()...)
+}
+
+func Test_GetPaginated(t *testing.T) {
+	poolAsInterface, _ := newTxPoolToTest()
+	pool := poolAsInterface.(*shardedTxPool)
+
+	pool.AddData([]byte("hash-x"), createTx("alice", 42), 0, "0")
+	pool.AddData([]byte("hash-y"), createTx("alice", 43), 0, "0")
+
+	txs, total := pool.GetPaginated("0", 0, 10)
+	require.Len(t, txs, 2)
+	require.Equal(t, 2, total)
+
+	txs, total = pool.GetPaginated("0", 1, 1)
+	require.Len(t, txs, 1)
+	require.Equal(t, 2, total)
+
+	txs, total = pool.GetPaginated("0", 5, 10)
+	require.Empty(t, txs)
+	require.Equal(t, 2, total)
+}
+
+func Test_GetPaginated_SkipsTransactionsRemovedAfterListingKeys(t *testing.T) {
+	poolAsInterface, _ := newTxPoolToTest()
+	pool := poolAsInterface.(*shardedTxPool)
+
+	pool.AddData([]byte("hash-x"), createTx("alice", 42), 0, "0")
+	pool.AddData([]byte("hash-y"), createTx("alice", 43), 0, "0")
+
+	shard := pool.getOrCreateShard("0")
+	shard.Cache = &staleKeysCache{txCache: shard.Cache}
+
+	txs, total := pool.GetPaginated("0", 0, 10)
+	require.Equal(t, 3, total)
+	require.Len(t, txs, 2)
+	for _, tx := range txs {
+		require.NotNil(t, tx)
+	}
+}
+
 func Test_IsInterfaceNil(t *testing.T) {
 	poolAsInterface, _ := newTxPoolToTest()
 	require.False(t, check.IfNil(poolAsInterface))
