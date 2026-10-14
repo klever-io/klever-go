@@ -287,6 +287,9 @@ func doSignAndPost(tx *MSApiTransaction) error {
 	if err != nil {
 		return err
 	}
+	// the API credits the new signature to Address, so it must be the
+	// signer's, not the sender's that encodeMSApiData fills in
+	encoded.Address = signerAddress
 	return doPostMSTransactionSignature(encoded)
 }
 func doPostMSTransactionSignature(encoded *MSApiEncoded) error {

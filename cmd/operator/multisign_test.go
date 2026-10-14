@@ -117,9 +117,12 @@ func TestDoSignAndPost_AutoSign_Success(t *testing.T) {
 	})
 
 	autoSign = true
-	signerAddress = "addr_A"
 
-	pubKey, rawPriv, _ := ed25519.GenerateKey(nil)
+	// the cosigner signing is not the sender of the transaction
+	signerPubKey, rawPriv, _ := ed25519.GenerateKey(nil)
+	senderPubKey, _, _ := ed25519.GenerateKey(nil)
+	signerAddress = walletPubKeyConverter.Encode(signerPubKey)
+	senderAddress := walletPubKeyConverter.Encode(senderPubKey)
 	privateKey = &mock.PrivateKeyMock{
 		ScalarMock: func() crypto.Scalar {
 			return &mock.ScalarMock{
@@ -129,8 +132,6 @@ func TestDoSignAndPost_AutoSign_Success(t *testing.T) {
 			}
 		},
 	}
-
-	expectedAddress := walletPubKeyConverter.Encode(pubKey)
 
 	var capturedBody MSApiEncoded
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -143,11 +144,11 @@ func TestDoSignAndPost_AutoSign_Success(t *testing.T) {
 
 	tx := &MSApiTransaction{
 		Hash:    validHash,
-		Signers: []MSApiSigner{{Address: "addr_A", Signed: false}},
+		Signers: []MSApiSigner{{Address: senderAddress, Signed: true}, {Address: signerAddress, Signed: false}},
 		Raw: &transaction.Transaction{
 			Signature: make([][]byte, 0),
 			RawData: &transaction.Transaction_Raw{
-				Sender: pubKey,
+				Sender: senderPubKey,
 			},
 		},
 	}
@@ -155,7 +156,8 @@ func TestDoSignAndPost_AutoSign_Success(t *testing.T) {
 	err := doSignAndPost(tx)
 	assert.NoError(t, err)
 
-	assert.Equal(t, expectedAddress, capturedBody.Address, "posted address should be the bech32-encoded sender pubkey")
+	assert.Equal(t, signerAddress, capturedBody.Address, "posted address should be the signer's, so the API credits the signature to them")
+	assert.NotEqual(t, senderAddress, capturedBody.Address, "posted address must not be the sender's")
 	assert.Len(t, tx.Raw.Signature, 1, "a signature should have been appended to the transaction")
 	assert.NotEmpty(t, tx.Raw.Signature[0], "appended signature should not be empty")
 }
