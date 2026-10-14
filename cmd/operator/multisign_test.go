@@ -156,7 +156,7 @@ func TestDoSignAndPost_AutoSign_Success(t *testing.T) {
 	err := doSignAndPost(tx)
 	assert.NoError(t, err)
 
-	assert.Equal(t, signerAddress, capturedBody.Address, "posted address should be the signer's, so the API credits the signature to them")
+	assert.Equal(t, signerAddress, capturedBody.Address, "posted address must be the signer's: the API reads it as who is submitting the signature")
 	assert.NotEqual(t, senderAddress, capturedBody.Address, "posted address must not be the sender's")
 	assert.Len(t, tx.Raw.Signature, 1, "a signature should have been appended to the transaction")
 	assert.NotEmpty(t, tx.Raw.Signature[0], "appended signature should not be empty")

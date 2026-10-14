@@ -287,8 +287,11 @@ func doSignAndPost(tx *MSApiTransaction) error {
 	if err != nil {
 		return err
 	}
-	// the API credits the new signature to Address, so it must be the
-	// signer's, not the sender's that encodeMSApiData fills in
+	// POST /transaction takes Address as the address submitting this
+	// signature (multisign-api createOrSignTx.go: the KLV duplicate check
+	// and the whole TRX path read it that way, and its tests send the
+	// signer). encodeMSApiData fills in the sender, which the API rejects
+	// as a duplicate once the sender has signed.
 	encoded.Address = signerAddress
 	return doPostMSTransactionSignature(encoded)
 }
