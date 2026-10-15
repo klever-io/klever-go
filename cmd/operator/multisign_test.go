@@ -119,8 +119,10 @@ func TestDoSignAndPost_AutoSign_Success(t *testing.T) {
 	autoSign = true
 
 	// the cosigner signing is not the sender of the transaction
-	signerPubKey, rawPriv, _ := ed25519.GenerateKey(nil)
-	senderPubKey, _, _ := ed25519.GenerateKey(nil)
+	signerPubKey, rawPriv, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+	senderPubKey, _, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
 	signerAddress = walletPubKeyConverter.Encode(signerPubKey)
 	senderAddress := walletPubKeyConverter.Encode(senderPubKey)
 	privateKey = &mock.PrivateKeyMock{
@@ -153,7 +155,7 @@ func TestDoSignAndPost_AutoSign_Success(t *testing.T) {
 		},
 	}
 
-	err := doSignAndPost(tx)
+	err = doSignAndPost(tx)
 	assert.NoError(t, err)
 
 	assert.Equal(t, signerAddress, capturedBody.Address, "posted address must be the signer's: the API reads it as who is submitting the signature")
