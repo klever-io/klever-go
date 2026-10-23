@@ -1239,6 +1239,134 @@ func TestScProcessor_ExecuteSmartContractTransactionBadParser(t *testing.T) {
 	require.Equal(t, tmpError, err)
 }
 
+func TestScProcessor_CheckUpgradePermission(t *testing.T) {
+	t.Parallel()
+
+	owner := []byte("owner-address")
+	other := []byte("other-address")
+	upgradeable := (&vmcommon.CodeMetadata{Upgradeable: true}).ToBytes()
+	notUpgradeable := (&vmcommon.CodeMetadata{Upgradeable: false}).ToBytes()
+
+	newContract := func(codeMetadata []byte) state.UserAccountHandler {
+		acnt, err := state.NewUserAccount([]byte("contract-address"))
+		require.Nil(t, err)
+		acnt.SetCodeMetadata(codeMetadata)
+		acnt.SetOwnerAddress(owner)
+		return acnt
+	}
+
+	tests := []struct {
+		name     string
+		function string
+		contract state.UserAccountHandler
+		caller   []byte
+		expected error
+	}{
+		{name: "not an upgrade call", function: "doSomething", contract: nil, caller: other, expected: nil},
+		{name: "contract not found", function: upgradeFunctionName, contract: nil, caller: owner, expected: process.ErrUpgradeContractNotFound},
+		{name: "owner on non-upgradeable contract", function: upgradeFunctionName, contract: newContract(notUpgradeable), caller: owner, expected: process.ErrUpgradeContractNotUpgradeable},
+		{name: "non-owner on upgradeable contract", function: upgradeFunctionName, contract: newContract(upgradeable), caller: other, expected: process.ErrUpgradeCallerNotOwner},
+		{name: "non-owner on non-upgradeable contract reports not upgradeable", function: upgradeFunctionName, contract: newContract(notUpgradeable), caller: other, expected: process.ErrUpgradeContractNotUpgradeable},
+		{name: "owner on upgradeable contract", function: upgradeFunctionName, contract: newContract(upgradeable), caller: owner, expected: nil},
+	}
+
+	sc, err := NewSmartContractProcessor(createMockSmartContractProcessorArguments())
+	require.Nil(t, err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vmInput := &vmcommon.ContractCallInput{Function: tt.function}
+			vmInput.CallerAddr = tt.caller
+
+			err := sc.checkUpgradePermission(tt.contract, vmInput)
+			require.Equal(t, tt.expected, err)
+		})
+	}
+}
+
+// The refusal text travels through ProcessIfError to the caller unchanged, with
+// the result code still VMUserError.
+func TestScProcessor_ExecuteSmartContractTransactionUpgradeNotUpgradeable(t *testing.T) {
+	t.Parallel()
+
+	argParser := &contextmock.ArgumentParserMock{}
+	vm := &contextmock.VMContainerMock{}
+	arguments := createMockSmartContractProcessorArguments()
+	arguments.VmContainer = vm
+	arguments.ArgsParser = argParser
+
+	contract := transaction.SmartContract{
+		Type:      transaction.SmartContract_SCInvoke,
+		CallValue: map[string]*transaction.CallValue{"KLV": {Amount: 45}},
+		Address:   core.ZeroAddress,
+	}
+	tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("upgradeContract@0500@0000")})
+
+	computedHash, err := tools.CalculateHash(arguments.Marshalizer, arguments.Hasher, tx.RawData)
+	require.Nil(t, err)
+
+	ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
+		OriginalSender: tx.GetSender(),
+		ContractID:     0,
+		ContractType:   tx.RawData.GetContract()[0].Type,
+		Block:          &block.Block{},
+		TxHash:         computedHash,
+		TX:             tx,
+		IsScSimulation: true,
+	})
+
+	tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
+	require.Nil(t, err)
+
+	arguments.BlockChainHook = &contextmock.BlockchainHookStub{
+		GetKAppControllerCalled: func() kapp.KAppController {
+			kappArgs := kappcontroller.ArgsNewKApp{
+				Hasher:         arguments.Hasher,
+				Marshalizer:    arguments.Marshalizer,
+				PubkeyConv:     arguments.PubkeyConv,
+				ForkController: arguments.ForkController,
+				AccountsCacher: arguments.AccountsCacher,
+				RatingsData:    &commommock.RatingsInfoMock{},
+			}
+
+			kappCtrl, err := kappcontroller.NewKappController(kappArgs)
+			require.Nil(t, err)
+			_ = kappCtrl.GetAccountsKApp().SetAccountsCacher(arguments.AccountsCacher)
+			_ = kappCtrl.GetAccountsKApp().SetKAppController(kappCtrl)
+			_ = kappCtrl.GetKDAKApp().SetAccountsCacher(arguments.AccountsCacher)
+			_ = kappCtrl.GetKDAKApp().SetKAppController(kappCtrl)
+
+			kappCtrl.SetCurrentKAppContext(ctx)
+
+			return kappCtrl
+		},
+	}
+
+	sc, err := NewSmartContractProcessor(arguments)
+	require.NotNil(t, sc)
+	require.Nil(t, err)
+
+	acntSrc, acntDst := initAccounts(tx, arguments.AccountsCacher, contract.CallValue["KLV"].Amount*2)
+
+	// the sender owns the contract, but it was deployed without the upgradeable flag
+	acntDst.SetCode([]byte("code"))
+	acntDst.SetCodeMetadata((&vmcommon.CodeMetadata{Upgradeable: false}).ToBytes())
+	acntDst.SetOwnerAddress(tx.GetSender())
+	argParser.ParseCallDataCalled = func(data string) (string, [][]byte, error) {
+		return upgradeFunctionName, nil, nil
+	}
+	vmCalled := false
+	vm.GetCalled = func(key []byte) (vmcommon.VMExecutionHandler, error) {
+		vmCalled = true
+		return nil, errors.New("vm must not be reached")
+	}
+
+	returnCode, err := sc.ExecuteSmartContractTransaction(ctx, tc, acntSrc, acntDst)
+	require.False(t, vmCalled)
+	require.Equal(t, vmcommon.VMUserError, returnCode)
+	require.EqualError(t, err, process.ErrUpgradeContractNotUpgradeable.Error())
+}
+
 func TestScProcessor_ExecuteSmartContractTransactionVMRunError(t *testing.T) {
 	t.Parallel()
 

@@ -714,8 +714,14 @@ var ErrInvalidVMType = errors.New("invalid VM type")
 // ErrSmartContractDeploymentIsDisabled signals that smart contract deployment was disabled
 var ErrSmartContractDeploymentIsDisabled = errors.New("smart Contract deployment is disabled")
 
-// ErrUpgradeNotAllowed signals that upgrade is not allowed
-var ErrUpgradeNotAllowed = errors.New("upgrade is allowed only for owner")
+// ErrUpgradeContractNotFound signals that an upgrade targeted an address with no contract account
+var ErrUpgradeContractNotFound = errors.New("upgrade failed: contract not found")
+
+// ErrUpgradeContractNotUpgradeable signals that the contract was deployed without the upgradeable flag
+var ErrUpgradeContractNotUpgradeable = errors.New("upgrade failed: contract is not upgradeable")
+
+// ErrUpgradeCallerNotOwner signals that the upgrade caller is not the contract owner
+var ErrUpgradeCallerNotOwner = errors.New("upgrade failed: caller is not the contract owner")
 
 // ErrEmptyConsensusGroup is raised when an operation is attempted with an empty consensus group
 var ErrEmptyConsensusGroup = errors.New("consensusGroup is empty")
