@@ -1262,12 +1262,55 @@ func TestScProcessor_CheckUpgradePermission(t *testing.T) {
 		caller   []byte
 		expected error
 	}{
-		{name: "not an upgrade call", function: "doSomething", contract: nil, caller: other, expected: nil},
-		{name: "contract not found", function: upgradeFunctionName, contract: nil, caller: owner, expected: process.ErrUpgradeContractNotFound},
-		{name: "owner on non-upgradeable contract", function: upgradeFunctionName, contract: newContract(notUpgradeable), caller: owner, expected: process.ErrUpgradeContractNotUpgradeable},
-		{name: "non-owner on upgradeable contract", function: upgradeFunctionName, contract: newContract(upgradeable), caller: other, expected: process.ErrUpgradeCallerNotOwner},
-		{name: "non-owner on non-upgradeable contract reports not upgradeable", function: upgradeFunctionName, contract: newContract(notUpgradeable), caller: other, expected: process.ErrUpgradeContractNotUpgradeable},
-		{name: "owner on upgradeable contract", function: upgradeFunctionName, contract: newContract(upgradeable), caller: owner, expected: nil},
+		{
+			name:     "not an upgrade call",
+			function: "doSomething",
+			contract: nil,
+			caller:   other,
+			expected: nil,
+		},
+		{
+			name:     "nil contract account",
+			function: upgradeFunctionName,
+			contract: nil,
+			caller:   owner,
+			expected: process.ErrUpgradeContractNotFound,
+		},
+		{
+			name:     "existing account without code metadata is not a contract",
+			function: upgradeFunctionName,
+			contract: newContract(nil),
+			caller:   owner,
+			expected: process.ErrUpgradeContractNotFound,
+		},
+		{
+			name:     "owner on non-upgradeable contract",
+			function: upgradeFunctionName,
+			contract: newContract(notUpgradeable),
+			caller:   owner,
+			expected: process.ErrUpgradeContractNotUpgradeable,
+		},
+		{
+			name:     "non-owner on upgradeable contract",
+			function: upgradeFunctionName,
+			contract: newContract(upgradeable),
+			caller:   other,
+			expected: process.ErrUpgradeCallerNotOwner,
+		},
+		{
+			name:     "non-owner on non-upgradeable contract reports not upgradeable",
+			function: upgradeFunctionName,
+			contract: newContract(notUpgradeable),
+			caller:   other,
+			expected: process.ErrUpgradeContractNotUpgradeable,
+		},
+		{
+			name:     "owner on upgradeable contract",
+			function: upgradeFunctionName,
+			contract: newContract(upgradeable),
+			caller:   owner,
+			expected: nil,
+		},
 	}
 
 	sc, err := NewSmartContractProcessor(createMockSmartContractProcessorArguments())
@@ -1290,9 +1333,9 @@ func TestScProcessor_ExecuteSmartContractTransactionUpgradeNotUpgradeable(t *tes
 	t.Parallel()
 
 	argParser := &contextmock.ArgumentParserMock{}
-	vm := &contextmock.VMContainerMock{}
+	vmContainer := &contextmock.VMContainerMock{}
 	arguments := createMockSmartContractProcessorArguments()
-	arguments.VmContainer = vm
+	arguments.VmContainer = vmContainer
 	arguments.ArgsParser = argParser
 
 	contract := transaction.SmartContract{
@@ -1356,7 +1399,7 @@ func TestScProcessor_ExecuteSmartContractTransactionUpgradeNotUpgradeable(t *tes
 		return upgradeFunctionName, nil, nil
 	}
 	vmCalled := false
-	vm.GetCalled = func(key []byte) (vmcommon.VMExecutionHandler, error) {
+	vmContainer.GetCalled = func(key []byte) (vmcommon.VMExecutionHandler, error) {
 		vmCalled = true
 		return nil, errors.New("vm must not be reached")
 	}
