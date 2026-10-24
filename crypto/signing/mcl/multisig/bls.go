@@ -195,6 +195,10 @@ func (bms *BlsMultiSigner) prepareSignatures(
 			return nil, crypto.ErrBLSInvalidSignature
 		}
 
+		if i >= len(pubKeysSigners) {
+			return nil, crypto.ErrSignaturesPublicKeysLenMismatch
+		}
+
 		pubKeyPoint := pubKeysSigners[i].Point()
 		mclPointG2, isPoint := pubKeyPoint.(*mcl.PointG2)
 		if !isPoint || !singlesig.IsPubKeyPointValid(mclPointG2) {
@@ -216,6 +220,10 @@ func (bms *BlsMultiSigner) prepareSignatures(
 
 		sigBLS = bls.CastToSign(sPointG1.G1)
 		prepSigs = append(prepSigs, *sigBLS)
+	}
+
+	if len(prepSigs) != len(pubKeysSigners) {
+		return nil, crypto.ErrSignaturesPublicKeysLenMismatch
 	}
 
 	return prepSigs, nil
@@ -297,7 +305,14 @@ func concatPubKeys(pubKeys []crypto.PublicKey) ([]byte, error) {
 	var point crypto.Point
 	var pointBytes []byte
 	var err error
-	sizeBytesPubKey := pubKeys[0].Suite().PointLen()
+	if check.IfNil(pubKeys[0]) {
+		return nil, crypto.ErrNilPublicKey
+	}
+	firstSuite := pubKeys[0].Suite()
+	if check.IfNil(firstSuite) {
+		return nil, crypto.ErrNilSuite
+	}
+	sizeBytesPubKey := firstSuite.PointLen()
 	result := make([]byte, 0, len(pubKeys)*sizeBytesPubKey)
 
 	for _, pk := range pubKeys {

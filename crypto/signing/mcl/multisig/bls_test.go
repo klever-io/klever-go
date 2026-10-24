@@ -286,6 +286,150 @@ func TestMultiSignerBLS_AggregateSignaturesOK(t *testing.T) {
 	require.Nil(t, err)
 }
 
+func TestMultiSignerBLS_AggregateSignaturesMoreSigsThanPubKeysShouldErr(t *testing.T) {
+	t.Parallel()
+	msg := []byte(testMessage)
+	hasher := &mock.HasherSpongeMock{}
+	llSig := &multisig.BlsMultiSigner{Hasher: hasher}
+	pubKeys, sigShares := createSigSharesBLS(20, msg)
+	suite := pubKeys[0].Suite()
+
+	var aggSig []byte
+	var err error
+	require.NotPanics(t, func() {
+		aggSig, err = llSig.AggregateSignatures(suite, sigShares, pubKeys[:19])
+	})
+	require.ErrorIs(t, err, crypto.ErrSignaturesPublicKeysLenMismatch)
+	require.Nil(t, aggSig)
+}
+
+func TestMultiSignerBLS_AggregateSignaturesFewerSigsThanPubKeysShouldErr(t *testing.T) {
+	t.Parallel()
+	msg := []byte(testMessage)
+	hasher := &mock.HasherSpongeMock{}
+	llSig := &multisig.BlsMultiSigner{Hasher: hasher}
+	pubKeys, sigShares := createSigSharesBLS(20, msg)
+
+	var aggSig []byte
+	var err error
+	require.NotPanics(t, func() {
+		aggSig, err = llSig.AggregateSignatures(pubKeys[0].Suite(), sigShares[:19], pubKeys)
+	})
+	require.ErrorIs(t, err, crypto.ErrSignaturesPublicKeysLenMismatch)
+	require.Nil(t, aggSig)
+}
+
+func TestMultiSignerBLS_AggregateSignaturesNilFirstPubKeyShouldErr(t *testing.T) {
+	t.Parallel()
+	msg := []byte(testMessage)
+	hasher := &mock.HasherSpongeMock{}
+	llSig := &multisig.BlsMultiSigner{Hasher: hasher}
+	pubKeys, sigShares := createSigSharesBLS(20, msg)
+	suite := pubKeys[0].Suite()
+	pubKeys[0] = nil
+
+	var aggSig []byte
+	var err error
+	require.NotPanics(t, func() {
+		aggSig, err = llSig.AggregateSignatures(suite, sigShares, pubKeys)
+	})
+	require.ErrorIs(t, err, crypto.ErrNilPublicKey)
+	require.Nil(t, aggSig)
+}
+
+func TestMultiSignerBLS_AggregateSignaturesNilPubKeyInListShouldErr(t *testing.T) {
+	t.Parallel()
+	msg := []byte(testMessage)
+	hasher := &mock.HasherSpongeMock{}
+	llSig := &multisig.BlsMultiSigner{Hasher: hasher}
+	pubKeys, sigShares := createSigSharesBLS(20, msg)
+	pubKeys[5] = nil
+
+	var aggSig []byte
+	var err error
+	require.NotPanics(t, func() {
+		aggSig, err = llSig.AggregateSignatures(pubKeys[0].Suite(), sigShares, pubKeys)
+	})
+	require.ErrorIs(t, err, crypto.ErrNilPublicKey)
+	require.Nil(t, aggSig)
+}
+
+func TestMultiSignerBLS_AggregateSignaturesNilSigInListShouldErr(t *testing.T) {
+	t.Parallel()
+	msg := []byte(testMessage)
+	hasher := &mock.HasherSpongeMock{}
+	llSig := &multisig.BlsMultiSigner{Hasher: hasher}
+	pubKeys, sigShares := createSigSharesBLS(20, msg)
+	sigShares[5] = nil
+
+	var aggSig []byte
+	var err error
+	require.NotPanics(t, func() {
+		aggSig, err = llSig.AggregateSignatures(pubKeys[0].Suite(), sigShares, pubKeys)
+	})
+	require.ErrorIs(t, err, crypto.ErrNilSignature)
+	require.Nil(t, aggSig)
+}
+
+func TestMultiSignerBLS_VerifyAggregatedSigNilFirstPubKeyShouldErr(t *testing.T) {
+	t.Parallel()
+	msg := []byte(testMessage)
+	hasher := &mock.HasherSpongeMock{}
+	llSig := &multisig.BlsMultiSigner{Hasher: hasher}
+	pubKeys, sigShares := createSigSharesBLS(20, msg)
+	suite := pubKeys[0].Suite()
+	aggSig, err := llSig.AggregateSignatures(suite, sigShares, pubKeys)
+	require.Nil(t, err)
+	pubKeys[0] = nil
+
+	require.NotPanics(t, func() {
+		err = llSig.VerifyAggregatedSig(suite, pubKeys, aggSig, msg)
+	})
+	require.ErrorIs(t, err, crypto.ErrNilPublicKey)
+}
+
+func TestMultiSignerBLS_VerifyAggregatedSigNilPubKeyInListShouldErr(t *testing.T) {
+	t.Parallel()
+	msg := []byte(testMessage)
+	hasher := &mock.HasherSpongeMock{}
+	llSig := &multisig.BlsMultiSigner{Hasher: hasher}
+	pubKeys, sigShares := createSigSharesBLS(20, msg)
+	suite := pubKeys[0].Suite()
+	aggSig, err := llSig.AggregateSignatures(suite, sigShares, pubKeys)
+	require.Nil(t, err)
+	pubKeys[5] = nil
+
+	require.NotPanics(t, func() {
+		err = llSig.VerifyAggregatedSig(suite, pubKeys, aggSig, msg)
+	})
+	require.ErrorIs(t, err, crypto.ErrNilPublicKey)
+}
+
+func TestMultiSignerBLS_VerifyAggregatedSigNilSuiteInFirstPubKeyShouldErr(t *testing.T) {
+	t.Parallel()
+	msg := []byte(testMessage)
+	hasher := &mock.HasherSpongeMock{}
+	llSig := &multisig.BlsMultiSigner{Hasher: hasher}
+	pubKeys, sigShares := createSigSharesBLS(20, msg)
+	suite := pubKeys[0].Suite()
+	aggSig, err := llSig.AggregateSignatures(suite, sigShares, pubKeys)
+	require.Nil(t, err)
+	firstPoint := pubKeys[0].Point()
+	pubKeys[0] = &mock.PublicKeyStub{
+		PointStub: func() crypto.Point {
+			return firstPoint
+		},
+		SuiteStub: func() crypto.Suite {
+			return nil
+		},
+	}
+
+	require.NotPanics(t, func() {
+		err = llSig.VerifyAggregatedSig(suite, pubKeys, aggSig, msg)
+	})
+	require.ErrorIs(t, err, crypto.ErrNilSuite)
+}
+
 func TestMultiSignerBLS_VerifyAggregatedSigNilSuiteShouldErr(t *testing.T) {
 	t.Parallel()
 	msg := []byte(testMessage)
@@ -649,6 +793,93 @@ func TestBlsMultiSigner_PrepareSignaturesInvalidPubKeyInKeysShouldErr(t *testing
 	prepSignatures, err := llSig.PrepareSignatures(pubKeys[0].Suite(), signatures, pubKeys)
 	require.Equal(t, crypto.ErrInvalidPublicKey, err)
 	require.Nil(t, prepSignatures)
+}
+
+func TestBlsMultiSigner_PrepareSignaturesMoreSigsThanPubKeysShouldErr(t *testing.T) {
+	t.Parallel()
+
+	hasher := &mock.HasherSpongeMock{}
+	llSig := &multisig.BlsMultiSigner{Hasher: hasher}
+	msg := []byte(testMessage)
+	pubKeys, signatures := createSigSharesBLS(20, msg)
+
+	var prepSignatures []bls.Sign
+	var err error
+	require.NotPanics(t, func() {
+		prepSignatures, err = llSig.PrepareSignatures(pubKeys[0].Suite(), signatures, pubKeys[:1])
+	})
+	require.ErrorIs(t, err, crypto.ErrSignaturesPublicKeysLenMismatch)
+	require.Nil(t, prepSignatures)
+}
+
+func Test_ConcatPubKeysEmptyShouldErr(t *testing.T) {
+	t.Parallel()
+
+	concat, err := multisig.ConcatPubKeys(nil)
+	require.ErrorIs(t, err, crypto.ErrNilPublicKeys)
+	require.Nil(t, concat)
+
+	concat, err = multisig.ConcatPubKeys(make([]crypto.PublicKey, 0))
+	require.ErrorIs(t, err, crypto.ErrNilPublicKeys)
+	require.Nil(t, concat)
+}
+
+func Test_ConcatPubKeysNilFirstPubKeyShouldErr(t *testing.T) {
+	t.Parallel()
+
+	msg := []byte(testMessage)
+	pubKeys, _ := createSigSharesBLS(3, msg)
+	pubKeys[0] = nil
+
+	var concat []byte
+	var err error
+	require.NotPanics(t, func() {
+		concat, err = multisig.ConcatPubKeys(pubKeys)
+	})
+	require.ErrorIs(t, err, crypto.ErrNilPublicKey)
+	require.Nil(t, concat)
+}
+
+func Test_ConcatPubKeysNilSuiteInFirstPubKeyShouldErr(t *testing.T) {
+	t.Parallel()
+
+	msg := []byte(testMessage)
+	pubKeys, _ := createSigSharesBLS(3, msg)
+	firstPoint := pubKeys[0].Point()
+	pubKeys[0] = &mock.PublicKeyStub{
+		PointStub: func() crypto.Point {
+			return firstPoint
+		},
+		SuiteStub: func() crypto.Suite {
+			return nil
+		},
+	}
+
+	var concat []byte
+	var err error
+	require.NotPanics(t, func() {
+		concat, err = multisig.ConcatPubKeys(pubKeys)
+	})
+	require.ErrorIs(t, err, crypto.ErrNilSuite)
+	require.Nil(t, concat)
+}
+
+func Test_ConcatPubKeysOK(t *testing.T) {
+	t.Parallel()
+
+	msg := []byte(testMessage)
+	pubKeys, _ := createSigSharesBLS(3, msg)
+
+	expected := make([]byte, 0)
+	for _, pk := range pubKeys {
+		pointBytes, err := pk.Point().MarshalBinary()
+		require.Nil(t, err)
+		expected = append(expected, pointBytes...)
+	}
+
+	concat, err := multisig.ConcatPubKeys(pubKeys)
+	require.Nil(t, err)
+	require.Equal(t, expected, concat)
 }
 
 func Test_ScalarMulPkNilPkShouldErr(t *testing.T) {

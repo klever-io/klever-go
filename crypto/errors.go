@@ -73,6 +73,9 @@ var ErrNilSignature = errors.New("signature is nil")
 // ErrNilSignaturesList is raised when a nil list of signatures is provided
 var ErrNilSignaturesList = errors.New("signature list is nil")
 
+// ErrSignaturesPublicKeysLenMismatch is raised when the number of signatures differs from the number of public keys
+var ErrSignaturesPublicKeysLenMismatch = errors.New("number of signatures does not match number of public keys")
+
 // ErrNilMessage is raised when trying to verify a nil signed message or trying to sign a nil message
 var ErrNilMessage = errors.New("message to be signed or to be verified is nil")
 
