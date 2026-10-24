@@ -478,6 +478,80 @@ func TestAddTransaction(t *testing.T) {
 	}
 }
 
+func TestAddTransaction_NullPointerElementsShouldError(t *testing.T) {
+	const validAddr = "klv1fpwjz234gy8aaae3gx0e8q9f52vymzzn3z5q0s5h60pvktzx0n0qwvtux5"
+
+	createAsset := func(roles, royalties string) json.RawMessage {
+		return json.RawMessage(`{
+			"type": 0,
+			"name": "TestAsset",
+			"ticker": "TEST",
+			"ownerAddress": "klv17e8zzgn73h6ehe3c6q9vlt77kuxk5euddmhymy5uhv2rhv0dc0nqlfp0ap",
+			"precision": 6,
+			"initialSupply": 1000000,
+			"maxSupply": 10000000,
+			"roles": ` + roles + `,
+			"royalties": ` + royalties + `
+		}`)
+	}
+	assetTrigger := func(royalties string) json.RawMessage {
+		return json.RawMessage(`{"triggerType": 14, "royalties": ` + royalties + `}`)
+	}
+
+	tests := []struct {
+		name         string
+		contractType transaction.TXContract_ContractType
+		contract     json.RawMessage
+	}{
+		{
+			name:         "create asset - null role",
+			contractType: transaction.TXContract_CreateAssetContractType,
+			contract:     createAsset(`[null]`, `{}`),
+		},
+		{
+			name:         "create asset - valid role then null role",
+			contractType: transaction.TXContract_CreateAssetContractType,
+			contract:     createAsset(`[{"address": "`+validAddr+`", "hasRoleMint": true}, null]`, `{}`),
+		},
+		{
+			name:         "create asset - null transferPercentage element",
+			contractType: transaction.TXContract_CreateAssetContractType,
+			contract:     createAsset(`[]`, `{"transferPercentage": [null]}`),
+		},
+		{
+			name:         "create asset - null splitRoyalties value",
+			contractType: transaction.TXContract_CreateAssetContractType,
+			contract:     createAsset(`[]`, `{"splitRoyalties": {"`+validAddr+`": null}}`),
+		},
+		{
+			name:         "asset trigger - null transferPercentage element",
+			contractType: transaction.TXContract_AssetTriggerContractType,
+			contract:     assetTrigger(`{"transferPercentage": [null]}`),
+		},
+		{
+			name:         "asset trigger - null splitRoyalties value",
+			contractType: transaction.TXContract_AssetTriggerContractType,
+			contract:     assetTrigger(`{"splitRoyalties": {"` + validAddr + `": null}}`),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tx := transaction.NewBaseTransaction(mockSender, 0, nil, 0, 0)
+
+			err := tx.AddTransaction(transaction.TXArgs{
+				Type:       uint32(tt.contractType),
+				Sender:     mockSender,
+				Contract:   tt.contract,
+				NodeHelper: createMockNodeHelper(),
+			})
+
+			assert.ErrorIs(t, err, common.ErrInvalidValue)
+			assert.Empty(t, tx.GetRawData().Contract)
+		})
+	}
+}
+
 func TestAddTransactionWithInvalidJSON(t *testing.T) {
 	tests := []struct {
 		name          string

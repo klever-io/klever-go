@@ -176,6 +176,19 @@ func SendTX(c *gin.Context) {
 		return
 	}
 
+	// an empty or null body binds without error but leaves the embedded request nil
+	if gtx.SendTXRequest == nil {
+		c.JSON(
+			http.StatusBadRequest,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), errors.ErrInvalidJSONRequest.Error()),
+				Code:  shared.ReturnCodeRequestError,
+			},
+		)
+		return
+	}
+
 	contracts := gtx.Contracts
 	if len(contracts) == 0 && gtx.Contract != nil {
 		contracts = []json.RawMessage{gtx.Contract}
@@ -642,6 +655,19 @@ func SimulateTransaction(c *gin.Context) {
 			shared.GenericAPIResponse{
 				Data:  nil,
 				Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), err.Error()),
+				Code:  shared.ReturnCodeRequestError,
+			},
+		)
+		return
+	}
+
+	// an empty or null body binds without error but leaves the embedded request nil
+	if gtx.SendTXRequest == nil {
+		c.JSON(
+			http.StatusBadRequest,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), errors.ErrInvalidJSONRequest.Error()),
 				Code:  shared.ReturnCodeRequestError,
 			},
 		)

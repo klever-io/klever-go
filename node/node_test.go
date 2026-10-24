@@ -601,6 +601,49 @@ func TestSendBulkTransactions_ShouldWork(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestSendBulkTransactions_NilTransactionShouldError(t *testing.T) {
+	t.Parallel()
+
+	n, err := createNode(t)
+	require.NoError(t, err)
+
+	transferContract, _ := json.Marshal(struct {
+		Receiver string
+		Amount   int64
+		Asset    string
+	}{
+		Receiver: createDummyHexAddress(64),
+		Amount:   10,
+		Asset:    "token",
+	})
+
+	baseInfo := &transaction.TXBaseInfo{
+		Sender:    createDummyHexAddress(64),
+		Nonce:     uint64(0),
+		DataField: [][]byte{[]byte("data")},
+	}
+
+	tx, _, err := n.CreateTransaction(0, baseInfo, []json.RawMessage{transferContract}, false)
+	require.NoError(t, err)
+
+	tx.AddSignature(sigOk)
+
+	t.Run("only a nil entry", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := n.SendBulkTransactions([]*transaction.Transaction{nil})
+		require.ErrorIs(t, err, common.ErrNilTransaction)
+	})
+
+	t.Run("nil entry after a valid one", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := n.SendBulkTransactions([]*transaction.Transaction{tx, nil})
+		require.ErrorIs(t, err, common.ErrNilTransaction)
+		require.ErrorContains(t, err, "invalid transaction 1")
+	})
+}
+
 func TestEstimateTransactionsFees(t *testing.T) {
 	kAppFee := int64(1e6)
 	bandwidthFee := int64(1e6)

@@ -370,6 +370,10 @@ func (t *Transaction) addCreateAsset(txArgs TXArgs) error {
 
 	roles := make([]*RolesInfo, len(contractRequest.Roles))
 	for i, role := range contractRequest.Roles {
+		if role == nil {
+			return fmt.Errorf("%w: nil role at index %d", common.ErrInvalidValue, i)
+		}
+
 		if len(role.Address) > txArgs.NodeHelper.GetEncodedAddressLength() {
 			return fmt.Errorf("%w for role address", common.ErrInvalidAddressLength)
 		}
@@ -413,6 +417,10 @@ func (t *Transaction) addCreateAsset(txArgs TXArgs) error {
 	if contractRequest.Royalties.TransferPercentage != nil {
 		percentages := make([]*RoyaltyInfo, len(contractRequest.Royalties.TransferPercentage))
 		for i, p := range contractRequest.Royalties.TransferPercentage {
+			if p == nil {
+				return fmt.Errorf("%w: nil transfer percentage at index %d", common.ErrInvalidValue, i)
+			}
+
 			percentages[i] = &RoyaltyInfo{
 				Amount:     p.Amount,
 				Percentage: p.Percentage,
@@ -424,6 +432,10 @@ func (t *Transaction) addCreateAsset(txArgs TXArgs) error {
 
 	splitRoyalties := make(map[string]*RoyaltySplitInfo)
 	for key, value := range contractRequest.Royalties.SplitRoyalties {
+		if value == nil {
+			return fmt.Errorf("%w: nil split royalty for %s", common.ErrInvalidValue, key)
+		}
+
 		decodedAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(key)
 		if err != nil {
 			return errors.New("could not create split royalties from provided param")
@@ -583,6 +595,10 @@ func (t *Transaction) addAssetTrigger(txArgs TXArgs) error {
 		if contractRequest.Royalties.TransferPercentage != nil {
 			percentages := make([]*RoyaltyInfo, len(contractRequest.Royalties.TransferPercentage))
 			for i, p := range contractRequest.Royalties.TransferPercentage {
+				if p == nil {
+					return fmt.Errorf("%w: nil transfer percentage at index %d", common.ErrInvalidValue, i)
+				}
+
 				percentages[i] = &RoyaltyInfo{
 					Amount:     p.Amount,
 					Percentage: p.Percentage,
@@ -594,6 +610,10 @@ func (t *Transaction) addAssetTrigger(txArgs TXArgs) error {
 
 		splitRoyalties := make(map[string]*RoyaltySplitInfo)
 		for key, value := range contractRequest.Royalties.SplitRoyalties {
+			if value == nil {
+				return fmt.Errorf("%w: nil split royalty for %s", common.ErrInvalidValue, key)
+			}
+
 			decodedAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(key)
 			if err != nil {
 				return errors.New("could not create split royalties from provided param")

@@ -670,6 +670,9 @@ func (n *Node) SendBulkTransactions(txs []*transaction.Transaction) ([]string, e
 
 	txsHashes := make([]string, 0)
 	for i, tx := range txs {
+		if tx == nil {
+			return nil, fmt.Errorf("invalid transaction %d: %w", i, common.ErrNilTransaction)
+		}
 
 		// Consensus account freeze: refuse frozen-account txs at the API (see SendTransaction).
 		if common.IsAccountFrozenAtAPI(tx.GetSender(), n.forkController) {

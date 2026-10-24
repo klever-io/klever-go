@@ -90,6 +90,7 @@ func getRoutesConfig() config.APIRoutesConfig {
 					{Name: "/:txhash", Open: true},
 					{Name: "/estimate-fee", Open: true},
 					{Name: "/pool", Open: true},
+					{Name: "/simulate", Open: true},
 				},
 			},
 		},
@@ -640,4 +641,56 @@ func TestTXMemPool_ValidPaginationShouldWork(t *testing.T) {
 	ws.ServeHTTP(resp, req)
 
 	assert.Equal(t, http.StatusOK, resp.Code)
+}
+
+func TestSendTX_EmptyObjectBodyShouldReturnBadRequest(t *testing.T) {
+	t.Parallel()
+
+	facade := mock.Facade{
+		CreateTransactionHandler: func(txType uint32, base *transaction.TXBaseInfo, contracts []json.RawMessage, skipValidate bool) (*transaction.Transaction, []byte, error) {
+			require.Fail(t, "CreateTransaction must not be called for a body without transaction fields")
+			return nil, nil, nil
+		},
+	}
+
+	ws := startNodeServer(&facade)
+
+	req, _ := http.NewRequest("POST", "/transaction/send", strings.NewReader(`{}`))
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
+	assert.Equal(t, shared.ReturnCodeRequestError, response.Code)
+	assert.True(t, strings.Contains(response.Error, apiErrors.ErrValidation.Error()))
+	assert.True(t, strings.Contains(response.Error, apiErrors.ErrInvalidJSONRequest.Error()))
+	assert.Nil(t, response.Data)
+}
+
+func TestSimulateTransaction_EmptyObjectBodyShouldReturnBadRequest(t *testing.T) {
+	t.Parallel()
+
+	facade := mock.Facade{
+		CreateTransactionHandler: func(txType uint32, base *transaction.TXBaseInfo, contracts []json.RawMessage, skipValidate bool) (*transaction.Transaction, []byte, error) {
+			require.Fail(t, "CreateTransaction must not be called for a body without transaction fields")
+			return nil, nil, nil
+		},
+	}
+
+	ws := startNodeServer(&facade)
+
+	req, _ := http.NewRequest("POST", "/transaction/simulate", strings.NewReader(`{}`))
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
+	assert.Equal(t, shared.ReturnCodeRequestError, response.Code)
+	assert.True(t, strings.Contains(response.Error, apiErrors.ErrValidation.Error()))
+	assert.True(t, strings.Contains(response.Error, apiErrors.ErrInvalidJSONRequest.Error()))
+	assert.Nil(t, response.Data)
 }
