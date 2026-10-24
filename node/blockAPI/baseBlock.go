@@ -39,7 +39,13 @@ func (mbp *apiBlockProcessor) getTxsByMb(blck *block.Block) []*api.Transaction {
 
 	start = time.Now()
 	txs := make([]*api.Transaction, 0)
-	for txHash, txBytes := range marshalizedTxs {
+	for _, h := range blck.TxHashes {
+		txHash := string(h)
+		txBytes, found := marshalizedTxs[txHash]
+		if !found {
+			continue
+		}
+
 		tx, errUnmarshalTx := mbp.unmarshalTx(txBytes)
 		if errUnmarshalTx != nil {
 			log.Warn("cannot unmarshal transaction",

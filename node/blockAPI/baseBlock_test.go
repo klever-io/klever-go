@@ -1,6 +1,7 @@
 package blockAPI
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/klever-io/klever-go/common/mock"
@@ -10,6 +11,7 @@ import (
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func createMockArgumentsWithTx(
@@ -72,4 +74,47 @@ func TestBaseApiBlockProcessor_GetNormalTxFromMiniBlock(t *testing.T) {
 	mbTxs := baseAPIBlock.getTxsByMb(&mb)
 
 	assert.Equal(t, mbTxs[0].Hash, txHash)
+}
+
+func TestBaseApiBlockProcessor_GetTxsByMbKeepsTxHashesOrder(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.MarshalizerFake{}
+
+	numTxs := 32
+	txHashes := make([][]byte, numTxs)
+	txsByHash := make(map[string][]byte, numTxs)
+	for i := 0; i < numTxs; i++ {
+		hash := fmt.Sprintf("txhash-%03d", i)
+		txHashes[i] = []byte(hash)
+		txsByHash[hash] = []byte(hash)
+	}
+
+	mb := block.Block{
+		Header:   &block.BlockHeader{Epoch: 0},
+		TxHashes: txHashes,
+	}
+
+	baseAPIBlock := apiBlockProcessor{
+		marshalizer: marshalizer,
+		store: &mock.ChainStorerMock{
+			GetStorerCalled: func(unitType retriever.UnitType) storage.Storer {
+				return &mock.StorerStub{
+					GetBulkFromEpochCalled: func(keys [][]byte, epoch uint32) (map[string][]byte, error) {
+						return txsByHash, nil
+					},
+				}
+			},
+		},
+		unmarshalTx: func(txBytes []byte) (*api.Transaction, error) {
+			return &api.Transaction{Hash: string(txBytes)}, nil
+		},
+	}
+
+	mbTxs := baseAPIBlock.getTxsByMb(&mb)
+
+	require.Len(t, mbTxs, numTxs)
+	for i, tx := range mbTxs {
+		assert.Equal(t, string(txHashes[i]), tx.Hash)
+	}
 }

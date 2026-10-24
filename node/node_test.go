@@ -925,6 +925,50 @@ func TestDecodeTransaction(t *testing.T) {
 		assert.Equal(t, common.ErrInvalidContract, err)
 	})
 
+	t.Run("should fail with too many contracts", func(t *testing.T) {
+		t.Parallel()
+
+		contracts := make([]*transaction.TXContract, core.MaxLengthOfContracts+1)
+		for i := range contracts {
+			contracts[i] = &transaction.TXContract{}
+		}
+		tx := &transaction.Transaction{
+			RawData: &transaction.Transaction_Raw{
+				Sender:   validAddress,
+				Contract: contracts,
+			},
+		}
+
+		decoded, err := n.DecodeTransaction(tx)
+		assert.Nil(t, decoded)
+		assert.Equal(t, common.ErrInvalidContract, err)
+	})
+
+	t.Run("should not reject the maximum number of contracts", func(t *testing.T) {
+		t.Parallel()
+
+		parameter, err := anypb.New(&transaction.CreateValidatorContract{})
+		require.NoError(t, err)
+		contracts := make([]*transaction.TXContract, core.MaxLengthOfContracts)
+		for i := range contracts {
+			contracts[i] = &transaction.TXContract{
+				Type:      transaction.TXContract_CreateValidatorContractType,
+				Parameter: parameter,
+			}
+		}
+		tx := &transaction.Transaction{
+			RawData: &transaction.Transaction_Raw{
+				Sender:   validAddress,
+				Contract: contracts,
+			},
+		}
+
+		decoded, err := n.DecodeTransaction(tx)
+		require.NoError(t, err)
+		require.NotNil(t, decoded)
+		assert.Len(t, decoded.Contracts, core.MaxLengthOfContracts)
+	})
+
 	t.Run("should work with empty validator contracts", func(t *testing.T) {
 		t.Parallel()
 

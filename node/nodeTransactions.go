@@ -356,6 +356,9 @@ func (n *Node) DecodeTransaction(tx *transaction.Transaction) (*indexerData.Tran
 	if tx.GetRawData() == nil {
 		return nil, common.ErrNilRawTransaction
 	}
+	if len(tx.RawData.Contract) > core.MaxLengthOfContracts {
+		return nil, common.ErrInvalidContract
+	}
 	for _, contract := range tx.RawData.Contract {
 		if contract == nil {
 			return nil, common.ErrInvalidContract
