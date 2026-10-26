@@ -2530,6 +2530,9 @@ const docTemplatenode = `{
                 "fixAuditChangesV6": {
                     "type": "integer"
                 },
+                "fixAuditChangesV7": {
+                    "type": "integer"
+                },
                 "fixDelegationSameEpoch": {
                     "type": "integer"
                 },

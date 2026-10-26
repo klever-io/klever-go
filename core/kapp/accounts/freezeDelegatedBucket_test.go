@@ -291,7 +291,7 @@ func TestFreeze_RefusesMergeIntoDelegatedBucket(t *testing.T) {
 	})
 
 	t.Run("fix off: second freeze drops the delegation and re-delegating books it twice", func(t *testing.T) {
-		h := newDelegatedBucketHarness(t, config.EnableEpochs{FixAuditChangesV6: 1})
+		h := newDelegatedBucketHarness(t, config.EnableEpochs{FixAuditChangesV6: 1, FixAuditChangesV7: 2})
 
 		_, err := h.freeze(t)
 		require.NoError(t, err)
@@ -310,7 +310,7 @@ func TestFreeze_RefusesMergeIntoDelegatedBucket(t *testing.T) {
 // TestDelegate_ReplacesActiveBookingInTotals covers a bucket orphaned before the fork: once
 // the fork is active, delegating it again replaces the stale booking instead of adding to it.
 func TestDelegate_ReplacesActiveBookingInTotals(t *testing.T) {
-	h := newDelegatedBucketHarness(t, config.EnableEpochs{FixAuditChangesV6: 1})
+	h := newDelegatedBucketHarness(t, config.EnableEpochs{FixAuditChangesV6: 1, FixAuditChangesV7: 2})
 
 	_, err := h.freeze(t)
 	require.NoError(t, err)
@@ -361,7 +361,7 @@ func TestDelegate_BackToValidatorInSameEpochSubtractsOnce(t *testing.T) {
 // TestDelegate_ReplacesActiveBookingInSelfStake is the self-delegation variant of the
 // pre-fork orphan: the contract owns the validator, so the stale booking also sits in SelfStake.
 func TestDelegate_ReplacesActiveBookingInSelfStake(t *testing.T) {
-	h := newDelegatedBucketHarness(t, config.EnableEpochs{FixAuditChangesV6: 1})
+	h := newDelegatedBucketHarness(t, config.EnableEpochs{FixAuditChangesV6: 1, FixAuditChangesV7: 2})
 	h.registerValidator(t, h.contract)
 
 	_, err := h.freeze(t)
@@ -384,7 +384,7 @@ func TestDelegate_ReplacesActiveBookingInSelfStake(t *testing.T) {
 // validator whose cap only fits the replaced stake: the cap check must not count the stale booking.
 func TestDelegate_CapExcludesReplacedBooking(t *testing.T) {
 	setup := func(t *testing.T) (*delegatedBucketHarness, []byte) {
-		h := newDelegatedBucketHarness(t, config.EnableEpochs{FixAuditChangesV6: 1})
+		h := newDelegatedBucketHarness(t, config.EnableEpochs{FixAuditChangesV6: 1, FixAuditChangesV7: 2})
 		capped := makeAddress("delegatedBucket-validator-capped")
 		h.registerValidatorWithCap(t, capped, 2*delegatedBucketAmount)
 

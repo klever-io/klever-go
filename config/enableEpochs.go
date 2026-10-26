@@ -33,6 +33,7 @@ type EnableEpochs struct {
 	FixAuditChangesV4       uint32 `yaml:"fixAuditChangesV4"`
 	FixAuditChangesV5       uint32 `yaml:"fixAuditChangesV5"`
 	FixAuditChangesV6       uint32 `yaml:"fixAuditChangesV6"`
+	FixAuditChangesV7       uint32 `yaml:"fixAuditChangesV7"`
 }
 
 // Validate checks that the configured activation epochs are mutually consistent. It runs
@@ -71,6 +72,15 @@ func (e EnableEpochs) Validate() error {
 		return fmt.Errorf("fixAuditChangesV6 (%d) must not be before bigBucketsCompute (%d), "+
 			"otherwise V6 claims would use the legacy APR arithmetic",
 			e.FixAuditChangesV6, e.BigBucketsCompute)
+	}
+
+	// fixAuditChangesV7 must be strictly after fixAuditChangesV6: sharing or preceding it
+	// would apply the V7 changes to blocks already committed under V6 rules. A V6 left at
+	// the placeholder is not a real schedule, so it is not checked.
+	if e.FixAuditChangesV6 != 0 && e.FixAuditChangesV7 <= e.FixAuditChangesV6 {
+		return fmt.Errorf("fixAuditChangesV7 (%d) must be after fixAuditChangesV6 (%d), "+
+			"otherwise the V7 changes apply retroactively to blocks committed under V6 rules",
+			e.FixAuditChangesV7, e.FixAuditChangesV6)
 	}
 
 	return nil

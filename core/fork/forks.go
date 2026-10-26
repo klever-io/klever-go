@@ -29,6 +29,7 @@ type forkController struct {
 	flagFixAuditChangesV4            atomic.Flag
 	flagFixAuditChangesV5            atomic.Flag
 	flagFixAuditChangesV6            atomic.Flag
+	flagFixAuditChangesV7            atomic.Flag
 }
 
 func NewForkController(cfg config.EnableEpochs, epochNotifier process.EpochNotifier) (*forkController, error) {
@@ -126,6 +127,19 @@ func (f *forkController) FixAuditChangesV6InEpoch(epoch uint32) bool {
 	return epoch >= f.enableEpochs.FixAuditChangesV6
 }
 
+func (f *forkController) FixAuditChangesV7() bool {
+	return f.flagFixAuditChangesV7.IsSet()
+}
+
+// FixAuditChangesV7InEpoch answers the gate for an explicit epoch rather than for the
+// notifier's current one. The flag above only tracks the last epoch EpochConfirmed saw,
+// so callers that run before the notifier has been advanced to the header's epoch - block
+// validation is one, it runs ahead of CheckEpoch - would otherwise read the previous
+// epoch's value and skip the check on the very first block the fork covers.
+func (f *forkController) FixAuditChangesV7InEpoch(epoch uint32) bool {
+	return epoch >= f.enableEpochs.FixAuditChangesV7
+}
+
 // EpochConfirmed is called whenever a new epoch is confirmed
 func (f *forkController) EpochConfirmed(epoch uint32) {
 	f.flagClaimKFIEnabled.Toggle(epoch >= f.enableEpochs.ClaimKFI)
@@ -175,6 +189,9 @@ func (f *forkController) EpochConfirmed(epoch uint32) {
 
 	f.flagFixAuditChangesV6.Toggle(epoch >= f.enableEpochs.FixAuditChangesV6)
 	log.Debug("forkController: FixAuditChangesV6", "enabled", f.flagFixAuditChangesV6.IsSet())
+
+	f.flagFixAuditChangesV7.Toggle(epoch >= f.enableEpochs.FixAuditChangesV7)
+	log.Debug("forkController: FixAuditChangesV7", "enabled", f.flagFixAuditChangesV7.IsSet())
 }
 
 // IsInterfaceNil returns true if there is no value under the interface
