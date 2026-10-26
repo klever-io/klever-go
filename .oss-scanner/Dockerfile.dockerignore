@@ -1,13 +1,14 @@
 # The repo-root .dockerignore targets the release images and excludes tests and *.so,
 # both of which the scanner needs.
 # This file replaces the root ignore file, so retain exclusions for secrets and local databases.
+# Secret patterns use a **/ prefix: Docker matches bare patterns at the context root only.
 bin/
-.env
-.env.*
-*.pem*
-*.key
-*_rsa
-credentials/
-secrets/
-dbs/
-db/
+**/.env
+**/.env.*
+**/*.pem*
+**/*.key
+**/*_rsa
+**/credentials/
+**/secrets/
+**/dbs/
+**/db/

@@ -25,7 +25,9 @@ cause against themselves is an ordinary bug: report it as such, do not grade it.
 - **REST/WebSocket API** (`/subscribe`, `/transaction/*`, node routes): in scope for an unauthenticated or
   low-privilege remote caller reaching more than the route is meant to expose, or exhausting resources.
   Findings that pass the attacker test and demonstrate impact with the API bound beyond its `localhost:8080`
-  default remain in scope, with the one-level reachability downgrade. Hardening is documented in
+  default remain in scope, with the one-level reachability downgrade. Routes that change node state or operator
+  configuration stay in scope whatever their reachability; submission endpoints (`/transaction/broadcast`,
+  `/transaction/send`) are not findings, the signature is the authorisation. Hardening is documented in
   `docs/node-api-hardening.md`.
 - **Storage and genesis** (`storage/`, `genesis/`): parsing of untrusted blobs fetched from peers or snapshots.
 
@@ -38,7 +40,11 @@ cause against themselves is an ordinary bug: report it as such, do not grade it.
 - Counters and telemetry on diagnostic routes that identify no peer or user, carry no key material, and reveal no
   unpublished chain state.
 - Test code, fixtures, mocks, and `integrationTest/`.
+- Credential-hashing strength where the shipped default fails closed and the credential file already sits alongside
+  material of equal or greater sensitivity.
 - Dependency CVEs with no demonstrated path through klever-go.
+- Centralization, governance, and economic-design concerns that do not stem from a code defect.
+- Social engineering, phishing, and physical attacks.
 - Denial of service against a node you control, and anything not reproduced.
 
 ## Reproducer requirement
@@ -64,6 +70,8 @@ decrementing twice for the same fact.
 - **Medium**: harm bounded to a single account or node, or non-public data exposed on a remotely reachable endpoint
   under the shipped configuration.
 - **Low**: impact that reaches no further than a local or non-default surface.
+
+A finding reduced below Low is an ordinary bug: report it as such, do not grade it.
 
 Where an impact matches more than one level, the highest applies. We publish no per-level example list, so grade by
 what you demonstrated, not by how the bug works.
