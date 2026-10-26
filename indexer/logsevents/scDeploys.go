@@ -26,6 +26,16 @@ func (sdp *scDeploysProcessor) processEvent(args *argsProcessEvent) argOutputPro
 		return argOutputProcessEvent{}
 	}
 
+	// Only the node emits these events, as system logs. A contract can export a
+	// SCDeploy/SCUpgrade function and forge an identical event with IsSystemLog
+	// false, so reject non-system logs to prevent forged scdeploys entries.
+	systemLog, ok := args.event.(interface{ GetIsSystemLog() bool })
+	if !ok || !systemLog.GetIsSystemLog() {
+		return argOutputProcessEvent{
+			processed: true,
+		}
+	}
+
 	topics := args.event.GetTopics()
 	if len(topics) < 2 {
 		return argOutputProcessEvent{
