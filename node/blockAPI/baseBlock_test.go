@@ -118,3 +118,38 @@ func TestBaseApiBlockProcessor_GetTxsByMbKeepsTxHashesOrder(t *testing.T) {
 		assert.Equal(t, string(txHashes[i]), tx.Hash)
 	}
 }
+
+func TestBaseApiBlockProcessor_GetTxsByMbSkipsMissingTx(t *testing.T) {
+	t.Parallel()
+
+	txHashes := [][]byte{[]byte("txhash-a"), []byte("txhash-b"), []byte("txhash-c")}
+	mb := block.Block{
+		Header:   &block.BlockHeader{Epoch: 0},
+		TxHashes: txHashes,
+	}
+
+	baseAPIBlock := apiBlockProcessor{
+		marshalizer: &mock.MarshalizerFake{},
+		store: &mock.ChainStorerMock{
+			GetStorerCalled: func(unitType retriever.UnitType) storage.Storer {
+				return &mock.StorerStub{
+					GetBulkFromEpochCalled: func(keys [][]byte, epoch uint32) (map[string][]byte, error) {
+						return map[string][]byte{
+							"txhash-a": []byte("txhash-a"),
+							"txhash-c": []byte("txhash-c"),
+						}, nil
+					},
+				}
+			},
+		},
+		unmarshalTx: func(txBytes []byte) (*api.Transaction, error) {
+			return &api.Transaction{Hash: string(txBytes)}, nil
+		},
+	}
+
+	mbTxs := baseAPIBlock.getTxsByMb(&mb)
+
+	require.Len(t, mbTxs, 2)
+	assert.Equal(t, "txhash-a", mbTxs[0].Hash)
+	assert.Equal(t, "txhash-c", mbTxs[1].Hash)
+}

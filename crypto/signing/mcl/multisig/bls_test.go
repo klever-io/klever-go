@@ -286,6 +286,34 @@ func TestMultiSignerBLS_AggregateSignaturesOK(t *testing.T) {
 	require.Nil(t, err)
 }
 
+func TestMultiSignerBLS_AggregateSignaturesGoldenBytes(t *testing.T) {
+	t.Parallel()
+	msg := []byte(testMessage)
+	hasher := &mock.HasherSpongeMock{}
+	llSig := &multisig.BlsMultiSigner{Hasher: hasher}
+	kg := signing.NewKeyGenerator(mcl.NewSuiteBLS12())
+
+	numSigners := 4
+	pubKeys := make([]crypto.PublicKey, numSigners)
+	sigShares := make([][]byte, numSigners)
+	for i := 0; i < numSigners; i++ {
+		skBytes := make([]byte, 32)
+		skBytes[0] = byte(i + 1)
+		sk, err := kg.PrivateKeyFromByteArray(skBytes)
+		require.Nil(t, err)
+		pubKeys[i] = sk.GeneratePublic()
+		sigShares[i], err = llSig.SignShare(sk, msg)
+		require.Nil(t, err)
+	}
+
+	aggSig, err := llSig.AggregateSignatures(pubKeys[0].Suite(), sigShares, pubKeys)
+	require.Nil(t, err)
+
+	// Captured on the base commit, before the input guards were added.
+	expected := "0c54130e6e91638479f886c09e7793fd5074aa90107f0620aae017cdd9a5e2d71b430a69295e2bfa1ce26d8679cdfa8e"
+	require.Equal(t, expected, hex.EncodeToString(aggSig))
+}
+
 func TestMultiSignerBLS_AggregateSignaturesMoreSigsThanPubKeysShouldErr(t *testing.T) {
 	t.Parallel()
 	msg := []byte(testMessage)
