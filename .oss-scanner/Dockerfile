@@ -16,4 +16,9 @@ RUN go mod download
 RUN make build
 
 # Compile (but do not run) every test binary so the build cache is warm offline.
-RUN go test -count=1 -run '^$' ./... > /dev/null
+RUN go test -count=1 -exec true ./...
+
+# OSS Scanner recommends running cheap tests without letting failures abort the build.
+# Keep diagnostics visible so failures can be investigated in the offline environment.
+RUN go test -count=1 -timeout 300s ./kvm/wasmer2/... ./crypto/... ./core/... \
+    || echo "WARNING: scanner smoke tests reported failures"

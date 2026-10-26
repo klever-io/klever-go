@@ -24,17 +24,19 @@ cause against themselves is an ordinary bug: report it as such, do not grade it.
 - **Cryptography** (`crypto/`): signature verification, multisig and BLS aggregation, hashing, key handling.
 - **REST/WebSocket API** (`/subscribe`, `/transaction/*`, node routes): in scope for an unauthenticated or
   low-privilege remote caller reaching more than the route is meant to expose, or exhausting resources.
+  Findings that pass the attacker test and demonstrate impact with the API bound beyond its `localhost:8080`
+  default remain in scope, with the one-level reachability downgrade. Hardening is documented in
+  `docs/node-api-hardening.md`.
 - **Storage and genesis** (`storage/`, `genesis/`): parsing of untrusted blobs fetched from peers or snapshots.
 
 ## Not in scope (do not report)
 
-- Anything that needs the REST API bound beyond its `localhost:8080` default. Exposure is an operator decision, and
-  hardening is documented in `docs/node-api-hardening.md`. A finding that still has demonstrated impact once the API
-  is exposed is graded one level lower.
+- REST API exposure alone, without demonstrated impact that passes the attacker test.
 - An operator acting on their own node (their config, keys, database, routes).
 - An attacker who already has code execution or filesystem access on the node host.
 - Operator misconfiguration or key-file mismanagement.
-- Counters and telemetry on diagnostic routes that identify no peer or user and carry no key material.
+- Counters and telemetry on diagnostic routes that identify no peer or user, carry no key material, and reveal no
+  unpublished chain state.
 - Test code, fixtures, mocks, and `integrationTest/`.
 - Dependency CVEs with no demonstrated path through klever-go.
 - Denial of service against a node you control, and anything not reproduced.
@@ -53,6 +55,8 @@ Denial-of-service claims must be reproduced against a local or private network a
 
 Grade by demonstrated impact, then apply downgrades (non-default config, privileged actor, local or non-default
 reachability), each one level.
+Do not apply a downgrade again if the matched impact already incorporates it; cite the rule as reasoning without
+decrementing twice for the same fact.
 
 - **Critical**: systemic impact (the chain, every holder, or a node's keys), or impact that pays the attacker and
   therefore scales.
