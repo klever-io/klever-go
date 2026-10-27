@@ -694,3 +694,53 @@ func TestSimulateTransaction_EmptyObjectBodyShouldReturnBadRequest(t *testing.T)
 	assert.True(t, strings.Contains(response.Error, apiErrors.ErrInvalidJSONRequest.Error()))
 	assert.Nil(t, response.Data)
 }
+
+func TestSendTX_MalformedJSONShouldReturnBadRequest(t *testing.T) {
+	t.Parallel()
+
+	facade := mock.Facade{
+		CreateTransactionHandler: func(txType uint32, base *transaction.TXBaseInfo, contracts []json.RawMessage, skipValidate bool) (*transaction.Transaction, []byte, error) {
+			require.Fail(t, "CreateTransaction must not be called for a malformed body")
+			return nil, nil, nil
+		},
+	}
+
+	ws := startNodeServer(&facade)
+
+	req, _ := http.NewRequest("POST", "/transaction/send", strings.NewReader("invalid json"))
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
+	assert.Equal(t, shared.ReturnCodeRequestError, response.Code)
+	assert.True(t, strings.Contains(response.Error, apiErrors.ErrValidation.Error()))
+	assert.Nil(t, response.Data)
+}
+
+func TestSimulateTransaction_MalformedJSONShouldReturnBadRequest(t *testing.T) {
+	t.Parallel()
+
+	facade := mock.Facade{
+		CreateTransactionHandler: func(txType uint32, base *transaction.TXBaseInfo, contracts []json.RawMessage, skipValidate bool) (*transaction.Transaction, []byte, error) {
+			require.Fail(t, "CreateTransaction must not be called for a malformed body")
+			return nil, nil, nil
+		},
+	}
+
+	ws := startNodeServer(&facade)
+
+	req, _ := http.NewRequest("POST", "/transaction/simulate", strings.NewReader("invalid json"))
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, req)
+
+	response := shared.GenericAPIResponse{}
+	loadResponse(resp.Body, &response)
+
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
+	assert.Equal(t, shared.ReturnCodeRequestError, response.Code)
+	assert.True(t, strings.Contains(response.Error, apiErrors.ErrValidation.Error()))
+	assert.Nil(t, response.Data)
+}
