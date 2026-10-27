@@ -1270,18 +1270,36 @@ func TestScProcessor_CheckUpgradePermission(t *testing.T) {
 			expected: nil,
 		},
 		{
-			name:     "nil contract account",
-			function: upgradeFunctionName,
-			contract: nil,
-			caller:   owner,
-			expected: process.ErrUpgradeContractNotFound,
-		},
-		{
 			name:     "existing account without code metadata is not a contract",
 			function: upgradeFunctionName,
 			contract: newContract(nil),
 			caller:   owner,
 			expected: process.ErrUpgradeContractNotFound,
+		},
+		{
+			name:     "metadata shorter than two bytes decodes as not upgradeable",
+			function: upgradeFunctionName,
+			contract: newContract([]byte{vmcommon.MetadataUpgradeable}),
+			caller:   owner,
+			expected: process.ErrUpgradeContractNotUpgradeable,
+		},
+		{
+			name:     "metadata longer than two bytes decodes as not upgradeable",
+			function: upgradeFunctionName,
+			contract: newContract([]byte{vmcommon.MetadataUpgradeable, 0x00, 0x00}),
+			caller:   owner,
+			expected: process.ErrUpgradeContractNotUpgradeable,
+		},
+		{
+			name:     "upgradeable contract with no owner refuses any caller",
+			function: upgradeFunctionName,
+			contract: func() state.UserAccountHandler {
+				acnt := newContract(upgradeable)
+				acnt.SetOwnerAddress(nil)
+				return acnt
+			}(),
+			caller:   other,
+			expected: process.ErrUpgradeCallerNotOwner,
 		},
 		{
 			name:     "owner on non-upgradeable contract",

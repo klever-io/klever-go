@@ -950,11 +950,11 @@ func (sc *scProcessor) checkUpgradePermission(contract state.UserAccountHandler,
 	if !isUpgradeCalled {
 		return nil
 	}
-	// An account that is not a contract has no code metadata; a deleted contract
-	// keeps its metadata, so it is still recognised as a contract here (same rule
-	// as BlockChainHookImpl.IsSmartContract). The nil guard is defensive: callers
-	// load the destination with GetExistingUser before reaching this point.
-	if check.IfNil(contract) || len(contract.GetCodeMetadata()) == 0 {
+	// Only the code metadata decides "is a contract" here: an account that was
+	// never deployed to has none, and a deleted contract keeps its metadata so it
+	// is still recognised. The account itself is never nil at this point; the
+	// callers load it with GetExistingUser and prepareExecution rejects nil first.
+	if len(contract.GetCodeMetadata()) == 0 {
 		return process.ErrUpgradeContractNotFound
 	}
 
