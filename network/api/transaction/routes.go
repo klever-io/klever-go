@@ -143,6 +143,29 @@ type sendTXRequest struct {
 	Contracts []json.RawMessage `form:"contracts" json:"contracts"`
 }
 
+// bindSendTXRequest binds the request body and writes a 400 response when it is malformed
+func bindSendTXRequest(c *gin.Context) (*sendTXRequest, bool) {
+	gtx := &sendTXRequest{}
+	err := c.ShouldBindJSON(gtx)
+	// an empty or null body binds without error but leaves the embedded request nil
+	if err == nil && gtx.SendTXRequest == nil {
+		err = errors.ErrInvalidJSONRequest
+	}
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			shared.GenericAPIResponse{
+				Data:  nil,
+				Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), err.Error()),
+				Code:  shared.ReturnCodeRequestError,
+			},
+		)
+		return nil, false
+	}
+
+	return gtx, true
+}
+
 // @Summary returns send transaction
 // @Tags Transaction
 // @Accept  json
@@ -162,30 +185,8 @@ func SendTX(c *gin.Context) {
 
 	skipValidate := skipValidateQuery == "true"
 
-	var gtx = sendTXRequest{}
-	err := c.ShouldBindJSON(&gtx)
-	if err != nil {
-		c.JSON(
-			http.StatusBadRequest,
-			shared.GenericAPIResponse{
-				Data:  nil,
-				Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), err.Error()),
-				Code:  shared.ReturnCodeRequestError,
-			},
-		)
-		return
-	}
-
-	// an empty or null body binds without error but leaves the embedded request nil
-	if gtx.SendTXRequest == nil {
-		c.JSON(
-			http.StatusBadRequest,
-			shared.GenericAPIResponse{
-				Data:  nil,
-				Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), errors.ErrInvalidJSONRequest.Error()),
-				Code:  shared.ReturnCodeRequestError,
-			},
-		)
+	gtx, ok := bindSendTXRequest(c)
+	if !ok {
 		return
 	}
 
@@ -647,30 +648,8 @@ func SimulateTransaction(c *gin.Context) {
 		return
 	}
 
-	var gtx = sendTXRequest{}
-	err := c.ShouldBindJSON(&gtx)
-	if err != nil {
-		c.JSON(
-			http.StatusBadRequest,
-			shared.GenericAPIResponse{
-				Data:  nil,
-				Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), err.Error()),
-				Code:  shared.ReturnCodeRequestError,
-			},
-		)
-		return
-	}
-
-	// an empty or null body binds without error but leaves the embedded request nil
-	if gtx.SendTXRequest == nil {
-		c.JSON(
-			http.StatusBadRequest,
-			shared.GenericAPIResponse{
-				Data:  nil,
-				Error: fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), errors.ErrInvalidJSONRequest.Error()),
-				Code:  shared.ReturnCodeRequestError,
-			},
-		)
+	gtx, ok := bindSendTXRequest(c)
+	if !ok {
 		return
 	}
 
