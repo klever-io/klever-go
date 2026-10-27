@@ -2,6 +2,7 @@ package transaction
 
 import (
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -460,6 +461,7 @@ func TestHandleResultMismatch_BothFailedDifferentErrors_Validator(t *testing.T) 
 			scProcessor: &mockSmartContractProcessor{
 				executionMode: vmcommon.ExecutionModeValidator,
 			},
+			forkController: &forkControllerStub{},
 		},
 	}
 
@@ -567,7 +569,8 @@ func TestHandleResultMismatch_ImportDB_Case2And3Untouched(t *testing.T) {
 
 	txProc := &txProcessor{
 		baseTxProcessor: &baseTxProcessor{
-			scProcessor: &mockSmartContractProcessor{executionMode: vmcommon.ExecutionModeReplay},
+			scProcessor:    &mockSmartContractProcessor{executionMode: vmcommon.ExecutionModeReplay},
+			forkController: &forkControllerStub{},
 		},
 	}
 
@@ -583,6 +586,129 @@ func TestHandleResultMismatch_ImportDB_Case2And3Untouched(t *testing.T) {
 	tx3 := &transaction.Transaction{ResultCode: transaction.Transaction_VMExecutionFailed}
 	err3 := txProc.handleResultMismatch([]byte("h3"), 0, tx3, process.ErrAccountNotFound, failCode, failCode, 0, vmcommon.ExecutionModeReplay)
 	assert.Equal(t, process.ErrAccountNotFound, err3)
+}
+
+// TestHandleResultMismatch_BothFailedDifferentCodes_AdoptsConsensusCode pins KLC-2727: from
+// FixAuditChangesV7, when both sides failed with different codes, every node stores the code the
+// block recorded instead of its own, in every execution mode, without rejecting the block.
+// Before the fork the local code is kept.
+func TestHandleResultMismatch_BothFailedDifferentCodes_AdoptsConsensusCode(t *testing.T) {
+	t.Parallel()
+
+	userErrCode := uint32(transaction.Transaction_VMUserError)
+	timeoutCode := uint32(transaction.Transaction_VMExecutionFailed)
+	localErr := errors.New("local failure")
+
+	tests := []struct {
+		name         string
+		mode         vmcommon.ExecutionMode
+		fixActive    bool
+		expected     uint32
+		actual       uint32
+		wantCode     transaction.Transaction_TXResultCode
+		wantLocalErr bool
+	}{
+		{"validator times out, leader recorded user error", vmcommon.ExecutionModeValidator, true, userErrCode, timeoutCode, transaction.Transaction_VMUserError, true},
+		{"validator hits user error, leader recorded timeout", vmcommon.ExecutionModeValidator, true, timeoutCode, userErrCode, transaction.Transaction_VMExecutionFailed, true},
+		{"replay reproduces the recorded code", vmcommon.ExecutionModeReplay, true, userErrCode, timeoutCode, transaction.Transaction_VMUserError, true},
+		{"pre-fork validator keeps the local code", vmcommon.ExecutionModeValidator, false, userErrCode, timeoutCode, transaction.Transaction_VMExecutionFailed, true},
+		{"pre-fork replay keeps the local code", vmcommon.ExecutionModeReplay, false, userErrCode, timeoutCode, transaction.Transaction_VMExecutionFailed, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			txProc := &txProcessor{
+				baseTxProcessor: &baseTxProcessor{
+					scProcessor:    &mockSmartContractProcessor{executionMode: tt.mode},
+					forkController: &forkControllerStub{fixAuditChangesV5: true, fixAuditChangesV7: tt.fixActive},
+				},
+			}
+
+			tx := &transaction.Transaction{
+				Result:     transaction.Transaction_FAILED,
+				ResultCode: transaction.Transaction_TXResultCode(tt.actual),
+			}
+
+			err := txProc.handleResultMismatch([]byte("h"), 0, tx, localErr, tt.expected, tt.actual, int64(time.Millisecond), tt.mode)
+
+			// The block is never rejected here: the local error bubbles up so the preprocessor
+			// reverts the transaction exactly as before, only the stored code changes.
+			assert.Equal(t, localErr, err)
+			assert.Equal(t, tt.wantCode, tx.ResultCode)
+			assert.Equal(t, transaction.Transaction_FAILED, tx.Result)
+		})
+	}
+}
+
+// An honest leader never records a code outside the enum, so such a code is not adopted: the
+// node keeps its own code and the block is not rejected for a diagnostic field.
+func TestHandleResultMismatch_BothFailed_UnknownConsensusCodeKeepsLocal(t *testing.T) {
+	t.Parallel()
+
+	txProc := &txProcessor{
+		baseTxProcessor: &baseTxProcessor{
+			scProcessor:    &mockSmartContractProcessor{executionMode: vmcommon.ExecutionModeValidator},
+			forkController: &forkControllerStub{fixAuditChangesV5: true, fixAuditChangesV7: true},
+		},
+	}
+
+	localErr := errors.New("local failure")
+	for _, expected := range []uint32{12345, math.MaxInt32 + 1, math.MaxUint32} {
+		tx := &transaction.Transaction{ResultCode: transaction.Transaction_VMExecutionFailed}
+
+		err := txProc.handleResultMismatch([]byte("h"), 0, tx, localErr, expected, uint32(transaction.Transaction_VMExecutionFailed), 1, vmcommon.ExecutionModeValidator)
+
+		assert.Equal(t, localErr, err, "expected code %d", expected)
+		assert.Equal(t, transaction.Transaction_VMExecutionFailed, tx.ResultCode, "expected code %d", expected)
+	}
+}
+
+// The reconciliation is scoped to both-failed: a recorded success with a deterministic local
+// failure keeps the local code and bubbles the local error up, as before the fork.
+func TestHandleResultMismatch_ConsensusOkLocalDeterministicFailure_Untouched(t *testing.T) {
+	t.Parallel()
+
+	txProc := &txProcessor{
+		baseTxProcessor: &baseTxProcessor{
+			scProcessor:    &mockSmartContractProcessor{executionMode: vmcommon.ExecutionModeValidator},
+			forkController: &forkControllerStub{fixAuditChangesV5: true, fixAuditChangesV7: true},
+		},
+	}
+
+	localErr := errors.New("local failure")
+	tx := &transaction.Transaction{ResultCode: transaction.Transaction_VMUserError}
+
+	err := txProc.handleResultMismatch([]byte("h"), 0, tx, localErr, uint32(transaction.Transaction_Ok), uint32(transaction.Transaction_VMUserError), 1, vmcommon.ExecutionModeValidator)
+
+	assert.Equal(t, localErr, err)
+	assert.Equal(t, transaction.Transaction_VMUserError, tx.ResultCode)
+}
+
+// Through validateTransactionResult: the block's TxResults entry is what gets stored.
+func TestValidateTransactionResult_BothFailedAdoptsBlockCode(t *testing.T) {
+	t.Parallel()
+
+	txProc := &txProcessor{
+		baseTxProcessor: &baseTxProcessor{
+			scProcessor:    &mockSmartContractProcessor{executionMode: vmcommon.ExecutionModeValidator},
+			forkController: &forkControllerStub{fixAuditChangesV5: true, fixAuditChangesV7: true},
+		},
+	}
+
+	txHash := []byte("tx-hash")
+	blk := &block.Block{
+		TxHashes:  [][]byte{[]byte("other"), txHash},
+		TxResults: []uint32{uint32(transaction.Transaction_Ok), uint32(transaction.Transaction_VMOutOfGas)},
+	}
+	tx := &transaction.Transaction{ResultCode: transaction.Transaction_VMExecutionFailed}
+	localErr := errors.New("timeout")
+
+	err := txProc.validateTransactionResult(blk, txHash, tx, localErr, int64(500*time.Millisecond))
+
+	assert.Equal(t, localErr, err)
+	assert.Equal(t, transaction.Transaction_VMOutOfGas, tx.ResultCode)
 }
 
 // TestValidateTransactionResult_NoTxResults tests skip validation when TxResults empty
@@ -807,10 +933,15 @@ func TestValidateTransactionResult_ObserverModePlumbing(t *testing.T) {
 type forkControllerStub struct {
 	core.ForkController
 	fixAuditChangesV5 bool
+	fixAuditChangesV7 bool
 }
 
 func (f *forkControllerStub) FixAuditChangesV5() bool {
 	return f.fixAuditChangesV5
+}
+
+func (f *forkControllerStub) FixAuditChangesV7() bool {
+	return f.fixAuditChangesV7
 }
 
 type mockSmartContractProcessor struct {

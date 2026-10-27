@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"math"
 	"time"
 
 	"github.com/klever-io/klever-go/core"
@@ -132,8 +133,10 @@ func (txProc *txProcessor) logResultMismatch(
 //     b. the failure is any other code (VMUserError, VMOutOfGas, Fail, ...), which is deterministic
 //     and cannot be explained by leader slowness: reject the block outright, in every mode
 //     (KLR-63, from FixAuditChangesV5 on)
-//  2. Consensus succeeded, but local failed: reject the block
-//  3. Both failed with different errors: bubble up the local error
+//  2. Consensus succeeded, but local timed out: reject the block (a deterministic local failure
+//     falls through to the end and bubbles up the local error)
+//  3. Both failed with different codes: bubble up the local error; from FixAuditChangesV7 the
+//     transaction adopts the code consensus recorded, in every mode
 //
 // Parameters:
 //   - txHash: Hash of the transaction with mismatched results
@@ -215,8 +218,38 @@ func (txProc *txProcessor) handleResultMismatch(
 		return process.ErrTransactionResultMismatch
 	}
 
-	// CASE 3: Both failed with different error codes, continue based on execution mode - block rejected
+	// CASE 3: both failed with different codes. A failed transaction is reverted on
+	// every node, so the state roots already agree and only the stored, served ResultCode differs:
+	// a slower node can time out (VMExecutionFailed) where a faster one completes into a
+	// deterministic failure. Rejecting would let an honest slow validator refuse a valid block, so
+	// from FixAuditChangesV7 every node, live or replaying, adopts the code the block recorded.
+	// A code outside the enum is never produced by an honest leader and is not adopted.
+	if expectedResultCode != okCode && actualResultCode != okCode &&
+		txProc.forkController.FixAuditChangesV7() {
+		if !isKnownResultCode(expectedResultCode) {
+			log.Warn("Transaction result mismatch - consensus recorded an unknown failure code, keeping the local one",
+				"txHash", txHash,
+				"expectedResult", expectedResultCode,
+				"actualResult", actualResultCode,
+				"txIndex", txIndex)
+			return localErr
+		}
+
+		//nolint:gosec // G115: isKnownResultCode bounds expectedResultCode to a valid enum value
+		tx.ResultCode = transaction.Transaction_TXResultCode(expectedResultCode)
+	}
+
+	// The local error always bubbles up so the preprocessor reverts the transaction. Only from
+	// FixAuditChangesV7, with both sides failed and a known recorded code, is ResultCode replaced.
 	return localErr
+}
+
+func isKnownResultCode(code uint32) bool {
+	if code > math.MaxInt32 {
+		return false
+	}
+	_, ok := transaction.Transaction_TXResultCode_name[int32(code)]
+	return ok
 }
 
 // validateToleranceBand checks if a leader's smart contract execution timeout was justified
