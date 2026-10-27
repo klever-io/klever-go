@@ -26,8 +26,8 @@ cause against themselves is an ordinary bug: report it as such, do not grade it.
   low-privilege remote caller reaching more than the route is meant to expose, or exhausting resources.
   Findings that pass the attacker test and demonstrate impact with the API bound beyond its `localhost:8080`
   default remain in scope, with the one-level reachability downgrade. Routes that change node state or operator
-  configuration stay in scope whatever their reachability; submission endpoints (`/transaction/broadcast`,
-  `/transaction/send`) are not findings, the signature is the authorisation. Hardening is documented in
+  configuration stay in scope whatever their reachability. The lack of authentication on `/transaction/broadcast`
+  and `/transaction/send` is not a finding; the signature is the authorisation. Hardening is documented in
   `docs/node-api-hardening.md`.
 - **Storage and genesis** (`storage/`, `genesis/`): parsing of untrusted blobs fetched from peers or snapshots.
 
@@ -35,7 +35,8 @@ cause against themselves is an ordinary bug: report it as such, do not grade it.
 
 - REST API exposure alone, without demonstrated impact that passes the attacker test.
 - An operator acting on their own node (their config, keys, database, routes).
-- An attacker who already has code execution or filesystem access on the node host.
+- An attacker who already has code execution, filesystem write access, or an account on the node host, unless
+  the finding gives them more than that access already does.
 - Operator misconfiguration or key-file mismanagement.
 - Counters and telemetry on diagnostic routes that identify no peer or user, carry no key material, and reveal no
   unpublished chain state.
