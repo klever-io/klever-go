@@ -365,7 +365,10 @@ func (n *Node) DecodeTransaction(tx *transaction.Transaction) (*indexerData.Tran
 		}
 	}
 
-	cp, err := indexer.NewCommonProcessor(n.addressPubkeyConverter, n.validatorPubkeyConverter)
+	// the body is caller-controlled, so wrong-size addresses must not reach the
+	// converter's per-call warning and stack trace
+	addressConverter := &quietPubkeyConverter{PubkeyConverter: n.addressPubkeyConverter}
+	cp, err := indexer.NewCommonProcessor(addressConverter, n.validatorPubkeyConverter)
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +379,7 @@ func (n *Node) DecodeTransaction(tx *transaction.Transaction) (*indexerData.Tran
 	}
 
 	decodedTX := &indexerData.Transaction{
-		Sender:       n.addressPubkeyConverter.Encode(tx.RawData.Sender),
+		Sender:       addressConverter.Encode(tx.RawData.Sender),
 		Nonce:        tx.RawData.Nonce,
 		PermissionID: tx.RawData.PermissionID,
 		Data:         parsedData,
@@ -400,6 +403,25 @@ func (n *Node) DecodeTransaction(tx *transaction.Transaction) (*indexerData.Tran
 	decodedTX.Hash = hex.EncodeToString(hash)
 
 	return decodedTX, nil
+}
+
+// quietPubkeyConverter returns an empty string for wrong-size input instead of
+// letting the wrapped converter log it
+type quietPubkeyConverter struct {
+	core.PubkeyConverter
+}
+
+// Encode -
+func (q *quietPubkeyConverter) Encode(pkBytes []byte) string {
+	if len(pkBytes) != q.Len() {
+		return ""
+	}
+	return q.PubkeyConverter.Encode(pkBytes)
+}
+
+// IsInterfaceNil -
+func (q *quietPubkeyConverter) IsInterfaceNil() bool {
+	return q == nil || check.IfNil(q.PubkeyConverter)
 }
 
 func (n *Node) unmarshalTransaction(txBytes []byte) (*api.Transaction, error) {

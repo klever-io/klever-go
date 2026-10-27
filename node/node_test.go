@@ -1,6 +1,7 @@
 package node_test
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -26,6 +27,7 @@ import (
 	"github.com/klever-io/klever-go/data/retriever"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
+	indexerData "github.com/klever-io/klever-go/indexer/data"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
 	"github.com/klever-io/klever-go/node"
@@ -1020,6 +1022,60 @@ func TestDecodeTransaction(t *testing.T) {
 		assert.Len(t, decoded.Contracts, 1)
 		assert.NotEmpty(t, decoded.Hash)
 	})
+}
+
+func TestDecodeTransaction_WrongSizeAddressesSkipConverter(t *testing.T) {
+	t.Parallel()
+
+	const addressLen = 32
+	encodedLens := make([]int, 0)
+	converter := &mock.PubkeyConverterStub{
+		LenCalled: func() int { return addressLen },
+		EncodeCalled: func(pkBytes []byte) string {
+			encodedLens = append(encodedLens, len(pkBytes))
+			return hex.EncodeToString(pkBytes)
+		},
+	}
+	n, err := node.NewNode(
+		node.WithAddressPubkeyConverter(converter),
+		node.WithValidatorPubkeyConverter(createMockPubkeyConverter()),
+		node.WithTxSignMarshalizer(getMarshalizer()),
+		node.WithTxSignHasher(getHasher()),
+	)
+	require.NoError(t, err)
+
+	validAddress := bytes.Repeat([]byte{1}, addressLen)
+	roles := []*transaction.RolesInfo{{Address: validAddress}}
+	for i := 0; i < 1000; i++ {
+		roles = append(roles, &transaction.RolesInfo{Address: []byte{byte(i)}})
+	}
+	parameter, err := anypb.New(&transaction.CreateAssetContract{
+		OwnerAddress: validAddress,
+		Roles:        roles,
+	})
+	require.NoError(t, err)
+	tx := &transaction.Transaction{
+		RawData: &transaction.Transaction_Raw{
+			Sender: []byte{1},
+			Contract: []*transaction.TXContract{
+				{Type: transaction.TXContract_CreateAssetContractType, Parameter: parameter},
+			},
+		},
+	}
+
+	decoded, err := n.DecodeTransaction(tx)
+	require.NoError(t, err)
+	require.NotNil(t, decoded)
+	assert.Empty(t, decoded.Sender)
+	for _, l := range encodedLens {
+		assert.Equal(t, addressLen, l)
+	}
+
+	parsed, ok := decoded.Contracts[0].Parameter.(indexerData.CreateAssetContract)
+	require.True(t, ok)
+	require.Len(t, parsed.Roles, len(roles))
+	assert.Equal(t, hex.EncodeToString(validAddress), parsed.Roles[0].Address)
+	assert.Empty(t, parsed.Roles[1].Address)
 }
 
 // the concurrent case lives in TestNode_PublishProposalController, which races
