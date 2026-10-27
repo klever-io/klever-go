@@ -397,61 +397,10 @@ func (t *Transaction) addCreateAsset(txArgs TXArgs) error {
 		contractRequest.Royalties = &models.RoyaltiesInfo{}
 	}
 
-	royalties := &RoyaltiesInfo{
-		MarketFixed:      contractRequest.Royalties.MarketFixed,
-		MarketPercentage: contractRequest.Royalties.MarketPercentage,
-		TransferFixed:    contractRequest.Royalties.TransferFixed,
-		ITOFixed:         contractRequest.Royalties.ITOFixed,
-		ITOPercentage:    contractRequest.Royalties.ITOPercentage,
+	royalties, err := newRoyaltiesInfo(contractRequest.Royalties, txArgs)
+	if err != nil {
+		return err
 	}
-
-	if contractRequest.Royalties.Address != "" {
-		royaltiesAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.Royalties.Address)
-		if err != nil {
-			return errors.New("could not create royalties address from provided param")
-		}
-
-		royalties.Address = royaltiesAddress
-	}
-
-	if contractRequest.Royalties.TransferPercentage != nil {
-		percentages := make([]*RoyaltyInfo, len(contractRequest.Royalties.TransferPercentage))
-		for i, p := range contractRequest.Royalties.TransferPercentage {
-			if p == nil {
-				return fmt.Errorf("%w: nil transfer percentage at index %d", common.ErrInvalidValue, i)
-			}
-
-			percentages[i] = &RoyaltyInfo{
-				Amount:     p.Amount,
-				Percentage: p.Percentage,
-			}
-		}
-
-		royalties.TransferPercentage = percentages
-	}
-
-	splitRoyalties := make(map[string]*RoyaltySplitInfo)
-	for key, value := range contractRequest.Royalties.SplitRoyalties {
-		if value == nil {
-			return fmt.Errorf("%w: nil split royalty for %s", common.ErrInvalidValue, key)
-		}
-
-		decodedAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(key)
-		if err != nil {
-			return errors.New("could not create split royalties from provided param")
-		}
-
-		splitRoyalties[hex.EncodeToString(decodedAddress)] = &RoyaltySplitInfo{
-			PercentTransferPercentage: value.PercentTransferPercentage,
-			PercentTransferFixed:      value.PercentTransferFixed,
-			PercentMarketPercentage:   value.PercentMarketPercentage,
-			PercentMarketFixed:        value.PercentMarketFixed,
-			PercentITOPercentage:      value.PercentITOPercentage,
-			PercentITOFixed:           value.PercentITOFixed,
-		}
-	}
-
-	royalties.SplitRoyalties = splitRoyalties
 
 	// create asset
 	contract := &CreateAssetContract{
@@ -575,63 +524,10 @@ func (t *Transaction) addAssetTrigger(txArgs TXArgs) error {
 	}
 
 	if contractRequest.Royalties != nil {
-		royalties := &RoyaltiesInfo{
-			MarketFixed:      contractRequest.Royalties.MarketFixed,
-			MarketPercentage: contractRequest.Royalties.MarketPercentage,
-			TransferFixed:    contractRequest.Royalties.TransferFixed,
-			ITOPercentage:    contractRequest.Royalties.ITOPercentage,
-			ITOFixed:         contractRequest.Royalties.ITOFixed,
+		contract.Royalties, err = newRoyaltiesInfo(contractRequest.Royalties, txArgs)
+		if err != nil {
+			return err
 		}
-
-		if contractRequest.Royalties.Address != "" {
-			royaltiesAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(contractRequest.Royalties.Address)
-			if err != nil {
-				return errors.New("could not create royalties address from provided param")
-			}
-
-			royalties.Address = royaltiesAddress
-		}
-
-		if contractRequest.Royalties.TransferPercentage != nil {
-			percentages := make([]*RoyaltyInfo, len(contractRequest.Royalties.TransferPercentage))
-			for i, p := range contractRequest.Royalties.TransferPercentage {
-				if p == nil {
-					return fmt.Errorf("%w: nil transfer percentage at index %d", common.ErrInvalidValue, i)
-				}
-
-				percentages[i] = &RoyaltyInfo{
-					Amount:     p.Amount,
-					Percentage: p.Percentage,
-				}
-			}
-
-			royalties.TransferPercentage = percentages
-		}
-
-		splitRoyalties := make(map[string]*RoyaltySplitInfo)
-		for key, value := range contractRequest.Royalties.SplitRoyalties {
-			if value == nil {
-				return fmt.Errorf("%w: nil split royalty for %s", common.ErrInvalidValue, key)
-			}
-
-			decodedAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(key)
-			if err != nil {
-				return errors.New("could not create split royalties from provided param")
-			}
-
-			splitRoyalties[hex.EncodeToString(decodedAddress)] = &RoyaltySplitInfo{
-				PercentTransferPercentage: value.PercentTransferPercentage,
-				PercentTransferFixed:      value.PercentTransferFixed,
-				PercentMarketPercentage:   value.PercentMarketPercentage,
-				PercentMarketFixed:        value.PercentMarketFixed,
-				PercentITOPercentage:      value.PercentITOPercentage,
-				PercentITOFixed:           value.PercentITOFixed,
-			}
-		}
-
-		royalties.SplitRoyalties = splitRoyalties
-
-		contract.Royalties = royalties
 	}
 
 	if contractRequest.KDAPool != nil {
@@ -652,6 +548,67 @@ func (t *Transaction) addAssetTrigger(txArgs TXArgs) error {
 	}
 
 	return t.PushContract(TXContract_AssetTriggerContractType, contract)
+}
+
+// newRoyaltiesInfo converts the API royalties request into the contract royalties info
+func newRoyaltiesInfo(req *models.RoyaltiesInfo, txArgs TXArgs) (*RoyaltiesInfo, error) {
+	royalties := &RoyaltiesInfo{
+		MarketFixed:      req.MarketFixed,
+		MarketPercentage: req.MarketPercentage,
+		TransferFixed:    req.TransferFixed,
+		ITOFixed:         req.ITOFixed,
+		ITOPercentage:    req.ITOPercentage,
+	}
+
+	if req.Address != "" {
+		royaltiesAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(req.Address)
+		if err != nil {
+			return nil, errors.New("could not create royalties address from provided param")
+		}
+
+		royalties.Address = royaltiesAddress
+	}
+
+	if req.TransferPercentage != nil {
+		percentages := make([]*RoyaltyInfo, len(req.TransferPercentage))
+		for i, p := range req.TransferPercentage {
+			if p == nil {
+				return nil, fmt.Errorf("%w: nil transfer percentage at index %d", common.ErrInvalidValue, i)
+			}
+
+			percentages[i] = &RoyaltyInfo{
+				Amount:     p.Amount,
+				Percentage: p.Percentage,
+			}
+		}
+
+		royalties.TransferPercentage = percentages
+	}
+
+	splitRoyalties := make(map[string]*RoyaltySplitInfo)
+	for key, value := range req.SplitRoyalties {
+		if value == nil {
+			return nil, fmt.Errorf("%w: nil split royalty for %s", common.ErrInvalidValue, key)
+		}
+
+		decodedAddress, err := txArgs.NodeHelper.GetAddressPCK().Decode(key)
+		if err != nil {
+			return nil, errors.New("could not create split royalties from provided param")
+		}
+
+		splitRoyalties[hex.EncodeToString(decodedAddress)] = &RoyaltySplitInfo{
+			PercentTransferPercentage: value.PercentTransferPercentage,
+			PercentTransferFixed:      value.PercentTransferFixed,
+			PercentMarketPercentage:   value.PercentMarketPercentage,
+			PercentMarketFixed:        value.PercentMarketFixed,
+			PercentITOPercentage:      value.PercentITOPercentage,
+			PercentITOFixed:           value.PercentITOFixed,
+		}
+	}
+
+	royalties.SplitRoyalties = splitRoyalties
+
+	return royalties, nil
 }
 
 // addCreateValidator -
