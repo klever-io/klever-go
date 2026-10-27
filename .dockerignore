@@ -33,13 +33,14 @@ logs/
 Thumbs.db
 *.bak
 
-# Sensitive or environment-specific files
-.env
-*.pem
-*.pem*
-*.key
-*_rsa
-credentials/
+# Sensitive or environment-specific files.
+# Docker matches a pattern with no slash only at the context root, unlike gitignore.
+**/.env
+**/*.pem
+**/*.pem*
+**/*.key
+**/*_rsa
+**/credentials/
 
 # Docker files (to prevent recursion)
 Dockerfile*
@@ -60,11 +61,11 @@ check_ports.sh
 *_local*
 
 # Any other sensitive or unnecessary directories/files
-secrets/
+**/secrets/
 tmp/
 .cache
 *.tar*
 *.zip
 *.gz
-dbs/
-db/
+**/dbs/
+**/db/
