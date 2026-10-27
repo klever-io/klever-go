@@ -59,8 +59,8 @@ Denial-of-service claims must be reproduced against a local or private network a
 
 ## Severity
 
-Grade by demonstrated impact, then apply downgrades (non-default config, privileged actor, local or non-default
-reachability), each one level.
+Grade by demonstrated impact, then apply downgrades (non-default config, a privileged actor whose role already
+confers comparable power, local or non-default reachability), each one level.
 Do not apply a downgrade again if the matched impact already incorporates it; cite the rule as reasoning without
 decrementing twice for the same fact.
 
@@ -68,7 +68,8 @@ decrementing twice for the same fact.
   therefore scales.
 - **High**: severe harm bounded to identifiable victims or to availability.
 - **Medium**: harm bounded to a single account or node, or non-public data exposed on a remotely reachable endpoint
-  under the shipped configuration.
+  under the shipped configuration, or harm reachable only under an asset configuration its issuer chose (the
+  non-default-config downgrade is already priced into that route).
 - **Low**: impact that reaches no further than a local or non-default surface.
 
 A finding reduced below Low is an ordinary bug: report it as such, do not grade it.
