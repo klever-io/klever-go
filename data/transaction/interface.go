@@ -32,6 +32,9 @@ type EventHandler interface {
 	// GetData returns the rest of the event data, which will not be indexed, so storing
 	//  information here should be cheaper
 	GetData() [][]byte
+	// GetIsSystemLog returns true if the event was emitted by the node itself
+	//  and not by a smart contract
+	GetIsSystemLog() bool
 
 	IsInterfaceNil() bool
 }

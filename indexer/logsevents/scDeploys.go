@@ -29,15 +29,17 @@ func (sdp *scDeploysProcessor) processEvent(args *argsProcessEvent) argOutputPro
 	// Only the node emits these events, as system logs. A contract can export a
 	// SCDeploy/SCUpgrade function and forge an identical event with IsSystemLog
 	// false, so reject non-system logs to prevent forged scdeploys entries.
-	systemLog, ok := args.event.(interface{ GetIsSystemLog() bool })
-	if !ok || !systemLog.GetIsSystemLog() {
+	if !args.event.GetIsSystemLog() {
 		return argOutputProcessEvent{
 			processed: true,
 		}
 	}
 
+	// Skip malformed topics: Encode warns with a stack trace on a wrong-size
+	// address and returns "", which would be stored as a scDeploys[""] entry.
 	topics := args.event.GetTopics()
-	if len(topics) < 2 {
+	addressLen := sdp.pubKeyConverter.Len()
+	if len(topics) < 2 || len(topics[0]) != addressLen || len(topics[1]) != addressLen {
 		return argOutputProcessEvent{
 			processed: true,
 		}
