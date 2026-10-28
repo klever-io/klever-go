@@ -13,9 +13,68 @@ import (
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/eventNotifier"
+	"github.com/klever-io/klever-go/sharding"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type legacyNodesCoordinator struct{}
+
+func (lnc *legacyNodesCoordinator) ComputeConsensusGroup([]byte, uint64, uint32) ([]sharding.Validator, error) {
+	return nil, nil
+}
+
+func (lnc *legacyNodesCoordinator) GetValidatorWithPublicKey([]byte) (sharding.Validator, error) {
+	return nil, nil
+}
+
+func (lnc *legacyNodesCoordinator) ConsensusGroupSize() int {
+	return 1
+}
+
+func (lnc *legacyNodesCoordinator) LoadState([]byte) error {
+	return nil
+}
+
+func (lnc *legacyNodesCoordinator) GetSavedStateKey() []byte {
+	return nil
+}
+
+func (lnc *legacyNodesCoordinator) GetOwnPublicKey() []byte {
+	return nil
+}
+
+func (lnc *legacyNodesCoordinator) GetConsensusWhitelistedNodes(uint32) (map[string]struct{}, error) {
+	return nil, nil
+}
+
+func (lnc *legacyNodesCoordinator) GetAllElectedValidatorsKeys(uint32, bool) ([][]byte, error) {
+	return [][]byte{[]byte("elected")}, nil
+}
+
+func (lnc *legacyNodesCoordinator) GetAllEligibleValidatorsKeys(uint32, bool) ([][]byte, error) {
+	return nil, nil
+}
+
+func (lnc *legacyNodesCoordinator) GetAllWaitingValidatorsKeys(uint32, bool) ([][]byte, error) {
+	return nil, nil
+}
+
+func (lnc *legacyNodesCoordinator) SetEpochValidatorsInfo(uint32, []*state.ValidatorInfo) error {
+	return nil
+}
+
+func (lnc *legacyNodesCoordinator) CheckValidatorSlot(uint32, int64, []byte) bool {
+	return false
+}
+
+func (lnc *legacyNodesCoordinator) GetConsensusValidatorsPublicKeys([]byte, uint64, uint32) ([]string, error) {
+	return nil, nil
+}
+
+func (lnc *legacyNodesCoordinator) IsInterfaceNil() bool {
+	return lnc == nil
+}
 
 func TestNewPeerTypeProvider_NilNodesCoordinator(t *testing.T) {
 	arg := createDefaultArgPeerTypeProvider()
@@ -41,6 +100,20 @@ func TestNewPeerTypeProvider_ShouldWork(t *testing.T) {
 	ptp, err := NewPeerTypeProvider(arg)
 	assert.Nil(t, err)
 	assert.NotNil(t, ptp)
+}
+
+func TestNewPeerTypeProvider_AcceptsCoordinatorWithoutLeavingCapability(t *testing.T) {
+	t.Parallel()
+
+	arg := createDefaultArgPeerTypeProvider()
+	arg.NodesCoordinator = &legacyNodesCoordinator{}
+
+	ptp, err := NewPeerTypeProvider(arg)
+
+	require.NoError(t, err)
+	peerType, _, err := ptp.ComputeForPubKey([]byte("elected"))
+	require.NoError(t, err)
+	assert.Equal(t, core.ElectedList, peerType)
 }
 
 func TestPeerTypeProvider_CallsPopulateAndRegister(t *testing.T) {

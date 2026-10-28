@@ -18,6 +18,10 @@ type peerListAndShard struct {
 	pShard uint32
 }
 
+type leavingValidatorsProvider interface {
+	GetAllLeavingValidatorsKeys(epoch uint32, ownerKey bool) ([][]byte, error)
+}
+
 // PeerTypeProvider handles the computation of a peer type
 type PeerTypeProvider struct {
 	nodesCoordinator sharding.NodesCoordinator
@@ -133,7 +137,7 @@ func (ptp *PeerTypeProvider) createNewCache(
 		peerType core.PeerType
 		getKeys  func(epoch uint32, ownerKey bool) ([][]byte, error)
 	}{
-		{"GetAllLeavingValidatorsKeys", core.JailedList, ptp.nodesCoordinator.GetAllLeavingValidatorsKeys},
+		{"GetAllLeavingValidatorsKeys", core.JailedList, ptp.getAllLeavingValidatorsKeys},
 		{"GetAllWaitingValidatorsKeys", core.WaitingList, ptp.nodesCoordinator.GetAllWaitingValidatorsKeys},
 		{"GetAllElectedValidatorsKeys", core.ElectedList, ptp.nodesCoordinator.GetAllElectedValidatorsKeys},
 		{"GetAllEligibleValidatorsKeys", core.EligibleList, ptp.nodesCoordinator.GetAllEligibleValidatorsKeys},
@@ -149,6 +153,18 @@ func (ptp *PeerTypeProvider) createNewCache(
 	}
 
 	return newCache, true
+}
+
+func (ptp *PeerTypeProvider) getAllLeavingValidatorsKeys(epoch uint32, ownerKey bool) ([][]byte, error) {
+	// The leaving list is a reporting extension, not part of the consensus
+	// coordinator contract. Coordinators that predate the extension retain the
+	// previous elected/eligible/waiting behavior.
+	provider, ok := ptp.nodesCoordinator.(leavingValidatorsProvider)
+	if !ok {
+		return nil, nil
+	}
+
+	return provider.GetAllLeavingValidatorsKeys(epoch, ownerKey)
 }
 
 func computePeerType(

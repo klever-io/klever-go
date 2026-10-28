@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	statusSyncing       = "currently syncing"
-	statusSynchronized  = "synchronized"
-	statusNotApplicable = "N/A"
-	invalidKey          = "invalid key"
+	statusSyncing        = "currently syncing"
+	statusSynchronized   = "synchronized"
+	statusNotApplicable  = "N/A"
+	invalidKey           = "invalid key"
+	consensusSlotStateNA = "Consensus slot state: N/A (%s)"
 )
 
 // WidgetsRender will define termui widgets that need to display a termui console
@@ -297,17 +298,17 @@ func (wr *WidgetsRender) prepareBlockInfo() {
 		instanceType := wr.presenter.GetNodeType()
 		peerType := wr.presenter.GetPeerType()
 		if instanceType == string(core.NodeTypeObserver) {
-			rows[6] = []string{fmt.Sprintf("Consensus slot state: N/A (%s)", string(core.NodeTypeObserver))}
+			rows[6] = []string{fmt.Sprintf(consensusSlotStateNA, string(core.NodeTypeObserver))}
 		} else if peerType == string(core.WaitingList) {
 			// a waiting validator is outside the consensus rotation, so no
 			// subround ever writes the slot-state metric; render N/A instead
 			// of the empty string it would otherwise show
-			rows[6] = []string{fmt.Sprintf("Consensus slot state: N/A (%s)", string(core.WaitingList))}
+			rows[6] = []string{fmt.Sprintf(consensusSlotStateNA, string(core.WaitingList))}
 		} else if peerType == string(core.JailedList) {
 			// a jailed key stays on the leaving list, outside the consensus
 			// group. The signature check treats that as the subround being
 			// finished and sets the slot-state metric to "signed".
-			rows[6] = []string{fmt.Sprintf("Consensus slot state: N/A (%s)", string(core.JailedList))}
+			rows[6] = []string{fmt.Sprintf(consensusSlotStateNA, string(core.JailedList))}
 		} else {
 			consensusSlotState := wr.presenter.GetConsensusSlotState()
 			rows[6] = []string{fmt.Sprintf("Consensus slot state: %s", consensusSlotState)}
