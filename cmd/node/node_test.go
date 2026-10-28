@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/klever-io/klever-go/sharding"
@@ -10,6 +11,7 @@ import (
 
 type recordingEpochNodesSetter struct {
 	called   bool
+	err      error
 	elected  []sharding.Validator
 	eligible []sharding.Validator
 	waiting  []sharding.Validator
@@ -28,7 +30,7 @@ func (rens *recordingEpochNodesSetter) SetNodes(
 	rens.leaving = leaving
 	rens.epoch = epoch
 
-	return nil
+	return rens.err
 }
 
 func TestSeedPreviousEpochFromRegistry_RestoresEveryValidatorList(t *testing.T) {
@@ -104,6 +106,46 @@ func TestRegistryEpochValidators_RejectsNullEntry(t *testing.T) {
 	_, _, _, _, err := registryEpochValidators(nil)
 
 	require.EqualError(t, err, "nil registry epoch validators")
+}
+
+func TestSeedPreviousEpochFromRegistry_LeavingNilPubKeyFailsBeforeSetNodes(t *testing.T) {
+	t.Parallel()
+
+	leaving := serializableValidator("leaving", 4)
+	leaving.PubKey = nil
+	registry := &sharding.NodesCoordinatorRegistry{
+		EpochsConfig: map[string]*sharding.EpochValidators{
+			"6": {
+				ElectedValidators: []*sharding.SerializableValidator{serializableValidator("elected", 1)},
+				LeavingValidators: []*sharding.SerializableValidator{leaving},
+			},
+		},
+	}
+	setter := &recordingEpochNodesSetter{}
+
+	err := seedPreviousEpochFromRegistry(setter, registry, 7)
+
+	require.ErrorIs(t, err, sharding.ErrNilPubKey)
+	assert.False(t, setter.called)
+}
+
+func TestSeedPreviousEpochFromRegistry_PropagatesSetNodesError(t *testing.T) {
+	t.Parallel()
+
+	setErr := errors.New("set nodes failed")
+	registry := &sharding.NodesCoordinatorRegistry{
+		EpochsConfig: map[string]*sharding.EpochValidators{
+			"6": {
+				ElectedValidators: []*sharding.SerializableValidator{serializableValidator("elected", 1)},
+			},
+		},
+	}
+	setter := &recordingEpochNodesSetter{err: setErr}
+
+	err := seedPreviousEpochFromRegistry(setter, registry, 7)
+
+	require.ErrorIs(t, err, setErr)
+	assert.True(t, setter.called)
 }
 
 func serializableValidator(publicKey string, index uint32) *sharding.SerializableValidator {
