@@ -608,16 +608,8 @@ func (context *VMHooksImpl) VerifyCustomSecp256k1(
 	if context.WithFault(err, runtime.CryptoAPIErrorShouldFailExecution()) {
 		return 1
 	}
-	// MemLoad truncates instead of failing when the range runs past the end of contract memory, so a
-	// plain message declared as 32 bytes can come back shorter, and the curve would zero-extend it: the
-	// short-message acceptance the length check above closes. From FixAuditChangesV6 that is an
-	// out-of-bounds fault, like the truncated signature header below
 	if plainMessage {
-		if context.GetVMHost().ForkController().FixAuditChangesV6() && len(message) != secp256k1PlainMessageLength {
-			_ = context.WithFault(vmhost.ErrBadBounds, runtime.CryptoAPIErrorShouldFailExecution())
-			return 1
-		}
-		err = checkSecp256k1PlainMessageScalar(context.GetVMHost(), message)
+		err = checkSecp256k1PlainMessage(context.GetVMHost(), message)
 		if context.WithFault(err, runtime.CryptoAPIErrorShouldFailExecution()) {
 			return 1
 		}
@@ -709,7 +701,7 @@ func ManagedVerifyCustomSecp256k1WithHost(
 	}
 
 	if isSecp256k1PlainMessage(hashType) {
-		err = checkSecp256k1PlainMessageScalar(host, msgBytes)
+		err = checkSecp256k1PlainMessage(host, msgBytes)
 		if WithFaultAndHost(host, err, runtime.CryptoAPIErrorShouldFailExecution()) {
 			return 1
 		}
@@ -741,9 +733,12 @@ func isSecp256k1PlainMessage(hashType int32) bool {
 	return secp256k1.MessageHashType(uint8(hashType)) == secp256k1.ECDSAPlainMsg
 }
 
-// checkSecp256k1PlainMessageScalar rejects, from FixAuditChangesV7, a plain message whose value is not below
-// the curve order N. The curve reduces it mod N without reporting it, so m and m+N would share a signature
-func checkSecp256k1PlainMessageScalar(host vmhost.VMHost, message []byte) error {
+// checkSecp256k1PlainMessage rejects a plain message MemLoad truncated (FixAuditChangesV6) and, from
+// FixAuditChangesV7, one not below N, since the curve silently reduces it mod N
+func checkSecp256k1PlainMessage(host vmhost.VMHost, message []byte) error {
+	if host.ForkController().FixAuditChangesV6() && len(message) != secp256k1PlainMessageLength {
+		return vmhost.ErrBadBounds
+	}
 	if !host.ForkController().FixAuditChangesV7() {
 		return nil
 	}
