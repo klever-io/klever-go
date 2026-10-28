@@ -104,20 +104,43 @@ func setupValidatorsKApp(t *testing.T) *validatorsKApp {
 func addFunctionalCacher(t *testing.T, v *validatorsKApp) {
 	peersMapper := make(map[string]state.PeerAccountHandler)
 	usersMapper := make(map[string]state.UserAccountHandler)
+	// The real cacher mutates in place while enabled and persists on UpdatePeer while
+	// disabled. ResetAll flips this. Tests that leave it on share one peer object.
+	cacheOn := true
 
 	accCacher := &mock.AccountsCacherStub{
+		ResetAllCalled: func(enableCache bool) {
+			cacheOn = enableCache
+		},
 		LoadPeerCalled: func(peer []byte) (state.PeerAccountHandler, error) {
-			if _, ok := peersMapper[string(peer)]; ok {
-				return peersMapper[string(peer)], nil
+			acc, ok := peersMapper[string(peer)]
+			if !ok {
+				created, err := state.NewPeerAccount(peer)
+				if err != nil {
+					return nil, err
+				}
+				peersMapper[string(peer)] = created
+				acc = created
 			}
-
-			acc, err := state.NewPeerAccount(peer)
+			if cacheOn {
+				return acc, nil
+			}
+			return clonePeer(acc)
+		},
+		UpdatePeerCalled: func(account state.AccountHandler) error {
+			if cacheOn {
+				return nil
+			}
+			peer, ok := account.(state.PeerAccountHandler)
+			if !ok {
+				return common.ErrWrongTypeAssertion
+			}
+			cloned, err := clonePeer(peer)
 			if err != nil {
-				return nil, err
+				return err
 			}
-
-			peersMapper[string(peer)] = acc
-			return acc, nil
+			peersMapper[string(peer.AddressBytes())] = cloned
+			return nil
 		},
 		GetExistingPeerCalled: func(peer []byte) (state.PeerAccountHandler, error) {
 			if acc, ok := peersMapper[string(peer)]; ok {
@@ -149,6 +172,31 @@ func addFunctionalCacher(t *testing.T, v *validatorsKApp) {
 	}
 
 	require.NoError(t, v.SetAccountsCacher(accCacher))
+}
+
+// clonePeer copies the fields a cache-off load must not share with the stored peer.
+func clonePeer(src state.PeerAccountHandler) (state.PeerAccountHandler, error) {
+	dst, err := state.NewPeerAccount(src.AddressBytes())
+	if err != nil {
+		return nil, err
+	}
+	if bls := src.GetBLSPublicKey(); len(bls) > 0 {
+		if err = dst.SetBLSPublicKey(bls); err != nil {
+			return nil, err
+		}
+	}
+	if len(src.GetOwnerAddress()) > 0 {
+		if err = dst.SetOwnerAddress(src.GetOwnerAddress()); err != nil {
+			return nil, err
+		}
+	}
+	if src.GetRevoked() {
+		dst.SetRevoked()
+	}
+	if err = dst.CopyFrom(src); err != nil {
+		return nil, err
+	}
+	return dst, nil
 }
 
 func updatePeers(addresses [][]byte, v *validatorsKApp, f func(state.PeerAccountHandler) error) error {

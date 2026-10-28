@@ -175,6 +175,37 @@ func TestDecreaseAll_RevokedKeyCountersFollowTheCurrentKey(t *testing.T) {
 		assert.Zero(t, newPeer.GetTempRating())
 	})
 
+	t.Run("V7 on: a proposer miss on the current key is cleared by a block the old key leads", func(t *testing.T) {
+		t.Parallel()
+
+		owner := makeAddress("owner-streak")
+		v := newRotationKApp(t, true)
+		oldKey := electForRotation(t, v, owner)
+		newKey := rotateTo(t, v, owner)
+
+		require.NoError(t, v.DecreaseTempRating(owner, true))
+		assert.Equal(t, uint32(1), requirePeer(t, v, newKey.pub).GetConsecutiveProposerMisses())
+		assert.Equal(t, uint32(0), requirePeer(t, v, oldKey.pub).GetConsecutiveProposerMisses())
+
+		creditConsensus(t, v, 1000, oldKey.pub)
+		assert.Equal(t, uint32(0), requirePeer(t, v, newKey.pub).GetConsecutiveProposerMisses())
+		assert.Equal(t, uint32(0), requirePeer(t, v, oldKey.pub).GetConsecutiveProposerMisses())
+	})
+
+	t.Run("V7 on: the elected key rating is saved while the peer cache is off", func(t *testing.T) {
+		t.Parallel()
+
+		owner := makeAddress("owner-uncached")
+		v := newRotationKApp(t, true)
+		v.accountsCacher.ResetAll(false)
+		oldKey := electForRotation(t, v, owner)
+		ratingBefore := requirePeer(t, v, oldKey.pub).GetTempRating()
+		rotateTo(t, v, owner)
+
+		creditConsensus(t, v, 1000, oldKey.pub)
+		assert.Greater(t, requirePeer(t, v, oldKey.pub).GetTempRating(), ratingBefore)
+	})
+
 	t.Run("V7 off: miss counters stay on the elected key", func(t *testing.T) {
 		t.Parallel()
 
