@@ -783,18 +783,6 @@ func TestHeaderSigVerifier_EpochNodesConfigMissingIsSurfacedIntact(t *testing.T)
 		return args
 	}
 
-	t.Run("leader lookup path", func(t *testing.T) {
-		hdrSigVerifier, err := headerCheck.NewHeaderSigVerifier(newArgsRejectingEpochConfig())
-		require.Nil(t, err)
-
-		header := &block.Block{Header: &block.BlockHeader{Epoch: missingEpoch, Nonce: 42, Slot: 43}}
-
-		err = hdrSigVerifier.VerifyRandSeed(header)
-
-		require.True(t, errors.Is(err, sharding.ErrEpochNodesConfigDoesNotExist), "got %v", err)
-		require.Contains(t, buff.String(), "leader")
-	})
-
 	t.Run("signature path", func(t *testing.T) {
 		hdrSigVerifier, err := headerCheck.NewHeaderSigVerifier(newArgsRejectingEpochConfig())
 		require.Nil(t, err)
@@ -827,6 +815,7 @@ func TestHeaderSigVerifier_EpochNodesConfigMissingIsSurfacedIntact(t *testing.T)
 		require.True(t, errors.Is(err, sharding.ErrEpochNodesConfigDoesNotExist), "got %v", err)
 
 		output := buff.String()
+		require.Contains(t, output, "leader")
 		require.Contains(t, output, "missing config for epoch = 7")
 		require.Contains(t, output, "header epoch = 7")
 		require.Contains(t, output, "nonce = 42")

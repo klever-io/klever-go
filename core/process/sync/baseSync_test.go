@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common/mock"
 	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/process"
@@ -570,12 +569,17 @@ func TestIsSyncPostponed_ShouldReleaseWhenNonceChangesInSameSlot(t *testing.T) {
 	assert.False(t, boot.isSyncPostponed())
 }
 
-func headerAtSlot(slot uint64) data.HeaderHandler {
-	return &block.Block{Header: &block.BlockHeader{Slot: slot}}
-}
-
 func headerAt(slot uint64, nonce uint64) data.HeaderHandler {
 	return &block.Block{Header: &block.BlockHeader{Slot: slot, Nonce: nonce}}
+}
+
+func requestsHeaders(boot *baseBootstrap) bool {
+	ok, _ := boot.shouldTryToRequestHeaders()
+	return ok
+}
+
+func fireStuck(boot *baseBootstrap, stalledWhileSynced bool) {
+	boot.requestHeadersIfSyncIsStuck(boot.slotsSinceLastCommittedBlock(), stalledWhileSynced)
 }
 
 // blockBootstrapperStub is the smallest blockBootstrapper that
@@ -619,7 +623,7 @@ func newBootstrapForRequestGating(
 		slotManager: &consensusMock.SlotManagerMock{SlotIndex: slotIndex},
 		chainHandler: &mock.BlockChainMock{
 			GetGenesisHeaderCalled: func() data.HeaderHandler {
-				return headerAtSlot(genesisSlot)
+				return headerAt(genesisSlot, 0)
 			},
 			GetCurrentBlockHeaderCalled: func() data.HeaderHandler {
 				return currentHeader
@@ -644,35 +648,36 @@ func TestShouldTryToRequestHeaders_SyncedNodeReactsToSlotLagOnEverySlot(t *testi
 	const lastCommittedSlot = uint64(0)
 
 	for slotIndex := int64(1); slotIndex <= 40; slotIndex++ {
-		boot := newBootstrapForRequestGating(slotIndex, 0, headerAtSlot(lastCommittedSlot))
+		boot := newBootstrapForRequestGating(slotIndex, 0, headerAt(lastCommittedSlot, 0))
 		boot.isNodeSynchronized = true
 
 		// #nosec G115 -- slotIndex is a small positive loop bound
 		expected := uint64(slotIndex) > process.MaxSlotsWithoutNewBlockReceived
 
-		assert.Equal(t, expected, boot.shouldTryToRequestHeaders(),
+		assert.Equal(t, expected, requestsHeaders(boot),
 			"slot index %d, lag %d", slotIndex, slotIndex)
 	}
 }
 
-// Import mode replays historical blocks, so the slot lag is unbounded by
-// construction and there are no peers to request from. It also lacks the
-// once-per-slot latch the branch relies on, since GetNodeState always answers
-// NsNotSynchronized while importing, which would put the warning and the request
-// goroutine on the 5 ms sync loop instead.
+// Import mode replays historical blocks, so the slot lag is unbounded and there
+// are no peers. GetNodeState stays NsNotSynchronized, so the guard has to hold
+// for a node that does not report itself synchronized too.
 func TestShouldTryToRequestHeaders_ImportModeIgnoresSlotLag(t *testing.T) {
 	t.Parallel()
 
-	boot := newBootstrapForRequestGating(100, 0, headerAtSlot(0))
-	boot.isNodeSynchronized = true
+	boot := newBootstrapForRequestGating(100, 0, headerAt(0, 0))
 	boot.isInImportMode = true
 
-	assert.False(t, boot.shouldTryToRequestHeaders())
+	boot.isNodeSynchronized = true
+	assert.False(t, requestsHeaders(boot))
 
-	// The very same lag outside import mode does trigger a request, so the
-	// assertion above cannot pass for the wrong reason.
+	boot.isNodeSynchronized = false
+	assert.False(t, requestsHeaders(boot))
+
+	// The same lag outside import mode does trigger a request.
 	boot.isInImportMode = false
-	assert.True(t, boot.shouldTryToRequestHeaders())
+	boot.isNodeSynchronized = true
+	assert.True(t, requestsHeaders(boot))
 }
 
 func TestShouldTryToRequestHeaders_NotSynchronizedAlwaysRequests(t *testing.T) {
@@ -680,10 +685,10 @@ func TestShouldTryToRequestHeaders_NotSynchronizedAlwaysRequests(t *testing.T) {
 
 	// No lag at all, so only the pre-existing unsynchronized branch can be what
 	// returns true here.
-	boot := newBootstrapForRequestGating(3, 0, headerAtSlot(3))
+	boot := newBootstrapForRequestGating(3, 0, headerAt(3, 0))
 	boot.isNodeSynchronized = false
 
-	assert.True(t, boot.shouldTryToRequestHeaders())
+	assert.True(t, requestsHeaders(boot))
 }
 
 func TestShouldTryToRequestHeaders_GuardsShortCircuitBeforeSlotLag(t *testing.T) {
@@ -696,34 +701,34 @@ func TestShouldTryToRequestHeaders_GuardsShortCircuitBeforeSlotLag(t *testing.T)
 	t.Run("before genesis", func(t *testing.T) {
 		t.Parallel()
 
-		boot := newBootstrapForRequestGating(laggingSlotIndex, 0, headerAtSlot(0))
+		boot := newBootstrapForRequestGating(laggingSlotIndex, 0, headerAt(0, 0))
 		boot.isNodeSynchronized = true
 		boot.slotManager = &consensusMock.SlotManagerMock{
 			SlotIndex:           laggingSlotIndex,
 			BeforeGenesisCalled: func() bool { return true },
 		}
 
-		assert.False(t, boot.shouldTryToRequestHeaders())
+		assert.False(t, requestsHeaders(boot))
 	})
 
 	t.Run("forced roll back one block", func(t *testing.T) {
 		t.Parallel()
 
-		boot := newBootstrapForRequestGating(laggingSlotIndex, 0, headerAtSlot(0))
+		boot := newBootstrapForRequestGating(laggingSlotIndex, 0, headerAt(0, 0))
 		boot.isNodeSynchronized = true
 		boot.forkInfo = &process.ForkInfo{IsDetected: true, Nonce: math.MaxUint64}
 
-		assert.False(t, boot.shouldTryToRequestHeaders())
+		assert.False(t, requestsHeaders(boot))
 	})
 
 	t.Run("forced roll back to nonce", func(t *testing.T) {
 		t.Parallel()
 
-		boot := newBootstrapForRequestGating(laggingSlotIndex, 0, headerAtSlot(0))
+		boot := newBootstrapForRequestGating(laggingSlotIndex, 0, headerAt(0, 0))
 		boot.isNodeSynchronized = true
 		boot.forkInfo = &process.ForkInfo{IsDetected: true, Slot: math.MaxUint64}
 
-		assert.False(t, boot.shouldTryToRequestHeaders())
+		assert.False(t, requestsHeaders(boot))
 	})
 }
 
@@ -733,7 +738,7 @@ func TestSlotsSinceLastCommittedBlock(t *testing.T) {
 	t.Run("uses the current header slot", func(t *testing.T) {
 		t.Parallel()
 
-		boot := newBootstrapForRequestGating(30, 0, headerAtSlot(12))
+		boot := newBootstrapForRequestGating(30, 0, headerAt(12, 0))
 
 		assert.Equal(t, uint64(18), boot.slotsSinceLastCommittedBlock())
 	})
@@ -751,12 +756,12 @@ func TestSlotsSinceLastCommittedBlock(t *testing.T) {
 	t.Run("reports no lag when the committed block is ahead of the slot index", func(t *testing.T) {
 		t.Parallel()
 
-		boot := newBootstrapForRequestGating(50, 0, headerAtSlot(100))
+		boot := newBootstrapForRequestGating(50, 0, headerAt(100, 0))
 
 		assert.Equal(t, uint64(0), boot.slotsSinceLastCommittedBlock())
 
 		boot.isNodeSynchronized = true
-		assert.False(t, boot.shouldTryToRequestHeaders())
+		assert.False(t, requestsHeaders(boot))
 	})
 }
 
@@ -767,20 +772,12 @@ func TestSlotsSinceLastCommittedBlock(t *testing.T) {
 func TestRequestHeadersIfSyncIsStuck(t *testing.T) {
 	t.Parallel()
 
-	newBoot := func(slotIndex int64, currentHeader data.HeaderHandler) (*baseBootstrap, *blockBootstrapperStub) {
-		stub := &blockBootstrapperStub{}
-		boot := newBootstrapForRequestGating(slotIndex, 0, currentHeader)
-		boot.blockBootstrapper = stub
-
-		return boot, stub
-	}
-
 	t.Run("does nothing at or below the threshold", func(t *testing.T) {
 		t.Parallel()
 
 		// Lag is exactly MaxSlotsWithoutNewBlockReceived, so the guard holds.
-		boot, stub := newBoot(int64(process.MaxSlotsWithoutNewBlockReceived), headerAt(0, 7))
-		boot.requestHeadersIfSyncIsStuck(false)
+		boot, stub := newStuckRequestBoot(int64(process.MaxSlotsWithoutNewBlockReceived), headerAt(0, 7))
+		fireStuck(boot, false)
 
 		assert.Empty(t, stub.requestedNonces)
 	})
@@ -789,8 +786,8 @@ func TestRequestHeadersIfSyncIsStuck(t *testing.T) {
 		t.Parallel()
 
 		// Lag 11 -> min(20, 10) = 10 headers, starting at nonce 8.
-		boot, stub := newBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
-		boot.requestHeadersIfSyncIsStuck(false)
+		boot, stub := newStuckRequestBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
+		fireStuck(boot, false)
 
 		assert.Equal(t, []uint64{8, 9, 10, 11, 12, 13, 14, 15, 16, 17}, stub.requestedNonces)
 	})
@@ -799,8 +796,8 @@ func TestRequestHeadersIfSyncIsStuck(t *testing.T) {
 		t.Parallel()
 
 		// Lag 500 would ask for 499, the cap holds it to 20.
-		boot, stub := newBoot(500, headerAt(0, 7))
-		boot.requestHeadersIfSyncIsStuck(false)
+		boot, stub := newStuckRequestBoot(500, headerAt(0, 7))
+		fireStuck(boot, false)
 
 		assert.Len(t, stub.requestedNonces, process.MaxHeadersToRequestInAdvance)
 		assert.Equal(t, uint64(8), stub.requestedNonces[0])
@@ -813,8 +810,8 @@ func TestRequestHeadersIfSyncIsStuck(t *testing.T) {
 	t.Run("requests nothing when the committed block is ahead of the slot index", func(t *testing.T) {
 		t.Parallel()
 
-		boot, stub := newBoot(50, headerAt(100, 7))
-		boot.requestHeadersIfSyncIsStuck(false)
+		boot, stub := newStuckRequestBoot(50, headerAt(100, 7))
+		fireStuck(boot, false)
 
 		assert.Empty(t, stub.requestedNonces)
 	})
@@ -900,58 +897,49 @@ func newStuckRequestBoot(slotIndex int64, currentHeader data.HeaderHandler) (*ba
 	return boot, stub
 }
 
-// The once-per-slot cap must be enforced by the function itself, not by how
-// often callers happen to invoke it: before lastStuckRequestSlot existed the
-// bound depended on computeNodeState's memoization, which a refactor in
-// syncBlock could silently remove with every test still green.
-func TestRequestHeadersIfSyncIsStuck_FiresAtMostOncePerSlot(t *testing.T) {
+// The not-synced catch-up path is not capped: a lost burst has to be able to
+// go out again on the next sync iteration, which is what it did before the
+// synced stall claim existed.
+func TestRequestHeadersIfSyncIsStuck_NotSyncedRetriesInsideTheSlot(t *testing.T) {
 	t.Parallel()
 
 	boot, stub := newStuckRequestBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
 
-	boot.requestHeadersIfSyncIsStuck(false)
+	fireStuck(boot, false)
 	firstBurst := len(stub.requestedNonces)
 	assert.Equal(t, 10, firstBurst)
 
-	// Same slot: a second invocation must not produce a second burst.
-	boot.requestHeadersIfSyncIsStuck(false)
-	assert.Len(t, stub.requestedNonces, firstBurst)
-
-	// Next slot: the cap releases and the burst fires again.
-	boot.slotManager.(*consensusMock.SlotManagerMock).SlotIndex++
-	boot.requestHeadersIfSyncIsStuck(false)
-	assert.Greater(t, len(stub.requestedNonces), firstBurst)
+	fireStuck(boot, false)
+	assert.Len(t, stub.requestedNonces, firstBurst*2)
 }
 
-type stallWarnFormatter struct {
-	logger.PlainFormatter
+// Slot 0 must be claimable. Storing the index itself would treat the zero
+// value as "already claimed at slot 0" and drop the first burst there.
+func TestClaimSyncedStallSlot_IncludesSlotZero(t *testing.T) {
+	t.Parallel()
+
+	boot, _ := newStuckRequestBoot(0, headerAt(0, 7))
+
+	require.True(t, boot.claimSyncedStallSlot())
+	require.False(t, boot.claimSyncedStallSlot())
+
+	boot.slotManager.(*consensusMock.SlotManagerMock).SlotIndex = 1
+	require.True(t, boot.claimSyncedStallSlot())
 }
 
-func (f *stallWarnFormatter) Output(line logger.LogLineHandler) []byte {
-	if line.GetMessage() != "node believes it is synchronized but has not committed a block for a while" {
-		return nil
-	}
+const stallWarnMessage = "node believes it is synchronized but has not committed a block for a while"
 
-	return f.PlainFormatter.Output(line)
-}
-
-// The warning must fire exactly when the burst was decided while the node
-// believed it was synchronized: that state advertises NsSynchronized with
-// MetricIsSyncing at 0, so this line is its only signal. An honestly syncing
-// node passing through the same code path is just catching up and must stay
-// quiet. Not parallel: it registers a global log observer.
+// The warning fires when the burst was decided while the node believed it was
+// synchronized, and only once for that stretch. An honestly syncing node on
+// the same path stays quiet. Not parallel: it registers a global log observer.
 func TestRequestHeadersIfSyncIsStuck_WarnsOnlyWhenStalledWhileSynced(t *testing.T) {
-	buff := &bytes.Buffer{}
-	require.Nil(t, logger.AddLogObserver(buff, &stallWarnFormatter{}))
-	t.Cleanup(func() {
-		require.Nil(t, logger.RemoveLogObserver(buff))
-	})
+	buff := ObserveLogMessage(t, stallWarnMessage)
 
 	t.Run("warns when the node believed it was synchronized", func(t *testing.T) {
 		buff.Reset()
 		boot, _ := newStuckRequestBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
 
-		boot.requestHeadersIfSyncIsStuck(true)
+		fireStuck(boot, true)
 
 		require.Contains(t, buff.String(), "node believes it is synchronized")
 		require.Contains(t, buff.String(), "slots since last committed block")
@@ -961,64 +949,60 @@ func TestRequestHeadersIfSyncIsStuck_WarnsOnlyWhenStalledWhileSynced(t *testing.
 		buff.Reset()
 		boot, stub := newStuckRequestBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
 
-		boot.requestHeadersIfSyncIsStuck(false)
+		fireStuck(boot, false)
 
 		require.NotEmpty(t, stub.requestedNonces, "the burst itself must still fire")
 		require.Empty(t, buff.String())
 	})
 
-	t.Run("warning shares the once-per-slot cap", func(t *testing.T) {
+	t.Run("warns once per episode, including across slots", func(t *testing.T) {
 		buff.Reset()
 		boot, _ := newStuckRequestBoot(int64(process.MaxSlotsWithoutNewBlockReceived)+1, headerAt(0, 7))
 
-		boot.requestHeadersIfSyncIsStuck(true)
+		fireStuck(boot, true)
 		firstLen := buff.Len()
 		require.Greater(t, firstLen, 0)
 
-		boot.requestHeadersIfSyncIsStuck(true)
+		fireStuck(boot, true)
+		boot.slotManager.(*consensusMock.SlotManagerMock).SlotIndex++
+		fireStuck(boot, true)
 		require.Equal(t, firstLen, buff.Len())
 	})
 }
 
-// signalingBlockBootstrapperStub closes done once the full burst has been
-// requested, giving the wiring test below a race-free point to observe the
-// goroutine's output.
+// signalingBlockBootstrapperStub closes done once target requests have been
+// counted, giving the wiring tests a race-free point to observe the goroutine.
 type signalingBlockBootstrapperStub struct {
 	blockBootstrapperStub
-	remaining int
-	done      chan struct{}
+	counted atomic.Int32
+	target  int32
+	done    chan struct{}
 }
 
 func (s *signalingBlockBootstrapperStub) requestHeaderByNonce(nonce uint64) {
 	s.blockBootstrapperStub.requestHeaderByNonce(nonce)
-	s.remaining--
-	if s.remaining == 0 {
+	if s.counted.Add(1) == s.target {
 		close(s.done)
 	}
 }
 
-// Pins the spawn-site wiring in computeNodeState: the goroutine must receive
-// the freshly computed isNodeSynchronized. Every other test injects that flag
-// directly, so with the argument hard-wired to false at the spawn site the
-// package would stay green while the stalled state loses its only signal.
-// Not parallel: it registers a global log observer.
-func TestComputeNodeState_StalledWhileSyncedWiresWarnIntoBurst(t *testing.T) {
-	buff := &bytes.Buffer{}
-	require.Nil(t, logger.AddLogObserver(buff, &stallWarnFormatter{}))
-	t.Cleanup(func() {
-		require.Nil(t, logger.RemoveLogObserver(buff))
-	})
+func (s *signalingBlockBootstrapperStub) arm(target int32) {
+	s.target = target
+	s.done = make(chan struct{})
+}
 
-	stub := &signalingBlockBootstrapperStub{
-		remaining: process.MaxHeadersToRequestInAdvance,
-		done:      make(chan struct{}),
+func waitForRequests(t *testing.T, stub *signalingBlockBootstrapperStub) {
+	t.Helper()
+
+	select {
+	case <-stub.done:
+	case <-time.After(5 * time.Second):
+		require.Failf(t, "burst did not finish", "counted %d, target %d", stub.counted.Load(), stub.target)
 	}
+}
 
-	// Last committed block at slot 0 / nonce 7 while the slot index is 30: a
-	// stalled node. The fork detector reports no fork and a probable highest
-	// nonce equal to the committed one, which is exactly the frozen state that
-	// computes isNodeSynchronized as true.
-	boot := newBootstrapForRequestGating(30, 0, headerAt(0, 7))
+func newComputeNodeStateBoot(slotIndex int64, probableHighest uint64, stub blockBootstrapper) *baseBootstrap {
+	boot := newBootstrapForRequestGating(slotIndex, 0, headerAt(0, 7))
 	boot.blockBootstrapper = stub
 	boot.hasStarted = true
 	boot.statusHandler = statusHandler.NewNilStatusHandler()
@@ -1027,17 +1011,124 @@ func TestComputeNodeState_StalledWhileSyncedWiresWarnIntoBurst(t *testing.T) {
 	}
 	boot.forkDetector = &mock.ForkDetectorMock{
 		CheckForkCalled:            func() *process.ForkInfo { return process.NewForkInfo() },
-		ProbableHighestNonceCalled: func() uint64 { return 7 },
+		ProbableHighestNonceCalled: func() uint64 { return probableHighest },
 	}
+
+	return boot
+}
+
+// Pins the spawn-site wiring in computeNodeState: the goroutine must receive
+// the freshly computed isNodeSynchronized. Not parallel: it registers a global
+// log observer.
+func TestComputeNodeState_StalledWhileSyncedWiresWarnIntoBurst(t *testing.T) {
+	buff := ObserveLogMessage(t, stallWarnMessage)
+
+	stub := &signalingBlockBootstrapperStub{}
+	stub.arm(process.MaxHeadersToRequestInAdvance)
+
+	// Last committed block at slot 0 / nonce 7 while the slot index is 30: a
+	// stalled node. The fork detector reports no fork and a probable highest
+	// nonce equal to the committed one, which computes isNodeSynchronized.
+	boot := newComputeNodeStateBoot(30, 7, stub)
 
 	boot.computeNodeState()
 	require.True(t, boot.isNodeSynchronized)
 
-	select {
-	case <-stub.done:
-	case <-time.After(5 * time.Second):
-		require.Fail(t, "the stuck-recovery burst never fired")
-	}
+	waitForRequests(t, stub)
+	require.Contains(t, buff.String(), stallWarnMessage)
+}
 
-	require.Contains(t, buff.String(), "node believes it is synchronized but has not committed a block for a while")
+// Re-entering computeNodeState in the same slot must not send a second synced
+// burst. The claim happens before the goroutine, so a cleared
+// isNodeStateCalculated flag is not enough to fire again.
+func TestComputeNodeState_SyncedStallClaimsSlotAcrossReentry(t *testing.T) {
+	t.Parallel()
+
+	stub := &signalingBlockBootstrapperStub{}
+	stub.arm(process.MaxHeadersToRequestInAdvance)
+	boot := newComputeNodeStateBoot(30, 7, stub)
+
+	boot.computeNodeState()
+	require.True(t, boot.isNodeSynchronized)
+	waitForRequests(t, stub)
+	require.Equal(t, int32(process.MaxHeadersToRequestInAdvance), stub.counted.Load())
+
+	boot.isNodeStateCalculated = false
+	boot.computeNodeState()
+	time.Sleep(50 * time.Millisecond)
+	require.Equal(t, int32(process.MaxHeadersToRequestInAdvance), stub.counted.Load())
+
+	boot.isNodeStateCalculated = false
+	boot.slotManager.(*consensusMock.SlotManagerMock).SlotIndex++
+	stub.arm(int32(process.MaxHeadersToRequestInAdvance) * 2)
+	boot.computeNodeState()
+	waitForRequests(t, stub)
+	require.Equal(t, int32(process.MaxHeadersToRequestInAdvance)*2, stub.counted.Load())
+}
+
+// A not-synced node still requests on every re-entry. The slot claim belongs
+// to the synced stall path only.
+func TestComputeNodeState_NotSyncedReentryStillRequests(t *testing.T) {
+	t.Parallel()
+
+	stub := &signalingBlockBootstrapperStub{}
+	stub.arm(process.MaxHeadersToRequestInAdvance)
+	// Probable highest nonce above the committed nonce keeps the node unsynced.
+	boot := newComputeNodeStateBoot(30, 100, stub)
+
+	boot.computeNodeState()
+	require.False(t, boot.isNodeSynchronized)
+	waitForRequests(t, stub)
+
+	boot.isNodeStateCalculated = false
+	stub.arm(int32(process.MaxHeadersToRequestInAdvance) * 2)
+	boot.computeNodeState()
+	waitForRequests(t, stub)
+	require.Equal(t, int32(process.MaxHeadersToRequestInAdvance)*2, stub.counted.Load())
+}
+
+// The synced stall warning is one line for the whole stretch, then fires again
+// after the lag drops and the stall returns. Not parallel: log observer.
+func TestComputeNodeState_SyncedStallWarnsOncePerEpisode(t *testing.T) {
+	buff := ObserveLogMessage(t, stallWarnMessage)
+
+	stub := &signalingBlockBootstrapperStub{}
+	stub.arm(process.MaxHeadersToRequestInAdvance)
+	boot := newComputeNodeStateBoot(30, 7, stub)
+
+	boot.computeNodeState()
+	waitForRequests(t, stub)
+	require.Contains(t, buff.String(), stallWarnMessage)
+	firstLen := buff.Len()
+
+	boot.isNodeStateCalculated = false
+	boot.slotManager.(*consensusMock.SlotManagerMock).SlotIndex++
+	stub.arm(int32(process.MaxHeadersToRequestInAdvance) * 2)
+	boot.computeNodeState()
+	waitForRequests(t, stub)
+	require.Equal(t, firstLen, buff.Len())
+
+	// Caught up: the next pass clears the latch and does not request.
+	boot.isNodeStateCalculated = false
+	boot.chainHandler = &mock.BlockChainMock{
+		GetGenesisHeaderCalled: func() data.HeaderHandler { return headerAt(0, 0) },
+		GetCurrentBlockHeaderCalled: func() data.HeaderHandler {
+			return headerAt(uint64(boot.slotManager.Index()), 7)
+		},
+	}
+	boot.computeNodeState()
+	require.True(t, boot.isNodeSynchronized)
+	require.Equal(t, int32(process.MaxHeadersToRequestInAdvance)*2, stub.counted.Load())
+
+	// Stale again. A new episode warns.
+	boot.isNodeStateCalculated = false
+	boot.slotManager.(*consensusMock.SlotManagerMock).SlotIndex += 20
+	boot.chainHandler = &mock.BlockChainMock{
+		GetGenesisHeaderCalled:      func() data.HeaderHandler { return headerAt(0, 0) },
+		GetCurrentBlockHeaderCalled: func() data.HeaderHandler { return headerAt(0, 7) },
+	}
+	stub.arm(int32(process.MaxHeadersToRequestInAdvance) * 3)
+	boot.computeNodeState()
+	waitForRequests(t, stub)
+	require.Greater(t, buff.Len(), firstLen)
 }

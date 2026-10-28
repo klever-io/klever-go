@@ -1,12 +1,10 @@
 package sync_test
 
 import (
-	"bytes"
 	"math"
 	"testing"
 	"time"
 
-	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/common/mock"
 	consensusMock "github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/process"
@@ -224,28 +222,13 @@ func TestMetaForkDetector_CheckForkStillDetectsStuckConsensusWhenCheckpointIsBeh
 	assert.Nil(t, forkInfo.Hash)
 }
 
-type checkpointAheadWarnFormatter struct {
-	logger.PlainFormatter
-}
+const checkpointAheadWarnMessage = "last checkpoint is ahead of the local slot index, node clock appears to trail the network"
 
-func (f *checkpointAheadWarnFormatter) Output(line logger.LogLineHandler) []byte {
-	if line.GetMessage() != "last checkpoint is ahead of the local slot index, node clock appears to trail the network" {
-		return nil
-	}
-
-	return f.PlainFormatter.Output(line)
-}
-
-// In the clock-trails-tip state this warning is the node's only signal, but
-// CheckFork can run on every 5 ms sync-loop iteration while the node is not
-// synchronized, so it must be throttled to once per slot or it becomes hundreds
-// of lines per second. Not parallel: it registers a global log observer.
-func TestMetaForkDetector_CheckpointAheadWarnsOncePerSlot(t *testing.T) {
-	buff := &bytes.Buffer{}
-	require.Nil(t, logger.AddLogObserver(buff, &checkpointAheadWarnFormatter{}))
-	t.Cleanup(func() {
-		require.Nil(t, logger.RemoveLogObserver(buff))
-	})
+// CheckFork can run on every sync-loop iteration, so the clock-trails-tip
+// warning is once per episode: again only after the checkpoint is no longer
+// ahead. Not parallel: it registers a global log observer.
+func TestMetaForkDetector_CheckpointAheadWarnsOncePerEpisode(t *testing.T) {
+	buff := sync.ObserveLogMessage(t, checkpointAheadWarnMessage)
 
 	const checkpointSlot = uint64(100)
 
@@ -267,25 +250,26 @@ func TestMetaForkDetector_CheckpointAheadWarnsOncePerSlot(t *testing.T) {
 	require.Greater(t, firstLen, 0)
 	require.Contains(t, buff.String(), "last checkpoint is ahead of the local slot index")
 
-	// Same slot: throttled.
+	// Same slot, and the next slot while the checkpoint is still ahead: silent.
+	_ = bfd.CheckFork()
+	sloterMock.SlotIndex = 51
 	_ = bfd.CheckFork()
 	require.Equal(t, firstLen, buff.Len())
 
-	// Next slot: the state persists, so it warns again.
-	sloterMock.SlotIndex = 51
+	// Subtraction succeeds, so the latch clears. 200 is a multiple of
+	// SlotModulusTrigger; the clear happens before the stuck decision.
+	sloterMock.SlotIndex = 200
+	_ = bfd.CheckFork()
+
+	sloterMock.SlotIndex = 50
 	_ = bfd.CheckFork()
 	require.Greater(t, buff.Len(), firstLen)
 }
 
-// Slot index 0 is the one value that would collide with an uninitialized
-// throttle field: without the MinInt64 sentinel stored at construction, the
-// first Swap(0) returns the zero value and swallows the warning entirely.
+// Slot index 0 must still warn. The latch is a bool, so an unset field does
+// not collide with that slot the way a slot-valued throttle would.
 func TestMetaForkDetector_CheckpointAheadWarnsAtSlotIndexZero(t *testing.T) {
-	buff := &bytes.Buffer{}
-	require.Nil(t, logger.AddLogObserver(buff, &checkpointAheadWarnFormatter{}))
-	t.Cleanup(func() {
-		require.Nil(t, logger.RemoveLogObserver(buff))
-	})
+	buff := sync.ObserveLogMessage(t, checkpointAheadWarnMessage)
 
 	sloterMock := &consensusMock.SlotManagerMock{
 		SlotIndex:          0,
