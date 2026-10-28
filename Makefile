@@ -204,9 +204,9 @@ benchmark: ## Run full validator benchmark (ARGS=<args>)
 # Build                                                                       #
 ###############################################################################
 
-.PHONY: build build-validator build-seednode build-operator build-keygenerator build-benchmark clean
+.PHONY: build build-validator build-seednode build-operator build-keygenerator build-benchmark build-indexer-backfill clean
 
-build: build-validator build-seednode build-operator build-keygenerator build-benchmark ## Build all binaries
+build: build-validator build-seednode build-operator build-keygenerator build-benchmark build-indexer-backfill ## Build all binaries
 
 build-validator: ## Build validator node binary
 	$(GOBUILD) -o ./bin/validator ./cmd/node
@@ -222,6 +222,9 @@ build-keygenerator: ## Build key generator binary
 
 build-benchmark: ## Build validator benchmark tool
 	$(GOBUILD) -o ./bin/benchmark ./cmd/benchmark
+
+build-indexer-backfill: ## Build the transactions scAddresses backfill tool
+	$(GOBUILD) -o ./bin/indexer-backfill ./cmd/indexer-backfill
 
 clean: ## Remove build artifacts and caches
 	@echo "Cleaning build artifacts..."

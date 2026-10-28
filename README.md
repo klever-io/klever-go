@@ -70,6 +70,7 @@ This creates the following executables in `./bin/`:
 - `seednode` - Network bootstrap node
 - `keygenerator` - Key generation utility
 - `connector` - Node connection provider
+- `indexer-backfill` - One-shot tool that writes `scAddresses` onto existing transaction documents
 
 ### Build Individual Components
 
@@ -85,6 +86,9 @@ make build-operator
 
 # Build only the key generator
 make build-keygenerator
+
+# Build only the indexer backfill tool
+make build-indexer-backfill
 ```
 
 ### Docker Build
