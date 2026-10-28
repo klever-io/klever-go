@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/klever-io/klever-go/core/consensus"
@@ -28,11 +29,13 @@ type checkpointInfo struct {
 }
 
 type forkInfo struct {
-	checkpoint             []*checkpointInfo
-	finalCheckpoint        *checkpointInfo
-	probableHighestNonce   uint64
-	highestNonceReceived   uint64
-	rollBackNonce          uint64
+	checkpoint           []*checkpointInfo
+	finalCheckpoint      *checkpointInfo
+	probableHighestNonce uint64
+	highestNonceReceived uint64
+	rollBackNonce        uint64
+	// lastSlotWithForcedFork is the slot index plus one, or 0 when unset.
+	// Zero must not compare equal to slot index 0.
 	lastSlotWithForcedFork int64
 }
 
@@ -52,6 +55,10 @@ type baseForkDetector struct {
 	genesisSlot        uint64
 	maxForkHeaderEpoch uint32
 	tmpStuck           time.Time
+	// checkpointAheadWarned is set while the last checkpoint is ahead of the
+	// local slot index, so that state logs once per episode rather than once
+	// per slot.
+	checkpointAheadWarned atomic.Bool
 }
 
 // SetRollBackNonce sets the nonce where the chain should roll back
@@ -71,16 +78,19 @@ func (bfd *baseForkDetector) getRollBackNonce() uint64 {
 
 func (bfd *baseForkDetector) setLastSlotWithForcedFork(slot int64) {
 	bfd.mutFork.Lock()
-	bfd.fork.lastSlotWithForcedFork = slot
+	bfd.fork.lastSlotWithForcedFork = slot + 1
 	bfd.mutFork.Unlock()
 }
 
 func (bfd *baseForkDetector) lastSlotWithForcedFork() int64 {
 	bfd.mutFork.RLock()
-	slot := bfd.fork.lastSlotWithForcedFork
+	stored := bfd.fork.lastSlotWithForcedFork
 	bfd.mutFork.RUnlock()
+	if stored == 0 {
+		return math.MinInt64
+	}
 
-	return slot
+	return stored - 1
 }
 
 func (bfd *baseForkDetector) removePastOrInvalidRecords() {
@@ -604,7 +614,19 @@ func (bfd *baseForkDetector) isConsensusStuck() bool {
 		return false
 	}
 
-	slotsDifference := tools.SafeI64ToU64(bfd.slotManager.Index()) - bfd.lastCheckpoint().slot
+	currentSlot := tools.SafeI64ToU64(bfd.slotManager.Index())
+	lastCheckpointSlot := bfd.lastCheckpoint().slot
+	slotsDifference, err := tools.SafeSubUint64(currentSlot, lastCheckpointSlot)
+	if err != nil {
+		// The checkpoint is ahead of the local slot index. Subtracting would wrap
+		// and force a rollback of a block that was just committed.
+		// checkBlockBasicValidity accepts headers one slot ahead, so a node whose
+		// clock trails its peers can reach this without a peer misbehaving.
+		bfd.warnCheckpointAhead(currentSlot, lastCheckpointSlot)
+		return false
+	}
+	bfd.checkpointAheadWarned.Store(false)
+
 	if slotsDifference <= process.MaxSlotsWithoutCommittedBlock {
 		return false
 	}
@@ -614,6 +636,19 @@ func (bfd *baseForkDetector) isConsensusStuck() bool {
 	}
 
 	return true
+}
+
+// warnCheckpointAhead logs once when the last checkpoint moves ahead of the
+// local slot index. The latch clears once that subtraction succeeds again.
+func (bfd *baseForkDetector) warnCheckpointAhead(currentSlot uint64, checkpointSlot uint64) {
+	if bfd.checkpointAheadWarned.Swap(true) {
+		return
+	}
+
+	log.Warn("last checkpoint is ahead of the local slot index, node clock appears to trail the network",
+		"local slot index", currentSlot,
+		"checkpoint slot", checkpointSlot,
+		"checkpoint nonce", bfd.lastCheckpoint().nonce)
 }
 
 func (bfd *baseForkDetector) isSyncing() bool {

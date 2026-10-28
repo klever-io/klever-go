@@ -1,6 +1,7 @@
 package sync_test
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/klever-io/klever-go/core/process/sync"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewMetaForkDetector_NilSlotManagerShouldErr(t *testing.T) {
@@ -152,4 +154,137 @@ func TestMetaForkDetector_AddHeaderHigherNonceThanSlotShouldErr(t *testing.T) {
 		nil,
 	)
 	assert.Equal(t, sync.ErrHigherNonceInBlock, err)
+}
+
+// isConsensusStuck derives its slot lag the same way the bootstrapper does, and
+// on this path the wrapped value does not merely trigger a wasted header request:
+// it produces the ForkInfo that isForcedRollBackOneBlock matches, so the node
+// reverts a block it just committed. checkBlockBasicValidity deliberately accepts
+// headers one slot ahead of the local index, so a node whose clock trails its
+// peers reaches this state without any peer misbehaving.
+func TestMetaForkDetector_CheckForkNoForcedRollBackWhenCheckpointIsAheadOfSlotIndex(t *testing.T) {
+	t.Parallel()
+
+	// A multiple of process.SlotModulusTrigger, so IsInProperSlot holds and only
+	// the underflow guard can keep the forced rollback from firing.
+	const laggingSlotIndex = int64(50)
+	const checkpointSlot = uint64(100)
+
+	sloterMock := &consensusMock.SlotManagerMock{
+		SlotIndex:          int64(checkpointSlot),
+		TimeDurationCalled: func() time.Duration { return 0 },
+	}
+	bfd, err := sync.NewMetaForkDetector(sloterMock, &mock.BlackListHandlerStub{}, 0)
+	assert.Nil(t, err)
+
+	hdr := &block.Block{Header: &block.BlockHeader{Nonce: 5, Slot: checkpointSlot}}
+	err = bfd.AddHeader(hdr, []byte("hash"), process.BHProcessed, nil, nil)
+	assert.Nil(t, err)
+	assert.Equal(t, checkpointSlot, bfd.LastCheckpointSlot())
+
+	// The local slot index now trails the committed block's slot.
+	sloterMock.SlotIndex = laggingSlotIndex
+
+	forkInfo := bfd.CheckFork()
+
+	assert.False(t, forkInfo.IsDetected)
+}
+
+// The counterpart of the guard above: with the checkpoint genuinely behind the
+// slot index, the consensus-stuck detection must still fire. Without this the
+// guard could disable the mechanism entirely and no test would notice.
+func TestMetaForkDetector_CheckForkStillDetectsStuckConsensusWhenCheckpointIsBehind(t *testing.T) {
+	t.Parallel()
+
+	// A multiple of process.SlotModulusTrigger, with a lag well past
+	// process.MaxSlotsWithoutCommittedBlock.
+	const checkpointSlot = uint64(1)
+	const laggingSlotIndex = int64(50)
+
+	sloterMock := &consensusMock.SlotManagerMock{
+		SlotIndex:          int64(checkpointSlot),
+		TimeDurationCalled: func() time.Duration { return 0 },
+	}
+	bfd, err := sync.NewMetaForkDetector(sloterMock, &mock.BlackListHandlerStub{}, 0)
+	assert.Nil(t, err)
+
+	hdr := &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: checkpointSlot}}
+	err = bfd.AddHeader(hdr, []byte("hash"), process.BHProcessed, nil, nil)
+	assert.Nil(t, err)
+
+	sloterMock.SlotIndex = laggingSlotIndex
+
+	forkInfo := bfd.CheckFork()
+
+	assert.True(t, forkInfo.IsDetected)
+	// The shape isForcedRollBackOneBlock matches.
+	assert.Equal(t, uint64(math.MaxUint64), forkInfo.Nonce)
+	assert.Nil(t, forkInfo.Hash)
+}
+
+const checkpointAheadWarnMessage = "last checkpoint is ahead of the local slot index, node clock appears to trail the network"
+
+// CheckFork can run on every sync-loop iteration, so the clock-trails-tip
+// warning is once per episode: again only after the checkpoint is no longer
+// ahead. Not parallel: it registers a global log observer.
+func TestMetaForkDetector_CheckpointAheadWarnsOncePerEpisode(t *testing.T) {
+	buff := sync.ObserveLogMessage(t, checkpointAheadWarnMessage)
+
+	const checkpointSlot = uint64(100)
+
+	sloterMock := &consensusMock.SlotManagerMock{
+		SlotIndex:          int64(checkpointSlot),
+		TimeDurationCalled: func() time.Duration { return 0 },
+	}
+	bfd, err := sync.NewMetaForkDetector(sloterMock, &mock.BlackListHandlerStub{}, 0)
+	require.Nil(t, err)
+
+	hdr := &block.Block{Header: &block.BlockHeader{Nonce: 5, Slot: checkpointSlot}}
+	require.Nil(t, bfd.AddHeader(hdr, []byte("hash"), process.BHProcessed, nil, nil))
+
+	sloterMock.SlotIndex = 50
+	forkInfo := bfd.CheckFork()
+	require.False(t, forkInfo.IsDetected)
+
+	firstLen := buff.Len()
+	require.Greater(t, firstLen, 0)
+	require.Contains(t, buff.String(), "last checkpoint is ahead of the local slot index")
+
+	// Same slot, and the next slot while the checkpoint is still ahead: silent.
+	_ = bfd.CheckFork()
+	sloterMock.SlotIndex = 51
+	_ = bfd.CheckFork()
+	require.Equal(t, firstLen, buff.Len())
+
+	// Subtraction succeeds, so the latch clears. 200 is a multiple of
+	// SlotModulusTrigger; the clear happens before the stuck decision.
+	sloterMock.SlotIndex = 200
+	_ = bfd.CheckFork()
+
+	sloterMock.SlotIndex = 50
+	_ = bfd.CheckFork()
+	require.Greater(t, buff.Len(), firstLen)
+}
+
+// Slot index 0 must still warn. The latch is a bool, so an unset field does
+// not collide with that slot the way a slot-valued throttle would.
+func TestMetaForkDetector_CheckpointAheadWarnsAtSlotIndexZero(t *testing.T) {
+	buff := sync.ObserveLogMessage(t, checkpointAheadWarnMessage)
+
+	sloterMock := &consensusMock.SlotManagerMock{
+		SlotIndex:          0,
+		TimeDurationCalled: func() time.Duration { return 0 },
+	}
+	bfd, err := sync.NewMetaForkDetector(sloterMock, &mock.BlackListHandlerStub{}, 0)
+	require.Nil(t, err)
+
+	// checkBlockBasicValidity accepts headers one slot ahead of the local index,
+	// so a checkpoint at slot 1 is reachable while the index still reads 0.
+	hdr := &block.Block{Header: &block.BlockHeader{Nonce: 1, Slot: 1}}
+	require.Nil(t, bfd.AddHeader(hdr, []byte("hash"), process.BHProcessed, nil, nil))
+
+	forkInfo := bfd.CheckFork()
+	require.False(t, forkInfo.IsDetected)
+
+	require.Contains(t, buff.String(), "last checkpoint is ahead of the local slot index")
 }

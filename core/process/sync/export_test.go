@@ -1,10 +1,15 @@
 package sync
 
 import (
+	"bytes"
+	"testing"
+
+	logger "github.com/klever-io/klever-go-logger"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
+	"github.com/stretchr/testify/require"
 )
 
 func (boot *MetaBootstrap) ReceivedHeaders(header data.HeaderHandler, key []byte) {
@@ -185,4 +190,32 @@ func (boot *baseBootstrap) GetMapNonceSyncedWithErrorsLen() int {
 
 func (boot *baseBootstrap) CleanNoncesSyncedWithErrorsBehindFinal() {
 	boot.cleanNoncesSyncedWithErrorsBehindFinal()
+}
+
+// messageLogFormatter keeps only log lines whose message equals msg.
+type messageLogFormatter struct {
+	logger.PlainFormatter
+	msg string
+}
+
+func (f *messageLogFormatter) Output(line logger.LogLineHandler) []byte {
+	if line.GetMessage() != f.msg {
+		return nil
+	}
+
+	return f.PlainFormatter.Output(line)
+}
+
+// ObserveLogMessage registers an observer that retains lines with message msg
+// and removes it when the test ends.
+func ObserveLogMessage(t testing.TB, msg string) *bytes.Buffer {
+	t.Helper()
+
+	buff := &bytes.Buffer{}
+	require.Nil(t, logger.AddLogObserver(buff, &messageLogFormatter{msg: msg}))
+	t.Cleanup(func() {
+		require.Nil(t, logger.RemoveLogObserver(buff))
+	})
+
+	return buff
 }
