@@ -18,6 +18,7 @@ type fallbackHeaderValidator struct {
 	headersPool    retriever.HeadersPool
 	marshalizer    marshal.Marshalizer
 	storageService retriever.StorageService
+	forkController core.ForkController
 }
 
 // NewFallbackHeaderValidator creates a new fallbackHeaderValidator object
@@ -25,6 +26,7 @@ func NewFallbackHeaderValidator(
 	headersPool retriever.HeadersPool,
 	marshalizer marshal.Marshalizer,
 	storageService retriever.StorageService,
+	forkController core.ForkController,
 ) (*fallbackHeaderValidator, error) {
 
 	if check.IfNil(headersPool) {
@@ -36,11 +38,15 @@ func NewFallbackHeaderValidator(
 	if check.IfNil(storageService) {
 		return nil, process.ErrNilStorage
 	}
+	if check.IfNil(forkController) {
+		return nil, common.ErrNilForkController
+	}
 
 	hv := &fallbackHeaderValidator{
 		headersPool:    headersPool,
 		marshalizer:    marshalizer,
 		storageService: storageService,
+		forkController: forkController,
 	}
 
 	return hv, nil
@@ -53,6 +59,12 @@ func (fhv *fallbackHeaderValidator) ShouldApplyFallbackValidation(headerHandler 
 	}
 
 	if !headerHandler.GetIsEpochStart() {
+		return false
+	}
+
+	// From FixAuditChangesV7 every committed header needs the normal PBFT quorum (KLR-53):
+	// two n/2+1 certificates need not share an honest signer.
+	if fhv.forkController.FixAuditChangesV7InEpoch(headerHandler.GetEpoch()) {
 		return false
 	}
 

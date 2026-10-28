@@ -787,6 +787,7 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		dataComponents.Datapool.Headers(),
 		coreComponents.InternalMarshalizer,
 		dataComponents.Store,
+		forkController,
 	)
 	if err != nil {
 		return err

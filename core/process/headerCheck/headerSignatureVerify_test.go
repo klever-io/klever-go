@@ -7,6 +7,9 @@ import (
 
 	"github.com/klever-io/klever-go/common"
 	cMock "github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/fallback"
+	fallbackMock "github.com/klever-io/klever-go/core/fallback/mock"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/headerCheck"
 	"github.com/klever-io/klever-go/crypto"
@@ -725,4 +728,75 @@ func TestHeaderSigVerifier_VerifySignatureOkWhenFallbackThresholdCouldBeApplied(
 	err := hdrSigVerifier.VerifySignature(header)
 	require.Nil(t, err)
 	require.True(t, wasCalled)
+}
+
+// KLR-53: two n/2+1 certificates for conflicting epoch-start headers share only the leader.
+// Before FixAuditChangesV7 both pass final verification; from it, neither does.
+func TestHeaderSigVerifier_VerifySignatureConflictingFallbackCertificatesFixAuditChangesV7(t *testing.T) {
+	t.Parallel()
+
+	const v7Epoch = uint32(100)
+	prevHash := []byte("prev_hash")
+	pkAddr := []byte("aaa00000000000000000000000000000")
+
+	headersPool := &fallbackMock.HeadersCacherStub{
+		GetHeaderByHashCalled: func(hash []byte) (data.HeaderHandler, error) {
+			if bytes.Equal(hash, prevHash) {
+				return &block.Block{Header: &block.BlockHeader{}}, nil
+			}
+			return nil, errors.New("not found")
+		},
+	}
+	epoch := v7Epoch
+	fallbackValidator, err := fallback.NewFallbackHeaderValidator(
+		headersPool,
+		&fallbackMock.MarshalizerStub{},
+		&fallbackMock.ChainStorerStub{},
+		&cMock.ForkControllerStub{FixAuditChangesV7Epoch: &epoch},
+	)
+	require.Nil(t, err)
+
+	args := createHeaderSigVerifierArgs()
+	args.NodesCoordinator = &cMock.NodesCoordinatorMock{
+		ComputeValidatorsGroupCalled: func(randomness []byte, round uint64, epoch uint32) (validators []sharding.Validator, err error) {
+			validatorsGroup := make([]sharding.Validator, 0, 21)
+			for range 21 {
+				v, _ := sharding.NewValidator(pkAddr, pkAddr, 1, defaultChancesSelection)
+				validatorsGroup = append(validatorsGroup, v)
+			}
+			return validatorsGroup, nil
+		},
+	}
+	args.MultiSigVerifier = &cMock.BelNevMock{
+		CreateMock: func(pubKeys []string, index uint16) (signer crypto.MultiSigner, err error) {
+			return &cMock.BelNevMock{VerifyMock: func(msg []byte, bitmap []byte) error { return nil }}, nil
+		},
+	}
+	args.FallbackHeaderValidator = fallbackValidator
+	hdrSigVerifier, _ := headerCheck.NewHeaderSigVerifier(args)
+
+	// 11 of 21 each, overlapping only in bit 0 (the leader): bits 0..10 and bits 0,11..20.
+	bitmapA := []byte{0xFF, 0x07, 0x00}
+	bitmapB := []byte{0x01, 0xF8, 0x1F}
+	certificate := func(bitmap []byte, epoch uint32) *block.Block {
+		return &block.Block{
+			Header: &block.BlockHeader{
+				Slot:         core.MaxSlotsWithoutCommittedStartInEpochBlock,
+				ParentHash:   prevHash,
+				IsEpochStart: true,
+				Epoch:        epoch,
+			},
+			PubKeysBitmap: bitmap,
+		}
+	}
+
+	require.Nil(t, hdrSigVerifier.VerifySignature(certificate(bitmapA, v7Epoch-1)))
+	require.Nil(t, hdrSigVerifier.VerifySignature(certificate(bitmapB, v7Epoch-1)))
+
+	require.Equal(t, headerCheck.ErrNotEnoughSignatures, hdrSigVerifier.VerifySignature(certificate(bitmapA, v7Epoch)))
+	require.Equal(t, headerCheck.ErrNotEnoughSignatures, hdrSigVerifier.VerifySignature(certificate(bitmapB, v7Epoch)))
+
+	// from the fork the epoch-start quorum is exactly the normal 15 of 21
+	require.Nil(t, hdrSigVerifier.VerifySignature(certificate([]byte{0xFF, 0x7F, 0x00}, v7Epoch)))
+	require.Equal(t, headerCheck.ErrNotEnoughSignatures, hdrSigVerifier.VerifySignature(certificate([]byte{0xFF, 0x3F, 0x00}, v7Epoch)))
 }
