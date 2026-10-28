@@ -270,9 +270,7 @@ func resolveSingleIndex(ctx context.Context, client *elasticsearch.Client, alias
 	return names[0], nil
 }
 
-// scroll walks the whole source logs index in batches and hands each batch to visit. The
-// cursor travels in the request body, not the URL: its size grows with the source's shard
-// count and a URL has a length limit the body does not.
+// scroll walks the whole source logs index in batches and hands each batch to visit.
 func (b *backfiller) scroll(ctx context.Context, visit func(map[string]logDocument) error) error {
 	body, err := json.Marshal(b.searchBody())
 	if err != nil {
@@ -293,38 +291,62 @@ func (b *backfiller) scroll(ctx context.Context, visit func(map[string]logDocume
 	}
 
 	scrollID := ""
-	defer func() {
-		if scrollID == "" {
-			return
-		}
-		b.clearScroll(scrollID)
-	}()
+	defer func() { b.releaseScroll(scrollID) }()
 
 	for {
-		current, err := readPage(res)
-		if current.scrollID != "" {
-			scrollID = current.scrollID
-		}
+		done, err := b.visitPage(res, &scrollID, visit)
 		if err != nil {
 			return err
 		}
-
-		if len(current.docs) == 0 {
+		if done {
 			return nil
 		}
-		if err := visit(current.docs); err != nil {
-			return err
-		}
-
-		next, err := json.Marshal(map[string]interface{}{"scroll_id": scrollID, "scroll": esDuration(b.opts.scrollKeepAlive)})
+		res, err = b.continueScroll(ctx, scrollID)
 		if err != nil {
 			return err
-		}
-		res, err = b.source.Scroll(b.source.Scroll.WithContext(ctx), b.source.Scroll.WithBody(bytes.NewReader(next)))
-		if err != nil {
-			return fmt.Errorf("scroll %s: %w", logsIndex, err)
 		}
 	}
+}
+
+// visitPage keeps the cursor even when the page is incomplete, so the caller can still
+// release it, then hands a non-empty batch to visit. An empty batch ends the scroll.
+func (b *backfiller) visitPage(res *esapi.Response, scrollID *string, visit func(map[string]logDocument) error) (bool, error) {
+	current, err := readPage(res)
+	if current.scrollID != "" {
+		*scrollID = current.scrollID
+	}
+	if err != nil {
+		return false, err
+	}
+	if len(current.docs) == 0 {
+		return true, nil
+	}
+	if err := visit(current.docs); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
+// continueScroll asks for the next batch. The cursor travels in the request body, not the
+// URL: its size grows with the source's shard count and a URL has a length limit the body
+// does not.
+func (b *backfiller) continueScroll(ctx context.Context, scrollID string) (*esapi.Response, error) {
+	next, err := json.Marshal(map[string]interface{}{"scroll_id": scrollID, "scroll": esDuration(b.opts.scrollKeepAlive)})
+	if err != nil {
+		return nil, err
+	}
+	res, err := b.source.Scroll(b.source.Scroll.WithContext(ctx), b.source.Scroll.WithBody(bytes.NewReader(next)))
+	if err != nil {
+		return nil, fmt.Errorf("scroll %s: %w", logsIndex, err)
+	}
+	return res, nil
+}
+
+func (b *backfiller) releaseScroll(scrollID string) {
+	if scrollID == "" {
+		return
+	}
+	b.clearScroll(scrollID)
 }
 
 // esDuration renders a keepalive the way the client renders its own query parameters:
