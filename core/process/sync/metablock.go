@@ -2,7 +2,6 @@ package sync
 
 import (
 	"context"
-	"math"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
@@ -65,10 +64,6 @@ func NewMetaBootstrap(arguments ArgMetaBootstrapper) (*MetaBootstrap, error) {
 		isInImportMode:  arguments.IsInImportMode,
 		hasStarted:      arguments.SlotManager.BeforeGenesis() || arguments.IsInImportMode || arguments.StartWithInSync,
 	}
-	// Sentinel below any real slot index, mirroring the fork detector's warning
-	// throttle: the zero value would equal slot index 0 and swallow the first
-	// burst there.
-	base.lastStuckRequestSlot.Store(math.MinInt64)
 
 	if base.hasStarted {
 		log.Warn("node starting inSync state")

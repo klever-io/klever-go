@@ -29,11 +29,13 @@ type checkpointInfo struct {
 }
 
 type forkInfo struct {
-	checkpoint             []*checkpointInfo
-	finalCheckpoint        *checkpointInfo
-	probableHighestNonce   uint64
-	highestNonceReceived   uint64
-	rollBackNonce          uint64
+	checkpoint           []*checkpointInfo
+	finalCheckpoint      *checkpointInfo
+	probableHighestNonce uint64
+	highestNonceReceived uint64
+	rollBackNonce        uint64
+	// lastSlotWithForcedFork is the slot index plus one, or 0 when unset.
+	// Zero must not compare equal to slot index 0.
 	lastSlotWithForcedFork int64
 }
 
@@ -53,10 +55,10 @@ type baseForkDetector struct {
 	genesisSlot        uint64
 	maxForkHeaderEpoch uint32
 	tmpStuck           time.Time
-	// lastCheckpointAheadWarnSlot throttles the checkpoint-ahead warning to once
-	// per slot; CheckFork can run on every sync-loop iteration while the node is
-	// not synchronized.
-	lastCheckpointAheadWarnSlot atomic.Int64
+	// checkpointAheadWarned is set while the last checkpoint is ahead of the
+	// local slot index, so that state logs once per episode rather than once
+	// per slot.
+	checkpointAheadWarned atomic.Bool
 }
 
 // SetRollBackNonce sets the nonce where the chain should roll back
@@ -76,16 +78,19 @@ func (bfd *baseForkDetector) getRollBackNonce() uint64 {
 
 func (bfd *baseForkDetector) setLastSlotWithForcedFork(slot int64) {
 	bfd.mutFork.Lock()
-	bfd.fork.lastSlotWithForcedFork = slot
+	bfd.fork.lastSlotWithForcedFork = slot + 1
 	bfd.mutFork.Unlock()
 }
 
 func (bfd *baseForkDetector) lastSlotWithForcedFork() int64 {
 	bfd.mutFork.RLock()
-	slot := bfd.fork.lastSlotWithForcedFork
+	stored := bfd.fork.lastSlotWithForcedFork
 	bfd.mutFork.RUnlock()
+	if stored == 0 {
+		return math.MinInt64
+	}
 
-	return slot
+	return stored - 1
 }
 
 func (bfd *baseForkDetector) removePastOrInvalidRecords() {
@@ -613,15 +618,14 @@ func (bfd *baseForkDetector) isConsensusStuck() bool {
 	lastCheckpointSlot := bfd.lastCheckpoint().slot
 	slotsDifference, err := tools.SafeSubUint64(currentSlot, lastCheckpointSlot)
 	if err != nil {
-		// The last checkpoint is ahead of our own slot index, so no slots have
-		// elapsed since it. Subtracting would wrap around on uint64 and report an
-		// enormous lag, which clears the threshold below and forces a rollback of
-		// a block that was just committed. checkBlockBasicValidity deliberately
-		// accepts headers one slot ahead of the local index, so a node whose clock
-		// trails its peers can reach this state without any peer misbehaving.
-		bfd.warnOnceCheckpointAheadOfSlotIndex(currentSlot, lastCheckpointSlot)
+		// The checkpoint is ahead of the local slot index. Subtracting would wrap
+		// and force a rollback of a block that was just committed.
+		// checkBlockBasicValidity accepts headers one slot ahead, so a node whose
+		// clock trails its peers can reach this without a peer misbehaving.
+		bfd.warnCheckpointAhead(currentSlot, lastCheckpointSlot)
 		return false
 	}
+	bfd.checkpointAheadWarned.Store(false)
 
 	if slotsDifference <= process.MaxSlotsWithoutCommittedBlock {
 		return false
@@ -634,22 +638,10 @@ func (bfd *baseForkDetector) isConsensusStuck() bool {
 	return true
 }
 
-// warnOnceCheckpointAheadOfSlotIndex surfaces the clock-trails-tip state. While
-// it lasts, the node is otherwise silent: incoming headers are dropped below the
-// default log level because their slot exceeds the local index, the
-// bootstrapper's slot lag reads zero so its stall warning cannot fire, and the
-// node keeps reporting NsSynchronized. After an NTP step-back or a VM resume
-// this can hold for a long time, so this line is the only operator-visible
-// signal. Throttled to once per slot because CheckFork runs on every sync-loop
-// iteration while the node is not synchronized.
-//
-// The format does happen under mutNodeState, since CheckFork's only production
-// caller holds it. That is accepted here, unlike for the stall warning that was
-// moved out of that lock: the throttle caps this at one format per slot, and
-// the state has no out-of-lock observer to move it to.
-func (bfd *baseForkDetector) warnOnceCheckpointAheadOfSlotIndex(currentSlot uint64, checkpointSlot uint64) {
-	slotIndex := bfd.slotManager.Index()
-	if bfd.lastCheckpointAheadWarnSlot.Swap(slotIndex) == slotIndex {
+// warnCheckpointAhead logs once when the last checkpoint moves ahead of the
+// local slot index. The latch clears once that subtraction succeeds again.
+func (bfd *baseForkDetector) warnCheckpointAhead(currentSlot uint64, checkpointSlot uint64) {
+	if bfd.checkpointAheadWarned.Swap(true) {
 		return
 	}
 
