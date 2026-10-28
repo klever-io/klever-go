@@ -106,7 +106,10 @@ func (ep *eventsProcessor) SaveBlock(args *indexerData.ArgsSaveBlockData) {
 // ExtractDataFromLogs on them, which writes hasLogs, hasOperations, scAddresses and the
 // status onto the same structs; sharing the pointers is an unsynchronized write against a
 // concurrent read. The copies keep the websocket stream the snapshot it was prepared as.
-// Nil in, nil out, so a block without transactions needs no special case.
+// Accounts and AccountsKDA ride along unchanged: they were resolved on this goroutine for
+// the websocket dispatch, and PrepareBlockData reuses that snapshot instead of resolving
+// the accounts a second time. Nil in, nil out, so a block without transactions needs no
+// special case.
 func detachPreparedBlockData(prepared *data.PreparedBlockData) *data.PreparedBlockData {
 	if prepared == nil {
 		return nil
@@ -129,7 +132,13 @@ func detachPreparedBlockData(prepared *data.PreparedBlockData) *data.PreparedBlo
 		txsMap[hash] = &detached
 	}
 
-	return &data.PreparedBlockData{Txs: txs, TxsMap: txsMap, Altered: prepared.Altered}
+	return &data.PreparedBlockData{
+		Txs:         txs,
+		TxsMap:      txsMap,
+		Altered:     prepared.Altered,
+		Accounts:    prepared.Accounts,
+		AccountsKDA: prepared.AccountsKDA,
+	}
 }
 
 func (ep *eventsProcessor) prepare(args *indexerData.ArgsSaveBlockData) *data.PreparedBlockData {

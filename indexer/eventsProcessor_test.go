@@ -1420,10 +1420,14 @@ func TestDetachPreparedBlockData(t *testing.T) {
 
 	first := &data.Transaction{Hash: "aa", Sender: "s1"}
 	second := &data.Transaction{Hash: "bb", Sender: "s2"}
+	accounts := map[string]*data.AccountInfo{"s1": {Address: "s1"}}
+	kda := []*data.AccountKDA{{AccountAddress: "s1"}}
 	prepared := &data.PreparedBlockData{
-		Txs:     []*data.Transaction{first, second},
-		TxsMap:  map[string]*data.Transaction{"aa": first, "bb": second},
-		Altered: &data.AlteredData{},
+		Txs:         []*data.Transaction{first, second},
+		TxsMap:      map[string]*data.Transaction{"aa": first, "bb": second},
+		Altered:     &data.AlteredData{},
+		Accounts:    accounts,
+		AccountsKDA: kda,
 	}
 
 	detached := detachPreparedBlockData(prepared)
@@ -1434,6 +1438,8 @@ func TestDetachPreparedBlockData(t *testing.T) {
 	require.Same(t, detached.Txs[0], detached.TxsMap["aa"], "the map must point at the copies, not at the originals")
 	require.Same(t, detached.Txs[1], detached.TxsMap["bb"])
 	require.Same(t, prepared.Altered, detached.Altered, "altered data is read, not written, on the indexer path")
+	require.Equal(t, accounts, detached.Accounts, "the account snapshot resolved for the dispatch must reach the indexer")
+	require.Equal(t, kda, detached.AccountsKDA)
 
 	mapOnly := &data.Transaction{Hash: "cc", Sender: "s3"}
 	withMapOnly := detachPreparedBlockData(&data.PreparedBlockData{
