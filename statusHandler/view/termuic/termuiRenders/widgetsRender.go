@@ -303,6 +303,11 @@ func (wr *WidgetsRender) prepareBlockInfo() {
 			// subround ever writes the slot-state metric; render N/A instead
 			// of the empty string it would otherwise show
 			rows[6] = []string{fmt.Sprintf("Consensus slot state: N/A (%s)", string(core.WaitingList))}
+		} else if peerType == string(core.JailedList) {
+			// a jailed key stays on the leaving list, outside the consensus
+			// group. The signature check treats that as the subround being
+			// finished and sets the slot-state metric to "signed".
+			rows[6] = []string{fmt.Sprintf("Consensus slot state: N/A (%s)", string(core.JailedList))}
 		} else {
 			consensusSlotState := wr.presenter.GetConsensusSlotState()
 			rows[6] = []string{fmt.Sprintf("Consensus slot state: %s", consensusSlotState)}

@@ -343,6 +343,13 @@ func (ihgs *indexHashedNodesCoordinator) registryToNodesCoordinator(
 }
 
 func epochValidatorsToEpochNodesConfig(config *EpochValidators) (*epochNodesConfig, error) {
+	// a registry entry can be present but null in the stored JSON ("5": null).
+	// LoadState walks every epoch, including ones createNodesCoordinator never
+	// sees, so fail here before the first field access.
+	if config == nil {
+		return nil, fmt.Errorf("nil registry epoch validators")
+	}
+
 	result := &epochNodesConfig{}
 	var err error
 

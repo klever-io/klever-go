@@ -1375,6 +1375,76 @@ func TestNodesCoordinator_LoadStateWithMalformedLeavingValidatorFails(t *testing
 	require.ErrorIs(t, err, ErrNilPubKey)
 }
 
+func TestNodesCoordinator_LoadStateWithNullEpochEntryFails(t *testing.T) {
+	t.Parallel()
+
+	// EpochsConfig is a map of pointers, so a stored `"5": null` unmarshals
+	// to a nil *EpochValidators beside an otherwise valid epoch.
+	registry := &NodesCoordinatorRegistry{
+		CurrentEpoch: 2,
+		EpochsConfig: map[string]*EpochValidators{
+			"2": {
+				ElectedValidators:  ValidatorArrayToSerializableValidatorArray(createDummyNodesList(4, "nullEpochElected")),
+				EligibleValidators: ValidatorArrayToSerializableValidatorArray(createDummyNodesList(1, "nullEpochEligible")),
+				WaitingValidators:  ValidatorArrayToSerializableValidatorArray([]Validator{}),
+			},
+			"5": nil,
+		},
+	}
+	raw, err := json.Marshal(registry)
+	require.Nil(t, err)
+	require.Contains(t, string(raw), `"5":null`)
+
+	bootStorer := mock.NewStorerMock()
+	savedKey := []byte("null-epoch-entry-key")
+	ncInternalKey := append([]byte(core.NodesCoordinatorRegistryKeyPrefix), savedKey...)
+	require.Nil(t, bootStorer.Put(ncInternalKey, raw))
+
+	args := createArguments()
+	args.BootStorer = bootStorer
+	coordinator, err := NewNodesCoordinator(args)
+	require.Nil(t, err)
+
+	err = coordinator.LoadState(savedKey)
+	require.EqualError(t, err, "nil registry epoch validators")
+
+	_, err = coordinator.GetAllElectedValidatorsKeys(2, false)
+	require.ErrorIs(t, err, ErrEpochNodesConfigDoesNotExist)
+}
+
+func TestNodesCoordinator_EligibleAndWaitingGettersReturnTheirOwnLists(t *testing.T) {
+	t.Parallel()
+
+	ihgs, err := NewNodesCoordinator(createArguments())
+	require.Nil(t, err)
+
+	eligible := createDummyNodesList(2, "eligibleOwn")
+	waiting := createDummyNodesList(3, "waitingOwn")
+	epoch := uint32(4)
+	err = ihgs.SetNodes(createDummyNodesList(4, "electedOwn"), eligible, waiting, []Validator{}, epoch)
+	require.Nil(t, err)
+
+	eligibleKeys, err := ihgs.GetAllEligibleValidatorsKeys(epoch, false)
+	require.Nil(t, err)
+	require.Equal(t, len(eligible), len(eligibleKeys))
+	for _, v := range eligible {
+		assert.True(t, containsByteSlice(eligibleKeys, v.PubKey()))
+	}
+	for _, v := range waiting {
+		assert.False(t, containsByteSlice(eligibleKeys, v.PubKey()))
+	}
+
+	waitingKeys, err := ihgs.GetAllWaitingValidatorsKeys(epoch, false)
+	require.Nil(t, err)
+	require.Equal(t, len(waiting), len(waitingKeys))
+	for _, v := range waiting {
+		assert.True(t, containsByteSlice(waitingKeys, v.PubKey()))
+	}
+	for _, v := range eligible {
+		assert.False(t, containsByteSlice(waitingKeys, v.PubKey()))
+	}
+}
+
 func TestNodesCoordinator_EpochStartPrepareStoresLeavingList(t *testing.T) {
 	t.Parallel()
 
