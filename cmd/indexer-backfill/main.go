@@ -2,11 +2,14 @@
 // indexer learned to derive it, reading each transaction's events from a logs index.
 //
 // The field is derived by the indexer's own ExtractDataFromLogs, fed with the log document
-// as the indexer would have received it from the node, so a backfilled transaction carries
-// what a freshly indexed one carries. Two things the logs cannot give back: a contract that
-// ran without emitting an event was never in the log, and a failed deploy logs under the
-// sender's address, so its transaction gets no field either way. The source and the target
-// are separate clusters on purpose: a logs index can be shorter than the transactions it
+// as the indexer would have received it from the node. Historical logs are incomplete:
+// multiple logs for one transaction share an Elasticsearch ID, so only the last remains.
+// Backfill cannot recover earlier logs' addresses; replay from complete block logs is
+// needed for full coverage. Updates merge addresses to preserve any fuller list already
+// written by live indexing. A contract absent from all log/event addresses cannot be
+// recovered either, and a failed deploy logs under the sender's address.
+//
+// The source and the target are separate clusters on purpose: a logs index can be shorter than the transactions it
 // belongs to (one deployment's logs start months after its first smart contract
 // transaction), so the run reads from whichever cluster holds the complete logs and writes
 // wherever the transactions live.
@@ -17,8 +20,8 @@
 // would then refuse to start against it. That step needs the manage privilege on the
 // transactions index when the property is absent, and only view_index_metadata otherwise.
 //
-// Writes are plain partial updates and the field is a set, so a run is idempotent and a
-// failed run is repeated rather than resumed. Passwords come from the environment
+// Writes atomically union the address sets, so a run is idempotent. A failed run is
+// repeated rather than resumed. Passwords come from the environment
 // (BACKFILL_SOURCE_PASSWORD, BACKFILL_TARGET_PASSWORD), never from flags, and a URL
 // carrying credentials is refused.
 package main

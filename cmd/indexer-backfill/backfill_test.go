@@ -5,15 +5,18 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/elastic/go-elasticsearch/v8/esapi"
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/crypto/pubkeyConverter"
@@ -96,13 +99,25 @@ func TestBulkBody_IsOneUpdatePerTransactionInHashOrder(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, strings.Join([]string{
-		`{"update":{"_id":"aa","_index":"transactions-000001","retry_on_conflict":3}}`,
-		`{"doc":{"scAddresses":["klv1one","klv1three"]}}`,
-		`{"update":{"_id":"bb","_index":"transactions-000001","retry_on_conflict":3}}`,
-		`{"doc":{"scAddresses":["klv1two"]}}`,
-		``,
-	}, "\n"), string(body), "a version conflict with the live indexer must be retried, not failed")
+	lines := bytes.Split(bytes.TrimSpace(body), []byte("\n"))
+	require.Len(t, lines, 4)
+	require.JSONEq(t, `{"update":{"_id":"aa","_index":"transactions-000001","retry_on_conflict":3}}`, string(lines[0]))
+	require.JSONEq(t, `{"update":{"_id":"bb","_index":"transactions-000001","retry_on_conflict":3}}`, string(lines[2]))
+	for i, want := range [][]string{{"klv1one", "klv1three"}, {"klv1two"}} {
+		var update struct {
+			Script struct {
+				Source string              `json:"source"`
+				Lang   string              `json:"lang"`
+				Params map[string][]string `json:"params"`
+			} `json:"script"`
+			Upsert json.RawMessage `json:"upsert"`
+		}
+		require.NoError(t, json.Unmarshal(lines[i*2+1], &update))
+		require.Equal(t, mergeAddressesScript, update.Script.Source)
+		require.Equal(t, "painless", update.Script.Lang)
+		require.Equal(t, want, update.Script.Params[fieldName])
+		require.Nil(t, update.Upsert, "missing transactions must not be created")
+	}
 }
 
 func TestReadBulkResult_TalliesEveryOutcome(t *testing.T) {
@@ -134,18 +149,20 @@ func TestSearchBody_BoundsTheScrollOnlyWhenAsked(t *testing.T) {
 // asserts afterwards, on the test goroutine, what was sent and in which order. The product
 // header is what the client checks on the first response before trusting a server.
 type fakeES struct {
-	mu          sync.Mutex
-	aliases     []string
-	fieldType   string // "" means scAddresses is not mapped on the target
-	logs        map[string]logDocument
-	counts      []int64
-	failBulk    bool
-	failCount   bool
-	failClear   bool
-	requests    []string // "METHOD path?query"
-	bulkBody    bytes.Buffer
-	scrollNext  []byte
-	scrollClear []byte
+	mu            sync.Mutex
+	aliases       []string
+	fieldType     string // "" means scAddresses is not mapped on the target
+	logs          map[string]logDocument
+	counts        []int64
+	failBulk      bool
+	failCount     bool
+	failClear     bool
+	partialSearch string
+	partialScroll string
+	requests      []string // "METHOD path?query"
+	bulkBody      bytes.Buffer
+	scrollNext    []byte
+	scrollClear   []byte
 }
 
 func (f *fakeES) handler() http.Handler {
@@ -175,6 +192,8 @@ func (f *fakeES) handler() http.Handler {
 		case strings.HasSuffix(r.URL.Path, "/_mapping") && r.Method == http.MethodPut:
 			f.fieldType = "keyword"
 			_, _ = io.WriteString(w, `{"acknowledged":true}`)
+		case r.URL.Path == "/"+logsIndex+"/_search" && f.partialSearch != "":
+			_, _ = io.WriteString(w, f.partialSearch)
 		case r.URL.Path == "/"+logsIndex+"/_search":
 			hits := make([]map[string]interface{}, 0, len(f.logs))
 			for hash, doc := range f.logs {
@@ -187,6 +206,8 @@ func (f *fakeES) handler() http.Handler {
 		case r.URL.Path == "/_search/scroll" && r.Method == http.MethodDelete:
 			f.scrollClear, _ = io.ReadAll(r.Body)
 			_, _ = io.WriteString(w, `{"succeeded":true}`)
+		case r.URL.Path == "/_search/scroll" && f.partialScroll != "":
+			_, _ = io.WriteString(w, f.partialScroll)
 		case r.URL.Path == "/_search/scroll":
 			f.scrollNext, _ = io.ReadAll(r.Body)
 			_, _ = io.WriteString(w, `{"_scroll_id":"cursor-2","hits":{"hits":[]}}`)
@@ -341,6 +362,7 @@ func TestBackfill_WritesWhatTheIndexerDerives(t *testing.T) {
 
 	search := cluster.request("POST /logs/_search")
 	require.Contains(t, search, "scroll=60000ms", "the first page must open a scroll with the keepalive")
+	require.Contains(t, search, "allow_partial_search_results=false")
 	require.Contains(t, search, "size=10", "the page size must follow the batch size")
 	require.Contains(t, search, "_source=address%2Cevents.address")
 	next, clear := cluster.scrollBodies()
@@ -509,4 +531,101 @@ func TestRun_EndToEnd(t *testing.T) {
 
 	require.NoError(t, run(options{targetURL: cluster.server.URL, batchSize: 10, scrollKeepAlive: time.Minute, verifyOnly: true}))
 	require.Equal(t, 6, cluster.countPath("/transactions/_count"), "both modes end with the report")
+}
+
+func TestBackfill_RejectsPartialPages(t *testing.T) {
+	for _, stage := range []string{"search", "scroll"} {
+		for _, failure := range []struct{ name, body string }{
+			{"timeout", `"timed_out":true`},
+			{"shard-failure", `"_shards":{"total":2,"successful":1,"failed":1}`},
+		} {
+			for _, hits := range []struct{ name, body string }{
+				{"empty", `[]`},
+				{"nonempty", fmt.Sprintf(`[{"_id":"61","_source":{"address":%q}}]`, bech32(t, contractBytes(1)))},
+			} {
+				t.Run(stage+"/"+failure.name+"/"+hits.name, func(t *testing.T) {
+					response := fmt.Sprintf(`{"_scroll_id":"failed-cursor",%s,"hits":{"hits":%s}}`, failure.body, hits.body)
+					fake := &fakeES{aliases: []string{"transactions-000001"}, fieldType: "keyword", logs: map[string]logDocument{hashOf("plain"): {}}}
+					if stage == "search" {
+						fake.partialSearch = response
+					} else {
+						fake.partialScroll = response
+					}
+					cluster := startFake(t, fake)
+					var out bytes.Buffer
+					ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+					defer cancel()
+					err := cluster.backfiller(t, options{}, &out).backfill(ctx)
+					require.ErrorContains(t, err, "incomplete")
+					require.Zero(t, cluster.countPath("/_bulk"))
+					_, clear := cluster.scrollBodies()
+					require.JSONEq(t, `{"scroll_id":["failed-cursor"]}`, string(clear))
+					require.NotContains(t, out.String(), "logs read:")
+				})
+			}
+		}
+	}
+}
+
+// Run with BACKFILL_TEST_ES_URL pointing at a disposable Elasticsearch instance.
+// The test creates and deletes its own uniquely named index.
+func TestBulkUpdate_PreservesAddressesIntegration(t *testing.T) {
+	endpoint := os.Getenv("BACKFILL_TEST_ES_URL")
+	if endpoint == "" {
+		t.Skip("set BACKFILL_TEST_ES_URL to run against Elasticsearch")
+	}
+	client, err := elasticsearch.NewClient(elasticsearch.Config{Addresses: []string{endpoint}})
+	require.NoError(t, err)
+	index := fmt.Sprintf("backfill-test-%d", time.Now().UnixNano())
+	check := func(t *testing.T, res *esapi.Response, err error) {
+		t.Helper()
+		require.NoError(t, err)
+		defer res.Body.Close()
+		raw, readErr := io.ReadAll(res.Body)
+		require.NoError(t, readErr)
+		require.False(t, res.IsError(), "%s", raw)
+	}
+	created, err := client.Indices.Create(index)
+	check(t, created, err)
+	t.Cleanup(func() {
+		deleted, deleteErr := client.Indices.Delete([]string{index})
+		check(t, deleted, deleteErr)
+	})
+	for _, tc := range []struct {
+		name, initial string
+		want          []string
+		updated       int
+	}{
+		{"missing-field", `{}`, []string{"a", "b"}, 1},
+		{"null-field", `{"scAddresses":null}`, []string{"a", "b"}, 1},
+		{"empty-field", `{"scAddresses":[]}`, []string{"a", "b"}, 1},
+		{"existing-superset", `{"scAddresses":["a","b","c"]}`, []string{"a", "b", "c"}, 0},
+		{"overlap", `{"scAddresses":["b","c"]}`, []string{"a", "b", "c"}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			indexed, err := client.Index(index, strings.NewReader(tc.initial), client.Index.WithDocumentID(tc.name))
+			check(t, indexed, err)
+			b := &backfiller{target: client, out: io.Discard}
+			result, err := b.apply(context.Background(), index, map[string][]string{tc.name: {"b", "a", "b"}})
+			require.NoError(t, err)
+			require.Equal(t, tc.updated, result.updated)
+			require.Equal(t, 1-tc.updated, result.unchanged)
+			res, err := client.Get(index, tc.name)
+			require.NoError(t, err)
+			defer res.Body.Close()
+			var doc struct {
+				Source struct {
+					Addresses []string `json:"scAddresses"`
+				} `json:"_source"`
+			}
+			require.NoError(t, json.NewDecoder(res.Body).Decode(&doc))
+			require.Equal(t, tc.want, doc.Source.Addresses)
+			result, err = b.apply(context.Background(), index, map[string][]string{tc.name: {"a", "b"}})
+			require.NoError(t, err)
+			require.Equal(t, applyResult{unchanged: 1}, result)
+		})
+	}
+	result, err := (&backfiller{target: client, out: io.Discard}).apply(context.Background(), index, map[string][]string{"absent": {"a"}})
+	require.NoError(t, err)
+	require.Equal(t, applyResult{missing: 1}, result)
 }

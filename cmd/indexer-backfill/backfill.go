@@ -282,6 +282,7 @@ func (b *backfiller) scroll(ctx context.Context, visit func(map[string]logDocume
 	res, err := b.source.Search(
 		b.source.Search.WithContext(ctx),
 		b.source.Search.WithIndex(logsIndex),
+		b.source.Search.WithAllowPartialSearchResults(false),
 		b.source.Search.WithBody(bytes.NewReader(body)),
 		b.source.Search.WithSize(b.opts.batchSize),
 		b.source.Search.WithScroll(b.opts.scrollKeepAlive),
@@ -301,10 +302,12 @@ func (b *backfiller) scroll(ctx context.Context, visit func(map[string]logDocume
 
 	for {
 		current, err := readPage(res)
+		if current.scrollID != "" {
+			scrollID = current.scrollID
+		}
 		if err != nil {
 			return err
 		}
-		scrollID = current.scrollID
 
 		if len(current.docs) == 0 {
 			return nil
@@ -392,7 +395,11 @@ func readPage(res *esapi.Response) (page, error) {
 
 	var body struct {
 		ScrollID string `json:"_scroll_id"`
-		Hits     struct {
+		TimedOut bool   `json:"timed_out"`
+		Shards   struct {
+			Failed int `json:"failed"`
+		} `json:"_shards"`
+		Hits struct {
 			Hits []struct {
 				ID     string      `json:"_id"`
 				Source logDocument `json:"_source"`
@@ -401,6 +408,10 @@ func readPage(res *esapi.Response) (page, error) {
 	}
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		return page{}, fmt.Errorf("search %s: %w", logsIndex, err)
+	}
+
+	if body.TimedOut || body.Shards.Failed > 0 {
+		return page{scrollID: body.ScrollID}, fmt.Errorf("search %s: incomplete results (timed_out=%t, failed shards=%d)", logsIndex, body.TimedOut, body.Shards.Failed)
 	}
 
 	docs := make(map[string]logDocument, len(body.Hits.Hits))
@@ -415,9 +426,10 @@ type applyResult struct {
 	updated, unchanged, missing, failed int
 }
 
-// apply writes one batch of derived fields as partial updates. A transaction the target
-// does not hold is counted, not failed: a logs index can hold a hash its transactions
-// index never received, and a missing document is not something this tool should create.
+// apply writes one batch as scripted updates that union scAddresses into the current
+// document. A transaction the target does not hold is counted, not failed: a logs index
+// can hold a hash its transactions index never received, and a missing document is not
+// something this tool should create.
 func (b *backfiller) apply(ctx context.Context, index string, derived map[string][]string) (applyResult, error) {
 	if len(derived) == 0 {
 		return applyResult{}, nil
@@ -441,8 +453,25 @@ func (b *backfiller) apply(ctx context.Context, index string, derived map[string
 	return readBulkResult(res.Body, b.out)
 }
 
+// mergeAddressesScript preserves addresses from live indexing that historical logs may
+// no longer contain. Elasticsearch executes the union atomically against the current
+// document, including on a version-conflict retry. An unchanged union is a no-op.
+const mergeAddressesScript = `
+def addresses = new TreeSet();
+if (ctx._source.scAddresses != null) {
+    addresses.addAll(ctx._source.scAddresses);
+}
+addresses.addAll(params.scAddresses);
+def merged = new ArrayList(addresses);
+if (merged.equals(ctx._source.scAddresses)) {
+    ctx.op = 'noop';
+} else {
+    ctx._source.scAddresses = merged;
+}
+`
+
 // bulkBody builds the NDJSON for one batch: an update action per transaction, each carrying
-// only the field, in hash order so a body is reproducible.
+// the merge script and its addresses, in hash order so a body is reproducible.
 func bulkBody(index string, derived map[string][]string) ([]byte, error) {
 	hashes := make([]string, 0, len(derived))
 	for hash := range derived {
@@ -460,7 +489,13 @@ func bulkBody(index string, derived map[string][]string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		doc, err := json.Marshal(map[string]interface{}{"doc": map[string]interface{}{fieldName: derived[hash]}})
+		doc, err := json.Marshal(map[string]interface{}{
+			"script": map[string]interface{}{
+				"source": mergeAddressesScript,
+				"lang":   "painless",
+				"params": map[string]interface{}{fieldName: derived[hash]},
+			},
+		})
 		if err != nil {
 			return nil, err
 		}
