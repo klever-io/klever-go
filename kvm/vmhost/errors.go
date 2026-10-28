@@ -283,6 +283,9 @@ var ErrRAndSExceedsMax32BytesSecp256k1 = errors.New("invalid length of secp256k1
 // mode was given a message that is not exactly the 32-byte digest the curve signs
 var ErrInvalidSecp256k1PlainMessageLength = errors.New("secp256k1 plain message must be exactly 32 bytes")
 
+// ErrNonCanonicalSecp256k1PlainMessage signals that a secp256k1 plain message is not below the curve order
+var ErrNonCanonicalSecp256k1PlainMessage = errors.New("secp256k1 plain message must be below the curve order")
+
 // ErrManagedBufferToHexLengthExceedsMaximum signals that the source buffer passed to
 // managedBufferToHex exceeds the protocol maximum
 var ErrManagedBufferToHexLengthExceedsMaximum = errors.New("managed buffer length exceeds maximum allowed for hex encoding")

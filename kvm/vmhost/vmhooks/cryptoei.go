@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"slices"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/klever-io/klever-go/kvm/crypto/signing/secp256k1"
 	"github.com/klever-io/klever-go/kvm/executor"
 	"github.com/klever-io/klever-go/kvm/math"
@@ -611,9 +612,15 @@ func (context *VMHooksImpl) VerifyCustomSecp256k1(
 	// plain message declared as 32 bytes can come back shorter, and the curve would zero-extend it: the
 	// short-message acceptance the length check above closes. From FixAuditChangesV6 that is an
 	// out-of-bounds fault, like the truncated signature header below
-	if plainMessage && context.GetVMHost().ForkController().FixAuditChangesV6() && len(message) != secp256k1PlainMessageLength {
-		_ = context.WithFault(vmhost.ErrBadBounds, runtime.CryptoAPIErrorShouldFailExecution())
-		return 1
+	if plainMessage {
+		if context.GetVMHost().ForkController().FixAuditChangesV6() && len(message) != secp256k1PlainMessageLength {
+			_ = context.WithFault(vmhost.ErrBadBounds, runtime.CryptoAPIErrorShouldFailExecution())
+			return 1
+		}
+		err = checkSecp256k1PlainMessageScalar(context.GetVMHost(), message)
+		if context.WithFault(err, runtime.CryptoAPIErrorShouldFailExecution()) {
+			return 1
+		}
 	}
 
 	// read the 2 leading bytes first
@@ -701,6 +708,13 @@ func ManagedVerifyCustomSecp256k1WithHost(
 		return 1
 	}
 
+	if isSecp256k1PlainMessage(hashType) {
+		err = checkSecp256k1PlainMessageScalar(host, msgBytes)
+		if WithFaultAndHost(host, err, runtime.CryptoAPIErrorShouldFailExecution()) {
+			return 1
+		}
+	}
+
 	sigBytes, err := mBufferLoadDataCopy(host, sigHandle)
 	if WithFaultAndHost(host, err, runtime.ManagedBufferAPIErrorShouldFailExecution()) {
 		return 1
@@ -725,6 +739,21 @@ func ManagedVerifyCustomSecp256k1WithHost(
 func isSecp256k1PlainMessage(hashType int32) bool {
 	// #nosec G115
 	return secp256k1.MessageHashType(uint8(hashType)) == secp256k1.ECDSAPlainMsg
+}
+
+// checkSecp256k1PlainMessageScalar rejects, from FixAuditChangesV7, a plain message whose value is not below
+// the curve order N. The curve reduces it mod N without reporting it, so m and m+N would share a signature
+func checkSecp256k1PlainMessageScalar(host vmhost.VMHost, message []byte) error {
+	if !host.ForkController().FixAuditChangesV7() {
+		return nil
+	}
+
+	var scalar btcec.ModNScalar
+	if scalar.SetByteSlice(message) {
+		return vmhost.ErrNonCanonicalSecp256k1PlainMessage
+	}
+
+	return nil
 }
 
 // VerifySecp256k1 VMHooks implementation.
