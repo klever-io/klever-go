@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -473,4 +474,201 @@ func TestVerifySecp256k1_DefaultHooksUnaffectedByPlainMessageGuard(t *testing.T)
 
 		require.Equal(t, int32(0), vmhooks.ManagedVerifySecp256k1WithHost(host, 1, 2, 3))
 	})
+}
+
+// The curve reduces a plain message mod N, so m and m+N share a signature; from FixAuditChangesV7
+// a plain message at or above N is rejected.
+func TestVerifyCustomSecp256k1_PlainMessageAboveCurveOrder(t *testing.T) {
+	t.Parallel()
+
+	privKey, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{0x42}, 32))
+	key := privKey.PubKey().SerializeCompressed()
+	order := btcec.S256().N
+
+	// a uint256 amount signed directly in plain mode; small enough that m+N fits in 32 bytes
+	m := make([]byte, 32)
+	m[31] = 0x2a
+	sig := btcecdsa.Sign(privKey, m).Serialize()
+	mPlusN := new(big.Int).Add(new(big.Int).SetBytes(m), order).FillBytes(make([]byte, 32))
+
+	nMinusOne := new(big.Int).Sub(order, big.NewInt(1)).FillBytes(make([]byte, 32))
+	nMinusOneSig := btcecdsa.Sign(privKey, nMinusOne).Serialize()
+	n := order.FillBytes(make([]byte, 32))
+	allOnes := bytes.Repeat([]byte{0xff}, 32)
+
+	digestArray := sha256.Sum256([]byte("klever"))
+	digest := digestArray[:]
+	digestSig := btcecdsa.Sign(privKey, digest).Serialize()
+
+	// hashed modes reduce their own output mod N, so raw bytes above N are just input
+	allOnesDigest := sha256.Sum256(allOnes)
+	hashedSig := btcecdsa.Sign(privKey, allOnesDigest[:]).Serialize()
+
+	plain := int32(secp256k1.ECDSAPlainMsg)
+	errNonCanonical := vmhost.ErrNonCanonicalSecp256k1PlainMessage
+
+	type testCase struct {
+		name        string
+		fixV6       bool
+		fixV7       bool
+		msg         []byte
+		sig         []byte
+		hashType    int32
+		expected    int32
+		expectedErr error
+	}
+
+	testCases := []testCase{
+		{name: "m verifies before any fix", msg: m, sig: sig, hashType: plain, expected: 0},
+		{name: "m verifies with V6", fixV6: true, msg: m, sig: sig, hashType: plain, expected: 0},
+		{name: "m verifies with V7", fixV6: true, fixV7: true, msg: m, sig: sig, hashType: plain, expected: 0},
+		{name: "m+N verifies before any fix", msg: mPlusN, sig: sig, hashType: plain, expected: 0},
+		{name: "m+N verifies with V6 only", fixV6: true, msg: mPlusN, sig: sig, hashType: plain, expected: 0},
+		{name: "m+N rejected with V7", fixV6: true, fixV7: true, msg: mPlusN, sig: sig, hashType: plain, expected: 1, expectedErr: errNonCanonical},
+		{name: "m+N rejected with V7 and V6 unset", fixV7: true, msg: mPlusN, sig: sig, hashType: plain, expected: 1, expectedErr: errNonCanonical},
+		{name: "hash type 256 narrows to plain and m+N is rejected with V7", fixV6: true, fixV7: true, msg: mPlusN, sig: sig, hashType: 256, expected: 1, expectedErr: errNonCanonical},
+		{name: "N-1 is the largest message that verifies with V7", fixV6: true, fixV7: true, msg: nMinusOne, sig: nMinusOneSig, hashType: plain, expected: 0},
+		{name: "N is rejected with V7 before the signature is checked", fixV6: true, fixV7: true, msg: n, sig: sig, hashType: plain, expected: 1, expectedErr: errNonCanonical},
+		{name: "N fails signature with V6 only", fixV6: true, msg: n, sig: sig, hashType: plain, expected: -1, expectedErr: signing.ErrInvalidSignature},
+		{name: "all-ones message rejected with V7", fixV6: true, fixV7: true, msg: allOnes, sig: sig, hashType: plain, expected: 1, expectedErr: errNonCanonical},
+		{name: "honest digest verifies with V7", fixV6: true, fixV7: true, msg: digest, sig: digestSig, hashType: plain, expected: 0},
+		{name: "hashed mode accepts a message above N with V7", fixV6: true, fixV7: true, msg: allOnes, sig: hashedSig, hashType: int32(secp256k1.ECDSASha256), expected: 0},
+	}
+
+	gasCost := config.MakeGasMapForTests()
+	verifyCost := gasCost["CryptoAPICost"]["VerifySecp256k1"]
+	dataCopyPerByte := gasCost["BaseOperationCost"]["DataCopyPerByte"]
+
+	// the charges of a call that reaches the curve, as in TestVerifyCustomSecp256k1_PlainMessageLength
+	expectedCharges := map[string]func(tc testCase) []uint64{
+		"raw": func(tc testCase) []uint64 {
+			return []uint64{verifyCost, dataCopyPerByte * uint64(len(tc.msg))}
+		},
+		"managed": func(tc testCase) []uint64 {
+			return []uint64{
+				verifyCost,
+				dataCopyPerByte * uint64(len(key)),
+				dataCopyPerByte * uint64(len(tc.msg)),
+				dataCopyPerByte * uint64(len(tc.sig)),
+			}
+		},
+	}
+
+	hooks := map[string]func(*testing.T, *contextmock.VMHostMock, []byte, []byte, []byte, int32) int32{
+		"raw":     verifyCustomSecp256k1Raw,
+		"managed": verifyCustomSecp256k1Managed,
+	}
+
+	for hookName, verify := range hooks {
+		for _, tc := range testCases {
+			t.Run(hookName+"/"+tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				host, charges := newMockVMHostForSecp256k1(tc.fixV6)
+				host.ForkControllerContext.(*commonMock.ForkControllerStub).FixAuditChangesV7Value = tc.fixV7
+				gasBefore := host.Metering().GasLeft()
+				result := verify(t, host, key, tc.msg, tc.sig, tc.hashType)
+
+				require.Equal(t, tc.expected, result)
+				require.Equal(t, tc.expectedErr, host.RuntimeContext.(*contextmock.RuntimeContextMock).FailExecutionErr)
+
+				expected := expectedCharges[hookName](tc)
+				if !tc.fixV6 {
+					// a rejection comes after the message load, so the managed hook never copies the signature
+					if tc.expected == 1 && hookName == "managed" {
+						expected = expected[:len(expected)-1]
+					}
+					expectedTraced := make([]string, 0, len(expected))
+					for _, charge := range expected {
+						expectedTraced = append(expectedTraced, fmt.Sprintf("gas:%d", charge))
+					}
+					require.Equal(t, expectedTraced, *charges)
+					return
+				}
+
+				require.Empty(t, *charges)
+				if tc.expected != 0 {
+					return
+				}
+				expectedTotal := uint64(0)
+				for _, charge := range expected {
+					expectedTotal += charge
+				}
+				require.Equal(t, expectedTotal, gasBefore-host.Metering().GasLeft())
+			})
+		}
+	}
+}
+
+// The scalar check charges nothing: without V7, m+N costs what a verified call always did, and with it
+// a rejection costs what the hook had charged up to the message load.
+func TestVerifyCustomSecp256k1_PlainMessageAboveCurveOrderGas(t *testing.T) {
+	t.Parallel()
+
+	privKey, _ := btcec.PrivKeyFromBytes(bytes.Repeat([]byte{0x42}, 32))
+	key := privKey.PubKey().SerializeCompressed()
+	m := make([]byte, 32)
+	m[31] = 0x2a
+	sig := btcecdsa.Sign(privKey, m).Serialize()
+	mPlusN := new(big.Int).Add(new(big.Int).SetBytes(m), btcec.S256().N).FillBytes(make([]byte, 32))
+	plain := int32(secp256k1.ECDSAPlainMsg)
+
+	gasCost := config.MakeGasMapForTests()
+	verifyCost := gasCost["CryptoAPICost"]["VerifySecp256k1"]
+	dataCopyPerByte := gasCost["BaseOperationCost"]["DataCopyPerByte"]
+	acceptedCharges := map[string][]uint64{
+		"raw":     {verifyCost, dataCopyPerByte * uint64(len(m))},
+		"managed": {verifyCost, dataCopyPerByte * uint64(len(key)), dataCopyPerByte * uint64(len(m)), dataCopyPerByte * uint64(len(sig))},
+	}
+	// the raw hook loads the message last of what it charges for; the managed one has loaded the key too
+	rejectedCost := map[string]uint64{
+		"raw":     verifyCost + dataCopyPerByte*uint64(len(m)),
+		"managed": verifyCost + dataCopyPerByte*uint64(len(key)+len(m)),
+	}
+
+	hooks := map[string]func(*testing.T, *contextmock.VMHostMock, []byte, []byte, []byte, int32) int32{
+		"raw":     verifyCustomSecp256k1Raw,
+		"managed": verifyCustomSecp256k1Managed,
+	}
+
+	consumed := func(t *testing.T, verify func(*testing.T, *contextmock.VMHostMock, []byte, []byte, []byte, int32) int32, fixV6, fixV7 bool, msg []byte) (int32, uint64, []string) {
+		host, charges := newMockVMHostForSecp256k1(fixV6)
+		host.ForkControllerContext.(*commonMock.ForkControllerStub).FixAuditChangesV7Value = fixV7
+		host.RuntimeContext.(*contextmock.RuntimeContextMock).FailCryptoAPI = false
+		gasBefore := host.Metering().GasLeft()
+		result := verify(t, host, key, msg, sig, plain)
+		return result, gasBefore - host.Metering().GasLeft(), *charges
+	}
+
+	for hookName, verify := range hooks {
+		t.Run(hookName+"/without V7 m+N costs what a verified call always did", func(t *testing.T) {
+			t.Parallel()
+
+			expectedTraced := make([]string, 0, len(acceptedCharges[hookName]))
+			expectedTotal := uint64(0)
+			for _, charge := range acceptedCharges[hookName] {
+				expectedTraced = append(expectedTraced, fmt.Sprintf("gas:%d", charge))
+				expectedTotal += charge
+			}
+
+			// before V6 every charge is traced unbounded; from it they are bounded and only show in GasLeft
+			result, _, charges := consumed(t, verify, false, false, mPlusN)
+			require.Equal(t, int32(0), result)
+			require.Equal(t, expectedTraced, charges)
+
+			result, gas, charges := consumed(t, verify, true, false, mPlusN)
+			require.Equal(t, int32(0), result)
+			require.Empty(t, charges)
+			require.Equal(t, expectedTotal, gas)
+		})
+
+		t.Run(hookName+"/with V7 the rejection adds no charge", func(t *testing.T) {
+			t.Parallel()
+
+			result, gas, charges := consumed(t, verify, true, true, mPlusN)
+			require.Equal(t, int32(1), result)
+			require.Empty(t, charges)
+			require.Equal(t, rejectedCost[hookName], gas)
+		})
+	}
 }
