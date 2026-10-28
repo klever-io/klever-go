@@ -271,6 +271,13 @@ func (b *Block) GetBlockHeader() interface{} {
 	return b.GetHeader()
 }
 
+func (b *Block) DropUnknownFieldsOutsideHeader() {
+	if b == nil || len(b.unknownFields) == 0 {
+		return
+	}
+	b.ProtoReflect().SetUnknown(nil)
+}
+
 // IsInterfaceNil returns true if there is no value under the interface
 func (b *BlockHeader) IsInterfaceNil() bool {
 	return b == nil

@@ -1,12 +1,16 @@
 package block_test
 
 import (
+	"bytes"
 	"encoding/hex"
 	"testing"
 
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 func TestCalcularRootHash_EmptySlice(t *testing.T) {
@@ -110,4 +114,55 @@ func TestCalcularRootHash(t *testing.T) {
 	root, err := blk.ComputeRootHash(hasher)
 	assert.Nil(t, err)
 	assert.Equal(t, "2f4bf3a18b541d7ae702a42c6c017448496bdd477ed43638b656114916b8d604", hex.EncodeToString(root))
+}
+
+func appendUnknownField(buff []byte, fieldNumber protowire.Number, size int) []byte {
+	buff = protowire.AppendTag(buff, fieldNumber, protowire.BytesType)
+	return protowire.AppendBytes(buff, bytes.Repeat([]byte{0xab}, size))
+}
+
+func TestBlock_DropUnknownFieldsOutsideHeaderLeavesTheHeaderBytesUnchanged(t *testing.T) {
+	marshalizer := marshal.NewProtoMarshalizer()
+
+	headerBytes, err := marshalizer.Marshal(&block.BlockHeader{
+		Nonce:      7,
+		Slot:       8,
+		ParentHash: []byte("parent"),
+		ChainID:    []byte("chain"),
+	})
+	require.NoError(t, err)
+	headerWithUnknown := appendUnknownField(headerBytes, 99, 4096)
+
+	header := &block.BlockHeader{}
+	require.NoError(t, marshalizer.Unmarshal(header, headerWithUnknown))
+
+	blockBytes, err := marshalizer.Marshal(&block.Block{
+		Header:            header,
+		TxHashes:          [][]byte{[]byte("tx hash")},
+		ProducerSignature: []byte("producer signature"),
+		PubKeysBitmap:     []byte{1},
+		Signature:         []byte("signature"),
+		TxResults:         []uint32{0},
+	})
+	require.NoError(t, err)
+	blockWithUnknown := appendUnknownField(blockBytes, 99, 4096)
+
+	blk := &block.Block{}
+	require.NoError(t, marshalizer.Unmarshal(blk, blockWithUnknown))
+
+	blk.DropUnknownFieldsOutsideHeader()
+
+	reencodedBlock, err := marshalizer.Marshal(blk)
+	require.NoError(t, err)
+	assert.Equal(t, blockBytes, reencodedBlock)
+
+	reencodedHeader, err := marshalizer.Marshal(blk.Header)
+	require.NoError(t, err)
+	assert.Equal(t, headerWithUnknown, reencodedHeader)
+}
+
+func TestBlock_DropUnknownFieldsOutsideHeaderOnNilBlockShouldNotPanic(t *testing.T) {
+	var blk *block.Block
+
+	assert.NotPanics(t, blk.DropUnknownFieldsOutsideHeader)
 }

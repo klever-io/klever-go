@@ -47,6 +47,7 @@ import (
 	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 var marshalizer = marshal.NewProtoMarshalizer()
@@ -3971,4 +3972,70 @@ func TestMetaProcessor_NativeFPRTrim_AcrossTheForkActivationEpoch(t *testing.T) 
 	assert.Equal(t, []uint32{8, 9}, klvEpochs)
 	assert.Equal(t, []uint32{8, 9}, kfiEpochs)
 	assert.Equal(t, int64(3177+2662), h.klvBurned())
+}
+
+func appendUnknownField(buff []byte, fieldNumber protowire.Number, size int) []byte {
+	buff = protowire.AppendTag(buff, fieldNumber, protowire.BytesType)
+	return protowire.AppendBytes(buff, bytes.Repeat([]byte{0xab}, size))
+}
+
+func createMetaProcessorDecodingBlocks(t *testing.T) process.BlockProcessor {
+	arguments := createMockMetaArguments()
+	blockChain := createTestBlockchain()
+	blockChain.CreateNewHeaderCalled = func() data.HeaderHandler {
+		return &block.Block{}
+	}
+	arguments.BlockChain = blockChain
+
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+
+	return mp
+}
+
+func TestMetaProcessor_DecodeBlockHeaderDropsUnknownFieldsOutsideTheHeader(t *testing.T) {
+	t.Parallel()
+
+	mp := createMetaProcessorDecodingBlocks(t)
+	original := &block.Block{
+		Header:        &block.BlockHeader{Nonce: 3, Slot: 4, ParentHash: []byte("parent")},
+		TxHashes:      [][]byte{[]byte("tx hash")},
+		PubKeysBitmap: []byte{1},
+		Signature:     []byte("signature"),
+	}
+	originalBuff, err := marshalizer.Marshal(original)
+	require.NoError(t, err)
+
+	decoded := mp.DecodeBlockHeader(appendUnknownField(originalBuff, 99, 4096))
+	require.NotNil(t, decoded)
+
+	reencoded, err := marshalizer.Marshal(decoded)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(originalBuff, reencoded), "re-encoded block must match the original encoding")
+}
+
+func TestMetaProcessor_DecodeBlockHeaderLeavesTheHeaderBytesUnchanged(t *testing.T) {
+	t.Parallel()
+
+	mp := createMetaProcessorDecodingBlocks(t)
+	headerBuff, err := marshalizer.Marshal(&block.BlockHeader{Nonce: 3, Slot: 4, ParentHash: []byte("parent")})
+	require.NoError(t, err)
+	headerWithUnknown := appendUnknownField(headerBuff, 99, 4096)
+
+	header := &block.BlockHeader{}
+	require.NoError(t, marshalizer.Unmarshal(header, headerWithUnknown))
+	blockBuff, err := marshalizer.Marshal(&block.Block{Header: header, Signature: []byte("signature")})
+	require.NoError(t, err)
+
+	decoded := mp.DecodeBlockHeader(appendUnknownField(blockBuff, 98, 64))
+	require.NotNil(t, decoded)
+	decodedBlock, ok := decoded.(*block.Block)
+	require.True(t, ok)
+
+	reencodedHeader, err := marshalizer.Marshal(decodedBlock.Header)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(headerWithUnknown, reencodedHeader), "re-encoded header must match the received header bytes")
+	reencodedBlock, err := marshalizer.Marshal(decodedBlock)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(blockBuff, reencodedBlock), "re-encoded block must drop only the unknown fields outside the header")
 }

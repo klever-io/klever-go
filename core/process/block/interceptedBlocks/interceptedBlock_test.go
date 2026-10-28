@@ -1,6 +1,7 @@
 package interceptedBlocks_test
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"testing"
@@ -29,6 +30,7 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 var testMarshalizer = &mock.MarshalizerMock{}
@@ -901,4 +903,136 @@ func newRealHeaderIntegrityVerifier(t *testing.T) process.HeaderIntegrityVerifie
 	)
 	require.NoError(t, err)
 	return verifier
+}
+
+func appendUnknownField(buff []byte, fieldNumber protowire.Number, size int) []byte {
+	buff = protowire.AppendTag(buff, fieldNumber, protowire.BytesType)
+	return protowire.AppendBytes(buff, bytes.Repeat([]byte{0xab}, size))
+}
+
+func TestInterceptedBlock_UnknownFieldsOutsideTheHeaderShouldBeDropped(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.ProtoMarshalizerMock{}
+	blk := createMockBlock()
+	originalBuff, err := marshalizer.Marshal(blk)
+	require.NoError(t, err)
+	originalHeaderBuff, err := marshalizer.Marshal(blk.Header)
+	require.NoError(t, err)
+
+	originalArg := createDefaultBlockArgument()
+	originalArg.Marshalizer = marshalizer
+	originalArg.BlockBuff = originalBuff
+	originalBlk, err := interceptedBlocks.NewInterceptedBlock(originalArg)
+	require.NoError(t, err)
+
+	arg := createDefaultBlockArgument()
+	arg.Marshalizer = marshalizer
+	arg.BlockBuff = appendUnknownField(originalBuff, 99, 4096)
+	inBlk, err := interceptedBlocks.NewInterceptedBlock(arg)
+	require.NoError(t, err)
+
+	assert.Equal(t, testHasher.Compute(string(originalHeaderBuff)), inBlk.Hash())
+	assert.Equal(t, originalBlk.Hash(), inBlk.Hash())
+
+	reencoded, err := marshalizer.Marshal(inBlk.Block())
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(originalBuff, reencoded), "re-encoded block must match the original encoding")
+
+	require.NoError(t, originalBlk.CheckValidity())
+	assert.NoError(t, inBlk.CheckValidity())
+}
+
+func TestInterceptedBlock_RealBLSUnknownFieldInsideTheSignedHeaderShouldFailTheSignature(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, 1, consensus.GetPBFTThreshold(1))
+
+	marshalizer := &mock.ProtoMarshalizerMock{}
+	hasher := &blake2b.Blake2b{}
+	keyGen := signing.NewKeyGenerator(mcl.NewSuiteBLS12())
+	singleSigner := singlesig.NewBlsSigner()
+	lowLevelSigner := &llsig.BlsMultiSigner{Hasher: &blake2b.Blake2b{HashSize: multisig.BlsHashSize}}
+
+	privateKey, publicKey := keyGen.GeneratePair()
+	pubKeyBytes, err := publicKey.ToByteArray()
+	require.NoError(t, err)
+	validator, err := sharding.NewValidator([]byte("owner-0"), pubKeyBytes, 1, 0)
+	require.NoError(t, err)
+
+	nodesCoordinator := &mock.NodesCoordinatorMock{
+		ComputeValidatorsGroupCalled: func(_ []byte, _ uint64, _ uint32) ([]sharding.Validator, error) {
+			return []sharding.Validator{validator}, nil
+		},
+	}
+
+	header := &block.BlockHeader{
+		Nonce:           1,
+		Slot:            1,
+		Epoch:           0,
+		ParentHash:      []byte("parent"),
+		PrevRandSeed:    []byte("previous-rand-seed"),
+		ChainID:         []byte("chain"),
+		SoftwareVersion: []byte("version"),
+	}
+	genuine := &block.Block{Header: header}
+
+	header.RandSeed, err = singleSigner.Sign(privateKey, header.PrevRandSeed)
+	require.NoError(t, err)
+	leaderSignedBytes, err := marshalizer.Marshal(genuine.GetBlockHeader())
+	require.NoError(t, err)
+	genuine.ProducerSignature, err = singleSigner.Sign(privateKey, leaderSignedBytes)
+	require.NoError(t, err)
+
+	headerHash, err := tools.CalculateHash(marshalizer, hasher, genuine.GetBlockHeader())
+	require.NoError(t, err)
+
+	multiSigner, err := multisig.NewBLSMultisig(lowLevelSigner, []string{string(pubKeyBytes)}, privateKey, keyGen, 0)
+	require.NoError(t, err)
+	_, err = multiSigner.CreateSignatureShare(headerHash, nil)
+	require.NoError(t, err)
+	genuine.Signature, err = multiSigner.AggregateSigs([]byte{0x01})
+	require.NoError(t, err)
+	genuine.PubKeysBitmap = []byte{0x01}
+
+	hdrSigVerifier, err := headerCheck.NewHeaderSigVerifier(&headerCheck.ArgsHeaderSigVerifier{
+		Marshalizer:             marshalizer,
+		Hasher:                  hasher,
+		NodesCoordinator:        nodesCoordinator,
+		MultiSigVerifier:        multiSigner,
+		SingleSigVerifier:       singleSigner,
+		KeyGen:                  keyGen,
+		FallbackHeaderValidator: &mock.FallBackHeaderValidatorStub{},
+	})
+	require.NoError(t, err)
+
+	newArg := func(blockBuff []byte) *interceptedBlocks.ArgInterceptedBlock {
+		arg := createDefaultBlockArgument()
+		arg.Marshalizer = marshalizer
+		arg.Hasher = hasher
+		arg.BlockBuff = blockBuff
+		arg.HeaderSigVerifier = hdrSigVerifier
+		arg.HeaderIntegrityVerifier = newRealHeaderIntegrityVerifier(t)
+		return arg
+	}
+
+	genuineBuff, err := marshalizer.Marshal(genuine)
+	require.NoError(t, err)
+	genuineBlk, err := interceptedBlocks.NewInterceptedBlock(newArg(genuineBuff))
+	require.NoError(t, err)
+	require.NoError(t, genuineBlk.CheckValidity())
+
+	altered := &block.Block{}
+	require.NoError(t, marshalizer.Unmarshal(altered, genuineBuff))
+	headerBuff, err := marshalizer.Marshal(altered.Header)
+	require.NoError(t, err)
+	require.NoError(t, marshalizer.Unmarshal(altered.Header, appendUnknownField(headerBuff, 99, 4096)))
+	alteredBuff, err := marshalizer.Marshal(altered)
+	require.NoError(t, err)
+	alteredBuff = appendUnknownField(alteredBuff, 98, 64)
+
+	inBlk, err := interceptedBlocks.NewInterceptedBlock(newArg(alteredBuff))
+	require.NoError(t, err)
+	assert.NotEqual(t, genuineBlk.Hash(), inBlk.Hash())
+	assert.ErrorIs(t, inBlk.CheckValidity(), crypto.ErrSigNotValid)
 }
