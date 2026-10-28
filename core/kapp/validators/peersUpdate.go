@@ -1,6 +1,7 @@
 package validators
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"math/big"
@@ -183,16 +184,22 @@ func (v *validatorsKApp) DecreaseAll(
 
 	// Apply penalties to each validator
 	for i, validator := range validators {
-		peerAcc, err := v.loadPeerAccount(validator)
+		electedPeer, err := v.loadPeerAccount(validator)
 		if err != nil {
 			return err
 		}
 
-		// Decrease success rates for both leader and validator roles
-		peerAcc.DecreaseLeaderSuccessRate(leaderAppearances)
-		peerAcc.DecreaseValidatorSuccessRate(consensusGroupAppearances)
+		accounting, err := v.peerForEpochAccounting(electedPeer)
+		if err != nil {
+			return err
+		}
 
-		currentTempRating := peerAcc.GetTempRating()
+		// Decrease success rates for both leader and validator roles.
+		// Counters follow the payable key. Rating stays on the elected key.
+		accounting.DecreaseLeaderSuccessRate(leaderAppearances)
+		accounting.DecreaseValidatorSuccessRate(consensusGroupAppearances)
+
+		currentTempRating := electedPeer.GetTempRating()
 		// Apply rating decrease for missed leader opportunities
 		for ct := uint32(0); ct < leaderAppearances; ct++ {
 			currentTempRating = v.rater.ComputeDecreaseProposer(currentTempRating, 0)
@@ -205,21 +212,24 @@ func (v *validatorsKApp) DecreaseAll(
 
 		// Calculate rating difference (for logging purposes)
 		if i == 0 {
-			ratingDifference = peerAcc.GetTempRating() - currentTempRating
+			ratingDifference = electedPeer.GetTempRating() - currentTempRating
 		}
 
 		// Update the validator's temporary rating
-		peerAcc.SetTempRating(currentTempRating)
+		electedPeer.SetTempRating(currentTempRating)
 		// Check if the validator should be jailed due to low rating
-		v.jailValidatorIfBadRating(peerAcc)
-		// Persist the updated peer account
-		err = v.accountsCacher.UpdatePeer(peerAcc)
+		v.jailValidatorIfBadRating(electedPeer)
+		err = v.saveEpochAccounting(electedPeer, accounting)
 		if err != nil {
 			return err
 		}
 
-		// Log or display updated validator information
-		v.display(validator, peerAcc)
+		// Rating lives on the elected key. Counters may live on another peer, and one
+		// line would pair the elected key with the other peer's rating.
+		v.display(validator, electedPeer)
+		if accounting != electedPeer {
+			v.display(accounting.GetBLSPublicKey(), accounting)
+		}
 	}
 
 	// Log summary of applied penalties
@@ -808,42 +818,88 @@ func (v *validatorsKApp) UpdateValidatorInfoOnSuccessfulBlock(
 	}
 
 	for i := 0; i < len(validatorList); i++ {
-		peerAcc, err := v.loadPeerAccount(validatorList[i].PubKey())
+		electedPeer, err := v.loadPeerAccount(validatorList[i].PubKey())
 		if err != nil {
 			return err
 		}
 
-		peerAcc.IncreaseNumSelectedInSuccessBlocks()
+		accounting, err := v.peerForEpochAccounting(electedPeer)
+		if err != nil {
+			return err
+		}
 
-		newRating := peerAcc.GetRating()
+		accounting.IncreaseNumSelectedInSuccessBlocks()
+
+		newRating := electedPeer.GetRating()
 		isLeader := i == 0
 		validatorSigned := (signingBitmap[i/8] & (1 << (uint16(i) % 8))) != 0 // #nosec G115
 		actionType := v.computeValidatorActionType(isLeader, validatorSigned)
 
 		switch actionType {
 		case leaderSuccess:
-			peerAcc.IncreaseLeaderSuccessRate(1)
-			peerAcc.SetConsecutiveProposerMisses(0)
-			newRating = v.rater.ComputeIncreaseProposer(peerAcc.GetTempRating())
-			peerAcc.AddToAccumulatedFees(leaderAccumulatedFees)
+			accounting.IncreaseLeaderSuccessRate(1)
+			accounting.SetConsecutiveProposerMisses(0)
+			newRating = v.rater.ComputeIncreaseProposer(electedPeer.GetTempRating())
+			accounting.AddToAccumulatedFees(leaderAccumulatedFees)
 		case validatorSuccess:
-			peerAcc.IncreaseValidatorSuccessRate(1)
-			newRating = v.rater.ComputeIncreaseValidator(peerAcc.GetTempRating())
-			peerAcc.AddToAccumulatedFees(validatorAccumulatedFees)
+			accounting.IncreaseValidatorSuccessRate(1)
+			newRating = v.rater.ComputeIncreaseValidator(electedPeer.GetTempRating())
+			accounting.AddToAccumulatedFees(validatorAccumulatedFees)
 		case validatorIgnoredSignature:
-			peerAcc.IncreaseValidatorIgnoredSignaturesRate(1)
-			newRating = v.rater.ComputeIncreaseValidator(peerAcc.GetTempRating())
+			accounting.IncreaseValidatorIgnoredSignaturesRate(1)
+			newRating = v.rater.ComputeIncreaseValidator(electedPeer.GetTempRating())
 		}
 
-		peerAcc.SetTempRating(newRating)
+		electedPeer.SetTempRating(newRating)
 
-		err = v.accountsCacher.UpdatePeer(peerAcc)
+		err = v.saveEpochAccounting(electedPeer, accounting)
 		if err != nil {
 			return err
 		}
 	}
 
 	return v.accountsCacher.SaveAll()
+}
+
+// peerForEpochAccounting returns the peer that receives this epoch's fees and counters
+// for an elected key. From FixAuditChangesV7 a revoked key is not that peer: the writes
+// go to the validator's current key, which is the only key epoch end pays. The elected
+// key keeps its own rating.
+func (v *validatorsKApp) peerForEpochAccounting(elected state.PeerAccountHandler) (state.PeerAccountHandler, error) {
+	if !v.forkController.FixAuditChangesV7() || !elected.GetRevoked() {
+		return elected, nil
+	}
+
+	app, err := v.getKApp()
+	if err != nil {
+		return nil, err
+	}
+
+	val, err := v.getValidator(app, elected.GetOwnerAddress())
+	if err != nil {
+		return nil, err
+	}
+
+	if bytes.Equal(val.BlsPubKey, elected.GetBLSPublicKey()) {
+		return elected, nil
+	}
+
+	return v.loadPeerAccount(val.BlsPubKey)
+}
+
+// saveEpochAccounting passes both peers to UpdatePeer. UpdatePeer persists only
+// when the accounts cache is disabled; a cached peer is already mutated in place.
+func (v *validatorsKApp) saveEpochAccounting(elected, accounting state.PeerAccountHandler) error {
+	err := v.accountsCacher.UpdatePeer(accounting)
+	if err != nil {
+		return err
+	}
+
+	if accounting != elected {
+		return v.accountsCacher.UpdatePeer(elected)
+	}
+
+	return nil
 }
 
 // splitAccumulatedFees splits the accumulated fees between the leader and the signing validators

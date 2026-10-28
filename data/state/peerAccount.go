@@ -143,6 +143,23 @@ func (pa *peerAccount) AddToAccumulatedFees(value int64) {
 	pa.AccumulatedFees += value
 }
 
+// ClearEpochAccounting zeros this epoch's fees and counters without folding them
+// into the lifetime totals. List, rating, and temp rating are left alone.
+func (pa *peerAccount) ClearEpochAccounting() {
+	pa.AccumulatedFees = 0
+	if pa.LeaderSuccessRate != nil {
+		pa.LeaderSuccessRate.NumSuccess = 0
+		pa.LeaderSuccessRate.NumFailure = 0
+	}
+	if pa.ValidatorSuccessRate != nil {
+		pa.ValidatorSuccessRate.NumSuccess = 0
+		pa.ValidatorSuccessRate.NumFailure = 0
+	}
+	pa.ValidatorIgnoredSignaturesRate = 0
+	pa.NumSelectedInSuccessBlocks = 0
+	pa.ConsecutiveProposerMisses = 0
+}
+
 // IncreaseLeaderSuccessRate increases the account's number of successful signing
 func (pa *peerAccount) IncreaseLeaderSuccessRate(value uint32) {
 	pa.LeaderSuccessRate.NumSuccess += value

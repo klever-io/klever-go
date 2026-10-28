@@ -262,6 +262,9 @@ type PeerAccountHandler interface {
 	SetConsecutiveProposerMisses(uint322 uint32)
 	AddToAccumulatedFees(value int64)
 	ResetAtNewEpoch()
+	// ClearEpochAccounting drops this epoch's fees and counters without folding
+	// them into the lifetime totals. ResetAtNewEpoch is the epoch boundary and does fold them in.
+	ClearEpochAccounting()
 	CopyFrom(old PeerAccountHandler) error
 	AccountHandler
 }

@@ -454,6 +454,37 @@ func TestPeerAccount_CopyFrom(t *testing.T) {
 		assert.Equal(t, oldAcc.GetTotalValidatorIgnoredSignaturesRate(), newAcc.GetTotalValidatorIgnoredSignaturesRate())
 	})
 
+	t.Run("clear epoch accounting keeps lifetime totals and rating", func(t *testing.T) {
+		acc, _ := state.NewPeerAccount(make([]byte, 32))
+		acc.IncreaseLeaderSuccessRate(10)
+		acc.DecreaseLeaderSuccessRate(2)
+		acc.ResetAtNewEpoch()
+		acc.IncreaseLeaderSuccessRate(4)
+		acc.DecreaseValidatorSuccessRate(3)
+		acc.IncreaseValidatorIgnoredSignaturesRate(1)
+		acc.IncreaseNumSelectedInSuccessBlocks()
+		acc.AddToAccumulatedFees(50)
+		acc.SetConsecutiveProposerMisses(2)
+		acc.SetRating(100)
+		acc.SetTempRating(80)
+		acc.SetList(state.List_elected)
+
+		acc.ClearEpochAccounting()
+
+		assert.Equal(t, int64(0), acc.GetAccumulatedFees())
+		assert.Equal(t, uint32(0), acc.GetLeaderSuccessRateSuccess())
+		assert.Equal(t, uint32(0), acc.GetLeaderSuccessRateFailure())
+		assert.Equal(t, uint32(0), acc.GetValidatorSuccessRateFailure())
+		assert.Equal(t, uint32(0), acc.GetValidatorIgnoredSignaturesRate())
+		assert.Equal(t, uint32(0), acc.GetNumSelectedInSuccessBlocks())
+		assert.Equal(t, uint32(0), acc.GetConsecutiveProposerMisses())
+		assert.Equal(t, uint32(10), acc.GetTotalLeaderSuccessRateSuccess())
+		assert.Equal(t, uint32(2), acc.GetTotalLeaderSuccessRateFailure())
+		assert.Equal(t, uint32(100), acc.GetRating())
+		assert.Equal(t, uint32(80), acc.GetTempRating())
+		assert.Equal(t, state.List_elected, acc.GetList())
+	})
+
 	t.Run("copy from wrong type", func(t *testing.T) {
 		newAcc, _ := state.NewPeerAccount(make([]byte, 32))
 		wrongHandler := &mock.PeerAccountHandlerMock{}

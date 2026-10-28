@@ -220,6 +220,9 @@ func (p *PeerAccountHandlerMock) SetConsecutiveProposerMisses(val uint32) {
 // ResetAtNewEpoch -
 func (p *PeerAccountHandlerMock) ResetAtNewEpoch() {}
 
+// ClearEpochAccounting -
+func (p *PeerAccountHandlerMock) ClearEpochAccounting() {}
+
 // CopyFrom -
 func (p *PeerAccountHandlerMock) CopyFrom(handler state.PeerAccountHandler) error {
 	if p.CopyFromCalled != nil {
