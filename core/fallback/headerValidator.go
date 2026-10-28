@@ -62,7 +62,7 @@ func (fhv *fallbackHeaderValidator) ShouldApplyFallbackValidation(headerHandler 
 		return false
 	}
 
-	// From FixAuditChangesV7 every committed header needs the normal PBFT quorum (KLR-53):
+	// From FixAuditChangesV7 epoch-start headers also need the normal PBFT quorum (KLR-53):
 	// two n/2+1 certificates need not share an honest signer.
 	if fhv.forkController.FixAuditChangesV7InEpoch(headerHandler.GetEpoch()) {
 		return false
