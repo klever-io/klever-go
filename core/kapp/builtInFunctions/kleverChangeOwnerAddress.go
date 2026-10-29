@@ -71,7 +71,10 @@ func (e *kleverChangeOwnerAddress) ProcessBuiltinFunction(vmInput *vmcommon.Cont
 	callerAddress := vmInput.CallerAddr
 	newOwnerAddress := vmInput.Arguments[0]
 
-	gasRemaining := computeGasRemaining(vmInput.GasProvided, e.funcGasCost)
+	gasRemaining, err := computeBuiltinGasRemaining(vmInput.GasProvided, e.funcGasCost, e.forkController)
+	if err != nil {
+		return nil, err
+	}
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
 
 	acc, err := e.accountsCacher.GetExistingUser(vmInput.RecipientAddr)

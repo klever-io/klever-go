@@ -263,3 +263,13 @@ func computeGasRemaining(gasProvided uint64, gasToUse uint64) uint64 {
 
 	return gasProvided - gasToUse
 }
+
+// computeBuiltinGasRemaining enforces the built-in cost from V7 onward and
+// preserves the legacy zero remainder for underfunded calls before activation.
+func computeBuiltinGasRemaining(gasProvided, gasCost uint64, forks core.ForkController) (uint64, error) {
+	if forks.FixAuditChangesV7() && gasProvided < gasCost {
+		return 0, common.ErrNotEnoughGas
+	}
+
+	return computeGasRemaining(gasProvided, gasCost), nil
+}

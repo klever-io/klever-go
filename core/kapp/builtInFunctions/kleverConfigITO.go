@@ -78,7 +78,10 @@ func (e *kleverConfigITO) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallI
 		return nil, err
 	}
 
-	gasRemaining := computeGasRemaining(vmInput.GasProvided, e.funcGasCost)
+	gasRemaining, err := computeBuiltinGasRemaining(vmInput.GasProvided, e.funcGasCost, e.forkController)
+	if err != nil {
+		return nil, err
+	}
 	vmOutput := &vmcommon.VMOutput{GasRemaining: gasRemaining, ReturnCode: vmcommon.Ok}
 
 	//Using Kapps

@@ -136,7 +136,8 @@ func TestProcessBuiltinFunction(t *testing.T) {
 
 		vmInput := &vmcommon.ContractCallInput{
 			VMInput: vmcommon.VMInput{
-				Arguments: [][]byte{defaultAddress, testPermission}, // Valid encoded empty permission
+				Arguments:   [][]byte{defaultAddress, testPermission}, // Valid encoded empty permission
+				GasProvided: 100,
 			},
 			RecipientAddr: recipientAddress,
 		}
@@ -158,7 +159,8 @@ func TestProcessBuiltinFunction(t *testing.T) {
 
 		vmInput := &vmcommon.ContractCallInput{
 			VMInput: vmcommon.VMInput{
-				Arguments: [][]byte{defaultAddress, testPermission}, // Valid encoded empty permission
+				Arguments:   [][]byte{defaultAddress, testPermission}, // Valid encoded empty permission
+				GasProvided: 100,
 			},
 			RecipientAddr: recipientAddress,
 		}
