@@ -10,6 +10,7 @@ import (
 	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 	test "github.com/klever-io/klever-go/kvm/testcommon"
 	"github.com/klever-io/klever-go/kvm/vmhost"
+	"github.com/klever-io/klever-go/kvm/vmhost/vmhooks"
 	"github.com/klever-io/klever-go/vmcommon"
 	"github.com/stretchr/testify/require"
 )
@@ -77,6 +78,17 @@ func childMethodMock(name string, defaultReturn []byte) func(*mock.InstanceMock,
 		})
 	}
 }
+
+// managedBuffer, managedZero and newHooks build hook arguments and hooks without paying gas.
+func managedBuffer(host vmhost.VMHost, data []byte) int32 {
+	return host.ManagedTypes().NewManagedBufferFromBytes(data)
+}
+
+func managedZero(host vmhost.VMHost) int32 {
+	return host.ManagedTypes().NewBigInt(big.NewInt(0))
+}
+
+func newHooks(host vmhost.VMHost) *vmhooks.VMHooksImpl { return vmhooks.NewVMHooksImpl(host) }
 
 func preForkV6EnableEpochs() blockchainConfig.EnableEpochs {
 	return blockchainConfig.EnableEpochs{FixAuditChangesV5: 0, FixAuditChangesV6: 1_000_000}

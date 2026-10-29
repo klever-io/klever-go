@@ -1,8 +1,13 @@
 package vmhooks_test
 
 import (
+	"bytes"
+	"math/big"
 	"testing"
 
+	"github.com/klever-io/klever-go/common"
+	blockchainConfig "github.com/klever-io/klever-go/config"
+	"github.com/klever-io/klever-go/core/process"
 	test "github.com/klever-io/klever-go/kvm/testcommon"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/kvm/vmhost/vmhooks"
@@ -91,4 +96,90 @@ func TestManagedDeleteContract_DestinationLengthBoundary_PreForkVersusPostFork(t
 	overAddressLen := runManagedHook(t, postForkV6EnableEpochs(), gasLeft, deleteWithDestinationLen(vmhost.AddressLen+1))
 	require.Equal(t, vmcommon.VMExecutionFailed, overAddressLen.returnCode)
 	require.Equal(t, vmhost.ErrInvalidArgument.Error(), overAddressLen.returnMessage)
+}
+
+// A short destination needs no length check: these hooks already fail the same way on both sides
+// of the fork. managedDeleteContract ends Ok on both sides only because executeDelete discards the
+// output of the failed owner check: nothing is deleted and the node never sees the short address.
+func TestManagedCallingHooks_ShortDestination_FailsWithoutLengthCheck(t *testing.T) {
+	const gasLeft = uint64(10_000_000)
+	shortAddress := test.ChildAddress[:vmhost.AddressLen-1]
+	upgradeableMetadata := []byte{vmcommon.MetadataUpgradeable, 0}
+
+	failing := []struct {
+		name    string
+		prepare func(host vmhost.VMHost) func()
+	}{
+		{name: "managedExecuteOnDestContext", prepare: func(host vmhost.VMHost) func() {
+			dst, value, fn, args, result := managedBuffer(host, shortAddress), managedZero(host), managedBuffer(host, []byte(managedHookChildFunction)), managedBuffer(host, nil), managedBuffer(host, nil)
+			return func() { _ = newHooks(host).ManagedExecuteOnDestContext(100_000, dst, value, fn, args, result) }
+		}},
+		{name: "managedExecuteOnSameContext", prepare: func(host vmhost.VMHost) func() {
+			dst, value, fn, args, result := managedBuffer(host, shortAddress), managedZero(host), managedBuffer(host, []byte(managedHookChildFunction)), managedBuffer(host, nil), managedBuffer(host, nil)
+			return func() { _ = newHooks(host).ManagedExecuteOnSameContext(100_000, dst, value, fn, args, result) }
+		}},
+		{name: "managedExecuteReadOnly", prepare: func(host vmhost.VMHost) func() {
+			dst, fn, args, result := managedBuffer(host, shortAddress), managedBuffer(host, []byte(managedHookChildFunction)), managedBuffer(host, nil), managedBuffer(host, nil)
+			return func() { _ = newHooks(host).ManagedExecuteReadOnly(100_000, dst, fn, args, result) }
+		}},
+		{name: "managedUpgradeContract", prepare: func(host vmhost.VMHost) func() {
+			dst, value, code, meta := managedBuffer(host, shortAddress), managedZero(host), managedBuffer(host, []byte("code")), managedBuffer(host, upgradeableMetadata)
+			args, result := managedBuffer(host, nil), managedBuffer(host, nil)
+			return func() { newHooks(host).ManagedUpgradeContract(dst, 100_000, value, code, meta, args, result) }
+		}},
+		{name: "managedUpgradeFromSourceContract source", prepare: func(host vmhost.VMHost) func() {
+			dst, value, source, meta := managedBuffer(host, test.ChildAddress), managedZero(host), managedBuffer(host, shortAddress), managedBuffer(host, upgradeableMetadata)
+			args, result := managedBuffer(host, nil), managedBuffer(host, nil)
+			return func() {
+				newHooks(host).ManagedUpgradeFromSourceContract(dst, 100_000, value, source, meta, args, result)
+			}
+		}},
+		{name: "managedDeployFromSourceContract source", prepare: func(host vmhost.VMHost) func() {
+			value, source, meta, args := managedZero(host), managedBuffer(host, shortAddress), managedBuffer(host, upgradeableMetadata), managedBuffer(host, nil)
+			address, result := managedBuffer(host, nil), managedBuffer(host, nil)
+			return func() {
+				_ = newHooks(host).ManagedDeployFromSourceContract(100_000, value, source, meta, args, address, result)
+			}
+		}},
+	}
+
+	for _, hook := range failing {
+		pre := runManagedHook(t, preForkV6EnableEpochs(), gasLeft, hook.prepare)
+		post := runManagedHook(t, postForkV6EnableEpochs(), gasLeft, hook.prepare)
+
+		// no account under the short address, not some unrelated failure
+		require.Equal(t, vmcommon.VMExecutionFailed, pre.returnCode, hook.name)
+		require.Equal(t, common.ErrAccNotFound.Error(), pre.returnMessage, hook.name)
+		require.Equal(t, pre.returnCode, post.returnCode, hook.name)
+		require.Equal(t, pre.returnMessage, post.returnMessage, hook.name)
+	}
+
+	// not SC-shaped, so the mock and production both reach the accounts kapp's receiver check
+	transferShort := func(host vmhost.VMHost) func() {
+		token, amount := managedBuffer(host, test.KDATestTokenName), host.ManagedTypes().NewBigInt(big.NewInt(1))
+		dst := managedBuffer(host, bytes.Repeat([]byte{0xAB}, vmhost.AddressLen-1))
+		transfers, fn, args := managedBuffer(host, kdaTransferVector(1, token, amount)), managedBuffer(host, nil), managedBuffer(host, nil)
+		return func() { _ = newHooks(host).ManagedMultiTransferKDANFTExecute(dst, transfers, 0, fn, args) }
+	}
+	for _, epochs := range []blockchainConfig.EnableEpochs{preForkV6EnableEpochs(), postForkV6EnableEpochs()} {
+		run := runManagedHook(t, epochs, gasLeft, transferShort)
+		require.Equal(t, vmcommon.VMExecutionFailed, run.returnCode, run.returnMessage)
+		require.Equal(t, process.ErrInvalidRcvAddr.Error(), run.returnMessage)
+	}
+
+	var deleteHost vmhost.VMHost
+	deleteShort := func(host vmhost.VMHost) func() {
+		dst, args := managedBuffer(host, shortAddress), managedBuffer(host, nil)
+		return func() {
+			newHooks(host).ManagedDeleteContract(dst, 100_000, args)
+			deleteHost = host
+		}
+	}
+	for _, epochs := range []blockchainConfig.EnableEpochs{preForkV6EnableEpochs(), postForkV6EnableEpochs()} {
+		run := runManagedHook(t, epochs, gasLeft, deleteShort)
+		require.Equal(t, vmcommon.Ok, run.returnCode, run.returnMessage)
+		// executeDelete swallowed the failed owner check: nothing deleted, the error only in the runtime
+		require.Empty(t, deleteHost.Output().GetVMOutput().DeletedAccounts)
+		require.ErrorIs(t, deleteHost.Runtime().GetAllErrors(), common.ErrAccNotFound)
+	}
 }
