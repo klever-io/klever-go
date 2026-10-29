@@ -1217,6 +1217,9 @@ func createMetaTxSimulatorProcessor(
 
 	readOnlyAccountsCacher.ResetAll(true)
 
+	// simulated deploys, upgrades and deletes must not reach the live accounts the next block commits
+	scProcArgs.AccountsCacher = readOnlyAccountsCacher
+
 	// Init KAppController with the readOnlyAccountsCacher for Simulator
 	err = processArgs.state.KAppControllerSimulator.InitKApps(readOnlyAccountsCacher)
 	if err != nil {

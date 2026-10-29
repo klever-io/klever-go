@@ -15,6 +15,7 @@ import (
 	"github.com/klever-io/klever-go/core/process/transactionLog"
 	"github.com/klever-io/klever-go/core/statistics"
 	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/factory"
 	"github.com/klever-io/klever-go/genesis/parsing"
@@ -139,11 +140,11 @@ func getStateComponents(forkController core.ForkController) *factory.StateCompon
 }
 
 func createMockArguments() *factory.ProcessComponentsFactoryArgs {
-	args, _, _ := createMockArgumentsWithLogs()
+	args, _, _, _ := createMockArgumentsWithLogs()
 	return args
 }
 
-func createMockArgumentsWithLogs() (*factory.ProcessComponentsFactoryArgs, process.TransactionLogProcessor, *factory.DataComponents) {
+func createMockArgumentsWithLogs() (*factory.ProcessComponentsFactoryArgs, process.TransactionLogProcessor, *factory.DataComponents, *mock.AccountsCacherStub) {
 	cfg := getConfig()
 
 	coreArgs := factory.CoreComponentsFactoryArgs{
@@ -228,7 +229,7 @@ func createMockArgumentsWithLogs() (*factory.ProcessComponentsFactoryArgs, proce
 		forkController,
 		txLogsProcessor,
 		core.Normal,
-	), txLogsProcessor, dc
+	), txLogsProcessor, dc, accCacher
 }
 
 func TestProcessComponentsFactory_ShouldWork(t *testing.T) {
@@ -241,7 +242,7 @@ func TestProcessComponentsFactory_ShouldWork(t *testing.T) {
 // A simulation must not reach the block's log cache: CommitBlock persists whatever is
 // in it under the transaction hash, which a simulated copy of a real tx shares.
 func TestProcessComponentsFactory_SimulationDoesNotWriteBlockLogs(t *testing.T) {
-	args, txLogsProcessor, dataComponents := createMockArgumentsWithLogs()
+	args, txLogsProcessor, dataComponents, _ := createMockArgumentsWithLogs()
 	pc, err := factory.ProcessComponentsFactory(args)
 	require.Nil(t, err)
 	require.Nil(t, dataComponents.Blkc.SetCurrentBlockHeader(&block.Block{Header: &block.BlockHeader{Nonce: 1}}))
@@ -261,4 +262,41 @@ func TestProcessComponentsFactory_SimulationDoesNotWriteBlockLogs(t *testing.T) 
 	require.Nil(t, err)
 	require.NotNil(t, res.VMOutput, "the simulation must have reached the VM")
 	require.Empty(t, txLogsProcessor.GetAllCurrentLogs())
+}
+
+// A simulation must run on the read-only cacher: through the live one a simulated
+// deploy, upgrade or delete reaches the accounts the next block commits.
+func TestProcessComponentsFactory_SimulationDoesNotTouchLiveAccounts(t *testing.T) {
+	args, _, dataComponents, liveAccounts := createMockArgumentsWithLogs()
+	pc, err := factory.ProcessComponentsFactory(args)
+	require.Nil(t, err)
+	require.Nil(t, dataComponents.Blkc.SetCurrentBlockHeader(&block.Block{Header: &block.BlockHeader{Nonce: 1}}))
+
+	var touched []string
+	refuse := func(name string) error {
+		touched = append(touched, name)
+		return assert.AnError
+	}
+	liveAccounts.LoadUserCalled = func([]byte) (state.UserAccountHandler, error) { return nil, refuse("LoadUser") }
+	liveAccounts.GetExistingUserCalled = func([]byte) (state.UserAccountHandler, error) { return nil, refuse("GetExistingUser") }
+	liveAccounts.UpdateUserCalled = func(state.AccountHandler) error { return refuse("UpdateUser") }
+	liveAccounts.SaveUserCalled = func(state.AccountHandler) error { return refuse("SaveUser") }
+	liveAccounts.RemoveCodeCalled = func([]byte) error { return refuse("RemoveCode") }
+	liveAccounts.GetCodeCalled = func([]byte) []byte { _ = refuse("GetCode"); return nil }
+
+	// a successful deploy, so the SC processor loads and writes the new contract account
+	code, err := os.ReadFile("../kvm/test/contracts/init-correct/output/init-correct.wasm")
+	require.Nil(t, err)
+	deploy, err := anypb.New(&transaction.SmartContract{Type: transaction.SmartContract_SCDeploy})
+	require.Nil(t, err)
+	tx := &transaction.Transaction{RawData: &transaction.Transaction_Raw{
+		Sender:   make([]byte, 32),
+		Data:     [][]byte{[]byte(hex.EncodeToString(code) + "@0500@0000")},
+		Contract: []*transaction.TXContract{{Type: transaction.TXContract_SmartContractType, Parameter: deploy}},
+	}}
+
+	res, err := pc.TXSimulatorProcessor.ProcessTx(tx)
+	require.Empty(t, touched, "the simulation used the live accounts cacher")
+	require.Nil(t, err)
+	require.Equal(t, transaction.Transaction_SUCCESS, res.Result, res.FailReason)
 }
