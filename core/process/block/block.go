@@ -39,6 +39,19 @@ type metaProcessor struct {
 
 	mutSettledProposals sync.Mutex
 	settledProposals    []string
+
+	// pendingRevert undoes the in-memory state the uncommitted block advanced. Worker.Extend
+	// calls RevertStateToSnapshot from the consensus goroutine, hence the mutex.
+	mutPendingRevert sync.Mutex
+	pendingRevert    *pendingEpochRevert
+}
+
+// pendingEpochRevert restores what ProcessBlock or CreateBlock advanced before the block
+// committed: the epoch notifier and its fork flags, the request handler epoch, the
+// blockchain hook header, the epoch start trigger and the live proposal parameters.
+type pendingEpochRevert struct {
+	restoreEpoch  func()
+	restoreParams func()
 }
 
 // NewMetaProcessor creates a new metaProcessor object
@@ -144,32 +157,16 @@ func (mp *metaProcessor) ProcessBlock(
 	// Snapshot the epoch-sensitive in-memory state before mutating it. The epoch
 	// notifier / fork flags, the request-handler epoch, the blockchain hook header
 	// and the epoch-start trigger are all advanced below before the full
-	// epoch-transition validation (checkEpochCorrectness) runs. If processing
-	// fails after this point, the deferred handler restores them so a rejected
-	// (e.g. future-epoch) block cannot leave the node in a mutated, future-epoch
-	// state.
-	prevCurrentHeader := mp.blockChain.GetCurrentBlockHeader()
-	prevEpoch := epochToRestore(mp.epochNotifier.CurrentEpoch(), prevCurrentHeader)
-	restoreEpochTrigger := snapshotEpochTrigger(mp.epochStartTrigger)
-
-	// Only the epoch start branch settles proposals, so only it can move the
-	// in-memory proposal parameters.
-	var restoreProposalParameters func()
-	if header.GetIsEpochStart() {
-		restoreProposalParameters = snapshotProposalParameters(mp.proposalController.Get())
-	}
+	// epoch-transition validation (checkEpochCorrectness) runs. RevertStateToSnapshot
+	// restores them, whether this block is rejected here or processed and then never
+	// committed (Worker.Extend), so it cannot leave the node in a mutated,
+	// future-epoch state.
+	mp.capturePendingRevert(header.GetIsEpochStart())
 
 	defer func() {
 		if err != nil {
 			log.Error("ProcessBlock revert: ", "error", err.Error())
-			// fork flags first: the revert reloads the proposal parameters and backfills
-			// the defaults of every fork active at the restored epoch, not the rejected one
-			mp.restoreEpochState(prevEpoch, prevCurrentHeader, restoreEpochTrigger)
 			mp.RevertStateToSnapshot(header)
-
-			if restoreProposalParameters != nil {
-				restoreProposalParameters()
-			}
 		}
 	}()
 
@@ -638,6 +635,43 @@ func (mp *metaProcessor) restoreEpochState(
 	}
 }
 
+// capturePendingRevert snapshots the epoch-sensitive in-memory state before a block
+// advances it. An earlier snapshot is kept: it is the state of the last committed block,
+// which is what an uncommitted block reverts to. Only an epoch start block settles
+// proposals, so only then are the live proposal parameters snapshotted as well.
+func (mp *metaProcessor) capturePendingRevert(isEpochStart bool) {
+	mp.mutPendingRevert.Lock()
+	defer mp.mutPendingRevert.Unlock()
+
+	if mp.pendingRevert != nil {
+		return
+	}
+
+	prevCurrentHeader := mp.blockChain.GetCurrentBlockHeader()
+	prevEpoch := epochToRestore(mp.epochNotifier.CurrentEpoch(), prevCurrentHeader)
+	restoreEpochTrigger := snapshotEpochTrigger(mp.epochStartTrigger)
+
+	mp.pendingRevert = &pendingEpochRevert{
+		restoreEpoch: func() {
+			mp.restoreEpochState(prevEpoch, prevCurrentHeader, restoreEpochTrigger)
+		},
+	}
+	if isEpochStart {
+		mp.pendingRevert.restoreParams = snapshotProposalParameters(mp.proposalController.Get())
+	}
+}
+
+// takePendingRevert returns the pending revert, if any, and clears it.
+func (mp *metaProcessor) takePendingRevert() *pendingEpochRevert {
+	mp.mutPendingRevert.Lock()
+	defer mp.mutPendingRevert.Unlock()
+
+	pending := mp.pendingRevert
+	mp.pendingRevert = nil
+
+	return pending
+}
+
 // epochToRestore is the epoch a rejected block returns the fork flags to. The notifier holds 0
 // from a start until the first block advances it, while the committed head is already in a later
 // epoch: restoring 0 there switches every fork off, and the revert then reloads the proposal
@@ -667,6 +701,11 @@ func (mp *metaProcessor) CreateBlock(
 	}
 
 	mp.holdSettledProposals(nil)
+
+	// the leader advances the same state as ProcessBlock; undone if the block never commits.
+	// Whether it is an epoch start is only known after Update, so the parameters are always
+	// snapshotted here.
+	mp.capturePendingRevert(true)
 
 	mp.epochStartTrigger.Update(initialHdr.GetSlot(), initialHdr.GetNonce())
 	blk.Header.Epoch = mp.epochStartTrigger.Epoch()
@@ -824,6 +863,9 @@ func (mp *metaProcessor) CommitBlock(
 		return err
 	}
 
+	// from here SetProcessed owns the epoch start trigger, so a later failure must not
+	// roll the trigger back to the snapshot taken before the block
+	_ = mp.takePendingRevert()
 	mp.commitEpochStart(header)
 	headerHash := mp.hasher.Compute(string(marshalizedHeader))
 	mp.saveHeader(header, headerHash, marshalizedBlock)
@@ -999,6 +1041,13 @@ func (mp *metaProcessor) commitEpochStart(header *block.Block) {
 func (mp *metaProcessor) RevertStateToBlock(header data.HeaderHandler) error {
 	mp.holdSettledProposals(nil)
 
+	// an uncommitted block hands its epoch advance back first, or the trigger stays in its
+	// epoch start; the trigger revert below then follows the committed chain, and the reload
+	// at the end sets the parameters from the recreated trie
+	if pending := mp.takePendingRevert(); pending != nil {
+		pending.restoreEpoch()
+	}
+
 	err := mp.accountsDB[state.UserAccountsState].RecreateTrie(header.GetTrieRoot())
 	if err != nil {
 		log.Debug("recreate trie with error for header",
@@ -1044,15 +1093,30 @@ func (mp *metaProcessor) RevertStateToBlock(header data.HeaderHandler) error {
 	return mp.reloadProposalParameters()
 }
 
-// RevertStateToSnapshot reverts the accounts, then reloads the proposal parameters from
-// the reverted KApp trie.
+// RevertStateToSnapshot undoes a block that was processed or created but not committed:
+// it restores the epoch state the block advanced, reverts the accounts, then reloads the
+// proposal parameters from the reverted KApp trie. Worker.Extend reaches it after a
+// successful ProcessBlock, so the epoch start trigger must be restored here too, or it
+// keeps rejecting the retried epoch start block (KLC-2814).
 func (mp *metaProcessor) RevertStateToSnapshot(header data.HeaderHandler) {
+	pending := mp.takePendingRevert()
+
+	// fork flags first: the reload backfills the defaults of every fork active at the
+	// restored epoch, not the reverted one
+	if pending != nil {
+		pending.restoreEpoch()
+	}
+
 	mp.baseProcessor.RevertStateToSnapshot(header)
 
 	err := mp.reloadProposalParameters()
 	if err != nil {
 		// the live set no longer matches the committed state, and fees are computed from it
 		log.Error("RevertStateToSnapshot: reload proposal parameters", "error", err.Error())
+	}
+
+	if pending != nil && pending.restoreParams != nil {
+		pending.restoreParams()
 	}
 }
 
