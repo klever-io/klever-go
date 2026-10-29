@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"testing"
 
@@ -1488,4 +1489,242 @@ func TestNodesCoordinator_EpochStartPrepareStoresLeavingList(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, 1, len(keys))
 	assert.Equal(t, []byte("jailed0"), keys[0])
+}
+
+func createEpochStartNodesCoordinator(t *testing.T) *indexHashedNodesCoordinatorWithRater {
+	arguments := createArguments()
+	arguments.ConsensusGroupSize = 21
+	arguments.Shuffler = createShufflerWithNodesToShuffle(t, 21, 4)
+	arguments.ElectedNodes = createDummyNodesList(21, "elected")
+	arguments.EligibleNodes = createDummyNodesList(0, "eligible")
+
+	ihgs, err := NewNodesCoordinator(arguments)
+	require.Nil(t, err)
+
+	return ihgs
+}
+
+func appendEpochValidatorsInfo(validatorsInfo []*state.ValidatorInfo, list core.PeerType, count int) []*state.ValidatorInfo {
+	hasher := sha256.Sha256{}
+	for i := 0; i < count; i++ {
+		validatorsInfo = append(validatorsInfo, &state.ValidatorInfo{
+			OwnerAddress: hasher.Compute(fmt.Sprintf("owner%s_%d", list, i)),
+			PublicKey:    hasher.Compute(fmt.Sprintf("pk%s_%d", list, i)),
+			List:         string(list),
+			Index:        1,
+		})
+	}
+
+	return validatorsInfo
+}
+
+func epochValidatorsInfoPubKeys(validatorsInfo []*state.ValidatorInfo, list core.PeerType) []string {
+	pubKeys := make([]string, 0)
+	for _, vi := range validatorsInfo {
+		if vi.List == string(list) {
+			pubKeys = append(pubKeys, string(vi.PublicKey))
+		}
+	}
+
+	return pubKeys
+}
+
+func prepareEpochStart(ihgs *indexHashedNodesCoordinatorWithRater, epoch uint32) {
+	ihgs.EpochStartPrepare(&block.Block{
+		Header: &block.BlockHeader{
+			PrevRandSeed: []byte("rand"),
+			IsEpochStart: true,
+			Epoch:        epoch,
+		},
+	})
+}
+
+func requireEpochNodesConfigWithConsensus(t *testing.T, ihgs *indexHashedNodesCoordinatorWithRater, epoch uint32) *epochNodesConfig {
+	ihgs.mutNodesConfig.RLock()
+	nodesConfig, ok := ihgs.nodesConfig[epoch]
+	ihgs.mutNodesConfig.RUnlock()
+	require.True(t, ok)
+	require.Equal(t, 21, len(nodesConfig.electedList))
+
+	consensusGroup, err := ihgs.ComputeConsensusGroup([]byte("rand"), 1, epoch)
+	require.Nil(t, err)
+	require.Equal(t, ihgs.ConsensusGroupSize(), len(consensusGroup))
+
+	return nodesConfig
+}
+
+func requireNoEpochNodesConfig(t *testing.T, ihgs *indexHashedNodesCoordinatorWithRater, epoch uint32) {
+	ihgs.mutNodesConfig.RLock()
+	_, ok := ihgs.nodesConfig[epoch]
+	ihgs.mutNodesConfig.RUnlock()
+	require.False(t, ok)
+
+	consensusGroup, err := ihgs.ComputeConsensusGroup([]byte("rand"), 1, epoch)
+	require.Nil(t, consensusGroup)
+	require.True(t, errors.Is(err, ErrEpochNodesConfigDoesNotExist))
+}
+
+func TestNodesCoordinator_EpochStart_FewElectedWithManyEligible(t *testing.T) {
+	t.Parallel()
+
+	for _, numElected := range []int{0, 1, 2, 3} {
+		ihgs := createEpochStartNodesCoordinator(t)
+
+		validatorsInfo := make([]*state.ValidatorInfo, 0)
+		validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.ElectedList, numElected)
+		validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.EligibleList, 30)
+		require.Nil(t, ihgs.SetEpochValidatorsInfo(1, validatorsInfo))
+
+		require.NotPanics(t, func() {
+			prepareEpochStart(ihgs, 1)
+		})
+
+		nodesConfig := requireEpochNodesConfigWithConsensus(t, ihgs, 1)
+		assert.Equal(t, numElected+30, len(nodesConfig.electedList)+len(nodesConfig.eligibleList))
+
+		electedKeys := countPubKeys(nodesConfig.electedList)
+		for _, pk := range epochValidatorsInfoPubKeys(validatorsInfo, core.ElectedList) {
+			assert.Equal(t, 1, electedKeys[pk])
+		}
+	}
+}
+
+func TestNodesCoordinator_EpochStart_InactiveValidatorsNeverFillElected(t *testing.T) {
+	t.Parallel()
+
+	ihgs := createEpochStartNodesCoordinator(t)
+
+	validatorsInfo := make([]*state.ValidatorInfo, 0)
+	validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.ElectedList, 20)
+	validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.InactiveList, 5)
+	require.Nil(t, ihgs.SetEpochValidatorsInfo(1, validatorsInfo))
+
+	prepareEpochStart(ihgs, 1)
+
+	requireNoEpochNodesConfig(t, ihgs, 1)
+}
+
+func TestNodesCoordinator_EpochStart_NoElectedOrEligibleFilledFromJailed(t *testing.T) {
+	t.Parallel()
+
+	ihgs := createEpochStartNodesCoordinator(t)
+
+	validatorsInfo := make([]*state.ValidatorInfo, 0)
+	validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.JailedList, 25)
+	require.Nil(t, ihgs.SetEpochValidatorsInfo(1, validatorsInfo))
+
+	prepareEpochStart(ihgs, 1)
+
+	nodesConfig := requireEpochNodesConfigWithConsensus(t, ihgs, 1)
+	require.Equal(t, 4, len(nodesConfig.leavingList))
+
+	leavingKeys, err := ihgs.GetAllLeavingValidatorsKeys(1, false)
+	require.Nil(t, err)
+	require.Equal(t, 4, len(leavingKeys))
+
+	resultKeys := countPubKeys(nodesConfig.electedList, nodesConfig.eligibleList)
+	for _, pk := range leavingKeys {
+		assert.Equal(t, 0, resultKeys[string(pk)])
+	}
+
+	allKeys := countPubKeys(nodesConfig.electedList, nodesConfig.eligibleList, nodesConfig.leavingList)
+	for _, pk := range epochValidatorsInfoPubKeys(validatorsInfo, core.JailedList) {
+		assert.Equal(t, 1, allKeys[pk])
+	}
+}
+
+func TestNodesCoordinator_EpochStart_NoElectedOrEligibleAndTooFewJailedLeavesNoConfig(t *testing.T) {
+	t.Parallel()
+
+	ihgs := createEpochStartNodesCoordinator(t)
+
+	validatorsInfo := make([]*state.ValidatorInfo, 0)
+	validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.JailedList, 20)
+	require.Nil(t, ihgs.SetEpochValidatorsInfo(1, validatorsInfo))
+
+	prepareEpochStart(ihgs, 1)
+
+	requireNoEpochNodesConfig(t, ihgs, 1)
+}
+
+func TestNodesCoordinator_EpochStart_WaitingValidatorsNeverFillElected(t *testing.T) {
+	t.Parallel()
+
+	ihgs := createEpochStartNodesCoordinator(t)
+
+	validatorsInfo := make([]*state.ValidatorInfo, 0)
+	validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.ElectedList, 20)
+	validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.WaitingList, 2)
+	require.Nil(t, ihgs.SetEpochValidatorsInfo(1, validatorsInfo))
+
+	prepareEpochStart(ihgs, 1)
+
+	requireNoEpochNodesConfig(t, ihgs, 1)
+}
+
+func TestNodesCoordinator_EpochStart_ElectedBelowNodesFilledFromJailed(t *testing.T) {
+	t.Parallel()
+
+	ihgs := createEpochStartNodesCoordinator(t)
+
+	validatorsInfo := make([]*state.ValidatorInfo, 0)
+	validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.ElectedList, 20)
+	validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.JailedList, 1)
+	validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.WaitingList, 2)
+	require.Nil(t, ihgs.SetEpochValidatorsInfo(1, validatorsInfo))
+
+	prepareEpochStart(ihgs, 1)
+
+	nodesConfig := requireEpochNodesConfigWithConsensus(t, ihgs, 1)
+
+	electedKeys := countPubKeys(nodesConfig.electedList)
+	for _, pk := range epochValidatorsInfoPubKeys(validatorsInfo, core.JailedList) {
+		assert.Equal(t, 1, electedKeys[pk])
+	}
+
+	resultKeys := countPubKeys(nodesConfig.electedList, nodesConfig.eligibleList)
+	waitingKeys := countPubKeys(nodesConfig.waitingList)
+	for _, pk := range epochValidatorsInfoPubKeys(validatorsInfo, core.WaitingList) {
+		assert.Equal(t, 0, resultKeys[pk])
+		assert.Equal(t, 1, waitingKeys[pk])
+	}
+}
+
+func TestNodesCoordinator_EpochStart_EnoughValidatorsKeepsWaitingAndJailedOut(t *testing.T) {
+	t.Parallel()
+
+	ihgs := createEpochStartNodesCoordinator(t)
+
+	validatorsInfo := make([]*state.ValidatorInfo, 0)
+	validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.ElectedList, 21)
+	validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.EligibleList, 5)
+	validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.WaitingList, 3)
+	validatorsInfo = appendEpochValidatorsInfo(validatorsInfo, core.JailedList, 2)
+	require.Nil(t, ihgs.SetEpochValidatorsInfo(1, validatorsInfo))
+
+	prepareEpochStart(ihgs, 1)
+
+	nodesConfig := requireEpochNodesConfigWithConsensus(t, ihgs, 1)
+	require.Equal(t, 5, len(nodesConfig.eligibleList))
+
+	expectedWaiting := epochValidatorsInfoPubKeys(validatorsInfo, core.WaitingList)
+	sort.Strings(expectedWaiting)
+	actualWaiting := make([]string, 0, len(nodesConfig.waitingList))
+	for _, v := range nodesConfig.waitingList {
+		actualWaiting = append(actualWaiting, string(v.PubKey()))
+	}
+	assert.Equal(t, expectedWaiting, actualWaiting)
+
+	resultKeys := countPubKeys(nodesConfig.electedList, nodesConfig.eligibleList)
+	for _, pk := range epochValidatorsInfoPubKeys(validatorsInfo, core.JailedList) {
+		assert.Equal(t, 0, resultKeys[pk])
+	}
+
+	previouslyElectedNowEligible := 0
+	eligibleKeys := countPubKeys(nodesConfig.eligibleList)
+	for _, pk := range epochValidatorsInfoPubKeys(validatorsInfo, core.ElectedList) {
+		assert.Equal(t, 1, resultKeys[pk])
+		previouslyElectedNowEligible += eligibleKeys[pk]
+	}
+	assert.Equal(t, 4, previouslyElectedNowEligible)
 }

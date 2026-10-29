@@ -956,8 +956,8 @@ func (ihgs *indexHashedNodesCoordinator) computeNodesConfigFromList(
 	sort.Sort(validatorList(electedList))
 	sort.Sort(validatorList(waitingList))
 
-	if len(electedList) == 0 {
-		return nil, fmt.Errorf("%w elected list size is zero. No validators found", ErrListSizeZero)
+	if len(electedList) == 0 && len(eligibleList) == 0 {
+		return nil, fmt.Errorf("%w elected and eligible lists are empty. No validators found", ErrListSizeZero)
 	}
 
 	newNodesConfig := &epochNodesConfig{

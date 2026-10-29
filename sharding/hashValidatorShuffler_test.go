@@ -7,6 +7,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/klever-io/klever-go/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -568,4 +569,195 @@ func TestRandHashShuffler_ShuffleOutNodes_WithZeroValidatorsShuffledOut(t *testi
 
 	assert.Equal(t, 0, len(shuffledOut))
 	assert.Equal(t, validatorsNumber, len(remaining))
+}
+
+func createShufflerWithNodesToShuffle(t *testing.T, nodes uint32, nodesToShuffle uint32) *randHashShuffler {
+	shufflerArgs := &NodesShufflerArgs{
+		Nodes: nodes,
+		MaxNodesEnableConfig: []config.MaxNodesChangeConfig{
+			{EpochEnable: 0, NodesToShuffle: nodesToShuffle},
+		},
+	}
+
+	shuffler, err := NewHashValidatorsShuffler(shufflerArgs)
+	require.Nil(t, err)
+
+	return shuffler
+}
+
+func countPubKeys(lists ...[]Validator) map[string]int {
+	counts := make(map[string]int)
+	for _, list := range lists {
+		for _, v := range list {
+			counts[string(v.PubKey())]++
+		}
+	}
+
+	return counts
+}
+
+func TestRandHashShuffler_UpdateNodeLists_ElectedSmallerThanNodesToShuffleKeepsSurvivors(t *testing.T) {
+	t.Parallel()
+
+	for _, numElected := range []int{0, 1, 2, 3} {
+		shuffler := createShufflerWithNodesToShuffle(t, 21, 4)
+
+		electedList := generateValidatorList(numElected)
+		eligibleList := generateValidatorList(30)
+
+		args := ArgsUpdateNodes{
+			Elected:  electedList,
+			Eligible: eligibleList,
+			Rand:     generateRandomByteArray(32),
+		}
+
+		var res *ResUpdateNodes
+		var err error
+		require.NotPanics(t, func() {
+			res, err = shuffler.UpdateNodeLists(args)
+		})
+		require.Nil(t, err)
+
+		assert.Equal(t, 21, len(res.Elected))
+		assert.Equal(t, numElected+30, len(res.Elected)+len(res.Eligible))
+
+		electedKeys := countPubKeys(res.Elected)
+		for _, v := range electedList {
+			assert.Equal(t, 1, electedKeys[string(v.PubKey())])
+		}
+
+		for _, count := range countPubKeys(res.Elected, res.Eligible) {
+			assert.Equal(t, 1, count)
+		}
+	}
+}
+
+func TestRandHashShuffler_UpdateNodeLists_ElectedSmallerThanNodesToShuffleRotatesWhenNoneDeparted(t *testing.T) {
+	t.Parallel()
+
+	shuffler := createShufflerWithNodesToShuffle(t, 1, 4)
+
+	electedList := generateValidatorList(1)
+	eligibleList := generateValidatorList(3)
+
+	res, err := shuffler.UpdateNodeLists(ArgsUpdateNodes{
+		Elected:  electedList,
+		Eligible: eligibleList,
+		Rand:     generateRandomByteArray(32),
+	})
+	require.Nil(t, err)
+
+	assert.Equal(t, 1, len(res.Elected))
+	assert.Equal(t, 3, len(res.Eligible))
+	assert.Equal(t, 0, countPubKeys(res.Elected)[string(electedList[0].PubKey())])
+	assert.Equal(t, 1, countPubKeys(res.Eligible)[string(electedList[0].PubKey())])
+}
+
+func TestRandHashShuffler_UpdateNodeLists_ElectedSmallerThanNodesToShuffleRotatesTheRemainderOfDeparted(t *testing.T) {
+	t.Parallel()
+
+	shuffler := createShufflerWithNodesToShuffle(t, 5, 4)
+
+	electedList := generateValidatorList(3)
+	eligibleList := generateValidatorList(10)
+
+	res, err := shuffler.UpdateNodeLists(ArgsUpdateNodes{
+		Elected:  electedList,
+		Eligible: eligibleList,
+		Rand:     generateRandomByteArray(32),
+	})
+	require.Nil(t, err)
+
+	assert.Equal(t, 5, len(res.Elected))
+	assert.Equal(t, 8, len(res.Eligible))
+
+	survivors, rotatedOut := countRotation(electedList, res)
+	assert.Equal(t, 1, survivors)
+	assert.Equal(t, 2, rotatedOut)
+}
+
+func countRotation(electedList []Validator, res *ResUpdateNodes) (int, int) {
+	electedKeys := countPubKeys(res.Elected)
+	eligibleKeys := countPubKeys(res.Eligible)
+	survivors := 0
+	rotatedOut := 0
+	for _, v := range electedList {
+		survivors += electedKeys[string(v.PubKey())]
+		rotatedOut += eligibleKeys[string(v.PubKey())]
+	}
+
+	return survivors, rotatedOut
+}
+
+func TestRandHashShuffler_UpdateNodeLists_ElectedEqualToNodesToShuffleRotatesAllOut(t *testing.T) {
+	t.Parallel()
+
+	shuffler := createShufflerWithNodesToShuffle(t, 21, 4)
+
+	electedList := generateValidatorList(4)
+	eligibleList := generateValidatorList(30)
+
+	res, err := shuffler.UpdateNodeLists(ArgsUpdateNodes{
+		Elected:  electedList,
+		Eligible: eligibleList,
+		Rand:     generateRandomByteArray(32),
+	})
+	require.Nil(t, err)
+
+	assert.Equal(t, 21, len(res.Elected))
+	assert.Equal(t, 13, len(res.Eligible))
+
+	survivors, rotatedOut := countRotation(electedList, res)
+	assert.Equal(t, 0, survivors)
+	assert.Equal(t, 4, rotatedOut)
+}
+
+func TestRandHashShuffler_UpdateNodeLists_NodesToShuffleAboveElectedAndNodesRotatesAllOut(t *testing.T) {
+	t.Parallel()
+
+	shuffler := createShufflerWithNodesToShuffle(t, 21, 40)
+
+	electedList := generateValidatorList(21)
+	eligibleList := generateValidatorList(30)
+
+	var res *ResUpdateNodes
+	var err error
+	require.NotPanics(t, func() {
+		res, err = shuffler.UpdateNodeLists(ArgsUpdateNodes{
+			Elected:  electedList,
+			Eligible: eligibleList,
+			Rand:     generateRandomByteArray(32),
+		})
+	})
+	require.Nil(t, err)
+
+	assert.Equal(t, 21, len(res.Elected))
+	assert.Equal(t, 30, len(res.Eligible))
+
+	survivors, rotatedOut := countRotation(electedList, res)
+	assert.Equal(t, 0, survivors)
+	assert.Equal(t, 21, rotatedOut)
+}
+
+func TestRandHashShuffler_UpdateNodeLists_ScarceEligibleCountsDeparturesAgainstSurplus(t *testing.T) {
+	t.Parallel()
+
+	shuffler := createShufflerWithNodesToShuffle(t, 5, 10)
+
+	electedList := generateValidatorList(3)
+	eligibleList := generateValidatorList(6)
+
+	res, err := shuffler.UpdateNodeLists(ArgsUpdateNodes{
+		Elected:  electedList,
+		Eligible: eligibleList,
+		Rand:     generateRandomByteArray(32),
+	})
+	require.Nil(t, err)
+
+	assert.Equal(t, 5, len(res.Elected))
+	assert.Equal(t, 4, len(res.Eligible))
+
+	survivors, rotatedOut := countRotation(electedList, res)
+	assert.Equal(t, 1, survivors)
+	assert.Equal(t, 2, rotatedOut)
 }

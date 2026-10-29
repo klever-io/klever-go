@@ -110,6 +110,11 @@ func shuffleNodes(arg shuffleNodesArg) (*ResUpdateNodes, error) {
 		numToRemove = int(arg.maxNodesToSwap)
 	}
 
+	if numToRemove > len(arg.elected) {
+		numDeparted := max(int(arg.nodes)-len(arg.elected), 0)
+		numToRemove = min(max(numToRemove-numDeparted, 0), len(arg.elected))
+	}
+
 	//* Here we take out a number of validators(numToRemove) randomically and return the ones that
 	//* are still elected the others that will be substituted
 	shuffledOutList, newElected := shuffleOutNodes(electedCopy, numToRemove, arg.randomness)
