@@ -1277,6 +1277,12 @@ const docTemplatenode = `{
                             "$ref": "#/definitions/shared.GenericAPIResponse"
                         }
                     },
+                    "429": {
+                        "description": "too many historical proofs in flight",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
                     "500": {
                         "description": "internal error",
                         "schema": {
@@ -1336,6 +1342,12 @@ const docTemplatenode = `{
                             "$ref": "#/definitions/shared.GenericAPIResponse"
                         }
                     },
+                    "429": {
+                        "description": "too many historical proofs in flight",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
                     "500": {
                         "description": "internal error",
                         "schema": {
@@ -1389,6 +1401,12 @@ const docTemplatenode = `{
                     },
                     "400": {
                         "description": "bad request or unavailable root",
+                        "schema": {
+                            "$ref": "#/definitions/shared.GenericAPIResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "too many historical proofs in flight",
                         "schema": {
                             "$ref": "#/definitions/shared.GenericAPIResponse"
                         }

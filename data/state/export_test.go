@@ -53,3 +53,15 @@ func (adb *AccountsDB) TryLockMutOp() bool {
 	adb.mutOp.Unlock()
 	return true
 }
+
+// TryLockMutPrune reports whether PruneTrie could take the prune lock now, releasing it again if taken.
+func (adb *AccountsDB) TryLockMutPrune() bool {
+	if !adb.mutPrune.TryLock() {
+		return false
+	}
+	adb.mutPrune.Unlock()
+	return true
+}
+
+// MaxHistoricalProofWalks exports the cap on historical-root proofs in flight.
+const MaxHistoricalProofWalks = maxHistoricalProofWalks

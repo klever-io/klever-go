@@ -66,10 +66,15 @@ type AccountsDB struct {
 
 	obsoleteDataTrieHashes map[string][][]byte
 
-	lastRootHash         []byte
-	dataTries            TriesHolder
-	entries              []JournalAccountEntry
-	mutOp                sync.RWMutex
+	lastRootHash []byte
+	dataTries    TriesHolder
+	entries      []JournalAccountEntry
+	mutOp        sync.RWMutex
+	// mutPrune keeps PruneTrie from removing trie nodes while a historical-root proof
+	// walks them, without that walk holding mutOp. Order: mutPrune before mutOp.
+	mutPrune sync.RWMutex
+	// numProofWalks counts the historical-root proofs in flight (maxHistoricalProofWalks).
+	numProofWalks        atomic.Int32
 	processingMode       core.NodeProcessingMode
 	numCheckpoints       uint32
 	loadCodeMeasurements *loadingMeasurements
@@ -902,8 +907,11 @@ func (adb *AccountsDB) journalize(entry JournalAccountEntry) {
 	log.Trace("accountsDB.Journalize", "new length", len(adb.entries))
 }
 
-// PruneTrie removes old values from the trie database
+// PruneTrie removes old values from the trie database. It waits for historical-root proof
+// walks already in flight (mutPrune), then takes mutOp.
 func (adb *AccountsDB) PruneTrie(rootHash []byte, identifier data.TriePruningIdentifier) {
+	adb.mutPrune.Lock()
+	defer adb.mutPrune.Unlock()
 	adb.mutOp.Lock()
 	defer adb.mutOp.Unlock()
 

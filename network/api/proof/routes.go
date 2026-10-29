@@ -70,6 +70,7 @@ func getFacade(c *gin.Context) (FacadeHandler, bool) {
 // @Param address path string true "bech32 address"
 // @Success 200 {object} shared.GenericAPIResponse{data=ProofResponse} "ok"
 // @Failure 400 {object} shared.GenericAPIResponse "bad address, missing account, or unavailable root"
+// @Failure 429 {object} shared.GenericAPIResponse "too many historical proofs in flight"
 // @Failure 500 {object} shared.GenericAPIResponse "internal error"
 // @Router /proof/address/{address} [get]
 func GetProof(c *gin.Context) {
@@ -96,6 +97,7 @@ func GetProof(c *gin.Context) {
 // @Param address path string true "bech32 address"
 // @Success 200 {object} shared.GenericAPIResponse{data=ProofResponse} "ok"
 // @Failure 400 {object} shared.GenericAPIResponse "bad request, missing account, or unavailable root"
+// @Failure 429 {object} shared.GenericAPIResponse "too many historical proofs in flight"
 // @Failure 500 {object} shared.GenericAPIResponse "internal error"
 // @Router /proof/root-hash/{roothash}/address/{address} [get]
 func GetProofForRootHash(c *gin.Context) {
@@ -127,6 +129,7 @@ func GetProofForRootHash(c *gin.Context) {
 // @Param proof body VerifyRequest true "root, address, and proof nodes"
 // @Success 200 {object} shared.GenericAPIResponse{data=VerifyResponse} "ok"
 // @Failure 400 {object} shared.GenericAPIResponse "bad request or unavailable root"
+// @Failure 429 {object} shared.GenericAPIResponse "too many historical proofs in flight"
 // @Failure 500 {object} shared.GenericAPIResponse "internal error"
 // @Router /proof/verify [post]
 func VerifyProof(c *gin.Context) {
@@ -170,6 +173,9 @@ func respondProofErr(c *gin.Context, base error, err error) {
 		errors.Is(err, state.ErrStateRootUnavailable):
 		status = http.StatusBadRequest
 		code = shared.ReturnCodeRequestError
+	case errors.Is(err, state.ErrProofBusy):
+		status = http.StatusTooManyRequests
+		code = shared.ReturnCodeSystemBusy
 	}
 	shared.RespondWith(c, status, nil, apierrors.APIErrorString(base, err), code)
 }

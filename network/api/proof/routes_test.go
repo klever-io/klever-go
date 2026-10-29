@@ -278,3 +278,20 @@ func TestVerifyProof_RejectsBadInput(t *testing.T) {
 		require.Equal(t, tc.status, resp.Code, name)
 	}
 }
+
+func TestGetProofForRootHash_BusyIsTooManyRequests(t *testing.T) {
+	t.Parallel()
+
+	ws := newProofEngine(t, proofRoutesConfig(true, false), &stubFacade{
+		getAtRoot: func([]byte, string) (*state.MerkleProof, error) {
+			return nil, state.ErrProofBusy
+		},
+	})
+
+	resp := httptest.NewRecorder()
+	ws.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "/proof/root-hash/aabb/address/klv1addr", nil))
+	require.Equal(t, http.StatusTooManyRequests, resp.Code)
+	body := decodeBody(t, resp)
+	require.Contains(t, body.Error, state.ErrProofBusy.Error())
+	require.Equal(t, shared.ReturnCodeSystemBusy, body.Code)
+}

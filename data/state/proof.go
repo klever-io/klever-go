@@ -17,6 +17,15 @@ var ErrStateRootUnavailable = errors.New("state root is not available")
 // ErrInvalidProofRequest is returned when a proof call is missing its key or root.
 var ErrInvalidProofRequest = errors.New("invalid proof request")
 
+// ErrProofBusy is returned when maxHistoricalProofWalks historical-root proofs are already
+// in flight. The call fails at once instead of queueing.
+var ErrProofBusy = errors.New("too many historical proofs in flight")
+
+// maxHistoricalProofWalks caps the historical-root proofs in flight. Every node read of a
+// walk and every node write of Commit share the trie storage unit's exclusive lock, so
+// block processing slows with each walk in flight.
+const maxHistoricalProofWalks = 8
+
 // MerkleProof is an inclusion proof for one key under a state root. A client can check
 // it without the node:
 //
@@ -109,29 +118,60 @@ func (adb *AccountsDB) VerifyMerkleProof(rootHash []byte, key []byte, proof [][]
 // withTrieAtRoot runs fn on the live trie when rootHash is the current root, and on a
 // trie recreated from the main trie DB otherwise; snapshots are never used, since
 // recreating from one copies the whole trie into the main DB. RecreateTrie is not
-// called. The accounts lock is held until fn returns, so PruneTrie cannot remove nodes
-// of a historical root mid-walk.
+// called. The live trie is walked under the accounts lock, since block processing
+// mutates it. A historical root is recreated and walked under the prune lock only, so
+// PruneTrie cannot remove its nodes mid-walk while the disk reads of the walk do not
+// stall the account loads, saves and commits that block processing takes mutOp for.
+// At most maxHistoricalProofWalks historical walks run at once; past that it returns
+// ErrProofBusy.
 func (adb *AccountsDB) withTrieAtRoot(rootHash []byte, fn func(data.Trie) error) error {
 	if len(rootHash) == 0 {
 		return fmt.Errorf("%w: empty root hash", ErrInvalidProofRequest)
 	}
 
 	adb.mutOp.Lock()
-	defer adb.mutOp.Unlock()
-
-	if check.IfNil(adb.mainTrie) {
+	mainTrie := adb.mainTrie
+	if check.IfNil(mainTrie) {
+		adb.mutOp.Unlock()
 		return common.ErrNilTrie
 	}
 
-	current, err := adb.mainTrie.RootHash()
+	current, err := mainTrie.RootHash()
 	if err != nil {
+		adb.mutOp.Unlock()
 		return err
 	}
 	if bytes.Equal(current, rootHash) {
-		return fn(adb.mainTrie)
+		defer adb.mutOp.Unlock()
+		return fn(mainTrie)
+	}
+	adb.mutOp.Unlock()
+
+	return adb.withHistoricalTrie(mainTrie, rootHash, fn)
+}
+
+func (adb *AccountsDB) withHistoricalTrie(mainTrie data.Trie, rootHash []byte, fn func(data.Trie) error) error {
+	if adb.numProofWalks.Add(1) > maxHistoricalProofWalks {
+		adb.numProofWalks.Add(-1)
+		return ErrProofBusy
+	}
+	defer adb.numProofWalks.Add(-1)
+
+	adb.mutPrune.RLock()
+	defer adb.mutPrune.RUnlock()
+
+	// RecreateFromMainDb holds the receiver's own lock across its reads, so the root is
+	// read through an empty trie (no I/O) and the live trie lock that LoadAccount,
+	// SaveAccount and Commit need is never held across a read
+	empty, err := mainTrie.RecreateFromMainDb(nil)
+	if err != nil {
+		return err
+	}
+	if check.IfNil(empty) {
+		return common.ErrNilTrie
 	}
 
-	tr, err := adb.mainTrie.RecreateFromMainDb(rootHash)
+	tr, err := empty.RecreateFromMainDb(rootHash)
 	if err != nil {
 		if errors.Is(err, data.ErrHashNotFound) {
 			return fmt.Errorf("%w: %w", ErrStateRootUnavailable, err)
