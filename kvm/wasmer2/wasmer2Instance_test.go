@@ -1,6 +1,7 @@
 package wasmer2
 
 import (
+	"bytes"
 	"encoding/hex"
 	"math"
 	"os"
@@ -17,6 +18,8 @@ import (
 // Clean actually runs cWasmerInstanceDestroy. Tests that only assert the cleaned
 // guards (returning zero/error without touching cgo) do not need this; the ones
 // exercising real destruction, idempotency and the concurrent Clean/accessor race do.
+// Its executor has no VM hooks set, so tests must not call functions that use
+// them, such as answer.
 func newLiveInstance(t *testing.T) *Wasmer2Instance {
 	t.Helper()
 
@@ -148,6 +151,34 @@ func TestWasmer2Instance_IDSurvivesClean(t *testing.T) {
 	assert.Equal(t, idBeforeClean, instance.ID())
 }
 
+func TestWasmer2Instance_MemDumpIsDetachedFromLinearMemory(t *testing.T) {
+	t.Parallel()
+
+	instance := newLiveInstance(t)
+	defer instance.Clean()
+
+	payload := []byte{0xDE, 0xAD, 0xBE, 0xEF}
+	require.NoError(t, instance.MemStore(executor.MemPtr(0), payload))
+
+	dump := instance.MemDump()
+	require.Equal(t, int(instance.MemLength()), len(dump))
+	assert.Equal(t, payload, dump[:len(payload)])
+
+	dump[0] ^= 0xFF
+	loaded, err := instance.MemLoad(executor.MemPtr(0), executor.MemLength(len(payload)))
+	require.NoError(t, err)
+	assert.Equal(t, payload, loaded)
+
+	require.NoError(t, instance.MemStore(executor.MemPtr(1), []byte{0x00}))
+	assert.Equal(t, payload[1], dump[1])
+
+	require.NoError(t, instance.MemGrow(1))
+	require.True(t, instance.Clean())
+	assert.Nil(t, instance.MemDump())
+	assert.Equal(t, payload[0]^0xFF, dump[0])
+	assert.Equal(t, payload[1:], dump[1:len(payload)])
+}
+
 func TestWasmer2Instance_ConcurrentCleanAndAccessors(t *testing.T) {
 	t.Parallel()
 
@@ -166,13 +197,19 @@ func TestWasmer2Instance_ConcurrentCleanAndAccessors(t *testing.T) {
 		cleaners   = 4
 	)
 
+	initial := instance.MemDump()
+	require.NotNil(t, initial)
+
 	var wg sync.WaitGroup
 	start := make(chan struct{})
+	firstDump := make(chan struct{})
+	var firstDumpOnce sync.Once
+	dumps := make([][]byte, readers)
 
-	for range readers {
+	for reader := range readers {
 		wg.Go(func() {
 			<-start
-			for range iterations {
+			for iteration := range iterations {
 				// Stop once the instance is observed cleaned to keep the post-clean
 				// guard-log volume bounded; the calls that race the actual destruction
 				// (between this check and Clean winning) are still exercised.
@@ -184,6 +221,13 @@ func TestWasmer2Instance_ConcurrentCleanAndAccessors(t *testing.T) {
 				instance.SetPointsUsed(1)
 				instance.SetBreakpointValue(1)
 				instance.MemLength()
+				if iteration == 0 {
+					instance.MemGrow(1)
+				}
+				if dump := instance.MemDump(); dump != nil {
+					dumps[reader] = dump
+					firstDumpOnce.Do(func() { close(firstDump) })
+				}
 				instance.HasFunction("answer")
 				instance.ValidateFunctionArities()
 				instance.Reset()
@@ -195,6 +239,7 @@ func TestWasmer2Instance_ConcurrentCleanAndAccessors(t *testing.T) {
 	for range cleaners {
 		wg.Go(func() {
 			<-start
+			<-firstDump
 			if instance.Clean() {
 				atomic.AddInt32(&cleanWins, 1)
 			}
@@ -206,6 +251,22 @@ func TestWasmer2Instance_ConcurrentCleanAndAccessors(t *testing.T) {
 
 	assert.Equal(t, int32(1), atomic.LoadInt32(&cleanWins), "exactly one Clean must perform the destruction")
 	assert.True(t, instance.IsAlreadyCleaned())
+
+	// Readers never write memory: MemGrow adds zeroed pages and Reset restores the
+	// initial contents. So every kept dump must still hold the initial contents
+	// followed by zeros, read in full after Clean freed the native memory.
+	captured := 0
+	for _, dump := range dumps {
+		if dump == nil {
+			continue
+		}
+		captured++
+		require.GreaterOrEqual(t, len(dump), len(initial))
+		assert.True(t, bytes.Equal(initial, dump[:len(initial)]), "dump must keep the initial contents")
+		assert.True(t, bytes.Equal(make([]byte, len(dump)-len(initial)), dump[len(initial):]),
+			"grown pages in the dump must be zero")
+	}
+	assert.NotZero(t, captured)
 }
 
 // tableAtCapWasmHex declares a funcref table with min 0 and max 1,000. It

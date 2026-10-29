@@ -98,7 +98,8 @@ func (executorMock *ExecutorMock) getNewCopyOfStoredInstance(code []byte, gasLim
 
 // NewInstanceWithOptions attempts to load a prepared instance using
 // GetStoredInstance; if it doesn't exist, it creates a true Wasmer
-// instance with the provided contract code.
+// instance with the provided contract code. The fallback executor has no VM
+// hooks set, so such an instance must not call them.
 func (executorMock *ExecutorMock) NewInstanceWithOptions(
 	contractCode []byte,
 	options executor.CompilationOptions,
@@ -116,7 +117,8 @@ func (executorMock *ExecutorMock) NewInstanceWithOptions(
 
 // NewInstanceFromCompiledCodeWithOptions attempts to load a prepared instance
 // using GetStoredInstance; if it doesn't exist, it creates a true Wasmer
-// instance with the provided precompiled code.
+// instance with the provided precompiled code. The fallback executor has no VM
+// hooks set, so such an instance must not call them.
 func (executorMock *ExecutorMock) NewInstanceFromCompiledCodeWithOptions(
 	compiledCode []byte,
 	options executor.CompilationOptions,

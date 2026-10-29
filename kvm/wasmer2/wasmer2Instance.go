@@ -3,6 +3,7 @@ package wasmer2
 // #include <stdlib.h>
 import "C"
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"strings"
@@ -335,7 +336,7 @@ func (instance *Wasmer2Instance) MemDump() []byte {
 		instance.logCleanedAccess("MemDump")
 		return nil
 	}
-	return instance.memory.Data()
+	return bytes.Clone(instance.memory.Data())
 }
 
 // ID returns an identifier for the instance, unique at runtime. It is captured at

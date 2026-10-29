@@ -164,7 +164,10 @@ func TestVMHooksImpl_BigIntGetBytes_ChargedBeforeSerializingFromV6(t *testing.T)
 						// a fault burns the gas left
 						assert.Equal(t, budget, gasUsed)
 						if !sc.missing && !sc.badPtr {
-							written := instance.MemDump()[ptr : int(ptr)+len(hook.encode(sc.value))]
+							encodedLength := len(hook.encode(sc.value))
+							written, err := instance.MemLoad(ptr, executor.MemLength(encodedLength)) // #nosec G115
+							require.NoError(t, err)
+							require.Len(t, written, encodedLength)
 							assert.True(t, bytes.Equal(make([]byte, len(written)), written),
 								"contract memory must be untouched")
 						}

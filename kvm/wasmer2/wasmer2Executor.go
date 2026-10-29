@@ -15,7 +15,6 @@ type Wasmer2Executor struct {
 
 	vmHookPointers *cWasmerVmHookPointers
 	vmHooks        executor.VMHooks
-	vmHooksPtr     uintptr
 	vmHooksPtrPtr  unsafe.Pointer
 
 	opcodeCost *OpcodeCost
@@ -138,12 +137,23 @@ func (wasmerExecutor *Wasmer2Executor) IsInterfaceNil() bool {
 	return wasmerExecutor == nil
 }
 
-// InitVMHooks inits the VM hooks
+// initVMHooks inits the VM hooks
+//
+// C stores vmHooksPtrPtr as the executor context data and follows
+// vmHooksPtrPtr -> localPtr -> &vmHooks only inside a host-function callback,
+// while a goroutine runs an instance this executor created. That goroutine
+// holds the executor through its host's runtime context for the whole call.
+// localPtr escapes to the heap and the vmHooksPtrPtr field keeps it alive for
+// as long as the executor is reachable, and the Go GC does not move heap
+// objects, so the uintptr stays valid. initVMHooks runs once per executor and
+// vmHooks is never reassigned. vm_exec_executor_destroy is not bound, so once
+// the host is dropped C keeps a dangling pointer that nothing reads. Running an
+// instance after its host is unreachable, swapping the executor under live
+// instances, or reassigning vmHooks breaks this contract.
 func (wasmerExecutor *Wasmer2Executor) initVMHooks(vmHooks executor.VMHooks) {
 	wasmerExecutor.vmHooks = vmHooks
 	// #nosec G103: unsafe.Pointer is used to convert to uintptr
 	localPtr := uintptr(unsafe.Pointer(&wasmerExecutor.vmHooks))
-	wasmerExecutor.vmHooksPtr = localPtr
 	// #nosec G103 G115: unsafe.Pointer is used to convert to uintptr
 	wasmerExecutor.vmHooksPtrPtr = unsafe.Pointer(&localPtr)
 	cWasmerExecutorContextDataSet(wasmerExecutor.cgoExecutor, wasmerExecutor.vmHooksPtrPtr)

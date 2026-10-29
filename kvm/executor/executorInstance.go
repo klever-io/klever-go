@@ -19,6 +19,7 @@ type Instance interface {
 	MemStore(memPtr MemPtr, data []byte) error
 	MemLength() uint32
 	MemGrow(pages uint32) error
+	// MemDump returns a copy of linear memory; callers may keep and modify it.
 	MemDump() []byte
 	IsFunctionImported(name string) bool
 	IsInterfaceNil() bool

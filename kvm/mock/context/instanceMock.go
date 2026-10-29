@@ -1,6 +1,7 @@
 package mock
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"sync"
@@ -185,7 +186,7 @@ func (instance *InstanceMock) MemGrow(pages uint32) error {
 
 // MemDump yields the entire contents of the memory. Only used in tests.
 func (instance *InstanceMock) MemDump() []byte {
-	return instance.Memory.Data()
+	return bytes.Clone(instance.Memory.Data())
 }
 
 // IsFunctionImported mocked method

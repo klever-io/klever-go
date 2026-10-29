@@ -27,8 +27,7 @@ func (memory *Wasmer2Memory) Data() []byte {
 
 	// #nosec G103: aliasing []byte view over wasmer-owned linear memory.
 	// Callers must copy in or out under the instance mutex and must not
-	// retain the view: Grow may reallocate the underlying buffer. MemDump is
-	// the test-only exception.
+	// retain the view: Grow may reallocate the underlying buffer.
 	return unsafe.Slice(data, length)
 }
 

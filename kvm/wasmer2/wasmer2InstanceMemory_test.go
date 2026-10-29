@@ -10,8 +10,8 @@ import (
 
 // TestWasmer2Memory_DataRoundTrip characterises the []byte view Data() builds
 // over wasmer-owned linear memory: it aliases live memory, spans it exactly,
-// and survives the no-op Destroy(). It goes through the public surface, so it
-// holds for any correct construction rather than pinning unsafe.Slice itself.
+// and survives the no-op Destroy(). It checks the view through MemStore and
+// MemLoad rather than pinning unsafe.Slice itself.
 func TestWasmer2Memory_DataRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -30,17 +30,25 @@ func TestWasmer2Memory_DataRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, payload, loaded)
 
-	dump := instance.MemDump()
-	require.Equal(t, int(memoryLength), len(dump))
-	require.Equal(t, int(memoryLength), cap(dump))
-	assert.Equal(t, payload, dump[:len(payload)])
+	want := make([]byte, len(payload))
+	func() {
+		instance.mutex.Lock()
+		defer instance.mutex.Unlock()
 
-	// Prove the returned view aliases live linear memory rather than copying
-	// it: a write through the view must be observable via MemLoad.
-	dump[0] ^= 0xFF
+		view := instance.memory.Data()
+		require.Equal(t, int(memoryLength), len(view))
+		require.Equal(t, int(memoryLength), cap(view))
+		assert.Equal(t, payload, view[:len(payload)])
+
+		// Prove the returned view aliases live linear memory rather than copying
+		// it: a write through the view must be observable via MemLoad.
+		view[0] ^= 0xFF
+		copy(want, view)
+	}()
+
 	loaded, err = instance.MemLoad(executor.MemPtr(0), executor.MemLength(len(payload)))
 	require.NoError(t, err)
-	assert.Equal(t, dump[:len(payload)], loaded)
+	assert.Equal(t, want, loaded)
 
 	// Destroy is a documented no-op; the direct call (bypassing the instance
 	// mutex) is safe because the instance is local to this test goroutine and
@@ -49,5 +57,5 @@ func TestWasmer2Memory_DataRoundTrip(t *testing.T) {
 
 	reloaded, err := instance.MemLoad(executor.MemPtr(0), executor.MemLength(len(payload)))
 	require.NoError(t, err)
-	assert.Equal(t, dump[:len(payload)], reloaded)
+	assert.Equal(t, want, reloaded)
 }
