@@ -172,6 +172,61 @@ func TestTxInterceptorProcessor_Validate(t *testing.T) {
 	}
 }
 
+func TestTxInterceptorProcessor_ValidateRejectedRequestedTxFreesTheRequest(t *testing.T) {
+	t.Parallel()
+
+	hash := []byte("requested tx hash")
+	validate := func(t *testing.T, isRequested bool, validityErr error) []string {
+		removed := make([]string, 0)
+		arg := createMockTxArgument()
+		arg.TxValidator = &mock.TxValidatorStub{
+			CheckTxValidityCalled: func(_ process.TxValidatorHandler) error {
+				return validityErr
+			},
+			CheckDupCalled: func(_ []byte) error {
+				return nil
+			},
+		}
+		arg.RequestedItemsHandler = &testscommon.RequestedItemsHandlerStub{
+			HasCalled: func(key string) bool {
+				return isRequested && key == string(hash)
+			},
+			RemoveCalled: func(key string) {
+				removed = append(removed, key)
+			},
+		}
+		txip, _ := processor.NewTxInterceptorProcessor(arg)
+
+		err := txip.Validate(&struct {
+			mock.InterceptedDataStub
+			mock.InterceptedTxHandlerStub
+		}{
+			InterceptedDataStub: mock.InterceptedDataStub{
+				HashCalled: func() []byte { return hash },
+			},
+		}, "")
+		assert.Equal(t, validityErr, err)
+
+		return removed
+	}
+
+	t.Run("rejected requested tx is removed from the requested items", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Equal(t, []string{string(hash)}, validate(t, true, common.ErrInvalidSignature))
+	})
+	t.Run("accepted requested tx stays requested", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Empty(t, validate(t, true, nil))
+	})
+	t.Run("rejected unrequested tx touches no request", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Empty(t, validate(t, false, common.ErrInvalidSignature))
+	})
+}
+
 //------- Save
 
 func TestTxInterceptorProcessor_SaveNilDataShouldErr(t *testing.T) {

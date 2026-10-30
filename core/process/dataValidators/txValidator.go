@@ -1,6 +1,7 @@
 package dataValidators
 
 import (
+	"errors"
 	"fmt"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -86,16 +87,21 @@ func NewTxValidator(
 
 // CheckTxValidity will filter transactions that needs to be added in pools
 func (txv *txValidator) CheckTxValidity(interceptedTx process.TxValidatorHandler) error {
+	var txHash []byte
 	interceptedData, ok := interceptedTx.(process.InterceptedData)
 	if ok {
-		if txv.whiteListHandler.IsWhiteListed(interceptedData) {
-			return nil
-		}
+		txHash = interceptedData.Hash()
 	}
+	isWhiteListed := ok && txv.whiteListHandler.IsWhiteListed(interceptedData)
 
 	senderAddress := interceptedTx.SenderAddress()
 	accountHandler, err := txv.accounts.GetExistingAccount(senderAddress)
 	if err != nil {
+		// during sync a requested tx may come from an account created in a block the
+		// node hasn't processed yet; a new account starts with the default owner permission
+		if isWhiteListed && errors.Is(err, common.ErrAccNotFound) {
+			return txv.checkSignatures(interceptedTx, txHash, state.NewUserAccountNoCheck(senderAddress))
+		}
 		return fmt.Errorf("%w for address %s, err: %s",
 			process.ErrAccountNotFound,
 			txv.pubkeyConverter.Encode(senderAddress),
@@ -108,7 +114,32 @@ func (txv *txValidator) CheckTxValidity(interceptedTx process.TxValidatorHandler
 		return nil
 	}
 
-	accountNonce := accountHandler.GetNonce()
+	account, ok := accountHandler.(state.UserAccountHandler)
+	if !ok {
+		return fmt.Errorf("%w, account is not of type *state.Account, address: %s",
+			process.ErrWrongTypeAssertion,
+			txv.pubkeyConverter.Encode(senderAddress),
+		)
+	}
+
+	// a requested tx skips the nonce and balance checks, which earlier txs
+	// of its block may change, but never the signature check (KLR-74)
+	if !isWhiteListed {
+		err = txv.checkNonceAndBalance(interceptedTx, account)
+		if err != nil {
+			return err
+		}
+	}
+
+	return txv.checkSignatures(interceptedTx, txHash, account)
+}
+
+func (txv *txValidator) checkNonceAndBalance(
+	interceptedTx process.TxValidatorHandler,
+	account state.UserAccountHandler,
+) error {
+	senderAddress := interceptedTx.SenderAddress()
+	accountNonce := account.GetNonce()
 	txNonce := interceptedTx.Nonce()
 	lowerNonceInTx := txNonce < accountNonce
 	veryHighNonceInTx := txNonce > accountNonce+uint64(txv.maxNonceDeltaAllowed) // #nosec G115
@@ -121,21 +152,13 @@ func (txv *txValidator) CheckTxValidity(interceptedTx process.TxValidatorHandler
 		)
 	}
 
-	account, ok := accountHandler.(state.UserAccountHandler)
-	if !ok {
-		return fmt.Errorf("%w, account is not of type *state.Account, address: %s",
-			process.ErrWrongTypeAssertion,
-			txv.pubkeyConverter.Encode(senderAddress),
-		)
-	}
-
 	// if TX paying fees with KDA, check KDA balance
 	txFee := interceptedTx.Fee()
 	assetFee := []byte(nil)
 	kdaFee := interceptedTx.KDAFee()
 	if !check.IfNil(kdaFee) {
 		// validate if asset +fee is valid
-		err = txv.kAppController.GetKDAFeesPoolKApp().Validate(senderAddress, txFee, kdaFee)
+		err := txv.kAppController.GetKDAFeesPoolKApp().Validate(senderAddress, txFee, kdaFee)
 		if err != nil {
 			return fmt.Errorf("%w, fail to validate KDA fee", err)
 		}
@@ -162,6 +185,14 @@ func (txv *txValidator) CheckTxValidity(interceptedTx process.TxValidatorHandler
 		)
 	}
 
+	return nil
+}
+
+func (txv *txValidator) checkSignatures(
+	interceptedTx process.TxValidatorHandler,
+	txHash []byte,
+	account state.UserAccountHandler,
+) error {
 	switch txv.singleSigner.(type) {
 	case *disabledSig.DisabledSingleSig:
 		return nil
@@ -197,10 +228,15 @@ func (txv *txValidator) CheckTxValidity(interceptedTx process.TxValidatorHandler
 		// check keys
 		match := false
 		for _, signer := range permission.Signers {
-			pub := signersPub[string(signer.Address)]
-			if txv.singleSigner.Verify(pub, interceptedData.Hash(), s1) == nil {
+			pub, ok := signersPub[string(signer.Address)]
+			if !ok {
+				continue
+			}
+			if txv.singleSigner.Verify(pub, txHash, s1) == nil {
 				signWeight += signer.Weight // Use signer weight
 				match = true
+				// a signer counts once, as in processing
+				delete(signersPub, string(signer.Address))
 				break
 			}
 		}
@@ -215,7 +251,6 @@ func (txv *txValidator) CheckTxValidity(interceptedTx process.TxValidatorHandler
 		return fmt.Errorf("%w: (%d/%d)", common.ErrSignatureThreshold, signWeight, permission.Threshold)
 	}
 
-	// TODO: add to whitelist?
 	return nil
 }
 

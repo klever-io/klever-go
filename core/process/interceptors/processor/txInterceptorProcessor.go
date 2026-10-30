@@ -51,7 +51,13 @@ func (txip *TxInterceptorProcessor) Validate(data process.InterceptedData, _ cor
 		return err
 	}
 
-	return txip.txValidator.CheckTxValidity(interceptedTx)
+	err = txip.txValidator.CheckTxValidity(interceptedTx)
+	if err != nil && txip.checkRequested(data.Hash()) {
+		// free the request slot so the next request for this hash goes out at once
+		txip.requestedItemsHandler.Remove(string(data.Hash()))
+	}
+
+	return err
 }
 
 // checkRequested checks if the requested item is in the requested items handler

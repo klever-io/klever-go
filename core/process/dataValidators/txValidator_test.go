@@ -15,6 +15,7 @@ import (
 	kappcontroller "github.com/klever-io/klever-go/core/kapp/kappController"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/dataValidators"
+	"github.com/klever-io/klever-go/core/process/interceptors/processor"
 	"github.com/klever-io/klever-go/crypto"
 	cryptoMock "github.com/klever-io/klever-go/crypto/mock"
 	"github.com/klever-io/klever-go/data"
@@ -397,44 +398,55 @@ func TestTxValidator_CheckTxValidityAccountNotExitsShouldReturnFalse(t *testing.
 	assert.True(t, errors.Is(result, process.ErrAccountNotFound))
 }
 
-func TestTxValidator_CheckTxValidityAccountNotExitsButWhiteListedShouldReturnTrue(t *testing.T) {
+func TestTxValidator_CheckTxValidityAccountNotExitsButWhiteListed(t *testing.T) {
 	t.Parallel()
 
-	accDB := &mock.AccountsStub{}
-	accDB.GetExistingAccountCalled = func(address []byte) (handler state.AccountHandler, e error) {
-		return nil, errors.New("cannot find account")
+	newValidator := func(t *testing.T) process.TxValidator {
+		accDB := &mock.AccountsStub{}
+		accDB.GetExistingAccountCalled = func(address []byte) (handler state.AccountHandler, e error) {
+			return nil, common.ErrAccNotFound
+		}
+		return generateWhiteListedTxValidator(t, accDB, getTxPoolsHolder(), []byte("mock hash"))
 	}
 
-	txValidator, _ := dataValidators.NewTxValidator(
-		accDB,
-		storageTest,
-		getTxPoolsHolder(),
-		&mock.WhiteListHandlerStub{
-			IsWhiteListedCalled: func(interceptedData process.InterceptedData) bool {
-				return true
-			},
-		},
-		mock.NewPubkeyConverterMock(32),
-		&cryptoMock.SingleSignerStub{},
-		&cryptoMock.KeyGenMock{},
-		getKAppController(),
-		core.MaxTxNonceDeltaAllowed,
-	)
-
-	addressMock := []byte("address")
-	txValidatorHandler := getTxValidatorHandler(addressMock, 0, 0)
-
-	interceptedTx := struct {
-		process.InterceptedData
-		process.TxValidatorHandler
-	}{
-		InterceptedData:    nil,
-		TxValidatorHandler: txValidatorHandler,
+	newInterceptedTx := func(sig []byte) process.TxValidatorHandler {
+		txValidatorHandler := getTxValidatorHandler([]byte("address"), 0, 0)
+		txValidatorHandler.(*mock.TxValidatorHandlerStub).SignatureCalled = func() [][]byte {
+			return [][]byte{sig}
+		}
+		return struct {
+			process.InterceptedData
+			process.TxValidatorHandler
+		}{
+			InterceptedData:    &mock.InterceptedDataStub{},
+			TxValidatorHandler: txValidatorHandler,
+		}
 	}
 
-	// interceptedTx needs to be of type InterceptedData & TxValidatorHandler
-	result := txValidator.CheckTxValidity(interceptedTx)
-	assert.Nil(t, result)
+	t.Run("signed by the sender should work", func(t *testing.T) {
+		t.Parallel()
+
+		err := newValidator(t).CheckTxValidity(newInterceptedTx(bytes.Repeat([]byte{0x01}, 32)))
+		assert.Nil(t, err)
+	})
+	t.Run("invalid signature should err", func(t *testing.T) {
+		t.Parallel()
+
+		err := newValidator(t).CheckTxValidity(newInterceptedTx([]byte("invalidSignature")))
+		assert.Equal(t, common.ErrInvalidSignature, err)
+	})
+	t.Run("other account errors should err", func(t *testing.T) {
+		t.Parallel()
+
+		failingDB := &mock.AccountsStub{}
+		failingDB.GetExistingAccountCalled = func(address []byte) (handler state.AccountHandler, e error) {
+			return nil, errors.New("trie load failed")
+		}
+		validator := generateWhiteListedTxValidator(t, failingDB, getTxPoolsHolder(), []byte("mock hash"))
+
+		err := validator.CheckTxValidity(newInterceptedTx(bytes.Repeat([]byte{0x01}, 32)))
+		assert.ErrorIs(t, err, process.ErrAccountNotFound)
+	})
 }
 
 func TestTxValidator_CheckTxValidityWrongAccountTypeShouldReturnFalse(t *testing.T) {
@@ -903,4 +915,202 @@ func TestTxValidator_CheckDup(t *testing.T) {
 			assert.Equal(t, err, tc.expectedError)
 		})
 	}
+}
+
+func generateWhiteListedTxValidator(t *testing.T, adb state.AccountsAdapter, pools retriever.PoolsHolder, expectedHash []byte) process.TxValidator {
+	txValidator, _ := dataValidators.NewTxValidator(
+		adb,
+		storageTest,
+		pools,
+		&mock.WhiteListHandlerStub{
+			IsWhiteListedCalled: func(interceptedData process.InterceptedData) bool {
+				return true
+			},
+		},
+		mock.NewPubkeyConverterMock(32),
+		&cryptoMock.SingleSignerStub{
+			VerifyCalled: func(public crypto.PublicKey, msg, sig []byte) error {
+				assert.Equal(t, expectedHash, msg)
+				if bytes.Equal(sig, []byte("invalidSignature")) {
+					return common.ErrInvalidSignature
+				}
+				return nil
+			},
+		},
+		&cryptoMock.KeyGenMock{
+			PublicKeyFromByteArrayMock: func(b []byte) (crypto.PublicKey, error) {
+				return &cryptoMock.PublicKeyMock{}, nil
+			},
+		},
+		getKAppController(),
+		core.MaxTxNonceDeltaAllowed,
+	)
+
+	return txValidator
+}
+
+func TestTxValidator_CheckTxValidity_WhiteListedInvalidSignatureShouldErr(t *testing.T) {
+	t.Parallel()
+
+	txValidator := generateWhiteListedTxValidator(t, getAccAdapter(0), getTxPoolsHolder(), []byte("mock hash"))
+
+	txValidatorHandler := getTxValidatorHandler([]byte("address"), 0, 0)
+	txValidatorHandler.(*mock.TxValidatorHandlerStub).SignatureCalled = func() [][]byte {
+		return [][]byte{[]byte("invalidSignature")}
+	}
+	interceptedTx := struct {
+		process.InterceptedData
+		process.TxValidatorHandler
+	}{
+		InterceptedData:    &mock.InterceptedDataStub{},
+		TxValidatorHandler: txValidatorHandler,
+	}
+
+	err := txValidator.CheckTxValidity(interceptedTx)
+	assert.Equal(t, common.ErrInvalidSignature, err)
+}
+
+func TestTxValidator_CheckTxValidity_WhiteListedSkipsNonceAndBalance(t *testing.T) {
+	t.Parallel()
+
+	txValidator := generateWhiteListedTxValidator(t, getAccAdapter(0), getTxPoolsHolder(), []byte("mock hash"))
+
+	// nonce beyond the allowed delta and a fee the empty account cannot pay
+	txValidatorHandler := getTxValidatorHandler([]byte("address"), 100, core.MaxTxNonceDeltaAllowed+10)
+	interceptedTx := struct {
+		process.InterceptedData
+		process.TxValidatorHandler
+	}{
+		InterceptedData:    &mock.InterceptedDataStub{},
+		TxValidatorHandler: txValidatorHandler,
+	}
+
+	err := txValidator.CheckTxValidity(interceptedTx)
+	assert.Nil(t, err)
+}
+
+func TestTxValidator_CheckTxValidity_SameSignerTwiceShouldErr(t *testing.T) {
+	t.Parallel()
+
+	txValidator := generateTxValidator()
+
+	// two distinct valid signatures from the single owner key must count once
+	txValidatorHandler := getTxValidatorHandler([]byte("address"), 0, 0)
+	txValidatorHandler.(*mock.TxValidatorHandlerStub).SignatureCalled = func() [][]byte {
+		return [][]byte{bytes.Repeat([]byte{0x01}, 32), bytes.Repeat([]byte{0x02}, 32)}
+	}
+
+	err := txValidator.CheckTxValidity(txValidatorHandler)
+	assert.Equal(t, common.ErrInvalidSignature, err)
+}
+
+type requestedTxStub struct {
+	*mock.InterceptedDataStub
+	*mock.TxValidatorHandlerStub
+	tx *transaction.Transaction
+}
+
+func (r *requestedTxStub) Hash() []byte                         { return r.InterceptedDataStub.Hash() }
+func (r *requestedTxStub) Transaction() data.TransactionHandler { return r.tx }
+func (r *requestedTxStub) IsInterfaceNil() bool                 { return r == nil }
+
+func newRequestedTx(hash []byte, sig []byte) *requestedTxStub {
+	txValidatorHandler := getTxValidatorHandler([]byte("address"), 0, 0).(*mock.TxValidatorHandlerStub)
+	txValidatorHandler.SignatureCalled = func() [][]byte {
+		return [][]byte{sig}
+	}
+
+	return &requestedTxStub{
+		InterceptedDataStub: &mock.InterceptedDataStub{
+			HashCalled: func() []byte { return hash },
+		},
+		TxValidatorHandlerStub: txValidatorHandler,
+		tx: &transaction.Transaction{
+			RawData:   &transaction.Transaction_Raw{Nonce: 1},
+			Signature: [][]byte{sig},
+		},
+	}
+}
+
+// kept here as a cross-package test: it runs the real txValidator behind TxInterceptorProcessor
+func TestTxInterceptorProcessor_RequestedTxWithInvalidSignatureKeepsTheHashWhitelisted(t *testing.T) {
+	t.Parallel()
+
+	// KLR-74: a same-hash variant with a corrupted signature answers the
+	// request first; it must not reach the pool, so the valid copy still can
+	pool := make(map[string]*transaction.Transaction)
+	poolStub := mock.NewShardedDataStub()
+	poolStub.AddDataCalled = func(key []byte, value interface{}, _ int, _ string) {
+		if _, exists := pool[string(key)]; !exists {
+			pool[string(key)] = value.(*transaction.Transaction)
+		}
+	}
+	poolStub.SearchFirstDataCalled = func(key []byte) (interface{}, bool) {
+		tx, exists := pool[string(key)]
+		return tx, exists
+	}
+	pools := &mock.PoolsHolderStub{
+		TransactionsCalled: func() retriever.ShardedDataCacherNotifier {
+			return poolStub
+		},
+	}
+
+	hash := []byte("requested tx hash")
+	txip, _ := processor.NewTxInterceptorProcessor(&processor.ArgTxInterceptorProcessor{
+		TxDataCache: poolStub,
+		TxValidator: generateWhiteListedTxValidator(t, getAccAdapter(0), pools, hash),
+	})
+
+	receive := func(requestedTx *requestedTxStub) error {
+		err := txip.Validate(requestedTx, "peer")
+		if err != nil {
+			return err
+		}
+		return txip.Save(requestedTx, "peer", "")
+	}
+
+	poisoned := newRequestedTx(hash, []byte("invalidSignature"))
+	assert.Equal(t, common.ErrInvalidSignature, receive(poisoned))
+	assert.Empty(t, pool)
+
+	valid := newRequestedTx(hash, bytes.Repeat([]byte{0x01}, 32))
+	assert.Nil(t, receive(valid))
+	assert.Same(t, valid.tx, pool[string(hash)])
+}
+
+func TestTxInterceptorProcessor_RequestedTxCheckedAgainstOlderPermissionFreesTheRequest(t *testing.T) {
+	t.Parallel()
+
+	// during sync a requested tx is checked against the state before its block: here the
+	// owner permission still needs two signatures, while the tx was signed after it dropped to one
+	hash := []byte("requested tx hash")
+	accDB := &mock.AccountsStub{}
+	accDB.GetExistingAccountCalled = func(address []byte) (state.AccountHandler, error) {
+		acc, _ := state.NewUserAccount(address)
+		acc.SetPermissions([]*state.Permission{{
+			ID:        0,
+			Type:      state.Permission_Owner,
+			Threshold: 2,
+			Signers:   []*state.Key{{Address: address, Weight: 1}},
+		}})
+		return acc, nil
+	}
+
+	removed := make([]string, 0)
+	txip, _ := processor.NewTxInterceptorProcessor(&processor.ArgTxInterceptorProcessor{
+		TxDataCache: mock.NewShardedDataStub(),
+		TxValidator: generateWhiteListedTxValidator(t, accDB, getTxPoolsHolder(), hash),
+		RequestedItemsHandler: &mock.RequestedItemsHandlerStub{
+			HasCalled: func(key string) bool {
+				return key == string(hash)
+			},
+			RemoveCalled: func(key string) {
+				removed = append(removed, key)
+			},
+		},
+	})
+
+	err := txip.Validate(newRequestedTx(hash, bytes.Repeat([]byte{0x01}, 32)), "peer")
+	assert.ErrorIs(t, err, common.ErrSignatureThreshold)
+	assert.Equal(t, []string{string(hash)}, removed)
 }
