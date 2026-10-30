@@ -271,11 +271,22 @@ func (b *Block) GetBlockHeader() interface{} {
 	return b.GetHeader()
 }
 
+// DropUnknownFieldsOutsideHeader clears the protobuf fields this node does not know on the Block
+// message only. Header, the only nested message, is left byte for byte as received: the block hash
+// is the hash of the marshaled header, the leader signature covers those header bytes and the
+// aggregated signature covers that hash, so the header bytes must not change on decode. For the
+// same reason proto.UnmarshalOptions{DiscardUnknown: true} must not be used instead, as it would
+// also change the header bytes.
+// A future Block field outside the header must be fork-activated and must never be required from
+// peers that may still run a version without it, since those peers drop it (TxResults, field 6,
+// was relayed by older versions before this drop existed). Data that matters belongs in
+// BlockHeader or under a root committed in it.
+// It is safe on a nil receiver and returns without work when there is nothing to clear.
 func (b *Block) DropUnknownFieldsOutsideHeader() {
 	if b == nil || len(b.unknownFields) == 0 {
 		return
 	}
-	b.ProtoReflect().SetUnknown(nil)
+	b.unknownFields = nil
 }
 
 // IsInterfaceNil returns true if there is no value under the interface
