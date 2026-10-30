@@ -136,6 +136,13 @@ func (v *kdaFeesPoolKApp) ChangePoolOwner(assetID []byte, sender []byte, newOwne
 		return transaction.Transaction_ParameterInvalid, common.ErrAssetPoolInvalidAddress
 	}
 
+	// a pool admin left at the former owner (the default on pool creation) would keep
+	// withdraw and update rights after the transfer, so it follows the owner. An admin
+	// set to any other address was chosen deliberately and stays.
+	if v.forkController.FixAuditChangesV7() && kapps.MatchesAddress(pool.AdminAddress, pool.OwnerAddress) {
+		pool.AdminAddress = newOwner
+	}
+
 	pool.OwnerAddress = newOwner
 
 	err = v.setPool(app, assetID, pool)

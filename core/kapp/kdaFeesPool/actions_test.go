@@ -10,6 +10,7 @@ import (
 	kdafeespool "github.com/klever-io/klever-go/core/kapp/kdaFeesPool"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
+	txProcess "github.com/klever-io/klever-go/core/process/transaction"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
@@ -528,6 +529,127 @@ func TestChangePoolOwner(t *testing.T) {
 		// Verify receipt was added
 		require.Len(t, receipts.Get(), 1)
 	})
+}
+
+// TestChangePoolOwnerMovesDefaultAdmin pins KLC-2817: a pool admin left at the former
+// owner follows the asset to its new owner, so the former owner can neither withdraw
+// from nor reconfigure the pool after the transfer.
+func TestChangePoolOwnerMovesDefaultAdmin(t *testing.T) {
+	t.Parallel()
+
+	addr := func(s string) []byte {
+		b := make([]byte, 32)
+		copy(b, s)
+		return b
+	}
+	oldOwner := addr("old-owner")
+	newOwner := addr("new-owner")
+	thirdAdmin := addr("third-admin")
+	assetID := []byte("asset-id")
+	errReachedReceiver := fmt.Errorf("withdraw passed the permission check")
+
+	tests := []struct {
+		name          string
+		fixV7         bool
+		admin         []byte
+		wantAdmin     []byte
+		wantFormerRun bool // whether the former owner still passes the permission checks
+	}{
+		{name: "DefaultAdminFollowsOwner", fixV7: true, admin: oldOwner, wantAdmin: newOwner, wantFormerRun: false},
+		{name: "DeliberateAdminStays", fixV7: true, admin: thirdAdmin, wantAdmin: thirdAdmin, wantFormerRun: false},
+		{name: "GateOffKeepsFormerOwnerAsAdmin", fixV7: false, admin: oldOwner, wantAdmin: oldOwner, wantFormerRun: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			args := createMockArgsKDAFeesPool()
+			marshalizer := &marshal.JSONMarshalizer{}
+			args.Marshalizer = marshalizer
+			args.ForkController = mock.NewForkControllerStub().SetFork("FixAuditChangesV7", tt.fixV7)
+			kapp, err := kdafeespool.NewKDAFeesPoolKApp(args)
+			require.NoError(t, err)
+
+			poolBytes, err := marshalizer.Marshal(&kdafeespool.KDAFeesPoolData{
+				OwnerAddress: oldOwner,
+				KDA:          assetID,
+				AdminAddress: tt.admin,
+				KLVBalance:   100,
+				Active:       true,
+				FRatioKLV:    1,
+				FRatioKDA:    1,
+			})
+			require.NoError(t, err)
+			storage := map[string][]byte{string(assetID): poolBytes}
+
+			kappAcc := &mock.KAppAccountHandlerStub{
+				GetStorageCalled: func(key []byte) []byte {
+					return storage[string(key)]
+				},
+				SetStorageCalled: func(key []byte, value []byte) error {
+					storage[string(key)] = value
+					return nil
+				},
+			}
+			cacher := &mock.AccountsCacherStub{
+				LoadKAppCalled: func(address []byte) (state.KAppAccountHandler, error) {
+					return kappAcc, nil
+				},
+				LoadUserCalled: func(address []byte) (state.UserAccountHandler, error) {
+					return nil, errReachedReceiver
+				},
+			}
+			_ = kapp.SetAccountsCacher(cacher)
+
+			receipts := &mock.ReceiptsContextStub{}
+			controller := &mock.KappsControllerMock{}
+			controller.SetCurrentKAppContext(&mock.KAppContextStub{ReceiptsValue: receipts})
+			_ = kapp.SetKAppController(controller)
+
+			code, err := kapp.ChangePoolOwner(assetID, oldOwner, newOwner)
+			require.NoError(t, err)
+			require.Equal(t, transaction.Transaction_Ok, code)
+
+			saved := &kdafeespool.KDAFeesPoolData{}
+			require.NoError(t, marshalizer.Unmarshal(saved, storage[string(assetID)]))
+			require.Equal(t, newOwner, saved.OwnerAddress)
+			require.Equal(t, tt.wantAdmin, saved.AdminAddress)
+
+			// the receipt is unchanged: the indexer refetches the whole pool from state
+			require.Len(t, receipts.Get(), 1)
+			require.Equal(t, [][]byte{
+				{byte(txProcess.UpdateKDAPool), 0},
+				assetID,
+			}, receipts.Get()[0].Data)
+
+			// the former owner tries to empty the pool
+			_, err = kapp.Withdraw(oldOwner, &transaction.WithdrawContract{
+				AssetID:    assetID,
+				Amount:     100,
+				CurrencyID: kdautils.KLVIdentifier,
+			})
+			if tt.wantFormerRun {
+				require.ErrorIs(t, err, errReachedReceiver)
+			} else {
+				require.ErrorIs(t, err, common.ErrAssetPoolInvalidAddress)
+			}
+
+			// and to rewrite its ratios
+			code, err = kapp.UpdatePool(assetID, newOwner, oldOwner, &transaction.KDAPoolInfo{
+				Active:    true,
+				FRatioKLV: 5,
+				FRatioKDA: 7,
+			})
+			if tt.wantFormerRun {
+				require.NoError(t, err)
+				require.Equal(t, transaction.Transaction_Ok, code)
+			} else {
+				require.ErrorIs(t, err, common.ErrAccNotOwner)
+				require.Equal(t, transaction.Transaction_AccountNotOwner, code)
+			}
+		})
+	}
 }
 
 func TestGetPoolOwner(t *testing.T) {
