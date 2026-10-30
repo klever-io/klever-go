@@ -23,7 +23,10 @@ type freezeWindow struct {
 // frozenAccounts is the canonical set of accounts from the GHSA-p7gw-2pcp-5pf8
 // marketplace value-creation exploit, confirmed against the on-chain mint trace and
 // consulted by IsAccountFrozen (the consensus freeze, enforced in
-// txProcessor.ProcessTransaction and the proposer build path).
+// txProcessor.ProcessTransaction, in txProcessor.PreProcessTransaction from
+// FixAuditChangesV7 — which also rejects a block carrying such a tx — and the proposer
+// build path) and by IsAccountFrozenAtAPI (local ingestion: node.SendTransaction and
+// the mempool txValidator).
 //
 // It only immobilises (blocks outgoing txs); the supply correction is deferred.
 // Freezing is reversible (thaw in a later fork); the correction is not.

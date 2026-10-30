@@ -594,8 +594,12 @@ func (txs *transactions) ProcessBlockTransactions(
 		elapsedTime := time.Since(startTime)
 		totalTimeUsedForProcess += elapsedTime
 
-		// Check for consensus mismatch first - this must reject the entire block
-		if err != nil && (errors.Is(err, process.ErrTransactionResultMismatch) || errors.Is(err, process.ErrMaxGasLimitPerBlockExceeded)) {
+		// Check for consensus mismatch first - this must reject the entire block.
+		// From FixAuditChangesV7 a frozen sender's tx does too, refused in
+		// PreProcessTransaction; before it ProcessTransaction refuses it as a FAILED tx.
+		if err != nil && (errors.Is(err, process.ErrTransactionResultMismatch) ||
+			errors.Is(err, process.ErrMaxGasLimitPerBlockExceeded) ||
+			(txs.forkProcessor.FixAuditChangesV7() && errors.Is(err, common.ErrAccountFrozen))) {
 			log.Error("transaction rejects the block",
 				"hash", blockTxHashes[index],
 				"error", err.Error(),

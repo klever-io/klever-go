@@ -1,6 +1,7 @@
 package dataValidators
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -95,6 +96,22 @@ func (txv *txValidator) CheckTxValidity(interceptedTx process.TxValidatorHandler
 	isWhiteListed := ok && txv.whiteListHandler.IsWhiteListed(interceptedData)
 
 	senderAddress := interceptedTx.SenderAddress()
+
+	// Consensus account freeze: keep a frozen sender's tx out of this node's pool, so
+	// this node never proposes it. Gossip has already relayed the message by the time
+	// this runs, so it does not stop propagation. Local ingestion policy, applied from
+	// binary rollout like the API check in node.SendTransaction; skipped for a
+	// whitelisted tx, so a tx requested to process a block is still fetched. Returns a
+	// generic rejection (not a freeze-specific error) because this validator also backs
+	// the create / estimate endpoints, which must not reveal the frozen set. The
+	// epoch-start bootstrap wires a disabled kApp controller with no fork controller;
+	// skip it there.
+	forkController := txv.kAppController.GetForkController()
+	if !isWhiteListed && !check.IfNil(forkController) && common.IsAccountFrozenAtAPI(senderAddress, forkController) {
+		log.Debug("rejected tx from frozen account", "sender", hex.EncodeToString(senderAddress))
+		return process.ErrWrongTransaction
+	}
+
 	accountHandler, err := txv.accounts.GetExistingAccount(senderAddress)
 	if err != nil {
 		// during sync a requested tx may come from an account created in a block the

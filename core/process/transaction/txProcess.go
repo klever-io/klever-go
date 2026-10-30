@@ -245,6 +245,16 @@ func (txProc *txProcessor) ProcessKAppFee(txHash []byte, tx *transaction.Transac
 
 // PreProcessTransaction -
 func (txProc *txProcessor) PreProcessTransaction(tx *transaction.Transaction) (state.UserAccountHandler, []byte, error) {
+	// From FixAuditChangesV7 a frozen sender is refused here, before the bandwidth fee,
+	// a KDA fee-pool swap or the nonce are committed: the check in ProcessTransaction
+	// runs after them, so a block carrying such a tx kept those changes. Refused here,
+	// the tx is left out of the verifier's results and the block fails its fee and
+	// tx-count checks.
+	if txProc.forkController.FixAuditChangesV7() && common.IsAccountFrozen(tx.GetSender(), txProc.forkController) {
+		tx.ResultCode = transaction.Transaction_ParameterInvalid
+		return nil, nil, common.ErrAccountFrozen
+	}
+
 	ownerAcc, err := txProc.accountsCacher.GetExistingUser(tx.GetSender())
 	if err != nil {
 		tx.ResultCode = transaction.Transaction_LoadAccountError

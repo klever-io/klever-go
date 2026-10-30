@@ -2,6 +2,7 @@ package transaction_test
 
 import (
 	"encoding/hex"
+	"math"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -95,5 +96,69 @@ func TestTxProcessor_FrozenAccounts(t *testing.T) {
 
 		err := c.execTx.ProcessTransaction(blk, []byte("h-thawed-v4"), tx)
 		require.NotErrorIs(t, err, common.ErrAccountFrozen)
+	})
+}
+
+// TestTxProcessor_PreProcessTransaction_FrozenAccounts verifies that from FixAuditChangesV7
+// a frozen sender is refused in PreProcessTransaction, before the bandwidth fee, a KDA
+// fee-pool swap or the nonce are committed, so a block carrying such a tx no longer
+// verifies. Before V7, PreProcessTransaction lets it through and ProcessTransaction
+// refuses it after the fee, as before.
+func TestTxProcessor_PreProcessTransaction_FrozenAccounts(t *testing.T) {
+	t.Run("post-v7: frozen sender is refused before any fee", func(t *testing.T) {
+		c := NewController(t)
+		before := c.AddUser(frozenSender, 1_000_000, kdautils.KLVIdentifier)
+		balanceBefore := before.GetBalance(kdautils.KLVIdentifier, true)
+		nonceBefore := before.GetNonce()
+		c.AddUser(receiver, 0, nil)
+
+		tx := buildKLVTransferTx(t, frozenSender, receiver)
+
+		_, _, err := c.execTx.PreProcessTransaction(tx)
+		require.ErrorIs(t, err, common.ErrAccountFrozen)
+		require.Equal(t, transaction.Transaction_ParameterInvalid, tx.ResultCode)
+
+		after := loadUserAccount(c.accCacher, frozenSender)
+		require.Equal(t, balanceBefore, after.GetBalance(kdautils.KLVIdentifier, true), "a refused tx must not touch the balance")
+		require.Equal(t, nonceBefore, after.GetNonce(), "a refused tx must not bump the nonce")
+	})
+
+	t.Run("post-v7: normal sender is not frozen-refused", func(t *testing.T) {
+		c := NewController(t)
+		c.AddUser(sender, 1_000_000, kdautils.KLVIdentifier)
+		c.AddUser(receiver, 0, nil)
+
+		tx := buildKLVTransferTx(t, sender, receiver)
+
+		ownerAcc, _, err := c.execTx.PreProcessTransaction(tx)
+		require.NoError(t, err)
+		require.NotNil(t, ownerAcc)
+	})
+
+	t.Run("post-v7: thawed sender is not frozen-refused", func(t *testing.T) {
+		c := NewController(t)
+		c.AddUser(thawedSender, 1_000_000, kdautils.KLVIdentifier)
+		c.AddUser(receiver, 0, nil)
+
+		tx := buildKLVTransferTx(t, thawedSender, receiver)
+
+		ownerAcc, _, err := c.execTx.PreProcessTransaction(tx)
+		require.NoError(t, err)
+		require.NotNil(t, ownerAcc)
+	})
+
+	t.Run("pre-v7: frozen sender passes pre-processing and is refused on apply", func(t *testing.T) {
+		c := NewController(t)
+		c.UpdateForkController(config.EnableEpochs{FixAuditChangesV7: math.MaxUint32})
+		c.AddUser(frozenSender, 1_000_000, kdautils.KLVIdentifier)
+		c.AddUser(receiver, 0, nil)
+
+		tx := buildKLVTransferTx(t, frozenSender, receiver)
+
+		_, _, err := c.execTx.PreProcessTransaction(tx)
+		require.NoError(t, err)
+
+		err = c.execTx.ProcessTransaction(c.CreateBlockHeader(0, 1, 1), []byte("h-frozen-prev7"), tx)
+		require.ErrorIs(t, err, common.ErrAccountFrozen)
 	})
 }

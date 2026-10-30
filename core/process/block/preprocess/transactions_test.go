@@ -1139,6 +1139,71 @@ func TestTransactions_CreateAndProcessBlock_ExcludesFrozenSender(t *testing.T) {
 	require.Equal(t, 1, processResult.Length(), "only the normal tx should be included in the proposed block")
 }
 
+// KLC-2804: from FixAuditChangesV7 a frozen sender's tx, refused in PreProcessTransaction,
+// rejects the block on verify before any fee is charged or a later tx runs. Before V7 it is
+// refused in ProcessTransaction, after the fee, and kept in the block as a FAILED tx.
+func TestTransactions_ProcessBlockTransactions_FrozenSenderIsForkGated(t *testing.T) {
+	t.Parallel()
+
+	frozenSender := []byte("addr-frozen")
+	run := func(t *testing.T, fixAuditChangesV7 bool) (int, map[string]bool, map[string]bool, error) {
+		poolHolders := createCacheWithTransactions(t, []*txcache.WrappedTransaction{
+			{TxHash: []byte("TX_FROZEN"), Tx: &transaction.Transaction{
+				RawData: &transaction.Transaction_Raw{Nonce: 1, Sender: frozenSender, Data: [][]byte{}},
+			}},
+			{TxHash: []byte("TX_NORMAL"), Tx: &transaction.Transaction{
+				RawData: &transaction.Transaction_Raw{Nonce: 1, Sender: []byte("addr-normal"), Data: [][]byte{}},
+			}},
+		})
+		forkController := commonMock.NewForkControllerStub().SetFork("FixAuditChangesV7", fixAuditChangesV7)
+		txs := createGoodPreprocessorWithFork(poolHolders, forkController)
+		txProc := txs.GetTXProcessor().(*mock.TxProcessorMock)
+		// Mirrors txProcessor: the V7 refusal in PreProcessTransaction, the older one in ProcessTransaction.
+		txProc.PreProcessTransactionCalled = func(tx *transaction.Transaction) (state.UserAccountHandler, []byte, error) {
+			if fixAuditChangesV7 && bytes.Equal(tx.GetSender(), frozenSender) {
+				tx.ResultCode = transaction.Transaction_ParameterInvalid
+				return nil, nil, common.ErrAccountFrozen
+			}
+			return nil, nil, nil
+		}
+		charged := map[string]bool{}
+		txProc.ProcessBandwidthFeeCalled = func(txHash []byte, _ *transaction.Transaction, _ state.UserAccountHandler) (int64, error) {
+			charged[string(txHash)] = true
+			return 0, nil
+		}
+		processed := map[string]bool{}
+		txProc.ProcessTransactionCalled = func(_ *block.Block, txHash []byte, tx *transaction.Transaction) error {
+			processed[string(txHash)] = true
+			if bytes.Equal(tx.GetSender(), frozenSender) {
+				return common.ErrAccountFrozen
+			}
+			return nil
+		}
+
+		blk := &block.Block{Header: &block.BlockHeader{Nonce: 42}, TxHashes: [][]byte{[]byte("TX_FROZEN"), []byte("TX_NORMAL")}}
+		processResult, err := txs.ProcessBlockTransactions(blk, func() bool { return true })
+
+		return processResult.Length(), charged, processed, err
+	}
+
+	t.Run("before FixAuditChangesV7", func(t *testing.T) {
+		t.Parallel()
+		numTxs, charged, processed, err := run(t, false)
+		require.NoError(t, err)
+		assert.Equal(t, 2, numTxs, "the frozen tx stays in the block as FAILED")
+		assert.True(t, charged["TX_FROZEN"])
+		assert.True(t, processed["TX_NORMAL"])
+	})
+	t.Run("from FixAuditChangesV7", func(t *testing.T) {
+		t.Parallel()
+		_, charged, processed, err := run(t, true)
+		require.ErrorIs(t, err, common.ErrAccountFrozen)
+		assert.False(t, charged["TX_FROZEN"], "a refused tx must not be charged the bandwidth fee")
+		assert.False(t, processed["TX_FROZEN"], "a refused tx must not be applied")
+		assert.False(t, processed["TX_NORMAL"], "the block is rejected before later txs run")
+	})
+}
+
 func TestTransactions_CreateAndProcessBlock_SkipsSenderAfterHigherNonce(t *testing.T) {
 	t.Parallel()
 
