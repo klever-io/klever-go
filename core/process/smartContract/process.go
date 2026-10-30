@@ -883,7 +883,8 @@ func (sc *scProcessor) updateSmartContractCode(
 	}
 
 	// This check is desirable (not required though) since currently both Wasm VM and IELE send the code in the output account even for "regular" execution
-	sameCode := bytes.Equal(outputAccount.Code, sc.accountsCacher.GetCode(stateAccount.GetCodeHash()))
+	existingCode := sc.accountsCacher.GetCode(stateAccount.GetCodeHash())
+	sameCode := bytes.Equal(outputAccount.Code, existingCode)
 	sameCodeMetadata := bytes.Equal(outputAccountCodeMetadataBytes, stateAccount.GetCodeMetadata())
 	if sameCode && sameCodeMetadata {
 		return nil
@@ -893,13 +894,21 @@ func (sc *scProcessor) updateSmartContractCode(
 	isCodeDeployerSet := len(outputAccount.CodeDeployerAddress) > 0
 	isCodeDeployerOwner := bytes.Equal(currentOwner, outputAccount.CodeDeployerAddress) && isCodeDeployerSet
 
-	noExistingCode := len(sc.accountsCacher.GetCode(stateAccount.GetCodeHash())) == 0
+	noExistingCode := len(existingCode) == 0
 	noExistingOwner := len(currentOwner) == 0
 	currentCodeMetadata := vmcommon.CodeMetadataFromBytes(stateAccount.GetCodeMetadata())
 	newCodeMetadata := vmcommon.CodeMetadataFromBytes(outputAccountCodeMetadataBytes)
 	isUpgradeable := currentCodeMetadata.Upgradeable
 	isDeployment := noExistingCode && noExistingOwner
 	isUpgrade := !isDeployment && isCodeDeployerOwner && isUpgradeable
+
+	// from FixAuditChangesV7 new code is capped at MaxLeafSize so its main-trie entry stays servable over p2p;
+	// the marshalled CodeEntry adds a few bytes, covered by the p2p headroom. This is a backstop: the KVM check
+	// is the authoritative rule, and unlike this one it also sees code staged earlier in the same tx
+	if (isDeployment || isUpgrade) && !sameCode && sc.forkController.FixAuditChangesV7() && uint64(len(outputAccount.Code)) > common.MaxLeafSize {
+		log.Warn("updateSmartContractCode", "error", process.ErrContractCodeTooLarge, "codeLength", len(outputAccount.Code))
+		return process.ErrContractCodeTooLarge
+	}
 
 	entry := &vmcommon.LogEntry{
 		Address: stateAccount.AddressBytes(),

@@ -146,13 +146,13 @@ func (tnRes *TrieNodeResolver) collectSubTries(hashes [][]byte) [][]byte {
 		}
 
 		// A sub-trie larger than the whole budget is always the single over-budget node that
-		// GetSerializedNodes serves unconditionally (a leaf may reach state.MaxLeafSize, 3x
+		// GetSerializedNodes serves unconditionally (a leaf may reach common.MaxLeafSize, 3x
 		// this budget). It can never fit in any response, so dropping it here would starve the
 		// requester whenever its hash is not the first one of the request. Serve it alone,
 		// discarding what was collected so far: appended on top of a full budget the response
 		// would exceed the p2p send limit and the whole batch would be rejected. Sending it by
 		// itself keeps the node reachable from any request position and bounds the response by
-		// state.MaxLeafSize.
+		// common.MaxLeafSize.
 		subTrieSize := serializedNodesSize(nextNodes)
 		if subTrieSize > maxBuffToSendTrieNodes {
 			return nextNodes

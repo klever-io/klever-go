@@ -517,7 +517,7 @@ func remainingBuffSpace(maxBuffToSend uint64, size uint64) uint64 {
 // GetSerializedNodes returns a batch of serialized nodes from the trie, starting from the given hash.
 //
 // The node at rootHash is always returned, even when it alone exceeds maxBuffToSend: a single leaf may
-// reach state.MaxLeafSize (786KB, three times the resolver's 256KB response budget), and rejecting it
+// reach common.MaxLeafSize (786KB, three times the resolver's 256KB response budget), and rejecting it
 // would leave those leaves unreachable to a syncing peer. The returned batch may therefore be larger
 // than maxBuffToSend; in that case remainingSpace is 0. Callers must derive any aggregate bound from
 // the size of the returned nodes, never from maxBuffToSend alone.

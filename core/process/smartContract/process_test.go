@@ -3047,3 +3047,260 @@ func TestScProcessor_ExecuteSmartContractTransactionInvalidOutputAccountAddressL
 		})
 	}
 }
+
+func TestScProcessor_UpdateSmartContractCodeRejectsOverLimitCode(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockSmartContractProcessorArguments()
+	arguments.BlockChainHook = &contextmock.BlockchainHookStub{
+		FilterCodeMetadataForUpgradeCalled: func(input []byte) ([]byte, error) {
+			return input, nil
+		},
+	}
+	sc, err := NewSmartContractProcessor(arguments)
+	require.Nil(t, err)
+
+	preForkArguments := createMockSmartContractProcessorArguments()
+	preForkArguments.ForkController, err = fork.NewForkController(config.EnableEpochs{FixAuditChangesV7: 100}, &commommock.EpochNotifierStub{})
+	require.Nil(t, err)
+	preForkSc, err := NewSmartContractProcessor(preForkArguments)
+	require.Nil(t, err)
+
+	scAddress := sharedCodeSCAddress(1)
+	require.True(t, core.IsSmartContractAddress(scAddress))
+	deployer := []byte("deployer-address-32-bytes-long!!")
+	existingCode := []byte("existing-code")
+	codeAtLimit := bytes.Repeat([]byte("c"), int(common.MaxLeafSize))
+	codeOverLimit := bytes.Repeat([]byte("d"), int(common.MaxLeafSize)+1)
+
+	newAccount := func(owner []byte, metadata vmcommon.CodeMetadata) state.UserAccountHandler {
+		acc, errNew := state.NewUserAccount(scAddress)
+		require.Nil(t, errNew)
+		acc.SetOwnerAddress(owner)
+		acc.SetCodeMetadata(metadata.ToBytes())
+		return acc
+	}
+	// stores the code so the account is a real upgrade target, with a code hash GetCode resolves
+	deployedContractWithCode := func(cacher state.AccountsCacher, code []byte) state.UserAccountHandler {
+		acc, errLoad := cacher.LoadUser(scAddress)
+		require.Nil(t, errLoad)
+		acc.SetOwnerAddress(deployer)
+		metadata := vmcommon.CodeMetadata{Upgradeable: true}
+		acc.SetCodeMetadata(metadata.ToBytes())
+		acc.SetCode(code)
+		require.Nil(t, cacher.SaveAll())
+		cacher.ResetAll(true)
+
+		acc, errLoad = cacher.GetExistingUser(scAddress)
+		require.Nil(t, errLoad)
+		require.Equal(t, code, cacher.GetCode(acc.GetCodeHash()))
+		return acc
+	}
+	deployedContract := func(cacher state.AccountsCacher) state.UserAccountHandler {
+		return deployedContractWithCode(cacher, existingCode)
+	}
+	outputAccount := func(code []byte) *vmcommon.OutputAccount {
+		return &vmcommon.OutputAccount{
+			Address:             scAddress,
+			Code:                code,
+			CodeMetadata:        []byte{1, 0},
+			CodeDeployerAddress: deployer,
+		}
+	}
+
+	t.Run("deploy over the limit is rejected", func(t *testing.T) {
+		acc := newAccount(nil, vmcommon.CodeMetadata{})
+		metadataBefore := acc.GetCodeMetadata()
+		vmOutput := &vmcommon.VMOutput{}
+		err := sc.updateSmartContractCode(vmOutput, acc, outputAccount(codeOverLimit))
+		require.Equal(t, process.ErrContractCodeTooLarge, err)
+		require.Empty(t, acc.GetOwnerAddress())
+		require.Equal(t, metadataBefore, acc.GetCodeMetadata())
+		require.False(t, acc.HasNewCode())
+		require.Empty(t, vmOutput.Logs)
+	})
+
+	t.Run("upgrade over the limit is rejected", func(t *testing.T) {
+		acc := deployedContract(arguments.AccountsCacher)
+		metadataBefore := acc.GetCodeMetadata()
+		vmOutput := &vmcommon.VMOutput{}
+		err := sc.updateSmartContractCode(vmOutput, acc, outputAccount(codeOverLimit))
+		require.Equal(t, process.ErrContractCodeTooLarge, err)
+		require.Equal(t, deployer, acc.GetOwnerAddress())
+		require.Equal(t, metadataBefore, acc.GetCodeMetadata())
+		require.Equal(t, existingCode, arguments.AccountsCacher.GetCode(acc.GetCodeHash()))
+		require.False(t, acc.HasNewCode())
+		require.Empty(t, vmOutput.Logs)
+	})
+
+	t.Run("deploy at the limit is accepted", func(t *testing.T) {
+		acc := newAccount(nil, vmcommon.CodeMetadata{})
+		vmOutput := &vmcommon.VMOutput{}
+		err := sc.updateSmartContractCode(vmOutput, acc, outputAccount(codeAtLimit))
+		require.NoError(t, err)
+		require.Equal(t, deployer, acc.GetOwnerAddress())
+		require.True(t, acc.HasNewCode())
+		require.Len(t, vmOutput.Logs, 1)
+	})
+
+	t.Run("upgrade at the limit is accepted", func(t *testing.T) {
+		acc := deployedContract(arguments.AccountsCacher)
+		err := sc.updateSmartContractCode(&vmcommon.VMOutput{}, acc, outputAccount(codeAtLimit))
+		require.NoError(t, err)
+		require.True(t, acc.HasNewCode())
+	})
+
+	t.Run("metadata-only upgrade of over-limit code is accepted", func(t *testing.T) {
+		acc := deployedContractWithCode(arguments.AccountsCacher, codeOverLimit)
+		metadata := vmcommon.CodeMetadata{Upgradeable: true, Payable: true}
+		acc.SetCodeMetadata(metadata.ToBytes())
+		vmOutput := &vmcommon.VMOutput{}
+		err := sc.updateSmartContractCode(vmOutput, acc, outputAccount(codeOverLimit))
+		require.NoError(t, err)
+		require.Equal(t, outputAccount(codeOverLimit).CodeMetadata, acc.GetCodeMetadata())
+		require.Len(t, vmOutput.Logs, 1)
+	})
+
+	t.Run("over-limit code that is neither a deploy nor an upgrade is ignored", func(t *testing.T) {
+		acc := newAccount([]byte("another-owner"), vmcommon.CodeMetadata{Upgradeable: true})
+		err := sc.updateSmartContractCode(&vmcommon.VMOutput{}, acc, outputAccount(codeOverLimit))
+		require.NoError(t, err)
+		require.False(t, acc.HasNewCode())
+	})
+
+	t.Run("deploy over the limit is accepted before FixAuditChangesV7", func(t *testing.T) {
+		acc := newAccount(nil, vmcommon.CodeMetadata{})
+		err := preForkSc.updateSmartContractCode(&vmcommon.VMOutput{}, acc, outputAccount(codeOverLimit))
+		require.NoError(t, err)
+		require.Equal(t, deployer, acc.GetOwnerAddress())
+		require.True(t, acc.HasNewCode())
+	})
+
+	t.Run("upgrade over the limit is accepted before FixAuditChangesV7", func(t *testing.T) {
+		acc := deployedContract(preForkArguments.AccountsCacher)
+		err := preForkSc.updateSmartContractCode(&vmcommon.VMOutput{}, acc, outputAccount(codeOverLimit))
+		require.NoError(t, err)
+		require.True(t, acc.HasNewCode())
+	})
+}
+
+func TestScProcessor_ExecuteSmartContractTransactionOverLimitIndirectDeploy(t *testing.T) {
+	t.Parallel()
+
+	const gasLimit = uint64(1000)
+	const gasRemaining = uint64(400)
+
+	newScAddress := sharedCodeSCAddress(2)
+
+	// the VM output of a CreateContract hook: a new contract account carrying the code to deploy
+	execute := func(t *testing.T, fixV7 bool) (vmcommon.ReturnCode, kapp.KappContext, state.AccountsCacher, error) {
+		arguments := createMockSmartContractProcessorArguments()
+		if !fixV7 {
+			forkController, err := fork.NewForkController(config.EnableEpochs{FixAuditChangesV7: 100}, &commommock.EpochNotifierStub{})
+			require.Nil(t, err)
+			arguments.ForkController = forkController
+		}
+		arguments.VmContainer = &contextmock.VMContainerMock{
+			GetCalled: func(key []byte) (vmcommon.VMExecutionHandler, error) {
+				return &contextmock.VMExecutionHandlerStub{
+					RunSmartContractCallCalled: func(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+						return &vmcommon.VMOutput{
+							ReturnCode:   vmcommon.Ok,
+							GasRemaining: gasRemaining,
+							OutputAccounts: map[string]*vmcommon.OutputAccount{
+								string(newScAddress): {
+									Address:             newScAddress,
+									Code:                bytes.Repeat([]byte("d"), int(common.MaxLeafSize)+1),
+									CodeMetadata:        []byte{1, 0},
+									CodeDeployerAddress: input.RecipientAddr,
+								},
+							},
+						}, nil
+					},
+				}, nil
+			},
+		}
+
+		contract := transaction.SmartContract{
+			Type:      transaction.SmartContract_SCInvoke,
+			CallValue: map[string]*transaction.CallValue{"KLV": {Amount: 45}},
+			Address:   core.ZeroAddress,
+		}
+		tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("abba@0500@0000")})
+		tx.GasLimit = gasLimit
+
+		computedHash, err := tools.CalculateHash(arguments.Marshalizer, arguments.Hasher, tx.RawData)
+		require.Nil(t, err)
+
+		ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
+			OriginalSender: tx.GetSender(),
+			ContractType:   tx.RawData.GetContract()[0].Type,
+			Block:          &block.Block{},
+			TxHash:         computedHash,
+			TX:             tx,
+		})
+
+		tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
+		require.Nil(t, err)
+
+		arguments.BlockChainHook = &contextmock.BlockchainHookStub{
+			GetKAppControllerCalled: func() kapp.KAppController {
+				kappCtrl, errCtrl := kappcontroller.NewKappController(kappcontroller.ArgsNewKApp{
+					Hasher:         arguments.Hasher,
+					Marshalizer:    arguments.Marshalizer,
+					PubkeyConv:     arguments.PubkeyConv,
+					ForkController: arguments.ForkController,
+					AccountsCacher: arguments.AccountsCacher,
+					RatingsData:    &commommock.RatingsInfoMock{},
+				})
+				require.Nil(t, errCtrl)
+				_ = kappCtrl.GetAccountsKApp().SetAccountsCacher(arguments.AccountsCacher)
+				_ = kappCtrl.GetAccountsKApp().SetKAppController(kappCtrl)
+				_ = kappCtrl.GetKDAKApp().SetAccountsCacher(arguments.AccountsCacher)
+				_ = kappCtrl.GetKDAKApp().SetKAppController(kappCtrl)
+				kappCtrl.SetCurrentKAppContext(ctx)
+
+				return kappCtrl
+			},
+		}
+
+		sc, err := NewSmartContractProcessor(arguments)
+		require.Nil(t, err)
+
+		acntSrc, acntDst := initAccounts(tx, arguments.AccountsCacher, contract.CallValue["KLV"].Amount*2)
+		acntDst.SetCode([]byte("code"))
+
+		returnCode, err := sc.ExecuteSmartContractTransaction(ctx, tc, acntSrc, acntDst)
+		return returnCode, ctx, arguments.AccountsCacher, err
+	}
+
+	// flushes first, so a rejected deploy shows as no code in the trie rather than only as a failed lookup
+	storedCode := func(t *testing.T, cacher state.AccountsCacher) []byte {
+		require.Nil(t, cacher.SaveAll())
+		cacher.ResetAll(true)
+
+		acc, err := cacher.LoadUser(newScAddress)
+		require.Nil(t, err)
+		return cacher.GetCode(acc.GetCodeHash())
+	}
+
+	t.Run("over-limit indirect deploy fails the transaction and charges the full gas after FixAuditChangesV7", func(t *testing.T) {
+		t.Parallel()
+
+		returnCode, ctx, cacher, err := execute(t, true)
+		require.Equal(t, vmcommon.VMExecutionFailed, returnCode)
+		require.EqualError(t, err, process.ErrContractCodeTooLarge.Error())
+		require.Zero(t, ctx.GetGasLimit())
+		require.Empty(t, storedCode(t, cacher))
+	})
+
+	t.Run("over-limit indirect deploy succeeds before FixAuditChangesV7", func(t *testing.T) {
+		t.Parallel()
+
+		returnCode, ctx, cacher, err := execute(t, false)
+		require.Equal(t, vmcommon.Ok, returnCode)
+		require.NoError(t, err)
+		require.Equal(t, gasRemaining, ctx.GetGasLimit())
+		require.Len(t, storedCode(t, cacher), int(common.MaxLeafSize)+1)
+	})
+}

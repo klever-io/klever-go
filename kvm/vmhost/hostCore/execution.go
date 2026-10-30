@@ -135,13 +135,24 @@ func (host *vmHost) validatedCreateTransferValue(value *big.Int) (int64, error) 
 	return value.Int64(), nil
 }
 
-func (host *vmHost) performCodeDeployment(input vmhost.CodeDeployInput, initFunction func() error) (*vmcommon.VMOutput, error) {
+func (host *vmHost) performCodeDeployment(
+	input vmhost.CodeDeployInput,
+	allowUnchangedCode bool,
+	initFunction func() error,
+) (*vmcommon.VMOutput, error) {
 	log.Trace("performCodeDeployment", "address", input.ContractAddress, "len(code)", len(input.ContractCode), "metadata", input.ContractCodeMetadata)
 
 	_, _, metering, output, runtime, _ := host.GetContexts()
 	err := metering.DeductInitialGasForDirectDeployment(input)
 	if err != nil {
 		output.SetReturnCode(vmcommon.VMOutOfGas)
+		return nil, err
+	}
+
+	// after the charge, sized on the new code, and before arming the verification, which only
+	// StartWasmerInstance disarms
+	err = host.verifyCodeSize(input, allowUnchangedCode)
+	if err != nil {
 		return nil, err
 	}
 
@@ -169,11 +180,11 @@ func (host *vmHost) performCodeDeployment(input vmhost.CodeDeployInput, initFunc
 }
 
 func (host *vmHost) performCodeDeploymentAtContractCreate(input vmhost.CodeDeployInput) (*vmcommon.VMOutput, error) {
-	return host.performCodeDeployment(input, host.callInitFunction)
+	return host.performCodeDeployment(input, false, host.callInitFunction)
 }
 
 func (host *vmHost) performCodeDeploymentAtContractUpgrade(input vmhost.CodeDeployInput) (*vmcommon.VMOutput, error) {
-	return host.performCodeDeployment(input, host.callUpgradeFunction)
+	return host.performCodeDeployment(input, true, host.callUpgradeFunction)
 }
 
 // doRunSmartContractUpgrade upgrades a contract directly
@@ -770,6 +781,11 @@ func (host *vmHost) CreateNewContract(input *vmcommon.ContractCreateInput, creat
 
 	codeDeployInput.ContractAddress = newContractAddress
 
+	err = host.verifyCodeSize(codeDeployInput, false)
+	if err != nil {
+		return
+	}
+
 	err = host.verifyNoStartSectionOnDeploy(codeDeployInput.ContractCode)
 	if err != nil {
 		return
@@ -828,6 +844,30 @@ func (host *vmHost) verifyNoStartSectionOnDeploy(contractCode []byte) error {
 	return err
 }
 
+// verifyCodeSize rejects code that would not fit a state trie leaf, before it is compiled. With
+// allowUnchangedCode, an upgrade keeping the current code passes, so a contract deployed oversized
+// before the fork can still change its metadata.
+func (host *vmHost) verifyCodeSize(input vmhost.CodeDeployInput, allowUnchangedCode bool) error {
+	if !host.ForkController().FixAuditChangesV7() || uint64(len(input.ContractCode)) <= common.MaxLeafSize {
+		return nil
+	}
+
+	if allowUnchangedCode {
+		// compares the code rather than the hash, because GetCodeHash would miss code staged in this tx
+		currentCode, err := host.Blockchain().GetCode(input.ContractAddress)
+		if err != nil && !errors.Is(err, vmhost.ErrContractNotFound) {
+			log.Trace("verifyCodeSize/GetCode", "err", err)
+			return err
+		}
+		if bytes.Equal(input.ContractCode, currentCode) {
+			return nil
+		}
+	}
+
+	log.Trace("verifyCodeSize", "err", vmhost.ErrContractCodeTooLarge, "len(code)", len(input.ContractCode))
+	return vmhost.ErrContractCodeTooLarge
+}
+
 func (host *vmHost) checkUpgradePermission(vmInput *vmcommon.ContractCallInput) error {
 	contract, err := host.Blockchain().GetUserAccount(vmInput.RecipientAddr)
 	if err != nil {
@@ -880,6 +920,12 @@ func (host *vmHost) executeUpgrade(input *vmcommon.ContractCallInput) error {
 	err = metering.DeductInitialGasForIndirectDeployment(codeDeployInput)
 	if err != nil {
 		output.SetReturnCode(vmcommon.VMOutOfGas)
+		return err
+	}
+
+	// same ordering as performCodeDeployment
+	err = host.verifyCodeSize(codeDeployInput, true)
+	if err != nil {
 		return err
 	}
 

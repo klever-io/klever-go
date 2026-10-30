@@ -269,6 +269,9 @@ var ErrStorageKeyTooLong = errors.New("cannot persist storage update with a key 
 // ErrInvalidOutputAccountAddressLength signals a VM output account whose address length is not the public key length
 var ErrInvalidOutputAccountAddressLength = errors.New("cannot persist output account with an invalid address length")
 
+// ErrContractCodeTooLarge signals a deployed or upgraded contract code longer than common.MaxLeafSize
+var ErrContractCodeTooLarge = errors.New("cannot persist contract code larger than the maximum leaf size")
+
 // ErrNilAddressContainer signals that an operation has been attempted to or with a nil AddressContainer implementation
 var ErrNilAddressContainer = errors.New("nil AddressContainer")
 

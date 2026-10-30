@@ -5,8 +5,8 @@ import (
 	"github.com/klever-io/klever-go/data"
 )
 
-// MaxLeafSize represents maximum amount of data which can be saved under one leaf
-const MaxLeafSize = uint64(1<<18) + uint64(1<<19) //786KB
+// MaxLeafSize is common.MaxLeafSize, which new code should use
+const MaxLeafSize = common.MaxLeafSize
 
 // TrackableDataTrie wraps a PatriciaMerkelTrie adding modifying data capabilities
 type TrackableDataTrie struct {

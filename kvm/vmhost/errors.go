@@ -91,6 +91,9 @@ var ErrContractNotFound = fmt.Errorf("%w (not found)", ErrContractInvalid)
 // ErrContractHasStartSection signals that the contract declares a WASM start section
 var ErrContractHasStartSection = fmt.Errorf("%w (declares a start section)", ErrContractInvalid)
 
+// ErrContractCodeTooLarge signals that the contract code is longer than common.MaxLeafSize
+var ErrContractCodeTooLarge = fmt.Errorf("%w (code too large)", ErrContractInvalid)
+
 // ErrContractCodeNotDecodable signals that the contract code could not be decoded as a WASM module
 var ErrContractCodeNotDecodable = fmt.Errorf("%w (not a decodable wasm module)", ErrContractInvalid)
 
