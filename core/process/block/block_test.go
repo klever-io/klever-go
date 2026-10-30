@@ -3506,6 +3506,210 @@ func TestMetaProcessor_ProcessBlockRestoresEpochStateWhenTimeIsOut(t *testing.T)
 	assert.Equal(t, currentEpoch, requestHandler.epoch, "request handler epoch must be restored when processing times out")
 }
 
+// epochStartRevertNode is a metaProcessor with a real epoch start trigger, plus probes for the
+// in-memory epoch state that ProcessBlock and CreateBlock advance before the block commits.
+type epochStartRevertNode struct {
+	mp             process.BlockProcessor
+	accountsDB     map[state.AccountsDbIdentifier]state.AccountsAdapter
+	trigger        process.EpochStartTriggerHandler
+	epochNotifier  process.EpochNotifier
+	requestHandler *epochAwareRequestHandler
+	hookHeader     data.HeaderHandler
+	futureFlag     bool
+}
+
+func newEpochStartRevertNode(t *testing.T, head *block.Block, headHash []byte, slotsPerEpoch uint64) *epochStartRevertNode {
+	t.Helper()
+
+	node := &epochStartRevertNode{requestHandler: &epochAwareRequestHandler{}}
+	node.requestHandler.SetEpoch(head.GetEpoch())
+
+	epochNotifier := notifier.NewGenericEpochNotifier()
+	epochNotifier.CheckEpoch(head.GetEpoch())
+	// a fork-flag-like subscriber, on only past the committed epoch
+	epochNotifier.RegisterNotifyHandler(&mock.EpochSubscriberHandlerStub{
+		EpochConfirmedCalled: func(epoch uint32) { node.futureFlag = epoch > head.GetEpoch() },
+	})
+	node.epochNotifier = epochNotifier
+
+	arguments := createMockMetaArguments()
+	arguments.Hasher = &mock.HasherStub{ComputeCalled: func(_ string) []byte { return headHash }}
+	arguments.BlockChain = &mock.BlockChainMock{
+		GetCurrentBlockHeaderCalled:     func() data.HeaderHandler { return head },
+		GetCurrentBlockHeaderHashCalled: func() []byte { return headHash },
+		GetGenesisHeaderCalled: func() data.HeaderHandler {
+			return &block.Block{Header: &block.BlockHeader{}}
+		},
+	}
+	arguments.ForkDetector = &mock.ForkDetectorMock{
+		AddHeaderCalled: func(data.HeaderHandler, []byte, process.BlockHeaderState, []data.HeaderHandler, [][]byte) error {
+			return nil
+		},
+		GetHighestFinalBlockNonceCalled: func() uint64 { return 0 },
+	}
+	arguments.EpochNotifier = epochNotifier
+	arguments.RequestHandler = node.requestHandler
+	arguments.BlockChainHook = &contextmock.BlockchainHookStub{
+		SetCurrentHeaderCalled: func(hdr data.HeaderHandler) { node.hookHeader = hdr },
+	}
+	node.trigger = newEpochStartTriggerForProcessBlock(t, arguments.ForkController, head.GetEpoch(), 0, slotsPerEpoch)
+	arguments.EpochStartTrigger = node.trigger
+
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+
+	pc, _ := kapps.NewProposalController(arguments.ForkController)
+	_ = mp.SetProposalController(pc)
+	_ = arguments.KAppController.SetProposalController(pc)
+	_ = arguments.KAppController.GetValidatorsKApp().SetKAppController(arguments.KAppController)
+	node.mp = mp
+	node.accountsDB = arguments.AccountsDB
+
+	return node
+}
+
+// KLC-2814: an epoch start block that is processed or created but never committed - the slot
+// timed out and Worker.Extend reverted it - must hand back the epoch state it advanced. A
+// trigger left in epoch start at slot S makes every node that fetches blocks over the blocks
+// topic reject the epoch start block retried at S+1.
+func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *testing.T) {
+	t.Parallel()
+
+	const (
+		slotsPerEpoch  = uint64(6)
+		epochStartSlot = slotsPerEpoch
+		headNonce      = uint64(6)
+	)
+	headHash := []byte("head-hash")
+	head := &block.Block{Header: &block.BlockHeader{Nonce: headNonce, Slot: epochStartSlot - 1}}
+
+	// the epoch start block a leader proposes at the first slot of epoch 1
+	proposeEpochStart := func(t *testing.T) (*epochStartRevertNode, *block.Block) {
+		leader := newEpochStartRevertNode(t, head, headHash, slotsPerEpoch)
+		created, err := leader.mp.CreateBlock(&block.Block{Header: &block.BlockHeader{
+			Nonce:      headNonce + 1,
+			Slot:       epochStartSlot,
+			ParentHash: headHash,
+		}}, func() bool { return true })
+		require.NoError(t, err)
+
+		hdr, ok := created.(*block.Block)
+		require.True(t, ok)
+		require.True(t, hdr.GetIsEpochStart())
+		require.Equal(t, uint32(1), hdr.GetEpoch())
+
+		return leader, hdr
+	}
+
+	requireAdvanced := func(t *testing.T, node *epochStartRevertNode) {
+		require.True(t, node.trigger.IsEpochStart(), "precondition: the block put the trigger in epoch start")
+		require.Equal(t, uint32(1), node.trigger.Epoch())
+		require.Equal(t, uint32(1), node.epochNotifier.CurrentEpoch())
+		require.True(t, node.futureFlag)
+	}
+
+	assertCommittedEpochState := func(t *testing.T, node *epochStartRevertNode) {
+		assert.False(t, node.trigger.IsEpochStart(), "a retried epoch start block would be rejected by the interceptor")
+		assert.Equal(t, uint32(0), node.trigger.Epoch())
+		assert.Equal(t, uint64(0), node.trigger.EpochStartSlot())
+		assert.Equal(t, uint64(0), node.trigger.PrevEpochStartSlot())
+		assert.Equal(t, uint32(0), node.epochNotifier.CurrentEpoch())
+		assert.False(t, node.futureFlag, "fork flags must be back in the committed epoch")
+		assert.Equal(t, uint32(0), node.requestHandler.epoch)
+		assert.Same(t, head, node.hookHeader)
+	}
+
+	t.Run("validator: processed, then reverted on slot timeout", func(t *testing.T) {
+		t.Parallel()
+
+		_, hdr := proposeEpochStart(t)
+		validator := newEpochStartRevertNode(t, head, headHash, slotsPerEpoch)
+
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		requireAdvanced(t, validator)
+
+		// what Worker.Extend calls when the slot times out
+		validator.mp.RevertStateToSnapshot(hdr)
+
+		assertCommittedEpochState(t, validator)
+	})
+
+	t.Run("leader: created, then reverted on slot timeout", func(t *testing.T) {
+		t.Parallel()
+
+		leader, hdr := proposeEpochStart(t)
+		requireAdvanced(t, leader)
+
+		leader.mp.RevertStateToSnapshot(hdr)
+
+		assertCommittedEpochState(t, leader)
+	})
+
+	t.Run("committed: a later revert keeps the new epoch", func(t *testing.T) {
+		t.Parallel()
+
+		_, hdr := proposeEpochStart(t)
+		validator := newEpochStartRevertNode(t, head, headHash, slotsPerEpoch)
+
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		require.NoError(t, validator.mp.CommitBlock(hdr))
+
+		validator.mp.RevertStateToSnapshot(hdr)
+
+		assert.False(t, validator.trigger.IsEpochStart(), "the commit settled the epoch start")
+		assert.Equal(t, uint32(1), validator.trigger.Epoch())
+		assert.Equal(t, epochStartSlot, validator.trigger.EpochStartSlot())
+		assert.Equal(t, uint32(1), validator.epochNotifier.CurrentEpoch())
+	})
+
+	t.Run("sync rollback before the revert", func(t *testing.T) {
+		t.Parallel()
+
+		_, hdr := proposeEpochStart(t)
+		// its own head: the rollback target carries the roots of this node's tries
+		rollbackHead := &block.Block{Header: &block.BlockHeader{Nonce: headNonce, Slot: epochStartSlot - 1}}
+		validator := newEpochStartRevertNode(t, rollbackHead, headHash, slotsPerEpoch)
+		userAccounts, ok := validator.accountsDB[state.UserAccountsState].(*mock.AccountsStub)
+		require.True(t, ok)
+		userAccounts.RecreateTrieCalled = func([]byte) error { return nil }
+		var err error
+		rollbackHead.Header.KAppsTrieRoot, err = validator.accountsDB[state.KAppAccountsState].Commit()
+		require.NoError(t, err)
+
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		requireAdvanced(t, validator)
+
+		require.NoError(t, validator.mp.RevertStateToBlock(rollbackHead))
+
+		assert.False(t, validator.trigger.IsEpochStart(), "a retried epoch start block would be rejected by the interceptor")
+		assert.Equal(t, uint32(0), validator.trigger.Epoch())
+		assert.Equal(t, uint64(0), validator.trigger.EpochStartSlot())
+		assert.Equal(t, uint32(0), validator.epochNotifier.CurrentEpoch())
+	})
+
+	t.Run("a second revert does not restore again", func(t *testing.T) {
+		t.Parallel()
+
+		_, hdr := proposeEpochStart(t)
+		validator := newEpochStartRevertNode(t, head, headHash, slotsPerEpoch)
+
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		validator.mp.RevertStateToSnapshot(hdr)
+
+		// the retried epoch start block advances the trigger again; a revert with nothing
+		// pending (an Extend after a commit) must leave it alone
+		hdr.Header.Slot = epochStartSlot + 1
+		validator.trigger.Update(hdr.GetSlot(), hdr.GetNonce())
+		require.True(t, validator.trigger.IsEpochStart())
+		require.Equal(t, epochStartSlot+1, validator.trigger.EpochStartSlot())
+
+		validator.mp.RevertStateToSnapshot(hdr)
+
+		assert.True(t, validator.trigger.IsEpochStart())
+		assert.Equal(t, epochStartSlot+1, validator.trigger.EpochStartSlot())
+	})
+}
+
 const (
 	nativeFPRInitialKLVSupply = int64(100_000_000_000_000)
 	// rewards accumulated in the epoch that the first roll closes, so the entry it
