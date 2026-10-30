@@ -10,6 +10,7 @@ import (
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
+	"github.com/klever-io/klever-go/kapps"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -173,6 +174,21 @@ func validateAssetID(fk core.ForkController, assetID []byte, err error) error {
 	}
 
 	if len(assetID) < core.MinLengthForAssetTicker || len(assetID) > core.MaxLengthForAssetID {
+		return err
+	}
+
+	return nil
+}
+
+// validateCurrencyID is validateAssetID for an amount's currency. From FixAuditChangesV7 it
+// also refuses the key separator: a currency named like an NFT's compound ID (COLL/1) reads and
+// writes the NFT's own record through the fungible balance path (KLC-2816).
+func validateCurrencyID(fk core.ForkController, currencyID []byte, err error) error {
+	if errAsset := validateAssetID(fk, currencyID, err); errAsset != nil {
+		return errAsset
+	}
+
+	if fk.FixAuditChangesV7() && bytes.Contains(currencyID, []byte(kapps.Sp)) {
 		return err
 	}
 
@@ -729,7 +745,7 @@ func (tc *BuyContract) Validate(fc core.ForkController) error {
 			return ErrInvalidPackID
 		}
 
-		if err := validateAssetID(fc, tc.CurrencyID, ErrInvalidCurrencyID); err != nil {
+		if err := validateCurrencyID(fc, tc.CurrencyID, ErrInvalidCurrencyID); err != nil {
 			return err
 		}
 	}
@@ -751,7 +767,7 @@ func (tc *SellContract) Validate(fc core.ForkController) error {
 			return err
 		}
 
-		if err := validateAssetID(fc, tc.CurrencyID, ErrInvalidCurrencyID); err != nil {
+		if err := validateCurrencyID(fc, tc.CurrencyID, ErrInvalidCurrencyID); err != nil {
 			return err
 		}
 	}

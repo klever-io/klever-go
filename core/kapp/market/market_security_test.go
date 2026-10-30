@@ -57,6 +57,8 @@ func TestMarketKApp_Buy_ZombieOrderIsClaimedGuard(t *testing.T) {
 
 		marketKApp, accCacher, forkController := createTestMarketKApp(t)
 		forkController.FixAuditChangesV3Value = fixEnabled
+		// Forks activate in order: a schedule before V3 is also before V7.
+		forkController.FixAuditChangesV7Value = fixEnabled
 
 		fund := func(addr []byte, amount int64) {
 			acc, err := accCacher.LoadUser(addr)
@@ -77,7 +79,7 @@ func TestMarketKApp_Buy_ZombieOrderIsClaimedGuard(t *testing.T) {
 			ReferralPercentage: 0,
 		}))
 		// NFT escrowed in the market KApp (as if the seller deposited it via Sell).
-		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft-data")))
+		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, mock.NFTHolderRecord(1)))
 
 		// Auction with Price=0, ReservePrice=R -> bids REST (no auto-settle).
 		require.NoError(t, marketKApp.SetMarketOrder(marketKappAcc, &kapps.MarketOrderData{

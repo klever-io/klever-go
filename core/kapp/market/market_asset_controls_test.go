@@ -36,6 +36,9 @@ var (
 	ctrlAssetID       = []byte("7")
 	ctrlMarketplaceID = []byte("mp-controls")
 	ctrlOrderID       = []byte("order-controls")
+	// ctrlUnreadableID is an asset whose KDA record fails to load with errCtrlUnreadable.
+	ctrlUnreadableID  = []byte("BROKEN-1234")
+	errCtrlUnreadable = errors.New("kda record unreadable")
 	ctrlIssuer        = makeAddress("issuer")
 	ctrlSeller        = makeAddress("seller")
 	ctrlBuyer         = makeAddress("buyer")
@@ -109,6 +112,9 @@ func newControlsEnv(t *testing.T, fixOn bool, currency *kapps.KDAData, collectio
 
 	marketKApp, accCacher, fc := createTestMarketKApp(t)
 	fc.FixAuditChangesV6Value = fixOn
+	// V7 is not active on mainnet yet, so the controls run with V6 alone; the V7 tests turn it on
+	// (see newV7ControlsEnv).
+	fc.FixAuditChangesV7Value = false
 
 	env := &controlsEnv{
 		t: t, market: marketKApp, accCacher: accCacher,
@@ -155,8 +161,10 @@ func newControlsEnv(t *testing.T, fixOn bool, currency *kapps.KDAData, collectio
 						return nil, env.currency, nil
 					case bytes.Equal(id, ctrlCollectionID):
 						return nil, env.collection, nil
+					case bytes.Equal(id, ctrlUnreadableID):
+						return nil, nil, errCtrlUnreadable
 					}
-					return nil, nil, errors.New("kda not found")
+					return nil, nil, common.ErrAssetNotFound
 				},
 			}
 		},
@@ -197,7 +205,7 @@ func (e *controlsEnv) storeOrderWith(order *kapps.MarketOrderData, referralPerce
 
 	marketKappAcc, err := e.accCacher.LoadKApp(kapps.MarketKAppAddress)
 	require.NoError(e.t, err)
-	require.NoError(e.t, marketKappAcc.AddInternalKDA(ctrlCollectionID, ctrlAssetID, []byte("nft")))
+	require.NoError(e.t, marketKappAcc.AddInternalKDA(ctrlCollectionID, ctrlAssetID, mock.NFTHolderRecord(1)))
 	require.NoError(e.t, e.market.SetMarketOrder(marketKappAcc, order))
 	require.NoError(e.t, e.accCacher.UpdateKapp(marketKappAcc))
 }
@@ -230,15 +238,22 @@ func (e *controlsEnv) cancel() (transaction.Transaction_TXResultCode, error) {
 func (e *controlsEnv) sell() (transaction.Transaction_TXResultCode, error) {
 	e.t.Helper()
 
+	return e.sellIn(e.currency.ID)
+}
+
+// sellIn lists the seller's NFT as an auction priced in currencyID.
+func (e *controlsEnv) sellIn(currencyID []byte) (transaction.Transaction_TXResultCode, error) {
+	e.t.Helper()
+
 	sellerAcc, err := e.accCacher.LoadUser(ctrlSeller)
 	require.NoError(e.t, err)
-	require.NoError(e.t, sellerAcc.AddInternalKDA(ctrlCollectionID, ctrlAssetID, []byte("nft")))
+	require.NoError(e.t, sellerAcc.AddInternalKDA(ctrlCollectionID, ctrlAssetID, mock.NFTHolderRecord(1)))
 	require.NoError(e.t, e.accCacher.UpdateUser(sellerAcc))
 
 	assetID := append(append(append([]byte{}, ctrlCollectionID...), []byte(kapps.Sp)...), ctrlAssetID...)
 	return e.market.Sell(ctrlSeller, &transaction.SellContract{
 		MarketType: transaction.SellContract_EnumMarketType(kapps.MarketOrderData_Auction), MarketplaceID: ctrlMarketplaceID,
-		AssetID: assetID, CurrencyID: e.currency.ID, ReservePrice: ctrlBid / 2, EndTime: ctrlBlockTime + 1000,
+		AssetID: assetID, CurrencyID: currencyID, ReservePrice: ctrlBid / 2, EndTime: ctrlBlockTime + 1000,
 	})
 }
 

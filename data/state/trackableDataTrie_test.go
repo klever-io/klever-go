@@ -55,6 +55,21 @@ func TestTrackableDataTrie_RetrieveValueFoundInDirtyShouldWork(t *testing.T) {
 	assert.Equal(t, val, retrievedVal)
 }
 
+// A key cleared earlier in the block reads back as ErrNegativeValue: the market's escrow check
+// (checkNotEscrowed) relies on it to treat the key as not escrowed.
+func TestTrackableDataTrie_RetrieveValueClearedKeyShouldErrNegativeValue(t *testing.T) {
+	t.Parallel()
+
+	tdaw := state.NewTrackableDataTrie([]byte("identifier"), &mock.TrieStub{})
+	key := []byte("ABC")
+	assert.Nil(t, tdaw.SaveKeyValue(key, []byte("123")))
+	assert.Nil(t, tdaw.SaveKeyValue(key, nil))
+
+	_, err := tdaw.RetrieveValue(key)
+
+	assert.ErrorIs(t, err, common.ErrNegativeValue)
+}
+
 func TestTrackableDataTrie_RetrieveValueFoundInTrieShouldWork(t *testing.T) {
 	t.Parallel()
 

@@ -307,7 +307,7 @@ func (k *kdaKapp) updateMetadataV1(tc *transaction.AssetTriggerContract, kdaKApp
 		return transaction.Transaction_AssetTypeInvalid, err
 	}
 
-	if userKDA.Balance != 1 {
+	if !userKDA.IsHeldNFT() {
 		return transaction.Transaction_AccountNotOwner, common.ErrAccNotOwner
 	}
 

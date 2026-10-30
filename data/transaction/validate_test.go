@@ -2615,6 +2615,30 @@ func TestSellContractValidate(t *testing.T) {
 			expectError: false,
 		},
 		{
+			name: "currency named like an NFT is refused from FixAuditChangesV7",
+			contract: &transaction.SellContract{
+				MarketplaceID: []byte("MARKETPLACE"),
+				AssetID:       []byte("NFTC-1234/7"),
+				CurrencyID:    []byte("NFTC-1234/8"),
+				Price:         1000,
+				EndTime:       1000,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid currency id",
+		},
+		{
+			name: "currency named like an NFT is accepted before FixAuditChangesV7",
+			contract: &transaction.SellContract{
+				MarketplaceID: []byte("MARKETPLACE"),
+				AssetID:       []byte("NFTC-1234/7"),
+				CurrencyID:    []byte("NFTC-1234/8"),
+				Price:         1000,
+				EndTime:       1000,
+			},
+			fc: mock.NewForkControllerStub().SetFork("FixAuditChangesV7", false),
+		},
+		{
 			name: "missing marketplace ID with smart contracts enabled",
 			contract: &transaction.SellContract{
 				AssetID: []byte("ASSET"),
@@ -2794,6 +2818,26 @@ func TestBuyContractValidate(t *testing.T) {
 			fc:          mock.NewForkControllerStub(),
 			expectError: true,
 			errorMsg:    "invalid currency id",
+		},
+		{
+			name: "currency named like an NFT is refused from FixAuditChangesV7",
+			contract: &transaction.BuyContract{
+				ID:         []byte("VALID_ID"),
+				CurrencyID: []byte("NFTC-1234/8"),
+				Amount:     1000,
+			},
+			fc:          mock.NewForkControllerStub(),
+			expectError: true,
+			errorMsg:    "invalid currency id",
+		},
+		{
+			name: "currency named like an NFT is accepted before FixAuditChangesV7",
+			contract: &transaction.BuyContract{
+				ID:         []byte("VALID_ID"),
+				CurrencyID: []byte("NFTC-1234/8"),
+				Amount:     1000,
+			},
+			fc: mock.NewForkControllerStub().SetFork("FixAuditChangesV7", false),
 		},
 		{
 			name: "valid currency id pre fork",

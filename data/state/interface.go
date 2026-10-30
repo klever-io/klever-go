@@ -51,7 +51,7 @@ type UserAccountHandler interface {
 	SubFromBalance(value int64, assetID []byte, cdd bool, userKDA ...*kapps.UserKDA) error
 	SubFromBalanceWithNonce(value int64, assetID []byte, nonce []byte, cdd bool, userKDAopts ...*kapps.UserKDA) error
 	AddInternalKDA(assetID []byte, internalID []byte, data []byte) error
-	SubInternalKDA(assetID []byte, internalID []byte) ([]byte, error)
+	SubInternalKDA(assetID []byte, internalID []byte, forks core.ForkController) ([]byte, error)
 	AddToAllowance(value int64) error
 	GetBalance(assetID []byte, cdd bool) int64
 	GetBalanceWithNonce(assetID []byte, nonce []byte, cdd bool) int64

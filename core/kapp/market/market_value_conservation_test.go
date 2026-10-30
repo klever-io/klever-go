@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	txProcess "github.com/klever-io/klever-go/core/process/transaction"
 	"github.com/klever-io/klever-go/data/transaction"
@@ -119,7 +120,7 @@ func (e *controlsEnv) listAt(marketType kapps.MarketOrderData_EnumMarketType, pr
 
 	sellerAcc, err := e.accCacher.LoadUser(ctrlSeller)
 	require.NoError(e.t, err)
-	require.NoError(e.t, sellerAcc.AddInternalKDA(ctrlCollectionID, ctrlAssetID, []byte("nft")))
+	require.NoError(e.t, sellerAcc.AddInternalKDA(ctrlCollectionID, ctrlAssetID, mock.NFTHolderRecord(1)))
 	require.NoError(e.t, sellerAcc.AddToBalance(e.collection.Royalties.GetMarketFixed(), kdautils.KLVIdentifier, true))
 	require.NoError(e.t, e.accCacher.UpdateUser(sellerAcc))
 

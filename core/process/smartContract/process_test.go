@@ -1995,14 +1995,17 @@ func newNFTAccountsKappForCallValue(
 ) kapp.AccountsKapp {
 	t.Helper()
 
+	nftRecord := commommock.NFTHolderRecord(1)
+	take := func(gotAssetID, gotInternalID []byte) ([]byte, error) {
+		assert.Equal(t, assetID, gotAssetID)
+		assert.Equal(t, internalID, gotInternalID)
+		*subInternalCalled = true
+		return nftRecord, nil
+	}
+
 	src := &commommock.UserAccountHandlerStub{
-		AddressBytesCalled: func() []byte { return sender },
-		SubInternalKDACalled: func(gotAssetID, gotInternalID []byte) ([]byte, error) {
-			assert.Equal(t, assetID, gotAssetID)
-			assert.Equal(t, internalID, gotInternalID)
-			*subInternalCalled = true
-			return []byte("nft-data"), nil
-		},
+		AddressBytesCalled:   func() []byte { return sender },
+		SubInternalKDACalled: take,
 		SubFromBalanceWithNonceCalled: func(value int64, _, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
 			t.Fatalf("balance path called for true NFT with value %d", value)
 			return nil
@@ -2013,7 +2016,7 @@ func newNFTAccountsKappForCallValue(
 		AddInternalKDACalled: func(gotAssetID, gotInternalID, data []byte) error {
 			assert.Equal(t, assetID, gotAssetID)
 			assert.Equal(t, internalID, gotInternalID)
-			assert.Equal(t, []byte("nft-data"), data)
+			assert.Equal(t, nftRecord, data)
 			*addInternalCalled = true
 			return nil
 		},

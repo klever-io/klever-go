@@ -185,7 +185,7 @@ func (u *UserAccountHandlerStub) AddInternalKDA(assetID []byte, internalID []byt
 	return nil
 }
 
-func (u *UserAccountHandlerStub) SubInternalKDA(assetID []byte, internalID []byte) ([]byte, error) {
+func (u *UserAccountHandlerStub) SubInternalKDA(assetID []byte, internalID []byte, _ core.ForkController) ([]byte, error) {
 	if u.SubInternalKDACalled != nil {
 		return u.SubInternalKDACalled(assetID, internalID)
 	}

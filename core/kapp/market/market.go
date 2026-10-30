@@ -359,6 +359,20 @@ func (m *marketKapp) Buy(sender []byte, tc *transaction.BuyContract) (transactio
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
+	// Orders listed before FixAuditChangesV7 were never checked at Sell.
+	if status, err := m.checkCurrency(ctx, currencyID); err != nil {
+		return status, err
+	}
+
+	held, err := m.escrowHoldsNFT(marketKapp, marketOrder)
+	if err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+	if !held {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, common.ErrAssetNotFound.Error())
+		return transaction.Transaction_BalanceError, common.ErrAssetNotFound
+	}
+
 	if status, err := m.checkBidControls(ctx, marketOrder, currencyID, sender, tc.GetAmount()); err != nil {
 		return status, err
 	}
@@ -1000,6 +1014,54 @@ func (m *marketKapp) checkSettlementControls(ctx kapp.KappContext, marketOrder *
 	return checkTransferAllowed(currency, buyer, marketOrder.OwnerAddress, amounts.marketOwner)
 }
 
+// checkCurrency refuses, from FixAuditChangesV7, an order currency that is not KLV or an existing
+// fungible asset, at Sell and, for orders listed before the fork, at Buy. A currency
+// named like an NFT's compound ID (COLL/1) shares the NFT's trie key, so pricing in it would move
+// the NFT through the fungible balance path (KLC-2816). KLV is the native fungible asset and is
+// not loaded. The other paths that take an asset ID (Transfer, Freeze/Unfreeze, Deposit, ITO, fee
+// pools) load it with GetKDA, and the KDA trie holds only collection keys, so none of them
+// resolves a compound ID; that does not make them require a fungible asset. A read error other
+// than ErrAssetNotFound is returned as is.
+func (m *marketKapp) checkCurrency(ctx kapp.KappContext, currencyID []byte) (transaction.Transaction_TXResultCode, error) {
+	if !m.forkController.FixAuditChangesV7() || bytes.Equal(currencyID, kdautils.KLVIdentifier) {
+		return transaction.Transaction_Ok, nil
+	}
+
+	if !bytes.Contains(currencyID, []byte(kapps.Sp)) {
+		_, currency, err := m.KAppController.GetKDAKApp().GetKDA(currencyID)
+		if err != nil && !errors.Is(err, common.ErrAssetNotFound) {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
+			return transaction.Transaction_KAPPError, err
+		}
+		if err == nil && currency.AssetType == kapps.KDAData_Fungible {
+			return transaction.Transaction_Ok, nil
+		}
+	}
+
+	ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldOrderCurrencyInvalid, common.ErrInvalidValue.Error())
+	return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+}
+
+// escrowHoldsNFT reports whether the escrow's record of marketOrder's NFT holds it (see
+// kapps.UserKDA.IsHeldNFT). Sell refuses a spent record from FixAuditChangesV7, but an order listed
+// before the fork may escrow one, or none when another order on the same key cleared it (KLC-2835),
+// and a sale would charge the buyer for a record that cannot be moved: from the fork such an order
+// takes no bid and is not sold, and Claim unwinds it. A missing or undecodable record is not held;
+// only a read error fails. Before the fork every record counts as held.
+func (m *marketKapp) escrowHoldsNFT(marketKapp state.KAppAccountHandler, marketOrder *kapps.MarketOrderData) (bool, error) {
+	if !m.forkController.FixAuditChangesV7() {
+		return true, nil
+	}
+
+	value, err := readEscrow(marketKapp, marketOrder.CollectionID, marketOrder.AssetID)
+	if err != nil {
+		return false, err
+	}
+
+	record := &kapps.UserKDA{}
+	return m.marshalizer.Unmarshal(record, value) == nil && record.IsHeldNFT(), nil
+}
+
 // loadUnpausedKDA loads id for the FixAuditChangesV6 asset controls, refusing while it is paused
 // (see checkNotPaused).
 func (m *marketKapp) loadUnpausedKDA(ctx kapp.KappContext, id []byte) (*kapps.KDAData, transaction.Transaction_TXResultCode, error) {
@@ -1095,8 +1157,15 @@ func (m *marketKapp) Claim(sender []byte, tc *transaction.ClaimContract) (transa
 		claimType,
 	))
 
+	// An escrowed record that does not hold the NFT is never sold (see escrowHoldsNFT): the seller
+	// cannot accept its bid, and once the order expires it unwinds as below the reserve.
+	held, err := m.escrowHoldsNFT(marketKapp, marketOrder)
+	if err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+
 	if marketOrder.EndTime >= ctx.Block().GetTimestamp() {
-		if bytes.Equal(sender, marketOrder.OwnerAddress) &&
+		if held && bytes.Equal(sender, marketOrder.OwnerAddress) &&
 			marketOrder.ReservePrice > 0 &&
 			marketOrder.CurrentBid >= marketOrder.ReservePrice {
 			bidderAcc, err := m.GetExistingUserAccount(marketOrder.CurrentBidder)
@@ -1124,7 +1193,7 @@ func (m *marketKapp) Claim(sender []byte, tc *transaction.ClaimContract) (transa
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
-	if marketOrder.ReservePrice > 0 && marketOrder.CurrentBid >= marketOrder.ReservePrice {
+	if held && marketOrder.ReservePrice > 0 && marketOrder.CurrentBid >= marketOrder.ReservePrice {
 		bidderAcc, err := m.GetExistingUserAccount(marketOrder.CurrentBidder)
 		if err != nil {
 			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, err.Error())
@@ -1208,30 +1277,9 @@ func (m *marketKapp) returnOrderToOwners(ctx kapp.KappContext, marketKapp state.
 		return transaction.Transaction_LoadAccountError, err
 	}
 
-	data, err := marketKapp.SubInternalKDA(marketOrder.CollectionID, marketOrder.AssetID)
-	if err != nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
-		return transaction.Transaction_BalanceError, err
+	if status, err := m.returnEscrowedNFT(ctx, marketKapp, marketOwnerAcc, marketOrder); err != nil {
+		return status, err
 	}
-
-	err = marketOwnerAcc.AddInternalKDA(marketOrder.CollectionID, marketOrder.AssetID, data)
-	if err != nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
-		return transaction.Transaction_AssetError, err
-	}
-
-	ctx.Receipts().Add(txProcess.NewReceipt(
-		txProcess.Transfer,
-		ctx.ContractID(),
-		marketKapp.AddressBytes(),
-		marketOwnerAcc.AddressBytes(),
-		[]byte("1"),
-		marketOrder.CollectionID,
-		marketOrder.AssetID,
-		[]byte{byte(kapps.KDAData_NonFungible)},
-		marketOrder.MarketplaceID,
-		marketOrder.ID,
-	))
 
 	if marketOrder.RoyaltiesFixedDeposit > 0 {
 		err = marketOwnerAcc.AddToBalance(marketOrder.RoyaltiesFixedDeposit, kdautils.KLVIdentifier, m.forkController.EnableSmartContracts())
@@ -1295,64 +1343,18 @@ func (m *marketKapp) returnOrderToOwners(ctx kapp.KappContext, marketKapp state.
 func (m *marketKapp) Sell(sender []byte, tc *transaction.SellContract) (transaction.Transaction_TXResultCode, error) {
 	ctx := m.KAppController.GetCurrentKAppContext()
 
-	if tc.GetAssetID() == nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetID, common.ErrInvalidValue.Error())
-		return transaction.Transaction_AssetError, common.ErrInvalidValue
-	}
-
-	if tc.GetMarketplaceID() == nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, common.ErrInvalidValue.Error())
-		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-	}
-
-	assetID := bytes.Split(tc.GetAssetID(), []byte(kapps.Sp))
-	if len(assetID) != 2 {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, process.ErrInvalidArgument.Error())
-		return transaction.Transaction_AssetTypeInvalid, process.ErrInvalidArgument
-	}
-
-	if tc.GetPrice() < 0 || tc.GetReservePrice() < 0 {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPrice, common.ErrInvalidValue.Error())
-		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-	}
-
-	oneYearExpiration := time.Unix(ctx.Block().GetTimestamp(), 0).AddDate(1, 0, 0).Unix()
-	if tc.GetEndTime() <= ctx.Block().GetTimestamp() || tc.GetEndTime() > oneYearExpiration {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldOrderExpired, common.ErrInvalidValue.Error())
-		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-	}
-
-	currencyID := tc.GetCurrencyID()
-	if currencyID == nil {
-		currencyID = kdautils.KLVIdentifier
-	}
-
-	if len(kapps.MarketOrderData_EnumMarketType_name[int32(tc.GetMarketType())]) == 0 {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidMarketType, common.ErrInvalidValue.Error())
-		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-	}
-
-	_, asset, err := m.KAppController.GetKDAKApp().GetKDA(assetID[0])
+	assetID, currencyID, status, err := m.parseSellContract(ctx, tc)
 	if err != nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
-		return transaction.Transaction_KAPPError, err
+		return status, err
 	}
 
-	// only allowed to sell non-fungible assets
-	if asset.AssetType != kapps.KDAData_NonFungible {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrInvalidValue.Error())
-		return transaction.Transaction_AssetTypeInvalid, common.ErrInvalidValue
+	asset, status, err := m.loadSellableAsset(ctx, assetID[0])
+	if err != nil {
+		return status, err
 	}
 
-	// Under FixAuditChangesV6 a paused collection cannot be listed, as it cannot be
-	// transferred. Its transfer restriction is not checked here: the buyer is unknown until a
-	// bid, and Buy and settlement check the move from the seller to the buyer then.
-	if m.forkController.FixAuditChangesV6() {
-		status, err := checkNotPaused(asset)
-		if err != nil {
-			addControlRefusedReceipt(ctx, status)
-			return status, err
-		}
+	if status, err := m.checkCurrency(ctx, currencyID); err != nil {
+		return status, err
 	}
 
 	_, marketplace, err := m.GetMarketplace(tc.GetMarketplaceID())
@@ -1386,58 +1388,6 @@ func (m *marketKapp) Sell(sender []byte, tc *transaction.SellContract) (transact
 	default:
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidMarketType, common.ErrInvalidValue.Error())
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-	}
-
-	ownerAcc, err := m.GetExistingUserAccount(sender)
-	if err != nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, err.Error())
-		return transaction.Transaction_LoadAccountError, err
-	}
-
-	data, err := ownerAcc.SubInternalKDA(assetID[0], assetID[1])
-	if err != nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, err.Error())
-		return transaction.Transaction_BalanceError, err
-	}
-
-	err = marketKapp.AddInternalKDA(assetID[0], assetID[1], data)
-	if err != nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
-		return transaction.Transaction_AssetError, err
-	}
-
-	ctx.Receipts().Add(txProcess.NewReceipt(
-		txProcess.Transfer,
-		ctx.ContractID(),
-		ownerAcc.AddressBytes(),
-		kapps.MarketKAppAddress,
-		[]byte("1"),
-		assetID[0],
-		assetID[1],
-		[]byte{byte(asset.AssetType)},
-		marketplace.ID,
-		orderID,
-	))
-
-	if asset.Royalties.MarketFixed > 0 {
-		err = ownerAcc.SubFromBalance(asset.Royalties.MarketFixed, kdautils.KLVIdentifier, m.forkController.EnableSmartContracts())
-		if err != nil {
-			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, err.Error())
-			return transaction.Transaction_BalanceError, err
-		}
-
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			ownerAcc.AddressBytes(),
-			kapps.MarketKAppAddress,
-			[]byte(strconv.FormatInt(asset.Royalties.MarketFixed, 10)),
-			kdautils.KLVIdentifier,
-			nil,
-			[]byte{byte(kapps.KDAData_Fungible)},
-			marketplace.ID,
-			orderID,
-		))
 	}
 
 	marketOrder := &kapps.MarketOrderData{
@@ -1486,6 +1436,152 @@ func (m *marketKapp) Sell(sender []byte, tc *transaction.SellContract) (transact
 		marketOrder.ReferralSnapshotted = true
 	}
 
+	if status, err := m.escrowOrder(ctx, marketKapp, marketOrder); err != nil {
+		return status, err
+	}
+
+	ctx.SetReturnData([][]byte{orderID})
+
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.Sell,
+		ctx.ContractID(),
+		marketOrder.ID,
+		marketOrder.MarketplaceID,
+	))
+
+	return transaction.Transaction_Ok, nil
+}
+
+// parseSellContract checks the fields of tc and returns its asset ID split into collection and
+// nonce, and its currency, KLV when unset.
+func (m *marketKapp) parseSellContract(ctx kapp.KappContext, tc *transaction.SellContract) ([][]byte, []byte, transaction.Transaction_TXResultCode, error) {
+	if tc.GetAssetID() == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetID, common.ErrInvalidValue.Error())
+		return nil, nil, transaction.Transaction_AssetError, common.ErrInvalidValue
+	}
+
+	if tc.GetMarketplaceID() == nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, common.ErrInvalidValue.Error())
+		return nil, nil, transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	assetID := bytes.Split(tc.GetAssetID(), []byte(kapps.Sp))
+	if len(assetID) != 2 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, process.ErrInvalidArgument.Error())
+		return nil, nil, transaction.Transaction_AssetTypeInvalid, process.ErrInvalidArgument
+	}
+
+	if tc.GetPrice() < 0 || tc.GetReservePrice() < 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPrice, common.ErrInvalidValue.Error())
+		return nil, nil, transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	oneYearExpiration := time.Unix(ctx.Block().GetTimestamp(), 0).AddDate(1, 0, 0).Unix()
+	if tc.GetEndTime() <= ctx.Block().GetTimestamp() || tc.GetEndTime() > oneYearExpiration {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldOrderExpired, common.ErrInvalidValue.Error())
+		return nil, nil, transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	currencyID := tc.GetCurrencyID()
+	if currencyID == nil {
+		currencyID = kdautils.KLVIdentifier
+	}
+
+	if len(kapps.MarketOrderData_EnumMarketType_name[int32(tc.GetMarketType())]) == 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidMarketType, common.ErrInvalidValue.Error())
+		return nil, nil, transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+	}
+
+	return assetID, currencyID, transaction.Transaction_Ok, nil
+}
+
+// loadSellableAsset loads collection for Sell, refusing one that is not non-fungible.
+func (m *marketKapp) loadSellableAsset(ctx kapp.KappContext, collection []byte) (*kapps.KDAData, transaction.Transaction_TXResultCode, error) {
+	_, asset, err := m.KAppController.GetKDAKApp().GetKDA(collection)
+	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
+		return nil, transaction.Transaction_KAPPError, err
+	}
+
+	// only allowed to sell non-fungible assets
+	if asset.AssetType != kapps.KDAData_NonFungible {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrInvalidValue.Error())
+		return nil, transaction.Transaction_AssetTypeInvalid, common.ErrInvalidValue
+	}
+
+	// Under FixAuditChangesV6 a paused collection cannot be listed, as it cannot be
+	// transferred. Its transfer restriction is not checked here: the buyer is unknown until a
+	// bid, and Buy and settlement check the move from the seller to the buyer then.
+	if m.forkController.FixAuditChangesV6() {
+		status, err := checkNotPaused(asset)
+		if err != nil {
+			addControlRefusedReceipt(ctx, status)
+			return nil, status, err
+		}
+	}
+
+	return asset, transaction.Transaction_Ok, nil
+}
+
+// escrowOrder opens marketOrder: the NFT and the RoyaltiesFixedDeposit move from the order owner
+// into the market escrow, and the order is stored. It is the reverse of returnOrderToOwners.
+func (m *marketKapp) escrowOrder(ctx kapp.KappContext, marketKapp state.KAppAccountHandler, marketOrder *kapps.MarketOrderData) (transaction.Transaction_TXResultCode, error) {
+	ownerAcc, err := m.GetExistingUserAccount(marketOrder.OwnerAddress)
+	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAddress, err.Error())
+		return transaction.Transaction_LoadAccountError, err
+	}
+
+	if status, err := m.checkNotEscrowed(ctx, marketKapp, marketOrder.CollectionID, marketOrder.AssetID); err != nil {
+		return status, err
+	}
+
+	data, err := ownerAcc.SubInternalKDA(marketOrder.CollectionID, marketOrder.AssetID, m.forkController)
+	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, err.Error())
+		return transaction.Transaction_BalanceError, err
+	}
+
+	err = marketKapp.AddInternalKDA(marketOrder.CollectionID, marketOrder.AssetID, data)
+	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
+		return transaction.Transaction_AssetError, err
+	}
+
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.Transfer,
+		ctx.ContractID(),
+		ownerAcc.AddressBytes(),
+		kapps.MarketKAppAddress,
+		[]byte("1"),
+		marketOrder.CollectionID,
+		marketOrder.AssetID,
+		[]byte{byte(kapps.KDAData_NonFungible)},
+		marketOrder.MarketplaceID,
+		marketOrder.ID,
+	))
+
+	if marketOrder.RoyaltiesFixedDeposit > 0 {
+		err = ownerAcc.SubFromBalance(marketOrder.RoyaltiesFixedDeposit, kdautils.KLVIdentifier, m.forkController.EnableSmartContracts())
+		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInsufficientFunds, err.Error())
+			return transaction.Transaction_BalanceError, err
+		}
+
+		ctx.Receipts().Add(txProcess.NewReceipt(
+			txProcess.Transfer,
+			ctx.ContractID(),
+			ownerAcc.AddressBytes(),
+			kapps.MarketKAppAddress,
+			[]byte(strconv.FormatInt(marketOrder.RoyaltiesFixedDeposit, 10)),
+			kdautils.KLVIdentifier,
+			nil,
+			[]byte{byte(kapps.KDAData_Fungible)},
+			marketOrder.MarketplaceID,
+			marketOrder.ID,
+		))
+	}
+
 	err = m.SetMarketOrder(marketKapp, marketOrder)
 	if err != nil {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
@@ -1500,13 +1596,79 @@ func (m *marketKapp) Sell(sender []byte, tc *transaction.SellContract) (transact
 		return transaction.Transaction_SaveAccountError, err
 	}
 
-	ctx.SetReturnData([][]byte{orderID})
+	return transaction.Transaction_Ok, nil
+}
+
+// checkNotEscrowed refuses, from FixAuditChangesV7, listing the NFT nonce of collection while the
+// escrow already holds it: a second record at the same key, left by a spend through the fungible
+// balance path, would otherwise overwrite the first order's escrow (KLC-2835).
+func (m *marketKapp) checkNotEscrowed(ctx kapp.KappContext, marketKapp state.KAppAccountHandler, collection []byte, nonce []byte) (transaction.Transaction_TXResultCode, error) {
+	if !m.forkController.FixAuditChangesV7() {
+		return transaction.Transaction_Ok, nil
+	}
+
+	value, err := readEscrow(marketKapp, collection, nonce)
+	if err != nil {
+		return transaction.Transaction_KAPPError, err
+	}
+	if len(value) > 0 {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidOrder, common.ErrInvalidValue.Error())
+		return transaction.Transaction_KeyConflict, common.ErrInvalidValue
+	}
+
+	return transaction.Transaction_Ok, nil
+}
+
+// readEscrow reads the escrow's record of the NFT nonce of collection, nil when it holds none. A key
+// cleared earlier in the block reads back as ErrNegativeValue (pinned in trackableDataTrie_test.go),
+// and one never written on a KApp with no trie yet as ErrNilTrie: neither holds a record.
+func readEscrow(marketKapp state.KAppAccountHandler, collection []byte, nonce []byte) ([]byte, error) {
+	value, err := marketKapp.DataTrieTracker().RetrieveValue(kdautils.ToKDAKey(collection, nonce))
+	if errors.Is(err, common.ErrNilTrie) || errors.Is(err, common.ErrNegativeValue) {
+		return nil, nil
+	}
+
+	return value, err
+}
+
+// returnEscrowedNFT moves marketOrder's escrowed record back to ownerAcc, the order owner. From
+// FixAuditChangesV7 an escrow that holds none, cleared by another order on the same key
+// (KLC-2835), returns nothing, so the order still unwinds and its bid and deposit go back.
+func (m *marketKapp) returnEscrowedNFT(ctx kapp.KappContext, marketKapp state.KAppAccountHandler, ownerAcc state.UserAccountHandler, marketOrder *kapps.MarketOrderData) (transaction.Transaction_TXResultCode, error) {
+	if m.forkController.FixAuditChangesV7() {
+		value, err := readEscrow(marketKapp, marketOrder.CollectionID, marketOrder.AssetID)
+		if err != nil {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
+			return transaction.Transaction_KAPPError, err
+		}
+		if len(value) == 0 {
+			return transaction.Transaction_Ok, nil
+		}
+	}
+
+	data, err := marketKapp.SubInternalKDA(marketOrder.CollectionID, marketOrder.AssetID)
+	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
+		return transaction.Transaction_BalanceError, err
+	}
+
+	err = ownerAcc.AddInternalKDA(marketOrder.CollectionID, marketOrder.AssetID, data)
+	if err != nil {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
+		return transaction.Transaction_AssetError, err
+	}
 
 	ctx.Receipts().Add(txProcess.NewReceipt(
-		txProcess.Sell,
+		txProcess.Transfer,
 		ctx.ContractID(),
-		marketOrder.ID,
+		marketKapp.AddressBytes(),
+		ownerAcc.AddressBytes(),
+		[]byte("1"),
+		marketOrder.CollectionID,
+		marketOrder.AssetID,
+		[]byte{byte(kapps.KDAData_NonFungible)},
 		marketOrder.MarketplaceID,
+		marketOrder.ID,
 	))
 
 	return transaction.Transaction_Ok, nil
@@ -1610,30 +1772,9 @@ func (m *marketKapp) CancelOrder(sender []byte, tc *transaction.CancelMarketOrde
 	marketOrder.EndTime = ctx.Block().GetTimestamp()
 	marketOrder.IsClaimed = true
 
-	data, err := marketKapp.SubInternalKDA(marketOrder.CollectionID, marketOrder.AssetID)
-	if err != nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
-		return transaction.Transaction_BalanceError, err
+	if status, err := m.returnEscrowedNFT(ctx, marketKapp, ownerAcc, marketOrder); err != nil {
+		return status, err
 	}
-
-	err = ownerAcc.AddInternalKDA(marketOrder.CollectionID, marketOrder.AssetID, data)
-	if err != nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
-		return transaction.Transaction_AssetError, err
-	}
-
-	ctx.Receipts().Add(txProcess.NewReceipt(
-		txProcess.Transfer,
-		ctx.ContractID(),
-		kapps.MarketKAppAddress,
-		ownerAcc.AddressBytes(),
-		[]byte("1"),
-		marketOrder.CollectionID,
-		marketOrder.AssetID,
-		[]byte{byte(kapps.KDAData_NonFungible)},
-		marketOrder.MarketplaceID,
-		marketOrder.ID,
-	))
 
 	ctx.Receipts().Add(txProcess.NewReceipt(
 		txProcess.CancelOrder,

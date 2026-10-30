@@ -77,7 +77,7 @@ func (awm *AccountWrapMock) AddInternalKDA(assetID []byte, internalID []byte, da
 }
 
 // SubInternalKDA -
-func (awm *AccountWrapMock) SubInternalKDA(assetID []byte, internalID []byte) ([]byte, error) {
+func (awm *AccountWrapMock) SubInternalKDA(assetID []byte, internalID []byte, _ core.ForkController) ([]byte, error) {
 	return nil, nil
 }
 

@@ -548,7 +548,7 @@ func (a *accountsKapp) processPercentageRoyaltiesTransfer(tc *transaction.Transf
 }
 
 func (a *accountsKapp) processNonFungibleTransfer(assetID, internalID []byte, acntSrc, acntDst state.UserAccountHandler) (transaction.Transaction_TXResultCode, error) {
-	data, err := acntSrc.SubInternalKDA(assetID, internalID)
+	data, err := acntSrc.SubInternalKDA(assetID, internalID, a.forkController)
 	if err != nil {
 		return transaction.Transaction_BalanceError, err
 	}

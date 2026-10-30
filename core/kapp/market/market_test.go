@@ -1242,7 +1242,7 @@ func TestMarketKApp_ExecuteBuyMarket_ClearedReferralAddress(t *testing.T) {
 			ID: marketplaceID, OwnerAddress: marketplaceOwner, Name: []byte("strand"),
 			ReferralAddress: nil, ReferralPercentage: referralPct,
 		}))
-		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft")))
+		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, mock.NFTHolderRecord(1)))
 		require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
 
 		asset := &kapps.KDAData{
@@ -1349,7 +1349,7 @@ func TestMarketKApp_ExecuteBuyMarket_RoyaltyReferralInflation(t *testing.T) {
 			ReferralPercentage: core.HundredPercent,
 		}
 		require.NoError(t, marketKApp.SetMarketplace(marketKappAcc, marketplace))
-		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft-data")))
+		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, mock.NFTHolderRecord(1)))
 		require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
 
 		asset := &kapps.KDAData{
@@ -1456,7 +1456,7 @@ func TestMarketKApp_ExecuteBuyMarket_UsesSnapshotRoyalty(t *testing.T) {
 			ID: marketplaceID, OwnerAddress: seller, Name: []byte("snap"),
 			ReferralAddress: seller, ReferralPercentage: 0,
 		}))
-		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft")))
+		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, mock.NFTHolderRecord(1)))
 		require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
 
 		asset := &kapps.KDAData{
@@ -1541,7 +1541,7 @@ func TestMarketKApp_Sell_SnapshotsRoyalty(t *testing.T) {
 
 		sellerAcc, err := accCacher.LoadUser(seller)
 		require.NoError(t, err)
-		require.NoError(t, sellerAcc.AddInternalKDA(collection, nftNonce, []byte("nft-data")))
+		require.NoError(t, sellerAcc.AddInternalKDA(collection, nftNonce, mock.NFTHolderRecord(1)))
 		require.NoError(t, accCacher.UpdateUser(sellerAcc))
 
 		marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
@@ -1644,7 +1644,7 @@ func TestMarketKApp_Sell_IntoClearedReferralMarketplaceStillSettles(t *testing.T
 
 	sellerAcc, err := accCacher.LoadUser(seller)
 	require.NoError(t, err)
-	require.NoError(t, sellerAcc.AddInternalKDA(collection, nftNonce, []byte("nft-data")))
+	require.NoError(t, sellerAcc.AddInternalKDA(collection, nftNonce, mock.NFTHolderRecord(1)))
 	require.NoError(t, accCacher.UpdateUser(sellerAcc))
 
 	bidderAcc, err := accCacher.LoadUser(bidder)
@@ -1764,7 +1764,7 @@ func TestMarketKApp_Claim_MarketClaimRoyaltyReferralInflation(t *testing.T) {
 			ReferralAddress:    attacker,
 			ReferralPercentage: core.HundredPercent,
 		}))
-		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft-data")))
+		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, mock.NFTHolderRecord(1)))
 
 		order := &kapps.MarketOrderData{
 			ID:                 orderID,
@@ -1910,7 +1910,7 @@ func TestMarketKApp_ExecuteBuyMarket_SplitOverflowGuard(t *testing.T) {
 			ID: marketplaceID, OwnerAddress: seller, Name: []byte("ovf"),
 			ReferralAddress: seller, ReferralPercentage: 0,
 		}))
-		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft")))
+		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, mock.NFTHolderRecord(1)))
 		require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
 
 		asset := &kapps.KDAData{
@@ -2001,7 +2001,7 @@ func TestMarketKApp_ExecuteBuyMarket_MultiRecipientGuardMidLoop(t *testing.T) {
 		ID: marketplaceID, OwnerAddress: seller, Name: []byte("mr"),
 		ReferralAddress: seller, ReferralPercentage: 0,
 	}))
-	require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft")))
+	require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, mock.NFTHolderRecord(1)))
 	require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
 
 	asset := &kapps.KDAData{
@@ -2276,7 +2276,7 @@ func TestMarketKApp_Sell_SnapshotsReferralAddress(t *testing.T) {
 
 		sellerAcc, err := accCacher.LoadUser(seller)
 		require.NoError(t, err)
-		require.NoError(t, sellerAcc.AddInternalKDA(collection, nftNonce, []byte("nft-data")))
+		require.NoError(t, sellerAcc.AddInternalKDA(collection, nftNonce, mock.NFTHolderRecord(1)))
 		require.NoError(t, accCacher.UpdateUser(sellerAcc))
 
 		marketKappAcc, err := accCacher.LoadKApp(kapps.MarketKAppAddress)
@@ -2393,7 +2393,7 @@ func TestMarketKApp_ExecuteBuyMarket_RedirectedReferralAddress(t *testing.T) {
 			ID: marketplaceID, OwnerAddress: seller, Name: []byte("redir"),
 			ReferralAddress: redirectedReferral, ReferralPercentage: referralPct,
 		}))
-		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft")))
+		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, mock.NFTHolderRecord(1)))
 		require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
 
 		asset := &kapps.KDAData{
@@ -2496,7 +2496,7 @@ func TestMarketKApp_ExecuteBuyMarket_EmptySnapshottedReferralStillSettles(t *tes
 		ID: marketplaceID, OwnerAddress: seller, Name: []byte("emptysnap"),
 		ReferralPercentage: referralPct,
 	}))
-	require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft")))
+	require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, mock.NFTHolderRecord(1)))
 	require.NoError(t, accCacher.UpdateKapp(marketKappAcc))
 
 	asset := &kapps.KDAData{
@@ -2606,7 +2606,7 @@ func TestMarketKApp_Claim_EndedAuctionRoyaltyReceiverWithoutAccount(t *testing.T
 		require.NoError(t, marketKApp.SetMarketplace(marketKappAcc, &kapps.Marketplace{
 			ID: marketplaceID, OwnerAddress: seller, Name: []byte("noacc"),
 		}))
-		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, []byte("nft-data")))
+		require.NoError(t, marketKappAcc.AddInternalKDA(collectionID, assetID, mock.NFTHolderRecord(1)))
 
 		order := &kapps.MarketOrderData{
 			ID: orderID, MarketplaceID: marketplaceID,

@@ -326,15 +326,17 @@ func (a *userAccount) AddInternalKDA(assetID []byte, internalID []byte, data []b
 	return a.dataTrieTracker.SaveKeyValue(key, data)
 }
 
-// SubInternalKDA subtracts new internal KDA from user
-func (a *userAccount) SubInternalKDA(assetID []byte, internalID []byte) ([]byte, error) {
+// SubInternalKDA clears the user's NFT holder record internalID of assetID and returns it. From
+// FixAuditChangesV7 a record that does not hold the NFT (see kapps.UserKDA.IsHeldNFT) is refused
+// before it is cleared, so the refusal leaves it as it was (KLC-2835).
+func (a *userAccount) SubInternalKDA(assetID []byte, internalID []byte, forks core.ForkController) ([]byte, error) {
 	key := kdautils.ToKDAKey(assetID, internalID)
 
 	data, err := a.dataTrieTracker.RetrieveValue(key)
 	if err != nil {
 		return nil, err
 	}
-	if len(data) == 0 {
+	if len(data) == 0 || forks.FixAuditChangesV7() && !isHeldNFTRecord(data) {
 		return nil, common.ErrAssetNotFound
 	}
 
@@ -344,6 +346,15 @@ func (a *userAccount) SubInternalKDA(assetID []byte, internalID []byte) ([]byte,
 	}
 
 	return data, nil
+}
+
+func isHeldNFTRecord(data []byte) bool {
+	userKDA := &kapps.UserKDA{}
+	if err := marshal.NewProtoMarshalizer().Unmarshal(userKDA, data); err != nil {
+		return false
+	}
+
+	return userKDA.IsHeldNFT()
 }
 
 // GetBalance returns the actual balance from the account

@@ -2,6 +2,7 @@ package kda
 
 import (
 	"bytes"
+	"errors"
 	"strconv"
 
 	"github.com/klever-io/klever-go/common"
@@ -288,104 +289,16 @@ func (k *kdaKapp) Burn(sender []byte, tc *transaction.AssetTriggerContract) (tra
 
 	switch kda.AssetType {
 	case kapps.KDAData_NonFungible:
-		if len(internalID) == 0 {
-			return transaction.Transaction_AssetTypeInvalid, process.ErrInvalidArgument
-		}
-
-		key := kdautils.ToKDAKey(assetID, internalID)
-
-		data, err := acc.DataTrieTracker().RetrieveValue(key)
-		if err != nil || len(data) == 0 {
-			return transaction.Transaction_AssetError, process.ErrInvalidArgument
-		}
-
-		err = acc.DataTrieTracker().SaveKeyValue(key, nil)
-		if err != nil {
-			return transaction.Transaction_AssetError, err
-		}
-
-		if tc.GetAmount() != 1 {
-			return transaction.Transaction_AssetError, process.ErrInvalidArgument
-		}
-
-		kda.BurnedValue++
-		kda.CirculatingSupply--
-
-		if kda.BurnedValue <= 0 || kda.CirculatingSupply < 0 {
-			// prevent overflow
-			return transaction.Transaction_AssetError, process.ErrSupplyNotValid
-		}
-
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			acc.AddressBytes(),
-			core.ZeroAddress,
-			[]byte("1"),
-			assetID,
-			internalID,
-			[]byte{byte(kda.AssetType)},
-		))
+		resultCode, err = k.burnNFT(ctx, acc, kda, assetID, internalID, tc.GetAmount())
 	case kapps.KDAData_SemiFungible:
-		if len(internalID) == 0 {
-			return transaction.Transaction_AssetTypeInvalid, process.ErrInvalidArgument
-		}
-
-		if err = acc.SubFromBalanceWithNonce(tc.GetAmount(), assetID, internalID, k.forkController.EnableSmartContracts()); err != nil {
-			return transaction.Transaction_BalanceError, err
-		}
-
-		negativeAmount := -tc.GetAmount()
-
-		if err := k.KAppController.GetSystemAccountKApp().SFTAddCirculation(assetID, internalID, negativeAmount); err != nil {
-			return transaction.Transaction_AssetError, err
-		}
-
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			acc.AddressBytes(),
-			core.ZeroAddress,
-			[]byte(strconv.FormatInt(tc.GetAmount(), 10)),
-			assetID,
-			internalID,
-			[]byte{byte(kda.AssetType)},
-		))
-
+		resultCode, err = k.burnSFT(ctx, acc, kda, assetID, internalID, tc.GetAmount())
 	case kapps.KDAData_Fungible:
-		if len(internalID) != 0 {
-			return transaction.Transaction_AssetTypeInvalid, process.ErrInvalidArgument
-		}
-
-		if tc.GetAmount() <= 0 {
-			return transaction.Transaction_ParameterInvalid, process.ErrInvalidArgument
-		}
-
-		kda.BurnedValue += tc.GetAmount()
-		kda.CirculatingSupply -= tc.GetAmount()
-
-		if kda.BurnedValue <= 0 || !k.isValidCirculatingSupply(kda) {
-			// prevent overflow
-			return transaction.Transaction_AssetError, process.ErrSupplyNotValid
-		}
-
-		err := acc.SubFromBalance(tc.GetAmount(), assetID, k.forkController.EnableSmartContracts())
-		if err != nil {
-			return transaction.Transaction_BalanceError, err
-		}
-
-		ctx.Receipts().Add(txProcess.NewReceipt(
-			txProcess.Transfer,
-			ctx.ContractID(),
-			acc.AddressBytes(),
-			core.ZeroAddress,
-			[]byte(strconv.FormatInt(tc.GetAmount(), 10)),
-			assetID,
-			nil,
-			[]byte{byte(kda.AssetType)},
-		))
+		resultCode, err = k.burnFungible(ctx, acc, kda, assetID, internalID, tc.GetAmount())
 	default:
 		return transaction.Transaction_ParameterInvalid, process.ErrInvalidUnitValue
+	}
+	if err != nil {
+		return resultCode, err
 	}
 
 	if err := k.accountsCacher.UpdateUser(acc); err != nil {
@@ -400,6 +313,116 @@ func (k *kdaKapp) Burn(sender []byte, tc *transaction.AssetTriggerContract) (tra
 	if err := k.accountsCacher.UpdateKapp(kdaKapp); err != nil {
 		return transaction.Transaction_SaveAccountError, err
 	}
+
+	return transaction.Transaction_Ok, nil
+}
+
+// burnNFT burns the NFT internalID of collection assetID held by acc.
+func (k *kdaKapp) burnNFT(ctx kapp.KappContext, acc state.UserAccountHandler, kda *kapps.KDAData, assetID []byte, internalID []byte, amount int64) (transaction.Transaction_TXResultCode, error) {
+	if len(internalID) == 0 {
+		return transaction.Transaction_AssetTypeInvalid, process.ErrInvalidArgument
+	}
+
+	// From FixAuditChangesV7 a spent record is refused: it holds no unit, so burning or wiping it
+	// must not lower the supply (KLC-2835). A record that is missing, also from an account with no
+	// trie, cleared earlier in the block or refused is an invalid argument; any other error is
+	// returned as is.
+	if _, err := acc.SubInternalKDA(assetID, internalID, k.forkController); err != nil {
+		if errors.Is(err, common.ErrAssetNotFound) || errors.Is(err, common.ErrNilTrie) || errors.Is(err, common.ErrNegativeValue) {
+			err = process.ErrInvalidArgument
+		}
+		return transaction.Transaction_AssetError, err
+	}
+
+	if amount != 1 {
+		return transaction.Transaction_AssetError, process.ErrInvalidArgument
+	}
+
+	kda.BurnedValue++
+	kda.CirculatingSupply--
+
+	if kda.BurnedValue <= 0 || kda.CirculatingSupply < 0 {
+		// prevent overflow
+		return transaction.Transaction_AssetError, process.ErrSupplyNotValid
+	}
+
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.Transfer,
+		ctx.ContractID(),
+		acc.AddressBytes(),
+		core.ZeroAddress,
+		[]byte("1"),
+		assetID,
+		internalID,
+		[]byte{byte(kda.AssetType)},
+	))
+
+	return transaction.Transaction_Ok, nil
+}
+
+// burnSFT burns amount of the SFT internalID of collection assetID held by acc.
+func (k *kdaKapp) burnSFT(ctx kapp.KappContext, acc state.UserAccountHandler, kda *kapps.KDAData, assetID []byte, internalID []byte, amount int64) (transaction.Transaction_TXResultCode, error) {
+	if len(internalID) == 0 {
+		return transaction.Transaction_AssetTypeInvalid, process.ErrInvalidArgument
+	}
+
+	if err := acc.SubFromBalanceWithNonce(amount, assetID, internalID, k.forkController.EnableSmartContracts()); err != nil {
+		return transaction.Transaction_BalanceError, err
+	}
+
+	negativeAmount := -amount
+
+	if err := k.KAppController.GetSystemAccountKApp().SFTAddCirculation(assetID, internalID, negativeAmount); err != nil {
+		return transaction.Transaction_AssetError, err
+	}
+
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.Transfer,
+		ctx.ContractID(),
+		acc.AddressBytes(),
+		core.ZeroAddress,
+		[]byte(strconv.FormatInt(amount, 10)),
+		assetID,
+		internalID,
+		[]byte{byte(kda.AssetType)},
+	))
+
+	return transaction.Transaction_Ok, nil
+}
+
+// burnFungible burns amount of the fungible assetID held by acc.
+func (k *kdaKapp) burnFungible(ctx kapp.KappContext, acc state.UserAccountHandler, kda *kapps.KDAData, assetID []byte, internalID []byte, amount int64) (transaction.Transaction_TXResultCode, error) {
+	if len(internalID) != 0 {
+		return transaction.Transaction_AssetTypeInvalid, process.ErrInvalidArgument
+	}
+
+	if amount <= 0 {
+		return transaction.Transaction_ParameterInvalid, process.ErrInvalidArgument
+	}
+
+	kda.BurnedValue += amount
+	kda.CirculatingSupply -= amount
+
+	if kda.BurnedValue <= 0 || !k.isValidCirculatingSupply(kda) {
+		// prevent overflow
+		return transaction.Transaction_AssetError, process.ErrSupplyNotValid
+	}
+
+	err := acc.SubFromBalance(amount, assetID, k.forkController.EnableSmartContracts())
+	if err != nil {
+		return transaction.Transaction_BalanceError, err
+	}
+
+	ctx.Receipts().Add(txProcess.NewReceipt(
+		txProcess.Transfer,
+		ctx.ContractID(),
+		acc.AddressBytes(),
+		core.ZeroAddress,
+		[]byte(strconv.FormatInt(amount, 10)),
+		assetID,
+		nil,
+		[]byte{byte(kda.AssetType)},
+	))
 
 	return transaction.Transaction_Ok, nil
 }

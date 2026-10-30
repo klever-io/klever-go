@@ -46,6 +46,13 @@ func (kda *KDAData) CanSenderTransfer(sender []byte) bool {
 	return err == nil && senderRoles.HasRoleTransfer
 }
 
+// IsHeldNFT reports whether x, an NFT holder record, holds the NFT: every mint stores it with
+// Balance 1. A record spent through the fungible balance path keeps Balance 0 and, when it also
+// carries metadata, stays in the trie, where it must not pass as held (KLC-2835).
+func (x *UserKDA) IsHeldNFT() bool {
+	return x.GetBalance() == 1
+}
+
 func MatchesAddress(expected []byte, address []byte) bool {
 	return len(address) > 0 && bytes.Equal(expected, address)
 }

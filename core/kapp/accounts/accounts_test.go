@@ -6436,14 +6436,15 @@ func Test_ProcessNonFungibleTransfer_NonCanonicalAmount(t *testing.T) {
 		t.Run(tt.description, func(t *testing.T) {
 			var subInternalCalled, addInternalCalled bool
 
+			take := func(gotAssetID, gotInternalID []byte) ([]byte, error) {
+				assert.Equal(t, assetID, gotAssetID)
+				assert.Equal(t, internalID, gotInternalID)
+				subInternalCalled = true
+				return commonMock.NFTHolderRecord(1), nil
+			}
 			src := &commonMock.UserAccountHandlerStub{
-				AddressBytesCalled: func() []byte { return sender },
-				SubInternalKDACalled: func(gotAssetID, gotInternalID []byte) ([]byte, error) {
-					assert.Equal(t, assetID, gotAssetID)
-					assert.Equal(t, internalID, gotInternalID)
-					subInternalCalled = true
-					return []byte("nft-data"), nil
-				},
+				AddressBytesCalled:   func() []byte { return sender },
+				SubInternalKDACalled: take,
 				SubFromBalanceWithNonceCalled: func(value int64, _, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
 					t.Fatalf("balance path called for true NFT with value %d", value)
 					return nil
@@ -6454,7 +6455,7 @@ func Test_ProcessNonFungibleTransfer_NonCanonicalAmount(t *testing.T) {
 				AddInternalKDACalled: func(gotAssetID, gotInternalID, data []byte) error {
 					assert.Equal(t, assetID, gotAssetID)
 					assert.Equal(t, internalID, gotInternalID)
-					assert.Equal(t, []byte("nft-data"), data)
+					assert.Equal(t, commonMock.NFTHolderRecord(1), data)
 					addInternalCalled = true
 					return nil
 				},
@@ -6538,21 +6539,22 @@ func Test_ProcessNonFungibleTransfer_CanonicalAmountPostFork(t *testing.T) {
 
 	var subInternalCalled, addInternalCalled bool
 
+	take := func(gotAssetID, gotInternalID []byte) ([]byte, error) {
+		assert.Equal(t, assetID, gotAssetID)
+		assert.Equal(t, internalID, gotInternalID)
+		subInternalCalled = true
+		return commonMock.NFTHolderRecord(1), nil
+	}
 	src := &commonMock.UserAccountHandlerStub{
-		AddressBytesCalled: func() []byte { return sender },
-		SubInternalKDACalled: func(gotAssetID, gotInternalID []byte) ([]byte, error) {
-			assert.Equal(t, assetID, gotAssetID)
-			assert.Equal(t, internalID, gotInternalID)
-			subInternalCalled = true
-			return []byte("nft-data"), nil
-		},
+		AddressBytesCalled:   func() []byte { return sender },
+		SubInternalKDACalled: take,
 	}
 	dst := &commonMock.UserAccountHandlerStub{
 		AddressBytesCalled: func() []byte { return recipient },
 		AddInternalKDACalled: func(gotAssetID, gotInternalID, data []byte) error {
 			assert.Equal(t, assetID, gotAssetID)
 			assert.Equal(t, internalID, gotInternalID)
-			assert.Equal(t, []byte("nft-data"), data)
+			assert.Equal(t, commonMock.NFTHolderRecord(1), data)
 			addInternalCalled = true
 			return nil
 		},
@@ -8149,10 +8151,47 @@ func Test_ProcessFungibleTransfer_DebitsSenderAndCreditsReceiver(t *testing.T) {
 	requireTransferReceipt(t, receipts[0], senderAddr, receiverAddr, transferValue, assetID, nil, kapps.KDAData_Fungible)
 }
 
+// From FixAuditChangesV7 a spent NFT record cannot be transferred; before it, it moves like a
+// held one.
+func Test_ProcessNonFungibleTransfer_SpentRecord(t *testing.T) {
+	assetID := []byte("NONFUNGI-1234")
+	internalID := []byte("7")
+	senderAddr := makeAddress("nonFungible-sender")
+	receiverAddr := makeAddress("nonFungible-receiver")
+
+	transfer := func(t *testing.T, epochs config.EnableEpochs) (transferFixture, transaction.Transaction_TXResultCode, error) {
+		f := newTransferFixture(t, epochs, kapps.KDAData_NonFungible, senderAddr, receiverAddr)
+		require.NoError(t, f.src.AddInternalKDA(assetID, internalID, commonMock.NFTHolderRecord(0)))
+		status, err := f.accKapp.processNonFungibleTransfer(assetID, internalID, f.src, f.dst)
+		return f, status, err
+	}
+
+	t.Run("refused from V7", func(t *testing.T) {
+		f, status, err := transfer(t, config.EnableEpochs{})
+
+		require.ErrorIs(t, err, common.ErrAssetNotFound)
+		require.Equal(t, transaction.Transaction_BalanceError, status)
+		kept, err := f.src.RetrieveValue(kdautils.ToKDAKey(assetID, internalID))
+		require.NoError(t, err)
+		require.Equal(t, commonMock.NFTHolderRecord(0), kept, "the refused record stays with the sender")
+		require.Zero(t, f.saved[string(senderAddr)])
+	})
+
+	t.Run("moved before V7", func(t *testing.T) {
+		f, status, err := transfer(t, config.EnableEpochs{FixAuditChangesV6: 1, FixAuditChangesV7: 2})
+
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, status)
+		moved, err := f.dst.DataTrieTracker().RetrieveValue(kdautils.ToKDAKey(assetID, internalID))
+		require.NoError(t, err)
+		require.Equal(t, commonMock.NFTHolderRecord(0), moved)
+	})
+}
+
 func Test_ProcessNonFungibleTransfer_MovesUnitToReceiver(t *testing.T) {
 	assetID := []byte("NONFUNGI-1234")
 	internalID := []byte("7")
-	nftPayload := []byte("nft-metadata")
+	nftPayload := commonMock.NFTHolderRecord(1)
 	senderAddr := makeAddress("nonFungible-sender")
 	receiverAddr := makeAddress("nonFungible-receiver")
 
@@ -8186,7 +8225,7 @@ func Test_ProcessNonFungibleTransfer_MovesUnitToReceiver(t *testing.T) {
 	require.Equal(t, transaction.Transaction_BalanceError, status)
 	require.Len(t, f.ctx.Receipts().Get(), 1, "a rejected second send must not add a receipt")
 
-	moved, err := f.dst.SubInternalKDA(assetID, internalID)
+	moved, err := f.dst.SubInternalKDA(assetID, internalID, f.accKapp.forkController)
 	require.NoError(t, err, "receiver must own the unit after the transfer")
 	require.Equal(t, nftPayload, moved, "the unit payload must survive the transfer unchanged")
 }

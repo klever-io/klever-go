@@ -182,7 +182,7 @@ func (a *Account) AddInternalKDA(assetID []byte, internalID []byte, data []byte)
 	panic("implement me")
 }
 
-func (a *Account) SubInternalKDA(assetID []byte, internalID []byte) ([]byte, error) {
+func (a *Account) SubInternalKDA(assetID []byte, internalID []byte, forks core.ForkController) ([]byte, error) {
 	panic("implement me")
 }
 

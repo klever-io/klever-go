@@ -78,7 +78,7 @@ func (n *Node) GetNFT(owner string, id string) (*kapps.UserKDA, *kapps.KDAData, 
 		return &kapps.UserKDA{}, &kapps.KDAData{}, err
 	}
 
-	if userKDA == nil || userKDA.Balance != 1 {
+	if !userKDA.IsHeldNFT() {
 		return &kapps.UserKDA{}, &kapps.KDAData{}, fmt.Errorf("%w: %s", common.ErrAssetIDInvalid, id)
 	}
 

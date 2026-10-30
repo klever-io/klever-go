@@ -16,6 +16,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// forksBeforeV7 is a fork controller with FixAuditChangesV7 inactive.
+var forksBeforeV7 = &mock.ForkControllerStub{}
+
 func TestUserAccount_IncreaseNonce(t *testing.T) {
 	account := state.NewEmptyUserAccount()
 	account.IncreaseNonce(5)
@@ -1318,14 +1321,61 @@ func TestUserAccount_SubInternalKDA(t *testing.T) {
 		err := account.AddInternalKDA([]byte("MYTOKEN"), []byte("1"), data)
 		assert.NoError(t, err)
 
-		retrieved, err := account.SubInternalKDA([]byte("MYTOKEN"), []byte("1"))
+		retrieved, err := account.SubInternalKDA([]byte("MYTOKEN"), []byte("1"), forksBeforeV7)
 		assert.NoError(t, err)
 		assert.Equal(t, data, retrieved)
 	})
 
 	t.Run("sub nonexistent returns error", func(t *testing.T) {
 		account, _ := state.NewUserAccount([]byte("address"))
-		_, err := account.SubInternalKDA([]byte("MYTOKEN"), []byte("1"))
+		_, err := account.SubInternalKDA([]byte("MYTOKEN"), []byte("1"), forksBeforeV7)
+		assert.Error(t, err)
+	})
+}
+
+// From FixAuditChangesV7 SubInternalKDA takes only a record that holds the NFT, Balance 1 as Mint
+// stores it, and refuses any other before clearing it (KLC-2835). Before the fork it takes any
+// record.
+func TestUserAccount_SubInternalKDA_HeldNFT(t *testing.T) {
+	assetID, nonce := []byte("NFT-1234"), []byte("1")
+	forksV7 := &mock.ForkControllerStub{FixAuditChangesV7Value: true}
+
+	t.Run("takes a held record", func(t *testing.T) {
+		account, _ := state.NewUserAccount([]byte("address"))
+		assert.NoError(t, account.AddInternalKDA(assetID, nonce, mock.NFTHolderRecord(1)))
+
+		data, err := account.SubInternalKDA(assetID, nonce, forksV7)
+
+		assert.NoError(t, err)
+		assert.Equal(t, mock.NFTHolderRecord(1), data)
+		_, err = account.SubInternalKDA(assetID, nonce, forksV7)
+		assert.ErrorIs(t, err, common.ErrNegativeValue, "the key is cleared")
+	})
+
+	refused := map[string][]byte{
+		"a spent record":        mock.NFTHolderRecord(0),
+		"a balance of 2":        mock.NFTHolderRecord(2),
+		"an undecodable record": {0xff},
+	}
+	for name, record := range refused {
+		t.Run("refuses "+name, func(t *testing.T) {
+			account, _ := state.NewUserAccount([]byte("address"))
+			assert.NoError(t, account.AddInternalKDA(assetID, nonce, record))
+
+			_, err := account.SubInternalKDA(assetID, nonce, forksV7)
+
+			assert.ErrorIs(t, err, common.ErrAssetNotFound)
+			kept, err := account.SubInternalKDA(assetID, nonce, forksBeforeV7)
+			assert.NoError(t, err)
+			assert.Equal(t, record, kept, "the refused record is left as it was")
+		})
+	}
+
+	t.Run("refuses a missing record", func(t *testing.T) {
+		account, _ := state.NewUserAccount([]byte("address"))
+
+		_, err := account.SubInternalKDA(assetID, nonce, forksV7)
+
 		assert.Error(t, err)
 	})
 }
@@ -2617,12 +2667,12 @@ func TestUserAccount_SubInternalKDA_AddThenSubThenSubAgain(t *testing.T) {
 	err := account.AddInternalKDA(assetID, internalID, kdaData)
 	assert.NoError(t, err)
 
-	retrieved, err := account.SubInternalKDA(assetID, internalID)
+	retrieved, err := account.SubInternalKDA(assetID, internalID, forksBeforeV7)
 	assert.NoError(t, err)
 	assert.Equal(t, kdaData, retrieved)
 
 	// Sub again on removed key returns error
-	_, err = account.SubInternalKDA(assetID, internalID)
+	_, err = account.SubInternalKDA(assetID, internalID, forksBeforeV7)
 	assert.Error(t, err)
 }
 
@@ -2653,7 +2703,7 @@ func TestUserAccount_SubInternalKDA_AssetNotFound(t *testing.T) {
 	})
 
 	// SubInternalKDA for a missing key returns ErrAssetNotFound
-	_, err := account.SubInternalKDA([]byte("ASSET"), []byte("nonce"))
+	_, err := account.SubInternalKDA([]byte("ASSET"), []byte("nonce"), forksBeforeV7)
 	assert.Equal(t, common.ErrAssetNotFound, err)
 }
 
@@ -3111,6 +3161,6 @@ func TestUserAccount_SubInternalKDA_RetrieveValueError(t *testing.T) {
 	assetID := []byte("TOKEN")
 	internalID := []byte("internal-1")
 
-	_, err := account.SubInternalKDA(assetID, internalID)
+	_, err := account.SubInternalKDA(assetID, internalID, forksBeforeV7)
 	assert.Equal(t, expectedErr, err)
 }

@@ -192,6 +192,81 @@ func TestKDAKapp_BurnFungibleReducesSupply(t *testing.T) {
 	assert.Equal(t, int64(600), acc.GetBalance(defaultAssetID, true))
 }
 
+// A minted NFT's compound ID names no asset: the asset records live in the KDA KApp under the
+// collection ID alone, so a market currency named like an NFT is refused wherever it is loaded.
+func TestKDAKapp_GetKDADoesNotResolveCompoundNFTID(t *testing.T) {
+	t.Parallel()
+
+	kc, err := createMockControllers()
+	require.NoError(t, err)
+	createDefaultAsset(t, kc, transaction.CreateAssetContract_NonFungible, 0, 0, 0, nil)
+	_, err = kc.GetKDAKApp().Mint(defaultSender, &transaction.AssetTriggerContract{
+		TriggerType: transaction.AssetTriggerContract_Mint,
+		AssetID:     defaultAssetID,
+		ToAddress:   defaultSender,
+		Amount:      1,
+	})
+	require.NoError(t, err)
+
+	_, _, err = kc.GetKDAKApp().GetKDA(withNonce(defaultAssetID, "1"))
+
+	require.ErrorIs(t, err, common.ErrAssetNotFound)
+}
+
+// A spent NFT record (balance 0, kept in the trie by its metadata) holds no unit. From
+// FixAuditChangesV7 burning or wiping it is refused and the supply stays; before it, the burn
+// lowers the circulating supply with no unit destroyed (KLC-2835).
+func TestKDAKapp_BurnSpentNFTRecord(t *testing.T) {
+	t.Parallel()
+
+	burnSpent := func(t *testing.T, triggerType transaction.AssetTriggerContract_EnumTriggerType, fixAuditChangesV7 bool) (*kapps.KDAData, transaction.Transaction_TXResultCode, error) {
+		t.Helper()
+
+		kc, err := createMockControllersWithFork(mock.NewForkControllerStub().SetFork("FixAuditChangesV7", fixAuditChangesV7))
+		require.NoError(t, err)
+		createDefaultAsset(t, kc, transaction.CreateAssetContract_NonFungible, 0, 0, 0, nil)
+		_, err = kc.GetKDAKApp().Mint(defaultSender, &transaction.AssetTriggerContract{
+			TriggerType: transaction.AssetTriggerContract_Mint,
+			AssetID:     defaultAssetID,
+			ToAddress:   defaultSender,
+			Amount:      1,
+		})
+		require.NoError(t, err)
+
+		acc, err := kc.GetKDAKApp().GetAccountsCacher().GetExistingUser(defaultSender)
+		require.NoError(t, err)
+		require.NoError(t, acc.DataTrieTracker().SaveKeyValue(kdautils.ToKDAKey(defaultAssetID, []byte("1")), mock.NFTHolderRecord(0)))
+
+		code, err := kc.GetKDAKApp().Burn(defaultSender,
+			burnContract(triggerType, withNonce(defaultAssetID, "1"), defaultSender, 1))
+
+		_, kda, errKDA := kc.GetKDAKApp().GetKDA(defaultAssetID)
+		require.NoError(t, errKDA)
+		return kda, code, err
+	}
+
+	for _, triggerType := range []transaction.AssetTriggerContract_EnumTriggerType{
+		transaction.AssetTriggerContract_Burn,
+		transaction.AssetTriggerContract_Wipe,
+	} {
+		t.Run(triggerType.String()+" refused from V7", func(t *testing.T) {
+			kda, code, err := burnSpent(t, triggerType, true)
+
+			assert.Equal(t, transaction.Transaction_AssetError, code)
+			require.ErrorIs(t, err, process.ErrInvalidArgument)
+			assert.Equal(t, int64(1), kda.CirculatingSupply)
+		})
+	}
+
+	t.Run("lowers the supply before V7", func(t *testing.T) {
+		kda, code, err := burnSpent(t, transaction.AssetTriggerContract_Burn, false)
+
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, code)
+		assert.Equal(t, int64(0), kda.CirculatingSupply)
+	})
+}
+
 func TestKDAKapp_BurnNonFungible(t *testing.T) {
 	t.Parallel()
 
