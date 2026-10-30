@@ -13,6 +13,8 @@ type KDAFeesPoolKappStub struct {
 	ComputeCalled           func(klvAmount int64, info data.KDAFeeHandler) (int64, error)
 	ComputeUncachedCalled   func(klvAmount int64, info data.KDAFeeHandler) (int64, error)
 	SwapCalled              func(sender state.UserAccountHandler, klvAmount int64, info data.KDAFeeHandler) error
+	SwapBandwidthFeeCalled  func(sender state.UserAccountHandler, bandwidthFee int64, totalFee int64, info data.KDAFeeHandler) error
+	SwapKAppFeeCalled       func(sender state.UserAccountHandler, bandwidthFee int64, kappFee int64, info data.KDAFeeHandler) error
 	ValidateCalled          func(senderAddress []byte, klvFee int64, info data.KDAFeeHandler) error
 	ChangePoolOwnerCalled   func(poolID []byte, sender []byte, newOwner []byte) (transaction.Transaction_TXResultCode, error)
 	GetPoolOwnerCalled      func(assetID []byte) ([]byte, error)
@@ -53,6 +55,20 @@ func (s *KDAFeesPoolKappStub) ComputeUncached(klvAmount int64, info data.KDAFeeH
 func (s *KDAFeesPoolKappStub) Swap(sender state.UserAccountHandler, klvAmount int64, info data.KDAFeeHandler) error {
 	if s.SwapCalled != nil {
 		return s.SwapCalled(sender, klvAmount, info)
+	}
+	return nil
+}
+
+func (s *KDAFeesPoolKappStub) SwapBandwidthFee(sender state.UserAccountHandler, bandwidthFee int64, totalFee int64, info data.KDAFeeHandler) error {
+	if s.SwapBandwidthFeeCalled != nil {
+		return s.SwapBandwidthFeeCalled(sender, bandwidthFee, totalFee, info)
+	}
+	return nil
+}
+
+func (s *KDAFeesPoolKappStub) SwapKAppFee(sender state.UserAccountHandler, bandwidthFee int64, kappFee int64, info data.KDAFeeHandler) error {
+	if s.SwapKAppFeeCalled != nil {
+		return s.SwapKAppFeeCalled(sender, bandwidthFee, kappFee, info)
 	}
 	return nil
 }

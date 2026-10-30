@@ -1877,3 +1877,285 @@ func TestValidateRejectsWhateverSwapWouldReject(t *testing.T) {
 		})
 	}
 }
+
+// swapShareSender records what a share swap debits and credits; balance is what it holds
+// of the fee asset.
+func swapShareSender(balance int64, debited *int64, credited *int64, subCalled *bool) *mock.UserAccountHandlerStub {
+	return &mock.UserAccountHandlerStub{
+		AddressBytesCalled: func() []byte { return []byte("sender") },
+		GetBalanceCalled:   func(_ []byte, _ bool) int64 { return balance },
+		SubFromBalanceCalled: func(value int64, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
+			*subCalled = true
+			*debited = value
+			return nil
+		},
+		AddToBalanceCalled: func(value int64, _ []byte, _ bool, _ ...*kapps.UserKDA) error {
+			*credited = value
+			return nil
+		},
+	}
+}
+
+func TestSwapBandwidthFeeSwapsOnlyTheBandwidthShare(t *testing.T) {
+	t.Parallel()
+
+	// FRatioKDA 100 over FRatioKLV 1000: the quote is a tenth of the KLV amount
+	const (
+		bandwidthFee = int64(1000)
+		totalFee     = int64(3000)
+		overpay      = int64(5)
+	)
+	signed := totalFee/10 + overpay
+
+	tests := []struct {
+		name          string
+		bandwidthFee  int64
+		totalFee      int64
+		amount        int64
+		senderBalance int64
+		kda           *kapps.KDAData
+		wantDebit     int64
+		wantErr       error
+	}{
+		{
+			name:          "the bandwidth share is swapped at the pool's ratio",
+			bandwidthFee:  bandwidthFee,
+			totalFee:      totalFee,
+			amount:        signed,
+			senderBalance: signed,
+			wantDebit:     bandwidthFee / 10,
+		},
+		{
+			name:          "a fractional bandwidth share is rounded up",
+			bandwidthFee:  bandwidthFee + 5,
+			totalFee:      totalFee,
+			amount:        signed,
+			senderBalance: signed,
+			wantDebit:     bandwidthFee/10 + 1,
+		},
+		{
+			// rounded down it would cost nothing, and a failed transaction would go free
+			name:          "a bandwidth share below one KDA unit costs one unit",
+			bandwidthFee:  5,
+			totalFee:      totalFee,
+			amount:        signed,
+			senderBalance: signed,
+			wantDebit:     1,
+		},
+		{
+			// 1.5 KDA rounds up to 2, but the whole fee of 1.9 KDA was signed as 1
+			name:          "the rounded-up share is capped at the signed amount",
+			bandwidthFee:  15,
+			totalFee:      19,
+			amount:        1,
+			senderBalance: 1,
+			wantDebit:     1,
+		},
+		{
+			name:          "a signed amount below the whole fee is refused",
+			bandwidthFee:  bandwidthFee,
+			totalFee:      totalFee,
+			amount:        totalFee/10 - 1,
+			senderBalance: signed,
+			wantErr:       common.ErrAssetPoolAmountError,
+		},
+		{
+			name:          "a pool that cannot cover the whole fee is refused",
+			bandwidthFee:  bandwidthFee,
+			totalFee:      swapTestInitialKLVBalance + 1,
+			amount:        swapTestInitialKLVBalance,
+			senderBalance: swapTestInitialKLVBalance,
+			wantErr:       common.ErrAssetPoolOutOfFunds,
+		},
+		{
+			name:          "a sender holding less than the signed amount is refused",
+			bandwidthFee:  bandwidthFee,
+			totalFee:      totalFee,
+			amount:        signed,
+			senderBalance: signed - 1,
+			wantErr:       state.ErrInsufficientFunds,
+		},
+		{
+			name:          "a negative bandwidth fee is refused",
+			bandwidthFee:  -1,
+			totalFee:      totalFee,
+			amount:        signed,
+			senderBalance: signed,
+			wantErr:       common.ErrAssetPoolInvalidAmount,
+		},
+		{
+			name:          "a bandwidth fee above the whole fee is refused",
+			bandwidthFee:  totalFee + 1,
+			totalFee:      totalFee,
+			amount:        signed,
+			senderBalance: signed,
+			wantErr:       common.ErrAssetPoolInvalidAmount,
+		},
+		{
+			name:          "a paused asset cannot pay the bandwidth share",
+			bandwidthFee:  bandwidthFee,
+			totalFee:      totalFee,
+			amount:        signed,
+			senderBalance: signed,
+			kda:           &kapps.KDAData{Attributes: &kapps.AttributesData{IsPaused: true}},
+			wantErr:       process.ErrAssetIsPaused,
+		},
+		{
+			name:          "a sender without the transfer role cannot pay the bandwidth share",
+			bandwidthFee:  bandwidthFee,
+			totalFee:      totalFee,
+			amount:        signed,
+			senderBalance: signed,
+			kda: &kapps.KDAData{
+				Properties: &kapps.PropertiesData{LimitTransfer: true},
+				Attributes: &kapps.AttributesData{},
+			},
+			wantErr: process.ErrKDATransferNotAllowed,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			kda := test.kda
+			if kda == nil {
+				kda = &kapps.KDAData{}
+			}
+
+			forkStub := mock.NewForkControllerStub()
+			feesPool, readPool, _ := newSwapTestKApp(t, forkStub, kda, nil)
+
+			var debited, credited int64
+			subCalled := false
+			sender := swapShareSender(test.senderBalance, &debited, &credited, &subCalled)
+
+			feeHandler := &KDAFeeHandlerStub{kda: []byte("asset-id"), amount: test.amount}
+			err := feesPool.SwapBandwidthFee(sender, test.bandwidthFee, test.totalFee, feeHandler)
+
+			pool := readPool()
+			if test.wantErr != nil {
+				require.ErrorIs(t, err, test.wantErr)
+				require.False(t, subCalled, "a refused fee payment must not debit the sender")
+				require.Equal(t, int64(0), pool.KDABalance)
+				require.Equal(t, swapTestInitialKLVBalance, pool.KLVBalance)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.wantDebit, debited)
+			require.Equal(t, test.bandwidthFee, credited)
+			require.Equal(t, test.wantDebit, pool.KDABalance)
+			require.Equal(t, swapTestInitialKLVBalance-test.bandwidthFee, pool.KLVBalance)
+		})
+	}
+}
+
+func TestSwapKAppFeeTakesTheRestOfTheSignedAmount(t *testing.T) {
+	t.Parallel()
+
+	const bandwidthFee = int64(1000)
+	bandwidthKDA := bandwidthFee / 10
+
+	tests := []struct {
+		name         string
+		bandwidthFee int64
+		kappFee      int64
+		amount       int64
+		wantDebit    int64
+		wantCredit   int64
+		wantErr      error
+	}{
+		{
+			name:       "the rest of the signed amount, excess included, pays the KApp fee",
+			kappFee:    2000,
+			amount:     bandwidthKDA + 200 + 5,
+			wantDebit:  200 + 5,
+			wantCredit: 2000,
+		},
+		{
+			name:      "an excess with no KApp fee still goes to the pool",
+			kappFee:   0,
+			amount:    bandwidthKDA + 5,
+			wantDebit: 5,
+		},
+		{
+			name:    "nothing left and no KApp fee swaps nothing",
+			kappFee: 0,
+			amount:  bandwidthKDA,
+		},
+		{
+			// 100.5 KDA of bandwidth rounds up to 101, leaving 198 for a KApp fee quoted
+			// at 199.3: the whole fee of 299.8 KDA is covered, so nothing is refused
+			name:         "a rest one unit short of the KApp fee's own quote pays it",
+			bandwidthFee: bandwidthFee + 5,
+			kappFee:      1993,
+			amount:       299,
+			wantDebit:    198,
+			wantCredit:   1993,
+		},
+		{
+			name:    "a signed amount below the whole fee's quote is refused",
+			kappFee: 2000,
+			amount:  bandwidthKDA + 199,
+			wantErr: common.ErrAssetPoolAmountError,
+		},
+		{
+			name:    "a pool that cannot cover the KApp fee is refused",
+			kappFee: swapTestInitialKLVBalance + 1,
+			amount:  bandwidthKDA + swapTestInitialKLVBalance,
+			wantErr: common.ErrAssetPoolOutOfFunds,
+		},
+		{
+			name:    "a negative KApp fee is refused",
+			kappFee: -1,
+			amount:  bandwidthKDA,
+			wantErr: common.ErrAssetPoolInvalidAmount,
+		},
+		{
+			name:    "a signed amount below the bandwidth share is refused",
+			kappFee: 2000,
+			amount:  bandwidthKDA - 1,
+			wantErr: common.ErrAssetPoolAmountError,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			forkStub := mock.NewForkControllerStub()
+			feesPool, readPool, _ := newSwapTestKApp(t, forkStub, &kapps.KDAData{}, nil)
+
+			var debited, credited int64
+			subCalled := false
+			sender := swapShareSender(test.amount, &debited, &credited, &subCalled)
+
+			bw := test.bandwidthFee
+			if bw == 0 {
+				bw = bandwidthFee
+			}
+
+			feeHandler := &KDAFeeHandlerStub{kda: []byte("asset-id"), amount: test.amount}
+			err := feesPool.SwapKAppFee(sender, bw, test.kappFee, feeHandler)
+
+			pool := readPool()
+			if test.wantErr != nil {
+				require.ErrorIs(t, err, test.wantErr)
+				require.False(t, subCalled, "a refused fee payment must not debit the sender")
+				require.Equal(t, int64(0), pool.KDABalance)
+				require.Equal(t, swapTestInitialKLVBalance, pool.KLVBalance)
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, test.wantDebit != 0 || test.wantCredit != 0, subCalled)
+			require.Equal(t, test.wantDebit, debited)
+			require.Equal(t, test.wantCredit, credited)
+			require.Equal(t, test.wantDebit, pool.KDABalance)
+			require.Equal(t, swapTestInitialKLVBalance-test.wantCredit, pool.KLVBalance)
+		})
+	}
+}

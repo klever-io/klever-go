@@ -149,9 +149,17 @@ func (txProc *txProcessor) ProcessBandwidthFee(txHash []byte, tx *transaction.Tr
 		}
 	}
 
-	if tx.GetRawData().GetKDAFee() != nil {
-		// Swap KDA to KLV if requested and pool exists
-		err := txProc.kApps.GetKDAFeesPoolKApp().Swap(ownerAcc, tx.GetTotalFees(), tx.GetRawData().GetKDAFee())
+	if kdaFee := tx.GetRawData().GetKDAFee(); kdaFee != nil {
+		// Swap KDA to KLV if requested and pool exists. This runs ahead of the processing
+		// snapshot, so from FixAuditChangesV7 only the bandwidth share is swapped here and
+		// the KApp fee share is swapped in ProcessKAppFee, where it is consumed: a failed
+		// transaction then gives it back in KDA instead of as KLV taken from the pool.
+		var err error
+		if txProc.forkController.FixAuditChangesV7() {
+			err = txProc.kApps.GetKDAFeesPoolKApp().SwapBandwidthFee(ownerAcc, calculatedBdFee, tx.GetTotalFees(), kdaFee)
+		} else {
+			err = txProc.kApps.GetKDAFeesPoolKApp().Swap(ownerAcc, tx.GetTotalFees(), kdaFee)
+		}
 		if err != nil {
 			return 0, err
 		}
@@ -210,6 +218,15 @@ func (txProc *txProcessor) ProcessKAppFee(txHash []byte, tx *transaction.Transac
 	}
 
 	kappFee := tx.GetKAppFee()
+
+	// ProcessBandwidthFee left the KApp fee share of a KDA payment unswapped
+	if kdaFee := tx.GetRawData().GetKDAFee(); kdaFee != nil && txProc.forkController.FixAuditChangesV7() {
+		err := txProc.kApps.GetKDAFeesPoolKApp().SwapKAppFee(ownerAcc, tx.GetBandwidthFee(), kappFee, kdaFee)
+		if err != nil {
+			tx.ResultCode = transaction.Transaction_FeeInvalid
+			return 0, err
+		}
+	}
 
 	result, err := txProc.consumeFee(kappFee, tx, ownerAcc)
 	if err != nil {

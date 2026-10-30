@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"strconv"
 
@@ -455,26 +456,158 @@ func (v *kdaFeesPoolKApp) Swap(sender state.UserAccountHandler, klvAmount int64,
 		return err
 	}
 
-	if v.forkController.FixAuditChangesV5() {
-		_, kda, errKDA := v.KAppController.GetKDAKApp().GetKDA(feeAssetID(info))
-		if errKDA != nil {
-			return errKDA
-		}
-
-		err = checkFeeTransferControls(sender.AddressBytes(), kda)
-		if err != nil {
-			return err
-		}
+	err = v.checkSwapTransferControls(sender, info)
+	if err != nil {
+		return err
 	}
 
+	return v.swap(sender, app, pool, klvAmount, info.GetAmount(), info, v.accountsCacher.SaveUser)
+}
+
+// SwapBandwidthFee swaps only the bandwidth share of a fee paid in KDA, for the
+// FixAuditChangesV7 flow. It runs ahead of the processing snapshot, so it refuses
+// everything Swap would refuse for the whole fee: a payment the pool or the sender
+// cannot cover in full is still dropped here rather than failing inside the block.
+// The rest of the signed amount is left for SwapKAppFee.
+func (v *kdaFeesPoolKApp) SwapBandwidthFee(sender state.UserAccountHandler, bandwidthFee int64, totalFee int64, info data.KDAFeeHandler) error {
+	if check.IfNil(info) {
+		return nil
+	}
+
+	if bandwidthFee < 0 || bandwidthFee > totalFee {
+		return common.ErrAssetPoolInvalidAmount
+	}
+
+	app, err := v.getKApp()
+	if err != nil {
+		return err
+	}
+
+	pool, err := v.validate(app, totalFee, info)
+	if err != nil {
+		return err
+	}
+
+	err = v.checkSwapTransferControls(sender, info)
+	if err != nil {
+		return err
+	}
+
+	if sender.GetBalance(info.GetKDA(), v.forkController.EnableSmartContracts()) < info.GetAmount() {
+		return state.ErrInsufficientFunds
+	}
+
+	_, bandwidthKDA, err := v.bandwidthShare(app, bandwidthFee, info)
+	if err != nil {
+		return err
+	}
+
+	return v.swap(sender, app, pool, bandwidthFee, bandwidthKDA, info, v.accountsCacher.SaveUser)
+}
+
+// SwapKAppFee swaps the KApp fee share of a fee paid in KDA for whatever the signed
+// amount has left after SwapBandwidthFee, excess included. It runs inside the
+// processing snapshot, so a transaction that fails gives that KDA back untouched.
+// The bandwidth share rounds up, so the rest can fall one unit short of the KApp
+// fee's own quote: the signed amount is checked against the whole fee instead, as
+// Swap does, and on success the two shares together debit exactly what Swap would.
+func (v *kdaFeesPoolKApp) SwapKAppFee(sender state.UserAccountHandler, bandwidthFee int64, kappFee int64, info data.KDAFeeHandler) error {
+	if check.IfNil(info) {
+		return nil
+	}
+
+	if bandwidthFee < 0 || kappFee < 0 || kappFee > math.MaxInt64-bandwidthFee {
+		return common.ErrAssetPoolInvalidAmount
+	}
+
+	app, err := v.getKApp()
+	if err != nil {
+		return err
+	}
+
+	pool, bandwidthKDA, err := v.bandwidthShare(app, bandwidthFee, info)
+	if err != nil {
+		return err
+	}
+
+	_, totalKDA, err := v.compute(app, bandwidthFee+kappFee, info)
+	if err != nil {
+		return err
+	}
+
+	if info.GetAmount() < totalKDA {
+		return fmt.Errorf("%w: amount %d/%d", common.ErrAssetPoolAmountError, info.GetAmount(), totalKDA)
+	}
+
+	kdaAmount := info.GetAmount() - bandwidthKDA
+	if kappFee == 0 && kdaAmount == 0 {
+		return nil
+	}
+
+	if pool.KLVBalance < kappFee {
+		return common.ErrAssetPoolOutOfFunds
+	}
+
+	// UpdateUser, not SaveUser: SaveUser evicts the sender from the cache and the KApp
+	// fee consumed on it right after would be lost
+	return v.swap(sender, app, pool, kappFee, kdaAmount, info, v.accountsCacher.UpdateUser)
+}
+
+// bandwidthShare quotes the bandwidth share of a fee paid in KDA, rounded up and
+// capped at the signed amount. Rounding down would price a share below one KDA unit
+// at zero, and a failed transaction, which pays only this share, would go free while
+// the pool still pays out the bandwidth fee.
+func (v *kdaFeesPoolKApp) bandwidthShare(app state.KAppAccountHandler, bandwidthFee int64, info data.KDAFeeHandler) (*KDAFeesPoolData, int64, error) {
+	pool, kdaAmount, err := v.compute(app, bandwidthFee, info)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rest := new(big.Int).Mul(big.NewInt(bandwidthFee), big.NewInt(pool.FRatioKDA))
+	rest.Rem(rest, big.NewInt(pool.FRatioKLV))
+	if rest.Sign() != 0 && kdaAmount < info.GetAmount() {
+		kdaAmount++
+	}
+
+	if kdaAmount > info.GetAmount() {
+		kdaAmount = info.GetAmount()
+	}
+
+	return pool, kdaAmount, nil
+}
+
+func (v *kdaFeesPoolKApp) checkSwapTransferControls(sender state.UserAccountHandler, info data.KDAFeeHandler) error {
+	if !v.forkController.FixAuditChangesV5() {
+		return nil
+	}
+
+	_, kda, err := v.KAppController.GetKDAKApp().GetKDA(feeAssetID(info))
+	if err != nil {
+		return err
+	}
+
+	return checkFeeTransferControls(sender.AddressBytes(), kda)
+}
+
+// swap moves kdaAmount of the fee asset from the sender to the pool and klvAmount of
+// the pool's KLV to the sender, then stores the sender with saveSender.
+func (v *kdaFeesPoolKApp) swap(
+	sender state.UserAccountHandler,
+	app state.KAppAccountHandler,
+	pool *KDAFeesPoolData,
+	klvAmount int64,
+	kdaAmount int64,
+	info data.KDAFeeHandler,
+	saveSender func(account state.AccountHandler) error,
+) error {
 	// SUB KDA from USER
-	err = sender.SubFromBalance(info.GetAmount(), info.GetKDA(), v.forkController.EnableSmartContracts())
+	err := sender.SubFromBalance(kdaAmount, info.GetKDA(), v.forkController.EnableSmartContracts())
 	if err != nil {
 		return err
 	}
 
 	// ADD KDA to Pool
-	pool.KDABalance += info.GetAmount()
+	pool.KDABalance += kdaAmount
 
 	// SUB KLV Pool
 	pool.KLVBalance -= klvAmount
@@ -488,7 +621,7 @@ func (v *kdaFeesPoolKApp) Swap(sender state.UserAccountHandler, klvAmount int64,
 		return err
 	}
 
-	err = v.accountsCacher.SaveUser(sender)
+	err = saveSender(sender)
 	if err != nil {
 		return err
 	}
