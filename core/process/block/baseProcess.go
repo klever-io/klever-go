@@ -584,6 +584,10 @@ func (bp *baseProcessor) DecodeBlockHeader(dta []byte) data.HeaderHandler {
 		return nil
 	}
 
+	if blk, ok := header.(*block.Block); ok {
+		blk.DropUnknownFieldsOutsideHeader()
+	}
+
 	return header
 }
 

@@ -68,6 +68,7 @@ func createBlock(marshalizer marshal.Marshalizer, blockBuff []byte) (*block.Bloc
 	if err != nil {
 		return nil, err
 	}
+	blk.DropUnknownFieldsOutsideHeader()
 
 	return blk, nil
 }
