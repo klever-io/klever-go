@@ -222,53 +222,23 @@ func (txv *txValidator) checkSignatures(
 		return err
 	}
 
-	// check if permission is allowed by TX
-	if permission.Type != state.Permission_Owner {
-		// check on TX
-		err = interceptedTx.ValidatePermissionOperation(permission.Operations)
-		if err != nil {
-			return err
-		}
+	// the same checks as block processing, through the same helpers (KLR-74)
+	err = process.CheckPermissionOperation(interceptedTx, permission)
+	if err != nil {
+		return err
 	}
 
-	signersPub := make(map[string]crypto.PublicKey, len(permission.Signers))
-	for _, signer := range permission.Signers {
-		senderPubKey, err := txv.keyGen.PublicKeyFromByteArray(signer.Address)
-		if err != nil {
-			return err
-		}
-		signersPub[string(signer.Address)] = senderPubKey
+	signerKeys, err := process.LoadPermissionSignerKeys(txv.keyGen, permission.Signers)
+	if err != nil {
+		return err
 	}
 
-	signWeight := int64(0)
-	for _, s1 := range interceptedTx.Signature() {
-		// check keys
-		match := false
-		for _, signer := range permission.Signers {
-			pub, ok := signersPub[string(signer.Address)]
-			if !ok {
-				continue
-			}
-			if txv.singleSigner.Verify(pub, txHash, s1) == nil {
-				signWeight += signer.Weight // Use signer weight
-				match = true
-				// a signer counts once, as in processing
-				delete(signersPub, string(signer.Address))
-				break
-			}
-		}
-		if !match {
-			// no signer found in account permission for this signature
-			return common.ErrInvalidSignature
-		}
+	_, signWeight, err := process.VerifyPermissionSignatures(txv.singleSigner, permission, signerKeys, interceptedTx.Signature(), txHash)
+	if err != nil {
+		return err
 	}
 
-	// check threshold
-	if signWeight < permission.Threshold {
-		return fmt.Errorf("%w: (%d/%d)", common.ErrSignatureThreshold, signWeight, permission.Threshold)
-	}
-
-	return nil
+	return process.CheckPermissionThreshold(permission, signWeight)
 }
 
 // CheckTxWhiteList will check if the transactions are whitelisted and could be added in pools

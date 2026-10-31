@@ -5,6 +5,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/transaction"
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/crypto/signing"
@@ -73,7 +74,7 @@ func BenchmarkLoadSignerPublicKeys(b *testing.B) {
 		b.Run(fmt.Sprintf("sequential/%d_signers", count), func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				_, err := txProc.LoadSignerPublicKeys(signers)
+				_, err := process.LoadPermissionSignerKeys(keyGen, signers)
 				if err != nil {
 					b.Fatal(err)
 				}

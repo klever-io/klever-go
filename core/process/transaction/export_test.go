@@ -122,10 +122,6 @@ func (txProc *TxProcessorExportTest) SingleSigner() crypto.SingleSigner {
 	return txProc.singleSigner
 }
 
-func (txProc *TxProcessorExportTest) LoadSignerPublicKeys(signers []*state.Key) (map[string]crypto.PublicKey, error) {
-	return txProc.loadSignerPublicKeys(signers)
-}
-
 func (txProc *TxProcessorExportTest) KeyGen() crypto.KeyGenerator {
 	return txProc.keyGen
 }

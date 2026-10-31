@@ -76,72 +76,30 @@ func (txProc *baseTxProcessor) validateNonce(acnt state.UserAccountHandler, tx *
 	return nil
 }
 
+// validatePermission runs the checks shared with transaction admission, adding the context
+// block processing has always reported
 func (txProc *baseTxProcessor) validatePermission(tx *transaction.Transaction, permission *state.Permission, txHash []byte) ([][]byte, error) {
-	if permission.Type != state.Permission_Owner {
-		err := tx.ValidatePermissionOperation(permission.Operations)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	signersPub, err := txProc.loadSignerPublicKeys(permission.Signers)
+	err := process.CheckPermissionOperation(tx, permission)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load signer public keys: %w", err)
+		return nil, err
 	}
 
-	signedBy, signWeight, err := txProc.verifySignatures(tx, permission, signersPub, txHash)
+	signerKeys, err := process.LoadPermissionSignerKeys(txProc.keyGen, permission.Signers)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load signer public keys: %w", fmt.Errorf("invalid signer address: %w", err))
+	}
+
+	signedBy, signWeight, err := process.VerifyPermissionSignatures(txProc.singleSigner, permission, signerKeys, tx.Signature, txHash)
 	if err != nil {
 		return nil, fmt.Errorf("signature verification failed: %w", err)
 	}
 
-	if signWeight < permission.Threshold {
-		return nil, fmt.Errorf("%w: (%d/%d)", common.ErrSignatureThreshold, signWeight, permission.Threshold)
+	err = process.CheckPermissionThreshold(permission, signWeight)
+	if err != nil {
+		return nil, err
 	}
 
 	return signedBy, nil
-}
-
-// loadSignerPublicKeys loads public keys for all signers in the permission
-func (txProc *baseTxProcessor) loadSignerPublicKeys(signers []*state.Key) (map[string]crypto.PublicKey, error) {
-	signersPub := make(map[string]crypto.PublicKey, len(signers))
-	for _, signer := range signers {
-		senderPubKey, err := txProc.keyGen.PublicKeyFromByteArray(signer.Address)
-		if err != nil {
-			return nil, fmt.Errorf("invalid signer address: %w", err)
-		}
-		signersPub[string(signer.Address)] = senderPubKey
-	}
-	return signersPub, nil
-}
-
-// verifySignatures checks all signatures against the provided public keys
-func (txProc *baseTxProcessor) verifySignatures(tx *transaction.Transaction, permission *state.Permission, signersPub map[string]crypto.PublicKey, txHash []byte) ([][]byte, int64, error) {
-	var signedBy [][]byte
-	var signWeight int64
-
-	for _, signature := range tx.Signature {
-		match := false
-		for _, signer := range permission.Signers {
-			pub, ok := signersPub[string(signer.Address)]
-			if !ok {
-				continue
-			}
-			if txProc.singleSigner.Verify(pub, txHash, signature) == nil {
-				signedBy = append(signedBy, signer.Address)
-				signedBy = append(signedBy, []byte(fmt.Sprintf("%d", signer.Weight)))
-				signWeight += signer.Weight
-				match = true
-				// remove the signer from the map to avoid duplicate signatures
-				delete(signersPub, string(signer.Address))
-				break
-			}
-		}
-		if !match {
-			return nil, 0, common.ErrInvalidSignature
-		}
-	}
-
-	return signedBy, signWeight, nil
 }
 
 func (txProc *baseTxProcessor) checkTxValues(tx *transaction.Transaction, acntSnd state.UserAccountHandler, txHash []byte) error {

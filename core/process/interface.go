@@ -354,6 +354,11 @@ type TxValidatorHandler interface {
 	Signature() [][]byte
 }
 
+// PermissionOperationValidator tells whether a transaction's contracts are allowed by a permission's operations
+type PermissionOperationValidator interface {
+	ValidatePermissionOperation(operations []byte) error
+}
+
 // TxVersionCheckerHandler defines the functionality that is needed for a TxVersionChecker to validate transaction version
 type TxVersionCheckerHandler interface {
 	CheckTxVersion(tx *transaction.Transaction) error
