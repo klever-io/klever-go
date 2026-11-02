@@ -16,6 +16,9 @@ import (
 // the slot times out and Worker.Extend reverts it. The leader proposes the epoch start again at
 // S+1 and the other nodes take it over the blocks topic. Their interceptor must accept it: a
 // trigger left in epoch start at S rejected it, and those nodes stayed behind until restart.
+//
+// Under -race it trips a race that predates it: processing writes SetBurnedUnclaimed on the
+// header taken from the pool while the processorNode counter handler marshals that header.
 func TestEpochStart_WithheldEpochStartSlotIsRetriedOnTheNextSlot(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping test in short mode.")
