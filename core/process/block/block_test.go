@@ -1152,8 +1152,8 @@ func TestMetaProcessor_RejectedEpochStartWithSettledProposalsShouldNotNotifyInde
 // computing rewards and fees from parameters of a block that never committed.
 //
 // The write stays mid-processing (epochStartNativeStakingKapps reads
-// MaxEpochsUnclaimed back out of it in the same run), so ProcessBlock snapshots
-// the set up front and restores it on failure.
+// MaxEpochsUnclaimed back out of it in the same run), so the revert reloads the
+// set from the reverted KApp trie.
 func TestMetaProcessor_RejectedEpochStartMustRollBackProposalParameters(t *testing.T) {
 	t.Parallel()
 
@@ -2691,8 +2691,6 @@ func TestMetaProcessor_RevertOfTheFirstBlockAfterRestartKeepsTheCommittedEpochDe
 	require.Contains(t, mp.GetActiveParameters(), gasMultiplier)
 	epochNotifier.CheckEpoch(0)
 
-	// an ordinary block: only an epoch start block snapshots the parameters and puts them back
-	// after the revert, which would hide the loss
 	hdr := createEpochStartHeaderForProcess()
 	hdr.Header.IsEpochStart = false
 	hdr.Header.Epoch = committedEpoch
@@ -3510,29 +3508,33 @@ func TestMetaProcessor_ProcessBlockRestoresEpochStateWhenTimeIsOut(t *testing.T)
 // in-memory epoch state that ProcessBlock and CreateBlock advance before the block commits.
 type epochStartRevertNode struct {
 	mp             process.BlockProcessor
+	head           *block.Block
 	accountsDB     map[state.AccountsDbIdentifier]state.AccountsAdapter
 	trigger        process.EpochStartTriggerHandler
 	epochNotifier  process.EpochNotifier
+	forks          core.ForkController
+	params         kapps.ActiveProposalController
 	requestHandler *epochAwareRequestHandler
 	hookHeader     data.HeaderHandler
-	futureFlag     bool
 }
 
+// the smart contract fork activates at epoch 1, so the epoch start block merges its defaults
+// (MaxGasPerBlock among them) into the live parameters
 func newEpochStartRevertNode(t *testing.T, head *block.Block, headHash []byte, slotsPerEpoch uint64) *epochStartRevertNode {
 	t.Helper()
 
-	node := &epochStartRevertNode{requestHandler: &epochAwareRequestHandler{}}
+	node := &epochStartRevertNode{head: head, requestHandler: &epochAwareRequestHandler{}}
 	node.requestHandler.SetEpoch(head.GetEpoch())
 
 	epochNotifier := notifier.NewGenericEpochNotifier()
 	epochNotifier.CheckEpoch(head.GetEpoch())
-	// a fork-flag-like subscriber, on only past the committed epoch
-	epochNotifier.RegisterNotifyHandler(&mock.EpochSubscriberHandlerStub{
-		EpochConfirmedCalled: func(epoch uint32) { node.futureFlag = epoch > head.GetEpoch() },
-	})
 	node.epochNotifier = epochNotifier
+	forks, err := fork.NewForkController(config.EnableEpochs{SmartContracts: 1}, epochNotifier)
+	require.NoError(t, err)
+	node.forks = forks
 
 	arguments := createMockMetaArguments()
+	arguments.ForkController = forks
 	arguments.Hasher = &mock.HasherStub{ComputeCalled: func(_ string) []byte { return headHash }}
 	arguments.BlockChain = &mock.BlockChainMock{
 		GetCurrentBlockHeaderCalled:     func() data.HeaderHandler { return head },
@@ -3555,6 +3557,17 @@ func newEpochStartRevertNode(t *testing.T, head *block.Block, headHash []byte, s
 	node.trigger = newEpochStartTriggerForProcessBlock(t, arguments.ForkController, head.GetEpoch(), 0, slotsPerEpoch)
 	arguments.EpochStartTrigger = node.trigger
 
+	// the committed proposal controller as stored at the head epoch: createKappsAccountsDB seeds
+	// it with every fork on, so it would already hold the defaults this fork adds at epoch 1
+	kApps := arguments.AccountsDB[state.KAppAccountsState]
+	proposalKApp := loadKAppAccount(kApps, kapps.ProposalKAppAddress)
+	controllerBytes, err := arguments.Marshalizer.Marshal(kapps.NewInitialProposalController(forks))
+	require.NoError(t, err)
+	require.NoError(t, proposalKApp.DataTrieTracker().SaveKeyValue(kdautils.ProposalControllerKey, controllerBytes))
+	require.NoError(t, kApps.SaveAccount(proposalKApp))
+	_, err = kApps.Commit()
+	require.NoError(t, err)
+
 	mp, err := blproc.NewMetaProcessor(arguments)
 	require.NoError(t, err)
 
@@ -3563,6 +3576,7 @@ func newEpochStartRevertNode(t *testing.T, head *block.Block, headHash []byte, s
 	_ = arguments.KAppController.SetProposalController(pc)
 	_ = arguments.KAppController.GetValidatorsKApp().SetKAppController(arguments.KAppController)
 	node.mp = mp
+	node.params = pc
 	node.accountsDB = arguments.AccountsDB
 
 	return node
@@ -3601,11 +3615,26 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		return leader, hdr
 	}
 
+	maxGasPerBlock := int32(kapps.EnumParameter_MaxGasPerBlock)
+
 	requireAdvanced := func(t *testing.T, node *epochStartRevertNode) {
 		require.True(t, node.trigger.IsEpochStart(), "precondition: the block put the trigger in epoch start")
 		require.Equal(t, uint32(1), node.trigger.Epoch())
 		require.Equal(t, uint32(1), node.epochNotifier.CurrentEpoch())
-		require.True(t, node.futureFlag)
+		require.True(t, node.forks.EnableSmartContracts())
+		require.Contains(t, node.params.GetActiveParameters(), maxGasPerBlock,
+			"precondition: the block merged the defaults of the fork it activates")
+	}
+
+	// the committed epoch's flags, then a reload with only its defaults: a reload run before the
+	// flags are restored backfills the reverted epoch's ones
+	assertEpochZeroFlagsAndParams := func(t *testing.T, node *epochStartRevertNode) {
+		assert.Equal(t, uint32(0), node.epochNotifier.CurrentEpoch())
+		assert.False(t, node.forks.EnableSmartContracts(), "fork flags must be back in the committed epoch")
+		assert.NotContains(t, node.params.GetActiveParameters(), maxGasPerBlock,
+			"the live parameters must be back to the committed epoch's")
+		assert.Equal(t, uint32(0), node.requestHandler.epoch)
+		assert.Same(t, node.head, node.hookHeader)
 	}
 
 	assertCommittedEpochState := func(t *testing.T, node *epochStartRevertNode) {
@@ -3613,10 +3642,21 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		assert.Equal(t, uint32(0), node.trigger.Epoch())
 		assert.Equal(t, uint64(0), node.trigger.EpochStartSlot())
 		assert.Equal(t, uint64(0), node.trigger.PrevEpochStartSlot())
-		assert.Equal(t, uint32(0), node.epochNotifier.CurrentEpoch())
-		assert.False(t, node.futureFlag, "fork flags must be back in the committed epoch")
-		assert.Equal(t, uint32(0), node.requestHandler.epoch)
-		assert.Same(t, head, node.hookHeader)
+		assertEpochZeroFlagsAndParams(t, node)
+	}
+
+	// a node whose rollback target carries the roots of its own tries
+	newRollbackNode := func(t *testing.T) *epochStartRevertNode {
+		rollbackHead := &block.Block{Header: &block.BlockHeader{Nonce: headNonce, Slot: epochStartSlot - 1}}
+		node := newEpochStartRevertNode(t, rollbackHead, headHash, slotsPerEpoch)
+		userAccounts, ok := node.accountsDB[state.UserAccountsState].(*mock.AccountsStub)
+		require.True(t, ok)
+		userAccounts.RecreateTrieCalled = func([]byte) error { return nil }
+		var err error
+		rollbackHead.Header.KAppsTrieRoot, err = node.accountsDB[state.KAppAccountsState].Commit()
+		require.NoError(t, err)
+
+		return node
 	}
 
 	t.Run("validator: processed, then reverted on slot timeout", func(t *testing.T) {
@@ -3660,31 +3700,57 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		assert.Equal(t, uint32(1), validator.trigger.Epoch())
 		assert.Equal(t, epochStartSlot, validator.trigger.EpochStartSlot())
 		assert.Equal(t, uint32(1), validator.epochNotifier.CurrentEpoch())
+		assert.True(t, validator.forks.EnableSmartContracts())
+		assert.Contains(t, validator.params.GetActiveParameters(), maxGasPerBlock)
 	})
 
 	t.Run("sync rollback before the revert", func(t *testing.T) {
 		t.Parallel()
 
 		_, hdr := proposeEpochStart(t)
-		// its own head: the rollback target carries the roots of this node's tries
-		rollbackHead := &block.Block{Header: &block.BlockHeader{Nonce: headNonce, Slot: epochStartSlot - 1}}
-		validator := newEpochStartRevertNode(t, rollbackHead, headHash, slotsPerEpoch)
-		userAccounts, ok := validator.accountsDB[state.UserAccountsState].(*mock.AccountsStub)
-		require.True(t, ok)
-		userAccounts.RecreateTrieCalled = func([]byte) error { return nil }
-		var err error
-		rollbackHead.Header.KAppsTrieRoot, err = validator.accountsDB[state.KAppAccountsState].Commit()
-		require.NoError(t, err)
+		validator := newRollbackNode(t)
 
 		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
 		requireAdvanced(t, validator)
 
-		require.NoError(t, validator.mp.RevertStateToBlock(rollbackHead))
+		require.NoError(t, validator.mp.RevertStateToBlock(validator.head))
 
-		assert.False(t, validator.trigger.IsEpochStart(), "a retried epoch start block would be rejected by the interceptor")
-		assert.Equal(t, uint32(0), validator.trigger.Epoch())
-		assert.Equal(t, uint64(0), validator.trigger.EpochStartSlot())
-		assert.Equal(t, uint32(0), validator.epochNotifier.CurrentEpoch())
+		assertCommittedEpochState(t, validator)
+	})
+
+	// nothing is pending once the block commits: the rollback itself must put the fork flags
+	// back on the target, or the reload backfills the rolled-back epoch's defaults
+	t.Run("committed, then a sync rollback past it", func(t *testing.T) {
+		t.Parallel()
+
+		_, hdr := proposeEpochStart(t)
+		validator := newRollbackNode(t)
+
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		require.NoError(t, validator.mp.CommitBlock(hdr))
+		require.True(t, validator.forks.EnableSmartContracts())
+
+		require.NoError(t, validator.mp.RevertStateToBlock(validator.head))
+
+		assertEpochZeroFlagsAndParams(t, validator)
+	})
+
+	// the second block snapshots again before its own failure reverts it; the revert must land
+	// on the committed state, not on the state the first block left
+	t.Run("a second block before any revert reverts to the committed state", func(t *testing.T) {
+		t.Parallel()
+
+		_, hdr := proposeEpochStart(t)
+		validator := newEpochStartRevertNode(t, head, headHash, slotsPerEpoch)
+
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		requireAdvanced(t, validator)
+
+		// the first block's writes are still in the KApp trie, so its root no longer matches
+		err := validator.mp.ProcessBlock(hdr, haveTime)
+		require.ErrorIs(t, err, process.ErrRootStateDoesNotMatch)
+
+		assertCommittedEpochState(t, validator)
 	})
 
 	t.Run("a second revert does not restore again", func(t *testing.T) {
