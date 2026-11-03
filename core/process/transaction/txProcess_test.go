@@ -3378,6 +3378,23 @@ func hasErrorReceiptField(tx *transaction.Transaction, field string) bool {
 	return false
 }
 
+// receiptID returns the id carried by tx's first receipt of receiptType: the order id of a Sell,
+// the marketplace id of a CreateMarketplace. It fails t when there is none, since a nil id reads
+// as an empty order rather than an error.
+func receiptID(t testing.TB, tx *transaction.Transaction, receiptType pTX.ReceiptType) []byte {
+	t.Helper()
+
+	for _, receipt := range tx.GetReceipts() {
+		data := receipt.GetData()
+		if len(data) > 1 && len(data[0]) > 0 && data[0][0] == byte(receiptType) {
+			return data[1]
+		}
+	}
+
+	require.Failf(t, "receipt not found", "no receipt of type %d", receiptType)
+	return nil
+}
+
 func TestTxProcessor_ProcessAssetTriggerOkValsShouldWork(t *testing.T) {
 	t.Parallel()
 
@@ -6414,7 +6431,7 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketWrongValsShouldErr(t *testin
 	err = execTx.ProcessTransaction(block, hash, tx)
 	assert.Equal(t, nil, err)
 
-	marketIDAUC := kdautils.ToMarketID(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), 0, kdautils.MarketKeyLength)
+	marketIDAUC := receiptID(t, tx, pTX.Sell)
 
 	//Sell Actually buyItNow NFT for test
 	contract = transaction.SellContract{
@@ -6435,7 +6452,7 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketWrongValsShouldErr(t *testin
 	err = execTx.ProcessTransaction(block, hash, tx)
 	assert.Equal(t, nil, err)
 
-	marketIDBIN := kdautils.ToMarketID(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), 0, kdautils.MarketKeyLength)
+	marketIDBIN := receiptID(t, tx, pTX.Sell)
 
 	//Claim market with wrong type
 	claimContract := transaction.ClaimContract{
@@ -6724,7 +6741,7 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketOkValsShouldWork(t *testing.
 	receiverAcc = loadUserAccount(accCacher, receiverAddress)
 	referralAcc = loadUserAccount(accCacher, testReferralAddress)
 
-	BINMarketID := kdautils.ToMarketID(args.Hasher, block.GetRandSeed(), sellBINMarketTX.GetSender(), sellBINMarketTX.GetNonce(), 0, kdautils.MarketKeyLength)
+	BINMarketID := receiptID(t, sellBINMarketTX, pTX.Sell)
 
 	sellWithBINKey := kdautils.ToMarketOrderKey(BINMarketID)
 
@@ -6796,7 +6813,7 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketOkValsShouldWork(t *testing.
 	receiverAcc = loadUserAccount(accCacher, receiverAddress)
 	referralAcc = loadUserAccount(accCacher, testReferralAddress)
 
-	auctionMarketID := kdautils.ToMarketID(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), 0, kdautils.MarketKeyLength)
+	auctionMarketID := receiptID(t, sellAuctionMarketTX, pTX.Sell)
 
 	sellWithAuctionKey := kdautils.ToMarketOrderKey(auctionMarketID)
 
@@ -7104,7 +7121,7 @@ func TestTxProcessor_ProcessSellBuyClaimCancelMarketOkValsShouldWork(t *testing.
 	receiverAcc = loadUserAccount(accCacher, receiverAddress)
 	referralAcc = loadUserAccount(accCacher, testReferralAddress)
 
-	BINCCMarketID := kdautils.ToMarketID(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), 0, kdautils.MarketKeyLength)
+	BINCCMarketID := receiptID(t, sellBINCCMarketTX, pTX.Sell)
 
 	sellWithBINCCKey := kdautils.ToMarketOrderKey(BINCCMarketID)
 
@@ -7375,7 +7392,7 @@ func TestTxProcessor_ProcessCreateConfigMarketplaceOkValsShouldWork(t *testing.T
 
 	marketKapp = loadKAppAccount(accCacher, kapps.MarketKAppAddress)
 
-	marketplaceID := kdautils.ToMarketID(args.Hasher, block.GetRandSeed(), testOwnerAddress, ownerAcc.GetNonce(), 0, kdautils.MarketKeyLength)
+	marketplaceID := receiptID(t, createMarketplaceTX, pTX.CreateMarketplace)
 
 	marketplaceKey := kdautils.ToMarketplaceKey(marketplaceID)
 

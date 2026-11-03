@@ -22,6 +22,7 @@ type kappContext struct {
 	gasLimit       uint64
 	isScSimulation bool
 	executionTime  time.Duration
+	idIndex        uint64
 }
 
 // ArgsNewKAppContext holds the arguments needed to create the KApp Context
@@ -196,4 +197,10 @@ func (k *kappContext) SetExecutionTime(duration time.Duration) {
 
 func (k *kappContext) GetExecutionTime() time.Duration {
 	return k.executionTime
+}
+
+func (k *kappContext) NextIDIndex() uint64 {
+	index := k.idIndex
+	k.idIndex++
+	return index
 }

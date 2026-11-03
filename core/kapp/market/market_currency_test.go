@@ -294,14 +294,14 @@ func TestMarketCurrency_MustBeFungibleFromV7(t *testing.T) {
 	})
 }
 
-// listAs lists NFT ctrlAssetID of the controls collection as sender, priced in the env currency,
+// listAs lists NFT nonce of the controls collection as sender, priced in the env currency,
 // from whatever record sender already holds.
-func (e *controlsEnv) listAs(sender []byte) (transaction.Transaction_TXResultCode, error) {
+func (e *controlsEnv) listAs(sender []byte, nonce []byte) (transaction.Transaction_TXResultCode, error) {
 	e.t.Helper()
 
 	return e.market.Sell(sender, &transaction.SellContract{
 		MarketType: transaction.SellContract_EnumMarketType(kapps.MarketOrderData_Auction), MarketplaceID: ctrlMarketplaceID,
-		AssetID:    []byte(string(ctrlCollectionID) + kapps.Sp + string(ctrlAssetID)),
+		AssetID:    idAssetID(nonce),
 		CurrencyID: e.currency.ID, ReservePrice: ctrlBid / 2, EndTime: ctrlBlockTime + 1000,
 	})
 }
@@ -333,7 +333,7 @@ func TestMarketSell_SpentNFTRecord(t *testing.T) {
 
 		env := newEnv(t, true)
 
-		status, err := env.listAs(ctrlSeller)
+		status, err := env.listAs(ctrlSeller, ctrlAssetID)
 
 		require.ErrorIs(t, err, common.ErrAssetNotFound)
 		require.Equal(t, transaction.Transaction_BalanceError, status)
@@ -349,7 +349,7 @@ func TestMarketSell_SpentNFTRecord(t *testing.T) {
 
 		env := newEnv(t, false)
 
-		status, err := env.listAs(ctrlSeller)
+		status, err := env.listAs(ctrlSeller, ctrlAssetID)
 
 		require.NoError(t, err)
 		require.Equal(t, transaction.Transaction_Ok, status)
@@ -374,7 +374,7 @@ func TestMarketSell_EscrowedNFTListedAgain(t *testing.T) {
 		env.giveNFT(ctrlSeller, ctrlAssetID)
 		env.giveNFTRecord(accomplice, ctrlAssetID, duplicate)
 
-		status, err := env.listAs(ctrlSeller)
+		status, err := env.listAs(ctrlSeller, ctrlAssetID)
 		require.NoError(t, err)
 		require.Equal(t, transaction.Transaction_Ok, status)
 		require.Equal(t, mock.NFTHolderRecord(1), env.escrowedRecord())
@@ -386,7 +386,7 @@ func TestMarketSell_EscrowedNFTListedAgain(t *testing.T) {
 
 		env := newEnv(t, true)
 
-		status, err := env.listAs(accomplice)
+		status, err := env.listAs(accomplice, ctrlAssetID)
 
 		require.ErrorIs(t, err, common.ErrInvalidValue)
 		require.Equal(t, transaction.Transaction_KeyConflict, status)
@@ -402,7 +402,7 @@ func TestMarketSell_EscrowedNFTListedAgain(t *testing.T) {
 
 		env := newEnv(t, false)
 
-		status, err := env.listAs(accomplice)
+		status, err := env.listAs(accomplice, ctrlAssetID)
 
 		require.NoError(t, err)
 		require.Equal(t, transaction.Transaction_Ok, status)
@@ -420,7 +420,7 @@ func TestMarketSell_RelistAfterSaleInTheSameBlock(t *testing.T) {
 	status, err := env.buy(ctrlBuyer, ctrlBid)
 	env.requireSettled(status, err, ctrlFunds-ctrlBid)
 
-	status, err = env.listAs(ctrlBuyer)
+	status, err = env.listAs(ctrlBuyer, ctrlAssetID)
 
 	require.NoError(t, err)
 	require.Equal(t, transaction.Transaction_Ok, status)

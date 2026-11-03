@@ -311,7 +311,7 @@ func newKDAFeeBlockFlow(t *testing.T, fixAuditChangesV7Epoch uint32) *kdaFeeBloc
 
 	tx, err := flow.run(createKDA(10_000_000_000), transaction.TXContract_CreateAssetContractType, revertTestKAppFee, 0)
 	require.NoError(t, err)
-	flow.assetID = createdAssetID(t, tx)
+	flow.assetID = receiptID(t, tx, pTX.CreateKDA)
 
 	_, err = flow.run(&transaction.AssetTriggerContract{
 		TriggerType: transaction.AssetTriggerContract_UpdateKDAFeePool,
@@ -334,16 +334,6 @@ func newKDAFeeBlockFlow(t *testing.T, fixAuditChangesV7Epoch uint32) *kdaFeeBloc
 	require.NoError(t, err)
 
 	return flow
-}
-
-func createdAssetID(t *testing.T, tx *transaction.Transaction) []byte {
-	for _, r := range tx.GetReceipts() {
-		if len(r.GetData()) >= 2 && len(r.GetData()[0]) > 0 && r.GetData()[0][0] == 1 {
-			return r.GetData()[1]
-		}
-	}
-	require.Fail(t, "create asset receipt not found")
-	return nil
 }
 
 // run sends contract with the given KApp fee; kdaAmount > 0 pays the fees in the

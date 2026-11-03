@@ -1565,11 +1565,13 @@ func TestMarketKApp_Sell_SnapshotsRoyalty(t *testing.T) {
 		now := int64(1000000)
 		blk := &block.Block{Header: &block.BlockHeader{Timestamp: now, RandSeed: seed}}
 		receiptsStub := mock.NewReceiptsContextStub()
+		var orderID []byte
 		ctx := &mock.KAppContextStub{
-			ContractIDCalled: func() int { return 0 },
-			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
-			BlockCalled:      func() *block.Block { return blk },
-			TxNonceCalled:    func() uint64 { return nonce },
+			ContractIDCalled:    func() int { return 0 },
+			ReceiptsCalled:      func() kapp.ReceiptsContext { return receiptsStub },
+			BlockCalled:         func() *block.Block { return blk },
+			TxNonceCalled:       func() uint64 { return nonce },
+			SetReturnDataCalled: func(data [][]byte) { orderID = data[0] },
 		}
 		require.NoError(t, marketKApp.SetKAppController(&stub.KAppControllerStub{
 			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
@@ -1593,7 +1595,6 @@ func TestMarketKApp_Sell_SnapshotsRoyalty(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, transaction.Transaction_Ok, status)
 
-		orderID := kdautils.ToMarketID(&sha256.Sha256{}, seed, seller, nonce, 0, kdautils.MarketKeyLength)
 		_, order, err := marketKApp.GetMarketOrder(orderID)
 		require.NoError(t, err)
 		return order
@@ -1673,11 +1674,13 @@ func TestMarketKApp_Sell_IntoClearedReferralMarketplaceStillSettles(t *testing.T
 	now := int64(1000000)
 	blk := &block.Block{Header: &block.BlockHeader{Timestamp: now, RandSeed: seed}}
 	receiptsStub := mock.NewReceiptsContextStub()
+	var orderID []byte
 	ctx := &mock.KAppContextStub{
-		ContractIDCalled: func() int { return 0 },
-		ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
-		BlockCalled:      func() *block.Block { return blk },
-		TxNonceCalled:    func() uint64 { return nonce },
+		ContractIDCalled:    func() int { return 0 },
+		ReceiptsCalled:      func() kapp.ReceiptsContext { return receiptsStub },
+		BlockCalled:         func() *block.Block { return blk },
+		TxNonceCalled:       func() uint64 { return nonce },
+		SetReturnDataCalled: func(data [][]byte) { orderID = data[0] },
 	}
 	require.NoError(t, marketKApp.SetKAppController(&stub.KAppControllerStub{
 		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
@@ -1700,7 +1703,6 @@ func TestMarketKApp_Sell_IntoClearedReferralMarketplaceStillSettles(t *testing.T
 	require.NoError(t, err)
 	require.Equal(t, transaction.Transaction_Ok, status)
 
-	orderID := kdautils.ToMarketID(&sha256.Sha256{}, seed, seller, nonce, 0, kdautils.MarketKeyLength)
 	_, order, err := marketKApp.GetMarketOrder(orderID)
 	require.NoError(t, err)
 	require.Equal(t, referralPct, order.ReferralPercentage,
@@ -2300,11 +2302,13 @@ func TestMarketKApp_Sell_SnapshotsReferralAddress(t *testing.T) {
 		now := int64(1000000)
 		blk := &block.Block{Header: &block.BlockHeader{Timestamp: now, RandSeed: seed}}
 		receiptsStub := mock.NewReceiptsContextStub()
+		var orderID []byte
 		ctx := &mock.KAppContextStub{
-			ContractIDCalled: func() int { return 0 },
-			ReceiptsCalled:   func() kapp.ReceiptsContext { return receiptsStub },
-			BlockCalled:      func() *block.Block { return blk },
-			TxNonceCalled:    func() uint64 { return nonce },
+			ContractIDCalled:    func() int { return 0 },
+			ReceiptsCalled:      func() kapp.ReceiptsContext { return receiptsStub },
+			BlockCalled:         func() *block.Block { return blk },
+			TxNonceCalled:       func() uint64 { return nonce },
+			SetReturnDataCalled: func(data [][]byte) { orderID = data[0] },
 		}
 		require.NoError(t, marketKApp.SetKAppController(&stub.KAppControllerStub{
 			GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
@@ -2328,7 +2332,6 @@ func TestMarketKApp_Sell_SnapshotsReferralAddress(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, transaction.Transaction_Ok, status)
 
-		orderID := kdautils.ToMarketID(&sha256.Sha256{}, seed, seller, nonce, 0, kdautils.MarketKeyLength)
 		_, order, err := marketKApp.GetMarketOrder(orderID)
 		require.NoError(t, err)
 		return order

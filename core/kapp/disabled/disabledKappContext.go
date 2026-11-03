@@ -95,3 +95,7 @@ func (k *kappContext) SetExecutionTime(_ time.Duration) {
 func (k *kappContext) GetExecutionTime() time.Duration {
 	return 0
 }
+
+func (k *kappContext) NextIDIndex() uint64 {
+	return 0
+}

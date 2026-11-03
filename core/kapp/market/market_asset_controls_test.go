@@ -105,6 +105,9 @@ type controlsEnv struct {
 	blockTime  int64
 	lookups    map[string]int
 	receipts   *mock.ReceiptsContextStub
+	// txCtx, once a test enters a transaction (inTx), is the real KappContext the market reads in
+	// place of the stub, as txProcess builds one per transaction.
+	txCtx kapp.KappContext
 }
 
 func newControlsEnv(t *testing.T, fixOn bool, currency *kapps.KDAData, collection *kapps.KDAData) *controlsEnv {
@@ -151,7 +154,12 @@ func newControlsEnv(t *testing.T, fixOn bool, currency *kapps.KDAData, collectio
 		},
 	}
 	require.NoError(t, marketKApp.SetKAppController(&stub.KAppControllerStub{
-		GetCurrentKAppContextCalled: func() kapp.KappContext { return ctx },
+		GetCurrentKAppContextCalled: func() kapp.KappContext {
+			if env.txCtx != nil {
+				return env.txCtx
+			}
+			return ctx
+		},
 		GetKDAKAppCalled: func() kapp.KDAKapp {
 			return &stub.KDAKappStub{
 				GetKDACalled: func(id []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {

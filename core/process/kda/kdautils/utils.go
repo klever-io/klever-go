@@ -137,13 +137,18 @@ func ToBucketID(hasher hashing.Hasher, randSeed, sender, assetID []byte, nonce u
 			fmt.Sprintf("%x", amountBuffer))
 }
 
-func ToMarketID(hasher hashing.Hasher, randSeed, sender []byte, nonce uint64, contractIndex int, marketKeyLength int) []byte {
+// ToMarketID derives an order or marketplace id. Each salt is appended to the hashed input, so
+// with none the id is the one derived before salts existed.
+func ToMarketID(hasher hashing.Hasher, randSeed, sender []byte, nonce uint64, contractIndex int, marketKeyLength int, salt ...[]byte) []byte {
 	nonceBuffer := make([]byte, 8)
 	contractIndexBuffer := make([]byte, 8)
 	binary.BigEndian.PutUint64(nonceBuffer, nonce)
 	binary.BigEndian.PutUint64(contractIndexBuffer, uint64(contractIndex)) // #nosec G115
 
-	return hasher.Compute(string(randSeed) + string(sender) + fmt.Sprintf("%x", nonceBuffer) + fmt.Sprintf("%x", contractIndexBuffer))[:marketKeyLength]
+	input := string(randSeed) + string(sender) + fmt.Sprintf("%x", nonceBuffer) + fmt.Sprintf("%x", contractIndexBuffer) +
+		string(bytes.Join(salt, nil))
+
+	return hasher.Compute(input)[:marketKeyLength]
 }
 
 // ToKDAKey parse a key for the given KDA

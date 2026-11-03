@@ -3,6 +3,7 @@ package market
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"math"
@@ -1368,12 +1369,19 @@ func (m *marketKapp) Sell(sender []byte, tc *transaction.SellContract) (transact
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
-	orderID := kdautils.ToMarketID(m.hasher, ctx.Block().GetRandSeed(), sender, ctx.TxNonce(), ctx.ContractID(), kdautils.MarketKeyLength)
+	orderID := m.marketID(ctx, sender)
 
 	marketKapp, _, err := m.GetMarketOrder(orderID)
 	if err != nil && !errors.Is(err, common.ErrNotFoundInKApp) {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidOrder, err.Error())
 		return transaction.Transaction_KeyConflict, err
+	}
+
+	// From FixAuditChangesV7 an id already in use is refused rather than overwritten, which could
+	// strand a live order's escrowed NFT, deposit and bid (KLC-2802).
+	if err == nil && m.forkController.FixAuditChangesV7() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidOrder, common.ErrInvalidValue.Error())
+		return transaction.Transaction_KeyConflict, common.ErrInvalidValue
 	}
 
 	reservePrice := int64(0)
@@ -1597,6 +1605,18 @@ func (m *marketKapp) escrowOrder(ctx kapp.KappContext, marketKapp state.KAppAcco
 	}
 
 	return transaction.Transaction_Ok, nil
+}
+
+// marketID derives an order or marketplace id for sender. From FixAuditChangesV7 it also hashes the
+// tx hash, so two users calling one contract in a block at the same nonce get distinct ids, and the
+// index of the id in the transaction, so two ids derived in one transaction do too (KLC-2802).
+func (m *marketKapp) marketID(ctx kapp.KappContext, sender []byte) []byte {
+	if !m.forkController.FixAuditChangesV7() {
+		return kdautils.ToMarketID(m.hasher, ctx.Block().GetRandSeed(), sender, ctx.TxNonce(), ctx.ContractID(), kdautils.MarketKeyLength)
+	}
+
+	index := binary.BigEndian.AppendUint64(nil, ctx.NextIDIndex())
+	return kdautils.ToMarketID(m.hasher, ctx.Block().GetRandSeed(), sender, ctx.TxNonce(), ctx.ContractID(), kdautils.MarketKeyLength, ctx.TxHash(), index)
 }
 
 // checkNotEscrowed refuses, from FixAuditChangesV7, listing the NFT nonce of collection while the
@@ -1825,12 +1845,18 @@ func (m *marketKapp) CreateMarketplace(sender []byte, tc *transaction.CreateMark
 		return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 	}
 
-	marketplaceID := kdautils.ToMarketID(m.hasher, ctx.Block().GetRandSeed(), sender, ctx.TxNonce(), ctx.ContractID(), kdautils.MarketKeyLength)
+	marketplaceID := m.marketID(ctx, sender)
 
 	marketplaceKapp, _, err := m.GetMarketplace(marketplaceID)
 	if err != nil && !errors.Is(err, common.ErrNotFoundInKApp) {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, err.Error())
 		return transaction.Transaction_KeyConflict, err
+	}
+
+	// From FixAuditChangesV7 an id already in use is refused rather than overwritten (KLC-2802).
+	if err == nil && m.forkController.FixAuditChangesV7() {
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldMarketplaceError, common.ErrInvalidValue.Error())
+		return transaction.Transaction_KeyConflict, common.ErrInvalidValue
 	}
 
 	marketplace := &kapps.Marketplace{

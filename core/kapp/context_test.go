@@ -77,6 +77,22 @@ func TestKappContext_ExecutionTimeStorage(t *testing.T) {
 	assert.Equal(t, executionTime, retrieved)
 }
 
+// TestKappContext_NextIDIndex checks that each id derived in a transaction gets the next index and
+// that a new transaction's context starts at 0 (KLC-2802).
+func TestKappContext_NextIDIndex(t *testing.T) {
+	t.Parallel()
+
+	newCtx := func() kapp.KappContext {
+		return kapp.NewKappContext(kapp.ArgsNewKAppContext{Block: &block.Block{}, TxHash: []byte("tx-hash")})
+	}
+
+	ctx := newCtx()
+	assert.Equal(t, uint64(0), ctx.NextIDIndex())
+	assert.Equal(t, uint64(1), ctx.NextIDIndex())
+	assert.Equal(t, uint64(2), ctx.NextIDIndex())
+	assert.Equal(t, uint64(0), newCtx().NextIDIndex())
+}
+
 // TestKappContext_ReturnData_RoundTrip exercises the returnData lifecycle:
 // SetReturnData -> GetAndClearReturnData empties the context, the returned
 // slice exposes the stored payload, and re-using the context after a Get

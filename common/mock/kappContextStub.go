@@ -27,6 +27,7 @@ type KAppContextStub struct {
 	IsScSimulationCalled        func() bool
 	SetExecutionTimeCalled      func(duration time.Duration)
 	GetExecutionTimeCalled      func() time.Duration
+	NextIDIndexCalled           func() uint64
 }
 
 func (k *KAppContextStub) OriginalSender() []byte {
@@ -133,6 +134,13 @@ func (k *KAppContextStub) SetExecutionTime(duration time.Duration) {
 func (k *KAppContextStub) GetExecutionTime() time.Duration {
 	if k.GetExecutionTimeCalled != nil {
 		return k.GetExecutionTimeCalled()
+	}
+	return 0
+}
+
+func (k *KAppContextStub) NextIDIndex() uint64 {
+	if k.NextIDIndexCalled != nil {
+		return k.NextIDIndexCalled()
 	}
 	return 0
 }

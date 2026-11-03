@@ -2,6 +2,7 @@ package kdautils
 
 import (
 	"bytes"
+	"encoding/hex"
 	"testing"
 
 	"github.com/klever-io/klever-go/core"
@@ -246,6 +247,17 @@ func TestToMarketID(t *testing.T) {
 	// Test deterministic output
 	result2 := ToMarketID(hasher, randSeed, sender, nonce, contractIndex, marketKeyLength)
 	require.Equal(t, result, result2)
+
+	// Without a salt the id is the one derived before FixAuditChangesV7 (KLC-2802).
+	require.Equal(t, "2533b29aa19422ed", hex.EncodeToString(result))
+
+	txHash := []byte("tx-hash")
+	index := []byte{0, 0, 0, 0, 0, 0, 0, 0}
+	salted := ToMarketID(hasher, randSeed, sender, nonce, contractIndex, marketKeyLength, txHash, index)
+	require.Equal(t, salted, ToMarketID(hasher, randSeed, sender, nonce, contractIndex, marketKeyLength, txHash, index))
+	require.NotEqual(t, result, salted)
+	require.NotEqual(t, salted, ToMarketID(hasher, randSeed, sender, nonce, contractIndex, marketKeyLength, []byte("other-tx"), index))
+	require.NotEqual(t, salted, ToMarketID(hasher, randSeed, sender, nonce, contractIndex, marketKeyLength, txHash, []byte{0, 0, 0, 0, 0, 0, 0, 1}))
 }
 
 func TestToKDAKey(t *testing.T) {

@@ -240,6 +240,8 @@ type KappContext interface {
 	IsScSimulation() bool
 	SetExecutionTime(duration time.Duration)
 	GetExecutionTime() time.Duration
+	// NextIDIndex returns the index of the next id derived in this transaction and advances it
+	NextIDIndex() uint64
 }
 
 // SystemReceiptTypeStart marks the beginning of system receipt types (Debug, Warning, Error)

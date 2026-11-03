@@ -11,8 +11,8 @@ import (
 	"github.com/klever-io/klever-go/kapps"
 
 	"github.com/klever-io/klever-go/common"
-	commonMock "github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core/process"
+	pTX "github.com/klever-io/klever-go/core/process/transaction"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/stretchr/testify/assert"
@@ -137,10 +137,8 @@ func (c *Controller) RunSellOrderTX(blk *block.Block, ownerAddress []byte, marke
 	err = c.execTx.ProcessTransaction(blk, hash, tx)
 	require.Nil(c.t, err)
 
-	orderId := kdautils.ToMarketID(&commonMock.HasherMock{}, blk.GetRandSeed(), tx.GetSender(), tx.GetNonce(), 0, kdautils.MarketKeyLength)
-
 	// return orderId generated
-	return orderId
+	return receiptID(c.t, tx, pTX.Sell)
 }
 
 func (c *Controller) RunBuyOrderTX(blk *block.Block, ownerAddress []byte, buyType int32, orderId []byte, currencyId []byte, amount int64) string {
