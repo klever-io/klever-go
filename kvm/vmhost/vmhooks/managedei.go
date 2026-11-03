@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"slices"
 
+	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/tools/check"
 
@@ -477,9 +478,13 @@ func (context *VMHooksImpl) ManagedGetBackTransfers(kdaTransfersValueHandle int3
 
 // faultKDAArg keeps the KDA getters' historical ErrArgOutOfRange for a bad handle or a missing
 // token, while reporting a shortfall on the pre-charged buffer copy as itself: a contract that
-// cannot pay for the copy must not be told its argument is out of range
+// cannot pay for the copy must not be told its argument is out of range. From FixAuditChangesV7
+// a usage-counter limit (ErrMaxCallsReached; for these getters, the trie-read limit) is reported
+// as itself too
 func faultKDAArg(host vmhost.VMHost, err error) {
-	if !errors.Is(err, vmhost.ErrNotEnoughGas) {
+	keepErr := errors.Is(err, vmhost.ErrNotEnoughGas) ||
+		(host.ForkController().FixAuditChangesV7() && errors.Is(err, process.ErrMaxCallsReached))
+	if !keepErr {
 		err = vmhost.ErrArgOutOfRange
 	}
 	_ = WithFaultAndHost(host, err, host.Runtime().BaseOpsErrorShouldFailExecution())
@@ -490,6 +495,7 @@ func faultKDAArg(host vmhost.VMHost, err error) {
 // before they are cloned, then the token read, then from FixAuditChangesV6 the decoded records (see
 // chargeKDATokenDecode). The error is returned for the caller to pass to
 // faultKDAArg, which keeps the historical ErrArgOutOfRange for everything but a shortfall
+// and, from FixAuditChangesV7, the trie-read limit
 func loadKDAToken(
 	host vmhost.VMHost,
 	hookName string,

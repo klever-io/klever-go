@@ -1241,6 +1241,11 @@ func createMetaTxSimulatorProcessor(
 		return err
 	}
 
+	counter, err := counters.NewUsageCounter(kdaTransferParser, processArgs.forkController)
+	if err != nil {
+		return err
+	}
+
 	argsHook := hooks.ArgBlockChainHook{
 		AccountsCacher:     readOnlyAccountsCacher,
 		KAppController:     processArgs.state.KAppControllerSimulator,
@@ -1257,7 +1262,7 @@ func createMetaTxSimulatorProcessor(
 		ConfigSCStorage:    processArgs.mainConfig.Storages.SmartContractsStorageSimulate,
 		GasSchedule:        gasScheduleNotifier,
 		NilCompiledSCStore: false,
-		Counter:            counters.NewDisabledCounter(),
+		Counter:            counter,
 		WorkingDir:         processArgs.workingDir,
 	}
 

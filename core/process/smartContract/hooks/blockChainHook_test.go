@@ -40,6 +40,7 @@ import (
 	"github.com/klever-io/klever-go/storage/storageUnit"
 	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/klever-io/klever-go/vmcommon"
+	"github.com/klever-io/klever-go/vmcommon/parsers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -705,6 +706,7 @@ func TestBlockChainHookImpl_GetKDAToken(t *testing.T) {
 				accountsCacher: accountsCacher,
 				kappController: kappController,
 				forkController: forkController,
+				counter:        &blockChainHookCounterPassthroughStub{},
 			}
 
 			// Execute
@@ -720,6 +722,175 @@ func TestBlockChainHookImpl_GetKDAToken(t *testing.T) {
 			assert.Equal(t, tt.expectedUserKDA, actualUserKDA)
 		})
 	}
+}
+
+func newBlockChainHookWithTrieReadsLimit(t *testing.T, fixAuditChangesV7 bool, maxTrieReads uint64) *BlockChainHookImpl {
+	forkController := commonMock.NewForkControllerStub()
+	forkController.EnableSmartContractsValue = true
+	forkController.FixAuditChangesV7Value = fixAuditChangesV7
+
+	parser, err := parsers.NewKDATransferParser(marshalizer)
+	require.NoError(t, err)
+	counter, err := counters.NewUsageCounter(parser, forkController)
+	require.NoError(t, err)
+	counter.SetMaximumValues(map[string]uint64{
+		"MaxBuiltInCallsPerTx":      1,
+		"MaxNumberOfTransfersPerTx": 1,
+		"MaxNumberOfTrieReadsPerTx": maxTrieReads,
+	})
+
+	userAccount := &commonMock.UserAccountHandlerStub{
+		GetUserKDACalled: func(_ []byte, _ []byte, _ bool) (*kapps.UserKDA, error) {
+			return &kapps.UserKDA{}, nil
+		},
+		DataTrieTrackerCalled: func() state.DataTrieTracker {
+			return &commonMock.DataTrieTrackerStub{
+				RetrieveValueCalled: func(_ []byte) ([]byte, error) {
+					return []byte("value"), nil
+				},
+			}
+		},
+	}
+
+	return &BlockChainHookImpl{
+		accountsCacher: &commonMock.AccountsCacherStub{
+			GetExistingUserCalled: func(_ []byte) (state.UserAccountHandler, error) {
+				return userAccount, nil
+			},
+		},
+		kappController: &stub.KAppControllerStub{
+			GetKDAKAppCalled: func() kapp.KDAKapp {
+				return &stub.KDAKappStub{
+					GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+						return &commonMock.KAppAccountHandlerStub{}, &kapps.KDAData{}, nil
+					},
+				}
+			},
+			GetSystemAccountsCalled: func() kapp.SystemAccountKapp {
+				return &commonMock.SystemAccountKappStub{
+					SFTGetMetaCalled: func(_, _ []byte) (*kapps.MetaV2, error) {
+						return &kapps.MetaV2{}, nil
+					},
+				}
+			},
+		},
+		forkController: forkController,
+		counter:        counter,
+	}
+}
+
+func trieReadsCount(bh *BlockChainHookImpl) uint64 {
+	return bh.counter.GetCounterValues()["CrtNumberOfTrieReadsPerTx"]
+}
+
+func TestBlockChainHookImpl_KDAReadsCountTowardTrieReadsLimit(t *testing.T) {
+	t.Parallel()
+
+	testAddress := []byte("testAddress123456789012345678901234")
+	testAssetID := []byte("TESTKDA")
+
+	t.Run("before FixAuditChangesV7 KDA and SFT metadata reads are not counted", func(t *testing.T) {
+		t.Parallel()
+
+		bh := newBlockChainHookWithTrieReadsLimit(t, false, 1)
+		for i := 0; i < 3; i++ {
+			_, _, err := bh.GetKDAToken(testAddress, testAssetID, 0)
+			require.NoError(t, err)
+			_, _, err = bh.GetKDAToken(nil, testAssetID, 0)
+			require.NoError(t, err)
+			_, err = bh.GetSFTMeta(testAssetID, 1)
+			require.NoError(t, err)
+		}
+		assert.Zero(t, trieReadsCount(bh))
+	})
+
+	t.Run("from FixAuditChangesV7 each KDA and SFT metadata read counts once", func(t *testing.T) {
+		t.Parallel()
+
+		bh := newBlockChainHookWithTrieReadsLimit(t, true, 10)
+
+		_, _, err := bh.GetKDAToken(testAddress, testAssetID, 0)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(1), trieReadsCount(bh))
+
+		_, _, err = bh.GetKDAToken(nil, testAssetID, 0)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(2), trieReadsCount(bh))
+
+		_, err = bh.GetSFTMeta(testAssetID, 1)
+		require.NoError(t, err)
+		assert.Equal(t, uint64(3), trieReadsCount(bh))
+	})
+
+	t.Run("from FixAuditChangesV7 a KDA read past the limit fails without reading state", func(t *testing.T) {
+		t.Parallel()
+
+		bh := newBlockChainHookWithTrieReadsLimit(t, true, 1)
+		_, _, err := bh.GetKDAToken(testAddress, testAssetID, 0)
+		require.NoError(t, err)
+
+		bh.accountsCacher = &commonMock.AccountsCacherStub{
+			GetExistingUserCalled: func(_ []byte) (state.UserAccountHandler, error) {
+				assert.Fail(t, "account read after the trie reads limit was reached")
+				return nil, errors.New("unexpected account read")
+			},
+		}
+		bh.kappController = &stub.KAppControllerStub{
+			GetKDAKAppCalled: func() kapp.KDAKapp {
+				return &stub.KDAKappStub{
+					GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+						assert.Fail(t, "asset read after the trie reads limit was reached")
+						return nil, nil, errors.New("unexpected asset read")
+					},
+				}
+			},
+		}
+
+		_, _, err = bh.GetKDAToken(testAddress, testAssetID, 0)
+		assert.ErrorIs(t, err, process.ErrMaxCallsReached)
+
+		_, _, err = bh.GetKDAToken(nil, testAssetID, 0)
+		assert.ErrorIs(t, err, process.ErrMaxCallsReached)
+	})
+
+	t.Run("from FixAuditChangesV7 an SFT metadata read past the limit fails without reading state", func(t *testing.T) {
+		t.Parallel()
+
+		bh := newBlockChainHookWithTrieReadsLimit(t, true, 1)
+		_, err := bh.GetSFTMeta(testAssetID, 1)
+		require.NoError(t, err)
+
+		bh.kappController = &stub.KAppControllerStub{
+			GetSystemAccountsCalled: func() kapp.SystemAccountKapp {
+				return &commonMock.SystemAccountKappStub{
+					SFTGetMetaCalled: func(_, _ []byte) (*kapps.MetaV2, error) {
+						assert.Fail(t, "SFT metadata read after the trie reads limit was reached")
+						return nil, errors.New("unexpected SFT metadata read")
+					},
+				}
+			},
+		}
+
+		meta, err := bh.GetSFTMeta(testAssetID, 1)
+		assert.ErrorIs(t, err, process.ErrMaxCallsReached)
+		assert.Nil(t, meta)
+	})
+
+	t.Run("from FixAuditChangesV7 storage and KDA reads share the limit", func(t *testing.T) {
+		t.Parallel()
+
+		bh := newBlockChainHookWithTrieReadsLimit(t, true, 2)
+
+		_, _, err := bh.GetStorageData(testAddress, []byte("key"))
+		require.NoError(t, err)
+		_, _, err = bh.GetKDAToken(testAddress, testAssetID, 0)
+		require.NoError(t, err)
+
+		_, _, err = bh.GetStorageData(testAddress, []byte("key"))
+		assert.ErrorIs(t, err, process.ErrMaxCallsReached)
+		_, _, err = bh.GetKDAToken(testAddress, testAssetID, 0)
+		assert.ErrorIs(t, err, process.ErrMaxCallsReached)
+	})
 }
 
 // blockChainHookCounterPassthroughStub is a minimal BlockChainHookCounter that

@@ -3,6 +3,8 @@ package factory_test
 import (
 	"encoding/hex"
 	"os"
+	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/klever-io/klever-go/common/mock"
@@ -13,6 +15,7 @@ import (
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/economics"
 	"github.com/klever-io/klever-go/core/process/transactionLog"
+	txSimData "github.com/klever-io/klever-go/core/process/txsimulator/data"
 	"github.com/klever-io/klever-go/core/statistics"
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
@@ -145,7 +148,12 @@ func createMockArguments() *factory.ProcessComponentsFactoryArgs {
 }
 
 func createMockArgumentsWithLogs() (*factory.ProcessComponentsFactoryArgs, process.TransactionLogProcessor, *factory.DataComponents, *mock.AccountsCacherStub) {
+	return createMockArgumentsWithGasSchedule("../config/node/gasScheduleV1.yaml")
+}
+
+func createMockArgumentsWithGasSchedule(gasScheduleFile string) (*factory.ProcessComponentsFactoryArgs, process.TransactionLogProcessor, *factory.DataComponents, *mock.AccountsCacherStub) {
 	cfg := getConfig()
+	cfg.GasScheduleConfig.GasScheduleByEpochs[0].FileName = gasScheduleFile
 
 	coreArgs := factory.CoreComponentsFactoryArgs{
 		Config:                cfg,
@@ -299,4 +307,56 @@ func TestProcessComponentsFactory_SimulationDoesNotTouchLiveAccounts(t *testing.
 	require.Empty(t, touched, "the simulation used the live accounts cacher")
 	require.Nil(t, err)
 	require.Equal(t, transaction.Transaction_SUCCESS, res.Result, res.FailReason)
+}
+
+// gasScheduleWithTrieReadLimit copies the node's gas schedule with MaxNumberOfTrieReadsPerTx replaced.
+func gasScheduleWithTrieReadLimit(t *testing.T, limit string) string {
+	t.Helper()
+
+	schedule, err := os.ReadFile("../config/node/gasScheduleV1.yaml")
+	require.Nil(t, err)
+	re := regexp.MustCompile(`(?m)^(\s*MaxNumberOfTrieReadsPerTx:)\s*\d+`)
+	require.True(t, re.Match(schedule), "the gas schedule has no MaxNumberOfTrieReadsPerTx")
+
+	path := filepath.Join(t.TempDir(), "gasSchedule.yaml")
+	require.Nil(t, os.WriteFile(path, re.ReplaceAll(schedule, []byte("${1} "+limit)), 0o600))
+	return path
+}
+
+// The simulator's blockchain hook must meter trie reads with a real usage counter: with the
+// disabled one a simulation succeeds where the same tx fails once it is in a block.
+func TestProcessComponentsFactory_SimulationEnforcesTrieReadLimit(t *testing.T) {
+	// erc20 init stores twice (total supply and sender balance), reading each key first
+	simulateERC20Deploy := func(t *testing.T, limit string) *txSimData.SimulationResults {
+		args, _, dataComponents, _ := createMockArgumentsWithGasSchedule(gasScheduleWithTrieReadLimit(t, limit))
+		pc, err := factory.ProcessComponentsFactory(args)
+		require.Nil(t, err)
+		require.Nil(t, dataComponents.Blkc.SetCurrentBlockHeader(&block.Block{Header: &block.BlockHeader{Nonce: 1}}))
+
+		code, err := os.ReadFile("../kvm/test/contracts/erc20/output/erc20.wasm")
+		require.Nil(t, err)
+		deploy, err := anypb.New(&transaction.SmartContract{Type: transaction.SmartContract_SCDeploy})
+		require.Nil(t, err)
+		tx := &transaction.Transaction{RawData: &transaction.Transaction_Raw{
+			Sender:   make([]byte, 32),
+			Data:     [][]byte{[]byte(hex.EncodeToString(code) + "@0500@0000@64")},
+			Contract: []*transaction.TXContract{{Type: transaction.TXContract_SmartContractType, Parameter: deploy}},
+		}}
+
+		res, err := pc.TXSimulatorProcessor.ProcessTx(tx)
+		require.Nil(t, err)
+		return res
+	}
+
+	t.Run("under the limit", func(t *testing.T) {
+		res := simulateERC20Deploy(t, "1500")
+		require.Equal(t, transaction.Transaction_SUCCESS, res.Result, res.FailReason)
+	})
+
+	t.Run("over the limit", func(t *testing.T) {
+		res := simulateERC20Deploy(t, "1")
+		require.NotEqual(t, transaction.Transaction_SUCCESS, res.Result)
+		require.NotNil(t, res.VMOutput)
+		require.Contains(t, res.FailReason+" "+res.VMOutput.ReturnMessage, "too many reads from trie")
+	})
 }

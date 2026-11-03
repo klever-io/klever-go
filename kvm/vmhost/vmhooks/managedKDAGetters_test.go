@@ -6,13 +6,18 @@ import (
 	"math/big"
 	"testing"
 
+	commonMock "github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/core/process/smartContract/hooks/counters"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/config"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
+	worldmock "github.com/klever-io/klever-go/kvm/mock/world"
 	"github.com/klever-io/klever-go/kvm/vmhost"
 	hostmock "github.com/klever-io/klever-go/kvm/vmhost/mock"
 	"github.com/klever-io/klever-go/kvm/vmhost/vmhooks"
 	"github.com/klever-io/klever-go/vmcommon"
+	"github.com/klever-io/klever-go/vmcommon/parsers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -808,6 +813,101 @@ func TestVMHooksImpl_KDAGetters_UnderfundedBuildsNothingFromV6(t *testing.T) {
 				if c.large && !c.buildsBeforeCharge {
 					assert.Greater(t, pre.allocated, uint64(flatCloneNoCloneBelow), "pre-fork allocated")
 				}
+			})
+		}
+	}
+}
+
+func kdaGetterLimitTrieReads(t *testing.T, host *contextmock.VMHostMock) {
+	t.Helper()
+
+	parser, err := parsers.NewKDATransferParser(worldmock.WorldMarshalizer)
+	require.NoError(t, err)
+	counter, err := counters.NewUsageCounter(parser, host.ForkControllerContext)
+	require.NoError(t, err)
+	counter.SetMaximumValues(map[string]uint64{
+		"MaxBuiltInCallsPerTx":      1,
+		"MaxNumberOfTransfersPerTx": 1,
+		"MaxNumberOfTrieReadsPerTx": 1,
+	})
+
+	blockchain := host.BlockchainContext.(*hostmock.BlockchainContextStub)
+	getKDAToken, getSFTMeta := blockchain.GetKDATokenCalled, blockchain.GetSFTMetaCalled
+	blockchain.GetKDATokenCalled = func(address []byte, tokenID []byte, nonce uint64) (*kapps.KDAData, *kapps.UserKDA, error) {
+		err := counter.ProcessCrtNumberOfTrieReadsCounter()
+		if err != nil {
+			return nil, nil, err
+		}
+		return getKDAToken(address, tokenID, nonce)
+	}
+	blockchain.GetSFTMetaCalled = func(tokenID []byte, nonce uint64) (*kapps.MetaV2, error) {
+		err := counter.ProcessCrtNumberOfTrieReadsCounter()
+		if err != nil {
+			return nil, err
+		}
+		return getSFTMeta(tokenID, nonce)
+	}
+}
+
+func newKDAGetterHostWithFixV7(t *testing.T, gasMap config.GasScheduleMap, fixV7 bool) *contextmock.VMHostMock {
+	t.Helper()
+
+	host, _ := newMockVMHostWithRealMetering(t, true, gasMap, kdaGetterBudget)
+	host.ForkControllerContext = &commonMock.ForkControllerStub{
+		FixAuditChangesV4Value: true,
+		FixAuditChangesV6Value: true,
+		FixAuditChangesV7Value: fixV7,
+	}
+	return host
+}
+
+func TestVMHooksImpl_KDAGetters_ReadPastTheTrieReadsLimitFailsExecution(t *testing.T) {
+	t.Parallel()
+
+	gasMap := kdaGetterGasMap()
+	balanceOut := kdaGetterOuts(1, 0)
+	cases := []kdaGetterCase{
+		{
+			name: "ManagedGetKDABalance",
+			install: func(host *contextmock.VMHostMock) {
+				kdaGetterStubToken(host, &kapps.KDAData{}, &kapps.UserKDA{Balance: 5})
+			},
+			call: func(hooks *vmhooks.VMHooksImpl, addressHandle, tickerHandle int32) {
+				hooks.ManagedGetKDABalance(addressHandle, tickerHandle, 0, balanceOut[0])
+			},
+		},
+		kdaGetterUserKDACases(gasMap)[0],
+		kdaGetterTokenDataCases(gasMap)[0],
+		kdaGetterRolesCases(gasMap)[0],
+		kdaGetterSftCases(gasMap)[0],
+	}
+
+	for _, c := range cases {
+		for _, fixV7 := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/fixAuditChangesV7=%t", c.name, fixV7), func(t *testing.T) {
+				t.Parallel()
+
+				host := newKDAGetterHostWithFixV7(t, gasMap, fixV7)
+				runtime := host.RuntimeContext.(*contextmock.RuntimeContextMock)
+				managedType := host.ManagedTypes()
+				c.install(host)
+				kdaGetterLimitTrieReads(t, host)
+
+				addressHandle := managedType.NewManagedBufferFromBytes(kdaGetterAddress)
+				tickerHandle := managedType.NewManagedBufferFromBytes(kdaGetterTicker)
+				hooks := vmhooks.NewVMHooksImpl(host)
+
+				c.call(hooks, addressHandle, tickerHandle)
+				require.NoError(t, runtime.FailExecutionErr)
+
+				c.call(hooks, addressHandle, tickerHandle)
+				if fixV7 {
+					require.ErrorIs(t, runtime.FailExecutionErr, process.ErrMaxCallsReached)
+					return
+				}
+				// the real hook counts only from FixAuditChangesV7, so on chain this error never
+				// reaches faultKDAArg before the fork: this case pins faultKDAArg's own V7 gate
+				require.ErrorIs(t, runtime.FailExecutionErr, vmhost.ErrArgOutOfRange)
 			})
 		}
 	}

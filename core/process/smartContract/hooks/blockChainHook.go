@@ -260,6 +260,14 @@ func (bh *BlockChainHookImpl) processMaxReadsCounters() error {
 	return bh.counter.ProcessCrtNumberOfTrieReadsCounter()
 }
 
+func (bh *BlockChainHookImpl) processMaxKDAReadsCounters() error {
+	if !bh.forkController.FixAuditChangesV7() {
+		return nil
+	}
+
+	return bh.processMaxReadsCounters()
+}
+
 // GetBlockHash returns the header hash for a requested nonce delta
 func (bh *BlockChainHookImpl) GetBlockHash(nonce uint64) ([]byte, error) {
 	defer stopMeasure(startMeasure("GetBlockHash"))
@@ -295,6 +303,11 @@ func (bh *BlockChainHookImpl) GetBlockHash(nonce uint64) ([]byte, error) {
 
 // GetSFTMeta returns the metadata for a given asset ID and nonce
 func (bh *BlockChainHookImpl) GetSFTMeta(tokenID []byte, nonce uint64) (*kapps.MetaV2, error) {
+	err := bh.processMaxKDAReadsCounters()
+	if err != nil {
+		return nil, err
+	}
+
 	sysKapp := bh.kappController.GetSystemAccountKApp()
 	return sysKapp.SFTGetMeta(tokenID, []byte(fmt.Sprint(nonce)))
 }
@@ -632,7 +645,11 @@ func (bh *BlockChainHookImpl) GetAllState(_ []byte) (map[string][]byte, error) {
 func (bh *BlockChainHookImpl) GetKDAToken(address []byte, assetID []byte, nonce uint64) (*kapps.KDAData, *kapps.UserKDA, error) {
 	kda := &kapps.KDAData{}
 	userKDA := &kapps.UserKDA{}
-	var err error
+	err := bh.processMaxKDAReadsCounters()
+	if err != nil {
+		return kda, userKDA, err
+	}
+
 	if address != nil {
 		acc, err := bh.GetUserAccount(address)
 		if err != nil {

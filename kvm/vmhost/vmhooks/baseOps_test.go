@@ -10,6 +10,7 @@ import (
 	"time"
 
 	commonMock "github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/config"
 	"github.com/klever-io/klever-go/kvm/executor"
@@ -1493,6 +1494,39 @@ func TestVMHooksImpl_GetKDABalance(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestVMHooksImpl_GetKDABalance_ReadPastTheTrieReadsLimitFailsExecution pins that the
+// non-managed KDA getters pass the hook's ErrMaxCallsReached through unchanged (they never
+// remapped errors, unlike faultKDAArg); the count itself is the test's counter wrapper.
+func TestVMHooksImpl_GetKDABalance_ReadPastTheTrieReadsLimitFailsExecution(t *testing.T) {
+	t.Parallel()
+
+	host := newKDAGetterHostWithFixV7(t, kdaGetterGasMap(), true)
+	runtime := host.RuntimeContext.(*contextmock.RuntimeContextMock)
+	kdaGetterStubToken(host, &kapps.KDAData{}, &kapps.UserKDA{Balance: 5})
+	kdaGetterLimitTrieReads(t, host)
+
+	err := host.Runtime().GetInstance().MemStore(executor.MemPtr(0), kdaGetterAddress)
+	require.Nil(t, err)
+	err = host.Runtime().GetInstance().MemStore(executor.MemPtr(32), kdaGetterTicker)
+	require.Nil(t, err)
+	hooks := vmhooks.NewVMHooksImpl(host)
+	getBalance := func() int32 {
+		return hooks.GetKDABalance(
+			executor.MemPtr(0),
+			executor.MemPtr(32),
+			executor.MemLength(len(kdaGetterTicker)),
+			0,
+			executor.MemPtr(64),
+		)
+	}
+
+	assert.Equal(t, int32(1), getBalance())
+	require.NoError(t, runtime.FailExecutionErr)
+
+	assert.Equal(t, int32(-1), getBalance())
+	require.ErrorIs(t, runtime.FailExecutionErr, process.ErrMaxCallsReached)
 }
 
 func TestVMHooksImpl_GetKDANameLength(t *testing.T) {
