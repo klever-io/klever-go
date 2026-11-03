@@ -3737,6 +3737,29 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		assertCommittedEpochState(t, validator)
 	})
 
+	// a step after the rollback fails and sync restores the epoch start head it rolled back: the
+	// fork flags must go back up with it, or the reload backfills the lower epoch's defaults
+	t.Run("a failed sync rollback restores the head's epoch", func(t *testing.T) {
+		t.Parallel()
+
+		_, hdr := proposeEpochStart(t)
+		validator := newRollbackNode(t)
+
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		require.NoError(t, validator.mp.CommitBlock(hdr))
+		require.NoError(t, validator.mp.RevertStateToBlock(validator.head))
+		assertCommittedEpochState(t, validator)
+
+		// what restoreState calls
+		require.NoError(t, validator.mp.RevertStateToBlock(hdr))
+
+		assert.Equal(t, uint32(1), validator.epochNotifier.CurrentEpoch())
+		assert.Equal(t, uint32(1), validator.requestHandler.epoch)
+		assert.True(t, validator.forks.EnableSmartContracts())
+		assert.Contains(t, validator.params.GetActiveParameters(), maxGasPerBlock)
+		assert.Same(t, hdr, validator.hookHeader)
+	})
+
 	// the pending revert puts the hook back on the head it captured; a rollback to an earlier
 	// block in the same epoch must move it on to that block
 	t.Run("a same-epoch sync rollback moves the hook to the target", func(t *testing.T) {

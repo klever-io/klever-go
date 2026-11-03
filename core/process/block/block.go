@@ -40,6 +40,12 @@ type metaProcessor struct {
 	// notifier and its fork flags, the request handler epoch, the blockchain hook header and
 	// the epoch start trigger. Worker.Extend reverts from the consensus goroutine.
 	pendingRevert atomic.Pointer[func()]
+
+	// notifierFollowsState latches once a rollback lowered the epoch notifier: from then on the
+	// notifier follows every revert target, so restoring a failed rollback raises it back.
+	// Never cleared: the notifier's 0 after a start precedes any rollback, so storage bootstrap,
+	// which never lowered it, keeps it; a restart builds a new processor with the latch off.
+	notifierFollowsState atomic.Bool
 }
 
 // NewMetaProcessor creates a new metaProcessor object
@@ -1004,10 +1010,15 @@ func (mp *metaProcessor) RevertStateToBlock(header data.HeaderHandler) error {
 
 	// the hook follows the target, not the head the pending revert captured. A rollback past a
 	// committed epoch start also leaves the fork flags in the rolled-back epoch; put them back on
-	// the target before the reload backfills its defaults. Storage bootstrap also lands here, with
-	// the notifier still at 0 until the first block: leave its epoch alone.
+	// the target before the reload backfills its defaults, and raise them again when a failed
+	// rollback restores its head. Storage bootstrap also lands here, with the notifier still at 0
+	// until the first block and nothing rolled back: leave its epoch alone.
 	mp.blockChainHook.SetCurrentHeader(header)
-	if mp.epochNotifier.CurrentEpoch() > header.GetEpoch() {
+	notifierEpoch := mp.epochNotifier.CurrentEpoch()
+	if notifierEpoch > header.GetEpoch() {
+		mp.notifierFollowsState.Store(true)
+	}
+	if notifierEpoch != header.GetEpoch() && mp.notifierFollowsState.Load() {
 		mp.epochNotifier.CheckEpoch(header.GetEpoch())
 		mp.requestHandler.SetEpoch(header.GetEpoch())
 	}
