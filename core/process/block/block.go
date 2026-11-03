@@ -1002,11 +1002,14 @@ func (mp *metaProcessor) RevertStateToBlock(header data.HeaderHandler) error {
 		return err
 	}
 
-	// a rollback past a committed epoch start leaves the fork flags in the rolled-back epoch;
-	// put them back on the target before the reload backfills its defaults. Storage bootstrap
-	// also lands here, with the notifier still at 0 until the first block: leave that alone.
+	// the hook follows the target, not the head the pending revert captured. A rollback past a
+	// committed epoch start also leaves the fork flags in the rolled-back epoch; put them back on
+	// the target before the reload backfills its defaults. Storage bootstrap also lands here, with
+	// the notifier still at 0 until the first block: leave its epoch alone.
+	mp.blockChainHook.SetCurrentHeader(header)
 	if mp.epochNotifier.CurrentEpoch() > header.GetEpoch() {
-		mp.restoreEpochState(header.GetEpoch(), header, nil)
+		mp.epochNotifier.CheckEpoch(header.GetEpoch())
+		mp.requestHandler.SetEpoch(header.GetEpoch())
 	}
 
 	return mp.reloadProposalParameters()

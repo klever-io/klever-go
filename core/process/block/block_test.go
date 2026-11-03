@@ -3737,6 +3737,26 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		assertCommittedEpochState(t, validator)
 	})
 
+	// the pending revert puts the hook back on the head it captured; a rollback to an earlier
+	// block in the same epoch must move it on to that block
+	t.Run("a same-epoch sync rollback moves the hook to the target", func(t *testing.T) {
+		t.Parallel()
+
+		_, hdr := proposeEpochStart(t)
+		validator := newRollbackNode(t)
+
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+
+		target := &block.Block{Header: &block.BlockHeader{
+			Nonce:         headNonce - 1,
+			Slot:          epochStartSlot - 2,
+			KAppsTrieRoot: validator.head.Header.KAppsTrieRoot,
+		}}
+		require.NoError(t, validator.mp.RevertStateToBlock(target))
+
+		assert.Same(t, target, validator.hookHeader)
+	})
+
 	// storage bootstrap reverts to the stored head before the first block: the notifier is still
 	// at 0, and the fork flags stay off until that block runs CheckEpoch
 	t.Run("storage bootstrap leaves the notifier at 0", func(t *testing.T) {
