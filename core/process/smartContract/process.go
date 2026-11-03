@@ -584,6 +584,12 @@ func (sc *scProcessor) DeploySmartContract(ctx kapp.KappContext, tc data.SmartCo
 	sw.Stop("deploy")
 	duration := sw.GetMeasurement("deploy")
 
+	// From V7 a deploy records its execution time like a call, so the leader-versus-validator
+	// result check (validateTransactionResult) runs for it.
+	if sc.forkController.FixAuditChangesV7() {
+		ctx.SetExecutionTime(duration)
+	}
+
 	if duration > executeDurationAlarmThreshold {
 		log.Debug(fmt.Sprintf("scProcessor.DeploySmartContract(): execution took > %s", executeDurationAlarmThreshold), "tx hash", ctx.TxHash(), "sc", tc.GetAddress(), "duration", duration, "returnCode", returnCode, "err", err)
 	} else {
@@ -591,6 +597,16 @@ func (sc *scProcessor) DeploySmartContract(ctx kapp.KappContext, tc data.SmartCo
 	}
 
 	return returnCode, err
+}
+
+// deployVMErrorReturnCode keeps a VM timeout's VMExecutionFailed from V7, as calls do, so CASE 1a
+// of the result check sees it; every other VM error stays VMUserError.
+func deployVMErrorReturnCode(vmOutput *vmcommon.VMOutput, fixAuditChangesV7 bool) vmcommon.ReturnCode {
+	if fixAuditChangesV7 && vmOutput != nil && vmOutput.ReturnCode == vmcommon.VMExecutionFailed {
+		return vmcommon.VMExecutionFailed
+	}
+
+	return vmcommon.VMUserError
 }
 
 func (sc *scProcessor) doDeploySmartContract(
@@ -638,7 +654,7 @@ func (sc *scProcessor) doDeploySmartContract(
 	sc.wasmVMChangeLocker.RUnlock()
 	if err != nil {
 		log.Debug("VM error", "error", err.Error())
-		return vmcommon.VMUserError, sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
+		return deployVMErrorReturnCode(vmOutput, sc.forkController.FixAuditChangesV7()), sc.ProcessIfError(ctx, tc, err.Error(), []byte(""))
 	}
 
 	if vmOutput == nil {

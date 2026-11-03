@@ -36,6 +36,7 @@ import (
 	"github.com/klever-io/klever-go/kapps"
 	contextmock "github.com/klever-io/klever-go/kvm/mock/context"
 	kvmStub "github.com/klever-io/klever-go/kvm/mock/stub"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/storage"
 	"github.com/klever-io/klever-go/storage/memorydb"
 	"github.com/klever-io/klever-go/storage/storageUnit"
@@ -1051,6 +1052,105 @@ func TestScProcessor_DeploySmartContractVmOutputReturnCodeNotOk(t *testing.T) {
 	code, err := sc.DeploySmartContract(ctx, tc)
 	require.Equal(t, vmcommon.VMCallStackOverFlow.String(), err.Error())
 	require.Equal(t, vmcommon.VMUserError.ResultCode(), code.ResultCode())
+}
+
+// KLC-2722: from FixAuditChangesV7 a deploy records its execution time and keeps the VM's
+// VMExecutionFailed on a host timeout, so validateTransactionResult can judge it like a call.
+// Before the fork every VM error is VMUserError and the execution time stays unset.
+func TestScProcessor_DeploySmartContractTimeoutResultAndExecutionTime(t *testing.T) {
+	t.Parallel()
+
+	// Every mock takes measurable time, so "execution time recorded" never hinges on timer resolution.
+	vmTimeout := func(_ *vmcommon.ContractCreateInput) (*vmcommon.VMOutput, error) {
+		time.Sleep(time.Millisecond)
+		// what hostCore.finalizeTimeout hands back
+		return &vmcommon.VMOutput{
+			ReturnCode:    vmcommon.VMExecutionFailed,
+			ReturnMessage: vmhost.ErrExecutionFailedWithTimeout.Error(),
+		}, vmhost.ErrExecutionFailedWithTimeout
+	}
+	vmPanicNoOutput := func(_ *vmcommon.ContractCreateInput) (*vmcommon.VMOutput, error) {
+		time.Sleep(time.Millisecond)
+		return nil, vmhost.ErrExecutionPanicked
+	}
+	vmErrorOtherCode := func(_ *vmcommon.ContractCreateInput) (*vmcommon.VMOutput, error) {
+		time.Sleep(time.Millisecond)
+		return &vmcommon.VMOutput{ReturnCode: vmcommon.VMOutOfGas}, errors.New("vm error")
+	}
+	vmSuccess := func(_ *vmcommon.ContractCreateInput) (*vmcommon.VMOutput, error) {
+		time.Sleep(time.Millisecond)
+		return &vmcommon.VMOutput{}, nil
+	}
+
+	// The execution time is recorded exactly when V7 is on, whatever the outcome.
+	tests := []struct {
+		name         string
+		fixV7        bool
+		run          func(*vmcommon.ContractCreateInput) (*vmcommon.VMOutput, error)
+		expectedCode vmcommon.ReturnCode
+		expectedErr  string
+	}{
+		{"V7 timeout keeps VMExecutionFailed", true, vmTimeout, vmcommon.VMExecutionFailed, vmhost.ErrExecutionFailedWithTimeout.Error()},
+		{"V7 error without output stays VMUserError", true, vmPanicNoOutput, vmcommon.VMUserError, vmhost.ErrExecutionPanicked.Error()},
+		{"V7 error with another code stays VMUserError", true, vmErrorOtherCode, vmcommon.VMUserError, "vm error"},
+		{"V7 success", true, vmSuccess, vmcommon.Ok, ""},
+		{"pre-V7 timeout is VMUserError", false, vmTimeout, vmcommon.VMUserError, vmhost.ErrExecutionFailedWithTimeout.Error()},
+		{"pre-V7 error without output is VMUserError", false, vmPanicNoOutput, vmcommon.VMUserError, vmhost.ErrExecutionPanicked.Error()},
+		{"pre-V7 success", false, vmSuccess, vmcommon.Ok, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			vm := &contextmock.VMContainerMock{}
+			vmExecutor := &contextmock.VMExecutionHandlerStub{RunSmartContractCreateCalled: tt.run}
+			vm.GetCalled = func(key []byte) (vmcommon.VMExecutionHandler, error) {
+				return vmExecutor, nil
+			}
+			forkController := commommock.NewForkControllerStub()
+			forkController.FixAuditChangesV7Value = tt.fixV7
+
+			arguments := createMockSmartContractProcessorArguments()
+			arguments.VmContainer = vm
+			arguments.ArgsParser = NewArgumentParser()
+			arguments.ForkController = forkController
+			sc, err := NewSmartContractProcessor(arguments)
+			require.Nil(t, err)
+
+			contract := transaction.SmartContract{
+				Type:      transaction.SmartContract_SCDeploy,
+				CallValue: map[string]*transaction.CallValue{"KLV": {Amount: 45}},
+			}
+			tx, _ := createTransactionMock(&contract, transaction.TXContract_SmartContractType, []byte("SRC"), 0, [][]byte{[]byte("abba@0500@0000")})
+			_, _ = createAccounts(tx)
+
+			computedHash, err := tools.CalculateHash(arguments.Marshalizer, arguments.Hasher, tx.RawData)
+			require.Nil(t, err)
+
+			ctx := kapp.NewKappContext(kapp.ArgsNewKAppContext{
+				OriginalSender: tx.GetSender(),
+				ContractID:     0,
+				ContractType:   tx.RawData.GetContract()[0].Type,
+				Block:          &block.Block{},
+				TxHash:         computedHash,
+				TX:             tx,
+				IsScSimulation: true,
+			})
+
+			tc, err := tx.RawData.Contract[ctx.ContractID()].GetSmartContract()
+			require.Nil(t, err)
+
+			code, err := sc.DeploySmartContract(ctx, tc)
+			if tt.expectedErr == "" {
+				require.Nil(t, err)
+			} else {
+				require.EqualError(t, err, tt.expectedErr)
+			}
+			require.Equal(t, tt.expectedCode, code)
+			require.Equal(t, tt.fixV7, ctx.GetExecutionTime() > 0)
+		})
+	}
 }
 
 func TestScProcessor_DeploySmartContract(t *testing.T) {

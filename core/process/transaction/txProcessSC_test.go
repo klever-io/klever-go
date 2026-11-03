@@ -353,6 +353,78 @@ func TestProcessTransaction_TxResultsValidation_NoExecutionTime(t *testing.T) {
 	assert.Equal(t, transaction.Transaction_Ok, tx.ResultCode)
 }
 
+// KLC-2722: a successful deploy reaches validateTransactionResult only with an execution time (set from V7).
+func TestProcessTransaction_TxResultsValidation_DeployTimeout(t *testing.T) {
+	t.Parallel()
+
+	run := func(t *testing.T, mode vmcommon.ExecutionMode, execTime time.Duration, recorded transaction.Transaction_TXResultCode) (error, *transaction.Transaction) {
+		args := createArgsForTxProcessor()
+		deployCalled := false
+		args.ScProcessor = &commonMock.SCProcessorMock{
+			ExecutionMode: mode,
+			DeploySmartContractCalled: func(ctx kapp.KappContext, tc data.SmartContractHandler) (vmcommon.ReturnCode, error) {
+				deployCalled = true
+				if execTime > 0 {
+					ctx.SetExecutionTime(execTime)
+				}
+				return vmcommon.Ok, nil // local deploy succeeds
+			},
+		}
+
+		execTx := NewTXProcessor(t, args)
+
+		AddBalanceAccount(args.AccountsCacher, 10_000_000, nil, testOwnerAddress)
+		_ = args.AccountsCacher.SaveAll()
+
+		scContract := transaction.SmartContract{Type: transaction.SmartContract_SCDeploy}
+		tx, _ := createTransactionMock(&scContract, transaction.TXContract_SmartContractType, testOwnerAddress, 0)
+		tx.RawData.Data = [][]byte{[]byte("code@0500@0000")}
+
+		_, hash, err := execTx.PreProcessTransaction(tx)
+		require.Nil(t, err)
+
+		blk := createBlockHeader()
+		blk.TxHashes = [][]byte{hash}
+		blk.TxResults = []uint32{uint32(recorded)}
+
+		err = execTx.ProcessTransaction(blk, hash, tx)
+		require.True(t, deployCalled, "the deploy path must run")
+
+		return err, tx
+	}
+
+	// The tolerance band itself is pinned in txResultValidation_test.go; these cases pin that a
+	// deploy reaches the check, and which way a recorded 62 and a recorded 57 go once it does.
+	t.Run("a recorded timeout (62) is reproduced on replay", func(t *testing.T) {
+		t.Parallel()
+
+		err, tx := run(t, vmcommon.ExecutionModeReplay, 50*time.Millisecond, transaction.Transaction_VMExecutionFailed)
+
+		assert.True(t, errors.Is(err, process.ErrTransactionResultMismatchAcceptLeader), "got: %v", err)
+		assert.Equal(t, transaction.Transaction_VMExecutionFailed, tx.ResultCode)
+	})
+
+	for name, mode := range map[string]vmcommon.ExecutionMode{"replay": vmcommon.ExecutionModeReplay, "validator": vmcommon.ExecutionModeValidator} {
+		t.Run("a recorded VMUserError (57) rejects the block on "+name, func(t *testing.T) {
+			t.Parallel()
+
+			err, tx := run(t, mode, 450*time.Millisecond, transaction.Transaction_VMUserError)
+
+			assert.True(t, errors.Is(err, process.ErrTransactionResultMismatch), "got: %v", err)
+			assert.Equal(t, transaction.Transaction_Ok, tx.ResultCode)
+		})
+	}
+
+	t.Run("without an execution time (pre-V7) the check is skipped", func(t *testing.T) {
+		t.Parallel()
+
+		err, tx := run(t, vmcommon.ExecutionModeReplay, 0, transaction.Transaction_VMExecutionFailed)
+
+		assert.Nil(t, err, "no execution time, no result check: the state root decides")
+		assert.Equal(t, transaction.Transaction_Ok, tx.ResultCode)
+	})
+}
+
 // TestProcessTransaction_TxResultsValidation_TxNotInBlock tests
 // when transaction hash is not in block's TxHashes - validation should be skipped.
 func TestProcessTransaction_TxResultsValidation_TxNotInBlock(t *testing.T) {
