@@ -3226,6 +3226,7 @@ type processBlockTestDeps struct {
 func newEpochStartTriggerForProcessBlock(
 	t *testing.T,
 	forkController core.ForkController,
+	hasher hashing.Hasher,
 	epoch uint32,
 	epochStartSlot uint64,
 	slotsPerEpoch uint64,
@@ -3233,7 +3234,12 @@ func newEpochStartTriggerForProcessBlock(
 	t.Helper()
 	store := retriever.NewChainStorer()
 	store.AddStorer(retriever.BootstrapUnit, createMemUnit())
-	store.AddStorer(retriever.BlockUnit, createMemUnit())
+	blocks := createMemUnit()
+	store.AddStorer(retriever.BlockUnit, blocks)
+	// genesis is stored as the epoch 0 start, which a revert from epoch 1 reads back
+	genesis, err := marshalizer.Marshal(&block.Block{Header: &block.BlockHeader{IsEpochStart: true}})
+	require.NoError(t, err)
+	require.NoError(t, blocks.Put([]byte(core.EpochStartIdentifier(0)), genesis))
 	trigger, err :=
 		epochStart.NewEpochStartTrigger(&epochStart.ArgsNewEpochStartTrigger{
 			GenesisTime:        time.Unix(0, 0),
@@ -3242,7 +3248,7 @@ func newEpochStartTriggerForProcessBlock(
 			SlotsPerEpoch:      slotsPerEpoch,
 			EpochStartNotifier: notifier.NewEpochStartSubscriptionHandler(),
 			Marshalizer:        marshalizer,
-			Hasher:             &sha256.Sha256{},
+			Hasher:             hasher,
 			Storage:            store,
 			ForkController:     forkController,
 		})
@@ -3320,7 +3326,7 @@ func TestMetaProcessor_ProcessBlockRejectsEpochTwoAheadWithoutMutatingState(t *t
 		},
 	}
 	args := createMockMetaArguments()
-	trigger := newEpochStartTriggerForProcessBlock(t, args.ForkController, currentEpoch,
+	trigger := newEpochStartTriggerForProcessBlock(t, args.ForkController, args.Hasher, currentEpoch,
 		epochStartSlot, slotsPerEpoch)
 	reverts := 0
 	mp := newMetaProcessorForProcessBlock(t, processBlockTestDeps{
@@ -3394,7 +3400,7 @@ func TestMetaProcessor_ProcessBlockRestoresEpochStateOnLateFailure(t *testing.T)
 	requestHandler.SetEpoch(currentEpoch)
 	hook := &contextmock.BlockchainHookStub{}
 	args := createMockMetaArguments()
-	trigger := newEpochStartTriggerForProcessBlock(t, args.ForkController, currentEpoch,
+	trigger := newEpochStartTriggerForProcessBlock(t, args.ForkController, args.Hasher, currentEpoch,
 		epochStartSlot, slotsPerEpoch)
 	reverts := 0
 	reachedPostEpochCheck := false
@@ -3464,7 +3470,7 @@ func TestMetaProcessor_ProcessBlockRestoresEpochStateWhenTimeIsOut(t *testing.T)
 	requestHandler.SetEpoch(currentEpoch)
 	hook := &contextmock.BlockchainHookStub{}
 	args := createMockMetaArguments()
-	trigger := newEpochStartTriggerForProcessBlock(t, args.ForkController, currentEpoch,
+	trigger := newEpochStartTriggerForProcessBlock(t, args.ForkController, args.Hasher, currentEpoch,
 		epochStartSlot, slotsPerEpoch)
 	reverts := 0
 	reachedPostEpochCheck := false
@@ -3554,7 +3560,7 @@ func newEpochStartRevertNode(t *testing.T, head *block.Block, headHash []byte, s
 	arguments.BlockChainHook = &contextmock.BlockchainHookStub{
 		SetCurrentHeaderCalled: func(hdr data.HeaderHandler) { node.hookHeader = hdr },
 	}
-	node.trigger = newEpochStartTriggerForProcessBlock(t, arguments.ForkController, head.GetEpoch(), 0, slotsPerEpoch)
+	node.trigger = newEpochStartTriggerForProcessBlock(t, arguments.ForkController, arguments.Hasher, head.GetEpoch(), 0, slotsPerEpoch)
 	arguments.EpochStartTrigger = node.trigger
 
 	// the committed proposal controller as stored at the head epoch: createKappsAccountsDB seeds
@@ -3626,23 +3632,19 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 			"precondition: the block merged the defaults of the fork it activates")
 	}
 
-	// the committed epoch's flags, then a reload with only its defaults: a reload run before the
-	// flags are restored backfills the reverted epoch's ones
-	assertEpochZeroFlagsAndParams := func(t *testing.T, node *epochStartRevertNode) {
+	// the committed epoch's trigger and flags, then a reload with only its defaults: a reload run
+	// before the flags are restored backfills the reverted epoch's ones
+	assertCommittedEpochState := func(t *testing.T, node *epochStartRevertNode) {
+		assert.False(t, node.trigger.IsEpochStart(), "a retried epoch start block would be rejected by the interceptor")
+		assert.Equal(t, uint32(0), node.trigger.Epoch())
+		assert.Equal(t, uint64(0), node.trigger.EpochStartSlot())
+		assert.Equal(t, uint64(0), node.trigger.PrevEpochStartSlot())
 		assert.Equal(t, uint32(0), node.epochNotifier.CurrentEpoch())
 		assert.False(t, node.forks.EnableSmartContracts(), "fork flags must be back in the committed epoch")
 		assert.NotContains(t, node.params.GetActiveParameters(), maxGasPerBlock,
 			"the live parameters must be back to the committed epoch's")
 		assert.Equal(t, uint32(0), node.requestHandler.epoch)
 		assert.Same(t, node.head, node.hookHeader)
-	}
-
-	assertCommittedEpochState := func(t *testing.T, node *epochStartRevertNode) {
-		assert.False(t, node.trigger.IsEpochStart(), "a retried epoch start block would be rejected by the interceptor")
-		assert.Equal(t, uint32(0), node.trigger.Epoch())
-		assert.Equal(t, uint64(0), node.trigger.EpochStartSlot())
-		assert.Equal(t, uint64(0), node.trigger.PrevEpochStartSlot())
-		assertEpochZeroFlagsAndParams(t, node)
 	}
 
 	// a node whose rollback target carries the roots of its own tries
@@ -3732,7 +3734,27 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 
 		require.NoError(t, validator.mp.RevertStateToBlock(validator.head))
 
-		assertEpochZeroFlagsAndParams(t, validator)
+		assertCommittedEpochState(t, validator)
+	})
+
+	// storage bootstrap reverts to the stored head before the first block: the notifier is still
+	// at 0, and the fork flags stay off until that block runs CheckEpoch
+	t.Run("storage bootstrap leaves the notifier at 0", func(t *testing.T) {
+		t.Parallel()
+
+		node := newRollbackNode(t)
+		stored := &block.Block{Header: &block.BlockHeader{
+			Epoch:         1,
+			Nonce:         headNonce,
+			Slot:          epochStartSlot + 1,
+			KAppsTrieRoot: node.head.Header.KAppsTrieRoot,
+		}}
+
+		require.NoError(t, node.mp.RevertStateToBlock(stored))
+
+		assert.Equal(t, uint32(0), node.epochNotifier.CurrentEpoch())
+		assert.False(t, node.forks.EnableSmartContracts())
+		assert.NotContains(t, node.params.GetActiveParameters(), maxGasPerBlock)
 	})
 
 	// the second block snapshots again before its own failure reverts it; the revert must land
