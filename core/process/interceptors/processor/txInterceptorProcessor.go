@@ -45,14 +45,24 @@ func (txip *TxInterceptorProcessor) Validate(data process.InterceptedData, _ cor
 		return process.ErrWrongTypeAssertion
 	}
 
-	err := txip.txValidator.CheckDup(data.Hash())
-	// allow requested transactions to be validated
-	if err != nil && !txip.checkRequested(data.Hash()) {
-		return err
+	isRequested := txip.checkRequested(data.Hash())
+	if isRequested {
+		// a requested tx may already be in storage and still has to reach the pool, so only
+		// the pool is checked: a copy there passed full validation, and checking another
+		// peer's answer to the same request would repeat the account read and the signature checks
+		_, found := txip.dataPool.SearchFirstData(data.Hash())
+		if found {
+			return common.ErrDupTransaction
+		}
+	} else {
+		err := txip.txValidator.CheckDup(data.Hash())
+		if err != nil {
+			return err
+		}
 	}
 
-	err = txip.txValidator.CheckTxValidity(interceptedTx)
-	if err != nil && txip.checkRequested(data.Hash()) {
+	err := txip.txValidator.CheckTxValidity(interceptedTx)
+	if err != nil && isRequested {
 		// free the request slot so the next request for this hash goes out at once
 		txip.requestedItemsHandler.Remove(string(data.Hash()))
 	}

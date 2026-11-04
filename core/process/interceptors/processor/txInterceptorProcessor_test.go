@@ -227,6 +227,65 @@ func TestTxInterceptorProcessor_ValidateRejectedRequestedTxFreesTheRequest(t *te
 	})
 }
 
+func TestTxInterceptorProcessor_ValidateRequestedTxAlreadyInPoolSkipsValidation(t *testing.T) {
+	t.Parallel()
+
+	hash := []byte("requested tx hash")
+	validate := func(t *testing.T, inPool bool) (int, int, error) {
+		numCheckDup, numCheckValidity := 0, 0
+		arg := createMockTxArgument()
+		pool := testscommon.NewShardedDataStub()
+		pool.SearchFirstDataCalled = func(key []byte) (interface{}, bool) {
+			return nil, inPool && string(key) == string(hash)
+		}
+		arg.TxDataCache = pool
+		arg.TxValidator = &mock.TxValidatorStub{
+			CheckTxValidityCalled: func(_ process.TxValidatorHandler) error {
+				numCheckValidity++
+				return nil
+			},
+			CheckDupCalled: func(_ []byte) error {
+				numCheckDup++
+				return common.ErrDupTransaction
+			},
+		}
+		arg.RequestedItemsHandler = &testscommon.RequestedItemsHandlerStub{
+			HasCalled: func(key string) bool {
+				return key == string(hash)
+			},
+		}
+		txip, _ := processor.NewTxInterceptorProcessor(arg)
+
+		err := txip.Validate(&struct {
+			mock.InterceptedDataStub
+			mock.InterceptedTxHandlerStub
+		}{
+			InterceptedDataStub: mock.InterceptedDataStub{
+				HashCalled: func() []byte { return hash },
+			},
+		}, "")
+
+		return numCheckDup, numCheckValidity, err
+	}
+
+	t.Run("another answer to a request already in the pool is a dup", func(t *testing.T) {
+		t.Parallel()
+
+		numCheckDup, numCheckValidity, err := validate(t, true)
+		assert.Equal(t, common.ErrDupTransaction, err)
+		assert.Zero(t, numCheckDup)
+		assert.Zero(t, numCheckValidity)
+	})
+	t.Run("a requested tx only in storage is still validated", func(t *testing.T) {
+		t.Parallel()
+
+		numCheckDup, numCheckValidity, err := validate(t, false)
+		assert.Nil(t, err)
+		assert.Zero(t, numCheckDup)
+		assert.Equal(t, 1, numCheckValidity)
+	})
+}
+
 //------- Save
 
 func TestTxInterceptorProcessor_SaveNilDataShouldErr(t *testing.T) {

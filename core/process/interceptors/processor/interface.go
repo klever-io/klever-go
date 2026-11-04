@@ -21,4 +21,5 @@ type InterceptedTransactionHandler interface {
 type TXDataPool interface {
 	AddData(key []byte, data interface{}, sizeInBytes int, cacheID string)
 	Notify(txHash []byte, value interface{}, sizeInBytes int)
+	SearchFirstData(key []byte) (value interface{}, ok bool)
 }

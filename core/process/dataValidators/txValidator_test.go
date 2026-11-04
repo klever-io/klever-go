@@ -1114,3 +1114,62 @@ func TestTxInterceptorProcessor_RequestedTxCheckedAgainstOlderPermissionFreesThe
 	assert.ErrorIs(t, err, common.ErrSignatureThreshold)
 	assert.Equal(t, []string{string(hash)}, removed)
 }
+
+func TestTxInterceptorProcessor_AnotherAnswerToAPooledRequestSkipsTheAccountRead(t *testing.T) {
+	t.Parallel()
+
+	// a request goes to several peers; once one answer is in the pool the others
+	// must not repeat the account read, which takes the accounts lock (KLC-2874)
+	hash := []byte("requested tx hash")
+	pool := make(map[string]*transaction.Transaction)
+	poolStub := mock.NewShardedDataStub()
+	poolStub.AddDataCalled = func(key []byte, value interface{}, _ int, _ string) {
+		if _, exists := pool[string(key)]; !exists {
+			pool[string(key)] = value.(*transaction.Transaction)
+		}
+	}
+	poolStub.SearchFirstDataCalled = func(key []byte) (interface{}, bool) {
+		tx, exists := pool[string(key)]
+		return tx, exists
+	}
+	pools := &mock.PoolsHolderStub{
+		TransactionsCalled: func() retriever.ShardedDataCacherNotifier {
+			return poolStub
+		},
+	}
+
+	accDB := getAccAdapter(0)
+	numAccountReads := 0
+	getAccount := accDB.GetExistingAccountCalled
+	accDB.GetExistingAccountCalled = func(address []byte) (state.AccountHandler, error) {
+		numAccountReads++
+		return getAccount(address)
+	}
+
+	txip, _ := processor.NewTxInterceptorProcessor(&processor.ArgTxInterceptorProcessor{
+		TxDataCache: poolStub,
+		TxValidator: generateWhiteListedTxValidator(t, accDB, pools, hash),
+		RequestedItemsHandler: &mock.RequestedItemsHandlerStub{
+			HasCalled: func(key string) bool {
+				return key == string(hash)
+			},
+		},
+	})
+
+	receive := func(requestedTx *requestedTxStub) error {
+		err := txip.Validate(requestedTx, "peer")
+		if err != nil {
+			return err
+		}
+		return txip.Save(requestedTx, "peer", "")
+	}
+
+	first := newRequestedTx(hash, bytes.Repeat([]byte{0x01}, 32))
+	assert.Nil(t, receive(first))
+	assert.Equal(t, 1, numAccountReads)
+
+	second := newRequestedTx(hash, bytes.Repeat([]byte{0x01}, 32))
+	assert.Equal(t, common.ErrDupTransaction, receive(second))
+	assert.Equal(t, 1, numAccountReads)
+	assert.Same(t, first.tx, pool[string(hash)])
+}
