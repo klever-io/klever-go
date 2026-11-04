@@ -35,7 +35,7 @@ func (n *Node) GetMarketplace(marketplaceId string) (*api.Marketplace, error) {
 	key := kdautils.ToMarketplaceKey(marketplaceIDBytes)
 
 	marketplaceWrp, err := kapp.DataTrieTracker().RetrieveValue(key)
-	if err != nil {
+	if err != nil || len(marketplaceWrp) == 0 {
 		return &api.Marketplace{}, common.ErrMarketplaceNotFound
 	}
 

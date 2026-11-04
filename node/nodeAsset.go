@@ -34,17 +34,12 @@ func (n *Node) GetAsset(assetID string) (*kapps.KDAData, error) {
 		return &kapps.KDAData{}, common.ErrWrongTypeAssertion
 	}
 
-	key := kdautils.ToKDAKey([]byte(tokenID), nil)
-
-	assetWrp, err := kapp.DataTrieTracker().RetrieveValue(key)
+	asset, err := n.readKDAData(kapp, string(tokenID))
 	if err != nil {
-		return &kapps.KDAData{}, common.ErrAssetNotFound
+		return &kapps.KDAData{}, err
 	}
 
-	asset := &kapps.KDAData{}
-	err = n.internalMarshalizer.Unmarshal(asset, assetWrp)
-
-	return asset, err
+	return asset, nil
 }
 
 // GetNFT will return asset details for a given address
