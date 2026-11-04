@@ -2,6 +2,9 @@ module github.com/klever-io/klever-go
 
 go 1.25.7
 
+// Listen with plain TCP; Go 1.24+ opens MPTCP listeners on Linux by default.
+godebug multipathtcp=0
+
 require (
 	github.com/ElrondNetwork/concurrent-map v0.1.3
 	github.com/awalterschulze/gographviz v2.0.3+incompatible
