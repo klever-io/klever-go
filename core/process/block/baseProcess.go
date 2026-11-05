@@ -584,6 +584,8 @@ func (bp *baseProcessor) DecodeBlockHeader(dta []byte) data.HeaderHandler {
 		return nil
 	}
 
+	header.DropBlockLevelUnknownFields()
+
 	return header
 }
 

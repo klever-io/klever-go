@@ -3972,3 +3972,37 @@ func TestMetaProcessor_NativeFPRTrim_AcrossTheForkActivationEpoch(t *testing.T) 
 	assert.Equal(t, []uint32{8, 9}, kfiEpochs)
 	assert.Equal(t, int64(3177+2662), h.klvBurned())
 }
+
+func TestMetaProcessor_DecodeBlockHeaderLeavesTheHeaderBytesUnchanged(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockMetaArguments()
+	blockChain := createTestBlockchain()
+	blockChain.CreateNewHeaderCalled = func() data.HeaderHandler {
+		return &block.Block{}
+	}
+	arguments.BlockChain = blockChain
+	mp, err := blproc.NewMetaProcessor(arguments)
+	require.NoError(t, err)
+
+	headerBuff, err := marshalizer.Marshal(&block.BlockHeader{Nonce: 3, Slot: 4, ParentHash: []byte("parent")})
+	require.NoError(t, err)
+	headerWithUnknown := mock.AppendUnknownField(headerBuff, 99, 4096)
+
+	header := &block.BlockHeader{}
+	require.NoError(t, marshalizer.Unmarshal(header, headerWithUnknown))
+	blockBuff, err := marshalizer.Marshal(&block.Block{Header: header, Signature: []byte("signature")})
+	require.NoError(t, err)
+
+	decoded := mp.DecodeBlockHeader(mock.AppendUnknownField(blockBuff, 98, 64))
+	require.NotNil(t, decoded)
+	decodedBlock, ok := decoded.(*block.Block)
+	require.True(t, ok)
+
+	reencodedHeader, err := marshalizer.Marshal(decodedBlock.Header)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(headerWithUnknown, reencodedHeader), "re-encoded header must match the received header bytes")
+	reencodedBlock, err := marshalizer.Marshal(decodedBlock)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(blockBuff, reencodedBlock), "re-encoded block must drop only the unknown fields outside the header")
+}

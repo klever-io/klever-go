@@ -56,6 +56,7 @@ type HeaderHandler interface {
 	GetTxHashes() [][]byte
 	GetTxResults() []uint32
 	ComputeRootHash(hasher hashing.Hasher) ([]byte, error)
+	DropBlockLevelUnknownFields()
 
 	IsInterfaceNil() bool
 	Clone() HeaderHandler

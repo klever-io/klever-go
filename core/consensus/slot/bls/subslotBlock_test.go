@@ -12,6 +12,7 @@ import (
 	"github.com/klever-io/klever-go/core/consensus/slot/bls"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
+	"github.com/klever-io/klever-go/tools/marshal"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -809,4 +810,59 @@ func TestSubslotBlock_ReceivedBlockHeaderWithMatchingSlotShouldBeStored(t *testi
 
 	_ = sr.ReceivedBlockHeader(cnsMsg)
 	assert.NotNil(t, sr.Header, "a header matching the message slot must be accepted")
+}
+
+func TestSubslotBlock_ReceivedBlockHeaderStoresTheBlockDecodedByTheBlockProcessor(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := marshal.NewProtoMarshalizer()
+	blockBuff, err := marshalizer.Marshal(&block.Block{
+		Header:    &block.BlockHeader{Slot: 0, ParentHash: []byte("parent")},
+		Signature: []byte("signature"),
+	})
+	assert.Nil(t, err)
+
+	container := mock.InitConsensusCore()
+	container.SetBlockProcessor(&mock.BlockProcessorMock{
+		DecodeBlockHeaderCalled: func(dta []byte) data.HeaderHandler {
+			blk := &block.Block{}
+			if marshalizer.Unmarshal(blk, dta) != nil {
+				return nil
+			}
+			blk.DropBlockLevelUnknownFields()
+			return blk
+		},
+		ProcessBlockCalled: func(header data.HeaderHandler, haveTime func() time.Duration) error {
+			return errors.New("not under test")
+		},
+		RevertStateToSnapshotCalled: func(header data.HeaderHandler) {},
+	})
+
+	sr := *initSubslotBlock(nil, container)
+
+	cnsMsg := consensus.NewConsensusMessage(
+		[]byte("header hash"),
+		nil,
+		cMock.AppendUnknownField(blockBuff, 98, 64),
+		[]byte(sr.ConsensusGroup()[0]),
+		[]byte("sig"),
+		int(bls.MtBlockHeader),
+		0,
+		0,
+		chainID,
+		nil,
+		nil,
+		nil,
+		currentPid,
+	)
+
+	sr.Data = nil
+	sr.Header = nil
+
+	_ = sr.ReceivedBlockHeader(cnsMsg)
+	assert.NotNil(t, sr.Header)
+
+	storedBuff, err := marshalizer.Marshal(sr.Header)
+	assert.Nil(t, err)
+	assert.Equal(t, blockBuff, storedBuff)
 }

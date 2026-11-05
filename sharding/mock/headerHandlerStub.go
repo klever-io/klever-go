@@ -317,6 +317,9 @@ func (hhs *HeaderHandlerStub) ComputeRootHash(_ hashing.Hasher) ([]byte, error) 
 	return make([]byte, 0), nil
 }
 
+func (hhs *HeaderHandlerStub) DropBlockLevelUnknownFields() {
+}
+
 // GetStakingRewards -
 func (hhs *HeaderHandlerStub) GetStakingRewards() int64 {
 	return 0

@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"slices"
@@ -19,6 +20,7 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func createDefaultBlockArgument(blck *block.Block) *interceptedBlocks.ArgInterceptedBlock {
@@ -340,7 +342,7 @@ func TestEpochStartBlockProcessor_GetEpochStartBlockShouldWorkFromFirstTry(t *te
 	mb, err := esmbp.GetEpochStartBlock(ctx)
 	cancel()
 	assert.NoError(t, err)
-	assert.Equal(t, expectedMetaBlock, mb)
+	assert.True(t, proto.Equal(expectedMetaBlock, mb))
 }
 
 func TestEpochStartBlockProcessor_GetEpochStartBlockShouldWorkAfterMultipleTries(t *testing.T) {
@@ -389,7 +391,7 @@ func testEpochStartMbIsReceivedWithSleepBetweenReceivedMessages(t *testing.T, tt
 	mb, err := esmbp.GetEpochStartBlock(ctx)
 	cancel()
 	assert.NoError(t, err)
-	assert.Equal(t, expectedMetaBlock, mb)
+	assert.True(t, proto.Equal(expectedMetaBlock, mb))
 }
 
 func createPeerIDs(prefix string, numPeers int) []core.PeerID {
@@ -922,4 +924,52 @@ func TestEpochStartBlockProcessor_ReturnedCopyShouldMeetTheTarget(t *testing.T) 
 	mb, err := esmbp.getConfirmedMetaBlock()
 	assert.Nil(t, mb)
 	assert.Equal(t, common.ErrTimeoutWaitingForBlock, err)
+}
+
+func TestEpochStartBlockProcessor_CopyWithUnknownFieldsOutsideTheHeaderShouldCountAsTheSameBlock(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.ProtoMarshalizerMock{}
+	mb := &block.Block{
+		Header:    &block.BlockHeader{Nonce: 10, IsEpochStart: true},
+		Signature: []byte("signature"),
+	}
+	originalBuff, err := marshalizer.Marshal(mb)
+	require.NoError(t, err)
+
+	newCopy := func(blockBuff []byte) *interceptedBlocks.InterceptedBlock {
+		arg := createDefaultBlockArgument(mb)
+		arg.Marshalizer = marshalizer
+		arg.BlockBuff = blockBuff
+		intData, errNew := interceptedBlocks.NewInterceptedBlock(arg)
+		require.NoError(t, errNew)
+		return intData
+	}
+	originalCopy := newCopy(originalBuff)
+	extendedCopy := newCopy(mock.AppendUnknownField(originalBuff, 99, 4096))
+	require.Equal(t, originalCopy.Hash(), extendedCopy.Hash(), "both copies share the header")
+
+	peers := createPeerIDs("peer", 4)
+	esmbp, err := NewEpochStartBlockProcessor(
+		&mock.MessengerStub{
+			ConnectedPeersCalled: fixedPeers(peers),
+		},
+		&mock.RequestHandlerStub{},
+		marshalizer,
+		&mock.HasherMock{},
+		67,
+		1,
+		2,
+	)
+	require.NoError(t, err)
+	saveVotes(esmbp, originalCopy, peers[:2])
+	saveVotes(esmbp, extendedCopy, peers[2:])
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*durationBetweenChecks)
+	defer cancel()
+	confirmed, err := esmbp.GetEpochStartBlock(ctx)
+	require.NoError(t, err)
+	confirmedBuff, err := marshalizer.Marshal(confirmed)
+	require.NoError(t, err)
+	assert.True(t, bytes.Equal(originalBuff, confirmedBuff), "confirmed block must match the original encoding")
 }

@@ -59,6 +59,9 @@ func (hhs *HeaderHandlerStub) ComputeRootHash(_ hashing.Hasher) ([]byte, error) 
 	panic("implement me")
 }
 
+func (hhs *HeaderHandlerStub) DropBlockLevelUnknownFields() {
+}
+
 // SetProducerPublicKey -
 func (hhs *HeaderHandlerStub) SetProducerPublicKey(_ []byte) {
 	panic("implement me")
