@@ -55,6 +55,11 @@ func (h *ProposalControllerHolder) Get() ActiveProposalController {
 	return *controller
 }
 
+// Clear unpublishes the controller, back to the zero value.
+func (h *ProposalControllerHolder) Clear() {
+	h.ref.Store(nil)
+}
+
 // NewProposalController returns a live controller holding the initial parameters for forks.
 func NewProposalController(forks core.ForkController) (*activeProposalController, error) {
 	return NewActiveProposalController(NewInitialProposalController(forks)), nil

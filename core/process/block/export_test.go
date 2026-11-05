@@ -63,6 +63,11 @@ func (m *MetaProcessorForTests) ProcessEconomicsEndOfEpoch(validatorInfos []*sta
 	return m.processEconomicsEndOfEpoch(validatorInfos, headerHandler)
 }
 
+// ClearProposalController unpublishes the controller, as storage bootstrap is.
+func ClearProposalController(proc process.BlockProcessor) {
+	proc.(*metaProcessor).proposalController.Clear()
+}
+
 // UpdateState exposes the updateState method for testing
 func (m *MetaProcessorForTests) UpdateState(lastMetaBlock data.HeaderHandler) {
 	m.updateState(lastMetaBlock)
