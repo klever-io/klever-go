@@ -294,7 +294,23 @@ func (instance *Wasmer2Instance) MemLoad(memPtr executor.MemPtr, length executor
 	if instance.alreadyClean || instance.cgoInstance == nil {
 		return nil, ErrInstanceCleaned
 	}
-	return executor.MemLoadFromMemory(&instance.memory, memPtr, length)
+	// A zero-length load does not touch native memory, whatever the offset.
+	if length == 0 {
+		return []byte{}, nil
+	}
+
+	// Pointer and length are each read once. The view covers only the span
+	// MemLoadRange selects, and it does not outlive this call.
+	memLen := instance.memory.dataLength()
+	base := instance.memory.dataBase()
+	off, n, err := executor.MemLoadRange(memLen, memPtr, length)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]byte, n)
+	copy(result, bytesAt(base, memLen, off, n))
+	return result, nil
 }
 
 // MemStore stores the given data in the WASM memory at the given offset.
@@ -304,7 +320,20 @@ func (instance *Wasmer2Instance) MemStore(memPtr executor.MemPtr, data []byte) e
 	if instance.alreadyClean || instance.cgoInstance == nil {
 		return ErrInstanceCleaned
 	}
-	return executor.MemStoreToMemory(&instance.memory, memPtr, data)
+	// A zero-length store is a no-op and does not touch native memory.
+	if len(data) == 0 {
+		return nil
+	}
+
+	memLen := instance.memory.dataLength()
+	base := instance.memory.dataBase()
+	off, n, err := executor.MemStoreRange(memLen, memPtr, len(data))
+	if err != nil {
+		return err
+	}
+
+	copy(bytesAt(base, memLen, off, n), data)
+	return nil
 }
 
 // MemLength returns the length of the allocated memory. Only called directly in tests.
@@ -315,7 +344,7 @@ func (instance *Wasmer2Instance) MemLength() uint32 {
 		instance.logCleanedAccess("MemLength")
 		return 0
 	}
-	return instance.memory.Length()
+	return instance.memory.dataLength()
 }
 
 // MemGrow allocates more pages to the current memory. Only called directly in tests.
@@ -328,7 +357,9 @@ func (instance *Wasmer2Instance) MemGrow(pages uint32) error {
 	return instance.memory.Grow(pages)
 }
 
-// MemDump yields the entire contents of the memory. Only used in tests.
+// MemDump yields a copy of the entire memory. Only used in tests.
+// A live instance with no memory dumps as []byte{}; nil means the instance has
+// been cleaned.
 func (instance *Wasmer2Instance) MemDump() []byte {
 	instance.mutex.Lock()
 	defer instance.mutex.Unlock()
@@ -336,7 +367,9 @@ func (instance *Wasmer2Instance) MemDump() []byte {
 		instance.logCleanedAccess("MemDump")
 		return nil
 	}
-	return bytes.Clone(instance.memory.Data())
+	// The whole-memory view stays in this function. Callers receive the copy.
+	length := instance.memory.dataLength()
+	return bytes.Clone(bytesAt(instance.memory.dataBase(), length, 0, length))
 }
 
 // ID returns an identifier for the instance, unique at runtime. It is captured at

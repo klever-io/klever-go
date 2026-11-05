@@ -17,25 +17,20 @@ func (memPtr MemPtr) Offset(offset int32) MemPtr {
 	return MemPtr(math.AddInt32(int32(memPtr), offset))
 }
 
-// Memory defines the functionality of the memory of a Wasmer instance.
-// Now considered an implementation detail and will likely stop being a public interface.
-type Memory interface {
-	Length() uint32
-	Data() []byte
-	Grow(pages uint32) error
-	Destroy()
-	IsInterfaceNil() bool
-}
-
-// MemLoadFromMemory is a bridge to the old Memory interface.
-// We are moving away from that, this is to ease the transition.
-func MemLoadFromMemory(memory Memory, memPtr MemPtr, length MemLength) ([]byte, error) {
+// MemLoadRange reports the byte span a load copies out of linear memory.
+// memoryLength is the byte length, read once for this call. The checks are the
+// historical ones, unchanged.
+//
+// n == 0 and a nil error is an empty success: the load returns []byte{}. A
+// zero-length load is that success for any offset. A load whose end runs past
+// memoryLength is also a success and n is the truncated tail, which is
+// consensus-sensitive. Errors keep their historical order: bad bounds, then
+// negative length.
+func MemLoadRange(memoryLength uint32, memPtr MemPtr, length MemLength) (off uint32, n uint32, err error) {
 	if length == 0 {
-		return []byte{}, nil
+		return 0, 0, nil
 	}
 
-	memoryView := memory.Data()
-	memoryLength := memory.Length()
 	requestedEnd := memPtr.Offset(length)
 
 	isOffsetTooSmall := memPtr < 0
@@ -44,46 +39,81 @@ func MemLoadFromMemory(memory Memory, memPtr MemPtr, length MemLength) ([]byte, 
 	isLengthNegative := length < 0
 
 	if isOffsetTooSmall || isOffsetTooLarge {
-		return nil, fmt.Errorf("mem load: %w", ErrMemoryBadBounds)
+		return 0, 0, fmt.Errorf("mem load: %w", ErrMemoryBadBounds)
 	}
 	if isLengthNegative {
-		return nil, fmt.Errorf("mem load: %w", ErrMemoryNegativeLength)
+		return 0, 0, fmt.Errorf("mem load: %w", ErrMemoryNegativeLength)
 	}
 
-	var result []byte
+	// memPtr is non-negative and at most memoryLength here.
 	if isRequestedEndTooLarge {
-		result = make([]byte, memoryLength-uint32(memPtr)) // #nosec G115
-		copy(result, memoryView[memPtr:])
-	} else {
-		result = make([]byte, requestedEnd-memPtr)
-		copy(result, memoryView[memPtr:requestedEnd])
+		return uint32(memPtr), memoryLength - uint32(memPtr), nil // #nosec G115
 	}
 
+	// length is positive and Offset saturates at MaxInt32, so the span is
+	// non-negative.
+	return uint32(memPtr), uint32(requestedEnd - memPtr), nil // #nosec G115
+}
+
+// MemStoreRange reports the byte span a store of dataLength bytes writes into
+// linear memory. memoryLength is the byte length, read once for this call.
+// It takes the length rather than the data so tests can exercise lengths that
+// cannot be allocated; callers pass len(data).
+//
+// n == 0 and a nil error is a no-op, including a zero-length store at any
+// offset. The data length is narrowed to int32 first, matching the historical
+// check. A negative offset is ErrMemoryBadBoundsLower and a range that would
+// pass the end of memory is ErrMemoryBadBoundsUpper, in that order.
+//
+// A data length that narrows to a negative int32 (2 GiB or more) is
+// ErrMemoryBadBoundsUpper. Historically such a store either got that error or
+// panicked on an inverted slice. Here the guard is required: without it the
+// negative span would convert to a large uint32 and the caller would write
+// past the end of memory. No host buffer reaches that size, so the change is
+// not consensus-visible.
+func MemStoreRange(memoryLength uint32, memPtr MemPtr, dataLength int) (off uint32, n uint32, err error) {
+	narrowedLength := int32(dataLength) // #nosec G115
+	if narrowedLength == 0 {
+		return 0, 0, nil
+	}
+
+	requestedEnd := memPtr.Offset(narrowedLength)
+
+	if memPtr < 0 {
+		return 0, 0, ErrMemoryBadBoundsLower
+	}
+
+	if narrowedLength < 0 || uint32(requestedEnd) > memoryLength { // #nosec G115
+		return 0, 0, ErrMemoryBadBoundsUpper
+	}
+
+	// narrowedLength is positive and Offset saturates at MaxInt32, so the span
+	// is non-negative.
+	return uint32(memPtr), uint32(requestedEnd - memPtr), nil // #nosec G115
+}
+
+// MemLoadBytes is MemLoad over a Go-owned memory buffer, for executors and
+// mocks whose linear memory is a []byte. The result never aliases mem.
+// A buffer of 4 GiB or more narrows to a smaller length, which only makes the
+// bounds checks stricter.
+func MemLoadBytes(mem []byte, memPtr MemPtr, length MemLength) ([]byte, error) {
+	off, n, err := MemLoadRange(uint32(len(mem)), memPtr, length) // #nosec G115
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]byte, n)
+	copy(result, mem[off:off+n])
 	return result, nil
 }
 
-// MemStoreToMemory is a bridge to the old Memory interface.
-// We are moving away from that, this is to ease the transition.
-func MemStoreToMemory(memory Memory, memPtr MemPtr, data []byte) error {
-	dataLength := int32(len(data)) // #nosec G115
-	if dataLength == 0 {
-		return nil
+// MemStoreBytes is MemStore over a Go-owned memory buffer.
+func MemStoreBytes(mem []byte, memPtr MemPtr, data []byte) error {
+	off, n, err := MemStoreRange(uint32(len(mem)), memPtr, len(data)) // #nosec G115
+	if err != nil {
+		return err
 	}
 
-	memoryView := memory.Data()
-	memoryLength := memory.Length()
-	requestedEnd := memPtr.Offset(dataLength)
-
-	isOffsetTooSmall := memPtr < 0
-	if isOffsetTooSmall {
-		return ErrMemoryBadBoundsLower
-	}
-
-	isRequestedEndTooLarge := uint32(requestedEnd) > memoryLength // #nosec G115
-	if isRequestedEndTooLarge {
-		return ErrMemoryBadBoundsUpper
-	}
-
-	copy(memoryView[memPtr:requestedEnd], data)
+	copy(mem[off:off+n], data)
 	return nil
 }

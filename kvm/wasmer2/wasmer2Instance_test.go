@@ -20,7 +20,7 @@ import (
 // exercising real destruction, idempotency and the concurrent Clean/accessor race do.
 // Its executor has no VM hooks set, so tests must not call functions that use
 // them, such as answer.
-func newLiveInstance(t *testing.T) *Wasmer2Instance {
+func newLiveInstance(t testing.TB) *Wasmer2Instance {
 	t.Helper()
 
 	exec, err := CreateExecutor()
@@ -199,6 +199,10 @@ func TestWasmer2Instance_ConcurrentCleanAndAccessors(t *testing.T) {
 
 	initial := instance.MemDump()
 	require.NotNil(t, initial)
+	require.GreaterOrEqual(t, len(initial), 4)
+	// Readers store back the bytes already at offset 0, so the write path runs
+	// without changing the contents the dumps are checked against.
+	rewrite := bytes.Clone(initial[:4])
 
 	var wg sync.WaitGroup
 	start := make(chan struct{})
@@ -221,6 +225,10 @@ func TestWasmer2Instance_ConcurrentCleanAndAccessors(t *testing.T) {
 				instance.SetPointsUsed(1)
 				instance.SetBreakpointValue(1)
 				instance.MemLength()
+				// Load and store read the length and base in two cgo calls; both
+				// must sit in the same critical section as the cleaned check.
+				_, _ = instance.MemLoad(0, 4)
+				_ = instance.MemStore(0, rewrite)
 				if iteration == 0 {
 					instance.MemGrow(1)
 				}
@@ -252,9 +260,10 @@ func TestWasmer2Instance_ConcurrentCleanAndAccessors(t *testing.T) {
 	assert.Equal(t, int32(1), atomic.LoadInt32(&cleanWins), "exactly one Clean must perform the destruction")
 	assert.True(t, instance.IsAlreadyCleaned())
 
-	// Readers never write memory: MemGrow adds zeroed pages and Reset restores the
-	// initial contents. So every kept dump must still hold the initial contents
-	// followed by zeros, read in full after Clean freed the native memory.
+	// Readers only store back the initial bytes: MemGrow adds zeroed pages and
+	// Reset restores the initial contents. So every kept dump must still hold the
+	// initial contents followed by zeros, read in full after Clean freed the
+	// native memory.
 	captured := 0
 	for _, dump := range dumps {
 		if dump == nil {
@@ -298,4 +307,29 @@ func TestWasmer2Instance_MaxDeclaredTableSizeReadsThroughCgo(t *testing.T) {
 
 	require.Equal(t, uint32(1000), instance.MaxDeclaredTableSize(),
 		"the declared maximum must come back through the cgo bridge unchanged")
+}
+
+// BenchmarkWasmer2MemLoadStore times the hook load/store path: VM hooks forward
+// straight to Instance.MemLoad and MemStore, which is the code KLC-2694 changes.
+func BenchmarkWasmer2MemLoadStore(b *testing.B) {
+	instance := newLiveInstance(b)
+	defer instance.Clean()
+
+	payload := bytes.Repeat([]byte{0xAB}, 32)
+	require.NoError(b, instance.MemStore(0, payload))
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if err := instance.MemStore(0, payload); err != nil {
+			b.Fatal(err)
+		}
+		got, err := instance.MemLoad(0, executor.MemLength(len(payload)))
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(got) != len(payload) {
+			b.Fatalf("len %d", len(got))
+		}
+	}
 }

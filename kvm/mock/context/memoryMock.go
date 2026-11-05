@@ -1,7 +1,6 @@
 package mock
 
-// MemoryMock mocks the linear memory of a Wasmer instance and is used by the
-// InstanceMock.
+// MemoryMock is the linear memory of an InstanceMock.
 type MemoryMock struct {
 	Pages    uint32
 	PageSize uint32
@@ -22,11 +21,6 @@ func (memory *MemoryMock) Length() uint32 {
 	return uint32(len(memory.Contents)) // #nosec G115
 }
 
-// Data mocked method
-func (memory *MemoryMock) Data() []byte {
-	return memory.Contents
-}
-
 // Grow mocked method
 func (memory *MemoryMock) Grow(pages uint32) error {
 	newPages := make([]byte, pages*memory.PageSize)
@@ -34,17 +28,7 @@ func (memory *MemoryMock) Grow(pages uint32) error {
 	return nil
 }
 
-// Destroy mocked method
-func (memory *MemoryMock) Destroy() {
-	memory.Contents = nil
-}
-
 // initMemory mocked method
 func (memory *MemoryMock) initMemory() {
 	memory.Contents = make([]byte, memory.Pages*memory.PageSize)
-}
-
-// IsInterfaceNil returns true if underlying object is nil
-func (memory *MemoryMock) IsInterfaceNil() bool {
-	return memory == nil
 }

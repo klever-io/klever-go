@@ -32,7 +32,7 @@ type InstanceMock struct {
 	Data            executor.VMHooks
 	GasLimit        uint64
 	BreakpointValue vmhost.BreakpointValue
-	Memory          executor.Memory
+	Memory          *MemoryMock
 	Host            vmhost.VMHost
 	T               testing.TB
 	Address         []byte
@@ -166,12 +166,12 @@ func (instance *InstanceMock) MaxDeclaredTableSize() uint32 {
 
 // MemLoad returns the contents from the given offset of the WASM memory.
 func (instance *InstanceMock) MemLoad(memPtr executor.MemPtr, length executor.MemLength) ([]byte, error) {
-	return executor.MemLoadFromMemory(instance.Memory, memPtr, length)
+	return executor.MemLoadBytes(instance.Memory.Contents, memPtr, length)
 }
 
 // MemStore stores the given data in the WASM memory at the given offset.
 func (instance *InstanceMock) MemStore(memPtr executor.MemPtr, data []byte) error {
-	return executor.MemStoreToMemory(instance.Memory, memPtr, data)
+	return executor.MemStoreBytes(instance.Memory.Contents, memPtr, data)
 }
 
 // MemLength returns the length of the allocated memory. Only called directly in tests.
@@ -186,7 +186,7 @@ func (instance *InstanceMock) MemGrow(pages uint32) error {
 
 // MemDump yields the entire contents of the memory. Only used in tests.
 func (instance *InstanceMock) MemDump() []byte {
-	return bytes.Clone(instance.Memory.Data())
+	return bytes.Clone(instance.Memory.Contents)
 }
 
 // IsFunctionImported mocked method

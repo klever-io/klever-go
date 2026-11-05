@@ -770,7 +770,7 @@ func TestVMHooksImpl_CopyGas_SameBeforeAndFromV6(t *testing.T) {
 
 // From FixAuditChangesV6 these hooks price a user-supplied input on the length the contract asks for,
 // charged before the copy, which is what makes an unaffordable length unaffordable instead of merely
-// expensive: MemLoadFromMemory truncates a range running past the end of memory rather than rejecting
+// expensive: MemLoad truncates a range running past the end of memory rather than rejecting
 // it, so pre-fork the hook copies whatever is there for free and whatever follows is priced on the
 // truncated result, or not priced at all.
 func TestVMHooksImpl_LengthChargedBeforeTheCopy(t *testing.T) {
@@ -839,7 +839,7 @@ func TestVMHooksImpl_LengthChargedBeforeTheCopy(t *testing.T) {
 }
 
 // The hooks that write storage or build a bigInt from contract memory copy a contract-sized input
-// the same way StorageStore does, and used to copy it for free: MemLoadFromMemory truncates a length
+// the same way StorageStore does, and used to copy it for free: MemLoad truncates a length
 // running past the end of memory instead of rejecting it, so the memcpy happened, the key reached
 // SetStorage and was read off the trie, and only what came after was priced. Their fixed cost was
 // unbounded too, and charged before all of that. From FixAuditChangesV6 the fixed cost is bounded
@@ -952,7 +952,7 @@ func TestVMHooksImpl_SiblingHooks_ChargedBeforeTheCopy(t *testing.T) {
 					assert.True(t, landed || trieReads > 0)
 
 					if tt.preForkCopyCharged {
-						// MemLoadFromMemory truncates a range running past the end of memory
+						// MemLoad truncates a range running past the end of memory
 						// rather than rejecting it, and the pre-fork charge is on what came back
 						truncated, err := host.MemLoadFromMock(keyPtr, int(budget.keyLength))
 						require.NoError(t, err)

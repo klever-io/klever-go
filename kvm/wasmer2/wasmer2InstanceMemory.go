@@ -3,32 +3,53 @@ package wasmer2
 import (
 	"fmt"
 	"unsafe"
-
-	"github.com/klever-io/klever-go/kvm/executor"
 )
 
-var _ = (executor.Memory)((*Wasmer2Memory)(nil))
-
-// Wasmer2Memory represents the memory of a WebAssembly instance.
+// Wasmer2Memory is the linear memory of a WebAssembly instance. The native
+// instance owns it and Clean releases it. The whole memory is never handed out
+// as a []byte. Load and store build a view over the requested range, copy, and
+// drop it, under the instance mutex.
 type Wasmer2Memory struct {
 	// The underlying WebAssembly instance.
 	cgoInstance *cWasmerInstanceT
 }
 
-// Length calculates the memory length (in bytes).
-func (memory *Wasmer2Memory) Length() uint32 {
+// dataLength reads the memory length in bytes once. The C API returns
+// uint64_t and the bridge narrows it to uint32, as it always has. Narrowing
+// fails closed: a wrapped length is smaller than the real one, so bounds
+// checks only get stricter. The page caps keep the length far below 2^32
+// (TestWasmer2_DeclaredMemoryPageCap, TestWasmer2_MemoryGrowCap).
+func (memory *Wasmer2Memory) dataLength() uint32 {
 	return uint32(cWasmerMemoryDataLength(memory.cgoInstance))
 }
 
-// Data returns a slice of bytes over the WebAssembly memory.
-func (memory *Wasmer2Memory) Data() []byte {
-	var length = memory.Length()
-	var data = (*uint8)(cWasmerMemoryData(memory.cgoInstance))
+// dataBase reads the pointer to the first byte of linear memory once.
+// The pointer is invalidated by Grow.
+func (memory *Wasmer2Memory) dataBase() *byte {
+	return (*byte)(cWasmerMemoryData(memory.cgoInstance))
+}
 
-	// #nosec G103: aliasing []byte view over wasmer-owned linear memory.
-	// Callers must copy in or out under the instance mutex and must not
-	// retain the view: Grow may reallocate the underlying buffer.
-	return unsafe.Slice(data, length)
+// bytesAt views exactly n bytes at off in a memory of memLen bytes starting
+// at base. The slice aliases wasmer-owned memory and must not be retained:
+// Grow may reallocate the buffer.
+//
+// Callers pass a span from executor.MemLoadRange or MemStoreRange, which is
+// always in bounds. bytesAt checks it again and panics otherwise, so a caller
+// that skips those helpers fails fast instead of reading or writing outside
+// linear memory.
+func bytesAt(base *byte, memLen uint32, off uint32, n uint32) []byte {
+	if off > memLen || n > memLen-off {
+		panic(fmt.Sprintf("wasmer2: memory view [%d, %d+%d) outside length %d", off, off, n, memLen))
+	}
+	if n == 0 {
+		return []byte{}
+	}
+	if base == nil {
+		panic("wasmer2: memory view over a nil base")
+	}
+
+	// #nosec G103: range-scoped view over wasmer-owned linear memory.
+	return unsafe.Slice((*byte)(unsafe.Add(unsafe.Pointer(base), off)), n)
 }
 
 // Grow the memory by a number of pages (65kb each).
@@ -49,15 +70,4 @@ func (memory *Wasmer2Memory) Grow(numberOfPages uint32) error {
 	}
 
 	return nil
-}
-
-// Destroy destroys inner memory. Does nothing in wasmer2.
-func (memory *Wasmer2Memory) Destroy() {
-	// Intentionally empty: the linear memory is owned by the native wasmer
-	// instance and is released by cWasmerInstanceDestroy via Clean.
-}
-
-// IsInterfaceNil returns true if underlying object is nil
-func (memory *Wasmer2Memory) IsInterfaceNil() bool {
-	return memory == nil
 }
