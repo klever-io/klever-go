@@ -96,6 +96,9 @@ func PostURLWithContext(ctx context.Context, url, body string, headers []string,
 	return nil
 }
 
+// checkStatus returns nil for a 2xx response. For anything else it builds the error the
+// operator prints: method, URL, status, and the response body (sanitised, bounded at
+// maxErrorBody, with a marker when cut) so the node's reason is not lost.
 func checkStatus(method, url string, r *http.Response) error {
 	if r.StatusCode >= http.StatusOK && r.StatusCode < http.StatusMultipleChoices {
 		return nil
@@ -149,6 +152,9 @@ func trimSplitRune(b []byte) []byte {
 	return b
 }
 
+// sanitizeServerText strips control characters (except tab) from server-supplied text
+// before it reaches the terminal, so a response cannot inject newlines or escape sequences
+// into the operator's output.
 func sanitizeServerText(s string) string {
 	return strings.Map(func(r rune) rune {
 		if r == '\t' {
