@@ -11,9 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/integrationTest"
 	"github.com/klever-io/klever-go/integrationTest/processorNode"
 	commonTxTest "github.com/klever-io/klever-go/integrationTest/transaction"
+	"github.com/klever-io/klever-go/node"
 )
 
 var log = logger.GetOrCreate("integrationTest/consensus")
@@ -22,11 +24,9 @@ var log = logger.GetOrCreate("integrationTest/consensus")
 // TimestampCalled; slots advance only when the test increments currentSlot.
 const simulatedSlotDuration = 4 * time.Second
 
-// blockWaitTimeoutSeconds bounds each wait for cluster convergence, pinned to
-// the mainnet slot duration. Raising it does not deflake loaded runs — the
-// dominant failure is a parked straggler no timeout rescues (measured 4/10
-// failures at both 4s and 30s bounds under host load) — so contended runners
-// are excluded via the -short skip instead (issue #106).
+// blockWaitTimeoutSeconds bounds convergence independently of the synthetic clock.
+// Slot startup waits for every node's sync state to be calculated before allowing
+// a proposal, so the worker cannot drop it in the NsNotCalculated window.
 const blockWaitTimeoutSeconds = int(simulatedSlotDuration / time.Second)
 
 func initTest(t *testing.T, numOfNodes int) ([]*processorNode.ProcessorNode, []*processorNode.NodeAccount, error) {
@@ -39,6 +39,64 @@ func initTest(t *testing.T, numOfNodes int) ([]*processorNode.ProcessorNode, []*
 	time.Sleep(1000 * time.Millisecond)
 
 	return nodes, wallets, err
+}
+
+// startConsensus keeps the synthetic slot transition ahead of proposal delivery.
+// Updating SlotIndex invalidates the bootstrapper's cached sync state. Until its
+// next tick, Worker.ProcessReceivedMessage drops consensus messages, including a
+// fast leader's proposal. With the clock frozen that lost proposal leaves a node
+// parked forever after its BLOCK timer expires. Wait for all nodes to observe the
+// slot and recalculate their sync state before any chronology starts the slot.
+func startConsensus(t *testing.T, nodes []*processorNode.ProcessorNode) *atomic.Int64 {
+	t.Helper()
+	currentSlot := new(atomic.Int64)
+	integrationTest.UpdateSlot(nodes, 0)
+	for _, n := range nodes {
+		n.ForkDetector = &rollbackForkDetector{
+			ForkDetector: n.ForkDetector,
+			discarded:    make(map[string]struct{}),
+		}
+		require.NoError(t, n.Node.ApplyOptions(node.WithForkDetector(n.ForkDetector)))
+		n.SlotManager.TimeDurationCalled = func() time.Duration {
+			return simulatedSlotDuration
+		}
+		n.SlotManager.UpdateSlotCalled = func(_ time.Time) {
+			slot := currentSlot.Load()
+			if n.SlotManager.SlotIndex.Swap(slot) == slot {
+				return
+			}
+
+			ticker := time.NewTicker(time.Millisecond)
+			defer ticker.Stop()
+			for {
+				ready := true
+				for _, peer := range nodes {
+					if peer.SlotManager.Index() != slot || peer.Node.GetNodeState() != core.NsSynchronized {
+						ready = false
+						break
+					}
+				}
+				if ready {
+					return
+				}
+				select {
+				case <-t.Context().Done():
+					return
+				case <-ticker.C:
+				}
+			}
+		}
+		n.SlotManager.TimestampCalled = func() time.Time {
+			return n.SlotManager.GenesisTimeField.Add(
+				time.Duration(n.SlotManager.Index()) * simulatedSlotDuration,
+			)
+		}
+		n.SlotManager.RemainingTimeCalled = func(_ time.Time, maxTime time.Duration) time.Duration {
+			return maxTime
+		}
+		require.NoError(t, n.Node.StartConsensus())
+	}
+	return currentSlot
 }
 
 func TestConsensus_RevertBlockAndTransactions(t *testing.T) {
@@ -60,28 +118,7 @@ func TestConsensus_RevertBlockAndTransactions(t *testing.T) {
 	require.Nil(t, err)
 	assert.Len(t, wallets, 2)
 
-	// currentSlot is mutated by the test goroutine (via Add) and read by the
-	// per-node UpdateSlot/Timestamp closures invoked from the chronology
-	// goroutine, so it must be accessed atomically.
-	var currentSlot atomic.Int64
-
-	integrationTest.UpdateSlot(nodes, 0)
-	for _, n := range nodes {
-		n.SlotManager.TimeDurationField = simulatedSlotDuration
-		n.SlotManager.UpdateSlotCalled = func(_ time.Time) {
-			n.SlotManager.SlotIndex.Store(currentSlot.Load())
-		}
-		n.SlotManager.TimestampCalled = func() time.Time {
-			return n.SlotManager.GenesisTimeField.Add(
-				time.Duration(currentSlot.Load()) * simulatedSlotDuration,
-			)
-		}
-		n.SlotManager.RemainingTimeCalled = func(_ time.Time, maxTime time.Duration) time.Duration {
-			return maxTime // always return maxTime
-		}
-
-		require.NoError(t, n.Node.StartConsensus())
-	}
+	currentSlot := startConsensus(t, nodes)
 
 	// inc slot and wait for block proposal
 	slot := currentSlot.Add(1)
@@ -186,8 +223,8 @@ func clusterStateString(nodes []*processorNode.ProcessorNode, nodesComplete []bo
 		if header, _ := n.GetCurrentBlockHeaderAndHash(); header != nil {
 			headerSlot, headerNonce = header.GetSlot(), header.GetNonce()
 		}
-		fmt.Fprintf(&state, " node%d{done=%v headerSlot=%d headerNonce=%d slotIndex=%d}",
-			i, nodesComplete[i], headerSlot, headerNonce, n.SlotManager.SlotIndex.Load())
+		fmt.Fprintf(&state, " node%d{done=%v headerSlot=%d headerNonce=%d slotIndex=%d syncState=%d}",
+			i, nodesComplete[i], headerSlot, headerNonce, n.SlotManager.SlotIndex.Load(), n.Node.GetNodeState())
 	}
 	return state.String()
 }

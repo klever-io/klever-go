@@ -1,14 +1,11 @@
 package consensus
 
 import (
-	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/klever-io/klever-go/integrationTest"
 	commonTxTest "github.com/klever-io/klever-go/integrationTest/transaction"
 )
 
@@ -28,24 +25,7 @@ func TestConsensus_InsertDupTransaction(t *testing.T) {
 	require.Nil(t, err)
 	assert.Len(t, wallets, 2)
 
-	var currentSlot atomic.Int64
-
-	integrationTest.UpdateSlot(nodes, 0)
-	for _, n := range nodes {
-		n.SlotManager.TimeDurationField = simulatedSlotDuration
-		n.SlotManager.UpdateSlotCalled = func(_ time.Time) {
-			n.SlotManager.SlotIndex.Store(currentSlot.Load())
-		}
-		n.SlotManager.TimestampCalled = func() time.Time {
-			return n.SlotManager.GenesisTimeField.Add(
-				time.Duration(currentSlot.Load()) * simulatedSlotDuration,
-			)
-		}
-		n.SlotManager.RemainingTimeCalled = func(_ time.Time, maxTime time.Duration) time.Duration {
-			return maxTime // always return maxTime
-		}
-		require.NoError(t, n.Node.StartConsensus())
-	}
+	currentSlot := startConsensus(t, nodes)
 
 	// inc slot and wait for block proposal
 	slot := currentSlot.Add(1)
