@@ -3215,6 +3215,8 @@ func (rh *epochAwareRequestHandler) SetEpoch(epoch uint32) {
 type processBlockTestDeps struct {
 	currentHeader  data.HeaderHandler
 	currentHash    []byte
+	genesisHeader  data.HeaderHandler
+	genesisHash    []byte
 	trigger        process.EpochStartTriggerHandler
 	requestHandler *epochAwareRequestHandler
 	hook           *contextmock.BlockchainHookStub
@@ -3261,7 +3263,13 @@ func newMetaProcessorForProcessBlock(t *testing.T, deps processBlockTestDeps) pr
 	args := createMockMetaArguments()
 	args.BlockChain = &mock.BlockChainMock{
 		GetGenesisHeaderCalled: func() data.HeaderHandler {
+			if deps.genesisHeader != nil {
+				return deps.genesisHeader
+			}
 			return &block.Block{Header: &block.BlockHeader{Nonce: 0}}
+		},
+		GetGenesisHeaderHashCalled: func() []byte {
+			return deps.genesisHash
 		},
 		GetCurrentBlockHeaderCalled: func() data.HeaderHandler {
 			return deps.currentHeader
@@ -3510,6 +3518,36 @@ func TestMetaProcessor_ProcessBlockRestoresEpochStateWhenTimeIsOut(t *testing.T)
 	assert.Equal(t, currentEpoch, requestHandler.epoch, "request handler epoch must be restored when processing times out")
 }
 
+// Before block 1 the head is nil. A processed block sets the hook, and the revert must put
+// genesis back, which is what the hook was serving.
+func TestMetaProcessor_ProcessBlockRestoresGenesisHookWhenHeadIsNil(t *testing.T) {
+	genesis := &block.Block{Header: &block.BlockHeader{Nonce: 0}}
+	var hookHeader data.HeaderHandler
+	hook := &contextmock.BlockchainHookStub{
+		SetCurrentHeaderCalled: func(hdr data.HeaderHandler) { hookHeader = hdr },
+	}
+	epochNotifier := notifier.NewGenericEpochNotifier()
+	requestHandler := &epochAwareRequestHandler{}
+	args := createMockMetaArguments()
+	trigger := newEpochStartTriggerForProcessBlock(t, args.ForkController, args.Hasher, 0, 0, 100)
+	reverts := 0
+	mp := newMetaProcessorForProcessBlock(t, processBlockTestDeps{
+		genesisHeader:  genesis,
+		trigger:        trigger,
+		requestHandler: requestHandler,
+		hook:           hook,
+		epochNotifier:  epochNotifier,
+		reverts:        &reverts,
+	})
+
+	err := mp.ProcessBlock(&block.Block{Header: &block.BlockHeader{
+		Nonce: 1,
+		Slot:  1,
+	}}, func() time.Duration { return -1 })
+	require.ErrorIs(t, err, process.ErrTimeIsOut)
+	assert.Same(t, genesis, hookHeader)
+}
+
 // epochStartRevertNode is a metaProcessor with a real epoch start trigger, plus probes for the
 // in-memory epoch state that ProcessBlock and CreateBlock advance before the block commits.
 type epochStartRevertNode struct {
@@ -3706,6 +3744,41 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		assert.Contains(t, validator.params.GetActiveParameters(), maxGasPerBlock)
 	})
 
+	// commitAll fails after SetProcessed: the next capture must still be the committed epoch
+	t.Run("a failed commit restores the committed epoch", func(t *testing.T) {
+		t.Parallel()
+
+		_, hdr := proposeEpochStart(t)
+		validator := newEpochStartRevertNode(t, head, headHash, slotsPerEpoch)
+
+		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
+		requireAdvanced(t, validator)
+
+		userAccounts, ok := validator.accountsDB[state.UserAccountsState].(*mock.AccountsStub)
+		require.True(t, ok)
+		userAccounts.CommitCalled = func() ([]byte, error) { return nil, assert.AnError }
+
+		// the trie may already be committed, so the stored parameters can keep MaxGasPerBlock
+		assertRestoredEpoch := func(t *testing.T) {
+			t.Helper()
+			assert.False(t, validator.trigger.IsEpochStart())
+			assert.Equal(t, uint32(0), validator.trigger.Epoch())
+			assert.Equal(t, uint64(0), validator.trigger.EpochStartSlot())
+			assert.Equal(t, uint32(0), validator.epochNotifier.CurrentEpoch())
+			assert.False(t, validator.forks.EnableSmartContracts())
+			assert.Equal(t, uint32(0), validator.requestHandler.epoch)
+			assert.Same(t, validator.head, validator.hookHeader)
+		}
+
+		require.Error(t, validator.mp.CommitBlock(hdr))
+		assertRestoredEpoch(t)
+
+		// a later block captures whatever the failed commit left behind
+		err := validator.mp.ProcessBlock(hdr, func() time.Duration { return -1 })
+		require.ErrorIs(t, err, process.ErrTimeIsOut)
+		assertRestoredEpoch(t)
+	})
+
 	t.Run("sync rollback before the revert", func(t *testing.T) {
 		t.Parallel()
 
@@ -3780,12 +3853,12 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		assert.Same(t, target, validator.hookHeader)
 	})
 
-	// storage bootstrap reverts to the stored head before the first block: the notifier is still
-	// at 0, and the fork flags stay off until that block runs CheckEpoch
+	// storage bootstrap reverts to the stored head before the controller is published
 	t.Run("storage bootstrap leaves the notifier at 0", func(t *testing.T) {
 		t.Parallel()
 
 		node := newRollbackNode(t)
+		blproc.ClearProposalController(node.mp)
 		stored := &block.Block{Header: &block.BlockHeader{
 			Epoch:         1,
 			Nonce:         headNonce,
@@ -3798,6 +3871,27 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		assert.Equal(t, uint32(0), node.epochNotifier.CurrentEpoch())
 		assert.False(t, node.forks.EnableSmartContracts())
 		assert.NotContains(t, node.params.GetActiveParameters(), maxGasPerBlock)
+	})
+
+	// after a restart the controller is published while the notifier is still 0
+	t.Run("a rollback before the first block realigns a published controller", func(t *testing.T) {
+		t.Parallel()
+
+		node := newRollbackNode(t)
+		stored := &block.Block{Header: &block.BlockHeader{
+			Epoch:         1,
+			Nonce:         headNonce,
+			Slot:          epochStartSlot + 1,
+			KAppsTrieRoot: node.head.Header.KAppsTrieRoot,
+		}}
+
+		require.NoError(t, node.mp.RevertStateToBlock(stored))
+
+		assert.Equal(t, uint32(1), node.epochNotifier.CurrentEpoch())
+		assert.Equal(t, uint32(1), node.requestHandler.epoch)
+		assert.True(t, node.forks.EnableSmartContracts())
+		assert.Contains(t, node.params.GetActiveParameters(), maxGasPerBlock)
+		assert.Same(t, stored, node.hookHeader)
 	})
 
 	// the second block snapshots again before its own failure reverts it; the revert must land

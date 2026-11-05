@@ -40,12 +40,6 @@ type metaProcessor struct {
 	// notifier and its fork flags, the request handler epoch, the blockchain hook header and
 	// the epoch start trigger. Worker.Extend reverts from the consensus goroutine.
 	pendingRevert atomic.Pointer[func()]
-
-	// notifierFollowsState latches once a rollback lowered the epoch notifier: from then on the
-	// notifier follows every revert target, so restoring a failed rollback raises it back.
-	// Never cleared: the notifier's 0 after a start precedes any rollback, so storage bootstrap,
-	// which never lowered it, keeps it; a restart builds a new processor with the latch off.
-	notifierFollowsState atomic.Bool
 }
 
 // NewMetaProcessor creates a new metaProcessor object
@@ -564,6 +558,10 @@ func (mp *metaProcessor) restoreEpochState(
 	mp.epochNotifier.CheckEpoch(prevEpoch)
 	mp.requestHandler.SetEpoch(prevEpoch)
 
+	// before block 1 the head is nil; the hook was serving genesis
+	if check.IfNil(prevCurrentHeader) {
+		prevCurrentHeader = mp.blockChain.GetGenesisHeader()
+	}
 	if !check.IfNil(prevCurrentHeader) {
 		mp.blockChainHook.SetCurrentHeader(prevCurrentHeader)
 	}
@@ -747,9 +745,20 @@ func (mp *metaProcessor) CommitBlock(
 		)
 	}()
 	var err error
+	setProcessed := false
 	defer func() {
 		if err != nil {
 			mp.RevertStateToSnapshot(headerHandler)
+			// SetProcessed wrote past the snapshot; point the trigger back at the head
+			if setProcessed {
+				head := mp.blockChain.GetCurrentBlockHeader()
+				if check.IfNil(head) {
+					head = mp.blockChain.GetGenesisHeader()
+				}
+				if !check.IfNil(head) {
+					_ = mp.epochStartTrigger.RevertStateToBlock(head)
+				}
+			}
 		}
 	}()
 
@@ -786,10 +795,8 @@ func (mp *metaProcessor) CommitBlock(
 		return err
 	}
 
-	// from here SetProcessed owns the epoch start trigger, so a later failure must not
-	// roll the trigger back to the snapshot taken before the block
-	mp.pendingRevert.Store(nil)
 	mp.commitEpochStart(header)
+	setProcessed = header.GetIsEpochStart()
 	headerHash := mp.hasher.Compute(string(marshalizedHeader))
 	mp.saveHeader(header, headerHash, marshalizedBlock)
 
@@ -833,6 +840,9 @@ func (mp *metaProcessor) CommitBlock(
 	if err != nil {
 		return err
 	}
+
+	// the head is committed; a failure before this still restores the pre-block snapshot
+	mp.pendingRevert.Store(nil)
 
 	mp.tpsBenchmark.Update(lastMetaBlock)
 
@@ -1008,17 +1018,9 @@ func (mp *metaProcessor) RevertStateToBlock(header data.HeaderHandler) error {
 		return err
 	}
 
-	// the hook follows the target, not the head the pending revert captured. A rollback past a
-	// committed epoch start also leaves the fork flags in the rolled-back epoch; put them back on
-	// the target before the reload backfills its defaults, and raise them again when a failed
-	// rollback restores its head. Storage bootstrap also lands here, with the notifier still at 0
-	// until the first block and nothing rolled back: leave its epoch alone.
+	// realign the fork flags once a controller is published; storage bootstrap has not published one
 	mp.blockChainHook.SetCurrentHeader(header)
-	notifierEpoch := mp.epochNotifier.CurrentEpoch()
-	if notifierEpoch > header.GetEpoch() {
-		mp.notifierFollowsState.Store(true)
-	}
-	if notifierEpoch != header.GetEpoch() && mp.notifierFollowsState.Load() {
+	if !check.IfNil(mp.proposalController.Get()) && mp.epochNotifier.CurrentEpoch() != header.GetEpoch() {
 		mp.epochNotifier.CheckEpoch(header.GetEpoch())
 		mp.requestHandler.SetEpoch(header.GetEpoch())
 	}
