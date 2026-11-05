@@ -1,6 +1,7 @@
 package node
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -34,17 +35,16 @@ func (n *Node) GetAsset(assetID string) (*kapps.KDAData, error) {
 		return &kapps.KDAData{}, common.ErrWrongTypeAssertion
 	}
 
-	key := kdautils.ToKDAKey([]byte(tokenID), nil)
-
-	assetWrp, err := kapp.DataTrieTracker().RetrieveValue(key)
+	asset, err := n.readKDAData(kapp, string(tokenID))
 	if err != nil {
+		// The API writes this error into the response, so keep trie and unmarshal details in the log.
+		if !errors.Is(err, common.ErrAssetNotFound) {
+			log.Debug("GetAsset", "asset", tokenID, "error", err)
+		}
 		return &kapps.KDAData{}, common.ErrAssetNotFound
 	}
 
-	asset := &kapps.KDAData{}
-	err = n.internalMarshalizer.Unmarshal(asset, assetWrp)
-
-	return asset, err
+	return asset, nil
 }
 
 // GetNFT will return asset details for a given address
@@ -107,6 +107,9 @@ func (n *Node) GetKDAFeePool(id string) (*kdafeespool.KDAFeesPoolData, error) {
 	poolBytes, err := kdaPoolKapp.DataTrieTracker().RetrieveValue([]byte(kdaData.ID))
 	if err != nil {
 		return kdaPool, err
+	}
+	if len(poolBytes) == 0 {
+		return kdaPool, common.ErrAssetPoolNotFound
 	}
 
 	err = n.internalMarshalizer.Unmarshal(kdaPool, poolBytes)
