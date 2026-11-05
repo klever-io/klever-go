@@ -119,8 +119,9 @@ func TestGetURLSurfacesEOFOnEmptyBody(t *testing.T) {
 
 // TestErrorBodyIsReportedWhole pins that a failed call's body reaches the operator intact
 // past the old 512-byte snippet (which cut the node's `{"error":"..."}` reason mid-string),
-// and that only a body past the 64 KiB cap is cut, with the message saying so. GetURL and
-// PostURL share checkStatus, so both are driven through the same table.
+// and that only a body past the 64 KiB cap is cut, with the message saying so and no
+// artefact of the cut (split rune, stray spaces). GetURL and PostURL share checkStatus, so
+// both are driven through the same table.
 func TestErrorBodyIsReportedWhole(t *testing.T) {
 	const capBytes = 64 << 10
 	reason := `{"error":"invalid argument: ` + strings.Repeat("the fee estimate needs a valid sender; ", 40) + `","code":"internal_issue"}`
@@ -137,6 +138,11 @@ func TestErrorBodyIsReportedWhole(t *testing.T) {
 		{name: "2000 bytes", body: strings.Repeat("Z", 2000), wantZ: 2000},
 		{name: "exactly at the cap", body: strings.Repeat("Z", capBytes), wantZ: capBytes},
 		{name: "past the cap is cut and says so", body: strings.Repeat("Z", capBytes+1000), wantZ: capBytes, wantTruncated: true},
+		// "é" is two bytes; placing it so the cut lands inside it must drop the rune, not
+		// leave U+FFFD in front of the marker.
+		{name: "cut inside a multi-byte rune drops it", body: strings.Repeat("Z", capBytes-1) + "é" + strings.Repeat("Z", 1000), wantZ: capBytes - 1, wantTruncated: true},
+		// 64 KiB of whitespace sanitises to nothing: the marker stands alone, no stray spaces.
+		{name: "whitespace past the cap leaves only the marker", body: strings.Repeat(" ", capBytes+1000), wantZ: 0, wantTruncated: true, wantWhole: "502 Bad Gateway: (response body truncated at 65536 bytes)"},
 	}
 
 	for _, tt := range tests {
@@ -157,6 +163,7 @@ func TestErrorBodyIsReportedWhole(t *testing.T) {
 				}
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "502")
+				assert.NotContains(t, err.Error(), "�", "a byte-boundary cut must not leave a replacement character")
 				if tt.wantWhole != "" {
 					assert.Contains(t, err.Error(), tt.wantWhole, "the full reason must survive into the error")
 				}

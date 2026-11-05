@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -110,11 +111,16 @@ func checkStatus(method, url string, r *http.Response) error {
 	snippet, readErr := io.ReadAll(io.LimitReader(r.Body, maxErrorBody+1))
 	truncated := len(snippet) > maxErrorBody
 	if truncated {
-		snippet = snippet[:maxErrorBody]
+		snippet = trimSplitRune(snippet[:maxErrorBody])
 	}
 	body := strings.TrimSpace(sanitizeServerText(string(snippet)))
 	if truncated {
-		body += fmt.Sprintf(" … (response body truncated at %d bytes)", maxErrorBody)
+		marker := fmt.Sprintf("(response body truncated at %d bytes)", maxErrorBody)
+		if body == "" {
+			body = marker
+		} else {
+			body += " ... " + marker
+		}
 	}
 	if readErr != nil {
 		sanitizedReadErr := sanitizeServerText(readErr.Error())
@@ -128,6 +134,19 @@ func checkStatus(method, url string, r *http.Response) error {
 	}
 
 	return fmt.Errorf("%s %s: unexpected HTTP status %s: %s", method, url, status, body)
+}
+
+// trimSplitRune drops a multi-byte UTF-8 sequence that a byte-boundary cut left
+// incomplete at the end of b, so the truncation marker is not preceded by U+FFFD.
+func trimSplitRune(b []byte) []byte {
+	start := len(b) - 1
+	for start > 0 && len(b)-start < utf8.UTFMax && !utf8.RuneStart(b[start]) {
+		start--
+	}
+	if start >= 0 && !utf8.FullRune(b[start:]) {
+		return b[:start]
+	}
+	return b
 }
 
 func sanitizeServerText(s string) string {
