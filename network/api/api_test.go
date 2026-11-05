@@ -2,12 +2,14 @@ package api
 
 import (
 	"context"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/klever-io/klever-go/config"
+	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 	"github.com/klever-io/klever-go/network/api/middleware"
 	"github.com/klever-io/klever-go/network/api/mock"
 	"github.com/stretchr/testify/assert"
@@ -158,6 +160,84 @@ func TestRegisterRoutes_LogRouteSecuredRejectsUnauthenticated(t *testing.T) {
 
 func TestRegisterRoutes_LogRouteNotEnabledNotRegistered(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, registeredRouteStatus(t, subscribeRoutesConfig(true, false), "/log"))
+}
+
+// pprofFacade is the mock facade with the profiling flag overridden.
+type pprofFacade struct {
+	*mock.Facade
+	enabled bool
+}
+
+func (f *pprofFacade) PprofEnabled() bool { return f.enabled }
+
+func pprofRoutesConfig(open, secured bool) config.APIRoutesConfig {
+	hasher := sha256.Sha256{}
+	return config.APIRoutesConfig{
+		APIPackages: map[string]config.APIPackageConfig{
+			"debug": {Routes: []config.RouteConfig{{Name: "/pprof", Open: open, Secured: secured}}},
+		},
+		Credentials: []config.Credential{{
+			Username: "u",
+			Password: hex.EncodeToString(hasher.Compute("p")),
+		}},
+		Hasher: config.TypeConfig{Type: "sha256"},
+	}
+}
+
+func pprofStatus(t *testing.T, enabled bool, cfg config.APIRoutesConfig, path, user, pass string) *httptest.ResponseRecorder {
+	t.Helper()
+	ws := gin.New()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	RegisterRoutes(ctx, ws, cfg, &pprofFacade{Facade: &mock.Facade{}, enabled: enabled})
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	if user != "" {
+		req.SetBasicAuth(user, pass)
+	}
+	ws.ServeHTTP(resp, req)
+	return resp
+}
+
+func TestRegisterRoutes_PprofSecuredRejectsUnauthenticated(t *testing.T) {
+	resp := pprofStatus(t, true, pprofRoutesConfig(true, true), "/debug/pprof/", "", "")
+	assert.Equal(t, http.StatusUnauthorized, resp.Code)
+}
+
+func TestRegisterRoutes_PprofSecuredAllowsAuthenticated(t *testing.T) {
+	resp := pprofStatus(t, true, pprofRoutesConfig(true, true), "/debug/pprof/", "u", "p")
+	assert.Equal(t, http.StatusOK, resp.Code)
+}
+
+func TestRegisterRoutes_PprofOpenNotSecuredAllowsAnonymous(t *testing.T) {
+	resp := pprofStatus(t, true, pprofRoutesConfig(true, false), "/debug/pprof/", "", "")
+	assert.Equal(t, http.StatusOK, resp.Code)
+}
+
+func TestRegisterRoutes_PprofNotOpenNotRegistered(t *testing.T) {
+	resp := pprofStatus(t, true, pprofRoutesConfig(false, true), "/debug/pprof/", "u", "p")
+	assert.Equal(t, http.StatusNotFound, resp.Code)
+}
+
+func TestRegisterRoutes_PprofFlagOffNotRegistered(t *testing.T) {
+	resp := pprofStatus(t, false, pprofRoutesConfig(true, true), "/debug/pprof/", "u", "p")
+	assert.Equal(t, http.StatusNotFound, resp.Code)
+}
+
+func TestRegisterRoutes_PprofSecondsAboveCapRejected(t *testing.T) {
+	cfg := pprofRoutesConfig(true, true)
+	unauth := pprofStatus(t, true, cfg, "/debug/pprof/heap?seconds=61", "", "")
+	assert.Equal(t, http.StatusUnauthorized, unauth.Code)
+
+	resp := pprofStatus(t, true, cfg, "/debug/pprof/heap?seconds=61", "u", "p")
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
+	assert.Contains(t, resp.Body.String(), "60")
+}
+
+func TestRegisterRoutes_PprofSecondsWithinCapAllowed(t *testing.T) {
+	resp := pprofStatus(t, true, pprofRoutesConfig(true, true), "/debug/pprof/heap?seconds=1", "u", "p")
+	assert.Equal(t, http.StatusOK, resp.Code)
 }
 
 func proofRoutesConfig(open, secured bool) config.APIRoutesConfig {

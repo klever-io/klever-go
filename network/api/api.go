@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"reflect"
+	"strconv"
 
 	"github.com/klever-io/klever-go/network/api/vm"
 
@@ -53,6 +54,11 @@ const (
 	subscribeRoute   = "/subscribe"
 
 	nodePackage = "node"
+
+	pprofPackage = "debug"
+	pprofRoute   = "/pprof"
+	// maxPprofSeconds is the longest profiling window a request may ask for.
+	maxPprofSeconds = 60
 
 	// defaultLogWSMaxConnections is the node-wide /log cap used when logWebSocketConnections
 	// resolves to 0 (a config.yaml predating the key). It cannot be disabled: before the cap
@@ -150,8 +156,17 @@ func RegisterRoutes(ctx context.Context, ws *gin.Engine, routesConfig config.API
 	registerRouteGroup(ws, "vm", routesConfig, authHandler, vm.Routes)
 
 	apiHandler, ok := kleverFacade.(MainAPIHandler)
-	if ok && apiHandler.PprofEnabled() {
-		pprof.Register(ws)
+	pprofOn := ok && apiHandler.PprofEnabled()
+	pprofOpen := routesConfig.IsRouteEnabled(pprofPackage, pprofRoute)
+	if pprofOn && pprofOpen {
+		registerPprof(ws, routesConfig, authHandler)
+	}
+	// The shipped default is the flag off and open:false, so that combination stays quiet.
+	if pprofOn && !pprofOpen {
+		log.Warn("pprof routes are not registered; set open:true on debug /pprof in api.yaml")
+	}
+	if pprofOn && pprofOpen && !routesConfig.IsRouteSecured(pprofPackage, pprofRoute) {
+		log.Warn("pprof route is open but not secured; it answers unauthenticated. Add secured:true to it in api.yaml.", "route", pprofPackage+pprofRoute)
 	}
 	if routesConfig.IsRouteEnabled(logPackage, logRoute) {
 		var logMaxConns, logMaxConnsPerIP uint32
@@ -230,6 +245,29 @@ func RegisterDefaultValidators() error {
 		}
 	}
 	return nil
+}
+
+func registerPprof(ws *gin.Engine, routesConfig config.APIRoutesConfig, authHandler gin.HandlerFunc) {
+	group := ws.Group("")
+	if routesConfig.IsRouteSecured(pprofPackage, pprofRoute) {
+		group.Use(authHandler)
+	}
+	group.Use(rejectLongPprof)
+	pprof.RouteRegister(group)
+}
+
+// rejectLongPprof refuses a seconds value above maxPprofSeconds.
+func rejectLongPprof(c *gin.Context) {
+	raw := c.Query("seconds")
+	if raw == "" {
+		return
+	}
+	sec, err := strconv.ParseFloat(raw, 64)
+	if err != nil || sec <= maxPprofSeconds {
+		return
+	}
+	c.String(http.StatusBadRequest, "seconds must be at most 60")
+	c.Abort()
 }
 
 func registerLoggerWsRoute(
