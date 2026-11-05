@@ -157,8 +157,11 @@ type VirtualMachineServicesConfig struct {
 
 // QueryVirtualMachineConfig holds the configuration for the virtual machine(s) used in query process
 type QueryVirtualMachineConfig struct {
-	VirtualMachineConfig
-	NumConcurrentVMs int `yaml:"numConcurrentVMs"`
+	VirtualMachineConfig `yaml:",inline"`
+	NumConcurrentVMs     int `yaml:"numConcurrentVMs"`
+	// MaxQueryWaitInMilliseconds bounds how long a query waits for a busy query VM
+	// before it is refused. 0 means the default (1 second).
+	MaxQueryWaitInMilliseconds uint32 `yaml:"maxQueryWaitInMilliseconds"`
 }
 
 // VirtualMachineGasConfig holds the configuration for the virtual machine(s) gas operations

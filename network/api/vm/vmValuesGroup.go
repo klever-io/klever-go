@@ -2,6 +2,7 @@ package vm
 
 import (
 	"encoding/hex"
+	stdErrors "errors"
 	"fmt"
 	"net/http"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/data/vm"
 	"github.com/klever-io/klever-go/network/api/errors"
+	"github.com/klever-io/klever-go/network/api/middleware"
 	"github.com/klever-io/klever-go/network/api/shared"
 	"github.com/klever-io/klever-go/network/api/wrapper"
 	"github.com/klever-io/klever-go/vmcommon"
@@ -19,6 +21,11 @@ const (
 	stringPath = "/string"
 	intPath    = "/int"
 	queryPath  = "/query"
+
+	hexEndpoint    = "/vm/hex"
+	stringEndpoint = "/vm/string"
+	intEndpoint    = "/vm/int"
+	queryEndpoint  = "/vm/query"
 )
 
 // vmValuesFacadeHandler defines the methods to be implemented by a facade for vm-values requests
@@ -29,10 +36,10 @@ type FacadeHandler interface {
 }
 
 func Routes(router *wrapper.RouterWrapper) {
-	router.RegisterHandler(http.MethodPost, hexPath, getHex)
-	router.RegisterHandler(http.MethodPost, stringPath, getString)
-	router.RegisterHandler(http.MethodPost, intPath, getInt)
-	router.RegisterHandler(http.MethodPost, queryPath, executeQuery)
+	router.RegisterHandler(http.MethodPost, hexPath, middleware.CreateEndpointThrottler(hexEndpoint), getHex)
+	router.RegisterHandler(http.MethodPost, stringPath, middleware.CreateEndpointThrottler(stringEndpoint), getString)
+	router.RegisterHandler(http.MethodPost, intPath, middleware.CreateEndpointThrottler(intEndpoint), getInt)
+	router.RegisterHandler(http.MethodPost, queryPath, middleware.CreateEndpointThrottler(queryEndpoint), executeQuery)
 }
 
 // VMValueRequest represents the structure on which user input for generating a new transaction will validate against
@@ -90,7 +97,7 @@ func doGetVMValue(c *gin.Context, asType vm.ReturnDataKind) {
 
 	vmOutput, execErrMsg, err := doExecuteQuery(facade, c)
 	if err != nil {
-		returnBadRequest(c, "doGetVMValue", err)
+		returnQueryError(c, "doGetVMValue", err)
 		return
 	}
 
@@ -117,7 +124,7 @@ func executeQuery(c *gin.Context) {
 
 	vmOutput, execErrMsg, err := doExecuteQuery(facade, c)
 	if err != nil {
-		returnBadRequest(c, "executeQuery", err)
+		returnQueryError(c, "executeQuery", err)
 		return
 	}
 
@@ -186,6 +193,17 @@ func createSCQuery(facade FacadeHandler, request *VMValueRequest) (*process.SCQu
 	scQuery.CallValue = request.CallValue
 
 	return scQuery, nil
+}
+
+// returnQueryError answers a refused busy query with 429 and system_busy, the same
+// way an endpoint throttler refuses one, and any other error as a bad request
+func returnQueryError(context *gin.Context, errScope string, err error) {
+	if stdErrors.Is(err, process.ErrQueryServiceBusy) {
+		shared.RespondWith(context, http.StatusTooManyRequests, nil, fmt.Sprintf("%s: %s", errScope, err), shared.ReturnCodeSystemBusy)
+		return
+	}
+
+	returnBadRequest(context, errScope, err)
 }
 
 func returnBadRequest(context *gin.Context, errScope string, err error) {

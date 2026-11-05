@@ -1,7 +1,7 @@
 package txsimulator
 
 import (
-	"sync"
+	"time"
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
@@ -22,10 +22,17 @@ type ArgsTxSimulator struct {
 	VMOutputCacher         storage.Cacher
 	Hasher                 hashing.Hasher
 	Marshalizer            marshal.Marshalizer
+	// MaxWait bounds how long a simulation waits for the simulator before it is
+	// refused with common.ErrTxSimulatorBusy. 0 means DefaultMaxWait.
+	MaxWait time.Duration
 }
 
+// DefaultMaxWait is how long a simulation waits for the simulator when ArgsTxSimulator.MaxWait is unset
+const DefaultMaxWait = time.Second
+
 type transactionSimulator struct {
-	mutOperation           sync.Mutex
+	runSlot                chan struct{}
+	maxWait                time.Duration
 	txProcessor            TransactionProcessor
 	addressPubKeyConverter core.PubkeyConverter
 	vmOutputCacher         storage.Cacher
@@ -51,7 +58,14 @@ func NewTransactionSimulator(args ArgsTxSimulator) (*transactionSimulator, error
 		return nil, common.ErrNilHasher
 	}
 
+	maxWait := args.MaxWait
+	if maxWait <= 0 {
+		maxWait = DefaultMaxWait
+	}
+
 	return &transactionSimulator{
+		runSlot:                make(chan struct{}, 1),
+		maxWait:                maxWait,
 		txProcessor:            args.TransactionProcessor,
 		addressPubKeyConverter: args.AddressPubKeyConverter,
 		vmOutputCacher:         args.VMOutputCacher,
@@ -62,8 +76,10 @@ func NewTransactionSimulator(args ArgsTxSimulator) (*transactionSimulator, error
 
 // ProcessTx will process the transaction in a special environment, where state-writing is not allowed
 func (ts *transactionSimulator) ProcessTx(tx *transaction.Transaction) (*txSimData.SimulationResults, error) {
-	ts.mutOperation.Lock()
-	defer ts.mutOperation.Unlock()
+	if !ts.acquireRunSlot() {
+		return nil, common.ErrTxSimulatorBusy
+	}
+	defer ts.releaseRunSlot()
 
 	txResult := transaction.Transaction_SUCCESS
 	failReason := ""
@@ -85,6 +101,30 @@ func (ts *transactionSimulator) ProcessTx(tx *transaction.Transaction) (*txSimDa
 	}
 
 	return results, nil
+}
+
+// acquireRunSlot waits at most maxWait for the simulator, so simulations queued
+// behind a long-running one are refused instead of piling up
+func (ts *transactionSimulator) acquireRunSlot() bool {
+	select {
+	case ts.runSlot <- struct{}{}:
+		return true
+	default:
+	}
+
+	timer := time.NewTimer(ts.maxWait)
+	defer timer.Stop()
+
+	select {
+	case ts.runSlot <- struct{}{}:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
+func (ts *transactionSimulator) releaseRunSlot() {
+	<-ts.runSlot
 }
 
 func (ts *transactionSimulator) getVMOutputOfTx(tx *transaction.Transaction) (*vmcommon.VMOutput, bool) {

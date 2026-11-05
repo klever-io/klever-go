@@ -762,6 +762,9 @@ var ErrNilAllowExternalQueriesChan = errors.New("nil channel for signaling the a
 // ErrQueriesNotAllowedYet signals that the node is not ready yet to process VM Queries
 var ErrQueriesNotAllowedYet = errors.New("node is not ready yet to process VM Queries")
 
+// ErrQueryServiceBusy signals that a VM query waited too long for its query VM and was refused
+var ErrQueryServiceBusy = errors.New("VM query service is busy, try again later")
+
 // ErrNilKDATransferParser signals that a nil KDA transfer parser has been provided
 var ErrNilKDATransferParser = errors.New("nil kda transfer parser")
 

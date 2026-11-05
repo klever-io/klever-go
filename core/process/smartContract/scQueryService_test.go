@@ -690,7 +690,7 @@ func TestSCQueryService_ExecuteQueryShouldReturnErrorIfVMReturnsError(t *testing
 	assert.Equal(t, expectedError, err)
 }
 
-func TestSCQueryService_ExecuteQueryShouldReturnErrorIfVMReturnsErrorWithMessage(t *testing.T) {
+func TestSCQueryService_ExecuteQueryShouldReturnTheVMErrorMessageInTheOutput(t *testing.T) {
 	t.Parallel()
 
 	mockVM := &mock.VMExecutionHandlerStub{
@@ -720,9 +720,10 @@ func TestSCQueryService_ExecuteQueryShouldReturnErrorIfVMReturnsErrorWithMessage
 		Arguments: [][]byte{},
 	}
 
-	_, err := target.ExecuteQuery(&query)
-	assert.NotNil(t, err)
-	assert.Contains(t, err.Error(), "allocation error")
+	output, err := target.ExecuteQuery(&query)
+	require.NoError(t, err)
+	assert.Equal(t, vmcommon.VMUserError, output.ReturnCode)
+	assert.Equal(t, "allocation error", output.ReturnMessage)
 }
 
 func TestSCQueryService_ExecuteQueryShouldReturnErrorInvalidCallValue(t *testing.T) {

@@ -428,6 +428,7 @@ func createBaseProcessor(
 		VMOutputCacher:         vmOutputCacher,
 		Hasher:                 args.coreData.Hasher,
 		Marshalizer:            args.coreData.InternalMarshalizer,
+		MaxWait:                time.Duration(args.mainConfig.VirtualMachine.Querying.MaxQueryWaitInMilliseconds) * time.Millisecond,
 	}
 
 	blockProcessor, live, err := newBlockProcessor(

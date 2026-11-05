@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
@@ -215,7 +216,7 @@ func createScQueryElement(
 	argsNewVMFactory := chain.ArgVMContainerFactory{
 		BlockChainHook:     blockChainHookImpl,
 		BuiltInFunctions:   argsHook.BuiltInFunctions,
-		Config:             args.generalConfig.VirtualMachine.Execution,
+		Config:             args.generalConfig.VirtualMachine.Querying.VirtualMachineConfig,
 		EpochNotifier:      args.epochNotifier,
 		ForkController:     args.forkController,
 		WasmVMChangeLocker: queryVMChangeLocker,
@@ -242,6 +243,7 @@ func createScQueryElement(
 		WasmVMChangeLocker:       queryVMChangeLocker,
 		AllowExternalQueriesChan: args.allowVMQueriesChan,
 		MaxGasLimitPerQuery:      maxGasForVmQueries,
+		MaxQueryWait:             time.Duration(args.generalConfig.VirtualMachine.Querying.MaxQueryWaitInMilliseconds) * time.Millisecond,
 		GetNodeState:             args.getNodeState,
 	}
 

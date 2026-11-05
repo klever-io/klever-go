@@ -910,6 +910,9 @@ var ErrKappIteratorExceed = errors.New("kapp iterator exceed limit")
 // ErrNilTxSimulatorProcessor signals that a nil transaction simulator processor has been provided
 var ErrNilTxSimulatorProcessor = errors.New("nil transaction simulator processor")
 
+// ErrTxSimulatorBusy signals that a transaction simulation waited too long for the simulator and was refused
+var ErrTxSimulatorBusy = errors.New("transaction simulator is busy, try again later")
+
 // ErrNilTxLogsProcessor is the error returned when a transaction has no logs
 var ErrNilTxLogsProcessor = errors.New("nil transaction logs processor")
 

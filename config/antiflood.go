@@ -32,7 +32,7 @@ type FloodPreventerConfig struct {
 
 // EndpointsThrottlersConfig holds a pair of an endpoint and its maximum number of simultaneous go routines
 type EndpointsThrottlersConfig struct {
-	Endpoint         string `yaml:"rndpoint"`
+	Endpoint         string `yaml:"endpoint"`
 	MaxNumGoRoutines int32  `yaml:"maxNumGoRoutines"`
 }
 

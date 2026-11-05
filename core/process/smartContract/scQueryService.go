@@ -2,10 +2,9 @@ package smartContract
 
 import (
 	"bytes"
-	"fmt"
 	"math"
 	"math/big"
-	"sync"
+	"time"
 
 	"github.com/klever-io/klever-go/common/types"
 	"github.com/klever-io/klever-go/core"
@@ -24,13 +23,18 @@ var _ process.SCQueryService = (*SCQueryService)(nil)
 
 const (
 	UnlimitedGasValue = uint64(math.MaxInt64)
+
+	// DefaultMaxQueryWait is how long a query waits for its query VM when
+	// VirtualMachine.Querying.maxQueryWaitInMilliseconds is unset
+	DefaultMaxQueryWait = time.Second
 )
 
 // SCQueryService can execute Get functions over SC to fetch stored values
 type SCQueryService struct {
 	vmContainer              process.VirtualMachinesContainer
 	economicsFee             process.EconomicsDataHandler
-	mutRunSc                 sync.Mutex
+	runSlot                  chan struct{}
+	maxQueryWait             time.Duration
 	blockChainHook           process.BlockChainHookHandler
 	blockChain               data.ChainHandler
 	getNodeState             func() core.NodeState
@@ -50,6 +54,9 @@ type ArgsNewSCQueryService struct {
 	WasmVMChangeLocker       common.Locker
 	AllowExternalQueriesChan chan struct{}
 	MaxGasLimitPerQuery      uint64
+	// MaxQueryWait bounds how long a query waits for the query VM before it is
+	// refused with process.ErrQueryServiceBusy. 0 means DefaultMaxQueryWait.
+	MaxQueryWait time.Duration
 }
 
 // NewSCQueryService returns a new instance of SCQueryService
@@ -80,9 +87,16 @@ func NewSCQueryService(
 
 	gasForQuery := validateAndGetQueryGas(args.MaxGasLimitPerQuery)
 
+	maxQueryWait := args.MaxQueryWait
+	if maxQueryWait <= 0 {
+		maxQueryWait = DefaultMaxQueryWait
+	}
+
 	return &SCQueryService{
 		vmContainer:              args.VmContainer,
 		economicsFee:             args.EconomicsFee,
+		runSlot:                  make(chan struct{}, 1),
+		maxQueryWait:             maxQueryWait,
 		blockChain:               args.BlockChain,
 		blockChainHook:           args.BlockChainHook,
 		wasmVMChangeLocker:       args.WasmVMChangeLocker,
@@ -118,10 +132,36 @@ func (service *SCQueryService) ExecuteQuery(query *process.SCQuery) (*vmcommon.V
 		return nil, process.ErrEmptyFunctionName
 	}
 
-	service.mutRunSc.Lock()
-	defer service.mutRunSc.Unlock()
+	if !service.acquireRunSlot() {
+		return nil, process.ErrQueryServiceBusy
+	}
+	defer service.releaseRunSlot()
 
 	return service.executeScCall(query)
+}
+
+// acquireRunSlot waits at most maxQueryWait for the query VM, so queries
+// queued behind a long-running one are refused instead of piling up
+func (service *SCQueryService) acquireRunSlot() bool {
+	select {
+	case service.runSlot <- struct{}{}:
+		return true
+	default:
+	}
+
+	timer := time.NewTimer(service.maxQueryWait)
+	defer timer.Stop()
+
+	select {
+	case service.runSlot <- struct{}{}:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
+func (service *SCQueryService) releaseRunSlot() {
+	<-service.runSlot
 }
 
 func (service *SCQueryService) shouldAllowQueriesExecution() bool {
@@ -182,15 +222,6 @@ func (service *SCQueryService) executeScCall(query *process.SCQuery) (*vmcommon.
 	service.wasmVMChangeLocker.RUnlock()
 	if err != nil {
 		return nil, err
-	}
-
-	if service.hasRetriableExecutionError(vmOutput) {
-		log.Error("Retriable execution error detected. Will retry (once) executeScCall()", "returnCode", vmOutput.ReturnCode, "returnMessage", vmOutput.ReturnMessage)
-
-		vmOutput, err = vm.RunSmartContractCall(vmInput)
-		if err != nil || service.hasRetriableExecutionError(vmOutput) {
-			return nil, fmt.Errorf("failed to execute smart contract call after retry: returnCode(%d) returnMessage(%s) %w", vmOutput.ReturnCode, vmOutput.ReturnMessage, err)
-		}
 	}
 
 	if query.SameScState {
@@ -259,10 +290,6 @@ func (service *SCQueryService) createVMCallInput(query *process.SCQuery) (*vmcom
 	}
 
 	return vmContractCallInput, nil
-}
-
-func (service *SCQueryService) hasRetriableExecutionError(vmOutput *vmcommon.VMOutput) bool {
-	return vmOutput.ReturnMessage == "allocation error"
 }
 
 // Close closes all underlying components

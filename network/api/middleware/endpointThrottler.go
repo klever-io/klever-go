@@ -1,7 +1,10 @@
 package middleware
 
 import (
+	"bytes"
+	stdErrors "errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -12,6 +15,11 @@ import (
 
 type throttlerGetter interface {
 	GetThrottlerForEndpoint(endpoint string) (core.Throttler, bool)
+}
+
+// tryStarter is a throttler that can check its limit and take a slot in one atomic step
+type tryStarter interface {
+	TryStartProcessing() bool
 }
 
 // CreateEndpointThrottler will create a middleware-type of handler to be used in conjunction with special
@@ -50,7 +58,14 @@ func CreateEndpointThrottler(throttlerName string) gin.HandlerFunc {
 			return
 		}
 
-		if !endpointThrottler.CanProcess() {
+		// Read the body before taking a slot, so a client that sends its body slowly
+		// holds no endpoint slot while it does. The body is already capped in size
+		// and read time by the http server, and the handler would read it all anyway.
+		if !bufferRequestBody(c) {
+			return
+		}
+
+		if !tryStartProcessing(endpointThrottler) {
 			c.AbortWithStatusJSON(
 				http.StatusTooManyRequests,
 				shared.GenericAPIResponse{
@@ -62,9 +77,54 @@ func CreateEndpointThrottler(throttlerName string) gin.HandlerFunc {
 			return
 		}
 
-		endpointThrottler.StartProcessing()
 		defer endpointThrottler.EndProcessing()
 
 		c.Next()
 	}
+}
+
+// tryStartProcessing takes a slot if one is free, atomically when the throttler supports it
+func tryStartProcessing(throttler core.Throttler) bool {
+	if ts, ok := throttler.(tryStarter); ok {
+		return ts.TryStartProcessing()
+	}
+
+	if !throttler.CanProcess() {
+		return false
+	}
+	throttler.StartProcessing()
+
+	return true
+}
+
+// bufferRequestBody reads the whole request body and puts it back for the handler.
+// It answers the request itself and returns false when the body cannot be read.
+//
+// GET and HEAD handlers never read a body, so theirs is left alone. The original body
+// is never closed here: net/http closes it after the handler chain returns, outside
+// every throttler. Closing it here would drain an unread body with the read deadline
+// already cleared, holding the throttler slots until the client disconnects.
+func bufferRequestBody(c *gin.Context) bool {
+	if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {
+		return true
+	}
+	if c.Request.Body == nil || c.Request.Body == http.NoBody {
+		return true
+	}
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		status := http.StatusBadRequest
+		var maxBytesErr *http.MaxBytesError
+		if stdErrors.As(err, &maxBytesErr) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		shared.RespondWith(c, status, nil, fmt.Sprintf("%s: %s", errors.ErrValidation.Error(), err.Error()), shared.ReturnCodeRequestError)
+		c.Abort()
+		return false
+	}
+
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+
+	return true
 }

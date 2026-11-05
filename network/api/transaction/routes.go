@@ -3,6 +3,7 @@ package transaction
 import (
 	"encoding/hex"
 	"encoding/json"
+	stdErrors "errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	logger "github.com/klever-io/klever-go-logger"
+	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/data/api"
 	"github.com/klever-io/klever-go/data/transaction"
@@ -26,7 +28,7 @@ var log = logger.GetOrCreate("api/transaction/logging")
 const (
 	sendTransactionEndpoint   = "/transaction/send"
 	decodeTransactionEndpoint = "/transaction/decode"
-	getTransactionEndpoint    = "/transaction/:txhash"
+	getTransactionEndpoint    = "/transaction/:hash" // throttler key used by the published config packages; the path is /:txhash
 	broadcastEndpoint         = "/transaction/broadcast"
 	poolEndpoint              = "/transaction/pool"
 	simulateEndpoint          = "/transaction/simulate"
@@ -206,6 +208,9 @@ func SendTX(c *gin.Context) {
 
 	tx, txHash, err := facade.CreateTransaction(gtx.Type, baseInfo, contracts, skipValidate)
 	if err != nil {
+		if returnBusyIfSimulatorBusy(c, err) {
+			return
+		}
 		c.JSON(
 			http.StatusBadRequest,
 			shared.GenericAPIResponse{
@@ -598,6 +603,9 @@ func EstimateTransactionFees(c *gin.Context) {
 
 	fees, err := facade.EstimateTransactionFees(&gtx)
 	if err != nil {
+		if returnBusyIfSimulatorBusy(c, err) {
+			return
+		}
 		c.JSON(
 			http.StatusBadRequest,
 			shared.GenericAPIResponse{
@@ -671,6 +679,9 @@ func SimulateTransaction(c *gin.Context) {
 
 	tx, _, err := facade.CreateTransaction(gtx.Type, baseInfo, contracts, false)
 	if err != nil {
+		if returnBusyIfSimulatorBusy(c, err) {
+			return
+		}
 		c.JSON(
 			http.StatusBadRequest,
 			shared.GenericAPIResponse{
@@ -703,4 +714,16 @@ func SimulateTransaction(c *gin.Context) {
 			Code:  shared.ReturnCodeSuccess,
 		},
 	)
+}
+
+// returnBusyIfSimulatorBusy answers a request refused by a busy transaction
+// simulator with 429 and system_busy, the same way an endpoint throttler refuses
+// one. It reports whether it answered.
+func returnBusyIfSimulatorBusy(c *gin.Context, err error) bool {
+	if !stdErrors.Is(err, common.ErrTxSimulatorBusy) {
+		return false
+	}
+
+	shared.RespondWith(c, http.StatusTooManyRequests, nil, err.Error(), shared.ReturnCodeSystemBusy)
+	return true
 }

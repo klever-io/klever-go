@@ -1,6 +1,8 @@
 package throttler_test
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/klever-io/klever-go/common"
@@ -91,4 +93,35 @@ func TestNumGoRoutinesThrottler_CanProcessMessageCounterIsMaxLessOneFromEndProce
 	nt.EndProcessing()
 
 	assert.True(t, nt.CanProcess())
+}
+
+func TestNumGoRoutinesThrottler_TryStartProcessingNeverExceedsMax(t *testing.T) {
+	t.Parallel()
+
+	const max = 5
+	nt, _ := throttler.NewNumGoRoutinesThrottler(max)
+
+	const numCallers = 200
+	started := int32(0)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < numCallers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			if nt.TryStartProcessing() {
+				atomic.AddInt32(&started, 1)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	assert.Equal(t, int32(max), atomic.LoadInt32(&started))
+	assert.False(t, nt.CanProcess())
+
+	nt.EndProcessing()
+	assert.True(t, nt.TryStartProcessing())
+	assert.False(t, nt.TryStartProcessing())
 }

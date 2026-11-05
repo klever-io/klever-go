@@ -261,6 +261,33 @@ releases its slot at the HTTP-to-WebSocket upgrade, and `sameSourceRequests` cou
 source until its periodic reset, so a long-lived socket costs it exactly one request. The
 `webSocket*` and `logWebSocket*` settings are what do.
 
+**Per-endpoint throttlers.** `antiflood.webServer.endpointsThrottlers` caps simultaneous requests
+on a single route; a request over the cap gets `429` with code `system_busy`. A request takes its
+slot only after its body has been read, so a client sending a body slowly holds no slot. The
+repository config caps `/transaction/send` (2), `/transaction/simulate` (1), `/transaction/:hash`
+(10, the `GET /transaction/:txhash` route) and each of `/vm/hex`, `/vm/string`, `/vm/int` and
+`/vm/query` (10). The `endpoint` value must match the route's throttler name exactly.
+
+These caps are enforced from KLC-2941 on; before it a misspelled yaml tag made every entry a no-op.
+What a node enforces comes from the config package it runs. Packages published before that
+release list only `/transaction/:hash` and `/transaction/send`, so a node that upgrades the binary
+without refreshing the package enforces those two and leaves the `/vm/*` and
+`/transaction/simulate` routes uncapped. Refresh the package with the release. Raise a cap if
+legitimate traffic hits it.
+
+**VM queries wait a bounded time.** Each query VM runs one query at a time. A query that finds it
+busy waits at most `virtualMachine.querying.maxQueryWaitInMilliseconds` (`1000` in the repository
+config; unset or `0` means 1 second) and is then refused with `429 system_busy`. A query that gets
+the VM in time runs once, within the query execution timeout
+(`virtualMachine.querying.timeOutForSCExecutionInMilliseconds`), so a client waits at most about
+the sum of the two. With `numConcurrentVMs` above 1, each query goes to the next VM round-robin
+before it waits, so it can be refused while another VM is idle.
+
+The same setting bounds the wait for the transaction simulator. The node runs one simulation at a
+time, and it simulates every smart contract transaction it builds or prices: `/transaction/send`,
+`/transaction/simulate` and `/transaction/estimate-fee`. A request that waits longer for the
+simulator gets `429 system_busy` from any of the three.
+
 ### WebSocket origin policy
 
 The two WebSocket routes take different stances on origin:
