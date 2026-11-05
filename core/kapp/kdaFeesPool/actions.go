@@ -698,14 +698,19 @@ func (v *kdaFeesPoolKApp) compute(app state.KAppAccountHandler, klvFee int64, in
 	return pool, fv.Int64(), nil
 }
 
-// Validate -
 // Validate is the interception-side gate. It must reject everything Swap would reject: a fee payment
 // admitted here but refused at execution is gossiped to every node, dropped without consuming a fee
 // or a nonce, and can be resubmitted for free, so any Swap rejection reason without a counterpart
 // here is a spam amplifier.
+//
+// The pool is loaded through LoadKAppUncached, like ComputeUncached. Admission reads what the block
+// in progress has saved, the same view as the nonce and the fee balance. A live read rejects as soon
+// as that block drains the pool, so it admits no more drop-destined payment than a committed read
+// would. A payment the in-progress block would fund, or one rejected against a block that is then
+// reverted, fails once and can be resubmitted. That is accepted.
 func (v *kdaFeesPoolKApp) Validate(senderAddress []byte, klvFee int64, info data.KDAFeeHandler) error {
 	// check if pool exists
-	app, err := v.getKApp()
+	app, err := v.accountsCacher.LoadKAppUncached(kapps.KDAFeesPoolKAppAddress)
 	if err != nil {
 		return err
 	}

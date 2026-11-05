@@ -6,13 +6,17 @@ import (
 
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/kapp"
 	kdafeespool "github.com/klever-io/klever-go/core/kapp/kdaFeesPool"
 	"github.com/klever-io/klever-go/core/process"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	txProcess "github.com/klever-io/klever-go/core/process/transaction"
+	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 	"github.com/klever-io/klever-go/data/state"
+	"github.com/klever-io/klever-go/data/state/factory"
 	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/data/trie"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/kvm/mock/stub"
 	"github.com/klever-io/klever-go/tools/marshal"
@@ -1035,7 +1039,7 @@ func TestValidate(t *testing.T) {
 		require.NoError(t, err)
 
 		cacher := &mock.AccountsCacherStub{
-			LoadKAppCalled: func(address []byte) (state.KAppAccountHandler, error) {
+			LoadKAppUncachedCalled: func(address []byte) (state.KAppAccountHandler, error) {
 				return &mock.KAppAccountHandlerStub{}, nil
 			},
 		}
@@ -1073,7 +1077,7 @@ func TestValidate(t *testing.T) {
 		}
 
 		cacher := &mock.AccountsCacherStub{
-			LoadKAppCalled: func(address []byte) (state.KAppAccountHandler, error) {
+			LoadKAppUncachedCalled: func(address []byte) (state.KAppAccountHandler, error) {
 				return kappAcc, nil
 			},
 		}
@@ -1112,7 +1116,7 @@ func TestValidate(t *testing.T) {
 		}
 
 		cacher := &mock.AccountsCacherStub{
-			LoadKAppCalled: func(address []byte) (state.KAppAccountHandler, error) {
+			LoadKAppUncachedCalled: func(address []byte) (state.KAppAccountHandler, error) {
 				return kappAcc, nil
 			},
 		}
@@ -1151,7 +1155,7 @@ func TestValidate(t *testing.T) {
 		}
 
 		cacher := &mock.AccountsCacherStub{
-			LoadKAppCalled: func(address []byte) (state.KAppAccountHandler, error) {
+			LoadKAppUncachedCalled: func(address []byte) (state.KAppAccountHandler, error) {
 				return kappAcc, nil
 			},
 		}
@@ -1613,6 +1617,9 @@ func newSwapTestKApp(
 
 	cacher := &mock.AccountsCacherStub{
 		LoadKAppCalled: func(_ []byte) (state.KAppAccountHandler, error) {
+			return kappAcc, nil
+		},
+		LoadKAppUncachedCalled: func(_ []byte) (state.KAppAccountHandler, error) {
 			return kappAcc, nil
 		},
 	}
@@ -2157,5 +2164,112 @@ func TestSwapKAppFeeTakesTheRestOfTheSignedAmount(t *testing.T) {
 			require.Equal(t, test.wantDebit, pool.KDABalance)
 			require.Equal(t, swapTestInitialKLVBalance-test.wantCredit, pool.KLVBalance)
 		})
+	}
+}
+
+func createAccountsDB(marshalizer marshal.Marshalizer, accountFactory state.AccountFactory) *state.AccountsDB {
+	hasher := &sha256.Sha256{}
+	trieStorageManager, _ := trie.NewTrieStorageManagerWithoutPruning(mock.NewMemDbMock())
+	tr, _ := trie.NewTrie(trieStorageManager, marshalizer, hasher, 5)
+	adb, _ := state.NewAccountsDB(tr, hasher, marshalizer, accountFactory, core.Normal)
+	return adb
+}
+
+// processingCacher is the real accounts cacher, except that it does not save the swap's stub sender.
+type processingCacher struct {
+	state.AccountsCacher
+}
+
+func (processingCacher) SaveUser(_ state.AccountHandler) error {
+	return nil
+}
+
+// newPoolKApp wires a fee pool over a real accounts cacher, with klvBalance already saved.
+func newPoolKApp(t *testing.T, klvBalance int64) (kapp.KDAFeesPoolKapp, state.AccountsCacher, *state.AccountsDB) {
+	t.Helper()
+
+	marshalizer := marshal.NewProtoMarshalizer()
+	kappsDB := createAccountsDB(marshalizer, factory.NewKAppAccountCreator())
+	accCacher, err := state.NewAccountsCacher(state.ArgsAcccountCacher{
+		Accounts: createAccountsDB(marshalizer, factory.NewAccountCreator()),
+		Kapps:    kappsDB,
+		Peers:    createAccountsDB(marshalizer, factory.NewPeerAccountCreator()),
+	})
+	require.NoError(t, err)
+	accCacher.ResetAll(true)
+	cacher := processingCacher{AccountsCacher: accCacher}
+
+	args := createMockArgsKDAFeesPool()
+	args.Marshalizer = marshalizer
+	feesPool, err := kdafeespool.NewKDAFeesPoolKApp(args)
+	require.NoError(t, err)
+	require.NoError(t, feesPool.SetAccountsCacher(cacher))
+
+	asset := &kapps.KDAData{}
+	require.NoError(t, feesPool.SetKAppController(&mock.KappsControllerMock{
+		KDAKapp: &stub.KDAKappStub{
+			GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+				return nil, asset, nil
+			},
+			GetKDAUncachedCalled: func(_ []byte) (*kapps.KDAData, error) {
+				return asset, nil
+			},
+		},
+	}))
+
+	pool, err := marshalizer.Marshal(&kdafeespool.KDAFeesPoolData{
+		OwnerAddress: []byte("owner"),
+		KDA:          []byte("asset-id"),
+		Active:       true,
+		KLVBalance:   klvBalance,
+		FRatioKLV:    1000,
+		FRatioKDA:    100,
+	})
+	require.NoError(t, err)
+
+	app, err := cacher.LoadKApp(kapps.KDAFeesPoolKAppAddress)
+	require.NoError(t, err)
+	require.NoError(t, app.SetStorage([]byte("asset-id"), pool))
+	require.NoError(t, cacher.SaveAll())
+	_, err = kappsDB.Commit()
+	require.NoError(t, err)
+
+	return feesPool, cacher, kappsDB
+}
+
+func TestValidate_ConcurrentWithSwap(t *testing.T) {
+	t.Parallel()
+
+	feesPool, cacher, kappsDB := newPoolKApp(t, swapTestInitialKLVBalance)
+	feeHandler := &KDAFeeHandlerStub{kda: []byte("asset-id"), amount: swapTestQuote}
+
+	// block processing swaps the pool while admission reads it; the assertion is a clean -race run
+	done := make(chan error, 1)
+	go func() {
+		for i := 0; i < 200; i++ {
+			cacher.ResetAll(true)
+			err := feesPool.Swap(&mock.UserAccountHandlerStub{}, swapTestKLVFee, feeHandler)
+			if err == nil {
+				err = cacher.SaveAll()
+			}
+			if err == nil && i%20 == 0 {
+				_, err = kappsDB.Commit()
+			}
+			if err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+
+	for {
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+			return
+		default:
+			require.NoError(t, feesPool.Validate([]byte("sender"), swapTestKLVFee, feeHandler))
+		}
 	}
 }

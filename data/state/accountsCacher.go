@@ -185,9 +185,10 @@ func (acc *accountsCache) LoadKApp(address []byte) (KAppAccountHandler, error) {
 
 // LoadKAppUncached loads a fresh KApp account from the underlying adapter,
 // bypassing the shared cache. Goroutines outside block processing (REST API,
-// indexer) must use this instead of LoadKApp: the cached instance is
-// concurrently mutated by processing. Returns last committed state, not
-// tracked for saving. No cacher lock needed (cache maps are never touched).
+// indexer, transaction interceptors) must use this instead of LoadKApp: the
+// cached instance is concurrently mutated by processing. Returns what the
+// block in progress has saved, which may still be reverted. Not tracked for
+// saving. No cacher lock needed (cache maps are never touched).
 func (acc *accountsCache) LoadKAppUncached(address []byte) (KAppAccountHandler, error) {
 	acnt, err := acc.kapps.LoadAccount(address)
 	if err != nil {
