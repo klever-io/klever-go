@@ -99,6 +99,8 @@ func startConsensus(t *testing.T, nodes []*processorNode.ProcessorNode) *atomic.
 	return currentSlot
 }
 
+// TestConsensus_RevertBlockAndTransactions verifies that a reverted transaction
+// returns to the pool, is included again, and remains committed across epochs.
 func TestConsensus_RevertBlockAndTransactions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping test in short mode.")
@@ -143,6 +145,7 @@ func TestConsensus_RevertBlockAndTransactions(t *testing.T) {
 	require.Nil(t, err)
 
 	// revert last block
+	discardBlockForRollback(t, nodes, uint64(slot))
 	err = integrationTest.RevertOneBlock(nodes, uint64(slot))
 	require.Nil(t, err)
 

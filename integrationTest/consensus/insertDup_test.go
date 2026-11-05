@@ -9,6 +9,8 @@ import (
 	commonTxTest "github.com/klever-io/klever-go/integrationTest/transaction"
 )
 
+// TestConsensus_InsertDupTransaction verifies that returning an already committed
+// transaction to the pool does not include it in a subsequent block.
 func TestConsensus_InsertDupTransaction(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping test in short mode.")
