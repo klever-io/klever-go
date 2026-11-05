@@ -366,13 +366,7 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 		return err
 	}
 
-	if wrk.nodeRedundancyHandler.IsRedundancyNode() {
-		wrk.nodeRedundancyHandler.ResetInactivityIfNeeded(
-			wrk.consensusState.SelfPubKey(),
-			string(cnsMsg.PubKey),
-			message.Peer(),
-		)
-	}
+	wrk.resetRedundancyInactivityIfNeeded(cnsMsg, message.Peer())
 
 	msgType := consensus.MessageType(cnsMsg.MsgType)
 
@@ -438,6 +432,23 @@ func (wrk *Worker) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedP
 	go wrk.executeReceivedMessages(cnsMsg)
 
 	return nil
+}
+
+// resetRedundancyInactivityIfNeeded lets a backup see its main as alive. It runs before full validation so the
+// type limit cannot hide the main's messages, but only on an authentic message carrying this node's key.
+func (wrk *Worker) resetRedundancyInactivityIfNeeded(cnsMsg *consensus.Message, originator core.PeerID) {
+	if !wrk.nodeRedundancyHandler.IsRedundancyNode() {
+		return
+	}
+	selfPubKey := wrk.consensusState.SelfPubKey()
+	if string(cnsMsg.PubKey) != selfPubKey {
+		return
+	}
+	if wrk.consensusMessageValidator.checkRedundancyResetAuthenticity(cnsMsg, originator) != nil {
+		return
+	}
+
+	wrk.nodeRedundancyHandler.ResetInactivityIfNeeded(selfPubKey, string(cnsMsg.PubKey), originator)
 }
 
 func (wrk *Worker) storeMessage(cnsDta *consensus.Message) {

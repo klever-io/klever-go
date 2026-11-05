@@ -183,6 +183,10 @@ func (cmv *consensusMessageValidator) CheckConsensusMessageValidity(cnsMsg *cons
 	return cmv.checkConsensusMessageValidity(cnsMsg, originator)
 }
 
+func (cmv *consensusMessageValidator) CheckRedundancyResetAuthenticity(cnsMsg *consensus.Message, originator core.PeerID) error {
+	return cmv.checkRedundancyResetAuthenticity(cnsMsg, originator)
+}
+
 func (cmv *consensusMessageValidator) CheckMessageWithFinalInfoValidity(cnsMsg *consensus.Message) error {
 	return cmv.checkMessageWithFinalInfoValidity(cnsMsg)
 }

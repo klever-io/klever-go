@@ -495,3 +495,42 @@ func TestCheckConsensusMessageValidity_Ok(t *testing.T) {
 	err := cmv.CheckConsensusMessageValidity(cnsMsg, "")
 	assert.Nil(t, err)
 }
+
+func TestCheckRedundancyResetAuthenticity(t *testing.T) {
+	t.Parallel()
+
+	args := createDefaultConsensusMessageValidatorArgs()
+	args.ConsensusState.SlotIndex = 10
+	cmv, _ := slot.NewConsensusMessageValidator(args)
+	newMsg := func(slotIndex int64) *consensus.Message {
+		return &consensus.Message{
+			ChainID: chainID, PubKey: []byte(args.ConsensusState.SelfPubKey()),
+			Signature: make([]byte, SignatureSize), SlotIndex: slotIndex, OriginatorPid: []byte("main"),
+		}
+	}
+
+	assert.Nil(t, cmv.CheckRedundancyResetAuthenticity(newMsg(10), "main"))
+	assert.Nil(t, cmv.CheckRedundancyResetAuthenticity(newMsg(9), "main"))
+	assert.Nil(t, cmv.CheckRedundancyResetAuthenticity(newMsg(11), "main"))
+	assert.True(t, errors.Is(cmv.CheckRedundancyResetAuthenticity(newMsg(8), "main"), slot.ErrMessageForPastSlot))
+	assert.True(t, errors.Is(cmv.CheckRedundancyResetAuthenticity(newMsg(12), "main"), slot.ErrMessageForFutureSlot))
+	assert.True(t, errors.Is(cmv.CheckRedundancyResetAuthenticity(newMsg(10), "relay"), slot.ErrOriginatorMismatch))
+
+	wrongChain := newMsg(10)
+	wrongChain.ChainID = []byte("other chain")
+	assert.True(t, errors.Is(cmv.CheckRedundancyResetAuthenticity(wrongChain, "main"), slot.ErrInvalidChainID))
+
+	shortSig := newMsg(10)
+	shortSig.Signature = shortSig.Signature[1:]
+	assert.True(t, errors.Is(cmv.CheckRedundancyResetAuthenticity(shortSig, "main"), slot.ErrInvalidSignatureSize))
+
+	args.PeerSignatureHandler = &commonMock.PeerSignatureHandler{
+		Signer: &commonMock.SingleSignerMock{
+			VerifyStub: func(public crypto.PublicKey, msg []byte, sig []byte) error {
+				return crypto.ErrInvalidSignature
+			},
+		},
+	}
+	cmvBadSig, _ := slot.NewConsensusMessageValidator(args)
+	assert.True(t, errors.Is(cmvBadSig.CheckRedundancyResetAuthenticity(newMsg(10), "main"), crypto.ErrInvalidSignature))
+}

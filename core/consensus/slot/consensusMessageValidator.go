@@ -169,6 +169,35 @@ func (cmv *consensusMessageValidator) checkConsensusMessageValidity(cnsMsg *cons
 	return nil
 }
 
+// checkRedundancyResetAuthenticity checks that a message was really sent by its key's owner, without the
+// per-slot type limit: an active backup fills that limit for the shared key before the main's copy arrives.
+func (cmv *consensusMessageValidator) checkRedundancyResetAuthenticity(cnsMsg *consensus.Message, originator core.PeerID) error {
+	if !bytes.Equal(cnsMsg.ChainID, cmv.chainID) {
+		return ErrInvalidChainID
+	}
+	if len(cnsMsg.Signature) != cmv.signatureSize {
+		return ErrInvalidSignatureSize
+	}
+
+	cmv.consensusState.RLockSlotState()
+	currentSlotIndex := cmv.consensusState.SlotIndex
+	cmv.consensusState.RUnlockSlotState()
+
+	// one slot of tolerance either way for clock drift between main and backup
+	if cnsMsg.SlotIndex > currentSlotIndex+1 {
+		return ErrMessageForFutureSlot
+	}
+	if cnsMsg.SlotIndex < currentSlotIndex-1 {
+		return ErrMessageForPastSlot
+	}
+
+	if core.PeerID(cnsMsg.OriginatorPid) != originator {
+		return ErrOriginatorMismatch
+	}
+
+	return cmv.peerSignatureHandler.VerifyPeerSignature(cnsMsg.PubKey, originator, cnsMsg.Signature)
+}
+
 func (cmv *consensusMessageValidator) isBlockHeaderHashSizeValid(cnsMsg *consensus.Message) bool {
 	return len(cnsMsg.BlockHeaderHash) == cmv.hasherSize
 }

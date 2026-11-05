@@ -14,6 +14,8 @@ import (
 	"github.com/klever-io/klever-go/core/consensus/slot"
 	"github.com/klever-io/klever-go/core/consensus/slot/bls"
 	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/core/redundancy"
+	redundancyMock "github.com/klever-io/klever-go/core/redundancy/mock"
 	"github.com/klever-io/klever-go/crypto"
 	"github.com/klever-io/klever-go/data"
 	"github.com/klever-io/klever-go/data/block"
@@ -506,23 +508,157 @@ func TestWorker_ProcessReceivedMessageNilMessageDataFieldShouldErr(t *testing.T)
 	assert.Equal(t, slot.ErrNilDataToProcess, err)
 }
 
-func TestWorker_ProcessReceivedMessageRedundancyNodeShouldResetInactivityIfNeeded(t *testing.T) {
-	t.Parallel()
-	wrk := *initWorker()
-	var wasCalled bool
-	nodeRedundancyMock := &mock.NodeRedundancyHandlerStub{
+// selfKeyHeaderMessage builds a well-formed block-header message carrying the node's own key.
+func selfKeyHeaderMessage(wrk *slot.Worker, msgChainID []byte, originatorPid, peer core.PeerID) *cMock.P2PMessageMock {
+	hdr := &block.Block{Header: &block.BlockHeader{ChainID: chainID}}
+	hdrHash, _ := tools.CalculateHash(mock.MarshalizerMock{}, cMock.HasherMock{}, hdr.GetBlockHeader())
+	hdrStr, _ := mock.MarshalizerMock{}.Marshal(hdr)
+	wrk.NewBlockProcessor(hdr.GetBlockHeader())
+	cnsMsg := consensus.NewConsensusMessage(
+		hdrHash,
+		nil,
+		hdrStr,
+		[]byte(wrk.ConsensusState().SelfPubKey()),
+		signature,
+		int(bls.MtBlockHeader),
+		0, 0,
+		msgChainID,
+		nil,
+		nil,
+		nil,
+		originatorPid,
+	)
+	buff, _ := wrk.Marshalizer().Marshal(cnsMsg)
+
+	return &cMock.P2PMessageMock{DataField: buff, PeerField: peer}
+}
+
+// forgedSelfKeyMessage carries the node's own key but a wrong chain ID, so it fails validation.
+func forgedSelfKeyMessage(wrk *slot.Worker) *cMock.P2PMessageMock {
+	return selfKeyHeaderMessage(wrk, []byte("forged chain ID"), currentPid, currentPid)
+}
+
+// countRedundancyResets makes wrk a backup and returns a pointer to the number of resets it performs.
+func countRedundancyResets(wrk *slot.Worker) *int {
+	resets := 0
+	wrk.SetNodeRedundancyHandler(&mock.NodeRedundancyHandlerStub{
 		IsRedundancyNodeCalled: func() bool {
 			return true
 		},
 		ResetInactivityIfNeededCalled: func(selfPubKey string, consensusMsgPubKey string, consensusMsgPeerID core.PeerID) {
-			wasCalled = true
+			resets++
+		},
+	})
+
+	return &resets
+}
+
+func TestWorker_ProcessReceivedMessageRedundancyNodeInvalidMessageShouldNotResetInactivity(t *testing.T) {
+	t.Parallel()
+	wrk := *initWorker()
+	resets := countRedundancyResets(&wrk)
+
+	err := wrk.ProcessReceivedMessage(forgedSelfKeyMessage(&wrk), fromConnectedPeerId)
+
+	assert.NotNil(t, err)
+	assert.Equal(t, 0, *resets)
+}
+
+func TestWorker_ProcessReceivedMessageRedundancyNodeBadPeerSignatureShouldNotResetInactivity(t *testing.T) {
+	t.Parallel()
+	args := createDefaultWorkerArgs()
+	args.PeerSignatureHandler = &cMock.PeerSignatureHandler{
+		Signer: &cMock.SingleSignerMock{
+			VerifyStub: func(public crypto.PublicKey, msg []byte, sig []byte) error {
+				return errors.New("bad peer signature")
+			},
 		},
 	}
-	wrk.SetNodeRedundancyHandler(nodeRedundancyMock)
-	buff, _ := wrk.Marshalizer().Marshal(&consensus.Message{})
-	_ = wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff}, fromConnectedPeerId)
+	wrk, err := slot.NewWorker(args)
+	require.Nil(t, err)
+	resets := countRedundancyResets(wrk)
 
-	assert.True(t, wasCalled)
+	err = wrk.ProcessReceivedMessage(selfKeyHeaderMessage(wrk, chainID, currentPid, currentPid), fromConnectedPeerId)
+
+	assert.NotNil(t, err)
+	assert.Equal(t, 0, *resets)
+}
+
+func TestWorker_ProcessReceivedMessageRedundancyNodeOriginatorMismatchShouldNotResetInactivity(t *testing.T) {
+	t.Parallel()
+	wrk := *initWorker()
+	resets := countRedundancyResets(&wrk)
+
+	err := wrk.ProcessReceivedMessage(selfKeyHeaderMessage(&wrk, chainID, "other pid", currentPid), fromConnectedPeerId)
+
+	assert.True(t, errors.Is(err, slot.ErrOriginatorMismatch))
+	assert.Equal(t, 0, *resets)
+}
+
+func TestWorker_ProcessReceivedMessageRedundancyNodeValidMessageFromMainShouldResetInactivity(t *testing.T) {
+	t.Parallel()
+	wrk := *initWorker()
+	var gotSelfPubKey, gotMsgPubKey string
+	var gotPeerID core.PeerID
+	wrk.SetNodeRedundancyHandler(&mock.NodeRedundancyHandlerStub{
+		IsRedundancyNodeCalled: func() bool {
+			return true
+		},
+		ResetInactivityIfNeededCalled: func(selfPubKey string, consensusMsgPubKey string, consensusMsgPeerID core.PeerID) {
+			gotSelfPubKey, gotMsgPubKey, gotPeerID = selfPubKey, consensusMsgPubKey, consensusMsgPeerID
+		},
+	})
+
+	err := wrk.ProcessReceivedMessage(selfKeyHeaderMessage(&wrk, chainID, currentPid, currentPid), fromConnectedPeerId)
+
+	selfPubKey := wrk.ConsensusState().SelfPubKey()
+	assert.Nil(t, err)
+	assert.Equal(t, selfPubKey, gotSelfPubKey)
+	assert.Equal(t, selfPubKey, gotMsgPubKey)
+	assert.Equal(t, currentPid, gotPeerID)
+}
+
+// An active backup's own message fills the per-slot type limit for the shared key first; the main's copy
+// is then rejected by validation but must still reset the counter, or the backup never steps back.
+func TestWorker_ProcessReceivedMessageRedundancyNodeMainMessageOverTypeLimitShouldResetInactivity(t *testing.T) {
+	t.Parallel()
+	wrk := *initWorker()
+	resets := countRedundancyResets(&wrk)
+	msg := selfKeyHeaderMessage(&wrk, chainID, currentPid, currentPid)
+
+	errFirst := wrk.ProcessReceivedMessage(msg, fromConnectedPeerId)
+	errSecond := wrk.ProcessReceivedMessage(msg, fromConnectedPeerId)
+
+	assert.Nil(t, errFirst)
+	assert.True(t, errors.Is(errSecond, slot.ErrMessageTypeLimitReached))
+	assert.Equal(t, 2, *resets)
+}
+
+func TestWorker_ProcessReceivedMessageRedundancyNodeForgedMessagesShouldNotPreventTakeover(t *testing.T) {
+	t.Parallel()
+	wrk := *initWorker()
+	nodeRedundancy, err := redundancy.NewNodeRedundancy(redundancy.ArgNodeRedundancy{
+		RedundancyLevel: 1,
+		Messenger: &redundancyMock.MessengerStub{
+			IDCalled: func() core.PeerID {
+				return "backup pid"
+			},
+		},
+		ObserverPrivateKey: &redundancyMock.PrivateKeyStub{},
+	})
+	require.Nil(t, err)
+	wrk.SetNodeRedundancyHandler(nodeRedundancy)
+
+	// main is offline; a peer sends a forged message every 4 slots
+	selfPubKey := wrk.ConsensusState().SelfPubKey()
+	for slotIndex := int64(1); slotIndex <= 20; slotIndex++ {
+		nodeRedundancy.AdjustInactivityIfNeeded(selfPubKey, []string{selfPubKey}, slotIndex)
+		if slotIndex%4 == 0 {
+			_ = wrk.ProcessReceivedMessage(forgedSelfKeyMessage(&wrk), fromConnectedPeerId)
+		}
+	}
+
+	assert.False(t, nodeRedundancy.IsMainMachineActive())
 }
 
 func TestWorker_ProcessReceivedMessageNodeNotInConsensusGroupShouldErr(t *testing.T) {
