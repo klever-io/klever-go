@@ -198,6 +198,10 @@ func createScQueryElement(
 
 	maxGasForVmQueries := args.generalConfig.VirtualMachine.GasConfig.MetaMaxGasPerVmQuery
 
+	// each query element's VM container gets its own change lock, shared by its VM factory
+	// and query service: the live one is write-locked by block processing on every block
+	queryVMChangeLocker := &sync.RWMutex{}
+
 	blockChainHookImpl, errBlockChainHook := hooks.NewBlockChainHookImpl(argsHook)
 	if errBlockChainHook != nil {
 		return nil, errBlockChainHook
@@ -214,7 +218,7 @@ func createScQueryElement(
 		Config:             args.generalConfig.VirtualMachine.Execution,
 		EpochNotifier:      args.epochNotifier,
 		ForkController:     args.forkController,
-		WasmVMChangeLocker: args.coreComponents.WasmVMChangeLocker,
+		WasmVMChangeLocker: queryVMChangeLocker,
 		KDATransferParser:  kdaTransferParser,
 		Hasher:             args.coreComponents.Hasher,
 		GasSchedule:        args.gasScheduleNotifier,
@@ -235,7 +239,7 @@ func createScQueryElement(
 		EconomicsFee:             args.economicsData,
 		BlockChainHook:           vmFactory.BlockChainHookImpl(),
 		BlockChain:               args.dataComponents.Blkc,
-		WasmVMChangeLocker:       args.coreComponents.WasmVMChangeLocker,
+		WasmVMChangeLocker:       queryVMChangeLocker,
 		AllowExternalQueriesChan: args.allowVMQueriesChan,
 		MaxGasLimitPerQuery:      maxGasForVmQueries,
 		GetNodeState:             args.getNodeState,

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/config"
@@ -20,12 +21,15 @@ import (
 	"github.com/klever-io/klever-go/data/block"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/eventNotifier/notifier"
 	"github.com/klever-io/klever-go/factory"
 	"github.com/klever-io/klever-go/genesis/parsing"
 	"github.com/klever-io/klever-go/kapps"
+	"github.com/klever-io/klever-go/kvm/vmhost"
 	"github.com/klever-io/klever-go/network/p2p/libp2p"
 	"github.com/klever-io/klever-go/network/p2p/libp2p/p2pkey"
 	"github.com/klever-io/klever-go/sharding"
+	"github.com/klever-io/klever-go/vmcommon"
 	libp2pCrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -152,6 +156,14 @@ func createMockArgumentsWithLogs() (*factory.ProcessComponentsFactoryArgs, proce
 }
 
 func createMockArgumentsWithGasSchedule(gasScheduleFile string) (*factory.ProcessComponentsFactoryArgs, process.TransactionLogProcessor, *factory.DataComponents, *mock.AccountsCacherStub) {
+	return createMockArgumentsWithCoreData(gasScheduleFile, getCoreComponents(), &mock.EpochNotifierStub{})
+}
+
+func createMockArgumentsWithCoreData(
+	gasScheduleFile string,
+	coreData *factory.CoreComponents,
+	epochNotifier process.EpochNotifier,
+) (*factory.ProcessComponentsFactoryArgs, process.TransactionLogProcessor, *factory.DataComponents, *mock.AccountsCacherStub) {
 	cfg := getConfig()
 	cfg.GasScheduleConfig.GasScheduleByEpochs[0].FileName = gasScheduleFile
 
@@ -168,7 +180,6 @@ func createMockArgumentsWithGasSchedule(gasScheduleFile string) (*factory.Proces
 	)
 	assert.Nil(nil, err)
 
-	epochNotifier := &mock.EpochNotifierStub{}
 	forkController, _ := fork.NewForkController(config.EnableEpochs{
 		ClaimKFI:              0,
 		ProcessorFlowITOPrice: 0,
@@ -207,7 +218,7 @@ func createMockArgumentsWithGasSchedule(gasScheduleFile string) (*factory.Proces
 		&sharding.NodesSetup{ChainID: "12345", MinTransactionVersion: 1},
 		&mock.NodesCoordinatorMock{},
 		dc,
-		getCoreComponents(),
+		coreData,
 		cc,
 		getStateComponents(forkController),
 		getNetworkComponents(),
@@ -307,6 +318,182 @@ func TestProcessComponentsFactory_SimulationDoesNotTouchLiveAccounts(t *testing.
 	require.Empty(t, touched, "the simulation used the live accounts cacher")
 	require.Nil(t, err)
 	require.Equal(t, transaction.Transaction_SUCCESS, res.Result, res.FailReason)
+}
+
+// A simulation must not take the live VM container's change lock: block processing takes
+// it for writing on every block (SetVMExecutionMode), so a simulation holding it for
+// reading delays the block by up to one SC execution.
+func TestProcessComponentsFactory_SimulationDoesNotTakeLiveVMChangeLock(t *testing.T) {
+	coreData := getCoreComponents()
+	args, _, dataComponents, _ := createMockArgumentsWithCoreData("../config/node/gasScheduleV1.yaml", coreData, &mock.EpochNotifierStub{})
+	pc, err := factory.ProcessComponentsFactory(args)
+	require.Nil(t, err)
+	require.Nil(t, dataComponents.Blkc.SetCurrentBlockHeader(&block.Block{Header: &block.BlockHeader{Nonce: 1}}))
+
+	code, err := os.ReadFile("../kvm/test/contracts/init-correct/output/init-correct.wasm")
+	require.Nil(t, err)
+	deploy, err := anypb.New(&transaction.SmartContract{Type: transaction.SmartContract_SCDeploy})
+	require.Nil(t, err)
+	tx := &transaction.Transaction{RawData: &transaction.Transaction_Raw{
+		Sender:   make([]byte, 32),
+		Data:     [][]byte{[]byte(hex.EncodeToString(code) + "@0500@0000")},
+		Contract: []*transaction.TXContract{{Type: transaction.TXContract_SmartContractType, Parameter: deploy}},
+	}}
+
+	// hold the live lock for writing, as SetVMExecutionMode does at the start of a block
+	liveLocker := coreData.LiveWasmVMChangeLocker
+	liveLocker.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			liveLocker.Unlock()
+		}
+	}()
+
+	// the held lock must be the one block processing takes: the live SC processor's
+	// SetVMExecutionMode waits on it, and goes through once it is released
+	modeSet := make(chan struct{})
+	go func() {
+		pc.LiveSCProcessor().SetVMExecutionMode(vmcommon.ExecutionModeLeader)
+		close(modeSet)
+	}()
+	select {
+	case <-modeSet:
+		t.Fatal("the live SC processor does not take the live VM change lock")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	type outcome struct {
+		res *txSimData.SimulationResults
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, errSim := pc.TXSimulatorProcessor.ProcessTx(tx)
+		done <- outcome{res: res, err: errSim}
+	}()
+
+	select {
+	case out := <-done:
+		require.Nil(t, out.err)
+		require.NotNil(t, out.res)
+		require.NotNil(t, out.res.VMOutput, "the simulation must have reached the VM")
+	case <-time.After(10 * time.Second):
+		t.Fatal("the simulation waited on the live VM container's change lock")
+	}
+
+	liveLocker.Unlock()
+	locked = false
+	select {
+	case <-modeSet:
+	case <-time.After(10 * time.Second):
+		t.Fatal("SetVMExecutionMode did not go through after the live lock was released")
+	}
+}
+
+// requireVMSwapOnEpochChange checks the premise of the epoch tests: the test config's WASM VM
+// version differs from the host's, so every epoch confirmation replaces each container's VM.
+func requireVMSwapOnEpochChange(t *testing.T) {
+	t.Helper()
+
+	versions := getConfig().VirtualMachine.Execution.WasmVMVersions
+	require.Len(t, versions, 1)
+	msg := "the test config's VM version must differ from the host's, or CheckEpoch never swaps the VM"
+	require.NotEqual(t, "*", versions[0].Version, msg)
+	require.NotEqual(t, vmhost.VMVersion, versions[0].Version, msg)
+}
+
+// requireBlockedUntil runs call in a goroutine, checks it does not return while the lock is
+// held, then releases the lock with unlock and checks call returns.
+func requireBlockedUntil(t *testing.T, call func(), unlock func(), blockedMsg string) {
+	t.Helper()
+
+	done := make(chan struct{})
+	go func() {
+		call()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		unlock()
+		t.Fatal(blockedMsg)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	unlock()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the call did not return after the lock was released")
+	}
+}
+
+// Every epoch confirmation replaces each container's WASM VM (the configured version is not
+// the host's), so each VM factory must lock the change lock its processor runs under: the
+// swap then waits for runs in flight on that container instead of closing their VM.
+func TestProcessComponentsFactory_LiveVMSwapTakesLiveVMChangeLock(t *testing.T) {
+	requireVMSwapOnEpochChange(t)
+
+	coreData := getCoreComponents()
+	epochNotifier := notifier.NewGenericEpochNotifier()
+	args, _, _, _ := createMockArgumentsWithCoreData("../config/node/gasScheduleV1.yaml", coreData, epochNotifier)
+	_, err := factory.ProcessComponentsFactory(args)
+	require.Nil(t, err)
+
+	// a live run in flight holds the live lock for reading
+	coreData.LiveWasmVMChangeLocker.RLock()
+	requireBlockedUntil(t,
+		func() { epochNotifier.CheckEpoch(1) },
+		coreData.LiveWasmVMChangeLocker.RUnlock,
+		"the live VM was swapped without taking the live VM change lock",
+	)
+}
+
+// The simulator's VM factory and SC processor must share the simulator's change lock: the
+// factory's VM swap waits for a simulation in flight, and a simulation waits for a swap.
+func TestProcessComponentsFactory_SimulatorVMFactoryAndProcessorShareALock(t *testing.T) {
+	requireVMSwapOnEpochChange(t)
+
+	coreData := getCoreComponents()
+	epochNotifier := notifier.NewGenericEpochNotifier()
+	args, _, dataComponents, _ := createMockArgumentsWithCoreData("../config/node/gasScheduleV1.yaml", coreData, epochNotifier)
+	pc, err := factory.ProcessComponentsFactory(args)
+	require.Nil(t, err)
+	require.Nil(t, dataComponents.Blkc.SetCurrentBlockHeader(&block.Block{Header: &block.BlockHeader{Nonce: 1}}))
+
+	simulatorLocker := coreData.SimulatorWasmVMChangeLocker
+
+	// a simulation in flight holds the simulator lock for reading: the swap waits for it
+	simulatorLocker.RLock()
+	requireBlockedUntil(t,
+		func() { epochNotifier.CheckEpoch(1) },
+		simulatorLocker.RUnlock,
+		"the simulator's VM was swapped without taking the simulator's VM change lock",
+	)
+
+	code, err := os.ReadFile("../kvm/test/contracts/init-correct/output/init-correct.wasm")
+	require.Nil(t, err)
+	deploy, err := anypb.New(&transaction.SmartContract{Type: transaction.SmartContract_SCDeploy})
+	require.Nil(t, err)
+	tx := &transaction.Transaction{RawData: &transaction.Transaction_Raw{
+		Sender:   make([]byte, 32),
+		Data:     [][]byte{[]byte(hex.EncodeToString(code) + "@0500@0000")},
+		Contract: []*transaction.TXContract{{Type: transaction.TXContract_SmartContractType, Parameter: deploy}},
+	}}
+
+	// a swap holds the simulator lock for writing: a simulation waits for it
+	var res *txSimData.SimulationResults
+	var errSim error
+	simulatorLocker.Lock()
+	requireBlockedUntil(t,
+		func() { res, errSim = pc.TXSimulatorProcessor.ProcessTx(tx) },
+		simulatorLocker.Unlock,
+		"the simulation ran without taking the simulator's VM change lock",
+	)
+	require.Nil(t, errSim)
+	require.NotNil(t, res)
+	require.NotNil(t, res.VMOutput, "the simulation must have reached the VM")
 }
 
 // gasScheduleWithTrieReadLimit copies the node's gas schedule with MaxNumberOfTrieReadsPerTx replaced.

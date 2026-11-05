@@ -58,17 +58,16 @@ func (ccf *CoreComponentsFactory) Create() (*CoreComponents, error) {
 
 	uint64ByteSliceConverter := uint64ByteSlice.NewBigEndianConverter()
 
-	wasmVMChangeLocker := &sync.RWMutex{}
-
 	return &CoreComponents{
-		Hasher:                   hasher,
-		InternalMarshalizer:      internalMarshalizer,
-		TxSignMarshalizer:        txSignMarshalizer,
-		Uint64ByteSliceConverter: uint64ByteSliceConverter,
-		StatusHandler:            statusHandler.NewNilStatusHandler(),
-		ChainID:                  ccf.chainID,
-		MinTransactionVersion:    ccf.MinTransactionVersion,
-		TxSignHasher:             txSignHasher,
-		WasmVMChangeLocker:       wasmVMChangeLocker,
+		Hasher:                      hasher,
+		InternalMarshalizer:         internalMarshalizer,
+		TxSignMarshalizer:           txSignMarshalizer,
+		Uint64ByteSliceConverter:    uint64ByteSliceConverter,
+		StatusHandler:               statusHandler.NewNilStatusHandler(),
+		ChainID:                     ccf.chainID,
+		MinTransactionVersion:       ccf.MinTransactionVersion,
+		TxSignHasher:                txSignHasher,
+		LiveWasmVMChangeLocker:      &sync.RWMutex{},
+		SimulatorWasmVMChangeLocker: &sync.RWMutex{},
 	}, nil
 }

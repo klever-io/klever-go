@@ -46,7 +46,13 @@ type CoreComponents struct {
 	ChainID                  []byte
 	MinTransactionVersion    uint32
 	TxSignHasher             hashing.Hasher
-	WasmVMChangeLocker       *sync.RWMutex
+	// LiveWasmVMChangeLocker guards the live (block-processing) VM container only: its
+	// VM factory and the live SC processor. The VM query service and the transaction
+	// simulator each lock their own; sharing this one lets their VM runs delay blocks.
+	LiveWasmVMChangeLocker *sync.RWMutex
+	// SimulatorWasmVMChangeLocker guards the transaction simulator's VM container: its VM
+	// factory and the simulator's SC processor.
+	SimulatorWasmVMChangeLocker *sync.RWMutex
 }
 
 // DataComponents struct holds the data components

@@ -244,6 +244,15 @@ type Process struct {
 	HeaderSigVerifier       HeaderSigVerifierHandler
 	HeaderIntegrityVerifier HeaderIntegrityVerifierHandler
 	ForkController          core.ForkController
+
+	// liveSCProcessor is the block-processing SC processor
+	liveSCProcessor process.SmartContractProcessor
+}
+
+// liveProcessors are the processors newBlockProcessor builds for executing blocks
+type liveProcessors struct {
+	transactionProcessor process.TransactionProcessor
+	scProcessor          process.SmartContractProcessor
 }
 
 func createHeaderSigVerifier(args *ProcessComponentsFactoryArgs) (*headerCheck.HeaderSigVerifier, error) {
@@ -421,7 +430,7 @@ func createBaseProcessor(
 		Marshalizer:            args.coreData.InternalMarshalizer,
 	}
 
-	blockProcessor, transactionProcessor, err := newBlockProcessor(
+	blockProcessor, live, err := newBlockProcessor(
 		args,
 		requestHandler,
 		forkDetector,
@@ -457,12 +466,13 @@ func createBaseProcessor(
 		BootStorer:              bootStorer,
 		ValidatorsProvider:      validatorsProvider,
 		BlockProcessor:          blockProcessor,
-		TransactionProcessor:    transactionProcessor,
+		TransactionProcessor:    live.transactionProcessor,
 		TXSimulatorProcessor:    txSimulator,
 		HeaderSigVerifier:       headerSigVerifier,
 		HeaderIntegrityVerifier: headerIntegrityVerifier,
 		SlotManager:             args.slotManager,
 		ForkController:          args.forkController,
+		liveSCProcessor:         live.scProcessor,
 	}, nil
 }
 
@@ -819,7 +829,7 @@ func newBlockProcessor(
 	txSimulatorProcessorArgs *txsimulator.ArgsTxSimulator,
 	headerIntegrityVerifier HeaderIntegrityVerifierHandler,
 	indexRating bool,
-) (process.BlockProcessor, process.TransactionProcessor, error) {
+) (process.BlockProcessor, *liveProcessors, error) {
 	txFeeHandler, err := postprocess.NewFeeAccumulator()
 	if err != nil {
 		return nil, nil, err
@@ -892,7 +902,7 @@ func newBlockProcessor(
 		Config:             processArgs.mainConfig.VirtualMachine.Execution,
 		EpochNotifier:      processArgs.epochNotifier,
 		ForkController:     processArgs.forkController,
-		WasmVMChangeLocker: processArgs.coreData.WasmVMChangeLocker,
+		WasmVMChangeLocker: processArgs.coreData.LiveWasmVMChangeLocker,
 		KDATransferParser:  kdaTransferParser,
 		Hasher:             processArgs.coreData.Hasher,
 		GasSchedule:        gasScheduleNotifier,
@@ -928,7 +938,7 @@ func newBlockProcessor(
 		ForkController:     processArgs.forkController,
 		VMOutputCacher:     txcache.NewDisabledCache(),
 		AccountsCacher:     processArgs.accountsCacher,
-		WasmVMChangeLocker: &sync.RWMutex{},
+		WasmVMChangeLocker: processArgs.coreData.LiveWasmVMChangeLocker,
 		AllowDeploy:        true,
 	}
 	scProcessor, err := smartContract.NewSmartContractProcessor(argsNewSCProcessor)
@@ -1069,7 +1079,7 @@ func newBlockProcessor(
 		return nil, nil, err
 	}
 
-	return processor, txProcessor, nil
+	return processor, &liveProcessors{transactionProcessor: txProcessor, scProcessor: scProcessor}, nil
 }
 
 func indexGenesisAccounts(startTime int64, accountsAdapter state.AccountsAdapter, eventsProcessor process.EventsProcessor, marshalizer marshal.Marshalizer) error {
@@ -1204,6 +1214,11 @@ func createMetaTxSimulatorProcessor(
 	// simulations must not write into the block's log cache, which CommitBlock persists
 	scProcArgs.TxLogsProcessor = &disabled.TxLogProcessor{}
 
+	// the simulator's VM container gets its own change lock, shared by its VM factory and
+	// SC processor: the live one is write-locked by block processing on every block
+	simulatorVMChangeLocker := processArgs.coreData.SimulatorWasmVMChangeLocker
+	scProcArgs.WasmVMChangeLocker = simulatorVMChangeLocker
+
 	readOnlyAccountsCacher, err := state.NewReadOnlyAccountsCacher(
 		state.ArgsAcccountCacher{
 			Accounts: processArgs.state.AccountsAdapter,
@@ -1277,7 +1292,7 @@ func createMetaTxSimulatorProcessor(
 		Config:             processArgs.mainConfig.VirtualMachine.Execution,
 		EpochNotifier:      processArgs.epochNotifier,
 		ForkController:     processArgs.forkController,
-		WasmVMChangeLocker: processArgs.coreData.WasmVMChangeLocker,
+		WasmVMChangeLocker: simulatorVMChangeLocker,
 		KDATransferParser:  kdaTransferParser,
 		Hasher:             processArgs.coreData.Hasher,
 		GasSchedule:        gasScheduleNotifier,

@@ -1,5 +1,7 @@
 package factory
 
+import "github.com/klever-io/klever-go/core/process"
+
 // SetSkPkProviderHandler updates the handler for testing reasons
 func (cspf *cryptoSigningParamsLoader) SetSkPkProviderHandler(handler func() ([]byte, []byte, error)) {
 	cspf.skPkProviderHandler = handler
@@ -13,4 +15,9 @@ func (cspf *cryptoSigningParamsLoader) GetSkPk() ([]byte, []byte, error) {
 // SetListenAddress will update the listen address for testing reasons
 func (ncf *networkComponentsFactory) SetListenAddress(address string) {
 	ncf.listenAddress = address
+}
+
+// LiveSCProcessor returns the block-processing SC processor for testing reasons
+func (p *Process) LiveSCProcessor() process.SmartContractProcessor {
+	return p.liveSCProcessor
 }
