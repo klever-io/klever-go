@@ -117,19 +117,60 @@ func TestGetURLSurfacesEOFOnEmptyBody(t *testing.T) {
 	assert.True(t, errors.Is(err, io.EOF), "empty 2xx body must still surface io.EOF for not-found callers")
 }
 
-func TestGetURLTruncatesBodyInError(t *testing.T) {
-	longBody := strings.Repeat("Z", 2000)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-		_, _ = w.Write([]byte(longBody))
-	}))
-	defer srv.Close()
+// TestErrorBodyIsReportedWhole pins that a failed call's body reaches the operator intact
+// past the old 512-byte snippet (which cut the node's `{"error":"..."}` reason mid-string),
+// and that only a body past the 64 KiB cap is cut, with the message saying so. GetURL and
+// PostURL share checkStatus, so both are driven through the same table.
+func TestErrorBodyIsReportedWhole(t *testing.T) {
+	const capBytes = 64 << 10
+	reason := `{"error":"invalid argument: ` + strings.Repeat("the fee estimate needs a valid sender; ", 40) + `","code":"internal_issue"}`
+	require.Greater(t, len(reason), 512, "the realistic body must exceed the old snippet or the test proves nothing")
 
-	var got sampleResult
-	err := utils.GetURL(srv.URL, &got)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "502")
-	assert.Equal(t, 512, strings.Count(err.Error(), "Z"), "body snippet must be capped at 512 bytes")
+	tests := []struct {
+		name          string
+		body          string
+		wantWhole     string // must appear verbatim in the error
+		wantZ         int    // -1 when the body is not made of Z
+		wantTruncated bool
+	}{
+		{name: "realistic node error past 512 bytes", body: reason, wantWhole: reason, wantZ: -1},
+		{name: "2000 bytes", body: strings.Repeat("Z", 2000), wantZ: 2000},
+		{name: "exactly at the cap", body: strings.Repeat("Z", capBytes), wantZ: capBytes},
+		{name: "past the cap is cut and says so", body: strings.Repeat("Z", capBytes+1000), wantZ: capBytes, wantTruncated: true},
+	}
+
+	for _, tt := range tests {
+		for _, method := range []string{http.MethodGet, http.MethodPost} {
+			t.Run(tt.name+"/"+method, func(t *testing.T) {
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusBadGateway)
+					_, _ = w.Write([]byte(tt.body))
+				}))
+				defer srv.Close()
+
+				var got sampleResult
+				var err error
+				if method == http.MethodGet {
+					err = utils.GetURL(srv.URL, &got)
+				} else {
+					err = utils.PostURL(srv.URL, `{}`, nil, &got)
+				}
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "502")
+				if tt.wantWhole != "" {
+					assert.Contains(t, err.Error(), tt.wantWhole, "the full reason must survive into the error")
+				}
+				if tt.wantZ >= 0 {
+					assert.Equal(t, tt.wantZ, strings.Count(err.Error(), "Z"))
+				}
+				if tt.wantTruncated {
+					assert.Contains(t, err.Error(), "response body truncated at 65536 bytes")
+				} else {
+					assert.NotContains(t, err.Error(), "truncated")
+				}
+			})
+		}
+	}
 }
 
 func TestErrorStripsControlCharsFromServerBody(t *testing.T) {

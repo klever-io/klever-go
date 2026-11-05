@@ -12,8 +12,13 @@ import (
 )
 
 const (
-	maxErrorBodySnippet = 512
-	maxResponseBody     = 32 << 20
+	// maxErrorBody bounds how much of a non-2xx body goes into the error message. The
+	// original 512-byte snippet cut the node's `{"error":"..."}` reason mid-string, which
+	// is the one thing an operator needs from a failed call. 64 KiB covers any node error
+	// and a 500 with a stack trace, while still keeping a hostile server from flooding
+	// the terminal; anything past it is dropped and the message says so.
+	maxErrorBody    = 64 << 10
+	maxResponseBody = 32 << 20
 )
 
 var httpClient *http.Client
@@ -101,8 +106,16 @@ func checkStatus(method, url string, r *http.Response) error {
 	// keep that partial snippet instead of discarding it. readErr's own message can embed
 	// server-supplied text (net/http's trailer parsing may fold a server header into it), so
 	// sanitize it the same as status/body rather than let it skip the same treatment.
-	snippet, readErr := io.ReadAll(io.LimitReader(r.Body, maxErrorBodySnippet))
+	// Read one byte past the cap so a body that is exactly at it is not reported as cut.
+	snippet, readErr := io.ReadAll(io.LimitReader(r.Body, maxErrorBody+1))
+	truncated := len(snippet) > maxErrorBody
+	if truncated {
+		snippet = snippet[:maxErrorBody]
+	}
 	body := strings.TrimSpace(sanitizeServerText(string(snippet)))
+	if truncated {
+		body += fmt.Sprintf(" … (response body truncated at %d bytes)", maxErrorBody)
+	}
 	if readErr != nil {
 		sanitizedReadErr := sanitizeServerText(readErr.Error())
 		if body == "" {
