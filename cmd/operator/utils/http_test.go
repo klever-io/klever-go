@@ -51,6 +51,14 @@ func TestURLHandlesHTTPStatus(t *testing.T) {
 			wantSubstr: []string{"404"},
 		},
 		{
+			name:       "GET rejects not found with an empty body",
+			method:     http.MethodGet,
+			status:     http.StatusNotFound,
+			body:       "",
+			wantErr:    true,
+			wantSubstr: []string{"unexpected HTTP status 404 Not Found from GET"},
+		},
+		{
 			name:       "GET rejects multiple choices",
 			method:     http.MethodGet,
 			status:     http.StatusMultipleChoices,
@@ -189,7 +197,7 @@ func TestErrorBodyIsReportedWhole(t *testing.T) {
 func TestErrorStripsControlCharsFromServerBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("line1\nline2\x1b[2Kfaked-success"))
+		_, _ = w.Write([]byte("line1\nline2\x1b[2Kfaked-success" + tab + "aligned"))
 	}))
 	defer srv.Close()
 
@@ -198,8 +206,12 @@ func TestErrorStripsControlCharsFromServerBody(t *testing.T) {
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "\n", "newlines must be stripped to prevent log line forging")
 	assert.NotContains(t, err.Error(), "\x1b", "escape sequences must be stripped to prevent terminal spoofing")
-	assert.Contains(t, err.Error(), "line1line2[2Kfaked-success")
+	assert.Contains(t, err.Error(), "line1line2[2Kfaked-success"+tab+"aligned", "tab is the one control character kept")
 }
+
+// tab is the one control character sanitizeServerText keeps; built from the code point so
+// no literal whitespace control sits in a string in the source.
+var tab = string(rune(9))
 
 // TestErrorLeadsWithStatusAndBody pins the field order the node's websocket mirror relies
 // on: it logs this error through a 256-byte bound, so with a URL longer than that the
@@ -263,10 +275,10 @@ func TestPostURLReturnsErrorOnEmptyBody(t *testing.T) {
 	require.Error(t, err)
 }
 
-// newHijackingServer declares far more body than it actually sends, then closes the raw
-// connection — the client's Read on the error body sees an unexpected EOF instead of a
-// clean stream, exercising checkStatus's io.ReadAll failure path.
-func newHijackingServer(t *testing.T) *httptest.Server {
+// newHijackingServer declares far more body than it actually sends (partial, possibly
+// nothing), then closes the raw connection — the client's Read on the error body sees an
+// unexpected EOF instead of a clean stream, exercising checkStatus's io.ReadAll failure path.
+func newHijackingServer(t *testing.T, partial string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "1000")
@@ -275,7 +287,9 @@ func newHijackingServer(t *testing.T) *httptest.Server {
 		require.True(t, ok, "test server response writer must support hijacking")
 		conn, _, err := hj.Hijack()
 		require.NoError(t, err)
-		_, _ = conn.Write([]byte("short"))
+		if partial != "" {
+			_, _ = conn.Write([]byte(partial))
+		}
 		_ = conn.Close()
 	}))
 }
@@ -286,7 +300,7 @@ func newHijackingServer(t *testing.T) *httptest.Server {
 // `snippet, _ := io.ReadAll(...)`), for GetURL and PostURL alike.
 func TestErrorBodyReadFailureIsWrapped(t *testing.T) {
 	t.Run("GetURL", func(t *testing.T) {
-		srv := newHijackingServer(t)
+		srv := newHijackingServer(t, "short")
 		defer srv.Close()
 
 		var got sampleResult
@@ -298,7 +312,7 @@ func TestErrorBodyReadFailureIsWrapped(t *testing.T) {
 	})
 
 	t.Run("PostURL", func(t *testing.T) {
-		srv := newHijackingServer(t)
+		srv := newHijackingServer(t, "short")
 		defer srv.Close()
 
 		err := utils.PostURL(srv.URL, `{}`, nil, nil)
@@ -306,6 +320,18 @@ func TestErrorBodyReadFailureIsWrapped(t *testing.T) {
 		assert.Contains(t, err.Error(), "500")
 		assert.Contains(t, err.Error(), "failed to read response body")
 		assert.Contains(t, err.Error(), "short", "partial body read before the failure must not be discarded")
+	})
+
+	// Nothing read before the failure: the message carries the status and the read error
+	// with no empty body slot in between.
+	t.Run("nothing read before the failure", func(t *testing.T) {
+		srv := newHijackingServer(t, "")
+		defer srv.Close()
+
+		var got sampleResult
+		err := utils.GetURL(srv.URL, &got)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unexpected HTTP status 500 Internal Server Error (failed to read response body: ")
 	})
 }
 
