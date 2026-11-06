@@ -500,16 +500,6 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 		return err
 	}
 
-	headerIntegrityVerifier, err := headerCheck.NewHeaderIntegrityVerifier(
-		[]byte(genesisNodesConfig.ChainID),
-		cfg.Versions.VersionsByEpochs,
-		cfg.Versions.DefaultVersion,
-		versionsCache,
-	)
-	if err != nil {
-		return err
-	}
-
 	epochNotifier := notifier.NewGenericEpochNotifier()
 
 	epochStartNotifier := notifier.NewEpochStartSubscriptionHandler()
@@ -519,6 +509,17 @@ func startNode(ctx *cli.Context, log logger.Logger, version string) error {
 	}
 
 	forkController, err := fork.NewForkController(cfg.EnableEpochs, epochNotifier)
+	if err != nil {
+		return err
+	}
+
+	headerIntegrityVerifier, err := headerCheck.NewHeaderIntegrityVerifier(
+		[]byte(genesisNodesConfig.ChainID),
+		cfg.Versions.VersionsByEpochs,
+		cfg.Versions.DefaultVersion,
+		versionsCache,
+		forkController,
+	)
 	if err != nil {
 		return err
 	}

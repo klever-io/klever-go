@@ -17,6 +17,7 @@ import (
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 var versionsCorrectlyConstructed = []config.VersionByEpochs{
@@ -44,6 +45,7 @@ func TestNewHeaderIntegrityVerifier_InvalidReferenceChainIDShouldErr(t *testing.
 		make([]config.VersionByEpochs, 0),
 		defaultVersion,
 		&mock.CacherStub{},
+		&mock.ForkControllerStub{},
 	)
 	require.True(t, check.IfNil(hdrIntVer))
 	require.Equal(t, headerCheck.ErrInvalidReferenceChainID, err)
@@ -66,6 +68,7 @@ func TestNewHeaderIntegrityVerifier_InvalidVersionElementOnEpochValuesEqualShoul
 		},
 		defaultVersion,
 		&mock.CacherStub{},
+		&mock.ForkControllerStub{},
 	)
 	require.True(t, check.IfNil(hdrIntVer))
 	require.True(t, errors.Is(err, headerCheck.ErrInvalidVersionOnEpochValues))
@@ -84,6 +87,7 @@ func TestNewHeaderIntegrityVerifier_InvalidVersionElementOnStringTooLongShouldEr
 		},
 		defaultVersion,
 		&mock.CacherStub{},
+		&mock.ForkControllerStub{},
 	)
 	require.True(t, check.IfNil(hdrIntVer))
 	require.True(t, errors.Is(err, headerCheck.ErrInvalidVersionStringTooLong))
@@ -97,6 +101,7 @@ func TestNewHeaderIntegrityVerifierr_InvalidDefaultVersionShouldErr(t *testing.T
 		versionsCorrectlyConstructed,
 		defaultVersion,
 		nil,
+		&mock.ForkControllerStub{},
 	)
 	require.True(t, check.IfNil(hdrIntVer))
 	require.True(t, errors.Is(err, headerCheck.ErrNilCacher))
@@ -110,6 +115,7 @@ func TestNewHeaderIntegrityVerifier_NilCacherShouldErr(t *testing.T) {
 		versionsCorrectlyConstructed,
 		"",
 		&mock.CacherStub{},
+		&mock.ForkControllerStub{},
 	)
 	require.True(t, check.IfNil(hdrIntVer))
 	require.True(t, errors.Is(err, headerCheck.ErrInvalidSoftwareVersion))
@@ -123,6 +129,7 @@ func TestNewHeaderIntegrityVerifier_EmptyListShouldErr(t *testing.T) {
 		make([]config.VersionByEpochs, 0),
 		"",
 		&mock.CacherStub{},
+		&mock.ForkControllerStub{},
 	)
 	require.True(t, check.IfNil(hdrIntVer))
 	require.True(t, errors.Is(err, headerCheck.ErrEmptyVersionsByEpochsList))
@@ -141,6 +148,7 @@ func TestNewHeaderIntegrityVerifier_ZerothElementIsNotOnEpochZeroShouldErr(t *te
 		},
 		"",
 		&mock.CacherStub{},
+		&mock.ForkControllerStub{},
 	)
 	require.True(t, check.IfNil(hdrIntVer))
 	require.True(t, errors.Is(err, headerCheck.ErrInvalidVersionOnEpochValues))
@@ -154,6 +162,7 @@ func TestNewHeaderIntegrityVerifier_ShouldWork(t *testing.T) {
 		versionsCorrectlyConstructed,
 		defaultVersion,
 		&mock.CacherStub{},
+		&mock.ForkControllerStub{},
 	)
 	require.False(t, check.IfNil(hdrIntVer))
 	require.NoError(t, err)
@@ -172,6 +181,7 @@ func TestHeaderIntegrityVerifier_PopulatedReservedShouldErr(t *testing.T) {
 		make([]config.VersionByEpochs, 0),
 		defaultVersion,
 		&mock.CacherStub{},
+		&mock.ForkControllerStub{},
 	)
 	err := hdrIntVer.Verify(hdr)
 	require.Equal(t, process.ErrReservedFieldNotSupportedYet, err)
@@ -185,6 +195,7 @@ func TestHeaderIntegrityVerifier_VerifySoftwareVersionEmptyVersionInHeaderShould
 		make([]config.VersionByEpochs, 0),
 		defaultVersion,
 		&mock.CacherStub{},
+		&mock.ForkControllerStub{},
 	)
 	err := hdrIntVer.Verify(&block.Block{Header: &block.BlockHeader{}})
 	require.True(t, errors.Is(err, headerCheck.ErrInvalidSoftwareVersion))
@@ -207,6 +218,7 @@ func TestHeaderIntegrityVerifierr_VerifySoftwareVersionWrongVersionShouldErr(t *
 		},
 		defaultVersion,
 		&mock.CacherStub{},
+		&mock.ForkControllerStub{},
 	)
 	err := hdrIntVer.Verify(
 		&block.Block{Header: &block.BlockHeader{
@@ -235,6 +247,7 @@ func TestHeaderIntegrityVerifier_VerifySoftwareVersionWildcardShouldWork(t *test
 		},
 		defaultVersion,
 		&mock.CacherStub{},
+		&mock.ForkControllerStub{},
 	)
 	err := hdrIntVer.Verify(
 		&block.Block{Header: &block.BlockHeader{
@@ -255,6 +268,7 @@ func TestHeaderIntegrityVerifier_VerifyHdrChainIDAndReferenceChainIDMismatchShou
 		versionsCorrectlyConstructed,
 		"software",
 		&mock.CacherStub{},
+		&mock.ForkControllerStub{},
 	)
 	mb := &block.Block{Header: &block.BlockHeader{
 		ChainID:         []byte("different-chainID"),
@@ -274,6 +288,7 @@ func TestHeaderIntegrityVerifier_VerifyShouldWork(t *testing.T) {
 		versionsCorrectlyConstructed,
 		"software",
 		&mock.CacherStub{},
+		&mock.ForkControllerStub{},
 	)
 	mb := &block.Block{Header: &block.BlockHeader{
 		ChainID:         expectedChainID,
@@ -293,6 +308,7 @@ func TestHeaderIntegrityVerifier_VerifyNotWildcardShouldWork(t *testing.T) {
 		versionsCorrectlyConstructed,
 		"software",
 		&mock.CacherStub{},
+		&mock.ForkControllerStub{},
 	)
 	mb := &block.Block{Header: &block.BlockHeader{
 		ChainID:         expectedChainID,
@@ -342,6 +358,7 @@ func TestHeaderIntegrityVerifier_GetVersionShouldWork(t *testing.T) {
 				return false
 			},
 		},
+		&mock.ForkControllerStub{},
 	)
 
 	assert.Equal(t, defaultVersion, hdrIntVer.GetVersion(0))
@@ -369,6 +386,7 @@ func TestHeaderIntegrityVerifier_ExistsInInternalCacheShouldReturn(t *testing.T)
 				return cachedVersion, true
 			},
 		},
+		&mock.ForkControllerStub{},
 	)
 
 	assert.Equal(t, cachedVersion, hdrIntVer.GetVersion(0))
@@ -378,4 +396,72 @@ func TestHeaderIntegrityVerifier_ExistsInInternalCacheShouldReturn(t *testing.T)
 	assert.Equal(t, cachedVersion, hdrIntVer.GetVersion(999))
 	assert.Equal(t, cachedVersion, hdrIntVer.GetVersion(1000))
 	assert.Equal(t, cachedVersion, hdrIntVer.GetVersion(1200))
+}
+
+func TestNewHeaderIntegrityVerifier_NilForkControllerShouldErr(t *testing.T) {
+	t.Parallel()
+
+	hdrIntVer, err := headerCheck.NewHeaderIntegrityVerifier(
+		[]byte("chainID"),
+		versionsCorrectlyConstructed,
+		defaultVersion,
+		&mock.CacherStub{},
+		nil,
+	)
+	require.True(t, check.IfNil(hdrIntVer))
+	require.Equal(t, process.ErrNilForkController, err)
+}
+
+// headerWithUnknownField decodes a header whose bytes carry a field number the schema does not know.
+func headerWithUnknownField(t *testing.T, hdr *block.BlockHeader) *block.BlockHeader {
+	t.Helper()
+	buff, err := proto.Marshal(hdr)
+	require.NoError(t, err)
+	buff = mock.AppendUnknownField(buff, 99, 32)
+
+	decoded := &block.BlockHeader{}
+	require.NoError(t, proto.Unmarshal(buff, decoded))
+	require.NotEmpty(t, decoded.ProtoReflect().GetUnknown())
+	return decoded
+}
+
+func TestHeaderIntegrityVerifier_VerifyUnknownHeaderFields(t *testing.T) {
+	t.Parallel()
+
+	activation := uint32(5)
+	chainID := []byte("chainID")
+	newHeader := func(epoch uint32) *block.BlockHeader {
+		return &block.BlockHeader{ChainID: chainID, SoftwareVersion: []byte("software"), Epoch: epoch}
+	}
+
+	tests := []struct {
+		name   string
+		header *block.BlockHeader
+		err    error
+	}{
+		{name: "unknown field before activation", header: headerWithUnknownField(t, newHeader(activation-1))},
+		{name: "unknown field from activation", header: headerWithUnknownField(t, newHeader(activation)), err: process.ErrHeaderUnknownFields},
+		{name: "unknown field after activation", header: headerWithUnknownField(t, newHeader(activation+1)), err: process.ErrHeaderUnknownFields},
+		{name: "clean header from activation", header: newHeader(activation)},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// The value says the current epoch is pre-fork: the check must follow the header's epoch.
+			hdrIntVer, err := headerCheck.NewHeaderIntegrityVerifier(
+				chainID,
+				[]config.VersionByEpochs{{StartEpoch: 0, Version: "*"}},
+				"software",
+				&mock.CacherStub{},
+				&mock.ForkControllerStub{FixAuditChangesV7Epoch: &activation, FixAuditChangesV7Value: false},
+			)
+			require.NoError(t, err)
+
+			err = hdrIntVer.Verify(&block.Block{Header: tt.header})
+			require.Equal(t, tt.err, err)
+		})
+	}
 }

@@ -774,7 +774,7 @@ func (n *ProcessorNode) initInterceptors(heartbeatPk string) error {
 	}
 	n.EpochStartTrigger = epochStartTrigger
 
-	headerIntegrity, err := CreateHeaderIntegrityVerifier(n.MainConfig.Versions)
+	headerIntegrity, err := CreateHeaderIntegrityVerifier(n.MainConfig.Versions, n.ForkController)
 	if err != nil {
 		return err
 	}
@@ -1276,12 +1276,13 @@ func CreateNodeAccountWithExistingKeys(sk crypto.PrivateKey, pk crypto.PublicKey
 	return testNodeAccount, nil
 }
 
-func CreateHeaderIntegrityVerifier(cfg config.VersionsConfig) (process.HeaderIntegrityVerifier, error) {
+func CreateHeaderIntegrityVerifier(cfg config.VersionsConfig, forkController core.ForkController) (process.HeaderIntegrityVerifier, error) {
 	headerVersioning, err := headerCheck.NewHeaderIntegrityVerifier(
 		ChainID,
 		cfg.VersionsByEpochs,
 		cfg.DefaultVersion,
 		&mock.CacherStub{},
+		forkController,
 	)
 	if err != nil {
 		return nil, err
@@ -1684,6 +1685,7 @@ func createHeaderIntegrityVerifier() (process.HeaderIntegrityVerifier, error) {
 		},
 		"default",
 		cache,
+		&integrationTestsMock.ForkControllerStub{},
 	)
 	if err != nil {
 		return nil, err

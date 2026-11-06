@@ -280,6 +280,7 @@ func createHeaderIntegrityVerifier(args *ProcessComponentsFactoryArgs) (HeaderIn
 		args.mainConfig.Versions.VersionsByEpochs,
 		args.mainConfig.Versions.DefaultVersion,
 		versionsCache,
+		args.forkController,
 	)
 }
 

@@ -174,6 +174,11 @@ func (hhs *HeaderHandlerStub) GetReserved() []byte {
 	return nil
 }
 
+// GetHeaderUnknownFields -
+func (hhs *HeaderHandlerStub) GetHeaderUnknownFields() []byte {
+	return nil
+}
+
 // GetBlockHeader -
 func (hhs *HeaderHandlerStub) GetBlockHeader() interface{} {
 	return nil

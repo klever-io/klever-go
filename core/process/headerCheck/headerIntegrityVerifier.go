@@ -23,6 +23,7 @@ type headerIntegrityVerifier struct {
 	versions         []config.VersionByEpochs
 	defaultVersion   string
 	versionCache     storage.Cacher
+	forkController   core.ForkController
 }
 
 // NewHeaderIntegrityVerifier returns a new instance of a structure capable of verifying the integrity of a provided header
@@ -31,6 +32,7 @@ func NewHeaderIntegrityVerifier(
 	versionsByEpochs []config.VersionByEpochs,
 	defaultVersion string,
 	versionCache storage.Cacher,
+	forkController core.ForkController,
 ) (*headerIntegrityVerifier, error) {
 
 	if len(referenceChainID) == 0 {
@@ -39,11 +41,15 @@ func NewHeaderIntegrityVerifier(
 	if check.IfNil(versionCache) {
 		return nil, fmt.Errorf("%w, in NewHeaderVersioningHandler", ErrNilCacher)
 	}
+	if check.IfNil(forkController) {
+		return nil, process.ErrNilForkController
+	}
 
 	hdrIntVer := &headerIntegrityVerifier{
 		referenceChainID: referenceChainID,
 		defaultVersion:   defaultVersion,
 		versionCache:     versionCache,
+		forkController:   forkController,
 	}
 	var err error
 	hdrIntVer.versions, err = hdrIntVer.prepareVersions(versionsByEpochs)
@@ -154,7 +160,17 @@ func (hdrIntVer *headerIntegrityVerifier) Verify(hdr data.HeaderHandler) error {
 		return err
 	}
 
-	return hdrIntVer.checkChainID(hdr)
+	err = hdrIntVer.checkChainID(hdr)
+	if err != nil {
+		return err
+	}
+
+	// Read on the header's own epoch so headers signed before the fork still verify.
+	if hdrIntVer.forkController.FixAuditChangesV7InEpoch(hdr.GetEpoch()) && len(hdr.GetHeaderUnknownFields()) > 0 {
+		return process.ErrHeaderUnknownFields
+	}
+
+	return nil
 }
 
 func (hdrIntVer *headerIntegrityVerifier) checkVersionLength(version []byte) error {

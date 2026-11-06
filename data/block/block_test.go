@@ -159,3 +159,20 @@ func TestBlock_DropBlockLevelUnknownFieldsOnNilBlockShouldNotPanic(t *testing.T)
 
 	assert.NotPanics(t, blk.DropBlockLevelUnknownFields)
 }
+
+func TestBlock_GetHeaderUnknownFields(t *testing.T) {
+	marshalizer := marshal.NewProtoMarshalizer()
+
+	headerBytes, err := marshalizer.Marshal(&block.BlockHeader{Nonce: 7, ChainID: []byte("chain")})
+	require.NoError(t, err)
+
+	clean := &block.BlockHeader{}
+	require.NoError(t, marshalizer.Unmarshal(clean, headerBytes))
+	assert.Empty(t, (&block.Block{Header: clean}).GetHeaderUnknownFields())
+
+	withUnknown := &block.BlockHeader{}
+	require.NoError(t, marshalizer.Unmarshal(withUnknown, mock.AppendUnknownField(headerBytes, 99, 32)))
+	assert.NotEmpty(t, (&block.Block{Header: withUnknown}).GetHeaderUnknownFields())
+
+	assert.Nil(t, (&block.Block{}).GetHeaderUnknownFields())
+}

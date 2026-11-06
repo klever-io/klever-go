@@ -266,6 +266,14 @@ func (b *Block) GetReserved() []byte {
 	return nil
 }
 
+// GetHeaderUnknownFields returns the header bytes whose field numbers the schema does not know
+func (b *Block) GetHeaderUnknownFields() []byte {
+	if b.Header != nil {
+		return b.Header.ProtoReflect().GetUnknown()
+	}
+	return nil
+}
+
 // GetBlockHeader -
 func (b *Block) GetBlockHeader() interface{} {
 	return b.GetHeader()

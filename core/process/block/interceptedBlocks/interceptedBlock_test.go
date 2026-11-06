@@ -900,6 +900,7 @@ func newRealHeaderIntegrityVerifier(t *testing.T) process.HeaderIntegrityVerifie
 		[]config.VersionByEpochs{{StartEpoch: 0, Version: "version"}},
 		"version",
 		cache,
+		&mock.ForkControllerStub{},
 	)
 	require.NoError(t, err)
 	return verifier
@@ -1030,4 +1031,43 @@ func TestInterceptedBlock_RealBLSUnknownFieldInsideTheSignedHeaderShouldFailTheS
 	require.NoError(t, err)
 	assert.NotEqual(t, genuineBlk.Hash(), inBlk.Hash())
 	assert.ErrorIs(t, inBlk.CheckValidity(), crypto.ErrSigNotValid)
+}
+
+func TestInterceptedBlock_UnknownFieldInsideTheHeaderFailsFromActivation(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &mock.ProtoMarshalizerMock{}
+	blk := createMockBlock()
+	blk.Header.ChainID = []byte("chain")
+	headerBuff, err := marshalizer.Marshal(blk.Header)
+	require.NoError(t, err)
+	require.NoError(t, marshalizer.Unmarshal(blk.Header, mock.AppendUnknownField(headerBuff, 99, 4096)))
+	blockBuff, err := marshalizer.Marshal(blk)
+	require.NoError(t, err)
+
+	checkValidity := func(activation uint32) error {
+		cache, errCache := storageUnit.NewCache(storageUnit.CacheConfig{Type: storageUnit.LRUCache, Capacity: 10})
+		require.NoError(t, errCache)
+		verifier, errVerifier := headerCheck.NewHeaderIntegrityVerifier(
+			[]byte("chain"),
+			[]config.VersionByEpochs{{StartEpoch: 0, Version: "version"}},
+			"version",
+			cache,
+			&mock.ForkControllerStub{FixAuditChangesV7Epoch: &activation},
+		)
+		require.NoError(t, errVerifier)
+
+		arg := createDefaultBlockArgument()
+		arg.Marshalizer = marshalizer
+		arg.BlockBuff = blockBuff
+		arg.HeaderIntegrityVerifier = verifier
+		inBlk, errBlk := interceptedBlocks.NewInterceptedBlock(arg)
+		require.NoError(t, errBlk)
+		require.NotEmpty(t, inBlk.HeaderHandler().GetHeaderUnknownFields())
+
+		return inBlk.CheckValidity()
+	}
+
+	require.NoError(t, checkValidity(hdrEpoch+1))
+	require.ErrorIs(t, checkValidity(hdrEpoch), process.ErrHeaderUnknownFields)
 }

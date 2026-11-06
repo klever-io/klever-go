@@ -251,6 +251,11 @@ func (hhs *HeaderHandlerStub) GetReserved() []byte {
 	return nil
 }
 
+// GetHeaderUnknownFields -
+func (hhs *HeaderHandlerStub) GetHeaderUnknownFields() []byte {
+	return nil
+}
+
 // SetNonce -
 func (hhs *HeaderHandlerStub) SetNonce(_ uint64) {
 	panic("implement me")

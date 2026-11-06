@@ -3,17 +3,20 @@ package slot_test
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	cMock "github.com/klever-io/klever-go/common/mock"
+	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
 	"github.com/klever-io/klever-go/core/consensus"
 	"github.com/klever-io/klever-go/core/consensus/mock"
 	"github.com/klever-io/klever-go/core/consensus/slot"
 	"github.com/klever-io/klever-go/core/consensus/slot/bls"
 	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/core/process/headerCheck"
 	"github.com/klever-io/klever-go/core/redundancy"
 	redundancyMock "github.com/klever-io/klever-go/core/redundancy/mock"
 	"github.com/klever-io/klever-go/crypto"
@@ -2054,4 +2057,132 @@ func TestWorker_ValidateMessageWithHeaderVerifyRandSeedFailsShouldErr(t *testing
 
 	assert.Nil(t, hdr)
 	assert.True(t, errors.Is(err, expectedErr))
+}
+
+func TestWorker_ValidateMessageWithHeaderUnknownFieldFailsFromActivation(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &cMock.ProtoMarshalizerMock{}
+	hasher := &cMock.HasherMock{}
+	epoch := uint32(7)
+	blk := &block.Block{Header: &block.BlockHeader{ChainID: chainID, SoftwareVersion: []byte("version"), Epoch: epoch}}
+	headerBuff, err := marshalizer.Marshal(blk.Header)
+	require.NoError(t, err)
+	require.NoError(t, marshalizer.Unmarshal(blk.Header, cMock.AppendUnknownField(headerBuff, 99, 4096)))
+	blockBuff, err := marshalizer.Marshal(blk)
+	require.NoError(t, err)
+	headerHash, err := tools.CalculateHash(marshalizer, hasher, blk.Header)
+	require.NoError(t, err)
+
+	validate := func(activation uint32) error {
+		verifier, errVerifier := headerCheck.NewHeaderIntegrityVerifier(
+			chainID,
+			[]config.VersionByEpochs{{StartEpoch: 0, Version: "version"}},
+			"version",
+			&cMock.CacherStub{},
+			&cMock.ForkControllerStub{FixAuditChangesV7Epoch: &activation},
+		)
+		require.NoError(t, errVerifier)
+
+		workerArgs := createDefaultWorkerArgs()
+		workerArgs.Marshalizer = marshalizer
+		workerArgs.Hasher = hasher
+		workerArgs.HeaderIntegrityVerifier = verifier
+		workerArgs.BlockProcessor = &mock.BlockProcessorMock{
+			DecodeBlockHeaderCalled: func(dta []byte) data.HeaderHandler {
+				decoded := &block.Block{}
+				require.NoError(t, marshalizer.Unmarshal(decoded, dta))
+				return decoded
+			},
+		}
+		wrk, errWorker := slot.NewWorker(workerArgs)
+		require.NoError(t, errWorker)
+
+		_, errValidate := wrk.ValidateMessageWithHeader(&consensus.Message{BlockHeaderHash: headerHash, Header: blockBuff})
+		return errValidate
+	}
+
+	require.NoError(t, validate(epoch+1))
+	require.ErrorIs(t, validate(epoch), process.ErrHeaderUnknownFields)
+}
+
+func TestWorker_ProcessReceivedMessageUnknownHeaderFieldShouldBlacklistFromActivation(t *testing.T) {
+	t.Parallel()
+
+	marshalizer := &cMock.ProtoMarshalizerMock{}
+	epoch := uint32(7)
+	blk := &block.Block{Header: &block.BlockHeader{ChainID: chainID, SoftwareVersion: []byte("version"), Epoch: epoch}}
+	headerBuff, err := marshalizer.Marshal(blk.Header)
+	require.NoError(t, err)
+	require.NoError(t, marshalizer.Unmarshal(blk.Header, cMock.AppendUnknownField(headerBuff, 99, 4096)))
+	blockBuff, err := marshalizer.Marshal(blk)
+	require.NoError(t, err)
+
+	run := func(activation uint32) (error, []core.PeerID) {
+		var mut sync.Mutex
+		blacklisted := make([]core.PeerID, 0)
+		verifier, errVerifier := headerCheck.NewHeaderIntegrityVerifier(
+			chainID,
+			[]config.VersionByEpochs{{StartEpoch: 0, Version: "version"}},
+			"version",
+			&cMock.CacherStub{},
+			&cMock.ForkControllerStub{FixAuditChangesV7Epoch: &activation},
+		)
+		require.NoError(t, errVerifier)
+
+		workerArgs := createDefaultWorkerArgs()
+		workerArgs.HeaderIntegrityVerifier = verifier
+		workerArgs.AntifloodHandler = &cMock.P2PAntifloodHandlerStub{
+			CanProcessMessageCalled:         func(p2p.MessageP2P, core.PeerID) error { return nil },
+			CanProcessMessagesOnTopicCalled: func(core.PeerID, string, uint32, uint64, []byte) error { return nil },
+			BlacklistPeerCalled: func(peer core.PeerID, reason string, _ time.Duration) {
+				assert.Equal(t, process.BlacklistReasonInvalidConsensus, reason)
+				mut.Lock()
+				blacklisted = append(blacklisted, peer)
+				mut.Unlock()
+			},
+		}
+		workerArgs.BlockProcessor = &mock.BlockProcessorMock{
+			DecodeBlockHeaderCalled: func(dta []byte) data.HeaderHandler {
+				decoded := &block.Block{}
+				require.NoError(t, marshalizer.Unmarshal(decoded, dta))
+				return decoded
+			},
+			RevertStateToSnapshotCalled: func(header data.HeaderHandler) {},
+		}
+		wrk, errWorker := slot.NewWorker(workerArgs)
+		require.NoError(t, errWorker)
+
+		hdrHash, errHash := tools.CalculateHash(wrk.Marshalizer(), cMock.HasherMock{}, blk.Header)
+		require.NoError(t, errHash)
+		cnsMsg := consensus.NewConsensusMessage(
+			hdrHash,
+			nil,
+			blockBuff,
+			[]byte(wrk.ConsensusState().ConsensusGroup()[0]),
+			signature,
+			int(bls.MtBlockHeader),
+			0, 0,
+			chainID,
+			nil,
+			nil,
+			nil,
+			currentPid,
+		)
+		buff, errMarshal := wrk.Marshalizer().Marshal(cnsMsg)
+		require.NoError(t, errMarshal)
+
+		errProcess := wrk.ProcessReceivedMessage(&cMock.P2PMessageMock{DataField: buff, PeerField: currentPid}, fromConnectedPeerId)
+		mut.Lock()
+		defer mut.Unlock()
+		return errProcess, append([]core.PeerID(nil), blacklisted...)
+	}
+
+	errPre, blacklistedPre := run(epoch + 1)
+	require.NoError(t, errPre)
+	require.Empty(t, blacklistedPre)
+
+	errPost, blacklistedPost := run(epoch)
+	require.ErrorIs(t, errPost, process.ErrHeaderUnknownFields)
+	require.ElementsMatch(t, []core.PeerID{currentPid, fromConnectedPeerId}, blacklistedPost)
 }

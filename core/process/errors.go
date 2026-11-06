@@ -458,6 +458,9 @@ var ErrNilFallbackHeaderValidator = errors.New("nil fallback header validator")
 // ErrReservedFieldNotSupportedYet signals that reserved field is not empty
 var ErrReservedFieldNotSupportedYet = errors.New("reserved field not supported yet")
 
+// ErrHeaderUnknownFields signals that the header carries fields the node does not recognise
+var ErrHeaderUnknownFields = errors.New("header carries unknown fields")
+
 // ErrBlockProposerSignatureMissing signals that block proposer signature is missing from the block aggregated sig
 var ErrBlockProposerSignatureMissing = errors.New("block proposer signature is missing")
 
