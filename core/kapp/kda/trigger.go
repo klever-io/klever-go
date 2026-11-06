@@ -213,7 +213,8 @@ func (k *kdaKapp) handleAddRole(
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidRoleAddress, process.ErrInvalidRcvAddr.Error())
 		return transaction.Transaction_AccountError, process.ErrInvalidRcvAddr
 	}
-	if k.forkController.EnableSmartContracts() && len(asset.Roles) > core.MaxAssetRoles {
+	// before FixAuditChangesV7 the check let a 21st role in and refused an update at 21
+	if !k.forkController.FixAuditChangesV7() && k.forkController.EnableSmartContracts() && len(asset.Roles) > core.MaxAssetRoles {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldRoleLimitReached, common.ErrRoleLimitReached.Error())
 		return transaction.Transaction_IteratorLimitReached, common.ErrRoleLimitReached
 	}
@@ -233,6 +234,13 @@ func (k *kdaKapp) handleAddRole(
 		}
 	}
 	if !updated {
+		// from FixAuditChangesV7 only an add counts against MaxAssetRoles, so an update in place is
+		// never refused (KLC-2939). Every shipped config activates SmartContracts no later than V7,
+		// so V7 does not check it.
+		if k.forkController.FixAuditChangesV7() && len(asset.Roles) >= core.MaxAssetRoles {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldRoleLimitReached, common.ErrRoleLimitReached.Error())
+			return transaction.Transaction_IteratorLimitReached, common.ErrRoleLimitReached
+		}
 		roleInfo := tc.GetRole()
 		asset.Roles = append(asset.Roles, &kapps.RolesData{
 			Address:             roleInfo.Address,

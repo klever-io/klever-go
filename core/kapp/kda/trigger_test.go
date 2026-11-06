@@ -19,6 +19,7 @@ import (
 	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
 	"github.com/klever-io/klever-go/core/kapp/kda"
 	"github.com/klever-io/klever-go/core/process"
+	txProcess "github.com/klever-io/klever-go/core/process/transaction"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
@@ -91,38 +92,120 @@ func createDefaultKDAPool(
 	require.NoError(t, err)
 }
 
+// Before FixAuditChangesV7 a 21st role gets in and an update at 21 roles is refused. From it an
+// asset holds at most MaxAssetRoles roles, and an update in place is never refused (KLC-2939).
 func TestKDATrigger_AssetMaxRole(t *testing.T) {
-	kc, err := createMockControllers()
-	require.NoError(t, err)
+	t.Parallel()
 
-	createDefaultAsset(t, kc, transaction.CreateAssetContract_Fungible, 0, 0, 0, nil)
-
-	for i := 0; i <= core.MaxAssetRoles; i++ {
-		sender := fmt.Sprintf("sender_%d", i)
-		validAddress := makeAddress(sender)
-		tc := transaction.AssetTriggerContract{
+	addRole := func(kc kapp.KAppController, holder string, mint bool) (transaction.Transaction_TXResultCode, error) {
+		return kc.GetKDAKApp().Trigger(defaultSender, &transaction.AssetTriggerContract{
 			TriggerType: transaction.AssetTriggerContract_AddRole,
 			AssetID:     defaultAssetID,
-			Role: &transaction.RolesInfo{
-				Address:     validAddress,
-				HasRoleMint: true,
-			},
-		}
-		_, err = kc.GetKDAKApp().Trigger(defaultSender, &tc, nil)
+			Role:        &transaction.RolesInfo{Address: makeAddress(holder), HasRoleMint: mint},
+		}, nil)
+	}
+	// withRoles returns an asset holding n roles, added with the V7 flag as given, and the fork
+	// stub so a case can activate V7 afterwards
+	withRoles := func(t *testing.T, fixAuditChangesV7 bool, n int) (kapp.KAppController, *mock.ForkControllerStub) {
+		t.Helper()
+		fork := mock.NewForkControllerStub().SetFork("FixAuditChangesV7", fixAuditChangesV7)
+		kc, err := createMockControllersWithFork(fork)
 		require.NoError(t, err)
+		createDefaultAsset(t, kc, transaction.CreateAssetContract_Fungible, 0, 0, 0, nil)
+		for i := range n {
+			_, err = addRole(kc, fmt.Sprintf("holder_%d", i), true)
+			require.NoError(t, err)
+		}
+		return kc, fork
 	}
-	// Add one more role should fail
-	validAddress := makeAddress("sender_21")
-	tc := transaction.AssetTriggerContract{
-		TriggerType: transaction.AssetTriggerContract_AddRole,
-		AssetID:     defaultAssetID,
-		Role: &transaction.RolesInfo{
-			Address:     validAddress,
-			HasRoleMint: true,
-		},
+	roles := func(t *testing.T, kc kapp.KAppController) []*kapps.RolesData {
+		t.Helper()
+		_, asset, err := kc.GetKDAKApp().GetKDA(defaultAssetID)
+		require.NoError(t, err)
+		return asset.Roles
 	}
-	_, err = kc.GetKDAKApp().Trigger(defaultSender, &tc, nil)
-	require.Equal(t, common.ErrRoleLimitReached, err)
+	requireRefused := func(t *testing.T, kc kapp.KAppController, code transaction.Transaction_TXResultCode, err error) {
+		t.Helper()
+		require.Equal(t, common.ErrRoleLimitReached, err)
+		require.Equal(t, transaction.Transaction_IteratorLimitReached, code)
+		receipts := kc.GetCurrentKAppContext().Receipts().GetByType(int8(txProcess.Error))
+		require.NotEmpty(t, receipts)
+		require.Equal(t, common.ErrFieldRoleLimitReached, string(receipts[len(receipts)-1].Data[1]))
+	}
+
+	t.Run("before V7 a 21st role is added and an update at 21 is refused", func(t *testing.T) {
+		t.Parallel()
+		kc, _ := withRoles(t, false, core.MaxAssetRoles+1)
+
+		code, err := addRole(kc, "extra", true)
+		requireRefused(t, kc, code, err)
+		code, err = addRole(kc, "holder_0", false)
+		requireRefused(t, kc, code, err)
+
+		require.Len(t, roles(t, kc), core.MaxAssetRoles+1)
+		require.True(t, roles(t, kc)[0].HasRoleMint)
+	})
+
+	t.Run("from V7 an add at the cap is refused", func(t *testing.T) {
+		t.Parallel()
+		kc, _ := withRoles(t, true, core.MaxAssetRoles)
+
+		code, err := addRole(kc, "extra", true)
+		requireRefused(t, kc, code, err)
+		require.Len(t, roles(t, kc), core.MaxAssetRoles)
+	})
+
+	// the owner passes IsOwnerOrAdmin but holds no stored role, so a role for itself is an add
+	t.Run("from V7 the owner adding a role for itself at the cap is refused", func(t *testing.T) {
+		t.Parallel()
+		kc, _ := withRoles(t, true, core.MaxAssetRoles)
+
+		code, err := addRole(kc, sender, true)
+		requireRefused(t, kc, code, err)
+		require.Len(t, roles(t, kc), core.MaxAssetRoles)
+	})
+
+	t.Run("before V7 without smart contracts there is no cap", func(t *testing.T) {
+		t.Parallel()
+		kc, fork := withRoles(t, false, 0)
+		fork.SetFork("EnableSmartContracts", false)
+
+		for i := range core.MaxAssetRoles + 2 {
+			code, err := addRole(kc, fmt.Sprintf("holder_%d", i), true)
+			require.NoError(t, err)
+			require.Equal(t, transaction.Transaction_Ok, code)
+		}
+		require.Len(t, roles(t, kc), core.MaxAssetRoles+2)
+	})
+
+	t.Run("from V7 an update at the cap is stored", func(t *testing.T) {
+		t.Parallel()
+		kc, _ := withRoles(t, true, core.MaxAssetRoles)
+
+		code, err := addRole(kc, "holder_0", false)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, code)
+
+		require.Len(t, roles(t, kc), core.MaxAssetRoles)
+		require.Equal(t, makeAddress("holder_0"), roles(t, kc)[0].Address)
+		require.False(t, roles(t, kc)[0].HasRoleMint)
+	})
+
+	// assets that reached 21 roles before the fork keep them
+	t.Run("from V7 an asset past the cap updates but does not add", func(t *testing.T) {
+		t.Parallel()
+		kc, fork := withRoles(t, false, core.MaxAssetRoles+1)
+		fork.SetFork("FixAuditChangesV7", true)
+
+		code, err := addRole(kc, "extra", true)
+		requireRefused(t, kc, code, err)
+		code, err = addRole(kc, "holder_0", false)
+		require.NoError(t, err)
+		require.Equal(t, transaction.Transaction_Ok, code)
+
+		require.Len(t, roles(t, kc), core.MaxAssetRoles+1)
+		require.False(t, roles(t, kc)[0].HasRoleMint)
+	})
 }
 
 func TestKDATrigger_MintInvalidAssetShouldFail(t *testing.T) {
