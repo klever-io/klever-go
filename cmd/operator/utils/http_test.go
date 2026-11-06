@@ -169,7 +169,7 @@ func TestErrorBodyIsReportedWhole(t *testing.T) {
 				}
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "502")
-				assert.NotContains(t, err.Error(), "�", "a byte-boundary cut must not leave a replacement character")
+				assert.NotContains(t, err.Error(), string(rune(0xFFFD)), "a byte-boundary cut must not leave a replacement character")
 				if tt.wantWhole != "" {
 					assert.Contains(t, err.Error(), tt.wantWhole, "the full reason must survive into the error")
 				}
@@ -227,16 +227,26 @@ func TestErrorLeadsWithStatusAndBody(t *testing.T) {
 // would show the reason reversed, the line/paragraph separators some terminals treat as
 // newlines, and a zero-width space that could hide a split in a value.
 func TestErrorStripsFormatCharsFromServerBody(t *testing.T) {
+	// Built from code points so no invisible character sits in the source file.
+	var (
+		rtlOverride        = string(rune(0x202E))
+		popDirectional     = string(rune(0x202C))
+		lineSeparator      = string(rune(0x2028))
+		paragraphSeparator = string(rune(0x2029))
+		zeroWidthSpace     = string(rune(0x200B))
+	)
+	body := "fee " + rtlOverride + "001 KLV" + popDirectional + lineSeparator + "to" + paragraphSeparator + "klv1" + zeroWidthSpace + "abc"
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte("fee ‮001 KLV‬ to klv1​abc"))
+		_, _ = w.Write([]byte(body))
 	}))
 	defer srv.Close()
 
 	var got sampleResult
 	err := utils.GetURL(srv.URL, &got)
 	require.Error(t, err)
-	for _, forbidden := range []string{"‮", "‬", " ", " ", "​"} {
+	for _, forbidden := range []string{rtlOverride, popDirectional, lineSeparator, paragraphSeparator, zeroWidthSpace} {
 		assert.NotContains(t, err.Error(), forbidden)
 	}
 	assert.Contains(t, err.Error(), "fee 001 KLVtoklv1abc", "the visible text must survive with only the invisible characters removed")

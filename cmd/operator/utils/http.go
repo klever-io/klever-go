@@ -20,6 +20,11 @@ const (
 	// the terminal; anything past it is dropped and the message says so.
 	maxErrorBody    = 64 << 10
 	maxResponseBody = 32 << 20
+
+	// Unicode line and paragraph separators, written as code points so no invisible
+	// character sits in the source.
+	lineSeparator      rune = 0x2028
+	paragraphSeparator rune = 0x2029
 )
 
 var httpClient *http.Client
@@ -178,5 +183,5 @@ func terminalUnsafe(r rune) bool {
 	if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
 		return true
 	}
-	return r == ' ' || r == ' '
+	return r == lineSeparator || r == paragraphSeparator
 }
