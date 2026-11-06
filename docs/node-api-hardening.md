@@ -52,7 +52,8 @@ page you visit can issue cross-origin requests to `localhost:8080` and reach the
 ### Per-endpoint guidance
 
 Most routes are configured in `config/node/api.yaml` (`config/seednode/api.yaml` for the seednode);
-the exceptions are `/debug/pprof/*` and `/swagger/*`, both covered below. For the configured ones,
+`/swagger/*` is the exception, covered below. `/debug/pprof/*` is configured there too and also
+requires `--profile-mode`. For the configured ones,
 two flags govern each route, and they do **not** mean what their names suggest when combined:
 
 - `open` controls whether the route is **registered at all**.
@@ -81,12 +82,13 @@ binary does not rewrite an existing `api.yaml`: a node configured before these d
 serving them unauthenticated, and logs a warning at startup for each one (`network/api/api.go`).
 Add `secured: true`, or set `open: false`, on each of them.
 
-**`/debug/pprof/*`** — registered only when the node runs with `--profile-mode`, and **not governed
-by `api.yaml`**: the routes are attached directly to the gin engine outside the normal route-group
-registration (`network/api/api.go`), so they have no `open`/`secured` flag and no Basic Auth. The
-flag is the only control. `/debug/pprof/heap` and `/debug/pprof/goroutine` dump process memory and
-full goroutine stacks to any caller that can reach the port. Never run with `--profile-mode` on an
-exposed node; if you must profile, keep the API bound to `localhost` and tunnel to it.
+**`/debug/pprof/*`** — registered only when the node runs with `--profile-mode` and `debug` `/pprof`
+is `open: true` in `api.yaml`. The shipped file has `open: false` and `secured: true`, so the routes
+stay off until an operator opens them. `secured: true` adds Basic Auth. Heap and goroutine profiles
+return sampled allocation stacks and goroutine stacks. `/debug/pprof/cmdline` returns the process
+command line, so do not put a secret in the node's arguments. A `seconds` value above 60 is refused.
+An `api.yaml` from before the `debug` package does not register the routes; with `--profile-mode`
+set, the node logs a warning (`network/api/api.go`). Keep the API on loopback while profiling.
 
 **`/swagger/*`** — registered unconditionally when the API starts (`network/api/api.go`), before the
 `api.yaml` routes: no `open`/`secured` flag, no Basic Auth, and unlike `/debug/pprof/*` not even a
@@ -308,7 +310,7 @@ disabled unless you are actively tailing it.
 - [ ] `/node/debug`, `/node/peerinfo`, `/node/p2pstatus` and `/node/heartbeatstatus` secured or
       disabled — shipped secured, but an `api.yaml` from before the upgrade is not rewritten
 - [ ] Seednode `/peers` disabled or secured unless network topology is meant to be public
-- [ ] `--profile-mode` off, or API localhost-only — `/debug/pprof` is unauthenticated
+- [ ] `--profile-mode` off, or `debug` `/pprof` left `open: false`, unless you are profiling. If it is open, keep `secured: true` unless the API is loopback-only
 - [ ] `/swagger` blocked at the proxy if you do not want the API surface enumerated
 - [ ] `webSocketConnectionsPerIP` and `logWebSocketConnectionsPerIP` adjusted if behind a proxy
 - [ ] `logWebSocketConnections` sized for the deployment — `0` falls back to the built-in 32

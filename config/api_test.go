@@ -62,6 +62,8 @@ func TestNodeAPIConfig_DiagnosticRoutesRequireAuthentication(t *testing.T) {
 			"node route %s must remain reachable for authenticated operators", route)
 	}
 	require.True(t, cfg.IsRouteSecured("log", "/log"), "/log must require Basic Auth")
+	require.False(t, cfg.IsRouteEnabled("debug", "/pprof"), "debug /pprof must ship closed")
+	require.True(t, cfg.IsRouteSecured("debug", "/pprof"), "debug /pprof must require Basic Auth")
 }
 
 // Securing the diagnostic routes must not take the remaining node routes off the
