@@ -9,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/kvm/math"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/vmcommon"
 )
@@ -18,6 +19,7 @@ type kleverBuy struct {
 	accountsCacher state.AccountsCacher
 	kappController kapp.KAppController
 	funcGasCost    uint64
+	storePerByte   uint64
 	marshaller     vmcommon.Marshalizer
 	keyPrefix      []byte
 	mutExecution   sync.RWMutex
@@ -27,6 +29,7 @@ type kleverBuy struct {
 // NewKleverBuyFunc returns the create asset built-in function component
 func NewKleverBuyFunc(
 	funcGasCost uint64,
+	storePerByte uint64,
 	marshaller vmcommon.Marshalizer,
 	accountsCacher state.AccountsCacher,
 	forkController core.ForkController,
@@ -41,6 +44,7 @@ func NewKleverBuyFunc(
 
 	e := &kleverBuy{
 		funcGasCost:    funcGasCost,
+		storePerByte:   storePerByte,
 		marshaller:     marshaller,
 		keyPrefix:      []byte(""),
 		accountsCacher: accountsCacher,
@@ -59,6 +63,7 @@ func (e *kleverBuy) SetNewGasConfig(gasCost *vmcommon.GasCost) {
 
 	e.mutExecution.Lock()
 	e.funcGasCost = gasCost.BuiltInCost.Buy
+	e.storePerByte = gasCost.BaseOperationCost.StorePerByte
 	e.mutExecution.Unlock()
 }
 
@@ -77,7 +82,16 @@ func (e *kleverBuy) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallInput) 
 		return nil, err
 	}
 
-	gasRemaining, err := computeBuiltinGasRemaining(vmInput.GasProvided, e.funcGasCost, e.forkController)
+	gasCost := e.funcGasCost
+	// an ITO buy mints the bought tokens, so the records a contract's buy adds pay per stored byte, as
+	// a mint of the same asset does (see mintStoredSize); the charge does not repeat the ITO kapp's
+	// checks, so a buy it refuses, such as one of an SFT, is priced like a mint of that asset
+	if e.forkController.FixAuditChangesV7() && contract.GetBuyType() == transaction.BuyContract_ITOBuy {
+		gasCost = math.AddUint64(gasCost,
+			math.MulUint64(e.storePerByte, mintStoredSize(e.kappController, contract.GetID(), contract.GetAmount())))
+	}
+
+	gasRemaining, err := computeBuiltinGasRemaining(vmInput.GasProvided, gasCost, e.forkController)
 	if err != nil {
 		return nil, err
 	}

@@ -150,7 +150,7 @@ func runKleverBuy(t *testing.T, currency *kapps.KDAData) kleverBuyResult {
 	}
 	require.NoError(t, itoKapp.SetKAppController(kappController))
 
-	buyFunc, err := builtInFunctions.NewKleverBuyFunc(buyGasCost, marshalizer, accountsCacher, forkController, kappController)
+	buyFunc, err := builtInFunctions.NewKleverBuyFunc(buyGasCost, 0, marshalizer, accountsCacher, forkController, kappController)
 	require.NoError(t, err)
 
 	result.vmOutput, result.err = buyFunc.ProcessBuiltinFunction(buyInput(transaction.BuyContract_ITOBuy))
@@ -215,10 +215,20 @@ func TestKleverBuy_RefusalFailsTheCall(t *testing.T) {
 
 		buyFunc, err := builtInFunctions.NewKleverBuyFunc(
 			buyGasCost,
+			0,
 			&mock.ProtoMarshalizerMock{},
 			&mock.AccountsCacherStub{},
 			mock.NewForkControllerStub(),
-			&stub.KAppControllerStub{GetITOKAppCalled: func() kapp.ITOKapp { return itoKapp }},
+			&stub.KAppControllerStub{
+				GetITOKAppCalled: func() kapp.ITOKapp { return itoKapp },
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &stub.KDAKappStub{
+						GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, &kapps.KDAData{AssetType: kapps.KDAData_Fungible}, nil
+						},
+					}
+				},
+			},
 		)
 		require.NoError(t, err)
 
@@ -242,5 +252,71 @@ func TestKleverBuy_RefusalFailsTheCall(t *testing.T) {
 		vmOutput, err := run(t, itoKapp)
 		require.ErrorIs(t, err, process.ErrKDATransferNotAllowed)
 		assert.Nil(t, vmOutput)
+	})
+}
+
+// marketKappBuyStub accepts every Buy.
+type marketKappBuyStub struct {
+	kapp.MarketKapp
+}
+
+func (s *marketKappBuyStub) Buy(_ []byte, _ *transaction.BuyContract) (transaction.Transaction_TXResultCode, error) {
+	return transaction.Transaction_Ok, nil
+}
+
+// From FixAuditChangesV7 a buy pays per stored record only for an ITO buy of an NFT. A market buy
+// pays the flat cost even when its ID loads as an NFT, and so does an ITO buy whose asset loads as
+// no record. With only the flat cost provided, any charge would surface as ErrNotEnoughGas.
+func TestKleverBuy_FlatCostWithoutNFTRecords(t *testing.T) {
+	t.Parallel()
+
+	run := func(t *testing.T, buyType transaction.BuyContract_EnumBuyType, asset *kapps.KDAData) (*vmcommon.VMOutput, error) {
+		t.Helper()
+
+		buyFunc, err := builtInFunctions.NewKleverBuyFunc(
+			buyGasCost,
+			10,
+			&mock.ProtoMarshalizerMock{},
+			&mock.AccountsCacherStub{},
+			mock.NewForkControllerStub(),
+			&stub.KAppControllerStub{
+				GetITOKAppCalled:    func() kapp.ITOKapp { return &itoKappBuyStub{status: transaction.Transaction_Ok} },
+				GetMarketKAppCalled: func() kapp.MarketKapp { return &marketKappBuyStub{} },
+				GetKDAKAppCalled: func() kapp.KDAKapp {
+					return &stub.KDAKappStub{
+						GetKDACalled: func(_ []byte) (state.KAppAccountHandler, *kapps.KDAData, error) {
+							return nil, asset, nil
+						},
+					}
+				},
+				GetProposalControllerCalled: func() kapps.ActiveProposalController {
+					return &mock.ProposalControllerStub{
+						GetParameterIntCalled: func(_ kapps.EnumParameter) int64 { return 1_000_000 },
+					}
+				},
+			},
+		)
+		require.NoError(t, err)
+
+		input := buyInput(buyType)
+		input.GasProvided = buyGasCost
+
+		return buyFunc.ProcessBuiltinFunction(input)
+	}
+
+	t.Run("a market buy whose ID loads as an NFT", func(t *testing.T) {
+		t.Parallel()
+
+		vmOutput, err := run(t, transaction.BuyContract_MarketBuy, &kapps.KDAData{AssetType: kapps.KDAData_NonFungible})
+		require.NoError(t, err)
+		require.Zero(t, vmOutput.GasRemaining)
+	})
+
+	t.Run("an ITO buy whose asset loads as no record", func(t *testing.T) {
+		t.Parallel()
+
+		vmOutput, err := run(t, transaction.BuyContract_ITOBuy, nil)
+		require.NoError(t, err)
+		require.Zero(t, vmOutput.GasRemaining)
 	})
 }

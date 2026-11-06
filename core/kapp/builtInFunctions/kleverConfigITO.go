@@ -8,6 +8,7 @@ import (
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/kvm/math"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/vmcommon"
 )
@@ -17,6 +18,7 @@ type kleverConfigITO struct {
 	accountsCacher state.AccountsCacher
 	kappController kapp.KAppController
 	funcGasCost    uint64
+	storePerByte   uint64
 	marshaller     vmcommon.Marshalizer
 	keyPrefix      []byte
 	payableHandler vmcommon.PayableChecker
@@ -27,6 +29,7 @@ type kleverConfigITO struct {
 // NewKleverConfigITOFunc returns the create asset built-in function component
 func NewKleverConfigITOFunc(
 	funcGasCost uint64,
+	storePerByte uint64,
 	marshaller vmcommon.Marshalizer,
 	accountsCacher state.AccountsCacher,
 	forkController core.ForkController,
@@ -41,6 +44,7 @@ func NewKleverConfigITOFunc(
 
 	e := &kleverConfigITO{
 		funcGasCost:    funcGasCost,
+		storePerByte:   storePerByte,
 		marshaller:     marshaller,
 		keyPrefix:      []byte(""),
 		payableHandler: &disabledPayableHandler{},
@@ -60,6 +64,7 @@ func (e *kleverConfigITO) SetNewGasConfig(gasCost *vmcommon.GasCost) {
 
 	e.mutExecution.Lock()
 	e.funcGasCost = gasCost.BuiltInCost.ConfigITO
+	e.storePerByte = gasCost.BaseOperationCost.StorePerByte
 	e.mutExecution.Unlock()
 }
 
@@ -78,7 +83,14 @@ func (e *kleverConfigITO) ProcessBuiltinFunction(vmInput *vmcommon.ContractCallI
 		return nil, err
 	}
 
-	gasRemaining, err := computeBuiltinGasRemaining(vmInput.GasProvided, e.funcGasCost, e.forkController)
+	gasCost := e.funcGasCost
+	if e.forkController.FixAuditChangesV7() {
+		// whitelist records written from a contract are kept by every node, so they pay per stored byte
+		gasCost = math.AddUint64(gasCost,
+			math.MulUint64(e.storePerByte, whitelistStoredSize(contract.GetWhitelistInfo())))
+	}
+
+	gasRemaining, err := computeBuiltinGasRemaining(vmInput.GasProvided, gasCost, e.forkController)
 	if err != nil {
 		return nil, err
 	}

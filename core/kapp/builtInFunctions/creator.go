@@ -115,6 +115,7 @@ func (b *builtInFuncCreator) CreateBuiltInFunctionContainer() error {
 
 	newFunc, err = NewKleverAssetTriggerFunc(
 		b.gasConfig.BuiltInCost.AssetTrigger,
+		b.gasConfig.BaseOperationCost.StorePerByte,
 		b.marshaller,
 		b.accountsCacher,
 		b.forkController,
@@ -129,6 +130,7 @@ func (b *builtInFuncCreator) CreateBuiltInFunctionContainer() error {
 
 	newFunc, err = NewKleverBuyFunc(
 		b.gasConfig.BuiltInCost.Buy,
+		b.gasConfig.BaseOperationCost.StorePerByte,
 		b.marshaller,
 		b.accountsCacher,
 		b.forkController,
@@ -171,6 +173,7 @@ func (b *builtInFuncCreator) CreateBuiltInFunctionContainer() error {
 
 	newFunc, err = NewKleverConfigITOFunc(
 		b.gasConfig.BuiltInCost.ConfigITO,
+		b.gasConfig.BaseOperationCost.StorePerByte,
 		b.marshaller,
 		b.accountsCacher,
 		b.forkController,
@@ -283,6 +286,7 @@ func (b *builtInFuncCreator) CreateBuiltInFunctionContainer() error {
 
 	newFunc, err = NewKleverITOTriggerFunc(
 		b.gasConfig.BuiltInCost.ITOTrigger,
+		b.gasConfig.BaseOperationCost.StorePerByte,
 		b.marshaller,
 		b.accountsCacher,
 		b.forkController,

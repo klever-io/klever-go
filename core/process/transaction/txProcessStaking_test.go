@@ -1449,7 +1449,11 @@ func TestStakingTxProcessor_APRClaim_ContractUnfreezeSaturatedGain_PostFix(t *te
 func runContractUpdateStaking(t *testing.T, c *Controller, apr uint32) error {
 	t.Helper()
 
-	return runStakingBuiltin(t, c, c.CreateBlockHeader(aprSupplyStart, 1, 1), builtInFunctions.NewKleverAssetTriggerFunc,
+	newAssetTrigger := func(funcGasCost uint64, m vmcommon.Marshalizer, a state.AccountsCacher, f core.ForkController, k kapp.KAppController) (vmcommon.BuiltinFunction, error) {
+		return builtInFunctions.NewKleverAssetTriggerFunc(funcGasCost, 0, m, a, f, k)
+	}
+
+	return runStakingBuiltin(t, c, c.CreateBlockHeader(aprSupplyStart, 1, 1), newAssetTrigger,
 		builtinArg(int64(transaction.AssetTriggerContract_UpdateStaking)),
 		APRIdentifier,
 		builtinArg(int64(transaction.StakingInfo_APRI)),

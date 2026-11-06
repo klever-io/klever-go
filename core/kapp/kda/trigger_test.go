@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1837,6 +1838,7 @@ func TestKDATrigger_ChangeRoyaltiesReceiverAfterStop(t *testing.T) {
 							case "builtin":
 								builtin, errNew := builtInFunctions.NewKleverAssetTriggerFunc(
 									0,
+									0,
 									&mock.ProtoMarshalizerMock{},
 									kc.GetAccountsKApp().GetAccountsCacher(),
 									kc.GetForkController(),
@@ -3123,6 +3125,7 @@ func TestKDATrigger_UpdateMetadataSFTStoppedViaBuiltinFunction(t *testing.T) {
 
 	assetTrigger, err := builtInFunctions.NewKleverAssetTriggerFunc(
 		0,
+		0,
 		&mock.ProtoMarshalizerMock{},
 		kc.GetAccountsKApp().GetAccountsCacher(),
 		kc.GetForkController(),
@@ -3157,4 +3160,187 @@ func TestKDATrigger_UpdateMetadataSFTStoppedViaBuiltinFunction(t *testing.T) {
 	require.Equal(t, process.ErrNFTMetadataChangeStopped, err)
 	require.Nil(t, vmOutput)
 	requireSFTMeta(t, kc, "name1", "attr1")
+}
+
+// From FixAuditChangesV7 a contract's UpdateMetadata pays StorePerByte for each stored byte (the
+// MIME and the hex-encoded name@attributes); before it, only the flat cost (KLC-2724). The trigger
+// comes from the production container, and only StorePerByte gets the test rate, so the wiring
+// to that field is covered too.
+func TestKDATrigger_UpdateMetadataGasPerStoredByte(t *testing.T) {
+	t.Parallel()
+
+	const funcGasCost, storePerByte, gasProvided = storeFuncGasCost, storeRatePerByte, uint64(1_000_000)
+	mime := []byte("image/png")
+	small, large := "a", strings.Repeat("a", 1000)
+
+	storedMetadata := func(name, attributes string) string {
+		return hex.EncodeToString([]byte(name)) + "@" + hex.EncodeToString([]byte(attributes))
+	}
+	// the MIME and the metadata, each with its field tag and a length prefix bound
+	storedSize := func(name, attributes string) uint64 {
+		return uint64(len(mime)+len(storedMetadata(name, attributes))) + 2*maxVarintFieldLen
+	}
+
+	newAssetTrigger := func(t *testing.T, fixAuditChangesV7 bool, assetType transaction.CreateAssetContract_EnumAssetType) (kapp.KAppController, vmcommon.BuiltinFunction) {
+		t.Helper()
+
+		kc, container := newStoreRateController(t, fixAuditChangesV7)
+		if assetType == transaction.CreateAssetContract_NonFungible {
+			createDefaultAsset(t, kc, assetType, 0, 0, 0, nil)
+			_, err := kc.GetKDAKApp().Mint(defaultSender, &transaction.AssetTriggerContract{
+				TriggerType: transaction.AssetTriggerContract_Mint,
+				AssetID:     defaultAssetID,
+				ToAddress:   defaultSender,
+				Amount:      1,
+			})
+			require.NoError(t, err)
+		} else {
+			createSFTWithMintedNonce(t, kc, nil, false)
+		}
+
+		return kc, getBuiltin(t, container, core.BuiltInFunctionAssetTrigger)
+	}
+
+	updateMetadata := func(assetTrigger vmcommon.BuiltinFunction, gas uint64, name, attributes string) (*vmcommon.VMOutput, error) {
+		return processBuiltin(assetTrigger, gas,
+			big.NewInt(int64(transaction.AssetTriggerContract_UpdateMetadata)).Bytes(),
+			defaultAssetID,
+			big.NewInt(1).Bytes(),
+			defaultSender,
+			mime,
+			[]byte(attributes),
+			[]byte(name),
+		)
+	}
+
+	requireNFTMeta := func(t *testing.T, kc kapp.KAppController, metadata string) {
+		t.Helper()
+
+		acc, err := kc.GetAccountsKApp().GetAccountsCacher().GetExistingUser(defaultSender)
+		require.NoError(t, err)
+		userKDA, err := acc.GetUserKDA(defaultAssetID, []byte("1"), true)
+		require.NoError(t, err)
+		require.Equal(t, mime, userKDA.MIME)
+		require.Equal(t, metadata, string(userKDA.Metadata))
+	}
+
+	for _, attributes := range []string{small, large} {
+		t.Run(fmt.Sprintf("before V7 %d bytes of attributes pay only the flat cost", len(attributes)), func(t *testing.T) {
+			t.Parallel()
+
+			kc, assetTrigger := newAssetTrigger(t, false, transaction.CreateAssetContract_SemiFungible)
+			vmOutput, err := updateMetadata(assetTrigger, gasProvided, "name", attributes)
+			require.NoError(t, err)
+			require.Equal(t, gasProvided-funcGasCost, vmOutput.GasRemaining)
+			requireSFTMeta(t, kc, "name", attributes)
+		})
+
+		t.Run(fmt.Sprintf("from V7 %d bytes of attributes pay per stored byte", len(attributes)), func(t *testing.T) {
+			t.Parallel()
+
+			kc, assetTrigger := newAssetTrigger(t, true, transaction.CreateAssetContract_SemiFungible)
+			vmOutput, err := updateMetadata(assetTrigger, gasProvided, "name", attributes)
+			require.NoError(t, err)
+			require.Equal(t, gasProvided-funcGasCost-storePerByte*storedSize("name", attributes), vmOutput.GasRemaining)
+			requireSFTMeta(t, kc, "name", attributes)
+		})
+	}
+
+	t.Run("before V7 an NFT pays only the flat cost", func(t *testing.T) {
+		t.Parallel()
+
+		_, assetTrigger := newAssetTrigger(t, false, transaction.CreateAssetContract_NonFungible)
+		vmOutput, err := updateMetadata(assetTrigger, gasProvided, "name", large)
+		require.NoError(t, err)
+		require.Equal(t, gasProvided-funcGasCost, vmOutput.GasRemaining)
+	})
+
+	t.Run("from V7 an NFT pays for the MIME and the hex name@attributes its holder record keeps", func(t *testing.T) {
+		t.Parallel()
+
+		kc, assetTrigger := newAssetTrigger(t, true, transaction.CreateAssetContract_NonFungible)
+		vmOutput, err := updateMetadata(assetTrigger, gasProvided, "name", large)
+		require.NoError(t, err)
+		require.Equal(t, gasProvided-funcGasCost-storePerByte*storedSize("name", large), vmOutput.GasRemaining)
+		requireNFTMeta(t, kc, storedMetadata("name", large))
+	})
+
+	t.Run("from V7 an NFT update without a name pays for the MIME and the hex attributes", func(t *testing.T) {
+		t.Parallel()
+
+		kc, assetTrigger := newAssetTrigger(t, true, transaction.CreateAssetContract_NonFungible)
+		vmOutput, err := processBuiltin(assetTrigger, gasProvided,
+			big.NewInt(int64(transaction.AssetTriggerContract_UpdateMetadata)).Bytes(),
+			defaultAssetID,
+			big.NewInt(1).Bytes(),
+			defaultSender,
+			mime,
+			[]byte(large),
+		)
+		require.NoError(t, err)
+
+		attributesOnly := hex.EncodeToString([]byte(large))
+		require.Equal(t, gasProvided-funcGasCost-storePerByte*(uint64(len(mime)+len(attributesOnly))+2*maxVarintFieldLen), vmOutput.GasRemaining)
+		requireNFTMeta(t, kc, attributesOnly)
+	})
+
+	t.Run("from V7 a trigger that stores no metadata pays only the flat cost", func(t *testing.T) {
+		t.Parallel()
+
+		_, assetTrigger := newAssetTrigger(t, true, transaction.CreateAssetContract_SemiFungible)
+		vmOutput, err := processBuiltin(assetTrigger, gasProvided,
+			big.NewInt(int64(transaction.AssetTriggerContract_UpdateLogo)).Bytes(),
+			defaultAssetID,
+			[]byte("https://"+strings.Repeat("a", 100)+".png"),
+		)
+		require.NoError(t, err)
+		require.Equal(t, gasProvided-funcGasCost, vmOutput.GasRemaining)
+	})
+
+	t.Run("from V7 a new gas config sets the per-byte rate", func(t *testing.T) {
+		t.Parallel()
+
+		kc, assetTrigger := newAssetTrigger(t, true, transaction.CreateAssetContract_SemiFungible)
+		assetTrigger.SetNewGasConfig(&vmcommon.GasCost{
+			BaseOperationCost: vmcommon.BaseOperationCost{StorePerByte: 2 * storePerByte},
+			BuiltInCost:       vmcommon.BuiltInCost{AssetTrigger: funcGasCost},
+		})
+		vmOutput, err := updateMetadata(assetTrigger, gasProvided, "name", large)
+		require.NoError(t, err)
+		require.Equal(t, gasProvided-funcGasCost-2*storePerByte*storedSize("name", large), vmOutput.GasRemaining)
+		requireSFTMeta(t, kc, "name", large)
+	})
+
+	for _, assetType := range []transaction.CreateAssetContract_EnumAssetType{
+		transaction.CreateAssetContract_SemiFungible,
+		transaction.CreateAssetContract_NonFungible,
+	} {
+		t.Run(fmt.Sprintf("from V7 %s gas one below the cost is refused and the exact cost leaves none", assetType), func(t *testing.T) {
+			t.Parallel()
+
+			kc, assetTrigger := newAssetTrigger(t, true, assetType)
+			requireMeta := func(attributes string) {
+				t.Helper()
+				if assetType == transaction.CreateAssetContract_NonFungible {
+					requireNFTMeta(t, kc, storedMetadata("name", attributes))
+					return
+				}
+				requireSFTMeta(t, kc, "name", attributes)
+			}
+
+			_, err := updateMetadata(assetTrigger, gasProvided, "name", small)
+			require.NoError(t, err)
+
+			cost := funcGasCost + storePerByte*storedSize("name", large)
+			vmOutput, err := updateMetadata(assetTrigger, cost-1, "name", large)
+			require.Equal(t, common.ErrNotEnoughGas, err)
+			require.Nil(t, vmOutput)
+			requireMeta(small)
+
+			vmOutput, err = updateMetadata(assetTrigger, cost, "name", large)
+			require.NoError(t, err)
+			require.Zero(t, vmOutput.GasRemaining)
+			requireMeta(large)
+		})
+	}
 }

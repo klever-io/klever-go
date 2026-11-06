@@ -9,6 +9,7 @@ import (
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
+	"github.com/klever-io/klever-go/kvm/math"
 	"github.com/klever-io/klever-go/tools/check"
 	"github.com/klever-io/klever-go/vmcommon"
 )
@@ -18,6 +19,7 @@ type kleverAssetTrigger struct {
 	accountsCacher state.AccountsCacher
 	kappController kapp.KAppController
 	funcGasCost    uint64
+	storePerByte   uint64
 	marshaller     vmcommon.Marshalizer
 	keyPrefix      []byte
 	mutExecution   sync.RWMutex
@@ -27,6 +29,7 @@ type kleverAssetTrigger struct {
 // NewKleverAssetTriggerFunc returns the create asset built-in function component
 func NewKleverAssetTriggerFunc(
 	funcGasCost uint64,
+	storePerByte uint64,
 	marshaller vmcommon.Marshalizer,
 	accountsCacher state.AccountsCacher,
 	forkController core.ForkController,
@@ -41,6 +44,7 @@ func NewKleverAssetTriggerFunc(
 
 	e := &kleverAssetTrigger{
 		funcGasCost:    funcGasCost,
+		storePerByte:   storePerByte,
 		marshaller:     marshaller,
 		keyPrefix:      []byte(""),
 		accountsCacher: accountsCacher,
@@ -59,6 +63,7 @@ func (e *kleverAssetTrigger) SetNewGasConfig(gasCost *vmcommon.GasCost) {
 
 	e.mutExecution.Lock()
 	e.funcGasCost = gasCost.BuiltInCost.AssetTrigger
+	e.storePerByte = gasCost.BaseOperationCost.StorePerByte
 	e.mutExecution.Unlock()
 }
 
@@ -77,7 +82,13 @@ func (e *kleverAssetTrigger) ProcessBuiltinFunction(vmInput *vmcommon.ContractCa
 		return nil, err
 	}
 
-	gasRemaining, err := computeBuiltinGasRemaining(vmInput.GasProvided, e.funcGasCost, e.forkController)
+	gasCost := e.funcGasCost
+	if e.forkController.FixAuditChangesV7() {
+		// state written from a contract is kept by every node, so it pays per stored byte
+		gasCost = math.AddUint64(gasCost, math.MulUint64(e.storePerByte, e.storedSize(contract, txData)))
+	}
+
+	gasRemaining, err := computeBuiltinGasRemaining(vmInput.GasProvided, gasCost, e.forkController)
 	if err != nil {
 		return nil, err
 	}
@@ -210,6 +221,36 @@ func (e *kleverAssetTrigger) getAssetTriggerContract(vmInput *vmcommon.ContractC
 	}
 
 	return contract, txData, nil
+}
+
+// storedSize returns the bytes a trigger adds to state beyond what its flat cost covers: the
+// metadata of UpdateMetadata, and the records a mint adds (see mintStoredSize). Other trigger types
+// store size-capped data and return 0.
+func (e *kleverAssetTrigger) storedSize(contract *transaction.AssetTriggerContract, txData [][]byte) uint64 {
+	switch contract.GetTriggerType() {
+	case transaction.AssetTriggerContract_UpdateMetadata:
+		return metadataSize(contract, txData, e.kappController.GetCurrentKAppContext().ContractID())
+	case transaction.AssetTriggerContract_Mint:
+		return mintStoredSize(e.kappController, contract.GetAssetID(), contract.GetAmount())
+	default:
+		return 0
+	}
+}
+
+// metadataSize returns the bytes UpdateMetadata stores on an NFT: the MIME and the hex-encoded
+// name@attributes, each with its field tag and length prefix. The KDA kapp stores only the
+// metadata at the current contract's index, so only that entry counts. An SFT keeps only the
+// decoded name and attributes, not the MIME, so it pays for the MIME and for about twice its
+// stored bytes: a deliberate over-approximation that saves loading the asset type. A rewrite pays
+// for the full new value, not only its growth over the stored one, since the builtin does not load
+// the stored record.
+func metadataSize(contract *transaction.AssetTriggerContract, txData [][]byte, contractID int) uint64 {
+	size := uint64(len(contract.GetMIME())) + 2*maxVarintFieldSize
+	if contractID >= 0 && contractID < len(txData) {
+		size += uint64(len(txData[contractID]))
+	}
+
+	return size
 }
 
 // IsInterfaceNil returns true if underlying object in nil
