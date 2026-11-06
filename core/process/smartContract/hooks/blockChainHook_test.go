@@ -909,6 +909,64 @@ func (s *blockChainHookCounterPassthroughStub) SetMaximumValues(_ map[string]uin
 func (s *blockChainHookCounterPassthroughStub) GetCounterValues() map[string]uint64  { return nil }
 func (s *blockChainHookCounterPassthroughStub) IsInterfaceNil() bool                 { return s == nil }
 
+type maximumValuesRecorderStub struct {
+	blockChainHookCounterPassthroughStub
+	set []map[string]uint64
+}
+
+func (s *maximumValuesRecorderStub) SetMaximumValues(values map[string]uint64) {
+	s.set = append(s.set, values)
+}
+
+func TestBlockChainHookImpl_GasScheduleChangeRejectsMissingOrZeroMaximums(t *testing.T) {
+	t.Parallel()
+
+	valid := func() map[string]map[string]uint64 {
+		return map[string]map[string]uint64{
+			common.MaxPerTransaction: {
+				"MaxBuiltInCallsPerTx":      100,
+				"MaxNumberOfTransfersPerTx": 250,
+				"MaxNumberOfTrieReadsPerTx": 1500,
+			},
+		}
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(map[string]map[string]uint64)
+	}{
+		{"missing section", func(gs map[string]map[string]uint64) { delete(gs, common.MaxPerTransaction) }},
+		{"missing maximum", func(gs map[string]map[string]uint64) {
+			delete(gs[common.MaxPerTransaction], "MaxNumberOfTrieReadsPerTx")
+		}},
+		{"zero maximum", func(gs map[string]map[string]uint64) { gs[common.MaxPerTransaction]["MaxBuiltInCallsPerTx"] = 0 }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			counter := &maximumValuesRecorderStub{}
+			bh := &BlockChainHookImpl{counter: counter}
+			gasSchedule := valid()
+			tt.mutate(gasSchedule)
+
+			bh.GasScheduleChange(gasSchedule)
+			require.Empty(t, counter.set, "the counter keeps its previous maximums")
+		})
+	}
+
+	t.Run("valid maximums are applied", func(t *testing.T) {
+		t.Parallel()
+
+		counter := &maximumValuesRecorderStub{}
+		bh := &BlockChainHookImpl{counter: counter}
+
+		bh.GasScheduleChange(valid())
+		require.Equal(t, []map[string]uint64{valid()[common.MaxPerTransaction]}, counter.set)
+	})
+}
+
 func TestGetStorageData_AccNotFoundReturnsEmpty(t *testing.T) {
 	t.Parallel()
 

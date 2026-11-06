@@ -15,6 +15,7 @@ import (
 	"github.com/klever-io/klever-go/core/process/smartContract/hooks"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/kapps"
+	kvmconfig "github.com/klever-io/klever-go/kvm/config"
 	wasmvm10 "github.com/klever-io/klever-go/kvm/vmhost"
 	wasmVMHost10 "github.com/klever-io/klever-go/kvm/vmhost/hostCore"
 	"github.com/klever-io/klever-go/tools/check"
@@ -189,6 +190,13 @@ func (vmf *vmContainerFactory) Close() error {
 
 // GasScheduleChange updates the gas schedule map in all the components
 func (vmf *vmContainerFactory) GasScheduleChange(gasSchedule map[string]map[string]uint64) {
+	_, err := kvmconfig.CreateGasConfig(gasSchedule)
+	if err != nil {
+		// the VMs would reject it too; keep the compiled codes, which are still priced right
+		logVMContainerFactory.Error("cannot apply new gas schedule, keeping the previous one", "error", err)
+		return
+	}
+
 	// clear compiled codes always before changing gasSchedule
 	vmf.blockChainHook.ClearCompiledCodes()
 	for _, key := range vmf.container.Keys() {

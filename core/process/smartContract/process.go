@@ -178,14 +178,31 @@ func (sc *scProcessor) GasScheduleChange(gasSchedule map[string]map[string]uint6
 	sc.mutGasLock.Lock()
 	defer sc.mutGasLock.Unlock()
 
-	builtInFuncCost := gasSchedule[common.BuiltInCost]
-	if builtInFuncCost == nil {
+	err := CheckGasSchedule(gasSchedule)
+	if err != nil {
+		log.Error("cannot apply new gas schedule, keeping the previous one", "error", err)
 		return
 	}
 
-	sc.builtInGasCosts = builtInFuncCost
+	sc.builtInGasCosts = gasSchedule[common.BuiltInCost]
 	sc.storePerByte = gasSchedule[common.BaseOperationCost]["StorePerByte"]
 	sc.persistPerByte = gasSchedule[common.BaseOperationCost]["PersistPerByte"]
+}
+
+// CheckGasSchedule returns an error when the gas schedule lacks the built-in costs or a per-byte
+// storage cost the smart contract processor reads
+func CheckGasSchedule(gasSchedule map[string]map[string]uint64) error {
+	if gasSchedule[common.BuiltInCost] == nil {
+		return fmt.Errorf("%w: %s is missing", common.ErrInvalidGasSchedule, common.BuiltInCost)
+	}
+	for _, name := range []string{"StorePerByte", "PersistPerByte"} {
+		if gasSchedule[common.BaseOperationCost][name] == 0 {
+			return fmt.Errorf("%w: %s.%s has been set to 0 or is not set",
+				common.ErrInvalidGasSchedule, common.BaseOperationCost, name)
+		}
+	}
+
+	return nil
 }
 
 // SetVMExecutionMode sets the execution mode on the WASM VM

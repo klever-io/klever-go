@@ -33,6 +33,25 @@ func generateMapsOfValues(value uint64) map[string]uint64 {
 	}
 }
 
+func TestCheckMaximumValues(t *testing.T) {
+	t.Parallel()
+
+	assert.Nil(t, counters.CheckMaximumValues(generateMapsOfValues(1)))
+	assert.ErrorIs(t, counters.CheckMaximumValues(nil), counters.ErrInvalidMaximumValue)
+
+	for _, identifier := range []string{maxBuiltinCalls, maxTransfers, maxTrieReads} {
+		missing := generateMapsOfValues(1)
+		delete(missing, identifier)
+		err := counters.CheckMaximumValues(missing)
+		assert.ErrorIs(t, err, counters.ErrInvalidMaximumValue)
+		assert.Contains(t, err.Error(), identifier)
+
+		zero := generateMapsOfValues(1)
+		zero[identifier] = 0
+		assert.ErrorIs(t, counters.CheckMaximumValues(zero), counters.ErrInvalidMaximumValue)
+	}
+}
+
 func TestNewUsageCounter(t *testing.T) {
 	t.Parallel()
 

@@ -630,6 +630,44 @@ func TestExecution_ChangeWasmerOpcodeCosts(t *testing.T) {
 	require.NotEqual(t, gasRemainingBeforeChange, gasRemainingAfterChange)
 }
 
+func TestExecution_GasScheduleChangeWithIncompleteScheduleIsRejected(t *testing.T) {
+	contractCode := test.GetTestSCCode("misc", "../../")
+
+	host := test.NewTestHostBuilder(t).
+		WithBlockchainHook(test.BlockchainHookStubForCall(contractCode, big.NewInt(0))).
+		Build()
+	defer func() {
+		host.Reset()
+	}()
+	oldGasSchedule := host.GetGasScheduleMap()
+
+	input := test.CreateTestContractCallInputBuilder().
+		WithGasProvided(10000).
+		WithFunction("iterate_over_byte_array").
+		Build()
+
+	vmOutput, err := host.RunSmartContractCall(input)
+	test.NewVMOutputVerifier(t, vmOutput, err).Ok()
+	gasRemainingBefore := vmOutput.GasRemaining
+
+	incomplete := make(config.GasScheduleMap, len(oldGasSchedule))
+	for section, costs := range oldGasSchedule {
+		incomplete[section] = make(map[string]uint64, len(costs))
+		for name, cost := range costs {
+			incomplete[section][name] = cost
+		}
+	}
+	delete(incomplete["WASMOpcodeCost"], "TableInit")
+
+	host.GasScheduleChange(incomplete)
+
+	// the rejected schedule is not reported as the current one, and the host still runs on the old one
+	require.Contains(t, host.GetGasScheduleMap()["WASMOpcodeCost"], "TableInit")
+	vmOutput, err = host.RunSmartContractCall(input)
+	test.NewVMOutputVerifier(t, vmOutput, err).Ok()
+	require.Equal(t, gasRemainingBefore, vmOutput.GasRemaining)
+}
+
 func TestExecution_ChangeWasmerAPICosts(t *testing.T) {
 	contractCode := test.GetTestSCCode("misc", "../../")
 

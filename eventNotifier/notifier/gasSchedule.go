@@ -11,7 +11,11 @@ import (
 	"github.com/klever-io/klever-go/common"
 	"github.com/klever-io/klever-go/config"
 	"github.com/klever-io/klever-go/core"
+	"github.com/klever-io/klever-go/core/kapp/builtInFunctions"
 	"github.com/klever-io/klever-go/core/process"
+	"github.com/klever-io/klever-go/core/process/smartContract"
+	"github.com/klever-io/klever-go/core/process/smartContract/hooks/counters"
+	kvmconfig "github.com/klever-io/klever-go/kvm/config"
 	"github.com/klever-io/klever-go/tools/check"
 )
 
@@ -22,6 +26,7 @@ type gasScheduleNotifier struct {
 	mutNotifier        sync.RWMutex
 	configDir          string
 	gasScheduleConfig  config.GasScheduleConfig
+	gasSchedules       map[uint32]GasScheduleMap
 	currentEpoch       uint32
 	lastGasSchedule    GasScheduleMap
 	handlers           []core.GasScheduleSubscribeHandler
@@ -35,7 +40,10 @@ type ArgsNewGasScheduleNotifier struct {
 	WasmVMChangeLocker common.Locker
 }
 
-// NewGasScheduleNotifier creates a new instance of a gasScheduleNotifier component
+// NewGasScheduleNotifier creates a new instance of a gasScheduleNotifier component. Every scheduled
+// gas schedule is read and checked once, here, and kept: one a handler cannot apply keeps the node
+// from starting, and the schedule applied at an epoch is the one checked here, never a file read
+// again from disk at that epoch.
 func NewGasScheduleNotifier(args ArgsNewGasScheduleNotifier) (*gasScheduleNotifier, error) {
 	if check.IfNil(args.EpochNotifier) {
 		return nil, common.ErrNilEpochStartNotifier
@@ -43,38 +51,77 @@ func NewGasScheduleNotifier(args ArgsNewGasScheduleNotifier) (*gasScheduleNotifi
 	if check.IfNilReflect(args.WasmVMChangeLocker) {
 		return nil, common.ErrNilWasmChangeLocker
 	}
+	if len(args.GasScheduleConfig.GasScheduleByEpochs) == 0 {
+		return nil, common.ErrEmptyGasSchedule
+	}
+
+	// sort a copy: several notifiers are built from the same config
+	byEpochs := make([]config.GasScheduleByEpochs, len(args.GasScheduleConfig.GasScheduleByEpochs))
+	copy(byEpochs, args.GasScheduleConfig.GasScheduleByEpochs)
+	sort.Slice(byEpochs, func(i, j int) bool {
+		return byEpochs[i].StartEpoch < byEpochs[j].StartEpoch
+	})
 
 	g := &gasScheduleNotifier{
-		gasScheduleConfig:  args.GasScheduleConfig,
+		gasScheduleConfig:  config.GasScheduleConfig{GasScheduleByEpochs: byEpochs},
+		gasSchedules:       make(map[uint32]GasScheduleMap, len(byEpochs)),
 		handlers:           make([]core.GasScheduleSubscribeHandler, 0),
 		wasmVMChangeLocker: args.WasmVMChangeLocker,
 	}
 
-	for _, gasScheduleConf := range g.gasScheduleConfig.GasScheduleByEpochs {
-		_, err := config.LoadGasScheduleConfig(filepath.Join(g.configDir, gasScheduleConf.FileName))
-		if err != nil {
-			return nil, err
+	for _, gasScheduleConf := range byEpochs {
+		_, exists := g.gasSchedules[gasScheduleConf.StartEpoch]
+		if exists {
+			return nil, fmt.Errorf("%w: %d", common.ErrDuplicateGasScheduleEpoch, gasScheduleConf.StartEpoch)
 		}
-	}
 
-	sort.Slice(g.gasScheduleConfig.GasScheduleByEpochs, func(i, j int) bool {
-		return g.gasScheduleConfig.GasScheduleByEpochs[i].StartEpoch < g.gasScheduleConfig.GasScheduleByEpochs[j].StartEpoch
-	})
+		gasSchedule, err := config.LoadGasScheduleConfig(filepath.Join(g.configDir, gasScheduleConf.FileName))
+		if err != nil {
+			return nil, fmt.Errorf("gas schedule for epoch %d (%s): %w", gasScheduleConf.StartEpoch, gasScheduleConf.FileName, err)
+		}
 
-	// check if the first gas schedule is valid
-	if len(g.gasScheduleConfig.GasScheduleByEpochs) == 0 {
-		return nil, common.ErrEmptyGasSchedule
-	}
+		err = checkGasSchedule(gasSchedule)
+		if err != nil {
+			return nil, fmt.Errorf("%w for epoch %d (%s): %w",
+				common.ErrInvalidGasSchedule, gasScheduleConf.StartEpoch, gasScheduleConf.FileName, err)
+		}
 
-	var err error
-	g.lastGasSchedule, err = config.LoadGasScheduleConfig(filepath.Join(g.configDir, args.GasScheduleConfig.GasScheduleByEpochs[0].FileName))
-	if err != nil {
-		return nil, err
+		g.gasSchedules[gasScheduleConf.StartEpoch] = gasSchedule
 	}
+	g.lastGasSchedule = g.gasSchedules[byEpochs[0].StartEpoch]
 
 	args.EpochNotifier.RegisterNotifyHandler(g)
 
 	return g, nil
+}
+
+// checkGasSchedule runs the check of every gas schedule handler on the gas schedule. Each handler's
+// GasScheduleChange runs the same check, and keeps its previous values when it fails.
+func checkGasSchedule(gasSchedule GasScheduleMap) error {
+	_, err := kvmconfig.CreateGasConfig(gasSchedule)
+	if err != nil {
+		return fmt.Errorf("wasm vm: %w", err)
+	}
+
+	err = builtInFunctions.CheckGasSchedule(gasSchedule)
+	if err != nil {
+		return fmt.Errorf("built-in functions: %w", err)
+	}
+
+	// today the checks above already reject everything this one does (a missing BuiltInCost section, a
+	// zero StorePerByte or PersistPerByte), so no test fails without it; it stays so a schedule the
+	// smart contract processor would reject still stops start-up if its needs change
+	err = smartContract.CheckGasSchedule(gasSchedule)
+	if err != nil {
+		return fmt.Errorf("smart contract processor: %w", err)
+	}
+
+	err = counters.CheckMaximumValues(gasSchedule[common.MaxPerTransaction])
+	if err != nil {
+		return fmt.Errorf("blockchain hook %s: %w", common.MaxPerTransaction, err)
+	}
+
+	return nil
 }
 
 // RegisterNotifyHandler will register the provided handler to be called whenever a new epoch has changed
@@ -141,11 +188,8 @@ func (g *gasScheduleNotifier) changeLatestGasSchedule(epoch uint32, oldEpoch uin
 		return nil
 	}
 
-	newGasSchedule, err := config.LoadGasScheduleConfig(filepath.Join(g.configDir, newVersion.FileName))
-	if err != nil {
-		log.Error("could not load the new gas schedule")
-		return nil
-	}
+	// read and checked at construction, so it cannot fail here
+	newGasSchedule := g.gasSchedules[newVersion.StartEpoch]
 
 	log.Debug("gasScheduleNotifier.EpochConfirmed new gas schedule",
 		"new epoch", epoch,

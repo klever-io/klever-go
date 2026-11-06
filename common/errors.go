@@ -244,6 +244,12 @@ var ErrNilWasmChangeLocker = errors.New("nil wasm change locker")
 // ErrEmptyGasSchedule signals that the gas schedule is empty
 var ErrEmptyGasSchedule = errors.New("empty gas schedule")
 
+// ErrInvalidGasSchedule signals that a gas schedule handler cannot apply a scheduled gas schedule
+var ErrInvalidGasSchedule = errors.New("invalid gas schedule")
+
+// ErrDuplicateGasScheduleEpoch signals that two gas schedules are configured for the same start epoch
+var ErrDuplicateGasScheduleEpoch = errors.New("duplicate gas schedule start epoch")
+
 // ErrNilPathManager signals that a nil path manager has been provided
 var ErrNilPathManager = errors.New("nil path manager")
 

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 
 	logger "github.com/klever-io/klever-go-logger"
@@ -257,24 +258,19 @@ func LoadGasScheduleConfig(filepath string) (map[string]map[string]uint64, error
 	flattenedGasSchedule := make(map[string]map[string]uint64)
 	for libType, costs := range gasScheduleConfig {
 		flattenedGasSchedule[libType] = make(map[string]uint64)
-		costsMap := costs.(map[interface{}]interface{})
+		costsMap, ok := costs.(map[interface{}]interface{})
+		if !ok {
+			return nil, fmt.Errorf("failed to unmarshal gas schedule section %s: not a map of costs", libType)
+		}
 		for operationName, cost := range costsMap {
 			operationNameStr, ok := operationName.(string)
 			if !ok {
 				return nil, errors.New("failed to unmarshal gas schedule operation name")
 			}
 
-			var costUint64 uint64
-			switch costTyped := cost.(type) {
-			case int:
-				costUint64 = uint64(costTyped) // #nosec G115
-			case int64:
-				costUint64 = uint64(costTyped) // #nosec G115
-			case float64:
-				costUint64 = uint64(costTyped) // #nosec G115
-			default:
-				log.Error("failed to unmarshal gas schedule cost - unknown type", "type", reflect.TypeOf(cost))
-				return nil, fmt.Errorf("failed to unmarshal gas schedule cost - unknown type: %v", reflect.TypeOf(cost))
+			costUint64, err := gasScheduleCostToUint64(cost)
+			if err != nil {
+				return nil, fmt.Errorf("failed to unmarshal gas schedule cost %s.%s: %w", libType, operationNameStr, err)
 			}
 
 			flattenedGasSchedule[libType][operationNameStr] = costUint64
@@ -282,4 +278,28 @@ func LoadGasScheduleConfig(filepath string) (map[string]map[string]uint64, error
 	}
 
 	return flattenedGasSchedule, nil
+}
+
+// gasScheduleCostToUint64 converts a decoded gas schedule cost to uint64. A negative cost would wrap to a
+// huge uint64 and a fractional one would be truncated, so both are rejected.
+func gasScheduleCostToUint64(cost interface{}) (uint64, error) {
+	switch costTyped := cost.(type) {
+	case int:
+		if costTyped >= 0 {
+			return uint64(costTyped), nil // #nosec G115 -- checked non-negative
+		}
+	case int64:
+		if costTyped >= 0 {
+			return uint64(costTyped), nil // #nosec G115 -- checked non-negative
+		}
+	case float64:
+		if costTyped >= 0 && costTyped == math.Trunc(costTyped) && costTyped < math.MaxUint64 {
+			return uint64(costTyped), nil // #nosec G115 -- checked non-negative, integral and in range
+		}
+	default:
+		log.Error("failed to unmarshal gas schedule cost - unknown type", "type", reflect.TypeOf(cost))
+		return 0, fmt.Errorf("unknown type: %v", reflect.TypeOf(cost))
+	}
+
+	return 0, fmt.Errorf("%v is not a non-negative integer", cost)
 }

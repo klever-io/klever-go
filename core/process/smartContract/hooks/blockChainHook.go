@@ -21,6 +21,7 @@ import (
 	"github.com/klever-io/klever-go/core/process/factory/containers"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
 	"github.com/klever-io/klever-go/core/process/smartContract"
+	"github.com/klever-io/klever-go/core/process/smartContract/hooks/counters"
 	txProcess "github.com/klever-io/klever-go/core/process/transaction"
 	factoryHasher "github.com/klever-io/klever-go/crypto/hashing/factory"
 	"github.com/klever-io/klever-go/data"
@@ -846,13 +847,14 @@ func (bh *BlockChainHookImpl) ExecuteSmartContractCallOnOtherVM(input *vmcommon.
 
 // GasScheduleChange sets the new gas schedule where it is needed
 func (bh *BlockChainHookImpl) GasScheduleChange(gasSchedule map[string]map[string]uint64) {
-	maxPerTransaction := bh.getMaxPerTransactionValues(gasSchedule)
-	if maxPerTransaction == nil {
-		log.Error("maxPerTransaction definition is missing in the current gas schedule, using old values")
+	err := counters.CheckMaximumValues(gasSchedule[common.MaxPerTransaction])
+	if err != nil {
+		// a missing or zero maximum would fail every call it counts
+		log.Error("cannot apply the per-transaction maximums of the new gas schedule, using old values", "error", err)
 		return
 	}
 
-	bh.counter.SetMaximumValues(maxPerTransaction)
+	bh.counter.SetMaximumValues(bh.getMaxPerTransactionValues(gasSchedule))
 }
 
 func (bh *BlockChainHookImpl) getMaxPerTransactionValues(gasSchedule map[string]map[string]uint64) map[string]uint64 {

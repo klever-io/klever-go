@@ -364,18 +364,19 @@ func (host *vmHost) ClearContextStateStack() {
 	host.storageContext.ClearStateStack()
 }
 
-// GasScheduleChange applies a new gas schedule to the host
+// GasScheduleChange applies a new gas schedule to the host. A schedule the host cannot apply is
+// rejected whole: the host keeps, and reports, the schedule it is still running on.
 func (host *vmHost) GasScheduleChange(newGasSchedule config.GasScheduleMap) {
 	host.mutExecution.Lock()
 	defer host.mutExecution.Unlock()
 
-	host.gasSchedule = newGasSchedule
 	gasCostConfig, err := config.CreateGasConfig(newGasSchedule)
 	if err != nil {
 		log.Error("cannot apply new gas config", "err", err)
 		return
 	}
 
+	host.gasSchedule = newGasSchedule
 	host.runtimeContext.GetVMExecutor().SetOpcodeCosts(gasCostConfig.WASMOpcodeCost)
 
 	host.meteringContext.SetGasSchedule(newGasSchedule)

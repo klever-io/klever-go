@@ -319,6 +319,7 @@ func createMockSmartContractProcessorArguments() ArgsNewSmartContractProcessor {
 	gasSchedule[common.BaseOpsAPICost] = make(map[string]uint64)
 	gasSchedule[common.BuiltInCost] = make(map[string]uint64)
 	gasSchedule[common.BuiltInCost][core.BuiltInFunctionTransfer] = 2000
+	gasSchedule[common.BaseOperationCost] = map[string]uint64{"StorePerByte": 1, "PersistPerByte": 1}
 
 	txFeeHandler, _ := postprocess.NewFeeAccumulator()
 
@@ -603,6 +604,7 @@ func TestGasScheduleChangeNoApiCostShouldNotChange(t *testing.T) {
 
 	gasSchedule[common.BuiltInCost] = make(map[string]uint64)
 	gasSchedule[common.BuiltInCost][core.BuiltInFunctionAssetTrigger] = 2000
+	gasSchedule[common.BaseOperationCost] = map[string]uint64{"StorePerByte": 1, "PersistPerByte": 1}
 	sc.GasScheduleChange(gasSchedule)
 	require.Equal(t, sc.builtInGasCosts[core.BuiltInFunctionAssetTrigger], uint64(2000))
 }
@@ -616,10 +618,38 @@ func TestGasScheduleChangeShouldWork(t *testing.T) {
 	gasSchedule := make(map[string]map[string]uint64)
 	gasSchedule[common.BuiltInCost] = make(map[string]uint64)
 	gasSchedule[common.BuiltInCost][core.BuiltInFunctionTransfer] = 20
+	gasSchedule[common.BaseOperationCost] = map[string]uint64{"StorePerByte": 3, "PersistPerByte": 4}
 
 	sc.GasScheduleChange(gasSchedule)
 
 	require.Equal(t, sc.builtInGasCosts[core.BuiltInFunctionTransfer], uint64(20))
+	require.Equal(t, uint64(3), sc.storePerByte)
+	require.Equal(t, uint64(4), sc.persistPerByte)
+}
+
+func TestGasScheduleChangeWithMissingPerByteCostKeepsPrevious(t *testing.T) {
+	t.Parallel()
+
+	arguments := createMockSmartContractProcessorArguments()
+	sc, _ := NewSmartContractProcessor(arguments)
+	storePerByte, persistPerByte := sc.storePerByte, sc.persistPerByte
+
+	for _, missing := range []string{"StorePerByte", "PersistPerByte"} {
+		gasSchedule := map[string]map[string]uint64{
+			common.BuiltInCost:       {core.BuiltInFunctionTransfer: 20},
+			common.BaseOperationCost: {"StorePerByte": 3, "PersistPerByte": 4},
+		}
+		delete(gasSchedule[common.BaseOperationCost], missing)
+
+		err := CheckGasSchedule(gasSchedule)
+		require.ErrorIs(t, err, common.ErrInvalidGasSchedule)
+		require.Contains(t, err.Error(), missing)
+
+		sc.GasScheduleChange(gasSchedule)
+		require.Equal(t, storePerByte, sc.storePerByte)
+		require.Equal(t, persistPerByte, sc.persistPerByte)
+		require.NotEqual(t, uint64(20), sc.builtInGasCosts[core.BuiltInFunctionTransfer])
+	}
 }
 
 // ===================== TestDeploySmartContract =====================

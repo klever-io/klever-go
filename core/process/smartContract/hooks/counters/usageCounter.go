@@ -22,6 +22,10 @@ const (
 	crtTrieReads    = "CrtNumberOfTrieReadsPerTx"
 )
 
+// maximumValueIdentifiers lists every maximum SetMaximumValues reads, for CheckMaximumValues; a new
+// maximum goes in both
+var maximumValueIdentifiers = []string{maxBuiltinCalls, maxTransfers, maxTrieReads}
+
 type usageCounter struct {
 	mutCounters                     sync.RWMutex
 	maxBuiltInCallsPerTx            uint64
@@ -115,6 +119,18 @@ func (counter *usageCounter) SetMaximumValues(mapsOfValues map[string]uint64) {
 	counter.maxBuiltInCallsPerTx = readValue(mapsOfValues, maxBuiltinCalls)
 	counter.maxNumberOfTransfersPerTx = readValue(mapsOfValues, maxTransfers)
 	counter.maxNumberOfTrieReadsPerTx = readValue(mapsOfValues, maxTrieReads)
+}
+
+// CheckMaximumValues returns an error when a per-transaction maximum the usage counter enforces is
+// missing or zero, since a zero maximum fails every call it counts
+func CheckMaximumValues(mapsOfValues map[string]uint64) error {
+	for _, identifier := range maximumValueIdentifiers {
+		if mapsOfValues[identifier] == 0 {
+			return fmt.Errorf("%w: %s has been set to 0 or is not set", ErrInvalidMaximumValue, identifier)
+		}
+	}
+
+	return nil
 }
 
 func readValue(mapsOfValues map[string]uint64, identifier string) uint64 {

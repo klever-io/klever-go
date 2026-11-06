@@ -170,6 +170,18 @@ func TestVmContainerFactory_Create(t *testing.T) {
 	assert.NotNil(t, acc)
 }
 
+func TestVmContainerFactory_GasScheduleChangeRejectsIncompleteScheduleBeforeClearingCodes(t *testing.T) {
+	t.Parallel()
+
+	vmf := &vmContainerFactory{}
+
+	incomplete := kvmConfig.MakeGasMapForTests()
+	delete(incomplete["WASMOpcodeCost"], "TableInit")
+
+	// rejected before the compiled codes are cleared: this factory has no blockchain hook to clear
+	require.NotPanics(t, func() { vmf.GasScheduleChange(incomplete) })
+}
+
 func TestVmContainerFactory_ResolveWasmVMVersion(t *testing.T) {
 	epochNotifierInstance := notifier.NewGenericEpochNotifier()
 

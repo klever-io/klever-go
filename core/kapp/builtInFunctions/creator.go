@@ -81,6 +81,7 @@ func NewBuiltInFunctionsCreator(args ArgsCreateBuiltInFunctionContainer) (*built
 func (b *builtInFuncCreator) GasScheduleChange(gasSchedule map[string]map[string]uint64) {
 	newGasConfig, err := createGasConfig(gasSchedule)
 	if err != nil {
+		log.Error("cannot apply new built-in function gas config, keeping the previous one", "err", err)
 		return
 	}
 
@@ -448,6 +449,13 @@ func (b *builtInFuncCreator) CreateBuiltInFunctionContainer() error {
 	}
 
 	return nil
+}
+
+// CheckGasSchedule returns an error when the built-in functions cannot build their gas configuration
+// from the gas schedule: a missing section, or a missing or zero base-operation or built-in cost
+func CheckGasSchedule(gasSchedule map[string]map[string]uint64) error {
+	_, err := createGasConfig(gasSchedule)
+	return err
 }
 
 func createGasConfig(gasMap map[string]map[string]uint64) (*vmcommon.GasCost, error) {
