@@ -152,15 +152,17 @@ func trimSplitRune(b []byte) []byte {
 	return b
 }
 
-// sanitizeServerText strips control characters (except tab) from server-supplied text
-// before it reaches the terminal, so a response cannot inject newlines or escape sequences
-// into the operator's output.
+// sanitizeServerText strips from server-supplied text what could alter how the terminal
+// shows it: control characters (except tab) that inject newlines or escape sequences, the
+// Unicode line/paragraph separators that IsControl does not cover, and format characters
+// (bidi overrides, zero-width joiners) that can visually reorder or hide the text that
+// follows — a reason that reads backwards could disguise a fee or an address.
 func sanitizeServerText(s string) string {
 	return strings.Map(func(r rune) rune {
 		if r == '\t' {
 			return r
 		}
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' ' {
 			return -1
 		}
 		return r

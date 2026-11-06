@@ -315,7 +315,10 @@ func (h *SocketHub) startPostWorkers(ctx context.Context) {
 					if err := h.postWSConnection(ctx, parsed); err != nil {
 						h.appStatusHandler.Increment(core.MetricWSMirrorPostFailuresTotal)
 						if count, ok := h.postFailWarn.fire(); ok {
-							log.Warn("ws.EventReceive.postWSConnection", "msg", "failed to post to mirror", "failedCount", count, "lastError", err.Error())
+							// The error carries the mirror's response body, which the operator's HTTP
+							// helper now keeps up to 64 KiB of; bound and scrub it like every other
+							// peer-influenced field in this file.
+							log.Warn("ws.EventReceive.postWSConnection", "msg", "failed to post to mirror", "failedCount", count, "lastError", loggableError(err))
 						}
 					}
 				}

@@ -138,9 +138,15 @@ func TestErrorBodyIsReportedWhole(t *testing.T) {
 		{name: "2000 bytes", body: strings.Repeat("Z", 2000), wantZ: 2000},
 		{name: "exactly at the cap", body: strings.Repeat("Z", capBytes), wantZ: capBytes},
 		{name: "past the cap is cut and says so", body: strings.Repeat("Z", capBytes+1000), wantZ: capBytes, wantTruncated: true},
-		// "é" is two bytes; placing it so the cut lands inside it must drop the rune, not
-		// leave U+FFFD in front of the marker.
-		{name: "cut inside a multi-byte rune drops it", body: strings.Repeat("Z", capBytes-1) + "é" + strings.Repeat("Z", 1000), wantZ: capBytes - 1, wantTruncated: true},
+		// A cut that lands inside a multi-byte rune must drop the rune, not leave U+FFFD in
+		// front of the marker: 2-byte "é" after its lead byte, 3-byte "€" after two bytes,
+		// 4-byte "😀" after one and after three bytes.
+		{name: "cut inside a 2-byte rune drops it", body: strings.Repeat("Z", capBytes-1) + "é" + strings.Repeat("Z", 1000), wantZ: capBytes - 1, wantTruncated: true},
+		{name: "cut inside a 3-byte rune drops it", body: strings.Repeat("Z", capBytes-2) + "€" + strings.Repeat("Z", 1000), wantZ: capBytes - 2, wantTruncated: true},
+		{name: "cut after one byte of a 4-byte rune drops it", body: strings.Repeat("Z", capBytes-1) + "😀" + strings.Repeat("Z", 1000), wantZ: capBytes - 1, wantTruncated: true},
+		{name: "cut after three bytes of a 4-byte rune drops it", body: strings.Repeat("Z", capBytes-3) + "😀" + strings.Repeat("Z", 1000), wantZ: capBytes - 3, wantTruncated: true},
+		// A rune that ends exactly at the cap is complete and must be kept before the marker.
+		{name: "rune ending exactly at the cap is kept", body: strings.Repeat("Z", capBytes-2) + "é" + strings.Repeat("Z", 1000), wantZ: capBytes - 2, wantTruncated: true, wantWhole: "é ... (response body truncated"},
 		// 64 KiB of whitespace sanitises to nothing: the marker stands alone, no stray spaces.
 		{name: "whitespace past the cap leaves only the marker", body: strings.Repeat(" ", capBytes+1000), wantZ: 0, wantTruncated: true, wantWhole: "502 Bad Gateway: (response body truncated at 65536 bytes)"},
 	}
@@ -193,6 +199,26 @@ func TestErrorStripsControlCharsFromServerBody(t *testing.T) {
 	assert.NotContains(t, err.Error(), "\n", "newlines must be stripped to prevent log line forging")
 	assert.NotContains(t, err.Error(), "\x1b", "escape sequences must be stripped to prevent terminal spoofing")
 	assert.Contains(t, err.Error(), "line1line2[2Kfaked-success")
+}
+
+// TestErrorStripsFormatCharsFromServerBody pins that the characters which change how text
+// is displayed without being control characters are dropped too: a bidi override that
+// would show the reason reversed, the line/paragraph separators some terminals treat as
+// newlines, and a zero-width space that could hide a split in a value.
+func TestErrorStripsFormatCharsFromServerBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("fee ‮001 KLV‬ to klv1​abc"))
+	}))
+	defer srv.Close()
+
+	var got sampleResult
+	err := utils.GetURL(srv.URL, &got)
+	require.Error(t, err)
+	for _, forbidden := range []string{"‮", "‬", " ", " ", "​"} {
+		assert.NotContains(t, err.Error(), forbidden)
+	}
+	assert.Contains(t, err.Error(), "fee 001 KLVtoklv1abc", "the visible text must survive with only the invisible characters removed")
 }
 
 func TestPostURLReturnsErrorOnEmptyBody(t *testing.T) {
