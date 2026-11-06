@@ -424,14 +424,9 @@ type WASMOpcodeCost struct {
 	DataDrop                  uint64 `yaml:"DataDrop"`
 	MemoryCopy                uint64 `yaml:"MemoryCopy"`
 	MemoryFill                uint64 `yaml:"MemoryFill"`
-	TableInit                 uint64 `yaml:"TableInit"`
 	ElemDrop                  uint64 `yaml:"ElemDrop"`
 	TableCopy                 uint64 `yaml:"TableCopy"`
 	TableFill                 uint64 `yaml:"TableFill"`
-	TableGet                  uint64 `yaml:"TableGet"`
-	TableSet                  uint64 `yaml:"TableSet"`
-	TableGrow                 uint64 `yaml:"TableGrow"`
-	TableSize                 uint64 `yaml:"TableSize"`
 	AtomicNotify              uint64 `yaml:"AtomicNotify"`
 	I32AtomicWait             uint64 `yaml:"I32AtomicWait"`
 	I64AtomicWait             uint64 `yaml:"I64AtomicWait"`

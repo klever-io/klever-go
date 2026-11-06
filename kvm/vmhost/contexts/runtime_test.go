@@ -1160,6 +1160,10 @@ func TestRuntimeContext_WarmInstanceRefusedForTableMutatingModule(t *testing.T) 
 	}
 }
 
+// TestRuntimeContext_WarmInstanceReusedForTableReadingModule pins the guard's
+// classification only: table.get does not mutate a table, so
+// useWarmInstanceIfExists lets the warm instance through. The instance is a
+// mock; a real module with table.get no longer compiles (TestForbiddenOps_Tables).
 func TestRuntimeContext_WarmInstanceReusedForTableReadingModule(t *testing.T) {
 	host := InitializeVMAndWasmer()
 	runtimeCtx := makeDefaultRuntimeContext(t, host)
@@ -1176,23 +1180,37 @@ func TestRuntimeContext_WarmInstanceReusedForTableReadingModule(t *testing.T) {
 	require.True(t, runtimeCtx.iTracker.warmInstanceCache.Has(codeHash))
 }
 
+// A table-mutating module no longer compiles: no table instruction has a
+// metering price. The failed cold instantiation must not leave an instance
+// behind.
 func TestRuntimeContext_TableMutatingModuleLeavesNoLeakedInstance(t *testing.T) {
 	host := InitializeVMAndWasmer()
 	runtimeCtx := makeDefaultRuntimeContext(t, host)
 	defer runtimeCtx.ClearWarmInstanceCache()
 	runtimeCtx.SetMaxInstanceStackSize(1)
 
-	require.Nil(t, runtimeCtx.StartWasmerInstance(moduleMutatingTable(), 1000, false))
+	require.NotNil(t, runtimeCtx.StartWasmerInstance(moduleMutatingTable(), 1000, false))
 	runtimeCtx.EndExecution()
 
 	require.Nil(t, runtimeCtx.ValidateInstances())
 }
 
+// The two tests below seed a mock warm instance under the module's code hash.
+// Had the warm path handed it out, StartWasmerInstance would succeed with it.
+// Instead the guard must refuse and evict it, and the cold path then fails to
+// compile the module. The guard stays as defense in depth behind the
+// executor's rejection of table instructions.
 func TestRuntimeContext_StartWasmerInstanceRefusesTableMutatingModuleBeforeAuditV4(t *testing.T) {
 	host := InitializeVMAndWasmer()
 	forkController := commonMock.NewForkControllerStub()
 	forkController.FixAuditChangesV4Value = false
 	host.ForkControllerContext = forkController
+
+	assertWarmInstanceRefusedForTableMutatingModule(t, host)
+}
+
+func assertWarmInstanceRefusedForTableMutatingModule(t *testing.T, host vmhost.VMHost) {
+	t.Helper()
 
 	runtimeCtx := makeDefaultRuntimeContext(t, host)
 	defer runtimeCtx.ClearWarmInstanceCache()
@@ -1200,13 +1218,11 @@ func TestRuntimeContext_StartWasmerInstanceRefusesTableMutatingModuleBeforeAudit
 
 	contract := moduleMutatingTable()
 	codeHash := seedWarmInstance(t, runtimeCtx, contract)
-	seeded, found := runtimeCtx.iTracker.GetWarmInstance(codeHash)
-	require.True(t, found)
 
-	require.Nil(t, runtimeCtx.StartWasmerInstance(contract, 1000, false))
-
-	require.NotEqual(t, Warm, runtimeCtx.iTracker.cacheLevel)
-	require.NotEqual(t, seeded.ID(), runtimeCtx.iTracker.Instance().ID())
+	require.NotNil(t, runtimeCtx.StartWasmerInstance(contract, 1000, false),
+		"the module must fail to compile cold, not run on the seeded warm instance")
+	require.False(t, runtimeCtx.iTracker.warmInstanceCache.Has(codeHash),
+		"the guard must evict the warm instance it refused")
 }
 
 func TestRuntimeContext_StartWasmerInstanceRefusesWarmInstanceForTableMutatingModule(t *testing.T) {
@@ -1215,33 +1231,18 @@ func TestRuntimeContext_StartWasmerInstanceRefusesWarmInstanceForTableMutatingMo
 	forkController.FixAuditChangesV4Value = true
 	host.ForkControllerContext = forkController
 
-	runtimeCtx := makeDefaultRuntimeContext(t, host)
-	defer runtimeCtx.ClearWarmInstanceCache()
-	runtimeCtx.SetMaxInstanceStackSize(1)
-
-	contract := moduleMutatingTable()
-	codeHash := seedWarmInstance(t, runtimeCtx, contract)
-	seeded, found := runtimeCtx.iTracker.GetWarmInstance(codeHash)
-	require.True(t, found)
-
-	require.Nil(t, runtimeCtx.StartWasmerInstance(contract, 1000, false))
-
-	require.NotEqual(t, Warm, runtimeCtx.iTracker.cacheLevel)
-	require.NotEqual(t, seeded.ID(), runtimeCtx.iTracker.Instance().ID())
+	assertWarmInstanceRefusedForTableMutatingModule(t, host)
 }
 
-// oversizedTableWasmHex declares a funcref table with max=200,000,000, well
-// above any configured cap, and exports grow_one so it can be executed.
-const oversizedTableWasmHex = "0061736d010000000104016000000307060000000000000408017001008084af5f0503010001077b07066d656d6f727902000867726f775f6f6e6500000d67726f775f74686f7573616e6400011567726f775f68756e647265645f74686f7573616e6400020c67726f775f6d696c6c696f6e00031167726f775f666976655f6d696c6c696f6e0004186173736572745f73697a655f666976655f6d696c6c696f6e00050a50060a00d0704101fc0f001a0b0b00d07041e807fc0f001a0b0c00d07041a08d06fc0f001a0b0c00d07041c0843dfc0f001a0b0d00d07041c096b102fc0f001a0b0f00fc100041c096b102470440000b0b"
-
-// oversizedTableNonMutatingWasmHex declares the same over-cap table maximum as
-// oversizedTableWasmHex, but its code section contains no table-mutating
-// opcode. That distinction is load-bearing: useWarmInstanceIfExists refuses a
-// warm instance outright for any module wasmbytes.MutatesTables reports true
-// for, which short-circuits before verifyTableDeclarationIfActive is reached.
-// A fixture using table.grow therefore cannot exercise the warm-rejection
-// branch at all - the test would still pass, but because both paths went cold
-// rather than because the branch behaves correctly.
+// oversizedTableNonMutatingWasmHex declares a funcref table with
+// max=200,000,000, well above any configured cap, and its code section
+// contains no table instruction. That distinction is load-bearing: no table
+// instruction compiles, and useWarmInstanceIfExists refuses a warm instance
+// outright for any module wasmbytes.MutatesTables reports true for, which
+// short-circuits before verifyTableDeclarationIfActive is reached. A fixture
+// using table.grow therefore cannot exercise the warm-rejection branch at all
+// - the test would still pass, but because both paths went cold and failed to
+// compile rather than because the branch behaves correctly.
 const oversizedTableNonMutatingWasmHex = "0061736d0100000001040160000003030200000408017001008084af5f0503010001071803066d656d6f7279020004696e69740000046d61696e00010a070202000b02000b000b046e616d65050401000174"
 
 // TestRuntimeContext_VerifyContractCode_RedundantTableCheck exercises the

@@ -16,6 +16,9 @@ func WriteRustOpcodeCost(out *eiGenWriter) {
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 `)
+	// klever-go hands the executor a pointer to its own Go struct, so the
+	// field layout must be fixed; vm_exec_opcode_cost_size lets it check.
+	out.WriteString("#[repr(C)]\n")
 	out.WriteString("#[derive(Clone, Debug, Default)]\n")
 	out.WriteString("pub struct OpcodeCost {\n")
 

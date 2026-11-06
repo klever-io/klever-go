@@ -16,6 +16,10 @@ var ErrCachingFailed = errors.New("instance caching failed")
 
 var ErrInstanceCleaned = errors.New("wasmer2 instance already cleaned")
 
+// ErrOpcodeCostLayoutMismatch signals that the executor library reads an
+// opcode cost struct of a different size than OpcodeCost.
+var ErrOpcodeCostLayoutMismatch = errors.New("executor library opcode cost layout does not match OpcodeCost")
+
 // GetLastError returns the last error message if any, otherwise returns an error.
 func GetLastError() (string, error) {
 	var errorLength = cWasmerLastErrorLength()

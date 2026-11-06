@@ -1,6 +1,7 @@
 package wasmer2
 
 import (
+	"fmt"
 	"unsafe"
 
 	"github.com/klever-io/klever-go/kvm/executor"
@@ -22,6 +23,11 @@ type Wasmer2Executor struct {
 
 // CreateExecutor creates a new wasmer executor.
 func CreateExecutor() (*Wasmer2Executor, error) {
+	err := checkOpcodeCostLayout(libraryOpcodeCostSize())
+	if err != nil {
+		return nil, err
+	}
+
 	vmHookPointers := populateCgoFunctionPointers()
 	// #nosec G103: unsafe.Pointer is used to convert to uintptr
 	localPtr := uintptr(unsafe.Pointer(vmHookPointers))
@@ -47,6 +53,22 @@ func CreateExecutor() (*Wasmer2Executor, error) {
 	}
 
 	return executor, nil
+}
+
+// libraryOpcodeCostSize reports the opcode cost struct size the executor
+// library reads. A variable so tests can stand in a mismatched library.
+var libraryOpcodeCostSize = cWasmerOpcodeCostSize
+
+// checkOpcodeCostLayout refuses an executor library whose opcode cost struct
+// differs in size from OpcodeCost. The executor reads the struct through a
+// pointer, so a field present on only one side would shift every later cost
+// without any error.
+func checkOpcodeCostLayout(librarySize uint32) error {
+	goSize := uint32(unsafe.Sizeof(OpcodeCost{}))
+	if librarySize != goSize {
+		return fmt.Errorf("%w: library %d bytes, Go %d bytes", ErrOpcodeCostLayoutMismatch, librarySize, goSize)
+	}
+	return nil
 }
 
 // SetOpcodeCosts sets gas costs globally inside the Wasmer executor.
@@ -279,11 +301,6 @@ func (wasmerExecutor *Wasmer2Executor) extractOpcodeCost(wasmOps *executor.WASMO
 		ReturnCall:         wasmOps.ReturnCall,
 		ReturnCallIndirect: wasmOps.ReturnCallIndirect,
 		Select:             wasmOps.Select,
-		TableGet:           wasmOps.TableGet,
-		TableGrow:          wasmOps.TableGrow,
-		TableInit:          wasmOps.TableInit,
-		TableSet:           wasmOps.TableSet,
-		TableSize:          wasmOps.TableSize,
 		Throw:              wasmOps.Throw,
 		Try:                wasmOps.Try,
 		TypedSelect:        wasmOps.TypedSelect,

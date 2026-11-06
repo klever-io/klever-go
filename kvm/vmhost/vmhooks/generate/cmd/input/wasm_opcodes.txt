@@ -510,12 +510,7 @@ ReturnCallIndirect
 Select
 TableCopy
 TableFill
-TableGet
-TableGrow
-TableInit
 TableInitPerElement
-TableSet
-TableSize
 Throw
 Try
 TypedSelect

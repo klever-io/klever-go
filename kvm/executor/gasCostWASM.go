@@ -519,12 +519,7 @@ type WASMOpcodeCost struct {
 	Select                        uint32
 	TableCopy                     uint32
 	TableFill                     uint32
-	TableGet                      uint32
-	TableGrow                     uint32
-	TableInit                     uint32
 	TableInitPerElement           uint32
-	TableSet                      uint32
-	TableSize                     uint32
 	Throw                         uint32
 	Try                           uint32
 	TypedSelect                   uint32

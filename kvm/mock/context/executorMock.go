@@ -110,7 +110,10 @@ func (executorMock *ExecutorMock) NewInstanceWithOptions(
 		return instance, nil
 	}
 
-	we, _ := wasmer2.CreateExecutor()
+	we, err := wasmer2.CreateExecutor()
+	if err != nil {
+		return nil, err
+	}
 
 	return we.NewInstanceWithOptions(contractCode, options)
 }
@@ -128,7 +131,10 @@ func (executorMock *ExecutorMock) NewInstanceFromCompiledCodeWithOptions(
 		return instance, nil
 	}
 
-	we, _ := wasmer2.CreateExecutor()
+	we, err := wasmer2.CreateExecutor()
+	if err != nil {
+		return nil, err
+	}
 
 	return we.NewInstanceFromCompiledCodeWithOptions(compiledCode, options)
 }

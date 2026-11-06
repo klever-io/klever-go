@@ -51,6 +51,10 @@ func cWasmerExecutorSetOpcodeCost(
 	))
 }
 
+func cWasmerOpcodeCostSize() uint32 {
+	return uint32(C.vm_exec_opcode_cost_size())
+}
+
 func cWasmerInstanceSetGasLimit(instance *cWasmerInstanceT, gasLimit uint64) cWasmerResultT {
 	return (cWasmerResultT)(C.vm_exec_instance_set_points_limit(
 		(*C.vm_exec_instance_t)(instance),

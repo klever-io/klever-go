@@ -1049,12 +1049,7 @@ func FillGasMapWASMOpcodeValues(value uint64) map[string]uint64 {
 	gasMap["Select"] = value
 	gasMap["TableCopy"] = value
 	gasMap["TableFill"] = value
-	gasMap["TableGet"] = value
-	gasMap["TableGrow"] = value
-	gasMap["TableInit"] = value
 	gasMap["TableInitPerElement"] = value
-	gasMap["TableSet"] = value
-	gasMap["TableSize"] = value
 	gasMap["Throw"] = value
 	gasMap["Try"] = value
 	gasMap["TypedSelect"] = value
