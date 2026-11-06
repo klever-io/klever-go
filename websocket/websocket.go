@@ -46,6 +46,10 @@ const (
 
 	// peerFailLogOp labels the shutdown summaries for the peer-driven failure budgets.
 	peerFailLogOp = "ws.peerFailures"
+
+	// postMirrorLogOp labels every line about the HTTP mirror: queue drops, shutdown, and
+	// post failures.
+	postMirrorLogOp = "ws.EventReceive.postWSConnection"
 )
 
 var (
@@ -281,7 +285,7 @@ func (h *SocketHub) asyncPost(parsed *Send) {
 	default:
 		h.appStatusHandler.Increment(core.MetricWSMirrorQueueDroppedTotal)
 		if count, ok := h.queueDropWarn.fire(); ok {
-			log.Warn("ws.EventReceive.postWSConnection", "msg", "mirror queue full, dropping events", "droppedCount", count)
+			log.Warn(postMirrorLogOp, "msg", "mirror queue full, dropping events", "droppedCount", count)
 		}
 	}
 }
@@ -309,7 +313,7 @@ func (h *SocketHub) startPostWorkers(ctx context.Context) {
 					// item. Check ctx.Err() before posting instead of starting (and
 					// immediately failing) a doomed request.
 					if ctx.Err() != nil {
-						log.Warn("ws.EventReceive.postWSConnection", "msg", "shutdown: abandoning mirror queue", "pending", len(h.postQueue)+1)
+						log.Warn(postMirrorLogOp, "msg", "shutdown: abandoning mirror queue", "pending", len(h.postQueue)+1)
 						return
 					}
 					if err := h.postWSConnection(ctx, parsed); err != nil {
@@ -318,7 +322,7 @@ func (h *SocketHub) startPostWorkers(ctx context.Context) {
 							// The error carries the mirror's response body, which the operator's HTTP
 							// helper now keeps up to 64 KiB of; bound and scrub it like every other
 							// peer-influenced field in this file.
-							log.Warn("ws.EventReceive.postWSConnection", "msg", "failed to post to mirror", "failedCount", count, "lastError", loggableError(err))
+							log.Warn(postMirrorLogOp, "msg", "failed to post to mirror", "failedCount", count, "lastError", loggableError(err))
 						}
 					}
 				}
@@ -400,10 +404,10 @@ func (h *SocketHub) StartServer(ctx context.Context) {
 			// unrelated later window on hub reuse. Flush both here, once, after every
 			// worker has actually exited.
 			if count, ok := h.queueDropWarn.flush(); ok {
-				log.Warn("ws.EventReceive.postWSConnection", "msg", "mirror queue full, dropping events (final)", "droppedCount", count)
+				log.Warn(postMirrorLogOp, "msg", "mirror queue full, dropping events (final)", "droppedCount", count)
 			}
 			if count, ok := h.postFailWarn.flush(); ok {
-				log.Warn("ws.EventReceive.postWSConnection", "msg", "failed to post to mirror (final)", "failedCount", count)
+				log.Warn(postMirrorLogOp, "msg", "failed to post to mirror (final)", "failedCount", count)
 			}
 			// Same reasoning for the peer-driven budgets: without this, the tail of a burst
 			// that stops before the next window opens is never reported at all.
