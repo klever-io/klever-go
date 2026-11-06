@@ -621,7 +621,8 @@ func (i *itoKapp) computeSplitRoyalties(ctx kapp.KappContext, address string, as
 }
 
 // loadPaymentCurrency returns the payment currency under FixAuditChangesV6, refusing the buy while it is
-// paused, and nil before the fork.
+// paused, and nil before the fork. From FixAuditChangesV7 it also refuses a currency that is not KLV or a
+// fungible asset, for packs priced before the fork (see checkPackCurrency).
 func (i *itoKapp) loadPaymentCurrency(ctx kapp.KappContext, currencyID []byte) (*kapps.KDAData, transaction.Transaction_TXResultCode, error) {
 	if !i.forkController.FixAuditChangesV6() {
 		return nil, transaction.Transaction_Ok, nil
@@ -631,6 +632,10 @@ func (i *itoKapp) loadPaymentCurrency(ctx kapp.KappContext, currencyID []byte) (
 	if err != nil {
 		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
 		return nil, transaction.Transaction_KAPPError, err
+	}
+
+	if code, err := i.checkPackCurrency(ctx, currency); err != nil {
+		return nil, code, err
 	}
 
 	if currency.GetAttributes().GetIsPaused() {
@@ -859,7 +864,9 @@ func (i *itoKapp) Config(sender []byte, tc *transaction.ConfigITOContract) (tran
 			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 		}
 
-		for key, packInfo := range tc.GetPackInfo() {
+		packs := tc.GetPackInfo()
+		for _, key := range types.OrderedKeys(packs, i.forkController.FixAuditChangesV7()) {
+			packInfo := packs[key]
 			if len(packInfo.GetPacks()) > core.MaxPackItems {
 				return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
 			}
@@ -870,9 +877,9 @@ func (i *itoKapp) Config(sender []byte, tc *transaction.ConfigITOContract) (tran
 			}
 
 			//validate if provided pack asset exists
-			_, _, err := i.KAppController.GetKDAKApp().GetKDA([]byte(key))
+			code, err := i.loadPackCurrency(ctx, key, false)
 			if err != nil {
-				return transaction.Transaction_KAPPError, err
+				return code, err
 			}
 
 			newPacks := make([]*kapps.Pack, len(packInfo.Packs))
@@ -1110,10 +1117,9 @@ func (i *itoKapp) processPackData(ctx kapp.KappContext, key string, packData *tr
 	}
 
 	// validate if provided pack asset exists
-	_, _, err := i.KAppController.GetKDAKApp().GetKDA([]byte(key))
+	code, err := i.loadPackCurrency(ctx, key, true)
 	if err != nil {
-		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
-		return nil, transaction.Transaction_KAPPError, err
+		return nil, code, err
 	}
 
 	newPacks := make([]*kapps.Pack, len(packData.Packs))
@@ -1147,6 +1153,33 @@ func (i *itoKapp) isInvalidPackPrice(price int64) bool {
 	return price < 0
 }
 
+// loadPackCurrency refuses a pack priced in a currency that does not exist, and from
+// FixAuditChangesV7 one that is not KLV or a fungible asset (see checkPackCurrency). SetPrices
+// and the SetITOPrices trigger add a receipt for a missing currency; ConfigITO never has.
+func (i *itoKapp) loadPackCurrency(ctx kapp.KappContext, key string, receiptIfMissing bool) (transaction.Transaction_TXResultCode, error) {
+	_, currency, err := i.KAppController.GetKDAKApp().GetKDA([]byte(key))
+	if err != nil {
+		if receiptIfMissing {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
+		}
+		return transaction.Transaction_KAPPError, err
+	}
+
+	return i.checkPackCurrency(ctx, currency)
+}
+
+// checkPackCurrency refuses, from FixAuditChangesV7, a pack currency that is not KLV or a
+// fungible asset. GetKDA also finds an NFT or SFT collection, whose bare key holds no balance,
+// so a pack priced in one could never be paid (KLC-2876).
+func (i *itoKapp) checkPackCurrency(ctx kapp.KappContext, currency *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	if !i.forkController.FixAuditChangesV7() || currency.GetAssetType() == kapps.KDAData_Fungible {
+		return transaction.Transaction_Ok, nil
+	}
+
+	ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrAssetTypeInvalid.Error())
+	return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
+}
+
 func (i *itoKapp) SetPrices(sender []byte, tc *transaction.SetITOPricesContract) (transaction.Transaction_TXResultCode, error) {
 	ctx := i.KAppController.GetCurrentKAppContext()
 
@@ -1177,9 +1210,10 @@ func (i *itoKapp) SetPrices(sender []byte, tc *transaction.SetITOPricesContract)
 		return transaction.Transaction_ITOKAPPError, err
 	}
 
-	newPackData := make(map[string]*kapps.PackData, len(tc.GetPackInfo()))
-	for key, packData := range tc.GetPackInfo() {
-		processedPack, code, err := i.processPackData(ctx, key, packData)
+	packs := tc.GetPackInfo()
+	newPackData := make(map[string]*kapps.PackData, len(packs))
+	for _, key := range types.OrderedKeys(packs, i.forkController.FixAuditChangesV7()) {
+		processedPack, code, err := i.processPackData(ctx, key, packs[key])
 		if err != nil {
 			return code, err
 		}
@@ -1234,9 +1268,11 @@ func (i *itoKapp) SetITOPrices(triggerContract *transaction.ITOTriggerContract, 
 		return transaction.Transaction_AccountError, common.ErrInvalidValue
 	}
 
-	newPackData := make(map[string]*kapps.PackData, len(triggerContract.GetPackInfo()))
+	packs := triggerContract.GetPackInfo()
+	newPackData := make(map[string]*kapps.PackData, len(packs))
 
-	for key, packData := range triggerContract.GetPackInfo() {
+	for _, key := range types.OrderedKeys(packs, i.forkController.FixAuditChangesV7()) {
+		packData := packs[key]
 		if len(packData.GetPacks()) > core.MaxPackItems {
 			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldITOConfigError, common.ErrInvalidValue.Error())
 			return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
@@ -1249,28 +1285,15 @@ func (i *itoKapp) SetITOPrices(triggerContract *transaction.ITOTriggerContract, 
 		}
 
 		//validate if provided pack asset exists
-		_, _, err := i.KAppController.GetKDAKApp().GetKDA([]byte(key))
+		code, err := i.loadPackCurrency(ctx, key, true)
 		if err != nil {
-			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldAssetNotFound, err.Error())
-			return transaction.Transaction_KAPPError, err
+			return code, err
 		}
 
-		newPacks := make([]*kapps.Pack, len(packData.Packs))
-		for index, pack := range packData.Packs {
-			if pack.Amount <= 0 || i.isInvalidPackPrice(pack.Price) || (ito.MaxAmount > 0 && pack.Amount > ito.MaxAmount) {
-				ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPrice, common.ErrInvalidValue.Error())
-				return transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
-			}
-
-			newPacks[index] = &kapps.Pack{
-				Amount: pack.Amount,
-				Price:  pack.Price,
-			}
+		newPacks, code, err := i.triggerPacks(ctx, ito, packData)
+		if err != nil {
+			return code, err
 		}
-
-		sort.SliceStable(newPacks, func(i, j int) bool {
-			return newPacks[i].Amount < newPacks[j].Amount
-		})
 
 		newPackData[key] = &kapps.PackData{Packs: newPacks}
 	}
@@ -1278,6 +1301,28 @@ func (i *itoKapp) SetITOPrices(triggerContract *transaction.ITOTriggerContract, 
 	ito.PackData = newPackData
 
 	return transaction.Transaction_Ok, nil
+}
+
+// triggerPacks validates the packs of one SetITOPrices trigger currency and returns them sorted by amount.
+func (i *itoKapp) triggerPacks(ctx kapp.KappContext, ito *kapps.ITOData, packData *transaction.PackInfo) ([]*kapps.Pack, transaction.Transaction_TXResultCode, error) {
+	newPacks := make([]*kapps.Pack, len(packData.Packs))
+	for index, pack := range packData.Packs {
+		if pack.Amount <= 0 || i.isInvalidPackPrice(pack.Price) || (ito.MaxAmount > 0 && pack.Amount > ito.MaxAmount) {
+			ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidPrice, common.ErrInvalidValue.Error())
+			return nil, transaction.Transaction_ParameterInvalid, common.ErrInvalidValue
+		}
+
+		newPacks[index] = &kapps.Pack{
+			Amount: pack.Amount,
+			Price:  pack.Price,
+		}
+	}
+
+	sort.SliceStable(newPacks, func(i, j int) bool {
+		return newPacks[i].Amount < newPacks[j].Amount
+	})
+
+	return newPacks, transaction.Transaction_Ok, nil
 }
 
 func (i *itoKapp) UpdateStatus(triggerContract *transaction.ITOTriggerContract, kdaKapp state.KAppAccountHandler, ito *kapps.ITOData, asset *kapps.KDAData, sender []byte) (transaction.Transaction_TXResultCode, error) {

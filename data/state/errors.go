@@ -45,6 +45,10 @@ var ErrNilTrackableDataTrie = errors.New("nil trackable data trie")
 // ErrInvalidNonce signals that invalid nonce for kda
 var ErrInvalidNonce = errors.New("invalid nonce for kda")
 
+// ErrCompoundAssetID signals a fungible balance asked for an asset ID holding the key separator, which
+// names an NFT or SFT unit's key (KLC-2876)
+var ErrCompoundAssetID = errors.New("asset id holds the key separator")
+
 // ErrAPRGainDropped signals that an APR gain was dropped under FixAuditChangesV6 because it could not be credited
 var ErrAPRGainDropped = errors.New("apr gain dropped")
 

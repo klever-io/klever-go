@@ -160,10 +160,22 @@ func (a *userAccount) AddToAllowance(value int64) error {
 	return nil
 }
 
+// isCompoundAssetID reports whether assetID holds the key separator. No KDA ID does (tickers are
+// A-Z0-9), so such an ID can only name an NFT or SFT unit (COLL/1): the fungible balance of it would
+// read and write that unit's key (KLC-2816, KLC-2876). Ungated: on mainnet no order or market
+// transaction ever used one, and every other path loads its asset ID with GetKDA.
+func isCompoundAssetID(assetID []byte) bool {
+	return bytes.Contains(assetID, []byte(kapps.Sp))
+}
+
 // AddToBalance adds new value to balance
 func (a *userAccount) AddToBalance(value int64, assetID []byte, cdd bool, userKDAopts ...*kapps.UserKDA) error {
 	if value < 0 {
 		return ErrInvalidValue
+	}
+
+	if isCompoundAssetID(assetID) {
+		return ErrCompoundAssetID
 	}
 
 	if assetID == nil || bytes.Equal(assetID, kdautils.KLVIdentifier) {
@@ -244,6 +256,10 @@ func (a *userAccount) AddToBalanceWithNonce(value int64, assetID []byte, nonce [
 func (a *userAccount) SubFromBalance(value int64, assetID []byte, cdd bool, userKDAopts ...*kapps.UserKDA) error {
 	if value < 0 {
 		return ErrInvalidValue
+	}
+
+	if isCompoundAssetID(assetID) {
+		return ErrCompoundAssetID
 	}
 
 	if assetID == nil || bytes.Equal(assetID, kdautils.KLVIdentifier) {

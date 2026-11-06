@@ -13,6 +13,7 @@ import (
 	"github.com/klever-io/klever-go/core/kapp"
 	kappcontroller "github.com/klever-io/klever-go/core/kapp/kappController"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
+	txProcess "github.com/klever-io/klever-go/core/process/transaction"
 	"github.com/klever-io/klever-go/crypto/hashing"
 	"github.com/klever-io/klever-go/crypto/hashing/sha256"
 	cryptoMock "github.com/klever-io/klever-go/crypto/mock"
@@ -591,4 +592,207 @@ func grantSetITOPricesRole(t *testing.T, kc kapp.KAppController, assetID []byte,
 
 	asset.Roles = append(asset.Roles, &kapps.RolesData{Address: address, HasRoleSetITOPrices: true})
 	require.NoError(t, kc.GetKDAKApp().SetKDA(kdaKapp, assetID, asset))
+}
+
+// TestITO_NonFungiblePackCurrency_AllPaths checks that, from FixAuditChangesV7, ConfigITO, the
+// SetITOPrices trigger and SetPrices refuse a pack priced in an NFT or SFT collection: GetKDA finds
+// it, but its bare key holds no balance, so the pack could never be paid (KLC-2876). Before the
+// fork all three store it, and a fungible currency is stored on both sides.
+func TestITO_NonFungiblePackCurrency_AllPaths(t *testing.T) {
+	const inactive = uint32(100_000)
+	itoAsset := []byte("ITO-1PUA")
+	currencies := map[string]kapps.KDAData_EnumAssetType{
+		"NFT-1A2B":             kapps.KDAData_NonFungible,
+		"SFT-1A2B":             kapps.KDAData_SemiFungible,
+		string(defaultAssetID): kapps.KDAData_Fungible,
+	}
+
+	paths := packPricePaths(itoAsset)
+
+	for name, store := range paths {
+		for currency, currencyType := range currencies {
+			for _, fixV7 := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/%s/FixAuditChangesV7=%t", name, currency, fixV7), func(t *testing.T) {
+					epochs := config.EnableEpochs{FixAuditChangesV7: inactive}
+					if fixV7 {
+						epochs.FixAuditChangesV7 = 0
+					}
+					kc, err := createMockControllers(epochs)
+					require.NoError(t, err)
+
+					createAsset(t, kc, []byte("ITO"), transaction.CreateAssetContract_Fungible, 0, 100_000, 100_000)
+					createAsset(t, kc, defaultTicker, transaction.CreateAssetContract_Fungible, 0, 10_000_000, 10_000_000)
+					if currencyType != kapps.KDAData_Fungible {
+						registerCollection(t, kc, []byte(currency), currencyType)
+					}
+					if name != "ConfigITO" {
+						createDefaultITO(t, kc, string(defaultAssetID), itoAsset)
+						grantSetITOPricesRole(t, kc, itoAsset, defaultSender)
+					}
+
+					status, err := store(kc, map[string]*transaction.PackInfo{
+						currency: {Packs: []*transaction.PackItem{{Amount: 1, Price: 10}}},
+					})
+
+					if !fixV7 || currencyType == kapps.KDAData_Fungible {
+						require.NoError(t, err)
+						assert.Equal(t, transaction.Transaction_Ok, status)
+						assert.Contains(t, GetIto(t, kc, itoAsset).PackData, currency)
+						return
+					}
+
+					assert.Equal(t, common.ErrAssetTypeInvalid, err)
+					assert.Equal(t, transaction.Transaction_AssetTypeInvalid, status)
+					fields := errorReceiptFields(kc)
+					require.NotEmpty(t, fields)
+					assert.Equal(t, common.ErrFieldInvalidAssetType, fields[len(fields)-1])
+					if name == "ConfigITO" {
+						itoReader := kc.GetITOKApp().(interface {
+							GetITO(assetID []byte) (state.KAppAccountHandler, *kapps.ITOData, error)
+						})
+						_, _, err = itoReader.GetITO(itoAsset)
+						assert.ErrorIs(t, err, common.ErrNotFoundInKApp)
+						return
+					}
+					assert.NotContains(t, GetIto(t, kc, itoAsset).PackData, currency)
+				})
+			}
+		}
+	}
+}
+
+// TestITO_PackCurrencyOrderIsDeterministic checks that from FixAuditChangesV7 every path checks the
+// pack currencies in key order: a missing asset (KAPPError) sorts before an NFT collection
+// (AssetTypeInvalid), so the result is KAPPError on every run, never the map's order (KLC-2876).
+func TestITO_PackCurrencyOrderIsDeterministic(t *testing.T) {
+	itoAsset := []byte("ITO-1PUA")
+	packs := map[string]*transaction.PackInfo{
+		"MISS-0000": {Packs: []*transaction.PackItem{{Amount: 1, Price: 10}}},
+		"NFT-1A2B":  {Packs: []*transaction.PackItem{{Amount: 1, Price: 10}}},
+	}
+
+	for name, store := range packPricePaths(itoAsset) {
+		t.Run(name, func(t *testing.T) {
+			kc, err := createMockControllers(config.EnableEpochs{})
+			require.NoError(t, err)
+
+			createAsset(t, kc, []byte("ITO"), transaction.CreateAssetContract_Fungible, 0, 100_000, 100_000)
+			createAsset(t, kc, defaultTicker, transaction.CreateAssetContract_Fungible, 0, 10_000_000, 10_000_000)
+			registerCollection(t, kc, []byte("NFT-1A2B"), kapps.KDAData_NonFungible)
+			if name != "ConfigITO" {
+				createDefaultITO(t, kc, string(defaultAssetID), itoAsset)
+				grantSetITOPricesRole(t, kc, itoAsset, defaultSender)
+			}
+
+			for run := 0; run < 30; run++ {
+				status, err := store(kc, packs)
+				require.Error(t, err)
+				require.Equal(t, transaction.Transaction_KAPPError, status, "run %d", run)
+			}
+
+			// SetPrices and the SetITOPrices trigger add a receipt for the missing asset; ConfigITO never has
+			missing := 0
+			for _, field := range errorReceiptFields(kc) {
+				if field == common.ErrFieldAssetNotFound {
+					missing++
+				}
+			}
+			want := 30
+			if name == "ConfigITO" {
+				want = 0
+			}
+			assert.Equal(t, want, missing)
+		})
+	}
+}
+
+// errorReceiptFields returns the field of every error receipt in the current KApp context.
+func errorReceiptFields(kc kapp.KAppController) []string {
+	var fields []string
+	for _, receipt := range kc.GetCurrentKAppContext().Receipts().GetByType(int8(txProcess.Error)) {
+		fields = append(fields, string(receipt.Data[1]))
+	}
+	return fields
+}
+
+// packPricePaths returns the three ways to set an ITO's pack prices, each storing packs for itoAsset.
+func packPricePaths(itoAsset []byte) map[string]func(kc kapp.KAppController, packs map[string]*transaction.PackInfo) (transaction.Transaction_TXResultCode, error) {
+	return map[string]func(kc kapp.KAppController, packs map[string]*transaction.PackInfo) (transaction.Transaction_TXResultCode, error){
+		"ConfigITO": func(kc kapp.KAppController, packs map[string]*transaction.PackInfo) (transaction.Transaction_TXResultCode, error) {
+			return kc.GetITOKApp().Config(defaultSender, &transaction.ConfigITOContract{
+				AssetID:         itoAsset,
+				ReceiverAddress: defaultSender,
+				Status:          transaction.ConfigITOContract_ActiveITO,
+				PackInfo:        packs,
+				WhitelistStatus: transaction.ConfigITOContract_PausedITO,
+			})
+		},
+		"SetITOPrices trigger": func(kc kapp.KAppController, packs map[string]*transaction.PackInfo) (transaction.Transaction_TXResultCode, error) {
+			return kc.GetITOKApp().Trigger(defaultSender, &transaction.ITOTriggerContract{
+				TriggerType: transaction.ITOTriggerContract_SetITOPrices,
+				AssetID:     itoAsset,
+				PackInfo:    packs,
+			})
+		},
+		"SetPrices": func(kc kapp.KAppController, packs map[string]*transaction.PackInfo) (transaction.Transaction_TXResultCode, error) {
+			return kc.GetITOKApp().SetPrices(defaultSender, &transaction.SetITOPricesContract{
+				AssetID:  itoAsset,
+				PackInfo: packs,
+			})
+		},
+	}
+}
+
+// registerCollection writes an NFT or SFT collection straight into the KDA trie: what GetKDA finds
+// for a bare collection ID.
+func registerCollection(t *testing.T, kc kapp.KAppController, id []byte, assetType kapps.KDAData_EnumAssetType) {
+	kdaKapp, _, err := kc.GetKDAKApp().GetKDA(nil)
+	require.NoError(t, err)
+	require.NoError(t, kc.GetKDAKApp().SetKDA(kdaKapp, id, &kapps.KDAData{
+		ID:           id,
+		Ticker:       id,
+		AssetType:    assetType,
+		OwnerAddress: defaultSender,
+		Properties:   &kapps.PropertiesData{},
+		Attributes:   &kapps.AttributesData{},
+	}))
+}
+
+// TestITO_BuyPackPricedInACollection checks a buy of a pack priced, before FixAuditChangesV7, in an NFT
+// or SFT collection: from the fork it is refused for the currency's type, before it the debit of the
+// empty bare collection key fails (KLC-2876).
+func TestITO_BuyPackPricedInACollection(t *testing.T) {
+	itoAsset := []byte("ITO-1PUA")
+	collectionID := []byte("COLL-1A2B")
+
+	for _, currencyType := range []kapps.KDAData_EnumAssetType{kapps.KDAData_NonFungible, kapps.KDAData_SemiFungible} {
+		for _, fixV7 := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/FixAuditChangesV7=%t", currencyType, fixV7), func(t *testing.T) {
+				kc, err := createMockControllers(config.EnableEpochs{FixAuditChangesV7: 1})
+				require.NoError(t, err)
+
+				createAsset(t, kc, []byte("ITO"), transaction.CreateAssetContract_Fungible, 0, 100_000, 100_000)
+				registerCollection(t, kc, collectionID, currencyType)
+				createDefaultITO(t, kc, string(collectionID), itoAsset)
+				if fixV7 {
+					kc.GetForkController().(core.EpochSubscriberHandler).EpochConfirmed(1)
+				}
+
+				status, err := kc.GetITOKApp().Buy(defaultSender, &transaction.BuyContract{
+					CurrencyID:     collectionID,
+					ID:             itoAsset,
+					Amount:         1,
+					CurrencyAmount: 1,
+				})
+
+				if fixV7 {
+					assert.Equal(t, common.ErrAssetTypeInvalid, err)
+					assert.Equal(t, transaction.Transaction_AssetTypeInvalid, status)
+					return
+				}
+				require.Error(t, err)
+				assert.Equal(t, transaction.Transaction_BalanceError, status)
+			})
+		}
+	}
 }

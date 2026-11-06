@@ -3164,3 +3164,27 @@ func TestUserAccount_SubInternalKDA_RetrieveValueError(t *testing.T) {
 	_, err := account.SubInternalKDA(assetID, internalID, forksBeforeV7)
 	assert.Equal(t, expectedErr, err)
 }
+
+// The fungible balance helpers refuse an asset ID holding the key separator: it names an NFT unit,
+// whose holder record they would otherwise read and write (KLC-2876).
+func TestUserAccount_BalanceRefusesACompoundAssetID(t *testing.T) {
+	collectionID, nonce := []byte("NFT-1234"), []byte("1")
+	compoundID := []byte(string(collectionID) + kapps.Sp + string(nonce))
+
+	helpers := map[string]func(state.UserAccountHandler) error{
+		"AddToBalance":   func(acc state.UserAccountHandler) error { return acc.AddToBalance(1, compoundID, true) },
+		"SubFromBalance": func(acc state.UserAccountHandler) error { return acc.SubFromBalance(1, compoundID, true) },
+	}
+	for name, apply := range helpers {
+		t.Run(name, func(t *testing.T) {
+			account, _ := state.NewUserAccount([]byte("address"))
+			assert.NoError(t, account.AddInternalKDA(collectionID, nonce, mock.NFTHolderRecord(1)))
+
+			assert.ErrorIs(t, apply(account), state.ErrCompoundAssetID)
+
+			record, err := account.SubInternalKDA(collectionID, nonce, forksBeforeV7)
+			assert.NoError(t, err)
+			assert.Equal(t, mock.NFTHolderRecord(1), record, "the NFT record is untouched")
+		})
+	}
+}

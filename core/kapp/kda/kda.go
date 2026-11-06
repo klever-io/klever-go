@@ -450,8 +450,16 @@ func (k *kdaKapp) validateStakingAPR(staking *transaction.StakingInfo) error {
 // checkDepositPauseAndTransferControls refuses, once FixAuditChangesV6 is active, an FPR deposit
 // into the pool of a paused asset, and one of a currency that is paused or that the depositor could
 // not send to any account. The pool is not an account, so only the sender side of the transfer
-// restriction applies.
+// restriction applies. From FixAuditChangesV7 it also refuses a currency that is not KLV or a
+// fungible asset: GetKDA also finds an NFT or SFT collection, whose bare key holds no balance
+// (KLC-2876).
 func (k *kdaKapp) checkDepositPauseAndTransferControls(sender []byte, asset, currency *kapps.KDAData) (transaction.Transaction_TXResultCode, error) {
+	if k.forkController.FixAuditChangesV7() && currency.GetAssetType() != kapps.KDAData_Fungible {
+		ctx := k.KAppController.GetCurrentKAppContext()
+		ctx.Receipts().AddError(ctx.ContractID(), common.ErrFieldInvalidAssetType, common.ErrAssetTypeInvalid.Error())
+		return transaction.Transaction_AssetTypeInvalid, common.ErrAssetTypeInvalid
+	}
+
 	if !k.forkController.FixAuditChangesV6() {
 		return transaction.Transaction_Ok, nil
 	}

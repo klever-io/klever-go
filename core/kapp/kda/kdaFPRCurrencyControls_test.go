@@ -185,6 +185,115 @@ func TestKDAKapp_DepositRespectsTheRewardCurrencyControls(t *testing.T) {
 	}
 }
 
+// registerCollectionCurrency writes an NFT or SFT collection into the KDA trie. Its units live
+// under nonce keys, so the bare collection key a currency debit reads holds no balance.
+func registerCollectionCurrency(t *testing.T, kc kapp.KAppController, id []byte, assetType kapps.KDAData_EnumAssetType) {
+	t.Helper()
+
+	kdaKapp, _, err := kc.GetKDAKApp().GetKDA(nil)
+	require.NoError(t, err)
+	require.NoError(t, kc.GetKDAKApp().SetKDA(kdaKapp, id, &kapps.KDAData{
+		ID:           id,
+		Name:         id,
+		Ticker:       id,
+		AssetType:    assetType,
+		OwnerAddress: rewardIssuer,
+		Properties:   &kapps.PropertiesData{},
+		Attributes:   &kapps.AttributesData{},
+	}))
+	require.NoError(t, kc.GetKDAKApp().GetAccountsCacher().UpdateKapp(kdaKapp))
+}
+
+// From FixAuditChangesV7 an FPRI deposit takes only KLV or a fungible currency (KLC-2876). Before
+// it an NFT or SFT collection passes the existence check and fails on the empty bare-key balance.
+func TestKDAKapp_DepositRefusesANonFungibleCurrency(t *testing.T) {
+	t.Parallel()
+
+	collectionID := []byte("COLL-1A2B")
+	tests := []struct {
+		name         string
+		v7           bool
+		currencyType kapps.KDAData_EnumAssetType
+		expectedCode transaction.Transaction_TXResultCode
+		expectedErr  error
+	}{
+		{
+			name: "an NFT collection is refused from V7", v7: true, currencyType: kapps.KDAData_NonFungible,
+			expectedCode: transaction.Transaction_AssetTypeInvalid, expectedErr: common.ErrAssetTypeInvalid,
+		},
+		{
+			name: "an SFT collection is refused from V7", v7: true, currencyType: kapps.KDAData_SemiFungible,
+			expectedCode: transaction.Transaction_AssetTypeInvalid, expectedErr: common.ErrAssetTypeInvalid,
+		},
+		{
+			name: "an NFT collection fails on the balance before V7", currencyType: kapps.KDAData_NonFungible,
+			expectedCode: transaction.Transaction_BalanceError,
+		},
+		{
+			name: "an SFT collection fails on the balance before V7", currencyType: kapps.KDAData_SemiFungible,
+			expectedCode: transaction.Transaction_BalanceError,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			kc, err := createMockControllersWithFork(mock.NewForkControllerStub().
+				SetFork("FixAuditChangesV6", true).
+				SetFork("FixAuditChangesV7", tt.v7))
+			require.NoError(t, err)
+			createStakingAsset(t, kc, transaction.StakingInfo_FPRI)
+			registerCollectionCurrency(t, kc, collectionID, tt.currencyType)
+
+			code, err := kc.GetKDAKApp().Deposit(defaultSender, &transaction.DepositContract{
+				ID:         defaultAssetID,
+				CurrencyID: collectionID,
+				Amount:     10,
+			})
+
+			require.Error(t, err)
+			assert.Equal(t, tt.expectedCode, code)
+			for _, fpr := range fprsOf(t, kc) {
+				assert.NotContains(t, fpr.KDAS, string(collectionID))
+			}
+			if tt.expectedErr == nil {
+				return
+			}
+
+			require.ErrorIs(t, err, tt.expectedErr)
+			receipts := kc.GetCurrentKAppContext().Receipts().GetByType(int8(txProcess.Error))
+			require.Len(t, receipts, 1)
+			assert.Equal(t, common.ErrFieldInvalidAssetType, string(receipts[0].Data[1]))
+		})
+	}
+
+	t.Run("a fungible currency is still accepted from V7", func(t *testing.T) {
+		t.Parallel()
+
+		kc, err := createMockControllersWithFork(mock.NewForkControllerStub().
+			SetFork("FixAuditChangesV6", true).
+			SetFork("FixAuditChangesV7", true))
+		require.NoError(t, err)
+		createStakingAsset(t, kc, transaction.StakingInfo_FPRI)
+		registerRewardCurrency(t, kc, false, nil)
+
+		code, err := depositRewardCurrency(kc, 400)
+
+		require.NoError(t, err)
+		assert.Equal(t, transaction.Transaction_Ok, code)
+		assert.Equal(t, int64(600), senderBalance(t, kc, rewardCurrencyID))
+	})
+}
+
+func fprsOf(t *testing.T, kc kapp.KAppController) []*kapps.FPRData {
+	t.Helper()
+
+	_, staking, err := kc.GetKDAKApp().GetStaking(defaultAssetID)
+	require.NoError(t, err)
+
+	return staking.FPR
+}
+
 // expiredFPRWithRewardCurrency is an FPR from epoch 0 holding unclaimed KLV, unclaimed staking
 // asset and 300 of the reward currency, all deposited before any pause.
 func expiredFPRWithRewardCurrency() []*kapps.FPRData {

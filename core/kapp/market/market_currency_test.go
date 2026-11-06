@@ -7,6 +7,7 @@ import (
 	"github.com/klever-io/klever-go/common/mock"
 	"github.com/klever-io/klever-go/core/kapp"
 	"github.com/klever-io/klever-go/core/process/kda/kdautils"
+	"github.com/klever-io/klever-go/data/state"
 	"github.com/klever-io/klever-go/data/transaction"
 	"github.com/klever-io/klever-go/kapps"
 	"github.com/klever-io/klever-go/tools/marshal"
@@ -89,7 +90,8 @@ func (e *controlsEnv) buyInCompoundCurrency() (transaction.Transaction_TXResultC
 // Under FixAuditChangesV6 a bid loads its currency for the asset controls before anything
 // moves, and a compound NFT ID is not an asset, so the bid is refused and the payment NFT stays
 // with the buyer, even before FixAuditChangesV7 rejects the currency outright. Before V6 the
-// bid debits the payment NFT through the fungible path and the sale settles.
+// bid reaches the fungible balance helpers, which refuse the compound ID (KLC-2876); before
+// that guard it debited the payment NFT and the sale settled.
 func TestMarketCurrency_CompoundIDBidBeforeV7(t *testing.T) {
 	t.Parallel()
 
@@ -112,23 +114,24 @@ func TestMarketCurrency_CompoundIDBidBeforeV7(t *testing.T) {
 		require.True(t, env.holdsNFT(kapps.MarketKAppAddress), "the listed NFT stays escrowed")
 	})
 
-	t.Run("before V6 the payment NFT is spent as currency", func(t *testing.T) {
+	t.Run("before V6 the fungible balance refuses the compound ID", func(t *testing.T) {
 		env := newEnv(t, false)
 
 		status, err := env.buyInCompoundCurrency()
 
-		require.NoError(t, err)
-		require.Equal(t, transaction.Transaction_Ok, status)
-		require.Zero(t, env.compoundBalance(ctrlBuyer))
-		require.Equal(t, int64(1), env.compoundBalance(ctrlSeller), "the seller is paid NFT 8 with no mint")
-		require.True(t, env.holdsNFT(ctrlBuyer))
+		require.ErrorIs(t, err, state.ErrCompoundAssetID)
+		require.Equal(t, transaction.Transaction_BalanceError, status)
+		require.Equal(t, int64(1), env.compoundBalance(ctrlBuyer), "the payment NFT stays with the buyer")
+		require.Zero(t, env.compoundBalance(ctrlSeller), "the seller is not paid NFT 8")
+		require.True(t, env.holdsNFT(kapps.MarketKAppAddress), "the listed NFT stays escrowed")
 	})
 }
 
-// An order listed before FixAuditChangesV7 in a currency checkCurrency now refuses can still be
-// closed: CancelOrder and a Claim below the reserve return the NFT to the seller and the bid to
-// the bidder without checking or loading the currency.
-func TestMarketCurrency_LegacyOrderUnwindsFromV7(t *testing.T) {
+// An order listed and bid before FixAuditChangesV6 in a compound NFT ID cannot be closed: the
+// refund of CancelOrder, and of the Claim of an expired auction with no reserve (which returns both
+// sides instead of settling), reaches the fungible balance helpers, which refuse the compound ID
+// (KLC-2876). On mainnet no order was ever listed in one, so the guard locks no bid there.
+func TestMarketCurrency_LegacyCompoundBidIsNotRefunded(t *testing.T) {
 	t.Parallel()
 
 	// The bid of NFT 8, priced in its compound ID, was taken before V6 and left the bidder's
@@ -137,20 +140,18 @@ func TestMarketCurrency_LegacyOrderUnwindsFromV7(t *testing.T) {
 		env := newV7ControlsEnv(t)
 		env.giveNFTRecord(ctrlBuyer, ctrlPaymentNFT, mock.NFTHolderRecord(0))
 		env.storeOrderPricedIn(&kapps.MarketOrderData{
-			MarketType: kapps.MarketOrderData_Auction, ReservePrice: 2, EndTime: endTime,
+			MarketType: kapps.MarketOrderData_Auction, ReservePrice: 0, EndTime: endTime,
 			CurrentBid: 1, CurrentBidder: ctrlBuyer,
 		}, ctrlCompoundCurrency)
 		return env
 	}
 
-	requireReturned := func(t *testing.T, env *controlsEnv, status transaction.Transaction_TXResultCode, err error) {
+	requireRefused := func(t *testing.T, env *controlsEnv, status transaction.Transaction_TXResultCode, err error) {
 		t.Helper()
 
-		require.NoError(t, err)
-		require.Equal(t, transaction.Transaction_Ok, status)
-		require.True(t, env.holdsNFT(ctrlSeller), "the NFT returns to the seller")
-		require.False(t, env.holdsNFT(kapps.MarketKAppAddress))
-		require.Equal(t, int64(1), env.compoundBalance(ctrlBuyer), "the refund restores the bidder's payment NFT")
+		require.ErrorIs(t, err, state.ErrCompoundAssetID)
+		require.Equal(t, transaction.Transaction_BalanceError, status)
+		require.Zero(t, env.compoundBalance(ctrlBuyer), "the bidder's payment NFT record stays spent")
 	}
 
 	t.Run("CancelOrder", func(t *testing.T) {
@@ -160,17 +161,17 @@ func TestMarketCurrency_LegacyOrderUnwindsFromV7(t *testing.T) {
 
 		status, err := env.cancel()
 
-		requireReturned(t, env, status, err)
+		requireRefused(t, env, status, err)
 	})
 
-	t.Run("expired Claim below the reserve", func(t *testing.T) {
+	t.Run("expired Claim with no reserve", func(t *testing.T) {
 		t.Parallel()
 
 		env := newEnv(t, ctrlBlockTime-1)
 
 		status, err := env.claim(ctrlSeller)
 
-		requireReturned(t, env, status, err)
+		requireRefused(t, env, status, err)
 	})
 }
 
