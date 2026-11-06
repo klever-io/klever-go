@@ -152,19 +152,29 @@ func trimSplitRune(b []byte) []byte {
 	return b
 }
 
-// sanitizeServerText strips from server-supplied text what could alter how the terminal
-// shows it: control characters (except tab) that inject newlines or escape sequences, the
-// Unicode line/paragraph separators that IsControl does not cover, and format characters
-// (bidi overrides, zero-width joiners) that can visually reorder or hide the text that
-// follows — a reason that reads backwards could disguise a fee or an address.
+// sanitizeServerText strips from server-supplied text every rune that could alter how
+// the terminal shows it (see terminalUnsafe), so a response cannot inject newlines or
+// escape sequences into the operator's output, or reorder and hide what follows.
 func sanitizeServerText(s string) string {
 	return strings.Map(func(r rune) rune {
-		if r == '\t' {
-			return r
-		}
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' ' {
+		if terminalUnsafe(r) {
 			return -1
 		}
 		return r
 	}, s)
+}
+
+// terminalUnsafe reports whether r changes how the text around it is displayed: control
+// characters (except tab) inject newlines or escape sequences; the Unicode line and
+// paragraph separators, which IsControl does not cover, end a line on some terminals; and
+// format characters (bidi overrides, zero-width joiners) reorder or hide what follows —
+// a reason that reads backwards could disguise a fee or an address.
+func terminalUnsafe(r rune) bool {
+	if r == '\t' {
+		return false
+	}
+	if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+		return true
+	}
+	return r == ' ' || r == ' '
 }
