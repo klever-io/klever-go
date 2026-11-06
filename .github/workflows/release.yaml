@@ -11,7 +11,7 @@ jobs:
     uses: ./.github/workflows/go-setup-lint.yaml
     with:
       go-version: ${{ vars.GO_VERSION || '1.25.7' }}
-      golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'latest' }}
+      golangci-lint-version: ${{ vars.GOLANGCI_VERSION || 'v2.15.0' }}
     secrets:
       git-user: ${{ secrets.GIT_USER }}
       git-pass: ${{ secrets.GIT_PASS }}
@@ -45,7 +45,7 @@ jobs:
         run: rm -rf bin/*
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
