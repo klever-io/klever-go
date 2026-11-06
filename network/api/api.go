@@ -260,9 +260,14 @@ func registerPprof(ws *gin.Engine, routesConfig config.APIRoutesConfig, authHand
 	pprof.RouteRegister(group)
 }
 
-// rejectLongPprof refuses a seconds value above maxPprofSeconds.
+// rejectLongPprof refuses a seconds value above maxPprofSeconds. It reads the value as
+// net/http/pprof does, with FormValue, so a multipart body on a GET is checked too. POST
+// /symbol is left alone: FormValue would consume the body it reads.
 func rejectLongPprof(c *gin.Context) {
-	raw := c.Query("seconds")
+	if c.Request.Method != http.MethodGet {
+		return
+	}
+	raw := c.Request.FormValue("seconds")
 	if raw == "" {
 		return
 	}

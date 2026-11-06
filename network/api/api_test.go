@@ -1,10 +1,15 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -186,16 +191,21 @@ func pprofRoutesConfig(open, secured bool) config.APIRoutesConfig {
 
 func pprofStatus(t *testing.T, enabled bool, cfg config.APIRoutesConfig, path, user, pass string) *httptest.ResponseRecorder {
 	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	if user != "" {
+		req.SetBasicAuth(user, pass)
+	}
+	return pprofServe(t, enabled, cfg, req)
+}
+
+func pprofServe(t *testing.T, enabled bool, cfg config.APIRoutesConfig, req *http.Request) *httptest.ResponseRecorder {
+	t.Helper()
 	ws := gin.New()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	RegisterRoutes(ctx, ws, cfg, &pprofFacade{Facade: &mock.Facade{}, enabled: enabled})
 
 	resp := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	if user != "" {
-		req.SetBasicAuth(user, pass)
-	}
 	ws.ServeHTTP(resp, req)
 	return resp
 }
@@ -238,6 +248,40 @@ func TestRegisterRoutes_PprofSecondsAboveCapRejected(t *testing.T) {
 func TestRegisterRoutes_PprofSecondsWithinCapAllowed(t *testing.T) {
 	resp := pprofStatus(t, true, pprofRoutesConfig(true, true), "/debug/pprof/heap?seconds=1", "u", "p")
 	assert.Equal(t, http.StatusOK, resp.Code)
+}
+
+// The cap tests below use /cmdline: it ignores seconds and answers at once, and the cap runs on
+// every pprof route, so a value the cap lets through shows as 200 instead of a 60 s wait.
+
+func TestRegisterRoutes_PprofSecondsAtCapAllowed(t *testing.T) {
+	resp := pprofStatus(t, true, pprofRoutesConfig(true, true), "/debug/pprof/cmdline?seconds=60", "u", "p")
+	assert.Equal(t, http.StatusOK, resp.Code)
+}
+
+// net/http/pprof reads seconds with FormValue, which also parses a multipart body on a GET.
+func TestRegisterRoutes_PprofMultipartSecondsAboveCapRejected(t *testing.T) {
+	body := &bytes.Buffer{}
+	form := multipart.NewWriter(body)
+	require.NoError(t, form.WriteField("seconds", "61"))
+	require.NoError(t, form.Close())
+	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/cmdline", body)
+	req.Header.Set("Content-Type", form.FormDataContentType())
+	req.SetBasicAuth("u", "p")
+
+	resp := pprofServe(t, true, pprofRoutesConfig(true, true), req)
+	assert.Equal(t, http.StatusBadRequest, resp.Code)
+}
+
+// POST /symbol reads the addresses from its body, so the cap must not parse it as a form.
+func TestRegisterRoutes_PprofSymbolPostBodyKept(t *testing.T) {
+	pc := fmt.Sprintf("%#x", reflect.ValueOf(rejectLongPprof).Pointer())
+	req := httptest.NewRequest(http.MethodPost, "/debug/pprof/symbol", strings.NewReader(pc))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth("u", "p")
+
+	resp := pprofServe(t, true, pprofRoutesConfig(true, true), req)
+	assert.Equal(t, http.StatusOK, resp.Code)
+	assert.Contains(t, resp.Body.String(), "rejectLongPprof")
 }
 
 func proofRoutesConfig(open, secured bool) config.APIRoutesConfig {
