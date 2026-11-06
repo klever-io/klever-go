@@ -47,12 +47,12 @@ func writeGasSchedule(t *testing.T, dir string, name string, mutate func(map[str
 	return path
 }
 
-func dropTableInit(gasSchedule map[string]map[string]uint64) {
-	delete(gasSchedule["WASMOpcodeCost"], "TableInit")
+func dropI32Add(gasSchedule map[string]map[string]uint64) {
+	delete(gasSchedule["WASMOpcodeCost"], "I32Add")
 }
 
-func bumpTableInit(gasSchedule map[string]map[string]uint64) {
-	gasSchedule["WASMOpcodeCost"]["TableInit"]++
+func bumpI32Add(gasSchedule map[string]map[string]uint64) {
+	gasSchedule["WASMOpcodeCost"]["I32Add"]++
 }
 
 func newGasScheduleNotifierArgs(files ...string) notifier.ArgsNewGasScheduleNotifier {
@@ -122,7 +122,7 @@ func TestNewGasScheduleNotifier_ScheduleAHandlerCannotApplyRefusesToStart(t *tes
 		reason  string
 		wrapped error
 	}{
-		{name: "missing vm cost", mutate: dropTableInit, reason: "wasm vm"},
+		{name: "missing vm cost", mutate: dropI32Add, reason: "wasm vm"},
 		{
 			name:   "missing built-in cost",
 			mutate: func(gs map[string]map[string]uint64) { delete(gs["BuiltInCost"], "Transfer") },
@@ -182,7 +182,7 @@ func TestNewGasScheduleNotifier_IncompleteFirstScheduleRefusesToStart(t *testing
 	t.Parallel()
 
 	dir := t.TempDir()
-	first := writeGasSchedule(t, dir, "v1.yaml", dropTableInit)
+	first := writeGasSchedule(t, dir, "v1.yaml", dropI32Add)
 
 	gsn, err := notifier.NewGasScheduleNotifier(newGasScheduleNotifierArgs(first))
 	require.ErrorIs(t, err, common.ErrInvalidGasSchedule)
@@ -219,20 +219,20 @@ func TestGasScheduleNotifier_EpochConfirmedAppliesNewSchedule(t *testing.T) {
 
 	dir := t.TempDir()
 	first := writeGasSchedule(t, dir, "v1.yaml", nil)
-	second := writeGasSchedule(t, dir, "v2.yaml", bumpTableInit)
+	second := writeGasSchedule(t, dir, "v2.yaml", bumpI32Add)
 
 	gsn, err := notifier.NewGasScheduleNotifier(newGasScheduleNotifierArgs(first, second))
 	require.NoError(t, err)
 
 	handler := &gasScheduleHandlerStub{}
 	gsn.RegisterNotifyHandler(handler)
-	oldCost := gsn.LatestGasSchedule()["WASMOpcodeCost"]["TableInit"]
+	oldCost := gsn.LatestGasSchedule()["WASMOpcodeCost"]["I32Add"]
 
 	gsn.EpochConfirmed(10)
 
 	require.Len(t, handler.received, 2)
-	require.Equal(t, oldCost+1, handler.received[1]["WASMOpcodeCost"]["TableInit"])
-	require.Equal(t, oldCost+1, gsn.LatestGasSchedule()["WASMOpcodeCost"]["TableInit"])
+	require.Equal(t, oldCost+1, handler.received[1]["WASMOpcodeCost"]["I32Add"])
+	require.Equal(t, oldCost+1, gsn.LatestGasSchedule()["WASMOpcodeCost"]["I32Add"])
 }
 
 func TestGasScheduleNotifier_EpochConfirmedAppliesTheScheduleCheckedAtStartUp(t *testing.T) {
@@ -243,19 +243,19 @@ func TestGasScheduleNotifier_EpochConfirmedAppliesTheScheduleCheckedAtStartUp(t 
 
 		dir := t.TempDir()
 		first := writeGasSchedule(t, dir, "v1.yaml", nil)
-		second := writeGasSchedule(t, dir, "v2.yaml", bumpTableInit)
+		second := writeGasSchedule(t, dir, "v2.yaml", bumpI32Add)
 
 		gsn, err := notifier.NewGasScheduleNotifier(newGasScheduleNotifierArgs(first, second))
 		require.NoError(t, err)
 		handler := &gasScheduleHandlerStub{}
 		gsn.RegisterNotifyHandler(handler)
-		checked := gsn.LatestGasSchedule()["WASMOpcodeCost"]["TableInit"] + 1
+		checked := gsn.LatestGasSchedule()["WASMOpcodeCost"]["I32Add"] + 1
 
-		writeGasSchedule(t, dir, "v2.yaml", dropTableInit)
+		writeGasSchedule(t, dir, "v2.yaml", dropI32Add)
 		gsn.EpochConfirmed(10)
 
 		require.Len(t, handler.received, 2)
-		require.Equal(t, checked, handler.received[1]["WASMOpcodeCost"]["TableInit"])
+		require.Equal(t, checked, handler.received[1]["WASMOpcodeCost"]["I32Add"])
 	})
 
 	t.Run("file removed after start-up", func(t *testing.T) {
@@ -263,7 +263,7 @@ func TestGasScheduleNotifier_EpochConfirmedAppliesTheScheduleCheckedAtStartUp(t 
 
 		dir := t.TempDir()
 		first := writeGasSchedule(t, dir, "v1.yaml", nil)
-		second := writeGasSchedule(t, dir, "v2.yaml", bumpTableInit)
+		second := writeGasSchedule(t, dir, "v2.yaml", bumpI32Add)
 
 		gsn, err := notifier.NewGasScheduleNotifier(newGasScheduleNotifierArgs(first, second))
 		require.NoError(t, err)

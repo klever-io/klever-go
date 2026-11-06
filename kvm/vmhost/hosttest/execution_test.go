@@ -657,12 +657,12 @@ func TestExecution_GasScheduleChangeWithIncompleteScheduleIsRejected(t *testing.
 			incomplete[section][name] = cost
 		}
 	}
-	delete(incomplete["WASMOpcodeCost"], "TableInit")
+	delete(incomplete["WASMOpcodeCost"], "I32Add")
 
 	host.GasScheduleChange(incomplete)
 
 	// the rejected schedule is not reported as the current one, and the host still runs on the old one
-	require.Contains(t, host.GetGasScheduleMap()["WASMOpcodeCost"], "TableInit")
+	require.Contains(t, host.GetGasScheduleMap()["WASMOpcodeCost"], "I32Add")
 	vmOutput, err = host.RunSmartContractCall(input)
 	test.NewVMOutputVerifier(t, vmOutput, err).Ok()
 	require.Equal(t, gasRemainingBefore, vmOutput.GasRemaining)

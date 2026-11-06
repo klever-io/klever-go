@@ -176,7 +176,7 @@ func TestVmContainerFactory_GasScheduleChangeRejectsIncompleteScheduleBeforeClea
 	vmf := &vmContainerFactory{}
 
 	incomplete := kvmConfig.MakeGasMapForTests()
-	delete(incomplete["WASMOpcodeCost"], "TableInit")
+	delete(incomplete["WASMOpcodeCost"], "I32Add")
 
 	// rejected before the compiled codes are cleared: this factory has no blockchain hook to clear
 	require.NotPanics(t, func() { vmf.GasScheduleChange(incomplete) })
