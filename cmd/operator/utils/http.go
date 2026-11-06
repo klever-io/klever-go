@@ -9,11 +9,22 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
-	maxErrorBodySnippet = 512
-	maxResponseBody     = 32 << 20
+	// maxErrorBody bounds how much of a non-2xx body goes into the error message. The
+	// original 512-byte snippet cut the node's `{"error":"..."}` reason mid-string, which
+	// is the one thing an operator needs from a failed call. 64 KiB covers any node error
+	// and a 500 with a stack trace, while still keeping a hostile server from flooding
+	// the terminal; anything past it is dropped and the message says so.
+	maxErrorBody    = 64 << 10
+	maxResponseBody = 32 << 20
+
+	// Unicode line and paragraph separators, written as code points so no invisible
+	// character sits in the source.
+	lineSeparator      rune = 0x2028
+	paragraphSeparator rune = 0x2029
 )
 
 var httpClient *http.Client
@@ -90,6 +101,9 @@ func PostURLWithContext(ctx context.Context, url, body string, headers []string,
 	return nil
 }
 
+// checkStatus returns nil for a 2xx response. For anything else it builds the error the
+// operator prints: status and response body first (sanitised, bounded at maxErrorBody,
+// with a marker when cut), then method and URL, so the node's reason is not lost.
 func checkStatus(method, url string, r *http.Response) error {
 	if r.StatusCode >= http.StatusOK && r.StatusCode < http.StatusMultipleChoices {
 		return nil
@@ -101,30 +115,73 @@ func checkStatus(method, url string, r *http.Response) error {
 	// keep that partial snippet instead of discarding it. readErr's own message can embed
 	// server-supplied text (net/http's trailer parsing may fold a server header into it), so
 	// sanitize it the same as status/body rather than let it skip the same treatment.
-	snippet, readErr := io.ReadAll(io.LimitReader(r.Body, maxErrorBodySnippet))
+	// Read one byte past the cap so a body that is exactly at it is not reported as cut.
+	snippet, readErr := io.ReadAll(io.LimitReader(r.Body, maxErrorBody+1))
+	truncated := len(snippet) > maxErrorBody
+	if truncated {
+		snippet = trimSplitRune(snippet[:maxErrorBody])
+	}
 	body := strings.TrimSpace(sanitizeServerText(string(snippet)))
+	if truncated {
+		marker := fmt.Sprintf("(response body truncated at %d bytes)", maxErrorBody)
+		if body == "" {
+			body = marker
+		} else {
+			body += " ... " + marker
+		}
+	}
+	// Status and body lead, method and URL close: the node's websocket mirror logs this
+	// error through a 256-byte bound, and a long mirror URL must not push the reason out.
 	if readErr != nil {
 		sanitizedReadErr := sanitizeServerText(readErr.Error())
 		if body == "" {
-			return fmt.Errorf("%s %s: unexpected HTTP status %s (failed to read response body: %s)", method, url, status, sanitizedReadErr)
+			return fmt.Errorf("unexpected HTTP status %s (failed to read response body: %s) from %s %s", status, sanitizedReadErr, method, url)
 		}
-		return fmt.Errorf("%s %s: unexpected HTTP status %s: %s (failed to read response body: %s)", method, url, status, body, sanitizedReadErr)
+		return fmt.Errorf("unexpected HTTP status %s: %s (failed to read response body: %s) from %s %s", status, body, sanitizedReadErr, method, url)
 	}
 	if body == "" {
-		return fmt.Errorf("%s %s: unexpected HTTP status %s", method, url, status)
+		return fmt.Errorf("unexpected HTTP status %s from %s %s", status, method, url)
 	}
 
-	return fmt.Errorf("%s %s: unexpected HTTP status %s: %s", method, url, status, body)
+	return fmt.Errorf("unexpected HTTP status %s: %s from %s %s", status, body, method, url)
 }
 
+// trimSplitRune drops a multi-byte UTF-8 sequence that a byte-boundary cut left
+// incomplete at the end of b, so the truncation marker is not preceded by U+FFFD.
+func trimSplitRune(b []byte) []byte {
+	start := len(b) - 1
+	for start > 0 && len(b)-start < utf8.UTFMax && !utf8.RuneStart(b[start]) {
+		start--
+	}
+	if start >= 0 && !utf8.FullRune(b[start:]) {
+		return b[:start]
+	}
+	return b
+}
+
+// sanitizeServerText strips from server-supplied text every rune that could alter how
+// the terminal shows it (see terminalUnsafe), so a response cannot inject newlines or
+// escape sequences into the operator's output, or reorder and hide what follows.
 func sanitizeServerText(s string) string {
 	return strings.Map(func(r rune) rune {
-		if r == '\t' {
-			return r
-		}
-		if unicode.IsControl(r) {
+		if terminalUnsafe(r) {
 			return -1
 		}
 		return r
 	}, s)
+}
+
+// terminalUnsafe reports whether r changes how the text around it is displayed: control
+// characters (except tab) inject newlines or escape sequences; the Unicode line and
+// paragraph separators, which IsControl does not cover, end a line on some terminals; and
+// format characters (bidi overrides, zero-width joiners) reorder or hide what follows —
+// a reason that reads backwards could disguise a fee or an address.
+func terminalUnsafe(r rune) bool {
+	if r == '\t' {
+		return false
+	}
+	if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+		return true
+	}
+	return r == lineSeparator || r == paragraphSeparator
 }
