@@ -732,6 +732,23 @@ func (mp *metaProcessor) CreateEpochStartHeader(blk *block.Block) error {
 	return mp.applyEpochStartSideEffects(blk, sideEffects)
 }
 
+// revertFailedCommit undoes a CommitBlock that failed after it started writing.
+func (mp *metaProcessor) revertFailedCommit(headerHandler data.HeaderHandler, setProcessed bool) {
+	mp.RevertStateToSnapshot(headerHandler)
+	if !setProcessed {
+		return
+	}
+
+	// SetProcessed wrote past the snapshot; point the trigger back at the head
+	head := mp.blockChain.GetCurrentBlockHeader()
+	if check.IfNil(head) {
+		head = mp.blockChain.GetGenesisHeader()
+	}
+	if !check.IfNil(head) {
+		_ = mp.epochStartTrigger.RevertStateToBlock(head)
+	}
+}
+
 // CommitBlock commits the block in the blockchain if everything was checked successfully
 func (mp *metaProcessor) CommitBlock(
 	headerHandler data.HeaderHandler,
@@ -748,17 +765,7 @@ func (mp *metaProcessor) CommitBlock(
 	setProcessed := false
 	defer func() {
 		if err != nil {
-			mp.RevertStateToSnapshot(headerHandler)
-			// SetProcessed wrote past the snapshot; point the trigger back at the head
-			if setProcessed {
-				head := mp.blockChain.GetCurrentBlockHeader()
-				if check.IfNil(head) {
-					head = mp.blockChain.GetGenesisHeader()
-				}
-				if !check.IfNil(head) {
-					_ = mp.epochStartTrigger.RevertStateToBlock(head)
-				}
-			}
+			mp.revertFailedCommit(headerHandler, setProcessed)
 		}
 	}()
 
