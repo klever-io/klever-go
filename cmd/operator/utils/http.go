@@ -97,8 +97,8 @@ func PostURLWithContext(ctx context.Context, url, body string, headers []string,
 }
 
 // checkStatus returns nil for a 2xx response. For anything else it builds the error the
-// operator prints: method, URL, status, and the response body (sanitised, bounded at
-// maxErrorBody, with a marker when cut) so the node's reason is not lost.
+// operator prints: status and response body first (sanitised, bounded at maxErrorBody,
+// with a marker when cut), then method and URL, so the node's reason is not lost.
 func checkStatus(method, url string, r *http.Response) error {
 	if r.StatusCode >= http.StatusOK && r.StatusCode < http.StatusMultipleChoices {
 		return nil
@@ -125,18 +125,20 @@ func checkStatus(method, url string, r *http.Response) error {
 			body += " ... " + marker
 		}
 	}
+	// Status and body lead, method and URL close: the node's websocket mirror logs this
+	// error through a 256-byte bound, and a long mirror URL must not push the reason out.
 	if readErr != nil {
 		sanitizedReadErr := sanitizeServerText(readErr.Error())
 		if body == "" {
-			return fmt.Errorf("%s %s: unexpected HTTP status %s (failed to read response body: %s)", method, url, status, sanitizedReadErr)
+			return fmt.Errorf("unexpected HTTP status %s (failed to read response body: %s) from %s %s", status, sanitizedReadErr, method, url)
 		}
-		return fmt.Errorf("%s %s: unexpected HTTP status %s: %s (failed to read response body: %s)", method, url, status, body, sanitizedReadErr)
+		return fmt.Errorf("unexpected HTTP status %s: %s (failed to read response body: %s) from %s %s", status, body, sanitizedReadErr, method, url)
 	}
 	if body == "" {
-		return fmt.Errorf("%s %s: unexpected HTTP status %s", method, url, status)
+		return fmt.Errorf("unexpected HTTP status %s from %s %s", status, method, url)
 	}
 
-	return fmt.Errorf("%s %s: unexpected HTTP status %s: %s", method, url, status, body)
+	return fmt.Errorf("unexpected HTTP status %s: %s from %s %s", status, body, method, url)
 }
 
 // trimSplitRune drops a multi-byte UTF-8 sequence that a byte-boundary cut left

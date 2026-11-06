@@ -201,6 +201,27 @@ func TestErrorStripsControlCharsFromServerBody(t *testing.T) {
 	assert.Contains(t, err.Error(), "line1line2[2Kfaked-success")
 }
 
+// TestErrorLeadsWithStatusAndBody pins the field order the node's websocket mirror relies
+// on: it logs this error through a 256-byte bound, so with a URL longer than that the
+// status and the reason must still sit inside the first 256 bytes, ahead of the URL.
+func TestErrorLeadsWithStatusAndBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":"mirror rejected the event"}`))
+	}))
+	defer srv.Close()
+
+	longURL := srv.URL + "/" + strings.Repeat("p", 300)
+	err := utils.PostURL(longURL, `{}`, nil, nil)
+	require.Error(t, err)
+	require.Greater(t, len(err.Error()), 256)
+
+	head := err.Error()[:256]
+	assert.Contains(t, head, "502 Bad Gateway")
+	assert.Contains(t, head, "mirror rejected the event")
+	assert.Contains(t, err.Error(), "from POST "+longURL, "method and URL still close the message")
+}
+
 // TestErrorStripsFormatCharsFromServerBody pins that the characters which change how text
 // is displayed without being control characters are dropped too: a bidi override that
 // would show the reason reversed, the line/paragraph separators some terminals treat as
