@@ -197,7 +197,7 @@ func TestErrorBodyIsReportedWhole(t *testing.T) {
 func TestErrorStripsControlCharsFromServerBody(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("line1\nline2\x1b[2Kfaked-success" + tab + "aligned"))
+		_, _ = w.Write([]byte("line1\nline2\x1b[2Kfaked-success\taligned"))
 	}))
 	defer srv.Close()
 
@@ -206,12 +206,47 @@ func TestErrorStripsControlCharsFromServerBody(t *testing.T) {
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "\n", "newlines must be stripped to prevent log line forging")
 	assert.NotContains(t, err.Error(), "\x1b", "escape sequences must be stripped to prevent terminal spoofing")
-	assert.Contains(t, err.Error(), "line1line2[2Kfaked-success"+tab+"aligned", "tab is the one control character kept")
+	assert.Contains(t, err.Error(), "line1line2[2Kfaked-success aligned", "a tab is whitespace: kept as a single space, not dropped")
 }
 
-// tab is the one control character sanitizeServerText keeps; built from the code point so
-// no literal whitespace control sits in a string in the source.
-var tab = string(rune(9))
+// TestErrorBodyWhitespaceCollapses pins that a body cannot pad the real attribution out of
+// view: a forged " from GET <other node>" followed by 60000 spaces collapses to one space,
+// so the real "from POST <url>" follows right after it.
+func TestErrorBodyWhitespaceCollapses(t *testing.T) {
+	forged := `{"error":"insufficient fee"} from GET https://trusted.node/x`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(forged + strings.Repeat(" ", 60000) + "\n\n   tail"))
+	}))
+	defer srv.Close()
+
+	err := utils.PostURL(srv.URL, `{}`, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), forged+" tail from POST "+srv.URL)
+	assert.Less(t, len(err.Error()), 300, "60000 bytes of padding must collapse to one space")
+}
+
+// TestErrorStatusComesFromTheCodeNotTheServer pins that the reason phrase printed is the
+// standard one for the code: the phrase on the wire is server-chosen and unbounded (net/http
+// allows headers up to 10 MiB), so it never reaches the message.
+func TestErrorStatusComesFromTheCodeNotTheServer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		require.True(t, ok, "test server response writer must support hijacking")
+		conn, _, err := hj.Hijack()
+		require.NoError(t, err)
+		_, _ = conn.Write([]byte("HTTP/1.1 500 " + strings.Repeat("R", 9000) + "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
+		_ = conn.Close()
+	}))
+	defer srv.Close()
+
+	var got sampleResult
+	err := utils.GetURL(srv.URL, &got)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unexpected HTTP status 500 Internal Server Error from GET")
+	assert.NotContains(t, err.Error(), "RRRR", "the server's reason phrase must not be printed")
+	assert.Less(t, len(err.Error()), 200)
+}
 
 // TestErrorLeadsWithStatusAndBody pins the field order the node's websocket mirror relies
 // on: it logs this error through a 256-byte bound, so with a URL longer than that the
@@ -261,7 +296,7 @@ func TestErrorStripsFormatCharsFromServerBody(t *testing.T) {
 	for _, forbidden := range []string{rtlOverride, popDirectional, lineSeparator, paragraphSeparator, zeroWidthSpace} {
 		assert.NotContains(t, err.Error(), forbidden)
 	}
-	assert.Contains(t, err.Error(), "fee 001 KLVtoklv1abc", "the visible text must survive with only the invisible characters removed")
+	assert.Contains(t, err.Error(), "fee 001 KLV to klv1abc", "format characters are removed; the line and paragraph separators are whitespace and collapse to one space each")
 }
 
 func TestPostURLReturnsErrorOnEmptyBody(t *testing.T) {

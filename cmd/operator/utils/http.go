@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -20,11 +21,6 @@ const (
 	// the terminal; anything past it is dropped and the message says so.
 	maxErrorBody    = 64 << 10
 	maxResponseBody = 32 << 20
-
-	// Unicode line and paragraph separators, written as code points so no invisible
-	// character sits in the source.
-	lineSeparator      rune = 0x2028
-	paragraphSeparator rune = 0x2029
 )
 
 var httpClient *http.Client
@@ -109,7 +105,7 @@ func checkStatus(method, url string, r *http.Response) error {
 		return nil
 	}
 
-	status := sanitizeServerText(r.Status)
+	status := statusText(r.StatusCode)
 	// io.ReadAll returns the bytes it did manage to read alongside a non-nil error on a
 	// truncated/hijacked body (e.g. a declared Content-Length the server never delivered) —
 	// keep that partial snippet instead of discarding it. readErr's own message can embed
@@ -121,7 +117,7 @@ func checkStatus(method, url string, r *http.Response) error {
 	if truncated {
 		snippet = trimSplitRune(snippet[:maxErrorBody])
 	}
-	body := strings.TrimSpace(sanitizeServerText(string(snippet)))
+	body := sanitizeServerText(string(snippet))
 	if truncated {
 		marker := fmt.Sprintf("(response body truncated at %d bytes)", maxErrorBody)
 		if body == "" {
@@ -159,29 +155,28 @@ func trimSplitRune(b []byte) []byte {
 	return b
 }
 
-// sanitizeServerText strips from server-supplied text every rune that could alter how
-// the terminal shows it (see terminalUnsafe), so a response cannot inject newlines or
-// escape sequences into the operator's output, or reorder and hide what follows.
+// statusText renders the status from the code alone. r.Status carries the server's own
+// reason phrase, unbounded and chosen by the server; the standard phrase for the code says
+// the same thing without printing anything the server wrote.
+func statusText(code int) string {
+	if text := http.StatusText(code); text != "" {
+		return fmt.Sprintf("%d %s", code, text)
+	}
+	return strconv.Itoa(code)
+}
+
+// sanitizeServerText makes server-supplied text safe to print as one terminal line.
+// Control characters (newlines, escape sequences) and format characters (bidi overrides,
+// zero-width joiners, which reorder or hide what follows — a reason that reads backwards
+// could disguise a fee or an address) are dropped. Every whitespace run, tabs and the
+// Unicode line and paragraph separators included, collapses to one space, so padding
+// inside a body cannot push the real "from METHOD URL" out of view.
 func sanitizeServerText(s string) string {
-	return strings.Map(func(r rune) rune {
-		if terminalUnsafe(r) {
+	cleaned := strings.Map(func(r rune) rune {
+		if (unicode.IsControl(r) && r != '\t') || unicode.Is(unicode.Cf, r) {
 			return -1
 		}
 		return r
 	}, s)
-}
-
-// terminalUnsafe reports whether r changes how the text around it is displayed: control
-// characters (except tab) inject newlines or escape sequences; the Unicode line and
-// paragraph separators, which IsControl does not cover, end a line on some terminals; and
-// format characters (bidi overrides, zero-width joiners) reorder or hide what follows —
-// a reason that reads backwards could disguise a fee or an address.
-func terminalUnsafe(r rune) bool {
-	if r == '\t' {
-		return false
-	}
-	if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
-		return true
-	}
-	return r == lineSeparator || r == paragraphSeparator
+	return strings.Join(strings.Fields(cleaned), " ")
 }
