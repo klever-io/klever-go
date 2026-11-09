@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -28,10 +29,17 @@ func runHubServer(t *testing.T, hub *SocketHub) (stop func()) {
 		hub.StartServer(ctx)
 		close(done)
 	}()
-	return func() {
-		cancel()
-		assertReturnsQuickly(t, 5*time.Second, "StartServer did not return after cancellation", func() { <-done })
+	var once sync.Once
+	stop = func() {
+		once.Do(func() {
+			cancel()
+			assertReturnsQuickly(t, 5*time.Second, "StartServer did not return after cancellation", func() { <-done })
+		})
 	}
+	// Registered after the queue restore above, so it runs before it (cleanups run last-in
+	// first-out): a test that fails before calling stop still joins StartServer first.
+	t.Cleanup(stop)
+	return stop
 }
 
 // TestStartServer_FlushesPendingMirrorFailuresOnShutdown pins the shutdown flush of the
@@ -64,7 +72,6 @@ func TestStartServer_FlushesPendingMirrorFailuresOnShutdown(t *testing.T) {
 // is dropped; the first drop logs, the next stays pending, and shutdown reports it.
 func TestStartServer_FlushesPendingQueueDropsOnShutdown(t *testing.T) {
 	release := make(chan struct{})
-	defer close(release)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-release:
@@ -73,6 +80,9 @@ func TestStartServer_FlushesPendingQueueDropsOnShutdown(t *testing.T) {
 		}
 	}))
 	defer ts.Close()
+	// Deferred after ts.Close so it runs first: the parked handler is released before the
+	// server waits for its handlers to finish.
+	defer close(release)
 
 	hub := NewHub(ts.URL, "key", nil, Limits{PostWorkers: 1, PostQueueSize: 1})
 	stop := runHubServer(t, hub)

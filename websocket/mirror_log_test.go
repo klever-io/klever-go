@@ -67,7 +67,7 @@ func (c *logArgCapture) first() (string, bool) {
 func TestMirrorFailureLogBoundsTheError(t *testing.T) {
 	capture := &logArgCapture{message: postMirrorLogOp, key: "lastError"}
 	require.NoError(t, logger.AddLogObserver(capture, capture))
-	t.Cleanup(func() { _ = logger.RemoveLogObserver(capture) })
+	t.Cleanup(func() { assert.NoError(t, logger.RemoveLogObserver(capture)) })
 
 	hostileBody := strings.Repeat("X", 60000) + "\nWARN forged line\n" + strings.Repeat("Y", 5000)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +91,7 @@ func TestMirrorFailureLogBoundsTheError(t *testing.T) {
 
 	assert.LessOrEqual(t, len(lastError), 256+len("… (99999 bytes)"), "lastError must stay within loggableError's bound plus its marker")
 	assert.Contains(t, lastError, "500 Internal Server Error", "the status must survive the bound")
+	assert.Contains(t, lastError, "XXXXXXXX", "the head of the body must have been received and kept")
 	assert.Contains(t, lastError, " bytes)", "the cut must be marked with the original length")
 	assert.NotContains(t, lastError, "\n", "no line break from the body may reach the log")
 	assert.NotContains(t, lastError, "YYYY", "the tail of the body must not be logged")
