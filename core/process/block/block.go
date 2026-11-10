@@ -543,27 +543,6 @@ func snapshotEpochTrigger(trigger process.EpochStartTriggerHandler) func() {
 	}
 }
 
-// restoreEpochState reverts the epoch-sensitive in-memory components that
-// ProcessBlock advances before checkEpochCorrectness runs, so a rejected block
-// does not leave the node in a mutated, future-epoch state. Restoring the epoch
-// notifier also reverts the fork flags derived from it.
-func (mp *metaProcessor) restoreEpochState(
-	prevEpoch uint32,
-	prevCurrentHeader data.HeaderHandler,
-	restoreEpochTrigger func(),
-) {
-	mp.epochNotifier.CheckEpoch(prevEpoch)
-	mp.requestHandler.SetEpoch(prevEpoch)
-
-	if !check.IfNil(prevCurrentHeader) {
-		mp.blockChainHook.SetCurrentHeader(prevCurrentHeader)
-	}
-
-	if restoreEpochTrigger != nil {
-		restoreEpochTrigger()
-	}
-}
-
 // capturePendingRevert snapshots the epoch-sensitive in-memory state before a block
 // advances it. An earlier snapshot is kept: it is the state of the last committed block,
 // which is what an uncommitted block reverts to. The live proposal parameters are not
@@ -578,7 +557,15 @@ func (mp *metaProcessor) capturePendingRevert() {
 	restoreEpochTrigger := snapshotEpochTrigger(mp.epochStartTrigger)
 
 	restore := func() {
-		mp.restoreEpochState(prevEpoch, prevCurrentHeader, restoreEpochTrigger)
+		// the notifier also reverts the fork flags derived from it
+		mp.epochNotifier.CheckEpoch(prevEpoch)
+		mp.requestHandler.SetEpoch(prevEpoch)
+		if !check.IfNil(prevCurrentHeader) {
+			mp.blockChainHook.SetCurrentHeader(prevCurrentHeader)
+		}
+		if restoreEpochTrigger != nil {
+			restoreEpochTrigger()
+		}
 	}
 	mp.pendingRevert.CompareAndSwap(nil, &restore)
 }
