@@ -97,15 +97,43 @@ func PostURLWithContext(ctx context.Context, url, body string, headers []string,
 	return nil
 }
 
-// checkStatus returns nil for a 2xx response. For anything else it builds the error the
-// operator prints: status and response body first (sanitised, bounded at maxErrorBody,
-// with a marker when cut), then method and URL, so the node's reason is not lost.
+// HTTPStatusError is the error for a non-2xx response. The operator prints Error(); a
+// caller that logs it (the node's websocket mirror) can take the fields apart and bound
+// each on its own, so a body the server wrote cannot imitate the attribution or push it
+// past the log's bound.
+type HTTPStatusError struct {
+	Method     string
+	URL        string
+	StatusCode int
+	Status     string // from the code alone, e.g. "502 Bad Gateway"
+	Body       string // sanitised, bounded at maxErrorBody, with a marker when cut
+	ReadErr    string // sanitised read failure; empty when the body was read whole
+}
+
+// Error renders the message the operator reads: method and URL first, so the attribution
+// is never something the body wrote, then the status, the body and any read failure.
+func (e *HTTPStatusError) Error() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s: unexpected HTTP status %s", e.Method, e.URL, e.Status)
+	if e.Body != "" {
+		b.WriteString(": ")
+		b.WriteString(e.Body)
+	}
+	if e.ReadErr != "" {
+		fmt.Fprintf(&b, " (failed to read response body: %s)", e.ReadErr)
+	}
+	return b.String()
+}
+
+// checkStatus returns nil for a 2xx response. For anything else it returns an
+// *HTTPStatusError with the status and the response body (sanitised, bounded at
+// maxErrorBody, with a marker when cut), so the node's reason is not lost.
 func checkStatus(method, url string, r *http.Response) error {
 	if r.StatusCode >= http.StatusOK && r.StatusCode < http.StatusMultipleChoices {
 		return nil
 	}
 
-	status := statusText(r.StatusCode)
+	statusErr := &HTTPStatusError{Method: method, URL: url, StatusCode: r.StatusCode, Status: statusText(r.StatusCode)}
 	// io.ReadAll returns the bytes it did manage to read alongside a non-nil error on a
 	// truncated/hijacked body (e.g. a declared Content-Length the server never delivered) —
 	// keep that partial snippet instead of discarding it. readErr's own message can embed
@@ -117,29 +145,20 @@ func checkStatus(method, url string, r *http.Response) error {
 	if truncated {
 		snippet = trimSplitRune(snippet[:maxErrorBody])
 	}
-	body := sanitizeServerText(string(snippet))
+	statusErr.Body = sanitizeServerText(string(snippet))
 	if truncated {
 		marker := fmt.Sprintf("(response body truncated at %d bytes)", maxErrorBody)
-		if body == "" {
-			body = marker
+		if statusErr.Body == "" {
+			statusErr.Body = marker
 		} else {
-			body += " ... " + marker
+			statusErr.Body += " ... " + marker
 		}
 	}
-	// Status and body lead, method and URL close: the node's websocket mirror logs this
-	// error through a 256-byte bound, and a long mirror URL must not push the reason out.
 	if readErr != nil {
-		sanitizedReadErr := sanitizeServerText(readErr.Error())
-		if body == "" {
-			return fmt.Errorf("unexpected HTTP status %s (failed to read response body: %s) from %s %s", status, sanitizedReadErr, method, url)
-		}
-		return fmt.Errorf("unexpected HTTP status %s: %s (failed to read response body: %s) from %s %s", status, body, sanitizedReadErr, method, url)
-	}
-	if body == "" {
-		return fmt.Errorf("unexpected HTTP status %s from %s %s", status, method, url)
+		statusErr.ReadErr = sanitizeServerText(readErr.Error())
 	}
 
-	return fmt.Errorf("unexpected HTTP status %s: %s from %s %s", status, body, method, url)
+	return statusErr
 }
 
 // trimSplitRune drops a multi-byte UTF-8 sequence that a byte-boundary cut left
@@ -165,15 +184,20 @@ func statusText(code int) string {
 	return strconv.Itoa(code)
 }
 
-// sanitizeServerText makes server-supplied text safe to print as one terminal line.
-// Control characters (newlines, escape sequences) and format characters (bidi overrides,
-// zero-width joiners, which reorder or hide what follows — a reason that reads backwards
-// could disguise a fee or an address) are dropped. Every whitespace run, tabs and the
-// Unicode line and paragraph separators included, collapses to one space, so padding
-// inside a body cannot push the real "from METHOD URL" out of view.
+// sanitizeServerText makes server-supplied text safe to print as one terminal line, and
+// keeps it bounded. Every whitespace run — newlines of a stack trace, tabs, the Unicode
+// line and paragraph separators — becomes one space, so the lines stay readable and
+// padding cannot stretch the text. The other control characters (escape sequences) and
+// the format characters (bidi overrides, zero-width joiners, which reorder or hide what
+// follows — a reason that reads backwards could disguise a fee or an address) are dropped.
+// So is every invalid UTF-8 byte: strings.Map would render each one as the 3-byte U+FFFD
+// and triple a body that was capped before sanitising.
 func sanitizeServerText(s string) string {
 	cleaned := strings.Map(func(r rune) rune {
-		if (unicode.IsControl(r) && r != '\t') || unicode.Is(unicode.Cf, r) {
+		switch {
+		case unicode.IsSpace(r):
+			return ' '
+		case r == utf8.RuneError, unicode.IsControl(r), unicode.Is(unicode.Cf, r):
 			return -1
 		}
 		return r

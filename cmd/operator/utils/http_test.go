@@ -56,7 +56,7 @@ func TestURLHandlesHTTPStatus(t *testing.T) {
 			status:     http.StatusNotFound,
 			body:       "",
 			wantErr:    true,
-			wantSubstr: []string{"unexpected HTTP status 404 Not Found from GET"},
+			wantSubstr: []string{": unexpected HTTP status 404 Not Found"},
 		},
 		{
 			name:       "GET rejects multiple choices",
@@ -147,12 +147,8 @@ func TestErrorBodyIsReportedWhole(t *testing.T) {
 		{name: "exactly at the cap", body: strings.Repeat("Z", capBytes), wantZ: capBytes},
 		{name: "past the cap is cut and says so", body: strings.Repeat("Z", capBytes+1000), wantZ: capBytes, wantTruncated: true},
 		// A cut that lands inside a multi-byte rune must drop the rune, not leave U+FFFD in
-		// front of the marker: 2-byte "é" after its lead byte, 3-byte "€" after two bytes,
-		// 4-byte "😀" after one and after three bytes.
-		{name: "cut inside a 2-byte rune drops it", body: strings.Repeat("Z", capBytes-1) + "é" + strings.Repeat("Z", 1000), wantZ: capBytes - 1, wantTruncated: true},
-		{name: "cut inside a 3-byte rune drops it", body: strings.Repeat("Z", capBytes-2) + "€" + strings.Repeat("Z", 1000), wantZ: capBytes - 2, wantTruncated: true},
-		{name: "cut after one byte of a 4-byte rune drops it", body: strings.Repeat("Z", capBytes-1) + "😀" + strings.Repeat("Z", 1000), wantZ: capBytes - 1, wantTruncated: true},
-		{name: "cut after three bytes of a 4-byte rune drops it", body: strings.Repeat("Z", capBytes-3) + "😀" + strings.Repeat("Z", 1000), wantZ: capBytes - 3, wantTruncated: true},
+		// front of the marker; TestTrimSplitRune covers every width and cut position.
+		{name: "cut inside a multi-byte rune drops it", body: strings.Repeat("Z", capBytes-1) + "é" + strings.Repeat("Z", 1000), wantZ: capBytes - 1, wantTruncated: true},
 		// A rune that ends exactly at the cap is complete and must be kept before the marker.
 		{name: "rune ending exactly at the cap is kept", body: strings.Repeat("Z", capBytes-2) + "é" + strings.Repeat("Z", 1000), wantZ: capBytes - 2, wantTruncated: true, wantWhole: "é ... (response body truncated"},
 		// 64 KiB of whitespace sanitises to nothing: the marker stands alone, no stray spaces.
@@ -206,12 +202,12 @@ func TestErrorStripsControlCharsFromServerBody(t *testing.T) {
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "\n", "newlines must be stripped to prevent log line forging")
 	assert.NotContains(t, err.Error(), "\x1b", "escape sequences must be stripped to prevent terminal spoofing")
-	assert.Contains(t, err.Error(), "line1line2[2Kfaked-success aligned", "a tab is whitespace: kept as a single space, not dropped")
+	assert.Contains(t, err.Error(), "line1 line2[2Kfaked-success aligned", "newlines and tabs are whitespace: each run becomes one space, so a stack trace stays readable")
 }
 
-// TestErrorBodyWhitespaceCollapses pins that a body cannot pad the real attribution out of
-// view: a forged " from GET <other node>" followed by 60000 spaces collapses to one space,
-// so the real "from POST <url>" follows right after it.
+// TestErrorBodyWhitespaceCollapses pins that padding cannot stretch the message and that
+// the attribution precedes the body: 60000 spaces collapse to one, and a forged
+// " from GET <other node>" inside the body comes after the real "POST <url>:".
 func TestErrorBodyWhitespaceCollapses(t *testing.T) {
 	forged := `{"error":"insufficient fee"} from GET https://trusted.node/x`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -222,8 +218,7 @@ func TestErrorBodyWhitespaceCollapses(t *testing.T) {
 
 	err := utils.PostURL(srv.URL, `{}`, nil, nil)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), forged+" tail from POST "+srv.URL)
-	assert.Less(t, len(err.Error()), 300, "60000 bytes of padding must collapse to one space")
+	assert.Equal(t, "POST "+srv.URL+": unexpected HTTP status 400 Bad Request: "+forged+" tail", err.Error())
 }
 
 // TestErrorStatusComesFromTheCodeNotTheServer pins that the reason phrase printed is the
@@ -243,30 +238,67 @@ func TestErrorStatusComesFromTheCodeNotTheServer(t *testing.T) {
 	var got sampleResult
 	err := utils.GetURL(srv.URL, &got)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unexpected HTTP status 500 Internal Server Error from GET")
+	assert.Contains(t, err.Error(), ": unexpected HTTP status 500 Internal Server Error")
 	assert.NotContains(t, err.Error(), "RRRR", "the server's reason phrase must not be printed")
 	assert.Less(t, len(err.Error()), 200)
 }
 
-// TestErrorLeadsWithStatusAndBody pins the field order the node's websocket mirror relies
-// on: it logs this error through a 256-byte bound, so with a URL longer than that the
-// status and the reason must still sit inside the first 256 bytes, ahead of the URL.
-func TestErrorLeadsWithStatusAndBody(t *testing.T) {
+// TestErrorUnknownStatusCodeIsBare pins the other half of statusText: a code net/http has
+// no phrase for is printed as the number alone, not with a trailing space.
+func TestErrorUnknownStatusCodeIsBare(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-		_, _ = w.Write([]byte(`{"error":"mirror rejected the event"}`))
+		w.WriteHeader(599)
+		_, _ = w.Write([]byte("vendor error"))
 	}))
 	defer srv.Close()
 
-	longURL := srv.URL + "/" + strings.Repeat("p", 300)
-	err := utils.PostURL(longURL, `{}`, nil, nil)
+	var got sampleResult
+	err := utils.GetURL(srv.URL, &got)
 	require.Error(t, err)
-	require.Greater(t, len(err.Error()), 256)
+	assert.Equal(t, "GET "+srv.URL+": unexpected HTTP status 599: vendor error", err.Error())
+}
 
-	head := err.Error()[:256]
-	assert.Contains(t, head, "502 Bad Gateway")
-	assert.Contains(t, head, "mirror rejected the event")
-	assert.Contains(t, err.Error(), "from POST "+longURL, "method and URL still close the message")
+// TestErrorCarriesFieldsForLoggers pins the typed error the node's websocket mirror takes
+// apart: each field on its own, and a message that leads with the attribution, which the
+// body cannot forge.
+func TestErrorCarriesFieldsForLoggers(t *testing.T) {
+	const reason = `{"error":"mirror rejected the event"}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(reason))
+	}))
+	defer srv.Close()
+
+	err := utils.PostURL(srv.URL, `{}`, nil, nil)
+	require.Error(t, err)
+
+	var statusErr *utils.HTTPStatusError
+	require.ErrorAs(t, err, &statusErr)
+	assert.Equal(t, http.MethodPost, statusErr.Method)
+	assert.Equal(t, srv.URL, statusErr.URL)
+	assert.Equal(t, http.StatusBadGateway, statusErr.StatusCode)
+	assert.Equal(t, "502 Bad Gateway", statusErr.Status)
+	assert.Equal(t, reason, statusErr.Body)
+	assert.Empty(t, statusErr.ReadErr)
+	assert.Equal(t, "POST "+srv.URL+": unexpected HTTP status 502 Bad Gateway: "+reason, err.Error())
+}
+
+// TestErrorDropsInvalidUTF8 pins that invalid bytes do not grow the message: strings.Map
+// would render each one as the 3-byte U+FFFD, tripling a body capped before sanitising.
+func TestErrorDropsInvalidUTF8(t *testing.T) {
+	invalid := strings.Repeat(string([]byte{0xFF}), 60000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("ok" + invalid + "end"))
+	}))
+	defer srv.Close()
+
+	var got sampleResult
+	err := utils.GetURL(srv.URL, &got)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), string(rune(0xFFFD)))
+	assert.Contains(t, err.Error(), "502 Bad Gateway: okend")
+	assert.Less(t, len(err.Error()), 200)
 }
 
 // TestErrorStripsFormatCharsFromServerBody pins that the characters which change how text

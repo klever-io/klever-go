@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/klever-io/klever-go/cmd/operator/utils"
 
@@ -319,10 +320,7 @@ func (h *SocketHub) startPostWorkers(ctx context.Context) {
 					if err := h.postWSConnection(ctx, parsed); err != nil {
 						h.appStatusHandler.Increment(core.MetricWSMirrorPostFailuresTotal)
 						if count, ok := h.postFailWarn.fire(); ok {
-							// The error carries the mirror's response body, which the operator's HTTP
-							// helper now keeps up to 64 KiB of; bound and scrub it like every other
-							// peer-influenced field in this file.
-							log.Warn(postMirrorLogOp, "msg", "failed to post to mirror", "failedCount", count, "lastError", loggableError(err))
+							log.Warn(postMirrorLogOp, append([]interface{}{"msg", "failed to post to mirror", "failedCount", count}, mirrorFailureFields(err)...)...)
 						}
 					}
 				}
@@ -641,8 +639,6 @@ func (h *SocketHub) logQueryFailure(op string, key string, value interface{}, er
 // same way — gorilla puts it verbatim in CloseError.Error(), and the logger's formatter
 // passes CR/LF through, so a reason of "\nWARN ..." forges a log line of its own.
 func loggableError(err error) string {
-	const maxLoggableErrorLength = 256
-
 	if err == nil {
 		return ""
 	}
@@ -650,11 +646,39 @@ func loggableError(err error) string {
 	return loggableText(err.Error(), maxLoggableErrorLength)
 }
 
+// maxLoggableErrorLength bounds any one log field that peer input may have reached.
+const maxLoggableErrorLength = 256
+
+// mirrorFailureFields renders a failed mirror post for the log. A non-2xx answer goes in
+// field by field — the status, the body bounded on its own, any read failure, and the
+// operator-configured URL — so a body the mirror wrote can neither imitate the
+// attribution nor push it past the bound, which one flat message would allow. Any other
+// error (transport, context) is one bounded text.
+func mirrorFailureFields(err error) []interface{} {
+	var statusErr *utils.HTTPStatusError
+	if !errors.As(err, &statusErr) {
+		return []interface{}{"lastError", loggableError(err)}
+	}
+
+	fields := []interface{}{"status", statusErr.Status, "body", loggableText(statusErr.Body, maxLoggableErrorLength)}
+	if statusErr.ReadErr != "" {
+		fields = append(fields, "readError", loggableText(statusErr.ReadErr, maxLoggableErrorLength))
+	}
+
+	return append(fields, "url", statusErr.URL)
+}
+
 // loggableText bounds and scrubs one field of text that peer input may have reached. Shared
 // by loggableError and loggablePanic, which differ only in where the text comes from.
 func loggableText(text string, maxLength int) string {
 	if len(text) > maxLength {
-		text = text[:maxLength] + fmt.Sprintf("… (%d bytes)", len(text))
+		// Step back to a rune boundary so the cut does not leave a split sequence that
+		// renders as U+FFFD in front of the marker.
+		cut := maxLength
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		text = text[:cut] + fmt.Sprintf("… (%d bytes)", len(text))
 	}
 
 	// Anything that could end a log line becomes a space: CR/LF, the other control runes,
