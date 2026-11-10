@@ -82,13 +82,13 @@ func (listForSender *txListForSender) applySizeConstraints() [][]byte {
 
 	// remove old prior shrink
 	for element := listForSender.items.Front(); element != nil; {
-		value, ok := element.Value.(*WrappedTransaction)
+		toRemove := element
+		element = element.Next()
+		value, ok := toRemove.Value.(*WrappedTransaction)
 		if !ok {
 			continue
 		}
 
-		toRemove := element
-		element = element.Next()
 		if value.ExpireOn < time.Now().Unix() {
 			listForSender.items.Remove(toRemove)
 			listForSender.onRemovedListElement(toRemove)

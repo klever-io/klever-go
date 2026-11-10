@@ -120,9 +120,13 @@ func (txMap *txListBySenderMap) removeTxLowerNonce(sender []byte, nonce uint64) 
 		return removed
 	}
 
+	// the expiry cleanup mutates this list under the sender lock only, not mutTxOperation
+	listForSender.mutex.Lock()
 	var lastRemovedNonce uint64
 	for element := listForSender.items.Front(); element != nil; {
-		tx, ok := element.Value.(*WrappedTransaction)
+		toRemove := element
+		element = element.Next()
+		tx, ok := toRemove.Value.(*WrappedTransaction)
 		if !ok {
 			continue
 		}
@@ -130,13 +134,12 @@ func (txMap *txListBySenderMap) removeTxLowerNonce(sender []byte, nonce uint64) 
 			break
 		}
 
-		toRemove := element
-		element = element.Next()
 		listForSender.items.Remove(toRemove)
 		listForSender.onRemovedListElement(toRemove)
 		removed = append(removed, tx.TxHash)
 		lastRemovedNonce = tx.Tx.GetNonce()
 	}
+	listForSender.triggerScoreChange()
 	if len(removed) > 0 {
 		log.Trace("TxCache.txMap: removeTxLowerNonce",
 			"sender", []byte(senderKey),
@@ -146,8 +149,8 @@ func (txMap *txListBySenderMap) removeTxLowerNonce(sender []byte, nonce uint64) 
 			"sendLen", listForSender.items.Len(),
 		)
 	}
+	listForSender.mutex.Unlock()
 
-	listForSender.triggerScoreChange()
 	isEmpty := listForSender.IsEmpty()
 	if isEmpty {
 		txMap.removeSender(senderKey)
@@ -194,6 +197,9 @@ func (txMap *txListBySenderMap) PendingFor(accountKey []byte) (uint64, uint64) {
 	if !ok {
 		return 0, 0
 	}
+
+	listForSender.mutex.RLock()
+	defer listForSender.mutex.RUnlock()
 
 	pendingNonce := uint64(0)
 	for element := listForSender.items.Front(); element != nil; element = element.Next() {
