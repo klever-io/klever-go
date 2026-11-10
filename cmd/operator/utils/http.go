@@ -143,7 +143,9 @@ func checkStatus(method, url string, r *http.Response) error {
 	snippet, readErr := io.ReadAll(io.LimitReader(r.Body, maxErrorBody+1))
 	truncated := len(snippet) > maxErrorBody
 	if truncated {
-		snippet = trimSplitRune(snippet[:maxErrorBody])
+		// A multi-byte rune the cut splits is invalid UTF-8, and sanitizeServerText drops
+		// invalid bytes, so no U+FFFD precedes the marker.
+		snippet = snippet[:maxErrorBody]
 	}
 	statusErr.Body = sanitizeServerText(string(snippet))
 	if truncated {
@@ -159,19 +161,6 @@ func checkStatus(method, url string, r *http.Response) error {
 	}
 
 	return statusErr
-}
-
-// trimSplitRune drops a multi-byte UTF-8 sequence that a byte-boundary cut left
-// incomplete at the end of b, so the truncation marker is not preceded by U+FFFD.
-func trimSplitRune(b []byte) []byte {
-	start := len(b) - 1
-	for start > 0 && len(b)-start < utf8.UTFMax && !utf8.RuneStart(b[start]) {
-		start--
-	}
-	if start >= 0 && !utf8.FullRune(b[start:]) {
-		return b[:start]
-	}
-	return b
 }
 
 // statusText renders the status from the code alone. r.Status carries the server's own

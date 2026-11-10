@@ -147,7 +147,7 @@ func TestErrorBodyIsReportedWhole(t *testing.T) {
 		{name: "exactly at the cap", body: strings.Repeat("Z", capBytes), wantZ: capBytes},
 		{name: "past the cap is cut and says so", body: strings.Repeat("Z", capBytes+1000), wantZ: capBytes, wantTruncated: true},
 		// A cut that lands inside a multi-byte rune must drop the rune, not leave U+FFFD in
-		// front of the marker; TestTrimSplitRune covers every width and cut position.
+		// front of the marker: the split bytes are invalid UTF-8, which the sanitiser drops.
 		{name: "cut inside a multi-byte rune drops it", body: strings.Repeat("Z", capBytes-1) + "é" + strings.Repeat("Z", 1000), wantZ: capBytes - 1, wantTruncated: true},
 		// A rune that ends exactly at the cap is complete and must be kept before the marker.
 		{name: "rune ending exactly at the cap is kept", body: strings.Repeat("Z", capBytes-2) + "é" + strings.Repeat("Z", 1000), wantZ: capBytes - 2, wantTruncated: true, wantWhole: "é ... (response body truncated"},
