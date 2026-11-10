@@ -23,6 +23,7 @@ var SeenMessagesPerPeer = seenMessagesPerPeer
 var BroadcastGoRoutines = broadcastGoRoutines
 var PubsubTimeCacheDuration = pubsubTimeCacheDuration
 var AcceptMessagesInAdvanceDuration = acceptMessagesInAdvanceDuration
+var ScaledLimits = scaledLimits
 
 const CurrentTopicMessageVersion = currentTopicMessageVersion
 
