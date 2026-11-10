@@ -25,7 +25,7 @@ func TestTxCache_CommitRemovalRacesExpiryCleanup(t *testing.T) {
 		CleanupInterval:               -1,
 	})
 	require.NoError(t, err)
-	defer cache.Close()
+	t.Cleanup(func() { require.NoError(t, cache.Close()) })
 
 	const (
 		iterations = 300

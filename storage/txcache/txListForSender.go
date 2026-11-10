@@ -100,16 +100,19 @@ func (listForSender *txListForSender) applySizeConstraints() [][]byte {
 	log.Debug("applySizeConstraints.Expired", "evicted", len(evictedTxHashes))
 
 	// Iterate back to front
-	for element := listForSender.items.Back(); element != nil; element = element.Prev() {
+	for element := listForSender.items.Back(); element != nil; {
 		if !listForSender.isCapacityExceeded() {
 			break
 		}
 
-		listForSender.items.Remove(element)
-		listForSender.onRemovedListElement(element)
+		// Remove clears the element's links, so read Prev first
+		toRemove := element
+		element = element.Prev()
+		listForSender.items.Remove(toRemove)
+		listForSender.onRemovedListElement(toRemove)
 
 		// Keep track of removed transactions
-		value := element.Value.(*WrappedTransaction)
+		value := toRemove.Value.(*WrappedTransaction)
 		evictedTxHashes = append(evictedTxHashes, value.TxHash)
 	}
 
