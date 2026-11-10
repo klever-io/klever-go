@@ -1318,6 +1318,16 @@ func validateResourceManagerConfig(rmCfg config.ResourceManagerConfig) error {
 	return nil
 }
 
+// scaledLimits builds the "scaled" strategy's limits the same way libp2p builds its default
+// ResourceManager: it adds libp2p's bundled per-service and per-protocol limits (identify,
+// ping, autonat, ...) before scaling. Scaling rcmgr.DefaultLimits directly would leave those
+// protocols on the generic limits, e.g. 80 inbound ping streams per peer at 4 GiB instead of 2.
+func scaledLimits(memBytes int64, numFD int) rcmgr.ConcreteLimitConfig {
+	limits := rcmgr.DefaultLimits
+	libp2p.SetDefaultServiceLimits(&limits)
+	return limits.Scale(memBytes, numFD)
+}
+
 // useNullConnMgr reports whether libp2p's default BasicConnMgr (low=160,
 // high=192) must be replaced with NullConnMgr. klever-go does not tag or
 // protect consensus peers itself, so BasicConnMgr can trim validators that are
@@ -1383,7 +1393,7 @@ func buildResourceManagerOption(rmCfg config.ResourceManagerConfig) (libp2p.Opti
 				rmCfg.Strategy)
 		}
 		memBytes := clampToPhysicalMemory(int64(rmCfg.ScaledMemoryMiB) << 20)
-		limits := rcmgr.DefaultLimits.Scale(memBytes, getFDLimit()/2)
+		limits := scaledLimits(memBytes, getFDLimit()/2)
 		opts := scaledResourceManagerOptions(rmCfg)
 		rm, err := rcmgr.NewResourceManager(rcmgr.NewFixedLimiter(limits), opts...)
 		if err != nil {

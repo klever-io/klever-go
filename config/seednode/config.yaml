@@ -24,7 +24,9 @@ p2p:
     #              replaces libp2p's default connection manager (160/192 watermarks) with
     #              a no-op one, so the peer count is bounded only by the ResourceManager
     #              limits (see config/node/config.yaml for the default values).
-    #              `ListsSharder` / `OneListSharder` keep libp2p's default connection manager.
+    #              Seed nodes always run the no-op connection manager, whatever sharder is
+    #              set here; on regular nodes `ListsSharder` / `OneListSharder` keep
+    #              libp2p's default connection manager.
     type: NilListSharder
   resourceManager:
     # Seed-node policy. Available strategies:
