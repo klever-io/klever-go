@@ -665,7 +665,9 @@ func mirrorFailureFields(err error) []interface{} {
 		fields = append(fields, "readError", loggableText(statusErr.ReadErr, maxLoggableErrorLength))
 	}
 
-	return append(fields, "url", statusErr.URL)
+	// The URL is operator configuration, not peer input, but it has no length limit and
+	// repeats on every warning; bound it like the rest.
+	return append(fields, "url", loggableText(statusErr.URL, maxLoggableErrorLength))
 }
 
 // loggableText bounds and scrubs one field of text that peer input may have reached. Shared

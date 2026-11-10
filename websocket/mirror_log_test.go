@@ -235,6 +235,11 @@ func TestMirrorFailureFields(t *testing.T) {
 			err:  readErr,
 			want: map[string]string{"status": "500 Internal Server Error", "body": "short", "readError": "unexpected EOF", "url": "https://mirror.example/hook"},
 		},
+		{
+			name: "long url is bounded too",
+			err:  &utils.HTTPStatusError{Method: "POST", URL: "https://mirror.example/" + longLine, StatusCode: 502, Status: "502 Bad Gateway"},
+			want: map[string]string{"status": "502 Bad Gateway", "body": "", "url": loggableText("https://mirror.example/"+longLine, maxLoggableErrorLength)},
+		},
 	}
 
 	for _, tt := range tests {
