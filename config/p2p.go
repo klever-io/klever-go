@@ -19,13 +19,29 @@ type NodeConfig struct {
 
 // KadDhtPeerDiscoveryConfig will hold the kad-dht discovery config settings
 type KadDhtPeerDiscoveryConfig struct {
-	Enabled                          bool     `yaml:"enabled"`
-	RefreshIntervalInSec             uint32   `yaml:"refreshIntervalInSec"`
-	ProtocolID                       string   `yaml:"protocolID"`
-	InitialPeerList                  []string `yaml:"initialPeerList"`
-	BucketSize                       uint32   `yaml:"bucketSize"`
-	RoutingTableRefreshIntervalInSec uint32   `yaml:"routingTableRefreshIntervalInSec"`
+	Enabled bool `yaml:"enabled"`
+	// Type selects the discoverer: KadDhtTypeContinuous (also when empty) or KadDhtTypeOptimized
+	Type                 string   `yaml:"type"`
+	RefreshIntervalInSec uint32   `yaml:"refreshIntervalInSec"`
+	ProtocolID           string   `yaml:"protocolID"`
+	InitialPeerList      []string `yaml:"initialPeerList"`
+	// BucketSize is not applied: both discoverers create the DHT with kad-dht's default bucket size
+	// (20), as MultiversX does
+	BucketSize                       uint32 `yaml:"bucketSize"`
+	RoutingTableRefreshIntervalInSec uint32 `yaml:"routingTableRefreshIntervalInSec"`
+	// MaxSeeders is how many seeders of InitialPeerList the optimized discoverer keeps connected
+	// (0 = all of them); the continuous discoverer ignores it
+	MaxSeeders uint32 `yaml:"maxSeeders"`
 }
+
+// Values for KadDhtPeerDiscoveryConfig.Type. The empty string selects KadDhtTypeContinuous.
+const (
+	// KadDhtTypeContinuous connects to the first reachable seeder and returns to the seeders only
+	// when the node drops below its minimum connected peers
+	KadDhtTypeContinuous = "continuous"
+	// KadDhtTypeOptimized keeps up to MaxSeeders seeders connected and protected from trimming
+	KadDhtTypeOptimized = "optimized"
+)
 
 // ShardingConfig will hold the network sharding config settings
 type ShardingConfig struct {

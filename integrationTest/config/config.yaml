@@ -6,6 +6,8 @@ p2p:
     broadcastIP:
   kadDhtPeerDiscovery:
     enabled: true
+    type: continuous
+    maxSeeders: 2
     refreshIntervalInSec: 10
     protocolID: /klv/kad/0.0.1
     initialPeerList: []

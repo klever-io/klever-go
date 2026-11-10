@@ -26,6 +26,7 @@ func NewMockMessenger(
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	mes, err := createMessenger(args, h, ctx, cancelFunc, false)
 	if err != nil {
+		cancelFunc()
 		return nil, err
 	}
 

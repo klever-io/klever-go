@@ -202,6 +202,8 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 
 	p2pNode, err := createMessenger(args, h, ctx, cancelFunc, true)
 	if err != nil {
+		// stops whatever createMessenger already started on ctx, such as the optimized discoverer's loop
+		cancelFunc()
 		log.LogIfError(h.Close())
 		return nil, err
 	}

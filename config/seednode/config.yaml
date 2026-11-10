@@ -5,9 +5,12 @@ p2p:
     thresholdMinConnectedPeers: 0
   kadDhtPeerDiscovery:
     enabled: true
+    # `continuous` or `optimized`; see config/node/config.yaml
+    type: continuous
     refreshIntervalInSec: 10
     protocolID: /klv/kad/0.0.1
     initialPeerList:
+    # not applied: the DHT uses kad-dht's default bucket size (20)
     bucketSize: 100
     routingTableRefreshIntervalInSec: 300
   sharding:

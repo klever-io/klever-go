@@ -6,12 +6,24 @@ p2p:
     broadcastIP:
   kadDhtPeerDiscovery:
     enabled: true
+    #available options:
+    #  `continuous` connects to the first seednode of initialPeerList that answers and goes back to the
+    #              seednodes only when the node falls below thresholdMinConnectedPeers
+    #  `optimized` keeps up to maxSeeders seednodes of initialPeerList connected and protected from
+    #              connection trimming, topping them up every 5 minutes (every refreshIntervalInSec
+    #              while connected to none). Requires sharding type `NilListSharder`, and refuses to
+    #              start on a malformed initialPeerList entry or one naming this node; `continuous`
+    #              skips those entries instead
+    type: continuous
+    # how many seednodes the `optimized` discoverer keeps connected (0 = all of them)
+    maxSeeders: 2
     refreshIntervalInSec: 10
     protocolID: /klv/kad/0.0.1
     # Seednode addresses in the form /ip4/<ip>/tcp/<port>/p2p/<peerID>. For a local seednode
     # (`make seednode`), copy the peer ID it logs on startup (also the label of its
     # ./config/p2pKey.pem), e.g. /ip4/127.0.0.1/tcp/37373/p2p/<peerID>.
     initialPeerList: []
+    # not applied: the DHT uses kad-dht's default bucket size (20)
     bucketSize: 100
     routingTableRefreshIntervalInSec: 300
   sharding:

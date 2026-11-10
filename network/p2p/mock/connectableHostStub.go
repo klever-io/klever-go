@@ -148,7 +148,7 @@ func (hs *ConnectableHostStub) ConnManager() connmgr.ConnManager {
 		return hs.ConnManagerCalled()
 	}
 
-	return nil
+	return connmgr.NullConnMgr{}
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

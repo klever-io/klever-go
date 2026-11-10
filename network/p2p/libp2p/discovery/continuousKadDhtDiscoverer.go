@@ -26,11 +26,17 @@ type ArgKadDht struct {
 	Context              context.Context
 	Host                 ConnectableHost
 	PeersRefreshInterval time.Duration
-	ProtocolID           string
-	InitialPeersList     []string
-	BucketSize           uint32
-	RoutingTableRefresh  time.Duration
-	KddSharder           p2p.CommonSharder
+	// SeedersReconnectionInterval is how often the optimized discoverer re-dials seeders while
+	// connected to at least one of them; the continuous discoverer ignores it
+	SeedersReconnectionInterval time.Duration
+	// MaxSeeders is how many seeders the optimized discoverer keeps connected (0 = all of them);
+	// the continuous discoverer ignores it
+	MaxSeeders          uint32
+	ProtocolID          string
+	InitialPeersList    []string
+	BucketSize          uint32
+	RoutingTableRefresh time.Duration
+	KddSharder          p2p.CommonSharder
 }
 
 // ContinuousKadDhtDiscoverer is the kad-dht discovery type implementation
