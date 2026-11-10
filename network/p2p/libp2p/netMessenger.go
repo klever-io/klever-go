@@ -129,7 +129,9 @@ type ArgsNetworkMessenger struct {
 	// P2pPrivateKey is the node's libp2p identity key (see the p2pkey package)
 	P2pPrivateKey libp2pCrypto.PrivKey
 	// IsSeedNode replaces libp2p's default BasicConnMgr with NullConnMgr.
-	// ResourceManager is configured separately via P2pConfig.ResourceManager.
+	// Regular nodes configured with NilListSharder get NullConnMgr as well
+	// (see useNullConnMgr). ResourceManager is configured separately via
+	// P2pConfig.ResourceManager.
 	IsSeedNode bool
 }
 
@@ -171,7 +173,7 @@ func NewNetworkMessenger(args ArgsNetworkMessenger) (*networkMessenger, error) {
 		libp2p.NATPortMap(),
 	}
 
-	if args.IsSeedNode {
+	if useNullConnMgr(args) {
 		opts = append(opts, libp2p.ConnectionManager(connmgr.NullConnMgr{}))
 	}
 
@@ -1314,6 +1316,17 @@ func validateResourceManagerConfig(rmCfg config.ResourceManagerConfig) error {
 	}
 
 	return nil
+}
+
+// useNullConnMgr reports whether libp2p's default BasicConnMgr (low=160,
+// high=192) must be replaced with NullConnMgr. Klever-go never tags or protects
+// peers, so BasicConnMgr trims effectively at random and can drop consensus
+// peers. Seed nodes and nodes configured with NilListSharder (operator opted
+// out of connection trimming) therefore run without a ConnMgr; their peer count
+// is bounded only by the ResourceManager ceiling, with yamux keepalives
+// cleaning up dead connections. ListsSharder/OneListSharder keep the default.
+func useNullConnMgr(args ArgsNetworkMessenger) bool {
+	return args.IsSeedNode || args.P2pConfig.Sharding.Type == p2p.NilListSharder
 }
 
 func validateDirectSendConfig(dsCfg config.DirectSendConfig) error {
