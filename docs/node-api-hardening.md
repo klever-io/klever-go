@@ -85,8 +85,8 @@ Add `secured: true`, or set `open: false`, on each of them.
 **`/debug/pprof/*`** — registered only when the node runs with `--profile-mode` and `debug` `/pprof`
 is `open: true` in `api.yaml`. The shipped file has `open: false` and `secured: true`, so the routes
 stay off until an operator opens them. `secured: true` adds Basic Auth. Heap and goroutine profiles
-return sampled allocation stacks and goroutine stacks. `/debug/pprof/cmdline` returns the process
-command line, so do not put a secret in the node's arguments. A `seconds` value above 60 is refused.
+return sampled allocation stacks and goroutine stacks. `/debug/pprof/cmdline` is not served: the
+command line can carry `--ws-conn-api-key` or `--bugsnag-key`. A `seconds` value above 60 is refused.
 An `api.yaml` from before the `debug` package does not register the routes; with `--profile-mode`
 set, the node logs a warning (`network/api/api.go`). Keep the API on loopback while profiling.
 

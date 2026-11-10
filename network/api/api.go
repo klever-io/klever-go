@@ -256,8 +256,16 @@ func registerPprof(ws *gin.Engine, routesConfig config.APIRoutesConfig, authHand
 	} else {
 		log.Warn("pprof route is open but not secured; it answers unauthenticated. Add secured:true to it in api.yaml.", "route", pprofPackage+pprofRoute)
 	}
-	group.Use(rejectLongPprof)
+	group.Use(hidePprofCmdline, rejectLongPprof)
 	pprof.RouteRegister(group)
+}
+
+// hidePprofCmdline answers 404 on /cmdline: it returns the full argv, and the node takes
+// secrets as flags (--ws-conn-api-key, --bugsnag-key).
+func hidePprofCmdline(c *gin.Context) {
+	if c.FullPath() == "/debug/pprof/cmdline" {
+		c.AbortWithStatus(http.StatusNotFound)
+	}
 }
 
 // rejectLongPprof refuses a seconds value above maxPprofSeconds. It reads the value as
@@ -267,11 +275,7 @@ func rejectLongPprof(c *gin.Context) {
 	if c.Request.Method != http.MethodGet {
 		return
 	}
-	raw := c.Request.FormValue("seconds")
-	if raw == "" {
-		return
-	}
-	sec, err := strconv.ParseFloat(raw, 64)
+	sec, err := strconv.ParseFloat(c.Request.FormValue("seconds"), 64)
 	if err != nil || sec <= maxPprofSeconds {
 		return
 	}

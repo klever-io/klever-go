@@ -250,11 +250,16 @@ func TestRegisterRoutes_PprofSecondsWithinCapAllowed(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.Code)
 }
 
-// The cap tests below use /cmdline: it ignores seconds and answers at once, and the cap runs on
+func TestRegisterRoutes_PprofCmdlineNotServed(t *testing.T) {
+	resp := pprofStatus(t, true, pprofRoutesConfig(true, false), "/debug/pprof/cmdline", "", "")
+	assert.Equal(t, http.StatusNotFound, resp.Code)
+}
+
+// The cap tests below use the index: it ignores seconds and answers at once, and the cap runs on
 // every pprof route, so a value the cap lets through shows as 200 instead of a 60 s wait.
 
 func TestRegisterRoutes_PprofSecondsAtCapAllowed(t *testing.T) {
-	resp := pprofStatus(t, true, pprofRoutesConfig(true, true), "/debug/pprof/cmdline?seconds=60", "u", "p")
+	resp := pprofStatus(t, true, pprofRoutesConfig(true, true), "/debug/pprof/?seconds=60", "u", "p")
 	assert.Equal(t, http.StatusOK, resp.Code)
 }
 
@@ -264,7 +269,7 @@ func TestRegisterRoutes_PprofMultipartSecondsAboveCapRejected(t *testing.T) {
 	form := multipart.NewWriter(body)
 	require.NoError(t, form.WriteField("seconds", "61"))
 	require.NoError(t, form.Close())
-	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/cmdline", body)
+	req := httptest.NewRequest(http.MethodGet, "/debug/pprof/", body)
 	req.Header.Set("Content-Type", form.FormDataContentType())
 	req.SetBasicAuth("u", "p")
 
