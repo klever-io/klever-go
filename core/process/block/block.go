@@ -710,15 +710,15 @@ func (mp *metaProcessor) CreateEpochStartHeader(blk *block.Block) error {
 }
 
 // revertFailedCommit undoes a CommitBlock that failed after it started writing.
-func (mp *metaProcessor) revertFailedCommit(headerHandler data.HeaderHandler, setProcessed bool) {
+func (mp *metaProcessor) revertFailedCommit(headerHandler data.HeaderHandler, committing bool) {
 	mp.RevertStateToSnapshot(headerHandler)
-	if !setProcessed {
+	if !committing {
 		return
 	}
 
-	// SetProcessed and commitAll wrote past the snapshot: a trie committed before the failure
+	// commitEpochStart and commitAll wrote past the snapshot: a trie saved before the failure
 	// fails the retry's root check, which sync drops as a rejected body without a rollback, and
-	// the trigger keeps the failed block as its epoch start. Revert both to the head.
+	// SetProcessed leaves the trigger on the failed epoch start. Revert both to the head.
 	head := mp.currentOrGenesisHeader()
 	if check.IfNil(head) {
 		return
@@ -752,10 +752,10 @@ func (mp *metaProcessor) CommitBlock(
 		)
 	}()
 	var err error
-	setProcessed := false
+	committing := false
 	defer func() {
 		if err != nil {
-			mp.revertFailedCommit(headerHandler, setProcessed)
+			mp.revertFailedCommit(headerHandler, committing)
 		}
 	}()
 
@@ -793,7 +793,7 @@ func (mp *metaProcessor) CommitBlock(
 	}
 
 	mp.commitEpochStart(header)
-	setProcessed = header.GetIsEpochStart()
+	committing = true
 	headerHash := mp.hasher.Compute(string(marshalizedHeader))
 	mp.saveHeader(header, headerHash, marshalizedBlock)
 
