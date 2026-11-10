@@ -3744,48 +3744,39 @@ func TestMetaProcessor_RevertStateToSnapshotUndoesAnUncommittedEpochStart(t *tes
 		assert.Contains(t, validator.params.GetActiveParameters(), maxGasPerBlock)
 	})
 
-	// commitAll fails after SetProcessed: the next capture must still be the committed epoch
+	// commitAll fails after SetProcessed and after the KApp trie committed: the revert must also
+	// take the trie back to the head, or the retry fails its KApp root check
 	t.Run("a failed commit restores the committed epoch", func(t *testing.T) {
 		t.Parallel()
 
 		_, hdr := proposeEpochStart(t)
-		validator := newEpochStartRevertNode(t, head, headHash, slotsPerEpoch)
+		validator := newRollbackNode(t)
 		kApps := validator.accountsDB[state.KAppAccountsState]
-		headRoot, err := kApps.RootHash()
-		require.NoError(t, err)
 
 		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
 		requireAdvanced(t, validator)
 
+		// commitAll walks a map: commit the KApp trie first, as it does when the User trie fails after it
+		_, err := kApps.Commit()
+		require.NoError(t, err)
 		userAccounts, ok := validator.accountsDB[state.UserAccountsState].(*mock.AccountsStub)
 		require.True(t, ok)
 		commit := userAccounts.CommitCalled
 		userAccounts.CommitCalled = func() ([]byte, error) { return nil, assert.AnError }
 
-		// the trie may already be committed, so the stored parameters can keep MaxGasPerBlock
-		assertRestoredEpoch := func(t *testing.T) {
-			t.Helper()
-			assert.False(t, validator.trigger.IsEpochStart())
-			assert.Equal(t, uint32(0), validator.trigger.Epoch())
-			assert.Equal(t, uint64(0), validator.trigger.EpochStartSlot())
-			assert.Equal(t, uint32(0), validator.epochNotifier.CurrentEpoch())
-			assert.False(t, validator.forks.EnableSmartContracts())
-			assert.Equal(t, uint32(0), validator.requestHandler.epoch)
-			assert.Same(t, validator.head, validator.hookHeader)
-		}
-
 		require.Error(t, validator.mp.CommitBlock(hdr))
-		assertRestoredEpoch(t)
+		assertCommittedEpochState(t, validator)
+		kAppsRoot, err := kApps.RootHash()
+		require.NoError(t, err)
+		assert.Equal(t, validator.head.GetKAppsTrieRoot(), kAppsRoot, "the KApp trie must be back at the head")
 
 		// a later block captures whatever the failed commit left behind
 		err = validator.mp.ProcessBlock(hdr, func() time.Duration { return -1 })
 		require.ErrorIs(t, err, process.ErrTimeIsOut)
-		assertRestoredEpoch(t)
+		assertCommittedEpochState(t, validator)
 
-		// the retried epoch start block is taken and commits; commitAll may have committed the
-		// KApp trie before the failure, so start it from the head's root, as a sync rollback does
+		// the retried epoch start block is taken and commits
 		userAccounts.CommitCalled = commit
-		require.NoError(t, kApps.RecreateTrie(headRoot))
 		require.NoError(t, validator.mp.ProcessBlock(hdr, haveTime))
 		requireAdvanced(t, validator)
 		require.NoError(t, validator.mp.CommitBlock(hdr))

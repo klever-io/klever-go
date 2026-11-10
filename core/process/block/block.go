@@ -716,15 +716,16 @@ func (mp *metaProcessor) revertFailedCommit(headerHandler data.HeaderHandler, se
 		return
 	}
 
-	// SetProcessed wrote past the snapshot; point the trigger back at the head
+	// SetProcessed and commitAll wrote past the snapshot: a trie committed before the failure
+	// fails the retry's root check, which sync drops as a rejected body without a rollback, and
+	// the trigger keeps the failed block as its epoch start. Revert both to the head.
 	head := mp.currentOrGenesisHeader()
 	if check.IfNil(head) {
 		return
 	}
-	err := mp.epochStartTrigger.RevertStateToBlock(head)
+	err := mp.RevertStateToBlock(head)
 	if err != nil {
-		// the trigger keeps the failed block as its epoch start and rejects the retry
-		log.Error("revertFailedCommit: revert epoch start trigger", "nonce", head.GetNonce(), "error", err.Error())
+		log.Error("revertFailedCommit: revert to the head", "nonce", head.GetNonce(), "error", err.Error())
 	}
 }
 
